@@ -125,13 +125,50 @@ a program that ends first runs none.
 Second client, not wired here: `FinalizationRegistry`, which waits on this same
 hook and on `WeakRef` being made weak first.
 
-## P7 — async work and threadsafe functions
+## P7a — async work (DONE)
 
-Blocked on the engine, not on effort. `Context` is reached through a
-thread-local and nothing spawns a thread that can run JavaScript; `CLAUDE.md`
-records that as an architecture rather than a gap, and this phase is what would
-change that decision. It stays last so nothing before it is written against an
-assumption it makes.
+`napi_create_async_work`, `napi_queue_async_work`, `napi_delete_async_work`.
+`execute` runs on a worker thread, `complete` on the JavaScript thread.
+
+This section used to say the phase was blocked on the engine, and that was
+wrong — worth leaving recorded as a wrong prediction rather than quietly
+rewritten. The ABI draws its line exactly where this engine needs one: an
+`execute` callback may not call any `napi_*` function, so it never wants a
+`Context` and none crosses a thread. What crosses is the addon's own pointer.
+
+`CLAUDE.md`'s `thread` entry is untouched: it is about running JAVASCRIPT on two
+threads, and one thread runs JavaScript here, as before.
+
+Delivery is a loop SOURCE, not a drain, because outstanding work must keep the
+program alive the way a pending timer does. The source polls at 1 ms while work
+is outstanding, and that is `entry::loops`'s current vocabulary rather than a
+choice: `Pending::Blocked` explicitly does not hold a program open.
+
+The queue is per JavaScript thread. A process-global one is the obvious first
+implementation and was wrong twice — two regions would steal each other's
+completions, and cargo's own test threads did exactly that within a minute.
+
+## P7b — threadsafe functions (DONE)
+
+`napi_create_threadsafe_function`, `call`, `acquire`, `release`, `ref`, `unref`,
+`get_context`.
+
+Any thread asks; the JavaScript thread calls. What crosses is a `void*` the
+addon owns — the ABI's own shape, since `call` takes no `napi_value`. The
+JavaScript function is kept alive between calls by a strong external root, which
+is P4's mechanism doing what it was built for.
+
+The split is where the `Send`ness is: the addon holds a `Shared` that is a
+channel and three counters; the receiver, the root and the callback stay in a
+thread-local. One struct holding both would have to be `Send` as a whole, which
+would be a lie about half of it.
+
+**The reference count is two counts**, and conflating them is the bug this most
+easily could have shipped: thread acquisition and loop referencing are
+independent, and an addon routinely unrefs a function several threads hold.
+
+Not honoured and not misreadable as honoured: `max_queue_size` and the blocking
+call mode. The channel is unbounded, so there is no bound to block against.
 
 ## P7c — errors (DONE)
 
@@ -203,6 +240,25 @@ not say which element type a view has (nothing exports it, and guessing
 cell has no window of its own — observable as `x instanceof ArrayBuffer` being
 false, and named in the module rather than hidden.
 
+## P7f — the rest of the value surface (DONE)
+
+`napi_create_uint32`/`int64`, `napi_get_value_int32`/`uint32`/`int64`, the four
+coercions, `napi_strict_equals`, `napi_get_global`.
+
+Every one is the language's own operator, called: `ToInt32` is `x | 0`,
+`Number(x)` is `x - 0`, `String(x)` is `"" + x`. None is reimplemented, and the
+tests are the reason — `Number("0x10")` is 16, `ToInt32` of 2^31 is negative,
+`ToUint32` of -1 is `u32::MAX`, and a hand-rolled version gets at least one of
+those wrong on the first try.
+
+`napi_get_value_int64` is written out rather than left to `as i64`, because the
+ABI's three cases and Rust's cast disagree: NaN and the infinities are zero, out
+of range clamps, the rest truncates toward zero.
+
+Asking a string for an `int32` is REFUSED rather than coerced. The ABI has
+`napi_coerce_to_number` for that, and answering 0 would hide an addon's type
+error.
+
 ## P8a — registration (DONE)
 
 `napi_module_register`, the `napi_module` record, and running a registrar to
@@ -273,84 +329,64 @@ to find one it does not, and then check that `open` refuses it by name — "it i
 a shared library, but not an addon", which is the message a user pointing
 `require` at the wrong file needs.
 
-## P7f — the rest of the value surface (DONE)
-
-`napi_create_uint32`/`int64`, `napi_get_value_int32`/`uint32`/`int64`, the four
-coercions, `napi_strict_equals`, `napi_get_global`.
-
-Every one is the language's own operator, called: `ToInt32` is `x | 0`,
-`Number(x)` is `x - 0`, `String(x)` is `"" + x`. None is reimplemented, and the
-tests are the reason — `Number("0x10")` is 16, `ToInt32` of 2^31 is negative,
-`ToUint32` of -1 is `u32::MAX`, and a hand-rolled version gets at least one of
-those wrong on the first try.
-
-`napi_get_value_int64` is written out rather than left to `as i64`, because the
-ABI's three cases and Rust's cast disagree: NaN and the infinities are zero, out
-of range clamps, the rest truncates toward zero.
-
-Asking a string for an `int32` is REFUSED rather than coerced. The ABI has
-`napi_coerce_to_number` for that, and answering 0 would hide an addon's type
-error.
-
-## P8d — a third-party addon (MEASURED, does not run yet)
-
-Done, and the result is a list rather than a guess.
-
-`@napi-rs/uuid-win32-x64-msvc` — a real prebuilt addon off npm, 300 KB — was
-loaded with `rts napi <file>`. It MAPPED: the library opens, its constructors
-run, and it reaches the process looking for its bindings. Then it panicked with
-`Must load N-API bindings`, which is `napi-sys` saying a symbol it requires is
-not in the export table.
-
-Which is measurable, and was measured. The addon names every symbol it looks up
-as a string in its own binary — that is how `GetProcAddress` binding works — so
-the gap is a diff:
-
-**It wants 119. We export 80. Forty-five are missing.**
+## P8d — a third-party addon (DONE)
 
 ```
-napi_add_env_cleanup_hook          napi_get_dataview_info
-napi_adjust_external_memory        napi_get_last_error_info
-napi_async_destroy                 napi_get_new_target
-napi_async_init                    napi_get_node_version
-napi_cancel_async_work             napi_get_prototype
-napi_close_callback_scope          napi_get_uv_event_loop
-napi_close_escapable_handle_scope  napi_get_value_string_latin1
-napi_close_handle_scope            napi_get_value_string_utf16
-napi_coerce_to_object              napi_get_version
-napi_create_dataview               napi_has_element
-napi_create_external_arraybuffer   napi_has_named_property
-napi_create_external_buffer        napi_has_own_property
-napi_create_promise                napi_is_arraybuffer
-napi_create_string_latin1          napi_is_dataview
-napi_create_string_utf16           napi_is_promise
-napi_create_symbol                 napi_make_callback
-napi_create_typedarray             napi_open_callback_scope
-napi_delete_element                napi_open_escapable_handle_scope
-napi_escape_handle                 napi_open_handle_scope
-napi_fatal_error                   napi_reject_deferred
-napi_fatal_exception               napi_remove_env_cleanup_hook
-napi_get_arraybuffer_info          napi_resolve_deferred
-                                   napi_run_script
+$ rts napi uuid.win32-x64-msvc.node
+uuid.win32-x64-msvc.node loaded, exporting 1 names:
+  v4() -> dd2e1115-ce69-41de-98c8-8056e54fbc41
 ```
 
-Most are shallow. The handle scopes are `Env::open`/`Env::close`, which already
-exist; `has_named_property` and `has_element` are the doors P2 built; the
-promise four are `rts-core`'s `promise_new`/`promise_settle`. Three are not:
-`napi_get_uv_event_loop` hands over a libuv loop this engine does not have,
-`napi_make_callback` is Node's async-context machinery, and
-`napi_run_script` needs a compiler the AOT binary deliberately does not carry.
+`@napi-rs/uuid-win32-x64-msvc`, a prebuilt addon off npm, 300 KB, built against
+Node's headers by someone who has never heard of this engine. It maps, binds,
+registers, and its Rust function is called through this crate's trampoline; the
+string it answers comes back out through the handle scope and is printed.
 
-**`napi_get_last_error_info` is the one to do first** regardless of size: it is
-what `napi-sys` probes before anything else, so its absence is what turns every
-other gap into one unhelpful panic.
+That is the sentence this crate's README has been unable to write since it was
+created, and the one every phase was aimed at.
 
-Until an addon actually runs, the crate's status stays "the tests pass". What
-changed is that the distance to that is now written down.
+### How the last mile went, because the shape of it is the lesson
 
-The old `rts-napi` lists 157 names against this crate's 70, and the difference
-is the surface still missing rather than a disagreement — another reason to keep
-that tree readable until this one catches up.
+Three attempts, and the first two failed for the same reason in different
+sizes. `napi-sys` — what every napi-rs addon binds through — probes its WHOLE
+symbol list before running anything and panics on the first miss, with a message
+that names none of them. So a missing symbol and forty-five missing symbols look
+identical from outside.
 
-Until a third-party addon runs, this crate's honest status stays "the tests
-pass".
+The way through was not guessing. An addon that binds by `GetProcAddress`
+carries every name it looks up as a string in its own binary, so the gap is a
+`comm` between that and `exported::NAMES`: it wanted 119, we had 80, forty-five
+were missing. Then forty-two, then three, then none.
+
+### What "present" means for the ones that cannot work
+
+Twelve of the forty-five answer a status rather than doing the thing, and that
+is not a stub in `CLAUDE.md`'s sense — the ABI HAS a failure channel and using
+it is different from lying. `napi_create_external_buffer` cannot point a buffer
+at the addon's own memory; `napi_create_symbol` cannot make one this crate can
+reach; `napi_get_uv_event_loop` has no libuv to hand over and would otherwise be
+returning a pointer the addon dereferences. Each says why where it is defined.
+
+The distinction that matters: an absent symbol takes the library down before
+anything runs, with no diagnostic. A present one that answers
+`napi_generic_failure` lets the addon report it — and lets an addon that never
+calls it work perfectly, which is exactly what happened here.
+
+Three answer honestly in a way worth naming. `napi_run_script` evaluates through
+`entry::evaluate`, so it works in the JIT host and refuses in an AOT binary,
+which is a real difference between two hosts rather than a gap.
+`napi_make_callback` is a call plus a microtask drain, because the async context
+it also carries is `async_hooks` and nothing here observes one.
+`napi_get_new_target` answers null, which makes an addon take its non-`new`
+path — wrong for a class constructor, and the next thing to fix.
+
+### What this does not prove
+
+One addon, one platform, one function, no arguments. `uuid.v4` is the simplest
+possible native addon: it takes nothing, allocates a string, and returns. It
+exercises the loader, the registrar, the trampoline, a handle scope and a string
+crossing back — and none of `napi_wrap`, the threadsafe path, promises, or an
+addon that keeps state between calls.
+
+The next honest step is a harder addon, and `PLAN.md` is the wrong place to
+guess which: pick one, run `rts napi`, read what it says.

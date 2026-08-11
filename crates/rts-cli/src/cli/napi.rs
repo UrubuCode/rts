@@ -49,12 +49,43 @@ pub fn command(input: Option<String>) -> Result<()> {
         let env = rts_napi_rwk::Env::new().into_raw();
         // SAFETY: the environment outlives the addon, which is never unloaded.
         let exports = unsafe { addon.exports(env) };
-        let Some(exports) = exports else {
-            return None;
-        };
-        Some(rts_core::entry::with_runtime(|runtime| {
+        let exports = exports?;
+        let names = rts_core::entry::with_runtime(|runtime| {
             rts_core::entry::member_names(runtime, exports)
-        }))
+        });
+
+        // Each export is CALLED when it takes no arguments, because listing
+        // names proves the registrar ran and nothing more. What an addon is
+        // for is answering something, and a call is the only thing that shows
+        // the whole path — the trampoline, the handle scope, the value coming
+        // back out.
+        let called: Vec<(String, Option<String>)> = names
+            .into_iter()
+            .map(|name| {
+                let member = rts_core::entry::with_runtime(|runtime| {
+                    rts_core::entry::get_member(runtime, exports, &name)
+                });
+                let callable = rts_core::entry::with_runtime(|runtime| {
+                    rts_core::entry::is_callable_in(runtime, member)
+                });
+                if !callable {
+                    return (name, None);
+                }
+                let nothing = rts_core::entry::undefined_value();
+                let arguments = rts_core::entry::make_array(Vec::new());
+                let produced = rts_core::entry::call_with_args(member, nothing, arguments);
+                // A throw is reported as the answer rather than swallowed: an
+                // addon that raises has told us something, and printing
+                // `undefined` would hide it.
+                let answer = match rts_core::entry::pending() {
+                    Some((_, described)) => format!("threw: {described}"),
+                    None => rts_core::entry::text_of(produced)
+                        .unwrap_or_else(|| "(not text)".to_owned()),
+                };
+                (name, Some(answer))
+            })
+            .collect();
+        Some(called)
     });
 
     let Some(names) = listed else {
@@ -64,8 +95,11 @@ pub fn command(input: Option<String>) -> Result<()> {
         ));
     };
     println!("{} loaded, exporting {} names:", path.display(), names.len());
-    for name in names {
-        println!("  {name}");
+    for (name, answer) in names {
+        match answer {
+            Some(answer) => println!("  {name}() -> {answer}"),
+            None => println!("  {name}"),
+        }
     }
     Ok(())
 }

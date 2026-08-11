@@ -89,6 +89,18 @@ its line where this engine needs one, so what crosses a thread is the addon's
 own pointer and nothing else. `CLAUDE.md`'s `thread` entry — about running
 JAVASCRIPT on two threads — is untouched and still true.
 
+## An addon runs
+
+```
+ napi uuid.win32-x64-msvc.node
+uuid.win32-x64-msvc.node loaded, exporting 1 names:
+  v4() -> dd2e1115-ce69-41de-98c8-8056e54fbc41
+```
+
+`-rs/uuid-win32-x64-msvc`, off npm, built against Node's headers by
+someone who has never heard of this engine. `PLAN.md` P8d has how the last mile
+went and what one addon does NOT prove.
+
 ## How to load one
 
 ```rust

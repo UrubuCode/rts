@@ -72,6 +72,20 @@ impl Env {
         self.scopes.len()
     }
 
+    /// Puts a value in the scope BELOW the innermost, and answers its handle.
+    ///
+    /// What `napi_escape_handle` is: a value made inside a scope that is about
+    /// to close has to live somewhere the close will not take it, and the only
+    /// such place is the scope that will still be open afterwards.
+    ///
+    /// `None` when the innermost is the only one — there is nowhere below, and
+    /// escaping from the scope the ABI gave the addon is meaningless rather
+    /// than merely unsupported.
+    pub fn handle_below(&mut self, value: u64) -> Option<crate::abi::napi_value> {
+        let below = self.scopes.len().checked_sub(2)?;
+        Some(self.scopes[below].handle(value))
+    }
+
     /// Hands ownership to the ABI as an opaque pointer.
     ///
     /// Leaked on purpose: the addon holds this for as long as it is loaded, and

@@ -84,6 +84,8 @@ pub mod loader;
 pub mod module;
 pub mod objects;
 pub mod references;
+pub mod rest;
+pub mod scopes;
 pub mod threadsafe;
 pub mod values;
 pub mod wrap;

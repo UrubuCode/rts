@@ -382,8 +382,8 @@ crates/
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-linker/        native link            rts-cli/  the CLI
 
-  rts-napi-rwk/      N-API here. P1-P8c in — 80 symbols exported, and a loader
-                     that maps a .node. No addon has run yet (its PLAN.md)
+  rts-napi-rwk/      N-API here, and a real npm addon RUNS: 125 symbols
+                     exported, `rts napi <file.node>` loads and calls one
   rts-napi/          the same ABI on the DELETED engine. Not built, not a
                      member, kept to be read. Goes away when -rwk catches up.
 ```
