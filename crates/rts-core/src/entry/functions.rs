@@ -546,20 +546,26 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
         // as `[[Construct]]` on its TARGET, so the prototype it allocates
         // against is the target's — walked through, because a bound function
         // may itself bind another one.
-        let mut resolved = cell;
-        loop {
-            let key = prototype_key(context);
-            if super::objects::read_property(context, resolved, key).is_some() {
-                break;
-            }
-            let Some(next) = context.bound_at(resolved).and_then(|bound| Value(bound.target).as_slot())
-            else {
-                break;
-            };
-            resolved = next;
-        }
+        // The walk KEEPS what it found. It used to answer only "stop here" and
+        // then read the property a second time, so every `new` in a program did
+        // the whole lookup twice — a key resolution and a property read that
+        // walks the prototype chain, for an answer it had already had. Measured
+        // 2026-08-11: `new C()` on a class with no fields at all cost 597 ns,
+        // which is where looking for the cost of construction led.
         let key = prototype_key(context);
-        let prototype = super::objects::read_property(context, resolved, key)?;
+        let mut resolved = cell;
+        let prototype = loop {
+            if let Some(found) = super::objects::read_property(context, resolved, key) {
+                break found;
+            }
+            // A `.bind()`-produced function has no OWN `prototype`, so the one
+            // to allocate against is its target's — walked through, because a
+            // bound function may itself bind another one.
+            let next = context
+                .bound_at(resolved)
+                .and_then(|bound| Value(bound.target).as_slot())?;
+            resolved = next;
+        };
 
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
