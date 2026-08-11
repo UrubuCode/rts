@@ -41,6 +41,8 @@
 
 mod fixtures;
 mod harness;
+mod phase;
 
 pub use fixtures::{Fixture, all};
 pub use harness::{Measurement, Profile, measure};
+pub use phase::Phase;

@@ -143,7 +143,9 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
             .iter()
             .filter_map(|(_, strings)| *strings),
     );
-    words.extend(context.modules.iter().map(|held| held.namespace));
+    // Only the ones a program has actually named: a module registered lazily
+    // has no object yet, and there is nothing to keep alive until it does.
+    words.extend(context.modules.iter().filter_map(|held| held.namespace));
     words.extend(
         context
             .classes
