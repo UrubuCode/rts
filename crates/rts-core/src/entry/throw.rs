@@ -67,22 +67,40 @@ pub fn throw(tag: i64, payload: u64) {
 /// with an exception table and a personality routine, which is a campaign; this
 /// is a load and a branch.
 ///
-/// # What it used to cost, and what the check is now
+/// # Where the slot lives, and how much moving it was actually worth
 ///
 /// It read the slot through [`with_current`] — a thread-local lookup, a
 /// `RefCell` borrow, and an index into the context stack — to answer a
 /// question that is `false` on essentially every call in a program that is not
 /// unwinding. Since compiled code asks after *every* call that can raise, that
-/// bookkeeping was paid twice per array element in a loop like
-/// `s = s + a[i]`: once for `__rts_get_indexed` and once for this.
+/// bookkeeping is paid twice per array element in a loop like `s = s + a[i]`:
+/// once for the element read and once for this. So the slot moved to its own
+/// thread-local cell in [`super::current`], and this became a thread-local
+/// lookup and a load.
 ///
-/// Measured in release over 200 × 10 000 element reads
-/// (`while (i < M) { s = s + nums[i]; i = i + 1; }`), best of three:
-/// **28.5 ns/op before, 21.5 ns/op after** — against 8.5 ns/op for the same
-/// loop adding a constant, which makes no call at all. The slot moved to its
-/// own thread-local [`super::current`] cell so that this is a thread-local
-/// lookup and a load; it is not a cached flag beside the old field, because two
-/// answers to one question is the drift this repository has a rule about.
+/// **It is a small win and not the systemic one it looked like.** Release,
+/// `while (i < M) { s = s + nums[i]; i = i + 1; }`, 300 × 20 000, minimum of
+/// seven timings per run, three runs per binary, the two binaries differing in
+/// nothing but where the slot lives:
+///
+/// | | before | after |
+/// |---|---|---|
+/// | `s = s + nums[i]` | 23.00 / 23.17 / 23.17 ns/op | 21.83 / 21.83 / 21.83 |
+/// | `s = s + 1.5` (no call at all) | 6.67 / 6.67 / 6.67 | 6.00 / 6.00 / 6.00 |
+///
+/// **Read the second row before believing the first.** That loop makes no
+/// runtime call, so nothing here can have changed it — and it moved 0.67 ns
+/// anyway, which is what code layout does to a measurement. The element loop
+/// moved 1.3 ns. The honest attribution is therefore **0.6 to 1.3 ns per
+/// element read, 3–6 %**, not the 1.3 ns the subtraction alone would claim.
+///
+/// What that leaves is where the cost actually is: an element read is ~16 ns
+/// over a loop that calls nothing, and that is the entry point's own body, not
+/// the asking afterwards. A cheaper flag was the wrong target; the element read
+/// wants a machine capability.
+///
+/// It is not a cached flag beside the old field, because two answers to one
+/// question is the drift this repository has a rule about.
 #[rtse::entry("__rts_thrown")]
 pub fn thrown() -> i64 {
     i64::from(super::current::thrown_pending())

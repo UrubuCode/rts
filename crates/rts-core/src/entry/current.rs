@@ -47,9 +47,11 @@ thread_local! {
     /// asking was the expensive half. Reaching it through [`with_current`] costs
     /// a thread-local lookup, a `RefCell` borrow (a write, a check and a
     /// restore) and an index into a `Vec`, to read one word that is almost
-    /// always `None`. Measured on a loop whose body is one array element read:
-    /// see the numbers in `super::throw::thrown`. Here it is a thread-local
-    /// lookup and a load.
+    /// always `None`. Here it is a thread-local lookup and a load.
+    ///
+    /// Worth 3–6 % on a loop whose body is one array element read, and nothing
+    /// where the runtime is not called — `super::throw::thrown` carries the
+    /// table and the reason the raw subtraction overstates it.
     ///
     /// It is not a *mirror* of the field — the field is gone. A cached flag
     /// beside the real slot would be a second source of one fact, kept in step
