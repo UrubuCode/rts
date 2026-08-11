@@ -96,15 +96,56 @@ use rts_cranelift::mem::{HeaderLayout, SLOT_BYTES};
 
 /// How many inline slots a cell holds.
 ///
-/// Seven, so that a cell is 64 bytes: one word of header and seven of fields.
+/// Fifteen, so that a cell is 128 bytes: one word of header and fifteen of
+/// fields, which is two cache lines on every target this runs on.
 ///
-/// The reason is alignment rather than a measurement of object sizes, and the
-/// difference matters. 64 bytes is a cache line on every target this runs on,
-/// so an object never straddles two of them — reading any field of an object
-/// touches one line. How many properties a typical object has is a different
-/// question, it has not been measured here, and the number that answers it may
-/// well not be seven.
-pub const INLINE_SLOTS: u32 = 7;
+/// # Why it was seven, and what changed it
+///
+/// Seven made a cell exactly one cache line, and this doc said so — adding
+/// that the reason was alignment rather than any measurement of object sizes,
+/// that how many properties a typical object has "has not been measured here",
+/// and that the answer "may well not be seven". It was measured on 2026-08-11
+/// and it is not seven.
+///
+/// What made it matter is not the memory: it is that a property past the
+/// inline slots is **uncacheable**. `entry::cache::cache_resolve` answers -1
+/// for `slot >= INLINE_SLOTS`, because the overflow lives in a side table a
+/// compiled load cannot reach, so a read of the eighth property of an object
+/// resolves BY NAME on every pass, forever. A closure's environment is an
+/// object like any other, so a script with more than seven captured bindings
+/// put an ordinary variable past the boundary — and every read of it in every
+/// loop went through the runtime.
+///
+/// `bench/repro/`, two files differing by one function declaration, is what
+/// that looked like: 1 135 690 cache misses and 240.9 ns for `obj.a` against
+/// 75 misses and 14.4 ns. At fifteen slots both files are 14.5 ns.
+///
+/// # What it costs, stated rather than smoothed over
+///
+/// A cell is twice the size, so a region is twice the memory (8 MB at the
+/// host's `CELLS`), an object straddles two cache lines instead of one, and
+/// allocation-heavy code moves twice the bytes. Measured, release, 2026-08-11:
+///
+/// | | seven | fifteen |
+/// |---|---|---|
+/// | `bench/objbench.ts` | 5.66 s | **6.99 s** (+23.5%) |
+/// | `bench/monte_carlo_pi.ts` | 1.53 s | **1.60 s** (+4.3%) |
+/// | `bench/field_access.ts` | 61.5 ms | 54.4 ms (-11.7%) |
+/// | a property read, `bench/analytic.ts` | 265 ns | 14.7 ns (-94%) |
+/// | a test file in the corpus | — | -8% to -12% |
+///
+/// The suite is 739 of 800 either way, compared per file, with an empty LOST
+/// list.
+///
+/// # What this does NOT fix
+///
+/// The cliff. It moves to the sixteenth property, and an object with more of
+/// them pays exactly what the eighth used to. The fix that removes it rather
+/// than moving it is making the overflow addressable so `cache_resolve` can
+/// answer for it — the storage already exists (`spill_of`), and what is
+/// missing is the machine's half. Fifteen is what a one-line change buys until
+/// then, chosen with the trade above on the table.
+pub const INLINE_SLOTS: u32 = 15;
 
 /// How far apart consecutive cells are.
 pub const STRIDE: u32 = HeaderLayout::BYTES + INLINE_SLOTS * SLOT_BYTES;
@@ -482,11 +523,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_cell_is_a_cache_line() {
-        // The reason for seven slots rather than any other number. Stated as a
-        // test because the constant and the reason are in different places, and
-        // changing one without the other is how a comment starts lying.
-        assert_eq!(STRIDE, 64);
+    fn a_cell_fills_whole_cache_lines_and_never_part_of_one() {
+        // This test pinned `STRIDE == 64` — a cell is ONE cache line — which
+        // was the reason seven slots was seven. Fifteen is what a measurement
+        // replaced it with (see `INLINE_SLOTS`), so what survives is the part
+        // that was actually load-bearing: a cell begins where a line begins, so
+        // reading a field never pays for a line the object does not fill.
+        //
+        // Stated as a test because the constant and the reason live in
+        // different places, and changing one without the other is how a comment
+        // starts lying — which is exactly what happened to the doc this
+        // replaces.
+        assert_eq!(
+            STRIDE % 64,
+            0,
+            "a cell must be a whole number of cache lines: at {STRIDE} bytes an \
+             object would start mid-line and a field read would touch a line \
+             belonging to the object before it"
+        );
     }
 
     #[test]

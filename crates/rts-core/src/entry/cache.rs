@@ -21,7 +21,7 @@
 //! It is not an error. `o.missing` is legal and produces `undefined`; what the
 //! negative says is only that this read cannot be done by loading.
 
-use super::with_current;
+use super::{Context, with_current};
 
 /// Where a property sits in an object, for the site that just missed.
 ///
@@ -51,28 +51,51 @@ use super::with_current;
 pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
     with_current(|context| {
         context.resolves += 1;
+        let explain = |why: &str, context: &mut Context| {
+            // A miss is ORDINARY the first time a site sees a layout — that is
+            // what a cache is. What this exists to catch is the site that
+            // misses forever, so it reports the reason and the key rather than
+            // a count, and stops after twenty so a real program stays readable.
+            if (context.resolves <= 20 || context.resolves % 200_000 == 0) && std::env::var_os("RTS_CACHE_DEBUG").is_some() {
+                let named = u32::try_from(key)
+                    .ok()
+                    .and_then(|number| context.keys.key(number))
+                    .and_then(|key| context.interner.text(key).and_then(|text| text.to_rust()))
+                    .unwrap_or_else(|| "?".to_owned());
+                eprintln!(
+                    "rts-cache miss #{} key {named} cell {cache:#x}: {why}",
+                    context.resolves
+                );
+            }
+        };
         let Ok(number) = u32::try_from(key) else {
+            explain("the key does not fit a number", context);
             return -1;
         };
         let Some(key) = context.keys.key(number) else {
+            explain("no key registered under that number", context);
             return -1;
         };
         let Some(ty) = context.region.type_of(object as u32) else {
+            explain("the receiver is not a cell in this region", context);
             return -1;
         };
         let Some(shape) = context.shape_of(ty) else {
             // A string, or a layout nothing recorded. Not an object, so nothing
             // is at any offset in it.
+            explain("the receiver has no shape: a string, or a layout nothing recorded", context);
             return -1;
         };
         let Some(slot) = context.shapes.slot_of(shape, key) else {
             // Absent. Legal, and it reads as `undefined` — but not by loading,
             // which is all this answer says.
+            explain("the property is absent from the receiver's shape", context);
             return -1;
         };
         if slot >= crate::heap::INLINE_SLOTS {
             // Past the inline slots, where the overflow indirection will go.
             // Until it exists, the slow path is the only correct answer.
+            explain("the slot is past the inline slots", context);
             return -1;
         }
 
