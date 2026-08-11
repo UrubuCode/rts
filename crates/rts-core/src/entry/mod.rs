@@ -177,6 +177,17 @@ use crate::value::Singletons;
 /// and the last three are stamped onto every typed array as it is built.
 pub const CACHED_KEYS: [&str; 5] = ["length", "prototype", "byteLength", "byteOffset", "buffer"];
 
+/// The strings the runtime builds as VALUES on a path that runs per operation.
+///
+/// Different from [`CACHED_KEYS`] in what is saved. A key is a number and
+/// interning one hashes text; a string here is a **cell**, so building one
+/// allocates — and an allocation is what brings the next collection closer, not
+/// merely what costs time.
+///
+/// `toJSON` is why this exists: `JSON.stringify` asks every object value
+/// whether it has one, and asking built the name as a fresh cell each time.
+pub const CACHED_TEXTS: [&str; 2] = ["toJSON", ""];
+
 /// Every string `typeof` can answer, in the order [`Context::type_names`]
 /// caches them.
 ///
@@ -585,6 +596,11 @@ pub struct Context {
     /// and the registry is seeded per run from what the compilation resolved —
     /// so it is per context, like everything else here.
     pub(super) well_known_keys: [Option<crate::object::Key>; CACHED_KEYS.len()],
+    /// The cell each of [`CACHED_TEXTS`] interned to, once something asked.
+    ///
+    /// Rooted by [`roots`], like `type_names`: nothing else holds these, and a
+    /// collection between two uses would free the one the next use hands back.
+    pub(super) well_known_texts: [Option<u64>; CACHED_TEXTS.len()],
     /// The nine strings `typeof` can answer, each built at most once.
     ///
     /// # Why a cache rather than building the answer
@@ -833,6 +849,7 @@ impl Context {
             // never reaches the table, and one that does gets it from the
             // compilation that produced the code.
             well_known_keys: [None; CACHED_KEYS.len()],
+            well_known_texts: [None; CACHED_TEXTS.len()],
             literals: Vec::new(),
             type_names: [None; TYPE_NAMES.len()],
             external: Vec::new(),

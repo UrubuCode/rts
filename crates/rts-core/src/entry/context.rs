@@ -267,4 +267,28 @@ impl Context {
         }
         key
     }
+
+    /// A string the runtime itself needs as a VALUE, built at most once.
+    ///
+    /// The counterpart of [`Self::well_known`] for the other half of the same
+    /// problem: that one saves hashing text, this one saves an ALLOCATION.
+    /// `intern_value` does not intern despite its name — it inserts into the
+    /// slab and calls the allocator — so a name built per operation is a cell
+    /// per operation, and cells are what a collection has to walk.
+    ///
+    /// Falls through for a name not on [`super::CACHED_TEXTS`], so a caller
+    /// that hands it something else gets the ordinary behaviour.
+    pub(super) fn well_known_text(&mut self, name: &str) -> u64 {
+        let held = super::CACHED_TEXTS.iter().position(|&known| known == name);
+        if let Some(at) = held
+            && let Some(value) = self.well_known_texts[at]
+        {
+            return value;
+        }
+        let value = self.intern_value(Str::from_str(name)).bits();
+        if let Some(at) = held {
+            self.well_known_texts[at] = Some(value);
+        }
+        value
+    }
 }
