@@ -339,7 +339,7 @@ block. `docs/engine/authoring-natives.md` is how to write one.
 
 **Never hand-write a symbol name, a signature row, or a class-metadata row.**
 
-One permanent exception: `rts-napi`'s 157 `napi_*` declarations. They are a
+One permanent exception: `rts-napi`'s 146 `napi_*` declarations. They are a
 foreign C ABI whose names *are* the interface — a compiled `.node` addon links
 against those exact strings. Do not convert them; their presence is not debt.
 Reasoning in `docs/engine/architecture.md`.
@@ -370,7 +370,7 @@ the new engine's rules, not this one with a path changed.
 
 ## Repository map
 
-Sixteen crates, and every one of them is on the path a program takes. Fifteen
+Fifteen crates, and every one of them is on the path a program takes. Sixteen
 were deleted on 2026-08-10 — the whole old runtime and its tooling — so a name
 that is not here does not exist, and `git log --diff-filter=D` is where it went.
 
@@ -389,19 +389,23 @@ crates/
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-linker/        native link            rts-cli/  the CLI
 
-  rts-napi-rwk/      N-API here, and a real npm addon RUNS: 125 symbols
+  rts-napi/          N-API here, and a real npm addon RUNS: 146 symbols
                      exported, `rts napi <file.node>` loads and calls one
-  rts-napi/          the same ABI on the DELETED engine. Not built, not a
-                     member, kept to be read. Goes away when -rwk catches up.
 ```
 
-The suffix is back, on purpose and on one crate. It means what it always meant:
-two crates answer one question, cargo will not have two of a name, and **a phase
-is finished when the old code is gone** rather than when the new code exists.
-`crates/rts-napi-rwk/README.md` says why that one is a rewrite rather than a
-port — its 6422 lines are written against a tagged-enum heap this engine does
-not have — and `PLAN.md` there has the eight phases and which engine gap each
-one is waiting on.
+**One crate again.** There were two under this name — the second carrying an
+`-rwk` suffix — while the old engine's version stood beside the rewrite to be
+read from, because cargo will not have two crates of one name. The old one was
+deleted on 2026-08-10 and the suffix came off the same day.
+
+**What ended it was a number**: the old crate exported 145 distinct `napi_*`
+names, this one exports 146, and the diff in the direction that matters is
+empty. That is a claim about NAMES and not about behaviour — eight of the 146
+answer a status rather than doing the work, each saying why where it is defined
+— but it is the claim the suffix encoded: **a phase is finished when the old
+code is gone** rather than when the new code exists.
+`crates/rts-napi/README.md` keeps why it was a rewrite rather than a port, and
+`PLAN.md` there has what is left.
 
 **What went, and the one thing it cost.** `rts-engine`, `rts-primitives`,
 `rts-shared`, `rts-std`, `rts-runtime`, `rts-natives`, `rts-abi`, `rts-macro`,
@@ -409,8 +413,9 @@ one is waiting on.
 `rts-value-probe` and `rts-diagnostics` — the old runtime, the old ABI, the old
 symbol table, the old front end and the old diagnostics. Nothing on the new
 engine's path named any of them, which is why the deletion is mechanical rather
-than a port. The exception is `rts-napi`, which named two directly and is
-therefore not built until someone ports it.
+than a port. The exception was the old `rts-napi`, which named two of them
+directly and was therefore never built again — it was deleted on 2026-08-10,
+once the rewrite beside it exported every symbol it had.
 
 `rts-diagnostics` is worth its own line because it looked alive. 733 lines of
 rich diagnostics — codes, spans, notes, a snippet renderer, a process-global

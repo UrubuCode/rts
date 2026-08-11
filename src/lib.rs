@@ -40,7 +40,7 @@ pub fn rt_artifacts() -> anyhow::Result<std::path::PathBuf> {
 ///
 /// Present is NOT exported: a `.node` looks these up in the process's export
 /// table, and this build passes no `/EXPORT:` or `--export-dynamic`. See
-/// `crates/rts-napi-rwk/PLAN.md`.
+/// `crates/rts-napi/PLAN.md`.
 pub fn napi_symbols() -> &'static [&'static str] {
-    rts_napi_rwk::exported::NAMES
+    rts_napi::exported::NAMES
 }

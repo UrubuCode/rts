@@ -15,7 +15,7 @@ members = [
     "crates/rts-node",
     "crates/rts-host",
     "crates/rts-runtime",
-    "crates/rts-napi-rwk",
+    "crates/rts-napi",
     "crates/rts-cli",
 ]
 resolver = "2"
@@ -70,10 +70,10 @@ rts-linker = { path = "crates/rts-linker" }
 # dependency-of-a-dependency) does not count.
 rts-runtime = { path = "crates/rts-runtime" }
 # Linked so the `napi_*` symbols are IN the binary — a `.node` resolves them
-# out of the host process by name. Present is not the same as EXPORTED, which
-# needs linker arguments this build does not pass yet; `crates/rts-napi-rwk/
-# PLAN.md` P8b has the order and the reason for it.
-rts-napi-rwk = { path = "crates/rts-napi-rwk" }
+# out of the host process by name. Present is not the same as EXPORTED: the
+# root `build.rs` parses `crates/rts-napi/src/exported.rs` and hands each name
+# to the linker, and `src/main.rs` references the list so nothing drops it.
+rts-napi = { path = "crates/rts-napi" }
 rts-cli = { path = "crates/rts-cli" }
 anyhow = "1.0"
 backtrace = "0.3"

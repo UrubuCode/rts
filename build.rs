@@ -157,7 +157,7 @@ fn strip_bitcode_from_archive(archive: &Path) {
 ///
 /// # One list, two readers
 ///
-/// The list lives in `crates/rts-napi-rwk/src/exported.rs`, as the arguments of
+/// The list lives in `crates/rts-napi/src/exported.rs`, as the arguments of
 /// one macro invocation, and that file is the single source. This parses it
 /// rather than restating it — a second list here is precisely the drift
 /// `CLAUDE.md` spends a section on, and the failure it produces is an addon
@@ -167,7 +167,7 @@ fn strip_bitcode_from_archive(archive: &Path) {
 /// missing from that list, so the list cannot fall behind the code, and this
 /// cannot fall behind the list.
 fn export_napi_symbols() {
-    let source = "crates/rts-napi-rwk/src/exported.rs";
+    let source = "crates/rts-napi/src/exported.rs";
     println!("cargo:rerun-if-changed={source}");
     let Ok(text) = std::fs::read_to_string(source) else {
         // Not fatal: a checkout without the crate still builds a working `rts`,

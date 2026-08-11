@@ -16,7 +16,7 @@
 //!
 //! # Who wants it
 //!
-//! `rts-napi-rwk`'s `napi_reference` at refcount zero, which is what an addon
+//! `rts-napi`'s `napi_reference` at refcount zero, which is what an addon
 //! uses to cache a value it does not want to keep alive.
 //!
 //! `WeakRef` and `FinalizationRegistry` want the same thing and are NOT wired

@@ -1,234 +1,443 @@
-//! Threadsafe functions N-API — versão **síncrona/inline** (#1548 item 3).
+//! Calling a JavaScript function from a thread that has no JavaScript.
 //!
-//! Uma TSFN deixa o addon chamar uma fn JS de outra thread. O RTS ainda não tem
-//! o event loop real (#207) drenando uma fila na thread JS, então
-//! `napi_call_threadsafe_function` invoca o `call_js_cb` **imediatamente** na
-//! thread chamadora (inline) em vez de postar na thread JS. Funciona para addons
-//! que usam TSFN no caminho síncrono ou de forma fire-and-forget; addons que
-//! dependem de cross-thread real + ordenação pelo loop são limitados (até o Bun
-//! tem gaps aqui). Ver docs/guides/napi.md / issue #1548.
+//! P7b, and the mirror of [`crate::async_work`]: there, work leaves the
+//! JavaScript thread and a result comes back; here, an arbitrary thread asks
+//! for a call and the JavaScript thread makes it.
+//!
+//! # What crosses, and what does not
+//!
+//! A `void*` the addon owns. That is all. `napi_call_threadsafe_function` takes
+//! no `napi_value` and returns none — the ABI's own shape — so a worker never
+//! holds an engine value and never needs a `Context`. The JavaScript function
+//! itself stays on the JavaScript thread, held there by a strong external root
+//! (P4's mechanism) so that a collection between calls cannot take it.
+//!
+//! That is what makes this implementable on an engine with one JavaScript
+//! thread, and why it does not contradict `CLAUDE.md`'s `thread` entry: nothing
+//! here runs JavaScript anywhere new.
+//!
+//! # Two halves, and why the split is where it is
+//!
+//! What the addon holds is a pointer to [`Shared`], which is `Send` and carries
+//! only a channel and counters. Everything the engine touches — the receiver,
+//! the rooted function, the callback that builds handles — lives in a
+//! thread-local slot on the JavaScript thread, and the two halves find each
+//! other through the `Arc` they share. A single struct holding both would have
+//! to be `Send` as a whole, which would be a lie about the half that is not.
+//!
+//! # The reference count is two counts
+//!
+//! The ABI has thread acquisition (`acquire`/`release`, how many threads may
+//! still call) and loop referencing (`ref`/`unref`, whether an idle queue keeps
+//! the program alive). They are independent and are two fields here for that
+//! reason: an addon commonly `unref`s a long-lived function so its existence
+//! does not stop the process, while several threads still hold it.
 
-use std::collections::HashMap;
-use std::ffi::c_void;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use core::cell::RefCell;
+use core::ffi::c_void;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender, channel};
 
-use crate::env::value_from_handle;
-use crate::types::{napi_env, napi_status, napi_value};
+use crate::abi::{napi_env, napi_status, napi_value};
+use crate::handles::{env_of, value_of};
 
-use napi_status::{napi_invalid_arg, napi_ok};
+use napi_status::{napi_closing, napi_invalid_arg, napi_ok};
 
-/// `call_js_cb(env, js_callback, context, data)` — chamado para cada item.
-type CallJsCb =
-    unsafe extern "C" fn(env: napi_env, js_callback: napi_value, context: *mut c_void, data: *mut c_void);
+/// What the ABI hands an addon. Opaque, and valid on any thread.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct napi_threadsafe_function(pub *mut c_void);
 
-struct Tsfn {
-    env: usize,
-    js_callback: u64, // handle da fn JS (0 = sem)
-    call_js: Option<CallJsCb>,
-    context: usize,
-    refcount: AtomicUsize, // nº de acquires (thread refs)
+/// What `napi_release_threadsafe_function` is asked to do.
+///
+/// **The order is the ABI.**
+#[allow(missing_docs)]
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum napi_threadsafe_function_release_mode {
+    napi_tsfn_release = 0,
+    napi_tsfn_abort,
 }
 
-unsafe impl Send for Tsfn {}
+/// What `napi_call_threadsafe_function` is asked to do when the queue is full.
+///
+/// **The order is the ABI.**
+#[allow(missing_docs)]
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum napi_threadsafe_function_call_mode {
+    napi_tsfn_nonblocking = 0,
+    napi_tsfn_blocking,
+}
 
-static TSFNS: Mutex<Option<HashMap<usize, Tsfn>>> = Mutex::new(None);
-static NEXT: Mutex<usize> = Mutex::new(1);
+/// What the addon's `call_js_cb` looks like.
+pub type CallJs = Option<
+    unsafe extern "C" fn(
+        env: napi_env,
+        js_callback: napi_value,
+        context: *mut c_void,
+        data: *mut c_void,
+    ),
+>;
 
+/// A `void*` on its way from a worker to the JavaScript thread.
+struct Item(*mut c_void);
+
+// SAFETY: the pointer is the addon's and is handed over wholesale — the ABI's
+// contract is that whoever calls `napi_call_threadsafe_function` gives up the
+// data until `call_js_cb` receives it. Nothing of the engine's is inside.
+unsafe impl Send for Item {}
+
+/// The half that may be touched from any thread.
+struct Shared {
+    to: Sender<Item>,
+    /// How many threads may still call. At zero the function is finished.
+    threads: AtomicUsize,
+    /// Whether an idle queue keeps the program alive.
+    referenced: AtomicBool,
+    /// Set by `abort`, and by the last release. Refuses further calls.
+    closing: AtomicBool,
+    /// The addon's own context pointer, handed back on every call.
+    ///
+    /// Read-only after creation, which is what makes sharing it across threads
+    /// sound — the ABI describes it the same way.
+    context: usize,
+}
+
+/// The half that only the JavaScript thread may touch.
+struct Owned {
+    from: Receiver<Item>,
+    /// The external root keeping the JavaScript function alive between calls.
+    held: u32,
+    call_js: CallJs,
+    owner: *mut c_void,
+    shared: Arc<Shared>,
+}
+
+thread_local! {
+    /// Every threadsafe function this JavaScript thread created, by slot.
+    ///
+    /// Holes rather than a compacting list: the slot number is what the shared
+    /// half carries across threads, so removing by shifting would renumber a
+    /// function another thread is already holding.
+    static OWNED: RefCell<Vec<Option<Owned>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// How long the loop waits before asking again while a call may still arrive.
+///
+/// A poll, for the reason [`crate::async_work`] states at length: `entry::loops`
+/// has no "asleep until woken", and its `Blocked` does not hold a program open.
+const POLL: core::time::Duration = core::time::Duration::from_millis(1);
+
+/// Makes whatever calls have been queued, and says whether more may come.
+fn deliver() -> rts_core::entry::Pending {
+    loop {
+        // One item at a time, with nothing borrowed while the callback runs:
+        // it is user code and may create, release, or call this very function.
+        let next = OWNED.with_borrow(|owned| {
+            owned.iter().enumerate().find_map(|(slot, entry)| {
+                let entry = entry.as_ref()?;
+                let Item(data) = entry.from.try_recv().ok()?;
+                Some((slot, data))
+            })
+        });
+        let Some((slot, data)) = next else {
+            break;
+        };
+        let Some((call_js, owner, held, context)) = OWNED.with_borrow(|owned| {
+            let entry = owned.get(slot)?.as_ref()?;
+            Some((
+                entry.call_js,
+                entry.owner,
+                entry.held,
+                entry.shared.context,
+            ))
+        }) else {
+            continue;
+        };
+
+        let word = rts_core::entry::held_current(held);
+        // SAFETY: the owner pointer came from `Env::into_raw` and the
+        // environment outlives every function it created.
+        let Some(env) = (unsafe { env_of(napi_env(owner)) }) else {
+            continue;
+        };
+        // The call gets a scope of its own, closed after it, so a program that
+        // takes a million calls does not accumulate a million roots.
+        env.open();
+        let handle = match word {
+            Some(word) => env.current().handle(word),
+            None => crate::handles::none(),
+        };
+        if let Some(call_js) = call_js {
+            // SAFETY: the addon's own function, on the JavaScript thread, with
+            // its own context and its own data. Where the ABI says it runs.
+            unsafe { call_js(napi_env(owner), handle, context as *mut c_void, data) };
+        }
+        // SAFETY: re-derived rather than held across the call, which may have
+        // created another threadsafe function and grown the table.
+        if let Some(env) = unsafe { env_of(napi_env(owner)) } {
+            env.close();
+        }
+    }
+
+    // Alive if any function on this thread still has a thread holding it AND is
+    // referenced. `unref` is exactly how an addon says "do not keep the process
+    // open for this", and honouring it is the difference between a program that
+    // exits and one that hangs.
+    let waiting = OWNED.with_borrow(|owned| {
+        owned.iter().flatten().any(|entry| {
+            entry.shared.referenced.load(Ordering::SeqCst)
+                && entry.shared.threads.load(Ordering::SeqCst) > 0
+                && !entry.shared.closing.load(Ordering::SeqCst)
+        })
+    });
+    match waiting {
+        true => rts_core::entry::Pending::In(POLL),
+        false => rts_core::entry::Pending::Idle,
+    }
+}
+
+/// The shared half a handle names.
+///
+/// # Safety
+///
+/// `func` must be one [`napi_create_threadsafe_function`] produced and not yet
+/// finished.
+unsafe fn shared_of(func: napi_threadsafe_function) -> Option<Arc<Shared>> {
+    if func.0.is_null() {
+        return None;
+    }
+    // SAFETY: the caller's contract. Cloned rather than borrowed so the caller
+    // holds an owner while it works, which is what makes a concurrent release
+    // safe.
+    let shared = unsafe { &*func.0.cast::<Arc<Shared>>() };
+    Some(Arc::clone(shared))
+}
+
+/// `napi_create_threadsafe_function`.
+///
+/// # Safety
+///
+/// The ABI's. Must be called on the JavaScript thread.
 #[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn napi_create_threadsafe_function(
     env: napi_env,
     func: napi_value,
     _async_resource: napi_value,
     _async_resource_name: napi_value,
     _max_queue_size: usize,
-    _initial_thread_count: usize,
+    initial_thread_count: usize,
     _thread_finalize_data: *mut c_void,
-    _thread_finalize_cb: *mut c_void,
+    _thread_finalize_cb: crate::abi::napi_finalize,
     context: *mut c_void,
-    call_js_cb: Option<CallJsCb>,
-    result: *mut *mut c_void,
+    call_js_cb: CallJs,
+    result: *mut napi_threadsafe_function,
 ) -> napi_status {
-    if result.is_null() {
+    if initial_thread_count == 0 || result.is_null() {
         return napi_invalid_arg;
     }
-    let id = {
-        let mut n = NEXT.lock().unwrap_or_else(|e| e.into_inner());
-        let id = *n;
-        *n += 1;
-        id
+    // SAFETY: the caller's contract.
+    let Some(word) = (unsafe { value_of(func) }) else {
+        return napi_invalid_arg;
     };
-    TSFNS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get_or_insert_with(HashMap::new)
-        .insert(
-            id,
-            Tsfn {
-                env: env.0 as usize,
-                js_callback: crate::env::handle_from_value(func),
-                call_js: call_js_cb,
-                context: context as usize,
-                refcount: AtomicUsize::new(1),
-            },
-        );
-    unsafe { *result = id as *mut c_void };
+    if !rts_core::entry::with_runtime(|runtime| rts_core::entry::is_callable_in(runtime, word)) {
+        return napi_status::napi_function_expected;
+    }
+
+    let (to, from) = channel();
+    let slot = OWNED.with_borrow(|owned| {
+        owned
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(owned.len())
+    });
+    let shared = Arc::new(Shared {
+        to,
+        threads: AtomicUsize::new(initial_thread_count),
+        referenced: AtomicBool::new(true),
+        closing: AtomicBool::new(false),
+        context: context as usize,
+    });
+    // The function is rooted for as long as the threadsafe function lives: a
+    // worker may call it three turns from now, and nothing else is keeping it.
+    let held = rts_core::entry::hold_current(word);
+    let entry = Owned {
+        from,
+        held,
+        call_js: call_js_cb,
+        owner: env.0,
+        shared: Arc::clone(&shared),
+    };
+    OWNED.with_borrow_mut(|owned| match owned.len() > slot {
+        true => owned[slot] = Some(entry),
+        false => owned.push(Some(entry)),
+    });
+    rts_core::entry::with_runtime(|runtime| {
+        rts_core::entry::declare_loop_source(runtime, "napi:threadsafe", deliver)
+    });
+
+    // SAFETY: the caller's contract — `result` writable.
+    unsafe { *result = napi_threadsafe_function(Box::into_raw(Box::new(shared)).cast()) };
     napi_ok
 }
 
-fn with_tsfn<R>(handle: *mut c_void, f: impl FnOnce(&Tsfn) -> R) -> Option<R> {
-    let id = handle as usize;
-    let guard = TSFNS.lock().unwrap_or_else(|e| e.into_inner());
-    guard.as_ref().and_then(|m| m.get(&id)).map(f)
-}
-
-/// Invoca o `call_js_cb` imediatamente (inline) com o `data`.
+/// `napi_call_threadsafe_function` — from any thread.
+///
+/// # Safety
+///
+/// `func` must be live, and `data` must stay valid until `call_js_cb` has
+/// received it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_call_threadsafe_function(
-    func: *mut c_void,
+    func: napi_threadsafe_function,
     data: *mut c_void,
-    _mode: i32, // blocking/non-blocking — irrelevante na execução inline
+    _is_blocking: napi_threadsafe_function_call_mode,
 ) -> napi_status {
-    let res = with_tsfn(func, |t| {
-        (t.env, t.js_callback, t.call_js, t.context)
-    });
-    let Some((env_ptr, js_cb, call_js, context)) = res else {
+    // SAFETY: the caller's contract.
+    let Some(shared) = (unsafe { shared_of(func) }) else {
         return napi_invalid_arg;
     };
-    if let Some(call_js) = call_js {
-        let env = napi_env(env_ptr as *mut c_void);
-        unsafe {
-            call_js(
-                env,
-                value_from_handle(js_cb),
-                context as *mut c_void,
-                data,
-            )
-        };
+    if shared.closing.load(Ordering::SeqCst) {
+        return napi_closing;
     }
-    // call_js_cb == NULL: o data é tratado como uma fn napi_value chamável
-    // diretamente (raro). Inline não suporta esse modo — devolve ok mesmo assim.
-    napi_ok
+    // The blocking mode is not honoured and cannot be misread as honoured,
+    // because there is no bound to block against: `max_queue_size` is ignored
+    // and the channel is unbounded, so a call never has to wait. If a bound
+    // arrives, this is where blocking becomes a real question.
+    match shared.to.send(Item(data)) {
+        Ok(()) => napi_ok,
+        // The receiver is gone, which means the JavaScript thread finished.
+        Err(_) => napi_closing,
+    }
 }
 
+/// `napi_acquire_threadsafe_function` — one more thread may call.
+///
+/// # Safety
+///
+/// The ABI's.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_acquire_threadsafe_function(
-    func: *mut c_void,
+    func: napi_threadsafe_function,
 ) -> napi_status {
-    if with_tsfn(func, |t| t.refcount.fetch_add(1, Ordering::SeqCst)).is_some() {
-        napi_ok
-    } else {
-        napi_invalid_arg
+    // SAFETY: the caller's contract.
+    let Some(shared) = (unsafe { shared_of(func) }) else {
+        return napi_invalid_arg;
+    };
+    if shared.closing.load(Ordering::SeqCst) {
+        return napi_closing;
     }
+    shared.threads.fetch_add(1, Ordering::SeqCst);
+    napi_ok
 }
 
+/// `napi_release_threadsafe_function` — this thread is done with it.
+///
+/// # Safety
+///
+/// The caller must not use `func` again after releasing its own acquisition.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_release_threadsafe_function(
-    func: *mut c_void,
-    _mode: i32,
+    func: napi_threadsafe_function,
+    mode: napi_threadsafe_function_release_mode,
 ) -> napi_status {
-    let id = func as usize;
-    let mut guard = TSFNS.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(map) = guard.as_mut() else {
+    // SAFETY: the caller's contract.
+    let Some(shared) = (unsafe { shared_of(func) }) else {
         return napi_invalid_arg;
     };
-    let Some(t) = map.get(&id) else {
-        return napi_invalid_arg;
-    };
-    let prev = t.refcount.fetch_sub(1, Ordering::SeqCst);
-    if prev <= 1 {
-        map.remove(&id); // último release → libera
+    if mode == napi_threadsafe_function_release_mode::napi_tsfn_abort {
+        shared.closing.store(true, Ordering::SeqCst);
+    }
+    let before = shared.threads.fetch_sub(1, Ordering::SeqCst);
+    if before <= 1 {
+        // The last thread. Nothing may call again, and the JavaScript half is
+        // released on the next pass of the loop — not here, because this may be
+        // running on a worker and the root belongs to the other thread.
+        shared.closing.store(true, Ordering::SeqCst);
     }
     napi_ok
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_get_threadsafe_function_context(
-    func: *mut c_void,
-    result: *mut *mut c_void,
-) -> napi_status {
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    match with_tsfn(func, |t| t.context) {
-        Some(ctx) => {
-            unsafe { *result = ctx as *mut c_void };
-            napi_ok
-        }
-        None => napi_invalid_arg,
-    }
-}
-
-/// ref/unref controlam se a TSFN mantém o event loop vivo. Inline não tem loop
-/// → no-op que aceita.
+/// `napi_ref_threadsafe_function` — keep the program alive for this.
+///
+/// # Safety
+///
+/// The ABI's. Must be called on the JavaScript thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_ref_threadsafe_function(
     _env: napi_env,
-    func: *mut c_void,
+    func: napi_threadsafe_function,
 ) -> napi_status {
-    if with_tsfn(func, |_| ()).is_some() { napi_ok } else { napi_invalid_arg }
+    // SAFETY: the caller's contract.
+    let Some(shared) = (unsafe { shared_of(func) }) else {
+        return napi_invalid_arg;
+    };
+    shared.referenced.store(true, Ordering::SeqCst);
+    napi_ok
 }
 
+/// `napi_unref_threadsafe_function` — stop keeping the program alive.
+///
+/// # Safety
+///
+/// The ABI's. Must be called on the JavaScript thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_unref_threadsafe_function(
     _env: napi_env,
-    func: *mut c_void,
+    func: napi_threadsafe_function,
 ) -> napi_status {
-    if with_tsfn(func, |_| ()).is_some() { napi_ok } else { napi_invalid_arg }
+    // SAFETY: the caller's contract.
+    let Some(shared) = (unsafe { shared_of(func) }) else {
+        return napi_invalid_arg;
+    };
+    shared.referenced.store(false, Ordering::SeqCst);
+    napi_ok
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::ptr;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    fn env() -> napi_env {
-        napi_env(ptr::null_mut())
+/// `napi_get_threadsafe_function_context`.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_get_threadsafe_function_context(
+    func: napi_threadsafe_function,
+    result: *mut *mut c_void,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some(shared) = (unsafe { shared_of(func) }) else {
+        return napi_invalid_arg;
+    };
+    if result.is_null() {
+        return napi_invalid_arg;
     }
+    // SAFETY: the caller's contract.
+    unsafe { *result = shared.context as *mut c_void };
+    napi_ok
+}
 
-    static CALLS: AtomicUsize = AtomicUsize::new(0);
-    static LAST: AtomicUsize = AtomicUsize::new(0);
-    unsafe extern "C" fn call_js(_e: napi_env, _cb: napi_value, ctx: *mut c_void, data: *mut c_void) {
-        CALLS.fetch_add(1, Ordering::SeqCst);
-        LAST.store(data as usize + ctx as usize, Ordering::SeqCst);
-    }
-
-    #[test]
-    fn create_call_release() {
-        CALLS.store(0, Ordering::SeqCst);
-        let mut tsfn: *mut c_void = ptr::null_mut();
-        let func = napi_value(ptr::null_mut());
-        let name = napi_value(ptr::null_mut());
-        assert_eq!(
-            unsafe {
-                napi_create_threadsafe_function(
-                    env(), func, name, name, 0, 1,
-                    ptr::null_mut(), ptr::null_mut(),
-                    0x10 as *mut c_void, // context
-                    Some(call_js),
-                    &mut tsfn,
-                )
-            },
-            napi_ok
-        );
-        assert!(!tsfn.is_null());
-        // chama inline
-        unsafe { napi_call_threadsafe_function(tsfn, 0x5 as *mut c_void, 0) };
-        assert_eq!(CALLS.load(Ordering::SeqCst), 1);
-        assert_eq!(LAST.load(Ordering::SeqCst), 0x15); // ctx(0x10)+data(0x5)
-        // context
-        let mut ctx: *mut c_void = ptr::null_mut();
-        unsafe { napi_get_threadsafe_function_context(tsfn, &mut ctx) };
-        assert_eq!(ctx as usize, 0x10);
-        // acquire +1, release 2x → libera
-        unsafe { napi_acquire_threadsafe_function(tsfn) };
-        unsafe { napi_release_threadsafe_function(tsfn, 0) };
-        unsafe { napi_release_threadsafe_function(tsfn, 0) };
-        // após liberar, chamar falha
-        assert_eq!(
-            unsafe { napi_call_threadsafe_function(tsfn, ptr::null_mut(), 0) },
-            napi_invalid_arg
-        );
+/// Releases every threadsafe function an environment made.
+///
+/// Called from [`crate::env::destroy`]. The root goes back here rather than
+/// when the last thread releases, because that release may happen on a worker
+/// and a root belongs to the thread that took it.
+pub fn forget(owner: napi_env) {
+    let mine: Vec<Owned> = OWNED.with_borrow_mut(|owned| {
+        let mut mine = Vec::new();
+        for slot in owned.iter_mut() {
+            if slot.as_ref().is_some_and(|entry| entry.owner == owner.0)
+                && let Some(entry) = slot.take()
+            {
+                mine.push(entry);
+            }
+        }
+        mine
+    });
+    for entry in mine {
+        entry.shared.closing.store(true, Ordering::SeqCst);
+        rts_core::entry::release_current(entry.held);
     }
 }

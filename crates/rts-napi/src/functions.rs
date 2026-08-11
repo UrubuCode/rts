@@ -1,344 +1,381 @@
-//! Funções e callbacks N-API: `napi_create_function`, `napi_get_cb_info`,
-//! `napi_call_function`. Ver docs/guides/napi.md (Etapa 11).
+//! Calling in both directions.
 //!
-//! ## Dois sentidos
+//! P3. A JS program calls a function the addon wrote, and the addon calls a
+//! function the program wrote. The second is a forwarder like everything in
+//! P2; the first is the phase's real decision.
 //!
-//! **TS chama fn nativa do addon:** `napi_create_function(cb, data)` registra o
-//! `(cb, env, data)` num registry indexado pelo handle Function alocado. Quando
-//! o TS invoca essa fn, o dispatch do RTS (`__RTS_FN_GL_FUNCTION_CALL` em
-//! `rts-primitives`) chama o shim `__RTS_FN_RT_NAPI_DISPATCH_CALLBACK` (impl
-//! aqui, resolvido por link). O shim monta um `napi_callback_info`, chama `cb`,
-//! e devolve o handle do `napi_value` retornado. Sem o registry hit, o shim
-//! sinaliza "não é napi" e o dispatch segue o caminho normal.
+//! # Where a callback's identity lives
 //!
-//! **Addon chama fn TS:** `napi_call_function(recv, func, argv)` empacota os
-//! args num `Entry::Vec` e chama `__RTS_FN_GL_FUNCTION_CALL` (já existente).
+//! `rts-core` makes a callable out of a bare `extern "C"` function pointer, and
+//! a bare pointer carries no identity: one trampoline shared by every addon
+//! function could not tell which of them it was standing in for. What it DOES
+//! carry is an environment — `closure_new(code, environment)` stores a value
+//! beside the code and hands it back as the call's first argument, which is how
+//! a closure finds what it closed over.
+//!
+//! So the environment is the identity: a number naming a slot in [`registry`],
+//! and the trampoline reads it exactly the way a compiled closure reads its
+//! captured scope. Nothing is keyed by the function's value, which is the
+//! design this crate's PLAN ruled out — a map from callable to callback would
+//! need the callable's identity to be stable through a collection, and would
+//! answer a lookup per call for something the call already carries.
+//!
+//! # Why the registry is thread-local rather than global
+//!
+//! Because a `Context` is. An addon's callback can only run against the context
+//! it was registered under, that context is reached through a thread-local
+//! (`rts-core`'s `entry` module says why), and so a callback registered on one
+//! thread could never legally fire on another. A global would be a lock around
+//! something with one legal user.
+//!
+//! # What a slot is not
+//!
+//! Reference counted, and not reused while an addon might still hold the
+//! callable. Slots come back when the [`crate::env::Env`] that made them is
+//! destroyed — which is the point at which the addon is unloaded and its
+//! function pointers stop being callable at all.
 
-use std::collections::HashMap;
-use std::ffi::{c_char, c_void};
-use std::sync::Mutex;
+use core::cell::RefCell;
+use core::ffi::c_void;
 
-use rts_engine::heap::handles::{alloc_entry, Entry, FunctionData};
-
-use crate::env::{handle_from_value, value_from_handle};
-use crate::types::{napi_callback, napi_callback_info, napi_env, napi_status, napi_value};
+use crate::abi::{napi_callback, napi_callback_info, napi_env, napi_status, napi_value};
+use crate::handles::{env_of, value_of, write_out};
 
 use napi_status::{napi_function_expected, napi_invalid_arg, napi_ok};
 
-// Dispatch de fn TS via símbolo extern-C (resolvido no link do bin / add_fn! no
-// JIT), declarado uma única vez em `rts_engine::gc_surface`. NÃO chamamos a API
-// Rust de `rts-primitives` diretamente porque isso arrastaria toda a teia de
-// símbolos `__RTS_*` cross-crate para o link de um `cargo test -p rts-napi`
-// isolado. O dispatch é validado por e2e no bin.
-#[cfg(not(test))]
-use rts_engine::externs::__RTS_FN_GL_FUNCTION_CALL;
-
-// Stub só para o build de teste do crate isolado: fornece o símbolo (que no bin
-// vem de rts-primitives) para que `cargo test -p rts-napi` linke. O dispatch
-// real é coberto por e2e no bin; este stub retorna 0 e os testes do crate não
-// exercitam napi_call_function.
-#[cfg(test)]
-unsafe fn __RTS_FN_GL_FUNCTION_CALL(_handle: u64, _this_arg: i64, _args_handle: u64) -> i64 {
-    0
+/// One registered addon function.
+#[derive(Clone, Copy)]
+struct Registered {
+    /// What the addon gave us to call.
+    code: napi_callback,
+    /// The pointer it asked to have handed back.
+    data: *mut c_void,
+    /// Which environment registered it, so its slots can be freed together.
+    owner: *mut c_void,
 }
 
-/// `(cb, env, data)` de uma fn nativa registrada por `napi_create_function`,
-/// indexado pelo handle do `Entry::Function`. `env` é guardado como `usize`
-/// (ponteiro opaco) por causa do `Send` do Mutex global.
-struct NapiFn {
-    cb: unsafe extern "C" fn(napi_env, napi_callback_info) -> napi_value,
-    env: usize,
+thread_local! {
+    /// Every addon function registered on this thread.
+    ///
+    /// A `Vec` of holes rather than a map: the slot number IS the key and the
+    /// caller already holds it, so there is nothing to look up by.
+    static REGISTRY: RefCell<Vec<Option<Registered>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Registers `code`/`data` and answers the slot naming them.
+fn register(code: napi_callback, data: *mut c_void, owner: *mut c_void) -> usize {
+    REGISTRY.with_borrow_mut(|slots| {
+        let entry = Registered { code, data, owner };
+        match slots.iter().position(Option::is_none) {
+            Some(free) => {
+                slots[free] = Some(entry);
+                free
+            }
+            None => {
+                slots.push(Some(entry));
+                slots.len() - 1
+            }
+        }
+    })
+}
+
+/// Forgets every function an environment registered.
+///
+/// Called when the environment is destroyed, which is when the addon is
+/// unloaded and its code stops existing. Freeing earlier would let a slot be
+/// reused while a callable still names it, and a call would land on the wrong
+/// addon function rather than failing.
+pub fn forget(owner: napi_env) {
+    REGISTRY.with_borrow_mut(|slots| {
+        for slot in slots.iter_mut() {
+            if slot.is_some_and(|entry| entry.owner == owner.0) {
+                *slot = None;
+            }
+        }
+    });
+}
+
+/// What a call hands its callback, and what `napi_get_cb_info` reads back.
+///
+/// Lives on the trampoline's own stack for exactly the length of the call,
+/// which is the ABI's lifetime for a `napi_callback_info`: valid inside the
+/// callback and undefined afterwards.
+struct CallInfo {
+    arguments: [napi_value; crate::env::ARGUMENTS],
+    given: usize,
+    this: napi_value,
     data: *mut c_void,
 }
 
-// SAFETY: os ponteiros são opacos e só usados na thread JS que invoca a fn.
-unsafe impl Send for NapiFn {}
+/// The one function every addon callable is made out of.
+///
+/// Reads its slot from the environment, the way a compiled closure reads its
+/// captured scope, and stands in for the addon function that slot names.
+extern "C" fn trampoline(environment: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let undefined = rts_core::entry::undefined_value();
+    let Some(slot) = rts_core::entry::number_of(environment) else {
+        return undefined;
+    };
+    let Some(entry) = REGISTRY.with_borrow(|slots| {
+        slots
+            .get(slot as usize)
+            .copied()
+            .flatten()
+    }) else {
+        return undefined;
+    };
+    let Some(code) = entry.code else {
+        return undefined;
+    };
 
-static NAPI_CALLBACKS: Mutex<Option<HashMap<u64, NapiFn>>> = Mutex::new(None);
+    // A scope of its own, opened for the call and closed after it: every handle
+    // the callback makes belongs to the call, which is what the ABI promises
+    // and what keeps a long-running program from accumulating roots.
+    //
+    // SAFETY: the owner pointer came from `Env::into_raw` and the environment
+    // it names is alive as long as the addon is loaded — `forget` clears the
+    // slot when it is not, and this reads the slot first.
+    let Some(env) = (unsafe { env_of(napi_env(entry.owner)) }) else {
+        return undefined;
+    };
+    env.open();
 
-/// Info de chamada que o trampolim monta e `napi_get_cb_info` lê.
-struct CallbackInfo {
-    argv: Vec<napi_value>,
-    this_arg: napi_value,
-    data: *mut c_void,
+    let mut info = CallInfo {
+        arguments: [
+            env.current().handle(a0),
+            env.current().handle(a1),
+            env.current().handle(a2),
+            env.current().handle(a3),
+        ],
+        given: given_count(&[a0, a1, a2, a3], undefined),
+        this: env.current().handle(this),
+        data: entry.data,
+    };
+
+    // SAFETY: `code` is the addon's own function, called with the environment
+    // it registered under and a `napi_callback_info` valid for this call. That
+    // is the ABI's contract in both directions, and nothing further can be
+    // checked from this side.
+    let produced = unsafe {
+        code(
+            napi_env(entry.owner),
+            napi_callback_info((&mut info as *mut CallInfo).cast()),
+        )
+    };
+    // Read BEFORE the scope closes: the handle the addon answered belongs to
+    // that scope, and reading it afterwards would read a released slot.
+    // SAFETY: a handle the addon got from this crate, or null.
+    let answer = unsafe { value_of(produced) }.unwrap_or(undefined);
+
+    // SAFETY: re-derived rather than held across the call, because the callback
+    // may have registered functions and grown the registry.
+    if let Some(env) = unsafe { env_of(napi_env(entry.owner)) } {
+        env.close();
+    }
+    answer
 }
 
+/// How many of the four slots the caller actually passed.
+///
+/// The convention carries four words and pads the rest with `undefined`, so a
+/// trailing `undefined` is indistinguishable from an omitted argument — and the
+/// ABI's `argc` is what an addon branches on. Counting to the last non-padding
+/// word is the honest reading available: `f(1, undefined)` reports one
+/// argument, which is wrong in a way no addon has ever depended on, and
+/// reporting four always would be wrong for every call.
+fn given_count(words: &[u64], undefined: u64) -> usize {
+    words
+        .iter()
+        .rposition(|&word| word != undefined)
+        .map(|last| last + 1)
+        .unwrap_or(0)
+}
+
+/// A callable value over an addon callback, as an engine word.
+///
+/// Public because a class is made of these: `napi_define_class` turns a method
+/// descriptor into one of these per method, and building them there would mean
+/// a second copy of the registration and the environment trick. The handle is
+/// the caller's to make — some of these are hung on a prototype rather than
+/// handed to the addon.
+pub fn callable_word(env: napi_env, cb: napi_callback, data: *mut c_void) -> u64 {
+    let slot = register(cb, data, env.0);
+    let environment = rts_core::entry::make_number(slot as f64);
+    // Through a pointer rather than straight to an integer: casting a function
+    // item to `usize` is what `function_casts_as_integer` warns about, and the
+    // two-step spelling is the one that says "this is an address".
+    rts_core::entry::closure_new(trampoline as *const () as usize as i64, environment)
+}
+
+/// `napi_create_function` — a JS callable whose body is the addon's.
+///
+/// # Safety
+///
+/// `utf8name` must be null or NUL-terminated, and `cb` must stay callable for
+/// as long as `env` lives.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_function(
     env: napi_env,
-    _utf8name: *const c_char,
+    utf8name: *const core::ffi::c_char,
     _length: usize,
     cb: napi_callback,
     data: *mut c_void,
     result: *mut napi_value,
 ) -> napi_status {
-    if result.is_null() {
+    let _ = utf8name;
+    if cb.is_none() {
         return napi_invalid_arg;
     }
-    let Some(cb) = cb else {
+    let word = callable_word(env, cb, data);
+
+    // SAFETY: the caller's contract.
+    let Some(env) = (unsafe { env_of(env) }) else {
         return napi_invalid_arg;
     };
-
-    // Aloca um Entry::Function marcador. fn_ptr/packed_shim ficam 0 — a fn NÃO
-    // é executada via invoke; o dispatch a intercepta pelo handle no registry.
-    let handle = alloc_entry(Entry::Function(Box::new(FunctionData {
-        fn_ptr: 0,
-        arity: 0,
-        name: "".into(),
-        bound_this: 0,
-        has_bound_this: false,
-        bound_args: Vec::new(),
-        is_arrow: false,
-        has_this_param: false,
-        param_kinds: Vec::new(),
-        return_kind: 0,
-        packed_shim: 0,
-        source: None,
-        keep_alive: None,
-        prototype_handle: 0,
-        rest_param_idx: -1,
-        uniform_thunk: false,
-    })));
-
-    NAPI_CALLBACKS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get_or_insert_with(HashMap::new)
-        .insert(
-            handle,
-            NapiFn {
-                cb,
-                env: env.0 as usize,
-                data,
-            },
-        );
-
-    unsafe { *result = value_from_handle(handle) };
-    napi_ok
+    let handle = env.current().handle(word);
+    // SAFETY: the caller's contract.
+    match unsafe { write_out(result, handle) } {
+        true => napi_ok,
+        false => napi_invalid_arg,
+    }
 }
 
-/// Shim chamado por `__RTS_FN_GL_FUNCTION_CALL` (rts-primitives) no início do
-/// dispatch. Se `handle` é uma fn nativa N-API, executa o callback e escreve o
-/// resultado (i64 = handle do napi_value) em `*out_result`, devolvendo 1. Senão
-/// devolve 0 (o dispatch segue o caminho normal).
+/// `napi_get_cb_info` — what this call was given.
+///
+/// Every out-parameter is optional, which is how addons use it: most ask for
+/// `argc`/`argv`, some for `this`, few for `data`.
 ///
 /// # Safety
-/// `out_result` deve ser um ponteiro válido para i64.
-// NOT `#[rtse::abi]`: `out_result: *mut i64` is an out-param — a stack slot the
-// caller owns and this function writes THROUGH, not a value crossing by copy —
-// and an out-param has no single-slot ABI spelling. Same carve-out, same
-// reason, as `__rtsadp_ta_view_base_len` and `__RTS_FN_RT_PROXY_RESOLVE`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __RTS_FN_RT_NAPI_DISPATCH_CALLBACK(
-    handle: u64,
-    this_arg: i64,
-    args_handle: u64,
-    out_result: *mut i64,
-) -> i64 {
-    let (cb, env_ptr, data) = {
-        let guard = NAPI_CALLBACKS.lock().unwrap_or_else(|e| e.into_inner());
-        match guard.as_ref().and_then(|m| m.get(&handle)) {
-            Some(nf) => (nf.cb, nf.env, nf.data),
-            None => return 0, // não é uma fn N-API
-        }
-    };
-
-    // Monta os argv a partir do args_handle (Entry::Vec de handles i64).
-    let argv: Vec<napi_value> = read_args(args_handle)
-        .into_iter()
-        .map(|h| value_from_handle(h as u64))
-        .collect();
-
-    let env = napi_env(env_ptr as *mut c_void);
-    let ret = invoke_napi_callback(env, cb, data, value_from_handle(this_arg as u64), &argv);
-
-    if !out_result.is_null() {
-        unsafe { *out_result = handle_from_value(ret) as i64 };
-    }
-    1
-}
-
-/// Monta um `napi_callback_info` (argv/this/data), invoca `cb`, libera o info e
-/// devolve o `napi_value` retornado. Helper compartilhado por dispatch, classes
-/// (construtor + métodos), etc.
-pub fn invoke_napi_callback(
-    env: napi_env,
-    cb: unsafe extern "C" fn(napi_env, napi_callback_info) -> napi_value,
-    data: *mut c_void,
-    this_arg: napi_value,
-    argv: &[napi_value],
-) -> napi_value {
-    let info = Box::new(CallbackInfo {
-        argv: argv.to_vec(),
-        this_arg,
-        data,
-    });
-    let info_ptr = Box::into_raw(info);
-    let ret = unsafe { cb(env, napi_callback_info(info_ptr as *mut c_void)) };
-    drop(unsafe { Box::from_raw(info_ptr) });
-    ret
-}
-
-fn read_args(args_handle: u64) -> Vec<i64> {
-    if args_handle == 0 {
-        return Vec::new();
-    }
-    rts_engine::heap::handles::with_entry(args_handle, |e| match e {
-        Some(Entry::Vec(v)) => v.iter().copied().collect(),
-        _ => Vec::new(),
-    })
-}
-
+///
+/// `cbinfo` must be the one the current callback was handed, and each non-null
+/// out-parameter writable. `argv` must have room for `*argc` handles.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_get_cb_info(
     _env: napi_env,
     cbinfo: napi_callback_info,
     argc: *mut usize,
     argv: *mut napi_value,
-    this_arg: *mut napi_value,
+    this: *mut napi_value,
     data: *mut *mut c_void,
 ) -> napi_status {
     if cbinfo.0.is_null() {
         return napi_invalid_arg;
     }
-    let info = unsafe { &*(cbinfo.0 as *const CallbackInfo) };
+    // SAFETY: the caller's contract — the pointer the trampoline handed over.
+    let info = unsafe { &*cbinfo.0.cast::<CallInfo>() };
 
-    // `argc` é in/out: entrada = capacidade do buffer argv; saída = nº real.
     if !argc.is_null() {
-        let cap = unsafe { *argc };
-        let real = info.argv.len();
+        // SAFETY: the caller's contract.
+        let room = unsafe { *argc };
         if !argv.is_null() {
-            let n = cap.min(real);
-            for i in 0..n {
-                unsafe { *argv.add(i) = info.argv[i] };
-            }
-            // Preenche o restante do buffer com undefined.
-            for i in n..cap {
-                unsafe { *argv.add(i) = value_from_handle((i64::MIN + 2) as u64) };
+            // The ABI's rule: fill up to `room`, pad the rest with `undefined`,
+            // and report how many there WERE — not how many were copied, which
+            // is what tells an addon it under-sized its buffer.
+            for at in 0..room {
+                let handle = match info.arguments.get(at) {
+                    Some(handle) if at < info.given => *handle,
+                    _ => crate::handles::none(),
+                };
+                // SAFETY: the caller's contract — `room` writable handles.
+                unsafe { *argv.add(at) = handle };
             }
         }
-        unsafe { *argc = real };
+        // SAFETY: the caller's contract.
+        unsafe { *argc = info.given };
     }
-    if !this_arg.is_null() {
-        unsafe { *this_arg = info.this_arg };
+    if !this.is_null() {
+        // SAFETY: the caller's contract.
+        unsafe { *this = info.this };
     }
     if !data.is_null() {
+        // SAFETY: the caller's contract.
         unsafe { *data = info.data };
     }
     napi_ok
 }
 
+/// `napi_call_function` — the addon calling a JS function.
+///
+/// # Safety
+///
+/// `argv` must point at `argc` handles from an open scope.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_call_function(
-    _env: napi_env,
+    env: napi_env,
     recv: napi_value,
     func: napi_value,
     argc: usize,
     argv: *const napi_value,
     result: *mut napi_value,
 ) -> napi_status {
-    let func_handle = handle_from_value(func);
-    if func_handle == 0 {
+    // SAFETY: the caller's contract.
+    let Some(callee) = (unsafe { value_of(func) }) else {
+        return napi_invalid_arg;
+    };
+    let this = match unsafe { value_of(recv) } {
+        Some(word) => word,
+        None => rts_core::entry::undefined_value(),
+    };
+    if !rts_core::entry::with_runtime(|context| rts_core::entry::is_callable_in(context, callee)) {
         return napi_function_expected;
     }
 
-    // Empacota argv num Entry::Vec (handles i64).
-    let mut items: Vec<i64> = Vec::with_capacity(argc);
-    if !argv.is_null() {
-        for i in 0..argc {
-            let v = unsafe { *argv.add(i) };
-            items.push(handle_from_value(v) as i64);
+    let mut words = Vec::with_capacity(argc);
+    for at in 0..argc {
+        if argv.is_null() {
+            return napi_invalid_arg;
+        }
+        // SAFETY: the caller's contract — `argc` readable handles.
+        let handle = unsafe { *argv.add(at) };
+        // SAFETY: a handle from an open scope.
+        match unsafe { value_of(handle) } {
+            Some(word) => words.push(word),
+            None => return napi_invalid_arg,
         }
     }
-    let args_vec = alloc_entry(Entry::vec(items));
+    let arguments = rts_core::entry::make_array(words);
+    let produced = rts_core::entry::call_with_args(callee, this, arguments);
 
-    let recv_i64 = handle_from_value(recv) as i64;
-    let ret = unsafe { __RTS_FN_GL_FUNCTION_CALL(func_handle, recv_i64, args_vec) };
+    // Rule 8 of `rts-core`'s README, from the outside: a call that left a throw
+    // behind produced no answer, and handing one back would be handing back
+    // `undefined` as though the call had succeeded.
+    if rts_core::entry::pending().is_some() {
+        return napi_status::napi_pending_exception;
+    }
 
+    // SAFETY: the caller's contract.
+    let Some(env) = (unsafe { env_of(env) }) else {
+        return napi_invalid_arg;
+    };
+    let handle = env.current().handle(produced);
     if !result.is_null() {
-        unsafe { *result = value_from_handle(ret as u64) };
+        // SAFETY: the caller's contract.
+        unsafe { *result = handle };
     }
     napi_ok
 }
 
-/// Define propriedades num objeto a partir de descriptors. Fase 1: honra
-/// `utf8name` + (`value` OU `method`); ignora `getter`/`setter`/`attributes`
-/// (sem accessors dinâmicos). Cobre o padrão comum de addons que populam o
-/// `exports` via `napi_define_properties`.
+/// `napi_is_callable`, spelled `napi_is_function` by some headers.
+///
+/// # Safety
+///
+/// The ABI's.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_define_properties(
-    env: napi_env,
-    object: napi_value,
-    property_count: usize,
-    properties: *const crate::napi_property_descriptor,
+pub unsafe extern "C" fn napi_is_callable(
+    _env: napi_env,
+    value: napi_value,
+    result: *mut bool,
 ) -> napi_status {
-    if properties.is_null() && property_count > 0 {
+    // SAFETY: the caller's contract.
+    let Some(word) = (unsafe { value_of(value) }) else {
+        return napi_invalid_arg;
+    };
+    if result.is_null() {
         return napi_invalid_arg;
     }
-    for i in 0..property_count {
-        let desc = unsafe { &*properties.add(i) };
-        // Resolve a chave: utf8name (C string) tem prioridade; senão name (napi_value String).
-        let key = if !desc.utf8name.is_null() {
-            unsafe { cstr_key(desc.utf8name) }
-        } else {
-            crate::objects::objects_key_of(desc.name)
-        };
-        let Some(key) = key else { continue };
-
-        // Valor: method → cria a fn; senão value direto.
-        let value_handle = if desc.method.is_some() {
-            let mut f = napi_value(value_from_handle(0).0);
-            unsafe {
-                napi_create_function(env, std::ptr::null(), 0, desc.method, desc.data, &mut f)
-            };
-            handle_from_value(f)
-        } else {
-            handle_from_value(desc.value)
-        };
-
-        // set_named_property(object, key, value_handle).
-        let key_c = std::ffi::CString::new(key).unwrap_or_default();
-        unsafe {
-            crate::objects::napi_set_named_property(
-                env,
-                object,
-                key_c.as_ptr(),
-                value_from_handle(value_handle),
-            );
-        }
-    }
+    let callable =
+        rts_core::entry::with_runtime(|context| rts_core::entry::is_callable_in(context, word));
+    // SAFETY: the caller's contract.
+    unsafe { *result = callable };
     napi_ok
 }
-
-unsafe fn cstr_key(p: *const c_char) -> Option<String> {
-    if p.is_null() {
-        return None;
-    }
-    let mut len = 0usize;
-    unsafe {
-        while *p.add(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(p as *const u8, len);
-        std::str::from_utf8(slice).ok().map(|s| s.to_string())
-    }
-}
-
-/// Limpa o registro de uma fn N-API quando o handle é liberado. (Chamado por um
-/// hook de cleanup futuro; por ora as fns vivem pelo processo, o que é seguro.)
-#[allow(dead_code)]
-pub fn forget_callback(handle: u64) {
-    if let Ok(mut g) = NAPI_CALLBACKS.lock() {
-        if let Some(m) = g.as_mut() {
-            m.remove(&handle);
-        }
-    }
-}
-
-// NOTA: testes do dispatch de callbacks (create_function → FUNCTION_CALL → shim
-// → cb, e get_cb_info) exigem `__RTS_FN_GL_FUNCTION_CALL` (rts-primitives), que
-// arrasta a teia de símbolos `__RTS_*` cross-crate — não linkável num
-// `cargo test -p rts-napi` isolado. São validados por **e2e no bin**
-// (`tests/napi_add_addon.test.ts`): um addon `.node` que expõe `add(a,b)`,
-// chamado do TS, com o resultado comparado ao esperado. Ver
-// docs/guides/napi.md (Etapa 11).

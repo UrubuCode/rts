@@ -178,7 +178,7 @@ regions) and `Symbol.toPrimitive` (additive on the above).
 **A collector is no longer among them**, and this paragraph said it was: `collect/`
 marks and sweeps, `entry/collect_cycle.rs` runs a cycle from `entry/alloc.rs`
 when the region fills, and `entry/roots.rs` answers what is live — the context's
-own fields, a conservative scan of the machine stack, and (since `rts-napi-rwk`
+own fields, a conservative scan of the machine stack, and (since `rts-napi`
 needed one) what something outside the heap is holding, in `entry/external.rs`.
 What is NOT there is precision: `rts_cranelift::gc::describe_frames` is finished
 and has no caller, so a compiled frame cannot be asked which of its slots are
@@ -205,4 +205,4 @@ exists — it is finished when the old code is gone.**
 
 Both were deleted on 2026-08-10 and the suffix came off, everywhere, in the same
 change. It is worth keeping the rule written down because it is being used
-again: `rts-napi-rwk` carries it today, beside the `rts-napi` it replaces.
+again: `rts-napi` carries it today, beside the `rts-napi` it replaces.

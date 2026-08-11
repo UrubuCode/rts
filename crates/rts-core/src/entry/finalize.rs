@@ -22,7 +22,7 @@
 //! mean belongs to whoever registered them — the same shape `entry::foreign`
 //! takes for the same reason.
 //!
-//! `rts-napi-rwk` registers a trampoline of its own here, exactly as it does
+//! `rts-napi` registers a trampoline of its own here, exactly as it does
 //! for a callable, and recovers its environment from the words. This crate
 //! never learns that an environment exists.
 //!
@@ -101,7 +101,7 @@ pub(super) fn queue_freed(context: &mut Context, cell: u32) {
 /// The engine collects on its own when the region fills, which is the path
 /// every program takes and the reason there is no `gc` surface in the language
 /// (`CLAUDE.md` records that decision). This exists for the caller that must
-/// OBSERVE one: `rts-napi-rwk`'s own tests, which have to see that a wrap's
+/// OBSERVE one: `rts-napi`'s own tests, which have to see that a wrap's
 /// finalizer is queued by a real cycle rather than trust two halves that were
 /// each tested apart.
 ///

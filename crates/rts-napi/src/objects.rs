@@ -1,214 +1,368 @@
-//! Objetos, arrays e propriedades N-API. Opera direto sobre `Entry::Map`
-//! (objeto: chave string → `napi_value` como i64) e `Entry::Vec` (array de
-//! `napi_value` como i64). Ver docs/guides/napi.md (Etapa 7).
+//! Objects, their properties, and arrays.
 //!
-//! `napi_value` é um `u64` handle; cabe num `i64` slot do Map/Vec por
-//! reinterpretação de bits (não conversão numérica).
+//! P2. Everything here is a forwarder to `rts-core`: `napi_get_property` asks
+//! the runtime what a property is, walks no prototype chain of its own, and
+//! decides no semantic — rule 5 of this crate's README.
+//!
+//! # Named, keyed, and indexed are three doors to one room
+//!
+//! The ABI has `napi_get_named_property` (a C string), `napi_get_property` (a
+//! `napi_value` key) and `napi_get_element` (a `u32`). They are not three
+//! operations: the second is the general one, and the other two differ only in
+//! how the key arrives. So the key is turned into a value at the door and one
+//! implementation answers all three — which is also what keeps `o.x`, `o["x"]`
+//! and `o[0]` finding the same property from an addon as they do from a
+//! program.
+//!
+//! # Why a missing property is `napi_ok` with `undefined`
+//!
+//! Because that is what the language says a missing property is, and the ABI
+//! agrees: `napi_get_property` answers ok. An addon distinguishes absent from
+//! present-and-undefined with `napi_has_property`, which is the same pair of
+//! questions a program asks with `in`.
 
-use std::ffi::c_char;
+use crate::abi::{napi_env, napi_status, napi_value};
+use crate::handles::{env_of, value_of, write_out};
 
-use indexmap::IndexMap;
-use rts_engine::heap::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
+use napi_status::{napi_invalid_arg, napi_object_expected, napi_ok};
 
-use crate::env::{handle_from_value, value_from_handle};
-use crate::types::{napi_env, napi_status, napi_value};
-
-use napi_status::{napi_array_expected, napi_invalid_arg, napi_object_expected, napi_ok};
-
-#[inline]
-fn val_to_slot(v: napi_value) -> i64 {
-    handle_from_value(v) as i64
-}
-
-#[inline]
-fn slot_to_val(s: i64) -> napi_value {
-    value_from_handle(s as u64)
-}
-
-unsafe fn cstr_to_string(p: *const c_char) -> Option<String> {
-    if p.is_null() {
-        return None;
+/// Puts an engine word in a handle of `env`'s innermost scope.
+///
+/// # Safety
+///
+/// `env` live, `out` writable.
+unsafe fn produce(env: napi_env, out: *mut napi_value, word: u64) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some(env) = (unsafe { env_of(env) }) else {
+        return napi_invalid_arg;
+    };
+    let handle = env.current().handle(word);
+    // SAFETY: the caller's contract.
+    match unsafe { write_out(out, handle) } {
+        true => napi_ok,
+        false => napi_invalid_arg,
     }
-    let mut len = 0usize;
-    unsafe {
-        while *p.add(len) != 0 {
-            len += 1;
+}
+
+/// The two words a property operation needs: the object and the key.
+///
+/// # Safety
+///
+/// Both handles must come from an open scope.
+unsafe fn pair(object: napi_value, key: napi_value) -> Option<(u64, u64)> {
+    // SAFETY: the caller's contract.
+    unsafe { Some((value_of(object)?, value_of(key)?)) }
+}
+
+/// The text a C string holds, or `None` when it is not UTF-8.
+///
+/// # Safety
+///
+/// `name` must be NUL-terminated.
+unsafe fn name_of<'a>(name: *const core::ffi::c_char) -> Option<&'a str> {
+    match name.is_null() {
+        true => None,
+        // SAFETY: the caller's contract.
+        false => unsafe { core::ffi::CStr::from_ptr(name) }.to_str().ok(),
+    }
+}
+
+/// `napi_create_object`.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_create_object(env: napi_env, result: *mut napi_value) -> napi_status {
+    let word = rts_core::entry::with_runtime(rts_core::entry::make_object);
+    // SAFETY: forwarded.
+    unsafe { produce(env, result, word) }
+}
+
+/// `napi_set_property` — `object[key] = value`.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_set_property(
+    _env: napi_env,
+    object: napi_value,
+    key: napi_value,
+    value: napi_value,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let (Some((object, key)), Some(value)) =
+        (unsafe { pair(object, key) }, unsafe { value_of(value) })
+    else {
+        return napi_invalid_arg;
+    };
+    rts_core::entry::set_indexed(object, key, value);
+    napi_ok
+}
+
+/// `napi_get_property` — `object[key]`.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_get_property(
+    env: napi_env,
+    object: napi_value,
+    key: napi_value,
+    result: *mut napi_value,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some((object, key)) = (unsafe { pair(object, key) }) else {
+        return napi_invalid_arg;
+    };
+    let word = rts_core::entry::get_indexed(object, key);
+    // SAFETY: forwarded.
+    unsafe { produce(env, result, word) }
+}
+
+/// `napi_has_property` — `key in object`.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_has_property(
+    _env: napi_env,
+    object: napi_value,
+    key: napi_value,
+    result: *mut bool,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some((object, key)) = (unsafe { pair(object, key) }) else {
+        return napi_invalid_arg;
+    };
+    if result.is_null() {
+        return napi_invalid_arg;
+    }
+    // SAFETY: the caller's contract — `result` writable.
+    unsafe { *result = rts_core::entry::has_property(key, object) };
+    napi_ok
+}
+
+/// `napi_delete_property` — `delete object[key]`.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_delete_property(
+    _env: napi_env,
+    object: napi_value,
+    key: napi_value,
+    result: *mut bool,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some((object, key)) = (unsafe { pair(object, key) }) else {
+        return napi_invalid_arg;
+    };
+    let deleted = rts_core::entry::delete_property(object, key);
+    // The out-parameter is OPTIONAL here, unlike everywhere else: `delete` is
+    // performed for its effect and most addons ignore the answer.
+    if !result.is_null() {
+        // SAFETY: the caller's contract.
+        unsafe { *result = deleted };
+    }
+    napi_ok
+}
+
+/// `napi_set_named_property` — the same, with the key as a C string.
+///
+/// # Safety
+///
+/// `utf8name` must be NUL-terminated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_set_named_property(
+    _env: napi_env,
+    object: napi_value,
+    utf8name: *const core::ffi::c_char,
+    value: napi_value,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let (Some(object), Some(value), Some(name)) = (
+        unsafe { value_of(object) },
+        unsafe { value_of(value) },
+        unsafe { name_of(utf8name) },
+    ) else {
+        return napi_invalid_arg;
+    };
+    // Through the SAME door `napi_set_property` uses, and this is the fix to a
+    // claim this module made and did not keep. `put_member` writes a data
+    // property directly; `set_indexed` is `o[k] = v`, which runs a setter if
+    // there is one. With `put_member` here, a property defined by
+    // `napi_define_properties` with a setter was silently overwritten by a plain
+    // value — three doors, two rooms.
+    let key = rts_core::entry::with_runtime(|context| {
+        rts_core::entry::make_string(context, name)
+    });
+    rts_core::entry::set_indexed(object, key, value);
+    napi_ok
+}
+
+/// `napi_get_named_property`.
+///
+/// # Safety
+///
+/// `utf8name` must be NUL-terminated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_get_named_property(
+    env: napi_env,
+    object: napi_value,
+    utf8name: *const core::ffi::c_char,
+    result: *mut napi_value,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let (Some(object), Some(name)) = (unsafe { value_of(object) }, unsafe { name_of(utf8name) })
+    else {
+        return napi_invalid_arg;
+    };
+    // `get_indexed`, not `get_member`, and the difference is a getter:
+    // `get_member` reads a data property and cannot run user code, because it
+    // holds the runtime's borrow while it looks. Reading a property defined by
+    // `napi_define_properties` with a getter answered `undefined` through this
+    // door and 7 through the keyed one — which is precisely the claim this
+    // module's own documentation makes and would have been breaking.
+    let key = rts_core::entry::with_runtime(|context| {
+        rts_core::entry::make_string(context, name)
+    });
+    let word = rts_core::entry::get_indexed(object, key);
+    // SAFETY: forwarded.
+    unsafe { produce(env, result, word) }
+}
+
+/// `napi_get_property_names` — the object's own enumerable keys, as an array.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_get_property_names(
+    env: napi_env,
+    object: napi_value,
+    result: *mut napi_value,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some(object) = (unsafe { value_of(object) }) else {
+        return napi_invalid_arg;
+    };
+    let words = rts_core::entry::with_runtime(|context| {
+        if !rts_core::entry::is_object(context, object) {
+            return None;
         }
-        let slice = std::slice::from_raw_parts(p as *const u8, len);
-        std::str::from_utf8(slice).ok().map(|s| s.to_string())
-    }
+        let names = rts_core::entry::member_names(context, object);
+        Some(
+            names
+                .iter()
+                .map(|name| rts_core::entry::make_string(context, name))
+                .collect::<Vec<u64>>(),
+        )
+    });
+    let Some(words) = words else {
+        return napi_object_expected;
+    };
+    // SAFETY: forwarded.
+    unsafe { produce(env, result, rts_core::entry::make_array(words)) }
 }
 
-/// Lê uma chave string de um `napi_value` String, ou `None`.
-fn key_from_value(v: napi_value) -> Option<String> {
-    with_entry(handle_from_value(v), |e| match e {
-        Some(Entry::String(b)) => std::str::from_utf8(b).ok().map(|s| s.to_string()),
-        _ => None,
-    })
-}
-
-/// Versão pública de `key_from_value` (usada por `napi_define_properties`).
-pub fn objects_key_of(v: napi_value) -> Option<String> {
-    key_from_value(v)
-}
-
-// ── criação ──────────────────────────────────────────────────────────────────
-
+/// `napi_create_array`.
+///
+/// # Safety
+///
+/// The ABI's.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_create_object(
-    env: napi_env,
-    result: *mut napi_value,
-) -> napi_status {
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    let h = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
-    unsafe { crate::scopes::track_in_env(env, h) };
-    unsafe { *result = value_from_handle(h) };
-    napi_ok
+pub unsafe extern "C" fn napi_create_array(env: napi_env, result: *mut napi_value) -> napi_status {
+    // SAFETY: forwarded.
+    unsafe { produce(env, result, rts_core::entry::make_array(Vec::new())) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_create_array(
-    env: napi_env,
-    result: *mut napi_value,
-) -> napi_status {
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    let h = alloc_entry(Entry::vec(Vec::new()));
-    unsafe { crate::scopes::track_in_env(env, h) };
-    unsafe { *result = value_from_handle(h) };
-    napi_ok
-}
-
+/// `napi_create_array_with_length` — `length` holes, as `new Array(n)` makes.
+///
+/// # Safety
+///
+/// The ABI's.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_array_with_length(
     env: napi_env,
     length: usize,
     result: *mut napi_value,
 ) -> napi_status {
+    // Filled with `undefined` rather than left as holes. The ABI's own wording
+    // is that the elements are "unset", and this engine's array is a list of
+    // words — a hole is a singleton it would have to invent a producer for here,
+    // and an addon that reads before writing gets the same `undefined` either
+    // way.
+    let undefined = rts_core::entry::undefined_value();
+    let words = vec![undefined; length];
+    // SAFETY: forwarded.
+    unsafe { produce(env, result, rts_core::entry::make_array(words)) }
+}
+
+/// `napi_is_array`.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_is_array(
+    _env: napi_env,
+    value: napi_value,
+    result: *mut bool,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some(word) = (unsafe { value_of(value) }) else {
+        return napi_invalid_arg;
+    };
     if result.is_null() {
         return napi_invalid_arg;
     }
-    // Preenche com a sentinela `undefined` (i64::MIN+2) — holes JS.
-    let hole = (i64::MIN + 2) as i64;
-    let h = alloc_entry(Entry::vec(vec![hole; length]));
-    unsafe { crate::scopes::track_in_env(env, h) };
-    unsafe { *result = value_from_handle(h) };
+    // SAFETY: the caller's contract.
+    unsafe { *result = rts_core::entry::is_array(word) };
     napi_ok
 }
 
-// ── propriedades nomeadas (string C) ─────────────────────────────────────────
-
+/// `napi_get_array_length`.
+///
+/// # Safety
+///
+/// The ABI's.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_set_named_property(
+pub unsafe extern "C" fn napi_get_array_length(
     _env: napi_env,
-    object: napi_value,
-    utf8name: *const c_char,
     value: napi_value,
+    result: *mut u32,
 ) -> napi_status {
-    let Some(key) = (unsafe { cstr_to_string(utf8name) }) else {
+    // SAFETY: the caller's contract.
+    let Some(word) = (unsafe { value_of(value) }) else {
         return napi_invalid_arg;
     };
-    let slot = val_to_slot(value);
-    let ok = with_entry_mut(handle_from_value(object), |e| match e {
-        Some(Entry::Map(m)) => {
-            m.insert(key, slot);
-            true
-        }
-        _ => false,
+    if !rts_core::entry::is_array(word) {
+        return napi_status::napi_array_expected;
+    }
+    let length = rts_core::entry::with_runtime(|context| {
+        rts_core::entry::get_member(context, word, "length")
     });
-    if ok { napi_ok } else { napi_object_expected }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_get_named_property(
-    _env: napi_env,
-    object: napi_value,
-    utf8name: *const c_char,
-    result: *mut napi_value,
-) -> napi_status {
+    let Some(length) = rts_core::entry::number_of(length) else {
+        return napi_status::napi_array_expected;
+    };
     if result.is_null() {
         return napi_invalid_arg;
     }
-    let Some(key) = (unsafe { cstr_to_string(utf8name) }) else {
-        return napi_invalid_arg;
-    };
-    let found = with_entry(handle_from_value(object), |e| match e {
-        Some(Entry::Map(m)) => Some(m.get(&key).copied()),
-        _ => None,
-    });
-    match found {
-        Some(Some(slot)) => {
-            unsafe { *result = slot_to_val(slot) };
-            napi_ok
-        }
-        Some(None) => {
-            // chave ausente → undefined
-            unsafe { *result = value_from_handle((i64::MIN + 2) as u64) };
-            napi_ok
-        }
-        None => napi_object_expected,
-    }
+    // SAFETY: the caller's contract.
+    unsafe { *result = length as u32 };
+    napi_ok
 }
 
-// ── propriedades por chave napi_value (string) ───────────────────────────────
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_set_property(
-    env: napi_env,
-    object: napi_value,
-    key: napi_value,
-    value: napi_value,
-) -> napi_status {
-    let Some(k) = key_from_value(key) else {
-        return napi_invalid_arg;
-    };
-    let slot = val_to_slot(value);
-    let ok = with_entry_mut(handle_from_value(object), |e| match e {
-        Some(Entry::Map(m)) => {
-            m.insert(k, slot);
-            true
-        }
-        _ => false,
-    });
-    let _ = env;
-    if ok { napi_ok } else { napi_object_expected }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_get_property(
-    _env: napi_env,
-    object: napi_value,
-    key: napi_value,
-    result: *mut napi_value,
-) -> napi_status {
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    let Some(k) = key_from_value(key) else {
-        return napi_invalid_arg;
-    };
-    let found = with_entry(handle_from_value(object), |e| match e {
-        Some(Entry::Map(m)) => Some(m.get(&k).copied()),
-        _ => None,
-    });
-    match found {
-        Some(Some(slot)) => {
-            unsafe { *result = slot_to_val(slot) };
-            napi_ok
-        }
-        Some(None) => {
-            unsafe { *result = value_from_handle((i64::MIN + 2) as u64) };
-            napi_ok
-        }
-        None => napi_object_expected,
-    }
-}
-
-// ── elementos de array ───────────────────────────────────────────────────────
-
+/// `napi_set_element` — `object[index] = value`.
+///
+/// # Safety
+///
+/// The ABI's.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_set_element(
     _env: napi_env,
@@ -216,220 +370,97 @@ pub unsafe extern "C" fn napi_set_element(
     index: u32,
     value: napi_value,
 ) -> napi_status {
-    let slot = val_to_slot(value);
-    let ok = with_entry_mut(handle_from_value(object), |e| match e {
-        Some(Entry::Vec(v)) => {
-            let idx = index as usize;
-            if idx >= v.len() {
-                // Cresce preenchendo holes com undefined.
-                v.resize(idx + 1, (i64::MIN + 2) as i64);
-            }
-            v[idx] = slot;
-            true
-        }
-        _ => false,
-    });
-    if ok { napi_ok } else { napi_array_expected }
+    // SAFETY: the caller's contract.
+    let (Some(object), Some(value)) = (unsafe { value_of(object) }, unsafe { value_of(value) })
+    else {
+        return napi_invalid_arg;
+    };
+    let key = rts_core::entry::make_number(index as f64);
+    rts_core::entry::set_indexed(object, key, value);
+    napi_ok
 }
 
+/// `napi_get_element` — `object[index]`.
+///
+/// # Safety
+///
+/// The ABI's.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_get_element(
-    _env: napi_env,
+    env: napi_env,
     object: napi_value,
     index: u32,
     result: *mut napi_value,
 ) -> napi_status {
-    if result.is_null() {
+    // SAFETY: the caller's contract.
+    let Some(object) = (unsafe { value_of(object) }) else {
         return napi_invalid_arg;
-    }
-    let found = with_entry(handle_from_value(object), |e| match e {
-        Some(Entry::Vec(v)) => Some(v.get(index as usize).copied()),
-        _ => None,
-    });
-    match found {
-        Some(Some(slot)) => {
-            unsafe { *result = slot_to_val(slot) };
-            napi_ok
-        }
-        Some(None) => {
-            unsafe { *result = value_from_handle((i64::MIN + 2) as u64) };
-            napi_ok
-        }
-        None => napi_array_expected,
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_get_array_length(
-    _env: napi_env,
-    value: napi_value,
-    result: *mut u32,
-) -> napi_status {
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    let len = with_entry(handle_from_value(value), |e| match e {
-        Some(Entry::Vec(v)) => Some(v.len() as u32),
-        _ => None,
-    });
-    match len {
-        Some(l) => {
-            unsafe { *result = l };
-            napi_ok
-        }
-        None => napi_array_expected,
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_is_array(
-    _env: napi_env,
-    value: napi_value,
-    result: *mut bool,
-) -> napi_status {
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    let is_arr = with_entry(handle_from_value(value), |e| matches!(e, Some(Entry::Vec(_))));
-    unsafe { *result = is_arr };
-    napi_ok
-}
-
-/// Objeto global (`globalThis`). Singleton lazy — um `Entry::Map` por processo.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_get_global(
-    env: napi_env,
-    result: *mut napi_value,
-) -> napi_status {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static GLOBAL: AtomicU64 = AtomicU64::new(0);
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    let mut h = GLOBAL.load(Ordering::Relaxed);
-    if h == 0 {
-        let new_h = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
-        match GLOBAL.compare_exchange(0, new_h, Ordering::SeqCst, Ordering::Relaxed) {
-            Ok(_) => h = new_h,
-            Err(existing) => h = existing, // outro thread criou primeiro
-        }
-    }
-    let _ = env;
-    unsafe { *result = value_from_handle(h) };
-    napi_ok
-}
-
-/// `instanceof`. Fase 1: heurística sobre o tag `__rts_class` do Map da
-/// instância vs o nome do constructor (Function). Cobre o caso comum de addons
-/// que checam `value instanceof SomeClass`. Sem hierarquia completa.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_instanceof(
-    _env: napi_env,
-    object: napi_value,
-    constructor: napi_value,
-    result: *mut bool,
-) -> napi_status {
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    // Nome do constructor (Function.name).
-    let ctor_name = with_entry(handle_from_value(constructor), |e| match e {
-        Some(Entry::Function(d)) => Some(d.name.to_string()),
-        _ => None,
-    });
-    // Tag de classe da instância (Map["__rts_class"] como string handle).
-    let is_inst = match ctor_name {
-        Some(name) if !name.is_empty() => with_entry(handle_from_value(object), |e| match e {
-            Some(Entry::Map(m)) => m
-                .get("__rts_class")
-                .and_then(|&slot| {
-                    with_entry(slot as u64, |c| match c {
-                        Some(Entry::String(b)) => {
-                            Some(std::str::from_utf8(b).ok() == Some(name.as_str()))
-                        }
-                        _ => None,
-                    })
-                })
-                .unwrap_or(false),
-            _ => false,
-        }),
-        _ => false,
     };
-    unsafe { *result = is_inst };
-    napi_ok
+    let key = rts_core::entry::make_number(index as f64);
+    let word = rts_core::entry::get_indexed(object, key);
+    // SAFETY: forwarded.
+    unsafe { produce(env, result, word) }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::values::{napi_create_double, napi_get_value_double};
-    use std::ptr;
+/// `napi_get_value_string_utf8` — the text of a string value, as UTF-8.
+///
+/// With a null `buf` it measures: `result` is the byte length, NOT counting the
+/// terminator. With a buffer it copies as much as fits and always terminates,
+/// which is the ABI's contract and the reason a caller sizes first.
+///
+/// Here rather than in `values.rs` because it is the one value operation that
+/// writes into memory the ADDON owns, and that is the property worth filing it
+/// under: everything else hands back a handle.
+///
+/// # Safety
+///
+/// `buf` must be null or point at `bufsize` writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_get_value_string_utf8(
+    _env: napi_env,
+    value: napi_value,
+    buf: *mut core::ffi::c_char,
+    bufsize: usize,
+    result: *mut usize,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some(word) = (unsafe { value_of(value) }) else {
+        return napi_invalid_arg;
+    };
+    let Some(text) = rts_core::entry::text_of(word) else {
+        return napi_status::napi_string_expected;
+    };
+    let bytes = text.as_bytes();
 
-    fn env() -> napi_env {
-        napi_env(ptr::null_mut())
+    if buf.is_null() {
+        if result.is_null() {
+            return napi_invalid_arg;
+        }
+        // SAFETY: the caller's contract.
+        unsafe { *result = bytes.len() };
+        return napi_ok;
+    }
+    if bufsize == 0 {
+        return napi_invalid_arg;
     }
 
-    fn num(n: f64) -> napi_value {
-        let mut v = napi_value(ptr::null_mut());
-        unsafe { napi_create_double(env(), n, &mut v) };
-        v
+    // One byte reserved for the terminator, and the copy truncated at a
+    // CHARACTER boundary rather than at a byte: half of a multi-byte sequence
+    // is not UTF-8, and an addon printing it gets a replacement character or
+    // worse from its own C library.
+    let room = bufsize - 1;
+    let mut end = room.min(bytes.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
     }
-
-    #[test]
-    fn object_set_get_named() {
-        let mut obj = napi_value(ptr::null_mut());
-        unsafe { napi_create_object(env(), &mut obj) };
-        let key = b"answer\0";
-        assert_eq!(
-            unsafe { napi_set_named_property(env(), obj, key.as_ptr() as *const c_char, num(42.0)) },
-            napi_ok
-        );
-        let mut got = napi_value(ptr::null_mut());
-        unsafe { napi_get_named_property(env(), obj, key.as_ptr() as *const c_char, &mut got) };
-        let mut out = 0.0;
-        unsafe { napi_get_value_double(env(), got, &mut out) };
-        assert_eq!(out, 42.0);
+    // SAFETY: `buf` has `bufsize` writable bytes and `end < bufsize`.
+    unsafe {
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf.cast::<u8>(), end);
+        *buf.add(end) = 0;
     }
-
-    #[test]
-    fn array_set_get_length() {
-        let mut arr = napi_value(ptr::null_mut());
-        unsafe { napi_create_array(env(), &mut arr) };
-        unsafe { napi_set_element(env(), arr, 0, num(10.0)) };
-        unsafe { napi_set_element(env(), arr, 2, num(30.0)) }; // cria hole no 1
-        let mut len = 0u32;
-        unsafe { napi_get_array_length(env(), arr, &mut len) };
-        assert_eq!(len, 3);
-        let mut e2 = napi_value(ptr::null_mut());
-        unsafe { napi_get_element(env(), arr, 2, &mut e2) };
-        let mut out = 0.0;
-        unsafe { napi_get_value_double(env(), e2, &mut out) };
-        assert_eq!(out, 30.0);
-
-        let mut is_arr = false;
-        unsafe { napi_is_array(env(), arr, &mut is_arr) };
-        assert!(is_arr);
+    if !result.is_null() {
+        // SAFETY: the caller's contract.
+        unsafe { *result = end };
     }
-
-    #[test]
-    fn named_property_missing_is_undefined() {
-        let mut obj = napi_value(ptr::null_mut());
-        unsafe { napi_create_object(env(), &mut obj) };
-        let key = b"nope\0";
-        let mut got = napi_value(ptr::null_mut());
-        assert_eq!(
-            unsafe { napi_get_named_property(env(), obj, key.as_ptr() as *const c_char, &mut got) },
-            napi_ok
-        );
-        assert_eq!(handle_from_value(got), (i64::MIN + 2) as u64);
-    }
-
-    #[test]
-    fn set_named_on_non_object_fails() {
-        let key = b"x\0";
-        assert_eq!(
-            unsafe { napi_set_named_property(env(), num(1.0), key.as_ptr() as *const c_char, num(2.0)) },
-            napi_object_expected
-        );
-    }
+    napi_ok
 }
