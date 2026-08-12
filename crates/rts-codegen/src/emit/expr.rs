@@ -129,9 +129,13 @@ pub fn emit_expr(
             // `number` here buys nothing, because the guard it would ask for
             // is emitted either way.
             count_claimed_operands(ctx, left, right);
+            // Whether speculating is worth EMITTING is decided from the
+            // operands while they are still expressions, because a value has
+            // no name to have been annotated.
+            let speculate = speculation_is_worth_emitting(ctx, left, right);
             let a = emit_expr(builder, scope, ctx, left)?;
             let b = emit_expr(builder, scope, ctx, right)?;
-            emit_binary(builder, ctx, *op, a, b)
+            emit_binary_speculating(builder, ctx, *op, a, b, speculate)
         }
 
         ExprKind::Sequence { operands } => {
@@ -590,6 +594,48 @@ fn emit_literal(
     }
 }
 
+/// Whether the guarded form is worth emitting for these operands.
+///
+/// # The one thing a claim is allowed to do here
+///
+/// Take a guard AWAY that the emitter was going to add. `emit_binary`
+/// speculates unconditionally: an operand pair nothing proved gets two guards,
+/// an instruction and a slow path, on the bet that the operands turn out to be
+/// doubles. Where the program itself says both are something else, that bet is
+/// one the emitter is making against the only evidence available.
+///
+/// So this answers false only when BOTH operands carry a definite claim and
+/// NEITHER is a number. Both, because one unknown operand can still be a
+/// double and the pair can still take the instruction. Definite, because a
+/// union claims nothing.
+///
+/// # Why a wrong claim is safe here and would not be everywhere
+///
+/// Because the thing it selects is the emission the compiler would have used
+/// anyway when the guards failed. A `s: string` that really holds a number
+/// loses its fast path and takes the runtime call — slower, and the same
+/// answer. That is the campaign's rule in its cheapest form: the claim chooses
+/// between two already-legal emissions and removes no check, because the path
+/// it selects never had one.
+fn speculation_is_worth_emitting(ctx: &Ctx, left: &Expr, right: &Expr) -> bool {
+    // A body that claims nothing pays one comparison rather than two hash
+    // lookups per operator, and most bodies claim nothing: the corpus is
+    // JavaScript conformance tests. Measured before this line existed, the
+    // predicate cost 3% of the corpus's compile time to save four blocks in
+    // the handful of files that annotate.
+    if ctx.claims_empty() {
+        return true;
+    }
+    let claimed = |side: &Expr| match &side.kind {
+        ExprKind::Ident(name) => ctx.claimed(*name).map(|held| held.kind()),
+        _ => None,
+    };
+    let (Some(a), Some(b)) = (claimed(left), claimed(right)) else {
+        return true;
+    };
+    a == super::types::Kind::Number || b == super::types::Kind::Number
+}
+
 /// Records that a binary operator's operand carried a claim.
 ///
 /// A census hook and nothing else: it changes no emission. It lives here
@@ -617,12 +663,42 @@ fn count_claimed_operands(ctx: &mut Ctx, left: &Expr, right: &Expr) {
 /// known representation; `<` in JavaScript compares text when both sides are
 /// strings. Reaching for `compare` because the spelling matches is exactly the
 /// mistake rule 2 names.
+/// The same, with the speculation the claims said was pointless left out.
+///
+/// A separate entry point rather than a flag on the one below, so that a
+/// caller with nothing to say cannot accidentally say it: `emit_binary` is
+/// what eight callers want, and only the one place that has the operands as
+/// expressions can answer the question this takes.
+pub(super) fn emit_binary_speculating(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    op: BinaryOp,
+    a: ValueId,
+    b: ValueId,
+    speculate: bool,
+) -> EmitResult<ValueId> {
+    emit_binary_inner(builder, ctx, op, a, b, speculate)
+}
+
 pub(super) fn emit_binary(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
     op: BinaryOp,
     a: ValueId,
     b: ValueId,
+) -> EmitResult<ValueId> {
+    emit_binary_inner(builder, ctx, op, a, b, true)
+}
+
+/// The one implementation. `speculate` is false only where a claim said the
+/// guarded form would never take its fast path.
+fn emit_binary_inner(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    op: BinaryOp,
+    a: ValueId,
+    b: ValueId,
+    speculate: bool,
 ) -> EmitResult<ValueId> {
     // The whole point of the pass. Two proven doubles turn every one of these
     // into a machine instruction, because the decision the runtime call exists
@@ -649,7 +725,12 @@ pub(super) fn emit_binary(
     // This is what the type pass cannot reach. It proves things about locals,
     // and `o.n` is not one — nothing knows what an object holds. A guard needs
     // no such knowledge: it tests the value it actually got.
-    if let Some(instruction) = proven_binary(op) {
+    // `speculate` is the claim's one word here, and it can only ever say
+    // "do not bother": where both operands are claimed something that is not
+    // a number, the two guards below fail on every pass and the call happens
+    // anyway. Emitting it directly is four blocks, two guards and a join
+    // fewer, and the SAME call.
+    if speculate && let Some(instruction) = proven_binary(op) {
         return emit_guarded(builder, ctx, op, instruction, a, b);
     }
 
