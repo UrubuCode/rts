@@ -601,11 +601,16 @@ impl<'a> Body<'a> {
         // load happens once whichever path reached it — the same reason
         // `lower_cached_get` has one `read` block rather than one per path.
         let held_known = builder.create_block();
+        let own = builder.create_block();
         let check_held = builder.create_block();
         let ask = builder.create_block();
         let resolved = builder.create_block();
         let read = builder.create_block();
         let base = builder.append_block_param(read, types::I64);
+
+        // Named before any block is filled: three edges reach the miss path
+        // now, and one of them is emitted after the block that uses it.
+        let miss_target = self.blocks[&miss.block];
 
         let remembered = builder.ins().load(types::I64, flags, cell, 0);
         let recognized = builder.ins().icmp(IntCC::Equal, header, remembered);
@@ -618,8 +623,8 @@ impl<'a> Body<'a> {
             held,
             check_held,
             &[],
-            read,
-            &[cranelift_codegen::ir::BlockArg::Value(address)],
+            own,
+            &[],
         );
 
         // A second cell was remembered. It is an address rather than a
@@ -658,7 +663,6 @@ impl<'a> Body<'a> {
             .ins()
             .icmp_imm(IntCC::SignedGreaterThanOrEqual, answer, 0);
         let miss_args = self.block_args(&miss.args);
-        let miss_target = self.blocks[&miss.block];
         builder
             .ins()
             .brif(found, resolved, &[], miss_target, &miss_args);
@@ -675,32 +679,8 @@ impl<'a> Body<'a> {
             &[cranelift_codegen::ir::BlockArg::Value(address)],
         );
 
-        // The offset the site remembers may be a remembered REFUSAL rather than
-        // a place: the resolver writes a negative one for a receiver whose
-        // layout it has already decided it cannot answer from, so that a site
-        // which misses forever stops calling. It is checked here rather than on
-        // each of the three edges into this block, and the load it guards was
-        // being done on this path anyway — so what a warm positive site pays is
-        // one compare and one branch, monomorphic per site.
-        //
-        // A negative can never be a wrong answer: it selects the same miss path
-        // the site took before any of this existed, which is the general lookup.
-        // That is what makes remembering one require no invalidation the two
-        // type comparisons above do not already perform.
         builder.switch_to_block(read);
         let offset = builder.ins().load(types::I64, flags, cell, 8);
-        let usable = builder
-            .ins()
-            .icmp_imm(IntCC::SignedGreaterThanOrEqual, offset, 0);
-        let load_at = builder.create_block();
-        let refused_args = self.block_args(&miss.args);
-        builder
-            .ins()
-            .brif(usable, load_at, &[], miss_target, &refused_args);
-
-        // Reached only from `read`, which dominates it, so the base and the
-        // offset are in scope without being passed again.
-        builder.switch_to_block(load_at);
         let at = builder.ins().iadd(base, offset);
         let value = builder.ins().load(types::I64, flags, at, 0);
 
@@ -708,6 +688,37 @@ impl<'a> Body<'a> {
         hit_args.extend(self.block_args(&hit.args));
         let hit_target = self.blocks[&hit.block];
         builder.ins().jump(hit_target, &hit_args);
+
+        // No second cell: either the answer is an own field of the receiver, or
+        // this site remembers that it has already decided it CANNOT answer for
+        // this layout — which the resolver records as a negative offset, and
+        // records with no second cell for exactly this reason.
+        //
+        // The test lives on this edge rather than in `read`, which would have
+        // covered all three paths with one compare. It was tried there and cost
+        // 1.4 ns on `callee.m()` — a method on a prototype, the commonest read
+        // this terminator exists for, which reaches `read` through `check_held`
+        // and now passes untested. What pays instead is a callee that IS an own
+        // property, `Math.abs()` and `this.cb()`, one predicted branch.
+        //
+        // A negative can never be a wrong answer: it selects the same miss path
+        // the site took before any of this existed, which is the general lookup
+        // over the whole chain. That is what makes remembering one need no
+        // invalidation beyond the type comparison above.
+        builder.switch_to_block(own);
+        let own_offset = builder.ins().load(types::I64, flags, cell, 8);
+        let usable = builder
+            .ins()
+            .icmp_imm(IntCC::SignedGreaterThanOrEqual, own_offset, 0);
+        let refused_args = self.block_args(&miss.args);
+        builder.ins().brif(
+            usable,
+            read,
+            &[cranelift_codegen::ir::BlockArg::Value(address)],
+            miss_target,
+            &refused_args,
+        );
+
         Ok(())
     }
 

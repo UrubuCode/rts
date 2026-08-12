@@ -49,7 +49,6 @@ use super::{Context, with_current};
 /// against at offset 0, the byte offset it loads at at offset 8.
 #[rtse::entry("rts_cache_resolve")]
 pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
-    super::string::probe_resolves();
     with_current(|context| {
         context.resolves += 1;
         let explain = |why: &str, context: &mut Context| {
@@ -176,20 +175,22 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
 /// never wrong, and the question "what makes a `bp` that has appeared visible
 /// again?" has the answer "the miss path, which never stopped looking".
 ///
-/// What the two type comparisons buy is the speed BACK, and they are the ones
-/// already there. Give the receiver the property and its shape transitions, so
-/// its type changes and word 0 stops matching. Give the LINK the property and
-/// the link's type changes, so word 3 stops matching — which is why a
-/// remembered negative records the link it consulted rather than zero.
-/// Reassign the receiver's link and `chain::set_prototype` retypes the cell on
-/// the spot, which is the same one word 0 compares — so that case is covered by
-/// a mechanism that was already there for the positives.
+/// What the type comparison buys is the speed BACK, and it is the one already
+/// there. Give the receiver the property and its shape transitions, so its type
+/// changes and word 0 stops matching. Reassign the receiver's link and
+/// `chain::set_prototype` retypes the cell on the spot, which is that same word
+/// — so that case is covered by a mechanism built for the positives.
 ///
-/// What none of the three notices is the LINK's own link being reassigned
-/// (`Derived.prototype.__proto__ = other`), which is exactly the step this
-/// resolver may not walk. Such a site stays on the general lookup, at the speed
-/// it had before any cache existed, and never at a wrong answer. Stated here
-/// rather than left to be discovered.
+/// What it does NOT notice is the property appearing further up:
+/// `Holder.prototype.later = 7` after the site went cold, or the link's own
+/// link being reassigned. Those sites stay on the general lookup, at the speed
+/// they had before any cache existed, and never at a wrong answer.
+///
+/// That loss is paid for a measured reason rather than accepted. A negative
+/// that recorded the link WOULD re-arm on the first of them, and recording it
+/// routes the refusal through the same edge a prototype method takes — which
+/// put the sign test on `callee.m()` and cost 1.4 ns of 30. The commonest read
+/// this resolver exists for does not pay for the rarest recovery.
 ///
 /// The liveness argument for the address written with a negative is the one
 /// above, unchanged and for the same reason: the address recorded is the
@@ -268,7 +269,21 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         };
         // Remembering a refusal needs the receiver's type, so it is read here
         // rather than at the end, where it was read only to write a hit.
-        let remember = |why: &str, held: u64, held_type: i64| -> i64 {
+        // A remembered refusal records NO second cell, and that is a decision
+        // the machine forced rather than a simplification. The sign test sits
+        // on the edge where no second cell was remembered, so that a method
+        // found on a prototype — `callee.m()`, the commonest read this resolver
+        // exists for — reaches the load without being tested at all. Recording
+        // the link here would route the refusal through that same edge and put
+        // the test back on it, which measured 1.4 ns on a 30 ns call.
+        //
+        // What it costs: a link that LATER gains the key does not re-arm the
+        // site, because the site no longer compares anything about the link.
+        // The receiver gaining it still does — its shape transitions and word 0
+        // stops matching — and so does its prototype being reassigned, which
+        // `chain::set_prototype` retypes on the spot. The lost case stays on
+        // the general lookup, which is where it was before any of this.
+        let remember = |why: &str| -> i64 {
             if std::env::var_os("RTS_CHAIN_DEBUG").is_some() {
                 eprintln!("rts-chain refused and remembered: {why}");
             }
@@ -278,8 +293,8 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
                 let cell = cache as *mut i64;
                 cell.write(i64::from(receiver_type));
                 cell.add(1).write(-1);
-                cell.add(2).write(held as i64);
-                cell.add(3).write(held_type);
+                cell.add(2).write(0);
+                cell.add(3).write(-1);
             }
             -1
         };
@@ -288,7 +303,7 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             // Nothing to look at, and nothing that could make one appear
             // without changing this receiver's type — `typed_as` gives a linked
             // cell a number of its own. So there is no second cell to record.
-            return remember("the receiver has no recorded link", 0, -1);
+            return remember("the receiver has no recorded link");
         };
         let Some(holder) = crate::value::Value(link).as_slot() else {
             return report("the link is not a cell");
@@ -317,11 +332,7 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             // link further on, which this resolver may not reach. Recording the
             // link means the day it gains `bp` its type changes and the site
             // asks again.
-            return remember(
-                "the key is absent from the link's shape",
-                address,
-                i64::from(holder_type),
-            );
+            return remember("the key is absent from the link's shape");
         };
         if slot >= crate::heap::INLINE_SLOTS {
             return report("the slot is past the inline slots");
