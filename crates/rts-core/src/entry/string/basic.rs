@@ -344,7 +344,7 @@ extern "C" fn substring(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u
 /// what the language says too, and it is why this converts through text rather
 /// than mapping units in place.
 extern "C" fn to_upper_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    mapped(this, str::to_uppercase)
+    mapped_with(this, str::to_uppercase, Some(|byte| byte.to_ascii_uppercase()))
 }
 
 /// `s.toLowerCase()`.
@@ -356,7 +356,7 @@ extern "C" fn to_upper_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
 /// name and one more place for the two to drift. The divergence is the locale
 /// data, not the dispatch.
 extern "C" fn to_lower_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    mapped(this, str::to_lowercase)
+    mapped_with(this, str::to_lowercase, Some(|byte| byte.to_ascii_lowercase()))
 }
 
 /// `s.trim()`.
@@ -482,7 +482,32 @@ fn padded(this: u64, width: u64, fill: u64, at_start: bool) -> u64 {
 /// indexing units, because case mapping and white space are Unicode tables
 /// rather than positions.
 fn mapped(this: u64, body: impl FnOnce(&str) -> String) -> u64 {
+    mapped_with(this, body, None)
+}
+
+/// The same, with a byte-wise answer for text that is entirely ASCII.
+///
+/// # Why ASCII and not the whole narrow form
+///
+/// Because a Latin-1 case change can LEAVE the narrow form. `ÿ` uppercases
+/// to `Ÿ`, and `µ` to `Μ` — neither fits a byte, so a byte-wise
+/// map would silently truncate. Below 128 there is no such case: the only
+/// mapping is the twenty-six letters, and it stays below 128.
+///
+/// What it replaces is five allocations and two transcodes — a clone of the
+/// `Str`, a `String` from `to_rust`, the mapped `String`, a `Vec<u16>` from
+/// `encode_utf16`, and the scan `from_utf16` performs to decide a layout the
+/// caller already knew.
+fn mapped_with(this: u64, body: impl FnOnce(&str) -> String, ascii: Option<fn(u8) -> u8>) -> u64 {
     with_current(|context| {
+        if let Some(map) = ascii
+            && let Some(text) = Value(this).as_slot().and_then(|cell| context.text_at(cell))
+            && let Some(bytes) = text.narrow()
+            && bytes.is_ascii()
+        {
+            let produced: Vec<u8> = bytes.iter().map(|byte| map(*byte)).collect();
+            return answer_narrow(context, &produced);
+        }
         let Some(text) = text_of(context, this).and_then(|text| text.to_rust()) else {
             return nothing(context);
         };
