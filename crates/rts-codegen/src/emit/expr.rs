@@ -1088,7 +1088,30 @@ fn emit_guarded(
     let right = builder.add_block_param(both, Repr::F64);
     let slow = builder.create_block();
     let join = builder.create_block();
-    let result = builder.add_block_param(join, UNPROVEN);
+
+    // O JOIN É `Bool` QUANDO OS DOIS LADOS PRODUZEM UM BOOLEANO, e essa é a
+    // diferença entre uma comparação que o consumidor usa direto e uma que ele
+    // manda para o runtime.
+    //
+    // Ele era `UNPROVEN` sempre. Como `to_boolean` atalha um `Repr::Bool` e mais
+    // nada, todo `i < n` cujos operandos não fossem os dois duplos PROVADOS
+    // virava `__rts_to_boolean` mais a checagem de `throw` que segue toda
+    // chamada — e parâmetro de função chega sempre tagueado, então esse é o caso
+    // ORDINÁRIO e não uma quina.
+    //
+    // Os NEGADOS ficam de fora, e o motivo é que as duas arestas discordariam:
+    // `!==` e `!=` não têm entry point próprio (igualdade estrita é dita uma
+    // vez), então o caminho lento deles é a chamada de igualdade com a resposta
+    // invertida por `from_bool`, que responde um booleano TAGUEADO.
+    let (_, negated) = runtime_binary(op).expect("every instruction has a runtime operation");
+    let boolean_join = matches!(instruction, Proven::Compare(_)) && !negated;
+    let result = builder.add_block_param(
+        join,
+        match boolean_join {
+            true => Repr::Bool,
+            false => UNPROVEN,
+        },
+    );
 
     builder.guard(a, Repr::F64, (left_is_number, &[]), (slow, &[]))?;
 
@@ -1100,11 +1123,16 @@ fn emit_guarded(
         Proven::Arith(num) => builder.arith(num, left, right)?,
         Proven::Compare(cmp) => builder.compare(cmp, left, right)?,
     };
-    let fast = tagged(builder, fast);
+    // `builder.compare` já responde `Repr::Bool`; alargar aqui era jogar fora a
+    // única prova que este bloco produziu.
+    let fast = match boolean_join {
+        true => fast,
+        false => tagged(builder, fast),
+    };
     builder.jump(join, &[fast])?;
 
     builder.switch_to(slow);
-    let (runtime, negated) = runtime_binary(op).expect("every instruction has a runtime operation");
+    let (runtime, _) = runtime_binary(op).expect("every instruction has a runtime operation");
     let answered = call(builder, ctx, runtime, &[a, b])?[0];
     // `!==` has no runtime operation of its own — deliberately, so that strict
     // equality is stated once — so the slow path is the equality call with the
@@ -1112,11 +1140,25 @@ fn emit_guarded(
     // writes it. Reaching for a `StrictNotEquals` entry point that does not
     // exist is what this used to do, and it panicked the compiler for any
     // `a !== b` whose operands were not both proven numbers.
-    let answered = match negated {
-        true => super::choice::from_bool(builder, answered, true)?,
-        false => tagged(builder, answered),
-    };
-    builder.jump(join, &[answered])?;
+    if boolean_join {
+        // O ESTREITAMENTO É UM GUARD e não uma afirmação, e a diferença importa.
+        // Uma comparação do runtime só pode responder `true` ou `false`, então a
+        // aresta de falha é inalcançável — mas escrevê-la como uma constante
+        // seria o compilador AFIRMANDO algo que ele não provou, e o dia em que
+        // um entry point respondesse outra coisa o programa continuaria rodando
+        // com um booleano inventado. Traba: uma prova quebrada para o processo,
+        // em vez de um valor errado que segue adiante.
+        let impossible = builder.create_block();
+        builder.guard(answered, Repr::Bool, (join, &[]), (impossible, &[]))?;
+        builder.switch_to(impossible);
+        builder.trap(rts_cranelift::ir::inst::TrapCode::Unreachable);
+    } else {
+        let answered = match negated {
+            true => super::choice::from_bool(builder, answered, true)?,
+            false => tagged(builder, answered),
+        };
+        builder.jump(join, &[answered])?;
+    }
 
     builder.switch_to(join);
     Ok(result)
