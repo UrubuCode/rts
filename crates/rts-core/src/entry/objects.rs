@@ -78,6 +78,8 @@ pub(super) fn object_new_in(context: &mut Context) -> u64 {
 /// shape `own_keys` and `exec` have, for the same reason.
 #[rtse::entry]
 pub fn get_property(object: u64, key: i64) -> u64 {
+    super::string::probe_gets();
+
     // A proxy answers by running user code, so it is asked BEFORE any borrow
     // that a lookup would take — the trap may call straight back in here.
     // `None` means this is an ordinary object, which is every object in a

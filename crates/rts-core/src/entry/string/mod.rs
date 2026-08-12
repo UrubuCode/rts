@@ -32,6 +32,7 @@
 
 mod basic;
 mod more;
+pub(in crate::entry) mod probe;
 pub(in crate::entry) mod text;
 pub(super) mod pattern;
 
@@ -59,6 +60,7 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     super::native::install(context, cell, basic::NATIVES);
     super::native::install(context, cell, pattern::NATIVES);
     super::native::install(context, cell, more::NATIVES);
+    super::native::install(context, cell, probe::NATIVES);
     Some(cell)
 }
 
@@ -194,4 +196,24 @@ pub(super) fn relative(index: f64, length: usize) -> usize {
     let length = length as f64;
     let at = if index < 0.0 { length + index } else { index };
     at.clamp(0.0, length) as usize
+}
+
+/// One uncached property read happened. See [`probe`].
+pub(in crate::entry) fn probe_gets() {
+    probe::GETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// One call through `functions::call` happened. See [`probe`].
+pub(in crate::entry) fn probe_calls() {
+    probe::CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// One direct cache resolution happened. See [`probe`].
+pub(in crate::entry) fn probe_resolves() {
+    probe::RESOLVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// One indirect cache resolution happened. See [`probe`].
+pub(in crate::entry) fn probe_resolves_indirect() {
+    probe::RESOLVES_INDIRECT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }

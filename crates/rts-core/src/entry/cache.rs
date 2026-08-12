@@ -49,6 +49,7 @@ use super::{Context, with_current};
 /// against at offset 0, the byte offset it loads at at offset 8.
 #[rtse::entry("rts_cache_resolve")]
 pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
+    super::string::probe_resolves();
     with_current(|context| {
         context.resolves += 1;
         let explain = |why: &str, context: &mut Context| {

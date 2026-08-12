@@ -193,6 +193,8 @@ pub fn rest_arguments(from: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// otherwise be a jump to an arbitrary address.
 #[rtse::entry]
 pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    super::string::probe_calls();
+
     // A class constructor called without `new` is a `TypeError`, checked
     // before anything else so `1()` and `ClassCtor()` do not share a path
     // that decides this AFTER the jump.
