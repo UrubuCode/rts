@@ -119,6 +119,14 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
     })
 }
 
+/// What a refused chain site keeps in the word the machine compares against a
+/// holder's header.
+///
+/// Negative, so it can never equal a real type number and the machine's own
+/// comparison stays safe; distinct from the cold `-1` so that a site which has
+/// merely never run is told apart from one the walk has already declined.
+const REFUSED: i64 = -2;
+
 /// Where a property is, for a site that may read it out of the cell the
 /// receiver inherits from.
 ///
@@ -151,23 +159,16 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
 /// separate change with a separate argument to make.
 #[rtse::entry("rts_cache_resolve_indirect")]
 pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
-    let own = cache_resolve(object, key, cache);
-    if own >= 0 {
-        // The receiver had it. The machine reads the third word to decide where
-        // to load from, and `cache_resolve` did not write one — so it is written
-        // here rather than left holding whatever the last answer put there.
-        //
-        // SAFETY: the same cell `cache_resolve` was just handed and wrote two
-        // words of; this site declared four because its terminator is the
-        // indirect one.
-        unsafe {
-            let cell = cache as *mut i64;
-            cell.add(2).write(0);
-            cell.add(3).write(-1);
-        }
-        return own;
-    }
-
+    // ONE crossing, not two. This called `cache_resolve` first and then did its
+    // own `with_current`, so every site that ends up refused — every method two
+    // links away, which is most class code — paid the thread-local, the borrow
+    // and the key resolution TWICE on every execution, forever. Measured: a
+    // depth-2 method call went 1754 -> 3709 ms over 1e7 calls, 2.1x, against the
+    // binary from before this entry point existed.
+    //
+    // The own-property answer is computed here rather than delegated for that
+    // reason alone. It is the same three lookups `cache_resolve` performs and
+    // they are performed once.
     with_current(|context| {
         // Every refusal below says which one it was, for the reason
         // `cache_resolve`'s do: a site that misses forever looks exactly like a
@@ -195,15 +196,67 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             return report("no key registered under that number");
         };
 
+        // The receiver's own layout first, which is what the overwhelming
+        // majority of sites want and what `cache_resolve` answers. Written out
+        // rather than delegated so that a refusal costs one crossing.
+        if let Some(ty) = context.region.type_of(cell)
+            && let Some(shape) = context.shape_of(ty)
+            && let Some(slot) = context.shapes.slot_of(shape, named)
+            && slot < crate::heap::INLINE_SLOTS
+        {
+            let offset = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
+                + i64::from(slot) * i64::from(rts_cranelift::mem::SLOT_BYTES);
+            // SAFETY: the four-word cell this site's terminator declared. Word
+            // two is zero because the answer is in the cell asked about, and
+            // word three cannot match any real header, so a cell claiming an
+            // address it never got could not also match a layout.
+            unsafe {
+                let cell = cache as *mut i64;
+                cell.write(i64::from(ty));
+                cell.add(1).write(offset);
+                cell.add(2).write(0);
+                cell.add(3).write(-1);
+            }
+            return offset;
+        }
+
+        // Has this site already been told the walk cannot answer for it?
+        //
+        // Without this the walk runs on EVERY execution of a site it can never
+        // serve — eight lookups to reach the same refusal — and that is most
+        // class code, because a method two links away is refused here. Measured
+        // before the marker existed: a depth-2 method call cost 3591 ms over 1e7
+        // calls against 1789 for the same program compiled before this entry
+        // point existed. The walk was the difference, not the extra guard.
+        //
+        // The marker lives in the word the machine compares against a HEADER, so
+        // it is unreachable as a false match: a header is a type number and this
+        // is negative. It is written only after a refusal, and it is checked
+        // AFTER the own attempt above — a site whose receiver later grows the
+        // property still resolves, and only the chain walk is given up on.
+        //
+        // What it costs: a site that becomes chain-resolvable later never finds
+        // out. Slower, never wrong, and the case is a program that moves a method
+        // between prototypes after the site has run.
+        // SAFETY: the four-word cell this site's terminator declared.
+        if unsafe { (cache as *const i64).add(3).read() } == REFUSED {
+            return -1;
+        }
+        let refuse = |why: &str| -> i64 {
+            // SAFETY: as above.
+            unsafe { (cache as *mut i64).add(3).write(REFUSED) };
+            report(why)
+        };
+
         // A proxy answers through its handler, and answering from a layout would
         // be answering instead of it.
         if context.proxy_at(cell).is_some() {
-            return report("the receiver is a proxy");
+            return refuse("the receiver is a proxy");
         }
         // An own accessor shadows anything inherited, and `accessor::resolve` is
         // the one implementation of that order. Refusing here keeps it the one.
         if context.accessors.get(cell).is_some() {
-            return report("the receiver has accessors of its own");
+            return refuse("the receiver has accessors of its own");
         }
 
         // No recorded link, no walk. This is not an optimisation: `inherited_from`
@@ -213,35 +266,35 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         // object literal holding `length` reach the same shape and the same type
         // today, which is exactly the collision this refusal removes.
         let Some(link) = context.prototype_at(cell) else {
-            return report("the receiver has no recorded link");
+            return refuse("the receiver has no recorded link");
         };
         let Some(holder) = crate::value::Value(link).as_slot() else {
-            return report("the link is not a cell");
+            return refuse("the link is not a cell");
         };
         if context.proxy_at(holder).is_some() {
-            return report("the link is a proxy");
+            return refuse("the link is a proxy");
         }
         let Ok(named_number) = u32::try_from(named.index()) else {
             return report("the key number does not fit");
         };
         if context.accessor_at(holder, named_number).is_some() {
-            return report("the link holds an accessor for this key");
+            return refuse("the link holds an accessor for this key");
         }
 
         let Some(holder_type) = context.region.type_of(holder) else {
-            return report("the link is not a cell in this region");
+            return refuse("the link is not a cell in this region");
         };
         let Some(holder_shape) = context.shape_of(holder_type) else {
-            return report("the link has no shape");
+            return refuse("the link has no shape");
         };
         let Some(slot) = context.shapes.slot_of(holder_shape, named) else {
-            return report("the key is absent from the link's shape");
+            return refuse("the key is absent from the link's shape");
         };
         if slot >= crate::heap::INLINE_SLOTS {
-            return report("the slot is past the inline slots");
+            return refuse("the slot is past the inline slots");
         }
         let Some(address) = context.region.address_of(holder) else {
-            return report("the link has no address");
+            return refuse("the link has no address");
         };
         let Some(receiver_type) = context.region.type_of(cell) else {
             return report("the receiver is not a cell in this region");
