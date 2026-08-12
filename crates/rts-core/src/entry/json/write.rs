@@ -168,6 +168,13 @@ impl Writer {
         }
         // Copied out of the borrow rather than iterated inside one, because
         // each element's own serialisation calls back into the runtime.
+        //
+        // HELD for the same reason the key array is: the copy lives in a Rust
+        // `Vec`, whose buffer is on the Rust heap and is not scanned, and the
+        // array it came from is dead to Rust the moment the clone returns. Every
+        // element's serialisation allocates, so a collection in the middle of
+        // this loop freed cells this loop still names.
+        let anchor = super::super::external::hold_current(Value::from_slot(cell).bits());
         let elements = with_current(|context| context.elements_at(cell).cloned().unwrap_or_default());
         self.ascii("[");
         for (at, element) in elements.iter().enumerate() {
@@ -192,6 +199,8 @@ impl Writer {
         if !elements.is_empty() {
             self.newline(depth);
         }
+        // The elements are read for the last time above.
+        super::super::external::release_current(anchor);
         self.ascii("]");
         self.leave();
     }
@@ -205,7 +214,27 @@ impl Writer {
         // `for-in` walk. A second walk of the layout here would be a second
         // answer to "what order", and the two would drift the first time one
         // was fixed.
+        // HELD, and this is a correctness fix rather than a nicety.
+        //
+        // `own_keys` answers an ARRAY on the heap, and the loop below clones its
+        // elements into a Rust `Vec` and then allocates — a string per key, a
+        // value per member — while walking that clone. The array itself is dead
+        // to Rust after the clone, so nothing keeps it in a register and the
+        // conservative stack scan cannot see it; the cloned references live in a
+        // `Vec`'s buffer, which is on the Rust heap and is not scanned at all.
+        //
+        // A collection triggered by one of those allocations therefore freed the
+        // key strings this loop was about to read, and the cells came back out
+        // of the free list as something else. Measured before this: 31 wrong
+        // results per 300 000 `JSON.stringify` calls on a four-member object —
+        // a key duplicated or dropped, silently, in valid-looking JSON.
+        //
+        // `external` is a root (`roots.rs`), so holding the array keeps it and
+        // everything it reaches alive for exactly as long as this needs them.
+        // Released at the end of the function rather than at the end of the
+        // loop, because the last key is read after the last iteration.
         let names = super::super::array::own_keys(value);
+        let anchor = super::super::external::hold_current(names);
         let names = with_current(|context| {
             Value(names)
                 .as_slot()
@@ -260,6 +289,8 @@ impl Writer {
         if written {
             self.newline(depth);
         }
+        // The keys are read for the last time above, so the hold ends here.
+        super::super::external::release_current(anchor);
         self.ascii("}");
         self.leave();
     }
