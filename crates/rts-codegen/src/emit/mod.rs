@@ -330,6 +330,11 @@ pub struct Ctx<'a> {
     /// lookup on a path that runs per operation is a cost this workspace has
     /// already found and named in `entry::cache`.
     counting_claims: bool,
+    /// Which classes the program declares, and what each declares as a FIELD.
+    ///
+    /// Whole-program and not per-body, unlike `claims`: a claim written in one
+    /// function names a class declared in another, which is the ordinary case.
+    class_fields: types::Classes,
     /// Which names the program creates by assigning to them.
     ///
     /// Answered once for the whole program before anything is emitted, because
@@ -366,6 +371,7 @@ impl<'a> Ctx<'a> {
             claims: types::Facts::default(),
             census: types::Census::default(),
             counting_claims: types::Census::wanted(),
+            class_fields: types::Classes::default(),
             globals: std::collections::BTreeSet::new(),
         }
     }
@@ -445,6 +451,22 @@ impl<'a> Ctx<'a> {
     /// compile time and costing nothing, measured.
     pub(super) fn claims_empty(&self) -> bool {
         self.claims.len() == 0
+    }
+
+    /// Whether a receiver claimed to be an instance of a class reads a member
+    /// that class declares as a FIELD.
+    ///
+    /// The one question that separates `c.cb()` from `c.m()` without running
+    /// anything: a field is an own property and a method is on the prototype,
+    /// so they want opposite read forms. Answers `false` for everything it
+    /// cannot establish, and `false` is the emission that changes nothing.
+    pub(super) fn reads_own_field(&self, receiver: Name, member: Name) -> bool {
+        match self.claimed(receiver).map(|held| held.kind()) {
+            Some(types::Kind::Instance(class)) => {
+                self.class_fields.declares_field(class, member)
+            }
+            _ => false,
+        }
     }
 }
 
@@ -549,6 +571,10 @@ pub fn emit_program_with_exports(
     // was not before: it took no parameters, and every test that ran one called
     // it directly. Making it uniform is what lets a program call itself, and
     // what stops the host having two ways to enter compiled code.
+    // Whole-program, once, before anything is emitted: a claim in one function
+    // names a class declared in another, so this cannot be built per body.
+    ctx.class_fields = types::declared(body);
+
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
 

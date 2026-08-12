@@ -50,9 +50,11 @@
 //! replacements.
 
 mod census;
+mod classes;
 mod collect;
 
 pub(in crate::emit) use census::Census;
+pub(in crate::emit) use classes::{Classes, declared};
 pub(in crate::emit) use collect::analyse;
 
 use std::collections::HashMap;

@@ -100,12 +100,26 @@ pub(super) fn callee_and_receiver(
                     construct: "an optional call",
                 });
             }
+            // Which form to read the callee with. The POSITION says
+            // "prototype", because that is where a method lives — but where the
+            // program declared this member as a FIELD of the class it claims the
+            // receiver is, the position is wrong and the cheap form is right.
+            // `c.cb()` on `class C { cb: () => void }` is an own read.
+            //
+            // Both are legal emissions of the same read, which is what makes an
+            // unsound resolution safe here: a type name and a value name are one
+            // `Name`, and an interface is erased entirely, so this answers wrong
+            // sometimes. Wrong costs a site that re-resolves — what it did before
+            // the chain form existed — and never an answer.
+            let own = match &object.kind {
+                crate::syntax::ExprKind::Ident(name) => ctx.reads_own_field(*name, *property),
+                _ => false,
+            };
             let receiver = emit_expr(builder, scope, ctx, object)?;
-            // The indirect form: a method is written on a class body, so it
-            // lives on the prototype and the cheap cache can never arm here.
-            // See `property::emit_read_indirect` for why the position is the
-            // signal and what a wrong guess costs.
-            let function = super::property::emit_read_indirect(builder, ctx, receiver, *property)?;
+            let function = match own {
+                true => super::property::emit_read(builder, ctx, receiver, *property)?,
+                false => super::property::emit_read_indirect(builder, ctx, receiver, *property)?,
+            };
             (receiver, function)
         }
         // `o[k]()` is a method call, exactly as `o.k()` is. It fell into the
