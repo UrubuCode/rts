@@ -129,11 +129,7 @@ extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
         // answer where four characters were.
         //
         // Answered from borrowed slices, so neither side allocates at all.
-        if let Some(text) = context.text_at(Value(this).as_slot().unwrap_or(u32::MAX))
-            && let Some(hay) = text.narrow()
-            && let Some(pattern) = super::text_of(context, search)
-            && let Some(pin) = pattern.narrow().map(<[u8]>::to_vec)
-        {
+        if let Some((hay, pin)) = narrow_pair(context, this, search) {
             let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), hay.len());
             let found = find_bytes(hay, &pin, start);
             return Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits();
@@ -194,6 +190,10 @@ extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64
 /// `true` — an answer that is wrong in the direction a search is trusted in.
 extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
+        if let Some((hay, pin)) = narrow_pair(context, this, search) {
+            let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), hay.len());
+            return Value::from_bool(find_bytes(hay, &pin, start).is_some()).bits();
+        }
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
             return nothing(context);
@@ -444,6 +444,28 @@ fn mapped(this: u64, body: impl FnOnce(&str) -> String) -> u64 {
 /// Written once because five methods search, and five copies is where one of
 /// them would disagree about the empty needle — which occurs at every position,
 /// including the end.
+/// Both sides as BYTES, when both are narrow.
+///
+/// The shape `index_of` grew first and four more searches want: a receiver and
+/// an argument that are both ASCII need no widening and no copy of the
+/// receiver, which is what `units_of` does on every call — a 256-character
+/// haystack allocating 512 bytes and widening 256 units to answer where four
+/// characters are.
+///
+/// The needle IS copied, and that is not an oversight: `text_of` may BUILD a
+/// string (a number argument becomes its digits), so there is not always
+/// anything to borrow from. It is the short side, and copying it is what lets
+/// the long side stay borrowed.
+///
+/// `None` when either side is wide, which sends the caller to the path it
+/// already had.
+fn narrow_pair(context: &mut super::Context, this: u64, search: u64) -> Option<(&[u8], Vec<u8>)> {
+    let pattern = super::text_of(context, search)?;
+    let needle = pattern.narrow()?.to_vec();
+    let text = context.text_at(Value(this).as_slot()?)?;
+    Some((text.narrow()?, needle))
+}
+
 /// The same question over bytes, which is what both sides are whenever the text
 /// is ASCII — and it nearly always is.
 ///
