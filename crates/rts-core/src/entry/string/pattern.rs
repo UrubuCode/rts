@@ -251,6 +251,23 @@ fn produced(callee: u64, subject: &str, one: &Found) -> String {
 }
 
 /// `s.split(separator, limit)`.
+/// # Why this one keeps `to_rust`, when five string methods stopped
+///
+/// Because its cost is not the input. Measured, release, 2026-08-12, 5e5 calls:
+/// a subject of 8 pieces takes 2.58 us and one of 64 takes 14.1 us — 220 to 320
+/// ns PER PIECE and roughly flat, so the work scales with what comes out rather
+/// than with what goes in. A narrow path over the subject would touch the
+/// smaller half of that.
+///
+/// What each piece costs is an owned `String`, an interned cell and a slot in
+/// the array. Removing that is a different change — the pieces would have to be
+/// built as narrow strings directly and `scan` works over `&str` — and it is a
+/// rework of the pattern machinery rather than the borrow the other five took.
+///
+/// Recorded with the number because four of the six searches DID take that
+/// borrow and the fifth (`lastIndexOf`) measured slower on it. Neither outcome
+/// transfers here, and assuming either would be the mistake both of those
+/// measurements exist to prevent.
 extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a3: u64) -> u64 {
     let collected = with_current(|context| {
         let subject = text_of(context, this)?.to_rust()?;
