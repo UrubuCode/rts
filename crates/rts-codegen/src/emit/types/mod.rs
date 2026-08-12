@@ -153,6 +153,28 @@ impl Kind {
     /// success path reaches the same call as its failure path has bought
     /// nothing, and a capability with no producer is what rule 9 refuses.
     ///
+    /// # The consumer arrived, and it did not need the guard
+    ///
+    /// `s.length` is a LOAD now — `entry::cache` answers for the one property a
+    /// string has that a load can serve, and `entry::context` keeps the length
+    /// in the cell so there is something at an offset to read. That is the text
+    /// operation this paragraph was waiting for, and it arrived through the
+    /// inline cache rather than through a claim: the site recognises a string by
+    /// the type in its header, which is what it already compared.
+    ///
+    /// So the guard is still unspent, and now for a sharper reason than "no
+    /// consumer": the consumer that arrived does not need one. A claim could
+    /// only tell the compiler to emit a check the cache performs anyway — which
+    /// is exactly what `emit_binary` already showed for `number`.
+    ///
+    /// The numbering blocker is also resolved and is worth recording so nobody
+    /// re-derives it: `rts-host` builds ONE `TypeRegistry`, hands it to the
+    /// compiler at emission and carries the same one into the runtime's
+    /// `Context`. The two do share a number space, the way keys do. What the
+    /// compiler cannot do is name the TEXT layout, because nothing declares it
+    /// until the `Context` is built — after emission. Declaring it first would
+    /// close that, and it should not be done until something needs the answer.
+    ///
     /// So the order is the reverse of the obvious one: the machine gains a text
     /// operation first, and this returns `Some` for `Str` in the same change
     /// that gives it something to reach.
