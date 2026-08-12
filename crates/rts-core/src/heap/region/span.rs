@@ -117,6 +117,50 @@ impl Region {
         Some(self.word_of(index) + 1 + slot as usize)
     }
 
+    /// Returns every cell a spanning object covers, not only its first.
+    ///
+    /// [`Region::free`] cannot do this: it reads ONE header and threads ONE
+    /// cell onto the free list, so calling it on a spanning object leaks every
+    /// cell after the first — permanently, because the interior flag stays set
+    /// and nothing ever walks them again. `size` is the same figure the
+    /// allocation was given, and it is the caller's because the region does not
+    /// remember how wide an object is.
+    ///
+    /// Each interior cell is freed DIRECTLY rather than through `free`: it has
+    /// no header of its own, so the double-free check would be reading a data
+    /// word and could refuse a live cell that happened to hold the marker.
+    pub fn free_spanning(&mut self, reference: u32, size: u32) -> bool {
+        let Some(index) = self.decompose(reference) else {
+            return false;
+        };
+        let cells = size.div_ceil(STRIDE);
+        if cells == 0 || index >= self.next {
+            return false;
+        }
+        let at = self.word_of(index);
+        if self.words[at] == super::FREE_MARKER {
+            return false; // already free
+        }
+
+        for offset in 0..cells {
+            let cell = index + offset;
+            if cell >= self.next {
+                break;
+            }
+            let word = self.word_of(cell);
+            let link = match self.free_head {
+                Some(next) => u64::from(next),
+                None => super::NO_NEXT,
+            };
+            self.words[word] = super::FREE_MARKER;
+            self.words[word + 1] = link;
+            self.free_head = Some(cell);
+            if let Some(flag) = self.spanned_interior.get_mut(cell as usize) {
+                *flag = false;
+            }
+        }
+        true
+    }
 }
 
 #[cfg(test)]

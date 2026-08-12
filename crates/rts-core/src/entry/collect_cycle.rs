@@ -137,8 +137,10 @@ fn release(context: &mut Context, cell: u32) {
         context.cells.free(Slot(slot as u32));
     }
 
-    if let Some(spill) = context.spill_of.remove(cell) {
-        context.spills.free(spill);
+    // The overflow is region cells now, and it spans — so every cell it covers
+    // comes back, not only the one its reference names.
+    if let Some((block, slots)) = context.spill_of.remove(cell) {
+        context.region.free_spanning(block, (slots + 1) * 8);
     }
     if let Some(elements) = context.array_elements.remove(cell) {
         context.arrays.free(elements);

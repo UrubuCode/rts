@@ -86,6 +86,26 @@ pub(super) fn alloc_or_die(context: &mut Context, size: u32, ty: u32) -> u32 {
     }
 }
 
+/// The same for an object that spans several cells, dying if it cannot fit.
+///
+/// Separate from [`alloc_or_die`] because the region refuses an oversized
+/// object through `alloc` on purpose — a caller that spans has to say so — and
+/// because the retry after a collection is the part worth not duplicating: a
+/// spill block that answered `None` and was silently dropped would lose a
+/// property WRITE, which is a wrong answer rather than a slow one.
+pub(super) fn alloc_spanning_or_die(context: &mut Context, size: u32, ty: u32) -> u32 {
+    if let Some(cell) = context.region.alloc_spanning(size, ty) {
+        return cell;
+    }
+    let anchor = 0u64;
+    let stack_low = &anchor as *const u64 as usize;
+    super::collect_cycle::collect(context, stack_low);
+    match context.region.alloc_spanning(size, ty) {
+        Some(cell) => cell,
+        None => heap_exhausted(context),
+    }
+}
+
 /// Asks the heap for a cell.
 ///
 /// The one entry point the MACHINE calls rather than the language — see this

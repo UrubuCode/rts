@@ -147,11 +147,19 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
         }
     }
 
-    // 2. Properties past the seventh.
-    if let Some(spill) = context.spill_of.copied(cell)
-        && let Ok(words) = context.spills.at(spill)
-    {
-        out.extend_from_slice(words);
+    // 2. Properties past the fifteenth.
+    //
+    //    The spill is a REGION block and not a slab vector, so its slots are
+    //    reached the way an inline slot is. The block itself is deliberately
+    //    NOT pushed as an edge: it is owned by this cell alone and freed with
+    //    it in `collect_cycle`, so marking it would only keep it alive by
+    //    itself. What must survive is what it POINTS at, which is these words.
+    if let Some((block, slots)) = context.spill_of.copied(cell) {
+        for slot in 0..slots {
+            if let Some(word) = context.region.spanning_field(block, slot, slots) {
+                out.push(word);
+            }
+        }
     }
 
     // 3. Array elements.
@@ -370,8 +378,14 @@ mod tests {
         let mut context = empty_context();
         let value = plain(&mut context);
         let holder = plain(&mut context);
-        let spill = context.spills.insert(vec![Value::from_slot(value).bits()]).slot();
-        context.spill_of.set(holder, spill);
+        let block = context
+            .region
+            .alloc_spanning(16, 0)
+            .expect("room for the overflow block");
+        context
+            .region
+            .set_spanning_field(block, 0, 1, Value::from_slot(value).bits());
+        context.spill_of.set(holder, (block, 1));
 
         let marks = mark(&context, &[Slot(holder)]);
         assert!(

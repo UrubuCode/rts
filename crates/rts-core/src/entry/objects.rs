@@ -621,7 +621,7 @@ pub(super) fn machine_key(key: Key) -> Option<ShapeKey> {
 pub(super) fn slot_value(context: &Context, cell: u32, at: u32) -> Option<u64> {
     match at.checked_sub(crate::heap::INLINE_SLOTS) {
         None => context.region.field(cell, at),
-        Some(past) => context.spill_at(cell)?.get(past as usize).copied(),
+        Some(past) => context.spill_read(cell, past),
     }
 }
 
@@ -631,38 +631,78 @@ pub(super) fn set_slot_value(context: &mut Context, cell: u32, at: u32, value: u
         None => {
             context.region.set_field(cell, at, value);
         }
-        Some(past) => context.spill_set(cell, past as usize, value),
+        Some(past) => context.spill_set(cell, past, value),
     }
 }
 
 impl Context {
+    /// How many slots a spill is grown by at a time.
+    ///
+    /// Rounded up so that adding a sixteenth, a seventeenth and an eighteenth
+    /// property allocates once rather than three times — the block is in the
+    /// REGION now and growing it means allocating a bigger one and copying, so
+    /// the granularity is what keeps that from happening per property.
+    const SPILL_CHUNK: u32 = 16;
+
     /// A cell's spilled properties, if it has any.
-    fn spill_at(&self, cell: u32) -> Option<&Vec<u64>> {
-        self.spills.at(self.spill_of.copied(cell)?).ok()
+    fn spill_read(&self, cell: u32, past: u32) -> Option<u64> {
+        let (block, slots) = self.spill_of.copied(cell)?;
+        self.region.spanning_field(block, past, slots)
     }
 
     /// Puts a value in a cell's spill, making one and growing it as needed.
     ///
+    /// # Why the spill lives in the REGION and not in a `Vec`
+    ///
+    /// It was a `Vec<u64>` in a slab, and a `Vec` moves when it grows — so a
+    /// property past the fifteenth had no stable address, and `cache_resolve`
+    /// could not answer for one. It returned -1 forever and the site resolved
+    /// BY NAME on every pass. Measured on `bench/analytic.ts`, whose closure
+    /// environments carry 32 module bindings: 84 484 013 cache misses, the
+    /// dominant reason being `the slot is past the inline slots`.
+    ///
+    /// A region cell never moves — the collector is non-moving and the stride
+    /// is fixed — so a spanning block has an address that stays true, and
+    /// `spanning_word` lays its slots out as `header + 1 + slot`, which is the
+    /// same arithmetic an inline slot uses. That is what lets an inline cache
+    /// reach one.
+    ///
     /// Grown with `undefined` rather than zero: a gap here is a property the
     /// shape says exists, and zero is not a value — it decodes as a double, so
     /// a reader would get `0` where the language says `undefined`.
-    fn spill_set(&mut self, cell: u32, past: usize, value: u64) {
+    fn spill_set(&mut self, cell: u32, past: u32, value: u64) {
         let absent = undefined_of(self);
-        let slot = match self.spill_of.copied(cell) {
-            Some(slot) => slot,
-            None => {
-                let slot = self.spills.insert(Vec::new()).slot();
-                self.spill_of.set(cell, slot);
-                slot
+        let held = self.spill_of.copied(cell);
+        let wanted = past + 1;
+        let (block, slots) = match held {
+            Some((block, slots)) if slots >= wanted => (block, slots),
+            other => {
+                let slots = wanted.next_multiple_of(Self::SPILL_CHUNK);
+                let size = rts_cranelift::mem::HeaderLayout::BYTES
+                    + slots * rts_cranelift::mem::SLOT_BYTES;
+                let ty = self.spill_type.index() as u32;
+                let grown = super::alloc::alloc_spanning_or_die(self, size, ty);
+                for slot in 0..slots {
+                    self.region.set_spanning_field(grown, slot, slots, absent);
+                }
+                // Copied and then freed EXPLICITLY. The sweep would not reclaim
+                // it: `spill_of` is the only thing that ever named the old
+                // block, and it is about to name the new one, so nothing would
+                // walk the old one again — and a span's interior cells are
+                // invisible to a walk by index in any case.
+                if let Some((old, had)) = other {
+                    for slot in 0..had.min(slots) {
+                        if let Some(word) = self.region.spanning_field(old, slot, had) {
+                            self.region.set_spanning_field(grown, slot, slots, word);
+                        }
+                    }
+                    self.region.free_spanning(old, (had + 1) * 8);
+                }
+                self.spill_of.set(cell, (grown, slots));
+                (grown, slots)
             }
         };
-        let Ok(spill) = self.spills.at_mut(slot) else {
-            return;
-        };
-        if spill.len() <= past {
-            spill.resize(past + 1, absent);
-        }
-        spill[past] = value;
+        self.region.set_spanning_field(block, past, slots, value);
     }
 }
 

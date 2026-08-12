@@ -346,13 +346,19 @@ pub struct Context {
     /// right one" while describing the refusal — which is what it became once
     /// the read had no way to say so.
     ///
-    /// This is the overflow indirection that documentation names. Compiled
-    /// code never reaches it: `cache_resolve` already answers negative for a
-    /// slot past the inline ones, so such a read takes the slow path — which
-    /// is why the fast path needed no change at all.
-    spills: Slab<Vec<u64>>,
     /// Which spill each cell uses, by region index.
-    spill_of: Aside<Slot>,
+    /// Where a cell's overflow lives, and how many slots it has.
+    ///
+    /// A REGION reference and not a slab slot. It was a `Vec<u64>` in a slab,
+    /// and a `Vec` moves when it grows — so a property past the fifteenth had
+    /// no stable address and no inline cache could ever reach one.
+    spill_of: Aside<(u32, u32)>,
+    /// The layout a spill block carries in its header.
+    ///
+    /// Its own, so a sweep and a trace can tell one from an object: a spill
+    /// holds VALUES at every slot and has no shape, where an object has a shape
+    /// and its slots are the properties that shape names.
+    spill_type: rts_cranelift::types::TypeId,
     /// Which cells are compiled patterns, and what they compiled to.
     ///
     /// Beside the cell for the reason every one of these is, plus one specific
@@ -831,6 +837,7 @@ impl Context {
         // number is stable across contexts, which a test comparing two of them
         // would otherwise depend on the order of unrelated allocations for.
         let text_type = types.declare(&[rts_cranelift::repr::Repr::I64]);
+        let spill_type = types.declare(&[rts_cranelift::repr::Repr::Tagged]);
         // Code address, then environment. Declared here beside text and for the
         // same reason: a number that depends on which allocation happened first
         // is a number two contexts disagree about.
@@ -838,7 +845,6 @@ impl Context {
             cells: Slab::new(),
             arrays: Slab::new(),
             bigints: Slab::new(),
-            spills: Slab::new(),
             spill_of: Aside::new(),
             shapes: ShapeTree::new(),
             keys: KeyRegistry::new(),
@@ -850,6 +856,7 @@ impl Context {
             types,
             shape_of_type: Vec::new(),
             text_type,
+            spill_type,
             callables: Aside::new(),
             proxies: Aside::new(),
             cursors: Aside::new(),
