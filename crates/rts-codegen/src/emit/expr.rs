@@ -122,6 +122,13 @@ pub fn emit_expr(
             // operator evaluates its operands in source order even where it
             // then converts them in the other order, and emitting in the wrong
             // order changes which side effect happens first.
+            // Counted before emitting, while the operands are still
+            // EXPRESSIONS: `emit_binary` sees two `ValueId`s and a value has no
+            // name to have been annotated. This is the census phase 1 exists
+            // for, and the number it is expected to report is that a claimed
+            // `number` here buys nothing, because the guard it would ask for
+            // is emitted either way.
+            count_claimed_operands(ctx, left, right);
             let a = emit_expr(builder, scope, ctx, left)?;
             let b = emit_expr(builder, scope, ctx, right)?;
             emit_binary(builder, ctx, *op, a, b)
@@ -579,6 +586,24 @@ fn emit_literal(
         Literal::BigInt(digits) => {
             let text = string_literal(builder, ctx, digits)?;
             Ok(call(builder, ctx, RuntimeOp::BigIntNew, &[text])?[0])
+        }
+    }
+}
+
+/// Records that a binary operator's operand carried a claim.
+///
+/// A census hook and nothing else: it changes no emission. It lives here
+/// because this is the last place the operands are expressions — one step
+/// later they are values, and a value cannot have been annotated.
+fn count_claimed_operands(ctx: &mut Ctx, left: &Expr, right: &Expr) {
+    if !ctx.counting_claims {
+        return;
+    }
+    for side in [left, right] {
+        if let ExprKind::Ident(name) = &side.kind
+            && let Some(speculation) = ctx.claimed(*name)
+        {
+            ctx.census.operand_claimed(speculation.kind());
         }
     }
 }

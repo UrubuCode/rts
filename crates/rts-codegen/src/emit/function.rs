@@ -180,7 +180,7 @@ fn emit_function(
     // body: it forwards `next`, `throw` and `return` to an inner iterator, which
     // is a loop over the iteration protocol rather than a suspension. See
     // `expr::yielded`.
-    let (parameters, mut prologue) = bind_parameters(ctx, function);
+    let (parameters, mut prologue, parameter_claims) = bind_parameters(ctx, function);
     // A rest parameter that destructures is the same desugaring as a parameter
     // that does: bind the vector to a name, then unpack it with an ordinary
     // declaration. It was refused separately, and the refusal only made sense
@@ -248,6 +248,7 @@ fn emit_function(
         ctx,
         enclosing,
         &parameters,
+        &parameter_claims,
         body,
         function.captures_this,
         rest,
@@ -397,10 +398,16 @@ fn wrap_async(ctx: &mut Ctx, inner: FuncId) -> FuncId {
 /// `imports` is bound before the first statement and is empty for every body but
 /// a module's own: an import introduces a name in the scope it is written in,
 /// which is this one, and nothing downstream learns that it came from a module.
+/// `parameter_claims` is what the parameters were annotated with, which the
+/// tree cannot be asked for here: a plain name with no default binds directly at
+/// entry and has no `Binding` to carry its claim, so `bind_parameters` is the
+/// only place it can be read. Empty for the two module-level callers, which have
+/// no parameter list to annotate.
 pub(super) fn emit_body(
     ctx: &mut Ctx,
     enclosing: &Scope,
     parameters: &[Name],
+    parameter_claims: &[(Name, crate::syntax::Claim)],
     body: &[Stmt],
     captures_this: bool,
     rest: Option<Name>,
@@ -537,7 +544,20 @@ pub(super) fn emit_body(
     // Both saved and restored around the emission because each is a fact about
     // ONE body, and a nested function emitted in the middle of an outer one
     // would otherwise be read against the outer's answers.
+    // Beside the proof and AFTER it, because a claim about a name the body
+    // already proved is not a second opinion — it is nothing to speculate
+    // about, and `analyse` drops it so `Ctx::holds_number` stays the one
+    // answer to whether a name holds a number.
+    let claims = super::types::analyse(body, parameter_claims, &numeric);
+    // The count of what a PROOF made redundant is the difference, and it is
+    // taken here because `Facts` no longer holds what it dropped.
+    let seeded = parameter_claims.len();
+    let redundant = seeded.saturating_sub(claims.len());
+    ctx.census.record(&claims, seeded, redundant);
+    ctx.census.record(&claims, parameter_claims.len(), 0);
+
     let outer_numeric = std::mem::replace(&mut ctx.numeric, numeric);
+    let outer_claims = std::mem::replace(&mut ctx.claims, claims);
     let outer_flattened = std::mem::replace(&mut ctx.flattened, flattened);
 
     let result = emit_body_into(
@@ -560,6 +580,7 @@ pub(super) fn emit_body(
     );
     ctx.numeric = outer_numeric;
     ctx.flattened = outer_flattened;
+    ctx.claims = outer_claims;
     result?;
     Ok(func)
 }
@@ -994,15 +1015,27 @@ pub fn hoist(
 /// evaluated at the CALL rather than once at the declaration, which is what
 /// keeping it as an expression in the prologue gives for free — `f()` twice with
 /// `b = []` must not share one array.
-fn bind_parameters(ctx: &mut Ctx, function: &Function) -> (Vec<Name>, Vec<Stmt>) {
+/// The third value is the claims. A plain name with no default is
+/// short-circuited below and pushes NO prologue statement, so its annotation
+/// exists only on the `Parameter` and never reaches a `Binding` — which is
+/// where every other claim in a body is read from. Handing it back here is the
+/// only place it can be seen.
+fn bind_parameters(
+    ctx: &mut Ctx,
+    function: &Function,
+) -> (Vec<Name>, Vec<Stmt>, Vec<(Name, crate::syntax::Claim)>) {
     let mut names = Vec::with_capacity(function.parameters.len());
     let mut prologue = Vec::new();
+    let mut claims = Vec::new();
     for (position, parameter) in function.parameters.iter().enumerate() {
         // A plain name with no default is already what the convention wants, so
         // it costs nothing: no synthetic name, no prologue statement, and the
         // common case stays exactly the code it was before this existed.
         if let (crate::syntax::Pattern::Name(name), None) = (&parameter.target, &parameter.default) {
             names.push(*name);
+            if let Some(claim) = &parameter.claim {
+                claims.push((*name, claim.clone()));
+            }
             continue;
         }
         // Not a name a program can write: a parameter called `__rts_param_0`
@@ -1049,5 +1082,5 @@ fn bind_parameters(ctx: &mut Ctx, function: &Function) -> (Vec<Name>, Vec<Stmt>)
             at: function.at,
         });
     }
-    (names, prologue)
+    (names, prologue, claims)
 }

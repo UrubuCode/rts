@@ -81,6 +81,7 @@ mod scope;
 mod sloppy;
 mod stmt;
 mod suspends;
+mod types;
 mod switch;
 mod template;
 mod unary;
@@ -308,6 +309,27 @@ pub struct Ctx<'a> {
     /// a fact about ONE body, so a nested function emitted in the middle of an
     /// outer one has to be read against its own answer.
     flattened: escape::Flattened,
+    /// What this body's annotations CLAIM, for the sites that spend a claim as
+    /// a guard.
+    ///
+    /// Scoped exactly as `numeric` and `flattened` are, and never consulted by
+    /// `expr::stored`: a claim is evidence a program offered rather than
+    /// evidence this compiler produced, so it may choose which check to emit and
+    /// may never remove one. The `Speculation` type is what makes that a
+    /// signature rather than a habit.
+    claims: types::Facts,
+    /// What the claims amounted to, when anything asked.
+    ///
+    /// On the context rather than in a static because cargo runs a binary's
+    /// tests in threads, and shared statics in test binaries are a measured
+    /// flake source in this workspace.
+    census: types::Census,
+    /// Whether anything asked for the census.
+    ///
+    /// Read ONCE, here, rather than at each counting site: an environment
+    /// lookup on a path that runs per operation is a cost this workspace has
+    /// already found and named in `entry::cache`.
+    counting_claims: bool,
     /// Which names the program creates by assigning to them.
     ///
     /// Answered once for the whole program before anything is emitted, because
@@ -341,6 +363,9 @@ impl<'a> Ctx<'a> {
             templates: Vec::new(),
             numeric: Numeric::default(),
             flattened: escape::Flattened::default(),
+            claims: types::Facts::default(),
+            census: types::Census::default(),
+            counting_claims: types::Census::wanted(),
             globals: std::collections::BTreeSet::new(),
         }
     }
@@ -399,6 +424,17 @@ impl<'a> Ctx<'a> {
     /// representation instead of being widened at every store.
     pub fn holds_number(&self, name: Name) -> bool {
         self.numeric.holds_number(name)
+    }
+
+    /// What an annotation claims about a name, where nothing proved it.
+    ///
+    /// Answers a `Speculation` and never a `bool`, which is the whole of the
+    /// separation: a boolean could be read by [`Self::holds_number`]'s callers,
+    /// and those narrow with NO guard. This one can only be spent somewhere a
+    /// guard is emitted, because nothing else accepts the type.
+    #[allow(dead_code)]
+    pub(super) fn claimed(&self, name: Name) -> Option<types::Speculation> {
+        self.claims.claimed(name)
     }
 }
 
@@ -519,6 +555,9 @@ pub fn emit_program_with_exports(
         ctx,
         &nothing,
         &[],
+        // A module body and a program body have no parameter list, so there
+        // is no annotation on one to read.
+        &[],
         body,
         false,
         None,
@@ -550,6 +589,12 @@ pub fn emit_program_with_exports(
 /// be numbered over the first's and every one of them would read as the wrong
 /// text.
 fn finish(entry: FuncId, ctx: &mut Ctx) -> Program {
+    // The one place every emission funnels through, which is why the census
+    // prints from here: a program with two hundred functions gets one table
+    // rather than two hundred, and no caller has to remember to ask.
+    if ctx.counting_claims {
+        ctx.census.report();
+    }
     Program {
         functions: std::mem::take(&mut ctx.pending),
         generators: std::mem::take(&mut ctx.generators),
@@ -637,6 +682,9 @@ fn emit_unit(
     let mut emitted = function::emit_body(
         ctx,
         &nothing,
+        &[],
+        // A module body and a program body have no parameter list, so there
+        // is no annotation on one to read.
         &[],
         body,
         false,
