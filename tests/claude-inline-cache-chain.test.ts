@@ -169,3 +169,40 @@ describe("um sítio que lê através da cadeia", () => {
     expect(which(new Folha())).toBe("base");
   });
 });
+
+describe("dois elos acima", () => {
+  test("um metodo na avo e lido por carregamento", () => {
+    class A { m(): string { return "A"; } }
+    class B extends A {}
+    class C extends B {}
+    function w(o: any): string { return o.m(); }
+    const c = new C();
+    expect(w(c)).toBe("A");
+    expect(w(c)).toBe("A");
+  });
+
+  test("relinkar o elo DO MEIO invalida o sitio", () => {
+    // O caso que o terceiro guard existe para apanhar, e o unico que a
+    // profundidade um nao tinha: as duas comparacoes de antes continuam a
+    // suceder — o recetor nao mudou e o detentor nao mudou — e a resposta
+    // deixou de ser a que o recetor encontraria.
+    class A { m(): string { return "A"; } }
+    class B extends A {}
+    class C extends B {}
+    function w(o: any): string { return o.m(); }
+    const c = new C();
+    expect(w(c)).toBe("A");
+    Object.setPrototypeOf(B.prototype, { m(): string { return "X"; } });
+    expect(w(c)).toBe("X");
+  });
+
+  test("tres elos acima continua correto, e sem cache", () => {
+    class A { m(): string { return "A"; } }
+    class B extends A {}
+    class C extends B {}
+    class D extends C {}
+    function w(o: any): string { return o.m(); }
+    expect(w(new D())).toBe("A");
+    expect(w(new D())).toBe("A");
+  });
+});

@@ -216,6 +216,8 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
                 cell.add(1).write(offset);
                 cell.add(2).write(0);
                 cell.add(3).write(-1);
+                cell.add(4).write(0);
+                cell.add(5).write(-1);
             }
             return offset;
         }
@@ -281,20 +283,55 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             return refuse("the link holds an accessor for this key");
         }
 
-        let Some(holder_type) = context.region.type_of(holder) else {
-            return refuse("the link is not a cell in this region");
-        };
-        let Some(holder_shape) = context.shape_of(holder_type) else {
-            return refuse("the link has no shape");
-        };
-        let Some(slot) = context.shapes.slot_of(holder_shape, named) else {
-            return refuse("the key is absent from the link's shape");
+        // One step, then — if the key is not there — one more. Two and no
+        // further, and the bound is an argument rather than a preference: the
+        // site compares three layouts, so it notices a change to the receiver,
+        // to the holder, and to the cell between them. A third step would put a
+        // cell in the chain that nothing compares, and relinking THAT one would
+        // leave every guard satisfied and the answer stale.
+        let mut middle: Option<(u32, u32)> = None;
+        let mut holder = holder;
+        let (holder_type, slot) = loop {
+            let Some(ty) = context.region.type_of(holder) else {
+                return refuse("the link is not a cell in this region");
+            };
+            let Some(shape) = context.shape_of(ty) else {
+                return refuse("the link has no shape");
+            };
+            if let Some(slot) = context.shapes.slot_of(shape, named) {
+                break (ty, slot);
+            }
+            if middle.is_some() {
+                return refuse("the key is more than two links away");
+            }
+            let Some(next) = context
+                .prototype_at(holder)
+                .and_then(|link| crate::value::Value(link).as_slot())
+            else {
+                return refuse("the key is absent from the link's shape");
+            };
+            // The cell between is walked THROUGH, so what it holds for this key
+            // decides the answer as much as the holder does. A proxy or an
+            // accessor on it is the same refusal it would be on either end.
+            if context.proxy_at(next).is_some() || context.accessor_at(next, named_number).is_some()
+            {
+                return refuse("the second link is a proxy or holds an accessor");
+            }
+            middle = Some((holder, ty));
+            holder = next;
         };
         if slot >= crate::heap::INLINE_SLOTS {
             return refuse("the slot is past the inline slots");
         }
         let Some(address) = context.region.address_of(holder) else {
             return refuse("the link has no address");
+        };
+        let between = match middle {
+            Some((cell, _)) => match context.region.address_of(cell) {
+                Some(at) => at,
+                None => return refuse("the cell between has no address"),
+            },
+            None => 0,
         };
         let Some(receiver_type) = context.region.type_of(cell) else {
             return report("the receiver is not a cell in this region");
@@ -311,6 +348,16 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             cell.add(1).write(offset);
             cell.add(2).write(address as i64);
             cell.add(3).write(i64::from(holder_type));
+            match middle {
+                Some((_, ty)) => {
+                    cell.add(4).write(between as i64);
+                    cell.add(5).write(i64::from(ty));
+                }
+                None => {
+                    cell.add(4).write(0);
+                    cell.add(5).write(-1);
+                }
+            }
         }
         offset
     })

@@ -602,6 +602,8 @@ impl<'a> Body<'a> {
         // `lower_cached_get` has one `read` block rather than one per path.
         let held_known = builder.create_block();
         let check_held = builder.create_block();
+        let check_between = builder.create_block();
+        let check_middle = builder.create_block();
         let ask = builder.create_block();
         let resolved = builder.create_block();
         let read = builder.create_block();
@@ -637,8 +639,40 @@ impl<'a> Body<'a> {
         let still = builder
             .ins()
             .icmp(IntCC::Equal, held_header, held_remembered);
+        builder.ins().brif(still, check_between, &[], ask, &[]);
+
+        // A cell BETWEEN the two, when the answer was two steps away. Its layout
+        // has to be recognised as well, because the step from it to the holder
+        // is a fact about IT: change what it reaches and the holder this site
+        // remembers is no longer what the receiver would find, while both of the
+        // comparisons above still succeed.
+        //
+        // Behind a test for its existence, so a site whose answer was one step
+        // away pays a load and a predicted branch rather than a comparison
+        // against a cell that is not there.
+        builder.switch_to_block(check_between);
+        let between = builder.ins().load(types::I64, flags, cell, 32);
         builder.ins().brif(
-            still,
+            between,
+            check_middle,
+            &[],
+            read,
+            &[cranelift_codegen::ir::BlockArg::Value(held)],
+        );
+
+        builder.switch_to_block(check_middle);
+        let middle_header = builder.ins().load(
+            types::I64,
+            flags,
+            between,
+            i32::from(crate::mem::HeaderLayout::TYPE_OFFSET),
+        );
+        let middle_remembered = builder.ins().load(types::I64, flags, cell, 40);
+        let unchanged = builder
+            .ins()
+            .icmp(IntCC::Equal, middle_header, middle_remembered);
+        builder.ins().brif(
+            unchanged,
             read,
             &[cranelift_codegen::ir::BlockArg::Value(held)],
             ask,

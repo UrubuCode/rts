@@ -765,15 +765,29 @@ impl MachineModule<'_> {
             cold.extend_from_slice(&(-1i64).to_ne_bytes());
             cold.extend_from_slice(&0i64.to_ne_bytes());
             if indirect.contains(&site) {
+                // Words two and three: where the answer was found, and the
+                // layout that cell carried. Zero means "in the cell asked
+                // about", so a site that has never resolved reads its own.
                 cold.extend_from_slice(&0i64.to_ne_bytes());
                 cold.extend_from_slice(&(-1i64).to_ne_bytes());
+                // Words four and five: the cell BETWEEN them, when the answer
+                // was two steps away, and the layout it carried. Zero means
+                // there is no cell between, which is what one step means — and
+                // it is what a site that has never resolved reads, so the third
+                // comparison is skipped rather than performed against nothing.
+                cold.extend_from_slice(&0i64.to_ne_bytes());
+                cold.extend_from_slice(&(-1i64).to_ne_bytes());
+                // Two words of padding, so the cell is one cache line and the
+                // alignment below is not a claim about a size that is not one.
+                cold.extend_from_slice(&0i64.to_ne_bytes());
+                cold.extend_from_slice(&0i64.to_ne_bytes());
             }
 
             let mut description = cranelift_module::DataDescription::new();
             // Every load of these words is `MemFlags::trusted()`, which asserts
             // alignment; nothing asserted it before, which was a false claim
             // rather than a slow one. Rule 7 — an invariant is enforced.
-            description.set_align(if indirect.contains(&site) { 32 } else { 16 });
+            description.set_align(if indirect.contains(&site) { 64 } else { 16 });
             description.define(cold.into_boxed_slice());
             self.module.define_data(data, &description)?;
             declared.push(data);
