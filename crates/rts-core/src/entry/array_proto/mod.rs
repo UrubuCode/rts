@@ -251,7 +251,10 @@ extern "C" fn unshift(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) ->
 /// one of those, and either choice is wrong half the time.
 extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
-        let Some((_, elements)) = staged(context, this) else {
+        // Borrowed: nothing below calls user code, so there is nothing to
+        // drop the borrow for — and copying the array was the whole cost of
+        // answering a question about it.
+        let Some(elements) = borrowed(context, this) else {
             return undefined_of(context);
         };
         let start = forward_from(context, from, elements.len());
@@ -471,6 +474,19 @@ extern "C" fn fill(_e: u64, this: u64, value: u64, from: u64, to: u64, _a3: u64)
 pub(super) fn staged(context: &Context, this: u64) -> Option<(u32, Vec<u64>)> {
     let cell = Value(this).as_slot()?;
     Some((cell, context.elements_at(cell)?.clone()))
+}
+
+/// The receiver's elements, BORROWED, for a method that only reads them.
+///
+/// [`staged`] copies so that a method which calls user code can drop the
+/// borrow before calling — the two-stage shape `iterate` needs. A method that
+/// calls nothing does not need that, and copying a thousand-element array to
+/// answer whether it contains a number is the whole cost of the answer.
+///
+/// The borrow is what enforces it: a caller holding this cannot call anything
+/// that takes the context, so the distinction cannot be got wrong quietly.
+pub(super) fn borrowed(context: &Context, this: u64) -> Option<&Vec<u64>> {
+    context.elements_at(Value(this).as_slot()?)
 }
 
 /// Writes elements back, and the `length` that goes with them.
