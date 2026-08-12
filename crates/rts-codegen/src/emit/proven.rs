@@ -576,8 +576,47 @@ fn check_expr(
 /// verifier this crate promises will refuse it. `%` on numbers is still always
 /// a number — that fact just cannot be spent as a proven representation until
 /// something here also narrows a boxed remainder back to `F64` with a guard.
+///
+/// # `+` ENTRA, e o que faz isso ser seguro é o chamador
+///
+/// Ele estava fora, e a mesma pergunta era respondida noutro lugar deste arquivo
+/// com ele DENTRO — duas respostas escritas no mesmo commit, discordando em
+/// direções opostas. A estrita tirava a prova de `acc += i`, que é como um
+/// acumulador se escreve; a inclusiva nunca lia o ALVO, então `s += 1` numa
+/// string respondia "numérico", que não é código lento — é `arith` sobre uma
+/// string.
+///
+/// `+` é seguro aqui porque TODO chamador estabelece os dois lados antes de
+/// perguntar: as duas formas de atribuição composta pedem `holds_number` do alvo
+/// e `is_numeric` do valor, e a forma binária pede `is_numeric` dos dois
+/// operandos. `+` só concatena quando um dos lados não é número, e nenhum
+/// chamador chega aqui sem ter recusado esse caso.
+///
+/// `%` continua fora pela razão acima: não há instrução de resto, então uma
+/// prova de `%` reivindica uma representação de máquina para um valor que chega
+/// encaixotado.
 fn arithmetic(op: BinaryOp) -> bool {
-    matches!(op, BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div)
+    matches!(
+        op,
+        BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Add
+    )
+}
+
+/// Se o alvo de uma atribuição já guarda um número.
+///
+/// Só um nome simples responde `true`: é o único caso sobre o qual este passe
+/// mantém evidência. Um campo, um índice ou uma desestruturação respondem
+/// `false` — não porque não possam guardar um número, mas porque afirmar que
+/// guardam seria a reivindicação sem evidência que este arquivo recusa em toda
+/// parte.
+fn target_holds_number(target: &AssignTarget, known: &Numeric) -> bool {
+    match target {
+        AssignTarget::Place(place) => match &place.kind {
+            ExprKind::Ident(name) => known.holds_number(*name),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// Whether an expression certainly produces a number.
@@ -647,10 +686,17 @@ fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
         } => is_numeric(then_branch, known) && is_numeric(else_branch, known),
 
         // An assignment's value is what was assigned.
-        ExprKind::Assign { value, op, .. } => match op {
+        //
+        // O ALVO É LIDO AQUI, e não era. Esta linha aceitava `+` sem perguntar o
+        // que o alvo já guarda, então `s += 1` sobre uma string respondia
+        // "numérico" — e a versão a 80 linhas daqui, que LÊ o alvo, recusava
+        // `+`. As duas erravam, em direções opostas, e agora são um predicado só.
+        ExprKind::Assign { target, value, op } => match op {
             AssignOp::Plain => is_numeric(value, known),
             AssignOp::Compound(binary) => {
-                (arithmetic(*binary) || *binary == BinaryOp::Add) && is_numeric(value, known)
+                arithmetic(*binary)
+                    && target_holds_number(target, known)
+                    && is_numeric(value, known)
             }
             AssignOp::Logical(_) => false,
         },

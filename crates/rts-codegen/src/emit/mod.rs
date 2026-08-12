@@ -917,12 +917,35 @@ mod tests {
         // stopped meaning "how many times was the target operated on". The
         // distinction is real rather than a way to make the number come out: an
         // operation on values has values, and the check has none.
+        // CONTAR CHAMADAS DEIXOU DE MEDIR ISTO, e a troca é registrada em vez de
+        // silenciosa. O proxy era "uma chamada com argumentos = uma operação
+        // sobre o alvo", e ele valia enquanto `+=` sempre chamava `__rts_add`.
+        // Desde que `arithmetic()` aceita `+`, um alvo provado numérico vira uma
+        // instrução de máquina e o número de chamadas cai para ZERO — o alvo
+        // continua sendo lido uma vez, e o teste passaria a falhar por um acerto.
+        //
+        // O que se conta agora é a OPERAÇÃO, seja qual for a forma dela: uma
+        // aritmética de máquina ou uma chamada que leva argumentos. Isso pina o
+        // que a frase acima diz — o alvo é operado UMA vez — e continua valendo
+        // se um dos dois caminhos deixar de existir.
         let func = emit_source("let x = 1; x += 1;").expect("emits");
-        let adds = instructions(&func)
+        let operations = instructions(&func)
+            .iter()
+            .filter(|inst| {
+                matches!(inst, Inst::FloatArith(..))
+                    || matches!(inst, Inst::Call { args, .. } if !args.is_empty())
+            })
+            .count();
+        assert_eq!(operations, 1);
+
+        // E o caminho provado É o que roda neste caso: sem esta linha, um dia em
+        // que `x += 1` voltasse a chamar o runtime o teste acima continuaria
+        // passando, medindo a regressão como se fosse o mesmo comportamento.
+        let calls = instructions(&func)
             .iter()
             .filter(|inst| matches!(inst, Inst::Call { args, .. } if !args.is_empty()))
             .count();
-        assert_eq!(adds, 1);
+        assert_eq!(calls, 0, "um alvo provado numerico nao chama o runtime");
     }
 
     #[test]
