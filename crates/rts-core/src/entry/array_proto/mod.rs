@@ -163,12 +163,24 @@ extern "C" fn of(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64
 extern "C" fn push(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     with_current(|context| {
         let more = arguments_at(context, 0, [a0, a1, a2, a3]);
-        let Some((cell, mut elements)) = staged(context, this) else {
+        let Some(cell) = Value(this).as_slot() else {
+            return undefined_of(context);
+        };
+        // Appended IN PLACE. `staged` copies, and it copies for a reason —
+        // a method that calls user code cannot hold a borrow of the context
+        // across the call — but `push` calls nothing. Copying here made
+        // building an array O(N^2): `Vec::clone` allocates capacity exactly
+        // equal to length, so the `extend` that follows reallocated every
+        // time. Two allocations and two O(n) copies per element appended.
+        //
+        // The borrow ends before `set_length`, which is why this is two
+        // statements and not one.
+        let Some(elements) = context.elements_at_mut(cell) else {
             return undefined_of(context);
         };
         elements.extend_from_slice(&more);
         let count = elements.len();
-        store(context, cell, elements);
+        super::array::set_length(context, cell, count);
         Value::from_f64(count as f64).bits()
     })
 }
@@ -176,7 +188,7 @@ extern "C" fn push(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u6
 /// `a.pop()` — the last element, removed.
 extern "C" fn pop(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
-        let Some((cell, mut elements)) = staged(context, this) else {
+        let Some(cell) = Value(this).as_slot() else {
             return undefined_of(context);
         };
         // An empty array answers `undefined` and stays empty. Not a special
@@ -185,10 +197,16 @@ extern "C" fn pop(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) ->
         // `visible`: um buraco no fim sai como `undefined`, não como o
         // marcador — este é um dos quatro pontos que devolvem o word CRU ao
         // programa sem passar por `get_indexed`.
-        let taken = elements.pop().unwrap_or_else(|| undefined_of(context));
-        let taken = super::array::visible(context, taken);
-        store(context, cell, elements);
-        taken
+        // Removed in place, for the reason `push` appends in place: nothing
+        // here calls user code, so nothing needs the copy.
+        let taken = match context.elements_at_mut(cell) {
+            Some(elements) => elements.pop(),
+            None => return undefined_of(context),
+        };
+        let count = context.elements_at(cell).map_or(0, Vec::len);
+        super::array::set_length(context, cell, count);
+        let taken = taken.unwrap_or_else(|| undefined_of(context));
+        super::array::visible(context, taken)
     })
 }
 
