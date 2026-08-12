@@ -175,14 +175,66 @@ fn materialise(node: &read::Node) -> u64 {
                 let Some(cell) = super::native::plain(context) else {
                     return undefined_of(context);
                 };
-                for (key, value) in built {
-                    // Interned as a NAME, never as an index, which is what
-                    // `computed::property_key` does for every computed key —
-                    // so `JSON.parse("{\"0\":1}")[0]` finds what was stored.
-                    // Routing `"0"` through `Key::from_str` would file it among
-                    // the elements of an object that has none.
-                    let key = crate::object::Key::Name(context.interner.intern(&key, &mut context.keys));
-                    super::objects::put(context, cell, key, value);
+                // The layout is reached ONCE. A `put` per member is a shape
+                // transition, a slot lookup, a type mint and a header write —
+                // and every one of those types but the last is thrown away by
+                // the next member. A parsed object knows all of its keys before
+                // it stores any of them, which is exactly the case that does not
+                // need to discover the layout one property at a time.
+                //
+                // Interned as a NAME, never as an index, which is what
+                // `computed::property_key` does for every computed key — so
+                // `JSON.parse("{\"0\":1}")[0]` finds what was stored. Routing
+                // `"0"` through `Key::from_str` would file it among the
+                // elements of an object that has none.
+                let mut shape = context.shapes.root();
+                let mut placed: Vec<(u32, u64)> = Vec::with_capacity(built.len());
+                let mut fallback = false;
+                for (key, value) in &built {
+                    let named = context.interner.intern(key, &mut context.keys);
+                    let Ok(grown) = context.shapes.transition(
+                        shape,
+                        named,
+                        rts_cranelift::repr::Repr::Tagged,
+                    ) else {
+                        fallback = true;
+                        break;
+                    };
+                    let Some(at) = context.shapes.slot_of(grown, named) else {
+                        fallback = true;
+                        break;
+                    };
+                    if at >= crate::heap::INLINE_SLOTS {
+                        // Past the inline slots the value goes to the spill
+                        // beside the cell, which `set_slot_value` does not
+                        // reach. The general path does.
+                        fallback = true;
+                        break;
+                    }
+                    placed.push((at, *value));
+                    shape = grown;
+                }
+
+                match fallback {
+                    // A duplicate key, a refused transition, or more properties
+                    // than fit inline. Rare, and the general path is right for
+                    // all three rather than nearly right for two of them.
+                    true => {
+                        for (key, value) in built {
+                            let key = crate::object::Key::Name(
+                                context.interner.intern(&key, &mut context.keys),
+                            );
+                            super::objects::put(context, cell, key, value);
+                        }
+                    }
+                    false => {
+                        let link = context.prototype_at(cell);
+                        let ty = context.typed_as(shape, link).index() as u32;
+                        context.region.set_type(cell, ty);
+                        for (at, value) in placed {
+                            super::objects::set_slot_value(context, cell, at, value);
+                        }
+                    }
                 }
                 Value::from_slot(cell).bits()
             })
