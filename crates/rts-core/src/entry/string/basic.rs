@@ -121,6 +121,23 @@ extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -
 /// `s.indexOf(t, from)` — where `t` first occurs, or -1.
 extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
+        // The narrow path first, and it is the common one: both sides ASCII, so
+        // there is nothing to widen and nothing to copy. `units_of` builds a
+        // fresh `Vec<u16>` of the WHOLE receiver on every call and throws away
+        // the byte layout this crate keeps precisely so it would not have to —
+        // a 256-character haystack allocated 512 bytes and widened 256 times to
+        // answer where four characters were.
+        //
+        // Answered from borrowed slices, so neither side allocates at all.
+        if let Some(text) = context.text_at(Value(this).as_slot().unwrap_or(u32::MAX))
+            && let Some(hay) = text.narrow()
+            && let Some(pattern) = super::text_of(context, search)
+            && let Some(pin) = pattern.narrow().map(<[u8]>::to_vec)
+        {
+            let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), hay.len());
+            let found = find_bytes(hay, &pin, start);
+            return Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits();
+        }
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
             return nothing(context);
@@ -427,6 +444,31 @@ fn mapped(this: u64, body: impl FnOnce(&str) -> String) -> u64 {
 /// Written once because five methods search, and five copies is where one of
 /// them would disagree about the empty needle — which occurs at every position,
 /// including the end.
+/// The same question over bytes, which is what both sides are whenever the text
+/// is ASCII — and it nearly always is.
+///
+/// Separate from [`find`] rather than generic over the unit type, because the
+/// one rule they must agree about is the empty needle and a shared body would
+/// hide it. Both answer `from` clamped to the length, and both have a test.
+fn find_bytes(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(from.min(haystack.len()));
+    }
+    if needle.len() > haystack.len() || from > haystack.len() - needle.len() {
+        return None;
+    }
+    // `memchr` is already in the tree through `regex`, and its `memmem` finder
+    // is a two-way search with a SIMD prefilter where the naive window compare
+    // below is O(n*m). It is NOT used here yet, and the reason is worth stating
+    // rather than leaving as an omission: the win this commit measures is the
+    // allocation and the widening, not the search, and adding a dependency edge
+    // in the same change would make the two impossible to tell apart.
+    haystack[from..]
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|at| at + from)
+}
+
 fn find(haystack: &[u16], needle: &[u16], from: usize) -> Option<usize> {
     if needle.is_empty() {
         return Some(from.min(haystack.len()));
