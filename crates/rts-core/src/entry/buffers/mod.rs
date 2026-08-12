@@ -242,14 +242,66 @@ pub(in crate::entry) fn as_count(length: f64) -> usize {
 /// already makes.
 pub(in crate::entry) fn attach(context: &mut Context, cell: u32, view: View) {
     context.views.set(cell, view);
-    stamp(context, cell, "byteLength", view.length as f64);
-    stamp(context, cell, "byteOffset", view.offset as f64);
-    if view.kind != Kind::Raw {
-        stamp(context, cell, "length", view.count() as f64);
-    }
-    let key = context.well_known("buffer");
+
+    // ONE shape, not four. These properties are always the same names in the
+    // same order for a given kind, so every typed array ever made walks the
+    // same four transitions to the same layout — and each `put` was a shape
+    // transition, a slot lookup, a type mint and a header write, three of
+    // which are thrown away by the next one.
+    //
+    // The transitions themselves are memoised on `(parent, key, repr)`, so
+    // arriving at the shape is cheap. What this removes is the three
+    // intermediate TYPES and the work `objects::put` does around a store that
+    // a freshly allocated cell cannot need: an integrity check on an object
+    // nothing has frozen, an accessor walk on one that has none, and the
+    // array-length reconciliation for a `length` that is not an array's.
     let buffer = Value::from_slot(view.buffer).bits();
-    super::objects::put(context, cell, key, buffer);
+    let named: [(crate::object::Key, u64); 4] = [
+        (context.well_known("byteLength"), Value::from_f64(view.length as f64).bits()),
+        (context.well_known("byteOffset"), Value::from_f64(view.offset as f64).bits()),
+        (context.well_known("length"), Value::from_f64(view.count() as f64).bits()),
+        (context.well_known("buffer"), buffer),
+    ];
+    // `Raw` is an ArrayBuffer view with no element count, so it takes three of
+    // the four — the same set the loop below would have stamped.
+    let wanted = match view.kind {
+        Kind::Raw => &named[..2],
+        _ => &named[..],
+    };
+
+    let mut shape = context.shapes.root();
+    let mut slots = Vec::with_capacity(wanted.len());
+    for (key, _) in wanted {
+        let crate::object::Key::Name(machine) = key else {
+            continue;
+        };
+        let Ok(grown) = context.shapes.transition(shape, *machine, rts_cranelift::repr::Repr::Tagged) else {
+            // Something refused the layout. Fall back to the general path
+            // rather than leaving the cell half-shaped.
+            for (key, value) in wanted {
+                super::objects::put(context, cell, *key, *value);
+            }
+            return;
+        };
+        let Some(at) = context.shapes.slot_of(grown, *machine) else {
+            for (key, value) in wanted {
+                super::objects::put(context, cell, *key, *value);
+            }
+            return;
+        };
+        slots.push(at);
+        shape = grown;
+    }
+
+    // The type once, against the link this cell already has — `made` sets the
+    // prototype before calling here, and losing that discrimination would put
+    // every typed array kind back on one layout.
+    let link = context.prototype_at(cell);
+    let ty = context.typed_as(shape, link).index() as u32;
+    context.region.set_type(cell, ty);
+    for (at, (_, value)) in slots.iter().zip(wanted) {
+        super::objects::set_slot_value(context, cell, *at, *value);
+    }
 }
 
 /// One numeric property, by name.
