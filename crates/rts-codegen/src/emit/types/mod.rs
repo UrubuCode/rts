@@ -134,6 +134,28 @@ impl Kind {
     ///
     /// Returning `Option` rather than a nearest match is what makes that
     /// unrepresentable instead of merely discouraged.
+    ///
+    /// # What it would take to make `Str` spendable, and why it is not next
+    ///
+    /// Asked and answered rather than left open, because the census makes it
+    /// the obvious next move: three quarters of the claims that survive a body
+    /// are `Str`, `Array` or `Instance`, and all three are `None` here.
+    ///
+    /// The TEST is not the missing piece. `lower::value::test` cannot narrow to
+    /// any `RefKind` but `Opaque` — it answers `CannotProveReferenceKind` — but
+    /// `Terminator::GuardType` already tests a cell's HEADER against a
+    /// `TypeId`, which is what distinguishes text from an object, and the
+    /// compiler already holds the `TypeRegistry` the runtime mints from.
+    ///
+    /// What is missing is a CONSUMER. There is no instruction that does
+    /// anything with a reference proved to be text: a length is a runtime call,
+    /// an index is a runtime call, a comparison is a runtime call. A guard whose
+    /// success path reaches the same call as its failure path has bought
+    /// nothing, and a capability with no producer is what rule 9 refuses.
+    ///
+    /// So the order is the reverse of the obvious one: the machine gains a text
+    /// operation first, and this returns `Some` for `Str` in the same change
+    /// that gives it something to reach.
     pub(in crate::emit) fn repr(self) -> Option<Repr> {
         match self {
             Kind::Number => Some(Repr::F64),
