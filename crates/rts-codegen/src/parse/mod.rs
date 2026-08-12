@@ -37,6 +37,7 @@
 
 mod expr;
 mod item;
+mod members;
 mod pat;
 
 use std::fmt;

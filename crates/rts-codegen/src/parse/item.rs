@@ -712,6 +712,7 @@ fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
                     None => None,
                 },
                 is_static: property.is_static,
+                claim: super::members::field_claim(cx, property.type_ann.as_deref()),
             })),
 
             swc::ClassMember::PrivateProp(property) => body.push(ClassElement::Field(Field {
@@ -721,6 +722,7 @@ fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
                     None => None,
                 },
                 is_static: property.is_static,
+                claim: super::members::field_claim(cx, property.type_ann.as_deref()),
             })),
 
             swc::ClassMember::StaticBlock(block) => {

@@ -28,6 +28,7 @@
 //! prologue is allowed to assume.
 
 use rts_cranelift::fault::Position;
+use super::Claim;
 
 use super::PropertyKey;
 use super::expr::Expr;
@@ -223,6 +224,17 @@ pub struct Field {
 
     /// Whether it lives on the class rather than on instances.
     pub is_static: bool,
+
+    /// What the program says it holds.
+    ///
+    /// Carried and not resolved, like every other `Claim`: it is evidence a
+    /// program offered about a value, unchecked by anything — this compiler
+    /// never runs `tsc` — and what it is worth belongs to whatever weighs it.
+    ///
+    /// It was dropped entirely until now: the tree kept that instances have an
+    /// `x` and not that `x` holds a number, so a pass asking what a class's
+    /// instances look like could learn the shape and not the representations.
+    pub claim: Option<Claim>,
 }
 
 #[cfg(test)]
