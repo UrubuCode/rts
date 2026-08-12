@@ -211,6 +211,12 @@ extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
 /// one `includes` had — both directions, from one dropped argument.
 extern "C" fn starts_with(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
+        // Narrow on both sides is a slice comparison and nothing else — no
+        // widening, no copy of the receiver. The wide path below is unchanged.
+        if let Some((hay, pin)) = narrow_pair(context, this, search) {
+            let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), hay.len());
+            return Value::from_bool(hay[start..].starts_with(&pin)).bits();
+        }
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
             return nothing(context);
@@ -228,6 +234,15 @@ extern "C" fn starts_with(_e: u64, this: u64, search: u64, from: u64, _a2: u64, 
 /// the string considered is `"ab"`. It was discarded, so that answered false.
 extern "C" fn ends_with(_e: u64, this: u64, search: u64, end: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
+        if let Some((hay, pin)) = narrow_pair(context, this, search) {
+            // The default is the WHOLE string and not zero, which is the
+            // opposite of `includes` — this one measures from the far end.
+            let stop = match Value(end).numeric() {
+                Some(number) if !number.is_nan() => relative(number.max(0.0), hay.len()),
+                _ => hay.len(),
+            };
+            return Value::from_bool(hay[..stop].ends_with(&pin)).bits();
+        }
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
             return nothing(context);
