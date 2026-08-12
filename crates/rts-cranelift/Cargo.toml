@@ -13,6 +13,17 @@ crate-type = ["rlib"]
 # crate — and every other crate in the workspace — manipulates this crate's own
 # representation instead. That is the invariant the whole layer rests on, and it
 # is why these dependencies appear only now, with the module that needs them.
+# A fast hash for tables keyed by this crate's OWN numbers.
+#
+# The shape tree's maps are keyed by `ShapeId`, `Key` and `Repr` — integers this
+# crate mints itself, never anything a program supplies — so there is no
+# adversary to be resistant to, and `std`'s SipHash is buying nothing on them.
+# rustc measured 4-84% from exactly this swap.
+#
+# Apache-2.0 OR MIT, already in the tree transitively, pure Rust over no
+# operating system, and it decides nothing this layer decides.
+rustc-hash = "2"
+
 cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
 
