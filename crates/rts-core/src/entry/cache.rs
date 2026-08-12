@@ -80,6 +80,36 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
             explain("the receiver is not a cell in this region", context);
             return -1;
         };
+        // A string has no shape, and that absence is load-bearing: `shape_of`
+        // excludes the text layout so a reserved position cannot answer with a
+        // shape that was never its own. So `length` — the one property a string
+        // has that a LOAD could answer — could never be cached, and every read
+        // went to the runtime forever at 99 ns against 4.8 for an ordinary one.
+        //
+        // Answered here rather than by giving text a shape, which is the change
+        // that would also make every OTHER property of a string resolve against
+        // a layout it does not have. One key, one slot, stated where the cache
+        // is filled.
+        // `length_key` answers this crate's own `Key`, which distinguishes a
+        // name from an index; the cache compares the machine's, which is a
+        // name and nothing else. Unwrapping here rather than widening either
+        // side keeps the two vocabularies apart, the way `cache_resolve_store`
+        // already does for the same key.
+        let length_named = match super::computed::length_key(context) {
+            crate::object::Key::Name(named) => Some(named),
+            crate::object::Key::Index(_) => None,
+        };
+        if ty == context.text_type_index() && Some(key) == length_named {
+            let offset = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
+                + i64::from(super::TEXT_LENGTH_SLOT) * i64::from(rts_cranelift::mem::SLOT_BYTES);
+            // SAFETY: the cell this site declared, as everywhere else here.
+            unsafe {
+                let cell = cache as *mut i64;
+                cell.write(i64::from(ty));
+                cell.add(1).write(offset);
+            }
+            return offset;
+        }
         let Some(shape) = context.shape_of(ty) else {
             // A string, or a layout nothing recorded. Not an object, so nothing
             // is at any offset in it.

@@ -175,7 +175,29 @@ use crate::value::Singletons;
 /// everything else, and moving a name on or off changes only the cost.
 /// `length` is asked before every property write, `prototype` by every `new`,
 /// and the last three are stamped onto every typed array as it is built.
-pub const CACHED_KEYS: [&str; 5] = ["length", "prototype", "byteLength", "byteOffset", "buffer"];
+/// Which inline slot of a string's cell holds its length.
+///
+/// Slot zero is the slab position the text lives at. Slot one is the length,
+/// and it is there so that `s.length` can be answered by a LOAD — a string has
+/// no shape, so `cache_resolve` could never answer for it and every read went
+/// to the runtime, forever, at 99 ns against 4.8 for an ordinary property.
+///
+/// Safe to store because a string is immutable: written once, at creation, and
+/// nothing can make it disagree with the text it describes. The same trick
+/// would NOT be safe for an array's length, which is why that one is a real
+/// property that `objects::put` reconciles.
+pub const TEXT_LENGTH_SLOT: u32 = 1;
+
+/// The names the runtime asks for BY NAME on a path that runs per operation.
+pub const CACHED_KEYS: [&str; 6] = [
+    "length",
+    "prototype",
+    "byteLength",
+    "byteOffset",
+    "buffer",
+    // Asked of every object value `JSON.stringify` reaches.
+    "toJSON",
+];
 
 /// The strings the runtime builds as VALUES on a path that runs per operation.
 ///

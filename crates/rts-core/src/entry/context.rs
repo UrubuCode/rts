@@ -128,6 +128,22 @@ impl Context {
     /// Excluding by index rather than fixing the fill: the reserved layouts are
     /// the two positions that legitimately have no shape, and saying so is the
     /// fact, where a sentinel fill would be a way of encoding it.
+    /// The number the text layout was given.
+    ///
+    /// Exposed so the cache can recognise a string without asking `shape_of`,
+    /// which answers `None` for it by design.
+    pub fn text_type_index(&self) -> u32 {
+        self.text_type.index() as u32
+    }
+
+    /// Which shape a cell's type came from, if it is an object's.
+    ///
+    /// `None` for a string's layout and for a callable's, which is what makes a
+    /// reference's kind readable from the object rather than from the encoding.
+    /// The exclusion is load-bearing: `shape_of_type` grows with `resize(index +
+    /// 1, shape)`, so a reserved position would otherwise hold a shape that was
+    /// never its own and a callable would answer property reads by interpreting
+    /// its code address as a field.
     pub fn shape_of(&self, ty: u32) -> Option<rts_cranelift::shape::ShapeId> {
         let ty = ty as usize;
         if ty == self.text_type.index() {
@@ -260,6 +276,7 @@ impl Context {
 
     /// Put a string on the heap and return the value naming it.
     pub fn intern_value(&mut self, text: Str) -> Value {
+        let length = text.len();
         let slot = self.cells.insert(text).slot();
         let size = crate::heap::STRIDE;
         let ty = self.text_type.index() as u32;
@@ -267,6 +284,20 @@ impl Context {
         self.region
             .set_field(cell, 0, u64::from(slot.0))
             .expect("a string cell has a first slot");
+        // The LENGTH as a VALUE, not as an integer: a cached read hands back what
+        // the slot holds, so what the slot holds must be a JavaScript value. It
+        // was a raw `u64` for one build and every length read back as a
+        // denormal — 2 answered 1e-323 — which is what a bit pattern looks like
+        // when it is read as the double it is not.
+        //
+        // Beside the slab position, so that reading it is a load rather than
+        // a slab lookup and — the point — so an inline cache can answer for it.
+        // A string is immutable, so this is written once and can never drift
+        // from what it describes; that is what makes storing it safe here and
+        // would not make it safe for an array.
+        self.region
+            .set_field(cell, crate::entry::TEXT_LENGTH_SLOT, Value::from_f64(length as f64).bits())
+            .expect("a string cell has a second slot");
         Value::from_slot(cell)
     }
 
