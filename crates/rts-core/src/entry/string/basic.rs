@@ -146,6 +146,20 @@ extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
 
 /// `s.lastIndexOf(t, from)` — where it last occurs at or before `from`, or -1.
 ///
+/// # Why this one keeps the wide copy, when its four neighbours do not
+///
+/// It was given the narrow path and MEASURED SLOWER: 886.7 -> 990.9 ms over 2e6
+/// calls on a 256-unit haystack, release, 2026-08-12, two binaries alternated
+/// three times. Correct — nine corner cases against node agreed exactly — and
+/// slower, so it was reverted.
+///
+/// The reason is not established, and saying so is the point: the same change
+/// bought -58% on `indexOf`, -57% on `includes` and -61% on `startsWith` and
+/// `endsWith`, so "borrowing beats copying" is not a rule that holds here
+/// without measuring. A plausible story is that a backwards scan from a bound
+/// finds its match in a few steps, so the copy it avoids never dominated — but
+/// that is a story, and the number is the fact.
+///
 /// # Why this scans backwards rather than forwards keeping the last hit
 ///
 /// It used to walk forwards with `from = at + 1` until `find` answered `None`,
