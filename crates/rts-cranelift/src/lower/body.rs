@@ -675,8 +675,32 @@ impl<'a> Body<'a> {
             &[cranelift_codegen::ir::BlockArg::Value(address)],
         );
 
+        // The offset the site remembers may be a remembered REFUSAL rather than
+        // a place: the resolver writes a negative one for a receiver whose
+        // layout it has already decided it cannot answer from, so that a site
+        // which misses forever stops calling. It is checked here rather than on
+        // each of the three edges into this block, and the load it guards was
+        // being done on this path anyway — so what a warm positive site pays is
+        // one compare and one branch, monomorphic per site.
+        //
+        // A negative can never be a wrong answer: it selects the same miss path
+        // the site took before any of this existed, which is the general lookup.
+        // That is what makes remembering one require no invalidation the two
+        // type comparisons above do not already perform.
         builder.switch_to_block(read);
         let offset = builder.ins().load(types::I64, flags, cell, 8);
+        let usable = builder
+            .ins()
+            .icmp_imm(IntCC::SignedGreaterThanOrEqual, offset, 0);
+        let load_at = builder.create_block();
+        let refused_args = self.block_args(&miss.args);
+        builder
+            .ins()
+            .brif(usable, load_at, &[], miss_target, &refused_args);
+
+        // Reached only from `read`, which dominates it, so the base and the
+        // offset are in scope without being passed again.
+        builder.switch_to_block(load_at);
         let at = builder.ins().iadd(base, offset);
         let value = builder.ins().load(types::I64, flags, at, 0);
 

@@ -63,6 +63,26 @@ extern "C" fn resolve(object: i64, key: i64, cell: i64) -> i64 {
     }
 }
 
+/// Stands in for a resolver that has decided it cannot answer for this layout,
+/// and REMEMBERS having decided.
+///
+/// The negative offset is the whole of the mechanism: a cell whose first word
+/// the site recognises but whose second is below zero must send the site to its
+/// miss path, and must never be added to an address and loaded from. This stub
+/// exists so that the machine's half of that is pinned without a runtime.
+extern "C" fn refuse(object: i64, _key: i64, cell: i64) -> i64 {
+    ASKS.fetch_add(1, Ordering::SeqCst);
+    let layout = unsafe { object_header(object) };
+    unsafe {
+        let cell = cell as *mut i64;
+        cell.write(layout);
+        cell.offset(1).write(-1);
+        cell.offset(2).write(0);
+        cell.offset(3).write(-1);
+    }
+    -1
+}
+
 extern "C" fn never(_a: i64, _b: i64) -> i64 {
     unreachable!("these programs do not allocate")
 }
@@ -164,6 +184,7 @@ fn compile(func: &Function, bases: RegionBases, types: &TypeRegistry) -> *const 
     let isa = host_isa().expect("host");
     let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     builder.symbol(RtEntry::CacheResolve.symbol(), resolve as *const u8);
+    builder.symbol(RtEntry::CacheResolveIndirect.symbol(), refuse as *const u8);
     builder.symbol(RtEntry::Alloc.symbol(), never as *const u8);
     builder.symbol(RtEntry::WriteBarrier.symbol(), never_barrier as *const u8);
     let mut jit = JITModule::new(builder);
@@ -328,6 +349,86 @@ fn a_layout_without_the_property_takes_the_miss_path_and_leaves_the_site_cold() 
         5,
         "a layout that does have it is still read correctly afterwards"
     );
+}
+
+/// A refusal the resolver remembers must cost the site one call and no more,
+/// and must never become a load at a negative offset.
+///
+/// This is the machine's half of the fix for `derived.bp()`, where the property
+/// is two links away — further than the resolver may walk. Before it, the site
+/// recognised nothing, called on every pass, and paid the whole attempt on top
+/// of the miss path it was already paying.
+#[test]
+fn a_remembered_refusal_takes_the_miss_path_without_asking_again() {
+    let _serial = reset();
+    let mut keys = KeyRegistry::new();
+    let mut shapes = ShapeTree::new();
+    let mut types = TypeRegistry::new();
+
+    let x = keys.declare_one();
+    let unrelated = keys.declare_one();
+    let lacks = shapes
+        .transition(shapes.root(), unrelated, Repr::Tagged)
+        .expect("added");
+    let lacks_ty = shapes.layout(lacks, &mut types);
+    let lacks_layout = ObjectLayout::of(lacks_ty, &types);
+
+    let bases = heap(lacks_layout.size.max(32), 4);
+    unsafe {
+        write_object(0, lacks_ty, &lacks_layout, &[7]);
+    }
+
+    let func = reader_indirect(x, &types);
+    let address = compile(&func, bases, &types);
+    let read: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(address) };
+
+    for _ in 0..8 {
+        assert_eq!(
+            read(0),
+            -1,
+            "a remembered refusal answers the miss path, not a value read at a \
+             negative offset"
+        );
+    }
+    assert_eq!(
+        ASKS.load(Ordering::SeqCst),
+        1,
+        "asked once — the whole point of remembering the refusal"
+    );
+}
+
+/// The same as [`reader`], through the terminator that may answer out of an
+/// inherited cell.
+fn reader_indirect(key: Key, types: &TypeRegistry) -> Function {
+    let mut func = Function::new(Signature {
+        params: vec![Repr::Ref(RefKind::Opaque)],
+        returns: vec![Repr::Tagged],
+        ..Signature::default()
+    });
+    let object = func.block(func.entry).expect("entry").params[0];
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, types, entry);
+
+    let hit = b.create_block();
+    let miss = b.create_block();
+    b.add_block_param(hit, Repr::Tagged);
+    let cache = b.declare_cache();
+    b.cached_get_indirect(object, key, cache, (hit, &[]), (miss, &[]))
+        .expect("well formed");
+
+    let value = func.block(hit).expect("exists").params[0];
+    let mut b = FuncBuilder::new(&mut func, types, hit);
+    b.ret(&[value]);
+
+    let mut b = FuncBuilder::new(&mut func, types, miss);
+    let absent = b.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+        repr: Repr::Tagged,
+        bits: rts_cranelift::ir::ScalarBits(-1i64 as u64),
+    });
+    let absent = b.use_const(absent);
+    b.ret(&[absent]);
+
+    func
 }
 
 #[test]

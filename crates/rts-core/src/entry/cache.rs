@@ -146,11 +146,61 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
 /// by its link (`Context::typed_as`), so recognising the type proves the link is
 /// the cell whose address was remembered, and a live receiver keeps its link
 /// alive through `trace`. At two steps the middle cell's own link can be
-/// reassigned, and nothing the site compares would notice. So depth is one, a
-/// deeper property keeps missing exactly as it does today, and closing that is a
-/// separate change with a separate argument to make.
+/// reassigned, and nothing the site compares would notice. So depth is one, and
+/// closing that is a separate change with a separate argument to make.
+///
+/// # A deeper property does NOT keep missing as it did, and the reason it must
+/// not
+///
+/// That is what this said, and it was measured false. `derived.bp()` over a
+/// `class Derived extends Base` is two links away, so this resolver refuses it
+/// — and it refused it once per call: 200 000 refusals in 200 000 calls under
+/// `RTS_CACHE_DEBUG`. The site paid the whole attempt — the proxy question, the
+/// accessor question, `type_of`, `shape_of`, `slot_of` — and then paid the
+/// generic lookup it was already paying. The line doubled, 275 ns to 512 ns,
+/// which is the one thing a cache may never do.
+///
+/// So a refusal it can argue is stable is REMEMBERED: the cell gets the
+/// receiver's type, a negative offset, and the link it looked at. The machine
+/// checks the sign before it loads, and a site whose answer is not reachable by
+/// loading stops calling here at all.
+///
+/// # Why a remembered negative needs no invalidation this did not already have
+///
+/// Because it is not a remembered answer. Every other entry in this cell
+/// SUBSTITUTES for the lookup, so a stale one is a wrong program. A negative
+/// substitutes for nothing: it selects the miss path, which is
+/// `RuntimeOp::GetProperty`, the general lookup that consults the whole chain
+/// at the moment it runs. A negative that has gone stale is therefore slow and
+/// never wrong, and the question "what makes a `bp` that has appeared visible
+/// again?" has the answer "the miss path, which never stopped looking".
+///
+/// What the two type comparisons buy is the speed BACK, and they are the ones
+/// already there. Give the receiver the property and its shape transitions, so
+/// its type changes and word 0 stops matching. Give the LINK the property and
+/// the link's type changes, so word 3 stops matching — which is why a
+/// remembered negative records the link it consulted rather than zero.
+/// Reassign the receiver's link and `chain::set_prototype` retypes the cell on
+/// the spot, which is the same one word 0 compares — so that case is covered by
+/// a mechanism that was already there for the positives.
+///
+/// What none of the three notices is the LINK's own link being reassigned
+/// (`Derived.prototype.__proto__ = other`), which is exactly the step this
+/// resolver may not walk. Such a site stays on the general lookup, at the speed
+/// it had before any cache existed, and never at a wrong answer. Stated here
+/// rather than left to be discovered.
+///
+/// The liveness argument for the address written with a negative is the one
+/// above, unchanged and for the same reason: the address recorded is the
+/// receiver's own link, which the receiver's type discriminates and a live
+/// receiver keeps alive.
+///
+/// Refusals that are facts about ONE cell rather than about its type — a proxy,
+/// an own accessor — are not remembered. They would arm a negative under a type
+/// its siblings share, and slow down cells the refusal was never about.
 #[rtse::entry("rts_cache_resolve_indirect")]
 pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
+    super::string::probe_resolves_indirect();
     let own = cache_resolve(object, key, cache);
     if own >= 0 {
         // The receiver had it. The machine reads the third word to decide where
@@ -212,8 +262,32 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         // that cached against one would recognise every other. An array and an
         // object literal holding `length` reach the same shape and the same type
         // today, which is exactly the collision this refusal removes.
+        let Some(receiver_type) = context.region.type_of(cell) else {
+            return report("the receiver is not a cell in this region");
+        };
+        // Remembering a refusal needs the receiver's type, so it is read here
+        // rather than at the end, where it was read only to write a hit.
+        let remember = |why: &str, held: u64, held_type: i64| -> i64 {
+            if std::env::var_os("RTS_CHAIN_DEBUG").is_some() {
+                eprintln!("rts-chain refused and remembered: {why}");
+            }
+            // SAFETY: the four-word cell this site's terminator declared, the
+            // same one the answering path writes.
+            unsafe {
+                let cell = cache as *mut i64;
+                cell.write(i64::from(receiver_type));
+                cell.add(1).write(-1);
+                cell.add(2).write(held as i64);
+                cell.add(3).write(held_type);
+            }
+            -1
+        };
+
         let Some(link) = context.prototype_at(cell) else {
-            return report("the receiver has no recorded link");
+            // Nothing to look at, and nothing that could make one appear
+            // without changing this receiver's type — `typed_as` gives a linked
+            // cell a number of its own. So there is no second cell to record.
+            return remember("the receiver has no recorded link", 0, -1);
         };
         let Some(holder) = crate::value::Value(link).as_slot() else {
             return report("the link is not a cell");
@@ -234,18 +308,23 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         let Some(holder_shape) = context.shape_of(holder_type) else {
             return report("the link has no shape");
         };
+        let Some(address) = context.region.address_of(holder) else {
+            return report("the link has no address");
+        };
         let Some(slot) = context.shapes.slot_of(holder_shape, named) else {
-            return report("the key is absent from the link's shape");
+            // The regression this whole mechanism exists for: `bp` lives one
+            // link further on, which this resolver may not reach. Recording the
+            // link means the day it gains `bp` its type changes and the site
+            // asks again.
+            return remember(
+                "the key is absent from the link's shape",
+                address,
+                i64::from(holder_type),
+            );
         };
         if slot >= crate::heap::INLINE_SLOTS {
             return report("the slot is past the inline slots");
         }
-        let Some(address) = context.region.address_of(holder) else {
-            return report("the link has no address");
-        };
-        let Some(receiver_type) = context.region.type_of(cell) else {
-            return report("the receiver is not a cell in this region");
-        };
 
         let offset = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
             + i64::from(slot) * i64::from(rts_cranelift::mem::SLOT_BYTES);
