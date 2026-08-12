@@ -58,6 +58,58 @@ pub enum Repr {
     Utf16(Vec<u16>),
 }
 
+/// The code units of a string, in whichever layout holds them.
+///
+/// # Why this is an enum and was a `Box<dyn Iterator>`
+///
+/// Because it is the front door. Eighteen call sites walk a string through
+/// this, and a boxed trait object costs a heap allocation to build and an
+/// indirect call PER CODE UNIT to advance — on the hot path of `indexOf`,
+/// `slice`, `split`, `toUpperCase` and the interner's hash, which the interner
+/// documents as "a hit therefore touches no heap at all" and which was
+/// therefore false.
+///
+/// Two variants and a match per `next` is what replaces it: no allocation, and
+/// a call the compiler can see through.
+///
+/// The narrow arm still widens each byte, because a code unit is what every
+/// caller asked for. A caller that can work on BYTES should ask [`Str::narrow`]
+/// instead and skip this entirely — which is the larger win and is available
+/// only to callers that know they do not need the wide form.
+pub enum Units<'a> {
+    /// One byte per code unit, widened as it is read.
+    Narrow(core::slice::Iter<'a, u8>),
+    /// Two bytes per code unit.
+    Wide(core::slice::Iter<'a, u16>),
+}
+
+impl Iterator for Units<'_> {
+    type Item = u16;
+
+    fn next(&mut self) -> Option<u16> {
+        match self {
+            Units::Narrow(bytes) => bytes.next().map(|byte| u16::from(*byte)),
+            Units::Wide(units) => units.next().copied(),
+        }
+    }
+
+    /// Exact, and given so that a caller collecting into a `Vec` allocates once.
+    ///
+    /// The boxed form could not report one — a trait object's `size_hint` is
+    /// whatever the erased type said, and nothing here was asked. Every
+    /// `units().collect()` in this crate was therefore growing a vector by
+    /// doubling.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let left = match self {
+            Units::Narrow(bytes) => bytes.len(),
+            Units::Wide(units) => units.len(),
+        };
+        (left, Some(left))
+    }
+}
+
+impl ExactSizeIterator for Units<'_> {}
+
 /// A string.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Str {
@@ -134,10 +186,23 @@ impl Str {
     }
 
     /// Every code unit, in order.
-    pub fn units(&self) -> Box<dyn Iterator<Item = u16> + '_> {
+    pub fn units(&self) -> Units<'_> {
         match &self.repr {
-            Repr::Latin1(bytes) => Box::new(bytes.iter().map(|byte| u16::from(*byte))),
-            Repr::Utf16(units) => Box::new(units.iter().copied()),
+            Repr::Latin1(bytes) => Units::Narrow(bytes.iter()),
+            Repr::Utf16(units) => Units::Wide(units.iter()),
+        }
+    }
+
+    /// The bytes, when every code unit fits in one.
+    ///
+    /// For the callers that never needed to widen: a search, a comparison, a
+    /// copy. `None` for the wide form, which is the honest answer rather than a
+    /// re-encoding — a caller that gets `None` has to handle two layouts, and
+    /// that is the trade this representation makes everywhere else too.
+    pub fn narrow(&self) -> Option<&[u8]> {
+        match &self.repr {
+            Repr::Latin1(bytes) => Some(bytes),
+            Repr::Utf16(_) => None,
         }
     }
 
