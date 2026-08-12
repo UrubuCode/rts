@@ -156,7 +156,21 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
         let index = Value::from_f64(at as f64).bits();
         let key = context.well_known("index");
         put(context, cell, key, index);
-        let input = context.intern_value(Str::from_str(&text)).bits();
+        // The subject ITSELF, when it already is one. `input` is defined as the
+        // string the match was run against, and that is the value the caller
+        // passed — so rebuilding it allocated a fresh cell and a fresh `Str`
+        // from text that had just been transcoded out of the original, on every
+        // single `exec`.
+        //
+        // A subject that is NOT a string cell is coerced, and then there is
+        // genuinely nothing to reuse: `input` must be the coerced text rather
+        // than the number that produced it, so that path still builds one.
+        let input = match Value(subject).as_slot().is_some_and(|cell| {
+            context.text_at(cell).is_some()
+        }) {
+            true => subject,
+            false => context.intern_value(Str::from_str(&text)).bits(),
+        };
         let key = context.well_known("input");
         put(context, cell, key, input);
         array
