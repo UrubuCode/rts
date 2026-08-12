@@ -71,6 +71,18 @@ pub fn set_prototype(object: u64, prototype: u64) -> u64 {
     with_current(|context| {
         if let Some(cell) = Value(object).as_slot() {
             context.set_prototype(cell, prototype);
+            // And the cell takes the type its NEW link gives it. This is the
+            // whole of "changing what an object inherits from invalidates the
+            // sites that read through it": the number every inline cache
+            // compares changes, so a warmed site asks again. No token, no
+            // global, and nothing anyone has to remember to call — the one
+            // place a link is set is the one place the type is fixed.
+            if let Some(ty) = context.region.type_of(cell)
+                && let Some(shape) = context.shape_of(ty)
+            {
+                let fresh = context.typed_as(shape, Some(prototype)).index() as u32;
+                context.region.set_type(cell, fresh);
+            }
         }
         object
     })

@@ -119,6 +119,150 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
     })
 }
 
+/// Where a property is, for a site that may read it out of the cell the
+/// receiver inherits from.
+///
+/// # What it may answer that [`cache_resolve`] may not
+///
+/// An address. The cell is four words rather than two — the receiver's type, the
+/// byte offset, **the address to read at** (zero meaning the receiver itself),
+/// and the type that address carried when this answered. The machine compares
+/// both types and loads at the offset; it never walks anything, and it has no
+/// concept of a chain. Everything below decides what is safe to remember.
+///
+/// # Why every refusal here is explicit, where `cache_resolve`'s were incidental
+///
+/// Because that one could not reach anything but the receiver's own layout, so a
+/// proxy, an accessor and an inherited property were all uncacheable by
+/// construction — `proxy.rs` states exactly that as the reason nothing in the
+/// fast path had to change for proxies. A resolver allowed to look further
+/// destroys that argument, so each case it must not answer for is refused by
+/// name and reports why under `RTS_CACHE_DEBUG`.
+///
+/// # One step, and the reason it is one
+///
+/// A property found two links away would be an address this site cannot argue is
+/// alive. At one step the argument holds: the receiver's type is discriminated
+/// by its link (`Context::typed_as`), so recognising the type proves the link is
+/// the cell whose address was remembered, and a live receiver keeps its link
+/// alive through `trace`. At two steps the middle cell's own link can be
+/// reassigned, and nothing the site compares would notice. So depth is one, a
+/// deeper property keeps missing exactly as it does today, and closing that is a
+/// separate change with a separate argument to make.
+#[rtse::entry("rts_cache_resolve_indirect")]
+pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
+    let own = cache_resolve(object, key, cache);
+    if own >= 0 {
+        // The receiver had it. The machine reads the third word to decide where
+        // to load from, and `cache_resolve` did not write one — so it is written
+        // here rather than left holding whatever the last answer put there.
+        //
+        // SAFETY: the same cell `cache_resolve` was just handed and wrote two
+        // words of; this site declared four because its terminator is the
+        // indirect one.
+        unsafe {
+            let cell = cache as *mut i64;
+            cell.add(2).write(0);
+            cell.add(3).write(-1);
+        }
+        return own;
+    }
+
+    with_current(|context| {
+        // Every refusal below says which one it was, for the reason
+        // `cache_resolve`'s do: a site that misses forever looks exactly like a
+        // site that has not run yet, and the only difference visible from
+        // outside is a count. This resolver has ten ways to decline and finding
+        // out which took a rebuild the first time it was needed.
+        let report = |why: &str| -> i64 {
+            if std::env::var_os("RTS_CHAIN_DEBUG").is_some() {
+                eprintln!("rts-chain refused: {why}");
+            }
+            -1
+        };
+        // The receiver arrives as a PROVEN reference, which is the cell number
+        // itself and not a tagged value — the signature says
+        // `Repr::Ref(RefKind::Opaque)` and the guard before the terminator is
+        // what narrowed it. `cache_resolve` reads it the same way one line into
+        // its own body; reading it as a boxed value instead answers "not a
+        // cell" for every receiver there has ever been, which is what this did
+        // for exactly one build.
+        let cell = object as u32;
+        let Ok(number) = u32::try_from(key) else {
+            return report("the key does not fit a number");
+        };
+        let Some(named) = context.keys.key(number) else {
+            return report("no key registered under that number");
+        };
+
+        // A proxy answers through its handler, and answering from a layout would
+        // be answering instead of it.
+        if context.proxy_at(cell).is_some() {
+            return report("the receiver is a proxy");
+        }
+        // An own accessor shadows anything inherited, and `accessor::resolve` is
+        // the one implementation of that order. Refusing here keeps it the one.
+        if context.accessors.get(cell).is_some() {
+            return report("the receiver has accessors of its own");
+        }
+
+        // No recorded link, no walk. This is not an optimisation: `inherited_from`
+        // SUBSTITUTES a prototype by kind for arrays, callables, text and plain
+        // objects, so those cells share one undiscriminated layout — and a site
+        // that cached against one would recognise every other. An array and an
+        // object literal holding `length` reach the same shape and the same type
+        // today, which is exactly the collision this refusal removes.
+        let Some(link) = context.prototype_at(cell) else {
+            return report("the receiver has no recorded link");
+        };
+        let Some(holder) = crate::value::Value(link).as_slot() else {
+            return report("the link is not a cell");
+        };
+        if context.proxy_at(holder).is_some() {
+            return report("the link is a proxy");
+        }
+        let Ok(named_number) = u32::try_from(named.index()) else {
+            return report("the key number does not fit");
+        };
+        if context.accessor_at(holder, named_number).is_some() {
+            return report("the link holds an accessor for this key");
+        }
+
+        let Some(holder_type) = context.region.type_of(holder) else {
+            return report("the link is not a cell in this region");
+        };
+        let Some(holder_shape) = context.shape_of(holder_type) else {
+            return report("the link has no shape");
+        };
+        let Some(slot) = context.shapes.slot_of(holder_shape, named) else {
+            return report("the key is absent from the link's shape");
+        };
+        if slot >= crate::heap::INLINE_SLOTS {
+            return report("the slot is past the inline slots");
+        }
+        let Some(address) = context.region.address_of(holder) else {
+            return report("the link has no address");
+        };
+        let Some(receiver_type) = context.region.type_of(cell) else {
+            return report("the receiver is not a cell in this region");
+        };
+
+        let offset = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
+            + i64::from(slot) * i64::from(rts_cranelift::mem::SLOT_BYTES);
+
+        // SAFETY: a four-word cell this site's terminator declared, kept alive
+        // for as long as the code is.
+        unsafe {
+            let cell = cache as *mut i64;
+            cell.write(i64::from(receiver_type));
+            cell.add(1).write(offset);
+            cell.add(2).write(address as i64);
+            cell.add(3).write(i64::from(holder_type));
+        }
+        offset
+    })
+}
+
 /// The same question, from a site that is about to **write**.
 ///
 /// # Why a frozen object answers negative instead of being caught later

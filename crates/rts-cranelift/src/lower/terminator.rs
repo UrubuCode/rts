@@ -117,6 +117,16 @@ impl Body<'_> {
                 self.lower_cached_get(builder, block, *object, *key, *cache, hit, miss)?;
             }
 
+            Terminator::CachedGetIndirect {
+                object,
+                key,
+                cache,
+                hit,
+                miss,
+            } => {
+                self.lower_cached_get_indirect(builder, block, *object, *key, *cache, hit, miss)?;
+            }
+
             Terminator::CachedSet {
                 object,
                 key,

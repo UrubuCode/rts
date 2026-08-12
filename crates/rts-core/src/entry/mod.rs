@@ -151,7 +151,7 @@ pub use finalize::{
     drain as drain_finalizers, on_death,
 };
 pub use barrier::write_barrier;
-pub use cache::{cache_resolve, cache_resolve_store};
+pub use cache::{cache_resolve, cache_resolve_indirect, cache_resolve_store};
 pub use chain::{get_prototype, set_prototype};
 pub use clone::deep_copy;
 pub use current::with_context;
@@ -261,6 +261,34 @@ pub struct Context {
     /// slots are what a program's own properties get, and spending one on a
     /// link almost nothing reads would cost every object.
     prototypes: Aside<u64>,
+    /// The layouts each cell has been made the prototype OF, and the type
+    /// number each of those got.
+    ///
+    /// # Why a second number for one layout
+    ///
+    /// Because the inline cache compares the type and nothing else. Two classes
+    /// whose instances hold the same fields arrive at the same shape — that is
+    /// what a shape tree is for — and therefore at the same type, so a site
+    /// warmed on one would recognise the other and read its prototype's method.
+    /// Giving instances of different classes different NUMBERS over one shape is
+    /// what makes the comparison the cache already performs answer the question
+    /// a chain read needs answered, and it is the same mechanism
+    /// `integrity::retype` already uses for a frozen cell.
+    ///
+    /// Nothing about the object moves: same shape, same slots, same offsets.
+    ///
+    /// # Why it is keyed by the PROTOTYPE and not by the instance
+    ///
+    /// So that it dies with it. `collect_cycle::release` clears every `Aside`
+    /// for a cell it reclaims, so a recycled cell index starts with an empty
+    /// memo and mints fresh numbers — which is what stops a stale type from
+    /// being reissued to an unrelated object after the free list hands the same
+    /// index back. Keyed by the instance it would grow with the program.
+    ///
+    /// A `Vec` scanned linearly rather than a map, for the reason `accessor_at`
+    /// records: one cell is the prototype of one or two shapes in practice, and
+    /// hashing would cost more than walking them.
+    proto_types: Aside<Vec<(rts_cranelift::shape::ShapeId, rts_cranelift::types::TypeId)>>,
     /// Which cells are callable, and what they call.
     ///
     /// # Why beside the cell and not in it
@@ -739,6 +767,7 @@ impl Context {
             // makes that comparison a constant.
             promises: promise::Machine::in_region(region.index()),
             prototypes: Aside::in_region(bits),
+            proto_types: Aside::in_region(bits),
             callables: Aside::in_region(bits),
             proxies: Aside::in_region(bits),
             cursors: Aside::in_region(bits),
@@ -803,6 +832,7 @@ impl Context {
             proxies: Aside::new(),
             cursors: Aside::new(),
             prototypes: Aside::new(),
+            proto_types: Aside::new(),
             array_elements: Aside::new(),
             accessors: Aside::new(),
             derived: Aside::new(),

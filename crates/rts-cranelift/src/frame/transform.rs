@@ -392,7 +392,16 @@ impl<'a> Rewrite<'a> {
                 self.rewrite_block_call(block, ok);
                 self.rewrite_block_call(block, fail);
             }
+            // Both cached reads, and the indirect one is here for the reason the
+            // direct one is: what it rewrites is the RECEIVER, which is an
+            // ordinary value that a park may have spilled. The address the
+            // indirect form remembers is not an operand and not a value — it
+            // lives in the site's cell — so there is nothing of it to rewrite,
+            // and a park cannot move it.
             Terminator::CachedGet {
+                object, hit, miss, ..
+            }
+            | Terminator::CachedGetIndirect {
                 object, hit, miss, ..
             } => {
                 *object = self.use_value(block, *object);

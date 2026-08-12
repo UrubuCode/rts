@@ -402,6 +402,54 @@ impl<'a> FuncBuilder<'a> {
         Ok(())
     }
 
+    /// Reads a property that the site may have last found in a different cell.
+    ///
+    /// The same domain and the same block shape as [`Self::cached_get`], and a
+    /// separate name rather than a flag on that one: it costs more on the
+    /// recognised path, and rule 10 is that a client which does not need the
+    /// difference must not be able to pay for it by accident. The two are
+    /// therefore chosen at the call site, by a client that knows which question
+    /// it is asking.
+    ///
+    /// What may be remembered, and the obligation that comes with remembering an
+    /// address rather than a reference, is stated on
+    /// [`Terminator::CachedGetIndirect`].
+    pub fn cached_get_indirect(
+        &mut self,
+        object: ValueId,
+        key: crate::shape::Key,
+        cache: crate::ir::CacheId,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let found = self.func.repr_of(object);
+        if !matches!(found, Repr::Ref(_)) {
+            return Err(BuildError::WrongDomain {
+                operation: "cached_get_indirect",
+                found,
+            });
+        }
+
+        let hit_params = self.block_param_reprs(hit.0);
+        if hit_params.first() != Some(&Repr::Tagged) {
+            return Err(BuildError::GuardTargetMissingValue { target: hit.0 });
+        }
+
+        let hit_call = self.block_call_from(hit.0, hit.1, 1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::CachedGetIndirect {
+                object,
+                key,
+                cache,
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
     /// Writes a property of an object whose layout is not known here.
     ///
     /// The mirror of [`Self::cached_get`], and it takes no narrowed parameter on

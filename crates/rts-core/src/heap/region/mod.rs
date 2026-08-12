@@ -510,6 +510,30 @@ impl Region {
         self.words.get(self.word_of(index)).map(|word| *word as u32)
     }
 
+    /// Where a cell starts, as an address.
+    ///
+    /// # Why the runtime is allowed to compute one at all
+    ///
+    /// Because one caller has to hand an address to compiled code rather than a
+    /// reference: a read site that remembers where it last found something
+    /// remembers a place, and a reference would have to be decomposed by the
+    /// generated code, which is the arithmetic this method performs. The same
+    /// arithmetic `lower::memory::address_of` emits, stated once here so the two
+    /// cannot disagree about a stride or a selector.
+    ///
+    /// **This is not a value and must never become one.** A reference is what
+    /// makes conservative scanning safe and a moving collector possible, and an
+    /// address defeats both — so what comes back is for a caller that has
+    /// established the cell outlives the use, and `None` for a reference this
+    /// region did not hand out.
+    pub fn address_of(&self, reference: u32) -> Option<u64> {
+        let index = self.decompose(reference)?;
+        if index >= self.next {
+            return None;
+        }
+        Some(self.base() + u64::from(index) * u64::from(STRIDE))
+    }
+
     /// Which word a cell starts at.
     fn word_of(&self, index: u32) -> usize {
         (index as usize) * (STRIDE as usize / SLOT_BYTES as usize)
