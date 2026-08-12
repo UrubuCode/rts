@@ -131,6 +131,19 @@ impl Str {
     /// right side of that trade for text that is read more often than it is
     /// made.
     pub fn from_str(text: &str) -> Self {
+        // ASCII first, and it is worth being separate from the Latin-1 arm
+        // below rather than folded into it. Both of those walk the string a
+        // CHARACTER at a time — once to decide and once to convert — where for
+        // ASCII the decision is a SIMD scan and the conversion is a memcpy,
+        // because the bytes already are the code units.
+        //
+        // This runs on every string a program creates: every piece a `split`
+        // produces, every result of a `replace`, every key `JSON.parse` reads.
+        if text.is_ascii() {
+            return Str {
+                repr: Repr::Latin1(text.as_bytes().to_vec()),
+            };
+        }
         if text.chars().all(|c| (c as u32) < 256) {
             return Str {
                 repr: Repr::Latin1(text.chars().map(|c| c as u8).collect()),
