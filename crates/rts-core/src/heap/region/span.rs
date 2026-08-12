@@ -60,8 +60,12 @@ impl Region {
         let reference = self.compose(index)?;
         self.next += cells;
 
+        // The width is every word the object covers except its own header, so a
+        // `field` on it is bounded by what it actually owns rather than by a
+        // cell's fifteen.
+        let width = cells * (super::INLINE_SLOTS + 1) - 1;
         let at = self.word_of(index);
-        self.words[at] = u64::from(ty);
+        self.words[at] = super::header_word(ty, width);
 
         // Every cell after the first has no header of its own — a sweep must
         // not mistake one for an abandoned ordinary object. See
@@ -76,16 +80,11 @@ impl Region {
 
     /// Reads a field of an object that may span several cells.
     ///
-    /// `slots` is how many fields the object has, and it comes from the layout
-    /// its allocator sized it with — the region does not remember, because
-    /// remembering would be a per-cell span written into every cell to serve the
-    /// one kind of object that spans.
-    ///
-    /// Refuses `slot >= slots` rather than reading, which is what keeps this
-    /// from reaching into the object allocated after it.
-    pub fn spanning_field(&self, reference: u32, slot: u32, slots: u32) -> Option<u64> {
-        let at = self.spanning_word(reference, slot, slots)?;
-        self.words.get(at).copied()
+    /// `slots` is ignored and kept only so a caller that knows its layout can
+    /// keep saying so: the header carries the width now, so [`Region::field`]
+    /// bounds a wide object by itself and this is the same call.
+    pub fn spanning_field(&self, reference: u32, slot: u32, _slots: u32) -> Option<u64> {
+        self.field(reference, slot)
     }
 
     /// Writes a field of an object that may span several cells.
@@ -93,73 +92,19 @@ impl Region {
         &mut self,
         reference: u32,
         slot: u32,
-        slots: u32,
+        _slots: u32,
         value: u64,
     ) -> Option<()> {
-        let at = self.spanning_word(reference, slot, slots)?;
-        *self.words.get_mut(at)? = value;
-        Some(())
+        self.set_field(reference, slot, value)
     }
 
-    /// Which word a field of a spanning object is, when it is one of its own.
+    /// Returns every cell a spanning object covers.
     ///
-    /// The same arithmetic [`Self::field`] does, without the seven-slot ceiling:
-    /// a field is one word past the header of the FIRST cell, and the cells after
-    /// it hold nothing else, so the count continues straight through them.
-    fn spanning_word(&self, reference: u32, slot: u32, slots: u32) -> Option<usize> {
-        if slot >= slots {
-            return None;
-        }
-        let index = self.decompose(reference)?;
-        if index >= self.next {
-            return None;
-        }
-        Some(self.word_of(index) + 1 + slot as usize)
-    }
-
-    /// Returns every cell a spanning object covers, not only its first.
-    ///
-    /// [`Region::free`] cannot do this: it reads ONE header and threads ONE
-    /// cell onto the free list, so calling it on a spanning object leaks every
-    /// cell after the first — permanently, because the interior flag stays set
-    /// and nothing ever walks them again. `size` is the same figure the
-    /// allocation was given, and it is the caller's because the region does not
-    /// remember how wide an object is.
-    ///
-    /// Each interior cell is freed DIRECTLY rather than through `free`: it has
-    /// no header of its own, so the double-free check would be reading a data
-    /// word and could refuse a live cell that happened to hold the marker.
-    pub fn free_spanning(&mut self, reference: u32, size: u32) -> bool {
-        let Some(index) = self.decompose(reference) else {
-            return false;
-        };
-        let cells = size.div_ceil(STRIDE);
-        if cells == 0 || index >= self.next {
-            return false;
-        }
-        let at = self.word_of(index);
-        if self.words[at] == super::FREE_MARKER {
-            return false; // already free
-        }
-
-        for offset in 0..cells {
-            let cell = index + offset;
-            if cell >= self.next {
-                break;
-            }
-            let word = self.word_of(cell);
-            let link = match self.free_head {
-                Some(next) => u64::from(next),
-                None => super::NO_NEXT,
-            };
-            self.words[word] = super::FREE_MARKER;
-            self.words[word + 1] = link;
-            self.free_head = Some(cell);
-            if let Some(flag) = self.spanned_interior.get_mut(cell as usize) {
-                *flag = false;
-            }
-        }
-        true
+    /// [`Region::free`] does this by itself now — it reads the width out of the
+    /// header — so this is that call, kept for a caller that has the size to
+    /// hand and no reason to know the header changed.
+    pub fn free_spanning(&mut self, reference: u32, _size: u32) -> bool {
+        self.free(reference)
     }
 }
 
@@ -199,13 +144,16 @@ mod tests {
     }
 
     #[test]
-    fn a_slot_past_what_the_layout_says_is_refused() {
-        // The region does not remember how wide a spanning object is, so the
-        // bound is the caller's layout — and it is enforced rather than trusted.
+    fn a_slot_past_what_the_object_covers_is_refused() {
+        // The bound is the WIDTH in the header and not the caller's word: two
+        // cells are 31 slots after one header, so the sixteenth is genuinely
+        // the object's own and the thirty-second is genuinely not.
         let mut region = Region::with_capacity(8);
         let wide = region.alloc_spanning(STRIDE * 2, 1).expect("room");
-        assert_eq!(region.set_spanning_field(wide, 15, 15, 1), None);
-        assert_eq!(region.spanning_field(wide, 15, 15), None);
+        assert_eq!(region.width_of(wide), Some(31));
+        assert_eq!(region.set_spanning_field(wide, 15, 15, 1), Some(()));
+        assert_eq!(region.set_spanning_field(wide, 31, 15, 1), None);
+        assert_eq!(region.spanning_field(wide, 31, 15), None);
     }
 
     #[test]

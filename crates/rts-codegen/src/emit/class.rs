@@ -635,7 +635,12 @@ fn class_scope(
         ));
     }
 
-    let environment = expr::call(builder, ctx, RuntimeOp::ObjectNew, &[])?[0];
+    let zero = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+        repr: rts_cranelift::repr::Repr::I64,
+        bits: rts_cranelift::ir::ScalarBits(0),
+    });
+    let zero = builder.use_const(zero);
+    let environment = expr::call(builder, ctx, RuntimeOp::ObjectNew, &[zero])?[0];
     let outer = binding::outer_link(ctx);
     let handed = match scope.environment() {
         Some(environment) => environment,

@@ -142,7 +142,7 @@ extern "C" fn make(_e: u64, _this: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64) -
 /// A new empty object, inheriting from whatever `new` named — or
 /// `Object.prototype`, for the ordinary call with no `new` in sight.
 fn empty_object(context: &mut Context) -> u64 {
-    // `objects::object_new()` enters `with_current` itself; every caller of
+    // `objects::object_new(0)` enters `with_current` itself; every caller of
     // `empty_object` already holds that borrow (this function takes
     // `&mut Context` rather than opening its own), so calling the entry point
     // here would re-enter the `RefCell` and abort. `object_new_in` is the same
@@ -339,7 +339,7 @@ extern "C" fn entries(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3:
 /// `Object.fromEntries(map)` the spelling programs use.
 extern "C" fn from_entries(_e: u64, _this: u64, entries: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let produced = super::iterate::iterate(entries);
-    let made = super::objects::object_new();
+    let made = super::objects::object_new(0);
     let Some(pairs) = held(produced) else {
         return made;
     };
@@ -401,7 +401,7 @@ extern "C" fn is(_e: u64, _this: u64, left: u64, right: u64, _a2: u64, _a3: u64)
 /// the module documentation records as a gap and which this one method wants.
 extern "C" fn group_by(_e: u64, _this: u64, items: u64, callback: u64, _a2: u64, _a3: u64) -> u64 {
     let elements = super::collections::elements_of(items);
-    let made = super::objects::object_new();
+    let made = super::objects::object_new(0);
     let absent = with_current(|context| undefined_of(context));
     for (at, element) in elements.into_iter().enumerate() {
         let index = Value::from_f64(at as f64).bits();

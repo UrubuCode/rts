@@ -40,8 +40,47 @@ use rts_cranelift::shape::Key as ShapeKey;
 /// what a literal SHOULD inherit is absent rather than empty. Visible, rather
 /// than wrong-looking.
 #[rtse::entry]
-pub fn object_new() -> u64 {
-    with_current(object_new_in)
+pub fn object_new(slots: i64) -> u64 {
+    with_current(|context| object_new_wide(context, slots))
+}
+
+/// A fresh object with room for `slots` properties laid out INLINE.
+///
+/// The count is a hint the emitter has and the runtime does not: an object
+/// literal knows how many keys it is written with, and a closure environment
+/// knows how many names it captures. It changes nothing about the shape — the
+/// writes still take the transitions, which is what makes two objects built the
+/// same way share a layout — and a wrong count costs a slot, never an answer.
+///
+/// # Why this is the whole overflow story
+///
+/// A cell holds fifteen slots. A module's scope is an ordinary object holding
+/// every binding at its top level, and bench/analytic.ts has thirty-two — so
+/// seventeen of them lived in the out-of-line overflow, which no load can
+/// reach, and every read of one resolved BY NAME on every pass: 84 484 013
+/// cache misses, dominant reason "the slot is past the inline slots".
+///
+/// Sizing the cell at creation removes the indirection instead of caching it.
+/// The alternative — V8's backing store, a pointer in the object and a second
+/// load behind a new terminator — was rejected because this engine compiles the
+/// whole tree before it runs: it KNOWS the count, so paying a load per read to
+/// discover at run time what was on the page is paying for a question already
+/// answered.
+pub(super) fn object_new_wide(context: &mut Context, slots: i64) -> u64 {
+    let shape = context.shapes.root();
+    let ty = context.layout_of(shape).index() as u32;
+    let wanted = u32::try_from(slots).unwrap_or(0);
+    let cell = if wanted > crate::heap::INLINE_SLOTS {
+        // Rounded to whole cells by the region. Only a genuinely wide object
+        // takes more than one, so an ordinary literal is unchanged — same
+        // allocation, same footprint, same free list.
+        let size = rts_cranelift::mem::HeaderLayout::BYTES
+            + wanted * rts_cranelift::mem::SLOT_BYTES;
+        super::alloc::alloc_spanning_or_die(context, size, ty)
+    } else {
+        super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty)
+    };
+    Value::from_slot(cell).bits()
 }
 
 /// The body [`object_new`] wraps in `with_current`, taken directly by a
@@ -618,8 +657,19 @@ pub(super) fn machine_key(key: Key) -> Option<ShapeKey> {
 ///
 /// So an index is held under its own spelling instead: `o[0]` and `o["0"]` are
 /// choice is here rather than at each of the four call sites.
+/// The bound is the CELL's own width, not a constant fifteen: an object the
+/// emitter sized to its shape at creation owns every slot contiguously, and
+/// asking the spill for one it holds inline would answer `undefined` for a
+/// property that is right there.
+fn owned_slots(context: &Context, cell: u32) -> u32 {
+    context
+        .region
+        .width_of(cell)
+        .unwrap_or(crate::heap::INLINE_SLOTS)
+}
+
 pub(super) fn slot_value(context: &Context, cell: u32, at: u32) -> Option<u64> {
-    match at.checked_sub(crate::heap::INLINE_SLOTS) {
+    match at.checked_sub(owned_slots(context, cell)) {
         None => context.region.field(cell, at),
         Some(past) => context.spill_read(cell, past),
     }
@@ -627,7 +677,7 @@ pub(super) fn slot_value(context: &Context, cell: u32, at: u32) -> Option<u64> {
 
 /// Writes a property's value, wherever the slot puts it.
 pub(super) fn set_slot_value(context: &mut Context, cell: u32, at: u32, value: u64) {
-    match at.checked_sub(crate::heap::INLINE_SLOTS) {
+    match at.checked_sub(owned_slots(context, cell)) {
         None => {
             context.region.set_field(cell, at, value);
         }

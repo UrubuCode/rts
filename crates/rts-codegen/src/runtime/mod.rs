@@ -788,7 +788,7 @@ impl RuntimeOp {
             RuntimeOp::LessEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::Greater => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::GreaterEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
-            RuntimeOp::ObjectNew => (vec![], vec![UNPROVEN]),
+            RuntimeOp::ObjectNew => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::GetProperty => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::SetProperty => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
             // The code address is `I64` and not a value: it is a machine

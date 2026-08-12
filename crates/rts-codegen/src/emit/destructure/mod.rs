@@ -271,7 +271,12 @@ fn object_rest(
     at: Position,
     depth: u32,
 ) -> EmitResult<ValueId> {
-    let rest_obj = super::expr::call(builder, ctx, RuntimeOp::ObjectNew, &[])?[0];
+    let zero = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+        repr: rts_cranelift::repr::Repr::I64,
+        bits: rts_cranelift::ir::ScalarBits(0),
+    });
+    let zero = builder.use_const(zero);
+    let rest_obj = super::expr::call(builder, ctx, RuntimeOp::ObjectNew, &[zero])?[0];
     let rest = ctx.names.intern(&format!("__rts_destructure_restobj_{depth}"));
     super::binding::declare(builder, scope, ctx, rest, rest_obj)?;
 

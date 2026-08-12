@@ -234,6 +234,20 @@ pub struct Region {
 /// alternative is a second table exactly the size of `next`.
 const FREE_MARKER: u64 = u64::MAX;
 
+/// Which half of the header word says how many slots the cell owns.
+///
+/// The type is a `u32` and always was, so the top half of every header ever
+/// written was zero. The width goes there, and that is what lets a cell say how
+/// big it is without a side table and without a second word — an object wider
+/// than one cell then needs no separate accessor at all, because `field` reads
+/// this bound the same way it read the fixed one.
+const WIDTH_SHIFT: u32 = 32;
+
+/// A header word out of its two halves.
+pub(super) fn header_word(ty: u32, width: u32) -> u64 {
+    (u64::from(width) << WIDTH_SHIFT) | u64::from(ty)
+}
+
 /// The value stored in a freed cell's first slot when no cell follows it in the
 /// free list.
 ///
@@ -386,7 +400,7 @@ impl Region {
                 Some(next as u32)
             };
 
-            self.words[at] = u64::from(ty);
+            self.words[at] = header_word(ty, INLINE_SLOTS);
             // Every slot, including the one that carried the link, is zeroed:
             // a cell reused without this would hand its new owner the previous
             // occupant's last field, which is exactly the silently wrong object
@@ -408,7 +422,7 @@ impl Region {
         // without knowing what the object is, which is the whole reason it is
         // the first thing in the cell.
         let at = self.word_of(index);
-        self.words[at] = u64::from(ty);
+        self.words[at] = header_word(ty, INLINE_SLOTS);
 
         // The fields are zeroed by construction for a cell that has never been
         // handed out before. A cell coming back through the free list is zeroed
@@ -449,16 +463,33 @@ impl Region {
             return false; // already free
         }
 
-        // Thread this cell onto the free list, through its own first slot —
-        // the slot costs nothing extra because the cell's fields are dead the
-        // moment it is freed.
-        let link = match self.free_head {
-            Some(next) => u64::from(next),
-            None => NO_NEXT,
-        };
-        self.words[at] = FREE_MARKER;
-        self.words[at + 1] = link;
-        self.free_head = Some(index);
+        // EVERY cell the object covers, not only the one its reference names.
+        // A wide object spans consecutive cells and the ones after the first
+        // have no header, so freeing the first alone would lose them for good:
+        // nothing walks a cell marked interior, and no allocation would ever
+        // reach them again.
+        let width = (self.words[at] >> WIDTH_SHIFT) as u32;
+        let cells = (1 + width).div_ceil(INLINE_SLOTS + 1).max(1);
+        for offset in 0..cells {
+            let cell = index + offset;
+            if cell >= self.next {
+                break;
+            }
+            // Threaded onto the free list through its own first slot — the slot
+            // costs nothing extra because the cell's fields are dead the moment
+            // it is freed.
+            let word = self.word_of(cell);
+            let link = match self.free_head {
+                Some(next) => u64::from(next),
+                None => NO_NEXT,
+            };
+            self.words[word] = FREE_MARKER;
+            self.words[word + 1] = link;
+            self.free_head = Some(cell);
+            if let Some(flag) = self.spanned_interior.get_mut(cell as usize) {
+                *flag = false;
+            }
+        }
         true
     }
 
@@ -468,7 +499,7 @@ impl Region {
     /// is for the runtime's own reads, and it exists so nothing else has to
     /// know how a cell is laid out.
     pub fn field(&self, reference: u32, slot: u32) -> Option<u64> {
-        if slot >= INLINE_SLOTS {
+        if slot >= self.width_of(reference)? {
             return None;
         }
         let index = self.decompose(reference)?;
@@ -480,7 +511,7 @@ impl Region {
     /// Writes a field of a cell.
     pub fn set_field(&mut self, reference: u32, slot: u32, value: u64) -> Option<()> {
         let index = self.decompose(reference)?;
-        if slot >= INLINE_SLOTS || index >= self.next {
+        if slot >= self.width_of(reference)? || index >= self.next {
             return None;
         }
         let at = self.word_of(index) + 1 + slot as usize;
@@ -500,7 +531,8 @@ impl Region {
             return None;
         }
         let at = self.word_of(index);
-        *self.words.get_mut(at)? = u64::from(ty);
+        let width = (*self.words.get(at)? >> WIDTH_SHIFT) as u32;
+        *self.words.get_mut(at)? = header_word(ty, width);
         Some(())
     }
 
@@ -508,6 +540,35 @@ impl Region {
     pub fn type_of(&self, reference: u32) -> Option<u32> {
         let index = self.decompose(reference)?;
         self.words.get(self.word_of(index)).map(|word| *word as u32)
+    }
+
+    /// How many slots a cell owns — [`INLINE_SLOTS`] for an ordinary one, and
+    /// more for one taken by [`Region::alloc_spanning`].
+    ///
+    /// Read from the header rather than a side table, which is what makes an
+    /// object wider than a cell cost nothing to reach: `field` bounds itself by
+    /// this, the sweep frees by it, and the collector walks by it, all out of a
+    /// word they had already loaded.
+    pub fn width_of(&self, reference: u32) -> Option<u32> {
+        let index = self.decompose(reference)?;
+        let word = *self.words.get(self.word_of(index))?;
+        if word == FREE_MARKER {
+            return None;
+        }
+        Some((word >> WIDTH_SHIFT) as u32)
+    }
+
+    /// The whole header word, which is what an inline cache remembers.
+    ///
+    /// The machine compares the header it loaded against the word a cache cell
+    /// holds, so remembering the TYPE alone would compare a masked value with
+    /// an unmasked one and never match again. Comparing the whole word also
+    /// means a site that saw a fifteen-slot object refuses a forty-slot one of
+    /// the same shape — a miss, which is safe, rather than a read past the end
+    /// of the narrower cell.
+    pub fn header_of(&self, reference: u32) -> Option<u64> {
+        let index = self.decompose(reference)?;
+        self.words.get(self.word_of(index)).copied()
     }
 
     /// Where a cell starts, as an address.

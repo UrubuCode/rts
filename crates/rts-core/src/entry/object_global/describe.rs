@@ -123,7 +123,7 @@ extern "C" fn create(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    let fresh = super::super::objects::object_new();
+    let fresh = super::super::objects::object_new(0);
     with_current(|context| {
         if let Some(cell) = Value(fresh).as_slot() {
             context.set_prototype(cell, prototype);
@@ -238,7 +238,7 @@ extern "C" fn get_own_property_descriptors(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    let made = super::super::objects::object_new();
+    let made = super::super::objects::object_new(0);
     // Every own key, `own_names` rather than `own_keys`: a property made
     // non-enumerable through `defineProperty` is exactly the one this walk
     // must not skip — the ENTIRE reason to call `getOwnPropertyDescriptors`
@@ -327,7 +327,7 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
             configurable: !super::super::integrity::refuses_key_removal(context, cell, key),
         }
     });
-    let made = super::super::objects::object_new();
+    let made = super::super::objects::object_new(0);
     match found {
         Descriptor::Accessor(getter, setter) => {
             put(made, "get", getter);

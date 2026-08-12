@@ -141,7 +141,12 @@ fn follow(word: u64, marks: &mut Marks, worklist: &mut Vec<u32>) {
 fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     // 1. A cell's own seven inline slots — the base case every object has,
     //    whatever else it also is.
-    for slot in 0..INLINE_SLOTS {
+    // Every slot the cell OWNS, which is fifteen for an ordinary one and more
+    // for an object the emitter sized to its shape. Walking a fixed fifteen
+    // would leave a wide object's later properties unmarked — a collection
+    // would free what one of them still names.
+    let owned = context.region.width_of(cell).unwrap_or(INLINE_SLOTS);
+    for slot in 0..owned {
         if let Some(word) = context.region.field(cell, slot) {
             out.push(word);
         }

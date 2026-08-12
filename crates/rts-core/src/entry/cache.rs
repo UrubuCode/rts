@@ -80,6 +80,17 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
             explain("the receiver is not a cell in this region", context);
             return -1;
         };
+        // The whole header word, because that is what the machine compares
+        // against: it loads the header and checks it equals what this site
+        // remembered. The header carries the cell's WIDTH beside its type, so
+        // remembering the type alone would compare a masked value against an
+        // unmasked one and never match again. It also means a site warmed on a
+        // fifteen-slot object declines a wider one of the same shape — a miss,
+        // which is safe, rather than an offset read out of the wrong cell size.
+        let Some(remembered) = context.region.header_of(object as u32) else {
+            explain("the receiver is not a cell in this region", context);
+            return -1;
+        };
         // A string has no shape, and that absence is load-bearing: `shape_of`
         // excludes the text layout so a reserved position cannot answer with a
         // shape that was never its own. So `length` — the one property a string
@@ -105,7 +116,7 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
             // SAFETY: the cell this site declared, as everywhere else here.
             unsafe {
                 let cell = cache as *mut i64;
-                cell.write(i64::from(ty));
+                cell.write(remembered as i64);
                 cell.add(1).write(offset);
             }
             return offset;
@@ -122,10 +133,19 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
             explain("the property is absent from the receiver's shape", context);
             return -1;
         };
-        if slot >= crate::heap::INLINE_SLOTS {
-            // Past the inline slots, where the overflow indirection will go.
-            // Until it exists, the slow path is the only correct answer.
-            explain("the slot is past the inline slots", context);
+        // The bound is the CELL's width and not a constant fifteen. A wide
+        // object — one the emitter sized to its shape at creation — owns every
+        // slot contiguously past its header, so the fortieth is the same load
+        // as the second and needs no indirection to reach. That is the whole
+        // reason the width is in the header.
+        let width = context
+            .region
+            .width_of(object as u32)
+            .unwrap_or(crate::heap::INLINE_SLOTS);
+        if slot >= width {
+            // Genuinely out of the cell: the property lives in the overflow,
+            // which no load can reach.
+            explain("the slot is past the slots this cell owns", context);
             return -1;
         }
 
@@ -142,7 +162,7 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
         // is the contract rather than an intrusion.
         unsafe {
             let cell = cache as *mut i64;
-            cell.write(i64::from(ty));
+            cell.write(remembered as i64);
             cell.add(1).write(offset);
         }
         offset
@@ -230,9 +250,11 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         // majority of sites want and what `cache_resolve` answers. Written out
         // rather than delegated so that a refusal costs one crossing.
         if let Some(ty) = context.region.type_of(cell)
+            && let Some(header) = context.region.header_of(cell)
+            && let Some(width) = context.region.width_of(cell)
             && let Some(shape) = context.shape_of(ty)
             && let Some(slot) = context.shapes.slot_of(shape, named)
-            && slot < crate::heap::INLINE_SLOTS
+            && slot < width
         {
             let offset = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
                 + i64::from(slot) * i64::from(rts_cranelift::mem::SLOT_BYTES);
@@ -242,7 +264,7 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             // address it never got could not also match a layout.
             unsafe {
                 let cell = cache as *mut i64;
-                cell.write(i64::from(ty));
+                cell.write(header as i64);
                 cell.add(1).write(offset);
                 cell.add(2).write(0);
                 cell.add(3).write(-1);
@@ -321,7 +343,7 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         // leave every guard satisfied and the answer stale.
         let mut middle: Option<(u32, u32)> = None;
         let mut holder = holder;
-        let (holder_type, slot) = loop {
+        let (_holder_type, slot) = loop {
             let Some(ty) = context.region.type_of(holder) else {
                 return refuse("the link is not a cell in this region");
             };
@@ -350,8 +372,15 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             middle = Some((holder, ty));
             holder = next;
         };
-        if slot >= crate::heap::INLINE_SLOTS {
-            return refuse("the slot is past the inline slots");
+        // The HOLDER's width, since the offset is read out of the holder. A
+        // prototype is an ordinary cell in the common case, so this is fifteen
+        // — but a wide one is reachable by exactly the same load.
+        let holder_width = context
+            .region
+            .width_of(holder)
+            .unwrap_or(crate::heap::INLINE_SLOTS);
+        if slot >= holder_width {
+            return refuse("the slot is past the slots the link owns");
         }
         let Some(address) = context.region.address_of(holder) else {
             return refuse("the link has no address");
@@ -363,8 +392,14 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             },
             None => 0,
         };
-        let Some(receiver_type) = context.region.type_of(cell) else {
+        // Headers rather than types, everywhere the machine compares: the
+        // header carries the width beside the type and the machine compares the
+        // whole word.
+        let Some(receiver_header) = context.region.header_of(cell) else {
             return report("the receiver is not a cell in this region");
+        };
+        let Some(holder_header) = context.region.header_of(holder) else {
+            return refuse("the link is not a cell in this region");
         };
 
         let offset = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
@@ -374,14 +409,19 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         // for as long as the code is.
         unsafe {
             let cell = cache as *mut i64;
-            cell.write(i64::from(receiver_type));
+            cell.write(receiver_header as i64);
             cell.add(1).write(offset);
             cell.add(2).write(address as i64);
-            cell.add(3).write(i64::from(holder_type));
+            cell.add(3).write(holder_header as i64);
             match middle {
-                Some((_, ty)) => {
+                Some((between_cell, _)) => {
                     cell.add(4).write(between as i64);
-                    cell.add(5).write(i64::from(ty));
+                    cell.add(5).write(
+                        context
+                            .region
+                            .header_of(between_cell)
+                            .map_or(-1, |word| word as i64),
+                    );
                 }
                 None => {
                     cell.add(4).write(0);

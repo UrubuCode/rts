@@ -66,7 +66,15 @@ pub(super) fn emit_object(
     ctx: &mut Ctx,
     properties: &[Property],
 ) -> EmitResult<ValueId> {
-    let object = call(builder, ctx, RuntimeOp::ObjectNew, &[])?[0];
+    // How many slots this literal will need, so the runtime can take a cell
+    // wide enough in one go. A hint and not a shape: the writes below still
+    // decide the layout, and a wrong count costs a slot rather than an answer.
+    let expected = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+        repr: rts_cranelift::repr::Repr::I64,
+        bits: rts_cranelift::ir::ScalarBits(properties.len() as u64),
+    });
+    let expected = builder.use_const(expected);
+    let object = call(builder, ctx, RuntimeOp::ObjectNew, &[expected])?[0];
     for property in properties {
         // A method is a function stored under a key, plus a **home object** —
         // which is what `super.x` inside it reads from. There is no `super`

@@ -204,7 +204,11 @@ fn materialise(node: &read::Node) -> u64 {
                         fallback = true;
                         break;
                     };
-                    if at >= crate::heap::INLINE_SLOTS {
+                    if at >= context
+                        .region
+                        .width_of(cell)
+                        .unwrap_or(crate::heap::INLINE_SLOTS)
+                    {
                         // Past the inline slots the value goes to the spill
                         // beside the cell, which `set_slot_value` does not
                         // reach. The general path does.
