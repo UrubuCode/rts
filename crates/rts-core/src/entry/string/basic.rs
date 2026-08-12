@@ -508,16 +508,10 @@ fn find_bytes(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     if needle.len() > haystack.len() || from > haystack.len() - needle.len() {
         return None;
     }
-    // `memchr` is already in the tree through `regex`, and its `memmem` finder
-    // is a two-way search with a SIMD prefilter where the naive window compare
-    // below is O(n*m). It is NOT used here yet, and the reason is worth stating
-    // rather than leaving as an omission: the win this commit measures is the
-    // allocation and the widening, not the search, and adding a dependency edge
-    // in the same change would make the two impossible to tell apart.
-    haystack[from..]
-        .windows(needle.len())
-        .position(|window| window == needle)
-        .map(|at| at + from)
+    // Two-way with a SIMD prefilter, where the window compare this replaces was
+    // O(n*m). Landed as its own change, after the allocation win was measured
+    // separately, so the two are not confused for each other.
+    memchr::memmem::find(&haystack[from..], needle).map(|at| at + from)
 }
 
 fn find(haystack: &[u16], needle: &[u16], from: usize) -> Option<usize> {

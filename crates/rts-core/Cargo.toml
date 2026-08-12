@@ -15,6 +15,16 @@ crate-type = ["rlib"]
 # silently read as the wrong kind.
 rts-cranelift = { path = "../rts-cranelift" }
 
+# Substring search. Already in the tree through `regex`, named directly here
+# because five string methods search and the naive window compare they share is
+# O(n*m) — `memmem` is two-way with a SIMD prefilter, which is what a haystack
+# whose match is late actually needs.
+#
+# Availability, which is what rule 1 asks of a dependency: pure Rust over no
+# operating system, so it exists on wasm like everything else here. And it
+# decides nothing the machine decides, so it cannot disagree with the machine
+# about anything — which is what rule 5 asks.
+
 # The matching engine a regular expression needs. Two of them, and the second is
 # not redundancy: `regex` refuses lookaround and backreferences by construction —
 # that refusal is what buys its linear time — and JavaScript spells both. So a
@@ -25,6 +35,7 @@ rts-cranelift = { path = "../rts-cranelift" }
 # which is what rule 5 is actually about. What they still have to satisfy is
 # availability: both are pure Rust over no operating system, so they are present
 # on wasm exactly as they are here.
+memchr = "2"
 regex = "1"
 fancy-regex = "0.13"
 
