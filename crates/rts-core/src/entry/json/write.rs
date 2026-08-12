@@ -175,13 +175,7 @@ impl Writer {
                 self.ascii(",");
             }
             self.newline(depth + 1);
-            // The key `toJSON` sees for an array member is its index, ToString'd
-            // — `[9].toJSON` is called with `"0"`, never with the number 9.
-            let key = with_current(|context| {
-                context
-                    .intern_value(crate::coerce::number_to_string(at as f64))
-                    .bits()
-            });
+
             // A hole, an `undefined` and a function are each `null` here, where
             // in an object they are skipped. The asymmetry is the language's
             // and it has a reason: an array's members are addressed by
@@ -225,6 +219,17 @@ impl Writer {
             // Through the ordinary read, so a member that is an accessor runs
             // its getter — which is what `stringify` observably does, and what
             // reading the slot directly would have skipped.
+            // Through the ordinary read, so a member that is an accessor runs
+            // its getter — which is what `stringify` observably does, and what
+            // reading the slot directly would have skipped.
+            //
+            // Reading it by KEY instead, in one borrow, was written and
+            // MEASURED and reverted: `get_indexed` already takes the fast route
+            // for a name that is a string cell, so collapsing the borrows moved
+            // `{a:1}` from 1942 ns to 2084 ns — inside the run-to-run spread on
+            // this machine, which is to say it bought nothing and cost a second
+            // path through this loop. Whatever the ~800 ns per member is, it is
+            // not this.
             let held = super::super::computed::get_indexed(value, name);
             let key = with_current(|context| super::super::text::to_text(context, Value(name)));
             let Some(key) = key else {
@@ -366,18 +371,49 @@ impl Writer {
 /// specification says it sees rather than a value that happened to be at hand
 /// at the one call site that had one.
 fn to_json_of(value: u64, key: HookKey) -> u64 {
-    let name = with_current(|context| {
-        match super::super::primitive::is_object_in(context, value) {
-            true => Some(context.well_known_text("toJSON")),
-            false => None,
+    // The common shape, decided inside ONE borrow: an ordinary object, asked
+    // for `toJSON` by KEY. The general route below converts a string cell to a
+    // key and then walks the chain through `get_indexed`, which is a second
+    // resolution of a name this crate already knows the number of — paid per
+    // object value, and answering "absent" for almost all of them.
+    //
+    // A proxy and a getter are the two cases it hands back, because both call
+    // user code and neither may happen while the context is borrowed.
+    enum Ask {
+        /// An ordinary object, and this is what `toJSON` read as.
+        Read(u64),
+        /// Not an object at all: nothing to ask.
+        Skip,
+        /// Ask the long way — a proxy, or an accessor spelling of `toJSON`.
+        Slowly,
+    }
+    let asked = with_current(|context| {
+        if !super::super::primitive::is_object_in(context, value) {
+            return Ask::Skip;
+        }
+        let Some(cell) = Value(value).as_slot() else {
+            return Ask::Slowly;
+        };
+        if context.proxy_at(cell).is_some() {
+            return Ask::Slowly;
+        }
+        let key = context.well_known("toJSON");
+        match super::super::accessor::resolve(context, cell, key) {
+            super::super::accessor::Found::Value(found) => Ask::Read(found),
+            super::super::accessor::Found::Absent => Ask::Skip,
+            super::super::accessor::Found::Getter(_) => Ask::Slowly,
         }
     });
-    let Some(name) = name else {
-        return value;
+    let hook = match asked {
+        Ask::Skip => return value,
+        Ask::Read(hook) => hook,
+        // Through the ordinary read, so an inherited `toJSON` is found — which
+        // is how `Date` provides one — and so an accessor spelling of it runs.
+        Ask::Slowly => {
+            let name = with_current(|context| context.well_known_text("toJSON"));
+            super::super::computed::get_indexed(value, name)
+        }
     };
-    // Through the ordinary read, so an inherited `toJSON` is found — which is
-    // how `Date` provides one — and so an accessor spelling of it runs.
-    let hook = super::super::computed::get_indexed(value, name);
     if !with_current(|context| super::super::modules::is_callable_in(context, hook)) {
         return value;
     }
