@@ -141,6 +141,18 @@ impl Str {
         }
     }
 
+    /// A string from bytes that are already one code unit each.
+    ///
+    /// No scan: `from_str` and `from_utf16` both walk their input to decide
+    /// whether the narrow form fits, and a caller holding a slice OF a narrow
+    /// string already knows it does. Every byte of one is below 256 by
+    /// construction, so the question is answered before it is asked.
+    pub fn from_latin1(bytes: &[u8]) -> Self {
+        Str {
+            repr: Repr::Latin1(bytes.to_vec()),
+        }
+    }
+
     /// A string from UTF-16 code units, narrowing when they all fit.
     ///
     /// Takes `u16` rather than `char` because the input may contain a lone

@@ -25,7 +25,7 @@
 
 use super::super::with_current;
 use super::super::native::Native;
-use super::{absent, answer, arg_units, nothing, relative, text_of, units_of};
+use super::{answer_narrow,absent, answer, arg_units, nothing, relative, text_of, units_of};
 use crate::value::Value;
 
 /// What a string's prototype holds, apart from the pattern methods.
@@ -275,6 +275,30 @@ extern "C" fn ends_with(_e: u64, this: u64, search: u64, end: u64, _a2: u64, _a3
 /// `s.slice(from, to)` — negative counts from the end.
 extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
+        // Narrow in and narrow out: the receiver is borrowed rather than copied
+        // and widened, and the result is built without re-deciding a layout the
+        // caller already knows. `units_of` did both — 512 bytes and 256
+        // widenings to hand back sixteen characters.
+        //
+        // The bounds are computed twice, once per path, rather than hoisted:
+        // hoisting needs the length, and asking for the length is what the
+        // borrow is for.
+        if let Some(text) = Value(this).as_slot().and_then(|cell| context.text_at(cell))
+            && let Some(bytes) = text.narrow()
+        {
+            let len = bytes.len();
+            let start = relative(Value(from).numeric().unwrap_or(0.0), len);
+            let end = match absent(context, to) {
+                true => len,
+                false => relative(Value(to).numeric().unwrap_or(0.0), len),
+            };
+            // Crossed rather than swapped, exactly as the wide path below.
+            let taken = match start >= end {
+                true => Vec::new(),
+                false => bytes[start..end].to_vec(),
+            };
+            return answer_narrow(context, &taken);
+        }
         let Some(units) = units_of(context, this) else {
             return nothing(context);
         };

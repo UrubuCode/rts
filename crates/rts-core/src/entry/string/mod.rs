@@ -176,6 +176,16 @@ pub(super) fn answer(context: &mut Context, units: &[u16]) -> u64 {
     context.intern_value(Str::from_utf16(units)).bits()
 }
 
+/// The same, from bytes that are already known to be one code unit each.
+///
+/// `Str::from_utf16` scans its input to decide whether the narrow form fits.
+/// A caller that sliced a narrow string already knows it does — every byte of
+/// a narrow string is below 256 by construction — so the scan is asking a
+/// question whose answer it was handed.
+pub(super) fn answer_narrow(context: &mut Context, bytes: &[u8]) -> u64 {
+    context.intern_value(Str::from_latin1(bytes)).bits()
+}
+
 /// The undefined a method answers when there is nothing to answer.
 pub(super) fn nothing(context: &Context) -> u64 {
     undefined_of(context)
