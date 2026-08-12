@@ -134,10 +134,10 @@ impl Str {
     }
 
     /// Every code unit, in order.
-    pub fn units(&self) -> Box<dyn Iterator<Item = u16> + '_> {
+    pub fn units(&self) -> Units<'_> {
         match &self.repr {
-            Repr::Latin1(bytes) => Box::new(bytes.iter().map(|byte| u16::from(*byte))),
-            Repr::Utf16(units) => Box::new(units.iter().copied()),
+            Repr::Latin1(bytes) => Units::Latin1(bytes.iter()),
+            Repr::Utf16(units) => Units::Utf16(units.iter()),
         }
     }
 
@@ -305,3 +305,51 @@ mod tests {
         assert_eq!(empty.to_rust().as_deref(), Some(""));
     }
 }
+
+/// As unidades de código de um [`Str`], sem caixa.
+///
+/// # Por que um enum e não `Box<dyn Iterator>`
+///
+/// `units()` devolvia um `Box<dyn Iterator>`, e o doc ao lado dele afirmava que
+/// um acerto do interner "não toca o heap" — a caixa era exatamente um toque no
+/// heap. Cada chamada alocava, e cada `next()` era uma chamada indireta por
+/// vtable: um `malloc` por operação de string e um salto que a CPU não prevê
+/// **por unidade de código**.
+///
+/// Um enum de duas variantes remove os dois. O despacho vira um teste de tag que
+/// o ramo prevê, e nada é alocado — o iterador vive na pilha do chamador. As
+/// duas variantes são as duas representações que `Repr` tem, então o `match` é
+/// exaustivo por construção e uma terceira representação não compila até alguém
+/// decidir o que ela responde aqui.
+///
+/// Nenhum dos vinte chamadores muda: todos consomem `impl Iterator<Item = u16>`,
+/// e é isso que esta troca continua sendo.
+pub enum Units<'a> {
+    /// Um byte por unidade, alargado na leitura.
+    Latin1(core::slice::Iter<'a, u8>),
+    /// Já em UTF-16.
+    Utf16(core::slice::Iter<'a, u16>),
+}
+
+impl Iterator for Units<'_> {
+    type Item = u16;
+
+    fn next(&mut self) -> Option<u16> {
+        match self {
+            Units::Latin1(bytes) => bytes.next().map(|byte| u16::from(*byte)),
+            Units::Utf16(units) => units.next().copied(),
+        }
+    }
+
+    /// O tamanho é EXATO nos dois casos, e dizê-lo é metade do ganho: um
+    /// `collect()` que sabe quantos elementos vêm aloca uma vez, e um que não
+    /// sabe realoca enquanto cresce. `units_of` faz exatamente esse `collect`.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Units::Latin1(bytes) => bytes.size_hint(),
+            Units::Utf16(units) => units.size_hint(),
+        }
+    }
+}
+
+impl ExactSizeIterator for Units<'_> {}
