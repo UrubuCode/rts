@@ -107,6 +107,36 @@ impl Context {
         }
         self.accessors.set(cell, vec![(key, get, set)]);
     }
+
+    /// Records one and tells every warmed read site to ask again.
+    ///
+    /// # Why the invalidation is here rather than offered as a call
+    ///
+    /// Because this is the one writer. An accessor is deliberately kept OUT of
+    /// the layout — the module's first page says why — so defining one changes
+    /// nothing a site compares, and a site that had already resolved the data
+    /// property it shadows would go on loading the slot and never call the
+    /// getter. Rule 8: derive what a client would otherwise have to remember,
+    /// because a client that has to remember will not.
+    ///
+    /// `retype` mints a fresh number over the same shape, so nothing about the
+    /// object moves and every existing read survives — it just asks once more.
+    ///
+    /// This is not new debt paid by the chain read. It was already a wrong
+    /// answer for an OWN property: `Object.defineProperty(o, "x", {get})` after
+    /// a site had cached `o.x` kept reading the slot. The chain read only widens
+    /// it to properties defined on something inherited from, which is where
+    /// `defineProperty` is usually aimed.
+    pub(super) fn define_accessor_and_invalidate(
+        &mut self,
+        cell: u32,
+        key: u32,
+        get: Option<u64>,
+        set: Option<u64>,
+    ) {
+        self.define_accessor(cell, key, get, set);
+        super::integrity::retype(self, cell);
+    }
 }
 
 /// `get x() { … }` — records the getter half.
@@ -135,7 +165,7 @@ fn define(object: u64, key: i64, get: Option<u64>, set: Option<u64>) -> u64 {
         let Ok(number) = u32::try_from(key) else {
             return object;
         };
-        context.define_accessor(cell, number, get, set);
+        context.define_accessor_and_invalidate(cell, number, get, set);
         object
     })
 }

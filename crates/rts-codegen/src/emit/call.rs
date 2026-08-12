@@ -101,7 +101,11 @@ pub(super) fn callee_and_receiver(
                 });
             }
             let receiver = emit_expr(builder, scope, ctx, object)?;
-            let function = super::property::emit_read(builder, ctx, receiver, *property)?;
+            // The indirect form: a method is written on a class body, so it
+            // lives on the prototype and the cheap cache can never arm here.
+            // See `property::emit_read_indirect` for why the position is the
+            // signal and what a wrong guess costs.
+            let function = super::property::emit_read_indirect(builder, ctx, receiver, *property)?;
             (receiver, function)
         }
         // `o[k]()` is a method call, exactly as `o.k()` is. It fell into the

@@ -110,6 +110,20 @@ pub enum RtEntry {
     /// read of the same property still answers an offset.
     CacheResolveStore = 7,
 
+    /// Where a property is, for a site that may read it out of a different cell.
+    ///
+    /// A third name rather than a flag, for the reason the second one exists:
+    /// what it may answer is different. This one may report an address as well
+    /// as an offset, and reporting one is a promise about that address's
+    /// lifetime — see [`crate::ir::inst::Terminator::CachedGetIndirect`]. A
+    /// resolver reached through a flag would be one implementation deciding
+    /// which promise it was making from a bit, which is exactly the branch at
+    /// the call site that rule 10 exists to remove.
+    ///
+    /// The signature is the same three operands, written out rather than shared
+    /// with the pair above for the reason they are written out from each other.
+    CacheResolveIndirect = 8,
+
     /// Throws a value that no handler in this function catches.
     ///
     /// Only for the escaping case. Where a handler *is* in this function, the
@@ -133,6 +147,7 @@ impl RtEntry {
         RtEntry::Throw,
         RtEntry::CacheResolve,
         RtEntry::CacheResolveStore,
+        RtEntry::CacheResolveIndirect,
     ];
 
     /// How many entry points exist.
@@ -158,6 +173,7 @@ impl RtEntry {
             RtEntry::Throw => "rts_throw",
             RtEntry::CacheResolve => "rts_cache_resolve",
             RtEntry::CacheResolveStore => "rts_cache_resolve_store",
+            RtEntry::CacheResolveIndirect => "rts_cache_resolve_indirect",
         }
     }
 
@@ -223,7 +239,9 @@ impl RtEntry {
             // thing it may refuse. Written out rather than delegated to the
             // arm above: two entry points sharing a signature by construction
             // is a coupling that would silently survive one of them changing.
-            RtEntry::CacheResolve | RtEntry::CacheResolveStore => Signature {
+            RtEntry::CacheResolve
+            | RtEntry::CacheResolveStore
+            | RtEntry::CacheResolveIndirect => Signature {
                 params: vec![Repr::Ref(RefKind::Opaque), Repr::I64, Repr::I64],
                 returns: vec![Repr::I64],
                 convention: crate::abi::Convention::Foreign,

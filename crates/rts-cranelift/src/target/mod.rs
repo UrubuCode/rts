@@ -739,9 +739,12 @@ impl MachineModule<'_> {
             .map(|(name, _)| name.clone())
             .ok_or(TargetError::UndeclaredFunction(id))?;
 
-        let mut cold = Vec::with_capacity(16);
-        cold.extend_from_slice(&(-1i64).to_ne_bytes());
-        cold.extend_from_slice(&0i64.to_ne_bytes());
+        // Which sites need the wider cell, derived from the function rather than
+        // declared by a caller — rule 8, and the same derivation `record_shapes`
+        // performs below for signatures. A caller that had to say would be a
+        // caller that could say it for the wrong site, and the failure is a read
+        // that loads two words past the end of its own cell.
+        let indirect = Self::indirect_sites(func);
 
         let mut declared = Vec::with_capacity(func.cache_count());
         for site in 0..func.cache_count() {
@@ -751,12 +754,48 @@ impl MachineModule<'_> {
                 true,
                 false,
             )?;
+            // The layout no object has, in each width. It cannot start at zero:
+            // zero is a real layout, and a site that had never run would claim
+            // to recognize the first one ever declared. The wider form's third
+            // word is zero because zero means "the cell asked about", which is
+            // the answer a site that has never resolved must give — and its
+            // fourth is -1 so that a cell claiming a second address it never
+            // got could not also match a layout.
+            let mut cold = Vec::with_capacity(32);
+            cold.extend_from_slice(&(-1i64).to_ne_bytes());
+            cold.extend_from_slice(&0i64.to_ne_bytes());
+            if indirect.contains(&site) {
+                cold.extend_from_slice(&0i64.to_ne_bytes());
+                cold.extend_from_slice(&(-1i64).to_ne_bytes());
+            }
+
             let mut description = cranelift_module::DataDescription::new();
-            description.define(cold.clone().into_boxed_slice());
+            // Every load of these words is `MemFlags::trusted()`, which asserts
+            // alignment; nothing asserted it before, which was a false claim
+            // rather than a slow one. Rule 7 — an invariant is enforced.
+            description.set_align(if indirect.contains(&site) { 32 } else { 16 });
+            description.define(cold.into_boxed_slice());
             self.module.define_data(data, &description)?;
             declared.push(data);
         }
         Ok(declared)
+    }
+
+    /// Which of a function's sites read through a remembered address.
+    ///
+    /// Separate from the loop above so the answer is computed once for the
+    /// function rather than rebuilt per site, and so the one fact that decides a
+    /// cell's width has one place to be read from.
+    fn indirect_sites(func: &Function) -> std::collections::BTreeSet<usize> {
+        use crate::ir::Terminator;
+
+        let mut wide = std::collections::BTreeSet::new();
+        for (_, block) in func.blocks() {
+            if let Some(Terminator::CachedGetIndirect { cache, .. }) = &block.terminator {
+                wide.insert(cache.index());
+            }
+        }
+        wide
     }
 
     /// Records every shape this function's indirect calls expect.
@@ -1026,6 +1065,34 @@ pub fn isa_with(
     };
     cranelift_codegen::settings::Configurable::set(&mut flags, "regalloc_algorithm", &algorithm)
         .expect("a real setting");
+    // `opt_level`, which the paragraph above says "stayed at its default" —
+    // and Cranelift's default is `none`, which gates out the WHOLE egraph
+    // mid-end: no GVN, no LICM, no redundant-load elimination, and
+    // `enable_alias_analysis` left `true` and inert
+    // (`cranelift-codegen-0.131.0/src/context.rs:185`).
+    //
+    // That paragraph also says a code-quality claim needs "a run long enough to
+    // show it" and that the test file it was measured on was not one. This knob
+    // is what makes the longer run possible, and the answer is now measured
+    // rather than open: on `bench/analytic.ts`, release, 2026-08-11, `speed`
+    // returns NOISE — the empty-loop floor 7.2 → 7.0 ns, `prop read own`
+    // 9.2 → 9.4 (worse), an array element read unmoved. The mid-end cannot
+    // optimize across an opaque call, and this engine's IR is mostly opaque
+    // calls, so there is little for it to see.
+    //
+    // Kept anyway, and env-gated so the default is bit-for-bit what it was,
+    // because the claim has to be re-checkable: the day the runtime stops being
+    // a call per operation is the day this setting starts mattering, and a
+    // measurement nobody can repeat is a claim.
+    //
+    // NOT the same question for the AOT destination, which asks for
+    // `Priority::CodeQuality` at `target/destination.rs` precisely to buy code
+    // quality at build time and is currently buying it with the optimizer off.
+    // No stated argument covers that, and this knob does not settle it.
+    if let Ok(level) = std::env::var("RTS_CL_OPT") {
+        cranelift_codegen::settings::Configurable::set(&mut flags, "opt_level", &level)
+            .expect("a real setting");
+    }
     let verify = match std::env::var_os("RTS_CL_VERIFY") {
         Some(_) => true,
         None => cfg!(debug_assertions),

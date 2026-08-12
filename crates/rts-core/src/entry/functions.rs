@@ -568,7 +568,12 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
         };
 
         let shape = context.shapes.root();
-        let ty = context.layout_of(shape).index() as u32;
+        // Typed by WHAT IT WILL INHERIT FROM, before it exists. Two classes
+        // whose instances hold the same fields reach the same shape — that is
+        // what a shape tree is for — so without this a site warmed on one
+        // recognises the other and reads its methods. The prototype is already
+        // in hand from the walk above, so this costs a scan of a list of one.
+        let ty = context.typed_as(shape, Some(prototype.bits())).index() as u32;
         let fresh = super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty)?;
         context.set_prototype(fresh, prototype.bits());
         Some(Value::from_slot(fresh).bits())

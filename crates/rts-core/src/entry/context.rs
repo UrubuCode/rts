@@ -32,6 +32,67 @@ impl Context {
         ty
     }
 
+    /// The layout a shape arrives at, distinguished by what the cell inherits
+    /// from.
+    ///
+    /// # Why this exists beside [`Self::layout_of`]
+    ///
+    /// Because a shape says which properties an object holds and says nothing
+    /// about what it inherits — correctly, since inheritance is not a layout.
+    /// But an inline cache that may answer out of an inherited cell has to
+    /// distinguish two objects that hold the same fields and inherit from
+    /// different places, and the only thing it compares is the type number.
+    ///
+    /// So the discrimination goes in the NUMBER, over one unchanged shape,
+    /// exactly as `integrity::retype` already does for a frozen cell. The shape
+    /// tree is untouched: it would have been the wrong home for this, because
+    /// `ShapeTree::remove` and `redefine` rebuild a shape from the root, so a
+    /// discriminator recorded there would be silently dropped by `delete o.x` —
+    /// and dropped toward *the same shape*, which merges two layouts and makes
+    /// the cache HIT where it must miss. Every other part of shape identity
+    /// fails toward "different"; that one would have failed toward "same".
+    ///
+    /// # Why a cell with no link keeps the shared layout
+    ///
+    /// A cell with nothing recorded gets [`Self::layout_of`] unchanged, and that
+    /// is required rather than a shortcut: `objects::inherited_from` SUBSTITUTES
+    /// a prototype by kind for arrays, callables, text and plain objects, so
+    /// those cells record no link and must go on sharing one layout. It is also
+    /// what makes the resolver's refusal of a link-less receiver sound.
+    pub(super) fn typed_as(
+        &mut self,
+        shape: rts_cranelift::shape::ShapeId,
+        link: Option<u64>,
+    ) -> rts_cranelift::types::TypeId {
+        let Some(cell) = link.and_then(|value| crate::value::Value(value).as_slot()) else {
+            return self.layout_of(shape);
+        };
+
+        if let Some(known) = self.proto_types.get(cell)
+            && let Some((_, ty)) = known.iter().find(|(at, _)| *at == shape)
+        {
+            return *ty;
+        }
+
+        // `types.declare` rather than `shapes.layout`: the latter memoises one
+        // number per shape, so asking it here would hand back the very number
+        // this call exists to differ from. Declaring is what mints a fresh one,
+        // and it is the same call `integrity::retype` makes for the same reason.
+        let fields: Vec<_> = self
+            .shapes
+            .properties(shape)
+            .into_iter()
+            .map(|(_, repr)| repr)
+            .collect();
+        let fresh = self.types.declare(&fields);
+        self.record_shape(fresh, shape);
+        match self.proto_types.get_mut(cell) {
+            Some(known) => known.push((shape, fresh)),
+            None => self.proto_types.set(cell, vec![(shape, fresh)]),
+        }
+        fresh
+    }
+
     /// Records which shape a layout came from.
     ///
     /// Split out of [`Self::layout_of`] because a second caller appeared:
