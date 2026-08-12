@@ -338,7 +338,11 @@ fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     if from >= haystack.len() {
         return None;
     }
-    haystack[from..].windows(needle.len()).position(|window| window == needle).map(|position| position + from)
+    // Two-way with a SIMD prefilter, where the window compare this replaces was
+    // O(n*m). The same swap `entry::string::basic` took, and this one is the
+    // case that wants it most: a `Buffer` is bytes by construction and is
+    // routinely megabytes, where a string in this engine is usually short.
+    memchr::memmem::find(&haystack[from..], needle).map(|position| position + from)
 }
 
 /// `buf.indexOf(value, byteOffset?, encoding?)`.
