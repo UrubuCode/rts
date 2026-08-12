@@ -1221,9 +1221,28 @@ fn emit_guarded(
 
     builder.guard(a, Repr::F64, (left_is_number, &[]), (slow, &[]))?;
 
+    // ONE value guarded twice is one guard. `x + x` hands the same SSA value
+    // to both sides, and an SSA value's contents cannot change — so inside
+    // `left_is_number`, which the first guard's success dominates, testing it
+    // again can only succeed. `x + x + x` emitted nine guards for three
+    // additions; three of them were this.
+    //
+    // Scoped to ONE emission on purpose. The general form — remembering a
+    // narrowed value across operators — is unsound as it stands and useless if
+    // made safe the obvious way: the join at the bottom of this function is
+    // reachable from the slow path too, so the narrowed value does not reach
+    // it, and a memo cleared at that join never survives to the next operator.
+    // Carrying it would mean the join taking a parameter the slow path has no
+    // value for.
     builder.switch_to(left_is_number);
-    builder.guard(b, Repr::F64, (both, &[]), (slow, &[]))?;
-
+    match a == b {
+        // Jumped to rather than skipped: `both` already exists and every block
+        // this builder creates must be terminated — the verifier says so, and
+        // it said so about the first attempt at this. Handing `left` across
+        // the edge is what makes the two operands one value.
+        true => builder.jump(both, &[left])?,
+        false => builder.guard(b, Repr::F64, (both, &[]), (slow, &[]))?,
+    }
     builder.switch_to(both);
     let fast = match instruction {
         Proven::Arith(num) => builder.arith(num, left, right)?,
