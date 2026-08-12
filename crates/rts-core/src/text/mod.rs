@@ -134,6 +134,37 @@ impl Str {
     }
 
     /// Every code unit, in order.
+    /// As unidades já em UTF-16, quando é isso que está guardado.
+    ///
+    /// `None` para Latin1 — não há fatia de `u16` ali para emprestar, e inventar
+    /// uma exigiria a alocação que quem pergunta está tentando evitar. Quem
+    /// recebe `None` decide: alargar, ou trabalhar sobre os bytes.
+    ///
+    /// # Ainda sem chamador, e o que a primeira tentativa descobriu
+    ///
+    /// Ela existe para `units_of` deixar de copiar uma string que JÁ está em
+    /// UTF-16 — o que é todo texto com acento, e portanto todo rótulo em
+    /// português da UI deste projeto. A tentativa de trocar o `Vec<u16>` de
+    /// `units_of` por um `Cow` falhou, e o motivo é a descoberta:
+    ///
+    /// **A CÓPIA É O QUE ENCERRA O EMPRÉSTIMO DO `Context`.** Um `Cow` mantém o
+    /// empréstimo imutável vivo até o ponto em que o método precisa de
+    /// `&mut context` para internar o resultado, e o verificador recusa
+    /// (`E0502`, em cinco sítios de `string/basic.rs`). A cópia não é desleixo:
+    /// ela é o que libera o contexto.
+    ///
+    /// Então tirá-la não é trocar um tipo de retorno. É reestruturar cada um dos
+    /// vinte sítios para calcular sobre o emprestado, LARGAR o empréstimo, e só
+    /// então internar — e a auditoria que propôs a mudança não previu isso.
+    /// Esta função fica porque é a metade da resposta que já está certa.
+    pub fn narrow(&self) -> Option<&[u16]> {
+        match &self.repr {
+            Repr::Utf16(units) => Some(units),
+            Repr::Latin1(_) => None,
+        }
+    }
+
+    /// As unidades de código, sem alocar.
     pub fn units(&self) -> Units<'_> {
         match &self.repr {
             Repr::Latin1(bytes) => Units::Latin1(bytes.iter()),
