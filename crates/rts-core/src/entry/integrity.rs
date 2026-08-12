@@ -208,7 +208,7 @@ pub(in crate::entry) fn restrict(object: u64, level: Integrity) -> u64 {
 ///
 /// A cell whose type has no shape (a string, a callable) is left alone: there is
 /// no layout to duplicate, and nothing writes properties into one anyway.
-fn retype(context: &mut Context, cell: u32) {
+pub(in crate::entry) fn retype(context: &mut Context, cell: u32) {
     let Some(ty) = context.region.type_of(cell) else {
         return;
     };

@@ -456,7 +456,13 @@ pub fn delete_property(object: u64, key: u64) -> bool {
             .collect();
 
         let shrunk = context.shapes.remove(shape, machine);
-        let ty = context.layout_of(shrunk).index() as u32;
+        // Against the same link, for the reason a growth is — and it matters
+        // more here, because `ShapeTree::remove` rebuilds from the root, so what
+        // comes back is the undiscriminated shape every object with those fields
+        // shares. Without this, `delete o.x` merges an instance back in with
+        // every other layout that happens to hold the same remainder.
+        let link = context.prototype_at(slot);
+        let ty = context.typed_as(shrunk, link).index() as u32;
         context.region.set_type(slot, ty);
         for (existing, value) in kept {
             if let Some(at) = context.shapes.slot_of(shrunk, existing) {

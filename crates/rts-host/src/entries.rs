@@ -383,6 +383,15 @@ pub(crate) fn machine_entry(entry: RtEntry) -> *const u8 {
             rts_core::entry::cache_resolve_store as extern "C" fn(u64, i64, i64) -> i64
                 as *const u8
         }
+        // A third, for a site whose answer may live in the cell its receiver
+        // inherits from. The same three operands and the same return, and a
+        // separate function for the same reason the store is one: what it may
+        // answer differs — this one may report an address, and reporting one is
+        // a claim about that address outliving the read.
+        RtEntry::CacheResolveIndirect => {
+            rts_core::entry::cache_resolve_indirect as extern "C" fn(u64, i64, i64) -> i64
+                as *const u8
+        }
         RtEntry::WriteBarrier => {
             rts_core::entry::write_barrier as extern "C" fn(u64, u64) as *const u8
         }

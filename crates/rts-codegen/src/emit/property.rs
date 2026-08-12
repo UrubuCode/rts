@@ -109,6 +109,70 @@ pub(super) fn emit_read(
     Ok(result)
 }
 
+/// Reads a property the site may last have found on something the receiver
+/// inherits from.
+///
+/// # Why this is a second function and not a parameter
+///
+/// Because it costs more, and the extra is paid on the recognised path. A site
+/// that reads a field of an object it holds must not pay for the possibility of
+/// a method it never calls, and the only place that difference is known is
+/// where the read is emitted — [`emit_read`] is what nine callers want and this
+/// is what two do.
+///
+/// # Which two, and why the position is the right signal
+///
+/// The callee of a call. `o.m()` reads `m` and immediately calls it, and a
+/// method is written on a class body, which puts it on the prototype rather
+/// than on the instance — so the cheap form's cache can never arm and the site
+/// re-resolves on every pass, forever. Everything else keeps the cheap form.
+///
+/// The signal is syntactic rather than proved, and that is deliberate: nothing
+/// in this crate knows what an expression's type is (there is no type pass), and
+/// a guess that is wrong costs a load and a predicted branch rather than a wrong
+/// answer. A callee that turns out to be an own property — `handlers.a()`,
+/// `Math.abs()`, `this.cb()` — resolves on the first pass and hits every time
+/// after, exactly as it does today, one load slower.
+pub(super) fn emit_read_indirect(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    receiver: ValueId,
+    property: Name,
+) -> EmitResult<ValueId> {
+    let receiver = tagged(builder, receiver);
+    let key = ctx.shape_key(property);
+
+    let as_reference = builder.create_block();
+    let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
+    let hit = builder.create_block();
+    let found = builder.add_block_param(hit, UNPROVEN);
+    let slow = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, UNPROVEN);
+
+    builder.guard(
+        receiver,
+        Repr::Ref(RefKind::Opaque),
+        (as_reference, &[]),
+        (slow, &[]),
+    )?;
+
+    builder.switch_to(as_reference);
+    let cache = builder.declare_cache();
+    builder.cached_get_indirect(narrowed, key, cache, (hit, &[]), (slow, &[]))?;
+
+    builder.switch_to(hit);
+    builder.jump(join, &[found])?;
+
+    builder.switch_to(slow);
+    let key_value = key_constant(builder, ctx, property);
+    let answered = call(builder, ctx, RuntimeOp::GetProperty, &[receiver, key_value])?[0];
+    builder.jump(join, &[answered])?;
+
+    builder.switch_to(join);
+    Ok(result)
+}
+
 /// Writes a property, through the site's memory of what it last saw.
 ///
 /// The mirror of [`emit_read`] with one difference that is not symmetry: the

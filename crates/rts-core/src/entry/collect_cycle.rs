@@ -151,6 +151,10 @@ fn release(context: &mut Context, cell: u32) {
     // module's own documentation for what keeps this exhaustive and what does
     // not.
     context.prototypes.remove(cell);
+    // Keyed by the cell that WAS a prototype, so reclaiming it drops the numbers
+    // minted against it — which is what stops the free list handing the index
+    // back and an unrelated object inheriting a stale discrimination.
+    context.proto_types.remove(cell);
     context.callables.remove(cell);
     context.proxies.remove(cell);
     context.cursors.remove(cell);

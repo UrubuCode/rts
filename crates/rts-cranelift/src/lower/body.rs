@@ -527,6 +527,166 @@ impl<'a> Body<'a> {
         Ok(())
     }
 
+    /// A cached read whose answer may live in a cell other than the one asked
+    /// about.
+    ///
+    /// # The shape, and why the second guard is not on the fast path
+    ///
+    /// ```text
+    ///   recognise the object ── no ──────────────────────────┐
+    ///            │                                           │
+    ///   is a second cell remembered? ── no ── read(object)   │
+    ///            │ yes                          │            │
+    ///   recognise that cell ── no ──────────────┼────────────┤
+    ///            │                              │            │
+    ///       read(that cell)                     │          ask once
+    ///            │                              │            │
+    ///            └──────────► load at the remembered offset ◄┘
+    /// ```
+    ///
+    /// The obvious encoding is branchless: keep a mask word, compute
+    /// `(address & mask) | remembered`, and test both layouts with one `band` of
+    /// two comparisons. It was rejected on two counts. A fifth word makes the
+    /// cell forty bytes, so four of every eight straddle a cache line, and the
+    /// site pays that on every read including the ones that never use it. And a
+    /// `band` of two comparisons materialises both with `setcc` rather than
+    /// folding into two conditional jumps — there is no instruction scheduler at
+    /// this optimisation level, so what is emitted is what runs.
+    ///
+    /// Behind a branch instead, a site whose answer is in the object it asked
+    /// about — which the client says is the majority of them — pays one load and
+    /// one branch that is monomorphic per site and therefore predicted.
+    ///
+    /// # Why the resolved path re-reads rather than reusing a value
+    ///
+    /// The call may have written a second cell where there was none. Recomputing
+    /// the base from the cell afterwards is one load; threading it out of the
+    /// call would mean the resolver reporting two things through one integer.
+    ///
+    /// # What was read from the code generator, and what was not
+    ///
+    /// That `brif` lowers to a compare and a conditional jump, and that `band`
+    /// of two comparisons does not, is reported rather than verified here: it
+    /// comes from the lowering rules rather than from a disassembly this crate
+    /// produced. Rule 4 — say which. The block shape is correct either way; only
+    /// the instruction count claim depends on it.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn lower_cached_get_indirect(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        block: BlockId,
+        object: ValueId,
+        key: crate::shape::Key,
+        cache: crate::ir::CacheId,
+        hit: &crate::ir::BlockCall,
+        miss: &crate::ir::BlockCall,
+    ) -> Result<(), LowerError> {
+        let heap = self.heap.ok_or(LowerError::TerminatorNotYetLowered {
+            block,
+            needs: Capability::Memory,
+        })?;
+
+        let flags = cranelift_codegen::ir::MemFlags::trusted();
+        let reference = self.value(object);
+        let address = memory::address_of(builder, reference, &heap);
+        let header = memory::field_load(
+            builder,
+            address,
+            crate::mem::HeaderLayout::TYPE_OFFSET,
+            Repr::I64,
+        );
+        let cell = self.cache_address(builder, block, cache)?;
+
+        // Every block below takes the base to read from as a parameter, so the
+        // load happens once whichever path reached it — the same reason
+        // `lower_cached_get` has one `read` block rather than one per path.
+        let held_known = builder.create_block();
+        let check_held = builder.create_block();
+        let ask = builder.create_block();
+        let resolved = builder.create_block();
+        let read = builder.create_block();
+        let base = builder.append_block_param(read, types::I64);
+
+        let remembered = builder.ins().load(types::I64, flags, cell, 0);
+        let recognized = builder.ins().icmp(IntCC::Equal, header, remembered);
+        builder.ins().brif(recognized, held_known, &[], ask, &[]);
+
+        // The object is the layout this site remembers. Is the answer in it?
+        builder.switch_to_block(held_known);
+        let held = builder.ins().load(types::I64, flags, cell, 16);
+        builder.ins().brif(
+            held,
+            check_held,
+            &[],
+            read,
+            &[cranelift_codegen::ir::BlockArg::Value(address)],
+        );
+
+        // A second cell was remembered. It is an address rather than a
+        // reference, so the only thing that can be checked about it is the
+        // layout it carried when this site warmed — which is what the resolver
+        // promised to make safe to load from.
+        builder.switch_to_block(check_held);
+        let held_header = builder.ins().load(
+            types::I64,
+            flags,
+            held,
+            i32::from(crate::mem::HeaderLayout::TYPE_OFFSET),
+        );
+        let held_remembered = builder.ins().load(types::I64, flags, cell, 24);
+        let still = builder
+            .ins()
+            .icmp(IntCC::Equal, held_header, held_remembered);
+        builder.ins().brif(
+            still,
+            read,
+            &[cranelift_codegen::ir::BlockArg::Value(held)],
+            ask,
+            &[],
+        );
+
+        builder.switch_to_block(ask);
+        let key_value = builder.ins().iconst(types::I64, i64::from(key.0));
+        let asked = self.call_entry_at(
+            builder,
+            block,
+            RtEntry::CacheResolveIndirect,
+            &[reference, key_value, cell],
+        )?;
+        let answer = builder.inst_results(asked)[0];
+        let found = builder
+            .ins()
+            .icmp_imm(IntCC::SignedGreaterThanOrEqual, answer, 0);
+        let miss_args = self.block_args(&miss.args);
+        let miss_target = self.blocks[&miss.block];
+        builder
+            .ins()
+            .brif(found, resolved, &[], miss_target, &miss_args);
+
+        // The call may have written a second cell where there was none, so the
+        // base is read back rather than assumed.
+        builder.switch_to_block(resolved);
+        let now_held = builder.ins().load(types::I64, flags, cell, 16);
+        builder.ins().brif(
+            now_held,
+            read,
+            &[cranelift_codegen::ir::BlockArg::Value(now_held)],
+            read,
+            &[cranelift_codegen::ir::BlockArg::Value(address)],
+        );
+
+        builder.switch_to_block(read);
+        let offset = builder.ins().load(types::I64, flags, cell, 8);
+        let at = builder.ins().iadd(base, offset);
+        let value = builder.ins().load(types::I64, flags, at, 0);
+
+        let mut hit_args = vec![cranelift_codegen::ir::BlockArg::Value(value)];
+        hit_args.extend(self.block_args(&hit.args));
+        let hit_target = self.blocks[&hit.block];
+        builder.ins().jump(hit_target, &hit_args);
+        Ok(())
+    }
+
     /// A cached store: recognise the layout, or ask once, then write.
     ///
     /// The mirror of `lower_cached_get`, and it differs in three things worth

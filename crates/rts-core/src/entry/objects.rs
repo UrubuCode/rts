@@ -339,7 +339,11 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
     let Some(at) = context.shapes.slot_of(grown, machine) else {
         return;
     };
-    let ty = context.layout_of(grown).index() as u32;
+    // Re-typed against the SAME link, not against nothing: an instance that
+    // gains a field must not lose the discrimination it was allocated with, or
+    // two classes collide again the moment one of their instances grows.
+    let link = context.prototype_at(slot);
+    let ty = context.typed_as(grown, link).index() as u32;
     context.region.set_type(slot, ty);
     // Past the seventh this goes to the spill beside the cell rather than
     // being refused, which is what "the overflow indirection, and it is not

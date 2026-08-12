@@ -739,9 +739,12 @@ impl MachineModule<'_> {
             .map(|(name, _)| name.clone())
             .ok_or(TargetError::UndeclaredFunction(id))?;
 
-        let mut cold = Vec::with_capacity(16);
-        cold.extend_from_slice(&(-1i64).to_ne_bytes());
-        cold.extend_from_slice(&0i64.to_ne_bytes());
+        // Which sites need the wider cell, derived from the function rather than
+        // declared by a caller — rule 8, and the same derivation `record_shapes`
+        // performs below for signatures. A caller that had to say would be a
+        // caller that could say it for the wrong site, and the failure is a read
+        // that loads two words past the end of its own cell.
+        let indirect = Self::indirect_sites(func);
 
         let mut declared = Vec::with_capacity(func.cache_count());
         for site in 0..func.cache_count() {
@@ -751,12 +754,48 @@ impl MachineModule<'_> {
                 true,
                 false,
             )?;
+            // The layout no object has, in each width. It cannot start at zero:
+            // zero is a real layout, and a site that had never run would claim
+            // to recognize the first one ever declared. The wider form's third
+            // word is zero because zero means "the cell asked about", which is
+            // the answer a site that has never resolved must give — and its
+            // fourth is -1 so that a cell claiming a second address it never
+            // got could not also match a layout.
+            let mut cold = Vec::with_capacity(32);
+            cold.extend_from_slice(&(-1i64).to_ne_bytes());
+            cold.extend_from_slice(&0i64.to_ne_bytes());
+            if indirect.contains(&site) {
+                cold.extend_from_slice(&0i64.to_ne_bytes());
+                cold.extend_from_slice(&(-1i64).to_ne_bytes());
+            }
+
             let mut description = cranelift_module::DataDescription::new();
-            description.define(cold.clone().into_boxed_slice());
+            // Every load of these words is `MemFlags::trusted()`, which asserts
+            // alignment; nothing asserted it before, which was a false claim
+            // rather than a slow one. Rule 7 — an invariant is enforced.
+            description.set_align(if indirect.contains(&site) { 32 } else { 16 });
+            description.define(cold.into_boxed_slice());
             self.module.define_data(data, &description)?;
             declared.push(data);
         }
         Ok(declared)
+    }
+
+    /// Which of a function's sites read through a remembered address.
+    ///
+    /// Separate from the loop above so the answer is computed once for the
+    /// function rather than rebuilt per site, and so the one fact that decides a
+    /// cell's width has one place to be read from.
+    fn indirect_sites(func: &Function) -> std::collections::BTreeSet<usize> {
+        use crate::ir::Terminator;
+
+        let mut wide = std::collections::BTreeSet::new();
+        for (_, block) in func.blocks() {
+            if let Some(Terminator::CachedGetIndirect { cache, .. }) = &block.terminator {
+                wide.insert(cache.index());
+            }
+        }
+        wide
     }
 
     /// Records every shape this function's indirect calls expect.
@@ -1037,7 +1076,15 @@ pub fn isa_with(
     // is what makes the longer run possible, and the answer is now measured
     // rather than open: on `bench/analytic.ts`, release, 2026-08-11, `speed`
     // returns NOISE — the empty-loop floor 7.2 → 7.0 ns, `prop read own`
-    // 9.2 → 9.4 (worse), an array element read unmoved. The mid-end cannot
+    // 9.2 → 9.4 (worse), an array element read unmoved.
+    //
+    // WHAT THAT MEASUREMENT DOES NOT SAY, and it matters: it was taken while
+    // `single_pass` was still the default, which the comment above now records
+    // as an allocator that MISCOMPILES. Both sides of the comparison ran on it,
+    // so the "noise" conclusion is about `opt_level` and survives — but the
+    // absolute numbers in it are from a configuration nothing runs any more, and
+    // they are kept as what was measured rather than restated as what is true.
+    // The mid-end cannot
     // optimize across an opaque call, and this engine's IR is mostly opaque
     // calls, so there is little for it to see.
     //

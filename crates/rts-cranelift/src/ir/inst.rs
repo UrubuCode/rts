@@ -511,6 +511,60 @@ pub enum Terminator {
         miss: BlockCall,
     },
 
+    /// Reads at an offset in a cell the site remembers, which need not be the
+    /// cell it was asked about.
+    ///
+    /// # Why this is a second terminator and not a mode of [`Self::CachedGet`]
+    ///
+    /// Rule 10. It costs one load and one branch more than `CachedGet` on the
+    /// recognised path — three loads and two branches when the answer is in
+    /// another cell — and a client that only ever reads the cell it asked about
+    /// must not pay for the difference. A single operation with a flag would put
+    /// that decision at every site, which is the disease this crate exists to
+    /// remove.
+    ///
+    /// # What this layer does and does not know
+    ///
+    /// It compares two remembered numbers and loads at a remembered offset from
+    /// a remembered address. **Which** other cell an answer may live in, and why
+    /// one cell's contents would be reachable through another, are questions
+    /// about a client — this layer never follows a second step and has no
+    /// concept of a chain. The resolver decides; this compares.
+    ///
+    /// # The two guards, and why both are needed
+    ///
+    /// The first recognises the object asked about: without it a different
+    /// layout would read at an offset computed for this one. The second
+    /// recognises the *remembered* cell, because that cell's own layout can
+    /// change after this site warmed — and the site holds its address, not a
+    /// reference the client could re-resolve.
+    ///
+    /// The second is emitted **behind** the first and behind a test of whether
+    /// there is a second cell at all, so the common answer — the value was in
+    /// the cell asked about — pays one load and one predicted branch rather than
+    /// three loads and a compare.
+    ///
+    /// # What the resolver owes this instruction
+    ///
+    /// The remembered address is not a reference and nothing traces it, so it
+    /// must name a cell that cannot be freed while a receiver of the remembered
+    /// layout is alive. Stating it here because the instruction cannot enforce
+    /// it: this is the one obligation that crosses the boundary in the direction
+    /// this crate normally refuses, and it is why the resolver, not this layer,
+    /// decides what may be remembered.
+    CachedGetIndirect {
+        /// The object asked about.
+        object: ValueId,
+        /// Which property.
+        key: crate::shape::Key,
+        /// Where this site keeps what it last saw.
+        cache: crate::ir::CacheId,
+        /// Entered with the value, when both remembered layouts still match.
+        hit: BlockCall,
+        /// Entered when either does not.
+        miss: BlockCall,
+    },
+
     /// Ends a cleanup, handing control back to whatever is unwinding.
     ///
     /// A cleanup is not jumped to. It is copied into each path that needs it,
@@ -559,7 +613,9 @@ impl Terminator {
             Terminator::Guard { ok, fail, .. } | Terminator::GuardType { ok, fail, .. } => {
                 vec![ok.block, fail.block]
             }
-            Terminator::CachedGet { hit, miss, .. } | Terminator::CachedSet { hit, miss, .. } => {
+            Terminator::CachedGet { hit, miss, .. }
+            | Terminator::CachedGetIndirect { hit, miss, .. }
+            | Terminator::CachedSet { hit, miss, .. } => {
                 vec![hit.block, miss.block]
             }
             // A throw has no successor in this function's graph. Where it lands
@@ -603,6 +659,9 @@ impl Terminator {
                 operands.extend_from_slice(&fail.args);
             }
             Terminator::CachedGet {
+                object, hit, miss, ..
+            }
+            | Terminator::CachedGetIndirect {
                 object, hit, miss, ..
             } => {
                 operands.push(*object);

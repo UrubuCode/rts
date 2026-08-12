@@ -96,7 +96,20 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 check_block_call(func, from, miss, 0, errors);
             }
 
+            // One check for both forms, and deliberately so: what the verifier
+            // has to reject is identical — the object is a reference, the cache
+            // names a site this function declared, and the hit block takes the
+            // value it will be handed. Where the two differ is what the LOWERING
+            // emits, which is not a well-formedness question. A second copy of
+            // these four checks would be a second place for them to drift.
             Terminator::CachedGet {
+                object,
+                cache,
+                hit,
+                miss,
+                ..
+            }
+            | Terminator::CachedGetIndirect {
                 object,
                 cache,
                 hit,

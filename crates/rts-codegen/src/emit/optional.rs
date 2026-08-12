@@ -200,7 +200,9 @@ fn walk_callee(
             }
             let receiver = walk(builder, scope, ctx, join, object)?;
             let receiver = maybe_short_circuit(builder, ctx, join, receiver, *optional)?;
-            let function = super::property::emit_read(builder, ctx, receiver, *property)?;
+            // Callee position, like `call.rs` — `o?.m()` and `o.m()` must not
+            // disagree about which form they emit.
+            let function = super::property::emit_read_indirect(builder, ctx, receiver, *property)?;
             (receiver, function)
         }
         ExprKind::Index {
