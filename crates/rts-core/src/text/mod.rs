@@ -238,7 +238,21 @@ impl Str {
     /// turns "this cannot be represented in Rust" into "this is what it said".
     pub fn to_rust(&self) -> Option<String> {
         match &self.repr {
-            Repr::Latin1(bytes) => Some(bytes.iter().map(|byte| char::from(*byte)).collect()),
+            Repr::Latin1(bytes) => match bytes.is_ascii() {
+                // ASCII bytes ARE UTF-8 bytes, so this is a copy and nothing
+                // else. The general arm below builds the string one `char` at a
+                // time — correct for Latin-1, where a byte above 127 becomes
+                // two UTF-8 bytes, and enormously wasteful for the ASCII that
+                // nearly all program text is: `String::split` was measured at
+                // 3.2 ns PER CHARACTER of its subject, linear in the subject and
+                // independent of how many pieces came out, which is this.
+                //
+                // `is_ascii` is a SIMD scan in std and `from_utf8` re-validates
+                // with another; both are memory-bandwidth work against a
+                // per-character loop.
+                true => String::from_utf8(bytes.to_vec()).ok(),
+                false => Some(bytes.iter().map(|byte| char::from(*byte)).collect()),
+            },
             Repr::Utf16(units) => String::from_utf16(units).ok(),
         }
     }
