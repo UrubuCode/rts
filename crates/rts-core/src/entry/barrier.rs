@@ -155,8 +155,8 @@ mod tests {
         // The case every program reaches, and the one that must not pay: a
         // thread only ever holds references its own region handed out.
         let (context, ()) = hosted(1, || {
-            let object = crate::entry::object_new();
-            let other = crate::entry::object_new();
+            let object = crate::entry::object_new(0);
+            let other = crate::entry::object_new(0);
             write_barrier(object, other);
             write_barrier(object, Value::from_f64(1.0).bits());
         });
@@ -174,7 +174,7 @@ mod tests {
         // the check that says so, and it is the only place the crossing can be
         // seen at all.
         let (context, forged) = hosted(1, || {
-            let object = crate::entry::object_new();
+            let object = crate::entry::object_new(0);
             // A cell of region 2, spelled the way region 2 would spell it.
             let elsewhere = Value::from_slot((7 << 2) | 2).bits();
             write_barrier(object, elsewhere);

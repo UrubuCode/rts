@@ -553,7 +553,7 @@ mod tests {
     #[test]
     fn a_property_written_is_the_property_read() {
         hosted(|| {
-            let object = object_new();
+            let object = object_new(0);
             set_property(object, 7, Value::from_f64(42.0).bits());
             assert_eq!(
                 rts_cranelift::tags::decode_double(get_property(object, 7)),
@@ -565,7 +565,7 @@ mod tests {
     #[test]
     fn an_absent_property_is_undefined_rather_than_an_error() {
         hosted(|| {
-            let object = object_new();
+            let object = object_new(0);
             let read = get_property(object, 7);
             assert_eq!(
                 rts_cranelift::tags::tag_of(read),
@@ -580,7 +580,7 @@ mod tests {
         // new slot rather than over the first, and the first object's layout
         // moves with it.
         hosted(|| {
-            let object = object_new();
+            let object = object_new(0);
             set_property(object, 1, Value::from_f64(10.0).bits());
             set_property(object, 2, Value::from_f64(20.0).bits());
             assert_eq!(
@@ -601,7 +601,7 @@ mod tests {
         // time would grow an object without bound and give two objects built the
         // same way different shapes.
         hosted(|| {
-            let object = object_new();
+            let object = object_new(0);
             set_property(object, 1, Value::from_f64(10.0).bits());
             set_property(object, 1, Value::from_f64(11.0).bits());
             assert_eq!(
@@ -617,8 +617,8 @@ mod tests {
         // property an inline cache depends on: a site that has seen one of these
         // recognises the other.
         hosted(|| {
-            let first = object_new();
-            let second = object_new();
+            let first = object_new(0);
+            let second = object_new(0);
             set_property(first, 3, Value::from_f64(1.0).bits());
             set_property(second, 3, Value::from_f64(2.0).bits());
             crate::entry::with_current(|context| {
