@@ -95,10 +95,10 @@ pub fn add_operand_order() -> [Side; 2] {
 ///
 /// Returns `None` when either side is not a primitive, which a caller reaches by
 /// resolving [`Needs`] first.
-pub fn add(
+pub fn add<'a>(
     left: Value,
     right: Value,
-    as_string: impl Fn(Value) -> Option<Str>,
+    as_string: impl Fn(Value) -> Option<&'a Str>,
     stringify: impl Fn(Value) -> Option<Str>,
     numeric: impl Fn(Value) -> Option<f64>,
 ) -> Option<Sum> {
@@ -117,9 +117,37 @@ pub fn add(
         //
         // They cannot be one function. If `as_string` stringified numbers,
         // every `1 + 2` would look like concatenation and answer `"12"`.
-        let left_text = left_string.or_else(|| stringify(left))?;
-        let right_text = right_string.or_else(|| stringify(right))?;
-        return Some(Sum::Text(left_text.concat(&right_text)));
+        // O LADO QUE JÁ É STRING É EMPRESTADO, não clonado.
+        //
+        // `as_string` devolvia `Option<Str>` e o chamador satisfazia isso com um
+        // `.cloned()` — então todo `a + b` com string copiava os DOIS operandos
+        // inteiros antes de concatenar, e o `concat` alocava um terceiro. Três
+        // cópias do texto para produzir uma.
+        //
+        // Nada exigia a posse: `Context::text_at` e `to_text` recebem os dois um
+        // `&Context`, então o empréstimo vive o suficiente. O que fazia parecer
+        // impossível era a assinatura, e ela era a única razão.
+        //
+        // O `stringify` continua devolvendo `Str` porque ele CRIA o texto — não
+        // há nada para emprestar. As duas variáveis abaixo existem só para dar a
+        // esse texto criado um lugar onde viver enquanto o `concat` o lê.
+        let left_made;
+        let left_text: &Str = match left_string {
+            Some(text) => text,
+            None => {
+                left_made = stringify(left)?;
+                &left_made
+            }
+        };
+        let right_made;
+        let right_text: &Str = match right_string {
+            Some(text) => text,
+            None => {
+                right_made = stringify(right)?;
+                &right_made
+            }
+        };
+        return Some(Sum::Text(left_text.concat(right_text)));
     }
 
     // `ToNumber` and not "is this already a number". They are two questions and

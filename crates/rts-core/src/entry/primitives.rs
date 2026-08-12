@@ -68,12 +68,9 @@ pub fn add(left: u64, right: u64) -> u64 {
         {
             return super::bigint_class::settled(outcome);
         }
-        let text_of = |value: Value| {
-            value
-                .as_slot()
-                .and_then(|slot| context.text_at(slot))
-                .cloned()
-        };
+        // Empresta. O `.cloned()` que estava aqui copiava o texto inteiro só
+        // para satisfazer a assinatura de `add`, e a assinatura mudou.
+        let text_of = |value: Value| value.as_slot().and_then(|slot| context.text_at(slot));
 
         // `ToString` of a primitive, which is what the non-string side of a
         // concatenation becomes. Separate from `text_of` because that one
