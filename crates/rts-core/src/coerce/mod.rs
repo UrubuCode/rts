@@ -274,12 +274,36 @@ mod tests {
         value.numeric()
     }
 
-    fn strings(pairs: Vec<(u64, &'static str)>) -> impl Fn(Value) -> Option<Str> {
+    /// A tabela que o teste possui, para que a resposta possa ser EMPRESTADA.
+    ///
+    /// Ela construía um `Str` novo a cada consulta, o que era possível enquanto
+    /// `as_string` devolvia posse. Desde que ele devolve `&Str` — para o `+` não
+    /// copiar os dois operandos —, o texto tem de viver em algum lugar, e o
+    /// lugar é o chamador. É a mesma mudança que o runtime fez, no tamanho do
+    /// teste: quem já tem o texto empresta em vez de copiar.
+    fn table(pairs: Vec<(u64, &'static str)>) -> Vec<(u64, Str)> {
+        pairs
+            .into_iter()
+            .map(|(bits, text)| (bits, Str::from_str(text)))
+            .collect()
+    }
+
+    fn strings<'a>(table: &'a [(u64, Str)]) -> impl Fn(Value) -> Option<&'a Str> + 'a {
         move |value: Value| {
-            pairs
+            table
                 .iter()
                 .find(|(bits, _)| *bits == value.bits())
-                .map(|(_, text)| Str::from_str(text))
+                .map(|(_, text)| text)
+        }
+    }
+
+    /// O outro lado da concatenação, que CRIA o texto e por isso devolve posse.
+    fn made(table: &[(u64, Str)]) -> impl Fn(Value) -> Option<Str> + '_ {
+        move |value: Value| {
+            table
+                .iter()
+                .find(|(bits, _)| *bits == value.bits())
+                .map(|(_, text)| text.clone())
         }
     }
 
@@ -288,10 +312,12 @@ mod tests {
         // Two objects that both coerced to strings. Neither original was one.
         let left = Value::from_slot(1);
         let right = Value::from_slot(2);
-        let as_string = strings(vec![(left.bits(), ""), (right.bits(), "[object Object]")]);
+        let owned = table(vec![(left.bits(), ""), (right.bits(), "[object Object]")]);
+        let as_string = strings(&owned);
+        let stringify = made(&owned);
 
         assert_eq!(
-            add(left, right, &as_string, &as_string, &numeric),
+            add(left, right, &as_string, &stringify, &numeric),
             Some(Sum::Text(Str::from_str("[object Object]"))),
             "[] + {{}} concatenates, though neither operand is a string"
         );
@@ -310,13 +336,15 @@ mod tests {
 
     #[test]
     fn a_boolean_operand_converts_rather_than_refusing() {
-        let none = strings(vec![]);
+        let owned = table(vec![]);
+        let none = strings(&owned);
+        let none_made = made(&owned);
         assert_eq!(
             add(
                 Value::from_bool(true),
                 Value::from_i32(1),
                 &none,
-                &none,
+                &none_made,
                 &numeric
             ),
             Some(Sum::Number(2.0)),
@@ -327,7 +355,7 @@ mod tests {
                 Value::from_bool(false),
                 Value::from_i32(1),
                 &none,
-                &none,
+                &none_made,
                 &numeric
             ),
             Some(Sum::Number(1.0))
@@ -336,13 +364,15 @@ mod tests {
 
     #[test]
     fn add_on_two_numbers_is_arithmetic() {
-        let none = strings(vec![]);
+        let owned = table(vec![]);
+        let none = strings(&owned);
+        let none_made = made(&owned);
         assert_eq!(
-            add(Value::from_i32(2), Value::from_i32(3), &none, &none, &numeric),
+            add(Value::from_i32(2), Value::from_i32(3), &none, &none_made, &numeric),
             Some(Sum::Number(5.0))
         );
         assert_eq!(
-            add(Value::from_f64(0.1), Value::from_f64(0.2), &none, &none, &numeric),
+            add(Value::from_f64(0.1), Value::from_f64(0.2), &none, &none_made, &numeric),
             Some(Sum::Number(0.1 + 0.2))
         );
     }
@@ -350,9 +380,16 @@ mod tests {
     #[test]
     fn one_string_is_enough_to_make_it_concatenation() {
         let text = Value::from_slot(1);
-        let as_string = strings(vec![(text.bits(), "n=")]);
-        let stringify =
-            |value: Value| as_string(value).or_else(|| value.numeric().map(number_to_string));
+        let owned = table(vec![(text.bits(), "n=")]);
+        let as_string = strings(&owned);
+        let stringify_owned = made(&owned);
+        // O `stringify` do teste devolve POSSE porque a metade numérica dele
+        // cria o texto — `number_to_string` não tem de onde emprestar. A metade
+        // que já é string clona aqui, e clonar num teste não custa nada; era o
+        // clone no CAMINHO QUENTE que este commit tirou.
+        let stringify = |value: Value| {
+            stringify_owned(value).or_else(|| value.numeric().map(number_to_string))
+        };
 
         // `"n=" + 1` is `"n=1"`.
         //
@@ -375,7 +412,9 @@ mod tests {
         // two functions rather than one: if the decision consulted the
         // stringifier, `1 + 2` would look like concatenation and answer "12".
         let stringify = |value: Value| value.numeric().map(number_to_string);
-        let none = strings(vec![]);
+        let owned = table(vec![]);
+        let none = strings(&owned);
+        let none_made = made(&owned);
         assert_eq!(
             add(Value::from_i32(1), Value::from_i32(2), &none, &stringify, &numeric),
             Some(Sum::Number(3.0))
@@ -405,7 +444,9 @@ mod tests {
 
     #[test]
     fn nan_is_unordered_and_every_operator_reads_that_as_false() {
-        let none = strings(vec![]);
+        let owned = table(vec![]);
+        let none = strings(&owned);
+        let none_made = made(&owned);
         let nan = Value::from_f64(f64::NAN);
 
         for op in [
@@ -415,7 +456,7 @@ mod tests {
             Relational::GreaterEqual,
         ] {
             assert_eq!(
-                relational(op, nan, nan, &none, plain),
+                relational(op, nan, nan, &none_made, plain),
                 None,
                 "{op:?} on NaN is unordered, not false-because-negated"
             );
@@ -424,28 +465,30 @@ mod tests {
 
     #[test]
     fn the_four_operators_agree_with_arithmetic_where_nothing_is_nan() {
-        let none = strings(vec![]);
+        let owned = table(vec![]);
+        let none = strings(&owned);
+        let none_made = made(&owned);
         let one = Value::from_i32(1);
         let two = Value::from_i32(2);
 
         assert_eq!(
-            relational(Relational::Less, one, two, &none, plain),
+            relational(Relational::Less, one, two, &none_made, plain),
             Some(true)
         );
         assert_eq!(
-            relational(Relational::Less, two, one, &none, plain),
+            relational(Relational::Less, two, one, &none_made, plain),
             Some(false)
         );
         assert_eq!(
-            relational(Relational::LessEqual, one, one, &none, plain),
+            relational(Relational::LessEqual, one, one, &none_made, plain),
             Some(true)
         );
         assert_eq!(
-            relational(Relational::Greater, two, one, &none, plain),
+            relational(Relational::Greater, two, one, &none_made, plain),
             Some(true)
         );
         assert_eq!(
-            relational(Relational::GreaterEqual, one, one, &none, plain),
+            relational(Relational::GreaterEqual, one, one, &none_made, plain),
             Some(true)
         );
     }
@@ -454,7 +497,8 @@ mod tests {
     fn two_strings_compare_by_code_unit_and_not_as_numbers() {
         let a = Value::from_slot(1);
         let b = Value::from_slot(2);
-        let as_string = strings(vec![(a.bits(), "10"), (b.bits(), "9")]);
+        let owned = table(vec![(a.bits(), "10"), (b.bits(), "9")]);
+        let as_string = made(&owned);
 
         assert_eq!(
             relational(Relational::Less, a, b, &as_string, plain),
