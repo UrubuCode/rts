@@ -57,14 +57,26 @@ pub fn run_path_and<T: Send + 'static>(
     after: impl FnOnce(Result<(), String>) -> T + Send + 'static,
 ) -> T {
     let path = path.to_path_buf();
-    let handle = std::thread::Builder::new()
-        .stack_size(STACK)
-        .spawn(move || {
-            let result = run_path_inner(&path);
-            after(result)
-        })
-        .expect("a thread to run the new engine on");
-    handle.join().expect("the run thread not to panic")
+    // NA THREAD PRINCIPAL, e isso e o que deixa um programa abrir janela.
+    //
+    // Isto criava uma thread com `STACK` de pilha, e a razao era boa: recursao
+    // de JS estoura a pilha padrao do Windows. So que o `winit` entra em panico
+    // ao criar o event loop fora da principal — entao todo programa com janela
+    // morria antes do primeiro frame, e a UI virou um exemplo separado
+    // (`ui_fixture`) em vez do caminho normal.
+    //
+    // Os dois requisitos so se excluiam enquanto a principal tinha ~1 MiB. O
+    // `.cargo/config.toml` agora a linka com `/STACK:67108864` — os mesmos 64
+    // MiB que esta thread pedia —, entao rodar aqui tem a profundidade E a
+    // janela. A thread deixou de comprar alguma coisa.
+    //
+    // O `after` continua rodando na MESMA thread que o programa, que e o
+    // contrato que este par existe para manter: o registro de `rts_std::test` e
+    // `thread_local`, e le-lo noutra thread reportaria "0 tests" em silencio.
+    // Rodar tudo na principal preserva isso por construcao, em vez de por
+    // combinacao.
+    let result = run_path_inner(&path);
+    after(result)
 }
 
 /// Compiles and runs source text through the new engine, on the same thread

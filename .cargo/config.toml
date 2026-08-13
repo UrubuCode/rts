@@ -44,4 +44,16 @@ RUST_MIN_STACK = "16777216"
 rustflags = [
     "-C", "link-arg=/DELAYLOAD:opengl32.dll",
     "-C", "link-arg=delayimp.lib",
+    # A PILHA DA THREAD PRINCIPAL, e ela e o que separa `rts run` de abrir uma
+    # janela. 64 MiB, o mesmo que `rts-cli`'s `STACK` pede a thread que ele cria.
+    #
+    # O `rts run` cria uma thread NAO por gosto: recursao de JS estoura a pilha
+    # padrao do Windows (~1 MiB). Mas o `winit` entra em panico ao criar o event
+    # loop fora da thread principal, entao os dois requisitos se excluiam e a UI
+    # virou um exemplo (`ui_fixture`) em vez do caminho normal.
+    #
+    # No Windows o tamanho da pilha da principal e decidido no LINK, nao em
+    # execucao — entao dar a ela a mesma pilha remove a exclusao: profundidade de
+    # recursao E janela na mesma thread.
+    "-C", "link-arg=/STACK:67108864",
 ]
