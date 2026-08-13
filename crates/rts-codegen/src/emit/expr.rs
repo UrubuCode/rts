@@ -1418,6 +1418,42 @@ fn emit_array(
         return super::call::emit_argument_vector(builder, scope, ctx, &written);
     }
 
+    // Up to four elements, none of them a hole, in ONE crossing. It was one to
+    // make the array and one per element — five for `[a, b, c, d]` — each a
+    // thread-local, a `RefCell` borrow and a bounds decision, to write values
+    // the compiler had already produced.
+    //
+    // Four because the arguments are scalars across an `extern "C"` boundary
+    // and a fifth would be a fifth register. A hole sends the literal down the
+    // path below, which is what keeps an absent position absent: this entry
+    // point writes exactly the elements it is given.
+    if elements.len() <= 4 && elements.iter().all(|e| matches!(e, Some(crate::syntax::Spreadable::Single(_)))) {
+        let count = builder.declare_const(ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: ScalarBits(elements.len() as u64),
+        });
+        let count = builder.use_const(count);
+        let absent = builder.declare_const(ConstDecl::Scalar {
+            // Padding for the slots `count` says are not real. Tagged and
+            // not I64 because the signature says so, and a raw integer there
+            // fails to widen — which is what the machine answered first.
+            repr: UNPROVEN,
+            bits: ScalarBits(0),
+        });
+        let mut args = vec![count];
+        for element in elements {
+            let Some(crate::syntax::Spreadable::Single(value)) = element else {
+                unreachable!("every element was checked to be a plain value")
+            };
+            let value = emit_expr(builder, scope, ctx, value)?;
+            args.push(tagged(builder, value));
+        }
+        while args.len() < 5 {
+            args.push(builder.use_const(absent));
+        }
+        return Ok(call(builder, ctx, RuntimeOp::ArrayOf, &args)?[0]);
+    }
+
     let length = builder.declare_const(ConstDecl::Scalar {
         repr: Repr::I64,
         bits: ScalarBits(elements.len() as u64),

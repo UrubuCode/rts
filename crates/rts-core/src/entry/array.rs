@@ -33,6 +33,32 @@ use crate::value::Value;
 /// cell rather than in place of its layout — see `Context::array_elements` for
 /// why the first version, which gave arrays a reserved layout, made `a.tag = 9`
 /// a silent no-op.
+/// `[a, b, c, d]` — the array and every element, in ONE crossing.
+///
+/// Four and not N for the reason the two-field object literal gives: the
+/// arguments are scalars across an `extern "C"` boundary, and a fifth would be
+/// a fifth register. `count` says how many of them are real, so `[a, b]` uses
+/// the same entry point with two ignored.
+///
+/// Measured before this existed: `[i, i, i, i]` in a loop cost 450 ns an
+/// iteration, and it was FIVE crossings — one to make the array and one per
+/// element — each a thread-local, a `RefCell` borrow and a bounds decision.
+///
+/// A hole is still a hole: this writes exactly `count` elements, so a literal
+/// with one takes the older path and keeps its absent positions.
+#[rtse::entry]
+pub fn array_of(count: i64, v0: u64, v1: u64, v2: u64, v3: u64) -> u64 {
+    with_current(|context| {
+        let held = [v0, v1, v2, v3];
+        let wanted = count.clamp(0, 4) as usize;
+        built_in(context, held[..wanted].to_vec())
+    })
+}
+
+/// `new Array(n)` and the sized store an array literal starts from.
+///
+/// Allocated as an ordinary object, because that is what an array is: it has
+/// properties and a shape like any other.
 #[rtse::entry]
 pub fn array_new(length: i64) -> u64 {
     with_current(|context| {

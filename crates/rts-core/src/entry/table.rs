@@ -40,7 +40,7 @@
 use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
 use super::accessor::{DEFINE_GETTER_ENTRY, DEFINE_SETTER_ENTRY};
-use super::array::{ARRAY_NEW_ENTRY, OWN_KEYS_ENTRY};
+use super::array::{ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, OWN_KEYS_ENTRY};
 use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
     SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
@@ -435,6 +435,9 @@ pub enum CoreEntry {
 
     /// `{ a: x, b: y }` — the object and both writes, in one crossing.
     ObjectPair = 71,
+
+    /// `[a, b, c, d]` — the array and every element, in one crossing.
+    ArrayOf = 72,
 }
 
 /// How many entry points exist.
@@ -442,7 +445,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 72;
+pub const CORE_ENTRY_COUNT: usize = 73;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -519,6 +522,7 @@ impl CoreEntry {
         CoreEntry::SuperConstructWithArgs,
         CoreEntry::GlobalGetUnbound,
         CoreEntry::ObjectPair,
+        CoreEntry::ArrayOf,
     ];
 
     /// The number a call site holds.
@@ -548,6 +552,7 @@ impl CoreEntry {
             CoreEntry::GreaterEqual => GREATER_EQUAL_ENTRY,
             CoreEntry::ObjectNew => OBJECT_NEW_ENTRY,
             CoreEntry::ObjectPair => OBJECT_PAIR_ENTRY,
+            CoreEntry::ArrayOf => ARRAY_OF_ENTRY,
             CoreEntry::GetProperty => GET_PROPERTY_ENTRY,
             CoreEntry::SetProperty => SET_PROPERTY_ENTRY,
             CoreEntry::ClosureNew => CLOSURE_NEW_ENTRY,
@@ -699,8 +704,13 @@ mod tests {
         // state, so none is arithmetic and the ceiling was what had to move.
         // It moved ONCE and by a little: the next entry to cross it has to
         // answer this question again rather than inherit the answer.
+        // Moved to 74 on 2026-08-13 for `ObjectPair` and `ArrayOf`, and the
+        // question was answered rather than inherited: both build a heap
+        // object, so neither is arithmetic, and both exist to replace THREE
+        // and FIVE crossings with one — a list that grows to shrink the
+        // number of calls is the list doing its job.
         assert!(
-            CORE_ENTRY_COUNT <= 72,
+            CORE_ENTRY_COUNT <= 74,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

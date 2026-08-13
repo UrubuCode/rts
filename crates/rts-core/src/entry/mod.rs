@@ -96,7 +96,7 @@ mod uri;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
-pub use array::{array_new, own_keys};
+pub use array::{array_new, array_of, own_keys};
 pub use array_proto::arguments_at;
 pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
 pub use bitwise::{
