@@ -154,6 +154,9 @@ impl Compiled {
         if std::env::var_os("RTS_TIMING").is_some() {
             eprintln!("rts-timing cache misses  {:>8}", outcome.resolves);
         }
+        if let Some(census) = &outcome.census {
+            eprint!("{census}");
+        }
         self.described = outcome.described;
         outcome.value
     }
@@ -258,6 +261,8 @@ struct Outcome {
     value: u64,
     region: rts_core::heap::Region,
     resolves: u64,
+    /// Every miss by reason, key and site, when `RTS_CACHE_CENSUS` asked.
+    census: Option<String>,
     described: Option<String>,
 }
 
@@ -419,9 +424,13 @@ fn run_region(
     // driver. Ver `rts_ui::shutdown`. No-op quando nenhuma janela foi aberta.
     #[cfg(feature = "ui")]
     rts_ui::shutdown();
+    // Rendered BEFORE the context is taken apart: the census names keys through
+    // the interner, and the interner goes with the context.
+    let census = rts_core::entry::census_report(&context);
     Outcome {
         value,
         resolves: context.resolves,
+        census,
         region: context.region,
         described,
     }

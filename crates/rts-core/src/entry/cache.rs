@@ -51,7 +51,17 @@ use super::{Context, with_current};
 pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
     with_current(|context| {
         context.resolves += 1;
-        let explain = |why: &str, context: &mut Context| {
+        let explain = |why: &'static str, context: &mut Context| {
+            // The census, when one was asked for. Counted before the sampled
+            // line below and independently of it: the sampling answers "what
+            // does a miss look like", this answers "how many, of what, where".
+            if context.census.is_some() {
+                let number = u32::try_from(key).unwrap_or(u32::MAX);
+                let site = cache as u64;
+                if let Some(census) = context.census.as_mut() {
+                    *census.entry((why, number, site)).or_insert(0) += 1;
+                }
+            }
             // A miss is ORDINARY the first time a site sees a layout — that is
             // what a cache is. What this exists to catch is the site that
             // misses forever, so it reports the reason and the key rather than
@@ -128,6 +138,36 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
             explain("the receiver has no shape: a string, or a layout nothing recorded", context);
             return -1;
         };
+        // What the receiver's shape ACTUALLY holds, for the one question the
+        // census cannot answer: a site that misses forever with "absent from
+        // the receiver's shape" is either reading an inherited property, or
+        // reading one the object genuinely lacks, or seeing a type older than
+        // the write that added it — and those want three different fixes.
+        //
+        // Sampled rather than printed: the first three, then one every twenty
+        // thousand, so a site that misses a million times is seen late as well
+        // as early. It was written for exactly that: on `{x:i}; o.y=i; a+=o.y`
+        // the read reports shape ["x"] on every sample while the program answers
+        // correctly, which says the read resolves against a type older than the
+        // transition the write took.
+        if std::env::var_os("RTS_CACHE_WHY").is_some() && (context.resolves <= 3 || context.resolves % 20_000 == 0) {
+            let held: Vec<String> = context
+                .shapes
+                .properties(shape)
+                .into_iter()
+                .map(|(k, _)| {
+                    context
+                        .interner
+                        .text(k)
+                        .and_then(|t| t.to_rust())
+                        .unwrap_or_else(|| "?".to_owned())
+                })
+                .collect();
+            eprintln!(
+                "rts-why key#{number} ty {ty} shape {shape:?} holds {held:?} slot {:?}",
+                context.shapes.slot_of(shape, key)
+            );
+        }
         let Some(slot) = context.shapes.slot_of(shape, key) else {
             // Absent. Legal, and it reads as `undefined` — but not by loading,
             // which is all this answer says.
@@ -201,6 +241,69 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
         }
         offset
     })
+}
+
+/// The census, rendered: every miss by reason, then by key, then by site.
+///
+/// Three tables and not one, because they answer three different questions and
+/// the first one that has an answer is the one to act on. A reason says WHAT to
+/// build. A key says which property is not where the site expects it. A site
+/// missing millions of times alone is polymorphic or unarmable, where a million
+/// sites missing once each is just a big program — and a total cannot tell
+/// those apart, which is why the total was all we had and it said nothing.
+///
+/// Answers `None` when no census was asked for, which is every ordinary run.
+pub fn census_report(context: &Context) -> Option<String> {
+    use std::fmt::Write as _;
+
+    let census = context.census.as_ref()?;
+    let total: u64 = census.values().copied().sum();
+
+    let mut by_reason: std::collections::BTreeMap<&'static str, u64> = Default::default();
+    let mut by_key: std::collections::BTreeMap<u32, u64> = Default::default();
+    let mut by_site: std::collections::BTreeMap<u64, (u64, &'static str, u32)> = Default::default();
+    for (&(why, key, site), &count) in census {
+        *by_reason.entry(why).or_insert(0) += count;
+        *by_key.entry(key).or_insert(0) += count;
+        let entry = by_site.entry(site).or_insert((0, why, key));
+        entry.0 += count;
+    }
+
+    let name_of = |number: u32| {
+        context
+            .keys
+            .key(number)
+            .and_then(|key| context.interner.text(key))
+            .and_then(|text| text.to_rust())
+            .unwrap_or_else(|| format!("#{number}"))
+    };
+
+    let mut out = String::new();
+    let _ = writeln!(out, "rts-cache census: {total} misses, {} sites", by_site.len());
+
+    let mut reasons: Vec<_> = by_reason.into_iter().collect();
+    reasons.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+    for (why, count) in reasons {
+        let share = count as f64 * 100.0 / total.max(1) as f64;
+        let _ = writeln!(out, "  {count:>10}  {share:>5.1}%  {why}");
+    }
+
+    let mut keys: Vec<_> = by_key.into_iter().collect();
+    keys.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+    for (key, count) in keys.into_iter().take(12) {
+        let _ = writeln!(out, "  {count:>10}  key {}", name_of(key));
+    }
+
+    let mut sites: Vec<_> = by_site.into_iter().collect();
+    sites.sort_by_key(|&(_, (count, _, _))| std::cmp::Reverse(count));
+    for (site, (count, why, key)) in sites.into_iter().take(12) {
+        let _ = writeln!(
+            out,
+            "  {count:>10}  site {site:#x} key {} — {why}",
+            name_of(key)
+        );
+    }
+    Some(out)
 }
 
 /// What a refused chain site keeps in the word the machine compares against a
