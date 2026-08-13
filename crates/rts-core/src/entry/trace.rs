@@ -145,7 +145,23 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     // for an object the emitter sized to its shape. Walking a fixed fifteen
     // would leave a wide object's later properties unmarked — a collection
     // would free what one of them still names.
-    let owned = context.region.width_of(cell).unwrap_or(INLINE_SLOTS);
+    // One short of the width: the last slot a cell owns holds the ADDRESS of
+    // its overflow, not a value. Following it would hand the region a
+    // decompose of an address, which is the same fault the float-that-looks-
+    // like-a-cell case exists to refuse. The block is marked below instead,
+    // through `spill_of`, which is the holder that knows it is one.
+    //
+    // Skipped only for a cell that HAS an overflow, because that is the cell
+    // where the last slot holds an address. A generator's parked frame spans
+    // too and its last field is an ordinary value: skipping it there left what
+    // a suspended generator held unmarked, and one `for-of` over a direct
+    // declaration answered 0 where it had answered 3.
+    let width = context.region.width_of(cell).unwrap_or(INLINE_SLOTS);
+    let owned = if context.spill_of.copied(cell).is_some() {
+        width.saturating_sub(1)
+    } else {
+        width
+    };
     for slot in 0..owned {
         if let Some(word) = context.region.field(cell, slot) {
             out.push(word);

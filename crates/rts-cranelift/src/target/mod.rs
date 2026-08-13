@@ -739,13 +739,6 @@ impl MachineModule<'_> {
             .map(|(name, _)| name.clone())
             .ok_or(TargetError::UndeclaredFunction(id))?;
 
-        // Which sites need the wider cell, derived from the function rather than
-        // declared by a caller — rule 8, and the same derivation `record_shapes`
-        // performs below for signatures. A caller that had to say would be a
-        // caller that could say it for the wrong site, and the failure is a read
-        // that loads two words past the end of its own cell.
-        let indirect = Self::indirect_sites(func);
-
         let mut declared = Vec::with_capacity(func.cache_count());
         for site in 0..func.cache_count() {
             let data = self.module.declare_data(
@@ -761,33 +754,39 @@ impl MachineModule<'_> {
             // the answer a site that has never resolved must give — and its
             // fourth is -1 so that a cell claiming a second address it never
             // got could not also match a layout.
-            let mut cold = Vec::with_capacity(32);
+            // EVERY site gets the same eight words now, and the reason is that a
+            // site's kind decides what its words MEAN but no longer how many it
+            // has. The direct read grew a third word — where the object keeps
+            // the address of its overflow — and sizing per kind meant a store
+            // site, whose resolver writes six, could land beside a read site
+            // sized for three. One size cannot be got wrong; sixty-four bytes
+            // is one cache line, which the wider form already paid for.
+            let mut cold = Vec::with_capacity(64);
             cold.extend_from_slice(&(-1i64).to_ne_bytes());
             cold.extend_from_slice(&0i64.to_ne_bytes());
-            if indirect.contains(&site) {
-                // Words two and three: where the answer was found, and the
-                // layout that cell carried. Zero means "in the cell asked
-                // about", so a site that has never resolved reads its own.
-                cold.extend_from_slice(&0i64.to_ne_bytes());
-                cold.extend_from_slice(&(-1i64).to_ne_bytes());
-                // Words four and five: the cell BETWEEN them, when the answer
-                // was two steps away, and the layout it carried. Zero means
-                // there is no cell between, which is what one step means — and
-                // it is what a site that has never resolved reads, so the third
-                // comparison is skipped rather than performed against nothing.
-                cold.extend_from_slice(&0i64.to_ne_bytes());
-                cold.extend_from_slice(&(-1i64).to_ne_bytes());
-                // Two words of padding, so the cell is one cache line and the
-                // alignment below is not a claim about a size that is not one.
-                cold.extend_from_slice(&0i64.to_ne_bytes());
-                cold.extend_from_slice(&0i64.to_ne_bytes());
-            }
+            // Word two, in both readings: for a direct read, where the object
+            // keeps its overflow's address, zero meaning "in the cell asked
+            // about"; for the wider form, the address the answer was found at,
+            // zero meaning the same thing. A site that has never resolved reads
+            // its own cell either way, which is what makes zero the cold value.
+            cold.extend_from_slice(&0i64.to_ne_bytes());
+            // Word three: the layout that other cell carried. Cannot be a real
+            // one, so a cell claiming an address it never got cannot also match.
+            cold.extend_from_slice(&(-1i64).to_ne_bytes());
+            // Words four and five: the cell BETWEEN, when the answer was two
+            // steps away, and its layout. Zero means there is none.
+            cold.extend_from_slice(&0i64.to_ne_bytes());
+            cold.extend_from_slice(&(-1i64).to_ne_bytes());
+            // Padding, so the cell is one cache line and the alignment below is
+            // not a claim about a size that is not one.
+            cold.extend_from_slice(&0i64.to_ne_bytes());
+            cold.extend_from_slice(&0i64.to_ne_bytes());
 
             let mut description = cranelift_module::DataDescription::new();
             // Every load of these words is `MemFlags::trusted()`, which asserts
             // alignment; nothing asserted it before, which was a false claim
             // rather than a slow one. Rule 7 — an invariant is enforced.
-            description.set_align(if indirect.contains(&site) { 64 } else { 16 });
+            description.set_align(64);
             description.define(cold.into_boxed_slice());
             self.module.define_data(data, &description)?;
             declared.push(data);
@@ -795,22 +794,6 @@ impl MachineModule<'_> {
         Ok(declared)
     }
 
-    /// Which of a function's sites read through a remembered address.
-    ///
-    /// Separate from the loop above so the answer is computed once for the
-    /// function rather than rebuilt per site, and so the one fact that decides a
-    /// cell's width has one place to be read from.
-    fn indirect_sites(func: &Function) -> std::collections::BTreeSet<usize> {
-        use crate::ir::Terminator;
-
-        let mut wide = std::collections::BTreeSet::new();
-        for (_, block) in func.blocks() {
-            if let Some(Terminator::CachedGetIndirect { cache, .. }) = &block.terminator {
-                wide.insert(cache.index());
-            }
-        }
-        wide
-    }
 
     /// Records every shape this function's indirect calls expect.
     ///

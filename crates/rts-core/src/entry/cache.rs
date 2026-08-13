@@ -118,6 +118,7 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
                 let cell = cache as *mut i64;
                 cell.write(remembered as i64);
                 cell.add(1).write(offset);
+                cell.add(2).write(0);
             }
             return offset;
         }
@@ -138,15 +139,44 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
         // slot contiguously past its header, so the fortieth is the same load
         // as the second and needs no indirection to reach. That is the whole
         // reason the width is in the header.
+        // One short of what the cell owns: the last slot holds the address of
+        // the overflow and belongs to no property.
         let width = context
             .region
             .width_of(object as u32)
-            .unwrap_or(crate::heap::INLINE_SLOTS);
+            .unwrap_or(crate::heap::INLINE_SLOTS)
+            .saturating_sub(1);
         if slot >= width {
-            // Genuinely out of the cell: the property lives in the overflow,
-            // which no load can reach.
-            explain("the slot is past the slots this cell owns", context);
-            return -1;
+            // In the OVERFLOW, and reachable: the object keeps its block's
+            // address in the slot it reserved for exactly this, so the machine
+            // loads that word and finishes the read at the same offset. Two
+            // loads instead of a call, which is what steps five and six of the
+            // overflow plan were for.
+            if std::env::var_os("RTS_NO_OVERFLOW_CACHE").is_some() {
+                explain("experiment: overflow answers disabled", context);
+                return -1;
+            }
+            let Some((_, held)) = context.spill_of.copied(object as u32) else {
+                explain("the slot is past the cell and no overflow exists yet", context);
+                return -1;
+            };
+            let past = slot - width;
+            if past >= held {
+                explain("the slot is past the overflow the object has", context);
+                return -1;
+            }
+            let offset = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
+                + i64::from(past) * i64::from(rts_cranelift::mem::SLOT_BYTES);
+            let through = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
+                + i64::from(width) * i64::from(rts_cranelift::mem::SLOT_BYTES);
+            // SAFETY: the cell this site declared, as everywhere else here.
+            unsafe {
+                let cell = cache as *mut i64;
+                cell.write(remembered as i64);
+                cell.add(1).write(offset);
+                cell.add(2).write(through);
+            }
+            return offset;
         }
 
         // Past the header, then the slot. The same arithmetic the layout does,
@@ -164,6 +194,10 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
             let cell = cache as *mut i64;
             cell.write(remembered as i64);
             cell.add(1).write(offset);
+            // Zero: the answer is in the cell asked about. Written rather than
+            // assumed, because this site may have been resolved before against
+            // an object that HAD overflowed.
+            cell.add(2).write(0);
         }
         offset
     })
@@ -251,7 +285,7 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         // rather than delegated so that a refusal costs one crossing.
         if let Some(ty) = context.region.type_of(cell)
             && let Some(header) = context.region.header_of(cell)
-            && let Some(width) = context.region.width_of(cell)
+            && let Some(width) = context.region.width_of(cell).map(|owned| owned.saturating_sub(1))
             && let Some(shape) = context.shape_of(ty)
             && let Some(slot) = context.shapes.slot_of(shape, named)
             && slot < width
@@ -378,7 +412,8 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         let holder_width = context
             .region
             .width_of(holder)
-            .unwrap_or(crate::heap::INLINE_SLOTS);
+            .unwrap_or(crate::heap::INLINE_SLOTS)
+            .saturating_sub(1);
         if slot >= holder_width {
             return refuse("the slot is past the slots the link owns");
         }

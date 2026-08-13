@@ -662,10 +662,35 @@ pub(super) fn machine_key(key: Key) -> Option<ShapeKey> {
 /// asking the spill for one it holds inline would answer `undefined` for a
 /// property that is right there.
 fn owned_slots(context: &Context, cell: u32) -> u32 {
-    context
+    let width = context
         .region
         .width_of(cell)
-        .unwrap_or(crate::heap::INLINE_SLOTS)
+        .unwrap_or(crate::heap::INLINE_SLOTS);
+    // The last slot is reserved for the overflow's address ONLY where a cell
+    // holds properties — that is, where it has a shape deciding what its slots
+    // mean. A generator's parked frame is a cell too and its last word is an
+    // ordinary value the machine reaches by a fixed offset: reserving it there
+    // took a word the frame was already using, and a `for-of` over a direct
+    // generator declaration answered 0 where it had answered 3.
+    match context.region.type_of(cell).and_then(|ty| context.shape_of(ty)) {
+        Some(_) => width.saturating_sub(1),
+        None => width,
+    }
+}
+
+/// Which slot of a cell holds the ADDRESS of its overflow.
+///
+/// The last one it owns, reserved rather than given to a property — which is
+/// why [`owned_slots`] answers one less than the width. That is the whole cost
+/// of making an overflowed property reachable by a load: an object with exactly
+/// fifteen properties now keeps its fifteenth outside instead of inside.
+///
+/// It holds a raw ADDRESS and not a value, so nothing may read it as one: the
+/// collector walks up to `owned_slots` and marks the block through
+/// `spill_of` instead. A conservative scan that followed this word would
+/// decompose an address as though it were a reference.
+pub(super) fn overflow_slot(context: &Context, cell: u32) -> u32 {
+    owned_slots(context, cell)
 }
 
 pub(super) fn slot_value(context: &Context, cell: u32, at: u32) -> Option<u64> {
@@ -749,6 +774,14 @@ impl Context {
                     self.region.free_spanning(old, (had + 1) * 8);
                 }
                 self.spill_of.set(cell, (grown, slots));
+                // The address goes in the cell's reserved slot, which is what
+                // lets a cached read reach the overflow with one more load
+                // instead of a call. Written on every growth because the block
+                // moved: an address recorded once would name a freed block.
+                if let Some(address) = self.region.address_of(grown) {
+                    let at = overflow_slot(self, cell);
+                    self.region.set_field(cell, at, address as u64);
+                }
                 (grown, slots)
             }
         };

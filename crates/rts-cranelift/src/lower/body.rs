@@ -505,6 +505,21 @@ impl<'a> Body<'a> {
             .brif(found, read, &[], miss_target, &miss_args);
 
         // Where the property is, read once, whichever path arrived here.
+        // Where the property is, read once, whichever path arrived here — and
+        // from WHICH base, which is the third word.
+        //
+        // Zero means the cell asked about, which is every ordinary read. A byte
+        // offset means the answer is in the object's overflow, and that offset
+        // is where the object keeps its address: load it, and the same
+        // `base + offset` finishes the read. One load and one branch, on a path
+        // that was already two loads.
+        //
+        // The alternative was `CachedGetIndirect`, and it cannot serve this:
+        // that form validates a remembered ADDRESS by the header type it
+        // carried, and every overflow block carries one type, so two objects of
+        // one shape would share the site and the second would read the first's
+        // overflow. An overflow is per object, so its address has to come from
+        // the object.
         builder.switch_to_block(read);
         let offset = builder.ins().load(
             types::I64,
@@ -512,7 +527,39 @@ impl<'a> Body<'a> {
             cell,
             8,
         );
-        let at = builder.ins().iadd(address, offset);
+        let indirect = builder.ins().load(
+            types::I64,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            cell,
+            16,
+        );
+        let direct = builder.create_block();
+        let through = builder.create_block();
+        let based = builder.create_block();
+        let base = builder.append_block_param(based, types::I64);
+        builder
+            .ins()
+            .brif(indirect, through, &[], direct, &[]);
+
+        builder.switch_to_block(direct);
+        builder
+            .ins()
+            .jump(based, &[cranelift_codegen::ir::BlockArg::Value(address)]);
+
+        builder.switch_to_block(through);
+        let holder = builder.ins().iadd(address, indirect);
+        let elsewhere = builder.ins().load(
+            types::I64,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            holder,
+            0,
+        );
+        builder
+            .ins()
+            .jump(based, &[cranelift_codegen::ir::BlockArg::Value(elsewhere)]);
+
+        builder.switch_to_block(based);
+        let at = builder.ins().iadd(base, offset);
         let value = builder.ins().load(
             types::I64,
             cranelift_codegen::ir::MemFlags::trusted(),
