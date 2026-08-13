@@ -102,18 +102,59 @@ pub(super) fn object_new_wide(context: &mut Context, slots: i64) -> u64 {
 #[rtse::entry]
 pub fn object_pair(k0: i64, v0: u64, k1: i64, v1: u64) -> u64 {
     with_current(|context| {
+        // BORN at the layout these two keys reach, not walked to it.
+        //
+        // The transitions are the same two every time this site runs, so
+        // taking them per object recomputed one answer over and over: a shape
+        // lookup, two `transition`s, a `typed_as` and two re-types. Measured
+        // against a class constructor writing the same two fields — ~233 ns
+        // per field here against ~20 there, because the constructor writes
+        // through a cached store that remembers the transition.
+        //
+        // The layout is still decided by the transitions: they are taken ONCE,
+        // by the miss below, and what is remembered is where they arrived. So
+        // there is still one authority on what an object's shape is, and a
+        // program that grows this object afterwards still goes through `put`.
+        let numbers = match (u32::try_from(k0), u32::try_from(k1)) {
+            (Ok(a), Ok(b)) => Some((a, b)),
+            _ => None,
+        };
+        if let Some(pair) = numbers
+            && let Some(&ty) = context.pair_layouts.get(&pair)
+            && let Some(shape) = context.shape_of(ty)
+            && let (Some(first), Some(second)) = (key_of(context, k0), key_of(context, k1))
+            && let (Some(at0), Some(at1)) = (
+                machine_key(first).and_then(|key| context.shapes.slot_of(shape, key)),
+                machine_key(second).and_then(|key| context.shapes.slot_of(shape, key)),
+            )
+        {
+            let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
+            set_slot_value(context, cell, at0, v0);
+            set_slot_value(context, cell, at1, v1);
+            return Value::from_slot(cell).bits();
+        }
+
         let made = object_new_wide(context, 2);
         let Some(cell) = Value(made).as_slot() else {
             return made;
         };
         for (key, value) in [(k0, v0), (k1, v1)] {
             // Through `put`, which is the ONE place a property write decides a
-            // shape transition. A literal writing slots directly would be a
-            // second authority on what an object's layout is, and the two
-            // would disagree the first time one of them changed.
+            // shape transition.
             if let Some(key) = key_of(context, key) {
                 put(context, cell, key, value);
             }
+        }
+        // What the walk arrived at, remembered for the next object built the
+        // same way. Only when the two keys really did become two own slots —
+        // a frozen object or an inherited setter would have made `put` do
+        // something else, and that must not be cached as a layout.
+        if let Some(pair) = numbers
+            && let Some(reached) = context.region.type_of(cell)
+            && let Some(shape) = context.shape_of(reached)
+            && context.shapes.properties(shape).len() == 2
+        {
+            context.pair_layouts.insert(pair, reached);
         }
         made
     })
