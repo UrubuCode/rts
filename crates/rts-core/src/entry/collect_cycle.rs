@@ -78,6 +78,9 @@ use super::Context;
 /// answer wearing a collection's clothes.
 pub fn collect(context: &mut Context, stack_low: usize) -> usize {
     let Some(stack_high) = context.stack_high else {
+        if std::env::var_os("RTS_GC_DEBUG").is_some() {
+            eprintln!("rts-gc REFUSED: no stack bound installed");
+        }
         return 0;
     };
 
@@ -91,8 +94,16 @@ pub fn collect(context: &mut Context, stack_low: usize) -> usize {
         roots.extend(unsafe { super::roots::scan_stack(stack_low, stack_high) });
     }
 
+    let stack_roots = roots.len();
     let marks = super::trace::mark(context, &roots);
-    sweep(context, &marks)
+    let freed = sweep(context, &marks);
+    if std::env::var_os("RTS_GC_DEBUG").is_some() {
+        eprintln!(
+            "rts-gc roots {stack_roots} live {} freed {freed}",
+            context.region.live_refs().len()
+        );
+    }
+    freed
 }
 
 /// Frees every live cell the marker did not reach.

@@ -53,12 +53,28 @@ impl Region {
     /// first cell is written; the rest are zero, as [`Self::alloc`] leaves them.
     pub fn alloc_spanning(&mut self, size: u32, ty: u32) -> Option<u32> {
         let cells = size.div_ceil(STRIDE);
-        if cells == 0 || cells > self.capacity - self.next {
+        if cells == 0 {
             return None;
         }
-        let index = self.next;
+        let index = if cells <= self.capacity - self.next {
+            let taken = self.next;
+            self.next += cells;
+            taken
+        } else {
+            // Nothing left to bump into, so the free list is asked — for a RUN
+            // of cells and not one cell, which is why this cannot be
+            // `Region::alloc`'s LIFO pop.
+            //
+            // Without this a wide object could only ever be born in fresh
+            // space: freeing one returns its cells to a list a spanning
+            // allocation never reads, so a program that grows one repeatedly —
+            // an object's overflow is exactly that — walks `next` to the
+            // capacity and reports the heap exhausted with a nearly empty
+            // heap. Measured: 64 154 cells freed by a collection and the very
+            // next spanning allocation still refused.
+            self.take_free_run(cells)?
+        };
         let reference = self.compose(index)?;
-        self.next += cells;
 
         // The width is every word the object covers except its own header, so a
         // `field` on it is bounded by what it actually owns rather than by a
@@ -76,6 +92,51 @@ impl Region {
         }
 
         Some(reference)
+    }
+
+    /// Takes `cells` CONSECUTIVE free cells out of the free list.
+    ///
+    /// Linear in the region, and deliberately so: it runs only when the bump
+    /// space is gone, which is the moment before reporting the heap exhausted,
+    /// and the alternative — a size-class free list per run length — is a
+    /// second allocator to keep honest for a case that a collection normally
+    /// prevents from happening at all.
+    ///
+    /// The free list is singly linked through the cells themselves, so a run
+    /// cannot be unlinked in place. It is rebuilt instead, from the headers,
+    /// which is the same scan that found the run.
+    fn take_free_run(&mut self, cells: u32) -> Option<u32> {
+        let mut run = 0;
+        let mut found = None;
+        for index in 0..self.next {
+            if self.words[self.word_of(index)] == super::FREE_MARKER {
+                run += 1;
+                if run == cells {
+                    found = Some(index + 1 - cells);
+                    break;
+                }
+            } else {
+                run = 0;
+            }
+        }
+        let start = found?;
+
+        self.free_head = None;
+        for index in (0..self.next).rev() {
+            if index >= start && index < start + cells {
+                continue;
+            }
+            let at = self.word_of(index);
+            if self.words[at] != super::FREE_MARKER {
+                continue;
+            }
+            self.words[at + 1] = match self.free_head {
+                Some(next) => u64::from(next),
+                None => super::NO_NEXT,
+            };
+            self.free_head = Some(index);
+        }
+        Some(start)
     }
 
     /// Reads a field of an object that may span several cells.

@@ -155,11 +155,15 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     // 2. Properties past the fifteenth.
     //
     //    The spill is a REGION block and not a slab vector, so its slots are
-    //    reached the way an inline slot is. The block itself is deliberately
-    //    NOT pushed as an edge: it is owned by this cell alone and freed with
-    //    it in `collect_cycle`, so marking it would only keep it alive by
-    //    itself. What must survive is what it POINTS at, which is these words.
+    //    reached the way an inline slot is — and the block ITSELF is an edge,
+    //    which it was not when this was first written. It is a live cell of the
+    //    region, so the sweep frees every one the marker did not reach: leaving
+    //    it out freed a live object's overflow underneath it, and the sixteenth
+    //    property of the globals object then read as whatever the cell was
+    //    reused for. `typeof globalThis.performance` answering `number` is what
+    //    that looks like from the program's side.
     if let Some((block, slots)) = context.spill_of.copied(cell) {
+        out.push(crate::value::Value::from_slot(block).bits());
         for slot in 0..slots {
             if let Some(word) = context.region.spanning_field(block, slot, slots) {
                 out.push(word);
