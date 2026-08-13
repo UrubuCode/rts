@@ -368,6 +368,40 @@ mod tests {
     }
 
     #[test]
+    fn a_live_objects_sixteenth_property_survives_a_collection() {
+        // The spill block is an `alloc_spanning` allocation IN the region, and
+        // the first cell of a span is not interior — `live_refs` hands it to
+        // the sweep as though it were an object of its own. Nothing marks it:
+        // `trace` walks the block's CONTENTS and says, in writing, that it does
+        // not push the block as an edge. So every collection freed a live
+        // object's overflow, and its sixteenth property onward read a cell some
+        // other owner had been handed.
+        //
+        // Pinned on the VALUE read rather than on `live_refs`, because what a
+        // program observes is the property: an assertion about the table would
+        // pass for a live block whose contents had been overwritten.
+        let mut context = empty_context();
+        let holder = plain(&mut context);
+        context.globals = Some(holder);
+
+        let kept = Value::from_f64(42.0).bits();
+        super::super::objects::set_slot_value(&mut context, holder, 20, kept);
+        assert_eq!(
+            super::super::objects::slot_value(&context, holder, 20),
+            Some(kept),
+            "slot 20 lives in the spill, and before a collection it answers"
+        );
+
+        collect_over_empty_stack(&mut context);
+
+        assert_eq!(
+            super::super::objects::slot_value(&context, holder, 20),
+            Some(kept),
+            "a REACHABLE object's property must not die with the collection"
+        );
+    }
+
+    #[test]
     fn a_reachable_aside_entry_survives_and_an_unreachable_one_is_cleared() {
         let mut context = empty_context();
         let kept = plain(&mut context);
