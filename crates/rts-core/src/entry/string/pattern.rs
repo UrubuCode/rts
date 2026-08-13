@@ -378,14 +378,27 @@ fn scan(context: &super::Context, subject: &str, sought: &Sought, all: bool) -> 
                         .collect(),
                 }
             }
-            Sought::Text(text) => match subject[at..].find(text.as_str()) {
-                Some(offset) => Found {
-                    from: at + offset,
-                    to: at + offset + text.len(),
-                    groups: vec![Some(text.clone())],
-                },
-                None => break,
-            },
+            // Looked for with memmem, the same two-way search with an SIMD
+            // prefilter that Buffer.indexOf here already uses, against the
+            // byte-at-a-time window compare str::find falls back to for a
+            // multi-byte needle.
+            //
+            // The group is the SLICE of the subject and not a copy of the
+            // needle. It was text.clone(): one heap allocation per match, on a
+            // path whose heaviest caller — split, which produces one match per
+            // piece — never reads the groups at all.
+            Sought::Text(text) => {
+                match memchr::memmem::find(&subject.as_bytes()[at..], text.as_bytes()) {
+                    Some(offset) => Found {
+                        from: at + offset,
+                        to: at + offset + text.len(),
+                        groups: vec![Some(
+                            subject[at + offset..at + offset + text.len()].to_string(),
+                        )],
+                    },
+                    None => break,
+                }
+            }
         };
         let empty = one.to == one.from;
         let resume = one.to;
