@@ -224,18 +224,7 @@ impl Math {
     /// xorshift have the weakest distribution, so `(x % 2^53) / 2^53` — the
     /// obvious spelling — is the one that shows structure.
     fn random() -> f64 {
-        RANDOM.with(|state| {
-            let mut word = state.get();
-            if word == 0 {
-                word = seed();
-            }
-            word ^= word << 13;
-            word ^= word >> 7;
-            word ^= word << 17;
-            state.set(word);
-            let scrambled = word.wrapping_mul(0x2545_f491_4f6c_dd1d);
-            (scrambled >> 11) as f64 / (1u64 << 53) as f64
-        })
+        draw()
     }
 
     /// `Math.sqrt(x)`.
@@ -422,6 +411,45 @@ thread_local! {
     /// also the one state xorshift cannot leave — so the check that seeds it is
     /// the same check that keeps it out of the fixed point.
     static RANDOM: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// One draw of the generator, for the two callers that need it.
+///
+/// A free function rather than only the member, because compiled code reaches
+/// it BOTH ways: through `Math.random` as a property, and through
+/// `math_random` when the whole program proves that name still means this.
+/// Two copies of a generator would be two sequences, and a program sampling
+/// through both spellings would see the seam.
+pub(super) fn draw() -> f64 {
+    RANDOM.with(|state| {
+        let mut word = state.get();
+        if word == 0 {
+            word = seed();
+        }
+        word ^= word << 13;
+        word ^= word >> 7;
+        word ^= word << 17;
+        state.set(word);
+        let scrambled = word.wrapping_mul(0x2545_f491_4f6c_dd1d);
+        (scrambled >> 11) as f64 / (1u64 << 53) as f64
+    })
+}
+
+/// `Math.random()`, reached directly.
+///
+/// The generator is a thread-local xorshift and costs a handful of
+/// instructions; the 40 ns a call cost was the PATH — a property read through
+/// the chain cache, then the generic call machinery, to reach it. This entry
+/// point is what the emitter calls once the whole program proves `Math` is
+/// still the primordial, and it takes no context borrow because a draw needs
+/// no heap.
+///
+/// Not an instruction: there is no opcode for a generator, and an instruction
+/// that expanded to a call would make the cost of emitting one unreadable —
+/// which is the property the machine's vocabulary exists for.
+#[rtse::entry]
+pub fn math_random() -> f64 {
+    draw()
 }
 
 /// A starting word, from the clock and this thread's identity.

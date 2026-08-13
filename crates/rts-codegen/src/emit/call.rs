@@ -103,6 +103,16 @@ fn machine_operation(
     if ctx.names.text(*name) != "Math" || scope.lookup(*name).is_some() {
         return Ok(None);
     }
+    // `Math.random()` takes no argument and answers a double, so it needs no
+    // proven operand — only the same whole-program proof. Not an instruction:
+    // there is no opcode for a generator. What it skips is the PATH — the
+    // property read through the chain cache and the generic call machinery —
+    // which is where its 40 ns were, since the generator itself is a
+    // thread-local xorshift.
+    if ctx.names.text(*property) == "random" && arguments.is_empty() {
+        let drawn = super::expr::call(builder, ctx, RuntimeOp::MathRandom, &[])?[0];
+        return Ok(Some(super::expr::tagged(builder, drawn)));
+    }
     let op = match ctx.names.text(*property) {
         "sqrt" => FloatOp::Sqrt,
         "floor" => FloatOp::Floor,

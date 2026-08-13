@@ -177,6 +177,8 @@ pub enum RuntimeOp {
     ObjectPair,
     /// `[a, b, c, d]` — the array and every element in one crossing.
     ArrayOf,
+    /// `Math.random()`, reached directly.
+    MathRandom,
 
     /// `o.x` — read a property named by its key number.
     ///
@@ -631,6 +633,7 @@ impl RuntimeOp {
         RuntimeOp::ObjectNew,
         RuntimeOp::ObjectPair,
         RuntimeOp::ArrayOf,
+        RuntimeOp::MathRandom,
         RuntimeOp::GetProperty,
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
@@ -714,6 +717,7 @@ impl RuntimeOp {
             RuntimeOp::ObjectNew => "__rts_object_new",
             RuntimeOp::ObjectPair => "__rts_object_pair",
             RuntimeOp::ArrayOf => "__rts_array_of",
+            RuntimeOp::MathRandom => "__rts_math_random",
             RuntimeOp::GetProperty => "__rts_get_property",
             RuntimeOp::SetProperty => "__rts_set_property",
             RuntimeOp::ClosureNew => "__rts_closure_new",
@@ -797,6 +801,7 @@ impl RuntimeOp {
             RuntimeOp::Greater => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::GreaterEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ObjectNew => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::MathRandom => (vec![], vec![Repr::F64]),
             RuntimeOp::ArrayOf => (
                 vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN],
                 vec![UNPROVEN],
