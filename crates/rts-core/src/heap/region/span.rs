@@ -106,35 +106,13 @@ impl Region {
     /// cannot be unlinked in place. It is rebuilt instead, from the headers,
     /// which is the same scan that found the run.
     fn take_free_run(&mut self, cells: u32) -> Option<u32> {
-        let mut run = 0;
-        let mut found = None;
-        for index in 0..self.next {
-            if self.words[self.word_of(index)] == super::FREE_MARKER {
-                run += 1;
-                if run == cells {
-                    found = Some(index + 1 - cells);
-                    break;
-                }
-            } else {
-                run = 0;
-            }
-        }
-        let start = found?;
-
-        self.free_head = None;
-        for index in (0..self.next).rev() {
-            if index >= start && index < start + cells {
-                continue;
-            }
-            let at = self.word_of(index);
-            if self.words[at] != super::FREE_MARKER {
-                continue;
-            }
-            self.words[at + 1] = match self.free_head {
-                Some(next) => u64::from(next),
-                None => super::NO_NEXT,
-            };
-            self.free_head = Some(index);
+        // First fit over the runs a collection gave back, with the remainder
+        // kept as a run of its own so a big block does not swallow the space a
+        // smaller object could have used.
+        let at = self.free_runs.iter().position(|&(_, have)| have >= cells)?;
+        let (start, have) = self.free_runs.swap_remove(at);
+        if have > cells {
+            self.free_runs.push((start + cells, have - cells));
         }
         Some(start)
     }

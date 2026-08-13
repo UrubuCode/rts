@@ -221,6 +221,19 @@ pub struct Region {
     /// it — corrupting a frame that is still running. [`Self::live_refs`] is the
     /// one reader.
     spanned_interior: Vec<bool>,
+    /// Wide objects that have been freed, as (first cell, how many cells).
+    ///
+    /// A list of its own rather than the cell list, and that is the whole
+    /// design: the cell list is threaded THROUGH the cells, so a run cannot be
+    /// taken out of its middle without rebuilding the list — linear per
+    /// allocation, measured at +176% on `alloc class instance` and +260% on
+    /// `binary TextEncoder 16`. Keeping runs apart makes reuse a pop.
+    ///
+    /// The cost is fragmentation in one direction: cells freed from a wide
+    /// object serve another wide object and never a narrow one. Bounded by how
+    /// much of a program is wide objects, and paid only after the bump space is
+    /// gone.
+    pub(super) free_runs: Vec<(u32, u32)>,
 }
 
 /// The header value a freed cell carries.
@@ -288,6 +301,7 @@ impl Region {
             selector_bits,
             free_head: None,
             spanned_interior: vec![false; cells as usize],
+            free_runs: Vec::new(),
         }
     }
 
@@ -388,8 +402,8 @@ impl Region {
         }
 
         if let Some(index) = self.free_head {
-            let reference = self.compose(index)?;
             let at = self.word_of(index);
+            let reference = self.compose(index)?;
 
             // The link lived in the first slot; read it before it is
             // overwritten with the new object's field.
@@ -470,6 +484,20 @@ impl Region {
         // reach them again.
         let width = (self.words[at] >> WIDTH_SHIFT) as u32;
         let cells = (1 + width).div_ceil(INLINE_SLOTS + 1).max(1);
+        if cells > 1 {
+            // A wide object's cells go back as a RUN, so the next wide object
+            // can have them. Threading them onto the cell list would scatter
+            // them among narrow allocations and no run would ever re-form.
+            for offset in 0..cells {
+                let word = self.word_of(index + offset);
+                self.words[word] = FREE_MARKER;
+                if let Some(flag) = self.spanned_interior.get_mut((index + offset) as usize) {
+                    *flag = false;
+                }
+            }
+            self.free_runs.push((index, cells));
+            return true;
+        }
         for offset in 0..cells {
             let cell = index + offset;
             if cell >= self.next {
