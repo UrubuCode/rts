@@ -58,13 +58,26 @@ pub fn emit_template(
         return gap("a template with no literal parts");
     };
 
+    // An EMPTY literal part is not joined. `` `${a}${b}` `` has three parts and
+    // two of them are empty, and each one was a crossing into `__rts_add` plus
+    // an intermediate string, to append nothing. The commonest interpolation
+    // there is — a value straight after another value — paid two of them.
+    //
+    // Not a general fold of empty operands: this is the one place that KNOWS a
+    // part is empty at compile time, because it has the text. Teaching `add`
+    // to check would put the test on every concatenation in the program to
+    // serve the one that could have been decided here.
     let mut joined = string_literal(builder, ctx, cooked(first)?)?;
     // One part after each expression, which is the invariant the tree records
     // as "always one more than `expressions`". Zipping is what reads it.
     for (expression, part) in expressions.iter().zip(rest) {
         let value = emit_expr(builder, scope, ctx, expression)?;
         joined = emit_binary(builder, ctx, BinaryOp::Add, joined, value)?;
-        let text = string_literal(builder, ctx, cooked(part)?)?;
+        let text = cooked(part)?;
+        if text.is_empty() {
+            continue;
+        }
+        let text = string_literal(builder, ctx, text)?;
         joined = emit_binary(builder, ctx, BinaryOp::Add, joined, text)?;
     }
     Ok(joined)
