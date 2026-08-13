@@ -246,6 +246,25 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
 
 /// The census, rendered: every miss by reason, then by key, then by site.
 ///
+/// # It counts STORES as well as reads, and that is not a rounding error
+///
+/// [`cache_resolve_store`] answers by calling [`cache_resolve`], so a store
+/// site that misses lands here too. On `{x:i}; o.y=i; a+=o.y` that is the whole
+/// number: the store of `y` resolves against an object that is still `["x"]`,
+/// because a store that ADDS a property cannot find it in the shape by
+/// definition, and the read that follows resolves against `["x","y"]` and
+/// arms. The line the write-side probe prints immediately after
+/// `get cell N … slot None` is that same iteration's transition, which is why
+/// the two looked impossible to order.
+///
+/// So "2 271 863 misses, dominant reason: absent from the receiver's shape" is
+/// not a read problem at all. It is one growth store per iteration, on a fresh
+/// object each time, and no cache keyed on the receiver's CURRENT layout can
+/// ever arm for it — the layout it must recognise is the one BEFORE the write
+/// and the offset it must answer only exists after. What arms is a transition
+/// remembered as a pair (this header + this key -> that header, that offset),
+/// which is a different thing to cache and is not built here.
+///
 /// Three tables and not one, because they answer three different questions and
 /// the first one that has an answer is the one to act on. A reason says WHAT to
 /// build. A key says which property is not where the site expects it. A site
