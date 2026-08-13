@@ -650,11 +650,33 @@ impl Region {
     /// both are cells this method's caller must never treat as an independent
     /// object.
     pub fn live_refs(&self) -> Vec<u32> {
-        (0..self.next)
-            .filter(|&index| !self.is_spanned_interior(index))
-            .filter(|&index| self.words[self.word_of(index)] != FREE_MARKER)
-            .filter_map(|index| self.compose(index))
-            .collect()
+        let mut refs = Vec::new();
+        self.each_live(|reference| refs.push(reference));
+        refs
+    }
+
+    /// Every live cell, handed over one at a time.
+    ///
+    /// The form a sweep wants, and the reason it exists beside
+    /// [`Self::live_refs`]: a collection was building a vector of every live
+    /// cell and then a second vector of every DOOMED one, which on a heap that
+    /// is 96% garbage is two allocations of tens of thousands of entries per
+    /// cycle, to carry numbers that are consumed immediately and in order.
+    ///
+    /// Measured on a loop allocating 400 000 short-lived objects: six cycles,
+    /// each freeing 62 902 cells of 65 536.
+    pub fn each_live(&self, mut visit: impl FnMut(u32)) {
+        for index in 0..self.next {
+            if self.is_spanned_interior(index) {
+                continue;
+            }
+            if self.words[self.word_of(index)] == FREE_MARKER {
+                continue;
+            }
+            if let Some(reference) = self.compose(index) {
+                visit(reference);
+            }
+        }
     }
 }
 

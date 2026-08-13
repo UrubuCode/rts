@@ -622,6 +622,9 @@ pub struct Context {
     /// is a slower way of calling". Both produce the same wall clock scaling,
     /// and no measurement already taken can tell them apart.
     pub resolves: u64,
+    /// The sweep's scratch list of cells to free, kept across cycles for its
+    /// capacity. See `collect_cycle::sweep`.
+    doomed: Vec<u32>,
     /// Every cache miss, counted by reason, key and SITE — or `None`, which is
     /// what a run that was not asked for a census pays: no map, no lookup, one
     /// `Option` test per miss.
@@ -906,6 +909,7 @@ impl Context {
             string_prototype: None,
             array_prototype: None,
             resolves: 0,
+            doomed: Vec::new(),
             census: std::env::var_os("RTS_CACHE_CENSUS")
                 .map(|_| std::collections::BTreeMap::new()),
             barriers: 0,
