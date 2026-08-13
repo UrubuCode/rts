@@ -42,6 +42,7 @@ use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 use super::accessor::{DEFINE_GETTER_ENTRY, DEFINE_SETTER_ENTRY};
 use super::array::{ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, OWN_KEYS_ENTRY};
 use super::math::MATH_RANDOM_ENTRY;
+use super::text::TEMPLATE_JOIN_ENTRY;
 use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
     SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
@@ -438,6 +439,9 @@ pub enum CoreEntry {
 
     /// `Math.random()`, reached without a property read or a dispatch.
     MathRandom = 72,
+
+    /// A template literal, joined in one crossing.
+    TemplateJoin = 73,
 }
 
 /// How many entry points exist.
@@ -445,7 +449,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 73;
+pub const CORE_ENTRY_COUNT: usize = 74;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -523,6 +527,7 @@ impl CoreEntry {
         CoreEntry::GlobalGetUnbound,
         CoreEntry::ArrayOf,
         CoreEntry::MathRandom,
+        CoreEntry::TemplateJoin,
     ];
 
     /// The number a call site holds.
@@ -553,6 +558,7 @@ impl CoreEntry {
             CoreEntry::ObjectNew => OBJECT_NEW_ENTRY,
             CoreEntry::ArrayOf => ARRAY_OF_ENTRY,
             CoreEntry::MathRandom => MATH_RANDOM_ENTRY,
+            CoreEntry::TemplateJoin => TEMPLATE_JOIN_ENTRY,
             CoreEntry::GetProperty => GET_PROPERTY_ENTRY,
             CoreEntry::SetProperty => SET_PROPERTY_ENTRY,
             CoreEntry::ClosureNew => CLOSURE_NEW_ENTRY,

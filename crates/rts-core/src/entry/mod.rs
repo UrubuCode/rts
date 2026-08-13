@@ -137,7 +137,7 @@ pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
 pub use buffers::detach::{buffer_detached, detach_buffer};
 pub use regex::regex_new;
 pub use text::{
-    declare_keys, declare_literals, declare_templates, described, string_const, template_strings,
+    declare_keys, declare_literals, declare_templates, described, string_const, template_join, template_strings,
     type_of,
 };
 mod table;

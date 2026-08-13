@@ -16,6 +16,8 @@
 //! file approaching the ceiling is split rather than grown. This is the piece
 //! that had just been added, so it is the piece that moves.
 
+use super::UNPROVEN;
+use super::expr::tagged;
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
 use rts_cranelift::ir::{ConstDecl, ScalarBits};
@@ -67,11 +69,71 @@ pub fn emit_template(
     // part is empty at compile time, because it has the text. Teaching `add`
     // to check would put the test on every concatenation in the program to
     // serve the one that could have been decided here.
+    // Every value first, in source order, because the decision below needs to
+    // see what they turned out to be and the order they are evaluated in is the
+    // language's, not this function's.
+    let mut values = Vec::with_capacity(expressions.len());
+    for expression in expressions {
+        let value = emit_expr(builder, scope, ctx, expression)?;
+        values.push(value);
+    }
+
+    // Up to three interpolations, all PROVEN doubles, joined in ONE crossing.
+    //
+    // The chain below allocates a string per addition, and every one but the
+    // last is garbage the moment the next addition runs. The pieces are already
+    // interned at this site, so the runtime reads them without allocating and
+    // builds the answer once.
+    //
+    // Proven doubles and not anything: turning a value into text is
+    // `ToPrimitive`, which for an OBJECT runs `toString` or `valueOf` — user
+    // code, which cannot run inside the runtime's borrow of its own context.
+    // Three files said so when this took every value: console_log_handle,
+    // template_tostring and wrapper_class_toprimitive. A number has no such
+    // question, and a number is what a template interpolates almost always.
+    //
+    // Three because the arguments are scalars across an `extern "C"` boundary.
+    // A wider template keeps the chain, which is correct rather than a gap.
+    if values.len() <= 3
+        && !values.is_empty()
+        && values.iter().all(|&v| builder.repr_of(v) == Repr::F64)
+    {
+        // A site of its OWN, holding one literal id per piece — the tagged form
+        // stores two per piece (cooked then raw) because a tag reads both, and
+        // this one reads neither of those: it reads the text to join.
+        let mut pieces = Vec::with_capacity(parts.len());
+        for part in parts {
+            pieces.push(ctx.literal(cooked(part)?));
+        }
+        let which = ctx.template(pieces);
+        let site = builder.declare_const(ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: ScalarBits(u64::from(which)),
+        });
+        let site = builder.use_const(site);
+        let count = builder.declare_const(ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: ScalarBits(values.len() as u64),
+        });
+        let count = builder.use_const(count);
+        let absent = builder.declare_const(ConstDecl::Scalar {
+            repr: UNPROVEN,
+            bits: ScalarBits(0),
+        });
+        let mut args = vec![site, count];
+        for &value in &values {
+            args.push(tagged(builder, value));
+        }
+        while args.len() < 5 {
+            args.push(builder.use_const(absent));
+        }
+        return Ok(super::expr::call(builder, ctx, RuntimeOp::TemplateJoin, &args)?[0]);
+    }
+
     let mut joined = string_literal(builder, ctx, cooked(first)?)?;
     // One part after each expression, which is the invariant the tree records
     // as "always one more than `expressions`". Zipping is what reads it.
-    for (expression, part) in expressions.iter().zip(rest) {
-        let value = emit_expr(builder, scope, ctx, expression)?;
+    for (value, part) in values.into_iter().zip(rest) {
         joined = emit_binary(builder, ctx, BinaryOp::Add, joined, value)?;
         let text = cooked(part)?;
         if text.is_empty() {

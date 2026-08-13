@@ -88,6 +88,10 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::GreaterEqual => (CoreEntry::GreaterEqual, {
             rts_core::entry::greater_equal as extern "C" fn(u64, u64) -> bool as *const u8
         }),
+        RuntimeOp::TemplateJoin => (CoreEntry::TemplateJoin, {
+            rts_core::entry::template_join
+                as extern "C" fn(i64, i64, u64, u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::MathRandom => (CoreEntry::MathRandom, {
             rts_core::entry::math_random as extern "C" fn() -> f64 as *const u8
         }),
