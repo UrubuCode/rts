@@ -214,6 +214,20 @@ impl Context {
 
 impl Regexp {
     /// Where the first match at or after `start` is, in bytes.
+    /// Whether it matches, without saying where — see `Engine::matches_at`
+    /// for the two allocations that answer avoids.
+    ///
+    /// A STICKY pattern cannot take the short answer: `y` means "match here"
+    /// and the engine has no such mode, so where the match began is part of
+    /// deciding whether there was one. It goes the long way and the spans are
+    /// what reject it.
+    pub(super) fn matches_at(&self, subject: &str, start: usize) -> bool {
+        if self.flags.sticky {
+            return self.find_at(subject, start).is_some();
+        }
+        self.engine.matches_at(subject, start)
+    }
+
     pub(super) fn find_at(&self, subject: &str, start: usize) -> Option<compile::Spans> {
         let spans = self.engine.find_at(subject, start)?;
         // Sticky is not "search from here" — it is "match here". The engine has

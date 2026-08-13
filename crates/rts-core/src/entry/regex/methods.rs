@@ -102,8 +102,27 @@ pub(super) extern "C" fn construct(
 /// has while a throw cannot find a handler in a caller.
 extern "C" fn test(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
-        let found = search(context, this, subject);
-        Value::from_bool(found.is_some()).bits()
+        // A pattern that tracks `lastIndex` still goes through `search`, which
+        // is what advances it — the boolean is not the whole observable effect of
+        // `test` on a `g` pattern. Everything else answers without building a
+        // capture set or a span vector for a question that reads neither.
+        let Some(cell) = Value(this).as_slot() else {
+            return Value::from_bool(false).bits();
+        };
+        if context
+            .regexp_at(cell)
+            .is_some_and(|pattern| pattern.tracks_last_index())
+        {
+            let found = search(context, this, subject);
+            return Value::from_bool(found.is_some()).bits();
+        }
+        let Some(text) = text_of(context, subject) else {
+            return Value::from_bool(false).bits();
+        };
+        let matched = context
+            .regexp_at(cell)
+            .is_some_and(|pattern| pattern.matches_at(&text, 0));
+        Value::from_bool(matched).bits()
     })
 }
 
