@@ -232,25 +232,35 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
                 .unwrap_or(crate::heap::INLINE_SLOTS)
                 .saturating_sub(1)
         {
+            // The header BEFORE, which is what the site must recognise, and the
+            // header AFTER, which is what the machine writes into the object
+            // when it does. Read before the transition for the first and after
+            // it for the second, because there is no other moment when both
+            // exist.
+            let Some(before) = context.region.header_of(object as u32) else {
+                explain("the receiver is not a cell in this region", context);
+                return -1;
+            };
             let link = context.prototype_at(object as u32);
             let ty = context.typed_as(grown, link).index() as u32;
             context.region.set_type(object as u32, ty);
-            let Some(remembered) = context.region.header_of(object as u32) else {
+            let Some(after) = context.region.header_of(object as u32) else {
                 explain("the receiver is not a cell in this region", context);
                 return -1;
             };
             let offset = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
                 + i64::from(at) * i64::from(rts_cranelift::mem::SLOT_BYTES);
-            // SAFETY: the cell this site declared, as everywhere else here. The
-            // header remembered is the one AFTER the transition, which is what
-            // the object now carries — so the NEXT object at this site, which
-            // starts at the layout before it, misses and comes back here. That
-            // is the remaining cost and what a transition cache would remove.
+            // SAFETY: the cell this site declared, as everywhere else here.
+            //
+            // The TRANSITION is what is remembered, not the result: word zero
+            // is the layout to recognise, word two the layout to write. A fresh
+            // object starting at the same shape then hits — which is every
+            // object built in a loop, and was a full resolve per iteration.
             unsafe {
                 let cell = cache as *mut i64;
-                cell.write(remembered as i64);
+                cell.write(before as i64);
                 cell.add(1).write(offset);
-                cell.add(2).write(0);
+                cell.add(2).write(after as i64);
             }
             return offset;
         }

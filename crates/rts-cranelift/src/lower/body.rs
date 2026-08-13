@@ -902,6 +902,35 @@ impl<'a> Body<'a> {
         builder
             .ins()
             .store(cranelift_codegen::ir::MemFlags::trusted(), written, at, 0);
+
+        // The third word: the header this object must CARRY once the store has
+        // happened, or zero when the store changes nothing about what it is.
+        //
+        // A write that ADDS a property cannot be cached any other way. The
+        // layout the site has to recognise is the one from BEFORE the write and
+        // the offset it has to answer only exists after, so remembering one of
+        // them is remembering half the operation. Remembering the TRANSITION —
+        // this header plus this key give that header and that offset — is what
+        // makes a fresh object of the same starting shape hit rather than
+        // resolve, which is every object built in a loop.
+        //
+        // Written unconditionally through a select rather than behind a branch:
+        // the header was already loaded for the comparison above, so the
+        // ordinary write pays one store of the value it already held.
+        let grown = builder.ins().load(
+            types::I64,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            cell,
+            16,
+        );
+        let changes = builder.ins().icmp_imm(IntCC::NotEqual, grown, 0);
+        let carried = builder.ins().select(changes, grown, header);
+        memory::field_store(
+            builder,
+            address,
+            crate::mem::HeaderLayout::TYPE_OFFSET,
+            carried,
+        );
         self.emit_barrier_at(builder, block, reference, written)?;
 
         let hit_args = self.block_args(&hit.args);
