@@ -155,11 +155,25 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     // 2. Properties past the fifteenth.
     //
     //    The spill is a REGION block and not a slab vector, so its slots are
-    //    reached the way an inline slot is. The block itself is deliberately
-    //    NOT pushed as an edge: it is owned by this cell alone and freed with
-    //    it in `collect_cycle`, so marking it would only keep it alive by
-    //    itself. What must survive is what it POINTS at, which is these words.
+    //    reached the way an inline slot is — and that is exactly why the block
+    //    ITSELF has to be marked. The comment here used to say the opposite:
+    //    that pushing it "would only keep it alive by itself", which was true
+    //    of the `Vec` in a slab it replaced and false the moment it became a
+    //    region cell. `alloc_spanning` marks a span's cells 1..n as interior
+    //    and leaves the FIRST one ordinary, so `Region::live_refs` offers it to
+    //    the sweep as an object of its own — and nothing marked it, so every
+    //    collection freed the overflow of an object that was still alive. Its
+    //    cells went back on the free list, an unrelated allocation took them,
+    //    and the sixteenth property onward read somebody else's fields.
+    //
+    //    Pushed the same way a generator's parked frame is (step 9), for the
+    //    same reason and through the same mechanism: this is the one place that
+    //    knows the block exists, and it must be marked even on a cycle where
+    //    none of its slots happens to hold a reference. `collect_cycle::release`
+    //    still frees it explicitly with its owner — marking keeps the SWEEP off
+    //    a block whose owner survived, which is a different question.
     if let Some((block, slots)) = context.spill_of.copied(cell) {
+        out.push(Value::from_slot(block).bits());
         for slot in 0..slots {
             if let Some(word) = context.region.spanning_field(block, slot, slots) {
                 out.push(word);
