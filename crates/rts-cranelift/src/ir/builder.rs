@@ -238,6 +238,35 @@ impl<'a> FuncBuilder<'a> {
         }
     }
 
+    /// A proven double as the 32-bit integer the bitwise operators read.
+    ///
+    /// Refused for anything but `F64`: an integer is already one and asking would
+    /// hide a client that lost track of which domain it was in, and a tagged
+    /// value has to pass a guard first — rule 11, narrowing is never automatic.
+    pub fn to_int32(&mut self, value: ValueId) -> BuildResult<ValueId> {
+        let repr = self.repr_of(value);
+        if repr != Repr::F64 {
+            return Err(BuildError::WrongDomain {
+                operation: "to_int32",
+                found: repr,
+            });
+        }
+        Ok(self.emit(Inst::ToInt32(value), Repr::I32))
+    }
+
+    /// A proven 32-bit integer back as a double, so a bitwise result rejoins the
+    /// representation every numeric guard here tests for.
+    pub fn to_f64(&mut self, value: ValueId) -> BuildResult<ValueId> {
+        let repr = self.repr_of(value);
+        if repr != Repr::I32 {
+            return Err(BuildError::WrongDomain {
+                operation: "to_f64",
+                found: repr,
+            });
+        }
+        Ok(self.emit(Inst::ToF64(value), Repr::F64))
+    }
+
     /// Bitwise operation over two proven integers of identical representation.
     pub fn bitwise(&mut self, op: BitOp, a: ValueId, b: ValueId) -> BuildResult<ValueId> {
         let repr = self.same_proven("bitwise", a, b)?;

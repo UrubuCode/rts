@@ -225,6 +225,37 @@ impl<'a> Body<'a> {
                 value::widen(builder, raw, repr)?
             }
 
+            Inst::ToInt32(v) => {
+                // Truncate, bring inside 2^32, convert, and let the reduce do
+                // the modulo. Branch-free, and each step is here because the
+                // language asks for it:
+                //
+                //   t  = trunc(x)              toward zero, per ToInteger
+                //   r  = t - trunc(t / 2^32) * 2^32     |r| < 2^32, integral
+                //   i  = fcvt_to_sint_sat(i64, r)       exact: r is in range
+                //   i32 = ireduce(i32, i)               the modulo, and the
+                //                                       wrap into signed
+                //
+                // NaN and both infinities need no case of their own: trunc
+                // keeps them, the subtract turns an infinity into NaN, and the
+                // saturating conversion answers zero for NaN — which is the
+                // language's answer for all three.
+                let raw = self.value(*v);
+                let truncated = builder.ins().trunc(raw);
+                let scale = builder.ins().f64const(4294967296.0);
+                let quotient = builder.ins().fdiv(truncated, scale);
+                let whole = builder.ins().trunc(quotient);
+                let carried = builder.ins().fmul(whole, scale);
+                let inside = builder.ins().fsub(truncated, carried);
+                let wide = builder.ins().fcvt_to_sint_sat(types::I64, inside);
+                builder.ins().ireduce(types::I32, wide)
+            }
+
+            Inst::ToF64(v) => {
+                let raw = self.value(*v);
+                builder.ins().fcvt_from_sint(types::F64, raw)
+            }
+
             Inst::Narrow(v, to) => {
                 let raw = self.value(*v);
                 value::narrow(builder, raw, *to)?

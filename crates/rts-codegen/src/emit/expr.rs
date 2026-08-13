@@ -39,6 +39,7 @@
 //! within sight of the thousand-line ceiling rule 8 sets.
 
 use rts_cranelift::ir::inst::{CmpOp, NumOp};
+use rts_cranelift::ir::BitOp;
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
 use rts_cranelift::repr::Repr;
 use rts_cranelift::tags;
@@ -710,6 +711,12 @@ fn emit_binary_inner(
     if builder.repr_of(a) == Repr::F64 && builder.repr_of(b) == Repr::F64 {
         match proven_binary(op) {
             Some(Proven::Arith(num)) => return Ok(builder.arith(num, a, b)?),
+            Some(Proven::Bits(bit)) => {
+                let left = builder.to_int32(a)?;
+                let right = builder.to_int32(b)?;
+                let bits = builder.bitwise(bit, left, right)?;
+                return Ok(builder.to_f64(bits)?);
+            }
             // `===` on two numbers is IEEE equality, and that is not an
             // approximation of it: NaN !== NaN and +0 === -0 are what the
             // hardware comparison already answers.
@@ -1124,13 +1131,21 @@ enum Proven {
     Arith(NumOp),
     /// A machine comparison, which yields a proven boolean.
     Compare(CmpOp),
+    /// A machine bitwise instruction, over the two operands read as the 32-bit
+    /// integers the language says the bitwise operators read.
+    ///
+    /// Three instructions rather than one — two conversions and the operation —
+    /// and still no call. Measured before this existed: `(a * 3) | 0` in a loop
+    /// cost 17.8 ns an iteration against ~0 for the same loop without the
+    /// `| 0`, because the `|` was `Call __rts_bit_or` and the `*` was already an
+    /// instruction.
+    Bits(BitOp),
 }
 
 /// The instruction an operator becomes when both operands are proven doubles.
 ///
 /// `None` for the ones that stay calls whatever is known: `==` has its own
-/// conversion table, `in` and `instanceof` ask the heap, and the bitwise
-/// operators are not emitted at all yet.
+/// conversion table, and `in` and `instanceof` ask the heap.
 fn proven_binary(op: BinaryOp) -> Option<Proven> {
     Some(match op {
         BinaryOp::Add => Proven::Arith(NumOp::Add),
@@ -1147,6 +1162,22 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
         BinaryOp::GreaterEqual => Proven::Compare(CmpOp::Ge),
         BinaryOp::StrictEqual => Proven::Compare(CmpOp::Eq),
         BinaryOp::StrictNotEqual => Proven::Compare(CmpOp::Ne),
+
+        // The bitwise operators, which are pure computation over two doubles
+        // and were runtime calls until this line. `ToInt32` is what made them
+        // reachable — see its own documentation for why the code generator's
+        // conversions could not be used directly.
+        BinaryOp::BitAnd => Proven::Bits(BitOp::And),
+        BinaryOp::BitOr => Proven::Bits(BitOp::Or),
+        BinaryOp::BitXor => Proven::Bits(BitOp::Xor),
+
+        // `<<` and `>>` need the shift count masked to five bits before the
+        // instruction, which is one more step than this table can carry, and
+        // `>>>` answers a value outside `i32` for a negative operand — its
+        // result is `ToUint32`, so widening a proven `I32` would report a
+        // negative number where the language says a large positive one. All
+        // three stay calls, and each stays for a stated reason rather than
+        // because nobody looked.
         _ => return None,
     })
 }
@@ -1247,6 +1278,12 @@ fn emit_guarded(
     let fast = match instruction {
         Proven::Arith(num) => builder.arith(num, left, right)?,
         Proven::Compare(cmp) => builder.compare(cmp, left, right)?,
+        Proven::Bits(bit) => {
+            let left = builder.to_int32(left)?;
+            let right = builder.to_int32(right)?;
+            let bits = builder.bitwise(bit, left, right)?;
+            builder.to_f64(bits)?
+        }
     };
     // `builder.compare` já responde `Repr::Bool`; alargar aqui era jogar fora a
     // única prova que este bloco produziu.
@@ -1314,6 +1351,13 @@ fn runtime_binary(op: BinaryOp) -> Option<(RuntimeOp, bool)> {
         BinaryOp::LessEqual => (RuntimeOp::LessEqual, false),
         BinaryOp::Greater => (RuntimeOp::Greater, false),
         BinaryOp::GreaterEqual => (RuntimeOp::GreaterEqual, false),
+        // O caminho LENTO dos bitwise: quando um dos lados nao e um duplo, a
+        // conversao e ToPrimitive e nao ToInt32, e isso le a pilha e pode
+        // chamar codigo do utilizador. O rapido e tres instrucoes; este e a
+        // chamada que ja existia.
+        BinaryOp::BitAnd => (RuntimeOp::BitAnd, false),
+        BinaryOp::BitOr => (RuntimeOp::BitOr, false),
+        BinaryOp::BitXor => (RuntimeOp::BitXor, false),
         BinaryOp::StrictEqual => (RuntimeOp::StrictEquals, false),
         BinaryOp::StrictNotEqual => (RuntimeOp::StrictEquals, true),
         _ => return None,

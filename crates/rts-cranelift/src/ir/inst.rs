@@ -114,6 +114,42 @@ pub enum Inst {
     /// Comparison of two proven operands of identical representation.
     Compare(CmpOp, ValueId, ValueId),
 
+    /// A double as the 32-bit integer JavaScript's bitwise operators read it as.
+    ///
+    /// Takes a proven `F64` and answers a proven `I32`. It is one instruction here
+    /// and a SEQUENCE in the lowering, which is the whole reason it exists as an
+    /// instruction rather than as a call: the conversion is pure computation —
+    /// no heap, no allocation, nothing global — and this crate's own membership
+    /// rule puts pure computation in what is emitted.
+    ///
+    /// # Why not the code generator's own conversion
+    ///
+    /// Because neither of its two answers is this one. `fcvt_to_sint_sat`
+    /// SATURATES, so it answers 2147483647 for 2^32 where the language says 0.
+    /// `fcvt_to_sint` traps on anything out of range, and a trap in the middle of
+    /// `x | 0` is the SIGILL this repository has already shipped once.
+    ///
+    /// The language's answer is truncation toward zero and then modulo 2^32,
+    /// which the lowering builds out of a truncate, a divide, a multiply, a
+    /// subtract and one saturating conversion that can no longer saturate
+    /// because its operand has already been brought inside the range. NaN and
+    /// both infinities fall out as zero without a branch, which is what the
+    /// language asks for and what a range test would have had to special-case.
+    ToInt32(ValueId),
+
+    /// A proven 32-bit integer back as a double.
+    ///
+    /// The other half of [`Inst::ToInt32`], and it is not optional: a bitwise
+    /// result left in the integer domain widens into a tagged INTEGER, and every
+    /// numeric guard downstream tests for a double. Measured that way round —
+    /// `(a * 3) | 0` in a loop kept the `|` as three instructions and turned the
+    /// `*` back into `Call __rts_multiply`, because the accumulator now arrived
+    /// tagged as an integer and failed the guard it used to pass.
+    ///
+    /// One instruction in both directions, so a language emitting bitwise work
+    /// stays inside the one representation everything else here proves about.
+    ToF64(ValueId),
+
     /// Widens a proven value into the generic form.
     ///
     /// Emitted as pure instructions, never a call, so that a redundant pair
@@ -290,7 +326,7 @@ impl Inst {
                 operands
             }
 
-            Inst::Widen(v) | Inst::Narrow(v, _) => vec![*v],
+            Inst::Widen(v) | Inst::Narrow(v, _) | Inst::ToInt32(v) | Inst::ToF64(v) => vec![*v],
 
             Inst::IntArith(_, a, b)
             | Inst::FloatArith(_, a, b)

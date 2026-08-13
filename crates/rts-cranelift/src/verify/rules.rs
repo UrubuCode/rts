@@ -561,6 +561,27 @@ pub(super) fn check_instructions(
                     check_proven_pair(func, inst_id, *a, *b, Domain::Any, errors);
                 }
 
+                // Rule 7: the builder refuses a non-float operand where the
+                // mistake is made, and this refuses it for a representation
+                // that did not come from the builder at all.
+                Inst::ToInt32(value) => {
+                    if func.repr_of(*value) != Repr::F64 {
+                        errors.push(VerifyError::WrongDomain {
+                            inst: inst_id,
+                            found: func.repr_of(*value),
+                        });
+                    }
+                }
+
+                Inst::ToF64(value) => {
+                    if func.repr_of(*value) != Repr::I32 {
+                        errors.push(VerifyError::WrongDomain {
+                            inst: inst_id,
+                            found: func.repr_of(*value),
+                        });
+                    }
+                }
+
                 Inst::Widen(value) => {
                     if func.repr_of(*value) == Repr::Tagged {
                         errors.push(VerifyError::WrongDomain {
