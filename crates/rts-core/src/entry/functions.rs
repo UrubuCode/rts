@@ -151,10 +151,22 @@ pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
 /// `f(1)` rather than three padding values the call site invented.
 #[rtse::entry]
 pub fn rest_arguments(from: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let collected = with_current(|context| {
+    // ONE borrow, and the array is built through `array::built_in` rather than
+    // through the `array_new` entry point.
+    //
+    // It was three crossings and three vectors: one borrow to collect, then
+    // `array_new` — an entry point, so a borrow of its own, and it fills a
+    // vector with holes — and a third borrow to throw that vector away and put
+    // the collected one in its place.
+    //
+    // Measured: a function with a rest parameter cost 430 ns to call with ZERO
+    // arguments, against 40 for the same call with fixed parameters. The count
+    // barely moved it — three arguments cost 465 — so what was being paid was
+    // the machinery and not the copying.
+    with_current(|context| {
         let absent = undefined_of(context);
         let from = from.max(0) as usize;
-        match context.pending_arguments.last().copied() {
+        let collected = match context.pending_arguments.last().copied() {
             Some(vector) if Value(vector).as_slot().is_some() => {
                 let cell = Value(vector).as_slot().expect("just checked");
                 match context.elements_at(cell) {
@@ -165,22 +177,15 @@ pub fn rest_arguments(from: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
             // No vector, so the arguments are exactly what the convention
             // carried. Trailing padding is dropped rather than reported.
             _ => {
-                let mut given = vec![a0, a1, a2, a3];
-                while given.last() == Some(&absent) {
-                    given.pop();
+                let given = [a0, a1, a2, a3];
+                let mut real = given.len();
+                while real > 0 && given[real - 1] == absent {
+                    real -= 1;
                 }
-                given.into_iter().skip(from).collect()
+                given[from.min(real)..real].to_vec()
             }
-        }
-    });
-    let array = super::array::array_new(collected.len() as i64);
-    with_current(|context| {
-        if let Some(cell) = Value(array).as_slot()
-            && let Some(elements) = context.elements_at_mut(cell)
-        {
-            *elements = collected;
-        }
-        array
+        };
+        super::array::built_in(context, collected)
     })
 }
 
