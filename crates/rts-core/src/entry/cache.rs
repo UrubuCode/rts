@@ -164,7 +164,8 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
                 })
                 .collect();
             eprintln!(
-                "rts-why key#{number} ty {ty} shape {shape:?} holds {held:?} slot {:?}",
+                "rts-why get cell {} key#{number} ty {ty} shape {shape:?} holds {held:?} slot {:?}",
+                object as u32,
                 context.shapes.slot_of(shape, key)
             );
         }
