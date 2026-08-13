@@ -165,9 +165,18 @@ pub(super) fn emit_object(
             // The name is resolved while compiling, so the key crosses as the
             // number — which is the whole reason a written key and a computed
             // one are different operations rather than one taking a value.
+            // Through the CACHED store, which is the same terminator a class
+            // constructor's `this.x = a` uses — and that is the whole of this
+            // change. A raw `SetProperty` call takes the shape transition
+            // fresh every time; the cached store remembers it, so the second
+            // object built by this site is born knowing where its fields go.
+            //
+            // Measured before, 300 000 objects that escape: `new P(1, 2)` cost
+            // 40 ms and `{x: 1, y: 2}` cost 143 — the CLASS was three times
+            // faster than the literal, and this was why. It scaled with the
+            // field count: 83 ms for one field, 143 for two, 206 for three.
             PropertyKey::Named(name) => {
-                let key = key_constant(builder, ctx, *name);
-                call(builder, ctx, RuntimeOp::SetProperty, &[object, key, value])?;
+                super::property::emit_write(builder, ctx, object, *name, value)?;
             }
             PropertyKey::Computed(expression) => {
                 let key = emit_expr(builder, scope, ctx, expression)?;
