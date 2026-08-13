@@ -193,6 +193,67 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
                 context.shapes.slot_of(shape, key)
             );
         }
+        // A STORE that adds a property is the dominant miss in every program that
+        // builds objects in a loop, and it cannot be cached the ordinary way:
+        // the layout the site would have to recognise is the one BEFORE the
+        // write and the offset it would have to answer only exists after. So
+        // the growth is taken HERE, and the site is answered with the offset it
+        // now has — the machine's store lands correctly and the second crossing
+        // (the miss path calling `set_property`) is not paid at all.
+        //
+        // Measured before this existed, on bench/analytic.ts: 1 419 894 misses,
+        // of which 1 135 617 were one site — `new Callee(); o.v` — growing one
+        // property per iteration on a fresh object.
+        //
+        // The representation the shape records is `Tagged` and not what the value
+        // turns out to be, because this resolver is not given the value. That
+        // is a shape-identity difference and NOT a correctness one: every
+        // runtime reader of `properties(shape)` discards the repr, and the only
+        // thing that reads it back is `typed_as`, to mint a type NUMBER. A slow
+        // `put` of a number takes the F64 transition instead, so the two paths can
+        // reach two shapes for one key set — which costs a miss, never a value.
+        if reaches == Reaches::Cell
+            && context.shapes.slot_of(shape, key).is_none()
+            && !super::integrity::refuses_growth(context, object as u32)
+            && context.proxy_at(object as u32).is_none()
+            // A setter ANYWHERE on the chain runs instead of the property being
+            // created, so growing here would silently skip it. Checking only
+            // the receiver was not enough and three files said so:
+            // class_extras, computed_accessor and super_field_setter.
+            && super::accessor::setter_for(context, object as u32, crate::object::Key::Name(key))
+                .is_none()
+            && let Ok(grown) = context
+                .shapes
+                .transition(shape, key, rts_cranelift::repr::Repr::Tagged)
+            && let Some(at) = context.shapes.slot_of(grown, key)
+            && at < context
+                .region
+                .width_of(object as u32)
+                .unwrap_or(crate::heap::INLINE_SLOTS)
+                .saturating_sub(1)
+        {
+            let link = context.prototype_at(object as u32);
+            let ty = context.typed_as(grown, link).index() as u32;
+            context.region.set_type(object as u32, ty);
+            let Some(remembered) = context.region.header_of(object as u32) else {
+                explain("the receiver is not a cell in this region", context);
+                return -1;
+            };
+            let offset = i64::from(rts_cranelift::mem::HeaderLayout::BYTES)
+                + i64::from(at) * i64::from(rts_cranelift::mem::SLOT_BYTES);
+            // SAFETY: the cell this site declared, as everywhere else here. The
+            // header remembered is the one AFTER the transition, which is what
+            // the object now carries — so the NEXT object at this site, which
+            // starts at the layout before it, misses and comes back here. That
+            // is the remaining cost and what a transition cache would remove.
+            unsafe {
+                let cell = cache as *mut i64;
+                cell.write(remembered as i64);
+                cell.add(1).write(offset);
+                cell.add(2).write(0);
+            }
+            return offset;
+        }
         let Some(slot) = context.shapes.slot_of(shape, key) else {
             // Absent. Legal, and it reads as `undefined` — but not by loading,
             // which is all this answer says.
