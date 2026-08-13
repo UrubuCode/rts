@@ -123,7 +123,7 @@ pub use modules::{
 };
 pub use function_proto::running_function;
 pub use objects::{
-    get_property, get_super_property, object_new, object_spread, set_property,
+    get_property, get_super_property, object_new, object_pair, object_spread, set_property,
     set_super_property,
 };
 pub use promise::{drain_microtasks, promise_await, promise_new, promise_settle, settled};

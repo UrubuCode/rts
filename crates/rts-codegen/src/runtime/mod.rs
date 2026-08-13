@@ -173,6 +173,8 @@ pub enum RuntimeOp {
     /// property walks the heap, and writing one may move the object to a new
     /// layout.
     ObjectNew,
+    /// `{ a: x, b: y }` — the object and both writes in one crossing.
+    ObjectPair,
 
     /// `o.x` — read a property named by its key number.
     ///
@@ -625,6 +627,7 @@ impl RuntimeOp {
         RuntimeOp::Greater,
         RuntimeOp::GreaterEqual,
         RuntimeOp::ObjectNew,
+        RuntimeOp::ObjectPair,
         RuntimeOp::GetProperty,
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
@@ -706,6 +709,7 @@ impl RuntimeOp {
             RuntimeOp::Greater => "__rts_greater",
             RuntimeOp::GreaterEqual => "__rts_greater_equal",
             RuntimeOp::ObjectNew => "__rts_object_new",
+            RuntimeOp::ObjectPair => "__rts_object_pair",
             RuntimeOp::GetProperty => "__rts_get_property",
             RuntimeOp::SetProperty => "__rts_set_property",
             RuntimeOp::ClosureNew => "__rts_closure_new",
@@ -789,6 +793,10 @@ impl RuntimeOp {
             RuntimeOp::Greater => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::GreaterEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ObjectNew => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::ObjectPair => (
+                vec![Repr::I64, UNPROVEN, Repr::I64, UNPROVEN],
+                vec![UNPROVEN],
+            ),
             RuntimeOp::GetProperty => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::SetProperty => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
             // The code address is `I64` and not a value: it is a machine

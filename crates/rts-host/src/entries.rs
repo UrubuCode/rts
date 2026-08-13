@@ -88,6 +88,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::GreaterEqual => (CoreEntry::GreaterEqual, {
             rts_core::entry::greater_equal as extern "C" fn(u64, u64) -> bool as *const u8
         }),
+        RuntimeOp::ObjectPair => (CoreEntry::ObjectPair, {
+            rts_core::entry::object_pair as extern "C" fn(i64, u64, i64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::ObjectNew => (CoreEntry::ObjectNew, {
             rts_core::entry::object_new as extern "C" fn(i64) -> u64 as *const u8
         }),

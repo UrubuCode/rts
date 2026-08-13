@@ -57,7 +57,8 @@ use super::functions::{
     SET_CALL_NAME_ENTRY, SUPER_CONSTRUCT_ENTRY, SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
 };
 use super::objects::{
-    GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_SPREAD_ENTRY,
+    GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_PAIR_ENTRY,
+    OBJECT_SPREAD_ENTRY,
     SET_PROPERTY_ENTRY, SET_SUPER_PROPERTY_ENTRY,
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
@@ -431,6 +432,9 @@ pub enum CoreEntry {
     /// reference_error`] holds, which is global mutable state — the same
     /// reason [`CoreEntry::GlobalGet`] and [`CoreEntry::GlobalSet`] are.
     GlobalGetUnbound = 70,
+
+    /// `{ a: x, b: y }` — the object and both writes, in one crossing.
+    ObjectPair = 71,
 }
 
 /// How many entry points exist.
@@ -438,7 +442,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 71;
+pub const CORE_ENTRY_COUNT: usize = 72;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -514,6 +518,7 @@ impl CoreEntry {
         CoreEntry::SetSuperProperty,
         CoreEntry::SuperConstructWithArgs,
         CoreEntry::GlobalGetUnbound,
+        CoreEntry::ObjectPair,
     ];
 
     /// The number a call site holds.
@@ -542,6 +547,7 @@ impl CoreEntry {
             CoreEntry::Greater => GREATER_ENTRY,
             CoreEntry::GreaterEqual => GREATER_EQUAL_ENTRY,
             CoreEntry::ObjectNew => OBJECT_NEW_ENTRY,
+            CoreEntry::ObjectPair => OBJECT_PAIR_ENTRY,
             CoreEntry::GetProperty => GET_PROPERTY_ENTRY,
             CoreEntry::SetProperty => SET_PROPERTY_ENTRY,
             CoreEntry::ClosureNew => CLOSURE_NEW_ENTRY,

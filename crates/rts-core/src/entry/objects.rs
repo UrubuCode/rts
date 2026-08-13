@@ -83,6 +83,42 @@ pub(super) fn object_new_wide(context: &mut Context, slots: i64) -> u64 {
     Value::from_slot(cell).bits()
 }
 
+/// `{ a: x, b: y }` — the object and both writes, in ONE crossing.
+///
+/// # Why a literal gets its own entry point
+///
+/// Because it was three. A two-field literal emitted `ObjectNew` and then two
+/// `SetProperty` calls, and each crossing is a thread-local, a `RefCell`
+/// borrow and a key resolution — paid three times to build an object whose
+/// every part the compiler already had in its hands.
+///
+/// Measured before this existed: 400 000 two-field literals cost ~190 ms, or
+/// ~475 ns each, on a run whose collections accounted for six cycles. The
+/// collector was not the cost; the construction was.
+///
+/// Two and not N because the arguments are scalars across an `extern "C"`
+/// boundary and a third pair would be six of them. A wider literal keeps the
+/// old shape, which is correct rather than a gap: it pays what it always paid.
+#[rtse::entry]
+pub fn object_pair(k0: i64, v0: u64, k1: i64, v1: u64) -> u64 {
+    with_current(|context| {
+        let made = object_new_wide(context, 2);
+        let Some(cell) = Value(made).as_slot() else {
+            return made;
+        };
+        for (key, value) in [(k0, v0), (k1, v1)] {
+            // Through `put`, which is the ONE place a property write decides a
+            // shape transition. A literal writing slots directly would be a
+            // second authority on what an object's layout is, and the two
+            // would disagree the first time one of them changed.
+            if let Some(key) = key_of(context, key) {
+                put(context, cell, key, value);
+            }
+        }
+        made
+    })
+}
+
 /// The body [`object_new`] wraps in `with_current`, taken directly by a
 /// caller that already holds the borrow — [`super::object_global::empty_object`]
 /// is one, and calling [`object_new`] from inside its own `with_current`
