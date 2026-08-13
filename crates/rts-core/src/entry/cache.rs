@@ -49,6 +49,30 @@ use super::{Context, with_current};
 /// against at offset 0, the byte offset it loads at at offset 8.
 #[rtse::entry("rts_cache_resolve")]
 pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
+    resolve(object, key, cache, Reaches::Overflow)
+}
+
+/// Whether the site asking may be answered with a property that lives OUTSIDE
+/// the receiver's cell.
+///
+/// A read may: `lower_cached_get` loads the third word and, when it is not
+/// zero, takes the block's address out of the receiver before adding the
+/// offset. A WRITE may not, and that is not a policy — `lower_cached_set`
+/// stores at `address + offset` and reads no third word at all, so answering a
+/// store with an overflow offset writes INTO THE RECEIVER'S CELL at a position
+/// that belongs to another property. That is the regression b9df2d9d shipped
+/// knowingly — `claude-generator-alias-iteracao` and `node_fs_dir_readv` — and
+/// the two sites are one bug because `cache_resolve_store` answers by calling
+/// this resolver.
+#[derive(Clone, Copy, PartialEq)]
+enum Reaches {
+    /// The cell only: what a store site can act on.
+    Cell,
+    /// The cell, or the block it keeps its overflow in.
+    Overflow,
+}
+
+fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
     with_current(|context| {
         context.resolves += 1;
         let explain = |why: &'static str, context: &mut Context| {
@@ -188,15 +212,15 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
             .unwrap_or(crate::heap::INLINE_SLOTS)
             .saturating_sub(1);
         if slot >= width {
+            if reaches == Reaches::Cell {
+                explain("the slot is past the cell and the site is a store", context);
+                return -1;
+            }
             // In the OVERFLOW, and reachable: the object keeps its block's
             // address in the slot it reserved for exactly this, so the machine
             // loads that word and finishes the read at the same offset. Two
             // loads instead of a call, which is what steps five and six of the
             // overflow plan were for.
-            if std::env::var_os("RTS_NO_OVERFLOW_CACHE").is_some() {
-                explain("experiment: overflow answers disabled", context);
-                return -1;
-            }
             let Some((_, held)) = context.spill_of.copied(object as u32) else {
                 explain("the slot is past the cell and no overflow exists yet", context);
                 return -1;
@@ -632,5 +656,7 @@ pub fn cache_resolve_store(object: u64, key: i64, cache: i64) -> i64 {
     if refused {
         return -1;
     }
-    cache_resolve(object, key, cache)
+    // NOT `cache_resolve`: a store site's lowering has no second load, so it
+    // must never be told the answer is outside the cell.
+    resolve(object, key, cache, Reaches::Cell)
 }
