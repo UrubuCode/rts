@@ -383,7 +383,27 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
     // two classes collide again the moment one of their instances grows.
     let link = context.prototype_at(slot);
     let ty = context.typed_as(grown, link).index() as u32;
+    let was = context.region.type_of(slot);
     context.region.set_type(slot, ty);
+    // The write side of `RTS_CACHE_WHY`, so a transition and the read that
+    // misses can be read as one sequence. What it showed on
+    // `{x:i}; o.y=i; a+=o.y`, sampled late in a hundred thousand iterations:
+    //
+    //     put cell 49695  Some(2)   -> 746     x, so the shape is ["x"]
+    //     put cell 49695  Some(746) -> 747     y, so the shape is ["x","y"]
+    //     key#1 ty 746 holds ["x"] slot None   the read, against 746
+    //
+    // Every object transitions, and the read still resolves against the type
+    // from before its own iteration's write. That pair is what the next step
+    // has to explain; the cell number is deliberately in the line so the two
+    // halves can be matched rather than assumed to be the same object.
+    if std::env::var_os("RTS_CACHE_WHY").is_some() && context.resolves % 20_000 <= 1 {
+        eprintln!(
+            "rts-why put cell {slot} {:?} -> {ty} now {:?}",
+            was,
+            context.region.type_of(slot)
+        );
+    }
     // Past the seventh this goes to the spill beside the cell rather than
     // being refused, which is what "the overflow indirection, and it is not
     // implemented here" was waiting for.
