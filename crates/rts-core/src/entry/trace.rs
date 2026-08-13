@@ -139,23 +139,17 @@ fn follow(word: u64, marks: &mut Marks, worklist: &mut Vec<u32>) {
 /// does: the caller owns the buffer and clears it between cells, so a
 /// collection allocates once rather than once per cell.
 fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
-    // 1. A cell's own seven inline slots — the base case every object has,
-    //    whatever else it also is.
-    // Every slot the cell OWNS, which is fifteen for an ordinary one and more
-    // for an object the emitter sized to its shape. Walking a fixed fifteen
-    // would leave a wide object's later properties unmarked — a collection
-    // would free what one of them still names.
-    // One short of the width: the last slot a cell owns holds the ADDRESS of
-    // its overflow, not a value. Following it would hand the region a
-    // decompose of an address, which is the same fault the float-that-looks-
-    // like-a-cell case exists to refuse. The block is marked below instead,
-    // through `spill_of`, which is the holder that knows it is one.
+    // 1. Every slot the cell OWNS — fifteen for an ordinary one, more for an
+    //    object the emitter sized to its shape. Walking a fixed fifteen would
+    //    leave a wide object's later properties unmarked, and a collection
+    //    would free what one of them still names.
     //
-    // Skipped only for a cell that HAS an overflow, because that is the cell
-    // where the last slot holds an address. A generator's parked frame spans
-    // too and its last field is an ordinary value: skipping it there left what
-    // a suspended generator held unmarked, and one `for-of` over a direct
-    // declaration answered 0 where it had answered 3.
+    //    One short of that for a cell that HAS an overflow: there the last slot
+    //    holds the block's ADDRESS rather than a value, and following it would
+    //    hand the region a decompose of an address — the same fault the
+    //    float-that-looks-like-a-cell case exists to refuse. A generator's
+    //    parked frame spans too and its last field IS a value, which is why
+    //    the question is "does it have an overflow" and not "is it wide".
     let width = context.region.width_of(cell).unwrap_or(INLINE_SLOTS);
     let owned = if context.spill_of.copied(cell).is_some() {
         width.saturating_sub(1)
@@ -171,15 +165,25 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     // 2. Properties past the fifteenth.
     //
     //    The spill is a REGION block and not a slab vector, so its slots are
-    //    reached the way an inline slot is — and the block ITSELF is an edge,
-    //    which it was not when this was first written. It is a live cell of the
-    //    region, so the sweep frees every one the marker did not reach: leaving
-    //    it out freed a live object's overflow underneath it, and the sixteenth
-    //    property of the globals object then read as whatever the cell was
-    //    reused for. `typeof globalThis.performance` answering `number` is what
-    //    that looks like from the program's side.
+    //    reached the way an inline slot is — and that is exactly why the block
+    //    ITSELF has to be marked. The comment here used to say the opposite:
+    //    that pushing it "would only keep it alive by itself", which was true
+    //    of the `Vec` in a slab it replaced and false the moment it became a
+    //    region cell. `alloc_spanning` marks a span's cells 1..n as interior
+    //    and leaves the FIRST one ordinary, so `Region::live_refs` offers it to
+    //    the sweep as an object of its own — and nothing marked it, so every
+    //    collection freed the overflow of an object that was still alive. Its
+    //    cells went back on the free list, an unrelated allocation took them,
+    //    and the sixteenth property onward read somebody else's fields.
+    //
+    //    Pushed the same way a generator's parked frame is (step 9), for the
+    //    same reason and through the same mechanism: this is the one place that
+    //    knows the block exists, and it must be marked even on a cycle where
+    //    none of its slots happens to hold a reference. `collect_cycle::release`
+    //    still frees it explicitly with its owner — marking keeps the SWEEP off
+    //    a block whose owner survived, which is a different question.
     if let Some((block, slots)) = context.spill_of.copied(cell) {
-        out.push(crate::value::Value::from_slot(block).bits());
+        out.push(Value::from_slot(block).bits());
         for slot in 0..slots {
             if let Some(word) = context.region.spanning_field(block, slot, slots) {
                 out.push(word);
