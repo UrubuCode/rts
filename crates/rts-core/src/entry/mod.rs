@@ -623,6 +623,11 @@ pub struct Context {
     /// is a slower way of calling". Both produce the same wall clock scaling,
     /// and no measurement already taken can tell them apart.
     pub resolves: u64,
+    /// The layout every array is born at — the empty shape plus `length`.
+    ///
+    /// Computed on the first array and remembered, because it is the same
+    /// answer for every one of them. See `array::built_in`.
+    array_layout: Option<u32>,
     /// The sweep's scratch list of cells to free, kept across cycles for its
     /// capacity. See `collect_cycle::sweep`.
     doomed: Vec<u32>,
@@ -910,6 +915,7 @@ impl Context {
             string_prototype: None,
             array_prototype: None,
             resolves: 0,
+            array_layout: None,
             doomed: Vec::new(),
             census: std::env::var_os("RTS_CACHE_CENSUS")
                 .map(|_| std::collections::BTreeMap::new()),

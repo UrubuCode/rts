@@ -113,8 +113,54 @@ pub(in crate::entry) fn visible(context: &Context, held: u64) -> u64 {
 pub(in crate::entry) fn built_in(context: &mut Context, elements: Vec<u64>) -> u64 {
     let count = elements.len();
     let store = context.arrays.insert(elements).slot();
-    let shape = context.shapes.root();
-    let ty = context.layout_of(shape).index() as u32;
+
+    // Born at the layout an array ARRIVES at, rather than at the empty one and
+    // then transitioning. Every array reaches the same shape — one property,
+    // `length` — so the transition computed the same answer every time: a
+    // shape lookup, a `transition`, a `typed_as` and a re-type, per array.
+    //
+    // Measured as the residue of the rest-parameter work: a call with a rest
+    // parameter cost 430 ns with ZERO arguments against 40 for fixed ones, and
+    // removing two of the three crossings only took it to 395. What was left
+    // was here.
+    //
+    // Remembered on the context rather than recomputed, and it cannot go
+    // stale: it is the layout of one shape, and a shape is immutable once
+    // reached — what changes is which shape an object is AT, which is exactly
+    // what the write below still does through `put` when a program grows the
+    // array a property.
+    let ty = match context.array_layout {
+        Some(known) => known,
+        None => {
+            let root = context.shapes.root();
+            let key = match super::computed::length_key(context) {
+                crate::object::Key::Name(named) => named,
+                crate::object::Key::Index(_) => {
+                    // `length` is a name, always. Falling back rather than
+                    // panicking keeps a malformed key registry slow instead of
+                    // fatal.
+                    let ty = context.layout_of(root).index() as u32;
+                    let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
+                    context.mark_array(cell, store);
+                    set_length(context, cell, count);
+                    return Value::from_slot(cell).bits();
+                }
+            };
+            let Ok(grown) = context
+                .shapes
+                .transition(root, key, rts_cranelift::repr::Repr::F64)
+            else {
+                let ty = context.layout_of(root).index() as u32;
+                let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
+                context.mark_array(cell, store);
+                set_length(context, cell, count);
+                return Value::from_slot(cell).bits();
+            };
+            let ty = context.layout_of(grown).index() as u32;
+            context.array_layout = Some(ty);
+            ty
+        }
+    };
     let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
     context.mark_array(cell, store);
     set_length(context, cell, count);
