@@ -182,8 +182,13 @@ pub(super) fn answer(context: &mut Context, units: &[u16]) -> u64 {
 /// A caller that sliced a narrow string already knows it does — every byte of
 /// a narrow string is below 256 by construction — so the scan is asking a
 /// question whose answer it was handed.
-pub(super) fn answer_narrow(context: &mut Context, bytes: &[u8]) -> u64 {
-    context.intern_value(Str::from_latin1(bytes)).bits()
+/// A string answered from bytes the caller owns.
+///
+/// Takes the `Vec` rather than a slice, which is one copy instead of two: a
+/// method that maps or slices already built the bytes, and handing over a
+/// borrow made `Str` copy them again.
+pub(super) fn answer_owned(context: &mut Context, bytes: Vec<u8>) -> u64 {
+    context.intern_value(Str::owning_latin1(bytes)).bits()
 }
 
 /// The undefined a method answers when there is nothing to answer.

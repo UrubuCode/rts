@@ -25,7 +25,7 @@
 
 use super::super::with_current;
 use super::super::native::Native;
-use super::{answer_narrow,absent, answer, arg_units, nothing, relative, text_of, units_of};
+use super::{absent, answer, answer_owned, arg_units, nothing, relative, text_of, units_of};
 use crate::value::Value;
 
 /// What a string's prototype holds, apart from the pattern methods.
@@ -297,7 +297,7 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
                 true => Vec::new(),
                 false => bytes[start..end].to_vec(),
             };
-            return answer_narrow(context, &taken);
+            return answer_owned(context, taken);
         }
         let Some(units) = units_of(context, this) else {
             return nothing(context);
@@ -506,7 +506,7 @@ fn mapped_with(this: u64, body: impl FnOnce(&str) -> String, ascii: Option<fn(u8
             && bytes.is_ascii()
         {
             let produced: Vec<u8> = bytes.iter().map(|byte| map(*byte)).collect();
-            return answer_narrow(context, &produced);
+            return answer_owned(context, produced);
         }
         let Some(text) = text_of(context, this).and_then(|text| text.to_rust()) else {
             return nothing(context);

@@ -161,8 +161,19 @@ impl Str {
     /// string already knows it does. Every byte of one is below 256 by
     /// construction, so the question is answered before it is asked.
     pub fn from_latin1(bytes: &[u8]) -> Self {
+        Self::owning_latin1(bytes.to_vec())
+    }
+
+    /// The same, taking bytes the caller already owns.
+    ///
+    /// Exists because the copy was being paid twice: a method that maps over a
+    /// string collects into a `Vec` and then handed the slice to
+    /// [`Self::from_latin1`], which copied it again. Two allocations of the
+    /// same bytes, on every `toUpperCase`, every `slice` and every other
+    /// method that builds narrow text.
+    pub fn owning_latin1(bytes: Vec<u8>) -> Self {
         Str {
-            repr: Repr::Latin1(bytes.to_vec()),
+            repr: Repr::Latin1(bytes),
         }
     }
 
