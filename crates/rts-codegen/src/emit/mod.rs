@@ -73,6 +73,7 @@ mod merge;
 mod module;
 mod object;
 mod optional;
+mod primordial;
 mod property;
 mod protect;
 mod proven;
@@ -341,6 +342,12 @@ pub struct Ctx<'a> {
     /// the read can come first: `function f() { return n; } n = 0;` emits the
     /// body before reaching the assignment. See [`sloppy`].
     globals: std::collections::BTreeSet<Name>,
+    /// Whether `Math` still refers to the primordial the runtime installed.
+    ///
+    /// Proved over the whole program before anything is emitted — see
+    /// `primordial`. False is the safe answer and the default: a program this
+    /// has not been computed for gets the call it has always got.
+    math_primordial: bool,
 }
 
 impl<'a> Ctx<'a> {
@@ -373,6 +380,7 @@ impl<'a> Ctx<'a> {
             counting_claims: types::Census::wanted(),
             class_fields: types::Classes::default(),
             globals: std::collections::BTreeSet::new(),
+            math_primordial: false,
         }
     }
 
@@ -585,6 +593,13 @@ pub fn emit_program_with_exports(
     // that creates it is reached.
     let global_this = ctx.names.intern("globalThis");
     ctx.globals = sloppy::created(body, global_this);
+    // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
+    // over the whole program, because that is the only scale at which it is a
+    // fact rather than a guess — see `primordial` for why this engine can ask
+    // and V8 cannot.
+    let math = ctx.names.intern("Math");
+    let eval_name = ctx.names.intern("eval");
+    ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
 
     let nothing = Scope::new();
     let mut emitted = function::emit_body(
@@ -714,6 +729,13 @@ fn emit_unit(
     let entry = ctx.funcs.declare_function(sig);
     let global_this = ctx.names.intern("globalThis");
     ctx.globals = sloppy::created(body, global_this);
+    // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
+    // over the whole program, because that is the only scale at which it is a
+    // fact rather than a guess — see `primordial` for why this engine can ask
+    // and V8 cannot.
+    let math = ctx.names.intern("Math");
+    let eval_name = ctx.names.intern("eval");
+    ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
     let nothing = Scope::new();
     let mut emitted = function::emit_body(
         ctx,
