@@ -3062,7 +3062,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[CleanupReadsOutsideItself { block: block128, value: v20 }, CleanupReadsOutsideItself { block: block137, value: v20 }]\")\n      at run of tests/cross-runtime/fn-meta/claude-closure-from-try-finally.ts failed"
+  "rts_error": "error: Malformed(\"[CleanupReadsOutsideItself { block: block128, value: v21 }, CleanupReadsOutsideItself { block: block137, value: v21 }]\")\n      at run of tests/cross-runtime/fn-meta/claude-closure-from-try-finally.ts failed"
 }
 ,
 {
@@ -3118,7 +3118,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread '<unknown>' (9360) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread '<unknown>' (9365) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
