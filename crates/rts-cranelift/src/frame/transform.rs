@@ -563,7 +563,11 @@ fn replace_operands(inst: &mut Inst, replacements: &[ValueId]) {
         | Inst::PromiseNew
         | Inst::FuncAddr { .. } => {}
 
-        Inst::Widen(v) | Inst::Narrow(v, _) | Inst::ToInt32(v) | Inst::ToF64(v) => *v = take(),
+        Inst::Widen(v)
+        | Inst::Narrow(v, _)
+        | Inst::ToInt32(v)
+        | Inst::ToF64(v)
+        | Inst::FloatUnary(_, v) => *v = take(),
 
         Inst::IntArith(_, a, b)
         | Inst::FloatArith(_, a, b)

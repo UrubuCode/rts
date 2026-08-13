@@ -19,7 +19,9 @@ use super::consts::ConstDecl;
 use super::entity::{BlockId, ConstId, ValueId};
 use super::func::{Function, Signature};
 use super::funcs::{FuncId, FuncRegistry, SigId};
-use super::inst::{BitOp, BlockCall, CmpOp, GenericOp, Inst, NumOp, Region, Terminator, TrapCode};
+use super::inst::{
+    BitOp, BlockCall, CmpOp, FloatOp, GenericOp, Inst, NumOp, Region, Terminator, TrapCode,
+};
 use crate::repr::Repr;
 use crate::types::{TypeId, TypeRegistry};
 use crate::unwind::{Handler, RegionId, Tag};
@@ -252,6 +254,18 @@ impl<'a> FuncBuilder<'a> {
             });
         }
         Ok(self.emit(Inst::ToInt32(value), Repr::I32))
+    }
+
+    /// A one-operand floating-point operation over a proven double.
+    pub fn float_unary(&mut self, op: FloatOp, value: ValueId) -> BuildResult<ValueId> {
+        let repr = self.repr_of(value);
+        if repr != Repr::F64 {
+            return Err(BuildError::WrongDomain {
+                operation: "float_unary",
+                found: repr,
+            });
+        }
+        Ok(self.emit(Inst::FloatUnary(op, value), Repr::F64))
     }
 
     /// A proven 32-bit integer back as a double, so a bitwise result rejoins the

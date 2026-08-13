@@ -251,6 +251,17 @@ impl<'a> Body<'a> {
                 builder.ins().ireduce(types::I32, wide)
             }
 
+            Inst::FloatUnary(op, v) => {
+                let raw = self.value(*v);
+                match op {
+                    crate::ir::FloatOp::Sqrt => builder.ins().sqrt(raw),
+                    crate::ir::FloatOp::Floor => builder.ins().floor(raw),
+                    crate::ir::FloatOp::Ceil => builder.ins().ceil(raw),
+                    crate::ir::FloatOp::Trunc => builder.ins().trunc(raw),
+                    crate::ir::FloatOp::Abs => builder.ins().fabs(raw),
+                }
+            }
+
             Inst::ToF64(v) => {
                 let raw = self.value(*v);
                 builder.ins().fcvt_from_sint(types::F64, raw)

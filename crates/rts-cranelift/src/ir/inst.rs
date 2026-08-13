@@ -51,6 +51,26 @@ pub enum NumOp {
     Div,
 }
 
+/// One-operand floating-point operations.
+///
+/// Only the ones the hardware does in a single instruction. A logarithm and a
+/// sine are library calls on every target this crate targets, so they are not
+/// here: an instruction that expands to a call would make the cost of emitting
+/// one unreadable, which is the property this whole vocabulary exists for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FloatOp {
+    /// Square root.
+    Sqrt,
+    /// Toward negative infinity.
+    Floor,
+    /// Toward positive infinity.
+    Ceil,
+    /// Toward zero.
+    Trunc,
+    /// Magnitude, sign cleared.
+    Abs,
+}
+
 /// Bitwise operations over proven integers.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BitOp {
@@ -149,6 +169,19 @@ pub enum Inst {
     /// One instruction in both directions, so a language emitting bitwise work
     /// stays inside the one representation everything else here proves about.
     ToF64(ValueId),
+
+    /// A one-operand floating-point operation the hardware performs directly.
+    ///
+    /// Each of these is ONE machine instruction — sqrtsd, roundsd, andpd — and
+    /// each was a call into the runtime through a property read and a dispatch.
+    /// Measured before this existed: 48 ns for a square root against 24 for an
+    /// ordinary method call and ~0 for a multiply.
+    ///
+    /// The instruction says nothing about WHERE a client found the operation.
+    /// Whether some language spells it `Math.sqrt` and whether that name still
+    /// means this is the client's question, answered before it emits one —
+    /// rule 2, no source-language knowledge here.
+    FloatUnary(FloatOp, ValueId),
 
     /// Widens a proven value into the generic form.
     ///
@@ -326,7 +359,11 @@ impl Inst {
                 operands
             }
 
-            Inst::Widen(v) | Inst::Narrow(v, _) | Inst::ToInt32(v) | Inst::ToF64(v) => vec![*v],
+            Inst::Widen(v)
+            | Inst::Narrow(v, _)
+            | Inst::ToInt32(v)
+            | Inst::ToF64(v)
+            | Inst::FloatUnary(_, v) => vec![*v],
 
             Inst::IntArith(_, a, b)
             | Inst::FloatArith(_, a, b)

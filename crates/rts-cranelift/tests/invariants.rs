@@ -304,3 +304,42 @@ fn the_verifier_rejects_a_program_built_against_another_registry() {
     assert_eq!(verify(&func, &theirs, &FuncRegistry::new()), vec![]);
     assert!(!is_valid(&func, &ours, &FuncRegistry::new()));
 }
+
+#[test]
+fn a_one_operand_float_operation_refuses_an_integer() {
+    // The domain is stated once, at the builder, where the mistake is written.
+    // `sqrtsd` over an integer register is not a slower square root, it is a
+    // different number.
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::I32], &[Repr::F64]);
+    let integer = param(&func, 0);
+    let entry = func.entry;
+    let mut builder = FuncBuilder::new(&mut func, &types, entry);
+    let refused = builder.float_unary(rts_cranelift::ir::FloatOp::Sqrt, integer);
+    assert!(matches!(
+        refused,
+        Err(BuildError::WrongDomain {
+            operation: "float_unary",
+            found: Repr::I32
+        })
+    ));
+}
+
+#[test]
+fn reading_a_double_as_an_int32_and_back_stays_in_its_domain() {
+    // The pair that makes bitwise work reachable: out of the float domain and
+    // back into it, each step refusing the other's representation. Without the
+    // return trip a bitwise result widens as a tagged INTEGER and every numeric
+    // guard downstream stops recognising it.
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::F64], &[Repr::F64]);
+    let double = param(&func, 0);
+    let entry = func.entry;
+    let mut builder = FuncBuilder::new(&mut func, &types, entry);
+    let integer = builder.to_int32(double).expect("a double converts");
+    assert_eq!(builder.repr_of(integer), Repr::I32);
+    assert!(builder.to_int32(integer).is_err(), "already an integer");
+    let back = builder.to_f64(integer).expect("an int32 converts back");
+    assert_eq!(builder.repr_of(back), Repr::F64);
+    assert!(builder.to_f64(back).is_err(), "already a double");
+}

@@ -573,6 +573,15 @@ pub(super) fn check_instructions(
                     }
                 }
 
+                Inst::FloatUnary(_, value) => {
+                    if func.repr_of(*value) != Repr::F64 {
+                        errors.push(VerifyError::WrongDomain {
+                            inst: inst_id,
+                            found: func.repr_of(*value),
+                        });
+                    }
+                }
+
                 Inst::ToF64(value) => {
                     if func.repr_of(*value) != Repr::I32 {
                         errors.push(VerifyError::WrongDomain {
