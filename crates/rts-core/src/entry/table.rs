@@ -58,8 +58,7 @@ use super::functions::{
     SET_CALL_NAME_ENTRY, SUPER_CONSTRUCT_ENTRY, SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
 };
 use super::objects::{
-    GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_PAIR_ENTRY,
-    OBJECT_SPREAD_ENTRY,
+    GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_SPREAD_ENTRY,
     SET_PROPERTY_ENTRY, SET_SUPER_PROPERTY_ENTRY,
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
@@ -434,14 +433,11 @@ pub enum CoreEntry {
     /// reason [`CoreEntry::GlobalGet`] and [`CoreEntry::GlobalSet`] are.
     GlobalGetUnbound = 70,
 
-    /// `{ a: x, b: y }` — the object and both writes, in one crossing.
-    ObjectPair = 71,
-
     /// `[a, b, c, d]` — the array and every element, in one crossing.
-    ArrayOf = 72,
+    ArrayOf = 71,
 
     /// `Math.random()`, reached without a property read or a dispatch.
-    MathRandom = 73,
+    MathRandom = 72,
 }
 
 /// How many entry points exist.
@@ -449,7 +445,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 74;
+pub const CORE_ENTRY_COUNT: usize = 73;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -525,7 +521,6 @@ impl CoreEntry {
         CoreEntry::SetSuperProperty,
         CoreEntry::SuperConstructWithArgs,
         CoreEntry::GlobalGetUnbound,
-        CoreEntry::ObjectPair,
         CoreEntry::ArrayOf,
         CoreEntry::MathRandom,
     ];
@@ -556,7 +551,6 @@ impl CoreEntry {
             CoreEntry::Greater => GREATER_ENTRY,
             CoreEntry::GreaterEqual => GREATER_EQUAL_ENTRY,
             CoreEntry::ObjectNew => OBJECT_NEW_ENTRY,
-            CoreEntry::ObjectPair => OBJECT_PAIR_ENTRY,
             CoreEntry::ArrayOf => ARRAY_OF_ENTRY,
             CoreEntry::MathRandom => MATH_RANDOM_ENTRY,
             CoreEntry::GetProperty => GET_PROPERTY_ENTRY,

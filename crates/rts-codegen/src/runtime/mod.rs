@@ -173,8 +173,6 @@ pub enum RuntimeOp {
     /// property walks the heap, and writing one may move the object to a new
     /// layout.
     ObjectNew,
-    /// `{ a: x, b: y }` — the object and both writes in one crossing.
-    ObjectPair,
     /// `[a, b, c, d]` — the array and every element in one crossing.
     ArrayOf,
     /// `Math.random()`, reached directly.
@@ -631,7 +629,6 @@ impl RuntimeOp {
         RuntimeOp::Greater,
         RuntimeOp::GreaterEqual,
         RuntimeOp::ObjectNew,
-        RuntimeOp::ObjectPair,
         RuntimeOp::ArrayOf,
         RuntimeOp::MathRandom,
         RuntimeOp::GetProperty,
@@ -715,7 +712,6 @@ impl RuntimeOp {
             RuntimeOp::Greater => "__rts_greater",
             RuntimeOp::GreaterEqual => "__rts_greater_equal",
             RuntimeOp::ObjectNew => "__rts_object_new",
-            RuntimeOp::ObjectPair => "__rts_object_pair",
             RuntimeOp::ArrayOf => "__rts_array_of",
             RuntimeOp::MathRandom => "__rts_math_random",
             RuntimeOp::GetProperty => "__rts_get_property",
@@ -804,10 +800,6 @@ impl RuntimeOp {
             RuntimeOp::MathRandom => (vec![], vec![Repr::F64]),
             RuntimeOp::ArrayOf => (
                 vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN],
-                vec![UNPROVEN],
-            ),
-            RuntimeOp::ObjectPair => (
-                vec![Repr::I64, UNPROVEN, Repr::I64, UNPROVEN],
                 vec![UNPROVEN],
             ),
             RuntimeOp::GetProperty => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),

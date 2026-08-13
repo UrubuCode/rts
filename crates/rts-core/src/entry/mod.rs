@@ -124,7 +124,7 @@ pub use modules::{
 };
 pub use function_proto::running_function;
 pub use objects::{
-    get_property, get_super_property, object_new, object_pair, object_spread, set_property,
+    get_property, get_super_property, object_new, object_spread, set_property,
     set_super_property,
 };
 pub use promise::{drain_microtasks, promise_await, promise_new, promise_settle, settled};
@@ -628,14 +628,6 @@ pub struct Context {
     /// Computed on the first array and remembered, because it is the same
     /// answer for every one of them. See `array::built_in`.
     array_layout: Option<u32>,
-    /// The layout a two-field literal is born at, by its pair of keys.
-    ///
-    /// Same argument as `array_layout`, and the measurement that asked for it
-    /// is sharper: a literal cost ~233 ns per field where a class constructor
-    /// writing the same two fields cost ~20, because the constructor writes
-    /// through a cached store that remembers the TRANSITION and the literal
-    /// took it fresh every time.
-    pair_layouts: std::collections::BTreeMap<(u32, u32), u32>,
     /// The sweep's scratch list of cells to free, kept across cycles for its
     /// capacity. See `collect_cycle::sweep`.
     doomed: Vec<u32>,
@@ -924,7 +916,6 @@ impl Context {
             array_prototype: None,
             resolves: 0,
             array_layout: None,
-            pair_layouts: std::collections::BTreeMap::new(),
             doomed: Vec::new(),
             census: std::env::var_os("RTS_CACHE_CENSUS")
                 .map(|_| std::collections::BTreeMap::new()),

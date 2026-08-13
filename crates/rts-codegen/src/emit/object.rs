@@ -66,36 +66,6 @@ pub(super) fn emit_object(
     ctx: &mut Ctx,
     properties: &[Property],
 ) -> EmitResult<ValueId> {
-    // Two plain fields with written names — by a distance the commonest literal
-    // there is — become ONE crossing instead of three. Each crossing is a
-    // thread-local, a `RefCell` borrow and a key resolution, and this literal
-    // was paying all three twice to write what the compiler already had.
-    //
-    // The writes still go through `put` on the other side, so the shape is
-    // still decided by the transitions and there is still exactly one
-    // authority on what an object's layout is.
-    if let [
-        Property::Value {
-            key: PropertyKey::Named(first),
-            value: left,
-            ..
-        },
-        Property::Value {
-            key: PropertyKey::Named(second),
-            value: right,
-            ..
-        },
-    ] = properties
-    {
-        let k0 = key_constant(builder, ctx, *first);
-        let v0 = emit_expr(builder, scope, ctx, left)?;
-        let v0 = tagged(builder, v0);
-        let k1 = key_constant(builder, ctx, *second);
-        let v1 = emit_expr(builder, scope, ctx, right)?;
-        let v1 = tagged(builder, v1);
-        return Ok(call(builder, ctx, RuntimeOp::ObjectPair, &[k0, v0, k1, v1])?[0]);
-    }
-
     // How many slots this literal will need, so the runtime can take a cell
     // wide enough in one go. A hint and not a shape: the writes below still
     // decide the layout, and a wrong count costs a slot rather than an answer.
