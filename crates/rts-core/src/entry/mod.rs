@@ -151,7 +151,7 @@ pub use finalize::{
     drain as drain_finalizers, on_death,
 };
 pub use barrier::write_barrier;
-pub use cache::{cache_resolve, cache_resolve_indirect, cache_resolve_store};
+pub use cache::{cache_resolve, cache_resolve_indirect, cache_resolve_store, census_report};
 pub use chain::{get_prototype, set_prototype};
 pub use clone::deep_copy;
 pub use current::with_context;
@@ -622,6 +622,16 @@ pub struct Context {
     /// is a slower way of calling". Both produce the same wall clock scaling,
     /// and no measurement already taken can tell them apart.
     pub resolves: u64,
+    /// Every cache miss, counted by reason, key and SITE — or `None`, which is
+    /// what a run that was not asked for a census pays: no map, no lookup, one
+    /// `Option` test per miss.
+    ///
+    /// The site is the cache cell's address, and it is in the key because
+    /// "one site missing a million times" and "a million sites missing once"
+    /// are opposite problems that a total cannot tell apart. The first is a
+    /// polymorphic or unarmable site; the second is a program with a million
+    /// reads.
+    pub census: Option<std::collections::BTreeMap<(&'static str, u32, u64), u64>>,
     /// The elements of every array, apart from the cells that identify them.
     ///
     /// A second store beside `cells`, and not a contradiction of the one-table
@@ -896,6 +906,8 @@ impl Context {
             string_prototype: None,
             array_prototype: None,
             resolves: 0,
+            census: std::env::var_os("RTS_CACHE_CENSUS")
+                .map(|_| std::collections::BTreeMap::new()),
             barriers: 0,
             remembered: barrier::Remembered::default(),
             // Empty until a host seeds it. A program with no string literal
