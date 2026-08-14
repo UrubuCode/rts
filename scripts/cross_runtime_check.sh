@@ -50,6 +50,20 @@ fi
 if ! command -v bun >/dev/null 2>&1; then echo "error: bun nao instalado" >&2; exit 2; fi
 if ! command -v node >/dev/null 2>&1; then echo "error: node nao instalado" >&2; exit 2; fi
 
+# Os tres runtimes correm no MESMO fuso, e esse fuso e UTC.
+#
+# O RTS nao tem base de fusos e nao vai ter — a decisao esta escrita em
+# `crates/rts-core/src/entry/date/mod.rs` e o que ela diz e que a hora local
+# deste runtime E UTC. Sem esta linha, uma maquina em -03:00 faz
+# `new Date(2024, 0, 15, 10, 30)` divergir por tres horas em TODA a pasta
+# `date/`, e o que se mede e o fuso do medidor e nao o motor. O CI corre em
+# UTC, portanto isto tambem e o que alinha a medicao local com a do CI.
+#
+# A divergencia real que isto NAO esconde: um programa que pede hora local
+# noutro fuso continua a receber UTC. Isso e a recusa documentada, e esta no
+# README desta pasta em vez de virar uma falha diferente todos os dias.
+export TZ=UTC
+
 # Resolve interpretador JSON (jq > python > node). `command -v` nao basta no
 # Windows: o alias `python` da Microsoft Store EXISTE mas so abre a loja (exit
 # != 0) — o report saia com todas as entries vazias. Testa EXECUCAO real.
@@ -143,7 +157,22 @@ process_fixture() {
     # Um runtime que falhou nao tem stdout comparavel; a comparacao so vale
     # quando os dois lados terminaram com sucesso.
     local status
-    if [ $bun_rc -ne $node_rc ] || { [ $bun_rc -eq 0 ] && [ "$bun_out" != "$node_out" ]; }; then
+    if [ $bun_rc -eq 0 ] && [ $node_rc -ne 0 ]; then
+        # O NODE e que nao consegue correr o ficheiro — quase sempre TypeScript
+        # que ele nao sabe apagar (`constructor(public name: string)` nao e
+        # sintaxe apagavel). Isto NAO e desacordo entre runtimes: e uma
+        # limitacao de um deles, e a politica escrita no README desta pasta ja
+        # diz que o bun e canonico. Antes, estes 18 ficheiros caiam em
+        # `bun_node_diverge` e o RTS nunca chegava a ser medido neles — oito
+        # falhas reais ficavam escondidas atras de um problema do medidor.
+        if [ $rts_rc -ne 0 ]; then
+            status="rts_error"
+        elif [ "$rts_out" != "$bun_out" ]; then
+            status="rts_diverge"
+        else
+            status="pass"
+        fi
+    elif [ $bun_rc -ne $node_rc ] || { [ $bun_rc -eq 0 ] && [ "$bun_out" != "$node_out" ]; }; then
         status="bun_node_diverge"
     elif [ $rts_rc -ne 0 ]; then
         status="rts_error"

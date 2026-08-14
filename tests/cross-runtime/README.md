@@ -64,5 +64,19 @@ Saída em verde = paridade. Em vermelho = divergência (com diff).
 - **Bun é a referência canônica** quando Bun e Node concordam.
 - Se Bun ≠ Node em algum caso (raro), CI marca como `inconsistent` e não
   reporta como bug RTS.
+- **Quando só o Node falha, o RTS continua a ser medido — contra o Bun.**
+  Doze fixtures usam TypeScript que o Node não sabe apagar (parâmetros-
+  propriedade: `constructor(public name: string)`). Isso é limitação de um
+  runtime, não desacordo entre dois, e o Bun já é canônico por esta mesma
+  lista. Antes disso esses ficheiros caíam em `bun_node_diverge` e o RTS
+  nunca era medido neles: oito falhas reais estavam escondidas atrás de um
+  problema do medidor.
+- **Os três runtimes correm em `TZ=UTC`**, exportado pelo script. O RTS não
+  tem base de fusos e não vai ter — a hora local dele *é* UTC, e está escrito
+  em `crates/rts-core/src/entry/date/mod.rs`. Sem isso, uma máquina em -03:00
+  faz a pasta `date/` inteira divergir por três horas e o que se mede é o fuso
+  do medidor. A divergência real que isto não esconde: um programa que pede
+  hora local noutro fuso continua a receber UTC — essa é a recusa, e está
+  documentada em vez de virar uma falha diferente a cada máquina.
 - CI roda em todo PR + schedule semanal. Em PR, **reporta mas não bloqueia**
   merge — divergências viram issues a fixar depois.
