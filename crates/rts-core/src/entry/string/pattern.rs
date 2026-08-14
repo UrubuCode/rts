@@ -269,6 +269,13 @@ fn produced(callee: u64, subject: &str, one: &Found) -> String {
 /// transfers here, and assuming either would be the mistake both of those
 /// measurements exist to prevent.
 extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a3: u64) -> u64 {
+    // Narrow subject, narrow literal separator: the pieces are slices of the
+    // subject until each becomes a cell, and none of the allocation below
+    // happens. `super::split` answers `None` for every other shape, which is
+    // why the rules stay stated once, here.
+    if let Some(array) = super::split::split(this, separator, limit) {
+        return array;
+    }
     let collected = with_current(|context| {
         let subject = text_of(context, this)?.to_rust()?;
         // No separator at all is the whole string as one piece — not every

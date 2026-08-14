@@ -34,6 +34,7 @@ mod basic;
 mod more;
 pub(in crate::entry) mod text;
 pub(super) mod pattern;
+mod split;
 
 use super::objects::undefined_of;
 use super::{Context, with_current};
