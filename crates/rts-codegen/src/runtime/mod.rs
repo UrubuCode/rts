@@ -247,6 +247,29 @@ pub enum RuntimeOp {
     /// all — see `rts-core`'s `entry/throw.rs`.
     Thrown,
 
+    /// An element of an array the LANGUAGE has already proved is one, at an
+    /// index it has already proved is a canonical integer in range.
+    ///
+    /// # Why this is not `GetIndexed` with a promise
+    ///
+    /// `GetIndexed` answers `o[k]` for any `o` and any `k`, and earns its cost
+    /// honestly: it asks whether the receiver is a proxy, whether the key is a
+    /// canonical index, whether the receiver is a typed array, a string, and
+    /// finally whether the key names a property. Every one of those questions
+    /// has an answer the caller could not have known.
+    ///
+    /// A desugared `for-of` knows all of them. The array is the copy `Iterate`
+    /// just answered — it cannot be a proxy, a string or a view, and nothing
+    /// can reach it to change that — and the index is the counter this compiler
+    /// minted, starting at zero and stopping at the length it read. So this
+    /// entry point asks none of them.
+    ///
+    /// Emitted ONLY where those facts are established by construction. It is
+    /// not reachable from an expression a program can write, which is what
+    /// keeps the promise from being a claim: `foreach.rs` is the single caller
+    /// and the proof is the desugaring itself.
+    ElementAt,
+
     /// Where this thread's throw flag lives, as a machine address.
     ///
     /// # Why the address and not the answer
@@ -665,6 +688,7 @@ impl RuntimeOp {
         RuntimeOp::ObjectSpread,
         RuntimeOp::KeyNumber,
         RuntimeOp::Thrown,
+        RuntimeOp::ElementAt,
         RuntimeOp::ThrownAddress,
         RuntimeOp::TakeThrown,
         RuntimeOp::RunningFunction,
@@ -751,6 +775,7 @@ impl RuntimeOp {
             RuntimeOp::KeyNumber => "__rts_key_number",
             RuntimeOp::Thrown => "__rts_thrown",
             RuntimeOp::ThrownAddress => "__rts_thrown_address",
+            RuntimeOp::ElementAt => "__rts_element_at",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::RunningFunction => "__rts_running_function",
             RuntimeOp::StringConst => "__rts_string_const",
@@ -865,6 +890,7 @@ impl RuntimeOp {
             // as a word takes the callee's leftover bits.
             RuntimeOp::Thrown => (vec![], vec![Repr::I64]),
             RuntimeOp::ThrownAddress => (vec![], vec![Repr::I64]),
+            RuntimeOp::ElementAt => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),
             RuntimeOp::RunningFunction => (vec![], vec![UNPROVEN]),
             // Which literal, not the text: an index the compilation minted.

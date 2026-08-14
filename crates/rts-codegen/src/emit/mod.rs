@@ -365,6 +365,12 @@ pub struct Ctx<'a> {
     /// back to the call, which is what a body with no entry block of its own
     /// gets. See `expr::raise_if_thrown`.
     thrown_flag: Option<rts_cranelift::ir::ValueId>,
+    /// The one `array[index]` pair a desugaring has PROVEN, while it is being
+    /// emitted.
+    ///
+    /// One pair and not a set, because the only producer is a `for-of` and it
+    /// proves exactly the pair it minted. See `Ctx::prove_element_read`.
+    proven_element: Option<(Name, Name)>,
 }
 
 impl<'a> Ctx<'a> {
@@ -400,6 +406,7 @@ impl<'a> Ctx<'a> {
             math_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
             thrown_flag: None,
+            proven_element: None,
         }
     }
 
@@ -486,6 +493,25 @@ impl<'a> Ctx<'a> {
     /// Forgets one, so the assertion does not outlive the construct.
     pub(super) fn forget_minted(&mut self, name: Name) {
         self.numeric.forget_minted(name);
+    }
+
+    /// Records that `array[index]` is an element of a PROVEN array at a PROVEN
+    /// canonical index, for as long as this is set.
+    ///
+    /// Set by `foreach.rs` around a desugared `for-of`, which established both
+    /// by construction — see `RuntimeOp::ElementAt`. Read by `expr.rs` when it
+    /// lowers an `Index`. Answers the previous pair so the caller restores it,
+    /// which nested loops need for the reason `prove_minted` needs it.
+    pub(super) fn prove_element_read(
+        &mut self,
+        pair: Option<(Name, Name)>,
+    ) -> Option<(Name, Name)> {
+        std::mem::replace(&mut self.proven_element, pair)
+    }
+
+    /// Whether this read is that pair.
+    pub(super) fn is_proven_element(&self, array: Name, index: Name) -> bool {
+        self.proven_element == Some((array, index))
     }
 
     /// What an annotation claims about a name, where nothing proved it.

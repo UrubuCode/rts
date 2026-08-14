@@ -145,6 +145,27 @@ pub fn emit_for_each(
     // destructure, through `destructure::declare`, so a `for-of` over a
     // pattern is this expansion with nothing extra — the same reasoning that
     // makes `for-in` an ordinary `for` in the first place.
+    // `ks[i]` as the operation that asks NOTHING, rather than as an ordinary
+    // computed read.
+    //
+    // `Index` lowers to `GetIndexed`, which earns its cost honestly for a
+    // program's own `o[k]`: is the receiver a proxy, is the key a canonical
+    // index, is the receiver a typed array, a string, or an object with a
+    // property under that name. Every one of those is a question the caller
+    // could not have answered.
+    //
+    // This caller answered all of them by CONSTRUCTION, and that is the whole
+    // of what compiling a program before it runs buys: `ks` is the copy
+    // `Iterate` just made — a fresh array nothing can name, so not a proxy, not
+    // a view, not a string — and `i` is the counter minted above, starting at
+    // zero and stopping at the length read off that same array. So the proof
+    // happens once, here, instead of per element forever.
+    //
+    // The tree still says `ks[i]`, because that is what it means. What changes
+    // is that the emitter is TOLD the pair is proven — `Ctx::prove_element_read`
+    // — and `expr.rs` reads that when it lowers an `Index`. Inventing a node
+    // for it would put a construct in the tree no program can write, and
+    // spelling it as a call to a name would invent a binding nothing declares.
     let element = Expr {
         kind: ExprKind::Index {
             object: Box::new(name(keys)),
@@ -208,6 +229,10 @@ pub fn emit_for_each(
     let length_was_proven = ctx.holds_number(length);
     ctx.prove_minted(index);
     ctx.prove_minted(length);
+    // And that `ks[i]` is an element of a proven array at a proven index — the
+    // one place in the compiler that can say so. Saved and restored for the
+    // same reason the two above are: nested loops share the spelling.
+    let outer_element = ctx.prove_element_read(Some((keys, index)));
     let result = emit_for(
         builder,
         scope,
@@ -219,6 +244,7 @@ pub fn emit_for_each(
         &inner,
         label,
     );
+    ctx.prove_element_read(outer_element);
     if !index_was_proven {
         ctx.forget_minted(index);
     }

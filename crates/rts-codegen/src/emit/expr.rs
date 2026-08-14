@@ -182,6 +182,18 @@ pub fn emit_expr(
             super::property::emit_read(builder, ctx, receiver, *property)
         }
         ExprKind::Index { object, index, .. } => {
+            // A read a DESUGARING proved: the receiver is an array it made and
+            // the index is a counter it minted, so none of the questions
+            // `GetIndexed` asks has an answer the caller did not already have.
+            // See `RuntimeOp::ElementAt`, and `foreach.rs` for the one producer.
+            if let (ExprKind::Ident(array), ExprKind::Ident(at)) = (&object.kind, &index.kind)
+                && ctx.is_proven_element(*array, *at)
+            {
+                let receiver = emit_expr(builder, scope, ctx, object)?;
+                let key = emit_expr(builder, scope, ctx, index)?;
+                let key = tagged(builder, key);
+                return Ok(call(builder, ctx, RuntimeOp::ElementAt, &[receiver, key])?[0]);
+            }
             // Receiver first, then the key: `a()[b()]` runs `a` before `b`.
             let receiver = emit_expr(builder, scope, ctx, object)?;
             // A key written as a literal is a key the COMPILER knows, so it can

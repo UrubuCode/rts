@@ -132,6 +132,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::Thrown => (CoreEntry::Thrown, {
             rts_core::entry::thrown as extern "C" fn() -> i64 as *const u8
         }),
+        RuntimeOp::ElementAt => (CoreEntry::ElementAt, {
+            rts_core::entry::element_at as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::ThrownAddress => (CoreEntry::ThrownAddress, {
             rts_core::entry::thrown_address as extern "C" fn() -> i64 as *const u8
         }),

@@ -65,6 +65,7 @@ use super::objects::{
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
 use super::generator::{GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
+use super::array::ELEMENT_AT_ENTRY;
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ADDRESS_ENTRY, THROWN_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
@@ -445,6 +446,9 @@ pub enum CoreEntry {
 
     /// Where this thread's throw flag lives, so a check is a load.
     ThrownAddress = 74,
+
+    /// An element of a proven array at a proven index.
+    ElementAt = 75,
 }
 
 /// How many entry points exist.
@@ -452,7 +456,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 75;
+pub const CORE_ENTRY_COUNT: usize = 76;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -532,6 +536,7 @@ impl CoreEntry {
         CoreEntry::MathRandom,
         CoreEntry::TemplateJoin,
         CoreEntry::ThrownAddress,
+        CoreEntry::ElementAt,
     ];
 
     /// The number a call site holds.
@@ -569,6 +574,7 @@ impl CoreEntry {
             CoreEntry::Thrown => THROWN_ENTRY,
             CoreEntry::TakeThrown => TAKE_THROWN_ENTRY,
             CoreEntry::ThrownAddress => THROWN_ADDRESS_ENTRY,
+            CoreEntry::ElementAt => ELEMENT_AT_ENTRY,
             CoreEntry::RunningFunction => RUNNING_FUNCTION_ENTRY,
             CoreEntry::GeneratorNew => GENERATOR_NEW_ENTRY,
             CoreEntry::GeneratorYield => GENERATOR_YIELD_ENTRY,
@@ -726,8 +732,15 @@ mod tests {
         // rule and not the heap one. It is also the same argument as the line
         // above — it exists so that a check stops being a crossing at all,
         // which is the list growing to shrink the number of calls.
+        // Moved to 76 on 2026-08-14 for `ElementAt`, and the question was
+        // answered again: it reads the heap, so it is not arithmetic. What is
+        // new is the REASON a second entry point exists for something
+        // `GetIndexed` already answers — it exists to ask FEWER questions,
+        // because the caller proved them while compiling. A list that grows so
+        // that a crossing does less work is the same argument as a list that
+        // grows so that there are fewer crossings.
         assert!(
-            CORE_ENTRY_COUNT <= 75,
+            CORE_ENTRY_COUNT <= 76,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

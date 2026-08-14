@@ -483,6 +483,52 @@ fn keys_of(object: u64, enumerable_only: bool) -> u64 {
     array
 }
 
+/// An element of an array the CALLER has already proved is one, at an index it
+/// has already proved is a canonical integer in range.
+///
+/// # What it does not ask, and why it may not ask it
+///
+/// `get_indexed` answers `o[k]` for any receiver and any key, and every
+/// question it asks is one the caller could not have answered: is the receiver
+/// a proxy, is the key a canonical index, is the receiver a typed array, a
+/// string, or an object with a property under that name.
+///
+/// The one caller here is `rts-codegen`'s `for-of` desugaring, and it knows all
+/// of them by CONSTRUCTION. The array is the copy `iterate` just answered — a
+/// fresh vector no program can name, so it is not a proxy, not a view and not a
+/// string — and the index is the counter the compiler minted, starting at zero
+/// and stopping at the length it read off that same array. There is nothing
+/// left to establish.
+///
+/// This is the whole of what a compiler that owns the program can do that one
+/// guessing cannot: the proof happens once, while compiling, instead of per
+/// element, forever.
+///
+/// # What it still does
+///
+/// Maps a hole to `undefined`, because `iterate` copies elements verbatim and
+/// `for (const x of [1, , 3])` yields three values of which the middle is
+/// `undefined`. And answers `undefined` for anything it cannot reach, rather
+/// than trusting the caller further than the code can check: a receiver that is
+/// somehow not an array, or an index somehow past the end, gets the answer an
+/// absent element has instead of a read of whatever was there.
+#[rtse::entry]
+pub fn element_at(array: u64, index: u64) -> u64 {
+    with_current(|context| {
+        let at = Value(index).numeric().unwrap_or(-1.0);
+        let Some(cell) = Value(array).as_slot() else {
+            return undefined_of(context);
+        };
+        let Some(elements) = context.elements_at(cell) else {
+            return undefined_of(context);
+        };
+        let Some(held) = elements.get(at as usize).copied() else {
+            return undefined_of(context);
+        };
+        visible(context, held)
+    })
+}
+
 /// Writes an array's `length` as an ordinary property.
 ///
 /// # Why a real property and not an answer the runtime invents
