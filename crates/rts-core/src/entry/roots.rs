@@ -228,6 +228,36 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
 /// it. It is not done here** because doing it here would put an OS call in a
 /// crate whose whole membership rule is not needing one — it belongs beside
 /// wherever `alloc`'s collection trigger ends up calling from.
+///
+/// # The callee-saved registers: tried to break it, could not
+///
+/// The precedent above lists "callee-saved registers captured before the scan"
+/// beside the stack walk, and this does not capture them. On 2026-08-14 that
+/// was treated as the leading suspect for a real bug — values disappearing
+/// mid-call — and it was **wrong twice over**, which is worth recording so the
+/// next reader does not spend the same day.
+///
+/// It was not the cause of that bug: the values were lost in NATIVE frames,
+/// holding a raw cell index or a `Vec` on the Rust heap, and the fixes are
+/// `functions::closure_new`'s `external::hold` and [`super::rooted`].
+///
+/// And no case for it was found afterwards. Two programs written to break it —
+/// eight live objects held across forty allocating calls, and six held across
+/// calls that allocate strings and arrays, both read back after — answered
+/// correctly, release, every run. A plausible mechanism for why: a call
+/// clobbers the volatile registers, so anything live across one is already in
+/// the frame this walk reads, and what a callee keeps in a callee-saved
+/// register it pushed in its own prologue — onto the same stack.
+///
+/// That is **absence of a failing case, not a proof**, and the flush stays
+/// unwritten on those grounds rather than on the grounds that it is
+/// unnecessary. A program that breaks it makes it necessary again.
+///
+/// The same date settled the other half: `rts_cranelift::gc::describe_frames`
+/// is the right architecture for a COMPILED frame and would not have fixed any
+/// of the four bugs found, because none of them was in one. The two paragraphs
+/// at the top of this module already say the precise pipeline "could never
+/// describe" a Rust or foreign frame; those frames are where the bugs were.
 pub unsafe fn scan_stack(low: usize, high: usize) -> Vec<Slot> {
     if high <= low {
         return Vec::new();
