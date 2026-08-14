@@ -683,17 +683,23 @@ fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
         ExprKind::Unary { op, operand } => match op {
             // `+x` is `x * 1`, through `emit_binary`'s `Mul` — which IS in
             // `proven_binary`, so a proven `F64` operand keeps its
-            // representation. `-x` is not: `emit_unary`'s `UnaryOp::Negate`
-            // always calls `RuntimeOp::Negate` and always returns
-            // `Repr::Tagged`, deliberately, because `x * -1` is wrong for a
-            // bigint. There is no proven fast path here for it to fall back
-            // on, unlike `%` above — so claiming this arm proved a name
-            // reassigned through `-x` is the same false claim `arithmetic`
-            // made about `%`, and `sign = -sign` in a loop hit it exactly the
-            // same way: `stored` trusted the proof, skipped widening a
-            // `Repr::Tagged` value, and the back edge failed
+            // representation.
+            //
+            // `-x` was NOT, and this arm said so at length: `emit_unary` always
+            // called `RuntimeOp::Negate` and always answered `Repr::Tagged`,
+            // because `x * -1` is wrong for a bigint. Claiming the arm then
+            // would have been the false claim `arithmetic` made about `%`, and
+            // `sign = -sign` in a loop hit it: `stored` trusted the proof,
+            // skipped the widening, and the back edge failed
             // `ImplicitNarrowing` against the header's `Repr::F64` parameter.
-            UnaryOp::Plus => is_numeric(operand, known),
+            //
+            // What changed is the emission, not the argument. `emit_unary` now
+            // emits `FloatOp::Neg` when the operand is already `Repr::F64` —
+            // a sign flip, not a multiply — and a bigint cannot be behind that
+            // proof. So the fast path this arm needed exists, and the claim is
+            // exactly as strong as the one `+x` makes: it holds where
+            // `is_numeric` holds, and the call answers everywhere else.
+            UnaryOp::Plus | UnaryOp::Negate => is_numeric(operand, known),
             _ => false,
         },
 

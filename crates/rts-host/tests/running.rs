@@ -4780,3 +4780,30 @@ fn values_a_native_is_still_accumulating_survive_a_collection() {
         "every object the map produced was still itself when the map finished"
     );
 }
+
+#[test]
+fn negating_a_proven_double_is_a_sign_flip_and_still_answers_what_the_language_says() {
+    // `-x` had no proven form at all: `emit_unary` always called the runtime,
+    // on the grounds that `x * -1` is wrong for a bigint. That argument is
+    // about the MULTIPLY. A sign flip over a value already proven `Repr::F64`
+    // cannot be reached by a bigint — the proof is what rules it out — so
+    // `FloatOp::Neg` is emitted there and the call stays for everything else.
+    //
+    // The corners a sign flip must not get wrong, all in one program: `-0` is
+    // not `0` under `Object.is` but is under `===`, double negation is the
+    // identity, and a bigint still negates as a bigint rather than as `NaN`.
+    let produced = run(
+        "let sign = 1.0; let s = 0.0; \
+         for (let i = 0; i < 6; i++) { sign = -sign; s = s + sign * i; } \
+         const zero = -0; \
+         const ok = s === 3 \
+           && (zero === 0) \
+           && Object.is(zero, -0) \
+           && !Object.is(zero, 0) \
+           && -(-5) === 5 \
+           && (-(2n) === -2n) \
+           && Object.is(-(0.0), -0); \
+         return ok ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}

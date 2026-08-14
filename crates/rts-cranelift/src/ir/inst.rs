@@ -69,6 +69,14 @@ pub enum FloatOp {
     Trunc,
     /// Magnitude, sign cleared.
     Abs,
+    /// The sign bit flipped.
+    ///
+    /// One instruction on every target here, and NOT the same as multiplying by
+    /// `-1`: a product is an operation over two values whose representations
+    /// both have to be established, and it is wrong for anything that is not a
+    /// double. This flips a bit of a proven float and does nothing else, which
+    /// is why it belongs beside `Abs` — the operation that clears the same bit.
+    Neg,
 }
 
 /// Bitwise operations over proven integers.

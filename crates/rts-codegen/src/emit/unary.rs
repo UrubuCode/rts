@@ -61,8 +61,20 @@ pub fn emit_unary(
         // wrong for a bigint: `-1` is a NUMBER, so the product is a mixed
         // operation the language refuses — which made every negative bigint
         // literal `NaN`, silently.
+        //
+        // That argument is about the MULTIPLY, and it was taken to mean this
+        // operator has no proven form at all — `proven.rs` says so in as many
+        // words, and `sign = -sign` in a loop paid a runtime call every pass
+        // because of it. A sign flip over a value already proven to be a double
+        // is neither a multiply nor reachable by a bigint: `Repr::F64` is the
+        // proof that the operand is not one. So the instruction is emitted
+        // there and the call stays for everything else.
         UnaryOp::Negate => {
             let value = emit_expr(builder, scope, ctx, operand)?;
+            if builder.repr_of(value) == rts_cranelift::repr::Repr::F64 {
+                let flipped = builder.float_unary(rts_cranelift::ir::FloatOp::Neg, value)?;
+                return Ok(flipped);
+            }
             Ok(expr::call(builder, ctx, RuntimeOp::Negate, &[value])?[0])
         }
 

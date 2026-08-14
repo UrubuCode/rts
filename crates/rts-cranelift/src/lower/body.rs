@@ -259,6 +259,7 @@ impl<'a> Body<'a> {
                     crate::ir::FloatOp::Ceil => builder.ins().ceil(raw),
                     crate::ir::FloatOp::Trunc => builder.ins().trunc(raw),
                     crate::ir::FloatOp::Abs => builder.ins().fabs(raw),
+                    crate::ir::FloatOp::Neg => builder.ins().fneg(raw),
                 }
             }
 
