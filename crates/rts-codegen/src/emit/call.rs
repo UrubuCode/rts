@@ -349,15 +349,10 @@ pub(super) fn issue(
     values: &[ValueId],
 ) -> EmitResult<ValueId> {
     if values.len() > ARGUMENT_SLOTS {
-        let length = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-            repr: rts_cranelift::repr::Repr::I64,
-            bits: rts_cranelift::ir::ScalarBits(0),
-        });
-        let length = builder.use_const(length);
-        let vector = expr::call(builder, ctx, RuntimeOp::ArrayNew, &[length])?[0];
-        for value in values {
-            expr::call(builder, ctx, RuntimeOp::ArrayAppend, &[vector, *value])?;
-        }
+        // Through the shared list builder: the first four go in one crossing
+        // and the rest are appended, where this was one crossing to make the
+        // array and one per value. See `expr::value_list`.
+        let vector = expr::value_list(builder, ctx, values)?;
         return Ok(expr::call(
             builder,
             ctx,
@@ -433,6 +428,21 @@ pub(super) fn emit_argument_vector(
     ctx: &mut Ctx,
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
+    // No spread: every value is one element, the count is known while
+    // compiling, and the shared list builder puts the first four in one
+    // crossing. `g(1, 2, 3, 4, 5, 6)` was `ArrayNew` plus six appends — seven
+    // crossings for a call — and is three.
+    if !has_spread(arguments) {
+        let mut values = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            let crate::syntax::Spreadable::Single(value) = argument else {
+                unreachable!("no argument is a spread on this path")
+            };
+            values.push(emit_expr(builder, scope, ctx, value)?);
+        }
+        return expr::value_list(builder, ctx, &values);
+    }
+
     // Started empty and appended to, rather than sized once and written at
     // fixed indices: a spread contributes a count nothing knows while
     // compiling, so every index after one is unknown too.

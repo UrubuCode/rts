@@ -1148,6 +1148,77 @@ pub(super) fn tagged(builder: &mut FuncBuilder, value: ValueId) -> ValueId {
     builder.widen(value)
 }
 
+/// An array holding values the emitter already has, in as few crossings as it
+/// can.
+///
+/// # Why this exists beside the array literal's own fast path
+///
+/// Because the same list is built in three places — an array literal past four
+/// elements, the argument vector of a call with more arguments than the
+/// convention carries, and the same vector for `new` — and only the first had
+/// the fast path. The other two paid one crossing to make the array and one
+/// more per value: eight for a six-argument call, each a thread-local, a
+/// `RefCell` borrow and a bounds decision, to store values this compiler had
+/// already produced.
+///
+/// # What the measurement said, and what it changed about this
+///
+/// The first draft put the first four through `ArrayOf` and APPENDED the rest,
+/// on the reasoning that fewer crossings is faster. It is not: an eight-element
+/// array literal went from 293/303/307 ns to 493/493/507 — **65% worse** — and
+/// the literal's own path had been doing the right thing all along. An append
+/// grows the element store and reconciles `length` every time; `ArrayNew(n)`
+/// sizes it ONCE and every write lands in place.
+///
+/// So the rule here is the repository's own, arrived at from the other side:
+/// **born at the size it will reach**, not walked up to. Four or fewer is one
+/// crossing through `ArrayOf`, which is presized by construction; past that it
+/// is `ArrayNew(n)` and a write per element, which is exactly what an array
+/// literal emits and what measured best.
+///
+/// Takes values rather than expressions on purpose: a caller that has to
+/// evaluate in source order has already done so, and one that has a value the
+/// program never wrote has no expression to give.
+pub(super) fn value_list(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    values: &[ValueId],
+) -> EmitResult<ValueId> {
+    let size = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I64,
+        bits: ScalarBits(values.len() as u64),
+    });
+    let size = builder.use_const(size);
+
+    if values.len() <= 4 {
+        // Padding for the slots the count says are not real. Tagged rather
+        // than `I64`, because the signature says so and a raw integer there
+        // fails to widen — which is what the machine answered when the
+        // literal's own path was written.
+        let absent = builder.declare_const(ConstDecl::Scalar {
+            repr: UNPROVEN,
+            bits: ScalarBits(0),
+        });
+        let mut args = Vec::with_capacity(5);
+        args.push(size);
+        for value in values {
+            args.push(tagged(builder, *value));
+        }
+        while args.len() < 5 {
+            args.push(builder.use_const(absent));
+        }
+        return Ok(call(builder, ctx, RuntimeOp::ArrayOf, &args)?[0]);
+    }
+
+    let array = call(builder, ctx, RuntimeOp::ArrayNew, &[size])?[0];
+    for (position, value) in values.iter().enumerate() {
+        let value = tagged(builder, *value);
+        let at = number_constant(builder, position as f64);
+        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value])?;
+    }
+    Ok(array)
+}
+
 /// What a proven pair of doubles turns an operator into.
 enum Proven {
     /// A machine arithmetic instruction.
