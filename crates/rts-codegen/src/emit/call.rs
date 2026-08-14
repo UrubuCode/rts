@@ -52,6 +52,13 @@ pub fn emit_call(
         return Ok(value);
     }
 
+    // No call at all, when the whole program proves which function this is and
+    // that function is one expression. Asked before the callee is emitted:
+    // reading the name would be the one piece of the call this removes.
+    if let Some(value) = super::inline::emit_substituted(builder, scope, ctx, callee, arguments)? {
+        return Ok(value);
+    }
+
     // The receiver and the callee, in the order the language evaluates them:
     // the member expression first, then the arguments.
     let (receiver, function) = callee_and_receiver(builder, scope, ctx, callee)?;

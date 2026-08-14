@@ -4663,3 +4663,61 @@ fn proven_dot_rs_try_catch_bug_class_a_var_reassigned_inside_try_is_not_wrongly_
     );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
+
+#[test]
+fn a_call_emitted_as_its_callee_s_body_still_evaluates_its_arguments_once_and_in_order() {
+    // The one thing a substitution can break that a call cannot: an argument is
+    // an expression, and binding a parameter to it twice would run it twice.
+    // `emit/inline.rs` emits every argument before it binds anything, so the
+    // counter here answers 1 rather than 2 — and the order is pinned as well,
+    // because the second argument's side effect must happen after the first's.
+    let produced = run(
+        "function pick(a, b) { return a * 10 + b; } \
+         let log = ''; \
+         function step(c) { log = log + c; return c === 'x' ? 1 : 2; } \
+         const answered = pick(step('x'), step('y')); \
+         return answered === 12 && log === 'xy' ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn a_function_a_call_site_substitutes_is_still_a_value_the_program_can_pass_around() {
+    // Substituting at the call site must not remove the function: `id` is
+    // called directly AND handed to `map`, and only the first of those is a
+    // call site at all. A version that treated the proof as permission to stop
+    // emitting the declaration would fail here rather than merely be slower.
+    let produced = run(
+        "function id(x) { return x; } \
+         return id(7) === 7 && [1, 2, 3].map(id).length === 3 ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn a_parameter_of_a_substituted_body_shadows_a_caller_local_of_the_same_spelling() {
+    // The hazard the substitution introduces, since the body is emitted in the
+    // CALLER's scope: `x` in the callee is the argument, never the caller's own
+    // `x`. Bound in a scope layer of its own for exactly this, and the answer
+    // 9 rather than 1000 is what says the layer is there.
+    let produced = run(
+        "function twice(x) { return x + x; } \
+         let x = 500; \
+         return twice(4.5) === 9 ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn a_name_declared_twice_is_never_substituted_from_the_wrong_declaration() {
+    // The whole-program condition, as a program that would give a wrong answer
+    // without it: the inner `size` shadows the outer one, so a call inside
+    // `wrapped` must reach the inner function. `inline::declarations_of`
+    // counts two declarations and refuses the candidate outright.
+    let produced = run(
+        "function size(v) { return v + 1; } \
+         function wrapped() { function size(v) { return v + 100; } return size(1); } \
+         return wrapped() === 101 ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}

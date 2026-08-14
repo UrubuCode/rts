@@ -68,6 +68,7 @@ mod for_await;
 mod foreach;
 mod function;
 mod globals;
+mod inline;
 mod loops;
 mod merge;
 mod module;
@@ -348,6 +349,13 @@ pub struct Ctx<'a> {
     /// `primordial`. False is the safe answer and the default: a program this
     /// has not been computed for gets the call it has always got.
     math_primordial: bool,
+    /// Which functions a call site may emit as their own body.
+    ///
+    /// Whole-program and computed before anything is emitted, like
+    /// `math_primordial` and for the same reason: whether a name still refers
+    /// to the function it was declared as is a fact about the entire tree, and
+    /// nothing smaller than that can answer it without guessing. See `inline`.
+    inlinable: std::collections::BTreeMap<Name, std::rc::Rc<inline::Inlinable>>,
 }
 
 impl<'a> Ctx<'a> {
@@ -381,7 +389,24 @@ impl<'a> Ctx<'a> {
             class_fields: types::Classes::default(),
             globals: std::collections::BTreeSet::new(),
             math_primordial: false,
+            inlinable: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// The function a plain call to `name` may be emitted as, if there is one.
+    ///
+    /// Answers an `Rc` rather than a reference because the body is emitted with
+    /// this same context borrowed mutably — the shared handle is what lets the
+    /// callee's expression outlive the lookup without copying the tree at every
+    /// call site.
+    pub(in crate::emit) fn inlinable(&self, name: Name) -> Option<std::rc::Rc<inline::Inlinable>> {
+        self.inlinable.get(&name).cloned()
+    }
+
+    /// Whether the body being emitted replaced an object of this name with
+    /// plain bindings.
+    pub(super) fn flattens(&self, name: Name) -> bool {
+        self.flattened.properties(name).is_some()
     }
 
     /// The number a property name has.
@@ -600,6 +625,9 @@ pub fn emit_program_with_exports(
     let math = ctx.names.intern("Math");
     let eval_name = ctx.names.intern("eval");
     ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
+    // The same shape of proof, one level up: which small functions a call site
+    // may emit as their own body rather than calling. See `inline`.
+    ctx.inlinable = inline::candidates(body, eval_name, global_this);
 
     let nothing = Scope::new();
     let mut emitted = function::emit_body(
@@ -736,6 +764,9 @@ fn emit_unit(
     let math = ctx.names.intern("Math");
     let eval_name = ctx.names.intern("eval");
     ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
+    // The same shape of proof, one level up: which small functions a call site
+    // may emit as their own body rather than calling. See `inline`.
+    ctx.inlinable = inline::candidates(body, eval_name, global_this);
     let nothing = Scope::new();
     let mut emitted = function::emit_body(
         ctx,
