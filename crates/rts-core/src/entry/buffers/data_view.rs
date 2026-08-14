@@ -27,7 +27,7 @@ use crate::entry::objects::undefined_of;
 use crate::value::Value;
 
 /// `DataView`.
-#[rtse::class("DataView")]
+#[rtse::class("DataView", tag)]
 impl DataView {
     /// `new DataView(buffer, byteOffset?, byteLength?)`.
     ///

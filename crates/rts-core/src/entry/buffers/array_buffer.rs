@@ -10,7 +10,7 @@ use crate::entry::objects::undefined_of;
 use crate::value::Value;
 
 /// `ArrayBuffer`.
-#[rtse::class("ArrayBuffer")]
+#[rtse::class("ArrayBuffer", tag)]
 impl ArrayBuffer {
     /// `new ArrayBuffer(byteLength)`.
     ///

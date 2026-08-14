@@ -26,7 +26,7 @@ use crate::entry::objects;
 use crate::value::Value;
 
 /// `Atomics`.
-#[rtse::class("Atomics", namespace)]
+#[rtse::class("Atomics", namespace, tag)]
 impl Atomics {
     /// `Atomics.load(view, index)`.
     fn load(view: u64, index: f64) -> u64 {

@@ -27,7 +27,7 @@ use crate::entry::objects;
 use crate::value::Value;
 
 /// `SharedArrayBuffer`.
-#[rtse::class("SharedArrayBuffer")]
+#[rtse::class("SharedArrayBuffer", tag)]
 impl SharedArrayBuffer {
     /// `new SharedArrayBuffer(byteLength)` — bytes, exactly like `ArrayBuffer`;
     /// see the module doc for what "shared" does not mean here.

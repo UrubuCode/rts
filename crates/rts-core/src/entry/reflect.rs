@@ -29,7 +29,7 @@ use super::with_current;
 
 
 /// `Reflect`.
-#[rtse::class("Reflect", namespace)]
+#[rtse::class("Reflect", namespace, tag)]
 impl Reflect {
     /// `Reflect.get(target, key)` — the same read `target[key]` performs.
     fn get(target: u64, key: u64) -> u64 {

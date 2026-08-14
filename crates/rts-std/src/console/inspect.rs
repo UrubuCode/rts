@@ -227,9 +227,15 @@ fn object(value: u64, depth: u32, ancestors: &mut Vec<u32>, slot: u32) -> Result
     if depth > MAX_DEPTH {
         return Ok("[Object]".to_owned());
     }
+    // O nome da CLASSE, que Node e Bun imprimem antes das chaves:
+    // `class Test {}` mostra `Test { x: 1 }` e nao `{ x: 1 }`. Lido do
+    // `constructor` do objeto, que e a unica coisa que o distingue de um
+    // literal — e por isso nao ha lista de nomes em lado nenhum: uma classe
+    // escrita pelo programa responde igual a uma classe do motor.
+    let label = label_of(value)?;
     let keys = keys_of(value)?;
     if keys.is_empty() {
-        return Ok("{}".to_owned());
+        return Ok(format!("{label}{{}}"));
     }
     ancestors.push(slot);
     let mut entries = Vec::with_capacity(keys.len());
@@ -245,7 +251,39 @@ fn object(value: u64, depth: u32, ancestors: &mut Vec<u32>, slot: u32) -> Result
         entries.push(format!("{name}: {printed}"));
     }
     ancestors.pop();
-    Ok(format!("{{ {} }}", entries.join(", ")))
+    Ok(format!("{label}{{ {} }}", entries.join(", ")))
+}
+
+/// `"Test "` for an instance of `class Test`, and nothing at all for a plain
+/// object.
+///
+/// The trailing space belongs to the label rather than to the caller, so the
+/// empty case is genuinely empty and `{}` does not become ` {}`.
+///
+/// Read through `constructor`, which a program can change — and that is the
+/// right behaviour rather than a hazard: an object whose `constructor` was
+/// reassigned prints what it now claims to be, which is what Node does.
+fn label_of(value: u64) -> Result<String, Poisoned> {
+    let constructor = get_property(value, well_known("constructor"));
+    if poisoned() {
+        return Err(Poisoned);
+    }
+    if as_slot(constructor).is_none() {
+        // No constructor at all — an object with a null prototype. Node writes
+        // `[Object: null prototype]`; this writes nothing, which is the same
+        // shape as a plain object and the narrower claim.
+        return Ok(String::new());
+    }
+    let name = get_property(constructor, well_known("name"));
+    if poisoned() {
+        return Err(Poisoned);
+    }
+    match entry::text_of(name) {
+        // `Object` is the plain case and prints bare, which is what makes
+        // `{ a: 1 }` look like what was written.
+        Some(text) if text != "Object" && !text.is_empty() => Ok(format!("{text} ")),
+        _ => Ok(String::new()),
+    }
 }
 
 /// `Object.keys(value)`, read back out of the array `own_keys` answers.

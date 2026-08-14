@@ -35,7 +35,7 @@ use crate::entry::objects::undefined_of;
 use crate::value::Value;
 
 /// `WeakMap`.
-#[rtse::class("WeakMap")]
+#[rtse::class("WeakMap", tag)]
 impl WeakMap {
     /// `new WeakMap(iterable?)` — an array of `[key, value]` pairs.
     #[construct]
@@ -109,7 +109,7 @@ impl WeakMap {
 }
 
 /// `WeakSet`.
-#[rtse::class("WeakSet")]
+#[rtse::class("WeakSet", tag)]
 impl WeakSet {
     /// `new WeakSet(iterable?)`.
     #[construct]

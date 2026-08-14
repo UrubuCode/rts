@@ -84,7 +84,7 @@ pub(in crate::entry) fn install_with_arity(context: &mut Context, cell: u32, nat
 /// Writes `.name` on a callable — a real property, per the specification's own
 /// `SetFunctionName`, so `fn.name` reads the same whether `fn` is a built-in or
 /// a declared one.
-fn name_of(context: &mut Context, callable: u64, name: &str) {
+pub(in crate::entry) fn name_of(context: &mut Context, callable: u64, name: &str) {
     if let Some(cell) = Value(callable).as_slot() {
         let key = context.well_known("name");
         let value = context.intern_value(Str::from_str(name)).bits();

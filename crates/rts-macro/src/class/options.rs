@@ -28,9 +28,20 @@ pub(super) struct Options {
     /// answer that is populated in an order this expansion cannot see. A path
     /// is checked by the compiler in the same edit.
     pub(super) extends: Option<Path>,
+    /// Whether `@@toStringTag` is installed, and so what
+    /// `Object.prototype.toString` answers for an instance.
+    ///
+    /// Opt-in, and the language is why: the legacy built-ins — `Array`,
+    /// `Function`, `Error`, `Boolean`, `Number`, `String`, `Date`, `RegExp` —
+    /// are tagged by a table inside `Object.prototype.toString` and carry NO
+    /// such property, so `Date.prototype[Symbol.toStringTag]` is `undefined`.
+    /// Everything added since ES6 carries one. Defaulting to installed would
+    /// put a property on eight prototypes that a real engine does not have.
+    pub(super) tag: bool,
 }
 
-/// Reads `("Name")`, `("Name", namespace)` and `("Name", extends = path)`.
+/// Reads `("Name")`, `("Name", namespace)`, `("Name", extends = path)` and
+/// `("Name", tag)`.
 pub(super) fn parse_options(args: TokenStream) -> syn::Result<Options> {
     let span = args.span();
     // A `macro_rules!` metavariable arrives wrapped in an invisible group, and
@@ -63,12 +74,16 @@ pub(super) fn parse_options(args: TokenStream) -> syn::Result<Options> {
         name: name.value(),
         flavour: Flavour::Class,
         extends: None,
+        tag: false,
     };
 
     for part in parts {
         match part {
             Expr::Path(path) if path.path.is_ident("namespace") => {
                 options.flavour = Flavour::Namespace;
+            }
+            Expr::Path(path) if path.path.is_ident("tag") => {
+                options.tag = true;
             }
             Expr::Assign(assign) => {
                 let Expr::Path(left) = assign.left.as_ref() else {
@@ -89,7 +104,7 @@ pub(super) fn parse_options(args: TokenStream) -> syn::Result<Options> {
             other => {
                 return Err(syn::Error::new(
                     other.span(),
-                    "the options are `namespace` and `extends = path`",
+                    "the options are `namespace`, `tag` and `extends = path`",
                 ));
             }
         }

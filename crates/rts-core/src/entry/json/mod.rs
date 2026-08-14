@@ -86,7 +86,7 @@ use crate::value::Value;
 pub(super) const DEPTH: usize = 512;
 
 /// `JSON`.
-#[rtse::class("JSON", namespace)]
+#[rtse::class("JSON", namespace, tag)]
 impl Json {
     /// `JSON.stringify(value, replacer, space)`.
     ///

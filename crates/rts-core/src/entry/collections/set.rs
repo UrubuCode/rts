@@ -24,7 +24,7 @@ use crate::entry::objects::undefined_of;
 use crate::value::Value;
 
 /// `Set`.
-#[rtse::class("Set")]
+#[rtse::class("Set", tag)]
 impl Set {
     /// `new Set(iterable?)` — from an array or a string, today.
     #[construct]

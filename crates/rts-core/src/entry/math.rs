@@ -106,7 +106,7 @@ fn folded(values: &[u64], identity: f64, better: fn(f64, f64) -> f64) -> f64 {
 }
 
 /// `Math`.
-#[rtse::class("Math", namespace)]
+#[rtse::class("Math", namespace, tag)]
 impl Math {
     /// The base of the natural logarithm.
     const E: f64 = consts::E;

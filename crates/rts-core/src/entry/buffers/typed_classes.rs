@@ -56,7 +56,7 @@ fn per_element(context: &mut Context, made: u64, size: f64) {
 macro_rules! declare {
     ($($ty:ident, $generated:ident, $wrapper:ident, $js:literal, $kind:expr, $size:literal;)+) => {
         $(
-            #[rtse::class($js)]
+            #[rtse::class($js, tag)]
             impl $ty {
                 /// How wide one element is. Also on the constructor — see
                 /// [`per_element`].

@@ -34,7 +34,7 @@ use crate::entry::objects;
 use crate::value::Value;
 
 /// `WeakRef`.
-#[rtse::class("WeakRef")]
+#[rtse::class("WeakRef", tag)]
 impl WeakRef {
     /// `new WeakRef(target)`.
     #[construct]

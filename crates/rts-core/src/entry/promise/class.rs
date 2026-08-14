@@ -15,7 +15,7 @@ use crate::entry::with_current;
 use crate::value::Value;
 
 /// `Promise`.
-#[rtse::class("Promise")]
+#[rtse::class("Promise", tag)]
 impl Promise {
     /// `new Promise(executor)`.
     ///

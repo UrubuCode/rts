@@ -247,34 +247,6 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
 /// the wrapper-object work put beside the cell, and `Date` by the property
 /// its own module already uses in place of an internal slot — see
 /// [`super::date`]'s module documentation for why that property exists.
-/// The classes whose instances the language tags by name.
-///
-/// `Object.prototype.toString.call(new Map())` is `"[object Map]"`, and every
-/// one of these answered `"[object Object]"` before. The order is only the
-/// order they are tried in: no cell reaches two of these prototypes.
-const TAGGED_CLASSES: &[&str] = &[
-    "Map",
-    "Set",
-    "WeakMap",
-    "WeakSet",
-    "WeakRef",
-    "Promise",
-    "ArrayBuffer",
-    "SharedArrayBuffer",
-    "DataView",
-    "Int8Array",
-    "Uint8Array",
-    "Uint8ClampedArray",
-    "Int16Array",
-    "Uint16Array",
-    "Int32Array",
-    "Uint32Array",
-    "Float32Array",
-    "Float64Array",
-    "BigInt64Array",
-    "BigUint64Array",
-];
-
 fn object_tag(context: &mut Context, this: u64) -> &'static str {
     if this == Value::from_singleton(context.singletons.undefined).bits() {
         return "Undefined";
@@ -308,16 +280,6 @@ fn object_tag(context: &mut Context, this: u64) -> &'static str {
     }
     if context.regexp_at(cell).is_some() {
         return "RegExp";
-    }
-    // As colecoes, as promessas e as vistas tipadas respondiam "Object", que e
-    // o que sobra quando nada na tabela as reconhece. Perguntado pela cadeia de
-    // prototipos, que e o que a linha do `Error` logo abaixo ja faz — e nao por
-    // uma propriedade instalada em quinze prototipos, que seria quinze sitios a
-    // manter de acordo.
-    for name in TAGGED_CLASSES {
-        if extends_class(context, cell, name) {
-            return name;
-        }
     }
     let time_key = Key::Name(
         context

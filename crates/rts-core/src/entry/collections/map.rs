@@ -11,7 +11,7 @@ use crate::entry::objects::undefined_of;
 use crate::value::Value;
 
 /// `Map`.
-#[rtse::class("Map")]
+#[rtse::class("Map", tag)]
 impl Map {
     /// `new Map(iterable?)`.
     ///

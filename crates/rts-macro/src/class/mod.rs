@@ -128,7 +128,7 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
     }
 
     let body = match options.flavour {
-        Flavour::Namespace => namespace_body(name, &natives, &constants_name),
+        Flavour::Namespace => namespace_body(name, &natives, &constants_name, options.tag),
         Flavour::Class => class_body(
             name,
             &natives,
@@ -138,6 +138,7 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             construct.as_ref(),
             options.extends.as_ref(),
             &prefix,
+            options.tag,
         ),
     };
 
@@ -222,7 +223,9 @@ fn namespace_body(
     name: &str,
     natives: &syn::Ident,
     constants: &syn::Ident,
+    tag: bool,
 ) -> TokenStream {
+    let tagged = tagging(name, quote!(cell), tag);
     quote! {
         if let Some(made) = crate::entry::class_support::made(context, #name) {
             return made;
@@ -238,6 +241,7 @@ fn namespace_body(
         crate::entry::class_support::record(context, #name, object, object, Some("rts-core::class"));
         crate::entry::native::install(context, cell, #natives);
         crate::entry::class_support::constants(context, cell, #constants);
+        #tagged
         object
     }
 }
@@ -252,7 +256,9 @@ fn class_body(
     construct: Option<&syn::Ident>,
     extends: Option<&Path>,
     prefix: &str,
+    tag: bool,
 ) -> TokenStream {
+    let tagged = tagging(name, quote!(prototype_cell), tag);
     // A class with no constructor of its own still has to be callable, because
     // `new C()` runs one. The default keeps the object `construct` made, which
     // is what a JavaScript constructor with an empty body does.
@@ -312,6 +318,10 @@ fn class_body(
         };
         let prototype = crate::value::Value::from_slot(prototype_cell).bits();
         let callable = crate::entry::native::callable(context, #code);
+        // `C.name` e uma propriedade real, como em qualquer funcao: sem ela
+        // `new Error("x").constructor.name` respondia vazio, e o inspetor do
+        // console nao tinha como rotular uma instancia.
+        crate::entry::native::name_of(context, callable, #name);
         // Before installing anything, for the reason the namespace body states:
         // installing interns, interning allocates, and an allocation can reach
         // back here.
@@ -329,9 +339,35 @@ fn class_body(
         let key = context.well_known("constructor");
         crate::entry::objects::put(context, prototype_cell, key, callable);
 
+        #tagged
         #inherit
 
         callable
+    }
+}
+
+/// `X.prototype[Symbol.toStringTag] = "X"`, for a class that declares `tag`.
+///
+/// # Why the tag is a property and not a list inside `toString`
+///
+/// It was a list — twenty class names inside `Object.prototype.toString`, walked
+/// until one of their prototypes matched. That answered the same string for the
+/// built-ins and was wrong about the mechanism in three ways a program can see:
+/// `Map.prototype[Symbol.toStringTag]` read `undefined` where the language says
+/// `"Map"`, `Object.getOwnPropertySymbols(Map.prototype)` was empty, and every
+/// class added afterwards would have had to be remembered in a second place.
+///
+/// A property also gets inheritance for free, which the list only imitated: a
+/// subclass of `Map` answers `[object Map]` because it INHERITS the tag, not
+/// because a walk in the runtime recognised its parent.
+fn tagging(name: &str, cell: TokenStream, tag: bool) -> TokenStream {
+    if !tag {
+        return quote!();
+    }
+    quote! {
+        let key = context.well_known(concat!("@@toStringTag"));
+        let tag = context.intern_value(crate::text::Str::from_str(#name)).bits();
+        crate::entry::objects::put(context, #cell, key, tag);
     }
 }
 
