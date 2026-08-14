@@ -196,8 +196,24 @@ pub(in crate::entry) fn window_mut<'a>(
 /// name `ArrayBuffer`.
 pub(in crate::entry) fn new_buffer(context: &mut Context, length: usize) -> Option<u32> {
     let cell = super::native::plain(context)?;
-    register_array_buffer(context);
-    if let Some(prototype) = super::class_support::prototype(context, "ArrayBuffer") {
+    // ASKED first, registered only if the answer is no.
+    //
+    // `class_support`'s table is a `Vec` scanned by comparing class NAMES, and
+    // this paid two of those scans per buffer — one inside the registration's
+    // own idempotence check, one to read the prototype back — for a class that
+    // is already there on every allocation but the first.
+    //
+    // Registering is still what happens when it is genuinely absent, and that
+    // is not a nicety: `new Uint8Array(8)` in a program that never wrote the
+    // word `ArrayBuffer` has to work.
+    let prototype = match super::class_support::prototype(context, "ArrayBuffer") {
+        Some(found) => Some(found),
+        None => {
+            register_array_buffer(context);
+            super::class_support::prototype(context, "ArrayBuffer")
+        }
+    };
+    if let Some(prototype) = prototype {
         context.set_prototype(cell, prototype);
     }
     install_bytes(context, cell, length);

@@ -246,20 +246,53 @@ fn abandon(this: u64, value: u64) -> u64 {
 /// properties and calls back into this crate, all of which take the context —
 /// and a second borrow inside an `extern "C"` frame aborts the process rather
 /// than unwinding.
+///
+/// What one resumption needs from a parked generator, and nothing else.
+///
+/// `Copy`, which is the point: it leaves the borrow of the context behind by
+/// construction, without cloning the `Vec` a `FrameShape` carries. See
+/// [`resume`].
+#[derive(Clone, Copy)]
+struct Resuming {
+    /// The rewritten body, as an address.
+    code: u64,
+    /// The frame's cell.
+    frame: u32,
+    /// How wide the frame is.
+    slots: u32,
+    /// Where the resumed value is written.
+    resumed_field: u32,
+    /// Where a finished body left its answer, if it has one.
+    return_field: Option<u32>,
+}
+
 fn resume(cell: u32, sent: u64) -> u64 {
+    // The five SCALARS the resumption needs, not a clone of the whole state.
+    //
+    // `State` holds a `FrameShape`, which holds `param_fields: Vec<u32>` — so
+    // cloning it allocated on the Rust heap on every single `.next()`, to
+    // carry a list this function never reads. The clone was there to end the
+    // borrow before the body runs, which is required and is what `Resuming`
+    // keeps: it is `Copy`, so it leaves the borrow behind by construction.
     let entered = with_current(|context| {
         let state = context.generators.get(cell)?;
         if state.done {
             return None;
         }
-        let state = state.clone();
+        let resuming = Resuming {
+            code: state.code,
+            frame: state.frame,
+            slots: state.shape.slots,
+            resumed_field: state.shape.resumed_field,
+            return_field: state.shape.return_field,
+        };
         context.region.set_spanning_field(
-            state.frame,
-            state.shape.resumed_field,
-            state.shape.slots,
+            resuming.frame,
+            resuming.resumed_field,
+            resuming.slots,
             sent,
         );
-        Some(state)
+        Some(resuming)
     });
     let Some(state) = entered else {
         return with_current(|context| {
@@ -279,12 +312,11 @@ fn resume(cell: u32, sent: u64) -> u64 {
             // Whatever the body left where it returns. A generator that falls off
             // its end returns nothing, and `undefined` is what that means.
             true => state
-                .shape
                 .return_field
                 .and_then(|field| {
                     context
                         .region
-                        .spanning_field(state.frame, field, state.shape.slots)
+                        .spanning_field(state.frame, field, state.slots)
                 })
                 .unwrap_or_else(|| super::objects::undefined_of(context)),
             // What `yield` left on its way out, taken rather than read: the next

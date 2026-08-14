@@ -155,8 +155,16 @@ macro_rules! declare {
         /// global name is read, or the result would inherit nothing and
         /// `made.at(0)` would be `undefined`.
         pub(in crate::entry) fn ensure(context: &mut Context, kind: Kind) -> Option<u64> {
+            // ASKED first, registered only if the answer is no. The table is a
+            // `Vec` scanned by comparing class NAMES, and `t.subarray()` paid
+            // two of those scans — one inside the registration's own idempotence
+            // check, one to read the prototype back — for a class that is
+            // already there on every call but the first.
             $(
                 if kind == $kind {
+                    if let Some(found) = crate::entry::class_support::prototype(context, $js) {
+                        return Some(found);
+                    }
                     $wrapper(context);
                     return crate::entry::class_support::prototype(context, $js);
                 }
