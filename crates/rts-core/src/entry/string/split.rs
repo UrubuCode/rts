@@ -84,22 +84,22 @@ pub(super) fn split(this: u64, separator: u64, limit: u64) -> Option<u64> {
     // Outside the borrow: making the array may collect, and a collection needs
     // the context the closure above is holding.
     let array = super::super::array::array_new(parts.len() as i64);
-    // ROOTED, and a loop rather than a `collect`: interning a piece ALLOCATES,
-    // so the pieces interned so far are exposed between the steps of the loop
-    // that makes them — named only by a `Vec` on the Rust heap, which no scan
-    // of ours reaches. This module was written on 2026-08-13 with that hole in
-    // it; see `super::super::rooted` for the measurement that found the class.
-    let mut held = super::super::rooted::Rooted::new();
+    // Written STRAIGHT INTO the array, one piece at a time.
+    //
+    // Interning a piece ALLOCATES and an allocation collects, so the pieces
+    // made so far have to be reachable — and a piece that has landed in the
+    // array is reachable through it, where a piece sitting in a second `Vec` on
+    // the Rust heap was not. That second vector was also a second allocation
+    // for one list, thrown away against the one `array_new` had already sized.
     Some(with_current(|context| {
-        for bytes in parts {
+        let Some(cell) = Value(array).as_slot() else {
+            return array;
+        };
+        for (at, bytes) in parts.into_iter().enumerate() {
             let value = context.intern_value(Str::owning_latin1(bytes)).bits();
-            held.values().push(value);
-        }
-        let values = std::mem::take(held.values());
-        if let Some(cell) = Value(array).as_slot()
-            && let Some(elements) = context.elements_at_mut(cell)
-        {
-            *elements = values;
+            if let Some(elements) = context.elements_at_mut(cell) {
+                elements[at] = value;
+            }
         }
         array
     }))

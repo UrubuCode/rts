@@ -471,23 +471,21 @@ fn expand(out: &mut String, template: &str, matched: &str, groups: &[Option<Stri
 /// Writes strings into an array that has already been made.
 fn fill(context: &mut super::Context, array: u64, parts: Vec<Option<String>>) {
     let missing = super::nothing(context);
-    // ROOTED, and a loop rather than a `collect`: interning a piece ALLOCATES,
-    // so the pieces interned so far are exposed between the steps of the loop
-    // that makes them — named only by a `Vec` on the Rust heap, which no scan
-    // of ours reaches. See `super::super::rooted`.
-    let mut held = super::super::rooted::Rooted::new();
-    for part in parts {
-        let value = match part {
-            Some(text) => context.intern_value(Str::from_str(&text)).bits(),
-            None => missing,
-        };
-        held.values().push(value);
-    }
-    let values = std::mem::take(held.values());
-    if let Some(cell) = Value(array).as_slot()
-        && let Some(elements) = context.elements_at_mut(cell)
-    {
-        *elements = values;
+    // Written STRAIGHT INTO the array, one piece at a time: interning
+    // ALLOCATES and an allocation collects, and a piece that has landed in the
+    // array is reachable through it, where one in a second `Vec` on the Rust
+    // heap was not. That second vector was also a second allocation for one
+    // list, against the one `array_new` had already sized.
+    if let Some(cell) = Value(array).as_slot() {
+        for (at, part) in parts.into_iter().enumerate() {
+            let value = match part {
+                Some(text) => context.intern_value(Str::from_str(&text)).bits(),
+                None => missing,
+            };
+            if let Some(elements) = context.elements_at_mut(cell) {
+                elements[at] = value;
+            }
+        }
     }
 }
 

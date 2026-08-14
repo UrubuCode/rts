@@ -154,26 +154,24 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
     let array = super::super::array::array_new(parts.len() as i64);
     with_current(|context| {
         let absent = undefined_of(context);
-        // ROOTED, and a loop rather than a `collect`: interning a group
-        // ALLOCATES, so the groups interned so far are exposed between the
-        // steps of the loop that makes them — named only by a `Vec` on the
-        // Rust heap, which no scan of ours reaches. See `super::super::rooted`.
-        let mut held = super::super::rooted::Rooted::new();
-        for part in parts {
+        // Written STRAIGHT INTO the array, one group at a time: interning
+        // ALLOCATES and an allocation collects, and a group that has landed in
+        // the array is reachable through it, where one in a second `Vec` on the
+        // Rust heap was not. That second vector was also a second allocation
+        // for one list, against the one `array_new` had already sized.
+        let Some(cell) = Value(array).as_slot() else {
+            return array;
+        };
+        for (position, part) in parts.into_iter().enumerate() {
             let value = match part {
                 Some(text) => context.intern_value(Str::from_str(&text)).bits(),
                 // A group that took part in no alternative. `undefined`, which
                 // is not the empty string and does not compare like one.
                 None => absent,
             };
-            held.values().push(value);
-        }
-        let values = std::mem::take(held.values());
-        let Some(cell) = Value(array).as_slot() else {
-            return array;
-        };
-        if let Some(elements) = context.elements_at_mut(cell) {
-            *elements = values;
+            if let Some(elements) = context.elements_at_mut(cell) {
+                elements[position] = value;
+            }
         }
         // `index` and `input` are properties of the array the language
         // promises, and a program reading `m.index` is how a match is located

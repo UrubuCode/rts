@@ -458,21 +458,26 @@ fn keys_of(object: u64, enumerable_only: bool) -> u64 {
     // Built outside the borrow above, because interning each string and
     // allocating the array both need the context again.
     let array = array_new(texts.len() as i64);
-    // ROOTED, and a loop rather than a `collect` for that reason: interning a
-    // string ALLOCATES, an allocation collects, and the strings interned so far
-    // would otherwise be named only by a `Vec` on the Rust heap — which no scan
-    // of ours reaches. See `super::rooted`.
-    let mut held = super::rooted::Rooted::new();
+    // Written STRAIGHT INTO the array, one key at a time.
+    //
+    // It used to intern into a second `Vec` and then replace the array's own —
+    // so `array_new` sized a vector of holes that was thrown away, and every
+    // call allocated twice for one list.
+    //
+    // Writing in place also removes the reason this needed `super::rooted`:
+    // interning allocates and an allocation collects, but a key that has landed
+    // in the array is reachable THROUGH it, and the array is named by a local
+    // of this frame that the stack scan does see. Nothing is ever held only by
+    // a `Vec` the collector cannot reach.
     with_current(|context| {
-        for text in texts {
+        let Some(slot) = Value(array).as_slot() else {
+            return;
+        };
+        for (at, text) in texts.into_iter().enumerate() {
             let value = context.intern_value(text).bits();
-            held.values().push(value);
-        }
-        let values = std::mem::take(held.values());
-        if let Some(slot) = Value(array).as_slot()
-            && let Some(elements) = context.elements_at_mut(slot)
-        {
-            *elements = values;
+            if let Some(elements) = context.elements_at_mut(slot) {
+                elements[at] = value;
+            }
         }
     });
     array
