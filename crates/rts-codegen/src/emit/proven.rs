@@ -133,6 +133,30 @@ impl Numeric {
     pub fn is_empty(&self) -> bool {
         self.names.is_empty()
     }
+
+    /// Records a name the EMITTER minted and knows holds a number.
+    ///
+    /// # Why this is not the analysis being told what to think
+    ///
+    /// Everything else in this type comes from reading the program. This comes
+    /// from a name no program wrote: a desugaring that introduces its own loop
+    /// counter — `foreach.rs` does — starts it at a numeric literal, only ever
+    /// increments it, and lets nothing else near it. The analysis cannot see
+    /// that, because the tree it read does not contain those nodes; they are
+    /// built at emission.
+    ///
+    /// So the fact is as solid as anything `analyse` derives, and losing it is
+    /// what made a `for-of` guard its own counter on every pass. The caller is
+    /// asserting it about a name it minted, which is the one case where this
+    /// cannot be a claim about a program.
+    pub(super) fn prove_minted(&mut self, name: Name) {
+        self.names.insert(name);
+    }
+
+    /// Forgets one, so a desugaring's names do not outlive its loop.
+    pub(super) fn forget_minted(&mut self, name: Name) {
+        self.names.remove(&name);
+    }
 }
 
 /// Proves what can be proved about a function body's locals.

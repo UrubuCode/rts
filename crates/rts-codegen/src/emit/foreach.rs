@@ -103,18 +103,29 @@ pub fn emit_for_each(
         }],
     };
 
+    // The bound, read ONCE.
+    //
+    // `ks` is the array `iterate`/`own_keys` just answered, and that operation
+    // COPIES — deliberately, and `rts-core`'s `entry::iterate` says why: "the
+    // loop walks what it is given and a body that pushes to the original must
+    // not walk its own additions forever". So its length cannot change while
+    // this loop runs, and re-reading it per pass was asking a question whose
+    // answer this compiler already fixed.
+    //
+    // It was a `Member` node in the test, which the ordinary emitter has no
+    // choice but to lower as a cached property read plus a miss path — per
+    // element, forever. Hoisting it is not an optimisation of the read; it
+    // removes the read.
+    let length = ctx.names.intern("__rts_in_len");
+    let length_key = ctx.names.intern("length");
+    let bound = super::property::emit_read(builder, ctx, enumerated, length_key)?;
+    super::binding::declare(builder, scope, ctx, length, bound)?;
+
     let test = Expr {
         kind: ExprKind::Binary {
             op: crate::syntax::BinaryOp::Less,
             left: Box::new(name(index)),
-            right: Box::new(Expr {
-                kind: ExprKind::Member {
-                    object: Box::new(name(keys)),
-                    property: ctx.names.intern("length"),
-                    optional: false,
-                },
-                at,
-            }),
+            right: Box::new(name(length)),
         },
         at,
     };
@@ -176,6 +187,27 @@ pub fn emit_for_each(
         at,
     };
 
+    // Both names hold numbers, and this compiler MINTED both: the index starts
+    // at a numeric literal here and is only ever incremented by the `update`
+    // above, and the bound is an array's `length`. `proven::analyse` cannot see
+    // either, because it read the program's tree and these nodes were built
+    // after it — so the counter travelled `Tagged` and was guarded on every
+    // pass, against a bound that was guarded too.
+    //
+    // Asserted rather than derived, which is sound for exactly this case and
+    // for no other: a name a program could write would be a claim about the
+    // program. See `Numeric::prove_minted`.
+    //
+    // SAVED and restored rather than forgotten, because two nested `for-of`s
+    // share the spelling: an inner loop that simply forgot would take the proof
+    // out from under the outer one, whose block parameters are already `F64` —
+    // and the next store into the outer counter would widen to `Tagged` against
+    // them. That is `ImplicitNarrowing`, and it is what a nested `for-in` with
+    // `break outer` reported before this was written as a save.
+    let index_was_proven = ctx.holds_number(index);
+    let length_was_proven = ctx.holds_number(length);
+    ctx.prove_minted(index);
+    ctx.prove_minted(length);
     let result = emit_for(
         builder,
         scope,
@@ -187,6 +219,12 @@ pub fn emit_for_each(
         &inner,
         label,
     );
+    if !index_was_proven {
+        ctx.forget_minted(index);
+    }
+    if !length_was_proven {
+        ctx.forget_minted(length);
+    }
     scope.leave();
     result
 }

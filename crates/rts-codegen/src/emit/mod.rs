@@ -475,6 +475,19 @@ impl<'a> Ctx<'a> {
         self.numeric.holds_number(name)
     }
 
+    /// Records that a name this emitter MINTED holds a number.
+    ///
+    /// See `Numeric::prove_minted` for why a desugaring may assert this and a
+    /// program may not.
+    pub(super) fn prove_minted(&mut self, name: Name) {
+        self.numeric.prove_minted(name);
+    }
+
+    /// Forgets one, so the assertion does not outlive the construct.
+    pub(super) fn forget_minted(&mut self, name: Name) {
+        self.numeric.forget_minted(name);
+    }
+
     /// What an annotation claims about a name, where nothing proved it.
     ///
     /// Answers a `Speculation` and never a `bool`, which is the whole of the
