@@ -65,7 +65,18 @@ pub fn iterate(value: u64) -> u64 {
             return Found::Nothing;
         };
         if let Some(elements) = context.elements_at(cell) {
-            return Found::Values(elements.clone());
+            // Convertido, não copiado verbatim: espalhar um array esparso
+            // produz `undefined` em cada posição ausente — `[...[1,,3]]` tem
+            // três elementos e nenhum buraco. Copiar o word do buraco fazia o
+            // array NOVO ser esparso, que é o contrário do que o protocolo de
+            // iteração faz, e entregava esse word a `Array.from` e a todo o
+            // `for`-`of`.
+            return Found::Values(
+                elements
+                    .iter()
+                    .map(|held| super::array::visible(context, *held))
+                    .collect(),
+            );
         }
         // A typed array's elements are a byte range, not a slot vector, so
         // they never show up in `elements_at`. Without this, `for (const x of

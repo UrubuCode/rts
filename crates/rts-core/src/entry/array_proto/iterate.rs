@@ -135,7 +135,7 @@ extern "C" fn filter(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3:
 
 /// `a.find(f)` — the first element `f` accepted, or `undefined`.
 extern "C" fn find(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    match sought(this, callback) {
+    match sought(this, callback, false) {
         Some((element, _)) => element,
         None => nothing(),
     }
@@ -147,7 +147,7 @@ extern "C" fn find(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u
 /// agree about which element matched — and a callback with a side effect makes
 /// "run it twice and compare" a different program.
 extern "C" fn find_index(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let at = sought(this, callback).map_or(-1.0, |(_, index)| index as f64);
+    let at = sought(this, callback, false).map_or(-1.0, |(_, index)| index as f64);
     Value::from_f64(at).bits()
 }
 
@@ -157,7 +157,7 @@ extern "C" fn find_index(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, 
 /// optimisation: a callback with a side effect must not run for the rest of the
 /// array once the answer is settled.
 extern "C" fn some(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let found = sought(this, callback).is_some();
+    let found = sought(this, callback, true).is_some();
     Value::from_bool(found).bits()
 }
 
@@ -170,6 +170,12 @@ extern "C" fn every(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: 
         return Value::from_bool(false).bits();
     };
     for (index, element) in elements.iter().enumerate() {
+        // Um buraco não é visitado, e não faz `every` responder falso: a
+        // especificação define-a sobre as chaves que existem, portanto
+        // `[1,,3].every(x => x > 0)` é `true`.
+        if vazia(*element) {
+            continue;
+        }
         match visit(callback, this, *element, index) {
             Some(answered) if truthy(answered) => {}
             // A throw and a false answer both stop the scan; only the false
@@ -195,12 +201,18 @@ extern "C" fn reduce(_e: u64, this: u64, callback: u64, initial: u64, _a2: u64, 
     let (mut carried, from) = if seeded {
         (initial, 0)
     } else {
-        match elements.first() {
-            Some(first) => (*first, 1),
+        // A semente é o primeiro elemento que EXISTE, não a posição zero: um
+        // buraco à cabeça não é um acumulador, e semeá-lo com ele fazia
+        // `[,1,2].reduce((a,b) => a+b)` responder `NaN`.
+        match elements.iter().position(|held| !vazia(*held)) {
+            Some(first) => (elements[first], first + 1),
             None => return nothing(),
         }
     };
     for (index, element) in elements.iter().enumerate().skip(from) {
+        if vazia(*element) {
+            continue;
+        }
         let array = this;
         let receiver = nothing();
         // The accumulator takes the slot `thisArg` would have, which is the
@@ -264,9 +276,16 @@ fn visit(callback: u64, array: u64, element: u64, index: usize) -> Option<u64> {
 ///
 /// Shared by `find`, `findIndex` and `some`, which differ only in what they
 /// report about the same scan.
-fn sought(this: u64, callback: u64) -> Option<(u64, usize)> {
+fn sought(this: u64, callback: u64, skip_holes: bool) -> Option<(u64, usize)> {
     let elements = elements_of(this)?;
     for (index, element) in elements.iter().enumerate() {
+        // `some` é o chamador que SALTA, e por isso o parâmetro existe: ele
+        // pertence à família de `forEach`/`map`/`filter`, definida sobre as
+        // chaves que existem, e partilha este scan com `find`/`findIndex`, que
+        // pertencem à outra. Um scan e dois contratos precisa de dizer qual.
+        if skip_holes && vazia(*element) {
+            continue;
+        }
         // `find`/`findIndex` NÃO pulam buracos — a especificação manda visitar
         // a posição com `undefined`, ao contrário de `forEach`/`map`/`filter`.
         // Então aqui o buraco é convertido em vez de saltado, e o valor

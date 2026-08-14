@@ -344,6 +344,16 @@ extern "C" fn join(_e: u64, this: u64, separator: u64, _a1: u64, _a2: u64, _a3: 
     let separator = super::primitive::to_primitive(separator, crate::coerce::Hint::String);
     let staged = with_current(|context| {
         let (_, elements) = staged(context, this)?;
+        // O buraco vira `undefined` AQUI, dentro do mesmo empréstimo que leu os
+        // elementos. Sem isto ele escapava ao conjunto `empty` de baixo — que
+        // tem `undefined` e `null` e não tinha como listar um terceiro word —
+        // caía em `to_text`, e `[1,,3].join("-")` respondia `1-null-3`. Passar
+        // por `visible` em vez de acrescentar `hole_of` ao conjunto é o que
+        // impede que a lista tenha de ser lembrada da próxima vez.
+        let elements: Vec<u64> = elements
+            .iter()
+            .map(|held| super::array::visible(context, *held))
+            .collect();
         let between = match absent(context, separator) {
             true => Str::from_str(","),
             false => super::text::to_text(context, Value(separator))?,

@@ -157,7 +157,7 @@ extern "C" fn keys(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -
 /// receiver — the same reason [`super::super::iterate::iterate`] copies an array
 /// it is handed.
 pub(in crate::entry) extern "C" fn values(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    match snapshot(this) {
+    match seen(this) {
         Some(elements) => crate::entry::list_iterator::over(built(elements)),
         None => nothing(),
     }
@@ -165,7 +165,7 @@ pub(in crate::entry) extern "C" fn values(_e: u64, this: u64, _a0: u64, _a1: u64
 
 /// `a.entries()` — index and element, paired.
 extern "C" fn entries(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(elements) = snapshot(this) else {
+    let Some(elements) = seen(this) else {
         return nothing();
     };
     // Each pair is its own allocation, and every one is made outside a borrow —
@@ -257,19 +257,23 @@ extern "C" fn reduce_right(
     let Some(elements) = snapshot(this) else {
         return nothing();
     };
+    let hole = with_current(|context| crate::entry::array::hole_of(context));
     let seeded = !with_current(|context| initial == undefined_of(context));
     let (mut carried, skip) = if seeded {
         (initial, 0)
     } else {
-        // The last element seeds it, not `undefined` — the same reason
-        // `super::iterate::reduce` seeds with the first.
-        match elements.last() {
-            Some(last) => (*last, 1),
+        // The last element that EXISTS seeds it, not `undefined` and not a
+        // hole — the same reason `super::iterate::reduce` seeds with the first.
+        match elements.iter().rposition(|held| *held != hole) {
+            Some(last) => (elements[last], elements.len() - last),
             None => return nothing(),
         }
     };
     let receiver = nothing();
     for (index, element) in elements.iter().enumerate().rev().skip(skip) {
+        if *element == hole {
+            continue;
+        }
         carried = functions::call(
             callback,
             receiver,
@@ -361,6 +365,12 @@ extern "C" fn from(_e: u64, _this: u64, items: u64, mapper: u64, _a2: u64, _a3: 
 /// borrow per level of nesting.
 fn flattened_into(context: &Context, values: &[u64], depth: i32, out: &mut Vec<u64>) {
     for value in values {
+        // `flat` SALTA buracos — o resultado é denso, e `[1,,3].flat()` é
+        // `[1,3]`. Empilhá-los dava o comprimento errado E entregava o word do
+        // buraco a quem lesse o resultado.
+        if crate::entry::array::is_hole(context, *value) {
+            continue;
+        }
         let nested = if depth > 0 {
             Value(*value)
                 .as_slot()
@@ -449,6 +459,25 @@ fn read(context: &mut Context, cell: u32, name: &str) -> Option<u64> {
 /// wrong.
 pub(super) fn snapshot(this: u64) -> Option<Vec<u64>> {
     with_current(|context| staged(context, this).map(|(_, elements)| elements))
+}
+
+/// The same, with every hole already converted to `undefined`.
+///
+/// For the operations that HAND an element to the program rather than deciding
+/// something about it — the iterators behind `values()` and `entries()`. A
+/// hole reaching `.value` is a word that names no JavaScript value at all,
+/// which is the leak `array::visible` exists to close; the iterator was three
+/// layers past the last place that called it.
+pub(super) fn seen(this: u64) -> Option<Vec<u64>> {
+    with_current(|context| {
+        let (_, elements) = staged(context, this)?;
+        Some(
+            elements
+                .iter()
+                .map(|held| crate::entry::array::visible(context, *held))
+                .collect(),
+        )
+    })
 }
 
 /// One call of a callback, outside every borrow.
