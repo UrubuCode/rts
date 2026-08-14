@@ -3062,7 +3062,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[CleanupReadsOutsideItself { block: block122, value: v25 }, CleanupReadsOutsideItself { block: block131, value: v25 }]\")\n      at run of tests/cross-runtime/fn-meta/claude-closure-from-try-finally.ts failed"
+  "rts_error": "error: Malformed(\"[CleanupReadsOutsideItself { block: block110, value: v26 }, CleanupReadsOutsideItself { block: block119, value: v26 }]\")\n      at run of tests/cross-runtime/fn-meta/claude-closure-from-try-finally.ts failed"
 }
 ,
 {
@@ -3118,7 +3118,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (9071) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (9059) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -4579,9 +4579,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=immediate|micro|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -9911,4 +9911,4 @@
   "rts_error": "rts: uncaught exception (tag 1): ReferenceError: Response is not defined"
 }
 
-],"summary":{"total":708,"pass":420,"rts_diverge":200,"bun_node_diverge":18,"errors":70,"rejected":0}}
+],"summary":{"total":708,"pass":420,"rts_diverge":199,"bun_node_diverge":19,"errors":70,"rejected":0}}
