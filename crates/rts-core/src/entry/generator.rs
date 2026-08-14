@@ -141,9 +141,20 @@ pub fn generator_new(
         // The frame spans as many cells as it needs. A generator of six
         // parameters already exceeds one, so this is the ordinary case rather
         // than the exceptional one.
-        let Some(frame) = context.region.alloc_spanning(shape.size, shape.ty) else {
-            return super::objects::undefined_of(context);
-        };
+        //
+        // Through `alloc`, which COLLECTS and retries — not `region` directly,
+        // which does not. Asking the region straight answered `None` the moment
+        // the heap filled, and this function turned that into `undefined`: so
+        // `g(8)` handed back a value that is not a generator, `it.next` read
+        // absent off it, and the program died with `TypeError: undefined is not
+        // a function` while a collection would have freed 60 000 dead frames.
+        // Measured: a loop of 60 000 generators, every time.
+        //
+        // `_or_die` rather than answering `undefined` on genuine exhaustion,
+        // because that is what the rest of the crate does and because a silent
+        // wrong value is worse than a stop that says why — the honesty floor
+        // applied to an allocation.
+        let frame = super::alloc::alloc_spanning_or_die(context, shape.size, shape.ty);
 
         // The body is entered afresh every time, with nothing in the registers
         // it had before — so its arguments are written down now, in the order

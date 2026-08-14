@@ -189,7 +189,20 @@ fn release(context: &mut Context, cell: u32) {
     context.bound.remove(cell);
     context.views.remove(cell);
     context.collections.remove(cell);
-    context.generators.remove(cell);
+    // A generator's FRAME is a spanning block of its own, and removing the
+    // side-table entry only forgot where it was — the cells stayed taken
+    // forever. `Region::free` reads the width out of the header, so freeing the
+    // first cell gives the whole run back; this module's own documentation said
+    // the tail leaked, and that stopped being true when `free` learned the
+    // width.
+    //
+    // Measured before this line existed: a loop of 60 000 generators filled a
+    // 65 536-cell region with dead frames and the program stopped with "nothing
+    // left to reclaim" — a collection that ran, found everything unreachable,
+    // and freed none of it.
+    if let Some(state) = context.generators.remove(cell) {
+        context.region.free(state.frame_cell());
+    }
     context.regexes.remove(cell);
     context.accessors.remove(cell);
     context.integrity.remove(cell);
