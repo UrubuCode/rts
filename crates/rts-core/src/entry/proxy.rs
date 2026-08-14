@@ -71,26 +71,6 @@ struct Trap {
 ///
 /// `None` when the object is not a proxy at all, which is what tells every call
 /// site to carry on as it always did.
-/// Se este valor é um proxy — a pergunta barata, sem resolver chave nenhuma.
-///
-/// # Por que ela existe separada
-///
-/// `get_indexed`/`set_indexed` precisavam de uma `Key` para PERGUNTAR ao proxy,
-/// e resolver a chave de um índice numérico significa `ToPropertyKey`: formatar
-/// o double como texto, alocar a string e interná-la — trabalho que o caminho
-/// de elemento joga fora logo em seguida, porque ele volta a tratar o índice
-/// como número.
-///
-/// Com esta pergunta antes, um receptor que não é proxy nunca paga a conversão.
-/// Um que É proxy paga exatamente o que pagava.
-pub(super) fn is_proxy(object: u64) -> bool {
-    with_current(|context| {
-        Value(object)
-            .as_slot()
-            .is_some_and(|cell| context.proxy_at(cell).is_some())
-    })
-}
-
 fn trap_for(object: u64, name: &str, key: Key) -> Option<Trap> {
     with_current(|context| {
         let cell = Value(object).as_slot()?;

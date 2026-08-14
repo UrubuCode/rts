@@ -111,6 +111,26 @@ pub(super) fn primitive_found(
     }
 }
 
+/// The resolved key, and only when the receiver is a proxy with a trap to ask.
+///
+/// # Why the two questions are one borrow
+///
+/// They were two: `proxy::is_proxy` took the context to answer a single table
+/// lookup, and every indexed access — the overwhelming majority of which touch
+/// no proxy at all — paid a second entry into the thread-local before the one
+/// that does the work. Asking both inside one borrow costs a proxy nothing and
+/// takes that entry off every array element read and write.
+///
+/// `ToPropertyKey` still runs only for a proxy, which is the point the two
+/// notes below already make: formatting a double as text and interning it was
+/// running on every indexed access and being thrown away, because the element
+/// path treats the index as a number.
+fn proxy_key(context: &mut Context, object: u64, key: u64) -> Option<crate::object::Key> {
+    let cell = Value(object).as_slot()?;
+    context.proxy_at(cell)?;
+    property_key(context, Value(key))
+}
+
 /// `object[key]`, where the key is a value rather than a resolved name.
 ///
 /// Two statements, like the named read and for the same reason: the answer may
@@ -133,8 +153,7 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
     //
     // Um proxy continua sendo consultado exatamente como antes; o que mudou é
     // que quem não é proxy não paga mais a conversão.
-    if super::proxy::is_proxy(object)
-        && let Some(named) = with_current(|context| property_key(context, Value(key)))
+    if let Some(named) = with_current(|context| proxy_key(context, object, key))
         && let Some(answered) = super::proxy::get(object, named)
     {
         return answered;
@@ -216,8 +235,7 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
 pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
     // Ver a nota em [`get_indexed`]: a conversão da chave só acontece quando há
     // um proxy para perguntar.
-    if super::proxy::is_proxy(object)
-        && let Some(named) = with_current(|context| property_key(context, Value(key)))
+    if let Some(named) = with_current(|context| proxy_key(context, object, key))
         && let Some(answered) = super::proxy::set(object, named, value)
     {
         return answered;
