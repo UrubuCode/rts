@@ -4750,3 +4750,33 @@ fn a_closure_survives_the_collection_its_own_prototype_allocation_triggers() {
         "every closure made in the loop stayed callable across the collections"
     );
 }
+
+#[test]
+fn values_a_native_is_still_accumulating_survive_a_collection() {
+    // The values `map` has produced so far live in a Rust `Vec<u64>` on the
+    // native's own frame. `roots::scan_stack` walks the MACHINE stack — the
+    // `Vec`'s buffer is on the Rust heap and nowhere in that range — so nothing
+    // saw them, and the callback allocating is what makes a collection land in
+    // the middle of the loop.
+    //
+    // The failure was not a crash. It was an ANSWER: nine of three hundred
+    // rounds came back with wrong data, because objects already produced had
+    // been swept and their cells handed to something else. That is why this
+    // asserts the contents and not merely the length.
+    let produced = run(
+        "const xs = []; \
+         for (let i = 0; i < 500; i++) xs.push(i); \
+         let bad = 0; \
+         for (let r = 0; r < 200; r++) { \
+           const out = xs.map((v) => ({ v: v })); \
+           if (out.length !== 500) { bad = bad + 1; continue; } \
+           for (let i = 0; i < 500; i++) { if (out[i].v !== i) { bad = bad + 1; break; } } \
+         } \
+         return bad === 0 ? 1 : 0;",
+    );
+    assert_eq!(
+        tags::decode_double(produced),
+        1.0,
+        "every object the map produced was still itself when the map finished"
+    );
+}

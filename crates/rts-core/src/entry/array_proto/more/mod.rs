@@ -341,12 +341,17 @@ extern "C" fn from(_e: u64, _this: u64, items: u64, mapper: u64, _a2: u64, _a3: 
     let Some(elements) = snapshot(produced) else {
         return nothing();
     };
-    let mapped: Vec<u64> = elements
-        .iter()
-        .enumerate()
-        .map(|(index, element)| call_with(mapper, produced, *element, index))
-        .collect();
-    built(mapped)
+    // ROOTED, and written as a loop rather than a `collect` for that reason:
+    // `call_with` is user code that allocates, an allocation collects, and what
+    // the mapper has already answered would otherwise live only in a `Vec` on
+    // the Rust heap, which no scan of ours reaches. Same hole as `map`'s, same
+    // mechanism — see `entry::rooted`.
+    let mut mapped = super::super::rooted::Rooted::new();
+    for (index, element) in elements.iter().enumerate() {
+        let answered = call_with(mapper, produced, *element, index);
+        mapped.values().push(answered);
+    }
+    built(mapped.take())
 }
 
 /// One level of flattening, repeated to a depth.

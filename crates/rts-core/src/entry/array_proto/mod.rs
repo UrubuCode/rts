@@ -39,6 +39,7 @@ mod more;
 pub use arguments::arguments_at;
 
 use super::objects::undefined_of;
+use super::rooted::Rooted;
 use super::string::{absent, relative};
 use super::{Context, with_current};
 use crate::text::Str;
@@ -507,8 +508,28 @@ pub(super) fn store(context: &mut Context, cell: u32, values: Vec<u64>) {
 ///
 /// Called with **no borrow held**: `array_new` takes the context itself, so
 /// calling this from inside `with_current` re-enters the `RefCell`.
+/// Takes a [`Rooted`] and not a `Vec` because `array_new` ALLOCATES, and until
+/// this returns the values are named by nothing the collector walks: a `Vec`'s
+/// buffer is on the Rust heap, which no scan of ours reaches. Measured — nine of
+/// three hundred `map` rounds came back with wrong data. See `super::rooted`.
+///
+/// The guard is released only after the array exists, and the store that
+/// follows allocates nothing, which is what makes that window safe rather than
+/// merely short.
 pub(super) fn built(values: Vec<u64>) -> u64 {
+    // Wrapped HERE rather than at the nineteen call sites: every one of them
+    // reaches this line, so one guard covers all of them, and a twentieth
+    // written tomorrow is covered without anybody remembering to.
+    //
+    // What it does NOT cover is a caller that accumulates across calls into
+    // user code — `map` and `filter` do — because the values are exposed while
+    // that loop runs, before this is ever reached. Those hold a guard of their
+    // own for the loop.
+    let values = Rooted::with(values);
     let array = super::array::array_new(values.len() as i64);
+    // Taken out here, before the borrow below, so the rule stays visible:
+    // nothing between the take and the store may allocate.
+    let values = values.take();
     with_current(|context| {
         if let Some(cell) = Value(array).as_slot() {
             store(context, cell, values);

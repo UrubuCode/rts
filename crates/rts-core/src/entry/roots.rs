@@ -135,6 +135,11 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // these: they live in the holder's own memory, not on a frame. See
     // `super::external`.
     words.extend(context.external.iter().map(|(_, value)| *value));
+    // What a native is building RIGHT NOW. The stack scan cannot see these
+    // either, for a different reason: the values are in a `Vec` whose buffer is
+    // on the Rust heap, which is not in the range this walks. See
+    // `super::rooted` for the nine-of-three-hundred measurement.
+    words.extend(super::rooted::building_roots());
     words.extend(context.yielded);
     // The throw in flight. It is thread-local rather than a field of the
     // context (see `super::current::THROWN`, and `super::throw::thrown` for the

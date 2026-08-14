@@ -35,6 +35,7 @@
 use super::super::native::Native;
 use super::super::objects::undefined_of;
 use super::super::{functions, with_current};
+use super::super::rooted::Rooted;
 use super::{built, staged};
 use crate::value::Value;
 
@@ -83,18 +84,23 @@ extern "C" fn map(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u6
     let Some(elements) = elements_of(this) else {
         return nothing();
     };
-    let mut produced = Vec::new();
+    // ROOTED, because the callback below is user code that allocates, and an
+    // allocation collects. What this has produced so far would otherwise live
+    // only in a `Vec` on the Rust heap, which no scan of ours reaches — measured
+    // as nine of three hundred rounds answering wrong data rather than failing.
+    // See `entry::rooted`.
+    let mut produced = Rooted::new();
     for (index, element) in elements.iter().enumerate() {
         // `map` PRESERVA o buraco na posição correspondente em vez de o pular:
         // o resultado tem o mesmo comprimento e a mesma esparsidade, e a
         // callback não é chamada. Empilhar `undefined` aqui daria o comprimento
         // certo e a esparsidade errada.
         if vazia(*element) {
-            produced.push(*element);
+            produced.values().push(*element);
             continue;
         }
         match visit(callback, this, *element, index) {
-            Some(answered) => produced.push(answered),
+            Some(answered) => produced.values().push(answered),
             // The array built so far is what comes back, and the compiled call
             // site re-raises: nothing here handles the throw.
             None => break,
@@ -103,7 +109,7 @@ extern "C" fn map(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u6
     // Built after the loop, not grown during it. `built` allocates through
     // `array_new`, which takes the context — so an array grown inside the loop
     // would be one borrow taken between two calls into user code.
-    built(produced)
+    built(produced.take())
 }
 
 /// `a.filter(f)` — a new array of the elements `f` kept.
@@ -111,19 +117,20 @@ extern "C" fn filter(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3:
     let Some(elements) = elements_of(this) else {
         return nothing();
     };
-    let mut kept = Vec::new();
+    // Rooted for the same reason `map` above is.
+    let mut kept = Rooted::new();
     for (index, element) in elements.iter().enumerate() {
         // `filter` DESCARTA buracos: o resultado é denso.
         if vazia(*element) {
             continue;
         }
         match visit(callback, this, *element, index) {
-            Some(answered) if truthy(answered) => kept.push(*element),
+            Some(answered) if truthy(answered) => kept.values().push(*element),
             Some(_) => {}
             None => break,
         }
     }
-    built(kept)
+    built(kept.take())
 }
 
 /// `a.find(f)` — the first element `f` accepted, or `undefined`.

@@ -86,6 +86,7 @@ mod proxy;
 mod reflect;
 mod regex;
 pub mod roots;
+mod rooted;
 pub(super) mod string;
 mod symbol;
 mod text;
