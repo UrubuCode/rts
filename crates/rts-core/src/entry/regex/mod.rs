@@ -27,12 +27,18 @@
 //! second kind of callee — would put a branch on every call in the program to
 //! serve two of them.
 //!
-//! # What is deliberately absent
+//! # Named groups, and what is still absent
 //!
-//! Named capture groups as a `groups` property, `matchAll`, and the `d` flag's
-//! `indices`. Each needs somewhere to put a second collection of results, and
-//! none of them changes what a match IS — so they wait for a reason to exist
-//! rather than being anticipated.
+//! This paragraph listed three absences under one argument: each needs somewhere
+//! to put a second collection of results, and none of them changes what a match
+//! IS. Two of the three arrived. `matchAll` is here, and named groups reach a
+//! `groups` object through [`Regexp::named_groups`] — both engines expose
+//! `capture_names` and always did; what was missing is that `Spans` is indexed
+//! by POSITION and carries no name, so a named group reached the runtime
+//! anonymous.
+//!
+//! Still absent: the `d` flag's `indices`. The letter is accepted so a program
+//! is not refused, and then forgotten.
 //!
 //! The string methods that take a pattern are **not** here: they live on the
 //! string, in [`super::string::pattern`], because the receiver is the string.
@@ -228,6 +234,29 @@ impl Regexp {
         self.engine.matches_at(subject, start)
     }
 
+    /// The name of each capture group, by position. See [`compile::Engine::names`].
+    pub(super) fn names(&self) -> Vec<Option<String>> {
+        self.engine.names()
+    }
+
+    /// The named groups of one match, paired with what they captured.
+    ///
+    /// Here rather than at each of the three call sites — `exec`,
+    /// `String.prototype.match` and `matchAll` — because the pairing is the
+    /// only place the engine's positional list meets the language's names, and
+    /// three copies of it is three chances to disagree about which group is
+    /// which.
+    pub(in crate::entry) fn named_groups(
+        &self,
+        parts: &[Option<String>],
+    ) -> Vec<(String, Option<String>)> {
+        self.names()
+            .into_iter()
+            .enumerate()
+            .filter_map(|(position, name)| Some((name?, parts.get(position).cloned().flatten())))
+            .collect()
+    }
+
     pub(super) fn find_at(&self, subject: &str, start: usize) -> Option<compile::Spans> {
         let spans = self.engine.find_at(subject, start)?;
         // Sticky is not "search from here" — it is "match here". The engine has
@@ -265,4 +294,35 @@ impl Regexp {
     pub(super) fn flags(&self) -> &str {
         &self.letters
     }
+}
+
+/// `m.groups` — an object without a prototype, or `undefined` when the pattern
+/// declares no names.
+///
+/// The two are observable and different: `m.groups?.x` distinguishes them, and
+/// a plain object would have inherited `Object.prototype`, so
+/// `m.groups.toString` would answer a function for a pattern that named no such
+/// group.
+pub(in crate::entry) fn groups_object(
+    context: &mut Context,
+    named: &[(String, Option<String>)],
+) -> u64 {
+    let absent = super::objects::undefined_of(context);
+    if named.is_empty() {
+        return absent;
+    }
+    let Some(holder) = super::native::plain(context) else {
+        return absent;
+    };
+    let bare = methods::null_of(context);
+    context.set_prototype(holder, bare);
+    for (name, group) in named {
+        let key = context.well_known(name);
+        let value = match group {
+            Some(text) => context.intern_value(Str::from_str(text)).bits(),
+            None => absent,
+        };
+        super::objects::put(context, holder, key, value);
+    }
+    Value::from_slot(holder).bits()
 }

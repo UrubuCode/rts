@@ -92,6 +92,26 @@ impl Engine {
         }
     }
 
+    /// The name of each capture group, by position, `None` for an unnamed one.
+    ///
+    /// Both engines expose this and neither was asked: `Spans` is indexed by
+    /// position and carries no name at all, so a named group reached the
+    /// runtime as an anonymous one and `m.groups` had nothing to be built from.
+    /// Position zero is the whole match, which is never named — kept in the
+    /// list so the index means the same thing here as it does in `Spans`.
+    pub(super) fn names(&self) -> Vec<Option<String>> {
+        match self {
+            Engine::Plain(compiled) => compiled
+                .capture_names()
+                .map(|name| name.map(str::to_owned))
+                .collect(),
+            Engine::Fancy(compiled) => compiled
+                .capture_names()
+                .map(|name| name.map(str::to_owned))
+                .collect(),
+        }
+    }
+
     pub(super) fn find_at(&self, haystack: &str, start: usize) -> Option<Spans> {
         if start > haystack.len() {
             return None;

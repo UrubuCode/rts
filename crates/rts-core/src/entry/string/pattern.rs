@@ -44,6 +44,27 @@ struct Found {
     from: usize,
     to: usize,
     groups: Vec<Option<String>>,
+    /// The groups that have a name, in the order the pattern declares them.
+    ///
+    /// A list and not a map: this is what `m.groups` is built from, and the
+    /// enumeration order of that object is the order the groups were written.
+    /// A `BTreeMap` would have sorted them alphabetically, which is a different
+    /// object.
+    names: Vec<(String, Option<String>)>,
+}
+
+impl Found {
+    /// One group by name, `None` when the pattern declares no such group.
+    ///
+    /// The outer `Option` is "there is no such name"; the inner one is "the
+    /// group took part in no alternative", which the language spells
+    /// `undefined` and a replacement template spells as nothing at all.
+    fn named(&self, name: &str) -> Option<&Option<String>> {
+        self.names
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value)
+    }
 }
 
 /// What a method was given to look for.
@@ -91,10 +112,14 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
         } else {
             first.groups.clone()
         };
-        Some((parts, at, subject, global))
+        let named = match global {
+            true => Vec::new(),
+            false => first.names.clone(),
+        };
+        Some((parts, at, subject, global, named))
     });
 
-    let Some((parts, at, subject, global)) = collected else {
+    let Some((parts, at, subject, global, named)) = collected else {
         return with_current(|context| null_of(context));
     };
     let array = super::super::array::array_new(parts.len() as i64);
@@ -112,6 +137,12 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
             let input = context.intern_value(Str::from_str(&subject)).bits();
             let key = context.well_known("input");
             super::super::objects::put(context, cell, key, input);
+            // O mesmo objeto que o `exec` monta, pelo mesmo helper: as duas
+            // formas de correr um padrao contra uma string tem de responder o
+            // mesmo `groups`, e duas construcoes seriam duas respostas.
+            let groups = super::super::regex::groups_object(context, &named);
+            let key = context.well_known("groups");
+            super::super::objects::put(context, cell, key, groups);
         }
         array
     })
@@ -132,9 +163,15 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
     let collected = with_current(|context| {
         let (subject, sought) = staged_as_regex(context, this, pattern, true)?;
         let found = scan(context, &subject, &sought, true);
-        let each: Vec<(Vec<Option<String>>, usize)> = found
+        let each: Vec<(Vec<Option<String>>, usize, Vec<(String, Option<String>)>)> = found
             .iter()
-            .map(|one| (one.groups.clone(), units_before(&subject, one.from)))
+            .map(|one| {
+                (
+                    one.groups.clone(),
+                    units_before(&subject, one.from),
+                    one.names.clone(),
+                )
+            })
             .collect();
         Some((each, subject))
     });
@@ -144,7 +181,7 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
     };
     let matches: Vec<u64> = each
         .into_iter()
-        .map(|(groups, at)| {
+        .map(|(groups, at, named)| {
             let array = super::super::array::array_new(groups.len() as i64);
             with_current(|context| {
                 fill(context, array, groups);
@@ -158,6 +195,12 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
                     let input = context.intern_value(Str::from_str(&subject)).bits();
                     let key = context.well_known("input");
                     super::super::objects::put(context, cell, key, input);
+                    // O mesmo `groups` que o `exec` monta: quem percorre
+                    // `matchAll` le os grupos nomeados de cada volta, e sem isto
+                    // lia `undefined` em todas.
+                    let groups = super::super::regex::groups_object(context, &named);
+                    let key = context.well_known("groups");
+                    super::super::objects::put(context, cell, key, groups);
                 }
             });
             array
@@ -216,7 +259,7 @@ fn replaced(this: u64, pattern: u64, with: u64, every: bool) -> u64 {
     for one in &found {
         out.push_str(&subject[at..one.from]);
         match &template {
-            Some(template) => expand(&mut out, template, &subject[one.from..one.to], &one.groups),
+            Some(template) => expand(&mut out, template, &subject, one),
             None => out.push_str(&produced(with, &subject, one)),
         }
         at = one.to;
@@ -227,22 +270,50 @@ fn replaced(this: u64, pattern: u64, with: u64, every: bool) -> u64 {
 
 /// What a replacement function answered for one match.
 ///
-/// Called with the matched text, where it was, and the whole subject — the three
-/// the specification passes before the groups, which the fixed arity has no room
-/// for beyond that. A call with more is what `ARGUMENT_SLOTS` refuses.
+/// The specification's list, in its order: `(matched, p1..pn, offset, string)`,
+/// and a `groups` object at the end when the pattern has named groups. It used
+/// to be `(matched, offset, string)` — the three that fit the four fixed slots
+/// — so every captured group was missing AND the offset arrived where the first
+/// group belongs, which is a wrong answer rather than a missing one:
+/// `"John Doe".replace(/(\w+) (\w+)/, (m, a, b) => b + " " + a)` answered
+/// `"John Doe 0"`.
+///
+/// The arity is not the obstacle it was: `call_with_args` takes a vector, which
+/// is how `Function.prototype.apply` has always passed more than four.
 fn produced(callee: u64, subject: &str, one: &Found) -> String {
-    let (this, matched, at, input) = with_current(|context| {
+    let (this, arguments) = with_current(|context| {
         let this = nothing(context);
-        let matched = context
-            .intern_value(Str::from_str(&subject[one.from..one.to]))
-            .bits();
-        let at = Value::from_f64(units_before(subject, one.from) as f64).bits();
-        let input = context.intern_value(Str::from_str(subject)).bits();
-        (this, matched, at, input)
+        let mut values = vec![
+            context
+                .intern_value(Str::from_str(&subject[one.from..one.to]))
+                .bits(),
+        ];
+        for group in one.groups.iter().skip(1) {
+            values.push(match group {
+                Some(text) => context.intern_value(Str::from_str(text)).bits(),
+                None => this,
+            });
+        }
+        values.push(Value::from_f64(units_before(subject, one.from) as f64).bits());
+        values.push(context.intern_value(Str::from_str(subject)).bits());
+        if !one.names.is_empty()
+            && let Some(cell) = super::super::native::plain(context)
+        {
+            for (name, group) in &one.names {
+                let key = context.well_known(name);
+                let value = match group {
+                    Some(text) => context.intern_value(Str::from_str(text)).bits(),
+                    None => this,
+                };
+                super::super::objects::put(context, cell, key, value);
+            }
+            values.push(Value::from_slot(cell).bits());
+        }
+        (this, super::super::array::built_in(context, values))
     });
     // Outside every borrow: the callee is user code whose first act may be to
     // call the runtime.
-    let answered = super::super::functions::call(callee, this, matched, at, input, this);
+    let answered = super::super::functions::call_with_args(callee, this, arguments);
     with_current(|context| {
         text_of(context, answered)
             .and_then(|text| text.to_rust())
@@ -302,20 +373,34 @@ extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a
         let mut pieces = Vec::new();
         let mut at = 0;
         for one in &found {
+            // Um match VAZIO onde a peça anterior acabou, ou no fim do sujeito,
+            // não separa nada — a especificação avança sem cortar. Cortar ali
+            // produzia peças vazias a mais nas duas pontas.
+            if one.from == one.to && (one.from == at || one.from == subject.len()) {
+                continue;
+            }
             pieces.push(Some(subject[at..one.from].to_string()));
+            // As capturas entram ENTRE as peças, que é o que faz
+            // `"a1b22c".split(/(\d+)/)` responder `["a","1","b","22","c"]`. Eram
+            // deitadas fora, e com elas metade do que o `split` com grupos serve
+            // para fazer.
+            pieces.extend(one.groups.iter().skip(1).cloned());
             at = one.to;
         }
         pieces.push(Some(subject[at..].to_string()));
-        let wanted = Value(limit).numeric();
-        if let Some(wanted) = wanted.filter(|wanted| *wanted >= 0.0) {
-            pieces.truncate(wanted as usize);
-        }
         Some(pieces)
     });
 
-    let Some(pieces) = collected else {
+    let Some(mut pieces) = collected else {
         return with_current(|context| nothing(context));
     };
+    // O limite é aplicado a TODOS os caminhos, e era aplicado a um. Os dois
+    // retornos antecipados lá em cima — separador ausente e separador vazio —
+    // saíam antes de ele ser lido, então `"abc".split(undefined, 0)` respondia
+    // uma peça em vez de nenhuma.
+    if let Some(wanted) = Value(limit).numeric().filter(|wanted| *wanted >= 0.0) {
+        pieces.truncate(wanted as usize);
+    }
     let array = super::super::array::array_new(pieces.len() as i64);
     with_current(|context| {
         fill(context, array, pieces);
@@ -376,13 +461,28 @@ fn scan(context: &super::Context, subject: &str, sought: &Sought, all: bool) -> 
                     None => break,
                 };
                 let Some((from, to)) = spans[0] else { break };
+                let groups: Vec<Option<String>> = spans
+                    .iter()
+                    .map(|span| span.map(|(from, to)| subject[from..to].to_string()))
+                    .collect();
+                // Os nomes vêm do motor, que sempre os teve — `Spans` é indexado
+                // por POSIÇÃO e não carrega nenhum, então um grupo nomeado
+                // chegava aqui anónimo.
+                let names = context
+                    .regexp_at(*cell)
+                    .map(|rx| rx.names())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(at, name)| {
+                        Some((name?, groups.get(at).cloned().flatten()))
+                    })
+                    .collect();
                 Found {
                     from,
                     to,
-                    groups: spans
-                        .iter()
-                        .map(|span| span.map(|(from, to)| subject[from..to].to_string()))
-                        .collect(),
+                    groups,
+                    names,
                 }
             }
             // Looked for with memmem, the same two-way search with an SIMD
@@ -402,6 +502,7 @@ fn scan(context: &super::Context, subject: &str, sought: &Sought, all: bool) -> 
                         groups: vec![Some(
                             subject[at + offset..at + offset + text.len()].to_string(),
                         )],
+                        names: Vec::new(),
                     },
                     None => break,
                 }
@@ -430,11 +531,21 @@ fn scan(context: &super::Context, subject: &str, sought: &Sought, all: bool) -> 
 
 /// A replacement template, with what the match filled in.
 ///
-/// `$&` is the whole match, `$1`..`$9` are the groups, `$$` is a dollar sign.
-/// A `$` followed by anything else stands for itself, which is what the language
-/// says and what makes `"a".replace("a", "$100")` produce `"$100"` when there is
-/// no first group rather than swallowing the digits.
-fn expand(out: &mut String, template: &str, matched: &str, groups: &[Option<String>]) {
+/// The seven the language defines: `$$` is a dollar sign, `` $` `` is
+/// everything before the match, `$'` everything after, `$&` the match itself,
+/// `$1`..`$99` the groups, and `$<name>` a named one. A `$` followed by
+/// anything else stands for itself, which is what makes
+/// `"a".replace("a", "$100")` produce `"$100"` when there is no first group
+/// rather than swallowing the digits.
+///
+/// It knew four of them, and the other three fell into the literal branch — so
+/// `"abc".replace(/b/, "[$`]")` answered `"a[$`]c"`, printing the token instead
+/// of the text before the match. The subject and the match bounds are passed in
+/// for exactly those two, which is why this takes the whole [`Found`] rather
+/// than the matched slice it took before.
+fn expand(out: &mut String, template: &str, subject: &str, one: &Found) {
+    let matched = &subject[one.from..one.to];
+    let groups = &one.groups;
     let mut characters = template.chars().peekable();
     while let Some(character) = characters.next() {
         if character != '$' {
@@ -450,16 +561,70 @@ fn expand(out: &mut String, template: &str, matched: &str, groups: &[Option<Stri
                 characters.next();
                 out.push_str(matched);
             }
-            Some(digit) if digit.is_ascii_digit() => {
+            Some('`') => {
                 characters.next();
-                let which = digit.to_digit(10).expect("an ascii digit") as usize;
-                match groups.get(which) {
+                out.push_str(&subject[..one.from]);
+            }
+            Some('\'') => {
+                characters.next();
+                out.push_str(&subject[one.to..]);
+            }
+            Some('<') => {
+                // A named group, and the whole token stays literal when the
+                // pattern has none — the specification's own rule, and the one
+                // that keeps `"$<x>"` meaning itself for a pattern without
+                // names rather than silently disappearing.
+                let mut name = String::new();
+                let mut closed = false;
+                let mut ahead = characters.clone();
+                ahead.next();
+                for character in ahead.by_ref() {
+                    if character == '>' {
+                        closed = true;
+                        break;
+                    }
+                    name.push(character);
+                }
+                match closed.then(|| one.named(&name)).flatten() {
+                    Some(group) => {
+                        characters = ahead;
+                        out.push_str(group.as_deref().unwrap_or(""));
+                    }
+                    None => out.push('$'),
+                }
+            }
+            Some(digit) if digit.is_ascii_digit() => {
+                // Two digits FIRST when that group exists: `$12` is the twelfth
+                // group where there are twelve, and `$1` followed by a literal
+                // `2` where there are not. One digit only was the reading that
+                // made every pattern past nine groups unreachable.
+                let mut ahead = characters.clone();
+                ahead.next();
+                let second = ahead.peek().copied().filter(char::is_ascii_digit);
+                let two = second.and_then(|second| {
+                    let which = digit.to_digit(10)? as usize * 10 + second.to_digit(10)? as usize;
+                    groups.get(which).is_some().then_some(which)
+                });
+                let which = match two {
+                    Some(which) => {
+                        ahead.next();
+                        characters = ahead;
+                        which
+                    }
+                    None => {
+                        characters.next();
+                        digit.to_digit(10).expect("an ascii digit") as usize
+                    }
+                };
+                // `$0` is not a group — index zero is the whole match, which
+                // `$&` already spells — so it stays literal.
+                match groups.get(which).filter(|_| which > 0) {
                     // A group that took part in no alternative contributes
                     // nothing, which is not the same as the text "undefined".
                     Some(group) => out.push_str(group.as_deref().unwrap_or("")),
                     None => {
                         out.push('$');
-                        out.push(digit);
+                        out.push_str(&which.to_string());
                     }
                 }
             }

@@ -144,10 +144,18 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
             .map(|span| span.map(|(from, to)| text[from..to].to_string()))
             .collect();
         let at = units_before(&text, spans[0]?.0);
-        Some((parts, at, text))
+        // Os nomes dos grupos, que o motor sempre soube e ninguém perguntava:
+        // `Spans` é indexado por posição, portanto um grupo nomeado chegava
+        // aqui anónimo e `m.groups` não tinha de onde ser construído.
+        let named = Value(this)
+            .as_slot()
+            .and_then(|cell| context.regexp_at(cell))
+            .map(|rx| rx.named_groups(&parts))
+            .unwrap_or_default();
+        Some((parts, at, text, named))
     });
 
-    let Some((parts, at, text)) = found else {
+    let Some((parts, at, text, named)) = found else {
         return with_current(|context| null_of(context));
     };
 
@@ -196,6 +204,13 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
         };
         let key = context.well_known("input");
         put(context, cell, key, input);
+        // `groups` é `undefined` quando o padrão não tem grupos nomeados, e um
+        // objeto sem protótipo quando tem — as duas coisas são observáveis:
+        // `m.groups?.x` distingue-as, e `Object.keys(m.groups)` teria herdado
+        // `Object.prototype` se o objeto fosse comum.
+        let groups = super::groups_object(context, &named);
+        let key = context.well_known("groups");
+        put(context, cell, key, groups);
         array
     })
 }
@@ -297,7 +312,7 @@ pub(in crate::entry) fn bytes_before(text: &str, units: usize) -> Option<usize> 
 /// `exec` answers it and not `undefined`, and the difference is load-bearing:
 /// `while ((m = re.exec(s)) !== null)` is how a global pattern is walked, and a
 /// loop written that way against `undefined` never ends.
-fn null_of(context: &Context) -> u64 {
+pub(super) fn null_of(context: &Context) -> u64 {
     rts_cranelift::tags::encode(
         rts_cranelift::tags::TAG_SINGLETON,
         u64::from(context.singletons.null),
