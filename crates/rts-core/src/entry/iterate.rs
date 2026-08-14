@@ -105,15 +105,27 @@ pub fn iterate(value: u64) -> u64 {
         // the protocol is a call into user code.
         Found::Nothing => protocol(value).unwrap_or_default(),
         // Interned here, outside the borrow above.
-        Found::Text(points) => with_current(|context| {
-            points
-                .into_iter()
-                .map(|units| context.intern_value(Str::from_utf16(&units)).bits())
-                .collect()
-        }),
+        // ROOTED, and a loop rather than a `collect`: interning a string
+        // ALLOCATES, so the strings interned so far are exposed between the
+        // steps of the very loop that makes them. See `super::rooted`.
+        Found::Text(points) => {
+            let mut held = super::rooted::Rooted::new();
+            with_current(|context| {
+                for units in points {
+                    let value = context.intern_value(Str::from_utf16(&units)).bits();
+                    held.values().push(value);
+                }
+            });
+            held.take()
+        }
     };
 
+    // Rooted again for the allocation below — a second exposure, and a separate
+    // one: until the array exists and holds them, these values are named only
+    // by a `Vec` on the Rust heap, and `array_new` allocates.
+    let values = super::rooted::Rooted::with(values);
     let array = super::array::array_new(values.len() as i64);
+    let values = values.take();
     with_current(|context| {
         if let Some(cell) = Value(array).as_slot()
             && let Some(elements) = context.elements_at_mut(cell)

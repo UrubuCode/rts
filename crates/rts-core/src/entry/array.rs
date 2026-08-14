@@ -458,11 +458,17 @@ fn keys_of(object: u64, enumerable_only: bool) -> u64 {
     // Built outside the borrow above, because interning each string and
     // allocating the array both need the context again.
     let array = array_new(texts.len() as i64);
+    // ROOTED, and a loop rather than a `collect` for that reason: interning a
+    // string ALLOCATES, an allocation collects, and the strings interned so far
+    // would otherwise be named only by a `Vec` on the Rust heap — which no scan
+    // of ours reaches. See `super::rooted`.
+    let mut held = super::rooted::Rooted::new();
     with_current(|context| {
-        let values: Vec<u64> = texts
-            .into_iter()
-            .map(|text| context.intern_value(text).bits())
-            .collect();
+        for text in texts {
+            let value = context.intern_value(text).bits();
+            held.values().push(value);
+        }
+        let values = std::mem::take(held.values());
         if let Some(slot) = Value(array).as_slot()
             && let Some(elements) = context.elements_at_mut(slot)
         {

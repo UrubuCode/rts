@@ -471,13 +471,19 @@ fn expand(out: &mut String, template: &str, matched: &str, groups: &[Option<Stri
 /// Writes strings into an array that has already been made.
 fn fill(context: &mut super::Context, array: u64, parts: Vec<Option<String>>) {
     let missing = super::nothing(context);
-    let values: Vec<u64> = parts
-        .into_iter()
-        .map(|part| match part {
+    // ROOTED, and a loop rather than a `collect`: interning a piece ALLOCATES,
+    // so the pieces interned so far are exposed between the steps of the loop
+    // that makes them — named only by a `Vec` on the Rust heap, which no scan
+    // of ours reaches. See `super::super::rooted`.
+    let mut held = super::super::rooted::Rooted::new();
+    for part in parts {
+        let value = match part {
             Some(text) => context.intern_value(Str::from_str(&text)).bits(),
             None => missing,
-        })
-        .collect();
+        };
+        held.values().push(value);
+    }
+    let values = std::mem::take(held.values());
     if let Some(cell) = Value(array).as_slot()
         && let Some(elements) = context.elements_at_mut(cell)
     {

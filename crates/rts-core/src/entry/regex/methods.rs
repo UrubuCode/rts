@@ -154,15 +154,21 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
     let array = super::super::array::array_new(parts.len() as i64);
     with_current(|context| {
         let absent = undefined_of(context);
-        let values: Vec<u64> = parts
-            .into_iter()
-            .map(|part| match part {
+        // ROOTED, and a loop rather than a `collect`: interning a group
+        // ALLOCATES, so the groups interned so far are exposed between the
+        // steps of the loop that makes them — named only by a `Vec` on the
+        // Rust heap, which no scan of ours reaches. See `super::super::rooted`.
+        let mut held = super::super::rooted::Rooted::new();
+        for part in parts {
+            let value = match part {
                 Some(text) => context.intern_value(Str::from_str(&text)).bits(),
                 // A group that took part in no alternative. `undefined`, which
                 // is not the empty string and does not compare like one.
                 None => absent,
-            })
-            .collect();
+            };
+            held.values().push(value);
+        }
+        let values = std::mem::take(held.values());
         let Some(cell) = Value(array).as_slot() else {
             return array;
         };

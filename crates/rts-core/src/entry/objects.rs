@@ -831,13 +831,22 @@ impl Context {
 /// in.
 #[rtse::entry("__rts_object_spread")]
 pub fn object_spread(target: u64, source: u64) -> u64 {
-    let keys = with_current(|context| {
-        super::array::key_texts(context, source, true)
-            .into_iter()
-            .map(|text| context.intern_value(text).bits())
-            .collect::<Vec<_>>()
+    // ROOTED, and for the longest window of the three sites that need it: the
+    // keys are interned one at a time — each of which ALLOCATES — and then used
+    // across a get and a set per key, both of which run user code that
+    // allocates. Named only by a `Vec` on the Rust heap, they were invisible to
+    // every one of those collections. See `super::rooted`.
+    let mut keys = super::rooted::Rooted::new();
+    with_current(|context| {
+        for text in super::array::key_texts(context, source, true) {
+            let value = context.intern_value(text).bits();
+            keys.values().push(value);
+        }
     });
-    for key in keys {
+    // Iterated by index rather than by value, so the guard stays alive for the
+    // whole walk instead of being consumed by it.
+    for at in 0..keys.len() {
+        let key = keys.values()[at];
         let value = super::computed::get_indexed(source, key);
         super::computed::set_indexed(target, key, value);
     }
