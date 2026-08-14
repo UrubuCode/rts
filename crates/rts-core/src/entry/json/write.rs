@@ -18,6 +18,7 @@
 //! and is free to call `own_keys` and `get_indexed`, which take their own.
 
 use super::super::{Context, with_current};
+use super::hooks::Replacer;
 use crate::text::Str;
 use crate::value::{Kind, Value};
 
@@ -33,7 +34,7 @@ use crate::value::{Kind, Value};
 /// `[[NumberData]]` before it classifies anything, so it arrives here already
 /// as `Number(5.0)`. A variant would be a second place deciding what a wrapper
 /// serialises as, and the first place is where `valueOf` reads it from.
-enum Shape {
+pub(super) enum Shape {
     Null,
     Bool(bool),
     Number(f64),
@@ -42,12 +43,16 @@ enum Shape {
     Array(u32),
     /// Anything else with properties.
     Object(u32),
+    /// A bigint, which the language refuses to serialise rather than
+    /// approximating. Its own variant because it is the one shape here that
+    /// answers with a `TypeError` instead of with text.
+    Big,
     /// `undefined`, a function, or anything with no JSON form.
     Absent,
 }
 
 /// What a value is, answered inside the caller's borrow and carried out of it.
-fn shape_of(context: &Context, value: u64) -> Shape {
+pub(super) fn shape_of(context: &Context, value: u64) -> Shape {
     // The wrapper's primitive, before anything else is asked. Without it a
     // `new Number(5)` reached `Shape::Object` and serialised as `{}` — the
     // object has no own properties, so the output was well-formed JSON that had
@@ -57,6 +62,13 @@ fn shape_of(context: &Context, value: u64) -> Shape {
     let value = Value(super::super::primitive_proto::unwrap(context, value));
     if let Some(number) = value.numeric() {
         return Shape::Number(number);
+    }
+    // Before the slot test: a bigint is a client value, not an object, and
+    // asking `as_slot` first would file it among the objects and serialise it
+    // as `{}` — well-formed JSON that lost the number, which is exactly what
+    // this answered before.
+    if super::super::bigints::digits_of(context, value.bits()).is_some() {
+        return Shape::Big;
     }
     if let Some(flag) = value.as_bool() {
         return Shape::Bool(flag);
@@ -111,14 +123,18 @@ pub(super) struct Writer {
     /// ever holds.
     open: Vec<u32>,
     indent: Vec<u16>,
+    /// What the second argument to `stringify` was, classified once before the
+    /// walk started. See [`super::hooks::Replacer`].
+    replacer: Replacer,
 }
 
 impl Writer {
-    pub(super) fn new(indent: Vec<u16>) -> Self {
+    pub(super) fn new(indent: Vec<u16>, replacer: Replacer) -> Self {
         Writer {
             out: Vec::new(),
             open: Vec::new(),
             indent,
+            replacer,
         }
     }
 
@@ -139,10 +155,47 @@ impl Writer {
     /// member's name in an object. It is a value rather than a `&Str` because
     /// that is what a call's argument is, and the empty-string root case has
     /// no `Str` lying around to borrow.
-    pub(super) fn write(&mut self, value: u64, key: HookKey, depth: usize) -> bool {
+    ///
+    /// What a member serialises as, once both hooks have had it.
+    ///
+    /// Separate from [`Writer::write`], and that separation is a correctness
+    /// fix rather than tidiness. The object walk has to know whether a member
+    /// has a JSON form *before* it writes the key, and it used to ask that of
+    /// the raw property — so a `toJSON` or a replacer answering `undefined`
+    /// produced `{"drop":}`, which is not JSON at all. Now one call answers
+    /// what will be written, and both questions are asked of the same value.
+    ///
+    /// `holder` is the object the member was read from, which is what a
+    /// function replacer is called with as its receiver — the synthetic
+    /// `{"": value}` at the root, the array or the object below it.
+    pub(super) fn hooked(&self, holder: u64, value: u64, key: HookKey) -> u64 {
+        // `toJSON` first and the replacer second, which is the order
+        // `SerializeJSONProperty` states: a replacer sees what the hook
+        // answered, not what the property held.
         let value = to_json_of(value, key);
+        match self.replacer {
+            Replacer::Function(hook) => {
+                let key = with_current(|context| key.value(context));
+                super::hooks::replaced(hook, holder, key, value)
+            }
+            _ => value,
+        }
+    }
+
+    /// Writes one value — already hooked — and answers whether it had a JSON
+    /// form at all.
+    pub(super) fn write(&mut self, value: u64, depth: usize) -> bool {
+        // Rule 8: a hook may have raised, and a walk that carries on writes
+        // members computed from an answer that never happened.
+        if super::super::throw::in_flight() {
+            return false;
+        }
         match with_current(|context| shape_of(context, value)) {
             Shape::Absent => return false,
+            Shape::Big => {
+                super::super::throw::type_error("Do not know how to serialize a BigInt");
+                return false;
+            }
             Shape::Null => self.ascii("null"),
             Shape::Bool(true) => self.ascii("true"),
             Shape::Bool(false) => self.ascii("false"),
@@ -178,6 +231,9 @@ impl Writer {
         let elements = with_current(|context| context.elements_at(cell).cloned().unwrap_or_default());
         self.ascii("[");
         for (at, element) in elements.iter().enumerate() {
+            if super::super::throw::in_flight() {
+                break;
+            }
             if at > 0 {
                 self.ascii(",");
             }
@@ -192,7 +248,8 @@ impl Writer {
             // only if a hook is actually reached: it is a `number_to_string` and
             // an ALLOCATION, and it was paid per element of every array ever
             // serialised, for a hook almost no value has.
-            if !self.write(*element, HookKey::Index(at), depth + 1) {
+            let held = self.hooked(Value::from_slot(cell).bits(), *element, HookKey::Index(at));
+            if !self.write(held, depth + 1) {
                 self.ascii("null");
             }
         }
@@ -233,7 +290,21 @@ impl Writer {
         // everything it reaches alive for exactly as long as this needs them.
         // Released at the end of the function rather than at the end of the
         // loop, because the last key is read after the last iteration.
-        let names = super::super::array::own_keys(value);
+        // A list replacer names the members and their order; the object's own
+        // enumeration is not consulted at all, which is what makes
+        // `stringify(o, ["c", "a"])` answer `{"c":…,"a":…}` for an object whose
+        // own order is the other way round. Built as a heap array so the hold
+        // below covers both cases with one rule rather than two.
+        let names = match &self.replacer {
+            Replacer::List(keys) => with_current(|context| {
+                let interned: Vec<u64> = keys
+                    .iter()
+                    .map(|key| super::hooks::interned(context, key))
+                    .collect();
+                super::super::array::built_in(context, interned)
+            }),
+            _ => super::super::array::own_keys(value),
+        };
         let anchor = super::super::external::hold_current(names);
         let names = with_current(|context| {
             Value(names)
@@ -245,6 +316,9 @@ impl Writer {
         self.ascii("{");
         let mut written = false;
         for name in names {
+            if super::super::throw::in_flight() {
+                break;
+            }
             // Through the ordinary read, so a member that is an accessor runs
             // its getter — which is what `stringify` observably does, and what
             // reading the slot directly would have skipped.
@@ -264,10 +338,20 @@ impl Writer {
             let Some(key) = key else {
                 continue;
             };
-            // Classified once here to decide whether the key is written at all,
-            // and again inside `write`. That is one extra borrow per member and
-            // it buys the separator staying correct: a member skipped after its
-            // comma was emitted is a trailing comma, which is not JSON.
+            // The hooks run HERE, before the key is written, because they are
+            // what decides whether there is a value at all: a `toJSON` or a
+            // replacer answering `undefined` skips the member, and asking after
+            // the key was emitted produced `{"drop":}`.
+            //
+            // Classified once here and again inside `write` — one extra borrow
+            // per member, and it buys the separator staying correct: a member
+            // skipped after its comma was emitted is a trailing comma, which is
+            // not JSON either.
+            //
+            // `name` is already the string key, straight from `own_keys`, so
+            // this is the same value `toJSON` must see with no second
+            // conversion to disagree with the first.
+            let held = self.hooked(value, held, HookKey::Given(name));
             if with_current(|context| matches!(shape_of(context, held), Shape::Absent)) {
                 continue;
             }
@@ -281,10 +365,7 @@ impl Writer {
             if !self.indent.is_empty() {
                 self.ascii(" ");
             }
-            // `name` is already the string key, straight from `own_keys` — see
-            // its comment above — so this is the same value `toJSON` must see,
-            // with no second conversion to disagree with the first.
-            self.write(held, HookKey::Given(name), depth + 1);
+            self.write(held, depth + 1);
         }
         if written {
             self.newline(depth);
@@ -297,17 +378,24 @@ impl Writer {
 
     /// Whether this cell may be descended into.
     ///
-    /// False for one already on the path, which is a cycle, and for one past the
-    /// depth limit. Both answer `null` at the call site.
+    /// A cycle is a `TypeError`, which is what the language says and what this
+    /// answered `null` for until the discipline arrived. The reason it could not
+    /// before was rule 8 from the other side: a raise is only safe once the
+    /// walk that calls user code CHECKS for one, or the throw is left in flight
+    /// and re-raised at an unrelated call site later. `write` checks now, the
+    /// two loops break, and `stringify` answers `undefined` — so the raise has
+    /// somewhere to land.
     ///
-    /// The specification throws for the first, and the machinery to do it now
-    /// exists — a throw leaves one frame. It is still not done here, and the
-    /// reason has moved: a raise from inside a native is only safe once the
-    /// natives that call user code check for one. They do not, so a throw raised
-    /// here would be left in flight and re-raised at an unrelated call site
-    /// later. `null` remains the least wrong answer until that discipline lands.
+    /// Past the depth limit is still `null`, and stays that way: it is this
+    /// crate's own limit protecting the Rust stack, not a rule of the language,
+    /// and inventing a `TypeError` for it would report our ceiling as the
+    /// program's mistake.
     fn enter(&mut self, cell: u32, depth: usize) -> bool {
-        if depth >= super::DEPTH || self.open.contains(&cell) {
+        if self.open.contains(&cell) {
+            super::super::throw::type_error("Converting circular structure to JSON");
+            return false;
+        }
+        if depth >= super::DEPTH {
             return false;
         }
         self.open.push(cell);
@@ -342,13 +430,36 @@ impl Writer {
 
     /// Text from the heap, as a JSON string literal.
     ///
-    /// Only what the grammar forbids is escaped. A non-ASCII character goes
-    /// through as itself rather than as `\uXXXX`: both are legal JSON and the
-    /// answer is a JavaScript string, not a byte stream, so escaping would
-    /// lengthen it for a transport question this layer does not have.
+    /// Only what the grammar forbids is escaped, plus one thing the grammar
+    /// allows and the language does not: a LONE surrogate. A non-ASCII
+    /// character goes through as itself rather than as `\uXXXX` — both are
+    /// legal JSON and the answer is a JavaScript string, not a byte stream, so
+    /// escaping would lengthen it for a transport question this layer does not
+    /// have.
+    ///
+    /// The surrogate rule is ES2019's well-formed `JSON.stringify`, and it is
+    /// not cosmetic: a lone surrogate written raw makes text that no UTF-8
+    /// transport can carry, so the specification escapes exactly those and
+    /// leaves matched pairs alone. Units are indexed rather than iterated
+    /// because deciding whether a high surrogate is lone means looking at the
+    /// next one.
     fn quoted(&mut self, text: &Str) {
+        let units: Vec<u16> = text.units().collect();
         self.out.push(b'"' as u16);
-        for unit in text.units() {
+        for (at, unit) in units.iter().copied().enumerate() {
+            let lone = match unit {
+                0xd800..=0xdbff => !matches!(units.get(at + 1), Some(0xdc00..=0xdfff)),
+                0xdc00..=0xdfff => !matches!(at.checked_sub(1).and_then(|before| units.get(before)), Some(0xd800..=0xdbff)),
+                _ => false,
+            };
+            if lone {
+                self.ascii("\\u");
+                let digits = b"0123456789abcdef";
+                for shift in [12, 8, 4, 0] {
+                    self.out.push(u16::from(digits[((unit >> shift) & 0xf) as usize]));
+                }
+                continue;
+            }
             match unit {
                 0x22 => self.ascii("\\\""),
                 0x5c => self.ascii("\\\\"),
@@ -453,13 +564,7 @@ fn to_json_of(value: u64, key: HookKey) -> u64 {
     // almost nothing does. Built eagerly it was a `number_to_string` and a cell
     // per element of every array ever serialised.
     let (key, absent) = with_current(|context| {
-        let key = match key {
-            HookKey::Given(value) => value,
-            HookKey::Index(at) => context
-                .intern_value(crate::coerce::number_to_string(at as f64))
-                .bits(),
-        };
-        (key, super::super::objects::undefined_of(context))
+        (key.value(context), super::super::objects::undefined_of(context))
     });
     super::super::functions::call(hook, value, key, absent, absent, absent)
 }
@@ -481,4 +586,20 @@ pub(super) enum HookKey {
     Given(u64),
     /// An array member's position, ToString'd only if a hook is reached.
     Index(usize),
+}
+
+impl HookKey {
+    /// The key as a value, which is what a call's argument is.
+    ///
+    /// Reached from two places now — `toJSON` and the replacer — and one of
+    /// them would otherwise convert an index a second time and disagree with
+    /// the first about what `"0"` is.
+    pub(super) fn value(self, context: &mut Context) -> u64 {
+        match self {
+            HookKey::Given(value) => value,
+            HookKey::Index(at) => context
+                .intern_value(crate::coerce::number_to_string(at as f64))
+                .bits(),
+        }
+    }
 }

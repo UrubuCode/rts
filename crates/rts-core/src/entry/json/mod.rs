@@ -25,26 +25,22 @@
 //! trivially checkable — there is one function that allocates, and it is at the
 //! bottom of this file.
 //!
-//! # What is not implemented, and why each
+//! # All four hooks run
 //!
-//! **`toJSON`.** A value's own serialisation hook is a *call* into user code,
-//! per value, which this layer can do — `get_indexed` already runs getters the
-//! same way. What it costs is the walk: every descent would have to probe for
-//! the method, release, call, and restart classification on whatever came back,
-//! and a hook answering the object it hangs off turns the cycle stack into the
-//! only thing standing between here and an infinite walk. It is a feature with
-//! a design, not an oversight, and it waits for a program that needs it.
+//! This section used to list three of them as absent — `toJSON`, `replacer`,
+//! `reviver` — under one argument: each is a call into user code per member,
+//! and the walk that calls them is the walk this module keeps flat. The
+//! argument was about *cost*, and it was answered by paying it once:
+//! `to_json_of` probes, releases and calls, and both other hooks reach user
+//! code through the same shape. [`hooks`] holds the two that arrived last.
 //!
-//! **`replacer`.** Declared and ignored. Both spellings of it — a function
-//! called per key and an array of keys to keep — are the `toJSON` problem with
-//! a second argument, and ignoring it is stated here rather than discovered.
+//! What the walk owes them is rule 8 of `crates/rts-core/README.md`: after a
+//! call, ask whether it threw before believing the answer. The reviver is where
+//! that matters most — its answer decides whether a member is kept or DELETED,
+//! so a reviver that raises would otherwise erase the tree it was reading.
 //!
-//! **`space` is implemented**, because it is the one of the three that is pure
-//! formatting: it never runs anything, never changes which members are written,
-//! and it is what a program printing a file for a human to read reaches for.
-//! Leaving it out would have made `JSON.stringify(o, null, 2)` answer the
-//! compact form silently — a wrong answer to a call people really write, where
-//! the other two answer a right one that ignored a request.
+//! **`space`** was implemented first and alone, because it is the one that runs
+//! nothing: pure formatting, never changing which members are written.
 //!
 //! # Where this still answers instead of throwing
 //!
@@ -60,6 +56,7 @@
 //! not "a throw needs a protected region", which stopped being true the day a
 //! throw learned to leave one frame.
 
+mod hooks;
 mod read;
 mod write;
 
@@ -75,10 +72,18 @@ use crate::value::Value;
 /// Both grammars are recursive and recursion here is Rust's stack, which an
 /// `extern "C"` frame cannot survive running out of. The reader answers a parse
 /// error past this, which is a defined outcome; the writer answers `null`,
-/// which is a stated divergence and the reason the number is generous — a
-/// document two hundred deep is machine-made, and one that deep *and* meant to
-/// round-trip is not a program this engine has.
-pub(super) const DEPTH: usize = 200;
+/// which is a stated divergence.
+///
+/// It was 200, and 200 was chosen as "deeper than any hand-written document".
+/// That was the wrong shape of guess: a document exactly 200 deep is what a
+/// program that generates one writes, and the limit refused it — measured, on
+/// `json/claude-parse-deep-nesting.ts`, whose deepest case is 200 and which
+/// answered a `SyntaxError` where every other engine answers a value. 512 is
+/// still a ceiling and still ours; what changed is that it is no longer the
+/// same order of magnitude as the documents programs actually build. Measured
+/// at 512 in a DEBUG build, where the frames are largest: parse, revive and
+/// stringify all return rather than overflowing.
+pub(super) const DEPTH: usize = 512;
 
 /// `JSON`.
 #[rtse::class("JSON", namespace)]
@@ -90,17 +95,25 @@ impl Json {
     /// the language: `JSON.stringify(undefined)` is not `"undefined"`, and the
     /// difference is what lets a caller test the answer rather than parse it.
     ///
-    /// `replacer` is read and ignored; see the module documentation for why it
-    /// and `toJSON` are one decision rather than two.
+    /// `replacer` is classified once, before the walk — see [`hooks::Replacer`].
     fn stringify(value: u64, replacer: u64, space: u64) -> u64 {
-        let _ = replacer;
-        let mut writer = write::Writer::new(write::indent_of(space));
+        let replacer = hooks::replacer_of(replacer);
         // The root's key is the empty string — the specification calls
         // `SerializeJSONProperty` with a synthetic holder `{"": value}`, which is
         // what makes `{ toJSON(key) { return key } }` answer `""` when it is the
         // whole argument to `stringify` rather than a member of something.
+        //
+        // The holder is only BUILT for a function replacer, which is the one
+        // thing that can observe it: `toJSON` is called with the value as its
+        // receiver, never with the holder.
+        let holder = match replacer {
+            hooks::Replacer::Function(_) => hooks::root_holder(value),
+            _ => with_current(|context| undefined_of(context)),
+        };
+        let mut writer = write::Writer::new(write::indent_of(space), replacer);
         let root_key = with_current(|context| context.well_known_text(""));
-        match writer.write(value, super::json::write::HookKey::Given(root_key), 0) {
+        let value = writer.hooked(holder, value, super::json::write::HookKey::Given(root_key));
+        match writer.write(value, 0) && !super::throw::in_flight() {
             true => {
                 let units = writer.finish();
                 with_current(|context| context.intern_value(Str::from_utf16(&units)).bits())
@@ -109,12 +122,13 @@ impl Json {
         }
     }
 
-    /// `JSON.parse(text)`.
+    /// `JSON.parse(text, reviver)`.
     ///
-    /// No `reviver`, for the reason the module gives for `replacer`: it is user
-    /// code called per member, and the walk that would call it is the walk this
-    /// module is built to keep flat.
-    fn parse(text: u64) -> u64 {
+    /// The reviver runs over the tree AFTER it is on the heap, never over
+    /// [`read::Node`]: a reviver may answer any value at all, including objects
+    /// the parsed tree has no way to describe, so a walk of the node tree would
+    /// have to grow a second representation of everything the heap already has.
+    fn parse(text: u64, reviver: u64) -> u64 {
         // `ToString` of the argument first, which is what the specification
         // says — `JSON.parse(5)` parses `"5"` and answers 5, and refusing a
         // non-string would refuse a call the language defines.
@@ -125,7 +139,20 @@ impl Json {
             return with_current(|context| undefined_of(context));
         };
         match read::parse_units(&units) {
-            Some(node) => materialise(&node),
+            Some(node) => {
+                let value = materialise(&node);
+                match with_current(|context| super::modules::is_callable_in(context, reviver)) {
+                    false => value,
+                    // The same synthetic holder the writer's root uses, for the
+                    // same reason: the reviver is called for the root too, and
+                    // it needs a receiver and a key like every other member.
+                    true => {
+                        let holder = hooks::root_holder(value);
+                        let root_key = with_current(|context| context.well_known_text(""));
+                        hooks::internalized(holder, root_key, reviver)
+                    }
+                }
+            }
             None => {
                 // A `SyntaxError` a `catch` can see. This used to answer
                 // `undefined` — the module header's stated gap from before a
