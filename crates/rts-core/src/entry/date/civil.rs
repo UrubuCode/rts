@@ -25,26 +25,20 @@ pub(super) fn clip(ms: f64) -> f64 {
     }
 }
 
-/// Midnight on the first of a month, from a year and a zero-based month.
+/// `MakeFullYear` — two digits mean the twentieth century, so `new Date(99, 0)`
+/// is 1999. A rule the language keeps for compatibility, and this keeps for the
+/// same reason.
 ///
-/// A month outside `0..12` rolls the year, which is what the language does and
-/// what a range check would have got wrong: `new Date(2020, 12)` is January 2021
-/// in every engine, and programs written against that behaviour rely on it.
-pub(super) fn from_year_month(year: f64, month: f64) -> f64 {
-    if !year.is_finite() || !month.is_finite() {
-        return f64::NAN;
-    }
-    // Two digits mean the twentieth century — `new Date(99, 0)` is 1999. A rule
-    // the language keeps for compatibility, and this keeps for the same reason.
-    let full = match (0.0..=99.0).contains(&year.trunc()) {
+/// A function of its own rather than a step inside [`from_parts`], because the
+/// specification applies it in exactly two places — the constructor and
+/// `Date.UTC` — and *not* in the setters. Folding it into the shared arithmetic
+/// would make `d.setFullYear(50)` mean 1950, which no engine does and which
+/// nothing in this file could then spell.
+pub(super) fn full_year(year: f64) -> f64 {
+    match (0.0..=99.0).contains(&year.trunc()) {
         true => 1900.0 + year.trunc(),
-        false => year.trunc(),
-    };
-    let months = full as i64 * 12 + month.trunc() as i64;
-    // Euclidean rather than truncating, so `new Date(2020, -1)` is December 2019
-    // instead of month zero of a year that did not move.
-    let days = days_from_civil(months.div_euclid(12), months.rem_euclid(12) + 1, 1);
-    clip(days as f64 * MS_PER_DAY)
+        false => year,
+    }
 }
 
 /// A time value broken into the fields the getters answer.
@@ -147,12 +141,15 @@ const MONTHS: [&str; 12] =
 /// A time value from every field a setter can touch, civil year through
 /// millisecond.
 ///
-/// The same construction [`from_year_month`] does for two fields, widened to
-/// seven: a month outside `0..12` or a day outside the month rolls forward or
-/// back rather than being refused, because that is what every setter this
-/// crate has already committed to does (`setFullYear`, `from_year_month`) and
-/// a seventh setter disagreeing would be the one place `new Date(y, 12)` and
-/// `d.setMonth(12)` meant different things.
+/// The ONE construction in this file, and every caller reaches it: the
+/// constructor, `Date.UTC` and all seven setters. It was two — a `from_year_month`
+/// beside this — and the pair is what let the constructor stop at a month while
+/// the setters carried all seven fields.
+///
+/// A month outside `0..12` or a day outside the month rolls forward or back
+/// rather than being refused, because that is what every setter this crate has
+/// already committed to does, and a constructor disagreeing would be the one
+/// place `new Date(y, 12)` and `d.setMonth(12)` meant different things.
 pub(super) fn from_parts(
     year: f64,
     month: f64,
@@ -302,9 +299,19 @@ mod tests {
     /// A month outside the year rolls it, in both directions.
     #[test]
     fn a_month_outside_the_year_rolls_it() {
-        assert_eq!(iso_text(from_year_month(2020.0, 12.0)), "2021-01-01T00:00:00.000Z");
-        assert_eq!(iso_text(from_year_month(2020.0, -1.0)), "2019-12-01T00:00:00.000Z");
-        // Two digits are the twentieth century.
-        assert_eq!(iso_text(from_year_month(99.0, 0.0)), "1999-01-01T00:00:00.000Z");
+        let midnight = |year, month| from_parts(year, month, 1.0, 0.0, 0.0, 0.0, 0.0);
+        assert_eq!(iso_text(midnight(2020.0, 12.0)), "2021-01-01T00:00:00.000Z");
+        assert_eq!(iso_text(midnight(2020.0, -1.0)), "2019-12-01T00:00:00.000Z");
+        // Two digits are the twentieth century — but only where the constructor
+        // and `Date.UTC` ask for it, which is why this is a separate step.
+        assert_eq!(iso_text(midnight(full_year(99.0), 0.0)), "1999-01-01T00:00:00.000Z");
+        assert_eq!(full_year(2020.0), 2020.0);
+    }
+
+    /// Every field of the constructor's seven reaches the time value.
+    #[test]
+    fn seven_fields_all_arrive() {
+        let ms = from_parts(2024.0, 0.0, 15.0, 10.0, 30.0, 45.0, 123.0);
+        assert_eq!(iso_text(ms), "2024-01-15T10:30:45.123Z");
     }
 }
