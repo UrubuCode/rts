@@ -167,11 +167,18 @@ fn expr_suspends(expr: &Expr) -> bool {
             expr_suspends(specifier) || options.as_deref().is_some_and(expr_suspends)
         }
 
-        // `yield` cannot legally appear where this walk is used — a program
-        // entry is never a generator — so it is treated like any other
-        // sub-expression rather than given its own arm: whatever it carries is
-        // still scanned, in case a malformed tree reaches here anyway.
-        ExprKind::Yield { value, .. } => value.as_deref().is_some_and(expr_suspends),
+        // `yield` parks the frame it is written in, exactly as `await` does.
+        //
+        // This arm used to answer whatever its VALUE answered, on the stated
+        // grounds that "`yield` cannot legally appear where this walk is used —
+        // a program entry is never a generator". That was true of the one
+        // caller then and is false now: `function.rs` asks this about every
+        // body it emits, to decide whether a value may be held across the
+        // whole of it. A generator body answering "nothing suspends here" made
+        // it hold one across a `yield`, and `frame::resumable_form` rewrites
+        // the function around every suspension — which cost 37 generator files
+        // in the suite before this line was corrected.
+        ExprKind::Yield { .. } => true,
 
         ExprKind::Template { expressions, .. } => expressions.iter().any(expr_suspends),
         ExprKind::TaggedTemplate { tag, expressions, .. } => {

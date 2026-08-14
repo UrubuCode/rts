@@ -65,7 +65,7 @@ use super::objects::{
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
 use super::generator::{GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
-use super::throw::{TAKE_THROWN_ENTRY, THROWN_ENTRY};
+use super::throw::{TAKE_THROWN_ENTRY, THROWN_ADDRESS_ENTRY, THROWN_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
     DIVIDE_ENTRY, GREATER_ENTRY, GREATER_EQUAL_ENTRY, LESS_ENTRY, LESS_EQUAL_ENTRY, MULTIPLY_ENTRY,
@@ -442,6 +442,9 @@ pub enum CoreEntry {
 
     /// A template literal, joined in one crossing.
     TemplateJoin = 73,
+
+    /// Where this thread's throw flag lives, so a check is a load.
+    ThrownAddress = 74,
 }
 
 /// How many entry points exist.
@@ -449,7 +452,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 74;
+pub const CORE_ENTRY_COUNT: usize = 75;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -528,6 +531,7 @@ impl CoreEntry {
         CoreEntry::ArrayOf,
         CoreEntry::MathRandom,
         CoreEntry::TemplateJoin,
+        CoreEntry::ThrownAddress,
     ];
 
     /// The number a call site holds.
@@ -564,6 +568,7 @@ impl CoreEntry {
             CoreEntry::ClosureNew => CLOSURE_NEW_ENTRY,
             CoreEntry::Thrown => THROWN_ENTRY,
             CoreEntry::TakeThrown => TAKE_THROWN_ENTRY,
+            CoreEntry::ThrownAddress => THROWN_ADDRESS_ENTRY,
             CoreEntry::RunningFunction => RUNNING_FUNCTION_ENTRY,
             CoreEntry::GeneratorNew => GENERATOR_NEW_ENTRY,
             CoreEntry::GeneratorYield => GENERATOR_YIELD_ENTRY,
@@ -715,8 +720,14 @@ mod tests {
         // object, so neither is arithmetic, and both exist to replace THREE
         // and FIVE crossings with one — a list that grows to shrink the
         // number of calls is the list doing its job.
+        // Moved to 75 on 2026-08-13 for `ThrownAddress`, and the question was
+        // answered again rather than inherited: it hands out the address of
+        // global mutable state, which is the third clause of the membership
+        // rule and not the heap one. It is also the same argument as the line
+        // above — it exists so that a check stops being a crossing at all,
+        // which is the list growing to shrink the number of calls.
         assert!(
-            CORE_ENTRY_COUNT <= 74,
+            CORE_ENTRY_COUNT <= 75,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

@@ -356,6 +356,15 @@ pub struct Ctx<'a> {
     /// to the function it was declared as is a fact about the entire tree, and
     /// nothing smaller than that can answer it without guessing. See `inline`.
     inlinable: std::collections::BTreeMap<Name, std::rc::Rc<inline::Inlinable>>,
+    /// Where THIS body's throw flag lives, asked once at its entry.
+    ///
+    /// Scoped exactly as `numeric` and `flattened` are, and for a harder
+    /// reason than theirs: it is an SSA value of one function, so a nested
+    /// function emitted in the middle of an outer one would otherwise read a
+    /// value defined in a function it is not in. `None` means the check falls
+    /// back to the call, which is what a body with no entry block of its own
+    /// gets. See `expr::raise_if_thrown`.
+    thrown_flag: Option<rts_cranelift::ir::ValueId>,
 }
 
 impl<'a> Ctx<'a> {
@@ -390,6 +399,7 @@ impl<'a> Ctx<'a> {
             globals: std::collections::BTreeSet::new(),
             math_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
+            thrown_flag: None,
         }
     }
 

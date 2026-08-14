@@ -106,6 +106,32 @@ pub fn thrown() -> i64 {
     i64::from(super::current::thrown_pending())
 }
 
+/// Where this thread's flag word lives, so compiled code can LOAD it.
+///
+/// # What this is, against the paragraph above
+///
+/// [`thrown`] measured a cheaper flag as "a small win and not the systemic one
+/// it looked like", and that measurement moved the flag out of the context and
+/// into a thread-local — it did not remove the CALL. This does: the address is
+/// asked once per activation and every check afterwards is one load, which is
+/// what that entry's own documentation named as "the size of the prize for
+/// making the flag a LOAD from a known address rather than a call".
+///
+/// Answered at run time rather than baked in while compiling, because both
+/// constant forms are wrong at once: an object file runs in a different process
+/// from the one that compiled it, and a data symbol of the module is shared
+/// between threads while this word is per-thread. Asking on the thread that
+/// will read it answers both, and the address is stable for that thread's life.
+///
+/// Still one source of one fact. `current::InFlight` is `repr(C)` and its first
+/// word IS the discriminant the `Option` is derived from — not a copy of it
+/// kept in step by hand, which is what [`thrown`] refused and this keeps
+/// refusing.
+#[rtse::entry("__rts_thrown_address")]
+pub fn thrown_address() -> i64 {
+    super::current::thrown_address() as i64
+}
+
 /// Takes the value in flight, clearing it.
 ///
 /// Cleared by the take, because the caller is about to re-raise it: leaving it

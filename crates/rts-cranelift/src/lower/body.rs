@@ -267,6 +267,18 @@ impl<'a> Body<'a> {
                 builder.ins().fcvt_from_sint(types::F64, raw)
             }
 
+            // One load, no arithmetic. `trusted` says the address is valid and
+            // that nothing else aliases the word — the second half is what lets
+            // the code generator keep the value in a register between two reads
+            // with no call in between, which is the entire point of the
+            // instruction. The client asserts both by having asked for the
+            // address; see `Inst::WordLoad` for why this layer cannot check it.
+            Inst::WordLoad { address } => {
+                let raw = self.value(*address);
+                let flags = cranelift_codegen::ir::MemFlags::trusted();
+                builder.ins().load(types::I64, flags, raw, 0)
+            }
+
             Inst::Narrow(v, to) => {
                 let raw = self.value(*v);
                 value::narrow(builder, raw, *to)?

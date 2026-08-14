@@ -66,28 +66,97 @@ thread_local! {
     /// Nesting is handled by [`with_context`], which saves this across an inner
     /// program and restores it afterwards — the same lifetime the field had when
     /// it was part of the context being pushed.
-    static THROWN: Cell<Option<(i64, u64)>> = const { Cell::new(None) };
+    static THROWN: Cell<InFlight> = const { Cell::new(InFlight::NONE) };
+}
+
+/// The throw in flight, in a layout whose first word compiled code can LOAD.
+///
+/// # Why the shape is spelled out rather than left to `Option`
+///
+/// Because the address of the first word is now part of an agreement:
+/// `super::throw::thrown_address` hands it to compiled code, which reads it
+/// after every operation that can raise instead of calling to ask. `Option`'s
+/// discriminant has no guaranteed position — `repr(C)` here is what makes
+/// "offset zero is whether something is in flight" a fact rather than an
+/// observation about today's layout.
+///
+/// It is still ONE source. `live` is not a cached copy of a truth held
+/// elsewhere: it IS the discriminant, and `slot()` derives the `Option` from
+/// it rather than the other way round. A flag beside a real slot is the drift
+/// this module already refused once and is refusing again.
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct InFlight {
+    /// Non-zero when a throw is in flight. Offset zero, by `repr(C)`.
+    live: i64,
+    /// What kind of throw, meaningful only while `live`.
+    tag: i64,
+    /// The value raised, meaningful only while `live`.
+    payload: u64,
+}
+
+impl InFlight {
+    /// Nothing in flight.
+    const NONE: Self = InFlight {
+        live: 0,
+        tag: 0,
+        payload: 0,
+    };
+
+    /// The pair the rest of the crate speaks in.
+    fn slot(self) -> Option<(i64, u64)> {
+        match self.live {
+            0 => None,
+            _ => Some((self.tag, self.payload)),
+        }
+    }
 }
 
 /// The throw in flight, without taking it.
 pub(crate) fn thrown_slot() -> Option<(i64, u64)> {
-    THROWN.with(Cell::get)
+    THROWN.with(|slot| slot.get().slot())
 }
 
 /// Whether a throw is in flight — the whole of what compiled code asks after a
 /// call, and the reason [`THROWN`] is not reached through [`with_current`].
 pub(crate) fn thrown_pending() -> bool {
-    THROWN.with(|slot| slot.get().is_some())
+    THROWN.with(|slot| slot.get().live != 0)
+}
+
+/// Where this thread's flag word lives.
+///
+/// # Why an address rather than a constant
+///
+/// Compiled code reads this word after every operation that can raise, and a
+/// call to ask was most of what the read cost. Two ways of avoiding the call
+/// were available and both are wrong: an address baked in while compiling is
+/// wrong for an object file, which runs in a different process from the one
+/// that compiled it, and a data symbol of the module is shared between threads
+/// while this word is not. Handing the address out at run time answers both,
+/// because it is asked on the thread that will read it.
+///
+/// The value is stable for the life of the thread, which is what makes asking
+/// once per activation enough.
+pub(crate) fn thrown_address() -> u64 {
+    THROWN.with(|slot| slot as *const Cell<InFlight> as u64)
 }
 
 /// Puts a throw in flight, replacing whatever was there.
 pub(crate) fn set_thrown(value: Option<(i64, u64)>) {
-    THROWN.with(|slot| slot.set(value));
+    let held = match value {
+        Some((tag, payload)) => InFlight {
+            live: 1,
+            tag,
+            payload,
+        },
+        None => InFlight::NONE,
+    };
+    THROWN.with(|slot| slot.set(held));
 }
 
 /// Takes the throw in flight, clearing it.
 pub(crate) fn take_thrown_slot() -> Option<(i64, u64)> {
-    THROWN.with(Cell::take)
+    THROWN.with(|slot| slot.replace(InFlight::NONE).slot())
 }
 
 thread_local! {

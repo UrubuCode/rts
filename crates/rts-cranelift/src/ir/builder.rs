@@ -315,6 +315,23 @@ impl<'a> FuncBuilder<'a> {
         self.widen_if_needed(value)
     }
 
+    /// Reads one machine word from an address a value holds.
+    ///
+    /// Refuses anything but an `I64` operand, because an address is one and a
+    /// generic value is not — a tagged double reaching here would be loaded
+    /// from a bit pattern that is not a pointer, which is a fault the code
+    /// generator cannot report and this refusal makes unwritable. See
+    /// [`Inst::WordLoad`] for why this is not how the heap is read.
+    pub fn word_load(&mut self, address: ValueId) -> BuildResult<ValueId> {
+        if self.repr_of(address) != Repr::I64 {
+            return Err(BuildError::WrongDomain {
+                operation: "word_load",
+                found: self.repr_of(address),
+            });
+        }
+        Ok(self.emit(Inst::WordLoad { address }, Repr::I64))
+    }
+
     /// Reads a field of a registered aggregate.
     ///
     /// The result's representation comes from the layout: there is no place to

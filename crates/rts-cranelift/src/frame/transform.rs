@@ -567,6 +567,7 @@ fn replace_operands(inst: &mut Inst, replacements: &[ValueId]) {
         | Inst::Narrow(v, _)
         | Inst::ToInt32(v)
         | Inst::ToF64(v)
+        | Inst::WordLoad { address: v }
         | Inst::FloatUnary(_, v) => *v = take(),
 
         Inst::IntArith(_, a, b)

@@ -323,6 +323,13 @@ fn wrap_generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
         .clone();
     let types = rts_cranelift::types::TypeRegistry::new();
     let mut builder = FuncBuilder::new(&mut func, &types, entry);
+    // A WRAPPER is its own function, so the enclosing body's throw-flag
+    // address is not a value that exists here. Taken rather than left, because
+    // `expr::call` below reads it off the context and an SSA id from another
+    // function is not refused by anything — it happened to name a `FuncAddr`
+    // here, and every generator in the suite loaded the callee's address as if
+    // it were the flag.
+    let outer_flag = ctx.thrown_flag.take();
 
     // The address of the body as it will be PLACED, which is the rewritten form
     // — the host redeclares this identifier once the rewrite has told it the
@@ -334,6 +341,7 @@ fn wrap_generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
     operands.extend(arguments);
     let made = expr::call(&mut builder, ctx, RuntimeOp::GeneratorNew, &operands)?[0];
     builder.ret(&[made]);
+    ctx.thrown_flag = outer_flag;
     ctx.pending.push((id, func));
     Ok(id)
 }
@@ -372,6 +380,13 @@ fn wrap_async(ctx: &mut Ctx, inner: FuncId) -> FuncId {
         .clone();
     let types = rts_cranelift::types::TypeRegistry::new();
     let mut builder = FuncBuilder::new(&mut func, &types, entry);
+    // A WRAPPER is its own function, so the enclosing body's throw-flag
+    // address is not a value that exists here. Taken rather than left, because
+    // `expr::call` below reads it off the context and an SSA id from another
+    // function is not refused by anything — it happened to name a `FuncAddr`
+    // here, and every generator in the suite loaded the callee's address as if
+    // it were the flag.
+    let outer_flag = ctx.thrown_flag.take();
     // The body runs first and to its end. Its completion value is what the
     // promise carries, which is what `async function f() { return 1 }`
     // resolving with `1` means.
@@ -390,6 +405,7 @@ fn wrap_async(ctx: &mut Ctx, inner: FuncId) -> FuncId {
     // is the point of declaring it.
     let answered = builder.widen(promise);
     builder.ret(&[answered]);
+    ctx.thrown_flag = outer_flag;
     ctx.pending.push((id, func));
     id
 }
@@ -559,6 +575,11 @@ pub(super) fn emit_body(
     let outer_numeric = std::mem::replace(&mut ctx.numeric, numeric);
     let outer_claims = std::mem::replace(&mut ctx.claims, claims);
     let outer_flattened = std::mem::replace(&mut ctx.flattened, flattened);
+    // The one that is an SSA VALUE and not a table, which is why it is taken
+    // rather than replaced: the inner body defines its own at its own entry,
+    // and reading the outer function's here would name a value defined in a
+    // function this one is not in.
+    let outer_flag = ctx.thrown_flag.take();
 
     let result = emit_body_into(
         ctx,
@@ -581,6 +602,7 @@ pub(super) fn emit_body(
     ctx.numeric = outer_numeric;
     ctx.flattened = outer_flattened;
     ctx.claims = outer_claims;
+    ctx.thrown_flag = outer_flag;
     result?;
     Ok(func)
 }
@@ -609,6 +631,32 @@ fn emit_body_into(
 ) -> EmitResult<()> {
     let types = ctx.types;
     let mut builder = FuncBuilder::new(func, types, entry);
+
+    // The address of this thread's throw flag, before anything else in the
+    // body: every check afterwards is a load from it rather than a call, and
+    // an SSA value has to be defined where it dominates every use — which for
+    // a check that can appear in any block means the entry block and nowhere
+    // else. `expr::raise_if_thrown` reads it back off the context.
+    //
+    // Emitted for every body rather than only for bodies that check, because
+    // whether one checks is not known until it has been emitted. That costs a
+    // call per activation and saves one per operation; the trade was measured
+    // and is recorded in `RuntimeOp::ThrownAddress`.
+    //
+    // Through `builder.call` and not `expr::call`: the latter emits a throw
+    // check after what it calls, which is the thing this exists to make
+    // possible and would be asking with the answer not yet in hand.
+    //
+    // NOT for a body that parks. `frame::resumable_form` rewrites a suspending
+    // function around every suspension point, so a value defined at entry and
+    // read after a `yield` is not the value it was — measured as 37 generator
+    // files lost in one run, which is what put the check here. Such a body
+    // keeps the call it always had; the address is what it cannot hold.
+    if !super::suspends::body_suspends(body) {
+        let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::ThrownAddress);
+        let flag = builder.call(ctx.funcs, asked, &[])?[0];
+        ctx.thrown_flag = Some(flag);
+    }
 
     let handed = incoming[ENVIRONMENT_PARAM];
     // A function that captures nothing adds no link to the chain, so what it

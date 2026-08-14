@@ -194,6 +194,43 @@ pub enum Inst {
     /// An operation on operands whose representation is not proven.
     Generic(GenericOp, ValueId, ValueId),
 
+    /// Reads one machine word from an address a value holds.
+    ///
+    /// # What it guarantees, and what it deliberately does not
+    ///
+    /// It guarantees exactly one load of `Repr::I64` from the address, with no
+    /// arithmetic of its own — no scaling, no offset, no bound. The address is
+    /// whatever the operand holds, so the client is asserting that the word is
+    /// readable, and this layer has no way to check that.
+    ///
+    /// That is why it is NOT how a heap object is read. [`Inst::FieldLoad`]
+    /// turns a reference into an address through the region's own addressing
+    /// and bounds the slot by the layout, which is the mechanism that makes a
+    /// client unable to name a word it does not own. This one has no such
+    /// mechanism and cannot grow one: it exists for a word that is not in the
+    /// heap at all, whose address the client obtained by asking for it.
+    ///
+    /// # Why it exists
+    ///
+    /// A client with a word outside the heap that it reads far more often than
+    /// it writes had, until now, exactly one way to read it: a call. A call is
+    /// opaque — it clobbers the caller-saved registers and ends every
+    /// optimisation the code generator was doing across it — which for a word
+    /// read after every operation is most of what the read costs.
+    ///
+    /// The rejected alternative was a constant address baked in while
+    /// compiling. It is wrong for two destinations at once: an object file runs
+    /// in a different process from the one that compiled it, and a word that is
+    /// per-thread has no single address at all. Taking the address as a VALUE
+    /// leaves both of those to the client, which is where they can be answered.
+    ///
+    /// No safepoint and no barrier: it neither allocates nor stores a
+    /// reference, so rule 9's "effects are declared" has nothing to declare.
+    WordLoad {
+        /// Where to read from, as a machine address.
+        address: ValueId,
+    },
+
     /// Reads a field of a registered aggregate.
     ///
     /// Carries no width and no access flags: both come from the layout, so a
@@ -370,6 +407,8 @@ impl Inst {
             | Inst::Bitwise(_, a, b)
             | Inst::Compare(_, a, b)
             | Inst::Generic(_, a, b) => vec![*a, *b],
+
+            Inst::WordLoad { address } => vec![*address],
 
             Inst::FieldLoad { object, .. } => vec![*object],
             Inst::FieldStore { object, value, .. } => vec![*object, *value],

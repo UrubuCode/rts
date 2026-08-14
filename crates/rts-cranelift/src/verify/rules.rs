@@ -591,6 +591,20 @@ pub(super) fn check_instructions(
                     }
                 }
 
+                // An address is a machine word. Checked here as well as in the
+                // builder because the verifier also sees representations the
+                // builder never made — and a load from a tagged double reads a
+                // bit pattern that is not a pointer, which nothing below can
+                // report.
+                Inst::WordLoad { address } => {
+                    if func.repr_of(*address) != Repr::I64 {
+                        errors.push(VerifyError::WrongDomain {
+                            inst: inst_id,
+                            found: func.repr_of(*address),
+                        });
+                    }
+                }
+
                 Inst::Widen(value) => {
                     if func.repr_of(*value) == Repr::Tagged {
                         errors.push(VerifyError::WrongDomain {

@@ -448,9 +448,22 @@ pub(super) fn call(
 /// operations barely move, because a call, a compare and a branch is a fixed
 /// cost and they are not.
 ///
-/// That is the size of the prize for making the flag a LOAD from a known
-/// address rather than a call — which the machine already does for a region
-/// base, and which is not done here yet. It is not the size of anything else:
+/// **That is NOT the size of the prize for making the flag a load, and this
+/// paragraph used to say it was.** The flag IS a load now — the address is
+/// asked once per activation and `Inst::WordLoad` reads it, see
+/// `RuntimeOp::ThrownAddress` — and it collected between 0.1 and 0.6 ns per
+/// check, not the 9%. Measured 2026-08-13, release, both binaries rebuilt in
+/// full, three reads each: a body of eight checks went 25.00/25.00/25.00 ns to
+/// 24.50/24.00/24.50, and `a[i & 7]` went 14.60/14.60/14.70 to
+/// 13.30/13.40/13.60 reading and 15.40/15.90/16.20 to 13.80/13.80/13.90
+/// writing. Every one of the six moved down, which is the strongest claim
+/// available; the per-check attribution differs between the two by six times,
+/// which is what code layout does to a measurement here.
+///
+/// So the suppression number measured the whole check — the call, the compare
+/// AND the branch — and what is left after removing the call is most of it.
+/// The remaining prize belongs to not asking at all, which needs an operation
+/// this layer can prove cannot raise. It is not the size of anything else:
 /// the same measurement refuted the idea that a fixed per-operation cost
 /// dominates this engine, since `type_of` costs 2.83 ns called from Rust
 /// (`rts-core/examples/entry_cost.rs`) and 26 ns from compiled code.
@@ -482,8 +495,18 @@ pub(super) fn raise_if_thrown(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitR
     if ctx.in_cleanup {
         return Ok(());
     }
-    let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::Thrown);
-    let flag = builder.call(ctx.funcs, asked, &[])?[0];
+    // A load from the address this body asked for once, where there is one.
+    // The call remains the fallback rather than being deleted: a body emitted
+    // without an entry of its own has no address to load from, and answering
+    // that case with the call it always used is what keeps the two spellings
+    // agreeing about the same word. See `RuntimeOp::ThrownAddress`.
+    let flag = match ctx.thrown_flag {
+        Some(address) => builder.word_load(address)?,
+        None => {
+            let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::Thrown);
+            builder.call(ctx.funcs, asked, &[])?[0]
+        }
+    };
     let zero = builder.declare_const(ConstDecl::Scalar {
         repr: Repr::I64,
         bits: ScalarBits(0),

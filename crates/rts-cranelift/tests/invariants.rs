@@ -343,3 +343,39 @@ fn reading_a_double_as_an_int32_and_back_stays_in_its_domain() {
     assert_eq!(builder.repr_of(back), Repr::F64);
     assert!(builder.to_f64(back).is_err(), "already a double");
 }
+
+#[test]
+fn a_word_load_refuses_an_address_that_is_not_a_machine_word() {
+    // The one thing this instruction cannot check for itself is whether the
+    // address is readable, so the one thing it CAN check is refused loudly: a
+    // generic value is a tagged double, and loading from that bit pattern reads
+    // whatever it happens to look like as a pointer. There is no fault the code
+    // generator could report for it, which is what makes the refusal the only
+    // place this is catchable.
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::I64, Repr::F64], &[Repr::I64]);
+    let address = param(&func, 0);
+    let double = param(&func, 1);
+    let entry = func.entry;
+    let mut builder = FuncBuilder::new(&mut func, &types, entry);
+
+    let word = builder.word_load(address).expect("an address is a word");
+    assert_eq!(
+        builder.repr_of(word),
+        Repr::I64,
+        "a machine word is what a load of one answers"
+    );
+
+    assert!(matches!(
+        builder.word_load(double),
+        Err(BuildError::WrongDomain {
+            operation: "word_load",
+            found: Repr::F64
+        })
+    ));
+    let generic = builder.widen(double);
+    assert!(
+        builder.word_load(generic).is_err(),
+        "a generic value is not an address either"
+    );
+}

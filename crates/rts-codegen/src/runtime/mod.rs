@@ -247,6 +247,28 @@ pub enum RuntimeOp {
     /// all — see `rts-core`'s `entry/throw.rs`.
     Thrown,
 
+    /// Where this thread's throw flag lives, as a machine address.
+    ///
+    /// # Why the address and not the answer
+    ///
+    /// [`RuntimeOp::Thrown`] answers the same question and is asked after
+    /// EVERY operation that can raise, which makes the call itself most of what
+    /// it costs — a call is opaque, so the code generator stops optimising
+    /// across it and reloads everything afterwards. Measured at 9% of an
+    /// operation at the median and up to 30% on the cheap ones, by compiling
+    /// `bench/analytic.ts` with the check suppressed.
+    ///
+    /// So the address is asked ONCE per activation and each check becomes a
+    /// load. It stays a call rather than a constant because both constant forms
+    /// are wrong: an address baked in while compiling is wrong for an object
+    /// file, which runs in another process, and a data symbol is shared between
+    /// threads while the word is not.
+    ///
+    /// `Thrown` does not go away. A body that reaches the runtime through
+    /// something other than a plain call — a cleanup, where a branch is refused
+    /// — still asks the old way.
+    ThrownAddress,
+
     /// The value in flight, clearing it.
     ///
     /// Separate from [`RuntimeOp::Thrown`] because the fast path — nothing
@@ -643,6 +665,7 @@ impl RuntimeOp {
         RuntimeOp::ObjectSpread,
         RuntimeOp::KeyNumber,
         RuntimeOp::Thrown,
+        RuntimeOp::ThrownAddress,
         RuntimeOp::TakeThrown,
         RuntimeOp::RunningFunction,
         RuntimeOp::StringConst,
@@ -727,6 +750,7 @@ impl RuntimeOp {
             RuntimeOp::ObjectSpread => "__rts_object_spread",
             RuntimeOp::KeyNumber => "__rts_key_number",
             RuntimeOp::Thrown => "__rts_thrown",
+            RuntimeOp::ThrownAddress => "__rts_thrown_address",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::RunningFunction => "__rts_running_function",
             RuntimeOp::StringConst => "__rts_string_const",
@@ -840,6 +864,7 @@ impl RuntimeOp {
             // `I64` and not a boolean: a Rust `bool` is one byte and reading it
             // as a word takes the callee's leftover bits.
             RuntimeOp::Thrown => (vec![], vec![Repr::I64]),
+            RuntimeOp::ThrownAddress => (vec![], vec![Repr::I64]),
             RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),
             RuntimeOp::RunningFunction => (vec![], vec![UNPROVEN]),
             // Which literal, not the text: an index the compilation minted.
