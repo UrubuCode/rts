@@ -104,11 +104,19 @@ extern "C" fn convert(
     // `"undefined"` — with a comment saying an entry point cannot call. It can;
     // `functions::call` is how every callback in this crate already runs.
     let value = super::primitive::to_primitive(value, crate::coerce::Hint::String);
-    with_current(|context| match super::text::to_text(context, Value(value)) {
-        Some(text) => context.intern_value(text).bits(),
-        // Still not a primitive after the conversion, or a symbol, which does
-        // not convert at all. The absence stays.
-        None => undefined_of(context),
+    with_current(|context| {
+        // `String(sym)` e a UNICA conversao de simbolo que a linguagem permite,
+        // e e uma excecao escrita no proprio `String`: `"" + sym` continua a ser
+        // um `TypeError` e `to_text` continua a recusar um simbolo, que e o que
+        // impede uma conversao acidental. Sem esta linha respondia `undefined`.
+        if let Some(text) = super::symbol::described(context, value) {
+            return context.intern_value(Str::from_str(&text)).bits();
+        }
+        match super::text::to_text(context, Value(value)) {
+            Some(text) => context.intern_value(text).bits(),
+            // Still not a primitive after the conversion. The absence stays.
+            None => undefined_of(context),
+        }
     })
 }
 

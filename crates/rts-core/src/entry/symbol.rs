@@ -234,7 +234,7 @@ const NATIVES: &[(&str, super::native::Native)] =
     &[("toString", to_string), ("valueOf", value_of)];
 
 /// The text a symbol describes itself with.
-fn described(context: &Context, value: u64) -> Option<String> {
+pub(super) fn described(context: &Context, value: u64) -> Option<String> {
     let symbol = context.symbol_of(value)?;
     Some(match &symbol.description {
         Some(text) => format!("Symbol({text})"),

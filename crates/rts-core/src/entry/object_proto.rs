@@ -150,13 +150,31 @@ impl ObjectPrototype {
     /// prototype may have overridden — was wrong for everything but a plain
     /// object.
     ///
-    /// `Symbol.toStringTag` is not read: there are no symbols in this engine
-    /// yet, so there is no property a class could have put one on, and the
-    /// fallback the specification defines for its absence is exactly the
-    /// per-kind table below.
+    /// `Symbol.toStringTag` wins over the table, which is the order the
+    /// specification gives: the per-kind table is the FALLBACK for an object
+    /// that declares no tag. This used to say there were no symbols in this
+    /// engine, and there are — so a class writing `[Symbol.toStringTag]` had it
+    /// ignored and read as `[object Object]`.
+    ///
+    /// The read is an ordinary property read, outside the borrow, because it
+    /// may run a getter or a proxy trap — and rule 8 then applies: a tag whose
+    /// getter threw must not be believed.
     fn to_string(this: u64) -> u64 {
+        let key = with_current(|context| {
+            context.well_known_text(&format!("{}toStringTag", super::symbol::PREFIX))
+        });
+        let declared = super::computed::get_indexed(this, key);
+        if super::throw::in_flight() {
+            return with_current(|context| undefined_of(context));
+        }
         with_current(|context| {
-            let tag = object_tag(context, this);
+            let tag = match Value(declared).as_slot().and_then(|cell| context.text_at(cell)) {
+                // Only a STRING counts. The specification says so, and it
+                // matters: a tag that is a number would otherwise print as
+                // `[object 5]` for an object that never claimed to be one.
+                Some(text) => text.to_rust().unwrap_or_else(|| object_tag(context, this).to_owned()),
+                None => object_tag(context, this).to_owned(),
+            };
             context
                 .intern_value(Str::from_str(&format!("[object {tag}]")))
                 .bits()
@@ -229,6 +247,34 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
 /// the wrapper-object work put beside the cell, and `Date` by the property
 /// its own module already uses in place of an internal slot — see
 /// [`super::date`]'s module documentation for why that property exists.
+/// The classes whose instances the language tags by name.
+///
+/// `Object.prototype.toString.call(new Map())` is `"[object Map]"`, and every
+/// one of these answered `"[object Object]"` before. The order is only the
+/// order they are tried in: no cell reaches two of these prototypes.
+const TAGGED_CLASSES: &[&str] = &[
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    "WeakRef",
+    "Promise",
+    "ArrayBuffer",
+    "SharedArrayBuffer",
+    "DataView",
+    "Int8Array",
+    "Uint8Array",
+    "Uint8ClampedArray",
+    "Int16Array",
+    "Uint16Array",
+    "Int32Array",
+    "Uint32Array",
+    "Float32Array",
+    "Float64Array",
+    "BigInt64Array",
+    "BigUint64Array",
+];
+
 fn object_tag(context: &mut Context, this: u64) -> &'static str {
     if this == Value::from_singleton(context.singletons.undefined).bits() {
         return "Undefined";
@@ -262,6 +308,16 @@ fn object_tag(context: &mut Context, this: u64) -> &'static str {
     }
     if context.regexp_at(cell).is_some() {
         return "RegExp";
+    }
+    // As colecoes, as promessas e as vistas tipadas respondiam "Object", que e
+    // o que sobra quando nada na tabela as reconhece. Perguntado pela cadeia de
+    // prototipos, que e o que a linha do `Error` logo abaixo ja faz — e nao por
+    // uma propriedade instalada em quinze prototipos, que seria quinze sitios a
+    // manter de acordo.
+    for name in TAGGED_CLASSES {
+        if extends_class(context, cell, name) {
+            return name;
+        }
     }
     let time_key = Key::Name(
         context

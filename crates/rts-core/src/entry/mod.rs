@@ -97,7 +97,7 @@ mod uri;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
-pub use array::{array_new, array_of, element_at, own_keys};
+pub use array::{array_new, array_of, element_at, elements_base, own_keys};
 pub use math::math_random;
 pub use array_proto::arguments_at;
 pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
@@ -138,7 +138,8 @@ pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
 pub use buffers::detach::{buffer_detached, detach_buffer};
 pub use regex::regex_new;
 pub use text::{
-    declare_keys, declare_literals, declare_templates, described, string_const, template_join, template_strings,
+    declare_keys, declare_literals, declare_templates, described, string_const, string_of,
+    template_join, template_strings,
     type_of,
 };
 mod table;

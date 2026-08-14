@@ -179,6 +179,13 @@ pub enum RuntimeOp {
     MathRandom,
     /// A template literal, joined in one crossing.
     TemplateJoin,
+    /// `ToString(value)` — the conversion with the STRING hint.
+    ///
+    /// An entry point rather than a lowering because the hint is the whole
+    /// difference: `+` converts with the DEFAULT hint, which asks `valueOf`
+    /// first, and a template substitution asks `toString` first. A template
+    /// was lowered as `+`, so an object with both answered the wrong one.
+    StringOf,
 
     /// `o.x` — read a property named by its key number.
     ///
@@ -269,6 +276,14 @@ pub enum RuntimeOp {
     /// keeps the promise from being a claim: `foreach.rs` is the single caller
     /// and the proof is the desugaring itself.
     ElementAt,
+
+    /// Where a proven array's elements start, as a machine address.
+    ///
+    /// Asked ONCE per loop by the `for-of` desugaring, so that each element is
+    /// a bounded load instead of a crossing. Safe there and nowhere else: the
+    /// array is the copy `Iterate` made, nothing can name it, and the loop only
+    /// reads — so the run cannot move while the address is held.
+    ElementsBase,
 
     /// Where this thread's throw flag lives, as a machine address.
     ///
@@ -679,6 +694,7 @@ impl RuntimeOp {
         RuntimeOp::ArrayOf,
         RuntimeOp::MathRandom,
         RuntimeOp::TemplateJoin,
+        RuntimeOp::StringOf,
         RuntimeOp::GetProperty,
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
@@ -689,6 +705,7 @@ impl RuntimeOp {
         RuntimeOp::KeyNumber,
         RuntimeOp::Thrown,
         RuntimeOp::ElementAt,
+        RuntimeOp::ElementsBase,
         RuntimeOp::ThrownAddress,
         RuntimeOp::TakeThrown,
         RuntimeOp::RunningFunction,
@@ -765,6 +782,7 @@ impl RuntimeOp {
             RuntimeOp::ArrayOf => "__rts_array_of",
             RuntimeOp::MathRandom => "__rts_math_random",
             RuntimeOp::TemplateJoin => "__rts_template_join",
+            RuntimeOp::StringOf => "__rts_string_of",
             RuntimeOp::GetProperty => "__rts_get_property",
             RuntimeOp::SetProperty => "__rts_set_property",
             RuntimeOp::ClosureNew => "__rts_closure_new",
@@ -776,6 +794,7 @@ impl RuntimeOp {
             RuntimeOp::Thrown => "__rts_thrown",
             RuntimeOp::ThrownAddress => "__rts_thrown_address",
             RuntimeOp::ElementAt => "__rts_element_at",
+            RuntimeOp::ElementsBase => "__rts_elements_base",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::RunningFunction => "__rts_running_function",
             RuntimeOp::StringConst => "__rts_string_const",
@@ -851,6 +870,7 @@ impl RuntimeOp {
             RuntimeOp::GreaterEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ObjectNew => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::MathRandom => (vec![], vec![Repr::F64]),
+            RuntimeOp::StringOf => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TemplateJoin => (
                 vec![Repr::I64, Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN],
                 vec![UNPROVEN],
@@ -891,6 +911,7 @@ impl RuntimeOp {
             RuntimeOp::Thrown => (vec![], vec![Repr::I64]),
             RuntimeOp::ThrownAddress => (vec![], vec![Repr::I64]),
             RuntimeOp::ElementAt => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::ElementsBase => (vec![UNPROVEN], vec![Repr::I64]),
             RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),
             RuntimeOp::RunningFunction => (vec![], vec![UNPROVEN]),
             // Which literal, not the text: an index the compilation minted.

@@ -95,6 +95,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::MathRandom => (CoreEntry::MathRandom, {
             rts_core::entry::math_random as extern "C" fn() -> f64 as *const u8
         }),
+        RuntimeOp::StringOf => (CoreEntry::StringOf, {
+            rts_core::entry::string_of as extern "C" fn(u64) -> u64 as *const u8
+        }),
         RuntimeOp::ArrayOf => (CoreEntry::ArrayOf, {
             rts_core::entry::array_of
                 as extern "C" fn(i64, u64, u64, u64, u64) -> u64 as *const u8
@@ -134,6 +137,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::ElementAt => (CoreEntry::ElementAt, {
             rts_core::entry::element_at as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ElementsBase => (CoreEntry::ElementsBase, {
+            rts_core::entry::elements_base as extern "C" fn(u64) -> i64 as *const u8
         }),
         RuntimeOp::ThrownAddress => (CoreEntry::ThrownAddress, {
             rts_core::entry::thrown_address as extern "C" fn() -> i64 as *const u8

@@ -86,12 +86,32 @@ pub(super) fn to_text(context: &Context, value: Value) -> Option<Str> {
     }
 }
 
-/// The string a literal number names.
+/// `ToString(value)` — the conversion with the **string** hint.
 ///
-/// Answers `undefined` for a number the table does not have, which is a host
-/// that seeded fewer literals than the code refers to — a defect in the wiring
-/// rather than anything a program can express, and visible as a wrong value
-/// rather than as a read of whatever was next in memory.
+/// # Why this is an entry point and not `+` with a literal
+///
+/// Because the hint is the whole difference. A template substitution is
+/// `ToString(value)`, and `+` is `ToPrimitive(value, default)`: an object with
+/// both `valueOf` and `toString` answers the SECOND for a template and the
+/// FIRST for an addition, and `` `${o}` `` was lowered as an addition — so
+/// `{ toString: () => "T", valueOf: () => 42 }` interpolated as `42`. There is
+/// no spelling of `+` that fixes it, because the operator's own definition is
+/// the wrong one here.
+///
+/// A symbol still refuses to convert, which is not an omission: the language
+/// makes implicit conversion of a symbol a `TypeError` precisely so that one
+/// never becomes text by accident, and a template is an implicit conversion.
+/// `String(sym)` is the explicit spelling and it is the only one.
+#[rtse::entry]
+pub fn string_of(value: u64) -> u64 {
+    // Outside the borrow, because `toString` is user code.
+    let value = super::primitive::to_primitive(value, crate::coerce::Hint::String);
+    with_current(|context| match to_text(context, Value(value)) {
+        Some(text) => context.intern_value(text).bits(),
+        None => undefined_of(context),
+    })
+}
+
 /// `` `a${x}b${y}c` `` — every piece and every value joined, in ONE crossing.
 ///
 /// It was a chain of `+`. Three pieces and two values is four additions, and
@@ -110,13 +130,22 @@ pub(super) fn to_text(context: &Context, value: Value) -> Option<Str> {
 /// correct rather than a gap: it pays what it always paid.
 #[rtse::entry]
 pub fn template_join(which: i64, count: i64, v0: u64, v1: u64, v2: u64) -> u64 {
+    // Convertidos ANTES do empréstimo, e com o hint STRING: `to_text` sozinho
+    // não corre `ToPrimitive` nenhum, então um objeto com `toString` não
+    // contribuía nada e um com `valueOf` contribuía o número. Enraizados porque
+    // cada conversão interna uma string, e internar aloca.
+    let wanted = count.clamp(0, 3) as usize;
+    let mut converted = super::rooted::Rooted::new();
+    for value in [v0, v1, v2].into_iter().take(wanted) {
+        let text = string_of(value);
+        converted.values().push(text);
+    }
+    let values = converted.take();
     with_current(|context| {
         let Some((pieces, _)) = context.templates.get(which as usize) else {
             return undefined_of(context);
         };
         let pieces = pieces.clone();
-        let wanted = count.clamp(0, 3) as usize;
-        let values = [v0, v1, v2];
 
         // One buffer, grown once and written through. The pieces are already
         // interned strings, so what is built here is the JOIN and not a copy

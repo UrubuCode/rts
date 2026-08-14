@@ -688,6 +688,27 @@ fn is_bare_class_constructor_call(callee: u64) -> bool {
 /// many links away, which is why this is a loop rather than one comparison.
 #[rtse::entry]
 pub fn instance_of(value: u64, callee: u64) -> bool {
+    // `Symbol.hasInstance` primeiro, que e o passo 1 do operador e nao existia:
+    // uma classe que o define decide ela propria o que e uma instancia dela, e
+    // sem isto a decisao era sempre da cadeia de prototipos. Lido FORA do
+    // emprestimo, porque e uma leitura de propriedade que pode correr um getter
+    // ou um trap de proxy — e por isso mesmo passa a alcancar um Proxy, que
+    // antes caia no `callable_at` e respondia falso.
+    let key = with_current(|context| {
+        context.well_known_text(&format!("{}hasInstance", super::symbol::PREFIX))
+    });
+    let hook = super::computed::get_indexed(callee, key);
+    if super::throw::in_flight() {
+        return false;
+    }
+    if with_current(|context| super::modules::is_callable_in(context, hook)) {
+        let absent = with_current(|context| undefined_of(context));
+        let answered = call(hook, callee, value, absent, absent, absent);
+        if super::throw::in_flight() {
+            return false;
+        }
+        return super::class_support::to_boolean(answered);
+    }
     with_current(|context| {
         let Some(function) = Value(callee).as_slot() else {
             return false;

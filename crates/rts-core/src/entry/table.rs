@@ -42,7 +42,7 @@ use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 use super::accessor::{DEFINE_GETTER_ENTRY, DEFINE_SETTER_ENTRY};
 use super::array::{ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, OWN_KEYS_ENTRY};
 use super::math::MATH_RANDOM_ENTRY;
-use super::text::TEMPLATE_JOIN_ENTRY;
+use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
 use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
     SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
@@ -65,7 +65,7 @@ use super::objects::{
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
 use super::generator::{GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
-use super::array::ELEMENT_AT_ENTRY;
+use super::array::{ELEMENTS_BASE_ENTRY, ELEMENT_AT_ENTRY};
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ADDRESS_ENTRY, THROWN_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
@@ -449,6 +449,17 @@ pub enum CoreEntry {
 
     /// An element of a proven array at a proven index.
     ElementAt = 75,
+
+    /// Where a proven array's elements start, as an address.
+    ElementsBase = 76,
+
+    /// `ToString(value)` — the conversion with the STRING hint.
+    ///
+    /// Here rather than lowered as `+ ""` because the hint is the difference:
+    /// `+` converts with the DEFAULT hint, which asks `valueOf` first, and a
+    /// template substitution asks `toString` first. No spelling of the operator
+    /// answers the second question.
+    StringOf = 77,
 }
 
 /// How many entry points exist.
@@ -456,7 +467,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 76;
+pub const CORE_ENTRY_COUNT: usize = 78;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -537,6 +548,8 @@ impl CoreEntry {
         CoreEntry::TemplateJoin,
         CoreEntry::ThrownAddress,
         CoreEntry::ElementAt,
+        CoreEntry::ElementsBase,
+        CoreEntry::StringOf,
     ];
 
     /// The number a call site holds.
@@ -568,6 +581,7 @@ impl CoreEntry {
             CoreEntry::ArrayOf => ARRAY_OF_ENTRY,
             CoreEntry::MathRandom => MATH_RANDOM_ENTRY,
             CoreEntry::TemplateJoin => TEMPLATE_JOIN_ENTRY,
+            CoreEntry::StringOf => STRING_OF_ENTRY,
             CoreEntry::GetProperty => GET_PROPERTY_ENTRY,
             CoreEntry::SetProperty => SET_PROPERTY_ENTRY,
             CoreEntry::ClosureNew => CLOSURE_NEW_ENTRY,
@@ -575,6 +589,7 @@ impl CoreEntry {
             CoreEntry::TakeThrown => TAKE_THROWN_ENTRY,
             CoreEntry::ThrownAddress => THROWN_ADDRESS_ENTRY,
             CoreEntry::ElementAt => ELEMENT_AT_ENTRY,
+            CoreEntry::ElementsBase => ELEMENTS_BASE_ENTRY,
             CoreEntry::RunningFunction => RUNNING_FUNCTION_ENTRY,
             CoreEntry::GeneratorNew => GENERATOR_NEW_ENTRY,
             CoreEntry::GeneratorYield => GENERATOR_YIELD_ENTRY,
@@ -740,7 +755,7 @@ mod tests {
         // that a crossing does less work is the same argument as a list that
         // grows so that there are fewer crossings.
         assert!(
-            CORE_ENTRY_COUNT <= 76,
+            CORE_ENTRY_COUNT <= 78,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

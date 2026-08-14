@@ -134,6 +134,13 @@ pub fn emit_template(
     // One part after each expression, which is the invariant the tree records
     // as "always one more than `expressions`". Zipping is what reads it.
     for (value, part) in values.into_iter().zip(rest) {
+        // Convertido com o hint STRING antes de entrar na concatenação. O `+`
+        // converte com o hint DEFAULT, que pergunta `valueOf` primeiro, e uma
+        // substituição de template pergunta `toString` primeiro — então
+        // `{ toString: () => "T", valueOf: () => 42 }` interpolava como `42`.
+        // Não há grafia do `+` que corrija isso: a definição do operador é que
+        // é a errada aqui.
+        let value = super::expr::call(builder, ctx, RuntimeOp::StringOf, &[value])?[0];
         joined = emit_binary(builder, ctx, BinaryOp::Add, joined, value)?;
         let text = cooked(part)?;
         if text.is_empty() {
