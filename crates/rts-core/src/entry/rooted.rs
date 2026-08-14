@@ -100,6 +100,11 @@ impl Rooted {
         &mut self.values
     }
 
+    /// The values, still registered, for a caller that only reads.
+    pub(in crate::entry) fn as_slice(&self) -> &[u64] {
+        &self.values
+    }
+
     /// How many values are in it, without un-registering.
     pub(in crate::entry) fn len(&self) -> usize {
         self.values.len()

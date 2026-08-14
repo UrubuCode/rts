@@ -155,8 +155,19 @@ fn materialise(node: &read::Node) -> u64 {
             with_current(|context| context.intern_value(Str::from_utf16(units)).bits())
         }
         Node::Array(items) => {
-            let built: Vec<u64> = items.iter().map(materialise).collect();
+            // ROOTED, and a loop rather than a `collect`: `materialise` is
+            // recursive and every branch of it ALLOCATES, so the children built
+            // so far are exposed between the steps of the loop that makes them
+            // — named only by a `Vec` on the Rust heap, which no scan of ours
+            // reaches. `array_new` below is a second exposure of the same list.
+            // See `super::rooted`.
+            let mut built = super::rooted::Rooted::new();
+            for item in items {
+                let value = materialise(item);
+                built.values().push(value);
+            }
             let array = super::array::array_new(built.len() as i64);
+            let built = built.take();
             with_current(|context| {
                 if let Some(cell) = Value(array).as_slot()
                     && let Some(elements) = context.elements_at_mut(cell)
@@ -167,11 +178,27 @@ fn materialise(node: &read::Node) -> u64 {
             })
         }
         Node::Object(members) => {
-            let built: Vec<(Str, u64)> = members
-                .iter()
-                .map(|(key, value)| (Str::from_utf16(key), materialise(value)))
+            // The same, with the keys kept beside the guard: `Rooted` holds
+            // values, and a `Str` is not one — it is text this function has not
+            // interned yet, on the Rust heap where nothing can collect it.
+            let mut values = super::rooted::Rooted::new();
+            let mut keys: Vec<Str> = Vec::with_capacity(members.len());
+            for (key, value) in members {
+                let made = materialise(value);
+                values.values().push(made);
+                keys.push(Str::from_utf16(key));
+            }
+            // The guard stays ALIVE past this line, and `built` carries a copy
+            // of the same words rather than taking them: everything below —
+            // `native::plain`, and `objects::put` on the fallback path —
+            // allocates, so the values have to remain registered until they are
+            // written into the cell. Eight bytes a member to keep the existing
+            // shape-building code untouched.
+            let built: Vec<(Str, u64)> = keys
+                .into_iter()
+                .zip(values.as_slice().iter().copied())
                 .collect();
-            with_current(|context| {
+            let made = with_current(|context| {
                 let Some(cell) = super::native::plain(context) else {
                     return undefined_of(context);
                 };
@@ -241,7 +268,11 @@ fn materialise(node: &read::Node) -> u64 {
                     }
                 }
                 Value::from_slot(cell).bits()
-            })
+            });
+            // Released only now: the object holds every value, so the list has
+            // nothing left to keep alive.
+            drop(values);
+            made
         }
     }
 }
