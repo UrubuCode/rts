@@ -4721,3 +4721,32 @@ fn a_name_declared_twice_is_never_substituted_from_the_wrong_declaration() {
     );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
+
+#[test]
+fn a_closure_survives_the_collection_its_own_prototype_allocation_triggers() {
+    // `closure_new` allocates the callable's cell, records what makes it
+    // callable beside it, and THEN allocates the `prototype` object every
+    // function gets. Between those two allocations the only thing naming the
+    // first cell is a Rust local holding a raw index — and `roots::scan_stack`
+    // keeps only words that are unambiguously encoded references, which an
+    // index is not. So the second allocation could collect the closure that
+    // asked for it.
+    //
+    // The count is measured, not chosen: the region is 65 536 cells and a
+    // closure takes two, so a collection lands every ~32 000 of these. Fewer
+    // than that and the test passes without the fix, which would make it a test
+    // of nothing.
+    //
+    // The symptom was `TypeError: object is not a function`, because the swept
+    // cell was handed back out and the value named whatever took the index.
+    let produced = run(
+        "let n = 0; \
+         for (let i = 0; i < 200000; i++) { const f = (x) => x + 1; n = n + f(1); } \
+         return n === 400000 ? 1 : 0;",
+    );
+    assert_eq!(
+        tags::decode_double(produced),
+        1.0,
+        "every closure made in the loop stayed callable across the collections"
+    );
+}

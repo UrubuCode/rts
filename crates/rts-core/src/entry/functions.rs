@@ -77,6 +77,25 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         let ty = context.layout_of(shape).index() as u32;
         let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
         context.mark_callable(cell, code as u64, environment);
+        let made = Value::from_slot(cell).bits();
+        // HELD across everything below, and this is not belt and braces — it is
+        // the fix for a measured bug.
+        //
+        // Between the allocation above and the return, the only thing naming
+        // this cell is a Rust local holding a raw `u32` index. `roots::scan_stack`
+        // looks for words that are unambiguously ENCODED references, and a bare
+        // index is not one — so the closure is invisible to a collection, and
+        // the allocation on the next line is one. The symptom was
+        // `TypeError: object is not a function` after a few hundred thousand
+        // closures: the cell was swept, its `callables` entry went with it, and
+        // the value handed back named whatever took the index. Diagnosed by
+        // reading the cell at the failing call — type present, callable absent,
+        // region full.
+        //
+        // `external::hold` is the mechanism that already answers "something
+        // outside the heap is holding this", built for `rts-napi`; a second
+        // one for a scoped hold would be two answers to one question.
+        let held = super::external::hold(context, made);
         // Every function gets a `prototype` object, because `new` reads one
         // and a function that could not be constructed with would be a
         // different kind of function. Made here rather than on demand:
@@ -85,10 +104,18 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
         if let Some(prototype) = super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty) {
+            // The same hazard one line later, and held for the same reason:
+            // `put` may need an overflow block, which allocates, which may
+            // collect — and until the write lands, this object is named only by
+            // a local of this frame.
+            let prototype_value = Value::from_slot(prototype).bits();
+            let held_prototype = super::external::hold(context, prototype_value);
             let key = prototype_key(context);
-            super::objects::put(context, cell, key, Value::from_slot(prototype).bits());
+            super::objects::put(context, cell, key, prototype_value);
+            super::external::release(context, held_prototype);
         }
-        Value::from_slot(cell).bits()
+        super::external::release(context, held);
+        made
     })
 }
 
