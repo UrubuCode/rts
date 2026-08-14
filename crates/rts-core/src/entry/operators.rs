@@ -413,10 +413,51 @@ pub fn loose_equals(left: u64, right: u64) -> bool {
             return crate::value::strict_equals(left, right, |a, b| context.same_text(a, b));
         }
 
+        // Um bigint contra um numero, um booleano ou texto compara o valor
+        // MATEMATICO dos dois lados. Nao estava aqui, entao caia no
+        // `as_number`, que responde `None` para um bigint — e `1n == 1` era
+        // falso. Converter os dois para `f64` teria sido mais curto e errado
+        // no sitio que importa: `(2n ** 60n + 1n) == 2 ** 60` tem de ser falso,
+        // e em double os dois lados sao o mesmo numero.
+        let held = match (
+            super::bigints::digits_of(context, left.bits()).cloned(),
+            super::bigints::digits_of(context, right.bits()).cloned(),
+        ) {
+            (Some(held), None) => Some((held, right)),
+            (None, Some(held)) => Some((held, left)),
+            // Dois bigints ja foram respondidos pela igualdade estrita acima, e
+            // nenhum dos dois nao e trabalho deste ramo.
+            _ => None,
+        };
+        if let Some((held, other)) = held {
+            return same_as_bigint(context, &held, other);
+        }
+
         match (as_number(context, left), as_number(context, right)) {
             (Some(a), Some(b)) => a == b,
             // One of them is an object, so the answer needed `ToPrimitive`.
             _ => false,
         }
     })
+}
+
+/// Whether a bigint and a primitive of another kind name the same integer.
+///
+/// Text is parsed as a bigint rather than converted to a double, which is the
+/// specification's `StringToBigInt` and the only reading that keeps
+/// `9007199254740993n == "9007199254740993"` true — a double cannot hold that
+/// number. A number that is not an integer, or is not finite, is equal to no
+/// bigint at all, which is what `from_f64` answering `None` says.
+fn same_as_bigint(context: &Context, held: &crate::bigint::BigInt, other: Value) -> bool {
+    if let Some(cell) = other.as_slot()
+        && let Some(text) = context.text_at(cell)
+    {
+        return text
+            .to_rust()
+            .and_then(|text| crate::bigint::BigInt::parse(text.trim()))
+            .is_some_and(|parsed| held.cmp(&parsed) == std::cmp::Ordering::Equal);
+    }
+    as_number(context, other)
+        .and_then(crate::bigint::BigInt::from_f64)
+        .is_some_and(|converted| held.cmp(&converted) == std::cmp::Ordering::Equal)
 }

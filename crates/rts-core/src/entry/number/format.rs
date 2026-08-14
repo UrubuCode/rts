@@ -52,8 +52,9 @@ pub(super) fn precision(number: f64, digits: usize) -> String {
         return crate::coerce::number_to_string(number).to_rust().unwrap_or_default();
     }
     if number == 0.0 {
-        let sign = if number.is_sign_negative() { "-" } else { "" };
-        return format!("{sign}{}", with_places(0.0, digits.saturating_sub(1)));
+        // Unsigned, for the reason `super::fixed` records: the specification
+        // tests `x < 0`, which negative zero is not.
+        return with_places(0.0, digits.saturating_sub(1));
     }
     let (_, exponent) = carried(number.abs(), digits.saturating_sub(1));
     if exponent < -6 || exponent >= digits as i32 {

@@ -109,14 +109,17 @@ impl Number {
     fn to_string(this: u64, radix: u64) -> u64 {
         let base = radix_of(radix);
         let number = receiver_number(this);
+        // Uma base fora de 2..=36 e um `RangeError`, e nao o decimal: responder
+        // o decimal fazia `(5).toString(1)` responder `"5"`, que e uma resposta
+        // certa para uma pergunta que o programa nao fez.
+        if base != 0 && !(2..=36).contains(&base) {
+            super::throw::range_error("toString() radix must be between 2 and 36");
+            return with_current(|context| undefined_of(context));
+        }
         with_current(|context| {
             let text = match base {
                 0 | 10 => crate::coerce::number_to_string(number),
-                base if (2..=36).contains(&base) => Str::from_str(&in_radix(number, base as u32)),
-                // The specification throws a `RangeError`; this cannot yet, and
-                // answering the decimal form is the least wrong of the values
-                // available.
-                _ => crate::coerce::number_to_string(number),
+                base => Str::from_str(&in_radix(number, base as u32)),
             };
             context.intern_value(text).bits()
         })
@@ -134,9 +137,16 @@ impl Number {
     /// formats to nearest-even. `(2.5).toFixed(0)` is `"3"`.
     fn to_fixed(this: u64, digits: f64) -> u64 {
         let number = receiver_number(this);
-        let places = match digits.is_nan() {
-            true => 0,
-            false => digits.trunc().clamp(0.0, 100.0) as usize,
+        let asked = match digits.is_nan() {
+            true => 0.0,
+            false => digits.trunc(),
+        };
+        // Grampear era responder `"0.00"` a `(1).toFixed(-1)` e `100` casas a
+        // `(1).toFixed(101)` — dois pedidos ilegais atendidos com um numero que
+        // o programa nao pediu. O intervalo e da especificacao, e o `RangeError`
+        // sai FORA do emprestimo porque construir o erro toma o contexto.
+        let Some(places) = in_range(asked, 0.0, 100.0, "toFixed() digits argument must be between 0 and 100") else {
+            return with_current(|context| undefined_of(context));
         };
         with_current(|context| {
             let text = match number.is_finite() && number.abs() < 1e21 {
@@ -157,7 +167,23 @@ impl Number {
     /// the value it was passed rather than as an `f64`.
     fn to_exponential(this: u64, digits: u64) -> u64 {
         let number = receiver_number(this);
-        let places = places_of(digits);
+        // Um numero nao finito responde o `ToString` dele ANTES de a faixa ser
+        // olhada, que e a ordem da especificacao: `(NaN).toExponential(500)` e
+        // `"NaN"` e nao um `RangeError`.
+        let places = match (number.is_finite(), places_of(digits)) {
+            (true, Some(asked)) => {
+                let Some(places) = in_range(
+                    asked,
+                    0.0,
+                    100.0,
+                    "toExponential() argument must be between 0 and 100",
+                ) else {
+                    return with_current(|context| undefined_of(context));
+                };
+                Some(places)
+            }
+            _ => None,
+        };
         with_current(|context| {
             let text = Str::from_str(&format::exponential(number, places));
             context.intern_value(text).bits()
@@ -174,16 +200,26 @@ impl Number {
         // nesting them aborts the process rather than failing a test — the trap
         // `radix_of` records paying for once already.
         let asked = places_of(digits);
+        // Sem argumento e `toString`, e um numero nao finito tambem — as duas
+        // saidas que a especificacao toma antes de olhar para a faixa.
+        let places = match (asked, number.is_finite()) {
+            (Some(asked), true) => {
+                let Some(places) = in_range(
+                    asked,
+                    1.0,
+                    100.0,
+                    "toPrecision() argument must be between 1 and 100",
+                ) else {
+                    return with_current(|context| undefined_of(context));
+                };
+                Some(places)
+            }
+            _ => None,
+        };
         with_current(|context| {
-            let text = match asked {
-                // The specification's range is 1 to 100 and outside it throws a
-                // `RangeError`; this cannot yet, so the decimal form is the
-                // least wrong of the values available — the same answer
-                // `toString` settles on for a bad radix.
-                Some(places) if (1..=100).contains(&places) => {
-                    Str::from_str(&format::precision(number, places))
-                }
-                _ => crate::coerce::number_to_string(number),
+            let text = match places {
+                Some(places) => Str::from_str(&format::precision(number, places)),
+                None => crate::coerce::number_to_string(number),
             };
             context.intern_value(text).bits()
         })
@@ -375,7 +411,10 @@ fn in_radix(number: f64, base: u32) -> String {
 /// (ties round up, matching the spec's "pick the larger n") never sees a
 /// multiplication-introduced tie.
 fn fixed(number: f64, places: usize) -> String {
-    let negative = number.is_sign_negative();
+    // `x < 0`, and NOT the sign bit: the specification's step is "if x < 0, set
+    // s to `-`", which leaves negative zero unsigned. `(-0).toFixed(2)` is
+    // `"0.00"` in every engine, and reading the bit answered `"-0.00"`.
+    let negative = number < 0.0;
     let magnitude = number.abs();
     // f64's exact decimal expansion terminates within a few dozen digits for
     // any value with a non-degenerate binary fraction; 60 digits of margin
@@ -441,16 +480,31 @@ fn round_decimal_string(digits: &str, places: usize) -> String {
 /// Its own function because two methods need the distinction and each answers
 /// something different without it — `toExponential` shortens and `toPrecision`
 /// becomes `toString`.
-fn places_of(digits: u64) -> Option<usize> {
+fn places_of(digits: u64) -> Option<f64> {
     let absent = with_current(|context| undefined_of(context));
     if digits == absent {
         return None;
     }
     let asked = super::class_support::to_number(digits);
     match asked.is_nan() {
-        true => Some(0),
-        false => Some(asked.trunc().clamp(0.0, 100.0) as usize),
+        true => Some(0.0),
+        false => Some(asked.trunc()),
     }
+}
+
+/// The digit count, when the request is inside the range the specification
+/// allows — and a `RangeError` with `None` when it is not.
+///
+/// Grampear em vez de recusar era a decisao anterior, e ela transformava
+/// `(1).toPrecision(0)` — que a linguagem recusa — num `"1"` que o programa nao
+/// pediu. A excecao e levantada FORA de qualquer emprestimo: construir o objeto
+/// de erro toma o contexto, que e o que `string::basic` ja documenta.
+fn in_range(asked: f64, low: f64, high: f64, message: &str) -> Option<usize> {
+    if !(low..=high).contains(&asked) {
+        super::throw::range_error(message);
+        return None;
+    }
+    Some(asked as usize)
 }
 
 /// The double a value holds, when it genuinely holds one.
@@ -499,6 +553,14 @@ pub(super) fn float_prefix(text: &str) -> usize {
     let mut at = 0;
     if matches!(bytes.first(), Some(b'+' | b'-')) {
         at += 1;
+    }
+    // `Infinity` is part of the grammar, not a name — `StrDecimalLiteral` lists
+    // it beside the digits, which is why `parseFloat(" Infinity ")` is infinite
+    // and not `NaN`. Only this spelling, and only capitalised: the language does
+    // not accept `inf`, which Rust's own float parser does, so the prefix has to
+    // be recognised HERE rather than left to `parse` further down.
+    if text[at..].starts_with("Infinity") {
+        return at + "Infinity".len();
     }
     let mut seen_digit = false;
     while at < bytes.len() && bytes[at].is_ascii_digit() {
