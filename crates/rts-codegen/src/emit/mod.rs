@@ -1038,11 +1038,23 @@ mod tests {
         // assertion it made was correct then: `+` is a call BECAUSE it might
         // concatenate. Proving both operands numeric is exactly the evidence
         // that it cannot, so the call goes.
-        assert!(
-            !instructions(&func)
-                .iter()
-                .any(|inst| matches!(inst, Inst::Call { .. })),
-            "nothing here needs the runtime: both operands are proven doubles"
+        // ONE call, and it is not the operator's.
+        //
+        // This asserted zero until every body started asking for the address of
+        // the throw flag at its entry — see `RuntimeOp::ThrownAddress`, which
+        // made that one call the price of turning every later check into a
+        // load. The claim being pinned is unchanged and is about the OPERATOR:
+        // `+` on two proven doubles is an instruction, so a second call here
+        // would be it going back to the runtime.
+        let calls = instructions(&func)
+            .iter()
+            .filter(|inst| matches!(inst, Inst::Call { .. }))
+            .count();
+        assert_eq!(
+            calls, 1,
+            "the only call in this body is the entry's throw-flag address; a \
+             second one would be `+` reaching the runtime, and both operands \
+             are proven doubles"
         );
         assert!(
             instructions(&func)

@@ -308,11 +308,13 @@ mod tests {
             key: key(&mut names, "a"),
             value: None,
             is_static: false,
+            claim: None,
         });
         let static_field = ClassElement::Field(Field {
             key: key(&mut names, "b"),
             value: None,
             is_static: true,
+            claim: None,
         });
         let block = ClassElement::StaticBlock(vec![]);
         let m = ClassElement::Method(method(&mut names, "m", false));
