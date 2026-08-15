@@ -105,16 +105,28 @@ and the file that used to HANG is gone from the column:
 `for_await_break_return.test.ts` timed out on every run until `for`-`of`
 stopped materialising its sequence.
 
-**And the second ruler: 674 of 708 cross-runtime fixtures** (95.2%), measured
+**And the second ruler: 728 of 762 cross-runtime fixtures** (95.5%), measured
 2026-08-15 by `scripts/cross_runtime_check.sh`, one process per file, against
 Bun and Node. That corpus is a different question from the one above — it asks
 whether this engine and a real one agree about the same program, where
 `*.test.ts` asks whether the program does what it says.
 
-It was 666, 646, 630, 593 and 419 earlier in the same stretch. Every step between
-those figures was measured PER FILE against a kept binary and cost **nothing**: the
-LOST list is empty at each one, which is the only form the claim "no regression"
-takes here. The net number never was.
+It was 674 of 708 before the corpus grew, and 666, 646, 630, 593 and 419 earlier
+in the same stretch. Every step between those figures was measured PER FILE
+against a kept binary and cost **nothing**: the LOST list is empty at each one,
+which is the only form the claim "no regression" takes here. The net number
+never was.
+
+**The denominator moved by 54, and both halves are stated because of it.** Those
+are `tests/cross-runtime/obfuscated/` — real `javascript-obfuscator` output over
+seeds that each exercise one area. An obfuscator emits legal JavaScript nobody
+writes by hand, which is the syntax a hand-written corpus never reaches, and the
+first run of it found three bugs on a tree that had just measured 674 of 708:
+**twelve programs HUNG** because a name assigned in a loop's test carried nothing
+across the back edge, five were refused for `super[e]`, and five answered wrongly
+because a computed method key came out enumerable. None of the three needed an
+obfuscator to be reachable. `scripts/obfuscated/README.md` is how to make more,
+and says why a name already in the corpus is never re-emitted.
 
 The ceiling under the number is worth reading with it: **five of the 708 have no
 comparable answer**, because Bun and Node disagree with each other and the
