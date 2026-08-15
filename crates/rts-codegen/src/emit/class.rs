@@ -428,7 +428,23 @@ fn write_member(
             let key_value = computed_value.expect("evaluated in emit_class's key pass");
             let key_value = expr::tagged(builder, key_value);
             let value = expr::tagged(builder, value);
-            Ok(expr::call(builder, ctx, RuntimeOp::SetIndexed, &[target, key_value, value])?[0])
+            // A computed key is a member like any other, so `hidden` decides
+            // the same thing here. It did not, and the gap was invisible while
+            // people wrote `m() {}`: an obfuscator rewrites every method name
+            // into `['m']()`, and every one of them came out ENUMERABLE — so
+            // `for (const k in new Box())` answered `v,m` on a program whose
+            // source said `v`.
+            //
+            // The key crosses as a value, so `KeyNumber` turns it into the
+            // number `DefineMethod` takes — the same conversion `super[e]` uses
+            // rather than a fourth entry point.
+            if !hidden {
+                return Ok(
+                    expr::call(builder, ctx, RuntimeOp::SetIndexed, &[target, key_value, value])?[0],
+                );
+            }
+            let key = expr::call(builder, ctx, RuntimeOp::KeyNumber, &[key_value])?[0];
+            Ok(expr::call(builder, ctx, RuntimeOp::DefineMethod, &[target, key, value])?[0])
         }
     }
 }
@@ -794,8 +810,10 @@ pub(super) fn emit_super_member(
     ctx: &mut Ctx,
     property: &PropertyKey,
 ) -> EmitResult<ValueId> {
+    // The key FIRST: a computed one is an expression, and the language
+    // evaluates it before anything else the access does.
+    let key = super_key(builder, scope, ctx, property)?;
     let (above, receiver) = super_lookup_root_and_receiver(builder, scope, ctx, property)?;
-    let key = super::property::key_constant(builder, ctx, name_of(property)?);
     Ok(expr::call(
         builder,
         ctx,
@@ -817,8 +835,10 @@ pub(super) fn emit_super_member_write(
     property: &PropertyKey,
     value: ValueId,
 ) -> EmitResult<ValueId> {
+    // The key FIRST: a computed one is an expression, and the language
+    // evaluates it before anything else the access does.
+    let key = super_key(builder, scope, ctx, property)?;
     let (above, receiver) = super_lookup_root_and_receiver(builder, scope, ctx, property)?;
-    let key = super::property::key_constant(builder, ctx, name_of(property)?);
     let value = expr::tagged(builder, value);
     Ok(expr::call(
         builder,
@@ -837,11 +857,6 @@ fn super_lookup_root_and_receiver(
     ctx: &mut Ctx,
     property: &PropertyKey,
 ) -> EmitResult<(ValueId, ValueId)> {
-    if !matches!(property, PropertyKey::Named(_)) {
-        return Err(EmitError::Unsupported {
-            construct: "a computed `super[e]`",
-        });
-    }
     // A STATIC method's home object is the constructor; an instance method's is
     // the prototype. Read from the flag the method's own emission set, because
     // this runs several frames inside that emission.
@@ -870,12 +885,29 @@ fn super_lookup_root_and_receiver(
 }
 
 /// The one property-key shape a `super` access supports today.
-fn name_of(property: &PropertyKey) -> EmitResult<crate::names::Name> {
+/// The key operand a `super` access crosses with, from either spelling.
+///
+/// A NAMED key was resolved while compiling, so it is a constant. A COMPUTED
+/// one is a value the program produces at run time, and `RuntimeOp::KeyNumber`
+/// is what turns it into the same number — the operation the computed property
+/// path already uses, rather than a third entry point taking a key as a value.
+///
+/// It was refused by name until this existed, and `super[e]` is not exotic: an
+/// obfuscator rewrites every `super.m()` into one, so five generated fixtures
+/// failed to compile on a construct their source had spelled ordinarily.
+fn super_key(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    property: &PropertyKey,
+) -> EmitResult<ValueId> {
     match property {
-        PropertyKey::Named(name) => Ok(*name),
-        _ => Err(EmitError::Unsupported {
-            construct: "a computed `super[e]`",
-        }),
+        PropertyKey::Named(name) => Ok(super::property::key_constant(builder, ctx, *name)),
+        PropertyKey::Computed(key) => {
+            let value = super::emit_expr(builder, scope, ctx, key)?;
+            let value = expr::tagged(builder, value);
+            Ok(expr::call(builder, ctx, RuntimeOp::KeyNumber, &[value])?[0])
+        }
     }
 }
 

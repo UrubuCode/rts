@@ -39,6 +39,22 @@ O script `cross_runtime_check.sh` rejeita arquivos que contêm
 `import ... from "rts"` ou `JSON5`/`Bun`/`Deno`/`process` para evitar
 fixture mal classificada.
 
+## A categoria `obfuscated/`
+
+Saída real de `javascript-obfuscator` sobre sementes que exercitam uma área
+cada. O ponto é a **forma**, não a fonte: um ofuscador emite JavaScript legal
+que ninguém escreve à mão — uma atribuição na condição de um laço, `super[e]`
+onde a fonte dizia `super.m`, um método de chave computada — e essa é
+exactamente a sintaxe que um corpus escrito à mão nunca alcança.
+
+Na primeira corrida, sobre uma árvore que acabara de medir 674 de 708: **12
+penduraram**, 5 foram recusadas por nome e 5 deram resposta errada. Nenhuma das
+três causas precisava de um ofuscador para ser alcançável.
+
+Como gerar mais: `scripts/obfuscated/README.md`. A ofuscação é ALEATÓRIA, por
+isso os ficheiros são comprometidos em vez de regenerados — voltar a correr o
+gerador dá programas diferentes das mesmas sementes.
+
 ## Como adicionar
 
 1. Criar `tests/cross-runtime/NN_<descrição>.ts` com `console.log` em

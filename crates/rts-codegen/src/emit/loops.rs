@@ -332,9 +332,23 @@ fn emit_for_inner(
 
     let header = builder.create_block();
     // The update writes the same names the body does, so both are asked.
+    // The body, the update, AND THE TEST. All three run once per pass and all
+    // three can write, so a name any of them assigns needs a block parameter to
+    // carry it across the back edge.
+    //
+    // The test was missing, and it is not an exotic place to write:
+    // `for (let i = 0, c; c = s.charAt(i++); )` is what the base64 decoder every
+    // obfuscator emits looks like, and it is ordinary JavaScript. Without a
+    // parameter for `i`, every pass re-read the header's value — so `charAt`
+    // answered the first character forever and the loop never ended. A HANG,
+    // found by a generated program where the whole hand-written corpus had
+    // missed it.
     let mut merged = assigned_positions(scope, body);
     if let Some(update) = update {
         merged.extend(assigned_in_expr_positions(scope, update));
+    }
+    if let Some(test) = test {
+        merged.extend(assigned_in_expr_positions(scope, test));
     }
     merged.sort_unstable();
     merged.dedup();
