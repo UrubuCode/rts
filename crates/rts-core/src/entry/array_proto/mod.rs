@@ -34,11 +34,14 @@
 
 mod arguments;
 mod concat;
+mod construct;
+mod cursor;
 pub(super) mod iterate;
 mod joining;
 mod like;
 mod more;
 mod numeric;
+pub(in crate::entry) mod species;
 
 pub use arguments::arguments_at;
 
@@ -68,7 +71,8 @@ const NATIVES: &[(&str, super::native::Native)] = &[
 /// Statics rather than prototype methods, and the language put them there on
 /// purpose: `Array.isArray(x)` has to answer for an `x` whose own prototype was
 /// replaced, which a method reached through the chain cannot.
-const STATICS: &[(&str, super::native::Native)] = &[("isArray", is_array), ("of", of)];
+const STATICS: &[(&str, super::native::Native)] =
+    &[("isArray", construct::is_array), ("of", construct::of)];
 
 /// What every array inherits from, made once.
 ///
@@ -105,7 +109,7 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
 /// the object every array inherits from and `Array.from = g` is an ordinary
 /// property write on the constructor.
 pub(super) fn constructor(context: &mut Context) -> u64 {
-    let callable = super::native::callable(context, make);
+    let callable = super::native::callable(context, construct::make);
     // `Array.name`, for the reason `string::constructor` gives: a hand-built
     // constructor has nothing deriving its name.
     super::native::name_of(context, callable, "Array");
@@ -119,51 +123,19 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         let key = context.well_known("prototype");
         super::objects::put(context, cell, key, prototype);
     }
-    callable
-}
-
-/// `Array(n)` and `new Array(n)`.
-///
-/// One argument means two different things and the language decided which by
-/// *type*, not by count: `Array(3)` is three empty slots and `Array("3")` is one
-/// element. Getting that backwards makes `Array(x)` silently produce a different
-/// array whenever `x` stops being a number, which is a wrong program that runs.
-///
-/// `new Array(n)` answers this array rather than the object `construct` made,
-/// because a constructor returning an object wins — so nothing here has to know
-/// whether it was called with `new`.
-extern "C" fn make(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let given = with_current(|context| arguments_at(context, 0, [a0, a1, a2, a3]));
-    if given.len() == 1
-        && let Some(count) = Value(given[0]).numeric()
-        && (0.0..4_294_967_295.0).contains(&count)
-        && count.fract() == 0.0
-    {
-        return super::array::array_new(count as i64);
+    // `Array.prototype.constructor`, which was missing and is not decoration:
+    // the species protocol starts by reading `constructor` off the receiver, so
+    // without it `[].constructor` is `undefined` and `[1].map(f)` cannot tell
+    // the built-in class from a subclass that overrode it. Non-enumerable, like
+    // every other member of a built-in prototype — `for (k in [])` walks the
+    // chain, and an enumerable one appears in the most ordinary loop a program
+    // writes.
+    if let Some(cell) = Value(prototype).as_slot() {
+        let key = context.well_known("constructor");
+        super::objects::put(context, cell, key, callable);
+        super::native::hidden(context, cell, key);
     }
-    built(given)
-}
-
-/// `Array.isArray(x)`.
-///
-/// Asks the side table, which is what being an array IS here — not the
-/// prototype, because `Object.setPrototypeOf(a, null)` leaves `a` an array and a
-/// chain walk would say otherwise.
-extern "C" fn is_array(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        let held = Value(value)
-            .as_slot()
-            .is_some_and(|cell| context.elements_at(cell).is_some());
-        Value::from_bool(held).bits()
-    })
-}
-
-/// `Array.of(…)` — an array of exactly the arguments given.
-///
-/// The method that exists because `Array(3)` does not mean what it looks like.
-extern "C" fn of(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let given = with_current(|context| arguments_at(context, 0, [a0, a1, a2, a3]));
-    built(given)
+    callable
 }
 
 /// `a.push(…)` — answers the new length.

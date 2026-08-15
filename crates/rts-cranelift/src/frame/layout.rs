@@ -29,6 +29,16 @@ pub struct FrameLayout {
     /// per suspension point: only one suspension can be outstanding at a time,
     /// which is what "parked" means.
     pub resumed_field: u32,
+    /// Where the way this resumption was made is left for the frame to read.
+    ///
+    /// One of [`super::ResumeMode`]'s numbers, written by whoever resumes.
+    /// Beside the delivered value rather than encoded into it: the delivered
+    /// value is whatever the client's representation says, and a machine layer
+    /// that stole bits from it would be deciding what a client may deliver.
+    ///
+    /// One slot, for the reason [`Self::resumed_field`] is one — only one
+    /// suspension can be outstanding.
+    pub mode_field: u32,
     /// Where the function's own parameters live.
     ///
     /// In the frame rather than in registers because a resumed frame is entered
@@ -44,13 +54,15 @@ pub struct FrameLayout {
 impl FrameLayout {
     /// Declares the record a function's parked frame needs.
     ///
-    /// The order is fixed — label, resumed value, parameters, returns, spills —
-    /// so that two builds of one function produce the same record, and a reader
-    /// comparing them sees a change only where something changed.
+    /// The order is fixed — label, resumed value, resume mode, parameters,
+    /// returns, spills — so that two builds of one function produce the same
+    /// record, and a reader comparing them sees a change only where something
+    /// changed.
     pub fn declare(func: &Function, plan: &SuspendPlan, types: &mut TypeRegistry) -> Self {
-        let mut fields = vec![Repr::I64, Repr::Tagged];
+        let mut fields = vec![Repr::I64, Repr::Tagged, Repr::I64];
         let label_field = 0;
         let resumed_field = 1;
+        let mode_field = 2;
 
         let param_fields = extend(&mut fields, func.signature.params.iter().copied());
         let return_fields = extend(&mut fields, func.signature.returns.iter().copied());
@@ -80,6 +92,7 @@ impl FrameLayout {
             ty: types.declare(&fields),
             label_field,
             resumed_field,
+            mode_field,
             param_fields,
             return_fields,
             spill_fields,

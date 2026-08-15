@@ -21,33 +21,73 @@
 //! `throw` can leave. One slot that is written and immediately taken cannot
 //! drift out of step with anything.
 //!
-//! # Why `throw` and `return` do not re-enter the body, and what would let them
+//! # How `throw` and `return` re-enter the body
 //!
 //! `g.throw(e)` has to make the `yield` that parked the frame RAISE, and
 //! `g.return(v)` has to make it return through every enclosing `finally`. Both
-//! are things the BODY does, and this file cannot ask it to: the machine's
-//! contract is `extern "C" fn(frame) -> finished?` with one delivered value, so
-//! what comes back from a suspension is a value and there is no channel for
-//! "and this one is a throw".
+//! are things the BODY does, so both are one field: whoever resumes writes a
+//! [`rts_cranelift::frame::ResumeMode`] beside the value it delivers, and the
+//! dispatch the frame transform emits at every suspension point reads it and
+//! either carries on, throws AT the suspension, or returns from there. All
+//! three methods are [`resume`] with one number changed.
 //!
-//! The channel is the emitter's, and it is one operation. `yield` compiles to a
-//! call to [`generator_yield`] followed by `Inst::Suspend`, and the check
-//! compiled code already emits after every call is what would carry a throw —
-//! but it sits BEFORE the suspension, so a resumption lands past it. What is
-//! missing is an operation emitted immediately AFTER the suspension, answering
-//! how this resumption was made: ordinary, a throw — which the operation itself
-//! raises, so the call check that follows unwinds into the body's own `try` —
-//! or a return, which the emitter turns into the function's return path so that
-//! `finally` runs. This file would then write the mode beside the frame and
-//! re-enter, and both methods would be [`resume`] with one field set.
+//! Throwing at the suspension rather than from here is the whole point. A
+//! `throw` this file raised would land in whatever regions THIS call is inside,
+//! which are the resumer's; raised where the frame parked, it lands in the
+//! regions the `yield` was written in, so a `try` around it catches and the
+//! generator carries on. The same for a return: it is a `Return` inside those
+//! regions, so lowering runs what leaving them owes.
 //!
-//! The rejected alternative was a second entry into the rewritten function:
-//! `frame::resumable_form` producing a "resume abruptly" address beside the
-//! plain one. It puts a language fact — that a suspension can be resumed with a
-//! completion other than a value — into the machine, and doubles what the frame
-//! transform has to keep sound over arbitrary control flow, for something one
-//! instruction after the suspension expresses without the machine knowing why.
+//! # What must be decided before re-entering, and why
+//!
+//! A generator that has not been entered yet has no suspension outstanding —
+//! the dispatch would land on the body's beginning, where nothing reads the
+//! mode — so re-entering one with an abrupt mode would RUN it from the top.
+//! [`resume::resumable`] is the question, and it is asked of the frame's own
+//! label field rather than of a second flag here: the label is what the machine
+//! writes when it parks, and a flag beside it is a second answer to one
+//! question.
+//!
+//! The rejected alternative was an operation the emitter puts after every
+//! suspension, asking a runtime how this resumption was made. It is the same
+//! three answers, arrived at once per suspension point per client instead of
+//! once in the rewrite that already owns those points — and the one that
+//! matters, "return through the enclosing `finally`", is not something an
+//! emitted call can express: it is a `Return` in the region, which is a
+//! terminator, not a value.
+//!
+//! # What is in [`resume`] and not here
+//!
+//! One re-entry: whether the frame may be entered, what the borrow of the
+//! context may not be held across, and how the three modes differ in what they
+//! answer. Split off because this file was over the crate's 500-line ceiling
+//! with both in it, and because the seam is real — everything here is about
+//! what a generator IS.
+//!
+//! # What re-entering does NOT yet reach, and whose it is
+//!
+//! Two things, and neither is this file's — written here because this is where
+//! a reader will look for them.
+//!
+//! A `finally` that can itself suspend is emitted as a catch-all HANDLER rather
+//! than as a cleanup (`emit/protect.rs` says why: the frame rewrite turns each
+//! suspension into a return, and a return has no place in a cleanup copy). A
+//! handler catches throws, so `ResumeMode::Return` walks straight past it —
+//! `try { yield 1 } finally { yield 99 }` runs its `finally` on `g.throw(e)`
+//! and not on `g.return(v)`. Closing it needs a pending completion the language
+//! layer carries across the `finally`, which is `emit/protect.rs`'s.
+//!
+//! `yield*` does not forward `return`/`throw` to the inner iterator. The
+//! resumption now reaches the delegating `yield`, so the outer generator does
+//! the right thing with it — but the specification says the INNER iterator's
+//! own `return`/`throw` is called first, and that is the shape of the loop
+//! `emit/delegate.rs` emits.
 
+mod resume;
+
+use rts_cranelift::frame::ResumeMode;
+
+use self::resume::{finish, resumable, resume};
 use super::{Context, with_current};
 use crate::value::Value;
 
@@ -73,6 +113,8 @@ pub struct FrameShape {
     pub label_field: u32,
     /// Where a resumption leaves the value it delivers.
     pub resumed_field: u32,
+    /// Where a resumption leaves the way it was made.
+    pub mode_field: u32,
     /// Where the body's own parameters live, in the calling convention's order.
     pub param_fields: Vec<u32>,
     /// Where the body leaves what it returns, when it returns anything.
@@ -235,169 +277,57 @@ impl Generator {
         let Some(cell) = Value(this).as_slot() else {
             return with_current(|context| super::objects::undefined_of(context));
         };
-        resume(cell, sent)
+        resume(cell, sent, ResumeMode::Deliver)
     }
 
-    /// `g.return(v)` — abandons the generator, answering `{ v, done: true }`.
+    /// `g.return(v)` — returns from the `yield` the body is parked at.
     ///
-    /// The frame is dropped where it is rather than resumed to run its `finally`
-    /// blocks. That is a real difference from the specification and it is
-    /// written here rather than hidden — the module's own note has the one thing
-    /// missing that would close it.
+    /// So every `finally` between that `yield` and the end of the body runs, and
+    /// the answer is `{ v, done: true }` when they all complete normally. A
+    /// `finally` that yields parks the frame again instead, and then this
+    /// answers what it yielded with `done: false` — which is not a special case
+    /// here at all: the frame parked, so [`resume`] reports a park.
+    ///
+    /// A generator that never started, or that has finished, has no `yield` to
+    /// return from. It is completed without being entered, which is also what
+    /// the language says — the body of a generator that was never advanced does
+    /// not run because `.return()` was called on it.
     #[js("return")]
     fn returned(this: u64, value: u64) -> u64 {
-        with_current(|context| {
-            finish(context, this);
-            result(context, value, true)
-        })
+        match resumable(this) {
+            Some(cell) => resume(cell, value, ResumeMode::Return),
+            None => with_current(|context| {
+                finish(context, this);
+                result(context, value, true)
+            }),
+        }
     }
 
-    /// `g.throw(e)` — reports an error INTO a generator.
+    /// `g.throw(e)` — raises AT the `yield` the body is parked at.
     ///
-    /// The body is not re-entered, so a `catch` or a `finally` written around
-    /// the `yield` does not run; see the module note. What is left is the case
-    /// where the body would not have caught it, and there the language says the
-    /// generator completes and the error comes back out of `.throw()` — so it is
-    /// **raised** rather than answered.
+    /// A `try` written around that `yield` catches it and the generator carries
+    /// on, which is the whole reason this re-enters rather than answering from
+    /// out here; see the module note. A body with no handler for it lets the
+    /// throw escape, and [`resume`] leaves it in flight for the call site above
+    /// to re-raise — so `g.throw(e)` still ends the generator and hands the
+    /// error back out when nothing caught it.
     ///
-    /// Answering `{ value: e, done: true }` was the alternative, and it is the
-    /// wrong half to keep: it makes `g.throw(e)` a way of *hiding* an error,
-    /// which no program can be written against, where raising is right whenever
-    /// the body has no handler and is what the tests that drive a generator by
-    /// hand expect. A generator that would have caught it fails visibly instead
-    /// of continuing with a wrong answer.
+    /// A generator that never started, or that has finished, has no `yield` to
+    /// raise at, and the language says the error simply comes back out.
+    /// Answering `{ value: e, done: true }` was the alternative and is the wrong
+    /// half to keep: it makes `g.throw(e)` a way of *hiding* an error, which no
+    /// program can be written against.
     #[js("throw")]
     fn thrown(this: u64, error: u64) -> u64 {
-        with_current(|context| {
-            finish(context, this);
-            super::throw::throw_value(error);
-            super::objects::undefined_of(context)
-        })
-    }
-}
-
-/// Marks a generator finished, so nothing re-enters its frame.
-///
-/// Shared by `return` and `throw` because the completion is the same for both —
-/// only what they answer differs — and writing it twice is how one of them would
-/// keep letting a dead generator be advanced.
-fn finish(context: &mut Context, this: u64) {
-    if let Some(cell) = Value(this).as_slot()
-        && let Some(state) = context.generators.get_mut(cell)
-    {
-        state.done = true;
-    }
-}
-
-/// Re-enters a generator's body and answers what came out of it.
-///
-/// The borrow is dropped before the body runs. Compiled code allocates, reads
-/// properties and calls back into this crate, all of which take the context —
-/// and a second borrow inside an `extern "C"` frame aborts the process rather
-/// than unwinding.
-///
-/// What one resumption needs from a parked generator, and nothing else.
-///
-/// `Copy`, which is the point: it leaves the borrow of the context behind by
-/// construction, without cloning the `Vec` a `FrameShape` carries. See
-/// [`resume`].
-#[derive(Clone, Copy)]
-struct Resuming {
-    /// The rewritten body, as an address.
-    code: u64,
-    /// The frame's cell.
-    frame: u32,
-    /// How wide the frame is.
-    slots: u32,
-    /// Where the resumed value is written.
-    resumed_field: u32,
-    /// Where a finished body left its answer, if it has one.
-    return_field: Option<u32>,
-}
-
-fn resume(cell: u32, sent: u64) -> u64 {
-    // The five SCALARS the resumption needs, not a clone of the whole state.
-    //
-    // `State` holds a `FrameShape`, which holds `param_fields: Vec<u32>` — so
-    // cloning it allocated on the Rust heap on every single `.next()`, to
-    // carry a list this function never reads. The clone was there to end the
-    // borrow before the body runs, which is required and is what `Resuming`
-    // keeps: it is `Copy`, so it leaves the borrow behind by construction.
-    let entered = with_current(|context| {
-        let state = context.generators.get(cell)?;
-        if state.done {
-            return None;
-        }
-        let resuming = Resuming {
-            code: state.code,
-            frame: state.frame,
-            slots: state.shape.slots,
-            resumed_field: state.shape.resumed_field,
-            return_field: state.shape.return_field,
-        };
-        context.region.set_spanning_field(
-            resuming.frame,
-            resuming.resumed_field,
-            resuming.slots,
-            sent,
-        );
-        Some(resuming)
-    });
-    let Some(state) = entered else {
-        return with_current(|context| {
-            let absent = super::objects::undefined_of(context);
-            result(context, absent, true)
-        });
-    };
-
-    // SAFETY: the address came from the host's own record of what it placed, and
-    // the shape is the one `resumable_form` states — one reference in, whether it
-    // finished out.
-    let body: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(state.code as usize) };
-    let finished = body(i64::from(state.frame)) != 0;
-
-    // Rule 8 of `crates/rts-core/README.md`, and the body IS the user code this
-    // native called. A generator whose body threw is COMPLETED — `.next()` on it
-    // afterwards answers `{ done: true }` and never runs another statement —
-    // where this used to read the frame's return field and re-enter on the next
-    // call, throwing the same error again for as long as it was asked. The
-    // throw is left in flight rather than taken: the compiled call site that
-    // asked for the next element re-raises it, which is how it reaches the
-    // program's own `try`.
-    if super::throw::in_flight() {
-        return with_current(|context| {
-            if let Some(state) = context.generators.get_mut(cell) {
-                state.done = true;
+        match resumable(this) {
+            Some(cell) => resume(cell, error, ResumeMode::Unwind),
+            None => {
+                with_current(|context| finish(context, this));
+                super::throw::throw_value(error);
+                with_current(|context| super::objects::undefined_of(context))
             }
-            super::objects::undefined_of(context)
-        });
-    }
-
-    with_current(|context| {
-        let produced = match finished {
-            // Whatever the body left where it returns. A generator that falls off
-            // its end returns nothing, and `undefined` is what that means.
-            true => state
-                .return_field
-                .and_then(|field| {
-                    context
-                        .region
-                        .spanning_field(state.frame, field, state.slots)
-                })
-                .unwrap_or_else(|| super::objects::undefined_of(context)),
-            // What `yield` left on its way out, taken rather than read: the next
-            // resumption must not see this one's value if the body ends without
-            // producing another.
-            false => context
-                .yielded
-                .take()
-                .unwrap_or_else(|| super::objects::undefined_of(context)),
-        };
-        if finished && let Some(state) = context.generators.get_mut(cell) {
-            state.done = true;
         }
-        result(context, produced, finished)
-    })
+    }
 }
 
 /// The `{ value, done }` an iterator answers with.

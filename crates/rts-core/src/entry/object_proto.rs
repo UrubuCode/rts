@@ -26,11 +26,21 @@
 //! discipline, and `toLocaleString` calls user code, so it is the one member
 //! where getting it wrong aborts the process rather than answering wrong.
 //!
-//! # What is NOT here, and why each is absent rather than guessed
+//! # Why `__proto__` is installed by hand and not by the attribute
 //!
-//! `__proto__` — an accessor pair on this object, which is a real thing to
-//! install and a different mechanism from a method; `Object.getPrototypeOf`
-//! already answers the question.
+//! Because it is not a method. The specification defines it as an **accessor
+//! pair** on this object — `get __proto__` / `set __proto__` — and the whole
+//! point of that shape is that `obj.__proto__ = base` is an ASSIGNMENT that runs
+//! a function, which is what `objects::set_property` already looks for along the
+//! chain. A method named `__proto__` would be a data property: the assignment
+//! would overwrite it with the value and link nothing.
+//!
+//! `Object.getPrototypeOf` answering the same question is why this was left out,
+//! and it is not a substitute — a program writing `obj.__proto__ = base` gets a
+//! plain own property and then a `TypeError` on the first inherited method, which
+//! is the shape of wrong answer this crate hunts rather than a missing name.
+//!
+//! # What is NOT here, and why each is absent rather than guessed
 //!
 //! `__defineGetter__` and friends — annex-B spellings of what
 //! `Object.defineProperty` does.
@@ -136,8 +146,16 @@ impl ObjectPrototype {
                 return false;
             };
             // An accessor `Object.defineProperty` installed: not in the shape,
-            // so `own_property` missed it, but it is still an own key.
+            // so `own_property` missed it, but it is still an own key — and it
+            // is subject to the same attribute the branch above reads. It used
+            // to answer plain presence, so
+            // `defineProperty(o, "x", {get, enumerable: false})` reported `x`
+            // as enumerable while `Object.getOwnPropertyDescriptor` on the same
+            // property reported `enumerable: false`. Two readers of one record
+            // disagreeing is the shape this crate refuses; measured 2026-08-15
+            // against Bun, which answers `false`.
             context.accessor_at(cell, machine.index() as u32).is_some()
+                && super::integrity::enumerable(context, cell, machine)
         })
     }
 
@@ -234,8 +252,82 @@ impl ObjectPrototype {
 pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     if super::class_support::made(context, "Object.prototype").is_none() {
         register_object_prototype(context);
+        // AFTER the registration rather than inside it, which is what the
+        // hint in `accessor`'s documentation is about from the other side:
+        // `context.set_accessor` needs the context in hand, and every
+        // `#[rtse::entry]` spelling of the same act takes a borrow of its own.
+        // The registration has already recorded the name by the time it
+        // returns, so the allocations below cannot recurse into this branch.
+        if let Some(cell) = super::class_support::prototype(context, "Object.prototype")
+            .and_then(|value| Value(value).as_slot())
+        {
+            install_proto(context, cell);
+        }
     }
     Value(super::class_support::prototype(context, "Object.prototype")?).as_slot()
+}
+
+/// The name the pair below is filed under.
+///
+/// A constant because it is spelled in two places — the install and the
+/// `.name` of each half — and the two must not drift.
+const PROTO: &str = "__proto__";
+
+/// Installs the `get`/`set` pair every object inherits.
+///
+/// Non-enumerable, like every other member of a built-in prototype: `for (k in
+/// {})` walks the chain, so an enumerable accessor here would appear in the most
+/// ordinary loop a program writes. `native::hidden` is the same call
+/// `native::install` makes for a method, for the same reason.
+fn install_proto(context: &mut Context, cell: u32) {
+    let key = context.well_known(PROTO);
+    let Key::Name(named) = key else {
+        return;
+    };
+    let get = super::native::callable(context, proto_get);
+    super::native::name_of(context, get, PROTO);
+    let set = super::native::callable(context, proto_set);
+    super::native::name_of(context, set, PROTO);
+    context.set_accessor(cell, named.index() as u32, Some(get), Some(set));
+    super::native::hidden(context, cell, key);
+}
+
+/// `o.__proto__` — what `Object.getPrototypeOf` answers, through the one
+/// function that answers it.
+///
+/// Delegating rather than reading `prototype_at` here, because the question has
+/// four answers this module does not hold: a proxy's trap, the substituted
+/// prototype a callable/text/array cell has no link for, and the `null` that
+/// ends the root's own chain. A second reader would disagree with the first
+/// about every one of them.
+extern "C" fn proto_get(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    super::chain::get_prototype(this)
+}
+
+/// `o.__proto__ = v` — the link, when `v` is one the language allows.
+///
+/// Only an object or `null` links; anything else is a **silent no-op** and not
+/// an error, which is the specification's own wording and not a shortcut —
+/// `({}).__proto__ = 5` leaves the object alone and evaluates to `5`.
+///
+/// The refusals `apply_prototype` makes — a cycle, a non-extensible object —
+/// are reported by the specification as a `TypeError` here where
+/// `Object.setPrototypeOf` also throws. Neither throws in this engine today;
+/// `chain::apply_prototype`'s own documentation records that the throw belongs
+/// at the spellings rather than in the shared act, and this spelling inherits
+/// the same stated gap rather than growing a second answer to it.
+extern "C" fn proto_set(_e: u64, this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let (linkable, absent) = with_current(|context| {
+        (
+            super::primitive::is_object_in(context, value)
+                || value == Value::from_singleton(context.singletons.null).bits(),
+            undefined_of(context),
+        )
+    });
+    if linkable {
+        super::chain::apply_prototype(this, value);
+    }
+    absent
 }
 
 /// What `Object.prototype.toString` answers between `[object ` and `]`.
@@ -310,7 +402,13 @@ fn object_tag(context: &mut Context, this: u64) -> &'static str {
 /// Written for `Error`: `new TypeError()`'s own link is `TypeError.prototype`,
 /// whose link is `Error.prototype`, and the specification tags every one of
 /// its subclasses `"Error"` rather than by the subclass's own name.
-fn extends_class(context: &mut Context, mut cell: u32, name: &str) -> bool {
+///
+/// Reachable from the rest of `entry` because [`super::clone`] asks the same
+/// question for the same reason — `structuredClone` has an error CASE, and
+/// which values fall into it is "the prototype chain reaches `Error.prototype`",
+/// exactly as it is here. A second walk would be a second answer to what an
+/// error IS, and the two would disagree first about a subclass.
+pub(in crate::entry) fn extends_class(context: &mut Context, mut cell: u32, name: &str) -> bool {
     let Some(target) = super::class_support::prototype(context, name).and_then(|value| Value(value).as_slot())
     else {
         return false;

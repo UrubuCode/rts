@@ -19,16 +19,17 @@
 //! argument is longer than its code. [`from`] is one because it is the only
 //! method that reads something which is not an array at all.
 //!
-//! # What `keys`, `values` and `entries` answer, and what that still costs
+//! # What `keys`, `values` and `entries` answer
 //!
-//! An iterator, with `.next()` on it — [`crate::entry::list_iterator`] is the
-//! object, and this paragraph used to say these answered the bare array instead.
+//! A LIVE cursor — [`super::cursor`] is the object — which holds the receiver
+//! and an index and reads both `length` and the element at every step.
 //!
-//! The list behind it is still built EAGERLY, and the divergence that leaves is
-//! not cosmetic: the iterator walks a copy, so `for (const [i, v] of a.entries())`
-//! does not see an element the body pushes, where the language's cursor does.
-//! That disappears when the list iterator grows a cursor into the array rather
-//! than a copy of it, which is that module's own stated next step.
+//! They answered an iterator over a list built here, and that list is gone
+//! rather than merely deferred: it was wrong in both directions, since
+//! `for (const [i, v] of a.entries())` did not see an element the body pushed
+//! and did not stop early when the body shortened the receiver. It was also the
+//! reason none of the three worked on a receiver that is an array-LIKE, which is
+//! what the language defines all three over.
 
 mod from;
 mod from_async;
@@ -39,7 +40,7 @@ use super::super::native::Native;
 use super::super::objects::undefined_of;
 use super::super::string::absent;
 use super::super::{Context, functions, with_current};
-use super::{built, iterate, staged};
+use super::{built, cursor, iterate, staged};
 use crate::value::Value;
 
 /// What an array's prototype holds beyond the eleven in [`super`] and the eight
@@ -147,43 +148,27 @@ extern "C" fn to_string_(e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u
 
 /// `a.keys()` — the indices.
 extern "C" fn keys(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(elements) = snapshot(this) else {
-        return nothing();
-    };
-    // An ITERATOR over that list, not the list: `[1,2].keys().next()` is what
-    // distinguishes the two, and `for`-`of` reaches either.
-    crate::entry::list_iterator::over(built(
-        (0..elements.len())
-            .map(|index| Value::from_f64(index as f64).bits())
-            .collect(),
-    ))
+    cursor::over(this, cursor::Kind::Keys)
 }
 
-/// `a.values()` — the elements, in a fresh array.
+/// `a.values()` — the elements, one at a time.
 ///
-/// A copy, because a loop over it must not see what its own body pushes to the
-/// receiver — the same reason [`super::super::iterate::iterate`] copies an array
-/// it is handed.
+/// A LIVE cursor and not a copy: this used to answer an iterator over an array
+/// built here, so a loop did not see what its own body pushed and did not stop
+/// early when the body shortened the receiver. [`super::cursor`] states what the
+/// copy got wrong in both directions.
 pub(in crate::entry) extern "C" fn values(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    match seen(this) {
-        Some(elements) => crate::entry::list_iterator::over(built(elements)),
-        None => nothing(),
-    }
+    cursor::over(this, cursor::Kind::Values)
 }
 
 /// `a.entries()` — index and element, paired.
+///
+/// Each pair is built when the position is REACHED rather than up front, which
+/// is what makes `a.entries()` on a large array cost one object instead of one
+/// per element — and what lets the pair carry an element written after the
+/// iterator was made.
 extern "C" fn entries(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(elements) = seen(this) else {
-        return nothing();
-    };
-    // Each pair is its own allocation, and every one is made outside a borrow —
-    // `built` reaches `array_new`, which takes the context.
-    let pairs: Vec<u64> = elements
-        .iter()
-        .enumerate()
-        .map(|(index, element)| built(vec![Value::from_f64(index as f64).bits(), *element]))
-        .collect();
-    crate::entry::list_iterator::over(built(pairs))
+    cursor::over(this, cursor::Kind::Entries)
 }
 
 /// `a.flat(depth)` — one level by default.

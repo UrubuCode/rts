@@ -21,6 +21,13 @@ use rts_cranelift::target::{Placing, Visibility, place_in_memory};
 use rts_cranelift::types::TypeRegistry;
 use rts_core::heap::{INLINE_SLOTS, Region, STRIDE};
 
+/// What a resumption that unwinds leaves with.
+///
+/// These tests never resume abruptly — they are about where a frame LIVES — so
+/// the number matters only in that the rewrite requires one. It is the tag the
+/// engine uses, so a reader comparing this with `run.rs` sees the same value.
+const ABRUPT: rts_cranelift::unwind::Tag = rts_cranelift::unwind::Tag(1);
+
 /// A function that is allowed to park its frame.
 fn suspending(params: &[Repr], returns: &[Repr]) -> Function {
     Function::new(Signature {
@@ -44,6 +51,11 @@ extern "C" fn unreachable_entry(_a: i64, _b: i64) -> i64 {
 /// The frame's resumed slot is generic, so writing it is a reference store, and
 /// a reference store owes a barrier whether or not a collector reads it yet.
 extern "C" fn ignored_barrier(_object: i64, _value: i64) {}
+
+/// Nothing here resumes a frame abruptly, so nothing here reaches this.
+extern "C" fn unreached_throw(_tag: i64, _value: i64) {
+    unreachable!("these tests resume ordinarily")
+}
 
 /// A generator body, near the smallest that still parks: it suspends, then
 /// answers a value that was live across the suspension.
@@ -75,6 +87,12 @@ fn compile_alone(
     let outside: Vec<(&str, *const u8)> = vec![
         (RtEntry::Alloc.symbol(), unreachable_entry as *const u8),
         (RtEntry::WriteBarrier.symbol(), ignored_barrier as *const u8),
+        // Every rewritten body now has an unwinding resumption in it, and one
+        // in a function with no handler of its own hands the throw to the
+        // caller through this entry. Nothing here resumes that way — these
+        // tests are about where a frame LIVES — but the symbol has to resolve
+        // for the code to be placed at all.
+        (RtEntry::Throw.symbol(), unreached_throw as *const u8),
     ];
     let bases = RegionBases::single(RegionBase::Immediate(region.base()), region.stride());
 
@@ -107,7 +125,7 @@ fn compile_alone(
 fn a_frame_that_fits_a_cell_is_addressed_identically_by_both_sides() {
     let mut types = TypeRegistry::new();
     let func = parks_holding_its_parameter();
-    let resumable = resumable_form(&func, &mut types).expect("rewritten");
+    let resumable = resumable_form(&func, &mut types, ABRUPT).expect("rewritten");
     let layout = ObjectLayout::of(resumable.layout.ty, &types);
 
     // The runtime's heap, exactly as `compile_for` builds it: one region, the
@@ -153,7 +171,7 @@ fn a_frame_that_fits_a_cell_is_addressed_identically_by_both_sides() {
 fn a_word_wide_frame_puts_its_field_n_in_slot_n() {
     let mut types = TypeRegistry::new();
     let func = parks_holding_its_parameter();
-    let resumable = resumable_form(&func, &mut types).expect("rewritten");
+    let resumable = resumable_form(&func, &mut types, ABRUPT).expect("rewritten");
     let layout = ObjectLayout::of(resumable.layout.ty, &types);
 
     // This is what the test above depends on and does not state: a field index
@@ -184,7 +202,7 @@ fn a_frame_wider_than_a_cell_lives_in_consecutive_ones() {
     b.suspend();
     b.ret(&[held]);
 
-    let resumable = resumable_form(&func, &mut types).expect("rewritten");
+    let resumable = resumable_form(&func, &mut types, ABRUPT).expect("rewritten");
     let layout = ObjectLayout::of(resumable.layout.ty, &types);
     assert!(
         layout.size > STRIDE,

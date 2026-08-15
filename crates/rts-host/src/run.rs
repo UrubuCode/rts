@@ -23,6 +23,21 @@ use crate::link::HostError;
 /// one from a file path would make the symbol depend on where the file was.
 const SCRIPT: &str = "__rts_script";
 
+/// The tag a JavaScript throw carries, as this crate has to state it.
+///
+/// It is `rts_codegen::emit::protect::JS_THROW` and `rts_core::entry::throw`'s
+/// `JS_THROW`, the third statement of one number — the shape `throw.rs` already
+/// describes for the pair: neither crate may depend on the other in that
+/// direction, so each states it and names the others.
+///
+/// This crate needs it because [`prepare`] asks the machine to rewrite every
+/// generator body, and a resumption that unwinds has to leave with the tag the
+/// program's own handlers were built for. `rts_cranelift` cannot choose it —
+/// it compares tags and does not interpret them — and `rts_codegen` keeps its
+/// copy private to the emitter, so the caller of the rewrite is where the two
+/// meet, which is here.
+const JS_THROW: rts_cranelift::unwind::Tag = rts_cranelift::unwind::Tag(1);
+
 /// How the host enters compiled code.
 ///
 /// The script is a JavaScript function like any other now, so it takes the
@@ -710,7 +725,7 @@ pub(crate) fn prepare(
         let Some((_, body)) = emitted.functions.iter_mut().find(|(this, _)| *this == id) else {
             continue;
         };
-        let resumable = rts_cranelift::frame::resumable_form(body, &mut types)
+        let resumable = rts_cranelift::frame::resumable_form(body, &mut types, JS_THROW)
             .map_err(|error| HostError::Malformed(format!("{error:?}")))?;
         funcs
             .redeclare(id, resumable.func.signature.clone())
@@ -725,6 +740,7 @@ pub(crate) fn prepare(
                 slots: layout.field_offsets.len() as u32,
                 label_field: resumable.layout.label_field,
                 resumed_field: resumable.layout.resumed_field,
+                mode_field: resumable.layout.mode_field,
                 param_fields: resumable.layout.param_fields.clone(),
                 return_field: resumable.layout.return_fields.first().copied(),
             },

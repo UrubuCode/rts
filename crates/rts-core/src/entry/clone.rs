@@ -57,14 +57,18 @@
 //!
 //! The prototype of a plain object. A cloned object is a plain object, which is
 //! the specification's rule and not a shortcut: `structuredClone` of a class
-//! instance is defined to produce data, not an instance. `Date`, `Map` and `Set`
-//! keep theirs because those are the cloneable *kinds*, and the prototype comes
-//! from the class registration rather than from the source cell — so a clone
-//! answers to the same methods a fresh one does.
+//! instance is defined to produce data, not an instance. `Date`, `Map`, `Set`
+//! and `Error` keep theirs because those are the cloneable *kinds*, and the
+//! prototype comes from the class registration rather than from the source cell
+//! — so a clone answers to the same methods a fresh one does.
+
+mod build;
+mod errors;
+
+use build::{materialise, resolve};
 
 use super::objects::undefined_of;
 use super::{Context, with_current};
-use crate::object::Key;
 use crate::text::Str;
 use crate::value::Value;
 
@@ -182,6 +186,24 @@ enum Node {
     Set(Vec<Slot>),
     /// The time value, which is all a `Date` is.
     Date(f64),
+    /// An error, as the three things the specification says survives one.
+    ///
+    /// `class` is the name of the registered class whose prototype the clone
+    /// gets, and it is one of [`STANDARD`] rather than whatever the source
+    /// answered: a subclass, or an instance whose `name` was overwritten,
+    /// clones as a plain `Error`. That is the HTML specification's own rule and
+    /// it is checkable — Bun and Node both answer `Error` for
+    /// `structuredClone(new (class My extends Error{}))`.
+    ///
+    /// Everything else the source object owned is DROPPED, which is the one
+    /// place this kind differs from the plain-object walk beside it: an error
+    /// with `err.code = "ENOENT"` clones without it. Measured against both
+    /// runtimes rather than assumed, because it is the surprising half.
+    Error {
+        class: &'static str,
+        message: Option<Str>,
+        stack: Option<Str>,
+    },
     /// An `ArrayBuffer`'s raw bytes, copied — the source and the clone never
     /// share a store, so a write through one is invisible to the other, which
     /// is what the specification's "cloned, not shared" actually means for a
@@ -242,6 +264,8 @@ enum Shape {
     /// [`super::buffers`], the one thing here that reaches into another
     /// module's storage rather than reading properties like everything else.
     Buffer(u32),
+    /// An error, recognised by its prototype chain reaching `Error.prototype`.
+    Error(u32),
     /// A function or a symbol — see the module documentation.
     Uncloneable,
 }
@@ -304,8 +328,19 @@ fn shape_of(context: &mut Context, value: u64) -> Shape {
     if context.elements_at(cell).is_some() {
         return Shape::Array(cell);
     }
+    // LAST of the structural questions, and deliberately: it is the only one
+    // that walks a prototype chain, so putting it earlier would charge every
+    // array, buffer and collection for a question none of them can answer yes
+    // to. A plain object pays one walk, which ends at `Object.prototype` after
+    // a step or two — and ends immediately when nothing in the program has
+    // reached `Error` at all, because there is then no prototype to compare
+    // against.
+    if super::object_proto::extends_class(context, cell, "Error") {
+        return Shape::Error(cell);
+    }
     Shape::Object(cell)
 }
+
 
 /// Reads one value into the arena.
 ///
@@ -329,6 +364,18 @@ fn walk(graph: &mut Graph, value: u64, depth: usize) -> Slot {
             }
             let at = graph.reserve(cell);
             graph.nodes[at] = Node::Date(ms);
+            return Slot::At(at);
+        }
+        Shape::Error(cell) => {
+            // Same reasoning as `Date`: nothing below it to walk — the three
+            // texts are read here and there are no child VALUES — and still
+            // registered, so one error appearing twice in a structure comes
+            // back as one object twice.
+            if let Some(at) = graph.found(cell) {
+                return Slot::At(at);
+            }
+            let at = graph.reserve(cell);
+            graph.nodes[at] = errors::walked(cell);
             return Slot::At(at);
         }
         Shape::Buffer(cell) => {
@@ -407,146 +454,6 @@ fn members(graph: &mut Graph, value: u64, depth: usize) -> Vec<(Str, Slot)> {
         built.push((key, walk(graph, held, depth + 1)));
     }
     built
-}
-
-/// The value each arena node becomes.
-///
-/// Two passes, and the split is what makes a cycle expressible: every container
-/// exists and is empty before any of them is filled, so a member pointing back
-/// at its own container has something to point at. Filling as they were made
-/// would need the parent's value while the parent was still being built.
-fn materialise(graph: &Graph) -> Vec<u64> {
-    let made: Vec<u64> = graph.nodes.iter().map(empty).collect();
-    for (node, value) in graph.nodes.iter().zip(made.iter()) {
-        fill(node, *value, &made);
-    }
-    made
-}
-
-/// The container a node becomes, with nothing in it yet.
-fn empty(node: &Node) -> u64 {
-    match node {
-        // The entry points, called with no borrow held — which they must be,
-        // since each takes one.
-        Node::Array(_) => super::array::array_new(0),
-        // `native::plain` rather than the `object_new` entry point, which is
-        // the spelling `json`'s materialisation settled on: both make an object
-        // with no prototype, and this one is a plain function, so the arm below
-        // it can stay inside the same borrow discipline.
-        Node::Object(_) => with_current(|context| match super::native::plain(context) {
-            Some(cell) => Value::from_slot(cell).bits(),
-            None => undefined_of(context),
-        }),
-        Node::Map(_) => with_current(|context| super::collections::fresh(context, "Map")),
-        Node::Set(_) => with_current(|context| super::collections::fresh(context, "Set")),
-        // A `Date` is complete at this point: its whole state is the number,
-        // and it has no members to fill in a second pass.
-        Node::Date(ms) => with_current(|context| dated(context, *ms)),
-        // Also complete here: the bytes are already copied, so there is
-        // nothing left for `fill` to do — `super::buffers::new_buffer` makes
-        // the store and the prototype together.
-        Node::Buffer(bytes) => with_current(|context| match super::buffers::new_buffer(context, bytes.len()) {
-            Some(cell) => {
-                if let Some(destination) = context.bytes_at_mut(cell) {
-                    destination.copy_from_slice(bytes);
-                }
-                Value::from_slot(cell).bits()
-            }
-            None => undefined_of(context),
-        }),
-    }
-}
-
-/// A `Date` holding this time value.
-///
-/// Built here rather than by calling the constructor, because that is an entry
-/// point and this runs inside a borrow. What it costs is one restatement — the
-/// prototype and the property — and what it buys is not having to invert the
-/// materialisation to make one call.
-fn dated(context: &mut Context, ms: f64) -> u64 {
-    let Some(cell) = super::native::plain(context) else {
-        return undefined_of(context);
-    };
-    // Absent only if nothing has read `Date` yet, which cannot happen when the
-    // source of this clone was one.
-    if let Some(prototype) = super::class_support::prototype(context, "Date") {
-        context.set_prototype(cell, prototype);
-    }
-    let key = context.well_known(super::date::TIME);
-    super::objects::put(context, cell, key, Value::from_f64(ms).bits());
-    Value::from_slot(cell).bits()
-}
-
-/// Writes a node's children into the container [`empty`] made for it.
-fn fill(node: &Node, value: u64, made: &[u64]) {
-    let Some(cell) = Value(value).as_slot() else {
-        return;
-    };
-    match node {
-        Node::Array(slots) => {
-            let elements: Vec<u64> = slots.iter().map(|slot| resolve(*slot, made)).collect();
-            with_current(|context| {
-                // `length` is an ordinary property (`array::set_length`'s own
-                // doc comment says so), not something a reader derives from the
-                // element vector — so writing the elements alone leaves it at
-                // whatever `array_new(0)` wrote, which is 0, while the elements
-                // sit there populated. Every other reader of a cloned array
-                // (`.length`, `for`-`of`, `JSON.stringify`) goes through the
-                // property, not the vector, so this was answering 0 for a
-                // visibly non-empty array.
-                let count = elements.len();
-                if let Some(held) = context.elements_at_mut(cell) {
-                    *held = elements;
-                }
-                super::array::set_length(context, cell, count);
-            });
-        }
-        Node::Object(members) => with_current(|context| {
-            for (name, slot) in members {
-                let held = resolve(*slot, made);
-                // Interned as a NAME, never through `Key::from_str`, for the
-                // reason `json`'s materialisation records: an index-shaped name
-                // routed the other way is filed among the elements of an object
-                // that has none, and the read afterwards does not find it.
-                let key = Key::Name(context.interner.intern(name, &mut context.keys));
-                super::objects::put(context, cell, key, held);
-            }
-        }),
-        Node::Map(entries) => with_current(|context| {
-            let Some(mut table) = super::collections::taken(context, cell) else {
-                return;
-            };
-            for (key, held) in entries {
-                table.set(context, resolve(*key, made), resolve(*held, made));
-            }
-            super::collections::restore_sized(context, cell, table);
-        }),
-        Node::Set(members) => with_current(|context| {
-            let Some(mut table) = super::collections::taken(context, cell) else {
-                return;
-            };
-            for member in members {
-                // Both halves, because that is how a `Set` stores a member —
-                // `collections::table` records why one type serves both.
-                let member = resolve(*member, made);
-                table.set(context, member, member);
-            }
-            super::collections::restore_sized(context, cell, table);
-        }),
-        Node::Date(_) | Node::Buffer(_) => {}
-    }
-}
-
-fn resolve(slot: Slot, made: &[u64]) -> u64 {
-    match slot {
-        Slot::Bits(bits) => bits,
-        // Indexed rather than probed: an index is only ever handed out by
-        // `Graph::reserve` and `made` has one entry per node, so a miss is a
-        // broken invariant and a panic is the honest report of one. An
-        // `unwrap_or` here would answer a value that is not `undefined` and not
-        // a clone of anything.
-        Slot::At(at) => made[at],
-    }
 }
 
 /// `undefined`, from outside a borrow.

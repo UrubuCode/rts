@@ -36,14 +36,14 @@
 use std::collections::HashMap;
 
 use super::layout::FrameLayout;
-use super::{ResumeLabel, SuspendPlan, plan_suspension};
+use super::{ResumeLabel, ResumeMode, SuspendPlan, plan_suspension};
 use crate::ir::{
     BlockCall, BlockId, CmpOp, ConstDecl, Function, Inst, ScalarBits, Signature, Terminator,
     ValueId,
 };
 use crate::repr::{RefKind, Repr};
-use crate::unwind::{Handler, RegionId};
 use crate::types::TypeRegistry;
+use crate::unwind::{Handler, RegionId, Tag};
 
 /// A function rewritten so that it can be parked and picked back up.
 pub struct Resumable {
@@ -79,9 +79,17 @@ pub enum TransformError {
 }
 
 /// Rewrites a suspending function into a resumable one.
+///
+/// `abrupt` is the tag a resumption of [`ResumeMode::Unwind`] leaves with. It
+/// is a parameter rather than a constant of this crate because a tag means
+/// whatever the client that handles it says it means — rule 2: this layer
+/// compares tags and does not interpret them, so it cannot choose one. Passing
+/// the wrong tag is a resumption whose payload no handler in the client's
+/// program matches, which is why it is required rather than defaulted.
 pub fn resumable_form(
     func: &Function,
     types: &mut TypeRegistry,
+    abrupt: Tag,
 ) -> Result<Resumable, TransformError> {
     if !func.signature.may_suspend {
         return Err(TransformError::NotSuspending);
@@ -89,7 +97,7 @@ pub fn resumable_form(
 
     let plan = plan_suspension(func);
     let layout = FrameLayout::declare(func, &plan, types);
-    Rewrite::new(func, &plan, layout).run()
+    Rewrite::new(func, &plan, layout, abrupt).run()
 }
 
 /// Whether anything that PARKS a frame survives the rewrite.
@@ -120,10 +128,17 @@ struct Rewrite<'a> {
     resume_targets: HashMap<ResumeLabel, BlockId>,
     /// What a source value became, for values that stay in registers.
     values: HashMap<ValueId, ValueId>,
+    /// What a resumption that unwinds leaves with.
+    abrupt: Tag,
 }
 
 impl<'a> Rewrite<'a> {
-    fn new(source: &'a Function, plan: &'a SuspendPlan, layout: FrameLayout) -> Self {
+    fn new(
+        source: &'a Function,
+        plan: &'a SuspendPlan,
+        layout: FrameLayout,
+        abrupt: Tag,
+    ) -> Self {
         let out = Function::new(Signature {
             params: vec![Repr::Ref(RefKind::Aggregate(layout.ty))],
             returns: vec![Repr::Bool],
@@ -163,6 +178,7 @@ impl<'a> Rewrite<'a> {
             blocks: HashMap::new(),
             resume_targets: HashMap::new(),
             values: HashMap::new(),
+            abrupt,
         }
     }
 
@@ -324,24 +340,122 @@ impl<'a> Rewrite<'a> {
         self.out
             .set_terminator(parking, Terminator::Return(vec![unfinished]));
 
-        let resumed = self.out.push_block();
         // Resuming lands back INSIDE whatever the suspension was inside. The
         // block was created without a region, so the statements after a `yield`
         // in a `try` were outside the `try` they were written in — the same bug
         // from the other end, and invisible until something threw there.
-        if let Some(region) = self.out.region_of(current) {
-            self.out.set_block_region(resumed, region);
-        }
+        let region = self.out.region_of(current);
+        let resumed = self.block_in(region);
         self.resume_targets.insert(label, resumed);
+
+        // Not every resumption carries on. See [`ResumeMode`].
+        let delivered = self.dispatch_on_mode(resumed, region);
 
         // Whoever resumes leaves the value in the frame; the frame reads it.
         if let Some(&result) = results.first() {
             let repr = self.source.repr_of(result);
-            let loaded = self.load_field(resumed, self.layout.resumed_field, repr);
+            let loaded = self.load_field(delivered, self.layout.resumed_field, repr);
             self.values.insert(result, loaded);
-            self.store_if_spilled(resumed, result);
+            self.store_if_spilled(delivered, result);
         }
-        Ok(resumed)
+        Ok(delivered)
+    }
+
+    /// Splits a resumption on how it was made, and answers where it carries on.
+    ///
+    /// Three ways out of one point, and each is expressed with what the region
+    /// tree already does at that point rather than with anything new:
+    ///
+    /// - carrying on is the block this answers, which is where the suspension's
+    ///   result is read and the body continues;
+    /// - unwinding is a `Throw` written AT the suspension, so the handler search
+    ///   starts from the regions the suspension was inside — which is the whole
+    ///   reason this is a mode of resuming rather than something the resumer
+    ///   could do from outside, where those regions are no longer entered;
+    /// - returning is a `Return` written at the same place, so lowering runs
+    ///   what leaving those regions owes on the way out.
+    ///
+    /// Every block is put in the suspension's own region for that reason. They
+    /// are all dominated by the resume target, so nothing that dominated the
+    /// region before dominates less of it now — which is what the cleanup rule
+    /// reads and what a new block in a protected region could otherwise break.
+    fn dispatch_on_mode(&mut self, resumed: BlockId, region: Option<RegionId>) -> BlockId {
+        let deliver = self.block_in(region);
+        let abrupt = self.block_in(region);
+
+        // Read once and used in both blocks: `abrupt` has one predecessor and
+        // it is `resumed`, so the definition dominates every use of it.
+        let mode = self.load_field(resumed, self.layout.mode_field, Repr::I64);
+        let ordinary = self.constant(resumed, Repr::I64, ResumeMode::Deliver.number());
+        let is_ordinary = self.compare(resumed, mode, ordinary);
+        self.out.set_terminator(
+            resumed,
+            Terminator::Branch {
+                cond: is_ordinary,
+                then_block: BlockCall::to(deliver),
+                else_block: BlockCall::to(abrupt),
+            },
+        );
+
+        let unwinding = self.block_in(region);
+        let returning = self.block_in(region);
+        let raising = self.constant(abrupt, Repr::I64, ResumeMode::Unwind.number());
+        let is_raising = self.compare(abrupt, mode, raising);
+        self.out.set_terminator(
+            abrupt,
+            Terminator::Branch {
+                cond: is_raising,
+                then_block: BlockCall::to(unwinding),
+                else_block: BlockCall::to(returning),
+            },
+        );
+
+        // The delivered value is the payload. It is read at its own
+        // representation, which is the record's rather than the suspension
+        // result's: a `Throw` carries a generic value and the field holds one.
+        let payload = self.load_field(unwinding, self.layout.resumed_field, Repr::Tagged);
+        self.out.set_terminator(
+            unwinding,
+            Terminator::Throw {
+                tag: self.abrupt,
+                payload,
+            },
+        );
+
+        // Returning is the fall-through of the chain, so a number that is
+        // neither of the other two lands here rather than anywhere undefined —
+        // rule 12, and this is the safe end of the three: it leaves the frame
+        // once, with nothing invented, where unwinding with a payload nobody
+        // wrote would be a throw of whatever the slot happened to hold.
+        //
+        // Nothing is written where the function's answer goes. The resumer
+        // named the value and still holds it, and the frame's return slot need
+        // not even be the representation the delivered value is — see
+        // [`ResumeMode::Return`]. What this owes is that the regions between
+        // here and the exit are left properly, which is what a `Return` in this
+        // block means and what lowering does with it.
+        let finished = self.constant(returning, Repr::Bool, 1);
+        self.out
+            .set_terminator(returning, Terminator::Return(vec![finished]));
+
+        deliver
+    }
+
+    /// A fresh block, inside the region the one it continues was inside.
+    fn block_in(&mut self, region: Option<RegionId>) -> BlockId {
+        let block = self.out.push_block();
+        if let Some(region) = region {
+            self.out.set_block_region(block, region);
+        }
+        block
+    }
+
+    /// Compares two proven values for equality.
+    fn compare(&mut self, block: BlockId, left: ValueId, right: ValueId) -> ValueId {
+        self.out
+            .push_inst(block, Inst::Compare(CmpOp::Eq, left, right), &[Repr::Bool])
+            .pop()
+            .expect("a comparison defines one value")
     }
 
     /// Rewrites one instruction's operands into the rewritten function's values.
@@ -550,15 +664,7 @@ impl<'a> Rewrite<'a> {
 
         for (resume_label, target) in targets {
             let expected = self.constant(current, Repr::I64, u64::from(resume_label.0) + 1);
-            let matches = self
-                .out
-                .push_inst(
-                    current,
-                    Inst::Compare(CmpOp::Eq, label, expected),
-                    &[Repr::Bool],
-                )
-                .pop()
-                .expect("a comparison defines one value");
+            let matches = self.compare(current, label, expected);
 
             let next = self.out.push_block();
             self.out.set_terminator(

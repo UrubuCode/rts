@@ -213,6 +213,20 @@ pub fn global_get_unbound(key: i64) -> u64 {
     // its own `with_current`, and a second one nested inside this closure's
     // would be a re-entrant borrow of the same context — the abort this
     // crate's rule 8 exists to keep out of an `extern "C"` frame.
+    // The GLOBAL OBJECT is the last link of the scope chain, and only a miss
+    // THERE is a `ReferenceError`. A name nothing lexical binds may still have
+    // been put on it — `globalThis["x"] = f` is how one script publishes to
+    // another, and the emitter cannot see that write because it is a computed
+    // property assignment rather than a bare one. Raising without asking made
+    // `x` unreachable although the program had just defined it.
+    if let Some(found) = with_current(|context| {
+        let name = u32::try_from(key).ok().and_then(|number| context.keys.key(number))?;
+        let object = holder(context)?;
+        read_property(context, object, Key::Name(name)).map(|value| value.bits())
+    }) {
+        return found;
+    }
+    // Collected and the borrow dropped before raising, for the reason below.
     let text = with_current(|context| {
         let name = u32::try_from(key).ok().and_then(|number| context.keys.key(number));
         name.and_then(|name| context.interner.text(name))

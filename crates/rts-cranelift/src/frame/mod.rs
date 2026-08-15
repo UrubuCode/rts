@@ -61,6 +61,67 @@ use crate::repr::Repr;
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub struct ResumeLabel(pub u32);
 
+/// How a parked frame is being picked back up.
+///
+/// Written by whoever resumes into [`FrameLayout::mode_field`], read by the
+/// frame's own dispatch at the point it parked. Three ways, because a park is a
+/// point control LEFT through and every way of leaving a point exists here
+/// already: carrying on with a value, unwinding, and returning.
+///
+/// # Why this is the machine's and not a client's
+///
+/// The alternative was an operation the client emits after every suspension,
+/// asking a runtime how this resumption was made. It puts the same question at
+/// every suspension point in every client and gets it right only where somebody
+/// remembered to ask — rule 8, exactly: a discipline that must hold at every
+/// suspension in every program will not hold. The rewrite already owns the
+/// resume point and already writes the dispatch that enters it, so the three
+/// ways cost one compare each, on a path that has just re-entered a frame.
+///
+/// Nothing here names a source construct. A resumption that unwinds is a throw
+/// in one language, a cancellation in another and a `panic` in a third; this
+/// layer only knows that control leaves through the region tree, which is what
+/// it knows about every other unwind.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash, PartialOrd, Ord)]
+pub enum ResumeMode {
+    /// Carry on from the suspension, with the delivered value as its result.
+    ///
+    /// Zero, so that a frame whose record was handed out zeroed resumes the
+    /// ordinary way without anyone having written anything.
+    #[default]
+    Deliver,
+    /// Leave through the region tree, with the delivered value as the payload.
+    ///
+    /// The tag is the one the client named when it asked for the rewrite. The
+    /// throw happens AT the suspension point, so it is inside whatever
+    /// protected regions the suspension was inside — which is the whole reason
+    /// this is a mode of resuming rather than something the resumer could do
+    /// on its own from outside.
+    Unwind,
+    /// Return from the function, running what leaving those regions owes.
+    ///
+    /// The delivered value is not stored where the function's answer goes: the
+    /// resumer named it and therefore already holds it, and the frame's return
+    /// slot need not even have the same representation. What the frame owes is
+    /// that everything between the suspension and the exit runs.
+    Return,
+}
+
+impl ResumeMode {
+    /// The number written into the frame's record.
+    ///
+    /// One derivation, shared by the dispatch this crate emits and by the
+    /// runtime that writes the field, because two spellings of one numbering is
+    /// a frame that resumes one way and is asked for another.
+    pub fn number(self) -> u64 {
+        match self {
+            ResumeMode::Deliver => 0,
+            ResumeMode::Unwind => 1,
+            ResumeMode::Return => 2,
+        }
+    }
+}
+
 /// How a function suspends.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct SuspendPlan {

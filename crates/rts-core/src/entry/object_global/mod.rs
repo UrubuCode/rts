@@ -432,6 +432,22 @@ extern "C" fn is(_e: u64, _this: u64, left: u64, right: u64, _a2: u64, _a3: u64)
 extern "C" fn group_by(_e: u64, _this: u64, items: u64, callback: u64, _a2: u64, _a3: u64) -> u64 {
     let elements = super::collections::elements_of(items);
     let made = super::objects::object_new(0);
+    // With NO PROTOTYPE, which the specification says explicitly and which is
+    // the point of the method: a group named `toString` or `constructor` must
+    // not collide with something inherited. `object_new` writes no link of its
+    // own, and that is not the same thing — `objects::inherited_from`
+    // substitutes `Object.prototype` for a plain object that has none, so the
+    // chain was there for every read. Measured as `Object.getPrototypeOf(g)`
+    // answering `Object.prototype` where every other engine answers `null`.
+    with_current(|context| {
+        if let Some(cell) = Value(made).as_slot() {
+            let null = rts_cranelift::tags::encode(
+                rts_cranelift::tags::TAG_SINGLETON,
+                u64::from(context.singletons.null),
+            );
+            context.set_prototype(cell, null);
+        }
+    });
     let absent = with_current(|context| undefined_of(context));
     for (at, element) in elements.into_iter().enumerate() {
         let index = Value::from_f64(at as f64).bits();

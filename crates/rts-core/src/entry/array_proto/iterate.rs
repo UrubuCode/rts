@@ -86,33 +86,53 @@ extern "C" fn map(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a
     let Some(count) = len_of(this) else {
         return nothing();
     };
+    // Decided BEFORE the first callback, which is the order the specification
+    // states: `ArraySpeciesCreate` reads two properties and runs a constructor,
+    // all of them user code, and a program with a `Symbol.species` getter that
+    // logs observes it before any element is visited. `None` is the ordinary
+    // case — see [`super::species`].
+    let destination = super::species::made(this, count);
+    if throw::in_flight() {
+        return nothing();
+    }
     // ROOTED, because the callback below is user code that allocates, and an
     // allocation collects. What this has produced so far would otherwise live
     // only in a `Vec` on the Rust heap, which no scan of ours reaches — measured
     // as nine of three hundred rounds answering wrong data rather than failing.
-    // See `entry::rooted`.
+    // See `entry::rooted`. A species destination needs none of it: each answer
+    // is stored into a real object before the next call runs.
     let mut produced = Rooted::new();
     for index in 0..count {
         // `map` PRESERVES the hole at the matching position rather than skipping
         // it: the result has the same length and the same sparsity, and the
         // callback is not called. Pushing `undefined` here would give the right
-        // length and the wrong sparsity.
+        // length and the wrong sparsity. A species destination gets NO write at
+        // all for one, which is the same fact — the specification's
+        // `CreateDataProperty` is what makes the position exist.
         let Some(element) = existing(this, index) else {
-            let absent = with_current(|context| super::super::array::hole_of(context));
-            produced.values().push(absent);
+            if destination.is_none() {
+                let absent = with_current(|context| super::super::array::hole_of(context));
+                produced.values().push(absent);
+            }
             continue;
         };
-        match visit(callback, receiver, this, element, index) {
-            Some(answered) => produced.values().push(answered),
-            // The array built so far is what comes back, and the compiled call
+        let Some(answered) = visit(callback, receiver, this, element, index) else {
+            // What was built so far is what comes back, and the compiled call
             // site re-raises: nothing here handles the throw.
-            None => break,
+            break;
+        };
+        match destination {
+            Some(target) => super::species::placed(target, index, answered),
+            None => produced.values().push(answered),
         }
     }
-    // Built after the loop, not grown during it. `built` allocates through
-    // `array_new`, which takes the context — so an array grown inside the loop
-    // would be one borrow taken between two calls into user code.
-    built(produced.take())
+    match destination {
+        Some(target) => target,
+        // Built after the loop, not grown during it. `built` allocates through
+        // `array_new`, which takes the context — so an array grown inside the
+        // loop would be one borrow taken between two calls into user code.
+        None => built(produced.take()),
+    }
 }
 
 /// `a.filter(f, thisArg)` — a new array of the elements `f` kept.
@@ -120,20 +140,40 @@ extern "C" fn filter(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64,
     let Some(count) = len_of(this) else {
         return nothing();
     };
+    // ZERO and not `count`, which is the specification's own asymmetry with
+    // `map`: a filter does not know how many it will keep, so the species is
+    // asked for an empty destination and the positions are created as they are
+    // decided.
+    let destination = super::species::made(this, 0);
+    if throw::in_flight() {
+        return nothing();
+    }
     // Rooted for the same reason `map` above is.
     let mut kept = Rooted::new();
+    // Its own counter, because the destination is DENSE: a kept element goes to
+    // the next free position, not to the one it came from.
+    let mut at = 0;
     for index in 0..count {
         // `filter` DISCARDS holes: the result is dense.
         let Some(element) = existing(this, index) else {
             continue;
         };
         match visit(callback, receiver, this, element, index) {
-            Some(answered) if truthy(answered) => kept.values().push(element),
+            Some(answered) if truthy(answered) => match destination {
+                Some(target) => {
+                    super::species::placed(target, at, element);
+                    at += 1;
+                }
+                None => kept.values().push(element),
+            },
             Some(_) => {}
             None => break,
         }
     }
-    built(kept.take())
+    match destination {
+        Some(target) => target,
+        None => built(kept.take()),
+    }
 }
 
 /// `a.find(f, thisArg)` — the first element `f` accepted, or `undefined`.

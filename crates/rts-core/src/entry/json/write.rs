@@ -24,10 +24,12 @@ use crate::value::{Kind, Value};
 
 /// What a value is, as far as JSON is concerned.
 ///
-/// Five kinds and an absence, where the language has more: a symbol and a
-/// `BigInt` each have their own rule and neither exists in this engine yet.
-/// When one does it arrives here as a variant, which is why this is an enum
-/// rather than a chain of tests at the call site.
+/// Six kinds and an absence. A symbol is the one the language has that this
+/// does not name: it serialises as an absence like a function, which is what
+/// [`Shape::Absent`] already answers for it, so a variant would carry no
+/// decision. A `BigInt` earns one because its rule is a `TypeError` rather than
+/// text, which is why this is an enum rather than a chain of tests at the call
+/// site.
 ///
 /// A wrapper object is NOT one of them, and deliberately: the specification
 /// says `SerializeJSONProperty` replaces `new Number(5)` by its
@@ -530,6 +532,18 @@ fn to_json_of(value: u64, key: HookKey) -> u64 {
         Slowly,
     }
     let asked = with_current(|context| {
+        // A BIGINT is asked too, in as many words: `SerializeJSONProperty`
+        // reads `toJSON` when the value is an Object **or a BigInt**. It is the
+        // one primitive with that exemption, and it has to be — a bigint has no
+        // JSON form, so a hook is the only way a program can give it one, and
+        // not looking means the `TypeError` in `write` fires for a value that
+        // had an answer. The SLOW route because a bigint is
+        // `Value::from_client` and not a cell: there is no cell for
+        // `accessor::resolve` to start a chain walk from, and `get_indexed`
+        // already knows how one reaches `BigInt.prototype`.
+        if super::super::bigints::digits_of(context, value).is_some() {
+            return Ask::Slowly;
+        }
         if !super::super::primitive::is_object_in(context, value) {
             return Ask::Skip;
         }

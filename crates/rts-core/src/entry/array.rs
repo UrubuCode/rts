@@ -468,6 +468,15 @@ pub(in crate::entry) fn key_texts(
         // shape to know about a property it is deliberately not holding.
         if let Some(defined) = context.accessors_at(slot) {
             for key in defined {
+                // The same filter the shape's own loop above applies, and the
+                // day it was missing here is the day `Object.prototype` grew a
+                // non-enumerable `__proto__` accessor: `for (const k in {})`
+                // answered `__proto__` on every object in the program. An
+                // accessor is a property like any other, and `enumerable` is a
+                // property of the PROPERTY rather than of where it is stored.
+                if enumerable_only && !super::integrity::enumerable(context, slot, key) {
+                    continue;
+                }
                 if let Some(text) = context.interner.text(key) {
                     keys.push(text.clone());
                 }

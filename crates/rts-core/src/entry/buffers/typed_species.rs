@@ -34,7 +34,7 @@
 //! numeric elements has one answer everywhere in the module.
 
 use super::{View, typed, with_current};
-use crate::entry::accessor::Found;
+use crate::entry::array_proto::species::property;
 use crate::value::Value;
 
 /// `t.slice(begin, end)` — a copy, in an object the species protocol decides.
@@ -85,6 +85,13 @@ pub(in crate::entry) fn slice(this: u64, begin: u64, end: u64) -> u64 {
 /// specification names — and one that is not something to construct with, where
 /// the language throws a `TypeError` this layer cannot raise where a handler
 /// could catch it.
+///
+/// The two property reads themselves are [`crate::entry::array_proto::species`]'s,
+/// which is where the copy that used to live here went: the rule that a species
+/// getter runs OUTSIDE the borrow that found it is one rule, and two spellings
+/// of it is one of them eventually running inside. What stays here is the part
+/// that genuinely differs — an absent species means the receiver's own class,
+/// where for an array it means `Array`.
 fn species_made(this: u64, count: usize) -> Option<u64> {
     let constructor = property(this, "constructor")?;
     // `"@@species"` is the key text a `static get [Symbol.species]()` member
@@ -112,35 +119,6 @@ fn species_made(this: u64, count: usize) -> Option<u64> {
     Some(crate::entry::functions::construct(
         species, length, absent, absent, absent,
     ))
-}
-
-/// One property, along the prototype chain, with a getter run if that is what
-/// is there.
-///
-/// Two statements rather than one for the reason `objects::get_property`
-/// records: the answer may be a **function to call**, and calling it inside the
-/// borrow that found it re-enters the `RefCell`.
-///
-/// `None` for absent, so that a missing `constructor` and a missing species are
-/// one answer at the call site — both mean "the program named nothing here".
-fn property(value: u64, name: &str) -> Option<u64> {
-    let found = with_current(|context| {
-        let cell = Value(value).as_slot()?;
-        let key = context.well_known(name);
-        Some(crate::entry::accessor::resolve(context, cell, key))
-    })?;
-    match found {
-        Found::Value(held) => Some(held),
-        Found::Getter(getter) => {
-            let absent = super::undefined();
-            // The receiver is the object the read was written on: a species
-            // getter defined on a subclass reads `this` as that subclass.
-            Some(crate::entry::functions::call(
-                getter, value, absent, absent, absent, absent,
-            ))
-        }
-        Found::Absent => None,
-    }
 }
 
 /// The elements copied into an object the species protocol made.
