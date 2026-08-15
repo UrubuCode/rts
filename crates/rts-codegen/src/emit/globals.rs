@@ -181,6 +181,33 @@ const PROVIDED: &[&str] = &[
     "CustomEvent",
     "EventEmitter",
     "Storage",
+    // The web surface, and every one of them follows a VALUE that landed in the
+    // same change — which is this list's own rule, stated above. `Blob` and
+    // `File` are `node:buffer`'s classes, whole, bound as globals in
+    // `rts-node`'s `lib.rs`; `DOMException` is `rts-std`'s
+    // `globals/dom_exception.rs`, built through the program's own `Error` so
+    // `instanceof Error` holds; `Headers`, `FormData`, `Request` and `Response`
+    // are `rts-std`'s `globals/fetch/`.
+    //
+    // `Blob` is named a few lines up as an example of a name reached by the
+    // suite and deliberately ABSENT "until something supplies them". Something
+    // has; the sentence above is left standing because `fetch`, `require`,
+    // `FinalizationRegistry`, `eval` and `Intl` are still in exactly that
+    // position. `fetch` in particular is absent BY DECISION rather than for want
+    // of work — `globals/fetch/mod.rs` says why a `fetch` that cannot reach the
+    // network must not have the name.
+    "Blob",
+    "File",
+    "DOMException",
+    "Headers",
+    "FormData",
+    "Request",
+    "Response",
+    // `globalThis.crypto` — `rts-node`'s `crypto/webcrypto.rs`, over the digest
+    // `createHash` already computed. `crypto.subtle.digest` is exact; every
+    // other `SubtleCrypto` member is absent and fails at the call, which is the
+    // asymmetry this list's comment describes from the other side.
+    "crypto",
     // Installed by `rts-std`'s `globals/timing.rs`, and absent from this
     // list until now — so a program writing it with no import was refused at
     // compile time for a name that had a value all along. The two sets are

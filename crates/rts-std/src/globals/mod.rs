@@ -24,8 +24,10 @@
 //! added there without a value here turns a refusal at compile time into an
 //! `undefined` at run time.
 
+pub mod dom_exception;
 pub mod emitter;
 pub mod events;
+pub mod fetch;
 pub mod output;
 pub mod pump;
 pub mod storage;
@@ -39,7 +41,13 @@ pub fn install(context: &mut Context) {
     output::install(context);
     pump::install(context);
     text::install(context);
+    // BEFORE `events`, which is the one order that matters here: `abort.rs`
+    // builds a `DOMException` for `signal.reason`, and a class registered after
+    // its first caller would leave that caller with the plain object it used to
+    // answer.
+    dom_exception::install(context);
     events::install(context);
+    fetch::install(context);
     timing::install(context);
     emitter::install(context);
     storage::install(context);

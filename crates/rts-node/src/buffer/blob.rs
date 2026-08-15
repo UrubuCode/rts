@@ -76,15 +76,62 @@ const BLOB_METHODS: &[(&str, Provided)] = &[
 
 /// Puts `Blob` and `File` on the `node:buffer` namespace.
 pub(super) fn install(context: &mut Context, namespace: u64) {
-    let blob = entry::make_callable(context, construct_blob);
-    let blob_prototype = blob_prototype(context);
-    entry::put_member(context, blob, "prototype", blob_prototype);
+    let (blob, file) = classes(context);
     entry::put_member(context, namespace, "Blob", blob);
-
-    let file = entry::make_callable(context, construct_file);
-    let file_prototype = file_prototype(context);
-    entry::put_member(context, file, "prototype", file_prototype);
     entry::put_member(context, namespace, "File", file);
+}
+
+/// The `Blob` and `File` constructors, made once per context.
+///
+/// # Why this is idempotent and why that had to be arranged
+///
+/// `Blob` is BOTH a member of `node:buffer` and an ambient global, and the two
+/// must be one cell: `globalThis.Blob === (await import("node:buffer")).Blob` is
+/// observable, and so is `x instanceof Blob` when a program mixes the two
+/// spellings. `node:buffer` is a deferred module — it is built the first time
+/// something imports it, which may be long after `lib.rs` bound the global — so
+/// whichever of the two asks first has to mint the pair and the other has to
+/// find it.
+///
+/// The pair is remembered on the PROTOTYPE, under `constructor`. That is the
+/// property the language already specifies for it (`blob.constructor === Blob`,
+/// which was missing until now), `make_prototype` already answers the same
+/// prototype for a name, and it is the only per-CONTEXT place a host module may
+/// keep a value. A `static` would be process-global where a context is
+/// per-thread — the same reasoning every `Aside`-shaped table here records.
+pub(crate) fn classes(context: &mut Context) -> (u64, u64) {
+    let blob_prototype = blob_prototype(context);
+    let blob = class_of(context, "Blob", blob_prototype, construct_blob);
+    let file_prototype = file_prototype(context);
+    let file = class_of(context, "File", file_prototype, construct_file);
+    (blob, file)
+}
+
+/// One class: the constructor recorded on its prototype, or a fresh one.
+///
+/// The recorded one counts only when its own `prototype` is the one asked
+/// about, and that is not a belt-and-braces check: `File.prototype` inherits
+/// from `Blob.prototype`, `get_member` walks the chain, and without this the
+/// second call read `Blob`'s `constructor` through the link and made `File` and
+/// `Blob` the same class — `new File([...], "x.txt")` ran `construct_blob` and
+/// answered an object with no `name` at all.
+fn class_of(context: &mut Context, name: &str, prototype: u64, construct: Provided) -> u64 {
+    let held = entry::get_member(context, prototype, "constructor");
+    if held != entry::undefined_in(context)
+        && entry::get_member(context, held, "prototype") == prototype
+    {
+        return held;
+    }
+    let ctor = entry::make_callable(context, construct);
+    entry::put_member(context, ctor, "prototype", prototype);
+    entry::put_member(context, prototype, "constructor", ctor);
+    // `name` as a data property, because a native callable has none in this
+    // engine — so `x.constructor.name`, which is how a program says what it is
+    // holding, reads `undefined` for every host class here. Written for the two
+    // this file owns; the engine-wide answer belongs beside `make_callable`.
+    let held = entry::make_string(context, name);
+    entry::put_member(context, ctor, "name", held);
+    ctor
 }
 
 fn blob_prototype(context: &mut Context) -> u64 {

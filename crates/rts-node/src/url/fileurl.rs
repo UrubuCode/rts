@@ -107,7 +107,7 @@ pub(super) extern "C" fn path_to_file_url(_e: u64, _this: u64, path: u64, option
     let Ok(parsed) = url::Url::parse(&encoded) else {
         return entry::undefined_value();
     };
-    entry::with_runtime(|context| super::class::from_parsed(context, parsed))
+    super::class::made(parsed)
 }
 
 /// Percent-encodes `#`/`%` in the PATH portion only — everything up to and
@@ -141,34 +141,36 @@ pub(super) extern "C" fn domain_to_unicode(_e: u64, _this: u64, domain: u64, _b:
 /// [`super::class::refresh`] writes) and a duck-typed plain object both
 /// work the same way real Node's own reflection-based reader does.
 pub(super) extern "C" fn url_to_http_options(_e: u64, _this: u64, url: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    // Read AMBIENTLY, outside any borrow, and that is what this function did
+    // not do: `entry::get_member` resolves a data property and stops, where
+    // `URL`'s components are accessor pairs on the prototype now. Every field
+    // read `undefined` the moment they became one — the test that caught it
+    // asserts `httpOpts.hostname`. `super::get_text` goes through
+    // `entry::get_indexed`, which walks the chain AND calls a getter, so it
+    // answers for a real `URL` and for the plain URL-shaped object Node also
+    // accepts here.
+    let named = |name: &str| super::get_text(url, name).unwrap_or_default();
+    let (protocol, hostname, hash) = (named("protocol"), named("hostname"), named("hash"));
+    let (search, pathname, href) = (named("search"), named("pathname"), named("href"));
+    let port_text = named("port");
+    let (username, password) = (named("username"), named("password"));
     entry::with_runtime(|context| {
-        let protocol = entry::get_member(context, url, "protocol");
-        let hostname = entry::get_member(context, url, "hostname");
-        let hash = entry::get_member(context, url, "hash");
-        let search = entry::get_member(context, url, "search");
-        let pathname = entry::get_member(context, url, "pathname");
-        let href = entry::get_member(context, url, "href");
-        let port_raw = entry::get_member(context, url, "port");
-        let port_text = entry::text_in(context, port_raw);
-        let username_raw = entry::get_member(context, url, "username");
-        let username = entry::text_in(context, username_raw).unwrap_or_default();
-        let password_raw = entry::get_member(context, url, "password");
-        let password = entry::text_in(context, password_raw).unwrap_or_default();
-
         let object = entry::make_object(context);
-        entry::put_member(context, object, "protocol", protocol);
-        entry::put_member(context, object, "hostname", hostname);
-        entry::put_member(context, object, "hash", hash);
-        entry::put_member(context, object, "search", search);
-        entry::put_member(context, object, "pathname", pathname);
-        let pathname_text = entry::text_in(context, pathname).unwrap_or_default();
-        let search_text = entry::text_in(context, search).unwrap_or_default();
-        let path = entry::make_string(context, &format!("{pathname_text}{search_text}"));
-        entry::put_member(context, object, "path", path);
-        entry::put_member(context, object, "href", href);
-        let port = match port_text.filter(|text| !text.is_empty()).and_then(|text| text.parse::<f64>().ok()) {
-            Some(port) => entry::make_number(port),
-            None => entry::undefined_in(context),
+        for (name, text) in [
+            ("protocol", &protocol),
+            ("hostname", &hostname),
+            ("hash", &hash),
+            ("search", &search),
+            ("pathname", &pathname),
+            ("path", &format!("{pathname}{search}")),
+            ("href", &href),
+        ] {
+            let held = entry::make_string(context, text);
+            entry::put_member(context, object, name, held);
+        }
+        let port = match port_text.parse::<f64>() {
+            Ok(port) => entry::make_number(port),
+            Err(_) => entry::undefined_in(context),
         };
         entry::put_member(context, object, "port", port);
         let auth = match (username.is_empty(), password.is_empty()) {

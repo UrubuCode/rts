@@ -55,9 +55,11 @@
 //!   only by `URL.createObjectURL`, which `node:url` refuses by name for want
 //!   of a shared registry (reference §5.7/§7). Nothing can mint one, so
 //!   nothing can be found.
-//! - **The `Blob`/`File`/`atob`/`btoa` ambient globals.** They are members of
-//!   this namespace and reachable by import; binding them as globals happens in
-//!   `lib.rs`, which this module does not own.
+//! - **`atob`/`btoa` as ambient globals.** They are members of this namespace
+//!   and reachable by import; the global spelling of both is `rts-std`'s
+//!   (`globals/text.rs`), over the same codec. `Blob` and `File` ARE globals,
+//!   bound in `lib.rs` to the very cells [`blob::classes`] mints — see that
+//!   function for why one class has to answer both spellings.
 //! - **Every `ERR_*` throw** in the reference's error column. A native entry
 //!   point here cannot raise a catchable JS exception — the limit `events` and
 //!   `string_decoder` already state — so `atob` on invalid base64, `btoa` above
@@ -67,7 +69,7 @@
 //!   properties, not read-only accessors**, so a program can assign to them.
 //!   The same trade a typed array's `length` already makes in `rts-core`.
 
-mod blob;
+pub(crate) mod blob;
 
 use rts_core::entry::{self, Context, Provided};
 

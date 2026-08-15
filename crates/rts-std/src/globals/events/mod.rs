@@ -109,9 +109,9 @@
 //! reachable from an input's listener list could name it. The identical gap
 //! `node:events` records for its once-wrapper `rawListeners`.
 //!
-//! `signal.reason`'s default is a plain `{ name, message }` object rather than a
-//! `DOMException`, because this engine has no `DOMException` primordial —
-//! `node:buffer` names the same gap. `signal.throwIfAborted()` ends the program
+//! `signal.reason`'s default is a real `DOMException` — `globals/dom_exception.rs`
+//! is the class, and this module's prose used to say the name had no value at
+//! all. `signal.throwIfAborted()` ends the program
 //! instead of throwing; the `abort` submodule states why that is the faithful
 //! answer here rather than a shortcut. `signal.onabort` fires only from this
 //! module's own abort path, and always after the registered listeners.

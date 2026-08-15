@@ -265,6 +265,24 @@ pub fn install(context: &mut Context) {
     }
     let buffer_class = rts_core::entry::buffer_class(context);
     rts_core::entry::declare_global(context, "Buffer", buffer_class);
+    // `Blob` and `File` are globals in Node, and this crate already had both —
+    // whole, with `slice` as a real view and the three async readers — sitting
+    // inside `node:buffer` where only an import could reach them. Minted here
+    // rather than by building that namespace, because `node:buffer` is deferred
+    // and building it eagerly for two names would pay for the whole module on
+    // every program; `blob::classes` is idempotent, so the import path finds the
+    // same two cells and `globalThis.Blob === (await import("node:buffer")).Blob`
+    // holds.
+    let (blob, file) = buffer::blob::classes(context);
+    rts_core::entry::declare_global(context, "Blob", blob);
+    rts_core::entry::declare_global(context, "File", file);
+    // `globalThis.crypto` is Node's `require('node:crypto').webcrypto`, and it
+    // is the SAME object here — `webcrypto::object` is memoized per context, so
+    // building it now does not commit us to a second one when something later
+    // imports the deferred `node:crypto`. Two would make
+    // `globalThis.crypto === crypto.webcrypto` false, which Node answers true.
+    let web_crypto = crypto::webcrypto::object(context);
+    rts_core::entry::declare_global(context, "crypto", web_crypto);
     // The timer family, `URL`/`URLSearchParams` and `performance`: each named
     // out of the namespace that owns it.
     let from_modules: &[(&str, &[&str])] = &[

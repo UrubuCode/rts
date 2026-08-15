@@ -194,12 +194,16 @@ fn signal_abort(signal: u64, reason: u64, default: (&str, &str)) {
     if super::flag(signal, "aborted") {
         return;
     }
+    // Built BEFORE the borrow below, and that is not tidiness: a `DOMException`
+    // runs the program's own `Error` constructor, which takes its own borrow of
+    // the context — a second one inside an `extern "C"` frame is a panic that
+    // cannot unwind, so it aborts the process.
+    let held = match reason == entry::undefined_value() {
+        true => crate::globals::dom_exception::make(default.1, default.0),
+        false => reason,
+    };
     let event = entry::with_runtime(|context| {
         entry::put_member(context, signal, "aborted", entry::boolean_value(true));
-        let held = match reason == entry::undefined_in(context) {
-            true => reason_object(context, default),
-            false => reason,
-        };
         entry::put_member(context, signal, "reason", held);
         let prototype = super::event::prototype(context);
         let event = entry::make_instance(context, prototype);
@@ -215,22 +219,6 @@ fn signal_abort(signal: u64, reason: u64, default: (&str, &str)) {
         let absent = super::absent();
         entry::call(handler, signal, event, absent, absent, absent);
     }
-}
-
-/// The default reason, as a plain `{ name, message }` object.
-///
-/// The specification says `DOMException`, which this engine has no primordial
-/// for — `node:buffer` names the same gap — and `node:dgram`/`node:net` already
-/// answer their own errors this way. What a program reads (`reason.name`,
-/// `reason.message`) is what it would read off a real one; what it cannot do is
-/// test `reason instanceof DOMException`, since that name has no value at all.
-fn reason_object(context: &mut Context, (name, message): (&str, &str)) -> u64 {
-    let object = entry::make_object(context);
-    let name = entry::make_string(context, name);
-    entry::put_member(context, object, "name", name);
-    let message = entry::make_string(context, message);
-    entry::put_member(context, object, "message", message);
-    object
 }
 
 /// Aborts whatever is due, and says whether anything is still waiting.

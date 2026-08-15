@@ -1,8 +1,24 @@
 //! `URLSearchParams` — an ordered `Vec<(String, String)>` behind a numbered
-//! slot, the same [`TABLE`] shape [`super::class`] uses for `URL`. `size` is
-//! a plain data property resynced by hand after every mutation — the same
-//! trade `stream/common.rs` names for its own tracked properties, since this
-//! crate has no accessor to reach from here (see the module doc).
+//! slot, the same [`TABLE`] shape [`super::class`] uses for `URL`.
+//!
+//! # The two backings, and why there is not one
+//!
+//! A standalone `new URLSearchParams(...)` owns its pairs, in [`TABLE`]. The
+//! one a `URL` hands back owns nothing: it carries the URL's own id and parses
+//! the URL's query on every read, re-serializing it on every write. That is
+//! what makes the view LIVE in both directions — `u.search = "?z=9"` shows
+//! through a `p` a program is already holding, and `p.append(...)` shows up in
+//! `u.href` — and it is live because there is no second copy to keep in step,
+//! rather than because something synchronizes two.
+//!
+//! Storing the pairs and mirroring them into the URL was the alternative, and
+//! it is the shape this module had: it needs a write-back on every mutation AND
+//! a re-read on every URL change, and the second half has no hook to hang on —
+//! a program assigning `u.search` goes through `class.rs`'s setter and never
+//! touches this file.
+//!
+//! `size` stays a plain data property resynced after every mutating method here,
+//! which is the one thing the split leaves stale; the module doc names it.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -37,7 +53,7 @@ const METHODS: &[(&str, Provided)] = &[
 /// Builds the `URLSearchParams` class and returns the constructor.
 pub(super) fn install(context: &mut Context) -> u64 {
     let prototype = entry::make_prototype(context, "URLSearchParams", METHODS);
-    super::class_ctor(context, construct, prototype)
+    super::class_ctor(context, "URLSearchParams", construct, prototype)
 }
 
 /// `new URLSearchParams(init?)` — a string (leading `?` stripped), an array
@@ -115,14 +131,43 @@ fn id_of(this: u64) -> Option<u64> {
     entry::number_of(entry::get_indexed(this, super::string("__spId"))).map(|value| value as u64)
 }
 
-/// A `URLSearchParams` instance built from a `URL`'s own query string — the
-/// snapshot [`class::refresh`](super::class) hands off as `url.searchParams`.
-/// Not a live view; see the module doc.
-pub(super) fn from_query(context: &mut Context, query: &str) -> u64 {
-    let prototype = entry::make_prototype(context, "URLSearchParams", METHODS);
-    let instance = entry::make_instance(context, prototype);
-    install_instance(context, instance, pairs_from_query(query));
-    instance
+/// The `URL` id a bound instance reads and writes through, if it is one.
+fn url_id_of(this: u64) -> Option<u64> {
+    entry::number_of(entry::get_indexed(this, super::string("__spUrlId"))).map(|value| value as u64)
+}
+
+/// The `URLSearchParams` a `URL` hands back — a live view of that URL's query.
+///
+/// It carries the URL's id and nothing else, which is the whole of what makes
+/// it live: see the module doc for what the copy-and-mirror shape could not do.
+pub(super) fn bound_to(url_id: u64) -> u64 {
+    let count = super::class::read_at(url_id, |parsed| pairs_of(parsed).len()).unwrap_or(0);
+    entry::with_runtime(|context| {
+        let prototype = entry::make_prototype(context, "URLSearchParams", METHODS);
+        let instance = entry::make_instance(context, prototype);
+        let held = entry::make_number(url_id as f64);
+        entry::put_member(context, instance, "__spUrlId", held);
+        sync_size(context, instance, count);
+        instance
+    })
+}
+
+/// A URL's query, as pairs.
+fn pairs_of(parsed: &url::Url) -> Vec<(String, String)> {
+    pairs_from_query(parsed.query().unwrap_or(""))
+}
+
+/// Pairs back into a URL's query.
+///
+/// `None` and not `Some("")` for an empty list, because the two serialize
+/// differently: `?` versus nothing at all, and `url.search` has to answer `""`.
+fn write_query(parsed: &mut url::Url, pairs: &[(String, String)]) {
+    let mut serializer = form_urlencoded::Serializer::new(String::new());
+    for (name, value) in pairs {
+        serializer.append_pair(name, value);
+    }
+    let query = serializer.finish();
+    parsed.set_query(Some(query.as_str()).filter(|query| !query.is_empty()));
 }
 
 extern "C" fn append(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64) -> u64 {
@@ -270,22 +315,40 @@ extern "C" fn entries(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64
     })
 }
 
+/// The receiver's pairs, from whichever of the two backings it has.
+///
+/// The URL is asked FIRST, so an instance that somehow carried both would read
+/// the live one — an ordering worth stating because the opposite would answer
+/// from a copy that no longer exists.
 fn read<T>(this: u64, body: impl FnOnce(&[(String, String)]) -> T) -> Option<T> {
+    if let Some(url_id) = url_id_of(this) {
+        return super::class::read_at(url_id, |parsed| body(&pairs_of(parsed)));
+    }
     let id = id_of(this)?;
     with_table(|table| table.get(&id).map(|pairs| body(pairs)))
 }
 
 fn mutate(this: u64, body: impl FnOnce(&mut Vec<(String, String)>)) -> u64 {
-    let Some(id) = id_of(this) else {
-        return entry::undefined_value();
+    let count = match url_id_of(this) {
+        Some(url_id) => {
+            let mut count = None;
+            super::class::write_at(url_id, |parsed| {
+                let mut pairs = pairs_of(parsed);
+                body(&mut pairs);
+                count = Some(pairs.len());
+                write_query(parsed, &pairs);
+            });
+            count
+        }
+        None => match id_of(this) {
+            Some(id) => with_table(|table| {
+                let pairs = table.get_mut(&id)?;
+                body(pairs);
+                Some(pairs.len())
+            }),
+            None => None,
+        },
     };
-    let count = with_table(|table| {
-        let Some(pairs) = table.get_mut(&id) else {
-            return None;
-        };
-        body(pairs);
-        Some(pairs.len())
-    });
     if let Some(count) = count {
         entry::with_runtime(|context| sync_size(context, this, count));
     }

@@ -24,36 +24,44 @@
 //! this crate's value API cannot hold *inside* a JS object, exactly the
 //! reason `dir.rs` gives for its own table.
 //!
-//! # Why `URL`/`URLSearchParams` have no property SETTERS
+//! # How `URL` got its property setters, and what was stale
 //!
-//! `rts_core::entry::accessor` (`get x()`/`set x(v)`) is reachable only
-//! from `#[rtse::class]`-declared classes with compile-time-interned keys —
-//! `rts-node` is restricted to `rts_core::entry::modules`, which
-//! exports no accessor-installing function (confirmed by reading it in
-//! full). `stream/common.rs` names the same restriction and answers it the
-//! same way this module does: every property below is an ordinary **data**
-//! property, computed once at construction (or, for `URLSearchParams`,
-//! resynced by hand after every mutating method) and never a live getter. A
-//! program assigning `url.pathname = '/x'` writes a plain property that
-//! `href`/`origin`/`toString()` do not see change — refused by name below,
-//! not silently approximated as a no-op.
+//! This doc used to say a host module could not install an accessor at all:
+//! `entry::define_getter`/`define_setter` take a key NUMBER out of the
+//! compiler's registry and "nothing on this surface mints one from a name". That
+//! stopped being true when `entry::member_key` was added — it is exactly the
+//! `&str` → key-number function that was missing, and `rts-ui` was already
+//! calling it. So every `URL` property below is a real accessor pair on
+//! `URL.prototype`, which is where the specification puts them, and the eleven
+//! snapshot data properties this module used to stamp onto each instance are
+//! gone.
+//!
+//! That is what makes `url.searchParams` LIVE in both directions: the instance
+//! carries nothing but `__urlId` and the one `URLSearchParams` object bound to
+//! it, both sides read and write the single parsed `url::Url` in `class.rs`'s
+//! table, and there is no snapshot left to fall out of step.
+//!
+//! Two things it forced, and each is stated where it happens. The accessors are
+//! installed on FIRST USE rather than at `install`, because `define_getter` is
+//! ambient and the host hands this crate a `&mut Context` before any context is
+//! on the thread (`class::prototype`). And no property below may also exist as
+//! an own data property on an instance, because `accessor::setter_for` stops the
+//! chain walk at one — an own `pathname` would silently shadow the setter.
 //!
 //! # Not implemented, by name
 //!
-//! - **Every `URL` property setter** (`href=`, `protocol=`, `username=`,
-//!   `password=`, `host=`, `hostname=`, `port=`, `pathname=`, `search=`,
-//!   `hash=`) — see above.
-//! - **`URLSearchParams` as a live view of `url.searchParams`.** The
-//!   `URLSearchParams` instance a `URL` hands back is a snapshot built once
-//!   at construction; mutating it does not update `url.search`/`url.href`
-//!   and vice versa, because that link needs the setter machinery above.
-//! - **A thrown `TypeError`/`URIError` anywhere in this module.** No
-//!   `rts_core::entry::modules` function raises a catchable exception —
-//!   `rts-core::entry::throw` ends the whole program rather than
-//!   unwinding to a handler (see its own doc). Every failure mode Node
-//!   documents as throwing answers `undefined`/`null`/an inert instance
-//!   here instead, the same trade `path.rs` and `querystring.rs` already
-//!   make, extended to this module.
+//! - **`url.href = x` throwing for an unparseable `x`.** WHATWG makes `href` the
+//!   one setter that throws; the other nine are specified as "if it fails,
+//!   return", which is what they do here. A failed `href` assignment leaves the
+//!   URL as it was.
+//! - **A thrown `TypeError`/`URIError` for a malformed CONSTRUCTOR argument.**
+//!   `new URL("nonsense")` answers an INERT instance — one carrying no
+//!   `__urlId`, whose every property reads `""` — where Node throws. A native
+//!   here can raise now (`entry::throw_type_error`), so this is a decision
+//!   rather than a wall: `URL.canParse`/`URL.parse` are what a program tests
+//!   with, and turning every existing inert instance into a process-visible
+//!   throw is a behaviour change this module has not measured against the
+//!   suite.
 //! - **`URLPattern`.** A WICG pattern-matcher over five percent-encode sets
 //!   and a router-style wildcard compiler; nothing in `url`/`idna` supplies
 //!   it, and building one is its own module's worth of work, not a URL
@@ -66,6 +74,17 @@
 //!   members of this module's namespace; wiring them onto the global object
 //!   with no import is `lib.rs`'s/`global.rs`'s call, not this folder's —
 //!   this module does not touch either file.
+//! - **`Object.keys(new URL(...))` answering `[]`.** It answers
+//!   `["__urlId", "searchParams"]`: the two own properties an instance carries.
+//!   That is two names where Node has none, and it is a large improvement on the
+//!   eleven this module used to stamp — the remaining pair is the instance↔table
+//!   key and the live view, and neither has a place to hide while a host module
+//!   cannot mark a property non-enumerable.
+//! - **`URLSearchParams.prototype.size` as an accessor.** It is a data property
+//!   resynced after every mutating method, which is right for a standalone
+//!   instance and STALE for one bound to a `URL` whose `search` was assigned
+//!   directly. Everything a program reads through a method (`get`, `getAll`,
+//!   `toString`, `forEach`, …) reads the URL live; only `size` is a snapshot.
 //! - **`URLSearchParams` iteration protocol** (`Symbol.iterator`,
 //!   `for...of`, spread). `entries()`/`keys()`/`values()` answer plain JS
 //!   arrays here rather than `IterableIterator`s — this crate's value API
@@ -114,9 +133,14 @@ pub fn namespace(context: &mut Context) -> u64 {
 /// under `"prototype"` — the recipe `stream/mod.rs::class_ctor` already
 /// works out, generalised to a `Provided` prototype-builder so `class.rs`
 /// and `search_params.rs` both use it without a second copy.
-pub(super) fn class_ctor(context: &mut Context, construct: Provided, prototype: u64) -> u64 {
+pub(super) fn class_ctor(context: &mut Context, name: &str, construct: Provided, prototype: u64) -> u64 {
     let ctor = entry::make_callable(context, construct);
     entry::put_member(context, ctor, "prototype", prototype);
+    // `name` as a data property, because a native callable carries none in this
+    // engine: `x.constructor.name` — how a program says what it is holding —
+    // reads `undefined` without it.
+    let held = entry::make_string(context, name);
+    entry::put_member(context, ctor, "name", held);
     ctor
 }
 
@@ -143,6 +167,35 @@ pub(super) fn string_in(context: &mut Context, text: &str) -> u64 {
 /// A plain data property, read as text.
 pub(super) fn get_text(this: u64, name: &str) -> Option<String> {
     text(entry::get_indexed(this, string(name)))
+}
+
+/// One accessor property — `get x()`, and `set x(v)` when there is one.
+///
+/// # Why this exists here and could not before
+///
+/// `entry::define_getter` takes a property key as the NUMBER the compiler's
+/// registry issued, and `entry::member_key` is what turns a `&str` into one.
+/// Both are ambient — each takes its own borrow of the context — so this
+/// collects everything it needs inside ONE `with_runtime` and makes the two
+/// definition calls after that borrow is gone. A second borrow inside an
+/// `extern "C"` frame is a panic that cannot unwind: it aborts the process.
+pub(super) fn define_accessor(
+    object: u64,
+    name: &str,
+    getter: Provided,
+    setter: Option<Provided>,
+) {
+    let (key, getter, setter) = entry::with_runtime(|context| {
+        (
+            i64::from(entry::member_key(context, name)),
+            entry::make_callable(context, getter),
+            setter.map(|code| entry::make_callable(context, code)),
+        )
+    });
+    entry::define_getter(object, key, getter);
+    if let Some(setter) = setter {
+        entry::define_setter(object, key, setter);
+    }
 }
 
 /// `this` if it is already an object (a `new` over a subclass hands one in),

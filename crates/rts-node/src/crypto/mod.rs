@@ -46,12 +46,14 @@
 //!   variable-shape-return API the reference's §5.2 already flags as needing
 //!   more than the four-argument/scalar-return ceiling this module works
 //!   under for a single change.
-//! - **`WebCrypto`** (`globalThis.crypto`, `crypto.subtle`/`SubtleCrypto`,
-//!   `CryptoKey`) — every `SubtleCrypto` method is Promise-mandatory
-//!   (§5.3), and this module has no Promise-settling path (`with_runtime`'s
-//!   nested-borrow-aborts rule means a native cannot call `promise.create`
-//!   from inside another entry point either) — the same "no user-code
-//!   re-entry" limit `fs/mod.rs`'s module doc states blocks it here too.
+//! - **Every `SubtleCrypto` method except `digest`**, and `CryptoKey` with them.
+//!   This entry said the whole of WebCrypto was blocked because "every
+//!   `SubtleCrypto` method is Promise-mandatory and this module has no
+//!   Promise-settling path" — which had expired: `entry::settled` is what
+//!   `node:buffer`'s `Blob` answers its three async readers with, and a digest
+//!   over resident bytes has no asynchrony beyond the promise shape. So
+//!   `globalThis.crypto`, `crypto.subtle` and `crypto.webcrypto` exist and
+//!   [`webcrypto`] says which member of them does not.
 //! - **`argon2`/`argon2Sync`** — experimental in Node itself (§2.2's own
 //!   tag); deferred per "immature-goes-last".
 //! - **`randomBytes(size, cb)` and the other callback forms outside `kdf`** —
@@ -81,6 +83,7 @@ mod hmac;
 mod kdf;
 mod random;
 mod util;
+pub(crate) mod webcrypto;
 
 use rts_core::entry::{self, Context, Provided};
 
@@ -111,6 +114,14 @@ pub fn namespace(context: &mut Context) -> u64 {
     // — `entry::declare_loop_source`'s doc says why not by the host — and
     // idempotent by name, so a second `namespace` call does not pump twice.
     kdf::declare(context);
+    // `crypto.webcrypto` and `crypto.subtle` are the SAME objects the `crypto`
+    // global carries, not a second pair: `webcrypto::object` is memoized per
+    // context, which is what makes `globalThis.crypto === require('node:crypto')
+    // .webcrypto` hold the way it does in Node.
+    let web = webcrypto::object(context);
+    entry::put_member(context, namespace, "webcrypto", web);
+    let subtle = webcrypto::subtle(context);
+    entry::put_member(context, namespace, "subtle", subtle);
     namespace
 }
 

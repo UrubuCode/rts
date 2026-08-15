@@ -32,12 +32,20 @@
 //!
 //! # Why the class properties are data properties
 //!
-//! `entry::define_getter` is exported, but a host cannot use it: it takes an
-//! interned key NUMBER out of the compiler's registry, and nothing on this
-//! surface mints one from a name — and it is ambient, so a class builder holding
-//! the context could not call it without a second borrow. So
-//! `encoding`/`fatal`/`ignoreBOM` are ordinary data properties, which `node:url`
-//! and `node:stream` already record for the same reason.
+//! This paragraph used to say a host could not install an accessor at all,
+//! because `entry::define_getter` takes an interned key NUMBER and nothing minted
+//! one from a name. `entry::member_key` does — `node:url` installs eleven real
+//! accessor pairs through it. So the reason here is narrower now and it is a
+//! choice: `encoding`/`fatal`/`ignoreBOM` never change after construction, so an
+//! accessor would call a function to read a constant. What a program can still
+//! do that Node forbids is ASSIGN to them, which is named below.
+//!
+//! # Where `TextDecoder` went
+//!
+//! Into [`decoder`], because holding bytes between calls made this file pass the
+//! 500-line ceiling. The split is by class rather than by "the big function",
+//! which is what keeps the streaming state, the codec choice and the fatal
+//! decision in one place instead of three.
 //!
 //! `TextEncoder.prototype.encoding` sits on the **prototype** rather than on
 //! each instance, because the specification makes it a prototype accessor:
@@ -64,7 +72,10 @@
 //!   `encoding`, whose `decode` answers `undefined`. The reference document is
 //!   explicit that the wrong move here is "silently accepting an unsupported
 //!   label and mis-decoding" (globals.md §4), and the inert instance is
-//!   `node:url`'s own precedent for an unrepresentable throw.
+//!   `node:url`'s own precedent for an unrepresentable throw. A native can raise
+//!   now — [`decoder`]'s `fatal` mode does — so this is a decision left standing
+//!   rather than a wall: the label set is small, and turning every unsupported
+//!   one into a process-visible throw is a change nothing has measured.
 //! - **The WHATWG label registry beyond four families.** Supported, with the
 //!   label each reports: `utf-8`, `utf-16le` (both exact), `latin1` and
 //!   `ascii`. `utf-16be`, `windows-1252`, `shift_jis`, `gbk` and the rest of
@@ -76,13 +87,6 @@
 //!   diverges further and is named here for it: the codec MASKS the high bit,
 //!   so byte `0xE9` decodes to `i` where every specified behaviour — WHATWG's
 //!   and a fatal decoder's alike — produces `U+FFFD` or an error.
-//! - **`decoder.fatal`.** Always `false`, whatever `options.fatal` asked for,
-//!   because this decoder is never fatal — malformed input becomes `U+FFFD`.
-//!   Reporting `true` would describe behaviour the object does not have.
-//! - **`decoder.decode(input, { stream: true })`.** Answers `undefined`.
-//!   Streaming needs bytes held across calls; without it a chunk split inside a
-//!   multi-byte sequence silently gains a `U+FFFD` where the next chunk would
-//!   have completed the character — a wrong answer that runs.
 //! - **`TextDecoder`'s `encoding`/`fatal`/`ignoreBOM` as inherited accessors.**
 //!   They are own data properties, so `Object.keys(new TextDecoder())` answers
 //!   three names where Node answers none, and a program may assign to them.
@@ -99,13 +103,15 @@
 //! - **`TextEncoderStream`/`TextDecoderStream`.** `TransformStream`-shaped, and
 //!   documented under `node:stream/web` rather than here.
 
+mod decoder;
+
 use rts_core::entry::{self, Context, Provided};
 
 /// Installs `TextEncoder`, `TextDecoder`, `atob` and `btoa` as globals.
 pub fn install(context: &mut Context) {
     let encoder = encoder_class(context);
     entry::declare_global(context, "TextEncoder", encoder);
-    let decoder = decoder_class(context);
+    let decoder = decoder::class(context);
     entry::declare_global(context, "TextDecoder", decoder);
     let atob_global = entry::make_callable(context, atob);
     entry::declare_global(context, "atob", atob_global);
@@ -207,100 +213,6 @@ fn fitting_prefix(text: &str, room: usize) -> (usize, &[u8]) {
         units += character.len_utf16();
     }
     (units, &text.as_bytes()[..end])
-}
-
-// ---------------------------------------------------------------- TextDecoder
-
-const DECODER_METHODS: &[(&str, Provided)] = &[("decode", decode)];
-
-/// The `TextDecoder` constructor, with its prototype linked.
-fn decoder_class(context: &mut Context) -> u64 {
-    let prototype = decoder_prototype(context);
-    let ctor = entry::make_callable(context, new_decoder);
-    entry::put_member(context, ctor, "prototype", prototype);
-    ctor
-}
-
-/// The one `TextDecoder.prototype`, made on the first ask.
-fn decoder_prototype(context: &mut Context) -> u64 {
-    entry::make_prototype(context, "TextDecoder", DECODER_METHODS)
-}
-
-/// `new TextDecoder(label?, options?)`.
-///
-/// An unsupported label produces an instance with no `encoding` at all — see
-/// the module doc for why that is the honest shape of a refusal here.
-extern "C" fn new_decoder(_e: u64, this: u64, label: u64, options: u64, _c: u64, _d: u64) -> u64 {
-    let asked = text_argument(label).unwrap_or_else(|| "utf-8".to_owned());
-    let reported = supported_label(&asked);
-    let requested_bom = entry::with_runtime(|context| option_value(context, options, "ignoreBOM"));
-    // Decoded OUTSIDE the borrow above: `to_boolean` is an ambient entry point
-    // that takes its own borrow, and a second one inside an `extern "C"` frame
-    // is a panic that cannot unwind — it aborts the process.
-    let ignore_bom = entry::to_boolean(requested_bom);
-    entry::with_runtime(|context| {
-        let prototype = decoder_prototype(context);
-        let instance = self_or_new(context, this, prototype);
-        if let Some(reported) = reported {
-            let encoding = entry::make_string(context, reported);
-            entry::put_member(context, instance, "encoding", encoding);
-            // Always false: this decoder substitutes `U+FFFD` and never throws,
-            // so `true` would describe something it does not do.
-            entry::put_member(context, instance, "fatal", entry::boolean_value(false));
-            let bom = entry::boolean_value(ignore_bom);
-            entry::put_member(context, instance, "ignoreBOM", bom);
-        }
-        instance
-    })
-}
-
-/// `decoder.decode(input?, options?)`.
-extern "C" fn decode(_e: u64, this: u64, input: u64, options: u64, _c: u64, _d: u64) -> u64 {
-    let streaming = entry::with_runtime(|context| option_value(context, options, "stream"));
-    if entry::to_boolean(streaming) {
-        return entry::undefined_value();
-    }
-    entry::with_runtime(|context| {
-        let reported = entry::get_member(context, this, "encoding");
-        let codec = entry::string_in(context, reported)
-            .and_then(|label| supported_label(&label))
-            .and_then(|label| entry::canonical_encoding(label));
-        let Some(codec) = codec else {
-            return entry::undefined_in(context);
-        };
-        let bytes = entry::bytes_of(context, input).unwrap_or_default();
-        let text = entry::decode_bytes(&bytes, codec);
-        let ignore = entry::get_member(context, this, "ignoreBOM");
-        // A bit comparison and not `to_boolean`, which would be a nested borrow:
-        // this property is one this module wrote as a real boolean, so the bits
-        // are exact rather than a coercion standing in for one.
-        let stripped = match ignore == entry::boolean_value(true) {
-            true => None,
-            // Only `U+FEFF` is stripped, so the single-byte codecs need no case
-            // of their own: `EF BB BF` under `latin1` decodes to three ordinary
-            // characters and never matches.
-            false => text.strip_prefix('\u{FEFF}').map(|rest| rest.to_owned()),
-        };
-        entry::make_string(context, &stripped.unwrap_or(text))
-    })
-}
-
-/// The label a decoder reports for an asked-for one, or nothing when this
-/// engine cannot decode it.
-///
-/// The alias folding is `canonical_encoding`'s — `UTF-8`, `utf8`, `ucs-2` and
-/// the rest are its table's business, stated once. What this adds is the
-/// membership question that table does not answer: `base64`, `base64url` and
-/// `hex` are byte-to-text codecs rather than character encodings, and a
-/// `TextDecoder` accepting them would decode bytes into their own transcription.
-fn supported_label(label: &str) -> Option<&'static str> {
-    match entry::canonical_encoding(label)? {
-        "utf8" => Some("utf-8"),
-        "utf16le" => Some("utf-16le"),
-        "latin1" => Some("latin1"),
-        "ascii" => Some("ascii"),
-        _ => None,
-    }
 }
 
 // -------------------------------------------------------------- atob and btoa
