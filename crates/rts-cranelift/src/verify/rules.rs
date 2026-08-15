@@ -240,7 +240,16 @@ fn dominators(func: &Function) -> Vec<Vec<bool>> {
     while moved {
         moved = false;
         for (block, _) in func.blocks() {
-            if block == func.entry {
+            // The entry is fixed, and so is anything with no predecessor AT
+            // ALL — which is not only unreachable code. A handler block and a
+            // cleanup entry have none: the unwinder enters them, and the
+            // unwinder is not an edge in this graph. Running the rule over one
+            // would intersect over an empty set and leave it dominated by
+            // itself alone, which then says the function's own entry does not
+            // dominate it. Measured: every `try`/`catch` in the corpus started
+            // reporting `CleanupReadsOutsideItself` about the environment
+            // pointer, a value defined in the entry block.
+            if block == func.entry || predecessors[index_of(block)].is_empty() {
                 continue;
             }
             let mut next = vec![false; count];

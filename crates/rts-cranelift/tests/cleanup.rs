@@ -356,6 +356,53 @@ fn a_cleanup_that_reads_something_outside_itself_is_rejected() {
 }
 
 #[test]
+fn a_handler_in_the_region_does_not_hide_the_entry_from_the_cleanup() {
+    // The case the dominance rule gets wrong if it is written naively.
+    //
+    // A handler block has NO predecessor in this graph: the unwinder enters it,
+    // and the unwinder is not an edge. Running the usual `intersect over the
+    // predecessors` step on one intersects over nothing and leaves it dominated
+    // by itself alone — which then says the function's own ENTRY does not
+    // dominate it, and every value defined at entry stops being readable from
+    // the cleanup. Measured as every `try`/`catch` in the corpus reporting
+    // `CleanupReadsOutsideItself` about the environment pointer.
+    let types = TypeRegistry::new();
+    let mut func = Function::new(Signature {
+        params: vec![Repr::Tagged],
+        ..Signature::default()
+    });
+    let held = param(&func, 0);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let cleanup = b.create_block();
+    let _region = b.open_region(
+        vec![Handler {
+            tag: Tag(1),
+            block: cleanup,
+        }],
+        Some(cleanup),
+    );
+    let handler = b.create_block();
+    b.ret(&[]);
+
+    let mut b = FuncBuilder::new(&mut func, &types, handler);
+    b.ret(&[]);
+
+    let mut b = FuncBuilder::new(&mut func, &types, cleanup);
+    let promise = b.promise_new();
+    b.promise_settle(promise, held, false);
+    b.cleanup_done();
+
+    assert!(
+        !verify(&func, &types, &FuncRegistry::new())
+            .iter()
+            .any(|e| matches!(e, VerifyError::CleanupReadsOutsideItself { .. })),
+        "a block the unwinder enters has no predecessor, and that is not the same \
+         thing as the entry not dominating it"
+    );
+}
+
+#[test]
 fn a_cleanup_may_read_what_dominates_the_region_it_belongs_to() {
     // The complement of the test above, and the reason the rule needed a real
     // dominance analysis rather than "the entry block only".

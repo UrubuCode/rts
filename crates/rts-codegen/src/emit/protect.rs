@@ -111,7 +111,17 @@ pub fn emit_throw(
 /// [`super::suspends`] gives about the same boundary: a `return` written inside
 /// one leaves THAT function.
 fn leaves_abruptly(body: &[Stmt]) -> bool {
-    body.iter().any(statement_leaves_abruptly)
+    // A `yield` or an `await` counts, and the reason is one step downstream: a
+    // suspending body is rewritten by `frame::resumable_form`, which turns each
+    // `Suspend` into a RETURN with a resume label. So `finally { yield "fin" }`
+    // is a terminator with no successor in the cleanup copy, exactly as a
+    // written `return` is — the verifier says `CleanupDoesNotEnd` about both
+    // and is right about both.
+    //
+    // Asked through [`super::suspends`] rather than by matching `yield` here,
+    // because that module already answers "does this body park its own frame"
+    // and answering it a second time is where the two would come to disagree.
+    super::suspends::body_suspends(body) || body.iter().any(statement_leaves_abruptly)
 }
 
 fn statement_leaves_abruptly(statement: &Stmt) -> bool {
