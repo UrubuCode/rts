@@ -92,6 +92,21 @@ pub fn resumable_form(
     Rewrite::new(func, &plan, layout).run()
 }
 
+/// Whether anything that PARKS a frame survives the rewrite.
+///
+/// `Suspend` does not — that is what the rewrite is for, and a resume label
+/// takes its place. `Await` does, because parking on a promise is not a yield
+/// and the runtime resumes it through a different door. So an `async
+/// function*` still suspends after being made resumable, and a plain
+/// `function*` no longer does.
+fn source_awaits(source: &Function) -> bool {
+    source
+        .blocks()
+        .flat_map(|(_, data)| data.insts.iter().copied())
+        .filter_map(|inst| source.inst(inst))
+        .any(|data| matches!(data.inst, Inst::Await { .. }))
+}
+
 /// One rewriting in progress.
 struct Rewrite<'a> {
     source: &'a Function,
@@ -112,6 +127,18 @@ impl<'a> Rewrite<'a> {
         let out = Function::new(Signature {
             params: vec![Repr::Ref(RefKind::Aggregate(layout.ty))],
             returns: vec![Repr::Bool],
+            // The rewrite removes `Suspend` and keeps `Await`, so whether the
+            // REWRITTEN form may suspend is a different question from whether
+            // the source could — and it is answered from what survives rather
+            // than inherited or defaulted.
+            //
+            // Defaulted, it was `false`, and that was invisible for as long as
+            // the only suspending functions rewritten here were plain
+            // generators: a `function*` has no `Await` to leave behind. An
+            // `async function*` has both, and the first one written refused the
+            // whole program with `UndeclaredSuspension` — the verifier saying
+            // that a body which can park declared it could not.
+            may_suspend: source_awaits(source),
             ..Signature::default()
         });
         let frame = out.block(out.entry).expect("entry exists").params[0];

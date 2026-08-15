@@ -291,3 +291,51 @@ fn the_frame_holds_a_slot_for_everything_it_needs() {
         "a value read after a suspension has to be written down before it"
     );
 }
+
+/// An `async function*` still parks after being made resumable, and says so.
+///
+/// The rewrite removes `Suspend` and keeps `Await`, so the two questions — "did
+/// the source suspend" and "does the rewritten form" — have different answers.
+/// The signature was built with `Signature::default()`, which answers `false` to
+/// the second, and that was invisible while every function rewritten here was a
+/// plain `function*` with no `Await` to leave behind. The first `async
+/// function*` written refused the whole program with `UndeclaredSuspension`.
+#[test]
+fn a_rewritten_body_that_still_awaits_declares_that_it_may_park() {
+    let mut types = TypeRegistry::new();
+    let mut func = suspending(&[Repr::Tagged], &[Repr::Tagged]);
+    let promise = param(&func, 0);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let waited = b.await_(promise);
+    b.suspend();
+    b.ret(&[waited]);
+
+    let resumable = resumable_form(&func, &mut types).expect("it may suspend");
+    assert!(
+        resumable.func.signature.may_suspend,
+        "a body that can still park declaring it cannot is what the verifier refuses"
+    );
+    assert!(
+        verify(&resumable.func, &types, &FuncRegistry::new()).is_empty(),
+        "and the refusal is the observable half of it"
+    );
+}
+
+/// A plain `function*` no longer parks once its yields are resume labels.
+#[test]
+fn a_rewritten_body_with_nothing_left_to_await_declares_that_it_cannot() {
+    let mut types = TypeRegistry::new();
+    let mut func = suspending(&[Repr::Tagged], &[Repr::Tagged]);
+    let held = param(&func, 0);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    b.suspend();
+    b.ret(&[held]);
+
+    let resumable = resumable_form(&func, &mut types).expect("it may suspend");
+    assert!(
+        !resumable.func.signature.may_suspend,
+        "the rewrite is what removes the suspension, so the permission goes with it"
+    );
+}
