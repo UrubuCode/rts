@@ -33,10 +33,30 @@
 //! a length or an index costs, so every operation here is written knowing there
 //! are two layouts, and none of them converts one to the other to avoid thinking
 //! about it.
+//!
+//! ## What the neighbouring modules are for
+//!
+//! All three exist because of the same sentence above — a string may not be
+//! valid Unicode — and each says its own half of it:
+//!
+//! - [`runs`] applies an operation defined over `&str` to a string that has no
+//!   `&str`, by mapping the valid runs and carrying the unpaired surrogates
+//!   between them. Case mapping and normalisation both go through it.
+//! - [`normalize`] is the four Unicode forms, and says why a decomposition
+//!   table is carried here where a collation table is refused.
+//! - [`space`] is which code units the language calls white space, asked one
+//!   unit at a time so that a string with half a character can still be
+//!   trimmed.
 
 mod intern;
+mod normalize;
+mod runs;
+mod space;
 
 pub use intern::Interner;
+pub use normalize::{Form, normalized};
+pub use runs::mapped_runs;
+pub use space::is_white_space;
 
 /// How a string's code units are stored.
 ///

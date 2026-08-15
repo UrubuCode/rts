@@ -32,9 +32,12 @@
 
 mod basic;
 mod more;
-pub(in crate::entry) mod text;
 pub(super) mod pattern;
+mod points;
+mod replace;
+mod search;
 mod split;
+pub(in crate::entry) mod text;
 
 use super::objects::undefined_of;
 use super::{Context, with_current};
@@ -58,9 +61,51 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // did.
     context.string_prototype = Some(cell);
     super::native::install(context, cell, basic::NATIVES);
+    super::native::install(context, cell, search::NATIVES);
     super::native::install(context, cell, pattern::NATIVES);
+    super::native::install(context, cell, split::NATIVES);
+    super::native::install(context, cell, replace::NATIVES);
     super::native::install(context, cell, more::NATIVES);
+    super::native::install(context, cell, points::NATIVES);
+    iterator_method(context, cell);
     Some(cell)
+}
+
+/// `String.prototype[Symbol.iterator]`, which is not installed by name.
+///
+/// # Why it is here at all, when `for`-`of` over a string already worked
+///
+/// Because they are different mechanisms. `for (const c of s)` reaches
+/// [`super::iterate::iterate`], which recognises a text cell directly and never
+/// asks the prototype anything — so a program that drives the protocol by hand,
+/// `s[Symbol.iterator]().next()`, found `undefined` and called it. The method
+/// was missing while the loop that is meant to be sugar for it worked, which is
+/// the shape of gap a suite of `for`-`of` tests cannot see.
+///
+/// # Why it is `put` rather than `install`
+///
+/// [`super::native::install`] names each method by the key it stores it under,
+/// and a symbol-keyed property is stored under the `@@`-prefixed text
+/// [`super::symbol`] mints — so installing by that name would also write
+/// `"@@iterator"` into `.name`, where the language says `"[Symbol.iterator]"`.
+/// One key, two different strings; the only place they are both known is here.
+fn iterator_method(context: &mut Context, cell: u32) {
+    let method = super::native::callable(context, iterate_units);
+    super::native::name_of(context, method, "[Symbol.iterator]");
+    let key = context.well_known(&format!("{}iterator", super::symbol::PREFIX));
+    super::objects::put(context, cell, key, method);
+}
+
+/// `s[Symbol.iterator]()` — an iterator over CODE POINTS.
+///
+/// Points and not units, which is the one thing this iterator is for:
+/// `"a😀".length` is 3 and iterating it yields two elements, because the
+/// surrogate pair is one character. [`super::iterate::iterate`] already decides
+/// that for `for`-`of`, and this answers from it rather than deciding it again —
+/// two spellings of where a character ends is how the loop and the method would
+/// come to disagree about the same string.
+extern "C" fn iterate_units(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    super::list_iterator::over(super::iterate::iterate(this))
 }
 
 /// `String` itself, as the value the name reads.
@@ -75,7 +120,7 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         None => return undefined_of(context),
     };
     if let Some(cell) = Value(callable).as_slot() {
-        super::native::install(context, cell, more::STATICS);
+        super::native::install(context, cell, points::STATICS);
         let key = context.well_known("prototype");
         super::objects::put(context, cell, key, prototype);
     }
@@ -203,6 +248,34 @@ pub(super) fn answer_owned(context: &mut Context, bytes: Vec<u8>) -> u64 {
 /// The undefined a method answers when there is nothing to answer.
 pub(super) fn nothing(context: &Context) -> u64 {
     undefined_of(context)
+}
+
+/// An index argument, as the language reads one.
+///
+/// `ToIntegerOrInfinity`: `ToNumber` first, then `NaN` becomes zero and anything
+/// else truncates **toward zero**. Both halves were missing and each is a wrong
+/// answer of its own:
+///
+/// - Without `ToNumber`, `"hello".at("2")` read the string as no number at all
+///   and answered `"h"` — index 0 — where every engine answers `"l"`. The same
+///   for `true`, which is index 1.
+/// - Without truncation toward zero, `"hello".at(-1.5)` computed `5 - 1.5` and
+///   cast, which is `floor` for a positive result: index 3, `"l"`, where the
+///   language truncates the ARGUMENT to `-1` and answers `"o"`. The two agree on
+///   every whole number, which is why it survived.
+///
+/// The infinities pass through as themselves. A caller compares against a length
+/// before it casts, so `±∞` is out of range by arithmetic rather than by a case.
+///
+/// An object answers `NaN` and therefore zero, because `ToNumber` on one runs
+/// user code and this is inside a borrow. The stated gap: `s.at({valueOf: …})`
+/// reads index 0.
+pub(super) fn integer_arg(context: &Context, value: u64) -> f64 {
+    let number = super::operators::as_number(context, Value(value)).unwrap_or(f64::NAN);
+    match number.is_nan() {
+        true => 0.0,
+        false => number.trunc(),
+    }
 }
 
 /// An index a method was given, relative to a length.

@@ -1,4 +1,4 @@
-//! The string methods that do not take a pattern.
+//! The string methods that neither search nor take a pattern.
 //!
 //! # Why every one of these counts code units
 //!
@@ -22,29 +22,29 @@
 //! Those three now use `super::indexed`, which is `Str::unit_at` — constant time
 //! for both layouts, and it already existed. The methods that genuinely walk the
 //! whole string still take the copy, because they read all of it anyway.
+//!
+//! # Where the searches went
+//!
+//! `indexOf` and its four neighbours are in [`super::search`]. This file was 596
+//! lines against a 500-line ceiling, and those five are the half that shares a
+//! question rather than merely a home.
 
-use super::super::with_current;
 use super::super::native::Native;
+use super::super::with_current;
 use super::{absent, answer, answer_owned, arg_units, nothing, relative, text_of, units_of};
 use crate::value::Value;
 
-/// What a string's prototype holds, apart from the pattern methods.
+/// What a string's prototype holds, apart from the searches and the patterns.
 pub(super) const NATIVES: &[(&str, Native)] = &[
     ("charAt", char_at),
     ("charCodeAt", char_code_at),
     ("at", at),
-    ("indexOf", index_of),
-    ("lastIndexOf", last_index_of),
-    ("includes", includes),
-    ("startsWith", starts_with),
-    ("endsWith", ends_with),
     ("slice", slice),
     ("substring", substring),
     ("toUpperCase", to_upper_case),
     ("toLowerCase", to_lower_case),
     ("toLocaleUpperCase", to_upper_case),
     ("toLocaleLowerCase", to_lower_case),
-    ("trim", trim),
     ("repeat", repeat),
     ("concat", concat),
     ("padStart", pad_start),
@@ -61,7 +61,7 @@ extern "C" fn char_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u
         let Some(length) = super::length_of(context, this) else {
             return nothing(context);
         };
-        let at = Value(index).numeric().unwrap_or(0.0);
+        let at = super::integer_arg(context, index);
         if at < 0.0 || at >= length as f64 {
             return answer(context, &[]);
         }
@@ -78,7 +78,7 @@ extern "C" fn char_code_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _
         let Some(length) = super::length_of(context, this) else {
             return nothing(context);
         };
-        let at = Value(index).numeric().unwrap_or(0.0);
+        let at = super::integer_arg(context, index);
         if at < 0.0 || at >= length as f64 {
             // `NaN`, not `undefined`. A program comparing the result to a number
             // gets false either way; one doing arithmetic with it gets `NaN`
@@ -99,7 +99,11 @@ extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -
         let Some(length) = super::length_of(context, this) else {
             return nothing(context);
         };
-        let asked = Value(index).numeric().unwrap_or(0.0);
+        // Truncated BEFORE the end is added, which is the whole of the
+        // difference `at(-1.5)` shows: the language reads the argument as `-1`
+        // and answers the last character, where adding first and casting after
+        // is a floor and answers the one before it.
+        let asked = super::integer_arg(context, index);
         let at = if asked < 0.0 {
             length as f64 + asked
         } else {
@@ -118,160 +122,6 @@ extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -
     })
 }
 
-/// `s.indexOf(t, from)` — where `t` first occurs, or -1.
-extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        // The narrow path first, and it is the common one: both sides ASCII, so
-        // there is nothing to widen and nothing to copy. `units_of` builds a
-        // fresh `Vec<u16>` of the WHOLE receiver on every call and throws away
-        // the byte layout this crate keeps precisely so it would not have to —
-        // a 256-character haystack allocated 512 bytes and widened 256 times to
-        // answer where four characters were.
-        //
-        // Answered from borrowed slices, so neither side allocates at all.
-        if let Some((hay, pin)) = narrow_pair(context, this, search) {
-            let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), hay.len());
-            let found = find_bytes(hay, &pin, start);
-            return Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits();
-        }
-        let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
-        else {
-            return nothing(context);
-        };
-        let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), units.len());
-        let found = find(&units, &needle, start);
-        Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits()
-    })
-}
-
-/// `s.lastIndexOf(t, from)` — where it last occurs at or before `from`, or -1.
-///
-/// # Why this one keeps the wide copy, when its four neighbours do not
-///
-/// It was given the narrow path and MEASURED SLOWER: 886.7 -> 990.9 ms over 2e6
-/// calls on a 256-unit haystack, release, 2026-08-12, two binaries alternated
-/// three times. Correct — nine corner cases against node agreed exactly — and
-/// slower, so it was reverted.
-///
-/// The reason is not established, and saying so is the point: the same change
-/// bought -58% on `indexOf`, -57% on `includes` and -61% on `startsWith` and
-/// `endsWith`, so "borrowing beats copying" is not a rule that holds here
-/// without measuring. A plausible story is that a backwards scan from a bound
-/// finds its match in a few steps, so the copy it avoids never dominated — but
-/// that is a story, and the number is the fact.
-///
-/// # Why this scans backwards rather than forwards keeping the last hit
-///
-/// It used to walk forwards with `from = at + 1` until `find` answered `None`,
-/// and against an EMPTY needle that never happens: `find` answers `Some(from)`
-/// for every position, so `from` grew without bound and the program hung — at
-/// full CPU, printing nothing. `"abc".lastIndexOf("")` is `3` in the language,
-/// and it was the one input that made this loop forever.
-///
-/// Backwards has no such case: the range is bounded before the search starts,
-/// so an empty needle matches at `start` immediately and every other needle
-/// stops at the first hit, which is the last one.
-extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
-        else {
-            return nothing(context);
-        };
-        // `undefined` and `NaN` both mean +infinity here, which is the whole
-        // string — and that is NOT the same rule `indexOf` has, where an absent
-        // position means 0. The asymmetry is the specification's: one searches
-        // forwards from a lower bound, the other backwards from an upper one.
-        let limit = match Value(from).numeric() {
-            Some(number) if !number.is_nan() => relative(number.max(0.0), units.len()),
-            _ => units.len(),
-        };
-        // The last position a match could START at: past `len - needle.len()`
-        // there is not enough string left for one.
-        let last = match units.len().checked_sub(needle.len()) {
-            Some(last) => last.min(limit),
-            None => return Value::from_f64(-1.0).bits(),
-        };
-        let found = (0..=last)
-            .rev()
-            .find(|&at| units[at..at + needle.len()] == needle[..]);
-        Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits()
-    })
-}
-
-/// `s.includes(t, from)`.
-///
-/// The position was accepted and discarded, so `"abc".includes("a", 1)` was
-/// `true` — an answer that is wrong in the direction a search is trusted in.
-extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        if let Some((hay, pin)) = narrow_pair(context, this, search) {
-            let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), hay.len());
-            return Value::from_bool(find_bytes(hay, &pin, start).is_some()).bits();
-        }
-        let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
-        else {
-            return nothing(context);
-        };
-        let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), units.len());
-        Value::from_bool(find(&units, &needle, start).is_some()).bits()
-    })
-}
-
-/// `s.startsWith(t, from)` — whether `t` is there AT `from`.
-///
-/// Not "somewhere at or after `from`": the position moves where the comparison
-/// happens, it does not start a search. Discarding it made
-/// `"abc".startsWith("b", 1)` answer false, which is the opposite error to the
-/// one `includes` had — both directions, from one dropped argument.
-extern "C" fn starts_with(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        // Narrow on both sides is a slice comparison and nothing else — no
-        // widening, no copy of the receiver. The wide path below is unchanged.
-        if let Some((hay, pin)) = narrow_pair(context, this, search) {
-            let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), hay.len());
-            return Value::from_bool(hay[start..].starts_with(&pin)).bits();
-        }
-        let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
-        else {
-            return nothing(context);
-        };
-        let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), units.len());
-        Value::from_bool(units[start..].starts_with(&needle)).bits()
-    })
-}
-
-/// `s.endsWith(t, end)` — whether `t` ends the string considered to END at
-/// `end`.
-///
-/// The position is an END rather than a start, which is why this cannot share
-/// the clamp with `startsWith` above: `"abc".endsWith("b", 2)` is true, because
-/// the string considered is `"ab"`. It was discarded, so that answered false.
-extern "C" fn ends_with(_e: u64, this: u64, search: u64, end: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        if let Some((hay, pin)) = narrow_pair(context, this, search) {
-            // The default is the WHOLE string and not zero, which is the
-            // opposite of `includes` — this one measures from the far end.
-            let stop = match Value(end).numeric() {
-                Some(number) if !number.is_nan() => relative(number.max(0.0), hay.len()),
-                _ => hay.len(),
-            };
-            return Value::from_bool(hay[..stop].ends_with(&pin)).bits();
-        }
-        let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
-        else {
-            return nothing(context);
-        };
-        let end = match Value(end).numeric() {
-            Some(number) if !number.is_nan() => relative(number.max(0.0), units.len()),
-            // Absent means the whole string, not zero — the opposite default to
-            // `includes`, and for the same reason `lastIndexOf` differs from
-            // `indexOf`: this one measures from the far end.
-            _ => units.len(),
-        };
-        Value::from_bool(units[..end].ends_with(&needle)).bits()
-    })
-}
-
 /// `s.slice(from, to)` — negative counts from the end.
 extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
@@ -287,10 +137,10 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
             && let Some(bytes) = text.narrow()
         {
             let len = bytes.len();
-            let start = relative(Value(from).numeric().unwrap_or(0.0), len);
+            let start = relative(super::integer_arg(context, from), len);
             let end = match absent(context, to) {
                 true => len,
-                false => relative(Value(to).numeric().unwrap_or(0.0), len),
+                false => relative(super::integer_arg(context, to), len),
             };
             // Crossed rather than swapped, exactly as the wide path below.
             let taken = match start >= end {
@@ -302,11 +152,11 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
         let Some(units) = units_of(context, this) else {
             return nothing(context);
         };
-        let start = relative(Value(from).numeric().unwrap_or(0.0), units.len());
+        let start = relative(super::integer_arg(context, from), units.len());
         let end = if absent(context, to) {
             units.len()
         } else {
-            relative(Value(to).numeric().unwrap_or(0.0), units.len())
+            relative(super::integer_arg(context, to), units.len())
         };
         // Crossed rather than swapped. `"abc".slice(2, 1)` is empty, where
         // `substring` swaps and answers "b" — the one difference between the two
@@ -326,11 +176,11 @@ extern "C" fn substring(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u
         };
         let length = units.len() as f64;
         let clamp = |value: f64| value.clamp(0.0, length) as usize;
-        let start = clamp(Value(from).numeric().unwrap_or(0.0).max(0.0));
+        let start = clamp(super::integer_arg(context, from).max(0.0));
         let end = if absent(context, to) {
             units.len()
         } else {
-            clamp(Value(to).numeric().unwrap_or(0.0).max(0.0))
+            clamp(super::integer_arg(context, to).max(0.0))
         };
         let (start, end) = if start > end { (end, start) } else { (start, end) };
         answer(context, &units[start..end])
@@ -344,7 +194,7 @@ extern "C" fn substring(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u
 /// what the language says too, and it is why this converts through text rather
 /// than mapping units in place.
 extern "C" fn to_upper_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    mapped_with(this, str::to_uppercase, Some(|byte| byte.to_ascii_uppercase()))
+    mapped(this, str::to_uppercase, u8::to_ascii_uppercase)
 }
 
 /// `s.toLowerCase()`.
@@ -356,24 +206,12 @@ extern "C" fn to_upper_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
 /// name and one more place for the two to drift. The divergence is the locale
 /// data, not the dispatch.
 extern "C" fn to_lower_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    mapped_with(this, str::to_lowercase, Some(|byte| byte.to_ascii_lowercase()))
-}
-
-/// `s.trim()`.
-///
-/// The specification's white space, which is not `char::is_whitespace`: it also
-/// includes the zero-width no-break space and excludes nothing Rust includes.
-/// Close enough is not a specification, so the one difference is written out.
-extern "C" fn trim(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    mapped(this, |text| {
-        text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
-            .to_string()
-    })
+    mapped(this, str::to_lowercase, u8::to_ascii_lowercase)
 }
 
 /// `s.repeat(n)`.
 extern "C" fn repeat(_e: u64, this: u64, count: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let asked = Value(count).numeric().unwrap_or(0.0);
+    let asked = with_current(|context| super::integer_arg(context, count));
     // A negative count, or one that never terminates, is a `RangeError` —
     // raising is possible now that rule 8's discipline is in place (`repeat`
     // calls no user code, so there is nothing to check first). Raised OUTSIDE
@@ -405,24 +243,55 @@ extern "C" fn repeat(_e: u64, this: u64, count: u64, _a1: u64, _a2: u64, _a3: u6
     })
 }
 
-/// `s.concat(t, …)` — up to the three arguments a call carries beside the
-/// receiver.
+/// `s.concat(t, …)` — however many arguments the call carried.
 ///
-/// The rest of them are refused at the call rather than dropped here, which is
-/// the fixed arity stated where it is paid. See `runtime::ARGUMENT_SLOTS`.
+/// # Why this reads the spilled vector and coerces outside the borrow
+///
+/// Two bugs, one shape. The four slots the convention carries were folded over
+/// directly, so `"x".concat("a","b","c","d","e")` answered `"xabcd"` — the fifth
+/// argument was never READ, not merely dropped. And each one was converted with
+/// `text_of`, which answers nothing for an object, so `"".concat([1, 2])` was
+/// `undefined` where the language runs the array's own `toString`.
+///
+/// Both are fixed by asking the two questions this crate already has answers
+/// for: `arguments_at` for what the call carried, and `to_primitive` for what a
+/// value's text is — the second OUTSIDE the borrow, because it may run a
+/// `toString` a program wrote.
+///
+/// The receiver goes through the same conversion, which is what makes
+/// `String.prototype.concat.call(5, "!")` answer `"5!"`. It is not an object
+/// here — `this` for a string method is the primitive — but it may be a number
+/// or a boolean when the method is borrowed.
+///
+/// The divergence, stated: a TRAILING `undefined` argument is dropped rather
+/// than becoming `"undefined"`, so `"v=".concat(undefined)` is `"v="`. That is
+/// `arguments_at`'s own rule — below five arguments there is no vector, and the
+/// convention pads the unused slots with `undefined`, so a native cannot tell
+/// padding from something a program wrote.
 extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let given =
+        with_current(|context| super::super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]));
+    let mut pieces = Vec::with_capacity(given.len() + 1);
+    for value in std::iter::once(this).chain(given) {
+        pieces.push(super::super::primitive::to_primitive(
+            value,
+            crate::coerce::Hint::String,
+        ));
+        // Rule 8: `to_primitive` may have run a `toString` a program wrote, and
+        // one that threw answered `undefined` — which is a VALUE, so carrying on
+        // would concatenate the word "undefined" into a string the program never
+        // receives anyway.
+        if super::super::throw::in_flight() {
+            return with_current(|context| nothing(context));
+        }
+    }
     with_current(|context| {
-        let Some(mut units) = units_of(context, this) else {
-            return nothing(context);
-        };
-        for argument in [a0, a1, a2, a3] {
-            if absent(context, argument) {
-                continue;
-            }
-            let Some(more) = arg_units(context, argument) else {
+        let mut units = Vec::new();
+        for piece in pieces {
+            let Some(text) = text_of(context, piece) else {
                 return nothing(context);
             };
-            units.extend_from_slice(&more);
+            units.extend(text.units());
         }
         answer(context, &units)
     })
@@ -444,7 +313,7 @@ fn padded(this: u64, width: u64, fill: u64, at_start: bool) -> u64 {
         let Some(units) = units_of(context, this) else {
             return nothing(context);
         };
-        let wanted = Value(width).numeric().unwrap_or(0.0);
+        let wanted = super::integer_arg(context, width);
         if !(0.0..=4096.0).contains(&wanted) || wanted as usize <= units.len() {
             return answer(context, &units);
         }
@@ -476,121 +345,43 @@ fn padded(this: u64, width: u64, fill: u64, at_start: bool) -> u64 {
     })
 }
 
-/// A method that is a function of the receiver's text.
+/// A case change, over the valid runs of the receiver.
 ///
-/// The three that convert through Rust's own text operations rather than
-/// indexing units, because case mapping and white space are Unicode tables
-/// rather than positions.
-fn mapped(this: u64, body: impl FnOnce(&str) -> String) -> u64 {
-    mapped_with(this, body, None)
-}
-
-/// The same, with a byte-wise answer for text that is entirely ASCII.
+/// # Why not `to_rust()` and one `str::to_uppercase`
 ///
-/// # Why ASCII and not the whole narrow form
+/// Because `Str::to_rust` answers nothing for a string holding a lone
+/// surrogate, so `("a" + halfAnEmoji).toUpperCase()` answered `undefined` —
+/// a missing method where the language answers `"A"` and the half-character.
 ///
-/// Because a Latin-1 case change can LEAVE the narrow form. `ÿ` uppercases
-/// to `Ÿ`, and `µ` to `Μ` — neither fits a byte, so a byte-wise
-/// map would silently truncate. Below 128 there is no such case: the only
-/// mapping is the twenty-six letters, and it stays below 128.
+/// # Why not one `char` at a time either
 ///
-/// What it replaces is five allocations and two transcodes — a clone of the
-/// `Str`, a `String` from `to_rust`, the mapped `String`, a `Vec<u16>` from
-/// `encode_utf16`, and the scan `from_utf16` performs to decide a layout the
-/// caller already knew.
-fn mapped_with(this: u64, body: impl FnOnce(&str) -> String, ascii: Option<fn(u8) -> u8>) -> u64 {
+/// Because case mapping has rules that reach across characters. `"ΑΣ"`
+/// lowercases to `"ας"` with a FINAL sigma, decided by what follows the sigma,
+/// and `char::to_lowercase` cannot see it. [`crate::text::mapped_runs`] hands
+/// each run of valid text to `str`'s own mapping whole, which is both the full
+/// Unicode algorithm — `ß` uppercases to `SS`, one character becoming two — and
+/// where the surrogate handling is stated once for this and for `normalize`.
+///
+/// # Why ASCII gets a byte path and the rest of the narrow form does not
+///
+/// Because a Latin-1 case change can LEAVE the narrow form. `ÿ` uppercases to
+/// `Ÿ`, and `µ` to `Μ` — neither fits a byte, so a byte-wise map would silently
+/// truncate. Below 128 there is no such case: the only mapping is the
+/// twenty-six letters, and it stays below 128.
+fn mapped(this: u64, body: fn(&str) -> String, ascii: fn(&u8) -> u8) -> u64 {
     with_current(|context| {
-        if let Some(map) = ascii
-            && let Some(text) = Value(this).as_slot().and_then(|cell| context.text_at(cell))
+        if let Some(text) = Value(this).as_slot().and_then(|cell| context.text_at(cell))
             && let Some(bytes) = text.narrow()
             && bytes.is_ascii()
         {
-            let produced: Vec<u8> = bytes.iter().map(|byte| map(*byte)).collect();
+            let produced: Vec<u8> = bytes.iter().map(ascii).collect();
             return answer_owned(context, produced);
         }
-        let Some(text) = text_of(context, this).and_then(|text| text.to_rust()) else {
+        let Some(text) = text_of(context, this) else {
             return nothing(context);
         };
-        let produced = body(&text);
-        let units: Vec<u16> = produced.encode_utf16().collect();
-        answer(context, &units)
+        context
+            .intern_value(crate::text::mapped_runs(&text, body))
+            .bits()
     })
-}
-
-/// Where a sequence of units first occurs at or after a position.
-///
-/// Written once because five methods search, and five copies is where one of
-/// them would disagree about the empty needle — which occurs at every position,
-/// including the end.
-/// Both sides as BYTES, when both are narrow.
-///
-/// The shape `index_of` grew first and four more searches want: a receiver and
-/// an argument that are both ASCII need no widening and no copy of the
-/// receiver, which is what `units_of` does on every call — a 256-character
-/// haystack allocating 512 bytes and widening 256 units to answer where four
-/// characters are.
-///
-/// The needle IS copied, and that is not an oversight: `text_of` may BUILD a
-/// string (a number argument becomes its digits), so there is not always
-/// anything to borrow from. It is the short side, and copying it is what lets
-/// the long side stay borrowed.
-///
-/// `None` when either side is wide, which sends the caller to the path it
-/// already had.
-fn narrow_pair(context: &mut super::Context, this: u64, search: u64) -> Option<(&[u8], Vec<u8>)> {
-    let pattern = super::text_of(context, search)?;
-    let needle = pattern.narrow()?.to_vec();
-    let text = context.text_at(Value(this).as_slot()?)?;
-    Some((text.narrow()?, needle))
-}
-
-/// The same question over bytes, which is what both sides are whenever the text
-/// is ASCII — and it nearly always is.
-///
-/// Separate from [`find`] rather than generic over the unit type, because the
-/// one rule they must agree about is the empty needle and a shared body would
-/// hide it. Both answer `from` clamped to the length, and both have a test.
-fn find_bytes(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(from.min(haystack.len()));
-    }
-    if needle.len() > haystack.len() || from > haystack.len() - needle.len() {
-        return None;
-    }
-    // Two-way with a SIMD prefilter, where the window compare this replaces was
-    // O(n*m). Landed as its own change, after the allocation win was measured
-    // separately, so the two are not confused for each other.
-    memchr::memmem::find(&haystack[from..], needle).map(|at| at + from)
-}
-
-fn find(haystack: &[u16], needle: &[u16], from: usize) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(from.min(haystack.len()));
-    }
-    if needle.len() > haystack.len() {
-        return None;
-    }
-    (from..=haystack.len() - needle.len()).find(|&at| &haystack[at..at + needle.len()] == needle)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_empty_needle_occurs_everywhere_including_the_end() {
-        // `"abc".indexOf("")` is 0 and `"abc".indexOf("", 9)` is 3, not -1. The
-        // corner that a search written as a loop over windows gets wrong,
-        // because there are no windows of width zero.
-        let haystack: Vec<u16> = "abc".encode_utf16().collect();
-        assert_eq!(find(&haystack, &[], 0), Some(0));
-        assert_eq!(find(&haystack, &[], 9), Some(3));
-    }
-
-    #[test]
-    fn a_needle_longer_than_the_haystack_is_absent_rather_than_a_panic() {
-        let haystack: Vec<u16> = "ab".encode_utf16().collect();
-        let needle: Vec<u16> = "abcd".encode_utf16().collect();
-        assert_eq!(find(&haystack, &needle, 0), None);
-    }
 }

@@ -39,6 +39,17 @@ memchr = "2"
 regex = "1"
 fancy-regex = "0.13"
 
+# The Unicode decomposition and composition tables `String.prototype.normalize`
+# is defined by. Carried where a collation table is refused, and the two are not
+# the same kind of data: a collation is per-locale — something a program is
+# shipped with, which fails rule 1 — where normalisation has one answer that is
+# the same everywhere. `crate::text::normalize` states that in full.
+#
+# Same two questions as the three above. Availability: pure Rust over no
+# operating system, so it is on wasm like everything else here. Rule 5: it
+# decides nothing the machine decides, so it cannot disagree with the machine.
+unicode-normalization = "0.1"
+
 # The authoring surface. A proc macro, so it is a build-time dependency and
 # costs nothing at run time — and it emits tokens naming `rts_cranelift::abi`
 # rather than depending on it, so using it drags no compiler into anyone build.
