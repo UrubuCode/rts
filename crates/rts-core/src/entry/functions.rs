@@ -112,6 +112,12 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             let held_prototype = super::external::hold(context, prototype_value);
             let key = prototype_key(context);
             super::objects::put(context, cell, key, prototype_value);
+            // Not enumerable, which the language says about all three of a
+            // function's own properties. It went unseen for as long as
+            // `for`-`in` walked own keys only; the moment it walked the chain,
+            // `for (const k in C)` answered `prototype,name,length` before it
+            // answered anything the program wrote.
+            super::native::hidden(context, cell, key);
             super::external::release(context, held_prototype);
         }
         // `f.name` and `f.length`, which every function has and this wrote
@@ -134,9 +140,11 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             let key = context.well_known("name");
             let text = context.intern_value(crate::text::Str::from_str(&name)).bits();
             super::objects::put(context, cell, key, text);
+            super::native::hidden(context, cell, key);
             let key = context.well_known("length");
             let count = Value::from_f64(f64::from(arity)).bits();
             super::objects::put(context, cell, key, count);
+            super::native::hidden(context, cell, key);
         }
         super::external::release(context, held);
         made

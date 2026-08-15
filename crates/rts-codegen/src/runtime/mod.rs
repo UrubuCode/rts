@@ -673,6 +673,26 @@ pub enum RuntimeOp {
     /// this crate's own `check_for_throw` reads right after, which is global
     /// mutable state.
     UnboundGlobalGet,
+
+    /// The keys a `for`-`in` visits: enumerable, and along the PROTOTYPE CHAIN.
+    ///
+    /// Its own operation rather than a flag on [`RuntimeOp::OwnKeys`], because
+    /// the two answer different questions and both are asked. Object rest —
+    /// `const { a, ...r } = o` — is own-only by specification and keeps
+    /// `OwnKeys`; `for`-`in` walks up, and walked only the own keys until this
+    /// existed, so a method inherited from a prototype was invisible to it.
+    ///
+    /// Shadowing is the part a caller could get wrong and therefore is not left
+    /// to one: a key seen nearer the object is not offered again from further
+    /// out, even when the nearer one is non-enumerable.
+    EnumerateKeys,
+
+    /// `class C { m() {} }` — a member of a class, written NON-ENUMERABLE.
+    ///
+    /// Separate from an ordinary property write because the attribute is the
+    /// whole difference and a write carries none. An instance FIELD stays an
+    /// ordinary write: the language makes that one enumerable.
+    DefineMethod,
 }
 
 impl RuntimeOp {
@@ -756,6 +776,8 @@ impl RuntimeOp {
         RuntimeOp::GetSuperProperty,
         RuntimeOp::SetSuperProperty,
         RuntimeOp::UnboundGlobalGet,
+        RuntimeOp::EnumerateKeys,
+        RuntimeOp::DefineMethod,
     ];
 
     /// The linker name the runtime must define.
@@ -818,6 +840,8 @@ impl RuntimeOp {
             RuntimeOp::ArrayNew => "__rts_array_new",
             RuntimeOp::DeleteProperty => "__rts_delete_property",
             RuntimeOp::OwnKeys => "__rts_own_keys",
+            RuntimeOp::EnumerateKeys => "__rts_enumerate_keys",
+            RuntimeOp::DefineMethod => "__rts_define_method",
             RuntimeOp::Construct => "__rts_construct",
             RuntimeOp::InstanceOf => "__rts_instance_of",
             RuntimeOp::Call => "__rts_call_counted",
@@ -945,6 +969,8 @@ impl RuntimeOp {
             RuntimeOp::ArrayNew => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::DeleteProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::OwnKeys => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::EnumerateKeys => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::DefineMethod => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
             // The callee and the arguments — no receiver, because `new` makes
             // the one the callee gets.
             RuntimeOp::Construct => (vec![UNPROVEN; 1 + ARGUMENT_SLOTS], vec![UNPROVEN]),

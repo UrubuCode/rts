@@ -39,8 +39,8 @@
 
 use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
-use super::accessor::{DEFINE_GETTER_ENTRY, DEFINE_SETTER_ENTRY};
-use super::array::{ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, OWN_KEYS_ENTRY};
+use super::accessor::{DEFINE_METHOD_ENTRY, DEFINE_GETTER_ENTRY, DEFINE_SETTER_ENTRY};
+use super::array::{ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY};
 use super::math::MATH_RANDOM_ENTRY;
 use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
 use super::bitwise::{
@@ -460,6 +460,22 @@ pub enum CoreEntry {
     /// template substitution asks `toString` first. No spelling of the operator
     /// answers the second question.
     StringOf = 77,
+
+    /// The keys a `for`-`in` visits: enumerable, along the PROTOTYPE CHAIN.
+    ///
+    /// Here for the reason [`CoreEntry::OwnKeys`] is — it walks layouts and
+    /// allocates the array it answers with — and SEPARATE from it because the
+    /// two answer different questions that are both asked. Object rest is
+    /// own-only by specification; `for`-`in` walks up, and walked only the own
+    /// keys until this existed.
+    EnumerateKeys = 78,
+
+    /// `class C { m() {} }` — a member of a class, written NON-ENUMERABLE.
+    ///
+    /// Separate from a property write because the attribute is the whole
+    /// difference, and a write carries none. An instance FIELD stays an
+    /// ordinary write: the language makes that one enumerable.
+    DefineMethod = 79,
 }
 
 /// How many entry points exist.
@@ -467,7 +483,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 78;
+pub const CORE_ENTRY_COUNT: usize = 80;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -550,6 +566,8 @@ impl CoreEntry {
         CoreEntry::ElementAt,
         CoreEntry::ElementsBase,
         CoreEntry::StringOf,
+        CoreEntry::EnumerateKeys,
+        CoreEntry::DefineMethod,
     ];
 
     /// The number a call site holds.
@@ -614,6 +632,8 @@ impl CoreEntry {
             CoreEntry::ArrayNew => ARRAY_NEW_ENTRY,
             CoreEntry::DeleteProperty => DELETE_PROPERTY_ENTRY,
             CoreEntry::OwnKeys => OWN_KEYS_ENTRY,
+            CoreEntry::EnumerateKeys => ENUMERATE_KEYS_ENTRY,
+            CoreEntry::DefineMethod => DEFINE_METHOD_ENTRY,
             CoreEntry::Construct => CONSTRUCT_ENTRY,
             CoreEntry::InstanceOf => INSTANCE_OF_ENTRY,
             CoreEntry::RegexNew => REGEX_NEW_ENTRY,
@@ -754,8 +774,14 @@ mod tests {
         // because the caller proved them while compiling. A list that grows so
         // that a crossing does less work is the same argument as a list that
         // grows so that there are fewer crossings.
+        // Moved to 78 on 2026-08-15 for `EnumerateKeys`, and the question was
+        // answered the same way: it walks a layout and allocates, so it is not
+        // arithmetic. What is new is that a second entry point exists for
+        // something `OwnKeys` looks like it answers — it does not, because
+        // `for`-`in` walks the chain and object rest must not, and one
+        // operation cannot be both without a flag nobody could get right.
         assert!(
-            CORE_ENTRY_COUNT <= 78,
+            CORE_ENTRY_COUNT <= 80,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

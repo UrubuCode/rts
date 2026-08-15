@@ -208,7 +208,11 @@ pub(super) fn emit_class(
     // and the one `ClosureNew` cannot make for an ordinary function because it
     // has no class name to write.
     let constructor_key = ctx.names.intern("constructor");
-    super::property::emit_write(builder, ctx, prototype, constructor_key, constructor)?;
+    // Non-enumerable, which is what the language says about the link and what
+    // `for`-`in` over an instance sees the moment it walks the chain.
+    let link = super::property::key_constant(builder, ctx, constructor_key);
+    let held = expr::tagged(builder, constructor);
+    expr::call(builder, ctx, RuntimeOp::DefineMethod, &[prototype, link, held])?;
 
     // `C.name` — the class's own name, or the one a binding lent it. An
     // anonymous `class {}` written as the initialiser of `const X` is called
@@ -291,7 +295,7 @@ pub(super) fn emit_class(
                 // layout would be returned by the cache instead of run.
                 match method.kind {
                     MethodKind::Normal => {
-                        write_member(builder, ctx, target, &method.key, computed[index], closure)?;
+                        write_member(builder, ctx, target, &method.key, computed[index], closure, true)?;
                     }
                     MethodKind::Getter | MethodKind::Setter => {
                         let is_getter = matches!(method.kind, MethodKind::Getter);
@@ -323,7 +327,7 @@ pub(super) fn emit_class(
                     Some(value) => super::emit_expr(builder, &mut inner, ctx, value)?,
                     None => expr::undefined(builder, ctx),
                 };
-                write_member(builder, ctx, constructor, &field.key, computed[index], value)?;
+                write_member(builder, ctx, constructor, &field.key, computed[index], value, false)?;
             }
             // `static { … }` — statements run once, in this same activation,
             // with `this` already bound above and after every static element
@@ -365,10 +369,20 @@ fn write_member(
     key: &ClassKey,
     computed_value: Option<ValueId>,
     value: ValueId,
+    hidden: bool,
 ) -> EmitResult<ValueId> {
     match key {
         ClassKey::Public(PropertyKey::Named(name)) | ClassKey::Private(name) => {
-            super::property::emit_write(builder, ctx, target, *name, value)
+            // A METHOD is not enumerable and a static FIELD is, which is the
+            // whole of what `hidden` says. `for (const k in new C())` listed
+            // `constructor` and every method until this distinction existed —
+            // invisible for as long as `for`-`in` walked own keys only.
+            if !hidden {
+                return super::property::emit_write(builder, ctx, target, *name, value);
+            }
+            let key = super::property::key_constant(builder, ctx, *name);
+            let value = expr::tagged(builder, value);
+            Ok(expr::call(builder, ctx, RuntimeOp::DefineMethod, &[target, key, value])?[0])
         }
         ClassKey::Public(PropertyKey::Computed(_)) => {
             let key_value = computed_value.expect("evaluated in emit_class's key pass");

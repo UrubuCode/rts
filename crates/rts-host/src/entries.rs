@@ -233,6 +233,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::OwnKeys => (CoreEntry::OwnKeys, {
             rts_core::entry::own_keys as extern "C" fn(u64) -> u64 as *const u8
         }),
+        RuntimeOp::EnumerateKeys => (CoreEntry::EnumerateKeys, {
+            rts_core::entry::enumerate_keys as extern "C" fn(u64) -> u64 as *const u8
+        }),
+        RuntimeOp::DefineMethod => (CoreEntry::DefineMethod, {
+            rts_core::entry::define_method as extern "C" fn(u64, i64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::Construct => (CoreEntry::Construct, {
             rts_core::entry::construct as extern "C" fn(u64, u64, u64, u64, u64) -> u64
                 as *const u8

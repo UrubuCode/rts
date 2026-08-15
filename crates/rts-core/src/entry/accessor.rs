@@ -211,6 +211,31 @@ pub fn define_setter(object: u64, key: i64, setter: u64) -> u64 {
     define(object, key, None, Some(setter))
 }
 
+/// `class C { m() {} }` — a member of a class, which is NOT enumerable.
+///
+/// Its own operation rather than `set_property`, because the attribute is the
+/// difference and a write cannot carry one. Every member a class body declares
+/// — a method, an accessor, the `constructor` link — is
+/// `{ writable: true, enumerable: false, configurable: true }`; a field written
+/// on the INSTANCE is enumerable, and goes on writing through `set_property`.
+///
+/// Measured before it existed: `for (const k in new C())` answered
+/// `constructor,m` where every other engine answers nothing. Invisible for as
+/// long as `for`-`in` walked own keys only.
+#[rtse::entry]
+pub fn define_method(object: u64, key: i64, value: u64) -> u64 {
+    super::objects::set_property(object, key, value);
+    with_current(|context| {
+        let Some(cell) = Value(object).as_slot() else {
+            return;
+        };
+        if let Some(named) = super::objects::key_for(context, key) {
+            super::native::hidden(context, cell, named);
+        }
+    });
+    value
+}
+
 /// Both, which differ only in which half they carry.
 fn define(object: u64, key: i64, get: Option<u64>, set: Option<u64>) -> u64 {
     with_current(|context| {

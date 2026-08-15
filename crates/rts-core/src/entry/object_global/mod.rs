@@ -96,6 +96,9 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         // absent as "no constructor of its own": it has one, this is it.
         let constructor_key = context.well_known("constructor");
         super::objects::put(context, prototype, constructor_key, callable);
+        // Non-enumerable, like every built-in member — see `native::hidden`.
+        // `for (const k in {})` listed it once `for`-`in` walked the chain.
+        super::native::hidden(context, prototype, constructor_key);
     }
     callable
 }

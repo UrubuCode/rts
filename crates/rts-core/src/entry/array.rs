@@ -270,6 +270,70 @@ pub fn own_keys(object: u64) -> u64 {
     keys_of(object, true)
 }
 
+/// The keys a `for`-`in` visits: enumerable, along the PROTOTYPE CHAIN.
+///
+/// # Why this is not `own_keys` with a loop at the call site
+///
+/// Shadowing. A key seen nearer the object is not offered again from further
+/// out, **and that holds even when the nearer one is not enumerable** — a
+/// non-enumerable own property hides an enumerable inherited one rather than
+/// letting it through. A caller stitching `own_keys` up the chain would have
+/// only the enumerable half of each level and could not express that, so it
+/// would report a key the language says is hidden.
+///
+/// So each level is read TWICE: the enumerable keys to offer, and every own
+/// name to record as seen. Both walks already exist here; what is new is
+/// using them together.
+///
+/// # The divergence it inherits, unchanged
+///
+/// Collected once, so a property deleted during the loop is still visited —
+/// the same snapshot [`own_keys`] documents, for the same reason, and fixing
+/// it is the same different mechanism.
+#[rtse::entry]
+pub fn enumerate_keys(object: u64) -> u64 {
+    let mut offered: Vec<Str> = Vec::new();
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut walking = object;
+    // A bound rather than a `while let`: a prototype chain a program built with
+    // `Object.setPrototypeOf` can be a CYCLE, and the language throws when one
+    // is created rather than when it is walked. This engine does not check on
+    // creation, so walking one here would hang — which the honesty floor calls
+    // out by name. A hundred is past anything a real chain reaches.
+    for _ in 0..100 {
+        let Some(cell) = Value(walking).as_slot() else {
+            break;
+        };
+        let (enumerable, every) = with_current(|context| {
+            (
+                key_texts(context, walking, true),
+                key_texts(context, walking, false),
+            )
+        });
+        for text in enumerable {
+            let Some(spelled) = text.to_rust() else {
+                continue;
+            };
+            if seen.contains(&spelled) {
+                continue;
+            }
+            offered.push(text);
+        }
+        for text in every {
+            if let Some(spelled) = text.to_rust() {
+                seen.insert(spelled);
+            }
+        }
+        let _ = cell;
+        let next = super::chain::get_prototype(walking);
+        if next == walking {
+            break;
+        }
+        walking = next;
+    }
+    interned(offered)
+}
+
 /// Every own key, INCLUDING the ones an enumeration does not report.
 ///
 /// What `Object.getOwnPropertyNames` answers, and the reason the two are one
@@ -473,7 +537,18 @@ pub(in crate::entry) fn symbol_keyed_with(
 
 /// The shared walk.
 fn keys_of(object: u64, enumerable_only: bool) -> u64 {
-    let texts = with_current(|context| key_texts(context, object, enumerable_only));
+    interned(with_current(|context| {
+        key_texts(context, object, enumerable_only)
+    }))
+}
+
+/// A list of key texts, as a JavaScript array of interned strings.
+///
+/// Split out of [`keys_of`] when [`enumerate_keys`] needed the same tail with a
+/// different head — a walk UP the chain rather than one level — and the
+/// alternative was a second copy of the in-place write below, which is where
+/// one of the two would come to allocate twice again.
+fn interned(texts: Vec<Str>) -> u64 {
 
     // Built outside the borrow above, because interning each string and
     // allocating the array both need the context again.

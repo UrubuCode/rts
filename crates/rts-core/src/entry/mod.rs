@@ -98,7 +98,7 @@ mod uri;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
-pub use array::{array_new, array_of, element_at, elements_base, own_keys};
+pub use array::{array_new, array_of, element_at, elements_base, enumerate_keys, own_keys};
 pub use math::math_random;
 pub use array_proto::arguments_at;
 pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
@@ -145,7 +145,7 @@ pub use text::{
 };
 mod table;
 
-pub use accessor::{define_getter, define_setter};
+pub use accessor::{define_getter, define_method, define_setter};
 pub use alloc::alloc;
 pub use external::{held_current, hold_current, release_current};
 pub use weak::{forget_current as weak_forget, peek_current as weak_peek, watch_current as weak_watch};

@@ -574,6 +574,10 @@ pub(super) const CHAIN_LIMIT: usize = 1 << 16;
 /// property the host never wired up. It reads as an absent property rather
 /// than as an invented one — a key cannot be conjured from an integer, and the
 /// registry refusing is what says so.
+pub(super) fn key_for(context: &Context, number: i64) -> Option<Key> {
+    key_of(context, number)
+}
+
 fn key_of(context: &Context, number: i64) -> Option<Key> {
     let number = u32::try_from(number).ok()?;
     context.keys.key(number).map(Key::Name)

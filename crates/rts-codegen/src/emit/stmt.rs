@@ -226,7 +226,7 @@ pub fn emit_stmt(
                 subject,
                 body,
                 None,
-                crate::runtime::RuntimeOp::OwnKeys,
+                crate::runtime::RuntimeOp::EnumerateKeys,
             ),
             // `for-of` is the same expansion over a different sequence: the
             // keys become the elements, and everything the loop already gets
@@ -475,7 +475,10 @@ fn emit_labelled(
                 );
             }
             let over = match source {
-                crate::syntax::ForEachSource::In => crate::runtime::RuntimeOp::OwnKeys,
+                // `for`-`in` walks the PROTOTYPE CHAIN; object rest keeps
+                // `OwnKeys`, which is own-only by specification. The two
+                // spellings differ, which is why the operations do.
+                crate::syntax::ForEachSource::In => crate::runtime::RuntimeOp::EnumerateKeys,
                 crate::syntax::ForEachSource::Of => crate::runtime::RuntimeOp::Iterate,
                 crate::syntax::ForEachSource::AwaitOf => unreachable!("handled above"),
             };

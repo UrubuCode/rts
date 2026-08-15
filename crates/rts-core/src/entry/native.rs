@@ -58,6 +58,29 @@ pub(in crate::entry) fn install(context: &mut Context, cell: u32, natives: &[(&s
         name_of(context, method, name);
         let key = context.well_known(name);
         super::objects::put(context, cell, key, method);
+        hidden(context, cell, key);
+    }
+}
+
+/// Marks a member NON-ENUMERABLE, which every built-in method is.
+///
+/// It went unnoticed for as long as `for`-`in` walked own keys only: nothing
+/// enumerated a prototype. The moment it walked the chain,
+/// `for (const k in {})` answered `hasOwnProperty,isPrototypeOf,…` — every
+/// method the engine installs — which is a program-visible difference on the
+/// most ordinary loop there is.
+///
+/// Written here rather than at each `NATIVES` table because the rule has no
+/// exception: the specification gives every built-in method
+/// `{ writable: true, enumerable: false, configurable: true }`, so a table that
+/// could opt out would only ever be opting into a bug.
+pub(in crate::entry) fn hidden(context: &mut Context, cell: u32, key: crate::object::Key) {
+    if let crate::object::Key::Name(named) = key {
+        super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
+            writable: true,
+            enumerable: false,
+            configurable: true,
+        });
     }
 }
 
@@ -78,6 +101,7 @@ pub(in crate::entry) fn install_with_arity(context: &mut Context, cell: u32, nat
         length_of(context, method, *arity);
         let key = context.well_known(name);
         super::objects::put(context, cell, key, method);
+        hidden(context, cell, key);
     }
 }
 

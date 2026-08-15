@@ -338,6 +338,7 @@ fn class_body(
         // `p.constructor` is an ordinary property, and a program reads it.
         let key = context.well_known("constructor");
         crate::entry::objects::put(context, prototype_cell, key, callable);
+        crate::entry::native::hidden(context, prototype_cell, key);
 
         #tagged
         #inherit
