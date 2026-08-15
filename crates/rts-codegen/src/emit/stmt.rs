@@ -53,7 +53,13 @@ pub fn emit_stmt(
                 // produces something.
                 None => undefined(builder, ctx),
             };
-            builder.ret(&[result]);
+            // Through the innermost enclosing `finally`, when there is one. See
+            // [`Ctx::finally_returns`] for why the machine's cleanup cannot
+            // answer this path.
+            match ctx.finally_returns.last().copied() {
+                Some(block) => builder.jump(block, &[result])?,
+                None => builder.ret(&[result]),
+            }
             Ok(true)
         }
 
@@ -256,8 +262,10 @@ pub fn emit_stmt(
         // Both spellings go through one path. An unlabelled jump takes the
         // innermost frame that can accept it; a labelled one takes the frame
         // carrying that name.
-        StmtKind::Break(label) => loops::emit_jump_out(builder, scope, loops, true, *label),
-        StmtKind::Continue(label) => loops::emit_jump_out(builder, scope, loops, false, *label),
+        StmtKind::Break(label) => loops::emit_jump_out(builder, scope, ctx, loops, true, *label),
+        StmtKind::Continue(label) => {
+            loops::emit_jump_out(builder, scope, ctx, loops, false, *label)
+        }
         StmtKind::Labelled { label, body } => {
             emit_labelled(builder, scope, ctx, loops, *label, body)
         }

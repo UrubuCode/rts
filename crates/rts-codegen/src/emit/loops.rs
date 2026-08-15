@@ -109,10 +109,28 @@ impl Loops {
     ///
     /// Labelled, it is the frame carrying that label, wherever it sits.
     pub fn target(&self, label: Option<Name>, breaking: bool) -> Option<&Frame> {
-        self.frames.iter().rev().find(|frame| match label {
-            Some(wanted) => frame.label == Some(wanted),
-            None => breaking || frame.continue_to.is_some(),
-        })
+        self.at(label, breaking).map(|(_, frame)| frame)
+    }
+
+    /// The same, with HOW MANY frames enclose it.
+    ///
+    /// Read by a jump to decide which `finally` bodies are on its way out: one
+    /// entered inside the loop being left runs, one wrapped around that loop
+    /// does not. See [`super::Ctx::finally_jumps`].
+    pub(super) fn at(&self, label: Option<Name>, breaking: bool) -> Option<(usize, &Frame)> {
+        self.frames
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, frame)| match label {
+                Some(wanted) => frame.label == Some(wanted),
+                None => breaking || frame.continue_to.is_some(),
+            })
+    }
+
+    /// How many loops are enclosing right now.
+    pub(super) fn depth(&self) -> usize {
+        self.frames.len()
     }
 
     /// Runs `body` with a frame pushed.
@@ -423,11 +441,45 @@ fn emit_for_inner(
 /// Emits `break` or `continue`.
 pub fn emit_jump_out(
     builder: &mut FuncBuilder,
-    scope: &Scope,
-    loops: &Loops,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    loops: &mut Loops,
     breaking: bool,
     label: Option<Name>,
 ) -> EmitResult<bool> {
+    // Every `finally` entered inside the loop being left runs first, innermost
+    // out — the order the language states, and the reason the bodies are
+    // carried rather than routed to one block the way a `return` is: a jump's
+    // destination is known HERE and not at the `try`.
+    if let Some((index, _)) = loops.at(label, breaking) {
+        let owed: Vec<Vec<Stmt>> = ctx
+            .finally_jumps
+            .iter()
+            .filter(|(_, depth)| *depth > index)
+            .map(|(body, _)| body.clone())
+            .collect();
+        for body in owed.into_iter().rev() {
+            // The stack is TAKEN while a body is emitted: a `break` written
+            // inside a `finally` belongs to a loop outside it, and leaving the
+            // entry in place would make that body owe itself.
+            let held = std::mem::take(&mut ctx.finally_jumps);
+            scope.enter();
+            let mut terminated = false;
+            for statement in &body {
+                if emit_stmt(builder, scope, ctx, loops, statement)? {
+                    terminated = true;
+                    break;
+                }
+            }
+            scope.leave();
+            ctx.finally_jumps = held;
+            if terminated {
+                // The `finally` completed abruptly, which REPLACES the jump
+                // that was on its way out.
+                return Ok(true);
+            }
+        }
+    }
     let Some(frame) = loops.target(label, breaking) else {
         // Not a gap: `break` outside a loop, and a label naming nothing, are
         // both syntax errors, and this module is not the checker. Refused

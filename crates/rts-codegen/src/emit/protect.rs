@@ -177,6 +177,19 @@ pub fn emit_try(
     // this one, which would be the `finally` catching itself.
     let abrupt = finally.is_some_and(leaves_abruptly);
     let unwind_block = abrupt.then(|| builder.create_block());
+    // Where a `return` written inside the protected span goes. Unprotected, so
+    // returning FROM it does not re-enter this region's own cleanup — the
+    // `finally` runs once, here, rather than once here and once on the way out.
+    let returning = finally.map(|_| {
+        let block = builder.create_unprotected_block();
+        // The parameter exists at CREATION, not where the block is filled in.
+        // A jump checks its argument count against the target's parameters, so
+        // a parameter added later is an `ArgumentCount` refusal at every
+        // `return` that already jumped — the same order `loops::add_params`
+        // records for the same reason.
+        let held = builder.add_block_param(block, rts_cranelift::repr::Repr::Tagged);
+        (block, held)
+    });
     let cleanup_block = finally
         .filter(|_| !abrupt)
         .map(|_| builder.create_unprotected_block());
@@ -226,6 +239,14 @@ pub fn emit_try(
 
     let before = scope.snapshot();
     scope.enter();
+    // Pushed for the BODY and the handler alike: a `return` written in a
+    // `catch` owes the `finally` exactly as one in the `try` does.
+    if let Some((block, _)) = returning {
+        ctx.finally_returns.push(block);
+    }
+    if let Some(body) = finally {
+        ctx.finally_jumps.push((body.to_vec(), loops.depth()));
+    }
     let body_terminated = emit_block(builder, scope, ctx, loops, body)?;
     scope.leave();
     builder.close_region();
@@ -263,6 +284,38 @@ pub fn emit_try(
 
     if outer {
         builder.close_region();
+    }
+
+    // Popped once the protected span AND its handler are behind us: from here
+    // on, a `return` in one of the `finally` copies below belongs to whatever
+    // encloses this `try`, not to this one. Without the pop, the copy that runs
+    // the `finally` would jump to itself.
+    if returning.is_some() {
+        ctx.finally_returns.pop();
+    }
+    if finally.is_some() {
+        ctx.finally_jumps.pop();
+    }
+
+    // The copy a `return` inside the protected span reaches. It runs the
+    // `finally` and then leaves — by RETURNING, or, when this `try` is itself
+    // inside one, by handing the value to the next block out so that nested
+    // `finally` blocks run from the inside out.
+    if let (Some((block, held)), Some(finally)) = (returning, finally) {
+        builder.switch_to(block);
+        scope.restore(&before);
+        scope.enter();
+        let terminated = emit_block(builder, scope, ctx, loops, finally)?;
+        scope.leave();
+        // A `finally` that completes ABRUPTLY replaces the pending return, so
+        // nothing is emitted after one that terminated — its own `return` has
+        // already been routed by the same mechanism.
+        if !terminated {
+            match ctx.finally_returns.last().copied() {
+                Some(outer) => builder.jump(outer, &[held])?,
+                None => builder.ret(&[held]),
+            }
+        }
     }
 
     if let (Some(block), Some(finally)) = (unwind_block, finally) {

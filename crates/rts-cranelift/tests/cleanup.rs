@@ -356,6 +356,53 @@ fn a_cleanup_that_reads_something_outside_itself_is_rejected() {
 }
 
 #[test]
+fn a_trap_inside_a_cleanup_is_not_an_exit_from_it() {
+    // A trap has no successor, and the rule above rejects a terminator with
+    // none — but for a reason that does not reach this one: what it refuses is
+    // leaving the COPY through a path the unwind knows nothing about. A trap
+    // leaves through no path at all, and nothing reaches it.
+    //
+    // It is how a guard's impossible branch is spelled, which makes it
+    // ordinary rather than exotic: `s === "b"` guards its operand to `Bool`
+    // and traps on the side that cannot happen. Refusing it refused every
+    // strict comparison written inside a `finally`.
+    let types = TypeRegistry::new();
+    let mut func = Function::new(Signature {
+        params: vec![Repr::Tagged],
+        ..Signature::default()
+    });
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let cleanup = b.create_block();
+    let _region = b.open_region(vec![], Some(cleanup));
+    b.ret(&[]);
+
+    let mut b = FuncBuilder::new(&mut func, &types, cleanup);
+    let dead = b.create_block();
+    let leaving = b.create_block();
+    let flag = b.declare_const(ConstDecl::Scalar {
+        repr: Repr::Bool,
+        bits: ScalarBits(1),
+    });
+    let flag = b.use_const(flag);
+    b.branch(flag, (leaving, &[]), (dead, &[]))
+        .expect("no parameters");
+
+    let mut b = FuncBuilder::new(&mut func, &types, dead);
+    b.trap(rts_cranelift::ir::TrapCode::Unreachable);
+
+    let mut b = FuncBuilder::new(&mut func, &types, leaving);
+    b.cleanup_done();
+
+    assert!(
+        !verify(&func, &types, &FuncRegistry::new())
+            .iter()
+            .any(|e| matches!(e, VerifyError::CleanupDoesNotEnd { .. })),
+        "a block nothing reaches is not a way out of the copy"
+    );
+}
+
+#[test]
 fn a_handler_in_the_region_does_not_hide_the_entry_from_the_cleanup() {
     // The case the dominance rule gets wrong if it is written naively.
     //

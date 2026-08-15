@@ -421,6 +421,18 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
                 // or a tail call leaves the copy through a path the unwinding
                 // it is part of knows nothing about.
                 Some(terminator) if !terminator.successors().is_empty() => {}
+                // A TRAP is not an exit, and that distinction is the whole of
+                // this arm. The rule above rejects leaving the copy through a
+                // path the unwind knows nothing about; a trap leaves through no
+                // path at all, and nothing reaches it — it is how a guard's
+                // impossible branch is spelled.
+                //
+                // Measured, on a `finally` containing `s === "b"`: a strict
+                // comparison guards its operand to `Bool`, and the guard's fail
+                // side is `Trap(Unreachable)`. So an ordinary comparison inside
+                // an ordinary `finally` refused the whole program at compile
+                // time, for a block that cannot run.
+                Some(Terminator::Trap(_)) => {}
                 _ => errors.push(VerifyError::CleanupDoesNotEnd { region, block }),
             }
         }

@@ -253,6 +253,33 @@ pub struct Ctx<'a> {
     /// one: what reads it is several frames down, inside another function's
     /// emission, and threading it would touch every step in between.
     pub in_static_method: bool,
+    /// Where a `return` inside a protected span goes instead of returning.
+    ///
+    /// A `finally` runs on EVERY way out, and a `return` written inside the
+    /// `try` is one of them. The machine's cleanup covers the paths it can see —
+    /// an unwind — and cannot cover this one: a cleanup hands control back to
+    /// whatever is unwinding, and a return is not unwinding.
+    ///
+    /// So the language routes it. A `return` inside a `try` that has a
+    /// `finally` jumps to a block that runs the `finally` and returns there.
+    /// Innermost last, and each level's block chains to the one outside it, so
+    /// nested `finally` blocks run from the inside out — which is the order the
+    /// language states.
+    pub finally_returns: Vec<rts_cranelift::ir::BlockId>,
+    /// The `finally` bodies a `break` or `continue` has to run on its way out,
+    /// with how many loops were enclosing when each `try` was entered.
+    ///
+    /// A `return` can be routed to ONE block per `try` because its destination
+    /// is always the same — out of the function. A `break` cannot: its
+    /// destination depends on which loop it names, and that is known at the
+    /// JUMP rather than at the `try`. So the body is carried and emitted at the
+    /// jump instead, which is the same "two emissions of one tree" this module
+    /// already pays for the normal and unwinding copies.
+    ///
+    /// The count is what decides which ones run: only a `finally` entered
+    /// INSIDE the loop being left is on the way out. Leaving an inner loop does
+    /// not run a `finally` wrapped around the outer one.
+    pub finally_jumps: Vec<(Vec<crate::syntax::Stmt>, usize)>,
     /// What the language's singletons are numbered.
     pub model: &'a ValueModel,
     /// Every function this compilation can name.
@@ -427,6 +454,8 @@ impl<'a> Ctx<'a> {
         Ctx {
             in_cleanup: false,
             in_static_method: false,
+            finally_returns: Vec::new(),
+            finally_jumps: Vec::new(),
             model,
             funcs,
             calls,
