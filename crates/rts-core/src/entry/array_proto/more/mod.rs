@@ -1,4 +1,4 @@
-//! The rest of what an array inherits, and `Array.from`.
+//! The rest of what an array inherits.
 //!
 //! # Why this mixes the two shapes the folder was split to keep apart
 //!
@@ -16,28 +16,29 @@
 //!
 //! [`sorting`] is a file of its own for a different reason — not its shape, but
 //! that ordering with a comparator is the one operation here whose correctness
-//! argument is longer than its code.
+//! argument is longer than its code. [`from`] is one because it is the only
+//! method that reads something which is not an array at all.
 //!
-//! # Why `keys`, `values` and `entries` answer arrays
+//! # What `keys`, `values` and `entries` answer, and what that still costs
 //!
-//! The language answers an Array Iterator — an object with `next`. There are no
-//! iterator objects in this engine on purpose: [`super::super::iterate`] records
-//! why `for-of` materialises instead, and an iterator built here would be walked
-//! by that function to exhaustion anyway.
+//! An iterator, with `.next()` on it — [`crate::entry::list_iterator`] is the
+//! object, and this paragraph used to say these answered the bare array instead.
 //!
-//! So these answer arrays, which `for-of` and `...` both accept. The divergence,
-//! named: `a.values().next` is not a function, and `Array.isArray(a.keys())` is
-//! true where the language says false. Both are visible failures rather than
-//! wrong values, and both disappear when the emitter grows a lazy cursor.
+//! The list behind it is still built EAGERLY, and the divergence that leaves is
+//! not cosmetic: the iterator walks a copy, so `for (const [i, v] of a.entries())`
+//! does not see an element the body pushes, where the language's cursor does.
+//! That disappears when the list iterator grows a cursor into the array rather
+//! than a copy of it, which is that module's own stated next step.
 
+mod from;
 mod sorting;
 mod splice;
 
 use super::super::native::Native;
 use super::super::objects::undefined_of;
-use super::super::string::{absent, relative};
+use super::super::string::absent;
 use super::super::{Context, functions, with_current};
-use super::{built, staged, store};
+use super::{built, iterate, staged};
 use crate::value::Value;
 
 /// What an array's prototype holds beyond the eleven in [`super`] and the eight
@@ -64,15 +65,20 @@ pub(in crate::entry) const NATIVES: &[(&str, Native)] = &[
 ];
 
 /// What `Array` itself holds beyond `isArray` and `of`.
-pub(in crate::entry) const STATICS: &[(&str, Native)] = &[("from", from)];
+pub(in crate::entry) const STATICS: &[(&str, Native)] = &[("from", from::from)];
 
 /// `a.at(i)` — negative counts from the end.
+///
+/// The index is converted BEFORE the borrow, and that is the whole reason this
+/// is two statements: `ToIntegerOrInfinity` reaches a `valueOf` the program
+/// wrote, and calling one inside `with_current` re-enters the `RefCell`. See
+/// [`super::numeric`] for the three answers the conversion changes.
 extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let asked = super::numeric::integer_or_infinity(index);
     with_current(|context| {
         let Some((_, elements)) = staged(context, this) else {
             return undefined_of(context);
         };
-        let asked = Value(index).numeric().unwrap_or(0.0);
         let at = if asked < 0.0 {
             elements.len() as f64 + asked
         } else {
@@ -134,7 +140,7 @@ extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64
 /// produce `"1,null,2"`.
 extern "C" fn to_string_(e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let missing = nothing();
-    super::join(e, this, missing, missing, missing, missing)
+    super::joining::join(e, this, missing, missing, missing, missing)
 }
 
 /// `a.keys()` — the indices.
@@ -185,15 +191,19 @@ extern "C" fn entries(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64
 /// cast saturates rather than wrapping — so infinity becomes the largest depth
 /// rather than a negative one that flattens nothing.
 extern "C" fn flat(_e: u64, this: u64, depth: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // Whether the argument was given at all is decided first, because an absent
+    // depth is ONE and `ToIntegerOrInfinity(undefined)` is zero — the difference
+    // between `[[1]].flat()` answering `[1]` and answering `[[1]]`. The
+    // conversion itself is outside every borrow, for the reason `at` states.
+    let given = with_current(|context| !absent(context, depth));
+    let asked = match given {
+        true => super::numeric::integer_or_infinity(depth),
+        false => 1.0,
+    };
     let flattened = with_current(|context| {
         let (_, elements) = staged(context, this)?;
-        let asked = if absent(context, depth) {
-            1
-        } else {
-            Value(depth).numeric().unwrap_or(0.0) as i32
-        };
         let mut out = Vec::new();
-        flattened_into(context, &elements, asked, &mut out);
+        flattened_into(context, &elements, asked as i32, &mut out);
         Some(out)
     });
     match flattened {
@@ -202,21 +212,42 @@ extern "C" fn flat(_e: u64, this: u64, depth: u64, _a1: u64, _a2: u64, _a3: u64)
     }
 }
 
-/// `a.flatMap(f)` — map, then flatten exactly one level.
+/// `a.flatMap(f, thisArg)` — map, then flatten exactly one level.
 ///
 /// One level always, with no depth argument, and that is the language rather
 /// than an omission: the method exists so a callback can answer zero or several
 /// elements, and a deeper flatten would also take apart an array the callback
 /// deliberately produced as one element.
-extern "C" fn flat_map(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(elements) = snapshot(this) else {
+extern "C" fn flat_map(
+    _e: u64,
+    this: u64,
+    callback: u64,
+    receiver: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    let Some(count) = iterate::len_of(this) else {
         return nothing();
     };
-    let produced: Vec<u64> = elements
-        .iter()
-        .enumerate()
-        .map(|(index, element)| call_with(callback, this, *element, index))
-        .collect();
+    // ROOTED and a loop rather than a `collect`, because the callback allocates
+    // and an allocation collects — see `entry::rooted` for the measurement.
+    let mut produced = super::super::rooted::Rooted::new();
+    for index in 0..count {
+        // An absent position is not visited, the same as `map`'s — but it
+        // contributes NOTHING here rather than a hole, because the flatten that
+        // follows drops holes anyway and a hole pushed now would only be dropped
+        // one line later.
+        let Some(element) = iterate::existing(this, index) else {
+            continue;
+        };
+        // Rule 8: a callback that threw answers `undefined`, and flattening that
+        // would append one wrong element per remaining position.
+        let Some(answered) = iterate::visit(callback, receiver, this, element, index) else {
+            break;
+        };
+        produced.values().push(answered);
+    }
+    let produced = produced.take();
     // Flattened in a borrow taken after the last call, never between two.
     let out = with_current(|context| {
         let mut out = Vec::new();
@@ -254,31 +285,40 @@ extern "C" fn reduce_right(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    let Some(elements) = snapshot(this) else {
+    let Some(count) = iterate::len_of(this) else {
         return nothing();
     };
-    let hole = with_current(|context| crate::entry::array::hole_of(context));
     let seeded = !with_current(|context| initial == undefined_of(context));
-    let (mut carried, skip) = if seeded {
-        (initial, 0)
+    // `below` is where the fold still has to go, exclusive: everything when a
+    // seed was given, and everything under the seed's own position when it was
+    // taken from the array.
+    let (mut carried, below) = if seeded {
+        (initial, count)
     } else {
         // The last element that EXISTS seeds it, not `undefined` and not a
-        // hole — the same reason `super::iterate::reduce` seeds with the first.
-        match elements.iter().rposition(|held| *held != hole) {
-            Some(last) => (elements[last], elements.len() - last),
-            None => return nothing(),
+        // hole — the same reason `super::iterate::reduce` seeds with the first,
+        // and the empty case is the same `TypeError` for the same reason.
+        match (0..count)
+            .rev()
+            .find_map(|index| iterate::existing(this, index).map(|held| (held, index)))
+        {
+            Some(found) => found,
+            None => {
+                super::super::throw::type_error("Reduce of empty array with no initial value");
+                return nothing();
+            }
         }
     };
     let receiver = nothing();
-    for (index, element) in elements.iter().enumerate().rev().skip(skip) {
-        if *element == hole {
+    for index in (0..below).rev() {
+        let Some(element) = iterate::existing(this, index) else {
             continue;
-        }
+        };
         carried = functions::call(
             callback,
             receiver,
             carried,
-            *element,
+            element,
             Value::from_f64(index as f64).bits(),
             this,
         );
@@ -291,15 +331,15 @@ extern "C" fn reduce_right(
     carried
 }
 
-/// `a.findLast(f)`.
-extern "C" fn find_last(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    match sought_last(this, callback) {
+/// `a.findLast(f, thisArg)`.
+extern "C" fn find_last(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    match sought_last(this, callback, receiver) {
         Some((element, _)) => element,
         None => nothing(),
     }
 }
 
-/// `a.findLastIndex(f)` — where that element was, or -1.
+/// `a.findLastIndex(f, thisArg)` — where that element was, or -1.
 ///
 /// Shares the scan with [`find_last`], for the reason `super::iterate` shares
 /// one between `find` and `findIndex`: a callback with a side effect makes "run
@@ -308,54 +348,12 @@ extern "C" fn find_last_index(
     _e: u64,
     this: u64,
     callback: u64,
-    _a1: u64,
+    receiver: u64,
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    let at = sought_last(this, callback).map_or(-1.0, |(_, index)| index as f64);
+    let at = sought_last(this, callback, receiver).map_or(-1.0, |(_, index)| index as f64);
     Value::from_f64(at).bits()
-}
-
-/// `Array.from(items, f)`.
-///
-/// Through the runtime's own iteration, so anything `for-of` walks this accepts
-/// — including a string, which becomes one element per code point rather than
-/// per unit.
-///
-/// # Why the array-like fallback is here and not in `iterate`
-///
-/// `Array.from({length: 2})` is `[undefined, undefined]` and
-/// `for (const x of {length: 2})` is a `TypeError`: the language reads indices
-/// off a `length` **only for this function**. Putting the fallback in `iterate`
-/// would make `for-of` accept what the language refuses, which is a wrong
-/// program that runs. So `iterate` still decides what is *iterable*, and this
-/// decides what it additionally accepts when nothing was iterated.
-extern "C" fn from(_e: u64, _this: u64, items: u64, mapper: u64, _a2: u64, _a3: u64) -> u64 {
-    // Outside every borrow: `iterate` is an entry point, and it may run a
-    // user-defined `Symbol.iterator` to exhaustion before it answers.
-    let produced = match array_like(items) {
-        Some(values) => built(values),
-        None => super::super::iterate::iterate(items),
-    };
-    if !calls(mapper) {
-        // Already a fresh array — `iterate` copies — so there is nothing to
-        // build a second time.
-        return produced;
-    }
-    let Some(elements) = snapshot(produced) else {
-        return nothing();
-    };
-    // ROOTED, and written as a loop rather than a `collect` for that reason:
-    // `call_with` is user code that allocates, an allocation collects, and what
-    // the mapper has already answered would otherwise live only in a `Vec` on
-    // the Rust heap, which no scan of ours reaches. Same hole as `map`'s, same
-    // mechanism — see `entry::rooted`.
-    let mut mapped = super::super::rooted::Rooted::new();
-    for (index, element) in elements.iter().enumerate() {
-        let answered = call_with(mapper, produced, *element, index);
-        mapped.values().push(answered);
-    }
-    built(mapped.take())
 }
 
 /// One level of flattening, repeated to a depth.
@@ -387,69 +385,23 @@ fn flattened_into(context: &Context, values: &[u64], depth: i32, out: &mut Vec<u
 }
 
 /// The last element a predicate accepted, and where it was.
-fn sought_last(this: u64, callback: u64) -> Option<(u64, usize)> {
-    let elements = snapshot(this)?;
-    for (index, element) in elements.iter().enumerate().rev() {
-        if super::super::primitives::to_boolean(call_with(callback, this, *element, index)) {
-            return Some((*element, index));
+///
+/// Visits an absent position with `undefined` rather than skipping it, which is
+/// the contract `find`/`findIndex` have and the opposite of `forEach`'s — the
+/// specification defines this pair over the RANGE and that one over the keys.
+fn sought_last(this: u64, callback: u64, receiver: u64) -> Option<(u64, usize)> {
+    let count = iterate::len_of(this)?;
+    for index in (0..count).rev() {
+        let seen = iterate::present(this, index);
+        // Rule 8: a predicate that threw answers `undefined`, which is falsy —
+        // so without this the scan would carry on and report the next element
+        // the throw never let it judge.
+        let answered = iterate::visit(callback, receiver, this, seen, index)?;
+        if super::super::primitives::to_boolean(answered) {
+            return Some((seen, index));
         }
     }
     None
-}
-
-/// The indices of an array-like, if that is what this is and nothing else.
-///
-/// `None` for everything iteration already answers — an array, a string, a
-/// collection, or an object declaring `Symbol.iterator` — so the fallback can
-/// never shadow the real protocol. A `length` that is absent, negative or not a
-/// number is `None` too, which is what keeps `Array.from({})` an empty array
-/// rather than a guess.
-///
-/// A data read throughout: a `length` getter is not run, the same boundary
-/// [`super::super::iterate`] draws for `next` and `done`.
-fn array_like(items: u64) -> Option<Vec<u64>> {
-    with_current(|context| {
-        let cell = Value(items).as_slot()?;
-        if context.elements_at(cell).is_some()
-            || context.text_at(cell).is_some()
-            || super::super::collections::iterated(context, cell).is_some()
-        {
-            return None;
-        }
-        let iterator = format!("{}iterator", super::super::symbol::PREFIX);
-        if read(context, cell, &iterator).is_some() {
-            return None;
-        }
-        let count = Value(read(context, cell, "length")?).numeric()?;
-        if !(count >= 0.0) {
-            return None;
-        }
-        let absent = undefined_of(context);
-        Some(
-            (0..count as usize)
-                .map(|at| read(context, cell, &at.to_string()).unwrap_or(absent))
-                .collect(),
-        )
-    })
-}
-
-/// One property, by name, as a value — `None` where the language reads
-/// `undefined`.
-///
-/// A typed array's element is asked for FIRST, through the same byte-range
-/// read `o[i]` uses (`buffers::indexed_get`) rather than the shape: an
-/// element lives in the view's bytes, not in a property slot, so the shape
-/// walk below always misses it and this used to hand back `undefined` for
-/// every element of `Array.from(typedArray)` even though `ta[i]` read it
-/// correctly.
-fn read(context: &mut Context, cell: u32, name: &str) -> Option<u64> {
-    if let Ok(index) = name.parse::<f64>()
-        && let Some(found) = super::super::buffers::indexed_get(context, cell, Value::from_f64(index))
-    {
-        return Some(found);
-    }
-    let key = context.well_known(name);
-    super::super::objects::read_property(context, cell, key).map(|found| found.bits())
 }
 
 /// A snapshot of the receiver's elements, the borrow ending here.
@@ -478,20 +430,6 @@ pub(super) fn seen(this: u64) -> Option<Vec<u64>> {
                 .collect(),
         )
     })
-}
-
-/// One call of a callback, outside every borrow.
-///
-/// The three arguments the specification passes — element, index, array — with
-/// `undefined` as the receiver, for the reason `super::iterate` states.
-fn call_with(callback: u64, array: u64, element: u64, index: usize) -> u64 {
-    let (receiver, at) = with_current(|context| {
-        (
-            undefined_of(context),
-            Value::from_f64(index as f64).bits(),
-        )
-    });
-    functions::call(callback, receiver, element, at, array, receiver)
 }
 
 /// Whether a value can be called at all.

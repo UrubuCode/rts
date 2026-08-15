@@ -20,17 +20,26 @@
 
 use super::super::super::objects::undefined_of;
 use super::super::super::{Context, functions, with_current};
-use super::super::{built, store};
+use super::super::built;
 use super::{calls, nothing, snapshot};
 use crate::value::Value;
 
 /// `a.sort(f)` — in place, answering the receiver.
 ///
-/// The elements are written back from the snapshot the ordering worked on, so a
-/// comparator that also mutates the receiver loses those mutations. Named: the
-/// specification leaves the result implementation-defined when the comparator
-/// mutates, and the alternative is re-reading the store between comparisons —
-/// which is a borrow held across a call into user code.
+/// # Why the write-back is per position rather than a whole new vector
+///
+/// Because the comparator is user code and it may have changed the array while
+/// it ran. `store` replaces the elements AND writes `length`, so an array a
+/// comparator had grown came back at the length the ordering started with, and
+/// everything the comparator appended was gone — `[3,1,2].sort(f)` where `f`
+/// pushes ended with three elements instead of six. Writing the ordered run into
+/// positions `0..len` and leaving the rest alone is what the specification
+/// describes and it is the only shape that keeps both facts.
+///
+/// Absent positions are not sorted. They are removed from the run and the
+/// positions the run no longer fills become holes again, which is what makes
+/// `[1,,3].sort()` answer `[1,3,<hole>]` rather than sorting the hole marker as
+/// if it were a value.
 pub(super) extern "C" fn sort(
     _e: u64,
     this: u64,
@@ -42,7 +51,14 @@ pub(super) extern "C" fn sort(
     let Some(elements) = snapshot(this) else {
         return nothing();
     };
-    let ordered = ordered(elements, comparator);
+    let length = elements.len();
+    let present = with_current(|context| {
+        elements
+            .into_iter()
+            .filter(|held| !crate::entry::array::is_hole(context, *held))
+            .collect::<Vec<u64>>()
+    });
+    let ordered = ordered(present, comparator);
     // A comparator that threw leaves an order it never decided. Writing it back
     // would make a failed sort permanent — the array reordered by a comparison
     // that stopped answering — so the receiver is left as it was.
@@ -50,8 +66,18 @@ pub(super) extern "C" fn sort(
         return this;
     }
     with_current(|context| {
-        if let Some(cell) = Value(this).as_slot() {
-            store(context, cell, ordered);
+        let absent = crate::entry::array::hole_of(context);
+        let Some(cell) = Value(this).as_slot() else {
+            return this;
+        };
+        let Some(elements) = context.elements_at_mut(cell) else {
+            return this;
+        };
+        // Bounded by what is there NOW as well as by the length the sort was
+        // asked about: a comparator that shortened the array must not make this
+        // write past the end of a vector it no longer owns.
+        for at in 0..length.min(elements.len()) {
+            elements[at] = ordered.get(at).copied().unwrap_or(absent);
         }
         this
     })
@@ -62,6 +88,11 @@ pub(super) extern "C" fn sort(
 /// One ordering with two destinations, which is why the two are here together:
 /// a second implementation is where one of them would learn that `undefined`
 /// sorts last and the other would not.
+///
+/// Reads THROUGH holes where [`sort`] removes them, which is the one place the
+/// two genuinely differ: `toSorted` is defined over the range, so `[1,,3]`
+/// answers `[1,3,undefined]` — a dense array of the same length — while `sort`
+/// leaves the receiver sparse.
 pub(super) extern "C" fn to_sorted(
     _e: u64,
     this: u64,
@@ -70,18 +101,22 @@ pub(super) extern "C" fn to_sorted(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    match snapshot(this) {
+    match super::seen(this) {
         Some(elements) => built(ordered(elements, comparator)),
         None => nothing(),
     }
 }
 
-/// The elements in order, `undefined` last.
+/// The items in order, `undefined` last.
 ///
 /// `undefined` never reaches a comparator and always lands at the end, which the
 /// specification states separately from the ordering for exactly this reason: a
 /// comparator written for numbers answers `NaN` for it, and a sort driven by
 /// that scatters it through the result.
+///
+/// Takes ITEMS rather than positions: both callers have already decided what an
+/// absent one means to them — [`sort`] drops it and [`to_sorted`] reads it as
+/// `undefined` — so nothing here has to know that holes exist.
 fn ordered(elements: Vec<u64>, comparator: u64) -> Vec<u64> {
     let (mut present, missing) = with_current(|context| {
         let absent = undefined_of(context);

@@ -14,28 +14,39 @@
 //! [`super`] read and answer inside one borrow, and the two shapes sitting
 //! together is how one gets copied for the other.
 //!
-//! # Why the length is a snapshot
+//! # Why the LENGTH is a snapshot and the ELEMENTS are not
 //!
-//! The elements are copied once, before the first call. A callback that pushes
-//! therefore does not extend the loop, which is what the specification says —
-//! the visited range is fixed when the method starts. What it does *not* match is
-//! a callback that **shortens** the array: the language stops early, and this
-//! visits the elements as they were. Named rather than hidden; matching it needs
-//! the loop to re-read the store between calls, which reintroduces the borrow
-//! this shape exists to avoid.
+//! The specification fixes the visited range when the method starts — a callback
+//! that pushes does not extend the loop — and then reads every element with an
+//! ordinary `Get` at the moment it is visited. Those are two different decisions,
+//! and this file used to make them both by copying the whole vector once: a
+//! callback that wrote `src[3] = 40` was ignored, and one that filled a hole it
+//! had not reached yet was ignored too.
 //!
-//! # Why `this` for the callback is `undefined` rather than the array
+//! So [`len_of`] is taken once and [`existing`] re-reads per index. The borrow
+//! that re-read OPENS AND CLOSES BETWEEN calls and never crosses one, which is
+//! what makes this legal at all — it is the same rule the two-stage shape above
+//! states, applied per iteration instead of once.
 //!
-//! Because that is what the language passes when no `thisArg` is given, and the
-//! `thisArg` argument itself has nowhere to go: the four slots are spent on the
-//! callback and, for `reduce`, the initial value. A method that quietly passed
-//! the array would make `this` inside an ordinary arrow-free callback point at
-//! something the program never asked for.
+//! The cost, named and NOT measured: a method that visits N elements now takes N
+//! borrows where it took one clone of the whole vector. Which of those is dearer
+//! depends on N and has not been timed, so nothing here claims a direction — what
+//! is claimed is that the clone answers the mutation questions wrongly and this
+//! answers them, and every element visited already costs a call into user code
+//! beside either.
+//!
+//! # Why `this` for the callback is the second argument
+//!
+//! Because that is what `thisArg` is, and it used to be DROPPED: the slot was
+//! read as padding and every callback ran with `undefined` as its receiver. A
+//! method written as `xs.map(function (x) { return x * this.factor; }, obj)` then
+//! failed inside the callback rather than at the call, which is the wrong place
+//! for it to fail and a long way from the line that is actually right.
 
 use super::super::native::Native;
 use super::super::objects::undefined_of;
-use super::super::{functions, with_current};
 use super::super::rooted::Rooted;
+use super::super::{functions, throw, with_current};
 use super::{built, staged};
 use crate::value::Value;
 
@@ -51,37 +62,28 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
     ("reduce", reduce),
 ];
 
-/// `a.forEach(f)` — answers `undefined`.
-/// Se esta posição deve ser PULADA por um método de iteração.
-///
-/// `forEach`, `map`, `filter`, `some`, `every` e `reduce` não visitam posições
-/// ausentes — a especificação os define sobre as chaves que EXISTEM, não sobre
-/// o intervalo `0..length`. `find`/`findIndex`/`findLast` são a exceção
-/// deliberada e visitam com `undefined`; por isso `sought` converte em vez de
-/// saltar.
-fn vazia(held: u64) -> bool {
-    super::super::with_current(|context| super::super::array::is_hole(context, held))
-}
-
-extern "C" fn for_each(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(elements) = elements_of(this) else {
+/// `a.forEach(f, thisArg)` — answers `undefined`.
+extern "C" fn for_each(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    let Some(count) = len_of(this) else {
         return nothing();
     };
-    for (index, element) in elements.iter().enumerate() {
-        if vazia(*element) {
+    for index in 0..count {
+        // Absent positions are not visited: the specification defines this
+        // family over the keys that EXIST, not over the range `0..length`.
+        let Some(element) = existing(this, index) else {
             continue;
-        }
+        };
         // A callback that throws stops the walk.
-        if visit(callback, this, *element, index).is_none() {
+        if visit(callback, receiver, this, element, index).is_none() {
             break;
         }
     }
     nothing()
 }
 
-/// `a.map(f)` — a new array of what `f` answered.
-extern "C" fn map(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(elements) = elements_of(this) else {
+/// `a.map(f, thisArg)` — a new array of what `f` answered.
+extern "C" fn map(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    let Some(count) = len_of(this) else {
         return nothing();
     };
     // ROOTED, because the callback below is user code that allocates, and an
@@ -90,16 +92,17 @@ extern "C" fn map(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u6
     // as nine of three hundred rounds answering wrong data rather than failing.
     // See `entry::rooted`.
     let mut produced = Rooted::new();
-    for (index, element) in elements.iter().enumerate() {
-        // `map` PRESERVA o buraco na posição correspondente em vez de o pular:
-        // o resultado tem o mesmo comprimento e a mesma esparsidade, e a
-        // callback não é chamada. Empilhar `undefined` aqui daria o comprimento
-        // certo e a esparsidade errada.
-        if vazia(*element) {
-            produced.values().push(*element);
+    for index in 0..count {
+        // `map` PRESERVES the hole at the matching position rather than skipping
+        // it: the result has the same length and the same sparsity, and the
+        // callback is not called. Pushing `undefined` here would give the right
+        // length and the wrong sparsity.
+        let Some(element) = existing(this, index) else {
+            let absent = with_current(|context| super::super::array::hole_of(context));
+            produced.values().push(absent);
             continue;
-        }
-        match visit(callback, this, *element, index) {
+        };
+        match visit(callback, receiver, this, element, index) {
             Some(answered) => produced.values().push(answered),
             // The array built so far is what comes back, and the compiled call
             // site re-raises: nothing here handles the throw.
@@ -112,20 +115,20 @@ extern "C" fn map(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u6
     built(produced.take())
 }
 
-/// `a.filter(f)` — a new array of the elements `f` kept.
-extern "C" fn filter(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(elements) = elements_of(this) else {
+/// `a.filter(f, thisArg)` — a new array of the elements `f` kept.
+extern "C" fn filter(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    let Some(count) = len_of(this) else {
         return nothing();
     };
     // Rooted for the same reason `map` above is.
     let mut kept = Rooted::new();
-    for (index, element) in elements.iter().enumerate() {
-        // `filter` DESCARTA buracos: o resultado é denso.
-        if vazia(*element) {
+    for index in 0..count {
+        // `filter` DISCARDS holes: the result is dense.
+        let Some(element) = existing(this, index) else {
             continue;
-        }
-        match visit(callback, this, *element, index) {
-            Some(answered) if truthy(answered) => kept.values().push(*element),
+        };
+        match visit(callback, receiver, this, element, index) {
+            Some(answered) if truthy(answered) => kept.values().push(element),
             Some(_) => {}
             None => break,
         }
@@ -133,50 +136,57 @@ extern "C" fn filter(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3:
     built(kept.take())
 }
 
-/// `a.find(f)` — the first element `f` accepted, or `undefined`.
-extern "C" fn find(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    match sought(this, callback, false) {
+/// `a.find(f, thisArg)` — the first element `f` accepted, or `undefined`.
+extern "C" fn find(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    match sought(this, callback, receiver, false) {
         Some((element, _)) => element,
         None => nothing(),
     }
 }
 
-/// `a.findIndex(f)` — where that element was, or -1.
+/// `a.findIndex(f, thisArg)` — where that element was, or -1.
 ///
 /// Shares the scan with [`find`] rather than repeating it, because the two must
 /// agree about which element matched — and a callback with a side effect makes
 /// "run it twice and compare" a different program.
-extern "C" fn find_index(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let at = sought(this, callback, false).map_or(-1.0, |(_, index)| index as f64);
+extern "C" fn find_index(
+    _e: u64,
+    this: u64,
+    callback: u64,
+    receiver: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    let at = sought(this, callback, receiver, false).map_or(-1.0, |(_, index)| index as f64);
     Value::from_f64(at).bits()
 }
 
-/// `a.some(f)`.
+/// `a.some(f, thisArg)`.
 ///
 /// Stops at the first acceptance, which is observable rather than an
 /// optimisation: a callback with a side effect must not run for the rest of the
 /// array once the answer is settled.
-extern "C" fn some(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let found = sought(this, callback, true).is_some();
+extern "C" fn some(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    let found = sought(this, callback, receiver, true).is_some();
     Value::from_bool(found).bits()
 }
 
-/// `a.every(f)`.
+/// `a.every(f, thisArg)`.
 ///
 /// True for an empty array, which is the language and the corner an
 /// implementation written as "found one that failed" gets right by construction.
-extern "C" fn every(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(elements) = elements_of(this) else {
+extern "C" fn every(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    let Some(count) = len_of(this) else {
         return Value::from_bool(false).bits();
     };
-    for (index, element) in elements.iter().enumerate() {
-        // Um buraco não é visitado, e não faz `every` responder falso: a
-        // especificação define-a sobre as chaves que existem, portanto
-        // `[1,,3].every(x => x > 0)` é `true`.
-        if vazia(*element) {
+    for index in 0..count {
+        // An absent position is not visited and does not make `every` answer
+        // false: the specification defines it over the keys that exist, so
+        // `[1,,3].every(x => x > 0)` is `true`.
+        let Some(element) = existing(this, index) else {
             continue;
-        }
-        match visit(callback, this, *element, index) {
+        };
+        match visit(callback, receiver, this, element, index) {
             Some(answered) if truthy(answered) => {}
             // A throw and a false answer both stop the scan; only the false
             // one means the predicate said no.
@@ -188,68 +198,104 @@ extern "C" fn every(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: 
 
 /// `a.reduce(f, initial)`.
 ///
-/// Without an initial value the first element is it and the loop starts at the
-/// second — not `undefined`, which would make `[1,2].reduce((a,b) => a+b)`
-/// answer `NaN`. The stated gap: an empty array with no initial value is a
-/// `TypeError`, and this answers `undefined`, the same gap every operation here
-/// has while throwing cannot find a handler.
+/// Without an initial value the first element that EXISTS is it and the loop
+/// starts after it — not `undefined`, which would make `[1,2].reduce((a,b) =>
+/// a+b)` answer `NaN`.
+///
+/// An empty array with no initial value is a `TypeError`, which is the one
+/// answer a reduction has no honest value for: there is nothing to fold and
+/// nothing to fold it into. It answered `undefined` until a native could raise,
+/// and `undefined` then flowed into whatever the program did next — a wrong
+/// number rather than a stopped program.
 extern "C" fn reduce(_e: u64, this: u64, callback: u64, initial: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(elements) = elements_of(this) else {
+    let Some(count) = len_of(this) else {
         return nothing();
     };
     let seeded = !with_current(|context| initial == undefined_of(context));
     let (mut carried, from) = if seeded {
         (initial, 0)
     } else {
-        // A semente é o primeiro elemento que EXISTE, não a posição zero: um
-        // buraco à cabeça não é um acumulador, e semeá-lo com ele fazia
-        // `[,1,2].reduce((a,b) => a+b)` responder `NaN`.
-        match elements.iter().position(|held| !vazia(*held)) {
-            Some(first) => (elements[first], first + 1),
-            None => return nothing(),
+        // The seed is the first element that EXISTS, not position zero: a hole
+        // at the head is not an accumulator, and seeding with it made
+        // `[,1,2].reduce((a,b) => a+b)` answer `NaN`.
+        match (0..count).find_map(|index| existing(this, index).map(|held| (held, index))) {
+            Some((held, index)) => (held, index + 1),
+            None => {
+                throw::type_error("Reduce of empty array with no initial value");
+                return nothing();
+            }
         }
     };
-    for (index, element) in elements.iter().enumerate().skip(from) {
-        if vazia(*element) {
+    for index in from..count {
+        let Some(element) = existing(this, index) else {
             continue;
-        }
-        let array = this;
-        let receiver = nothing();
+        };
         // The accumulator takes the slot `thisArg` would have, which is the
         // arity being spent where the language spends it: `reduce` is the one
-        // of these whose callback genuinely needs four arguments.
+        // of these whose callback genuinely needs four arguments, and the one
+        // the language gives no `thisArg` at all.
         carried = functions::call(
             callback,
-            receiver,
+            nothing(),
             carried,
-            *element,
+            element,
             Value::from_f64(index as f64).bits(),
-            array,
+            this,
         );
         // A callback that threw leaves `call` answering `undefined`, and the
         // next pass would fold that into the accumulator. What comes back is
         // what had been folded before the throw; the compiled site re-raises.
-        if super::super::throw::in_flight() {
+        if throw::in_flight() {
             break;
         }
     }
     carried
 }
 
-/// A snapshot of the receiver's elements, when it is an array.
+/// How many positions the walk covers, read once before the first call.
 ///
-/// The borrow ends here, which is the whole point — see the module
-/// documentation for what calling inside one costs.
-fn elements_of(this: u64) -> Option<Vec<u64>> {
-    with_current(|context| staged(context, this).map(|(_, elements)| elements))
+/// `None` for a receiver that is not an array, which is what every method here
+/// answers `undefined` for rather than aborting.
+pub(super) fn len_of(this: u64) -> Option<usize> {
+    with_current(|context| staged(context, this).map(|(_, elements)| elements.len()))
+}
+
+/// The element at a position RIGHT NOW, or `None` if there is none there.
+///
+/// The borrow opens and closes inside this function, so a caller may hold the
+/// answer across a call into user code but never the borrow — which is the rule
+/// the module documentation states, applied per iteration.
+///
+/// Absent covers both ways a position can have no key: past the end, because a
+/// callback shortened the array, and a hole, because it was never written or was
+/// `delete`d. The two are one answer here because every caller treats them
+/// alike — the specification asks `HasProperty` and gets `false` for both.
+pub(super) fn existing(this: u64, index: usize) -> Option<u64> {
+    with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        let held = *context.elements_at(cell)?.get(index)?;
+        (!super::super::array::is_hole(context, held)).then_some(held)
+    })
+}
+
+/// The same, as the program SEES it: an absent position reads `undefined`.
+///
+/// For `find` and `findIndex`, which the specification deliberately defines over
+/// the range rather than over the keys — they visit a hole with `undefined`
+/// where `forEach` and its relatives skip it.
+pub(super) fn present(this: u64, index: usize) -> u64 {
+    match existing(this, index) {
+        Some(held) => held,
+        None => nothing(),
+    }
 }
 
 /// One call of a callback, outside every borrow.
 ///
 /// The three arguments the specification passes — element, index, and the array
-/// — with `undefined` as the receiver. Written once because seven methods make
-/// exactly this call, and seven copies is where one of them would pass the index
-/// and the element the wrong way round.
+/// — with the method's `thisArg` as the receiver. Written once because seven
+/// methods make exactly this call, and seven copies is where one of them would
+/// pass the index and the element the wrong way round.
 ///
 /// # Why the answer is an `Option`
 ///
@@ -258,15 +304,21 @@ fn elements_of(this: u64) -> Option<Vec<u64>> {
 /// calling the callback over the remaining elements, producing effects the
 /// language says never happen. The absence is in the type so that a caller has
 /// to decide rather than inherit the wrong answer.
-fn visit(callback: u64, array: u64, element: u64, index: usize) -> Option<u64> {
-    let (receiver, at) = with_current(|context| {
+pub(super) fn visit(
+    callback: u64,
+    receiver: u64,
+    array: u64,
+    element: u64,
+    index: usize,
+) -> Option<u64> {
+    let (absent, at) = with_current(|context| {
         (
             undefined_of(context),
             Value::from_f64(index as f64).bits(),
         )
     });
-    let answered = functions::call(callback, receiver, element, at, array, receiver);
-    match super::super::throw::in_flight() {
+    let answered = functions::call(callback, receiver, element, at, array, absent);
+    match throw::in_flight() {
         true => None,
         false => Some(answered),
     }
@@ -276,26 +328,20 @@ fn visit(callback: u64, array: u64, element: u64, index: usize) -> Option<u64> {
 ///
 /// Shared by `find`, `findIndex` and `some`, which differ only in what they
 /// report about the same scan.
-fn sought(this: u64, callback: u64, skip_holes: bool) -> Option<(u64, usize)> {
-    let elements = elements_of(this)?;
-    for (index, element) in elements.iter().enumerate() {
-        // `some` é o chamador que SALTA, e por isso o parâmetro existe: ele
-        // pertence à família de `forEach`/`map`/`filter`, definida sobre as
-        // chaves que existem, e partilha este scan com `find`/`findIndex`, que
-        // pertencem à outra. Um scan e dois contratos precisa de dizer qual.
-        if skip_holes && vazia(*element) {
-            continue;
-        }
-        // `find`/`findIndex` NÃO pulam buracos — a especificação manda visitar
-        // a posição com `undefined`, ao contrário de `forEach`/`map`/`filter`.
-        // Então aqui o buraco é convertido em vez de saltado, e o valor
-        // devolvido é o convertido: este é o quarto ponto que entrega o word
-        // direto ao programa.
-        let visivel = super::super::with_current(|context| {
-            super::super::array::visible(context, *element)
-        });
-        match visit(callback, this, visivel, index) {
-            Some(answered) if truthy(answered) => return Some((visivel, index)),
+fn sought(this: u64, callback: u64, receiver: u64, skip_absent: bool) -> Option<(u64, usize)> {
+    let count = len_of(this)?;
+    for index in 0..count {
+        // `some` is the caller that SKIPS, and that is why the parameter exists:
+        // it belongs to the `forEach`/`map`/`filter` family, defined over the
+        // keys that exist, and shares this scan with `find`/`findIndex`, which
+        // belong to the other. One scan and two contracts has to say which.
+        let seen = match (existing(this, index), skip_absent) {
+            (Some(held), _) => held,
+            (None, true) => continue,
+            (None, false) => present(this, index),
+        };
+        match visit(callback, receiver, this, seen, index) {
+            Some(answered) if truthy(answered) => return Some((seen, index)),
             Some(_) => {}
             None => return None,
         }

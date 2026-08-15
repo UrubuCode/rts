@@ -529,6 +529,37 @@ pub fn element_at(array: u64, index: u64) -> u64 {
     })
 }
 
+/// Where an array's elements START, as a machine address.
+///
+/// # What the caller is taking on
+///
+/// That the run does not MOVE while it holds this. The elements are a `Vec`,
+/// and pushing to one reallocates — so an address handed out here is good only
+/// for as long as nothing grows that array.
+///
+/// The one caller is `rts-codegen`'s `for-of` desugaring, and it is safe there
+/// for a reason nothing else can borrow: the array is the copy `iterate` just
+/// made, no program can name it, and the loop only reads. `iterate` copies
+/// deliberately — its own documentation says a body that pushes to the original
+/// must not walk its own additions — and that same copy is what makes the
+/// address stable.
+///
+/// Answers `0` for anything that is not an array, which the caller must treat
+/// as "no run": zero elements, so a bounded read of it is refused by its own
+/// bound before the address is ever used.
+#[rtse::entry]
+pub fn elements_base(array: u64) -> i64 {
+    with_current(|context| {
+        let Some(cell) = Value(array).as_slot() else {
+            return 0;
+        };
+        match context.elements_at(cell) {
+            Some(elements) => elements.as_ptr() as i64,
+            None => 0,
+        }
+    })
+}
+
 /// Writes an array's `length` as an ordinary property.
 ///
 /// # Why a real property and not an answer the runtime invents
