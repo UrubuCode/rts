@@ -3118,7 +3118,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (9075) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (9034) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -3767,44 +3767,44 @@
 ,
 {
   "name": "59_intl_basics",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
   "node": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
-  "rts": "",
+  "rts": "money=$1,234.50\ndate=10/05/2024\ncmp=0",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: Intl is not defined"
+  "rts_error": ""
 }
 ,
 {
   "name": "71_intl_segmenter",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "segments=hi:true| :false|there:true",
   "node": "segments=hi:true| :false|there:true",
-  "rts": "",
+  "rts": "segments=hi:true| :false|there:true",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: Intl is not defined"
+  "rts_error": ""
 }
 ,
 {
   "name": "78_intl_more",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday",
   "node": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday",
-  "rts": "",
+  "rts": "one=one\ntwo=other\nlist=a, b, and c\nrel=yesterday",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: Intl is not defined"
+  "rts_error": ""
 }
 ,
 {
@@ -9911,4 +9911,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":708,"pass":590,"rts_diverge":65,"bun_node_diverge":5,"errors":48,"rejected":0}}
+],"summary":{"total":708,"pass":593,"rts_diverge":65,"bun_node_diverge":5,"errors":45,"rejected":0}}
