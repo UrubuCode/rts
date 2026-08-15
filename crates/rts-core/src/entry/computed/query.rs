@@ -53,6 +53,15 @@ pub fn has_property(key: u64, object: u64) -> bool {
                 .get(at)
                 .is_some_and(|&held| !super::super::array::is_hole(context, held));
         }
+        // A STRING's characters are own properties too, and no shape records
+        // them either — the same argument the elements arm above makes, for the
+        // other kind of indexed storage. `access.rs` already asks this on the
+        // read side; asking it only there made `Object("hi")[0]` answer `"h"`
+        // while `0 in Object("hi")` answered false, which is one object
+        // disagreeing with itself.
+        if super::super::string::text::string_element(context, slot, Value(key)).is_some() {
+            return true;
+        }
         let Some(key) = property_key(context, Value(key)) else {
             return false;
         };

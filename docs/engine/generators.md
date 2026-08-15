@@ -29,7 +29,20 @@ The contract it produces, exactly:
 | `layout.ty` | the aggregate the frame is an instance of; `ObjectLayout::of` gives its size and field offsets |
 | `layout.label_field` | the resume label. Zero means "not started"; each suspension point has a number |
 | `layout.resumed_field` | written by whoever resumes, read by the frame. One slot, because only one suspension can be outstanding |
+| `layout.mode_field` | HOW this resumption was made — see `frame::ResumeMode` |
 | `layout.return_fields` | where the results are left |
+
+`mode_field` is what makes `gen.return(v)` and `gen.throw(e)` re-enter the body
+rather than abandon the frame, and it is a MACHINE capability rather than the
+emitted operation this document originally proposed. The reason is the `return`
+half: it is a *terminator* inside the region the `yield` was written in, not a
+call that could be emitted after the suspension — so what runs on the way out is
+whatever those regions owe. The rewrite already owns every suspension point, so
+deriving the triage there rather than offering it as something a client
+remembers is rule 8 of the machine layer.
+
+`resumable_form` therefore takes the throw TAG as a parameter: the machine
+compares tags and does not interpret them (rule 2), so it cannot choose one.
 
 Everything a value needs to survive a suspension is in that record, because the
 rewrite stores such values where they are DEFINED rather than reloading them

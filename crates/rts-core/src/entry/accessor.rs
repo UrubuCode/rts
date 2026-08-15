@@ -263,7 +263,36 @@ pub(super) fn resolve(context: &mut Context, start: u32, key: Key) -> Found {
     };
     let number = machine.index() as u32;
     let mut cell = start;
+    // The index this key names, worked out ONCE and only when a link in the
+    // chain actually has elements. An array's elements are not shape
+    // properties, so a walk that asked only the shape could not see them —
+    // `Object.create([7,8,9])` answered `3` for `.length` (an ordinary
+    // property, which the walk does find) and `undefined` for `[0]`, which is
+    // one object disagreeing with itself about what it inherited.
+    //
+    // Lazily, and that is the whole of the cost argument: an object whose chain
+    // holds no array pays one table read per link, which every link was already
+    // going to do. Only a chain that reaches one pays for the text lookup, and
+    // it pays once rather than per link.
+    let mut at: Option<usize> = None;
+    let mut asked = false;
     for _ in 0..super::objects::CHAIN_LIMIT {
+        if context.elements_at(cell).is_some() {
+            if !asked {
+                asked = true;
+                at = context
+                    .interner
+                    .text(machine)
+                    .and_then(crate::object::as_array_index)
+                    .map(|index| index as usize);
+            }
+            if let Some(index) = at
+                && let Some(&held) = context.elements_at(cell).and_then(|held| held.get(index))
+                && !super::array::is_hole(context, held)
+            {
+                return Found::Value(held);
+            }
+        }
         if let Some((get, _)) = context.accessor_at(cell, number) {
             return match get {
                 Some(getter) => Found::Getter(getter),
