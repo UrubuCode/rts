@@ -276,6 +276,18 @@ pub fn emit_for_each(
         &inner,
         label,
     );
+    // The run is put BACK, and it is a pair with the line above rather than
+    // tidiness: a `for`-`of` inside a `for`-`of` replaces the outer loop's base
+    // and count, and without this the outer body would go on reading from the
+    // INNER array's storage with the inner array's bound.
+    //
+    // Latent rather than observable today, and said that way on purpose. The
+    // only proven element read a body has is the one the desugaring emits at
+    // its top, before any nested loop runs — so nothing reaches the stale pair
+    // yet. That is a property of what `is_proven_element` currently admits, not
+    // a property of this loop, and the failure it would become is a load from
+    // the wrong array with no crash to announce it.
+    ctx.set_element_run(outer_run);
     ctx.prove_element_read(outer_element);
     if !index_was_proven {
         ctx.forget_minted(index);
