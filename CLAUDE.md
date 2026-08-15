@@ -102,17 +102,20 @@ anything by subtraction. What IS attributable was measured per file, against a
 binary of the tree as it stood before the work: 748 → 750, two gained, **none
 lost**. That is the only comparison a number of this shape supports.
 
-**And the second ruler: 593 of 708 cross-runtime fixtures** (83.8%), measured
+**And the second ruler: 630 of 708 cross-runtime fixtures** (89.0%), measured
 2026-08-15 by `scripts/cross_runtime_check.sh`, one process per file, against
-Bun and Node. It was 419 on the morning of 08-14. That corpus is a different
-question from the one above — it asks whether this engine and a real one agree
-about the same program, where `*.test.ts` asks whether the program does what it
-says.
+Bun and Node. That corpus is a different question from the one above — it asks
+whether this engine and a real one agree about the same program, where
+`*.test.ts` asks whether the program does what it says.
 
-The last three came from `Intl`, and the ceiling under them is worth reading
-with the number: **five of the 708 have no comparable answer**, because Bun and
-Node disagree with each other and the harness refuses to elect one of them. So
-the reachable total is 703, not 708.
+It was 593 earlier the same day and 419 on the morning of 08-14. The 37 that
+landed between those two figures were measured PER FILE against a kept binary
+and cost **nothing**: the LOST list is empty, which is the only form the claim
+"no regression" takes here.
+
+The ceiling under the number is worth reading with it: **five of the 708 have no
+comparable answer**, because Bun and Node disagree with each other and the
+harness refuses to elect one of them. So the reachable total is 703, not 708.
 
 The 08-10 figure was measured by the same `suite_run`, one process per file, on
 the same corpus plus the two files that day's own work added — which is why the
