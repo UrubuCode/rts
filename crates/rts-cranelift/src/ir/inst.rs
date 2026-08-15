@@ -239,6 +239,47 @@ pub enum Inst {
         address: ValueId,
     },
 
+    /// Reads one element of a contiguous run of machine words, bounded.
+    ///
+    /// # What it guarantees
+    ///
+    /// The load happens if and only if `index` is below `length`, compared as
+    /// UNSIGNED — so a negative index is a very large one and fails the same
+    /// test, which is why one comparison is enough where a signed one would
+    /// need two. Out of range it raises [`TrapCode::OutOfBounds`] and does not
+    /// load. The address read is `base + index × 8`, and the run is words, so
+    /// the scale is not a parameter a caller could get wrong.
+    ///
+    /// # Why this exists beside [`Inst::WordLoad`]
+    ///
+    /// `WordLoad` is one load from an address the client computed, with no
+    /// bound at all — right for a word the client OWNS and can name, and wrong
+    /// for a run indexed by something a program chose. The bound is the whole
+    /// difference, and folding it into the client would put the same comparison
+    /// at every site with nothing to check that it is there.
+    ///
+    /// This is also what gives [`TrapCode::OutOfBounds`] a producer. It was
+    /// declared, translated by the lowering, and constructed by nothing — one
+    /// of the structures-with-no-producer this crate's rule 6 forbids and has
+    /// shipped before.
+    ///
+    /// # What the client is asserting, and what this cannot check
+    ///
+    /// That `base` addresses `length` readable words for as long as this
+    /// instruction runs. Nothing here can verify it, exactly as nothing can
+    /// verify `WordLoad`'s address — the bound makes the INDEX safe, not the
+    /// base. A client whose run can move under it must not use this.
+    ///
+    /// No safepoint and no barrier: it neither allocates nor stores.
+    ElementLoad {
+        /// The first word of the run, as a machine address.
+        base: ValueId,
+        /// Which word, counted from the base.
+        index: ValueId,
+        /// How many words the run has.
+        length: ValueId,
+    },
+
     /// Reads a field of a registered aggregate.
     ///
     /// Carries no width and no access flags: both come from the layout, so a
@@ -417,6 +458,12 @@ impl Inst {
             | Inst::Generic(_, a, b) => vec![*a, *b],
 
             Inst::WordLoad { address } => vec![*address],
+
+            Inst::ElementLoad {
+                base,
+                index,
+                length,
+            } => vec![*base, *index, *length],
 
             Inst::FieldLoad { object, .. } => vec![*object],
             Inst::FieldStore { object, value, .. } => vec![*object, *value],

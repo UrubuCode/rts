@@ -579,6 +579,16 @@ fn replace_operands(inst: &mut Inst, replacements: &[ValueId]) {
             *b = take();
         }
 
+        Inst::ElementLoad {
+            base,
+            index,
+            length,
+        } => {
+            *base = take();
+            *index = take();
+            *length = take();
+        }
+
         Inst::FieldLoad { object, .. } => *object = take(),
         Inst::FieldStore { object, value, .. } => {
             *object = take();

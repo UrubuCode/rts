@@ -379,3 +379,48 @@ fn a_word_load_refuses_an_address_that_is_not_a_machine_word() {
         "a generic value is not an address either"
     );
 }
+
+#[test]
+fn an_element_load_bounds_the_index_and_refuses_a_mismatched_pair() {
+    // The bound is the whole difference between this and `word_load`, and the
+    // representations are what make the bound mean anything: the index and the
+    // length are compared UNSIGNED against each other, so a mixed pair would
+    // compare a sign-extended value against a zero-extended one and let a
+    // negative index through the very test that exists to stop it.
+    //
+    // What this instruction CANNOT check is that the base addresses that many
+    // readable words — the client asserts it, exactly as it does for
+    // `word_load`. The bound makes the index safe, not the base.
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::I64, Repr::I32, Repr::F64], &[Repr::I64]);
+    let base = param(&func, 0);
+    let count = param(&func, 1);
+    let double = param(&func, 2);
+    let entry = func.entry;
+    let mut builder = FuncBuilder::new(&mut func, &types, entry);
+
+    let read = builder
+        .element_load(base, count, count)
+        .expect("an address, an index and a length");
+    assert_eq!(
+        builder.repr_of(read),
+        Repr::Tagged,
+        "a run of words holds values nothing here proved anything about"
+    );
+
+    assert!(matches!(
+        builder.element_load(count, count, count),
+        Err(BuildError::WrongDomain {
+            operation: "element_load",
+            found: Repr::I32
+        })
+    ));
+    assert!(
+        builder.element_load(base, double, count).is_err(),
+        "a double is not an index"
+    );
+    assert!(
+        builder.element_load(base, count, base).is_err(),
+        "the length must be the index's width or the comparison is not one"
+    );
+}

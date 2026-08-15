@@ -189,9 +189,32 @@ pub fn emit_expr(
             if let (ExprKind::Ident(array), ExprKind::Ident(at)) = (&object.kind, &index.kind)
                 && ctx.is_proven_element(*array, *at)
             {
+                // With the run hoisted, the read is an INSTRUCTION: a bounded
+                // load from the base the loop asked for once. The bound is the
+                // machine's, not a comparison written here — see
+                // `Inst::ElementLoad`.
+                //
+                // Only when the counter is a PROVEN double, which is the same
+                // condition `foreach.rs` puts on hoisting the run at all:
+                // `to_int32` takes a double, and a counter that stayed generic
+                // has no such proof. Asking anyway is `WrongDomain` at
+                // emission, which refuses the whole program rather than this
+                // read — measured as 37 fixtures that stopped compiling, every
+                // generator among them. Rule 5: what cannot be proven becomes
+                // generic, visibly.
+                let position = emit_expr(builder, scope, ctx, index)?;
+                if let Some((base, count)) = ctx.element_run()
+                    && builder.repr_of(position) == Repr::F64
+                {
+                    let position = builder.to_int32(position)?;
+                    return Ok(builder.element_load(base, position, count)?);
+                }
                 let receiver = emit_expr(builder, scope, ctx, object)?;
-                let key = emit_expr(builder, scope, ctx, index)?;
-                let key = tagged(builder, key);
+                // The counter again as the KEY, and it is the value already
+                // emitted above rather than a second emission of the same
+                // identifier: reading a local twice is harmless, emitting it
+                // twice is a second instruction for one read.
+                let key = tagged(builder, position);
                 return Ok(call(builder, ctx, RuntimeOp::ElementAt, &[receiver, key])?[0]);
             }
             // Receiver first, then the key: `a()[b()]` runs `a` before `b`.
@@ -1116,6 +1139,21 @@ fn compared(
 /// Shared by the literal and by every emitter that answers a boolean without
 /// one having been written — `!x` and `a !== b` both produce one from a branch,
 /// and three copies of the encoding is three places to get the payload wrong.
+/// How many arguments a call site wrote, as the operand `RuntimeOp::Call` takes.
+///
+/// Here rather than at each of the three sites that emit a call, because the
+/// three have to agree with the runtime about what the operand MEANS — and two
+/// of them were found by a measurement rather than by a reader: they kept
+/// passing six operands after the count made it seven, and every program with a
+/// destructuring pattern or a `yield*` stopped compiling.
+pub(super) fn count_constant(builder: &mut FuncBuilder, count: usize) -> ValueId {
+    let written = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+        repr: rts_cranelift::repr::Repr::I64,
+        bits: rts_cranelift::ir::ScalarBits(count as u64),
+    });
+    builder.use_const(written)
+}
+
 pub(super) fn boolean_constant(builder: &mut FuncBuilder, value: bool) -> ValueId {
     let payload = if value {
         tags::BOOL_TRUE

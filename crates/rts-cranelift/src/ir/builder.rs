@@ -332,6 +332,47 @@ impl<'a> FuncBuilder<'a> {
         Ok(self.emit(Inst::WordLoad { address }, Repr::I64))
     }
 
+    /// Reads one element of a contiguous run of machine words, bounded.
+    ///
+    /// Refuses anything but an `I64` base and an `I32` index and length: the
+    /// base is an address, and the other two are compared UNSIGNED against each
+    /// other, so a mixed pair would compare a sign-extended value against a
+    /// zero-extended one and let a negative index through. See
+    /// [`Inst::ElementLoad`] for what the client is asserting about the base,
+    /// which is the half this cannot check.
+    ///
+    /// Answers `Repr::Tagged`: a run of words this reads is a run of values
+    /// nothing here proved anything about.
+    pub fn element_load(
+        &mut self,
+        base: ValueId,
+        index: ValueId,
+        length: ValueId,
+    ) -> BuildResult<ValueId> {
+        if self.repr_of(base) != Repr::I64 {
+            return Err(BuildError::WrongDomain {
+                operation: "element_load",
+                found: self.repr_of(base),
+            });
+        }
+        for operand in [index, length] {
+            if self.repr_of(operand) != Repr::I32 {
+                return Err(BuildError::WrongDomain {
+                    operation: "element_load",
+                    found: self.repr_of(operand),
+                });
+            }
+        }
+        Ok(self.emit(
+            Inst::ElementLoad {
+                base,
+                index,
+                length,
+            },
+            Repr::Tagged,
+        ))
+    }
+
     /// Reads a field of a registered aggregate.
     ///
     /// The result's representation comes from the layout: there is no place to

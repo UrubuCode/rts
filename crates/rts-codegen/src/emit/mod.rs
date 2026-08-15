@@ -177,12 +177,14 @@ pub struct Program {
     /// list is how the host learns which functions to put through it without
     /// re-deriving the answer from a signature flag that async also sets.
     pub generators: Vec<FuncId>,
-    /// What each function is CALLED, for a stack trace to name it.
+    /// What each function is CALLED and how many parameters it declares.
     ///
-    /// Only the ones that have a name: an arrow assigned to nothing has none,
-    /// and inventing one would put a label in a trace that the program cannot
-    /// be searched for.
-    pub function_names: Vec<(FuncId, String)>,
+    /// EVERY function, including the ones with no name: `f.length` is a
+    /// property the language promises for all of them, and `(function(){}).name`
+    /// is the empty string rather than an absence. A trace still prints nothing
+    /// for an empty name — that filter belongs to the printer, where it is a
+    /// statement about traces instead of about functions.
+    pub function_names: Vec<(FuncId, String, u32)>,
     /// Which of them is the program's entry.
     pub entry: FuncId,
     /// The text of every string literal, indexed by the number the code holds.
@@ -265,8 +267,21 @@ pub struct Ctx<'a> {
     /// which would mean every expression emitter answering a list nearly all of
     /// them would leave empty.
     pending: Vec<(FuncId, Function)>,
-    /// The name of each function that has one, collected while emitting.
-    function_names: Vec<(FuncId, String)>,
+    /// The name a binding lends to an anonymous definition on its right.
+    ///
+    /// `const f = function () {}` gives that function the name `f`, which the
+    /// specification calls NamedEvaluation and which nothing here did: an
+    /// anonymous function or class kept the empty name, so `f.name` read `""`
+    /// and a program printing it saw nothing.
+    ///
+    /// Set only when the initialiser IS an anonymous definition — not for
+    /// `const f = cond ? function () {} : g`, where the language names neither
+    /// side — and TAKEN by the first definition that reads it, so a nested
+    /// function inside the initialiser does not inherit the outer binding's
+    /// name.
+    inferred_name: Option<crate::names::Name>,
+    /// The name and declared arity of each function, collected while emitting.
+    function_names: Vec<(FuncId, String, u32)>,
     /// Which of the emitted functions are generator bodies.
     ///
     /// Collected while emitting rather than derived afterwards: `may_suspend` is
@@ -371,6 +386,14 @@ pub struct Ctx<'a> {
     /// One pair and not a set, because the only producer is a `for-of` and it
     /// proves exactly the pair it minted. See `Ctx::prove_element_read`.
     proven_element: Option<(Name, Name)>,
+    /// The base address and element count of that pair, hoisted out of the
+    /// loop, when the loop is one that may hold them.
+    ///
+    /// Absent for a body that PARKS: `frame::resumable_form` rewrites a
+    /// suspending function around every suspension, so an SSA value defined
+    /// before a `yield` is not the value it was afterwards — the same reason
+    /// `thrown_flag` is absent there.
+    element_run: Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)>,
 }
 
 impl<'a> Ctx<'a> {
@@ -393,6 +416,7 @@ impl<'a> Ctx<'a> {
             types,
             pending: Vec::new(),
             generators: Vec::new(),
+            inferred_name: None,
             function_names: Vec::new(),
             literals: Vec::new(),
             templates: Vec::new(),
@@ -407,6 +431,7 @@ impl<'a> Ctx<'a> {
             inlinable: std::collections::BTreeMap::new(),
             thrown_flag: None,
             proven_element: None,
+            element_run: None,
         }
     }
 
@@ -512,6 +537,36 @@ impl<'a> Ctx<'a> {
     /// Whether this read is that pair.
     pub(super) fn is_proven_element(&self, array: Name, index: Name) -> bool {
         self.proven_element == Some((array, index))
+    }
+
+    /// The hoisted base and count for that pair, when the loop could hoist them.
+    pub(super) fn element_run(&self) -> Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)> {
+        self.element_run
+    }
+
+    /// Records them, answering what was there so a nested loop restores it.
+    pub(super) fn set_element_run(
+        &mut self,
+        run: Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)>,
+    ) -> Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)> {
+        std::mem::replace(&mut self.element_run, run)
+    }
+
+    /// Lends a binding's name to the anonymous definition about to be emitted.
+    ///
+    /// See [`Ctx::inferred_name`]. The caller establishes that the initialiser
+    /// IS an anonymous definition; this only carries the name to it.
+    pub(super) fn lend_name(&mut self, name: crate::names::Name) {
+        self.inferred_name = Some(name);
+    }
+
+    /// Takes the lent name, leaving none behind.
+    ///
+    /// Taken rather than read, so the first definition to ask is the only one
+    /// that gets it: a function nested inside the initialiser must not inherit
+    /// the outer binding's name.
+    pub(super) fn take_lent_name(&mut self) -> Option<crate::names::Name> {
+        self.inferred_name.take()
     }
 
     /// What an annotation claims about a name, where nothing proved it.

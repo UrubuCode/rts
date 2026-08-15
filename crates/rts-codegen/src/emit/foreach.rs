@@ -233,6 +233,38 @@ pub fn emit_for_each(
     // one place in the compiler that can say so. Saved and restored for the
     // same reason the two above are: nested loops share the spelling.
     let outer_element = ctx.prove_element_read(Some((keys, index)));
+    // And the RUN itself, asked once and held for the loop: where the elements
+    // start, and how many there are. With those, each element is a bounded load
+    // instead of a crossing.
+    //
+    // Refused for a body that PARKS. `frame::resumable_form` rewrites a
+    // suspending function around every suspension, so a value defined here and
+    // read after a `yield` is not the value it was — the same reason
+    // `function.rs` withholds the throw-flag address from such a body. Those
+    // loops keep `ElementAt`, which is a call and therefore survives the
+    // rewrite.
+    //
+    // The base is an ADDRESS INTO A `Vec`, and it is stable only because this
+    // array is the copy `Iterate` made: no program can name it, and this loop
+    // only reads. `array::elements_base` states that contract from the other
+    // side, and this is the caller it names.
+    //
+    // And refused a second time when the bound is not a PROVEN double. The
+    // count is the machine's bound for a load, and `to_int32` takes one — a
+    // `length` read that stayed generic has no such proof, and asking anyway is
+    // `WrongDomain` at emission, which refuses the whole program rather than
+    // this loop. Rule 5 of this crate's README is the shape: what cannot be
+    // proven becomes generic, visibly. Here that means keeping `ElementAt`.
+    let hoistable = !super::suspends::body_suspends(std::slice::from_ref(body))
+        && builder.repr_of(bound) == rts_cranelift::repr::Repr::F64;
+    let outer_run = match hoistable {
+        false => ctx.set_element_run(None),
+        true => {
+            let base = super::expr::call(builder, ctx, crate::runtime::RuntimeOp::ElementsBase, &[enumerated])?[0];
+            let count = builder.to_int32(bound)?;
+            ctx.set_element_run(Some((base, count)))
+        }
+    };
     let result = emit_for(
         builder,
         scope,

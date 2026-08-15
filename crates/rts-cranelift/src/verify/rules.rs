@@ -605,6 +605,32 @@ pub(super) fn check_instructions(
                     }
                 }
 
+                // An address is a machine word and a bound is a count. The
+                // index and the length are compared UNSIGNED against each
+                // other, so they have to be the same width — accepting a mixed
+                // pair would compare a sign-extended value against a
+                // zero-extended one and let a negative index through.
+                Inst::ElementLoad {
+                    base,
+                    index,
+                    length,
+                } => {
+                    if func.repr_of(*base) != Repr::I64 {
+                        errors.push(VerifyError::WrongDomain {
+                            inst: inst_id,
+                            found: func.repr_of(*base),
+                        });
+                    }
+                    for operand in [index, length] {
+                        if func.repr_of(*operand) != Repr::I32 {
+                            errors.push(VerifyError::WrongDomain {
+                                inst: inst_id,
+                                found: func.repr_of(*operand),
+                            });
+                        }
+                    }
+                }
+
                 Inst::Widen(value) => {
                     if func.repr_of(*value) == Repr::Tagged {
                         errors.push(VerifyError::WrongDomain {

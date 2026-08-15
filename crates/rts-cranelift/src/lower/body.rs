@@ -280,6 +280,40 @@ impl<'a> Body<'a> {
                 builder.ins().load(types::I64, flags, raw, 0)
             }
 
+            // The bound first, and UNSIGNED: a negative index is a very large
+            // one under that comparison, so one test rejects both ends where a
+            // signed one would need two.
+            //
+            // `trapnz` rather than a branch to a trapping block: the check has
+            // no join, and a block would ask this layer to build a merge where
+            // there is nothing to merge.
+            Inst::ElementLoad {
+                base,
+                index,
+                length,
+            } => {
+                let base = self.value(*base);
+                let index = self.value(*index);
+                let length = self.value(*length);
+                let past = builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::UnsignedGreaterThanOrEqual,
+                    index,
+                    length,
+                );
+                builder
+                    .ins()
+                    .trapnz(past, trap_code(crate::ir::TrapCode::OutOfBounds));
+                // Zero-extended and not sign-extended: the test above already
+                // established that the index is below a non-negative length, so
+                // its high bits are zero — widening any other way would
+                // disagree with the comparison that let it through.
+                let wide = builder.ins().uextend(types::I64, index);
+                let offset = builder.ins().imul_imm(wide, 8);
+                let at = builder.ins().iadd(base, offset);
+                let flags = cranelift_codegen::ir::MemFlags::trusted();
+                builder.ins().load(types::I64, flags, at, 0)
+            }
+
             Inst::Narrow(v, to) => {
                 let raw = self.value(*v);
                 value::narrow(builder, raw, *to)?
