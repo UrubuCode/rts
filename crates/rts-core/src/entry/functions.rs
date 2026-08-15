@@ -826,6 +826,21 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         let Some(mut cell) = Value(value).as_slot() else {
             return false;
         };
+        // Step 3 of `OrdinaryHasInstance`: if the left operand is not an
+        // OBJECT, the answer is false before any chain is walked. A number, a
+        // symbol and a bigint are refused by the line above — none of them is a
+        // reference — but a STRING is a primitive that lives in a cell, so it
+        // reached the walk, and the walk substitutes `String.prototype` by kind
+        // (see the note below). `"s" instanceof Object` answered true where
+        // every engine answers false.
+        //
+        // Asked of the cell rather than of the tag, which is the same question
+        // `text::type_of` asks to tell a string from an object and the reason
+        // `new String("s")` still answers true: a wrapper is an ordinary object
+        // cell that merely inherits from the same prototype.
+        if context.text_at(cell).is_some() {
+            return false;
+        }
         // Stepped with `inherited_from` rather than `prototype_at`, so the
         // prototypes that are SUBSTITUTED by kind rather than linked from the
         // cell count too. Without it `[] instanceof Array` and

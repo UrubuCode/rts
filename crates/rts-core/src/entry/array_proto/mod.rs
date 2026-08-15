@@ -106,6 +106,9 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
 /// property write on the constructor.
 pub(super) fn constructor(context: &mut Context) -> u64 {
     let callable = super::native::callable(context, make);
+    // `Array.name`, for the reason `string::constructor` gives: a hand-built
+    // constructor has nothing deriving its name.
+    super::native::name_of(context, callable, "Array");
     let prototype = match prototype_of(context) {
         Some(cell) => Value::from_slot(cell).bits(),
         None => return undefined_of(context),

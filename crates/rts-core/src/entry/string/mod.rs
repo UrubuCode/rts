@@ -131,6 +131,10 @@ extern "C" fn iterate_units(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
 /// ordinary property write on the constructor.
 pub(super) fn constructor(context: &mut Context) -> u64 {
     let callable = super::native::callable(context, convert);
+    // `String.name`. Written here because a constructor built by hand is not a
+    // `#[rtse::class]`, so nothing derives it — and answering `undefined` is
+    // what left `Function.prototype.toString` unable to name it.
+    super::native::name_of(context, callable, "String");
     let prototype = match prototype_of(context) {
         Some(cell) => Value::from_slot(cell).bits(),
         None => return undefined_of(context),

@@ -147,7 +147,7 @@ fn machine_operation(
 /// answer `None` — there is no single right spelling for "the fourth element
 /// of an array" — and the caller falls back to what the value's KIND was.
 pub(super) fn callee_spelling(ctx: &mut Ctx, callee: &Expr) -> Option<u32> {
-    let text = match &callee.kind {
+    let text = match &spelled(callee).kind {
         ExprKind::Member {
             object, property, ..
         } => {
@@ -165,6 +165,30 @@ pub(super) fn callee_spelling(ctx: &mut Ctx, callee: &Expr) -> Option<u32> {
     Some(ctx.literal(&text))
 }
 
+/// A callee with its type assertions peeled off.
+///
+/// `x as T` and `<T>x` are KEPT in the tree as their own node rather than
+/// applied ([`ExprKind::Asserted`]) — a claim is weighed where claims are
+/// weighed, not by the parser. So every place that decides something from the
+/// *spelling* of a callee has to look through one, and the two below are the
+/// places this module decides anything from a spelling.
+///
+/// Without it an asserted callee fell to the plain-call arm, which passes
+/// `undefined` as the receiver — so a type assertion silently lost `this`.
+/// Measured: `(s.at as any)(0)` answered `undefined` where `(s.at)(0)` answered
+/// `"h"`, and `(o.m as any)()` answered `undefined` where `(o.m)()` answered
+/// `"object"`. A `TypeError` naming the callee lost the name the same way.
+///
+/// `sloppy.rs` peels for its own question — whether an object names
+/// `globalThis` — and the two are not one rule stated twice: that one asks what
+/// an OBJECT is, this one asks what a CALL is.
+fn spelled(callee: &Expr) -> &Expr {
+    match &callee.kind {
+        ExprKind::Asserted { value, .. } => spelled(value),
+        _ => callee,
+    }
+}
+
 /// What a call site calls, and what it calls it ON.
 ///
 /// Extracted so a tagged template reaches the same answer: `` o.tag`x` `` passes
@@ -176,6 +200,7 @@ pub(super) fn callee_and_receiver(
     ctx: &mut Ctx,
     callee: &Expr,
 ) -> EmitResult<(ValueId, ValueId)> {
+    let callee = spelled(callee);
     let pair = match &callee.kind {
         ExprKind::Member {
             object,

@@ -93,7 +93,21 @@ pub fn emit_closure(
     ctx: &mut Ctx,
     function: &Function,
 ) -> EmitResult<ValueId> {
-    emit_closure_with(builder, scope, ctx, function, None)
+    emit_closure_with(builder, scope, ctx, function, None, Definition::Expression)
+}
+
+/// The same, for a function DECLARATION.
+///
+/// One caller — [`hoist`], which is the only place a declaration becomes a
+/// closure. The difference is [`Definition`]'s, and it is a language rule
+/// rather than a convenience.
+pub fn emit_closure_declared(
+    builder: &mut FuncBuilder,
+    scope: &Scope,
+    ctx: &mut Ctx,
+    function: &Function,
+) -> EmitResult<ValueId> {
+    emit_closure_with(builder, scope, ctx, function, None, Definition::Declaration)
 }
 
 /// The same, for a body that holds `this` rather than being handed it.
@@ -108,16 +122,18 @@ pub fn emit_closure_binding_this_late(
     function: &Function,
     held: Name,
 ) -> EmitResult<ValueId> {
-    emit_closure_with(builder, scope, ctx, function, Some(held))
+    emit_closure_with(builder, scope, ctx, function, Some(held), Definition::Expression)
 }
 
-/// Both, differing only in whether `this` is held.
+/// All three, differing only in whether `this` is held and in how the function
+/// was named.
 fn emit_closure_with(
     builder: &mut FuncBuilder,
     scope: &Scope,
     ctx: &mut Ctx,
     function: &Function,
     late_this: Option<Name>,
+    definition: Definition,
 ) -> EmitResult<ValueId> {
     // An ARROW reads `this` as a NAME, from the environment the enclosing
     // function put it in. `Scope::late_this` is the mechanism — it already
@@ -144,7 +160,7 @@ fn emit_closure_with(
         }
         false => late_this,
     };
-    let id = emit_function(ctx, scope, function, late_this)?;
+    let id = emit_function(ctx, scope, function, late_this, definition)?;
 
     // The address is not a number known here — it is a relocation the
     // destination fills in, which is the whole reason the machine had to grow
@@ -168,6 +184,7 @@ fn emit_function(
     enclosing: &Scope,
     function: &Function,
     late_this: Option<Name>,
+    definition: Definition,
 ) -> EmitResult<FuncId> {
     // Two refusals and not one, because they are two constructs and the
     // measurement that ranks this crate's gaps counts by this string. Merged,
@@ -253,29 +270,9 @@ fn emit_function(
         function.captures_this,
         rest,
         late_this,
-        // A function EXPRESSION binds its own name for its own body; a
-        // declaration binds it outside too, and binding it inside as well is
-        // what the language says and is harmless. Passed here rather than
-        // decided inside, because only this level has the tree.
-        //
-        // WITHHELD from a body that parks, when the enclosing scope already
-        // binds the name. The inner binding is `RunningFunction`, and for a
-        // generator the function currently running is the BODY — a
-        // `resumable_form` rewritten to take a frame reference and answer a
-        // finished flag. So `function* self(n) { self(n - 1) }` called ITSELF
-        // by that name, which is not a call at all: it hands a heap cell where
-        // a frame pointer belongs and decodes the flag as `undefined`. The
-        // enclosing binding is the wrapper — what every other caller receives —
-        // so where it exists it is the right answer and this one is not.
-        //
-        // A named generator EXPRESSION keeps the old binding, wrong value and
-        // all: nothing else in scope answers, and turning a wrong value into an
-        // unbound name is a second defect rather than a fix. Named in the
-        // module notes as what the frame contract removes.
-        match function.is_generator || function.is_async {
-            true => function.name.filter(|name| enclosing.lookup(*name).is_none()),
-            false => function.name,
-        },
+        // What the body binds its OWN name to, decided here because only this
+        // level has both the tree and the enclosing scope. See [`self_binding`].
+        self_binding(enclosing, function, definition),
         &[],
         // A nested function is not a module: it has no specifier and nothing to
         // publish. Passing the enclosing module's would make every closure
@@ -333,6 +330,72 @@ fn emit_function(
         false => Ok(id),
         true => Ok(wrap_async(ctx, id)),
     }
+}
+
+/// Which of the two ways a function came to be named — the whole of what the
+/// body's binding for its own name depends on. See [`self_binding`].
+#[derive(Clone, Copy, PartialEq)]
+enum Definition {
+    /// `function f() {}` as a statement.
+    Declaration,
+    /// Everything else: a function expression, an arrow, a method.
+    Expression,
+}
+
+/// What a body binds its own name to, and when it binds one at all.
+///
+/// The binding is `RuntimeOp::RunningFunction` — the callable currently being
+/// invoked. That is exactly right for a function EXPRESSION, whose name exists
+/// for the body and nowhere else, and it is the ONLY answer available there.
+///
+/// # Why a declaration is withheld
+///
+/// Its name is an ordinary WRITABLE binding of the enclosing scope, and a
+/// program writes it. Shadowing it made the write land on a value binding local
+/// to the body, invisible outside, so
+///
+/// ```text
+/// let init = 0;
+/// function lazy(n) { init++; lazy = m => m + 100; return lazy(n); }
+/// lazy(1); lazy(2);
+/// ```
+///
+/// ran the first body TWICE: the inner call saw the new function, the outer name
+/// never moved. That is how every Babel-transpiled `async` function memoises
+/// itself, so it is not an exotic program.
+///
+/// Only where the enclosing binding is one the body can actually REACH, which is
+/// the environment form. A declaration nothing captures stays a value binding of
+/// the enclosing activation, invisible from inside a second machine function —
+/// withholding there would turn `function fact(n) { … fact(n - 1) … }` from a
+/// working recursion into an unbound name.
+///
+/// # Why a generator is withheld too
+///
+/// For a different reason. The function currently running inside a generator is
+/// the BODY — a `resumable_form` taking a frame reference and answering a
+/// finished flag — so `function* self(n) { self(n - 1) }` called something that
+/// is not the generator at all: it hands a heap cell where a frame pointer
+/// belongs. The enclosing binding is the wrapper, which is what every other
+/// caller receives, so where one exists it is the right answer and this is not.
+///
+/// A named generator EXPRESSION keeps the binding, wrong value and all: nothing
+/// else in scope answers, and turning a wrong value into an unbound name is a
+/// second defect rather than a fix.
+fn self_binding(enclosing: &Scope, function: &Function, definition: Definition) -> Option<Name> {
+    let name = function.name?;
+    if function.is_generator || function.is_async {
+        return enclosing.lookup(name).is_none().then_some(name);
+    }
+    if definition == Definition::Declaration
+        && matches!(
+            enclosing.lookup(name),
+            Some(super::scope::Binding::InEnvironment { .. })
+        )
+    {
+        return None;
+    }
+    Some(name)
 }
 
 /// Wraps a generator's body so that calling it answers a generator object.
@@ -1088,7 +1151,7 @@ pub fn hoist(
             let Some(name) = function.name else {
                 continue;
             };
-            let closure = emit_closure(builder, scope, ctx, function)?;
+            let closure = emit_closure_declared(builder, scope, ctx, function)?;
             binding::write(builder, scope, ctx, name, closure)?;
         }
     }

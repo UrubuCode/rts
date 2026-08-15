@@ -47,11 +47,67 @@
 //! `new Function` needs the same thing at run time.
 
 use super::{Context, with_current};
+use crate::text::Str;
 use crate::value::Value;
 /// `Function`.
 
 #[rtse::class("Function")]
 impl Function {
+
+    /// `f.toString()` — the function's source.
+    ///
+    /// # Two answers, and neither of them is a guess
+    ///
+    /// The specification wants the SOURCE TEXT for a function the program
+    /// wrote, and an implementation-defined `NativeFunction` rendering for a
+    /// callable that has none. This engine can only ever produce the second:
+    /// nothing retains source past the parse, so a compiled function is a name,
+    /// an arity and a code address, with no text anywhere to hand back.
+    ///
+    /// Which of the two a callable is comes from [`Context::function_names`] —
+    /// the table the host seeds by code ADDRESS once the program is placed, and
+    /// the same one `functions::closure_new` reads to write `.name` and
+    /// `.length`. A callable whose address is in it was compiled from this
+    /// program; one whose address is not is Rust. A second marker beside the
+    /// cell would be a second answer to a question that already has one.
+    ///
+    /// # Why a compiled function is NOT rendered as `[native code]`
+    ///
+    /// Because the letter of the specification would allow it and the string is
+    /// a PROBE. Step 4 of `Function.prototype.toString` permits `NativeFunction`
+    /// syntax for any callable with no retained source, so `function f() {
+    /// [native code] }` would be legal for a user function — and every bundler
+    /// writes `Function.prototype.toString.call(f).includes("[native code]")` to
+    /// find out whether a built-in has been replaced. An engine answering yes
+    /// for functions the program itself wrote makes that probe say the opposite
+    /// of the truth, in a branch nothing else observes.
+    ///
+    /// `[bytecode]` is Hermes' spelling for exactly this gap and is taken for
+    /// exactly that reason: it is function-shaped, so `String(f)` is no longer
+    /// the `[object Function]` that came from falling through to
+    /// `Object.prototype.toString`, and it fails the native probe correctly.
+    /// What it is not is the source, and the divergence from Node and Bun for a
+    /// user function is real and stated rather than papered over — closing it
+    /// needs the source range kept per function from the parse to the runtime,
+    /// which nothing in this engine carries today.
+    fn to_string(this: u64) -> u64 {
+        // Built inside the borrow and interned inside it too, because both need
+        // the context — but the REFUSAL leaves with nothing done, so the throw
+        // below happens with no borrow held.
+        let rendered = with_current(|context| {
+            let text = rendering(context, this)?;
+            Some(context.intern_value(Str::from_str(&text)).bits())
+        });
+        match rendered {
+            Some(value) => value,
+            None => {
+                super::throw::type_error(
+                    "Function.prototype.toString requires that 'this' be a function",
+                );
+                with_current(|context| super::objects::undefined_of(context))
+            }
+        }
+    }
 
     /// `f.call(thisArg, …)` — any number of arguments.
     ///
@@ -109,6 +165,35 @@ impl Function {
             with_current(|context| super::array_proto::arguments_at(context, 1, [receiver, a, b, c]));
         bound(this, receiver, partial)
     }
+}
+
+/// The text `toString` answers, or `None` where the receiver is not callable —
+/// which is the one case the specification makes a `TypeError` rather than a
+/// string.
+///
+/// The name comes from the `.name` PROPERTY rather than from the table, because
+/// that property is what a program can have rewritten: `Object.defineProperty(f,
+/// "name", …)` changes what every engine prints here, and reading the table
+/// instead would answer from a record no program can reach.
+fn rendering(context: &mut Context, this: u64) -> Option<String> {
+    let cell = Value(this).as_slot()?;
+    let (code, _) = context.callable_at(cell)?;
+    let compiled = context.function_names.iter().any(|(at, _, _)| *at == code);
+    let key = context.well_known("name");
+    let name = super::objects::read_property(context, cell, key)
+        .and_then(|value| value.as_slot())
+        .and_then(|slot| context.text_at(slot))
+        .and_then(Str::to_rust)
+        .unwrap_or_default();
+    let body = match compiled {
+        true => "[bytecode]",
+        false => "[native code]",
+    };
+    // No parameter list, for either kind. The arity is known and the parameter
+    // NAMES are not, so printing `function f(a0, a1)` would invent identifiers
+    // the program never wrote — and the one thing a caller does with this string
+    // is read it or search it.
+    Some(format!("function {name}() {{ {body} }}"))
 }
 
 /// What a bound function remembers, beside its cell.
