@@ -165,6 +165,12 @@ pub fn emit_while(
     )?;
 
     builder.switch_to(inside);
+    // A `while` head declares nothing, so nothing is copied in or out — but a
+    // `let` the BODY declares is still a new binding on every pass, and a
+    // closure made in one must not see the next one's value. Same mechanism,
+    // one of its two sets empty.
+    let (copied, resident) = per_iteration_names(scope, None, body);
+    let outer_environment = open_iteration(builder, scope, ctx, &copied, &resident)?;
     let frame = Frame {
         label,
         continue_to: Some(header),
@@ -178,6 +184,10 @@ pub fn emit_while(
         let leaving = scope.snapshot();
         builder.jump(header, &merged_args(&leaving, &merged))?;
     }
+    // Nothing is emitted here, which is why it is safe after the jump and safe
+    // for a `continue` to have skipped it: with no head names the close is a
+    // scope pop and no instruction at all.
+    close_iteration(builder, scope, ctx, &copied, &resident, outer_environment)?;
 
     builder.switch_to(exit);
     settle(scope, &at_header, &merged, &params);
@@ -222,12 +232,17 @@ pub fn emit_do_while(
         depth,
         merged: merged.clone(),
     };
+    // Same as `while`: no head to copy, but a `let` the body declares is a new
+    // binding on every pass.
+    let (copied, resident) = per_iteration_names(scope, None, body);
+    let outer_environment = open_iteration(builder, scope, ctx, &copied, &resident)?;
     let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body))?;
 
     if !terminated {
         let leaving = scope.snapshot();
         builder.jump(test, &merged_args(&leaving, &merged))?;
     }
+    close_iteration(builder, scope, ctx, &copied, &resident, outer_environment)?;
 
     builder.switch_to(test);
     settle(scope, &entering, &merged, &at_test_params);
@@ -351,6 +366,11 @@ fn emit_for_inner(
     }
 
     builder.switch_to(inside);
+    // Every pass gets its own copy of a `let` head name that something closes
+    // over. Opened HERE rather than before the header, because the copy has to
+    // read what this pass's test just saw — see [`open_iteration`].
+    let (copied, resident) = per_iteration_names(scope, init, body);
+    let outer_environment = open_iteration(builder, scope, ctx, &copied, &resident)?;
     // `continue` runs the update, so it targets a block of its own rather than
     // the header — jumping straight to the header would skip `i++`.
     let stepping = builder.create_block();
@@ -371,6 +391,10 @@ fn emit_for_inner(
 
     builder.switch_to(stepping);
     settle(scope, &at_header, &merged, &step_params);
+    // The pass's values go back out BEFORE the update runs, which is what makes
+    // `i++` step the counter the body may have already moved — see
+    // [`close_iteration`].
+    close_iteration(builder, scope, ctx, &copied, &resident, outer_environment)?;
     if let Some(update) = update {
         super::expr::emit_expr(builder, scope, ctx, update)?;
     }
@@ -486,6 +510,150 @@ fn assigned_in_expr_positions(scope: &Scope, expr: &Expr) -> Vec<usize> {
     let mut names = Vec::new();
     assigned_in_expr(expr, &mut names);
     positions_of(scope, &names)
+}
+
+/// What a pass's own environment holds, and which of it arrives from the last.
+///
+/// Two sets, because they are answers to two different questions.
+///
+/// **Carried** are the head's `let`/`const` names that something closes over.
+/// They arrive with a value — the one this pass's test just saw — and they
+/// leave with whatever the body made of them, which is what lets `i++` step a
+/// counter the body already moved. `for (var i = …)` contributes none: it is
+/// ONE binding for the whole loop, and that is the entire difference between
+/// the two spellings.
+///
+/// **Resident** adds what the BODY declares and something closes over. Those
+/// need no copy — a `let` inside a block is a new binding on every pass by
+/// definition, so arriving empty is arriving correct — but they must be bound
+/// at zero hops here, because [`super::binding::declare`] writes a captured
+/// name into whatever environment is current and a read that resolved one hop
+/// further would look in the function's for something written in the pass's.
+/// That mismatch is not hypothetical; it is what this pair was rewritten to
+/// fix.
+///
+/// Over-approximates in one direction on purpose, the way [`super::capture`]
+/// does: a name declared in a NESTED loop's body counts for this loop too. The
+/// cost is one object allocated per pass that nothing needed. The cost of the
+/// other direction is two closures sharing a variable, which is a wrong
+/// program.
+///
+/// Both are empty when the function has no environment, which is not a special
+/// case but the same fact from the other side: a function that builds none
+/// captures nothing, so `is_captured` is false for every name in it.
+fn per_iteration_names(
+    scope: &Scope,
+    init: Option<&ForInit>,
+    body: &Stmt,
+) -> (Vec<Name>, Vec<Name>) {
+    let mut carried = Vec::new();
+    if let Some(ForInit::Declare { kind, bindings }) = init
+        && *kind != crate::syntax::BindingKind::Var
+    {
+        for binding in bindings {
+            binding.target.bound_names(&mut carried);
+        }
+        carried.retain(|name| scope.is_captured(*name));
+    }
+
+    // `var` is not in this set even when the body spells one, and does not need
+    // to be: a `var` was hoisted to the function's scope, so reaching its line
+    // is a WRITE to a binding that already exists — which resolves through the
+    // chain to where it was hoisted, one hop further out, rather than through
+    // the declaration path that would put it here.
+    let mut declared = std::collections::BTreeSet::new();
+    super::capture::declared_by_statement(body, &mut declared);
+    let mut resident = carried.clone();
+    resident.extend(
+        declared
+            .into_iter()
+            .filter(|name| scope.is_captured(*name) && !carried.contains(name)),
+    );
+    (carried, resident)
+}
+
+/// Opens the environment this pass's closures will capture.
+///
+/// # Why the copy is in and out rather than a chain the loop carries
+///
+/// The language's `CreatePerIterationEnvironment` makes a new record, copies
+/// the bindings into it, and runs the increment against the NEXT pass's record.
+/// This makes a new record, copies in, runs the body, and copies back out
+/// before the increment — and the two are indistinguishable to a program.
+///
+/// They are indistinguishable because nothing but these names lives in the
+/// record: its `__rts_outer` is the same object on every pass, so a name
+/// resolved through it reaches the same storage either way, and the only
+/// observable difference between two records is which values the copies put in
+/// them. Carrying the record itself across the back edge as a block parameter
+/// would match the specification's wording more closely and would mean teaching
+/// [`add_params`] about a binding that is not a name — a machine question asked
+/// in the language layer, which rule 2 refuses.
+///
+/// Returns the environment that was in force. `None` when there was nothing to
+/// do, which [`close_iteration`] reads the same way.
+fn open_iteration(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    copied: &[Name],
+    resident: &[Name],
+) -> EmitResult<Option<ValueId>> {
+    if resident.is_empty() {
+        return Ok(None);
+    }
+    // Read BEFORE the layer exists, so these come from the environment the
+    // header wrote — reading after would read the fresh object's own empty
+    // slots, which is `undefined` dressed as a counter.
+    let incoming = copied
+        .iter()
+        .map(|name| super::binding::read(builder, scope, ctx, *name))
+        .collect::<EmitResult<Vec<_>>>()?;
+    let enclosing = scope
+        .environment()
+        .expect("a captured name means the function built an environment");
+    // One slot per resident name plus the link, which is the same width rule
+    // `function::emit` uses when it builds the activation's own environment.
+    let width = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+        repr: rts_cranelift::repr::Repr::I64,
+        bits: rts_cranelift::ir::ScalarBits(resident.len() as u64 + 1),
+    });
+    let width = builder.use_const(width);
+    let fresh = super::expr::call(builder, ctx, crate::runtime::RuntimeOp::ObjectNew, &[width])?[0];
+    let outer = super::binding::outer_link(ctx);
+    super::property::emit_write(builder, ctx, fresh, outer, enclosing)?;
+    let previous = scope.enter_environment(fresh, resident);
+    for (name, value) in copied.iter().zip(incoming) {
+        super::binding::write(builder, scope, ctx, *name, value)?;
+    }
+    Ok(previous)
+}
+
+/// Closes it, leaving this pass's values where the update will find them.
+///
+/// The order is the semantics: read while the pass's record is still the one in
+/// force, THEN leave, then write. Reversed, both halves would name the same
+/// object and the copy would be a no-op that looks like a copy.
+fn close_iteration(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    copied: &[Name],
+    resident: &[Name],
+    previous: Option<ValueId>,
+) -> EmitResult<()> {
+    if resident.is_empty() {
+        return Ok(());
+    }
+    let outgoing = copied
+        .iter()
+        .map(|name| super::binding::read(builder, scope, ctx, *name))
+        .collect::<EmitResult<Vec<_>>>()?;
+    scope.leave_environment(previous);
+    for (name, value) in copied.iter().zip(outgoing) {
+        super::binding::write(builder, scope, ctx, *name, value)?;
+    }
+    Ok(())
 }
 
 /// Turns names into positions, dropping any the loop cannot see.

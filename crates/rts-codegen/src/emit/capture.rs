@@ -728,7 +728,7 @@ fn walk_pattern_exprs<'a>(pattern: &'a Pattern, on: &mut impl FnMut(Child<'a>)) 
 /// makes it safe to over-include. A `for`-await-`using` loop's disposed name
 /// is included for the same reason — it is a declaration this function owns,
 /// like the `for`-declare target next to it, which was already handled.
-fn declared_by_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
+pub(super) fn declared_by_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
     match &statement.kind {
         // A declaration binds its own name in the enclosing scope, which is how
         // recursion works: `f` inside `f` is the enclosing function's binding,

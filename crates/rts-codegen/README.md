@@ -211,12 +211,35 @@ is wrong for every program with a typo in it. Which names a program creates is
 answered by `emit/sloppy.rs`, once over the whole tree, because the read can be
 emitted before the assignment that creates it is reached.
 
-A **known divergence**, pinned by a test that asserts what the engine does so
-that fixing it fails: `let` in a loop should be a fresh binding per pass, and
-this engine's environment is per function **activation**. Every pass writes the
-same slot, so two closures made in different passes of one loop see the same
-value. It affects every loop, arrived with E5, and needs an environment created
-inside the loop and chained to the function's.
+A known divergence that **is now closed**, and the entry stays because what it
+predicted is what the fix cost. `let` in a loop is a fresh binding per pass; this
+engine's environment was per function **activation**, so every pass wrote the
+same slot and two closures made in different passes saw the same value. It
+affected every loop and arrived with E5.
+
+The paragraph that stood here said the fix "needs an environment created inside
+the loop and chained to the function's", and that is exactly what it is:
+`loops::open_iteration` builds one at the top of each pass, links its
+`__rts_outer` to the environment in force, and `Scope::enter_environment` binds
+the pass's names at zero hops while pushing **every other binding one hop
+further out**. That last clause is the whole difficulty — `hops` is a
+compile-time number, so inserting a link means every binding past it counts
+differently, and getting it wrong reads another activation's variable.
+
+Two things are worth keeping written down about the shape.
+
+The set is **two sets**, because they answer different questions. Head names
+(`for (let i = …)`) arrive with a value and leave with one, so the update steps
+a counter the body may already have moved. Names the **body** declares need no
+copy — a `let` in a block is a new binding per pass by definition — but they
+must be bound at zero hops all the same, because a captured name is *declared*
+into whatever environment is current and a read resolving one hop further would
+look in the function's for something written in the pass's.
+
+`var` is in neither, and needs no special case to stay out. A `var` was hoisted,
+so reaching its line is a WRITE to a binding that already exists, which resolves
+through the chain to where it was hoisted. Only `let`/`const` reach the
+declaration path that lands in the pass's own record.
 
 One entry in that list was **wrong** and is worth recording rather than quietly
 fixing: `delete` was said to be impossible because "a shape tree built from

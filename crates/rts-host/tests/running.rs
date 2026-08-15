@@ -1821,32 +1821,28 @@ fn break_and_continue_reach_the_for_in_they_are_written_in() {
 }
 
 #[test]
-fn a_captured_loop_variable_is_shared_across_passes_which_is_wrong() {
-    // A KNOWN DIVERGENCE, pinned so it stays visible rather than being
-    // rediscovered.
+fn a_captured_loop_variable_is_a_fresh_binding_on_every_pass() {
+    // This asserted the OPPOSITE until the divergence was closed, and the note
+    // it carried said the fix "means creating an environment inside the loop,
+    // chained to the function's, whenever the body declares a name something
+    // captures". That is what `loops::open_iteration` does, so the assertion
+    // was turned round rather than the test deleted — a pinned divergence
+    // becoming a pinned behaviour is the point of having pinned it.
     //
-    // The language gives `let` in a loop a fresh binding per pass, so a closure
-    // made on the first pass captures the FIRST key. This engine's environment
-    // is per function **activation** rather than per iteration, so every pass
-    // writes the same slot and every closure sees the last value.
-    //
-    // Not caused by `for-in`: an ordinary `for` has it too, and E5 shipped it.
-    // Fixing it means creating an environment inside the loop, chained to the
-    // function's, whenever the body declares a name something captures.
-    //
-    // Asserted as what it DOES, so that fixing it fails this test — which is
-    // how a divergence stays a decision rather than becoming folklore.
+    // `for-in` rather than an ordinary `for` on purpose: the desugaring
+    // declares the key in the BODY, not the head, so this pins the half that a
+    // head-only fix would have missed while looking finished.
     let produced = run("function collect() { \
            let o = {}; o.a = 1; o.b = 2; \
            let first = 0; \
            for (let k in o) { function keep() { return k; } if (first === 0) { first = keep; } } \
            return first(); \
          } \
-         return collect() === \"b\";");
+         return collect() === \"a\";");
     assert_eq!(
         tags::payload_of(produced),
         tags::BOOL_TRUE,
-        "every closure sees the LAST key, because one environment is shared"
+        "the closure made on the first pass captures the FIRST key"
     );
 }
 

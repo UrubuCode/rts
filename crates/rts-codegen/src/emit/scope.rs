@@ -291,6 +291,75 @@ impl Scope {
         self.layers.push(Layer::default());
     }
 
+    /// Enters a layer that lives in an environment of its OWN.
+    ///
+    /// # What this is for, and why it is not [`Scope::enter`]
+    ///
+    /// `for (let i = 0; …)` gives every pass its own `i`, so two closures made
+    /// in two passes see two values. An ordinary block layer cannot express
+    /// that: a captured name resolves to a property of *the function's*
+    /// environment, one object for the whole activation, so every pass writes
+    /// the slot the previous pass captured. That is the divergence this crate's
+    /// README recorded, and the language calls the fix
+    /// `CreatePerIterationEnvironment`.
+    ///
+    /// The chain is what carries it. `environment` becomes a fresh object whose
+    /// `__rts_outer` is the one in force until now, `names` are bound in it at
+    /// zero hops, and **everything already reachable is re-bound one hop
+    /// further out** — which is the whole cost, and the reason this is a method
+    /// here rather than a loop somewhere else: `hops` is a compile-time number,
+    /// so inserting a link means every binding past it counts differently, and
+    /// a caller that got that wrong would read another activation's variable.
+    ///
+    /// Only `InEnvironment` bindings are re-bound. A `Value` one is a register
+    /// and no chain reaches it, so bumping it would be inventing a hop for a
+    /// name that does not travel one.
+    ///
+    /// Returns the environment that was in force, for [`Scope::leave_environment`].
+    pub fn enter_environment(&mut self, environment: ValueId, names: &[Name]) -> Option<ValueId> {
+        let mut entries: Vec<(Name, Binding)> = self
+            .layers
+            .iter()
+            .flat_map(|layer| layer.entries.iter())
+            .filter_map(|(bound, binding)| match binding {
+                Binding::InEnvironment { hops, name } => Some((
+                    *bound,
+                    Binding::InEnvironment {
+                        hops: hops + 1,
+                        name: *name,
+                    },
+                )),
+                Binding::Value(_) => None,
+            })
+            .collect();
+        // After the outer names, so a head name of the same spelling shadows
+        // the one it was copied from — `lookup` scans in reverse, so this
+        // order IS the shadowing rule, the same way [`Scope::for_function`]
+        // relies on it.
+        entries.extend(names.iter().map(|name| {
+            (
+                *name,
+                Binding::InEnvironment {
+                    hops: 0,
+                    name: *name,
+                },
+            )
+        }));
+        self.layers.push(Layer { entries });
+        std::mem::replace(&mut self.environment, Some(environment))
+    }
+
+    /// Leaves a layer [`Scope::enter_environment`] opened.
+    ///
+    /// Takes the previous environment rather than remembering it here, for the
+    /// reason the snapshot pair does: the emitter's bracketing is visible at
+    /// the call site, and a stack held inside this type would be a second place
+    /// for it to get out of step.
+    pub fn leave_environment(&mut self, previous: Option<ValueId>) {
+        self.leave();
+        self.environment = previous;
+    }
+
     /// Leaves the innermost block.
     ///
     /// # Panics

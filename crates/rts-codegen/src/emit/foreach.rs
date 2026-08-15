@@ -67,7 +67,20 @@ pub fn emit_for_each(
             return super::expr::gap("`using` in a for-head, which needs `Symbol.dispose`");
         }
     };
-    let fresh_binding = matches!(target, ForEachTarget::Declare { .. });
+    // `for (var k of xs)` DECLARES and still is not fresh: `var` was hoisted to
+    // the function's scope, so every pass writes the one binding and a closure
+    // made in any pass sees the last value. That is the language, and it stopped
+    // being free the day a `let` head got a per-iteration environment — this
+    // expansion spelled every head `let`, so a `var` head silently acquired the
+    // fresh binding `let` had just been given. Measured as `for (var k of xs)`
+    // answering `1,2,3` where every other runtime answers `3,3,3`.
+    let fresh_binding = matches!(
+        target,
+        ForEachTarget::Declare {
+            kind: BindingKind::Let | BindingKind::Const,
+            ..
+        }
+    );
     let at = statement.at;
     let index = ctx.names.intern("__rts_in_index");
     let keys = ctx.names.intern("__rts_in_keys");
