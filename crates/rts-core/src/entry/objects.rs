@@ -177,7 +177,21 @@ pub fn get_property(object: u64, key: i64) -> u64 {
             let undefined = with_current(|context| undefined_of(context));
             super::functions::call(getter, object, undefined, undefined, undefined, undefined)
         }
-        super::accessor::Found::Absent => with_current(|context| undefined_of(context)),
+        // A miss on the GLOBAL OBJECT is not a miss until the lazy build has
+        // been asked. The globals are made one at a time, the first time each is
+        // read by its bare name, so `globalThis.Object` in a program that never
+        // wrote `Object` reached an object where nothing had made it — and
+        // answered `undefined` for every name the runtime supplies.
+        super::accessor::Found::Absent => with_current(|context| {
+            if let Some(slot) = Value(object).as_slot()
+                && context.globals == Some(slot)
+                && let Some(Key::Name(named)) = key_of(context, key)
+                && let Some(made) = super::global::supply(context, named)
+            {
+                return made;
+            }
+            undefined_of(context)
+        }),
     }
 }
 

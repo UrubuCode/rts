@@ -58,18 +58,42 @@ pub fn global_get(key: i64) -> u64 {
         if let Some(found) = read_property(context, object, Key::Name(name)) {
             return found.bits();
         }
-        // Not made yet. Which one it is has to come from the text, because a key
-        // number is issued by interning and carries no name of its own.
-        let Some(text) = context.interner.text(name).and_then(|text| text.to_rust()) else {
-            return undefined_of(context);
-        };
+        supply(context, name).unwrap_or_else(|| undefined_of(context))
+    })
+}
+
+/// Makes the global a key names, when this runtime supplies one.
+///
+/// # Why a property read has to be able to reach this
+///
+/// The globals are built LAZILY — each one the first time it is read — so the
+/// global object holds only what has been asked for. That is invisible while
+/// every read goes through [`global_get`], which asks by name. It stops being
+/// invisible the moment a program writes `globalThis.Object`: that is an
+/// ordinary property read on an object where nothing has yet made `Object`, and
+/// it answered `undefined` for every name the program had not already used
+/// under its bare spelling.
+///
+/// So a miss on the global object comes here, rather than the laziness being
+/// given up. Building all of them the first time `globalThis` is touched was
+/// the alternative, and it spends every registration on a program that reads
+/// one name — which is the cost the laziness exists to refuse.
+pub(in crate::entry) fn supply(
+    context: &mut Context,
+    name: rts_cranelift::shape::Key,
+) -> Option<u64> {
+    let object = holder(context)?;
+    {
+        // Which one it is has to come from the text, because a key number is
+        // issued by interning and carries no name of its own.
+        let text = context.interner.text(name).and_then(|text| text.to_rust())?;
         // The error family answers for itself, because the arm here would
         // otherwise name seven registrations differing only in which one they
         // call — and which error classes exist is a fact about that module.
         if let Some(register) = super::error::provided(&text) {
             let made = register(context);
             super::objects::put(context, object, Key::Name(name), made);
-            return made;
+            return Some(made);
         }
         // A global FUNCTION, which is a value rather than an object with
         // members — so it is made here rather than by a class registration, and
@@ -81,7 +105,7 @@ pub fn global_get(key: i64) -> u64 {
         {
             let made = super::native::callable(context, code);
             super::objects::put(context, object, Key::Name(name), made);
-            return made;
+            return Some(made);
         }
         let made = match text.as_str() {
             "RegExp" => super::regex::constructor(context),
@@ -128,11 +152,11 @@ pub fn global_get(key: i64) -> u64 {
             // than a table with globals in it: a program can reach it, read
             // what is on it, and put something there.
             "globalThis" => Value::from_slot(object).bits(),
-            _ => return undefined_of(context),
+            _ => return None,
         };
         super::objects::put(context, object, Key::Name(name), made);
-        made
-    })
+        Some(made)
+    }
 }
 
 /// Writes a global, creating it.
