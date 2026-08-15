@@ -5670,6 +5670,496 @@
 }
 ,
 {
+  "name": "obf_closures_scope_deadcode",
+  "status": "pass",
+  "bun": "0,3,6,9|12|inner|outer|12|3:2",
+  "node": "0,3,6,9|12|inner|outer|12|3:2",
+  "rts": "0,3,6,9|12|inner|outer|12|3:2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_closures_scope_everything",
+  "status": "pass",
+  "bun": "0,3,6,9|12|inner|outer|12|3:2",
+  "node": "0,3,6,9|12|inner|outer|12|3:2",
+  "rts": "0,3,6,9|12|inner|outer|12|3:2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_closures_scope_flatten",
+  "status": "pass",
+  "bun": "0,3,6,9|12|inner|outer|12|3:2",
+  "node": "0,3,6,9|12|inner|outer|12|3:2",
+  "rts": "0,3,6,9|12|inner|outer|12|3:2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_closures_scope_numbers",
+  "status": "pass",
+  "bun": "0,3,6,9|12|inner|outer|12|3:2",
+  "node": "0,3,6,9|12|inner|outer|12|3:2",
+  "rts": "0,3,6,9|12|inner|outer|12|3:2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_closures_scope_strings",
+  "status": "pass",
+  "bun": "0,3,6,9|12|inner|outer|12|3:2",
+  "node": "0,3,6,9|12|inner|outer|12|3:2",
+  "rts": "0,3,6,9|12|inner|outer|12|3:2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_control_flow_deadcode",
+  "status": "rts_error",
+  "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "rts": "",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 1,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": "error: Malformed(\"[CleanupDoesNotEnd { region: RegionId(0), block: block117 }]\")\n      at run of tests/cross-runtime/obfuscated/obf_control_flow_deadcode.ts failed"
+}
+,
+{
+  "name": "obf_control_flow_everything",
+  "status": "rts_diverge",
+  "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "rts": "00|01|10|11|20|21|zootd|RangeError|ok1|dflt||falsy|truthy|8",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_control_flow_flatten",
+  "status": "pass",
+  "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "rts": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_control_flow_numbers",
+  "status": "pass",
+  "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "rts": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_control_flow_strings",
+  "status": "pass",
+  "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "rts": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_destructure_spread_deadcode",
+  "status": "pass",
+  "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_destructure_spread_everything",
+  "status": "pass",
+  "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_destructure_spread_flatten",
+  "status": "pass",
+  "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_destructure_spread_numbers",
+  "status": "pass",
+  "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_destructure_spread_strings",
+  "status": "pass",
+  "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_numbers_ops_deadcode",
+  "status": "pass",
+  "bun": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "node": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "rts": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_numbers_ops_everything",
+  "status": "pass",
+  "bun": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "node": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "rts": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_numbers_ops_flatten",
+  "status": "pass",
+  "bun": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "node": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "rts": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_numbers_ops_numbers",
+  "status": "pass",
+  "bun": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "node": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "rts": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_numbers_ops_strings",
+  "status": "pass",
+  "bun": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "node": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "rts": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_objects_meta_deadcode",
+  "status": "pass",
+  "bun": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "node": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "rts": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_objects_meta_everything",
+  "status": "pass",
+  "bun": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "node": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "rts": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_objects_meta_flatten",
+  "status": "pass",
+  "bun": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "node": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "rts": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_objects_meta_numbers",
+  "status": "pass",
+  "bun": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "node": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "rts": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_objects_meta_strings",
+  "status": "pass",
+  "bun": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "node": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "rts": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_proto_classes_deadcode",
+  "status": "pass",
+  "bun": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "node": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "rts": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_proto_classes_everything",
+  "status": "pass",
+  "bun": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "node": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "rts": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_proto_classes_flatten",
+  "status": "pass",
+  "bun": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "node": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "rts": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_proto_classes_numbers",
+  "status": "pass",
+  "bun": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "node": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "rts": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_proto_classes_strings",
+  "status": "pass",
+  "bun": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "node": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "rts": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_strings_regex_deadcode",
+  "status": "pass",
+  "bun": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "node": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "rts": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_strings_regex_everything",
+  "status": "pass",
+  "bun": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "node": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "rts": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_strings_regex_flatten",
+  "status": "pass",
+  "bun": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "node": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "rts": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_strings_regex_numbers",
+  "status": "pass",
+  "bun": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "node": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "rts": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_strings_regex_strings",
+  "status": "pass",
+  "bun": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "node": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "rts": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "110_object_getownpropertydescriptors",
   "status": "pass",
   "bun": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
@@ -9911,4 +10401,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":708,"pass":674,"rts_diverge":20,"bun_node_diverge":5,"errors":9,"rejected":0}}
+],"summary":{"total":743,"pass":707,"rts_diverge":21,"bun_node_diverge":5,"errors":10,"rejected":0}}
