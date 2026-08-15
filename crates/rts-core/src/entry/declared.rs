@@ -82,6 +82,7 @@ pub const CLASSES: &[Class] = &[
     super::buffers::ATOMICS_TYPES,
     super::buffers::DATA_VIEW_TYPES,
     super::buffers::SHARED_ARRAY_BUFFER_TYPES,
+    super::collections::FINALIZATION_REGISTRY_TYPES,
     super::collections::MAP_TYPES,
     super::collections::SET_TYPES,
     super::collections::WEAK_MAP_TYPES,
@@ -143,6 +144,10 @@ const GENERIC_IN_LIB: &[&str] = &[
     "WeakMap",
     "WeakSet",
     "WeakRef",
+    // `FinalizationRegistry<T>` in `lib.es2021.weakref.d.ts`, exactly as
+    // `WeakRef<T>` above it — merging without repeating the parameter is TS2428
+    // and takes the whole generated file down over one class.
+    "FinalizationRegistry",
     "Promise",
     "Iterator",
 ];

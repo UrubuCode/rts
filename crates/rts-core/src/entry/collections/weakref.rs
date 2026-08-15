@@ -25,9 +25,21 @@
 //! and this comment is the record of why that is the whole truth about it
 //! rather than an approximation.
 //!
-//! `FinalizationRegistry` is not implemented; it needs the same collector hook
-//! and a callback queue the drain loop would have to pump, and nothing here
-//! builds either.
+//! `FinalizationRegistry` **is** implemented, in [`super::finalization`], and
+//! this paragraph said it was not "because it needs the same collector hook and
+//! a callback queue the drain loop would have to pump, and nothing here builds
+//! either". Both existed already, under other names and for another client:
+//! [`crate::entry::finalize`] is the hook AND the queue — the sweep queues, and
+//! `drain_microtasks` runs what it queued — and it was built for `rts-napi`'s
+//! `napi_wrap`.
+//!
+//! That is worth reading beside this file rather than only in that one, because
+//! it says what is left HERE: a registry learns that a target died and this does
+//! not, so the two now use different mechanisms for what is nearly one question.
+//! `deref` could be answered by [`crate::entry::weak`] as the paragraph above
+//! says, or by a death notice that clears the property; that choice belongs in
+//! the change that makes `deref` answer `undefined`, which is still the
+//! language-visible change it has always been.
 
 use super::with_current;
 use crate::entry::objects;

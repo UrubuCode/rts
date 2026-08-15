@@ -116,6 +116,10 @@ const PROVIDED: &[&str] = &[
     "WeakMap",
     "WeakSet",
     "WeakRef",
+    // `rts-core`'s `entry/collections/finalization.rs`, over the collector's own
+    // death notice — so this follows a value, which is the rule the comment
+    // below states. What a callback does NOT promise is written there.
+    "FinalizationRegistry",
     "SharedArrayBuffer",
     "Atomics",
     "Iterator",
@@ -137,9 +141,13 @@ const PROVIDED: &[&str] = &[
     // turns a refusal at compile time into an `undefined` at run time, and it
     // makes the compile-rate measurement count a file that cannot work. This
     // repository's honesty floor names that exact failure — a number measured
-    // against a corpus quietly smaller than claimed. `fetch`, `Blob`, `require`,
-    // `FinalizationRegistry`, `eval` and `Intl` are all reached by the suite and
-    // are all ABSENT here for that reason, until something supplies them.
+    // against a corpus quietly smaller than claimed. `fetch`, `Blob`, `require`
+    // and `eval` are all reached by the suite and are all
+    // ABSENT here for that reason, until something supplies them. `Intl` was on
+    // that list and came off it in the change that gave `rts-core` seven
+    // services over real CLDR data — the list follows the value, which is the
+    // rule this paragraph states and the reason the name moved rather than the
+    // sentence being softened.
     // `SharedArrayBuffer`, `WeakRef`, `Atomics`, `EventEmitter`, `Iterator` and
     // `Storage` joined the list below once `rts-core`/`rts-std` grew real
     // values for them — `Atomics` single-threaded and honest about it,
@@ -180,6 +188,10 @@ const PROVIDED: &[&str] = &[
     "Event",
     "EventTarget",
     "CustomEvent",
+    // `rts-std`'s `globals/events/channel.rs`. `MessagePort` is deliberately not
+    // here: a program reaches a port through `channel.port1`, and the name has no
+    // value of its own to follow.
+    "MessageChannel",
     "EventEmitter",
     "Storage",
     // The web surface, and every one of them follows a VALUE that landed in the
@@ -192,8 +204,8 @@ const PROVIDED: &[&str] = &[
     //
     // `Blob` is named a few lines up as an example of a name reached by the
     // suite and deliberately ABSENT "until something supplies them". Something
-    // has; the sentence above is left standing because `fetch`, `require`,
-    // `FinalizationRegistry`, `eval` and `Intl` are still in exactly that
+    // has; the sentence above is left standing because `fetch`, `require` and
+    // `eval` are still in exactly that
     // position. `fetch` in particular is absent BY DECISION rather than for want
     // of work — `globals/fetch/mod.rs` says why a `fetch` that cannot reach the
     // network must not have the name.
@@ -221,6 +233,19 @@ const PROVIDED: &[&str] = &[
     // existia e o nome era recusado, e a diferença só aparece na CHAMADA — um
     // `typeof` do mesmo nome respondia `"function"`.
     "pumpEvents",
+    // The WHATWG **Streams Standard**, and the three standards that define a
+    // transform on top of it — `rts-std`'s `globals/streams/`. Every one of the
+    // seven follows a VALUE that landed in the same change, which is this
+    // list's own rule: `CompressionStream` in particular is real DEFLATE over
+    // `flate2` and not a pass-through, because a name here whose value cannot
+    // do what the name means is the failure that rule exists to catch.
+    "ReadableStream",
+    "WritableStream",
+    "TransformStream",
+    "CompressionStream",
+    "DecompressionStream",
+    "TextEncoderStream",
+    "TextDecoderStream",
 ];
 
 /// Whether a name resolves against the global object.

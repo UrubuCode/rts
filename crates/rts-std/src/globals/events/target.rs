@@ -95,7 +95,7 @@ extern "C" fn add(_e: u64, this: u64, kind: u64, listener: u64, options: u64, _d
     let once = super::option_flag(options, "once");
     let capture = capture_of(options);
     let store = store_of(this);
-    let mut records = collect_array(super::get(store, &name));
+    let mut records = super::elements(super::get(store, &name));
     if records.iter().any(|&held| matches(held, listener, capture)) {
         return super::absent();
     }
@@ -107,7 +107,7 @@ extern "C" fn add(_e: u64, this: u64, kind: u64, listener: u64, options: u64, _d
         record
     });
     records.push(record);
-    store_array(store, &name, records);
+    super::store_elements(store, &name, records);
     super::absent()
 }
 
@@ -119,13 +119,13 @@ extern "C" fn remove(_e: u64, this: u64, kind: u64, listener: u64, options: u64,
     };
     let capture = capture_of(options);
     let store = store_of(this);
-    let mut records = collect_array(super::get(store, &name));
+    let mut records = super::elements(super::get(store, &name));
     if let Some(at) = records
         .iter()
         .position(|&held| matches(held, listener, capture))
     {
         records.remove(at);
-        store_array(store, &name, records);
+        super::store_elements(store, &name, records);
     }
     super::absent()
 }
@@ -150,14 +150,14 @@ pub(super) fn dispatch_event(target: u64, event: u64) -> bool {
         return true;
     };
     let store = store_of(target);
-    let records = collect_array(super::get(store, &name));
+    let records = super::elements(super::get(store, &name));
     let remaining: Vec<u64> = records
         .iter()
         .copied()
         .filter(|&held| !super::flag(held, "once"))
         .collect();
     if remaining.len() != records.len() {
-        store_array(store, &name, remaining);
+        super::store_elements(store, &name, remaining);
     }
     stamp(event, target, super::event::AT_TARGET);
     let callees = callees_of(target, &records);
@@ -235,30 +235,3 @@ fn capture_of(options: u64) -> bool {
     }
 }
 
-/// A JavaScript array's elements, read through `length` and indexed access.
-///
-/// `node:events`' `collect_array`, copied rather than shared: it is
-/// `pub(crate)`-invisible in another crate, and reaching it would mean a
-/// dependency from this crate to `rts-node` for eight lines.
-fn collect_array(array: u64) -> Vec<u64> {
-    if array == super::absent() {
-        return Vec::new();
-    }
-    // Asked of the value rather than of its text: reading a number by parsing
-    // its shortest decimal back is lossy at the edges where that decimal is not
-    // the double.
-    let length = entry::number_of(super::get(array, "length"))
-        .map(|value| value as usize)
-        .unwrap_or(0);
-    (0..length)
-        .map(|index| entry::get_indexed(array, entry::make_number(index as f64)))
-        .collect()
-}
-
-/// Replaces one type's record array in a store.
-fn store_array(store: u64, name: &str, records: Vec<u64>) {
-    entry::with_runtime(|context| {
-        let array = entry::make_array_in(context, records);
-        entry::put_member(context, store, name, array);
-    });
-}

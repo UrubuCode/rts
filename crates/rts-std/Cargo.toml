@@ -5,3 +5,12 @@ edition = "2024"
 
 [dependencies]
 rts-core = { path = "../rts-core" }
+
+# `CompressionStream`/`DecompressionStream` — the WHATWG Compression Standard is
+# DEFLATE, and a stream that handed back the bytes it was given would be the
+# "surface that cannot do what its name means" CLAUDE.md refuses. Already vetted
+# and already in this workspace: `docs/reference/node/crates.md` §4.4 pins it for
+# `node:zlib`, and `rts-cli`/`rts-linker` depend on it too. The feature pin is
+# that document's and is not cosmetic — the `zlib`/`zlib-ng` backends compile C,
+# and `rust_backend` is pure Rust.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }

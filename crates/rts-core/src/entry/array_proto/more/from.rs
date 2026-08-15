@@ -92,6 +92,11 @@ pub(in crate::entry) extern "C" fn from(
 
 /// Whether this value is read by its `length` rather than by iterating it.
 ///
+/// Shared with [`super::from_async`] rather than copied, which is what the
+/// visibility is for: `Array.from({length: 2})` and `Array.fromAsync({length:
+/// 2})` must agree about what an array-like is, and two spellings of this test is
+/// where one of them learns about `Symbol.iterator` and the other does not.
+///
 /// False for everything iteration already answers — an array, a string, a
 /// collection, or an object declaring `Symbol.iterator` — so the fallback can
 /// never shadow the real protocol. `Symbol.iterator` is asked LAST because it is
@@ -103,7 +108,7 @@ pub(in crate::entry) extern "C" fn from(
 /// may run user code, so both moved out to [`like::values_of`] — which means a
 /// non-iterable object always takes the array-like path and an absent `length`
 /// answers zero elements there, exactly as `ToLength(undefined)` says.
-fn array_like(items: u64) -> bool {
+pub(super) fn array_like(items: u64) -> bool {
     with_current(|context| {
         let Some(cell) = Value(items).as_slot() else {
             return false;

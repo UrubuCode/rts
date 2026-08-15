@@ -117,6 +117,7 @@ pub fn global_get(key: i64) -> u64 {
             "WeakMap" => super::collections::register_weak_map(context),
             "WeakSet" => super::collections::register_weak_set(context),
             "WeakRef" => super::collections::register_weak_ref(context),
+            "FinalizationRegistry" => super::collections::register_finalization_registry(context),
             "SharedArrayBuffer" => super::buffers::register_shared_array_buffer(context),
             "Atomics" => super::buffers::register_atomics(context),
             "Iterator" => super::list_iterator::register_iterator(context),

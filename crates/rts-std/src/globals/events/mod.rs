@@ -1,5 +1,6 @@
-//! `Event`, `EventTarget`, `CustomEvent`, `AbortController`, `AbortSignal` —
-//! the DOM-shaped event globals every non-browser JavaScript host provides.
+//! `Event`, `EventTarget`, `CustomEvent`, `AbortController`, `AbortSignal`,
+//! `MessageChannel` — the DOM-shaped event globals every non-browser JavaScript
+//! host provides.
 //!
 //! # Why these are globals and not a module
 //!
@@ -97,17 +98,23 @@
 //! `EventTarget`: the `signal` and `passive` entries of `AddEventListenerOptions`
 //! — `passive` is a hint Node does not enforce either, and `signal`
 //! (remove-this-listener-when-that-aborts) needs a per-registration reaction a
-//! native callable cannot carry; see `AbortSignal.any` below for the same wall.
+//! native callable cannot carry. `AbortSignal.any` was refused for that same
+//! reading and is implemented below, so this one is a gap of work rather than of
+//! mechanism: the registration would have to be remembered on the signal, the
+//! way a dependent composite now is.
 //! `capture` is honored only as part of a registration's identity, which is all
 //! Node uses it for — there is no capture phase here and none there. No
 //! `InvalidStateError` for redispatching an in-flight event. A listener that
 //! throws ends the program rather than being forwarded to `process.on('error')`.
 //!
-//! `AbortSignal.any(signals)` — refused by name: the composite has to register a
-//! reaction on every input signal, and `entry::make_callable` hands back a fixed
-//! function pointer with no environment slot to put the composite in, so nothing
-//! reachable from an input's listener list could name it. The identical gap
-//! `node:events` records for its once-wrapper `rawListeners`.
+//! `AbortSignal.any(signals)` **is implemented**, and this paragraph refused it
+//! by name for a reason that was true about the mechanism it assumed and not
+//! about the problem: a composite was to register a native reaction on every
+//! input, and `entry::make_callable` hands back a fixed function pointer with no
+//! environment slot to put the composite in. Nothing has to be captured. The
+//! input signal records who depends on it and `abort.rs`'s single abort path
+//! reads that list, which is where the whole of it lives; what that costs — only
+//! aborts going through this module propagate — is stated there.
 //!
 //! `signal.reason`'s default is a real `DOMException` — `globals/dom_exception.rs`
 //! is the class, and this module's prose used to say the name had no value at
@@ -117,19 +124,20 @@
 //! module's own abort path, and always after the registered listeners.
 
 mod abort;
+mod channel;
 mod event;
 mod target;
 
 use rts_core::entry::{self, Context, Provided};
 
-/// Installs all five classes as globals.
+/// Installs every class here as a global.
 ///
-/// One function rather than five the caller sequences, because the classes are
-/// not independent: `AbortSignal`'s prototype links to `EventTarget`'s and its
-/// `'abort'` event is an `Event`, so an installer that ran them in the wrong
-/// order would build a signal that cannot listen. The order lives here, where
-/// the dependency is visible, rather than in a caller that would have to know
-/// it.
+/// One function rather than one call per class the caller sequences, because the
+/// classes are not independent: `AbortSignal`'s prototype links to
+/// `EventTarget`'s and its `'abort'` event is an `Event` — a `MessagePort` needs
+/// both for the same reasons — so an installer that ran them in the wrong order
+/// would build a signal that cannot listen. The order lives here, where the
+/// dependency is visible, rather than in a caller that would have to know it.
 pub fn install(context: &mut Context) {
     let event = event::install(context);
     entry::declare_global(context, "Event", event);
@@ -140,6 +148,10 @@ pub fn install(context: &mut Context) {
     let (controller, signal) = abort::install(context);
     entry::declare_global(context, "AbortController", controller);
     entry::declare_global(context, "AbortSignal", signal);
+    // After `event` and `target`, which is the same dependency the four above
+    // have: a port is an `EventTarget` and what it delivers is an `Event`.
+    let channel = channel::install(context);
+    entry::declare_global(context, "MessageChannel", channel);
 }
 
 /// A constructor value carrying the prototype `new` links its instances to.
@@ -218,4 +230,37 @@ fn options_bag(options: u64) -> Option<u64> {
 /// One boolean entry of an options bag, `false` when there is no bag.
 fn option_flag(options: u64, name: &str) -> bool {
     options_bag(options).is_some_and(|bag| flag(bag, name))
+}
+
+/// A JavaScript array's elements, read through `length` and indexed access.
+///
+/// Here rather than beside its first caller because three of them now want it —
+/// `target`'s listener records, `abort`'s dependent signals, and `channel`'s
+/// message queue — and a `length`-plus-index read written three times is where
+/// one of them starts treating an absent array as a one-element one.
+///
+/// `node:events`' `collect_array` originally, copied rather than shared: it is
+/// `pub(crate)`-invisible in another crate, and reaching it would mean a
+/// dependency from this crate to `rts-node` for eight lines.
+fn elements(array: u64) -> Vec<u64> {
+    if array == absent() {
+        return Vec::new();
+    }
+    // Asked of the value rather than of its text: reading a number by parsing
+    // its shortest decimal back is lossy at the edges where that decimal is not
+    // the double.
+    let length = entry::number_of(get(array, "length"))
+        .map(|value| value as usize)
+        .unwrap_or(0);
+    (0..length)
+        .map(|index| entry::get_indexed(array, entry::make_number(index as f64)))
+        .collect()
+}
+
+/// Replaces an array-valued property of an object.
+fn store_elements(object: u64, name: &str, values: Vec<u64>) {
+    entry::with_runtime(|context| {
+        let array = entry::make_array_in(context, values);
+        entry::put_member(context, object, name, array);
+    });
 }

@@ -48,6 +48,16 @@ const ABORT_ERROR: (&str, &str) = ("AbortError", "This operation was aborted");
 /// What an expired [`static_timeout`] records.
 const TIMEOUT_ERROR: (&str, &str) = ("TimeoutError", "The operation timed out.");
 
+/// The composites [`static_any`] built over a signal, which abort with it.
+///
+/// An ordinary own property holding an array, which is what makes
+/// `AbortSignal.any` possible here at all: the alternative the module doc used to
+/// refuse it for was a per-registration native closure, and
+/// `entry::make_callable` hands back a fixed function pointer with nowhere to put
+/// one. Nothing has to be captured if the SIGNAL remembers who depends on it and
+/// the one abort path in this module reads the list.
+const DEPENDENTS: &str = "__dependents__";
+
 thread_local! {
     /// Signals waiting on a deadline, and when each is due.
     ///
@@ -71,7 +81,11 @@ pub(super) fn install(context: &mut Context) -> (u64, u64) {
     // object cannot carry one that `new` respects.
     let signal = entry::make_callable(context, illegal_constructor);
     entry::put_member(context, signal, "prototype", signal_prototype);
-    let statics: [(&str, Provided); 2] = [("abort", static_abort), ("timeout", static_timeout)];
+    let statics: [(&str, Provided); 3] = [
+        ("abort", static_abort),
+        ("timeout", static_timeout),
+        ("any", static_any),
+    ];
     for (name, code) in statics {
         let made = entry::make_callable(context, code);
         entry::put_member(context, signal, name, made);
@@ -157,6 +171,42 @@ extern "C" fn static_timeout(_e: u64, _this: u64, delay: u64, _b: u64, _c: u64, 
     signal
 }
 
+/// `AbortSignal.any(signals)` — one signal that aborts when any input does,
+/// with that input's reason.
+///
+/// # How this is done without a closure, and why the refusal is lifted
+///
+/// The module doc refused this by name, for a reason that was true about the
+/// mechanism it assumed: a composite would have to register a reaction on every
+/// input, and `entry::make_callable` answers a fixed function pointer with no
+/// environment slot to name the composite from. What that reading missed is that
+/// nothing has to be captured. [`signal_abort`] is the ONE path in this module
+/// that aborts anything, so the input can simply record who depends on it
+/// ([`DEPENDENTS`]) and that one path can read the list.
+///
+/// The cost of it, named: only aborts that go through this module propagate. A
+/// program writing `signal.aborted = true` by hand — which this engine allows,
+/// since these are data properties — moves no composite, exactly as
+/// `signal.dispatchEvent(new Event('abort'))` already reaches no `onabort`.
+///
+/// An input that is already aborted wins immediately and in argument order,
+/// which is what makes `AbortSignal.any([AbortSignal.abort("a"), other])` answer
+/// a signal whose reason is `"a"` before anything is registered at all.
+extern "C" fn static_any(_e: u64, _this: u64, signals: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let inputs = super::elements(signals);
+    let composite = entry::with_runtime(fresh_signal);
+    if let Some(aborted) = inputs.iter().find(|&&input| super::flag(input, "aborted")) {
+        signal_abort(composite, super::get(*aborted, "reason"), ABORT_ERROR);
+        return composite;
+    }
+    for input in inputs {
+        let mut dependents = super::elements(super::get(input, DEPENDENTS));
+        dependents.push(composite);
+        super::store_elements(input, DEPENDENTS, dependents);
+    }
+    composite
+}
+
 /// `new AbortSignal()` — the specification makes this a `TypeError`, which
 /// nothing here can raise where a handler could catch it. `undefined` rather
 /// than an instance, because an instance would be a signal with no controller
@@ -190,6 +240,14 @@ extern "C" fn throw_if_aborted(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d
 ///
 /// Idempotent, as specified — a second `controller.abort()` is a no-op, and so
 /// is a timeout that expires after the controller already aborted.
+///
+/// # Why the reason is recorded on every dependent BEFORE any listener runs
+///
+/// Because that is the order the specification states, and it is observable: a
+/// listener on the source signal that reads `composite.reason` must find the
+/// reason there rather than `undefined`. So this is two passes over the affected
+/// signals rather than a recursive call per level — mark them all, then fire
+/// them all, in the order [`affected`] found them.
 fn signal_abort(signal: u64, reason: u64, default: (&str, &str)) {
     if super::flag(signal, "aborted") {
         return;
@@ -202,23 +260,54 @@ fn signal_abort(signal: u64, reason: u64, default: (&str, &str)) {
         true => crate::globals::dom_exception::make(default.1, default.0),
         false => reason,
     };
-    let event = entry::with_runtime(|context| {
-        entry::put_member(context, signal, "aborted", entry::boolean_value(true));
-        entry::put_member(context, signal, "reason", held);
-        let prototype = super::event::prototype(context);
-        let event = entry::make_instance(context, prototype);
-        super::event::init(context, event, "abort", &super::event::Flags::INERT);
-        // The one event this engine generates itself, which is the only case the
-        // reference marks as trusted.
-        entry::put_member(context, event, "isTrusted", entry::boolean_value(true));
-        event
+    let aborting = affected(signal);
+    let events: Vec<(u64, u64)> = entry::with_runtime(|context| {
+        aborting
+            .iter()
+            .map(|&target| {
+                entry::put_member(context, target, "aborted", entry::boolean_value(true));
+                entry::put_member(context, target, "reason", held);
+                let prototype = super::event::prototype(context);
+                let event = entry::make_instance(context, prototype);
+                super::event::init(context, event, "abort", &super::event::Flags::INERT);
+                // The one event this engine generates itself, which is the only
+                // case the reference marks as trusted.
+                entry::put_member(context, event, "isTrusted", entry::boolean_value(true));
+                (target, event)
+            })
+            .collect()
     });
-    super::target::dispatch_event(signal, event);
-    let handler = super::get(signal, "onabort");
-    if entry::with_runtime(|context| entry::is_callable_in(context, handler)) {
-        let absent = super::absent();
-        entry::call(handler, signal, event, absent, absent, absent);
+    for (target, event) in events {
+        super::target::dispatch_event(target, event);
+        let handler = super::get(target, "onabort");
+        if entry::with_runtime(|context| entry::is_callable_in(context, handler)) {
+            let absent = super::absent();
+            entry::call(handler, target, event, absent, absent, absent);
+        }
     }
+}
+
+/// The signal and everything [`static_any`] made depend on it, in the order the
+/// specification aborts them: the source first, then its dependents, then
+/// theirs.
+///
+/// Already-aborted signals are skipped, which is also what stops a cycle — a
+/// program can build one by feeding a composite back into a later
+/// `AbortSignal.any`, and this must answer rather than recurse forever.
+fn affected(signal: u64) -> Vec<u64> {
+    let mut found = vec![signal];
+    let mut at = 0;
+    while at < found.len() {
+        let current = found[at];
+        at += 1;
+        for dependent in super::elements(super::get(current, DEPENDENTS)) {
+            let seen = found.iter().any(|&held| held == dependent);
+            if !seen && !super::flag(dependent, "aborted") {
+                found.push(dependent);
+            }
+        }
+    }
+    found
 }
 
 /// Aborts whatever is due, and says whether anything is still waiting.

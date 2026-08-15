@@ -31,6 +31,7 @@
 //! than a copy of it, which is that module's own stated next step.
 
 mod from;
+mod from_async;
 mod sorting;
 mod splice;
 
@@ -65,7 +66,8 @@ pub(in crate::entry) const NATIVES: &[(&str, Native)] = &[
 ];
 
 /// What `Array` itself holds beyond `isArray` and `of`.
-pub(in crate::entry) const STATICS: &[(&str, Native)] = &[("from", from::from)];
+pub(in crate::entry) const STATICS: &[(&str, Native)] =
+    &[("from", from::from), ("fromAsync", from_async::from_async)];
 
 /// `a.at(i)` — negative counts from the end.
 ///

@@ -31,6 +31,7 @@ pub mod fetch;
 pub mod output;
 pub mod pump;
 pub mod storage;
+pub mod streams;
 pub mod text;
 pub mod timing;
 
@@ -51,4 +52,10 @@ pub fn install(context: &mut Context) {
     timing::install(context);
     emitter::install(context);
     storage::install(context);
+    // AFTER `text`, and only because `TextDecoderStream` reaches the
+    // `TextDecoder` GLOBAL to build the decoder it holds — a name that has to
+    // be bound before the first `new TextDecoderStream()`, not before this
+    // line. Written in this order anyway, so the dependency is visible here
+    // rather than only in the one comment that explains it.
+    streams::install(context);
 }

@@ -72,7 +72,11 @@ const BLOB_METHODS: &[(&str, Provided)] = &[
     ("text", text_method),
     ("arrayBuffer", array_buffer_method),
     ("bytes", bytes_method),
+    ("stream", stream_method),
 ];
+
+/// The `Uint8Array` a `blob.stream()` source hands to its controller.
+const CHUNK: &str = "__chunk";
 
 /// Puts `Blob` and `File` on the `node:buffer` namespace.
 pub(super) fn install(context: &mut Context, namespace: u64) {
@@ -387,6 +391,78 @@ extern "C" fn bytes_method(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u6
         };
         entry::settled(context, value, false)
     })
+}
+
+/// `blob.stream()` — a `ReadableStream` over the blob's bytes.
+///
+/// # Why the class comes from the global object
+///
+/// Because it must be the SAME `ReadableStream` a program gets from
+/// `new ReadableStream()`, or `blob.stream() instanceof ReadableStream` is
+/// false for the object this method just made. That class is `rts-std`'s and
+/// this crate does not depend on it, so the global is the only route across —
+/// the mirror of the one `globals/fetch/` takes to reach `Blob` itself.
+/// `undefined` when nothing installed the name, which lets a host without
+/// streams degrade instead of crash.
+///
+/// # Why one chunk
+///
+/// The bytes are resident: they were gathered at construction. Splitting them
+/// would invent a boundary no program asked for, and the reference gives a
+/// blob's stream no chunk size. An EMPTY blob enqueues nothing at all — a
+/// zero-length chunk is a value a `for await` would see, and Bun and Node both
+/// answer no chunks there.
+extern "C" fn stream_method(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let class = global("ReadableStream");
+    if !entry::with_runtime(|context| entry::is_callable_in(context, class)) {
+        return absent;
+    }
+    let bytes = window_of(this).map_or_else(Vec::new, |(bytes, _)| bytes);
+    let source = entry::with_runtime(|context| {
+        let source = entry::make_object(context);
+        if !bytes.is_empty() {
+            let chunk = entry::make_bytes(context, &bytes);
+            entry::put_member(context, source, CHUNK, chunk);
+        }
+        let start = entry::make_callable(context, stream_start);
+        entry::put_member(context, source, "start", start);
+        source
+    });
+    entry::construct(class, source, absent, absent, absent)
+}
+
+/// The `start(controller)` of the source [`stream_method`] builds — `this` is
+/// that source, which is where the chunk was left for it.
+///
+/// The controller's own methods are called rather than any internal reached
+/// for: this crate can see nothing of how a `ReadableStream` holds its queue,
+/// and the two `thrown()` questions are rule 8 of `rts-core`'s README — a
+/// controller whose `enqueue` raised must not then be told to `close`.
+extern "C" fn stream_start(_e: u64, this: u64, controller: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let chunk = entry::get_indexed(this, name_value(CHUNK));
+    if chunk != absent {
+        let enqueue = entry::get_indexed(controller, name_value("enqueue"));
+        entry::call(enqueue, controller, chunk, absent, absent, absent);
+        if entry::thrown() != 0 {
+            return absent;
+        }
+    }
+    let close = entry::get_indexed(controller, name_value("close"));
+    entry::call(close, controller, absent, absent, absent, absent);
+    absent
+}
+
+/// One global by name, `undefined` when nothing installed it.
+fn global(name: &str) -> u64 {
+    let key = entry::with_runtime(|context| i64::from(entry::member_key(context, name)));
+    entry::global_get(key)
+}
+
+/// A property name as a value, for the ambient `get_indexed`.
+fn name_value(name: &str) -> u64 {
+    entry::with_runtime(|context| entry::make_string(context, name))
 }
 
 /// `blob.arrayBuffer()` — a settled promise of an `ArrayBuffer`.

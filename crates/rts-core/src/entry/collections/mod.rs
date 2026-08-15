@@ -1,4 +1,8 @@
-//! `Map`, `Set`, `WeakMap`, `WeakSet` — collections keyed by a value.
+//! `Map`, `Set`, `WeakMap`, `WeakSet` — collections keyed by a value — and the
+//! two classes that are about a value's DEATH rather than about holding one:
+//! [`weakref`] and [`finalization`]. They are here because they are the same
+//! family in the specification and because each one's honest limit is stated
+//! against the leak the paragraph below describes.
 //!
 //! # Why the entries live beside the cell
 //!
@@ -13,14 +17,19 @@
 //!
 //! # The collector does not know about this table
 //!
-//! Nothing calls `collect::mark` today, so nothing collects, and an `Aside` is
-//! invisible to a tracing collector in any case. Holding keys and values here is
-//! therefore safe **today** and is exactly the bet `Context::arrays` already
-//! makes for array elements. The day there is a collector it has to learn about
-//! this table, or every key and value in every live map is garbage the moment
-//! the program's last other reference to it drops. That is the note, not a
-//! mechanism: inventing a tracing hook with no collector to call it would be a
-//! second design for the collector to disagree with.
+//! This paragraph opened "nothing calls `collect::mark` today, so nothing
+//! collects", and **that stopped being true**: `entry::collect_cycle` runs a
+//! cycle from `entry::alloc` when the region fills, and `entry::roots` says what
+//! is live. The day it named has arrived, so what was a note is now a live
+//! question — an `Aside` is invisible to a tracing collector, and a key or value
+//! held only here is not among what `roots` answers.
+//!
+//! It is not fixed in this change and is written down rather than implied,
+//! because the fix belongs where the roots are decided rather than in whichever
+//! module happens to notice: `entry::roots` has to walk `context.collections`
+//! the way it already walks `context.external`. [`finalization`] is the one
+//! thing here that WANTS a collection to happen, and its own state is held
+//! through `entry::external` for exactly this reason.
 //!
 //! # `WeakMap` and `WeakSet` hold their keys STRONGLY
 //!
@@ -55,6 +64,7 @@
 //! `m.forEach` is.
 
 mod cursor;
+mod finalization;
 mod map;
 mod set;
 mod table;
@@ -65,6 +75,9 @@ mod weakref;
 pub(in crate::entry) use map::MAP_TYPES;
 pub(in crate::entry) use set::SET_TYPES;
 pub(in crate::entry) use weak::{WEAK_MAP_TYPES, WEAK_SET_TYPES};
+pub(in crate::entry) use finalization::{
+    FINALIZATION_REGISTRY_TYPES, register_finalization_registry,
+};
 pub(in crate::entry) use weakref::WEAK_REF_TYPES;
 pub(in crate::entry) use table::Table;
 pub(in crate::entry) use weak::{register_weak_map, register_weak_set};
