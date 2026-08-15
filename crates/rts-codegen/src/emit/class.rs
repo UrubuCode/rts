@@ -99,6 +99,15 @@ const SUPER: &str = "__rts_super";
 /// The name the home object is held under.
 const HOME: &str = "__rts_home";
 
+/// The name the home object of a STATIC member is held under.
+///
+/// A second name rather than a second value under the first, because both are
+/// live at once: a class body has instance methods and static ones, and each
+/// resolves `super` against its own home. The specification says the same in
+/// its own words — `[[HomeObject]]` is per function, and a static method's is
+/// the constructor.
+const STATIC_HOME: &str = "__rts_static_home";
+
 /// The name a derived constructor holds `this` under.
 ///
 /// Its own name rather than the receiver, because the object does not exist
@@ -156,7 +165,18 @@ pub(super) fn emit_class(
     // A class needs its own environment for `super`, as before, and now also
     // for a computed INSTANCE field's key — that value is read again inside the
     // constructor, a function this scope does not reach into otherwise.
+    // …and for the class's OWN NAME, whenever a method mentions it. A method is
+    // a separate compiled function, so a name bound as a register in this
+    // activation is unreachable from inside one — `const C = class Inner {
+    // m() { return Inner.name; } }` answered `ReferenceError: Inner is not
+    // defined`. Over-approximates: it asks whether the name appears anywhere in
+    // the body rather than resolving scopes, which is the same trade
+    // `capture::captured` documents and in the same safe direction.
+    let names_itself = class
+        .name
+        .is_some_and(|name| super::capture::class_mentions(&class.body, name));
     let needs_environment = class.is_derived()
+        || names_itself
         || class
             .body
             .iter()
@@ -184,7 +204,15 @@ pub(super) fn emit_class(
         })
         .collect();
 
-    let mut inner = class_scope(builder, scope, ctx, parent, needs_environment, &computed_fields)?;
+    let mut inner = class_scope(
+        builder,
+        scope,
+        ctx,
+        parent,
+        needs_environment,
+        &computed_fields,
+        class.name.filter(|_| names_itself),
+    )?;
 
     let constructor = emit_constructor(builder, &mut inner, ctx, class, &computed)?;
 
@@ -262,6 +290,11 @@ pub(super) fn emit_class(
             .expect("a class that builds an environment has one");
         let home = ctx.names.intern(HOME);
         super::property::emit_write(builder, ctx, environment, home, prototype)?;
+        // And the constructor, which is what a STATIC method's `super` looks
+        // one link above. Written here for the same reason the other is: the
+        // constructor did not exist until now.
+        let static_home = ctx.names.intern(STATIC_HOME);
+        super::property::emit_write(builder, ctx, environment, static_home, constructor)?;
     }
 
     // A static field initialiser and a static block both run with `this` bound
@@ -288,7 +321,14 @@ pub(super) fn emit_class(
     for (index, element) in class.body.iter().enumerate() {
         match element {
             ClassElement::Method(method) if !method.is_constructor(&ctx.names) => {
+                // Saved and restored rather than set and cleared, for the
+                // reason `Ctx::in_cleanup` gives: a class written inside a
+                // static method would otherwise leave the flag on for the
+                // instance methods emitted after it.
+                let enclosing = ctx.in_static_method;
+                ctx.in_static_method = method.is_static;
                 let closure = function::emit_closure(builder, &inner, ctx, &method.function)?;
+                ctx.in_static_method = enclosing;
                 let target = if method.is_static { constructor } else { prototype };
                 // An accessor is not written as a property: it is a pair of
                 // functions the read has to CALL, and a getter stored in the
@@ -652,6 +692,7 @@ fn class_scope(
     parent: Option<ValueId>,
     needs_environment: bool,
     computed_fields: &[(Name, ValueId)],
+    own_name: Option<Name>,
 ) -> EmitResult<Scope> {
     if parent.is_none() && !needs_environment {
         // `computed_fields` is always empty here: `needs_environment` is `true`
@@ -684,6 +725,16 @@ fn class_scope(
     let mut held = BTreeSet::new();
     let home_name = ctx.names.intern(HOME);
     held.insert(home_name);
+    // The static home too, and in the SAME environment: a class body has both
+    // kinds of method and each resolves `super` against its own.
+    let static_home_name = ctx.names.intern(STATIC_HOME);
+    held.insert(static_home_name);
+    // The class's own name lives here too when a method reads it, which is what
+    // makes `class Inner { m() { return Inner; } }` resolve from inside a
+    // separately compiled body.
+    if let Some(name) = own_name {
+        held.insert(name);
+    }
 
     if let Some(parent) = parent {
         let super_name = ctx.names.intern(SUPER);
@@ -791,7 +842,13 @@ fn super_lookup_root_and_receiver(
             construct: "a computed `super[e]`",
         });
     }
-    let home = ctx.names.intern(HOME);
+    // A STATIC method's home object is the constructor; an instance method's is
+    // the prototype. Read from the flag the method's own emission set, because
+    // this runs several frames inside that emission.
+    let home = ctx.names.intern(match ctx.in_static_method {
+        true => STATIC_HOME,
+        false => HOME,
+    });
     let home = binding::read(builder, scope, ctx, home)?;
     // Above the home object, not on it. `super.m()` inside `m` must not find
     // `m` again, which is the whole reason the home object exists rather than

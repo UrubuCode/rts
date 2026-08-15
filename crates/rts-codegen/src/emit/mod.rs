@@ -87,6 +87,7 @@ mod types;
 mod switch;
 mod template;
 mod unary;
+mod wrap;
 
 pub use expr::emit_expr;
 pub use loops::Loops;
@@ -240,6 +241,18 @@ pub struct Ctx<'a> {
     /// `protect.rs`: a call inside a `finally` that throws does not propagate
     /// out of the cleanup.
     pub in_cleanup: bool,
+    /// Whether the method body being emitted is a STATIC one.
+    ///
+    /// `super.m()` starts its search one link above the enclosing method's
+    /// home object, and a static method's home is the CONSTRUCTOR where an
+    /// instance method's is the prototype. Without the distinction, static
+    /// `super` looked above the prototype and found nothing —
+    /// `TypeError: undefined is not a function` on ordinary inheritance.
+    ///
+    /// A flag rather than a parameter for the reason [`Ctx::in_cleanup`] is
+    /// one: what reads it is several frames down, inside another function's
+    /// emission, and threading it would touch every step in between.
+    pub in_static_method: bool,
     /// What the language's singletons are numbered.
     pub model: &'a ValueModel,
     /// Every function this compilation can name.
@@ -413,6 +426,7 @@ impl<'a> Ctx<'a> {
     ) -> Self {
         Ctx {
             in_cleanup: false,
+            in_static_method: false,
             model,
             funcs,
             calls,

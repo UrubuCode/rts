@@ -907,6 +907,35 @@ fn mentions_in_function(function: &Function, wanted: Name, found: &mut bool) {
     }
 }
 
+/// Whether a class body mentions one name.
+///
+/// Asked about the class's OWN name, to decide whether it has to live in the
+/// class environment: a method is a separately compiled function, and a name
+/// bound as a register in the defining activation is unreachable from inside
+/// one. The heritage is deliberately not walked — it is evaluated OUTSIDE the
+/// class's own scope, so a name mentioned there is the enclosing binding.
+pub(super) fn class_mentions(body: &[crate::syntax::ClassElement], name: Name) -> bool {
+    let mut found = false;
+    for element in body {
+        match element {
+            crate::syntax::ClassElement::Method(method) => {
+                mentions_in_function(&method.function, name, &mut found)
+            }
+            crate::syntax::ClassElement::Field(field) => {
+                if let Some(value) = &field.value {
+                    mentions_in_expr(value, name, &mut found);
+                }
+            }
+            crate::syntax::ClassElement::StaticBlock(statements) => {
+                for statement in statements {
+                    mentions_in_stmt(statement, name, &mut found);
+                }
+            }
+        }
+    }
+    found
+}
+
 fn mentions_in_class(class: &crate::syntax::Class, wanted: Name, found: &mut bool) {
     for element in &class.body {
         match element {
