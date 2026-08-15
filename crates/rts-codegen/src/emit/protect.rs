@@ -79,6 +79,74 @@ pub fn emit_throw(
     Ok(true)
 }
 
+/// Whether a `finally` body can finish by *not* falling off its end.
+///
+/// # Why this changes how the whole construct is emitted
+///
+/// A `finally` is normally a CLEANUP: one copy of the body reached from every
+/// path that unwinds through it, ending by handing control back to whatever is
+/// unwinding. That shape has no way out other than back into the unwind — which
+/// is what makes it a cleanup and what `Terminator::CleanupDone` says
+/// structurally.
+///
+/// `try { return "t" } finally { return "f" }` needs the opposite. The language
+/// says an abrupt completion in the `finally` REPLACES the pending one: the
+/// return happens, the unwind is abandoned, and `"f"` is the answer. A `return`
+/// inside a cleanup copy is a terminator with no successor, and the machine's
+/// verifier rejects exactly that — `CleanupDoesNotEnd`, because leaving a copy
+/// through a path the unwind knows nothing about is a frame nobody finishes.
+///
+/// So a `finally` that can complete abruptly is not emitted as a cleanup at all.
+/// It becomes a catch-all HANDLER, which is an ordinary block: a `return` in one
+/// is a return, and re-raising when the body falls off its end is what puts the
+/// pending throw back. See [`emit_try`].
+///
+/// Over-approximates on purpose, and the direction is the safe one: a `break`
+/// belonging to a loop written INSIDE the `finally` counts here although it
+/// never leaves the body. The cost is the handler shape for a body that did not
+/// need it, and the handler shape is correct for both. Under-approximating is a
+/// program the verifier refuses.
+///
+/// Does not descend into a nested function or class, for the reason
+/// [`super::suspends`] gives about the same boundary: a `return` written inside
+/// one leaves THAT function.
+fn leaves_abruptly(body: &[Stmt]) -> bool {
+    body.iter().any(statement_leaves_abruptly)
+}
+
+fn statement_leaves_abruptly(statement: &Stmt) -> bool {
+    use crate::syntax::StmtKind;
+    match &statement.kind {
+        StmtKind::Return(_) | StmtKind::Throw(_) | StmtKind::Break(_) | StmtKind::Continue(_) => {
+            return true;
+        }
+        StmtKind::Function(_) | StmtKind::Class(_) => return false,
+        _ => {}
+    }
+    let mut found = false;
+    super::capture::walk_stmt(statement, &mut |child| {
+        if let super::capture::StmtChild::Stmt(inner) = child
+            && statement_leaves_abruptly(inner)
+        {
+            found = true;
+        }
+    });
+    if found {
+        return true;
+    }
+    // `walk_stmt` hands a `catch` over as its own child rather than as a
+    // statement, so a `return` written in one would be missed by the arm above.
+    let mut in_handler = false;
+    super::capture::walk_stmt(statement, &mut |child| {
+        if let super::capture::StmtChild::Catch(catch) = child
+            && catch.body.iter().any(statement_leaves_abruptly)
+        {
+            in_handler = true;
+        }
+    });
+    in_handler
+}
+
 /// Emits `try { … } catch (e) { … } finally { … }`.
 pub fn emit_try(
     builder: &mut FuncBuilder,
@@ -92,7 +160,16 @@ pub fn emit_try(
     // Both outside every region, and for opposite reasons. A cleanup inside its
     // own region would run itself; the continuation inside it would run the
     // cleanup a second time on the way out.
-    let cleanup_block = finally.map(|_| builder.create_unprotected_block());
+    // A `finally` that can complete abruptly takes the handler shape instead —
+    // see [`leaves_abruptly`]. Its block is created HERE, before any region is
+    // opened, so it belongs to whatever encloses this `try`: a throw from
+    // inside the `finally` then lands in the enclosing handler rather than in
+    // this one, which would be the `finally` catching itself.
+    let abrupt = finally.is_some_and(leaves_abruptly);
+    let unwind_block = abrupt.then(|| builder.create_block());
+    let cleanup_block = finally
+        .filter(|_| !abrupt)
+        .map(|_| builder.create_unprotected_block());
     let join = builder.create_unprotected_block();
 
     let protected = builder.create_block();
@@ -109,7 +186,18 @@ pub fn emit_try(
     // nested `if` inside a `try` does not have to know it is inside one.
     let outer = finally.is_some();
     if outer {
-        builder.open_region(Vec::new(), cleanup_block);
+        // A cleanup for the ordinary shape, a catch-all HANDLER for the abrupt
+        // one. Same region, same nesting, different way of leaving it — which
+        // is the whole difference the two shapes have.
+        let handlers = unwind_block
+            .map(|block| {
+                vec![Handler {
+                    tag: JS_THROW,
+                    block,
+                }]
+            })
+            .unwrap_or_default();
+        builder.open_region(handlers, cleanup_block);
     }
 
     // Created while the cleanup's region is open, so a throw from inside the
@@ -165,6 +253,26 @@ pub fn emit_try(
 
     if outer {
         builder.close_region();
+    }
+
+    if let (Some(block), Some(finally)) = (unwind_block, finally) {
+        // The abrupt shape's unwinding copy. An ordinary handler block, so a
+        // `return` in it is a return and a `break` reaches the loop it names.
+        //
+        // Falling off the end re-raises what was caught, which is the language:
+        // a `finally` that completes NORMALLY leaves the pending completion
+        // alone, and here the pending completion is a throw. Completing
+        // abruptly discards it, which is why nothing is emitted after a body
+        // that terminated.
+        let thrown = builder.add_block_param(block, rts_cranelift::repr::Repr::Tagged);
+        builder.switch_to(block);
+        scope.restore(&before);
+        scope.enter();
+        let terminated = emit_block(builder, scope, ctx, loops, finally)?;
+        scope.leave();
+        if !terminated {
+            builder.throw(JS_THROW, thrown);
+        }
     }
 
     if let (Some(block), Some(finally)) = (cleanup_block, finally) {

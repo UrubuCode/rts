@@ -356,6 +356,51 @@ fn a_cleanup_that_reads_something_outside_itself_is_rejected() {
 }
 
 #[test]
+fn a_cleanup_may_read_what_dominates_the_region_it_belongs_to() {
+    // The complement of the test above, and the reason the rule needed a real
+    // dominance analysis rather than "the entry block only".
+    //
+    // `middle` is not the function's entry, so the old rule refused what it
+    // defines. But `middle` dominates every block the region protects — it IS
+    // the block the region was opened in — so the value has been computed at
+    // every point that can unwind into this cleanup. Refusing it refused an
+    // ordinary program: a `for (let i = …)` whose body has a `try`/`finally`
+    // creates the loop's per-pass environment inside the loop, and a `finally`
+    // reading `i` reads exactly this shape.
+    let types = TypeRegistry::new();
+    let mut func = Function::new(Signature {
+        params: vec![Repr::Tagged],
+        ..Signature::default()
+    });
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let cleanup = b.create_block();
+    let middle = b.create_block();
+    b.jump(middle, &[]).expect("no parameters");
+
+    let mut b = FuncBuilder::new(&mut func, &types, middle);
+    let held = b.declare_const(ConstDecl::Scalar {
+        repr: Repr::Tagged,
+        bits: ScalarBits(1),
+    });
+    let held = b.use_const(held);
+    let _region = b.open_region(vec![], Some(cleanup));
+    b.ret(&[]);
+
+    let mut b = FuncBuilder::new(&mut func, &types, cleanup);
+    let promise = b.promise_new();
+    b.promise_settle(promise, held, false);
+    b.cleanup_done();
+
+    assert!(
+        !verify(&func, &types, &FuncRegistry::new())
+            .iter()
+            .any(|e| matches!(e, VerifyError::CleanupReadsOutsideItself { .. })),
+        "a definition that dominates the whole region has run wherever the copy lands"
+    );
+}
+
+#[test]
 fn ending_as_a_cleanup_without_being_one_is_rejected() {
     let types = TypeRegistry::new();
     let mut func = Function::new(Signature::default());

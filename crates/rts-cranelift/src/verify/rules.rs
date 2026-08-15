@@ -201,7 +201,87 @@ pub(super) fn check_unwind(func: &Function, errors: &mut Vec<VerifyError>) {
 /// leaves to the same place, so several are still one exit. Reads only itself:
 /// now over everything the piece defines, including its own block parameters,
 /// which is what lets a merge inside a cleanup work at all.
+/// For each block, the blocks that dominate it — itself included.
+///
+/// The textbook iterative formulation: the entry dominates only itself to start
+/// with, everything else starts as "everything", and each block's set shrinks to
+/// itself plus the intersection of its predecessors' until nothing moves.
+/// `Vec<bool>` per block rather than a `HashSet`, because the inner operation is
+/// an intersection over a fixed universe and a bitmap is what that wants; rule
+/// 13 does not constrain it, since nothing here is printed.
+///
+/// Unreachable blocks keep the initial "dominated by everything", which is the
+/// conventional answer and the conservative one for the use below: a value is
+/// admitted only when its definition dominates, so a block nothing reaches
+/// admits nothing extra.
+fn dominators(func: &Function) -> Vec<Vec<bool>> {
+    let count = func.blocks().count();
+    let index_of = |block: BlockId| block.index();
+
+    let mut predecessors: Vec<Vec<BlockId>> = vec![Vec::new(); count];
+    for (block, data) in func.blocks() {
+        let Some(terminator) = &data.terminator else {
+            continue;
+        };
+        for successor in terminator.successors() {
+            if let Some(slot) = predecessors.get_mut(index_of(successor)) {
+                slot.push(block);
+            }
+        }
+    }
+
+    let mut sets: Vec<Vec<bool>> = vec![vec![true; count]; count];
+    if let Some(entry) = sets.get_mut(index_of(func.entry)) {
+        entry.fill(false);
+        entry[index_of(func.entry)] = true;
+    }
+
+    let mut moved = true;
+    while moved {
+        moved = false;
+        for (block, _) in func.blocks() {
+            if block == func.entry {
+                continue;
+            }
+            let mut next = vec![false; count];
+            let mut seeded = false;
+            for &predecessor in &predecessors[index_of(block)] {
+                match seeded {
+                    false => {
+                        next.copy_from_slice(&sets[index_of(predecessor)]);
+                        seeded = true;
+                    }
+                    true => {
+                        for (slot, held) in next.iter_mut().zip(&sets[index_of(predecessor)]) {
+                            *slot &= *held;
+                        }
+                    }
+                }
+            }
+            next[index_of(block)] = true;
+            if next != sets[index_of(block)] {
+                sets[index_of(block)] = next;
+                moved = true;
+            }
+        }
+    }
+    sets
+}
+
+/// Whether `region` encloses `inner`, at any depth.
+fn encloses(func: &Function, region: RegionId, inner: RegionId) -> bool {
+    let mut walking = Some(inner);
+    while let Some(id) = walking {
+        if id == region {
+            return true;
+        }
+        walking = func.regions.get(id).and_then(|held| held.parent);
+    }
+    false
+}
+
 fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
+    let dominance = dominators(func);
     let mut cleanups = Vec::new();
     for index in 0..func.regions.len() {
         let id = RegionId(index as u32);
@@ -227,21 +307,48 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
             errors.push(VerifyError::CleanupTakesParameters { block: entry });
         }
 
-        // Everything the piece defines, and everything the function's entry
-        // block defines.
+        // Everything the piece defines, and everything defined in a block that
+        // DOMINATES every block the region protects.
         //
-        // The entry is the relaxation the copy needed to be useful. Anything a
-        // cleanup does with a variable reads the environment pointer, which is
-        // established once at function entry — so a cleanup that could read
-        // only itself could touch no variable, and a `finally` that touches no
-        // variable is not one anybody writes.
+        // The rule this replaces admitted the function's entry block alone, and
+        // said so: "dominance in general would admit more, and needs an
+        // analysis this does not have; the entry is the part of it that is
+        // free". The analysis is [`dominators`] now, and what forced it is a
+        // real program — a `for (let i = …)` whose body has a `try`/`finally`.
+        // A `let` in a loop head is a fresh binding per pass, so its
+        // environment object is created INSIDE the loop; the entry does not
+        // define it, and a `finally` reading `i` was refused although `i`
+        // plainly exists wherever that `finally` runs.
         //
-        // It is sound for the reason the original rule was: a copy must not
-        // read something that does not exist where it lands. The entry block
-        // dominates every block in the function, so its values exist at every
-        // point that can unwind. Dominance in general would admit more, and
-        // needs an analysis this does not have; the entry is the part of it
-        // that is free and covers the case.
+        // Sound for the reason the entry-only rule was, generalised: a cleanup
+        // is entered from a point inside the region it belongs to, so a
+        // definition that dominates every block of that region has run before
+        // any such point. The entry block is the special case where the set is
+        // the whole function.
+        let protected: Vec<BlockId> = func
+            .blocks()
+            .map(|(block, _)| block)
+            .filter(|&block| {
+                func.region_of(block)
+                    .is_some_and(|held| encloses(func, region, held))
+            })
+            .collect();
+        // An empty `protected` would make `all` vacuously true and admit every
+        // value in the function, which is the opposite of a check. It means the
+        // region protects nothing — nothing can unwind through it — so the
+        // entry alone is both sufficient and what the old rule said.
+        let reaching: Vec<BlockId> = match protected.is_empty() {
+            true => vec![func.entry],
+            false => func
+                .blocks()
+                .map(|(block, _)| block)
+                .filter(|&candidate| {
+                    protected
+                        .iter()
+                        .all(|&block| dominance[block.index()][candidate.index()])
+                })
+                .collect(),
+        };
         // A `HashSet`, not a `Vec`: every use below is `.contains(&operand)` —
         // membership only, never iterated to produce output — so rule 13 does
         // not constrain this collection at all. It used to be a `Vec` probed
@@ -251,7 +358,10 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
         // 29.32 ms, ~4x the per-statement cost of 300 `if`/`else` at 7.55 ms)
         // is this shape — a scan inside a loop that runs once per operand.
         let mut defined: HashSet<ValueId> = HashSet::new();
-        if let Some(data) = func.block(func.entry) {
+        for block in reaching {
+            let Some(data) = func.block(block) else {
+                continue;
+            };
             defined.extend(data.params.iter().copied());
             defined.extend(
                 data.insts
