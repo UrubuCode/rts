@@ -4,7 +4,7 @@
 // other AND the same output as the un-obfuscated seed. The second check is the
 // one that matters: an obfuscator that changed the program's meaning would
 // otherwise hand us a fixture pinning its bug rather than the language.
-import { readFileSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import JsObfuscator from "javascript-obfuscator";
@@ -124,6 +124,15 @@ for (const seed of readdirSync(seeds).filter((n) => n.endsWith(".js"))) {
     const bun = runWith("bun", file);
     const agree = node.ok && bun.ok && node.text === bun.text;
     const faithful = agree && node.text === expected.text;
+    // An output that is not FAITHFUL is deleted rather than reported and left
+    // behind: it would otherwise be installed by `install.mjs`, which reads the
+    // directory rather than this report, and a fixture pinning the obfuscator's
+    // own bug is the one thing this check exists to keep out. Measured:
+    // `transformObjectKeys` rewrites `{ get v() {} }` into a form that loses
+    // the accessor, so two outputs ran and answered something the seed did not.
+    if (!faithful) {
+      rmSync(file, { force: true });
+    }
     report.push(
       `${faithful ? "OK      " : agree ? "INFIEL  " : "DISCORDA"} ${base}/${name}`,
     );

@@ -1,0 +1,20 @@
+// Array methods, sort stability, holes, typed conversions, reduce chains.
+const out = [];
+const a = [5, 1, 4, 2, 3];
+out.push([...a].sort().join(","), [...a].sort((x, y) => x - y).join(","));
+out.push(a.filter((n) => n % 2).map((n) => n * n).reduce((s, n) => s + n, 0));
+out.push(a.findLast((n) => n < 4), a.findLastIndex((n) => n < 4));
+out.push([[1, [2, [3]]]].flat(2).join(","), [1, 2].flatMap((n) => [n, n * 10]).join(","));
+const holes = [1, , 3];
+out.push(holes.length, 1 in holes, JSON.stringify(holes), holes.map((n) => n).length);
+out.push(Array.from({ length: 3 }, (_, i) => i * 2).join(","));
+out.push(Array.of(7, 8).join(","), [..."abc"].join("-"));
+out.push([3, 1, 2].toSorted().join(","), [1, 2, 3].toReversed().join(","));
+out.push([1, 2, 3].with(1, 9).join(","), [1, 2, 3].at(-1));
+const grouped = Object.groupBy([1, 2, 3, 4, 5], (n) => (n % 2 ? "odd" : "even"));
+out.push(Object.keys(grouped).join(","), grouped.odd.join(""));
+out.push([1, 2, 3].includes(2), [1, 2, 3].indexOf(9));
+let sum = 0;
+[1, 2, 3].forEach(function (n, i, arr) { sum += n * i + arr.length; });
+out.push(sum);
+console.log(out.join("|"));

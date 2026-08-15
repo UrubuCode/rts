@@ -17,6 +17,10 @@ const what = {
 };
 
 const area = {
+  arrays_higher_order: "array methods, sort, holes, reduce chains, groupBy",
+  errors_throw: "error hierarchy, rethrow, nested try, custom errors, cause",
+  generators_async: "generators, yield*, the iterator protocol driven by hand",
+  getters_proxy: "accessors, defineProperty, Proxy traps, Reflect, symbol keys",
   closures_scope: "closures, per-iteration bindings, shadowing, IIFE chains",
   control_flow: "labels, switch fallthrough, try/catch/finally, short-circuit",
   destructure_spread: "destructuring, defaults, rest/spread, computed keys",
@@ -27,6 +31,12 @@ const area = {
 };
 
 let written = 0;
+// Only what is NOT already in the corpus. Obfuscation is randomised, so
+// re-emitting a name that already exists replaces one program with a different
+// one under the same name — and a per-file comparison then reads a corpus
+// change as an engine regression. Measured: a regenerated fixture came back as
+// one LOST entry that no code change had caused.
+const already = new Set(readdirSync(target));
 for (const name of readdirSync(out).filter((n) => n.endsWith(".ts"))) {
   const [seed, profile] = name.replace(/\.ts$/, "").split("__");
   const header = [
@@ -45,7 +55,11 @@ for (const name of readdirSync(out).filter((n) => n.endsWith(".ts"))) {
     "// pinning ITS bug rather than the language.",
     "",
   ].join("\n");
-  writeFileSync(join(target, `obf_${seed}_${profile}.ts`), header + readFileSync(join(out, name), "utf8"));
+  const file = `obf_${seed}_${profile}.ts`;
+  if (already.has(file)) {
+    continue;
+  }
+  writeFileSync(join(target, file), header + readFileSync(join(out, name), "utf8"));
   written += 1;
 }
 console.log(`escritos: ${written}`);

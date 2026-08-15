@@ -15,6 +15,27 @@ What that found on the first run, on a tree that had just measured 674 of 708:
 None of the three needed an obfuscator to be reachable. Each is ordinary
 JavaScript that the corpus had simply never spelled that way.
 
+## What the second batch found
+
+Four more seeds — generators and `yield*`, the error hierarchy, accessors and
+`Proxy`, array higher-order methods — gave 54 fixtures, of which **18 of 19 new
+ones pass**. The one that does not is a genuine finding and is left in the
+corpus as its own reproduction:
+
+**`obf_arrays_higher_order_everything` exhausts the heap.** 65 536 cells, all in
+use after a collection. It is not allocation VOLUME: a loop allocating twenty
+thousand objects collects fine, and nine of the eleven `everything` fixtures
+pass. Reduced as far as cheap probes go — the flattened state machine, a
+captured counter, a closure over a loop variable, rc4 decoding — and every one
+of those shapes answers correctly on its own. Not reduced further; the fixture
+is the reproduction.
+
+Two outputs were also **rejected as unfaithful**: `transformObjectKeys` rewrites
+`{ get v() {} }` into a form that loses the accessor, so the obfuscated program
+answered something its seed did not. `generate.mjs` deletes those rather than
+reporting and leaving them, because `install.mjs` reads the directory rather
+than the report.
+
 ## Running it
 
 ```bash
@@ -40,6 +61,14 @@ measured — five fixtures agreed under `generate.mjs` (which runs beside a
 `package.json`) and disagreed once installed. A seed must therefore avoid every
 construct whose behaviour depends on the mode; `Reflect.set` answers `false` in
 both, where the plain write does not.
+
+## Never re-emit a name that already exists
+
+`install.mjs` skips a fixture whose file is already in the corpus, and that is
+not tidiness. Obfuscation is randomised, so writing an existing name replaces
+one program with a different one under that name — and the per-file comparison
+then reads a CORPUS change as an engine regression. Measured: regenerating the
+first batch produced exactly one LOST entry that no code change had caused.
 
 ## Why the output is committed rather than regenerated
 
