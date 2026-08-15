@@ -324,11 +324,22 @@ fn emit_function(
         // against it. `ctx.generators` is what tells the host to put this
         // function through `resumable_form` before placing it.
         ctx.generators.push(id);
-        return wrap_generator(ctx, id);
+        let made = super::wrap::generator(ctx, id)?;
+        // `is_async` is asked AFTER the generator wrapper rather than instead of
+        // it, and that order is the whole of what an `async function*` is: it
+        // parks a frame like a generator AND it is stepped by the async
+        // protocol. This returned here, so `async function* g()` answered a
+        // plain generator — one with no `[Symbol.asyncIterator]`, which is the
+        // only thing `for await` asks a source for, so every `for await` over a
+        // declared async generator died on `undefined is not a function`.
+        return match function.is_async {
+            false => Ok(made),
+            true => super::wrap::async_generator(ctx, made),
+        };
     }
     match function.is_async {
         false => Ok(id),
-        true => Ok(wrap_async(ctx, id)),
+        true => Ok(super::wrap::async_function(ctx, id)),
     }
 }
 
@@ -396,123 +407,6 @@ fn self_binding(enclosing: &Scope, function: &Function, definition: Definition) 
         return None;
     }
     Some(name)
-}
-
-/// Wraps a generator's body so that calling it answers a generator object.
-///
-/// # Why a wrapper, and not a flag the call site reads
-///
-/// Calling a generator function must not run its body, and the tempting fix is
-/// to mark the closure and have the runtime's `invoke` check the mark before
-/// every jump. That puts a branch on the path of every ordinary call in the
-/// program to express something that is true at ONE site: the definition.
-///
-/// So the definition is where it is expressed. The wrapper is an ordinary
-/// function under the ordinary convention — the closure, the call and the caller
-/// are all unchanged — and what it does instead of calling the body is hand its
-/// ADDRESS to the runtime, which parks a frame against it. This is the shape
-/// [`wrap_async`] already uses, for the same reason: what differs about these
-/// functions is what the caller receives.
-///
-/// The body's arguments are passed on and written into the frame there, because
-/// a resumed body is entered afresh with nothing in the registers it had.
-fn wrap_generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
-    let sig = ctx.funcs.declare_signature(signature());
-    let id = ctx.funcs.declare_function(sig);
-    let mut func = MachineFunction::new(signature());
-    let entry = func.entry;
-    let arguments: Vec<ValueId> = func
-        .block(entry)
-        .expect("a function always has its entry block")
-        .params
-        .clone();
-    let types = rts_cranelift::types::TypeRegistry::new();
-    let mut builder = FuncBuilder::new(&mut func, &types, entry);
-    // A WRAPPER is its own function, so the enclosing body's throw-flag
-    // address is not a value that exists here. Taken rather than left, because
-    // `expr::call` below reads it off the context and an SSA id from another
-    // function is not refused by anything — it happened to name a `FuncAddr`
-    // here, and every generator in the suite loaded the callee's address as if
-    // it were the flag.
-    let outer_flag = ctx.thrown_flag.take();
-
-    // The address of the body as it will be PLACED, which is the rewritten form
-    // — the host redeclares this identifier once the rewrite has told it the
-    // frame's shape. Taking the address here rather than after is what lets the
-    // wrapper be emitted in one pass with everything else.
-    let code = builder.func_addr(ctx.funcs, inner)?;
-    let mut operands = Vec::with_capacity(1 + arguments.len());
-    operands.push(code);
-    operands.extend(arguments);
-    let made = expr::call(&mut builder, ctx, RuntimeOp::GeneratorNew, &operands)?[0];
-    builder.ret(&[made]);
-    ctx.thrown_flag = outer_flag;
-    ctx.pending.push((id, func));
-    Ok(id)
-}
-
-/// Wraps an async function's body so that calling it answers a promise.
-///
-/// # Why a wrapper and not a rewritten body
-///
-/// An `await` here does not park the frame — `Inst::Await` lowers to a call that
-/// drains until the promise settles, which is the contract `rts-cranelift`'s own
-/// signature doc states for it. So an async function runs to completion the
-/// moment it is called, and the only thing that separates it from an ordinary
-/// one is what the CALLER receives: a promise rather than the value.
-///
-/// That is a boundary, and a boundary is a wrapper. The alternative was
-/// threading "this body is async" through `emit_body` and rewriting every
-/// `return` inside it — more code, in the one place shared with a module's own
-/// body, to express something that only happens at the edge.
-///
-/// # What this does NOT do, by name
-///
-/// A `throw` escaping the body does not reject the promise; it escapes, and with
-/// nothing to catch it the program ends. Rejecting would need the body's
-/// unwinding to be visible here, and `try` around a call is refused by this
-/// crate anyway — so there is no shape in which the difference is observable
-/// yet. It is written down because there will be.
-fn wrap_async(ctx: &mut Ctx, inner: FuncId) -> FuncId {
-    let sig = ctx.funcs.declare_signature(signature());
-    let id = ctx.funcs.declare_function(sig);
-    let mut func = MachineFunction::new(signature());
-    let entry = func.entry;
-    let arguments: Vec<ValueId> = func
-        .block(entry)
-        .expect("a function always has its entry block")
-        .params
-        .clone();
-    let types = rts_cranelift::types::TypeRegistry::new();
-    let mut builder = FuncBuilder::new(&mut func, &types, entry);
-    // A WRAPPER is its own function, so the enclosing body's throw-flag
-    // address is not a value that exists here. Taken rather than left, because
-    // `expr::call` below reads it off the context and an SSA id from another
-    // function is not refused by anything — it happened to name a `FuncAddr`
-    // here, and every generator in the suite loaded the callee's address as if
-    // it were the flag.
-    let outer_flag = ctx.thrown_flag.take();
-    // The body runs first and to its end. Its completion value is what the
-    // promise carries, which is what `async function f() { return 1 }`
-    // resolving with `1` means.
-    let produced = builder
-        .call(ctx.funcs, inner, &arguments)
-        .map(|results| results.first().copied())
-        .ok()
-        .flatten();
-    let promise = builder.promise_new();
-    if let Some(value) = produced {
-        builder.promise_settle(promise, value, false);
-    }
-    // Widened, because the convention returns `Tagged` and a promise is a
-    // reference. The verifier caught this rather than a test: a function whose
-    // declared return and actual return disagree is refused at build time, which
-    // is the point of declaring it.
-    let answered = builder.widen(promise);
-    builder.ret(&[answered]);
-    ctx.thrown_flag = outer_flag;
-    ctx.pending.push((id, func));
-    id
 }
 
 /// Emits a body against the convention, with the environment chain set up.

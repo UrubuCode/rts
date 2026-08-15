@@ -155,6 +155,9 @@ pub fn emit_for_await(
     let next_name = ctx.names.intern("next");
     let done_name = ctx.names.intern("done");
     let value_name = ctx.names.intern("value");
+    let iterator_name = ctx.names.intern("iterator");
+    let undefined_name = ctx.names.intern("undefined");
+    let synced = ctx.names.intern("__rts_af_async");
 
     // `__rts_af_src` and `__rts_af_iter` live outside the loop, exactly as
     // `foreach.rs`'s `keys` binding does — evaluated once, not re-derived
@@ -167,8 +170,42 @@ pub fn emit_for_await(
     // the receiver — the `Index` callee shape `call.rs`'s
     // `callee_and_receiver` already binds correctly, the same path
     // `arr["push"](1)` takes.
+    // …and `[Symbol.iterator]` when the subject has no async one, which is
+    // `GetIterator(obj, async)` falling back the way the specification says.
+    // `for await (const v of [p1, p2])` over an ordinary ARRAY of promises is
+    // the common shape of that, and it answered
+    // `TypeError: undefined is not a function` — the async key read
+    // `undefined` and the call was made anyway.
+    //
+    // A CONDITIONAL rather than two loops, and the difference is one microtask
+    // tick. The specification wraps a sync iterator in
+    // `CreateAsyncFromSyncIterator`, which `await`s each `value`; an async one
+    // must NOT be awaited a second time. Awaiting unconditionally would add a
+    // tick to every `for await` over a real async iterator, which
+    // `393_promise_microtask` measures directly.
     let async_iterator_key = member(name(symbol_global), async_iterator_name);
-    let get_iterator = call(index(name(src), async_iterator_key));
+    let iterator_key = member(name(symbol_global), iterator_name);
+    let has_async = Expr {
+        kind: ExprKind::Binary {
+            op: crate::syntax::BinaryOp::StrictNotEqual,
+            left: Box::new(index(name(src), async_iterator_key.clone())),
+            right: Box::new(Expr {
+                kind: ExprKind::Ident(undefined_name),
+                at,
+            }),
+        },
+        at,
+    };
+    let has_async = super::expr::emit_expr(builder, scope, ctx, &has_async)?;
+    super::binding::declare(builder, scope, ctx, synced, has_async)?;
+    let get_iterator = Expr {
+        kind: ExprKind::Conditional {
+            condition: Box::new(name(synced)),
+            then_branch: Box::new(call(index(name(src), async_iterator_key))),
+            else_branch: Box::new(call(index(name(src), iterator_key))),
+        },
+        at,
+    };
     let iterator_value = super::expr::emit_expr(builder, scope, ctx, &get_iterator)?;
     super::binding::declare(builder, scope, ctx, iter, iterator_value)?;
 
@@ -227,7 +264,20 @@ pub fn emit_for_await(
         at,
     };
 
-    let element = member(name(step), value_name);
+    // The value is AWAITED only on the sync-iterator path, which is the whole
+    // of what `CreateAsyncFromSyncIterator` adds — and awaiting it on the async
+    // path would be the extra tick the conditional above exists to avoid.
+    let element = Expr {
+        kind: ExprKind::Conditional {
+            condition: Box::new(name(synced)),
+            then_branch: Box::new(member(name(step), value_name)),
+            else_branch: Box::new(Expr {
+                kind: ExprKind::Await(Box::new(member(name(step), value_name))),
+                at,
+            }),
+        },
+        at,
+    };
     let bind = if fresh_binding {
         Stmt {
             kind: StmtKind::Declare {
