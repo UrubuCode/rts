@@ -15,15 +15,21 @@
 //! string gets. So `Object.prototype` exists, a program can put something on it,
 //! and a plain literal will not see it. Named rather than quietly half-done.
 //!
-//! # Why `defineProperty` is only the accessor half
+//! # `defineProperty` is the whole operation now, and it lives next door
 //!
-//! A descriptor is an object with any of six fields, and four of them —
-//! `writable`, `enumerable`, `configurable`, and the distinction between an own
-//! and an inherited definition — are facts the shape tree does not record. So
-//! this reads `get`, `set` and `value`, and silently ignores the rest, which is
-//! the one place here that answers less than it appears to. Recording them needs
-//! a per-property flag word, which is a change to what a shape IS.
+//! This section used to say it read `get`, `set` and `value` and ignored the
+//! other three, because "the shape tree does not record them". The place was
+//! wrong rather than the fact: an attribute is per OBJECT per property, so it
+//! belongs beside the cell — [`super::integrity`] holds it — and the shape is
+//! exactly where it must not go.
+//!
+//! What was left after that was a definition that never REFUSED, which made
+//! `configurable: false` a flag a program could read back and nothing enforced.
+//! [`define`] is `ValidateAndApplyPropertyDescriptor`, in [`descriptor`] rather
+//! than here because this file is at its ceiling and the validation is the
+//! larger half of the operation.
 
+mod descriptor;
 mod describe;
 pub(in crate::entry) use describe::{describe_of, describe_own};
 
@@ -226,10 +232,6 @@ extern "C" fn set_prototype_of(
 }
 
 /// `Object.defineProperty(o, k, descriptor)`.
-///
-/// Reads `get`, `set` and `value` from the descriptor and ignores the rest —
-/// see the module documentation for which four fields those are and why
-/// recording them is a change to what a shape is rather than more of this.
 extern "C" fn define_property(
     _e: u64,
     _this: u64,
@@ -242,75 +244,58 @@ extern "C" fn define_property(
     object
 }
 
-/// One property defined from one descriptor.
+/// One property defined from one descriptor, throwing when it is refused.
 ///
 /// Its own function because `Object.create` and `Object.defineProperties` are
 /// this in a loop, and a second reading of what a descriptor means is where one
 /// of the three learns that `{}` defines `undefined` and the others do not.
-pub(in crate::entry) fn define(object: u64, name: u64, descriptor: u64) {
-    let read = |field: &str| {
-        let key = with_current(|context| context.intern_value(Str::from_str(field)).bits());
-        super::computed::get_indexed(descriptor, key)
-    };
-    let getter = read("get");
-    let setter = read("set");
-    let value = read("value");
-    // The three flags, read the same way. A field left out is FALSE here where
-    // an ordinary assignment gives all three: that is what the language says of
-    // `defineProperty` and it is the difference programs reach for it for —
-    // `{value: 1}` alone defines something a later write cannot change.
-    let attributes = super::integrity::Attributes {
-        writable: super::primitives::to_boolean(read("writable")),
-        enumerable: super::primitives::to_boolean(read("enumerable")),
-        configurable: super::primitives::to_boolean(read("configurable")),
-    };
-
-    let (key, absent) = with_current(|context| {
-        let key = key_for(context, name).and_then(|key| match key {
-            Key::Name(named) => Some(named.index() as i64),
-            // An index has no `ShapeKey`, and `define_getter` speaks in one. A
-            // descriptor on `a[0]` is therefore refused rather than written to
-            // the wrong key — the gap `machine_key` already reports elsewhere.
-            Key::Index(_) => None,
-        });
-        (key, undefined_of(context))
-    });
-    let Some(key) = key else {
+///
+/// The throw is here rather than in [`descriptor`] because that is the whole
+/// difference between this and `Reflect.defineProperty`, which reports the same
+/// refusal as `false`.
+pub(in crate::entry) fn define(object: u64, name: u64, stated: u64) {
+    let Some(wanted) = descriptor::read(stated) else {
+        // Already thrown: either the descriptor was not an object, or reading a
+        // field of it ran a getter that threw. Rule 8 — the answer is not
+        // looked at.
         return;
     };
+    define_read(object, name, &wanted);
+}
 
-    if getter != absent {
-        super::accessor::define_getter(object, key, getter);
-    }
-    if setter != absent {
-        super::accessor::define_setter(object, key, setter);
-    }
-    // A descriptor with neither is a data property, and one with `value` absent
-    // still creates it — `{}` as a descriptor defines the property as
-    // `undefined`, which is what the language does.
-    if getter == absent && setter == absent {
-        super::objects::set_property(object, key, value);
-    }
-    // Recorded AFTER the value is stored, never before: a non-writable
-    // attribute is what `put` refuses, so writing the flag first would make
-    // `defineProperty` refuse its own definition.
-    with_current(|context| {
-        if let Some(cell) = Value(object).as_slot()
-            && let Some(key) = context.keys.key(key as u32)
-        {
-            super::integrity::set_attributes(context, cell, key, attributes);
+/// The second half, for a caller that read the descriptor earlier.
+///
+/// `Object.defineProperties` is that caller, and it has to be: the language
+/// reads EVERY descriptor before it defines the first property, so a set whose
+/// second descriptor throws leaves the object untouched.
+pub(in crate::entry) fn define_read(object: u64, name: u64, wanted: &descriptor::Descriptor) {
+    match descriptor::apply(object, name, wanted) {
+        descriptor::Verdict::Done => {}
+        descriptor::Verdict::Refused => {
+            let named = with_current(|context| {
+                super::text::to_text(context, Value(name))
+                    .and_then(|text| text.to_rust())
+                    .unwrap_or_default()
+            });
+            super::throw::type_error(&format!("Cannot redefine property: {named}"));
         }
-    });
+        descriptor::Verdict::NotObject => {
+            super::throw::type_error("Object.defineProperty called on non-object");
+        }
+    }
 }
 
 /// The key a property name value denotes.
 ///
-/// Shared with [`describe`] so that a descriptor is read back under the same key
-/// it was written to — two spellings of "intern the text" is how a key written
-/// as a name gets read as an index.
+/// Shared with [`describe`] and [`descriptor`] so that a descriptor is read back
+/// under the same key it was written to — two spellings of "intern the text" is
+/// how a key written as a name gets read as an index.
+///
+/// `ToPropertyKey` itself rather than a second interning of the text: a symbol
+/// has no string spelling, and resolving one here by `to_text` gave it a key the
+/// ordinary access path would never look under.
 pub(super) fn key_for(context: &mut Context, name: u64) -> Option<Key> {
-    let text = super::text::to_text(context, Value(name))?;
-    Some(Key::Name(context.interner.intern(&text, &mut context.keys)))
+    super::computed::property_key(context, Value(name))
 }
 
 /// `Object.entries(o)` — `[key, value]` per own key.

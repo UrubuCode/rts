@@ -113,6 +113,42 @@ impl Context {
     }
 }
 
+/// What a key permits once the OBJECT's own refusals are folded in.
+///
+/// The three questions below answer one each, and every caller that wants the
+/// whole descriptor was asking all three in the same shape — `describe` to build
+/// one, `define` to validate against one. Stated once so the two cannot come to
+/// different conclusions about a sealed object's `configurable`, which is the
+/// one flag integrity changes without the property's own record moving.
+pub(in crate::entry) fn effective(context: &Context, cell: u32, key: ShapeKey) -> Attributes {
+    Attributes {
+        writable: !refuses_key_write(context, cell, key),
+        enumerable: enumerable(context, cell, key),
+        configurable: !refuses_key_removal(context, cell, key),
+    }
+}
+
+/// Forgets what a key permits, back to what a written property has.
+///
+/// `defineProperty` needs it: a redefinition stores the new value through the
+/// ordinary write path, and that path refuses a key recorded non-writable — so
+/// a descriptor changing `{writable: false, value: 1}` into `{value: 2}` would
+/// be refused by the record it is replacing. Clearing first and recording after
+/// is the order `define` already had to use for the value; this is the same
+/// order applied to a key that already had a record.
+///
+/// The alternative — a write that bypasses the refusal — was rejected because
+/// it would be a second store path with a second answer to what a frozen
+/// object is.
+pub(in crate::entry) fn clear_attributes(context: &mut Context, cell: u32, key: ShapeKey) {
+    let Some(held) = context.attributes.get(cell) else {
+        return;
+    };
+    let kept: Vec<(ShapeKey, Attributes)> =
+        held.iter().filter(|(at, _)| *at != key).copied().collect();
+    context.attributes.set(cell, kept);
+}
+
 /// Records what a key permits, and makes a non-writable one stick.
 ///
 /// The retype is the same mechanism `freeze` needs and for the same reason: a
@@ -184,19 +220,46 @@ pub(in crate::entry) fn enumerable(context: &Context, cell: u32, key: ShapeKey) 
 /// Strictest rather than latest, because the operations are one-way in the
 /// language: `Object.preventExtensions` on a frozen object must not thaw it.
 pub(in crate::entry) fn restrict(object: u64, level: Integrity) -> u64 {
-    with_current(|context| {
+    let refused = with_current(|context| {
         let Some(cell) = Value(object).as_slot() else {
             // A primitive is already unchangeable, and the language answers it
             // unchanged rather than throwing.
-            return;
+            return false;
         };
+        // A typed array's elements cannot be made non-configurable, so sealing
+        // or freezing one that HAS elements is a refusal rather than a stronger
+        // level. The language reports it as a throw because `SetIntegrityLevel`
+        // defines every step past `[[PreventExtensions]]` as
+        // `DefinePropertyOrThrow` — so the extension ban lands and the rest
+        // does not, which is why `Closed` is recorded before the raise instead
+        // of the level that was asked for.
+        if level >= Integrity::Sealed && indexed_elements(context, cell) > 0 {
+            context.integrity.set(cell, Integrity::Closed);
+            return true;
+        }
         let reached = context.integrity_at(cell).map_or(level, |held| held.max(level));
         context.integrity.set(cell, reached);
         if reached == Integrity::Frozen {
             retype(context, cell);
         }
+        false
     });
+    if refused {
+        super::throw::type_error("Cannot redefine property: 0");
+    }
     object
+}
+
+/// How many elements a cell holds that no shape records and no `delete` reaches.
+///
+/// A typed array's, and only a typed array's: a `DataView` is a view too and has
+/// none — it decides a width per call rather than exposing indices — which is
+/// why the kind is asked rather than the byte length.
+fn indexed_elements(context: &Context, cell: u32) -> usize {
+    match context.view_at(cell) {
+        Some(view) if view.kind != super::buffers::element::Kind::Raw => view.count(),
+        _ => 0,
+    }
 }
 
 /// Gives a cell a fresh type with the layout it already had.

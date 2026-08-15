@@ -137,6 +137,61 @@ impl Context {
         self.define_accessor(cell, key, get, set);
         super::integrity::retype(self, cell);
     }
+
+    /// States the pair outright, rather than filling in the half it was given.
+    ///
+    /// [`Self::define_accessor`]'s or-semantics is right for `get x()` beside
+    /// `set x(v)`, which are two declarations of one property. It is wrong for
+    /// `Object.defineProperty`, which states a whole descriptor: redefining an
+    /// accessor as `{get}` alone leaves it with NO setter, and keeping the old
+    /// one would make a property that the program just replaced go on writing
+    /// through the function it replaced.
+    pub(super) fn set_accessor(
+        &mut self,
+        cell: u32,
+        key: u32,
+        get: Option<u64>,
+        set: Option<u64>,
+    ) {
+        match self.accessors.get_mut(cell) {
+            Some(defined) => match defined.iter_mut().find(|(at, _, _)| *at == key) {
+                Some(found) => {
+                    found.1 = get;
+                    found.2 = set;
+                }
+                None => defined.push((key, get, set)),
+            },
+            None => self.accessors.set(cell, vec![(key, get, set)]),
+        }
+        super::integrity::retype(self, cell);
+    }
+
+    /// Forgets one, and tells every warmed site so.
+    ///
+    /// `delete o.x` on an accessor used to answer `true` and remove nothing —
+    /// the walk looked for a slot in the layout, an accessor deliberately has
+    /// none, and "no slot" was read as "no property". A `delete` that reports a
+    /// removal it did not perform is the shape of wrong answer this crate
+    /// hunts, and it was observable: the setter went on running afterwards.
+    ///
+    /// Answers whether there was one, so a caller can tell a removal from a
+    /// key that was never here.
+    pub(super) fn remove_accessor(&mut self, cell: u32, key: u32) -> bool {
+        let Some(defined) = self.accessors.get(cell) else {
+            return false;
+        };
+        if !defined.iter().any(|(at, _, _)| *at == key) {
+            return false;
+        }
+        let kept: Vec<(u32, Option<u64>, Option<u64>)> = defined
+            .iter()
+            .filter(|(at, _, _)| *at != key)
+            .copied()
+            .collect();
+        self.accessors.set(cell, kept);
+        super::integrity::retype(self, cell);
+        true
+    }
 }
 
 /// `get x() { … }` — records the getter half.

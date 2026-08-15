@@ -29,12 +29,15 @@
 //! refuses. The machine grew `RtEntry::CacheResolveStore` for the second half.
 //!
 //! A descriptor on a frozen object therefore reports `writable: false` and
-//! `configurable: false` — the two flags that ARE recorded, per object rather
-//! than per property.
+//! `configurable: false`. That is the object's answer folded onto the
+//! property's own, which [`super::super::integrity::effective`] performs — and
+//! it is asked by the validation `defineProperty` runs as well, so the
+//! descriptor a program READS and the one a definition is CHECKED against
+//! cannot come apart.
 
 use super::super::native::Native;
 use super::super::objects::undefined_of;
-use super::super::integrity::{Attributes, Integrity};
+use super::super::integrity::Integrity;
 use super::super::with_current;
 use crate::object::Key;
 use crate::value::Value;
@@ -153,6 +156,15 @@ extern "C" fn define_properties(
 /// Shared so that `create` and `defineProperties` cannot disagree about what a
 /// descriptor means — which is the whole reason the second exists as a name
 /// rather than as a loop each caller writes.
+///
+/// # Every descriptor is READ before any property is defined
+///
+/// Two passes, and the language requires it: `DefinePropertiesImpl` gathers the
+/// whole list and only then applies it, so a set whose third descriptor throws
+/// leaves the object exactly as it was. One pass defined the first two and then
+/// let the exception out, which is a half-applied merge — the failure mode this
+/// crate treats as worse than an outright refusal, because the object looks
+/// like it was configured.
 fn apply(object: u64, descriptors: u64) {
     let absent = with_current(|context| undefined_of(context));
     if descriptors == absent {
@@ -162,9 +174,25 @@ fn apply(object: u64, descriptors: u64) {
     let Some(names) = elements(names) else {
         return;
     };
+    let mut gathered = Vec::with_capacity(names.len());
     for name in names {
+        // Reading the entry runs a getter, and so does reading each of its six
+        // fields. Rule 8 both times: a throw stops the gathering, and nothing
+        // has been defined yet.
         let descriptor = super::super::computed::get_indexed(descriptors, name);
-        super::define(object, name, descriptor);
+        if super::super::throw::in_flight() {
+            return;
+        }
+        let Some(wanted) = super::descriptor::read(descriptor) else {
+            return;
+        };
+        gathered.push((name, wanted));
+    }
+    for (name, wanted) in gathered {
+        super::define_read(object, name, &wanted);
+        if super::super::throw::in_flight() {
+            return;
+        }
     }
 }
 
@@ -216,6 +244,19 @@ extern "C" fn get_own_property_symbols(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    own_symbols(object)
+}
+
+/// Every own symbol key of an object, as an array of symbol VALUES.
+///
+/// Named rather than left inside the method above because it is half of a
+/// second operation: `[[OwnPropertyKeys]]` is the string keys followed by the
+/// symbol ones, and `Reflect.ownKeys` is the only spelling that reports both.
+/// A second walk written there would be a second answer to which keys are
+/// symbols — and this crate's own encoding of one (a reserved name space rather
+/// than a third `Key` variant) is exactly the fact two walks would eventually
+/// disagree about.
+pub(in crate::entry) fn own_symbols(object: u64) -> u64 {
     let symbols = with_current(|context| {
         super::super::array::symbol_keyed_with(context, object, false)
             .into_iter()
@@ -257,16 +298,6 @@ extern "C" fn get_own_property_descriptors(
     made
 }
 
-/// The descriptor for one own key, or `None` if there is no such key.
-///
-/// An accessor answers `{get, set}` and a slot answers `{value, writable}`,
-/// which is the distinction the language draws — and the only one this engine
-/// can draw, since the three flags are not recorded.
-/// The descriptor an object has for a key, for a caller outside this module.
-///
-/// One caller: a proxy whose handler does not trap the question and forwards it
-/// to its target. Answers `undefined` for a key the object does not have, which
-/// is the same distinction the public spelling makes.
 /// The descriptor for a key, asking a proxy's handler first.
 ///
 /// The spelling every caller outside this module wants: `Reflect`, and the
@@ -284,6 +315,11 @@ pub(in crate::entry) fn describe_of(object: u64, name: u64) -> u64 {
     describe_own(object, name)
 }
 
+/// The descriptor an object has for a key, without asking a proxy.
+///
+/// One caller: a proxy whose handler does not trap the question and forwards it
+/// to its target. Answers `undefined` for a key the object does not have, which
+/// is the same distinction the public spelling makes.
 pub(in crate::entry) fn describe_own(object: u64, name: u64) -> u64 {
     match descriptor(object, name) {
         Some(made) => made,
@@ -291,42 +327,40 @@ pub(in crate::entry) fn describe_own(object: u64, name: u64) -> u64 {
     }
 }
 
+/// The descriptor for one own key, or `None` if there is no such key.
+///
+/// An accessor answers `{get, set}` and a slot answers `{value, writable}`,
+/// which is the distinction the language draws. This paragraph used to end
+/// "and the only one this engine can draw, since the three flags are not
+/// recorded" — they are, in [`super::super::integrity`], per object and per
+/// property, which is what made `defineProperty` able to refuse.
 fn descriptor(object: u64, name: u64) -> Option<u64> {
-    let found = with_current(|context| {
+    // All three flags come from the property's own record folded together with
+    // the object's integrity — either can refuse, so a frozen object reports a
+    // property written the ordinary way as non-writable. `effective` is that
+    // fold, shared with the validation `defineProperty` performs so the two
+    // cannot disagree about what a sealed object's `configurable` is.
+    let (found, attributes) = with_current(|context| {
         let cell = Value(object).as_slot()?;
-        let key = super::key_for(context, name)?;
+        let Key::Name(key) = super::key_for(context, name)? else {
+            return None;
+        };
+        let attributes = super::super::integrity::effective(context, cell, key);
         // The accessor table is asked first: an accessor is deliberately absent
         // from the layout, so a key that is one has no slot to find.
-        if let Key::Name(named) = key
-            && let Some(pair) = context.accessor_at(cell, named.index() as u32)
-        {
+        if let Some(pair) = context.accessor_at(cell, key.index() as u32) {
             let absent = undefined_of(context);
-            return Some(Descriptor::Accessor(
-                pair.0.unwrap_or(absent),
-                pair.1.unwrap_or(absent),
-            ));
+            let found =
+                Descriptor::Accessor(pair.0.unwrap_or(absent), pair.1.unwrap_or(absent));
+            return Some((found, attributes));
         }
         // Own rather than inherited: a descriptor describes what the object
         // itself has, and reporting a prototype's property as own is what would
         // make a copy through `defineProperties` flatten a chain.
-        let held = super::super::objects::own_property(context, cell, key)?;
-        Some(Descriptor::Value(held.bits()))
+        let held = super::super::objects::own_property(context, cell, Key::Name(key))?;
+        Some((Descriptor::Value(held.bits()), attributes))
     })?;
 
-    // All three, from the property's own attributes and from the object's
-    // integrity — either can refuse, so a frozen object reports a property
-    // written the ordinary way as non-writable.
-    let attributes = with_current(|context| {
-        let (Some(cell), Some(key)) = (Value(object).as_slot(), key_of(context, object, name))
-        else {
-            return Attributes::default();
-        };
-        Attributes {
-            writable: !super::super::integrity::refuses_key_write(context, cell, key),
-            enumerable: super::super::integrity::enumerable(context, cell, key),
-            configurable: !super::super::integrity::refuses_key_removal(context, cell, key),
-        }
-    });
     let made = super::super::objects::object_new(0);
     match found {
         Descriptor::Accessor(getter, setter) => {
@@ -345,22 +379,6 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         Value::from_bool(attributes.configurable).bits(),
     );
     Some(made)
-}
-
-/// The machine key a descriptor's name denotes, for a receiver that is a cell.
-///
-/// `None` for an index, which has no `ShapeKey` — the same boundary
-/// [`super::define`] stops at, stated here so the two answer alike.
-fn key_of(
-    context: &mut super::super::Context,
-    object: u64,
-    name: u64,
-) -> Option<rts_cranelift::shape::Key> {
-    let _ = object;
-    match super::key_for(context, name)? {
-        Key::Name(named) => Some(named),
-        Key::Index(_) => None,
-    }
 }
 
 /// What an own key turned out to be.
