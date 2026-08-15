@@ -117,12 +117,9 @@ pub(super) fn iso_text(ms: f64) -> String {
     let Some(parts) = parts_of(ms) else {
         return "Invalid Date".to_owned();
     };
-    // Four digits is the only width the language guarantees; a year outside it
-    // has an expanded form this does not write, and printing it plainly is the
-    // narrower wrong answer than refusing to format the date at all.
     format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        parts.year,
+        "{}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        iso_year(parts.year),
         parts.month + 1,
         parts.day,
         parts.hour,
@@ -130,6 +127,27 @@ pub(super) fn iso_text(ms: f64) -> String {
         parts.second,
         parts.milli
     )
+}
+
+/// The year field of an ISO-8601 date, in whichever of its two widths applies.
+///
+/// Four digits inside `0000..=9999` and the **expanded** `±YYYYYY` outside it,
+/// which is what a time value at either end of the range needs: `new Date(8.64e15)`
+/// is the year 275 760 and `Date.UTC(-1, 0, 1)` is the year -1, and neither fits
+/// in four digits. It printed them plainly — `275760-09-13` and `-001-01-01` —
+/// with a comment calling that "the narrower wrong answer", and it was wrong in
+/// the way that matters most for this format: neither string parses back.
+/// `Date.parse` here already reads the expanded form, because the sign is what
+/// selects the six-digit width, so this is the half that was missing.
+///
+/// The sign is mandatory in the expanded form and forbidden in the plain one,
+/// which is the specification's rule and not a stylistic choice — `+012345` and
+/// `012345` are not the same year to a reader who knows only one of the widths.
+fn iso_year(year: i64) -> String {
+    match (0..=9999).contains(&year) {
+        true => format!("{year:04}"),
+        false => format!("{}{:06}", if year < 0 { '-' } else { '+' }, year.abs()),
+    }
 }
 
 /// The names Node's `toUTCString`/`toDateString`/`toString` write, in the
@@ -306,6 +324,23 @@ mod tests {
         // and `Date.UTC` ask for it, which is why this is a separate step.
         assert_eq!(iso_text(midnight(full_year(99.0), 0.0)), "1999-01-01T00:00:00.000Z");
         assert_eq!(full_year(2020.0), 2020.0);
+    }
+
+    /// A year that does not fit in four digits is written in the expanded form,
+    /// with the sign that form requires.
+    ///
+    /// The pair that matters is the ends of the range: both `new Date(8.64e15)`
+    /// and `new Date(-8.64e15)` are legal dates, and both printed something no
+    /// parser reads back — `275760-09-13` had no `+` and `-1` came out as `-001`.
+    #[test]
+    fn a_year_outside_four_digits_is_expanded_and_signed() {
+        assert_eq!(iso_text(MAX_TIME), "+275760-09-13T00:00:00.000Z");
+        assert_eq!(iso_text(-MAX_TIME), "-271821-04-20T00:00:00.000Z");
+        let year_one_bc = from_parts(-1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0);
+        assert_eq!(iso_text(year_one_bc), "-000001-01-01T00:00:00.000Z");
+        // And a year that DOES fit keeps the plain four digits, with no sign —
+        // the two widths are not interchangeable to a reader.
+        assert_eq!(iso_text(0.0), "1970-01-01T00:00:00.000Z");
     }
 
     /// Every field of the constructor's seven reaches the time value.

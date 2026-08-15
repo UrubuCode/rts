@@ -83,17 +83,29 @@ pub(super) fn parse_iso(text: &str) -> f64 {
         }
         let mut fraction = 0;
         if bytes.get(at) == Some(&b'.') {
-            let Some(read) = number(at + 1, 3) else {
+            // However many digits are written, and the count is what decides
+            // what they MEAN: `.1` is a tenth of a second and `.123` is 123
+            // milliseconds, so a fixed three-digit read is not merely stricter —
+            // it read `"…00.1Z"` as `NaN` where every engine answers 100 ms.
+            // The specification writes the field as exactly `.sss`; Node, Bun and
+            // every browser accept one digit upwards, and a date that parses
+            // everywhere else and not here is the wrong kind of strictness.
+            let digits = bytes[at + 1..]
+                .iter()
+                .take_while(|byte| byte.is_ascii_digit())
+                .count();
+            if digits == 0 {
                 return f64::NAN;
-            };
-            fraction = read;
-            at += 4;
+            }
             // Anything past three digits is sub-millisecond and the time value
             // has no room for it, so it is dropped rather than rounded — the
             // same direction `clip` truncates, which keeps the two consistent.
-            while bytes.get(at).is_some_and(u8::is_ascii_digit) {
-                at += 1;
-            }
+            let taken = digits.min(3);
+            let Some(read) = number(at + 1, taken) else {
+                return f64::NAN;
+            };
+            fraction = read * 10i64.pow(3 - taken as u32);
+            at += 1 + digits;
         }
         milliseconds = hour * 3_600_000 + minute * 60_000 + second * 1_000 + fraction;
         offset = match bytes.get(at) {
@@ -147,6 +159,22 @@ mod tests {
         assert!(parse_iso("1969-07-20T20:17:40.000Z") < 0.0);
     }
 
+    /// How many fractional digits are written decides what they mean.
+    ///
+    /// `.1` is a tenth of a second, not one millisecond — the reading a
+    /// fixed three-digit parser cannot express, and it answered `NaN` for both
+    /// of the first two rather than a wrong number.
+    #[test]
+    fn a_fraction_is_read_by_its_written_precision() {
+        let midnight = parse_iso("1970-01-01T00:00:00Z");
+        assert_eq!(parse_iso("1970-01-01T00:00:00.1Z") - midnight, 100.0);
+        assert_eq!(parse_iso("1970-01-01T00:00:00.12Z") - midnight, 120.0);
+        assert_eq!(parse_iso("1970-01-01T00:00:00.123Z") - midnight, 123.0);
+        // Past three digits is sub-millisecond, which the time value has no room
+        // for: dropped rather than rounded, the direction `clip` truncates.
+        assert_eq!(parse_iso("1970-01-01T00:00:00.1239Z") - midnight, 123.0);
+    }
+
     /// What is refused, and refused as `NaN` rather than as a nearby date.
     #[test]
     fn junk_is_not_a_date() {
@@ -155,5 +183,8 @@ mod tests {
         assert!(parse_iso("2020-01-01T00:00:00Zjunk").is_nan());
         assert!(parse_iso("2020-01-0").is_nan());
         assert!(parse_iso("").is_nan());
+        // A separator with no digits behind it is not a precision, it is a
+        // typo — and the loop that counts digits would read it as zero of them.
+        assert!(parse_iso("1970-01-01T00:00:00.Z").is_nan());
     }
 }
