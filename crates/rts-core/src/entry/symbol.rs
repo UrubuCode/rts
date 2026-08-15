@@ -178,6 +178,31 @@ pub(in crate::entry) fn value_of_key_text(context: &Context, text: &str) -> Opti
     Some(Value::from_client(context.kinds.symbol, u64::from(*number)).bits())
 }
 
+/// `GetMethod(value, @@name)` — the callable a value carries under one of the
+/// language's own symbols, if it carries one.
+///
+/// # Why this is here and not at the call site
+///
+/// Because the key text is this module's encoding and nothing else's.
+/// `Symbol.match` is the property `"@@match"`, which is a fact stated at
+/// [`PREFIX`] and at [`well_known`]; a string method spelling the prefix itself
+/// would be the third place that knows it, and the day the prefix changes is the
+/// day two of the three still agree.
+///
+/// `None` covers the three ways there is no protocol here: the value is not an
+/// object, it has no such property, or the property is not callable. The
+/// specification's own `GetMethod` collapses the first two and throws on the
+/// third; throwing is the stated gap the rest of this crate has, and answering
+/// `None` sends the caller to the built-in behaviour, which is what a program
+/// with an ordinary pattern expects.
+pub(in crate::entry) fn method_of(context: &mut Context, value: u64, name: &str) -> Option<u64> {
+    let cell = Value(value).as_slot()?;
+    let key = context.well_known(&format!("{PREFIX}{name}"));
+    let found = super::objects::read_property(context, cell, key)?;
+    let held = found.as_slot()?;
+    context.callable_at(held).is_some().then(|| found.bits())
+}
+
 /// A new symbol under a key nothing has used.
 fn mint(context: &mut Context, key: String, description: Option<String>) -> u64 {
     let number = context.symbols.made.len() as u64;

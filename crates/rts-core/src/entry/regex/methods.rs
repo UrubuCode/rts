@@ -144,18 +144,24 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
             .map(|span| span.map(|(from, to)| text[from..to].to_string()))
             .collect();
         let at = units_before(&text, spans[0]?.0);
+        let described = Value(this).as_slot().and_then(|cell| context.regexp_at(cell));
         // Os nomes dos grupos, que o motor sempre soube e ninguém perguntava:
         // `Spans` é indexado por posição, portanto um grupo nomeado chegava
         // aqui anónimo e `m.groups` não tinha de onde ser construído.
-        let named = Value(this)
-            .as_slot()
-            .and_then(|cell| context.regexp_at(cell))
+        let named = described
             .map(|rx| rx.named_groups(&parts))
             .unwrap_or_default();
-        Some((parts, at, text, named))
+        // The spans survive only for a `d` pattern. Every match has them and
+        // nearly no match is asked where its groups were, so carrying them past
+        // this borrow unconditionally would be a vector per `exec` for a
+        // property the program never reads.
+        let positioned = described
+            .filter(|rx| rx.has_indices())
+            .map(|rx| (spans, rx.names()));
+        Some((parts, at, text, named, positioned))
     });
 
-    let Some((parts, at, text, named)) = found else {
+    let Some((parts, at, text, named, positioned)) = found else {
         return with_current(|context| null_of(context));
     };
 
@@ -211,6 +217,11 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
         let groups = super::groups_object(context, &named);
         let key = context.well_known("groups");
         put(context, cell, key, groups);
+        // `indices`, and only for a `d` pattern — `m.indices` is `undefined`
+        // otherwise, which is what `m.indices?.[0]` distinguishes.
+        if let Some((spans, names)) = positioned {
+            super::indices::onto(context, array, &text, &spans, &names);
+        }
         array
     })
 }

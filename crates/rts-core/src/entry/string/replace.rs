@@ -25,6 +25,7 @@ extern "C" fn replace(_e: u64, this: u64, pattern: u64, with: u64, _a2: u64, _a3
     replaced(this, pattern, with, false)
 }
 
+
 /// `s.replaceAll(pattern, replacement)`.
 ///
 /// The language requires a `g` pattern here and throws otherwise. This replaces
@@ -44,6 +45,13 @@ extern "C" fn replace_all(_e: u64, this: u64, pattern: u64, with: u64, _a2: u64,
 /// released, each replacement is computed, and the result is assembled in a
 /// fresh borrow.
 fn replaced(this: u64, pattern: u64, with: u64, every: bool) -> u64 {
+    // `Symbol.replace` FIRST, and for both spellings: `replaceAll` differs from
+    // `replace` in requiring a global pattern, not in which protocol it asks.
+    // See [`super::pattern::hooked`] for why asking comes before deciding the
+    // argument is a pattern at all.
+    if let Some(answered) = super::pattern::hooked(this, pattern, "replace", Some(with)) {
+        return answered;
+    }
     let collected = with_current(|context| {
         let (subject, sought) = staged(context, this, pattern)?;
         let all = match &sought {
@@ -68,12 +76,12 @@ fn replaced(this: u64, pattern: u64, with: u64, every: bool) -> u64 {
     let mut out = String::with_capacity(subject.len());
     let mut at = 0;
     for one in &found {
-        out.push_str(&subject[at..one.from]);
+        out.push_str(&subject[at..one.from()]);
         match &template {
             Some(template) => expand(&mut out, template, &subject, one),
             None => out.push_str(&produced(with, &subject, one)),
         }
-        at = one.to;
+        at = one.to();
     }
     out.push_str(&subject[at..]);
     with_current(|context| context.intern_value(Str::from_str(&out)).bits())
@@ -96,7 +104,7 @@ fn produced(callee: u64, subject: &str, one: &Found) -> String {
         let this = nothing(context);
         let mut values = vec![
             context
-                .intern_value(Str::from_str(&subject[one.from..one.to]))
+                .intern_value(Str::from_str(&subject[one.from()..one.to()]))
                 .bits(),
         ];
         for group in one.groups.iter().skip(1) {
@@ -105,7 +113,7 @@ fn produced(callee: u64, subject: &str, one: &Found) -> String {
                 None => this,
             });
         }
-        values.push(Value::from_f64(units_before(subject, one.from) as f64).bits());
+        values.push(Value::from_f64(units_before(subject, one.from()) as f64).bits());
         values.push(context.intern_value(Str::from_str(subject)).bits());
         if !one.names.is_empty()
             && let Some(cell) = super::super::native::plain(context)
@@ -147,7 +155,7 @@ fn produced(callee: u64, subject: &str, one: &Found) -> String {
 /// for exactly those two, which is why this takes the whole [`Found`] rather
 /// than the matched slice it took before.
 fn expand(out: &mut String, template: &str, subject: &str, one: &Found) {
-    let matched = &subject[one.from..one.to];
+    let matched = &subject[one.from()..one.to()];
     let groups = &one.groups;
     let mut characters = template.chars().peekable();
     while let Some(character) = characters.next() {
@@ -166,11 +174,11 @@ fn expand(out: &mut String, template: &str, subject: &str, one: &Found) {
             }
             Some('`') => {
                 characters.next();
-                out.push_str(&subject[..one.from]);
+                out.push_str(&subject[..one.from()]);
             }
             Some('\'') => {
                 characters.next();
-                out.push_str(&subject[one.to..]);
+                out.push_str(&subject[one.to()..]);
             }
             Some('<') => {
                 // A named group, and the whole token stays literal when the

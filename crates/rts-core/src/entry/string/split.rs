@@ -59,6 +59,12 @@ pub(super) const NATIVES: &[(&str, Native)] = &[("split", split)];
 /// smaller half of that, and [`narrow`] is that path for the calls where it is
 /// the whole of it.
 extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a3: u64) -> u64 {
+    // `Symbol.split` FIRST, before anything decides the separator is text —
+    // see [`super::pattern::hooked`] for why the order is the specification's
+    // and not a preference.
+    if let Some(answered) = super::pattern::hooked(this, separator, "split", Some(limit)) {
+        return answered;
+    }
     // Narrow subject, narrow literal separator: the pieces are slices of the
     // subject until each becomes a cell, and none of the allocation below
     // happens.
@@ -80,16 +86,16 @@ extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a
             // Um match VAZIO onde a peça anterior acabou, ou no fim do sujeito,
             // não separa nada — a especificação avança sem cortar. Cortar ali
             // produzia peças vazias a mais nas duas pontas.
-            if one.from == one.to && (one.from == at || one.from == subject.len()) {
+            if one.from() == one.to() && (one.from() == at || one.from() == subject.len()) {
                 continue;
             }
-            pieces.push(Some(subject[at..one.from].to_string()));
+            pieces.push(Some(subject[at..one.from()].to_string()));
             // As capturas entram ENTRE as peças, que é o que faz
             // `"a1b22c".split(/(\d+)/)` responder `["a","1","b","22","c"]`. Eram
             // deitadas fora, e com elas metade do que o `split` com grupos serve
             // para fazer.
             pieces.extend(one.groups.iter().skip(1).cloned());
-            at = one.to;
+            at = one.to();
         }
         pieces.push(Some(subject[at..].to_string()));
         Some(pieces)

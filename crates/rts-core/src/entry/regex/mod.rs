@@ -27,18 +27,20 @@
 //! second kind of callee — would put a branch on every call in the program to
 //! serve two of them.
 //!
-//! # Named groups, and what is still absent
+//! # Named groups, and the three absences that are gone
 //!
 //! This paragraph listed three absences under one argument: each needs somewhere
 //! to put a second collection of results, and none of them changes what a match
-//! IS. Two of the three arrived. `matchAll` is here, and named groups reach a
+//! IS. All three arrived. `matchAll` is here, and named groups reach a
 //! `groups` object through [`Regexp::named_groups`] — both engines expose
 //! `capture_names` and always did; what was missing is that `Spans` is indexed
 //! by POSITION and carries no name, so a named group reached the runtime
 //! anonymous.
 //!
-//! Still absent: the `d` flag's `indices`. The letter is accepted so a program
-//! is not refused, and then forgotten.
+//! The third is the `d` flag's `indices`, through [`indices::onto`], and it is
+//! the clearest case of that one argument: the positions were in the same
+//! `Spans` every match already produced and were thrown away one line later.
+//! Nothing about MATCHING changed to answer them.
 //!
 //! The string methods that take a pattern are **not** here: they live on the
 //! string, in [`super::string::pattern`], because the receiver is the string.
@@ -47,6 +49,7 @@
 //! disagree about the empty one.
 
 mod compile;
+pub(in crate::entry) mod indices;
 pub(in crate::entry) mod methods;
 
 use compile::{Engine, Flags};
@@ -282,6 +285,17 @@ impl Regexp {
     /// them.
     pub(super) fn is_global(&self) -> bool {
         self.flags.global
+    }
+
+    /// Whether `d` was written, and a match therefore says where its groups
+    /// were.
+    ///
+    /// Asked at the three places that build a match object rather than folded
+    /// into the match itself: the spans are there either way, and a pattern
+    /// without `d` must answer `undefined` for `indices` rather than an array
+    /// nobody asked for.
+    pub(in crate::entry) fn has_indices(&self) -> bool {
+        self.flags.has_indices
     }
 
     /// The text this pattern was compiled from — what `new RegExp(existing)`

@@ -156,6 +156,14 @@ pub(super) struct Flags {
     pub(super) global: bool,
     /// `y` — the match must begin exactly at `lastIndex`.
     pub(super) sticky: bool,
+    /// `d` — a match also says WHERE each group was, in `indices`.
+    ///
+    /// Nothing about compiling the pattern changes: both engines already answer
+    /// the span of every group and the runtime was throwing all but the first
+    /// away. So this is a flag about what a match ANSWERS, which is why it sits
+    /// beside `global` and `sticky` rather than beside the three the builder
+    /// reads.
+    pub(super) has_indices: bool,
 }
 
 impl Flags {
@@ -165,11 +173,12 @@ impl Flags {
     /// `SyntaxError` in JavaScript, and silently accepting it would make a typo
     /// into a regular expression that quietly means something else.
     ///
-    /// `u`, `v` and `d` are **accepted and not acted on**. That is a stated
+    /// `u` and `v` are **accepted and not acted on**. That is a stated
     /// divergence rather than an oversight: `u` changes what a `.` is when the
-    /// subject has astral characters, and `d` adds an `indices` property to a
-    /// match. Refusing them would refuse programs this engine otherwise runs
-    /// correctly for every input they actually have.
+    /// subject has astral characters. Refusing them would refuse programs this
+    /// engine otherwise runs correctly for every input they actually have.
+    ///
+    /// `d` was in that list and no longer is — see [`Flags::has_indices`].
     pub(super) fn parse(text: &str) -> Option<Flags> {
         let mut flags = Flags::default();
         for letter in text.chars() {
@@ -179,7 +188,8 @@ impl Flags {
                 's' => flags.dot_all = true,
                 'g' => flags.global = true,
                 'y' => flags.sticky = true,
-                'u' | 'v' | 'd' => {}
+                'd' => flags.has_indices = true,
+                'u' | 'v' => {}
                 _ => return None,
             }
         }
@@ -262,6 +272,15 @@ mod tests {
         // regular expression quietly meaning something else.
         assert!(Flags::parse("q").is_none());
         assert!(Flags::parse("gimsy").is_some());
+    }
+
+    #[test]
+    fn the_d_letter_is_read_rather_than_swallowed() {
+        // It was in the same arm as `u` and `v` — accepted so a program is not
+        // refused, and then forgotten — so `m.indices` was `undefined` for a
+        // pattern that asked for it by name.
+        assert!(Flags::parse("d").expect("a known letter").has_indices);
+        assert!(!Flags::parse("g").expect("a known letter").has_indices);
     }
 
     #[test]

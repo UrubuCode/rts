@@ -42,8 +42,15 @@ pub(super) const NATIVES: &[(&str, Native)] =
 
 /// Where a match begins and ends, in bytes, with its groups.
 pub(super) struct Found {
-    pub(super) from: usize,
-    pub(super) to: usize,
+    /// Where each group matched, in bytes, `None` for one that took part in no
+    /// alternative. Position zero is the whole match.
+    ///
+    /// It carried only the whole match's two ends, and the `d` flag's `indices`
+    /// needs every group's — so the ends became [`Found::from`] and
+    /// [`Found::to`] over position zero rather than two more fields beside this
+    /// one. Two records of where a match began is how they come to disagree,
+    /// which is the rule this crate keeps restating.
+    pub(super) spans: Vec<Option<(usize, usize)>>,
     pub(super) groups: Vec<Option<String>>,
     /// The groups that have a name, in the order the pattern declares them.
     ///
@@ -55,6 +62,26 @@ pub(super) struct Found {
 }
 
 impl Found {
+    /// Where the whole match begins, in bytes.
+    pub(super) fn from(&self) -> usize {
+        self.whole().0
+    }
+
+    /// Where it ends.
+    pub(super) fn to(&self) -> usize {
+        self.whole().1
+    }
+
+    /// Position zero, which [`scan`] checks is present before it builds one of
+    /// these — a `Found` exists BECAUSE something matched.
+    fn whole(&self) -> (usize, usize) {
+        self.spans
+            .first()
+            .copied()
+            .flatten()
+            .expect("a match with no position zero is not a match")
+    }
+
     /// One group by name, `None` when the pattern declares no such group.
     ///
     /// The outer `Option` is "there is no such name"; the inner one is "the
@@ -76,8 +103,55 @@ pub(super) enum Sought {
     Text(String),
 }
 
+/// The protocol a pattern may answer instead of being matched.
+///
+/// # Why every one of these methods asks first
+///
+/// Because the specification has them ask first. `"abc".match(x)` is defined as
+/// "if `x` has a `Symbol.match` method, call it and answer what it said" — the
+/// built-in scan is what happens when it has none, not what happens unless the
+/// argument is a regular expression. Deciding it is a pattern before asking is
+/// how an object written to BE a matcher gets treated as text and answers
+/// `null`, which is what `"abc".match({[Symbol.match](s) {…}})` did here.
+///
+/// `extra` is the second argument the protocol carries, which only `split` and
+/// `replace` have — `Call(splitter, separator, « O, limit »)`. `None` is
+/// spelled as `undefined` rather than as a shorter argument list, because the
+/// specification passes it either way and a hook with a default parameter must
+/// see it.
+///
+/// # Rule 8, which this is exactly the case for
+///
+/// The hook is USER CODE. If it threw, the value `call` answers is the
+/// `undefined` it returns for a call that did not run, and handing that back as
+/// the method's answer would turn a throw into a wrong value. So the throw is
+/// asked about and left in flight: the compiled call site above this one
+/// re-raises it.
+pub(super) fn hooked(
+    subject: u64,
+    argument: u64,
+    protocol: &str,
+    extra: Option<u64>,
+) -> Option<u64> {
+    let (callee, absent) = with_current(|context| {
+        let callee = super::super::symbol::method_of(context, argument, protocol)?;
+        Some((callee, nothing(context)))
+    })?;
+    // Outside every borrow: this is user code, and its first act may be to call
+    // the runtime.
+    let extra = extra.unwrap_or(absent);
+    let answered = super::super::functions::call(callee, argument, subject, extra, absent, absent);
+    if super::super::throw::in_flight() {
+        return Some(absent);
+    }
+    Some(answered)
+}
+
 /// `s.search(re)` — where the first match is, or -1.
 extern "C" fn search(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if let Some(answered) = hooked(this, pattern, "search", None) {
+        return answered;
+    }
     with_current(|context| {
         let Some((subject, sought)) = staged_as_regex(context, this, pattern, false) else {
             return nothing(context);
@@ -85,7 +159,7 @@ extern "C" fn search(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
         let found = scan(context, &subject, &sought, false);
         let at = found
             .first()
-            .map_or(-1.0, |first| units_before(&subject, first.from) as f64);
+            .map_or(-1.0, |first| units_before(&subject, first.from()) as f64);
         Value::from_f64(at).bits()
     })
 }
@@ -96,6 +170,9 @@ extern "C" fn search(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
 /// choice: without `g` it is `exec`, with `g` it is the list of matched text and
 /// no groups at all.
 extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if let Some(answered) = hooked(this, pattern, "match", None) {
+        return answered;
+    }
     let collected = with_current(|context| {
         let (subject, sought) = staged_as_regex(context, this, pattern, false)?;
         let global = match sought {
@@ -104,11 +181,11 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
         };
         let found = scan(context, &subject, &sought, global);
         let first = found.first()?;
-        let at = units_before(&subject, first.from);
+        let at = units_before(&subject, first.from());
         let parts: Vec<Option<String>> = if global {
             found
                 .iter()
-                .map(|one| Some(subject[one.from..one.to].to_string()))
+                .map(|one| Some(subject[one.from()..one.to()].to_string()))
                 .collect()
         } else {
             first.groups.clone()
@@ -117,10 +194,17 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
             true => Vec::new(),
             false => first.names.clone(),
         };
-        Some((parts, at, subject, global, named))
+        // The `d` flag, and only for the single-match form: the global one
+        // answers a flat list of text with no `index`, `input` or `groups`
+        // either, and `indices` belongs to the same match object as those.
+        let positioned = match global {
+            true => None,
+            false => positional_names(context, &sought).map(|names| (first.spans.clone(), names)),
+        };
+        Some((parts, at, subject, global, named, positioned))
     });
 
-    let Some((parts, at, subject, global, named)) = collected else {
+    let Some((parts, at, subject, global, named, positioned)) = collected else {
         return with_current(null_of);
     };
     let array = super::super::array::array_new(parts.len() as i64);
@@ -144,6 +228,9 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
             let groups = super::super::regex::groups_object(context, &named);
             let key = context.well_known("groups");
             super::super::objects::put(context, cell, key, groups);
+            if let Some((spans, names)) = positioned {
+                super::super::regex::indices::onto(context, array, &subject, &spans, &names);
+            }
         }
         array
     })
@@ -161,31 +248,25 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
 /// function on the result, and the matches are all found before the first is
 /// looked at.
 extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if let Some(answered) = hooked(this, pattern, "matchAll", None) {
+        return answered;
+    }
     let collected = with_current(|context| {
         let (subject, sought) = staged_as_regex(context, this, pattern, true)?;
         let found = scan(context, &subject, &sought, true);
-        let each: Vec<(Vec<Option<String>>, usize, Vec<(String, Option<String>)>)> = found
-            .iter()
-            .map(|one| {
-                (
-                    one.groups.clone(),
-                    units_before(&subject, one.from),
-                    one.names.clone(),
-                )
-            })
-            .collect();
-        Some((each, subject))
+        let positions = positional_names(context, &sought);
+        Some((found, subject, positions))
     });
 
-    let Some((each, subject)) = collected else {
+    let Some((found, subject, positions)) = collected else {
         return super::super::array_proto::built(Vec::new());
     };
-    let matches: Vec<u64> = each
+    let matches: Vec<u64> = found
         .into_iter()
-        .map(|(groups, at, named)| {
-            let array = super::super::array::array_new(groups.len() as i64);
+        .map(|one| {
+            let at = units_before(&subject, one.from());
+            let array = super::super::array::array_new(one.groups.len() as i64);
             with_current(|context| {
-                fill(context, array, groups);
                 // `index` and `input`, which a single match carries and the
                 // global form of `match` drops — the whole reason a program
                 // reaches for this method.
@@ -199,15 +280,35 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
                     // O mesmo `groups` que o `exec` monta: quem percorre
                     // `matchAll` le os grupos nomeados de cada volta, e sem isto
                     // lia `undefined` em todas.
-                    let groups = super::super::regex::groups_object(context, &named);
+                    let groups = super::super::regex::groups_object(context, &one.names);
                     let key = context.well_known("groups");
                     super::super::objects::put(context, cell, key, groups);
+                    if let Some(names) = &positions {
+                        super::super::regex::indices::onto(
+                            context, array, &subject, &one.spans, names,
+                        );
+                    }
                 }
+                fill(context, array, one.groups);
             });
             array
         })
         .collect();
     super::super::array_proto::built(matches)
+}
+
+/// The matcher's group names by position, when the pattern asked for `indices`.
+///
+/// `None` for a pattern without `d`, which is what makes `m.indices` stay
+/// `undefined` — and for a plain-text separator, which has no groups to name.
+fn positional_names(context: &super::Context, sought: &Sought) -> Option<Vec<Option<String>>> {
+    match sought {
+        Sought::Pattern(cell) => context
+            .regexp_at(*cell)
+            .filter(|rx| rx.has_indices())
+            .map(|rx| rx.names()),
+        Sought::Text(_) => None,
+    }
 }
 
 /// The receiver's text and what to look for in it.
@@ -276,7 +377,11 @@ pub(super) fn scan(
                     Some(spans) => spans,
                     None => break,
                 };
-                let Some((from, to)) = spans[0] else { break };
+                // Position zero present is what makes this a match at all, and
+                // what lets [`Found::from`] answer without an `Option`.
+                if spans.first().copied().flatten().is_none() {
+                    break;
+                }
                 let groups: Vec<Option<String>> = spans
                     .iter()
                     .map(|span| span.map(|(from, to)| subject[from..to].to_string()))
@@ -293,8 +398,7 @@ pub(super) fn scan(
                     .filter_map(|(at, name)| Some((name?, groups.get(at).cloned().flatten())))
                     .collect();
                 Found {
-                    from,
-                    to,
+                    spans,
                     groups,
                     names,
                 }
@@ -311,8 +415,7 @@ pub(super) fn scan(
             Sought::Text(text) => {
                 match memchr::memmem::find(&subject.as_bytes()[at..], text.as_bytes()) {
                     Some(offset) => Found {
-                        from: at + offset,
-                        to: at + offset + text.len(),
+                        spans: vec![Some((at + offset, at + offset + text.len()))],
                         groups: vec![Some(
                             subject[at + offset..at + offset + text.len()].to_string(),
                         )],
@@ -322,8 +425,8 @@ pub(super) fn scan(
                 }
             }
         };
-        let empty = one.to == one.from;
-        let resume = one.to;
+        let empty = one.to() == one.from();
+        let resume = one.to();
         found.push(one);
         if !all {
             break;
