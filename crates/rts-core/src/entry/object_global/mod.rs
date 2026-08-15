@@ -29,9 +29,13 @@
 //! than here because this file is at its ceiling and the validation is the
 //! larger half of the operation.
 
+mod arrays;
+mod copy;
 mod descriptor;
 mod describe;
-pub(in crate::entry) use describe::{describe_of, describe_own};
+
+use copy::held;
+pub(in crate::entry) use describe::{describe_of, describe_own, own_symbols};
 
 use super::native::Native;
 use super::objects::undefined_of;
@@ -57,7 +61,7 @@ const STATICS: &[(&str, Native, u32)] = &[
     ("getPrototypeOf", get_prototype_of, 1),
     ("setPrototypeOf", set_prototype_of, 2),
     ("defineProperty", define_property, 3),
-    ("assign", assign, 2),
+    ("assign", copy::assign, 2),
     ("groupBy", group_by, 2),
 ];
 
@@ -254,6 +258,32 @@ extern "C" fn define_property(
 /// difference between this and `Reflect.defineProperty`, which reports the same
 /// refusal as `false`.
 pub(in crate::entry) fn define(object: u64, name: u64, stated: u64) {
+    // A proxy answers with its handler, and it is asked BEFORE the descriptor is
+    // read: `Reflect.defineProperty` — the same operation reporting instead of
+    // raising — hands the trap the descriptor the program wrote, and reading it
+    // here first would run a field's getter once for this check and again inside
+    // the handler.
+    //
+    // The divergence that leaves, named: `ToPropertyDescriptor` does not run for
+    // a trapped define, so a handler is handed the object as written rather than
+    // the normalised one, and an invalid descriptor is the handler's problem
+    // instead of a `TypeError` before it. The forwarding case still validates —
+    // it reaches this function again on the target.
+    if let Some(key) = with_current(|context| super::computed::property_key(context, Value(name)))
+        && let Some(accepted) = super::proxy::define(object, key, stated)
+    {
+        // The only difference from `Reflect.defineProperty`, which reports the
+        // same refusal as `false`. Rule 8: a trap that threw already has an
+        // error on its way out, and a second one here would name this operation
+        // for the handler's failure.
+        if !accepted && !super::throw::in_flight() {
+            super::throw::type_error(&format!(
+                "'defineProperty' on proxy: trap returned falsish for property '{}'",
+                spelled(name)
+            ));
+        }
+        return;
+    }
     let Some(wanted) = descriptor::read(stated) else {
         // Already thrown: either the descriptor was not an object, or reading a
         // field of it ran a getter that threw. Rule 8 — the answer is not
@@ -261,6 +291,15 @@ pub(in crate::entry) fn define(object: u64, name: u64, stated: u64) {
         return;
     };
     define_read(object, name, &wanted);
+}
+
+/// A property name as an error message spells it.
+fn spelled(name: u64) -> String {
+    with_current(|context| {
+        super::text::to_text(context, Value(name))
+            .and_then(|text| text.to_rust())
+            .unwrap_or_default()
+    })
 }
 
 /// The second half, for a caller that read the descriptor earlier.
@@ -272,15 +311,18 @@ pub(in crate::entry) fn define_read(object: u64, name: u64, wanted: &descriptor:
     match descriptor::apply(object, name, wanted) {
         descriptor::Verdict::Done => {}
         descriptor::Verdict::Refused => {
-            let named = with_current(|context| {
-                super::text::to_text(context, Value(name))
-                    .and_then(|text| text.to_rust())
-                    .unwrap_or_default()
-            });
-            super::throw::type_error(&format!("Cannot redefine property: {named}"));
+            super::throw::type_error(&format!("Cannot redefine property: {}", spelled(name)));
         }
         descriptor::Verdict::NotObject => {
             super::throw::type_error("Object.defineProperty called on non-object");
+        }
+        // A `RangeError` and not a `TypeError`, and it is `ArraySetLength`'s
+        // own: `a.length = 1.5` is not a property that refuses to be redefined,
+        // it is a length that is not a length. `Reflect.defineProperty` raises
+        // it too — the verdict/throw split above is about REFUSAL, and this is
+        // the specification throwing before it ever gets that far.
+        descriptor::Verdict::BadLength => {
+            super::throw::range_error("Invalid array length");
         }
     }
 }
@@ -413,54 +455,3 @@ extern "C" fn group_by(_e: u64, _this: u64, items: u64, callback: u64, _a2: u64,
     made
 }
 
-/// An array's elements, the borrow ending here.
-fn held(array: u64) -> Option<Vec<u64>> {
-    with_current(|context| {
-        let cell = Value(array).as_slot()?;
-        Some(context.elements_at(cell)?.clone())
-    })
-}
-
-/// `Object.assign(target, ...sources)` — copies the own keys across.
-///
-/// Three sources rather than any number, because the arity a call carries is
-/// four and the receiver takes one of them. It used to read ONE and the comment
-/// beside it claimed a call with more was "refused at the site"; it was not —
-/// `Object.assign({}, a, b)` silently dropped `b`, which is the failure mode a
-/// merge must not have, because the result looks like a merge.
-///
-/// Beyond three the arguments genuinely are not here, and that stays a gap
-/// rather than a quiet loss: it needs the gathered-arguments path, which is a
-/// change to how a native is called and not to this function.
-extern "C" fn assign(_e: u64, _this: u64, target: u64, source: u64, a2: u64, a3: u64) -> u64 {
-    for source in [source, a2, a3] {
-        // An absent argument arrives as `undefined`, and `undefined` has no own
-        // keys — so the same skip serves both the spec's rule (a null or
-        // undefined source contributes nothing) and the missing-argument case,
-        // without this having to know which it is looking at.
-        let Some(found) = held(super::array::own_keys(source)) else {
-            continue;
-        };
-        for name in found {
-            // Through the ordinary paths on both sides, so a getter on the
-            // source runs and a setter on the target runs — which is what
-            // `assign` does and what a slot-to-slot copy would have skipped.
-            let value = super::computed::get_indexed(source, name);
-            super::computed::set_indexed(target, name, value);
-        }
-        // `own_keys` never reports a symbol — it is the string enumeration,
-        // and a symbol has no string spelling for it to report — so a
-        // `[sym]: v` entry used to vanish across `Object.assign` and spread
-        // silently, which is a merge that drops data rather than one that
-        // says it cannot copy something.
-        let symbols = with_current(|context| super::array::symbol_keyed(context, source));
-        for (key, value) in symbols {
-            with_current(|context| {
-                if let Some(cell) = crate::value::Value(target).as_slot() {
-                    super::objects::put(context, cell, key, value);
-                }
-            });
-        }
-    }
-    target
-}

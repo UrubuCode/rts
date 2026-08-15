@@ -342,7 +342,16 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
     // cannot disagree about what a sealed object's `configurable` is.
     let (found, attributes) = with_current(|context| {
         let cell = Value(object).as_slot()?;
-        let Key::Name(key) = super::key_for(context, name)? else {
+        let key = super::key_for(context, name)?;
+        // An ELEMENT is an own property with no shape slot — `super::super::array`'s
+        // first page says why the store lives apart from the layout — so the walk
+        // below never finds one, and `Object.getOwnPropertyDescriptor([1], "0")`
+        // answered `undefined` for a property `0 in [1]` reports as present. Two
+        // readable facts about one array that cannot both be true.
+        if let Some(element) = element_state(context, cell, key) {
+            return Some(element);
+        }
+        let Key::Name(key) = key else {
             return None;
         };
         let attributes = super::super::integrity::effective(context, cell, key);
@@ -379,6 +388,47 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         Value::from_bool(attributes.configurable).bits(),
     );
     Some(made)
+}
+
+/// The descriptor an ARRAY's element is, when the key names one.
+///
+/// # Why the three flags are folded by hand here
+///
+/// `super::super::integrity::effective` takes a SHAPE key, and an element has
+/// none — its attributes cannot be recorded per element, which this module's
+/// sibling [`super::arrays`] names as the stated gap it leaves. So what an
+/// element permits is what the OBJECT permits: `Object.freeze([1])` makes its
+/// element non-writable and non-configurable, and nothing else can make one
+/// deviate.
+///
+/// A HOLE is not a property. `Object.getOwnPropertyDescriptor([, 1], "0")` is
+/// `undefined`, the same absence `0 in [, 1]` reports.
+fn element_state(
+    context: &mut super::super::Context,
+    cell: u32,
+    key: Key,
+) -> Option<(Descriptor, super::super::integrity::Attributes)> {
+    let at = match key {
+        Key::Index(at) => at as usize,
+        // Every computed key arrives as a NAME, index or not — see
+        // `super::super::computed::property_key` — so the canonical spelling is
+        // what decides, and `as_array_index` is the one answer to which strings
+        // those are.
+        Key::Name(named) => {
+            let text = context.interner.text(named)?;
+            crate::object::as_array_index(text)? as usize
+        }
+    };
+    let held = *context.elements_at(cell)?.get(at)?;
+    if super::super::array::is_hole(context, held) {
+        return None;
+    }
+    let attributes = super::super::integrity::Attributes {
+        writable: !super::super::integrity::refuses_write(context, cell),
+        enumerable: true,
+        configurable: !super::super::integrity::refuses_removal(context, cell),
+    };
+    Some((Descriptor::Value(held), attributes))
 }
 
 /// What an own key turned out to be.

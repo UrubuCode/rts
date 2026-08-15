@@ -342,6 +342,17 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
     // `a["length"] = 1` are one operation and this is where they meet. The
     // elements are resized DIRECTLY rather than through `array::set_length`,
     // which would come back through this function.
+    //
+    // AFTER the refusal, which is the ordering and not an arrangement: a
+    // `length` the program made non-writable must not resize anything. Run
+    // first, `a.length = 9` on a frozen array resized the elements to nine and
+    // then declined to write the property — leaving the array disagreeing with
+    // itself in the exact way this call exists to prevent.
+    if let Key::Name(named) = key
+        && super::integrity::refuses_key_write(context, slot, named)
+    {
+        return;
+    }
     reconcile_length(context, slot, key, value);
     let Some(machine) = machine_key(key) else {
         return;

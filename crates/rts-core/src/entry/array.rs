@@ -256,7 +256,15 @@ pub fn own_keys(object: u64) -> u64 {
     // A proxy answers by running its handler, and it has no own keys of its
     // own to walk — see `super::proxy` for why the interception is here rather
     // than in anything the compiled site does.
-    if let Some(answered) = super::proxy::own_keys(object) {
+    //
+    // The ENUMERABLE spelling, which is what this function is. A trap may name
+    // a key the target does not have, and a key with no descriptor is not
+    // enumerable — so `Object.keys` over `ownKeys: () => ["only"]` is empty,
+    // and asking `proxy::own_keys` here answered `["only"]`. `proxy::keys`'s
+    // own documentation says the fix is one level up, where the two spellings
+    // already differ; this is that level. `own_names` keeps the unfiltered
+    // form, which is what `getOwnPropertyNames` means.
+    if let Some(answered) = super::proxy::enumerable_keys(object) {
         return answered;
     }
     keys_of(object, true)
@@ -600,9 +608,18 @@ pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
     // construction: an array reaches this before it has the property at all,
     // and the attribute has nowhere to live until it does.
     if let crate::object::Key::Name(key) = key {
+        // `writable` is READ rather than written `true`, and that is what makes
+        // writing the attributes on every pass safe: a `push` reaching this
+        // line would otherwise undo a `{ writable: false }` the program had
+        // already recorded — a length that refuses to change and changes
+        // anyway. `configurable` is `false` because an array's `length` never
+        // is; inherited from `..default()` it was `true`, and
+        // `getOwnPropertyDescriptor` said so.
+        let writable = !super::integrity::refuses_key_write(context, cell, key);
         super::integrity::set_attributes(context, cell, key, super::integrity::Attributes {
+            writable,
             enumerable: false,
-            ..super::integrity::Attributes::default()
+            configurable: false,
         });
     }
 }

@@ -38,10 +38,15 @@ use crate::value::Value;
 use rts_cranelift::shape::Key as ShapeKey;
 
 /// A descriptor as the language reads one: six fields, every one optional.
+///
+/// Readable by [`super::arrays`], which is the other half of one operation: an
+/// array's `length` and its indices are defined from the same six fields, and a
+/// second reading of a descriptor is where the two would come to disagree about
+/// what an absent `value` means.
 pub(in crate::entry) struct Descriptor {
-    value: Option<u64>,
-    get: Option<u64>,
-    set: Option<u64>,
+    pub(super) value: Option<u64>,
+    pub(super) get: Option<u64>,
+    pub(super) set: Option<u64>,
     writable: Option<bool>,
     enumerable: Option<bool>,
     configurable: Option<bool>,
@@ -56,6 +61,10 @@ pub(in crate::entry) enum Verdict {
     Refused,
     /// The receiver was not an object, which is a different error message.
     NotObject,
+    /// An array's `length` was given something that is not one — a `RangeError`
+    /// rather than a refusal, which is why it is a fourth verdict and not
+    /// `Refused` with a different message.
+    BadLength,
 }
 
 /// `ToPropertyDescriptor` — reads the fields that are PRESENT.
@@ -141,6 +150,12 @@ impl Current {
 
 /// Defines one property, or refuses.
 pub(in crate::entry) fn apply(object: u64, name: u64, wanted: &Descriptor) -> Verdict {
+    // An array's `length` and its indices are not shape slots, so the walk below
+    // would define a property describing a store it never touched. See
+    // [`super::arrays`] for the four facts that came apart when it did.
+    if let Some(verdict) = super::arrays::define(object, name, wanted) {
+        return verdict;
+    }
     with_current(|context| {
         let Some(cell) = Value(object).as_slot() else {
             return Verdict::NotObject;

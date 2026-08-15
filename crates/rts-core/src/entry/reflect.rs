@@ -68,6 +68,21 @@ pub(in crate::entry) fn write_lands(context: &mut Context, cell: u32, key: Key) 
         || super::accessor::setter_for(context, cell, key).is_some()
 }
 
+/// An array's elements, the borrow ending here.
+///
+/// The array itself stays named by a local of the caller's frame across the
+/// allocation that follows, so nothing is ever reachable only from this vector —
+/// which the conservative stack scan could not see.
+fn elements_of(array: u64) -> Vec<u64> {
+    with_current(|context| {
+        Value(array)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell))
+            .cloned()
+            .unwrap_or_default()
+    })
+}
+
 /// `Reflect`.
 #[rtse::class("Reflect", namespace, tag)]
 impl Reflect {
@@ -116,13 +131,35 @@ impl Reflect {
     /// The same enumeration `Object.keys` and `for-in` walk, so the three cannot
     /// disagree about order — which is the property array-index-first ordering
     /// exists to guarantee.
+    ///
+    /// # Why the symbols are a second list rather than a second walk
+    ///
+    /// `[[OwnPropertyKeys]]` is three groups in one order: integer indices in
+    /// numeric order, then strings in insertion order, then **symbols** in
+    /// insertion order. `own_names` answers the first two — its keys are TEXT,
+    /// and a symbol's key text is this crate's own encoding rather than a name
+    /// a program can spell (see `super::symbol`), so it deliberately filters
+    /// them out. `Object.getOwnPropertySymbols` already undoes that encoding
+    /// for the third group, and asking it here is what keeps one answer to
+    /// "which of an object's keys are symbols" instead of two.
+    ///
+    /// Without this the operation whose whole job is to see everything was the
+    /// one operation that could not see a `[sym]: v` property at all.
     fn own_keys(target: u64) -> u64 {
         // EVERY own key, not the enumerable ones: `Reflect.ownKeys` is
         // `[[OwnPropertyKeys]]`, and `Object.keys` is the filtered spelling.
         // Answering the filtered list here made a property defined with
         // `{ value: 1 }` — which is not enumerable — invisible to the operation
         // whose whole job is to see everything.
-        super::array::own_names(target)
+        let named = super::array::own_names(target);
+        // A proxy has already answered through its handler, and its `ownKeys`
+        // trap reports symbols itself — the cell standing for it holds no
+        // properties of its own, so this contributes nothing there rather than
+        // needing to be asked about.
+        let symbols = super::object_global::own_symbols(target);
+        let mut keys = elements_of(named);
+        keys.extend(elements_of(symbols));
+        super::array_proto::built(keys)
     }
 
     /// `Reflect.getPrototypeOf(target)`.
