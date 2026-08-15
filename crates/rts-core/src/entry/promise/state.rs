@@ -223,8 +223,15 @@ impl Machine {
                     thenable, then_fn, ..
                 } => {
                     out.push(thenable);
-                    out.push(then_fn);
+                    out.extend(then_fn);
                 }
+                // The settlement `finally` is carrying across its callback's own
+                // promise. It IS still in `Settlements` under the source that
+                // produced it, so this is a second path to one value rather than
+                // the only one — kept because the reaction is what makes the
+                // value live, and a table that later forgot a settled value
+                // would take this with it silently.
+                Handler::Restore { value, .. } => out.push(value),
                 Handler::Member { .. } => {}
             }
         }
@@ -348,10 +355,18 @@ pub(super) fn resolve(context: &mut Context, id: PromiseId, value: u64) {
             );
             return;
         }
-        if let Some(then_fn) = then_of(context, cell) {
-            // A foreign thenable. Its `then` is user code and is called from a
-            // microtask, which is what the specification says and what stops a
-            // getter from running inside this borrow.
+        let queued = match super::thenable::then_of(context, cell) {
+            // A callable `then` already in hand. It is user code and is called
+            // from a microtask, which is what the specification says and what
+            // stops it from running inside this borrow.
+            super::thenable::Then::Ready(then_fn) => Some(Some(then_fn)),
+            // A `then` behind a GETTER. Reading it is itself user code, so even
+            // the read waits for the microtask — see [`Then`] for why that is
+            // not the divergence it looks like.
+            super::thenable::Then::Deferred => Some(None),
+            super::thenable::Then::Absent => None,
+        };
+        if let Some(then_fn) = queued {
             let waiter = context.promises.record(Reaction {
                 source: None,
                 handler: Handler::Thenable {
@@ -371,6 +386,7 @@ pub(super) fn resolve(context: &mut Context, id: PromiseId, value: u64) {
 pub(super) fn reject(context: &mut Context, id: PromiseId, reason: u64) {
     settle(context, id, Settlement::Rejected, reason);
 }
+
 
 /// Attaches a reaction to a promise, queueing it if the promise already settled.
 ///
@@ -392,74 +408,6 @@ pub(super) fn react(context: &mut Context, source: PromiseId, handler: Handler) 
     // not an unhandled rejection — which is the whole reason the report waits
     // for the end of the turn.
     machine.settlements.noticed(source);
-}
-
-/// A settler — the `resolve` or `reject` an executor is handed.
-///
-/// # A native cannot close over anything, so this closes over the environment
-///
-/// `native::callable` gives every native the environment
-/// `undefined`, because a native closes over nothing. This one has to: two
-/// promises' `resolve` functions are the same code and must settle different
-/// promises.
-///
-/// The environment slot is where it goes. It is passed to the callee by
-/// `functions::call` untouched, it is not reachable from
-/// JavaScript — `callables` is private and `callable_at` answers only inside
-/// this crate — and it costs nothing.
-///
-/// The alternative was a property on the callable's own cell, which a callable
-/// being an object makes possible. It was rejected because it is **observable**:
-/// `Object.keys(resolve)` would show it, a program could overwrite it, and it
-/// would mint a property key for a fact no program named.
-///
-/// What crosses is the promise's INDEX, not a `PromiseId`: the machine keeps
-/// that field private so nothing outside can invent one, and [`Machine::at`] is
-/// the honest way back.
-pub(super) fn settler(context: &mut Context, id: PromiseId, settlement: Settlement) -> u64 {
-    let code = match settlement {
-        Settlement::Fulfilled => resolve_native as super::super::native::Native,
-        Settlement::Rejected => reject_native as super::super::native::Native,
-    };
-    let made = super::super::native::callable(context, code);
-    if let Some(cell) = Value(made).as_slot() {
-        context.mark_callable(cell, code as usize as u64, id.index() as u64);
-    }
-    made
-}
-
-/// `resolve(value)` as an executor receives it.
-extern "C" fn resolve_native(environment: u64, _this: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    with(environment, |context, id| resolve(context, id, a0))
-}
-
-/// `reject(reason)` as an executor receives it.
-extern "C" fn reject_native(environment: u64, _this: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    with(environment, |context, id| reject(context, id, a0))
-}
-
-/// The body both settlers share: find the promise, act, answer `undefined`.
-fn with(environment: u64, body: impl FnOnce(&mut Context, PromiseId)) -> u64 {
-    crate::entry::with_current(|context| {
-        if let Some(id) = context.promises.at(environment as usize) {
-            body(context, id);
-        }
-        undefined_of(context)
-    })
-}
-
-/// A cell's `then`, when it is callable — which is what makes it a thenable.
-///
-/// Read through the ordinary property path, so an object inheriting `then` is
-/// one too. A getter is deliberately not run: `objects::read_property`
-/// answers data properties, and running a getter here would be user code inside
-/// a borrow.
-fn then_of(context: &mut Context, cell: u32) -> Option<u64> {
-    let key = context.well_known("then");
-    let found = super::super::objects::read_property(context, cell, key)?;
-    let callee = found.as_slot()?;
-    context.callable_at(callee)?;
-    Some(found.bits())
 }
 
 /// A `TypeError` with a message, made without running a constructor.

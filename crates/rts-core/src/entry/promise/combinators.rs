@@ -1,16 +1,18 @@
 //! `Promise.all`, `allSettled`, `race` and `any`.
 //!
-//! # What the argument can be, and what it cannot
+//! # What the argument can be
 //!
-//! An **array**, today. [`super::elements_of`] goes through
-//! `iterate`, which answers an array for an array and for a
-//! string and an EMPTY array for everything else — so `Promise.all(aSet)`,
-//! `Promise.all(aGenerator)` and `Promise.all(m.values())` fulfil immediately
-//! with `[]` rather than waiting for anything they contain. That is the
-//! iteration protocol's stated gap — no object here can declare
-//! `Symbol.iterator` — and not something these four could fix locally: an
-//! implementation that special-cased `Set` would be a second answer to what an
-//! iterable is.
+//! Anything iterable. [`super::elements_of`] goes through `iterate`, which
+//! dispatches on `Symbol.iterator`, so an array, a string, a `Set`, a `Map`'s
+//! entries and a generator all wait for what they contain — verified against Bun
+//! 2026-08-14 over all four.
+//!
+//! This paragraph used to say "an **array**, today", and it stayed there after
+//! the walk grew the protocol: a reader had every reason to believe
+//! `Promise.all(aSet)` fulfilled with `[]`. The reason it is worth a note rather
+//! than a silent deletion is that the fix was never these four's to make — an
+//! implementation that special-cased `Set` here would have been a second answer
+//! to what an iterable is, and the right one arrived one level down.
 //!
 //! # Why an empty input is decided before anything is allocated
 //!

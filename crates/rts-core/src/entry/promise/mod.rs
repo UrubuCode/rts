@@ -2,16 +2,18 @@
 //!
 //! # Half of asynchrony, and the half that can land
 //!
-//! The compiler refuses `async`, `await`, `yield` and `for await` **by name**.
-//! So nothing here is ever reached through `await`: a promise exists in a
-//! program that writes `new Promise(executor)`, `.then`, `.catch`, `.finally`
-//! and the combinators, and that is the whole surface.
+//! This said the compiler refused `async`, `await`, `yield` and `for await` **by
+//! name**, so that nothing here was ever reached through one. All four run now,
+//! and the sentence stood long enough that a reader could have believed the
+//! whole `await` path was dead code.
 //!
-//! The other half is a frame transformation in `rts-codegen` over
-//! [`rts_cranelift::frame`] — an `await` is a suspension point, and resuming one
-//! is a jump to a [`rts_cranelift::frame::ResumeLabel`] inside a parked frame.
-//! It is not blocked on anything in this module: what lands here is the object
-//! and the ordering, and the transformation lands against the same queue.
+//! What is still missing is the SUSPENSION, not the feature: an awaiting frame
+//! keeps the machine and drains until its promise settles, rather than yielding
+//! to its caller. So the values a program computes are right and the
+//! interleaving of two `async` functions is not. [`machine`] is where that is
+//! stated in full, including what it needs — `Inst::Suspend` lowered over the
+//! frame transformation `rts_cranelift::frame` already implements — and it is
+//! stated THERE rather than here so there is one answer to it.
 //!
 //! # The decision: the machine drives this, and one thing does not fit
 //!
@@ -74,7 +76,9 @@ mod combinators;
 mod drain;
 mod group;
 mod react;
+mod settler;
 mod state;
+mod thenable;
 
 pub(in crate::entry) use class::{PROMISE_TYPES, register_promise};
 pub use drain::drain_microtasks;
@@ -110,12 +114,17 @@ fn array_of(values: Vec<u64>) -> u64 {
 
 /// The elements an iterable yields.
 ///
-/// `iterate::iterate` answers an array for an array and for a string,
-/// and an EMPTY array for anything else. So `Promise.all(anArray)` works and
-/// `Promise.all(aSet)`, `Promise.all(aGenerator)` or `Promise.all(aMap.values())`
-/// fulfil immediately with `[]` rather than waiting for anything — the stated
-/// gap of the iteration protocol, which has no `Symbol.iterator` dispatch,
-/// showing up here rather than a defect in these combinators.
+/// `iterate::iterate` is the crate's one walk, and it dispatches on
+/// `Symbol.iterator` — so `Promise.all(aSet)`, `Promise.all(aGenerator)` and
+/// `Promise.all(aMap.values())` wait for what they contain. This doc said the
+/// opposite, and said it long after it had stopped being true: the walk answered
+/// an EMPTY array for anything but an array or a string when it was written, and
+/// the four combinators inherited that. Verified 2026-08-14 against Bun over all
+/// four shapes.
+///
+/// What is still divergent is the walk's, not this: an iterable is drained to
+/// exhaustion before any element is observed, so an infinite one does not
+/// terminate. `entry::iterate` states it and is where it is fixed.
 fn elements_of(iterable: u64) -> Vec<u64> {
     let array = super::iterate::iterate(iterable);
     with_current(|context| {

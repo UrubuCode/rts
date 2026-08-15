@@ -19,8 +19,9 @@
 
 use rts_cranelift::sched::Settlement;
 
-use super::react::{Step, prepare};
+use super::react::{Handler, Step, prepare};
 use super::state;
+use super::thenable;
 use crate::entry::{Context, functions, with_current};
 use crate::value::Value;
 
@@ -85,7 +86,7 @@ fn perform(step: Step) {
             settlement,
             value,
         } => {
-            functions::call(callback, absent, absent, absent, absent, absent);
+            let produced = functions::call(callback, absent, absent, absent, absent, absent);
             // A `finally` that throws REPLACES the settlement it was passing
             // through, which is what the language says a `finally` does to the
             // value it was unwinding.
@@ -93,17 +94,78 @@ fn perform(step: Step) {
                 with_current(|context| state::reject(context, derived, thrown));
                 return;
             }
-            // The original settlement, not the callback's answer. That is the
-            // whole difference between `finally` and `then(f, f)`.
-            with_current(|context| settle_through(context, derived, settlement, value));
+            // And a `finally` that ANSWERS a promise or a thenable WAITS for it,
+            // which is the half this used to drop: the answer was discarded and
+            // the settlement handed on at once, so cleanup that returned a
+            // promise ran concurrently with whatever came after `.finally`
+            // rather than before it.
+            //
+            // `thenable::waited_on` is what decides, and it lives beside the one
+            // definition of what a thenable IS rather than here — see it for
+            // why, and for the measurement that says a callback answering an
+            // ordinary value must cost NO extra microtask.
+            with_current(|context| match thenable::waited_on(context, produced) {
+                Some(inner) => state::react(
+                    context,
+                    inner,
+                    Handler::Restore {
+                        derived,
+                        settlement,
+                        value,
+                    },
+                ),
+                // Nothing to wait for: the ORIGINAL settlement, not the
+                // callback's answer. That is the whole difference between
+                // `finally` and `then(f, f)`.
+                None => settle_through(context, derived, settlement, value),
+            });
         }
         Step::Adopt {
             thenable,
             then_fn,
             resolve_fn,
             reject_fn,
+            promise,
         } => {
+            // `Get(thenable, "then")`, which may be a GETTER — user code, and
+            // the reason this read is here rather than where the step was
+            // decided. `then_fn` is already in hand for the ordinary data
+            // property, so nothing pays for the case it does not have.
+            //
+            // Through `objects::get_property` rather than a walk written here:
+            // it is the crate's one property read, so a `then` behind a proxy
+            // trap or an inherited getter answers the same way it does
+            // everywhere else in the program.
+            let then_fn = match then_fn {
+                Some(found) => found,
+                None => match then_key() {
+                    Some(key) => super::super::objects::get_property(thenable, key),
+                    None => absent,
+                },
+            };
+            // The getter threw. The language rejects the promise being resolved
+            // with what it threw, and this is the drain — the one native that
+            // HANDLES rather than propagates, per rule 8 of the crate's README.
+            if let Some(thrown) = super::super::throw::caught() {
+                with_current(|context| state::reject(context, promise, thrown));
+                return;
+            }
+            // A getter that answered something uncallable leaves an ordinary
+            // object, which fulfils with itself. Decided here and not at queue
+            // time because that is where the value first exists.
+            if !with_current(|context| callable(context, then_fn)) {
+                with_current(|context| {
+                    state::settle(context, promise, Settlement::Fulfilled, thenable)
+                });
+                return;
+            }
             functions::call(then_fn, thenable, resolve_fn, reject_fn, absent, absent);
+            // `then` itself throwing rejects the promise too — unless it had
+            // already settled it before throwing, which `PromiseTable::settle`
+            // drops on its own rather than being guarded against here.
+            if let Some(thrown) = super::super::throw::caught() {
+                with_current(|context| state::reject(context, promise, thrown));
+            }
         }
         Step::Collect {
             promise,
@@ -126,6 +188,25 @@ fn perform(step: Step) {
             });
         }
     }
+}
+
+/// The key number `then` interns to, as an entry point spells a key.
+///
+/// `None` only for an index, which a name is not — so the answer is `Some` for
+/// this name and the `Option` is the shared conversion's, not a case here.
+fn then_key() -> Option<i64> {
+    with_current(|context| {
+        let key = context.well_known("then");
+        crate::entry::objects::machine_key(key).map(|key| key.index() as i64)
+    })
+}
+
+/// Whether a value can be called, which is what makes a `then` a `then`.
+fn callable(context: &Context, value: u64) -> bool {
+    Value(value)
+        .as_slot()
+        .and_then(|cell| context.callable_at(cell))
+        .is_some()
 }
 
 /// Settles a promise the way another one settled.

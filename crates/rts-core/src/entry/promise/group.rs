@@ -161,31 +161,37 @@ pub(super) fn status(context: &mut Context, settlement: Settlement, value: u64) 
 
 /// The error `Promise.any` rejects with when every input rejected.
 ///
-/// # Why this is not an `AggregateError` instance
+/// # Why the prototype is `AggregateError.prototype` and not `Error.prototype`
 ///
-/// Because there is no `AggregateError` class here. What a program does with the
-/// value is read `.name`, `.message` and `.errors`, and those are ordinary data
-/// properties — so this answers all three, and `err instanceof AggregateError`
-/// is the stated divergence. The alternative, rejecting with the array of
-/// reasons, is worse in the way that matters: it is a value that reads as a
-/// successful list rather than as a failure.
+/// This used to hang the object off `Error.prototype` and write an own `name` of
+/// `"AggregateError"`, because the comment here said there was no such class.
+/// There is — `entry::error` declares it — and the two are not the same object
+/// to a program: `e instanceof AggregateError` was false, and `e.constructor
+/// .name` answered `"Error"`, which is what a `catch` block written against the
+/// language reads to decide what it caught.
+///
+/// The own `name` goes with the change rather than staying beside it: the
+/// prototype's `name` already answers `"AggregateError"`, and writing it again
+/// on every instance would be the same fact in two places — the one that goes
+/// stale is whichever a later edit forgets.
+///
+/// The constructor is deliberately NOT called. `AggregateError::build` walks its
+/// first argument as an iterable, which is user code, and this runs inside the
+/// borrow that decided the step — the rule this whole module is written around.
+/// The reasons are already a list; there is nothing to iterate.
 pub(super) fn aggregate(context: &mut Context, reasons: u64) -> u64 {
     let Some(cell) = super::super::native::plain(context) else {
         return undefined_of(context);
     };
-    // Off `Error.prototype`, so `toString` and the chain behave, and so the
-    // `name` written below is the one a program reads rather than the inherited
-    // `"Error"`.
-    super::super::error::register_error(context);
-    if let Some(prototype) = super::super::class_support::prototype(context, "Error") {
+    super::super::error::register_aggregate_error(context);
+    if let Some(prototype) = super::super::class_support::prototype(context, "AggregateError") {
         context.set_prototype(cell, prototype);
     }
-    for (name, text) in [("name", "AggregateError"), ("message", "All promises were rejected")]
-    {
-        let value = context.intern_value(Str::from_str(text)).bits();
-        let key = context.well_known(name);
-        super::super::objects::put(context, cell, key, value);
-    }
+    let value = context
+        .intern_value(Str::from_str("All promises were rejected"))
+        .bits();
+    let key = context.well_known("message");
+    super::super::objects::put(context, cell, key, value);
     let key = context.well_known("errors");
     super::super::objects::put(context, cell, key, reasons);
     Value::from_slot(cell).bits()

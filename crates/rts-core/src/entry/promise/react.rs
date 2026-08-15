@@ -20,7 +20,7 @@ use rts_cranelift::sched::{ContinuationId, PromiseId, Settlement};
 use crate::entry::Context;
 use crate::value::Value;
 
-use super::state;
+use super::settler;
 
 /// Something waiting on a promise that is not a parked frame.
 #[derive(Clone, Copy)]
@@ -56,7 +56,7 @@ pub(super) enum Handler {
     ///
     /// Its own shape rather than a `Js` with two natives, because those natives
     /// would have to close over the value they are passing through, and a native
-    /// closes over one word — which [`state::settler`] has already spent on
+    /// closes over one word — which [`super::settler::settler`] has already spent on
     /// which promise it settles.
     Finally {
         /// Called with no arguments, whichever way the source settled.
@@ -75,10 +75,32 @@ pub(super) enum Handler {
     Thenable {
         /// The object, which is the receiver.
         thenable: u64,
-        /// Its `then`, already known to be callable.
-        then_fn: u64,
+        /// Its `then`, already known to be callable — or `None` when it sits
+        /// behind a getter and the drain has to read it first.
+        ///
+        /// `Option` rather than a fifth variant: the two differ only in whether
+        /// one step has already happened, and the drain reads `then` in the same
+        /// place either way. A variant would put the same three fields in two
+        /// places and make `root_words` list them twice.
+        then_fn: Option<u64>,
         /// The promise the settlers settle.
         promise: PromiseId,
+    },
+    /// What `finally` does after its callback answered something to wait for.
+    ///
+    /// The callback ran, the value it produced was resolved into a promise of
+    /// its own, and this waits on that: a fulfilment restores the settlement
+    /// `finally` was passing through, and a rejection REPLACES it. That is the
+    /// specification's own spelling — `PromiseResolve(C, result).then(() =>
+    /// value)` — and it is the half the previous implementation dropped, which
+    /// made `finally(() => thenable)` carry on without waiting.
+    Restore {
+        /// The promise `.finally` answered.
+        derived: PromiseId,
+        /// Which way the ORIGINAL source settled.
+        settlement: Settlement,
+        /// What it settled with.
+        value: u64,
     },
 }
 
@@ -119,12 +141,16 @@ pub(super) enum Step {
     Adopt {
         /// The receiver.
         thenable: u64,
-        /// Its `then`.
-        then_fn: u64,
+        /// Its `then`, or `None` when it still has to be read — which may run a
+        /// getter, and therefore cannot happen where this step was decided.
+        then_fn: Option<u64>,
         /// The settler for the fulfilled side.
         resolve_fn: u64,
         /// The settler for the rejected side.
         reject_fn: u64,
+        /// The promise being resolved, which is what a `then` that throws — or
+        /// a `then` that turns out not to be callable — has to settle.
+        promise: PromiseId,
     },
     /// A combinator finished, and its answer is a list that becomes an array.
     Collect {
@@ -167,13 +193,14 @@ pub(super) fn prepare(context: &mut Context, waiter: ContinuationId) -> Option<S
             then_fn,
             promise,
         } => {
-            let resolve_fn = state::settler(context, promise, Settlement::Fulfilled);
-            let reject_fn = state::settler(context, promise, Settlement::Rejected);
+            let resolve_fn = settler::settler(context, promise, Settlement::Fulfilled);
+            let reject_fn = settler::settler(context, promise, Settlement::Rejected);
             Some(Step::Adopt {
                 thenable,
                 then_fn,
                 resolve_fn,
                 reject_fn,
+                promise,
             })
         }
         Handler::Js {
@@ -220,6 +247,31 @@ pub(super) fn prepare(context: &mut Context, waiter: ContinuationId) -> Option<S
         Handler::Member { group, index } => {
             let (settlement, value) = settled(context, reaction.source)?;
             super::group::advance(context, group, index, settlement, value)
+        }
+        Handler::Restore {
+            derived,
+            settlement,
+            value,
+        } => {
+            let (inner, reason) = settled(context, reaction.source)?;
+            Some(match inner {
+                // What the callback answered has settled, so `finally` hands on
+                // the settlement it was carrying — untouched, which is the whole
+                // difference between `finally` and `then(f, f)`.
+                Settlement::Fulfilled => Step::Pass {
+                    derived,
+                    settlement,
+                    value,
+                },
+                // Except when it REJECTED, which replaces the original outcome.
+                // A `finally` whose cleanup fails reports the cleanup's failure,
+                // not the one it was passing along.
+                Settlement::Rejected => Step::Pass {
+                    derived,
+                    settlement: Settlement::Rejected,
+                    value: reason,
+                },
+            })
         }
     }
 }

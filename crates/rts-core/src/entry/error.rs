@@ -23,8 +23,21 @@
 //! that answered `""` would be a property programs branch on, answering the
 //! wrong thing quietly.
 //!
-//! **`cause`.** It is the second argument's `cause` field, which is one more
-//! object read, and nothing here reads it yet. It comes with a caller.
+//! # Why every constructor here takes the options bag
+//!
+//! The ES2022 bag is `Error`'s, and the six subclasses inherit their constructor
+//! behaviour from it rather than declaring their own — so a family where only
+//! `Error` read `{ cause }` was not "half done", it was **inconsistent in the one
+//! direction a program notices**: `new Error(m, { cause })` carried the cause and
+//! `new TypeError(m, { cause })` dropped it silently, which is the shape almost
+//! every re-throw in real code is written in.
+//!
+//! The alternative was one shared constructor the six delegate to by name. It was
+//! rejected because `#[rtse::class]` derives the wrapper from the Rust signature:
+//! a subclass whose `build` takes two arguments cannot be handed a third, so the
+//! arity has to be stated where the wrapper is generated. What is shared is the
+//! BODY — [`written_with_cause`] — and each declaration is the one line that says
+//! which name it is.
 //!
 //! # Why `throw` still ends the program
 //!
@@ -75,10 +88,10 @@ impl TypeError {
     /// The name every instance answers.
     const name: &str = "TypeError";
 
-    /// `new TypeError(message)`.
+    /// `new TypeError(message, options)` — `options.cause`, ES2022.
     #[construct]
-    fn build(this: u64, message: u64) -> u64 {
-        written(this, message, "TypeError")
+    fn build(this: u64, message: u64, options: u64) -> u64 {
+        written_with_cause(this, message, options, "TypeError")
     }
 }
 
@@ -88,10 +101,10 @@ impl RangeError {
     /// The name every instance answers.
     const name: &str = "RangeError";
 
-    /// `new RangeError(message)`.
+    /// `new RangeError(message, options)` — `options.cause`, ES2022.
     #[construct]
-    fn build(this: u64, message: u64) -> u64 {
-        written(this, message, "RangeError")
+    fn build(this: u64, message: u64, options: u64) -> u64 {
+        written_with_cause(this, message, options, "RangeError")
     }
 }
 
@@ -101,10 +114,10 @@ impl SyntaxError {
     /// The name every instance answers.
     const name: &str = "SyntaxError";
 
-    /// `new SyntaxError(message)`.
+    /// `new SyntaxError(message, options)` — `options.cause`, ES2022.
     #[construct]
-    fn build(this: u64, message: u64) -> u64 {
-        written(this, message, "SyntaxError")
+    fn build(this: u64, message: u64, options: u64) -> u64 {
+        written_with_cause(this, message, options, "SyntaxError")
     }
 }
 
@@ -114,10 +127,10 @@ impl ReferenceError {
     /// The name every instance answers.
     const name: &str = "ReferenceError";
 
-    /// `new ReferenceError(message)`.
+    /// `new ReferenceError(message, options)` — `options.cause`, ES2022.
     #[construct]
-    fn build(this: u64, message: u64) -> u64 {
-        written(this, message, "ReferenceError")
+    fn build(this: u64, message: u64, options: u64) -> u64 {
+        written_with_cause(this, message, options, "ReferenceError")
     }
 }
 
@@ -127,10 +140,10 @@ impl EvalError {
     /// The name every instance answers.
     const name: &str = "EvalError";
 
-    /// `new EvalError(message)`.
+    /// `new EvalError(message, options)` — `options.cause`, ES2022.
     #[construct]
-    fn build(this: u64, message: u64) -> u64 {
-        written(this, message, "EvalError")
+    fn build(this: u64, message: u64, options: u64) -> u64 {
+        written_with_cause(this, message, options, "EvalError")
     }
 }
 
@@ -140,10 +153,10 @@ impl UriError {
     /// The name every instance answers.
     const name: &str = "URIError";
 
-    /// `new URIError(message)`.
+    /// `new URIError(message, options)` — `options.cause`, ES2022.
     #[construct]
-    fn build(this: u64, message: u64) -> u64 {
-        written(this, message, "URIError")
+    fn build(this: u64, message: u64, options: u64) -> u64 {
+        written_with_cause(this, message, options, "URIError")
     }
 }
 
@@ -153,34 +166,58 @@ impl UriError {
 ///
 /// Every other member of the family differs from `Error` in nothing but its
 /// name, which is why they are six near-identical declarations. This one takes
-/// a SECOND argument and writes a second property: `new AggregateError(errors,
-/// message)` carries the list, and `Promise.any` is the reason the language has
-/// it — a rejection that is several rejections needs somewhere to put them.
+/// an EXTRA argument in front and writes a second property: `new
+/// AggregateError(errors, message, options)` carries the list, and `Promise.any`
+/// is the reason the language has it — a rejection that is several rejections
+/// needs somewhere to put them.
 ///
 /// The argument order is the language's and is easy to get backwards: the errors
-/// come FIRST, unlike every other constructor in the family where the message
-/// is the only argument.
+/// come FIRST, so `message` and `options` are each one position further along
+/// than in every other constructor in the family.
 #[rtse::class("AggregateError", extends = register_error)]
 impl AggregateError {
     /// The name every instance answers.
     const name: &str = "AggregateError";
 
-    /// `new AggregateError(errors, message)`.
+    /// `new AggregateError(errors, message, options)`.
     #[construct]
-    fn build(this: u64, errors: u64, message: u64) -> u64 {
-        let made = written(this, message, "AggregateError");
+    fn build(this: u64, errors: u64, message: u64, options: u64) -> u64 {
+        // Walked FIRST, and outside every borrow. `errors` is an ITERABLE — the
+        // language says so, and a generator is the ordinary spelling — so
+        // producing the list runs user code, which is why this cannot happen
+        // inside the `with_current` that writes the property. Doing it before
+        // the instance exists is also what makes the walk's own throw cheap to
+        // propagate: there is nothing half-built to abandon.
+        //
+        // `super::iterate::iterate` and not a walk written here: it is the
+        // crate's single answer to "what does this yield", covering an array, a
+        // string, a `Map`, a `Set` and anything declaring `Symbol.iterator`, and
+        // it COPIES — which is what the specification's `IteratorToList` does
+        // and what the previous version of this constructor could not do. That
+        // version stored the argument itself, so `new AggregateError(gen())`
+        // gave `.errors` a generator object with no `.length` and no `.map`.
+        let listed = super::iterate::iterate(errors);
+        // Rule 8: the walk called user code, so ask before looking at the
+        // answer. This constructor PROPAGATES rather than handles — a `next()`
+        // that threw is the caller's throw, and the compiled call site above
+        // re-raises it. Building the error anyway would answer an object for a
+        // constructor the language says never returned.
+        if super::throw::in_flight() {
+            return with_current(|context| undefined_of(context));
+        }
+        // Rooted across the construction below, which interns strings and
+        // allocates: the array is named only by this frame's `u64` until the
+        // property write puts it on the instance, and `super::rooted` exists
+        // because a machine-stack scan does not reach a Rust local reliably.
+        let listed = super::rooted::Rooted::with(vec![listed]);
+        let made = written_with_cause(this, message, options, "AggregateError");
+        let listed = listed.take();
         with_current(|context| {
             let Some(cell) = Value(made).as_slot() else {
                 return made;
             };
-            // Written whatever it is, and NOT copied into a fresh array. The
-            // language says `errors` is iterated and the result is an array; an
-            // iteration here would call user code from an entry point, which is
-            // the borrow rule this crate aborts on. So an array arrives as
-            // itself and anything else arrives as itself — visible to a program
-            // rather than silently emptied.
             let key = context.well_known("errors");
-            super::objects::put(context, cell, key, errors);
+            super::objects::put(context, cell, key, listed[0]);
             made
         })
     }
