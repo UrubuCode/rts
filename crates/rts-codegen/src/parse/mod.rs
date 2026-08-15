@@ -217,12 +217,19 @@ pub fn parse_script(source: &str, names: &mut Names) -> Result<Program> {
 
 /// Remove a `#!` line, keeping its line break so line numbers do not shift.
 ///
+/// Public because a HOST that wraps the source has to strip it FIRST: the
+/// wrapper puts `function __rts_script() {` in front, and a `#!` that is no
+/// longer at position zero is not a hashbang at all — it is a syntax error, and
+/// that is what `syntax/315_hashbang.ts` was. Exported rather than restated
+/// there, because two definitions of "what counts as a hashbang" is exactly the
+/// drift rule 3 exists to prevent.
+///
 /// JavaScript has **four** line terminators, not one: line feed, carriage
 /// return, and the two Unicode separators `U+2028` and `U+2029`. Looking only
 /// for `\n` leaves the rest of a `#!` line attached to the program, which is a
 /// syntax error in a file that is perfectly valid — found by test262's
 /// `comments/hashbang/line-terminator-*` tests, which is what a corpus is for.
-fn strip_shebang(source: &str) -> &str {
+pub fn strip_shebang(source: &str) -> &str {
     let Some(rest) = source.strip_prefix("#!") else {
         return source;
     };

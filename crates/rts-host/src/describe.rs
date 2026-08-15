@@ -49,7 +49,7 @@ fn render(front: &FrontEnd) -> String {
     let named: std::collections::HashMap<_, _> = program
         .function_names
         .iter()
-        .map(|(id, name)| (*id, name.as_str()))
+        .map(|(id, name, _)| (*id, name.as_str()))
         .collect();
 
     let mut out = legend(front, &named);

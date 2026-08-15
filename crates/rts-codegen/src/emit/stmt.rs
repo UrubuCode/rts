@@ -18,7 +18,7 @@ use rts_cranelift::ir::FuncBuilder;
 use super::expr::{emit_condition, emit_expr, stored, undefined};
 use super::loops::{self, Loops};
 use super::{Ctx, EmitResult, Scope};
-use crate::syntax::{Pattern, Stmt, StmtKind};
+use crate::syntax::{Expr, ExprKind, Pattern, Stmt, StmtKind};
 
 /// Emits a statement. Returns whether it terminated the block.
 pub fn emit_stmt(
@@ -129,6 +129,14 @@ pub fn emit_stmt(
                 }
                 let value = match &binding.value {
                     Some(expr) => {
+                        // NamedEvaluation: `const f = function () {}` names that
+                        // function `f`. Only for an initialiser that IS an
+                        // anonymous definition — `const f = cond ? g : h` names
+                        // nothing, and neither does a call that happens to
+                        // answer a function.
+                        if anonymous_definition(expr) {
+                            ctx.lend_name(*name);
+                        }
                         let produced = emit_expr(builder, scope, ctx, expr)?;
                         stored(builder, ctx, *name, produced)
                     }
@@ -485,5 +493,20 @@ fn emit_labelled(
             )
         }
         _ => loops::emit_labelled_block(builder, scope, ctx, loops, label, body),
+    }
+}
+
+/// Whether an initialiser is an anonymous function or class definition.
+///
+/// The condition NamedEvaluation attaches to: the specification names the
+/// definition on the right of `=` only when it is written there and has no name
+/// of its own. `const f = g` copies a function that is already called `g`, and
+/// `const f = cond ? function () {} : h` names neither branch — in both, the
+/// binding's name is a fact about the binding and not about the value.
+fn anonymous_definition(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Function(function) => function.name.is_none(),
+        ExprKind::Class(class) => class.name.is_none(),
+        _ => false,
     }
 }

@@ -384,11 +384,15 @@ fn named_error(name: &str, message: &str) {
 /// What each compiled function is called, by its code address.
 ///
 /// Seeded by the host once the program is placed, for the reason the frame
-/// shapes are: an address is not a number anybody holds until then. Only
-/// functions that HAVE a name are here — an arrow assigned to nothing has none,
-/// and inventing one would put a label in a trace that a program cannot be
-/// searched for.
-pub fn declare_function_names(context: &mut Context, names: Vec<(u64, String)>) {
+/// shapes are: an address is not a number anybody holds until then.
+///
+/// EVERY function is here, with its declared arity beside the name, because
+/// `f.length` is a property the language promises for all of them and
+/// `(function(){}).name` is the empty string rather than an absence. It held
+/// only the NAMED ones, and a stack trace was the reason — so the trace is
+/// where that filter lives now: an empty name prints no line, which is a rule
+/// about traces rather than about functions.
+pub fn declare_function_names(context: &mut Context, names: Vec<(u64, String, u32)>) {
     context.function_names = names;
 }
 
@@ -426,7 +430,15 @@ pub(in crate::entry) fn stack_text(context: &Context) -> String {
         let Some((code, _)) = context.callable_at(cell) else {
             continue;
         };
-        if let Some((_, name)) = context.function_names.iter().find(|(at, _)| *at == code) {
+        // An unnamed function contributes no line: a label a program cannot be
+        // searched for is worse than a gap in the trace, which is why this
+        // filter was the table's membership rule until `f.length` needed the
+        // unnamed ones in it too.
+        if let Some((_, name, _)) = context
+            .function_names
+            .iter()
+            .find(|(at, name, _)| *at == code && !name.is_empty())
+        {
             lines.push_str("\n    at ");
             lines.push_str(name);
         }

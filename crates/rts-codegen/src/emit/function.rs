@@ -274,10 +274,34 @@ fn emit_function(
     // The name, for a stack trace. Recorded here rather than derived later:
     // this is the one place that has both the identifier and the tree it came
     // from, and a name recovered from anywhere else would be a second answer.
-    if let Some(name) = function.name {
-        let text = ctx.names.text(name).to_owned();
-        ctx.function_names.push((id, text));
-    }
+    // Every function, named or not, and with its ARITY beside the name.
+    //
+    // It was named ones only, because the one consumer was a stack trace and an
+    // unnamed frame has no useful label. `f.length` needs the other half for
+    // every function there is — `(function(){}).name` is `""` and its `length`
+    // is `0`, and both are properties the language promises. The trace still
+    // prints nothing for an empty name; that filter moved to the printer, which
+    // is where it was a statement about traces rather than about functions.
+    //
+    // `length` is the count BEFORE the first default and before the rest, which
+    // is what `SetFunctionLength` says: `function f(a, b = 1, ...c)` has
+    // `length` 1.
+    let arity = function
+        .parameters
+        .iter()
+        .take_while(|parameter| parameter.default.is_none())
+        .count() as u32;
+    // Its own name, or the one a binding lent it: `const f = function () {}`
+    // is called `f`, which is NamedEvaluation. Taken rather than read, so a
+    // function nested inside that initialiser does not inherit it — see
+    // `Ctx::take_lent_name`.
+    let lent = ctx.take_lent_name();
+    let text = function
+        .name
+        .or(lent)
+        .map(|name| ctx.names.text(name).to_owned())
+        .unwrap_or_default();
+    ctx.function_names.push((id, text, arity));
     ctx.pending.push((id, emitted));
     if function.is_generator {
         // The body is not called here and is not called by the caller either:

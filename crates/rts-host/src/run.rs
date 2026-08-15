@@ -84,7 +84,7 @@ pub struct Compiled {
     ///
     /// For a stack trace. Computed once, where the addresses become known, and
     /// seeded into every context that runs the program.
-    function_names: Vec<(u64, String)>,
+    function_names: Vec<(u64, String, u32)>,
     /// The text the last run's answer had, read while its heap still existed.
     described: Option<String>,
     /// The text of every string literal the compilation collected.
@@ -287,7 +287,7 @@ fn run_region(
     // was placed, and this context did not exist then.
     frames: &[rts_core::entry::FrameShape],
     // What each compiled function is called, for a stack trace to name a frame.
-    function_names: &[(u64, String)],
+    function_names: &[(u64, String, u32)],
     region: rts_core::heap::Region,
 ) -> Outcome {
     let _seeding = rts_cranelift::probe::Phase::start("seed-context");
@@ -539,6 +539,11 @@ pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
     // function, and `await` outside an async function is a SYNTAX error — so 14
     // files in the corpus were refused by the parser for a wrapper this host
     // wrote, not for anything they contained.
+    // The `#!` line goes FIRST, because the wrapper below would put it in the
+    // middle of a program where it means nothing. `parse_as` strips it too, and
+    // for a module that is the only place it happens — this is the script path,
+    // whose source never reaches the parser unwrapped.
+    let source = rts_codegen::parse::strip_shebang(source);
     let wrapper = match source.contains("await ") {
         true => "async function",
         false => "function",
@@ -904,12 +909,12 @@ fn assemble(
     // which is the only handle the runtime has on a compiled function. The
     // compiler collected the names while emitting, because that is the one place
     // that has both the identifier and the tree it came from.
-    let function_names: Vec<(u64, String)> = emitted
+    let function_names: Vec<(u64, String, u32)> = emitted
         .function_names
         .iter()
-        .filter_map(|(id, name)| {
+        .filter_map(|(id, name, arity)| {
             let at = placed.address_of(*id)?;
-            Some((at as u64, name.clone()))
+            Some((at as u64, name.clone(), *arity))
         })
         .collect();
     let frames: Vec<rts_core::entry::FrameShape> = frames

@@ -210,11 +210,13 @@ pub(super) fn emit_class(
     let constructor_key = ctx.names.intern("constructor");
     super::property::emit_write(builder, ctx, prototype, constructor_key, constructor)?;
 
-    // `C.name` — the class's own name, as the language spells it. Only for a
-    // NAMED class: an anonymous `class {}` used as an expression has no
-    // identifier here to read, and inferring one from an enclosing binding
-    // (`const X = class {}`) is a distinct feature this does not attempt.
-    if let Some(name) = class.name {
+    // `C.name` — the class's own name, or the one a binding lent it. An
+    // anonymous `class {}` written as the initialiser of `const X` is called
+    // `X`, which is NamedEvaluation and which this said it did not attempt;
+    // `Ctx::take_lent_name` is the half that arrived, and it is TAKEN so a
+    // class nested inside the initialiser does not inherit the name.
+    let lent = ctx.take_lent_name();
+    if let Some(name) = class.name.or(lent) {
         let text = ctx.names.text(name).to_owned();
         let name_value = expr::string_literal(builder, ctx, &text)?;
         let name_key = ctx.names.intern("name");

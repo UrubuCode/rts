@@ -134,6 +134,29 @@ pub fn emit_unary(
         // operand's shape instead of emitting it: `delete o.x` addresses the
         // property, not what it holds.
         UnaryOp::Delete => {
+            // `delete a?.b` — the chain short-circuits to TRUE rather than to
+            // `undefined`, because a chain that never reached a property did
+            // not fail to delete one. Its own join for that reason: the value
+            // that leaves it is a boolean, not the value of a read.
+            //
+            // The link's own `?.` is what is tested. A nullish object DEEPER in
+            // the chain still reaches the delete, which is the narrower claim
+            // and the one this handles: `delete a?.b.c` with a nullish `a` is
+            // the shape left over, and it is written here rather than
+            // discovered.
+            if let ExprKind::Chain(inner) = &operand.kind
+                && let ExprKind::Member { object, property, optional: true } = &inner.kind
+            {
+                let text = ctx.names.text(*property).to_owned();
+                let key = expr::string_literal(builder, ctx, &text)?;
+                return delete_optional(builder, scope, ctx, object, key);
+            }
+            if let ExprKind::Chain(inner) = &operand.kind
+                && let ExprKind::Index { object, index, optional: true } = &inner.kind
+            {
+                let key = emit_expr(builder, scope, ctx, index)?;
+                return delete_optional(builder, scope, ctx, object, key);
+            }
             let (receiver, key) = match &operand.kind {
                 ExprKind::Member {
                     object, property, ..
@@ -152,11 +175,21 @@ pub fn emit_unary(
                     let key = emit_expr(builder, scope, ctx, index)?;
                     (receiver, key)
                 }
-                // `delete x` on a name is an early error in strict code and a
-                // no-op answering false in sloppy. Neither is emitted: the
-                // first is the checker's, and the second needs the global
-                // object a bare name would be a property of.
-                _ => return expr::gap("`delete` of anything but a property"),
+                // `delete <anything else>` is not a property removal at all:
+                // the specification evaluates the operand and answers TRUE,
+                // because there was no reference to remove. `delete (1 + 1)` is
+                // legal JavaScript and this REFUSED THE WHOLE PROGRAM for it —
+                // a compile error for an expression the language defines.
+                //
+                // `delete x` on a name is the one shape that answers false: a
+                // declared binding cannot be deleted. Strict code makes it an
+                // early error, which is the checker's to raise.
+                _ => {
+                    let bound = matches!(&operand.kind, ExprKind::Ident(name)
+                        if scope.lookup(*name).is_some());
+                    emit_expr(builder, scope, ctx, operand)?;
+                    return Ok(expr::boolean_constant(builder, !bound));
+                }
             };
             let gone = expr::call(builder, ctx, RuntimeOp::DeleteProperty, &[receiver, key])?[0];
             Ok(builder.widen(gone))
@@ -257,4 +290,37 @@ fn step_value(
     let step = expr::number_constant(builder, step);
     let after = expr::emit_binary(builder, ctx, BinaryOp::Sub, before, step)?;
     Ok((before, after))
+}
+
+/// `delete a?.b` and `delete a?.[k]` — the delete a nullish object skips.
+///
+/// Its own join, and the value that leaves it is a BOOLEAN: a chain that never
+/// reached a property answers `true`, because it did not fail to remove one.
+/// That is the whole difference from an ordinary optional read, whose join
+/// carries `undefined`, and it is why this does not reuse `optional::walk`.
+fn delete_optional(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    object: &Expr,
+    key: ValueId,
+) -> EmitResult<ValueId> {
+    let receiver = emit_expr(builder, scope, ctx, object)?;
+    let join = builder.create_block();
+    let answer = builder.add_block_param(join, super::UNPROVEN);
+    let nullish = builder.create_block();
+    let present = builder.create_block();
+    super::choice::branch_on_nullish(builder, ctx, receiver, nullish, present)?;
+
+    builder.switch_to(nullish);
+    let skipped = expr::boolean_constant(builder, true);
+    builder.jump(join, &[skipped])?;
+
+    builder.switch_to(present);
+    let gone = expr::call(builder, ctx, RuntimeOp::DeleteProperty, &[receiver, key])?[0];
+    let gone = builder.widen(gone);
+    builder.jump(join, &[gone])?;
+
+    builder.switch_to(join);
+    Ok(answer)
 }
