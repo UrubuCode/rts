@@ -291,17 +291,36 @@ just the output" applied to our own gate.
 
 **A suite number is compared PER FILE, never net.** `+3` is equally consistent
 with three gained and with five gained against two lost, and only one of those
-is shippable. The cheap way to know:
+is shippable.
+
+**The baseline is a BINARY you keep, not a stash you take.** Before the first
+edit of a session, build and put the binary aside:
 
 ```bash
-git stash push -u                                     # measure the baseline
-cargo build --release -p rts-host --example suite_run
-for f in tests/*.test.ts; do ... done > /tmp/base.txt  # one process per file
-git stash pop
-# rebuild, re-run into /tmp/now.txt, then:
-comm -23 <(grep '^ok ' /tmp/base.txt | awk '{print $2}' | sort) \
-         <(grep '^ok ' /tmp/now.txt  | awk '{print $2}' | sort)   # LOST
+cargo build --release && cp target/release/rts.exe target/baseline.exe
+RTS_BIN=target/baseline.exe REPORT_FILE=base.json bash scripts/cross_runtime_check.sh
 ```
+
+Then measure the change against it, and compare the two reports PER FILE:
+
+```bash
+cargo build --release
+RTS_BIN=target/release/rts.exe REPORT_FILE=now.json bash scripts/cross_runtime_check.sh
+# LOST = passed in base.json, does not pass in now.json
+```
+
+After each commit, refresh the pair — `cp target/release/rts.exe target/baseline.exe`
+and keep that commit's report — so the next comparison is against the last
+thing that was measured rather than against the start of the session.
+
+`git stash push -u` was the recipe here, and it is the wrong one for this. It
+costs a full release build to go back (minutes), a second to come forward, and
+it moves the WORKING TREE — so a measurement taken while several changes are in
+flight cannot be taken at all, and an interrupted session can leave the tree
+somewhere nobody asked for. A kept binary costs one copy, is measurable at any
+moment, and never touches the tree. `target/` is ignored, so the baseline is
+not something to remember to clean up.
+
 An empty LOST list is the claim "no regression"; the net number never was.
 
 A regression is acceptable when it is intentional or a necessary trade **and**

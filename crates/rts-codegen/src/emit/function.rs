@@ -257,7 +257,25 @@ fn emit_function(
         // declaration binds it outside too, and binding it inside as well is
         // what the language says and is harmless. Passed here rather than
         // decided inside, because only this level has the tree.
-        function.name,
+        //
+        // WITHHELD from a body that parks, when the enclosing scope already
+        // binds the name. The inner binding is `RunningFunction`, and for a
+        // generator the function currently running is the BODY — a
+        // `resumable_form` rewritten to take a frame reference and answer a
+        // finished flag. So `function* self(n) { self(n - 1) }` called ITSELF
+        // by that name, which is not a call at all: it hands a heap cell where
+        // a frame pointer belongs and decodes the flag as `undefined`. The
+        // enclosing binding is the wrapper — what every other caller receives —
+        // so where it exists it is the right answer and this one is not.
+        //
+        // A named generator EXPRESSION keeps the old binding, wrong value and
+        // all: nothing else in scope answers, and turning a wrong value into an
+        // unbound name is a second defect rather than a fix. Named in the
+        // module notes as what the frame contract removes.
+        match function.is_generator || function.is_async {
+            true => function.name.filter(|name| enclosing.lookup(*name).is_none()),
+            false => function.name,
+        },
         &[],
         // A nested function is not a module: it has no specifier and nothing to
         // publish. Passing the enclosing module's would make every closure
