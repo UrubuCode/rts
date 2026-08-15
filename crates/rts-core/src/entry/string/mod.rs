@@ -22,13 +22,24 @@
 //! to `String.prototype` is doing what the language has always allowed, and an
 //! engine that had to be taught about it would have been built wrong.
 //!
-//! # What is deliberately absent
+//! # The wrapper object, and why it is here now
 //!
-//! A `String` **wrapper object**. `new String("a")` makes an object whose
-//! `typeof` is `"object"` and which compares unequal to `"a"`, and nothing here
-//! makes one — `String(x)` converts, which is the spelling programs use. Named
-//! rather than half-built, because a wrapper that behaved like a primitive would
-//! be wrong in the one way that is hard to find.
+//! `new String("a")` makes an object whose `typeof` is `"object"` and which
+//! compares unequal to `"a"`. This file used to say it made none, on the
+//! argument that a half-built wrapper behaving like a primitive is wrong in the
+//! way that is hardest to find. The argument was right about an *implicit*
+//! wrapper and does not reach this one: the program wrote `new`, and what it
+//! got instead was the primitive — `typeof new String("x")` answered
+//! `"string"` and `new String("")` was FALSY, which is the same class of
+//! hard-to-find wrongness pointed the other way.
+//!
+//! What makes it whole rather than half is three separate facts, and each is
+//! answered in one place: `typeof` and truthiness come from it being an
+//! ordinary cell with `[[StringData]]` beside it ([`super::primitive_proto`]);
+//! every method reads through [`receiver`], so `new String("ab").charAt(1)`
+//! finds the text; and `length` and the index properties come from
+//! [`text::string_property`]/[`text::string_element`], which the property path
+//! already asked for a bare string cell.
 
 mod basic;
 mod more;
@@ -105,7 +116,12 @@ fn iterator_method(context: &mut Context, cell: u32) {
 /// two spellings of where a character ends is how the loop and the method would
 /// come to disagree about the same string.
 extern "C" fn iterate_units(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    super::list_iterator::over(super::iterate::iterate(this))
+    // Unwrapped first, for the reason [`receiver`] states: `iterate` recognises
+    // a TEXT CELL, and a `new String("ab")` wrapper is not one — so a wrapper
+    // reached the object path and iterated nothing, where the language iterates
+    // its `[[StringData]]`.
+    let held = with_current(|context| receiver(context, this));
+    super::list_iterator::over(super::iterate::iterate(held))
 }
 
 /// `String` itself, as the value the name reads.
@@ -127,17 +143,21 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     callable
 }
 
-/// `String(x)` — the text of a value.
+/// `String(x)` — the text of a value; `new String(x)` — a wrapper around it.
 ///
-/// Not `new String(x)`, which makes a wrapper object. `construct` hands this a
-/// fresh object as its receiver and takes back what it returns; a primitive
-/// string is not an object, so `construct` keeps the fresh one — which means
-/// `new String("a")` answers a plain object here. A stated divergence, and the
-/// less wrong of the two: the alternative is a wrapper that compares equal to a
-/// primitive everywhere except where it does not.
+/// One body for both, because the conversion is the same and only the answer
+/// differs. `construct` hands this a fresh object as its receiver, so the
+/// wrapper already exists by the time this runs: recording the text into it is
+/// `[[StringData]]`, and answering the object rather than the text is what
+/// stops `construct` from keeping the primitive — a string is a cell here, and
+/// `construct` keeps any cell a constructor returned.
+///
+/// The plain call is told apart by [`super::primitive_proto::wrap`]'s own test,
+/// which is `new.target` rather than the receiver's class — see the note there
+/// for why, and for the one spelling it does not cover.
 extern "C" fn convert(
     _environment: u64,
-    _this: u64,
+    this: u64,
     value: u64,
     _a1: u64,
     _a2: u64,
@@ -154,15 +174,33 @@ extern "C" fn convert(
         // e e uma excecao escrita no proprio `String`: `"" + sym` continua a ser
         // um `TypeError` e `to_text` continua a recusar um simbolo, que e o que
         // impede uma conversao acidental. Sem esta linha respondia `undefined`.
-        if let Some(text) = super::symbol::described(context, value) {
-            return context.intern_value(Str::from_str(&text)).bits();
-        }
-        match super::text::to_text(context, Value(value)) {
-            Some(text) => context.intern_value(text).bits(),
-            // Still not a primitive after the conversion. The absence stays.
-            None => undefined_of(context),
-        }
+        let text = match super::symbol::described(context, value) {
+            Some(text) => context.intern_value(Str::from_str(&text)).bits(),
+            None => match super::text::to_text(context, Value(value)) {
+                Some(text) => context.intern_value(text).bits(),
+                // Still not a primitive after the conversion. The absence stays.
+                None => return undefined_of(context),
+            },
+        };
+        // `new String(x)` answers the wrapper; `String(x)` answers the text.
+        super::primitive_proto::wrap(context, this, text).unwrap_or(text)
     })
+}
+
+/// The string a method's `this` actually is.
+///
+/// `"a".trim()` gets the primitive and `new String("a").trim()` gets a WRAPPER
+/// OBJECT — `[[StringData]]` in the specification, recorded beside the cell by
+/// [`super::primitive_proto::wrap`]. Every accessor below goes through this, so
+/// the wrapper case is written once instead of thirty times; a method reaching
+/// for `text_at` directly is the spelling that would answer `undefined` for a
+/// wrapper while the one beside it answered the text.
+///
+/// A primitive passes through unchanged, which is why this is safe to apply
+/// unconditionally rather than behind a "is this a wrapper" test the caller
+/// would have to remember to write.
+pub(super) fn receiver(context: &Context, value: u64) -> u64 {
+    super::primitive_proto::unwrap(context, value)
 }
 
 /// The receiver as code units.
@@ -172,7 +210,7 @@ extern "C" fn convert(
 /// Doing this in bytes makes `"é".indexOf("x")` disagree with `"é".length`,
 /// which is the kind of wrong that survives a whole test suite of ASCII.
 pub(super) fn units_of(context: &Context, value: u64) -> Option<Vec<u16>> {
-    let text = context.text_at(Value(value).as_slot()?)?;
+    let text = context.text_at(Value(receiver(context, value)).as_slot()?)?;
     Some(text.units().collect())
 }
 
@@ -182,7 +220,7 @@ pub(super) fn units_of(context: &Context, value: u64) -> Option<Vec<u16>> {
 /// with [`indexed`], it is what stopped a single character read from costing the
 /// whole string — see the note there.
 pub(super) fn length_of(context: &Context, value: u64) -> Option<usize> {
-    Some(context.text_at(Value(value).as_slot()?)?.len())
+    Some(context.text_at(Value(receiver(context, value)).as_slot()?)?.len())
 }
 
 /// One code unit of the receiver.
@@ -199,7 +237,9 @@ pub(super) fn length_of(context: &Context, value: u64) -> Option<usize> {
 /// `Str::unit_at` was already there and answered in constant time for both
 /// representations. Nothing had to be built; the copy simply had to stop.
 pub(super) fn indexed(context: &Context, value: u64, at: usize) -> Option<u16> {
-    context.text_at(Value(value).as_slot()?)?.unit_at(at)
+    context
+        .text_at(Value(receiver(context, value)).as_slot()?)?
+        .unit_at(at)
 }
 
 /// An argument as text, converting the way the language does.
@@ -207,8 +247,19 @@ pub(super) fn indexed(context: &Context, value: u64, at: usize) -> Option<u16> {
 /// `"abc".indexOf(1)` searches for `"1"`, because the specification runs
 /// `ToString` on the argument. `None` is an object, whose conversion calls user
 /// code — the boundary every conversion here stops at.
+///
+/// A **wrapper** is the one object this does convert, through [`receiver`]:
+/// `ToString(new String("b"))` runs a `toString` that is `thisStringValue` and
+/// nothing else, so reading `[[StringData]]` is that call's whole result rather
+/// than a shortcut past user code. It matters twice — the methods that take
+/// their receiver this way (`split`, `replace`, `match`) answered `undefined`
+/// for a wrapper, and so did `"abc".indexOf(new String("b"))`.
+///
+/// A subclass that overrides `toString` still diverges, and that is the same
+/// stated boundary: the honest spelling is `to_primitive`, which cannot run
+/// inside the borrow every caller here holds.
 pub(super) fn text_of(context: &Context, value: u64) -> Option<Str> {
-    super::text::to_text(context, Value(value))
+    super::text::to_text(context, Value(receiver(context, value)))
 }
 
 /// The same, as code units.

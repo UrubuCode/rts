@@ -211,7 +211,7 @@ extern "C" fn normalize(_e: u64, this: u64, form: u64, _a1: u64, _a2: u64, _a3: 
         return with_current(|context| nothing(context));
     };
     with_current(|context| {
-        let Some(text) = super::text_of(context, this) else {
+        let Some(text) = super::text_of(context, super::receiver(context, this)) else {
             return nothing(context);
         };
         context.intern_value(normalized(&text, form)).bits()
@@ -225,25 +225,32 @@ extern "C" fn text_value(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: 
 
 /// `s.valueOf()`.
 ///
-/// The same as `toString` here and genuinely different in the language, where
-/// the receiver may be a wrapper object and the two unwrap it differently. There
-/// are no wrappers in this engine — `string/mod.rs` says why — so the receiver is
-/// already primitive and both are the identity.
+/// `thisStringValue` — the same operation `toString` performs, which is why both
+/// are [`identity`]. They are two names in the language because an object with
+/// its own `toString` can shadow one and not the other; the operation they
+/// perform on a String receiver is the one operation.
 extern "C" fn value_of(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     identity(this)
 }
 
-/// The receiver itself, when it is a string.
+/// The PRIMITIVE the receiver stands for, when it stands for one.
 ///
 /// The receiver's own value rather than a fresh string built from its units:
 /// interning already made every equal string one cell, and re-interning would be
 /// a lookup and a copy to arrive back where it started. Written once because the
 /// two methods that are the identity must not come to differ about what a
 /// non-string receiver answers.
+///
+/// `super::receiver` and not `this`, which is the whole of `thisStringValue`:
+/// `new String("a").valueOf() === "a"` is what makes a wrapper unwrappable at
+/// all, and answering `this` would hand the wrapper back and compare false.
 fn identity(this: u64) -> u64 {
-    with_current(|context| match units_of(context, this) {
-        Some(_) => this,
-        None => nothing(context),
+    with_current(|context| {
+        let held = super::receiver(context, this);
+        match units_of(context, held) {
+            Some(_) => held,
+            None => nothing(context),
+        }
     })
 }
 

@@ -77,8 +77,19 @@ fn registered(
     Value(super::class_support::prototype(context, name)?).as_slot()
 }
 
-/// Records the primitive a freshly constructed wrapper stands for.
+/// Records the primitive a freshly constructed wrapper stands for, and answers
+/// the wrapper it recorded into.
 ///
+/// # Why it answers anything at all
+///
+/// Because `String` needs the answer and the other two do not.
+/// [`super::functions::construct`] keeps what a constructor RETURNED whenever
+/// that is a cell — and a string IS a cell here, so `new String("a")` returning
+/// the text made the construction answer the primitive and `typeof` answer
+/// `"string"`. A number and a boolean are not cells, so returning them is
+/// already discarded and those two call sites ignore this.
+///
+
 /// # Why the test is "a `new` is in progress" and not the receiver's class
 ///
 /// Because `class Money extends Number {}` reaches here with `Money` on the
@@ -92,13 +103,13 @@ fn registered(
 /// constructor, which would mark `o`. Named rather than solved: the calling
 /// convention carries no "was this a construct" bit, and inventing one for a
 /// spelling no program uses would be a machine change bought by nothing.
-pub(in crate::entry) fn wrap(context: &mut Context, this: u64, primitive: u64) {
+pub(in crate::entry) fn wrap(context: &mut Context, this: u64, primitive: u64) -> Option<u64> {
     if context.new_targets.is_empty() {
-        return;
+        return None;
     }
-    if let Some(cell) = Value(this).as_slot() {
-        context.set_boxed(cell, primitive);
-    }
+    let cell = Value(this).as_slot()?;
+    context.set_boxed(cell, primitive);
+    Some(Value::from_slot(cell).bits())
 }
 
 /// The primitive a value stands for — itself, unless it is a wrapper object.

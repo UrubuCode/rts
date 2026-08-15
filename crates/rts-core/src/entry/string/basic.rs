@@ -133,7 +133,12 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
         // The bounds are computed twice, once per path, rather than hoisted:
         // hoisting needs the length, and asking for the length is what the
         // borrow is for.
-        if let Some(text) = Value(this).as_slot().and_then(|cell| context.text_at(cell))
+        // Through `receiver`, like every other read of `this` in this file: a
+        // wrapper object has no text of its own, and reaching for the cell
+        // directly is what made the narrow path miss it and the wide path — the
+        // one below, which goes through `units_of` — answer for it.
+        let held = super::receiver(context, this);
+        if let Some(text) = Value(held).as_slot().and_then(|cell| context.text_at(cell))
             && let Some(bytes) = text.narrow()
         {
             let len = bytes.len();
@@ -370,14 +375,15 @@ fn padded(this: u64, width: u64, fill: u64, at_start: bool) -> u64 {
 /// twenty-six letters, and it stays below 128.
 fn mapped(this: u64, body: fn(&str) -> String, ascii: fn(&u8) -> u8) -> u64 {
     with_current(|context| {
-        if let Some(text) = Value(this).as_slot().and_then(|cell| context.text_at(cell))
+        let held = super::receiver(context, this);
+        if let Some(text) = Value(held).as_slot().and_then(|cell| context.text_at(cell))
             && let Some(bytes) = text.narrow()
             && bytes.is_ascii()
         {
             let produced: Vec<u8> = bytes.iter().map(ascii).collect();
             return answer_owned(context, produced);
         }
-        let Some(text) = text_of(context, this) else {
+        let Some(text) = text_of(context, held) else {
             return nothing(context);
         };
         context

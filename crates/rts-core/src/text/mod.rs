@@ -301,6 +301,32 @@ impl Str {
         }
     }
 
+    /// Rust text, with each lone surrogate written as `U+FFFD`.
+    ///
+    /// # Why this exists beside [`Self::to_rust`] instead of replacing it
+    ///
+    /// The two answer different questions and both are asked. `to_rust` is
+    /// "give me this string, or tell me you cannot" — `normalize`, `RegExp` and
+    /// `Buffer` all need the refusal, because operating on a replacement
+    /// character silently produces a result for text the program never wrote.
+    ///
+    /// This one is "write this string somewhere that speaks UTF-8", which has no
+    /// refusal available: stdout is bytes, and every engine encodes a lone
+    /// surrogate as the replacement character on the way out. Answering `None`
+    /// there is what made `console.log(emoji.charAt(0))` print an OBJECT — the
+    /// inspector took the absence as "not a string" and fell through to dumping
+    /// indices.
+    pub fn to_rust_lossy(&self) -> String {
+        match &self.repr {
+            // Latin-1 has no surrogates in it, so the two agree here and there
+            // is nothing to replace — but the conversion is still the cheap
+            // ASCII path when it applies, which is why it defers rather than
+            // decoding a second way.
+            Repr::Latin1(_) => self.to_rust().unwrap_or_default(),
+            Repr::Utf16(units) => String::from_utf16_lossy(units),
+        }
+    }
+
     /// Two strings joined.
     ///
     /// The result narrows when both sides are narrow, and widens otherwise.
@@ -381,6 +407,13 @@ mod tests {
             None,
             "absent rather than U+FFFD — a replacement character is a different \
              string"
+        );
+        assert_eq!(
+            lone.to_rust_lossy(),
+            "\u{FFFD}",
+            "the other conversion has no refusal available: writing this to a \
+             UTF-8 stream is what every runtime spells as the replacement \
+             character"
         );
     }
 

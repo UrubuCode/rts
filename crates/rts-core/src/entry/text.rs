@@ -284,8 +284,20 @@ fn type_name(context: &mut Context, name: TypeName) -> u64 {
 /// `None` for anything whose conversion runs user code, which is an object: this
 /// is a report, and reaching back into the program that produced it to ask what
 /// it would like to be called is not what a report should do.
+///
+/// # Why a lone surrogate is replaced rather than refused
+///
+/// `Str::to_rust` answers `None` for text that is not valid Unicode, and that
+/// absence used to arrive here — where the ONE meaning of `None` is "this is not
+/// a primitive". So `console.log("x".concat(halfAnEmoji))` printed an object:
+/// the inspector read the absence as "not a string" and dumped its indices.
+///
+/// A report has no refusal available. Every runtime encodes a lone surrogate as
+/// `U+FFFD` on the way to a UTF-8 stream, so that is what this answers —
+/// `to_rust_lossy` states the difference between the two conversions and why
+/// both are kept.
 pub fn described(value: u64) -> Option<String> {
-    with_current(|context| to_text(context, Value(value))?.to_rust())
+    with_current(|context| Some(to_text(context, Value(value))?.to_rust_lossy()))
 }
 
 /// Seeds the property-key numbering from what the compilation resolved.
