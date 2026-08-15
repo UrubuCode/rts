@@ -161,8 +161,8 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         // assertion below is what makes that sentence checkable rather than a
         // comment that was true once.
         RuntimeOp::Call => (CoreEntry::Call, {
-            rts_core::entry::call as extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64
-                as *const u8
+            rts_core::entry::call_counted
+                as extern "C" fn(u64, u64, i64, u64, u64, u64, u64) -> u64 as *const u8
         }),
         // The argument is which literal, exactly as `StringConst`'s is: an
         // `i64` index into the table the run seeds, not the text itself.

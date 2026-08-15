@@ -114,6 +114,30 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             super::objects::put(context, cell, key, prototype_value);
             super::external::release(context, held_prototype);
         }
+        // `f.name` and `f.length`, which every function has and this wrote
+        // neither of: `(function foo(a, b){}).name` read `undefined` and
+        // `.length` did too, so a program forwarding, wrapping or introspecting
+        // a function saw nothing.
+        //
+        // Read from the table the host seeds by code ADDRESS, which is the only
+        // handle this has on a compiled function — and the same table a stack
+        // trace already reads, rather than a second one that would have to be
+        // kept in agreement with it. Widening `ClosureNew` to carry them was
+        // the alternative: it costs two more operands on every closure ever
+        // made, where this costs a lookup only.
+        let described = context
+            .function_names
+            .iter()
+            .find(|(at, _, _)| *at == code as u64)
+            .map(|(_, name, arity)| (name.clone(), *arity));
+        if let Some((name, arity)) = described {
+            let key = context.well_known("name");
+            let text = context.intern_value(crate::text::Str::from_str(&name)).bits();
+            super::objects::put(context, cell, key, text);
+            let key = context.well_known("length");
+            let count = Value::from_f64(f64::from(arity)).bits();
+            super::objects::put(context, cell, key, count);
+        }
         super::external::release(context, held);
         made
     })
@@ -156,12 +180,17 @@ pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
         // The vector this activation reads its rest from. Pushed rather than
         // stored, because a call inside the callee pushes its own.
         context.pending_arguments.push(arguments);
+        // Paired with the vector, so a callee's count is its own — see `called`.
+        context.pending_counts.push(None);
         first
     });
     // Not through `call`, which pushes a marker of its own — that marker on top
     // would hide the vector from exactly the callee it was made for.
     let produced = invoke(callee, this, first[0], first[1], first[2], first[3]);
-    with_current(|context| context.pending_arguments.pop());
+    with_current(|context| {
+        context.pending_arguments.pop();
+        context.pending_counts.pop();
+    });
     produced
 }
 
@@ -202,18 +231,49 @@ pub fn rest_arguments(from: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
                 }
             }
             // No vector, so the arguments are exactly what the convention
-            // carried. Trailing padding is dropped rather than reported.
+            // carried — and how many that is comes from the call SITE when it
+            // said, which is what makes `f(undefined)` reach `...rest` as one
+            // argument instead of none. Trailing padding is dropped only when
+            // nobody said, which is a native calling another function.
             _ => {
                 let given = [a0, a1, a2, a3];
-                let mut real = given.len();
-                while real > 0 && given[real - 1] == absent {
-                    real -= 1;
-                }
+                let real = match context.pending_counts.last().copied().flatten() {
+                    Some(count) => count.min(given.len()),
+                    None => {
+                        let mut real = given.len();
+                        while real > 0 && given[real - 1] == absent {
+                            real -= 1;
+                        }
+                        real
+                    }
+                };
                 given[from.min(real)..real].to_vec()
             }
         };
         super::array::built_in(context, collected)
     })
+}
+
+/// A call, told HOW MANY arguments the site wrote.
+///
+/// # Why this exists beside [`call`]
+///
+/// Because only a call SITE knows. The convention pads the four slots with
+/// `undefined`, so a callee cannot tell `f(undefined)` from `f()` — and the
+/// runtime was reconstructing the count by dropping `undefined` from the end,
+/// which is exactly wrong for the program that passed one on purpose:
+/// `console.log(undefined)` printed an empty line and `[].push(undefined)`
+/// pushed nothing.
+///
+/// Compiled code reaches this one; a native calling another function reaches
+/// [`call`], which pushes "unknown" rather than a number it does not have. Two
+/// doors, one implementation — the alternative was widening `call` itself, and
+/// that would have made every native in this crate declare a count it has no
+/// way to know.
+#[rtse::entry]
+pub fn call_counted(callee: u64, this: u64, count: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let counted = count.clamp(0, ARGUMENT_SLOTS as i64) as usize;
+    called(callee, this, Some(counted), a0, a1, a2, a3)
 }
 
 /// Calls a value, with a receiver and up to [`ARGUMENT_SLOTS`] arguments.
@@ -223,8 +283,24 @@ pub fn rest_arguments(from: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// throwing needs protected regions and nothing emits those yet. It is named
 /// here rather than left implicit because *this* gap is the one that would
 /// otherwise be a jump to an arbitrary address.
+///
+/// The count is `None` here, and honestly so: this door is for a NATIVE calling
+/// another function, and a native has no call site to read one from.
 #[rtse::entry]
 pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    called(callee, this, None, a0, a1, a2, a3)
+}
+
+/// What both doors do, with the count either known or not.
+fn called(
+    callee: u64,
+    this: u64,
+    count: Option<usize>,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+) -> u64 {
     // A class constructor called without `new` is a `TypeError`, checked
     // before anything else so `1()` and `ClassCtor()` do not share a path
     // that decides this AFTER the jump.
@@ -247,9 +323,19 @@ pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     with_current(|context| {
         let absent = undefined_of(context);
         context.pending_arguments.push(absent);
+        // Pushed by EVERY call for the same reason the vector is: a callee
+        // asking how many arguments it got must not find the answer belonging
+        // to an outer call that is still running. `None` says "nobody told
+        // me", which is what a native calling another function can say
+        // honestly — and what makes `arguments_at` fall back to the old guess
+        // there instead of inventing a number.
+        context.pending_counts.push(count);
     });
     let produced = invoke(callee, this, a0, a1, a2, a3);
-    with_current(|context| context.pending_arguments.pop());
+    with_current(|context| {
+        context.pending_arguments.pop();
+        context.pending_counts.pop();
+    });
     produced
 }
 
@@ -401,9 +487,14 @@ pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     with_current(|context| {
         let absent = undefined_of(context);
         context.pending_arguments.push(absent);
+        // Paired with the vector, so a callee's count is its own — see `called`.
+        context.pending_counts.push(None);
     });
     let produced = construct_inner(callee, a0, a1, a2, a3);
-    with_current(|context| context.pending_arguments.pop());
+    with_current(|context| {
+        context.pending_arguments.pop();
+        context.pending_counts.pop();
+    });
     produced
 }
 
@@ -525,10 +616,15 @@ pub fn super_construct_with_args(parent: u64, arguments: u64) -> u64 {
             }
         }
         context.pending_arguments.push(arguments);
+        // Paired with the vector, so a callee's count is its own — see `called`.
+        context.pending_counts.push(None);
         first
     });
     let produced = super_construct_inner(parent, first[0], first[1], first[2], first[3]);
-    with_current(|context| context.pending_arguments.pop());
+    with_current(|context| {
+        context.pending_arguments.pop();
+        context.pending_counts.pop();
+    });
     produced
 }
 
@@ -551,12 +647,17 @@ pub fn construct_with_args(callee: u64, arguments: u64) -> u64 {
             }
         }
         context.pending_arguments.push(arguments);
+        // Paired with the vector, so a callee's count is its own — see `called`.
+        context.pending_counts.push(None);
         first
     });
     // Not through `construct`, which pushes a marker of its own — that marker
     // on top would hide the vector from the constructor it was made for.
     let produced = construct_inner(callee, first[0], first[1], first[2], first[3]);
-    with_current(|context| context.pending_arguments.pop());
+    with_current(|context| {
+        context.pending_arguments.pop();
+        context.pending_counts.pop();
+    });
     produced
 }
 

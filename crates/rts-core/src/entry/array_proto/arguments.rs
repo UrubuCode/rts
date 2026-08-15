@@ -46,6 +46,15 @@ pub fn arguments_at(context: &Context, from: usize, given: [u64; 4]) -> Vec<u64>
     if let Some(elements) = spilled {
         return elements.iter().skip(from).copied().collect();
     }
+    // What the SITE said it wrote, when it said. The doc above described the
+    // guess below as the only available answer and named its divergence —
+    // `a.push(undefined)` pushes nothing — and the guess is no longer the only
+    // one: `call_counted` carries the number, so the four slots can be cut at
+    // the right place instead of at the last non-`undefined`.
+    if let Some(count) = context.pending_counts.last().copied().flatten() {
+        let count = count.min(given.len());
+        return given[from.min(count)..count].to_vec();
+    }
     let mut given = given.to_vec();
     while given.last().is_some_and(|last| absent(context, *last)) {
         given.pop();

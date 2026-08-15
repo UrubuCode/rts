@@ -361,13 +361,23 @@ pub(super) fn issue(
         )?[0]);
     }
 
-    let mut passed = Vec::with_capacity(2 + ARGUMENT_SLOTS);
+    let mut passed = Vec::with_capacity(3 + ARGUMENT_SLOTS);
     passed.push(function);
     passed.push(receiver);
+    // HOW MANY arguments were written, which nothing carried and which the
+    // runtime was reconstructing by dropping `undefined` from the end. That
+    // reconstruction is wrong for every program that passes one on purpose:
+    // `console.log(undefined)` printed an empty line, `[].push(undefined)`
+    // pushed nothing, and `f(undefined)` reached a rest parameter as `[]`.
+    //
+    // An operand rather than a call before the jump: `SetCallName` is the
+    // precedent for that second shape and it costs a crossing per call site,
+    // where this costs one register the convention already had room for.
+    passed.push(expr::count_constant(builder, values.len()));
     passed.extend_from_slice(values);
     // Padded after the written arguments were evaluated, so the padding cannot
     // get between two of them and change the order side effects happen in.
-    while passed.len() < 2 + ARGUMENT_SLOTS {
+    while passed.len() < 3 + ARGUMENT_SLOTS {
         let undefined = expr::undefined(builder, ctx);
         passed.push(undefined);
     }

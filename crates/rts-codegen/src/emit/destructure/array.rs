@@ -123,11 +123,21 @@ fn get_pattern_iterator(
 
     builder.switch_to(own_block);
     let absent = super::super::expr::undefined(builder, ctx);
+    // `it[Symbol.iterator]()` takes no arguments.
+    let written = super::super::expr::count_constant(builder, 0);
     let own_iter = super::super::expr::call(
         builder,
         ctx,
         RuntimeOp::Call,
-        &[method, source, absent, absent, absent, absent],
+        &[
+            method,
+            source,
+            written,
+            absent,
+            absent,
+            absent,
+            absent,
+        ],
     )?[0];
     let own_iter = builder.widen(own_iter);
     builder.jump(join, &[own_iter])?;

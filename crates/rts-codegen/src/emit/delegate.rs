@@ -110,11 +110,22 @@ fn emit_protocol(
     // `next` is called with the inner iterator as the receiver, which is what
     // makes a delegated generator advance its own frame rather than someone
     // else's.
+    // ONE argument written: the value sent in. The count is what lets the
+    // callee tell `it.next(undefined)` from `it.next()`.
+    let written = super::expr::count_constant(builder, 1);
     let answered = super::expr::call(
         builder,
         ctx,
         RuntimeOp::Call,
-        &[step, source, sent, absent, absent, absent],
+        &[
+            step,
+            source,
+            written,
+            sent,
+            absent,
+            absent,
+            absent,
+        ],
     )?[0];
     let named = ctx.names.intern("value");
     let key = key_constant(builder, ctx, named);

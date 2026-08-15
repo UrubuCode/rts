@@ -820,7 +820,7 @@ impl RuntimeOp {
             RuntimeOp::OwnKeys => "__rts_own_keys",
             RuntimeOp::Construct => "__rts_construct",
             RuntimeOp::InstanceOf => "__rts_instance_of",
-            RuntimeOp::Call => "__rts_call",
+            RuntimeOp::Call => "__rts_call_counted",
             RuntimeOp::SetCallName => "__rts_set_call_name",
             RuntimeOp::RegexNew => "__rts_regex_new",
             RuntimeOp::BigIntNew => "__rts_bigint_new",
@@ -951,7 +951,14 @@ impl RuntimeOp {
             RuntimeOp::InstanceOf => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
-            RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),
+            RuntimeOp::Call => {
+                // The callee, the receiver, HOW MANY arguments were written,
+                // and the four slots. The count is the operand that lets a
+                // callee tell `f(undefined)` from `f()`.
+                let mut params = vec![UNPROVEN, UNPROVEN, Repr::I64];
+                params.extend(std::iter::repeat_n(UNPROVEN, ARGUMENT_SLOTS));
+                (params, vec![UNPROVEN])
+            }
             // A literal index the compiler resolved, like `GlobalGet` — the
             // runtime already holds the text at that position, so no text
             // crosses here either.

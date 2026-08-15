@@ -53,7 +53,7 @@ use super::computed::{
     SET_INDEXED_ENTRY,
 };
 use super::functions::{
-    CALL_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
+    CALL_COUNTED_ENTRY, CALL_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
     CONSTRUCT_WITH_ARGS_ENTRY, INSTANCE_OF_ENTRY,
     MARK_CLASS_CONSTRUCTOR_ENTRY, MARK_DERIVED_ENTRY, REST_ARGUMENTS_ENTRY,
     SET_CALL_NAME_ENTRY, SUPER_CONSTRUCT_ENTRY, SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
@@ -596,7 +596,7 @@ impl CoreEntry {
             CoreEntry::ModulePublishAll => MODULE_PUBLISH_ALL_ENTRY,
             CoreEntry::ObjectSpread => OBJECT_SPREAD_ENTRY,
             CoreEntry::KeyNumber => KEY_NUMBER_ENTRY,
-            CoreEntry::Call => CALL_ENTRY,
+            CoreEntry::Call => CALL_COUNTED_ENTRY,
             CoreEntry::StringConst => STRING_CONST_ENTRY,
             CoreEntry::TypeOf => TYPE_OF_ENTRY,
             CoreEntry::LooseEquals => LOOSE_EQUALS_ENTRY,

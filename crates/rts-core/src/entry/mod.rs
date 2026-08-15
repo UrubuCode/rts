@@ -106,7 +106,7 @@ pub use bitwise::{
 };
 pub use computed::{delete_property, get_indexed, has_property, key_number, set_indexed};
 pub use functions::{
-    call_with_args, construct_with_args, rest_arguments,
+    call_counted, call_with_args, construct_with_args, rest_arguments,
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
     mark_derived, set_call_name, super_construct, super_construct_with_args,
 };
@@ -446,7 +446,7 @@ pub struct Context {
     /// For a stack trace to name a frame. Keyed by ADDRESS because that is what
     /// a callable holds, and filled by the host after placement for the reason
     /// `frames` is: the addresses do not exist until then.
-    function_names: Vec<(u64, String)>,
+    function_names: Vec<(u64, String, u32)>,
     regexes: Aside<regex::Regexp>,
     /// What every regular expression inherits from, once one exists.
     ///
@@ -535,6 +535,16 @@ pub struct Context {
     /// an outer call that is still running. The cost is named where the
     /// operation is, along with what removes it.
     pub pending_arguments: Vec<u64>,
+    /// How many arguments each call in progress WROTE, when its site said.
+    ///
+    /// Beside the vector and pushed by the same calls, because it answers the
+    /// same question for the case that has no vector: the convention pads its
+    /// four slots with `undefined`, so a callee cannot tell `f(undefined)` from
+    /// `f()` and the runtime was guessing by dropping `undefined` from the end.
+    ///
+    /// `None` is an honest "nobody said" — what a native calling another
+    /// function pushes, since only a compiled call site knows the number.
+    pub pending_counts: Vec<Option<usize>>,
     /// Which callables must ask their parent for the object they build.
     ///
     /// A syntactic fact the compiler knows and this crate cannot see: a derived
@@ -895,6 +905,7 @@ impl Context {
             integrity: Aside::new(),
             attributes: Aside::new(),
             pending_arguments: Vec::new(),
+            pending_counts: Vec::new(),
             new_targets: Vec::new(),
             bound: Aside::new(),
             callees: Vec::new(),
