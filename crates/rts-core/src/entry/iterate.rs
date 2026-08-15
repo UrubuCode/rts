@@ -50,11 +50,14 @@ use crate::value::Value;
 /// walks what it is given and a body that pushes to the original must not walk
 /// its own additions forever.
 ///
-/// Anything that is not an array, a string, a `Map`, a `Set`, or an object
-/// declaring `Symbol.iterator` answers an empty array, where the
-/// language throws a `TypeError`. The same stated gap every operation here has
-/// while a throw cannot find a handler in a caller — and it fails as a loop that
-/// runs zero times, which is visible, rather than as a wrong element.
+/// Anything that is not an array, a string, a typed array, a `Map`, a `Set`, or
+/// an object declaring `Symbol.iterator` **raises a `TypeError`**, which is what
+/// the language says and what this answered an empty array for until a native
+/// could raise at all. An empty answer was the visible failure while a throw
+/// could not reach a caller's handler; it is the wrong one now that it can,
+/// because `for (const x of {}) {}` running zero times and `[...undefined]`
+/// answering `[]` are silent, and a program written against them is correct here
+/// and wrong everywhere else.
 #[rtse::entry]
 pub fn iterate(value: u64) -> u64 {
     // Two shapes, because one of them still has to be turned into values and
@@ -114,7 +117,10 @@ pub fn iterate(value: u64) -> u64 {
         // Neither an array nor a string, so ask the object whether it declares
         // how to be iterated. Outside the borrow above, because every step of
         // the protocol is a call into user code.
-        Found::Nothing => protocol(value).unwrap_or_default(),
+        Found::Nothing => protocol(value).unwrap_or_else(|| {
+            refuse(value);
+            Vec::new()
+        }),
         // Interned here, outside the borrow above.
         // ROOTED, and a loop rather than a `collect`: interning a string
         // ALLOCATES, so the strings interned so far are exposed between the
@@ -149,9 +155,12 @@ pub fn iterate(value: u64) -> u64 {
 
 /// Everything an object's own `Symbol.iterator` yields.
 ///
-/// `None` for an object that declares none, which is what keeps the empty-array
-/// answer for a genuinely non-iterable value distinct in the code from an
-/// iterator that legitimately yielded nothing.
+/// `None` for an object that declares none, which is what keeps a genuinely
+/// non-iterable value distinct in the code from an iterator that legitimately
+/// yielded nothing: the first is [`refuse`]'s `TypeError`, the second is an
+/// empty `Some`, and a single empty answer for both is what made
+/// `for (const x of {}) {}` a loop that ran zero times instead of a program that
+/// stopped.
 ///
 /// # Why every step is outside a borrow
 ///
@@ -211,6 +220,35 @@ fn protocol(value: u64) -> Option<Vec<u64>> {
         }
         produced.push(member(step, "value"));
     }
+}
+
+/// Says that a value cannot be iterated, as the `TypeError` the language raises.
+///
+/// # Why it asks whether something is already in flight
+///
+/// [`protocol`] answers `None` for three different findings, and only one of
+/// them is this one: the value declares no `Symbol.iterator`. The other two —
+/// a `Symbol.iterator` or a `next` that threw, and an iterator whose `next` is
+/// not callable — already left a throw behind, and raising a second over it
+/// would replace the program's own error with this one. That is the `finally`
+/// rule in [`super::throw::throw`] used where it does not apply.
+///
+/// # Why the value is described rather than named
+///
+/// `[...xs]` has a name at the *call site* and the runtime never sees it — the
+/// entry point is handed a word. So the message carries what the value IS,
+/// which [`super::text::described`] answers without running user code: an
+/// object's `toString` is a call, and reaching back into the program to ask a
+/// non-iterable what it would like to be called is not what a diagnostic should
+/// do. The alternative was passing the source text down from the emitter, which
+/// is a string per spread site in every program for a message almost none of
+/// them will print.
+fn refuse(value: u64) {
+    if super::throw::in_flight() {
+        return;
+    }
+    let described = super::text::described(value).unwrap_or_else(|| "the value".to_owned());
+    super::throw::type_error(&format!("{described} is not iterable"));
 }
 
 /// One property of a value, by a name the runtime knows.
@@ -319,4 +357,3 @@ pub fn array_append_all(array: u64, iterable: u64) -> u64 {
         array
     })
 }
-

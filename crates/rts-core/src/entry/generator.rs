@@ -20,6 +20,33 @@
 //! longer, with a discipline to keep it in step with a control flow that
 //! `throw` can leave. One slot that is written and immediately taken cannot
 //! drift out of step with anything.
+//!
+//! # Why `throw` and `return` do not re-enter the body, and what would let them
+//!
+//! `g.throw(e)` has to make the `yield` that parked the frame RAISE, and
+//! `g.return(v)` has to make it return through every enclosing `finally`. Both
+//! are things the BODY does, and this file cannot ask it to: the machine's
+//! contract is `extern "C" fn(frame) -> finished?` with one delivered value, so
+//! what comes back from a suspension is a value and there is no channel for
+//! "and this one is a throw".
+//!
+//! The channel is the emitter's, and it is one operation. `yield` compiles to a
+//! call to [`generator_yield`] followed by `Inst::Suspend`, and the check
+//! compiled code already emits after every call is what would carry a throw —
+//! but it sits BEFORE the suspension, so a resumption lands past it. What is
+//! missing is an operation emitted immediately AFTER the suspension, answering
+//! how this resumption was made: ordinary, a throw — which the operation itself
+//! raises, so the call check that follows unwinds into the body's own `try` —
+//! or a return, which the emitter turns into the function's return path so that
+//! `finally` runs. This file would then write the mode beside the frame and
+//! re-enter, and both methods would be [`resume`] with one field set.
+//!
+//! The rejected alternative was a second entry into the rewritten function:
+//! `frame::resumable_form` producing a "resume abruptly" address beside the
+//! plain one. It puts a language fact — that a suspension can be resumed with a
+//! completion other than a value — into the machine, and doubles what the frame
+//! transform has to keep sound over arbitrary control flow, for something one
+//! instruction after the suspension expresses without the machine knowing why.
 
 use super::{Context, with_current};
 use crate::value::Value;
@@ -215,40 +242,51 @@ impl Generator {
     ///
     /// The frame is dropped where it is rather than resumed to run its `finally`
     /// blocks. That is a real difference from the specification and it is
-    /// written here rather than hidden: running them needs the rewrite to have a
-    /// second entry, which `resumable_form` does not offer yet.
+    /// written here rather than hidden — the module's own note has the one thing
+    /// missing that would close it.
     #[js("return")]
     fn returned(this: u64, value: u64) -> u64 {
-        abandon(this, value)
+        with_current(|context| {
+            finish(context, this);
+            result(context, value, true)
+        })
     }
 
-    /// `g.throw(e)` — the same, for a caller reporting an error into a generator.
+    /// `g.throw(e)` — reports an error INTO a generator.
     ///
-    /// It does not deliver the error into the body, for the reason
-    /// `crates/rts-core/README.md` gives about a native raising a catchable
-    /// error: nothing here can make a `throw` appear at the suspension point.
-    /// Ending the generator is the honest half.
+    /// The body is not re-entered, so a `catch` or a `finally` written around
+    /// the `yield` does not run; see the module note. What is left is the case
+    /// where the body would not have caught it, and there the language says the
+    /// generator completes and the error comes back out of `.throw()` — so it is
+    /// **raised** rather than answered.
+    ///
+    /// Answering `{ value: e, done: true }` was the alternative, and it is the
+    /// wrong half to keep: it makes `g.throw(e)` a way of *hiding* an error,
+    /// which no program can be written against, where raising is right whenever
+    /// the body has no handler and is what the tests that drive a generator by
+    /// hand expect. A generator that would have caught it fails visibly instead
+    /// of continuing with a wrong answer.
     #[js("throw")]
     fn thrown(this: u64, error: u64) -> u64 {
-        abandon(this, error)
+        with_current(|context| {
+            finish(context, this);
+            super::throw::throw_value(error);
+            super::objects::undefined_of(context)
+        })
     }
 }
 
-/// Ends a generator without re-entering its body, answering `{ value, done }`.
+/// Marks a generator finished, so nothing re-enters its frame.
 ///
-/// What `return` and `throw` share: neither delivers anything into the parked
-/// frame, so the only difference between them would be the error they cannot
-/// raise. Written once rather than twice so that the day one CAN raise, the
-/// other does not quietly keep the old behaviour.
-fn abandon(this: u64, value: u64) -> u64 {
-    with_current(|context| {
-        if let Some(cell) = Value(this).as_slot()
-            && let Some(state) = context.generators.get_mut(cell)
-        {
-            state.done = true;
-        }
-        result(context, value, true)
-    })
+/// Shared by `return` and `throw` because the completion is the same for both —
+/// only what they answer differs — and writing it twice is how one of them would
+/// keep letting a dead generator be advanced.
+fn finish(context: &mut Context, this: u64) {
+    if let Some(cell) = Value(this).as_slot()
+        && let Some(state) = context.generators.get_mut(cell)
+    {
+        state.done = true;
+    }
 }
 
 /// Re-enters a generator's body and answers what came out of it.
@@ -317,6 +355,23 @@ fn resume(cell: u32, sent: u64) -> u64 {
     // finished out.
     let body: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(state.code as usize) };
     let finished = body(i64::from(state.frame)) != 0;
+
+    // Rule 8 of `crates/rts-core/README.md`, and the body IS the user code this
+    // native called. A generator whose body threw is COMPLETED — `.next()` on it
+    // afterwards answers `{ done: true }` and never runs another statement —
+    // where this used to read the frame's return field and re-enter on the next
+    // call, throwing the same error again for as long as it was asked. The
+    // throw is left in flight rather than taken: the compiled call site that
+    // asked for the next element re-raises it, which is how it reaches the
+    // program's own `try`.
+    if super::throw::in_flight() {
+        return with_current(|context| {
+            if let Some(state) = context.generators.get_mut(cell) {
+                state.done = true;
+            }
+            super::objects::undefined_of(context)
+        });
+    }
 
     with_current(|context| {
         let produced = match finished {
