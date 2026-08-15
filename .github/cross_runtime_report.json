@@ -603,16 +603,16 @@
 ,
 {
   "name": "303_array_fromasync",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "gen=3,6\nprom=a,b",
   "node": "gen=3,6\nprom=a,b",
-  "rts": "",
+  "rts": "gen=3,6\nprom=a,b",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Array.fromAsync is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -729,10 +729,10 @@
 ,
 {
   "name": "418_array_species_subclass",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true:false:2,4,6\ntrue:true:2,3",
   "node": "true:false:2,4,6\ntrue:true:2,3",
-  "rts": "true:false:2,4,6\ntrue:false:2,3",
+  "rts": "true:false:2,4,6\ntrue:true:2,3",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -813,10 +813,10 @@
 ,
 {
   "name": "claude-entries-for-of-pair-destructuring",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p,1q\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
   "node": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p,1q\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
-  "rts": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
+  "rts": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p,1q\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -939,10 +939,10 @@
 ,
 {
   "name": "claude-sort-comparator-nan-returns",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c",
   "node": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c",
-  "rts": "4,2,6,1,3,5\n1,2,3,4,5,6\nb,a,c",
+  "rts": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -981,10 +981,10 @@
 ,
 {
   "name": "codex_array_from_iterator_close_on_throw",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "stop\nnext0,next1,next2,return",
   "node": "stop\nnext0,next1,next2,return",
-  "rts": "stop\nnext0,next1,next2,next3,next4,next5",
+  "rts": "stop\nnext0,next1,next2,return",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1009,10 +1009,10 @@
 ,
 {
   "name": "codex_array_length_define_traps",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
   "node": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
-  "rts": "after-define=4:1|2|3|4:0,1,2,3,6\nafter-trunc=2:1|2:0,1,6\nfinal=1.5:1|2",
+  "rts": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1065,10 +1065,10 @@
 ,
 {
   "name": "codex_array_species_constructor_poison",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\n10,20,30\n3",
   "node": "true\n10,20,30\n3",
-  "rts": "true\n10,20,30\nundefined",
+  "rts": "true\n10,20,30\n3",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1219,10 +1219,10 @@
 ,
 {
   "name": "codex_primitive_wrappers_truthiness",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
   "node": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
-  "rts": "truthy:object:boolean:false\ntruthy:object:number:0\nfalsy:string:string:\nextra:false",
+  "rts": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1446,7 +1446,7 @@
   "status": "rts_diverge",
   "bun": "inner=7:20\nouter=SyntaxError",
   "node": "inner=7:20\nouter=SyntaxError",
-  "rts": "inner=20:20\nouter=ReferenceError",
+  "rts": "inner=7:20\nouter=ReferenceError",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1460,7 +1460,7 @@
   "status": "rts_diverge",
   "bun": "both=6:15\nerr=SyntaxError",
   "node": "both=6:15\nerr=SyntaxError",
-  "rts": "both=15:15\nerr=ReferenceError",
+  "rts": "both=6:15\nerr=ReferenceError",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1527,10 +1527,10 @@
 ,
 {
   "name": "371_private_fields_basic",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
-  "rts": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n20\n20",
+  "rts": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1555,10 +1555,10 @@
 ,
 {
   "name": "373_private_in_check",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
   "node": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
-  "rts": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\ntrue\ntrue\ntrue\nWhiskers says meow\nRex says woof",
+  "rts": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1583,10 +1583,10 @@
 ,
 {
   "name": "375_private_inheritance",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
   "node": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
-  "rts": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nB-private\nB-private\ntrue\ntrue\ntrue",
+  "rts": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1667,16 +1667,16 @@
 ,
 {
   "name": "claude-class-expression-const",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "sum=5\nstr=(2,3)\ninstance=true\nname=Point\nlength=2\nnamed_self=Inner:1\nnamed_outer=Inner\nnamed_static=Inner:4\nnamed_instance=true\nexpr_extends=derived>base\nexpr_chain=true/true\nfactory_a=a-1\nfactory_b=b-2\nfactory_distinct=false\nfactory_cross=false\nfrom_array=x-0,y-1\niife=inline",
   "node": "sum=5\nstr=(2,3)\ninstance=true\nname=Point\nlength=2\nnamed_self=Inner:1\nnamed_outer=Inner\nnamed_static=Inner:4\nnamed_instance=true\nexpr_extends=derived>base\nexpr_chain=true/true\nfactory_a=a-1\nfactory_b=b-2\nfactory_distinct=false\nfactory_cross=false\nfrom_array=x-0,y-1\niife=inline",
-  "rts": "sum=5\nstr=(2,3)\ninstance=true\nname=Point\nlength=2",
+  "rts": "sum=5\nstr=(2,3)\ninstance=true\nname=Point\nlength=2\nnamed_self=Inner:1\nnamed_outer=Inner\nnamed_static=Inner:4\nnamed_instance=true\nexpr_extends=derived>base\nexpr_chain=true/true\nfactory_a=a-1\nfactory_b=b-2\nfactory_distinct=false\nfactory_cross=false\nfrom_array=x-0,y-1\niife=inline",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: Inner is not defined"
+  "rts_error": ""
 }
 ,
 {
@@ -1695,10 +1695,10 @@
 ,
 {
   "name": "claude-detached-method-this",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "attached=7\nattached_safe=has-this:7\ndetached_throws=true\ndetached_safe=no-this\ncall=7\napply=7\nbind=7\nbind_twice=7\nborrow_obj=42\nborrow_other=5\narrow_detached=arrow:7\narrow_call_other=arrow:7\ncb_method_throws=true\ncb_arrow=arrow:7\ncb_bound=7\ncb_wrapped=7\nelem_detached_throws=true\nelem_bound=22\ndestructured_throws=true",
   "node": "attached=7\nattached_safe=has-this:7\ndetached_throws=true\ndetached_safe=no-this\ncall=7\napply=7\nbind=7\nbind_twice=7\nborrow_obj=42\nborrow_other=5\narrow_detached=arrow:7\narrow_call_other=arrow:7\ncb_method_throws=true\ncb_arrow=arrow:7\ncb_bound=7\ncb_wrapped=7\nelem_detached_throws=true\nelem_bound=22\ndestructured_throws=true",
-  "rts": "attached=7\nattached_safe=has-this:7\ndetached=no-throw\ndetached_safe=no-this\ncall=7\napply=7\nbind=7\nbind_twice=7\nborrow_obj=42\nborrow_other=5\narrow_detached=arrow:7\narrow_call_other=arrow:7\ncb_method=\ncb_arrow=arrow:7\ncb_bound=7\ncb_wrapped=7\nelem_detached=no-throw\nelem_bound=22\ndestructured=no-throw",
+  "rts": "attached=7\nattached_safe=has-this:7\ndetached_throws=true\ndetached_safe=no-this\ncall=7\napply=7\nbind=7\nbind_twice=7\nborrow_obj=42\nborrow_other=5\narrow_detached=arrow:7\narrow_call_other=arrow:7\ncb_method_throws=true\ncb_arrow=arrow:7\ncb_bound=7\ncb_wrapped=7\nelem_detached_throws=true\nelem_bound=22\ndestructured_throws=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1737,10 +1737,10 @@
 ,
 {
   "name": "claude-instanceof-inheritance-chain",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=true\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=true\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=true\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
   "node": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=true\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=true\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=true\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
-  "rts": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=true\nnum_A=false\nstr_Object=true\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=true\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=true\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
+  "rts": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=true\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=true\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=true\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1765,16 +1765,16 @@
 ,
 {
   "name": "claude-static-inheritance-and-super",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "shape_kind=shape\ncircle_kind=circle\nsmall_kind=small-circle\nshape_describe=kind=shape\ncircle_describe=circle<kind=circle>\nsmall_describe=small<circle<kind=small-circle>>\ncircle_make=circle:3\nsmall_make=small-circle:4\nshape_count0=0\ncircle_count0=0\ncircle_bump=1\ncircle_count1=1\nshape_count1=0\ncircle_own=true\nshape_bump=1\nshape_count2=1\ncircle_count2=1\nborrowed_describe=kind=circle",
   "node": "shape_kind=shape\ncircle_kind=circle\nsmall_kind=small-circle\nshape_describe=kind=shape\ncircle_describe=circle<kind=circle>\nsmall_describe=small<circle<kind=small-circle>>\ncircle_make=circle:3\nsmall_make=small-circle:4\nshape_count0=0\ncircle_count0=0\ncircle_bump=1\ncircle_count1=1\nshape_count1=0\ncircle_own=true\nshape_bump=1\nshape_count2=1\ncircle_count2=1\nborrowed_describe=kind=circle",
-  "rts": "shape_kind=shape\ncircle_kind=circle",
+  "rts": "shape_kind=shape\ncircle_kind=circle\nsmall_kind=small-circle\nshape_describe=kind=shape\ncircle_describe=circle<kind=circle>\nsmall_describe=small<circle<kind=small-circle>>\ncircle_make=circle:3\nsmall_make=small-circle:4\nshape_count0=0\ncircle_count0=0\ncircle_bump=1\ncircle_count1=1\nshape_count1=0\ncircle_own=true\nshape_bump=1\nshape_count2=1\ncircle_count2=1\nborrowed_describe=kind=circle",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -2101,10 +2101,10 @@
 ,
 {
   "name": "claude-map-groupby-key-coercion",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
   "node": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
-  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=false\nobj_no_tostring=function\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
+  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2199,10 +2199,10 @@
 ,
 {
   "name": "codex_map_iteration_mutation",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a1,c3,d4,e5\na,c,d,e",
   "node": "a1,c3,d4,e5\na,c,d,e",
-  "rts": "a1,b2,c3\na,c,d,e",
+  "rts": "a1,c3,d4,e5\na,c,d,e",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2241,10 +2241,10 @@
 ,
 {
   "name": "codex_set_iteration_mutation",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "1,3,4,5\n1,3,4,5",
   "node": "1,3,4,5\n1,3,4,5",
-  "rts": "1,2,3\n1,3,4,5",
+  "rts": "1,3,4,5\n1,3,4,5",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2493,10 +2493,10 @@
 ,
 {
   "name": "claude-date-parse-iso-offsets",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "date_only=1705276800000\nyear_month=1704067200000\nyear_only=1704067200000\ndate_only_iso=2024-01-15T00:00:00.000Z\nz_basic=1705314600000\nz_ms=1705314600123\nz_no_sec=1705314600000\nz_eq_utc=true\nplus0_eq_z=true\nminus0_eq_z=true\nplus1=2024-01-15T09:30:00.000Z\nplus0530=2024-01-15T05:00:00.000Z\nplus14=2024-01-14T20:30:00.000Z\nminus3=2024-01-15T13:30:00.000Z\nminus0930=2024-01-15T20:00:00.000Z\noffset_delta=3600000\nroll_next_day=2024-01-16T01:30:00.000Z\nroll_prev_day=2024-01-14T22:30:00.000Z\nms_1digit=2024-01-15T10:30:00.100Z\nms_2digit=2024-01-15T10:30:00.120Z\nms_3digit=2024-01-15T10:30:00.123Z\nepoch=0\npre_epoch=-1\nleap_day=2020-02-29T12:00:00.000Z\nroundtrip=true\ngarbage_nan=true\nempty_nan=true\nbad_month_nan=true\nbad_day_nan=true\nbad_hour_nan=true\nnonleap_feb29_nan=false\nctor_eq_parse=true",
   "node": "date_only=1705276800000\nyear_month=1704067200000\nyear_only=1704067200000\ndate_only_iso=2024-01-15T00:00:00.000Z\nz_basic=1705314600000\nz_ms=1705314600123\nz_no_sec=1705314600000\nz_eq_utc=true\nplus0_eq_z=true\nminus0_eq_z=true\nplus1=2024-01-15T09:30:00.000Z\nplus0530=2024-01-15T05:00:00.000Z\nplus14=2024-01-14T20:30:00.000Z\nminus3=2024-01-15T13:30:00.000Z\nminus0930=2024-01-15T20:00:00.000Z\noffset_delta=3600000\nroll_next_day=2024-01-16T01:30:00.000Z\nroll_prev_day=2024-01-14T22:30:00.000Z\nms_1digit=2024-01-15T10:30:00.100Z\nms_2digit=2024-01-15T10:30:00.120Z\nms_3digit=2024-01-15T10:30:00.123Z\nepoch=0\npre_epoch=-1\nleap_day=2020-02-29T12:00:00.000Z\nroundtrip=true\ngarbage_nan=true\nempty_nan=true\nbad_month_nan=true\nbad_day_nan=true\nbad_hour_nan=true\nnonleap_feb29_nan=false\nctor_eq_parse=true",
-  "rts": "date_only=1705276800000\nyear_month=1704067200000\nyear_only=1704067200000\ndate_only_iso=2024-01-15T00:00:00.000Z\nz_basic=1705314600000\nz_ms=1705314600123\nz_no_sec=1705314600000\nz_eq_utc=true\nplus0_eq_z=true\nminus0_eq_z=true\nplus1=2024-01-15T09:30:00.000Z\nplus0530=2024-01-15T05:00:00.000Z\nplus14=2024-01-14T20:30:00.000Z\nminus3=2024-01-15T13:30:00.000Z\nminus0930=2024-01-15T20:00:00.000Z\noffset_delta=3600000\nroll_next_day=2024-01-16T01:30:00.000Z\nroll_prev_day=2024-01-14T22:30:00.000Z\nms_1digit=Invalid Date\nms_2digit=Invalid Date\nms_3digit=2024-01-15T10:30:00.123Z\nepoch=0\npre_epoch=-1\nleap_day=2020-02-29T12:00:00.000Z\nroundtrip=true\ngarbage_nan=true\nempty_nan=true\nbad_month_nan=true\nbad_day_nan=true\nbad_hour_nan=true\nnonleap_feb29_nan=false\nctor_eq_parse=true",
+  "rts": "date_only=1705276800000\nyear_month=1704067200000\nyear_only=1704067200000\ndate_only_iso=2024-01-15T00:00:00.000Z\nz_basic=1705314600000\nz_ms=1705314600123\nz_no_sec=1705314600000\nz_eq_utc=true\nplus0_eq_z=true\nminus0_eq_z=true\nplus1=2024-01-15T09:30:00.000Z\nplus0530=2024-01-15T05:00:00.000Z\nplus14=2024-01-14T20:30:00.000Z\nminus3=2024-01-15T13:30:00.000Z\nminus0930=2024-01-15T20:00:00.000Z\noffset_delta=3600000\nroll_next_day=2024-01-16T01:30:00.000Z\nroll_prev_day=2024-01-14T22:30:00.000Z\nms_1digit=2024-01-15T10:30:00.100Z\nms_2digit=2024-01-15T10:30:00.120Z\nms_3digit=2024-01-15T10:30:00.123Z\nepoch=0\npre_epoch=-1\nleap_day=2020-02-29T12:00:00.000Z\nroundtrip=true\ngarbage_nan=true\nempty_nan=true\nbad_month_nan=true\nbad_day_nan=true\nbad_hour_nan=true\nnonleap_feb29_nan=false\nctor_eq_parse=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2507,10 +2507,10 @@
 ,
 {
   "name": "claude-date-relational-compare",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "lt=true\ngt=false\nlte=true\ngte=false\nb_gt_a=true\ncopy_lte=true\ncopy_gte=true\ncopy_lt=false\ncopy_gt=false\ncopy_eqeq=false\ncopy_eqeqeq=false\nself_eqeqeq=true\ntime_eq=true\nvalueOf_eq=true\nplus_eq=true\ncopy_noteq=true\nvs_number_lt=true\nvs_number_gte=true\neqeq_number=false\nbad_lt=false\nbad_gt=false\nbad_lte=false\nbad_gte=false\nbad_lte_self=false\nbad_eqeqeq_self=true\nsorted=2024-01-01,2024-01-02,2024-01-03\nmin=2024-01-01T00:00:00.000Z\nmax=2024-01-02T00:00:00.000Z",
   "node": "lt=true\ngt=false\nlte=true\ngte=false\nb_gt_a=true\ncopy_lte=true\ncopy_gte=true\ncopy_lt=false\ncopy_gt=false\ncopy_eqeq=false\ncopy_eqeqeq=false\nself_eqeqeq=true\ntime_eq=true\nvalueOf_eq=true\nplus_eq=true\ncopy_noteq=true\nvs_number_lt=true\nvs_number_gte=true\neqeq_number=false\nbad_lt=false\nbad_gt=false\nbad_lte=false\nbad_gte=false\nbad_lte_self=false\nbad_eqeqeq_self=true\nsorted=2024-01-01,2024-01-02,2024-01-03\nmin=2024-01-01T00:00:00.000Z\nmax=2024-01-02T00:00:00.000Z",
-  "rts": "lt=true\ngt=false\nlte=true\ngte=false\nb_gt_a=true\ncopy_lte=true\ncopy_gte=true\ncopy_lt=false\ncopy_gt=false\ncopy_eqeq=false\ncopy_eqeqeq=false\nself_eqeqeq=true\ntime_eq=true\nvalueOf_eq=true\nplus_eq=true\ncopy_noteq=true\nvs_number_lt=true\nvs_number_gte=true\neqeq_number=true\nbad_lt=false\nbad_gt=false\nbad_lte=false\nbad_gte=false\nbad_lte_self=false\nbad_eqeqeq_self=true\nsorted=2024-01-01,2024-01-02,2024-01-03\nmin=2024-01-01T00:00:00.000Z\nmax=2024-01-02T00:00:00.000Z",
+  "rts": "lt=true\ngt=false\nlte=true\ngte=false\nb_gt_a=true\ncopy_lte=true\ncopy_gte=true\ncopy_lt=false\ncopy_gt=false\ncopy_eqeq=false\ncopy_eqeqeq=false\nself_eqeqeq=true\ntime_eq=true\nvalueOf_eq=true\nplus_eq=true\ncopy_noteq=true\nvs_number_lt=true\nvs_number_gte=true\neqeq_number=false\nbad_lt=false\nbad_gt=false\nbad_lte=false\nbad_gte=false\nbad_lte_self=false\nbad_eqeqeq_self=true\nsorted=2024-01-01,2024-01-02,2024-01-03\nmin=2024-01-01T00:00:00.000Z\nmax=2024-01-02T00:00:00.000Z",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2521,24 +2521,24 @@
 ,
 {
   "name": "claude-date-symbol-toprimitive",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "has_toPrimitive=true\nis_own_of_proto=true\nlength=1\nname=[Symbol.toPrimitive]\nnumber_hint=1705314645123\nnumber_hint_is_time=true\nnumber_hint_type=number\ndefault_hint_type=string\nstring_hint_type=string\ndefault_eq_string=true\ndefault_eq_toString=true\nbad_hint_threw=true\nbad_hint_name=TypeError\nundef_hint_threw=true\nundef_hint_name=TypeError\nplus_is_number=true\nNumber_is_number=true\nconcat_is_string=true\nconcat_eq_toString=true\ntemplate_eq_toString=true\nString_eq_toString=true\nminus_numeric=true\ninvalid_number_hint_nan=true\ninvalid_string_hint=Invalid Date",
   "node": "has_toPrimitive=true\nis_own_of_proto=true\nlength=1\nname=[Symbol.toPrimitive]\nnumber_hint=1705314645123\nnumber_hint_is_time=true\nnumber_hint_type=number\ndefault_hint_type=string\nstring_hint_type=string\ndefault_eq_string=true\ndefault_eq_toString=true\nbad_hint_threw=true\nbad_hint_name=TypeError\nundef_hint_threw=true\nundef_hint_name=TypeError\nplus_is_number=true\nNumber_is_number=true\nconcat_is_string=true\nconcat_eq_toString=true\ntemplate_eq_toString=true\nString_eq_toString=true\nminus_numeric=true\ninvalid_number_hint_nan=true\ninvalid_string_hint=Invalid Date",
-  "rts": "has_toPrimitive=false\nis_own_of_proto=false\nlength=undefined\nname=undefined",
+  "rts": "has_toPrimitive=true\nis_own_of_proto=true\nlength=1\nname=[Symbol.toPrimitive]\nnumber_hint=1705314645123\nnumber_hint_is_time=true\nnumber_hint_type=number\ndefault_hint_type=string\nstring_hint_type=string\ndefault_eq_string=true\ndefault_eq_toString=true\nbad_hint_threw=true\nbad_hint_name=TypeError\nundef_hint_threw=true\nundef_hint_name=TypeError\nplus_is_number=true\nNumber_is_number=true\nconcat_is_string=true\nconcat_eq_toString=true\ntemplate_eq_toString=true\nString_eq_toString=true\nminus_numeric=true\ninvalid_number_hint_nan=true\ninvalid_string_hint=Invalid Date",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: prim.call is not a function"
+  "rts_error": ""
 }
 ,
 {
   "name": "claude-date-tojson-vs-toisostring",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=null\ninvalid_json_is_null=true\ninvalid_stringify=null\ninvalid_nested={\"at\":null}\ninvalid_in_array=[null]\niso_threw=true\niso_err_is_range=true\niso_err_name=RangeError\nbad_json_null=true\nbad_iso_threw=true\nbad_iso_name=RangeError\noor_nan=true\noor_json_null=true\nmax_iso=+275760-09-13T00:00:00.000Z\nmax_json=+275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-000001-01-01T00:00:00.000Z\nbig_year_iso=+012345-01-01T00:00:00.000Z",
   "node": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=null\ninvalid_json_is_null=true\ninvalid_stringify=null\ninvalid_nested={\"at\":null}\ninvalid_in_array=[null]\niso_threw=true\niso_err_is_range=true\niso_err_name=RangeError\nbad_json_null=true\nbad_iso_threw=true\nbad_iso_name=RangeError\noor_nan=true\noor_json_null=true\nmax_iso=+275760-09-13T00:00:00.000Z\nmax_json=+275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-000001-01-01T00:00:00.000Z\nbig_year_iso=+012345-01-01T00:00:00.000Z",
-  "rts": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=null\ninvalid_json_is_null=true\ninvalid_stringify=null\ninvalid_nested={\"at\":null}\ninvalid_in_array=[null]\niso_threw=false\nbad_json_null=true\nbad_iso_threw=false\noor_nan=true\noor_json_null=true\nmax_iso=275760-09-13T00:00:00.000Z\nmax_json=275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-001-01-01T00:00:00.000Z\nbig_year_iso=12345-01-01T00:00:00.000Z",
+  "rts": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=null\ninvalid_json_is_null=true\ninvalid_stringify=null\ninvalid_nested={\"at\":null}\ninvalid_in_array=[null]\niso_threw=true\niso_err_is_range=true\niso_err_name=RangeError\nbad_json_null=true\nbad_iso_threw=true\nbad_iso_name=RangeError\noor_nan=true\noor_json_null=true\nmax_iso=+275760-09-13T00:00:00.000Z\nmax_json=+275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-000001-01-01T00:00:00.000Z\nbig_year_iso=+012345-01-01T00:00:00.000Z",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2689,16 +2689,16 @@
 ,
 {
   "name": "288_abortsignal_timeout_any",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=true:a\nc=true:a",
   "node": "a=true:a\nc=true:a",
-  "rts": "",
+  "rts": "a=true:a\nc=true:a",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: AbortSignal.any is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -2759,16 +2759,16 @@
 ,
 {
   "name": "76_message_channel",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "recv=pong",
   "node": "recv=pong",
-  "rts": "",
+  "rts": "recv=pong",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: MessageChannel is not defined"
+  "rts_error": ""
 }
 ,
 {
@@ -2818,13 +2818,13 @@
   "status": "bun_node_diverge",
   "bun": "call=Hello World!\napply=Hi There!",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
+  "rts": "call=Hello World!\napply=Hi There!",
   "bun_exit": 1,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "1 | // Cross-runtime: Function.call and apply\n2 | function greet(this: any, greeting: string, name: string) {\n3 |   return greeting + \" \" + name + (this.suffix || \"\");\n                                      ^\nTypeError: null is not an object (evaluating 'this.suffix')\n      at greet (/home/runner/work/rts/rts/tests/cross-runtime/fn-meta/180_function_call_apply.ts:3:35)\n      at /home/runner/work/rts/rts/tests/cross-runtime/fn-meta/180_function_call_apply.ts:12:34\n\nBun v1.3.14 (Linux x64)",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of null (reading 'suffix')\n    at greet"
 }
 ,
 {
@@ -2941,10 +2941,10 @@
 ,
 {
   "name": "421_function_reassigned_memoization",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "self1=real:1\nself2=real:2\nvia_outra=real:3\nantes=orig\ndepois=trocada\nhoisted=ok\npura=42\npura_name=pura\nlazy1=101\nlazy2=102\ninit_rodou=1",
   "node": "self1=real:1\nself2=real:2\nvia_outra=real:3\nantes=orig\ndepois=trocada\nhoisted=ok\npura=42\npura_name=pura\nlazy1=101\nlazy2=102\ninit_rodou=1",
-  "rts": "self1=real:1\nself2=real:2\nvia_outra=real:3\nantes=orig\ndepois=trocada\nhoisted=ok\npura=42\npura_name=pura\nlazy1=101\nlazy2=102\ninit_rodou=2",
+  "rts": "self1=real:1\nself2=real:2\nvia_outra=real:3\nantes=orig\ndepois=trocada\nhoisted=ok\npura=42\npura_name=pura\nlazy1=101\nlazy2=102\ninit_rodou=1",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2955,10 +2955,10 @@
 ,
 {
   "name": "424_param_captured_and_reassigned",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "default_omitido=flag=false\ndefault_dado=flag=true\nmuda_depois=15\nclosure_escreve=novo\nduas_closures=2\nc1=1,2\nc2=101\nno_laco=10,11,12",
   "node": "default_omitido=flag=false\ndefault_dado=flag=true\nmuda_depois=15\nclosure_escreve=novo\nduas_closures=2\nc1=1,2\nc2=101\nno_laco=10,11,12",
-  "rts": "default_omitido=flag=false\ndefault_dado=flag=true\nmuda_depois=15\nclosure_escreve=novo\nduas_closures=2\nc1=1,2\nc2=101\nno_laco=13,13,13",
+  "rts": "default_omitido=flag=false\ndefault_dado=flag=true\nmuda_depois=15\nclosure_escreve=novo\nduas_closures=2\nc1=1,2\nc2=101\nno_laco=10,11,12",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2969,10 +2969,10 @@
 ,
 {
   "name": "427_builtin_ctor_tostring",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "String=function String() { [native code] }\nNumber=function Number() { [native code] }\nObject=function Object() { [native code] }\nArray=function Array() { [native code] }\nBoolean=function Boolean() { [native code] }\nDate=function Date() { [native code] }\nnativo_String=true\nnativo_Array=true\nnativo_errado=false",
   "node": "String=function String() { [native code] }\nNumber=function Number() { [native code] }\nObject=function Object() { [native code] }\nArray=function Array() { [native code] }\nBoolean=function Boolean() { [native code] }\nDate=function Date() { [native code] }\nnativo_String=true\nnativo_Array=true\nnativo_errado=false",
-  "rts": "String=[object Function]\nNumber=[object Function]\nObject=[object Function]\nArray=[object Function]\nBoolean=[object Function]\nDate=[object Function]\nnativo_String=false\nnativo_Array=false\nnativo_errado=false",
+  "rts": "String=function String() { [native code] }\nNumber=function Number() { [native code] }\nObject=function Object() { [native code] }\nArray=function Array() { [native code] }\nBoolean=function Boolean() { [native code] }\nDate=function Date() { [native code] }\nnativo_String=true\nnativo_Array=true\nnativo_errado=false",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3011,10 +3011,10 @@
 ,
 {
   "name": "claude-closure-capture-let-loop",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0,1,2\n0,1,2",
   "node": "0,1,2\n0,1,2",
-  "rts": "3,3,3\n2,2,2",
+  "rts": "0,1,2\n0,1,2",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3039,10 +3039,10 @@
 ,
 {
   "name": "claude-closure-for-of-per-iteration",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "const_head=xyz\nlet_head_mutated=10,20,30\nvar_head=3,3,3\ndestructure_head=a1,b2\nbody_let=p1!,p2!\nnested=1a,1b,2a,2b\nindependent_cells=111,20",
   "node": "const_head=xyz\nlet_head_mutated=10,20,30\nvar_head=3,3,3\ndestructure_head=a1,b2\nbody_let=p1!,p2!\nnested=1a,1b,2a,2b\nindependent_cells=111,20",
-  "rts": "const_head=zzz\nlet_head_mutated=30,30,30\nvar_head=3,3,3\ndestructure_head=b2,b2\nbody_let=p2!,p2!\nnested=2b,2b,2b,2b\nindependent_cells=111,111",
+  "rts": "const_head=xyz\nlet_head_mutated=10,20,30\nvar_head=3,3,3\ndestructure_head=a1,b2\nbody_let=p1!,p2!\nnested=1a,1b,2a,2b\nindependent_cells=111,20",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3053,16 +3053,16 @@
 ,
 {
   "name": "claude-closure-from-try-finally",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
   "node": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
-  "rts": "",
+  "rts": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:thrown_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[CleanupReadsOutsideItself { block: block110, value: v26 }, CleanupReadsOutsideItself { block: block119, value: v26 }]\")\n      at run of tests/cross-runtime/fn-meta/claude-closure-from-try-finally.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3109,16 +3109,16 @@
 ,
 {
   "name": "claude-compose-reassigned-binding",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "12\n11\n3\n5",
   "node": "12\n11\n3\n5",
-  "rts": "12\n11\n3",
+  "rts": "12\n11\n3\n5",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 134,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (9034) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": ""
 }
 ,
 {
@@ -3165,10 +3165,10 @@
 ,
 {
   "name": "claude-let-vs-var-loop-closures",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0\n1\n2\n3\n3\n3",
   "node": "0\n1\n2\n3\n3\n3",
-  "rts": "3\n3\n3\n3\n3\n3",
+  "rts": "0\n1\n2\n3\n3\n3",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3249,10 +3249,10 @@
 ,
 {
   "name": "claude-nested-loop-let-closures",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0 1 10 11 20 21",
   "node": "0 1 10 11 20 21",
-  "rts": "32 32 32 32 32 32",
+  "rts": "0 1 10 11 20 21",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3263,10 +3263,10 @@
 ,
 {
   "name": "claude-per-iter-let-mutable-state",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "1\n2\n2\n3\n6",
   "node": "1\n2\n2\n3\n6",
-  "rts": "4\n8\n12\n16\n20",
+  "rts": "1\n2\n2\n3\n6",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3305,30 +3305,30 @@
 ,
 {
   "name": "codex_arguments_callee_shape",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "3\nfunction\ntrue",
   "node": "3\nfunction\ntrue",
-  "rts": "",
-  "bun_exit": 0,
-  "node_exit": 0,
-  "rts_exit": 1,
-  "bun_error": "",
-  "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: run is not a function"
-}
-,
-{
-  "name": "codex_bound_constructor_new_target",
-  "status": "rts_diverge",
-  "bun": "2:5:7\ntrue\ntrue",
-  "node": "2:5:7\ntrue\ntrue",
-  "rts": "undefined:undefined:NaN\ntrue\nfalse",
+  "rts": "3\nundefined\nfalse",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
   "rts_error": ""
+}
+,
+{
+  "name": "codex_bound_constructor_new_target",
+  "status": "rts_error",
+  "bun": "2:5:7\ntrue\ntrue",
+  "node": "2:5:7\ntrue\ntrue",
+  "rts": "",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 1,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot set properties of null (reading 'x')\n    at Point"
 }
 ,
 {
@@ -3347,16 +3347,16 @@
 ,
 {
   "name": "codex_function_constructor_scope",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "missing\n5",
   "node": "missing\n5",
-  "rts": "",
+  "rts": "missing\n5",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -3389,16 +3389,16 @@
 ,
 {
   "name": "308_finalization_registry_shape",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "type=function\nreg=function\nunreg=function",
   "node": "type=function\nreg=function\nunreg=function",
-  "rts": "",
+  "rts": "type=function\nreg=function\nunreg=function",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: FinalizationRegistry is not defined"
+  "rts_error": ""
 }
 ,
 {
@@ -3431,16 +3431,16 @@
 ,
 {
   "name": "109_async_generator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "async=1,2,3",
   "node": "async=1,2,3",
-  "rts": "",
+  "rts": "async=1,2,3",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -3459,16 +3459,16 @@
 ,
 {
   "name": "276_generator_return_throw",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "return=1,false,99,false\nthrow=",
   "node": "return=1,false,99,false\nthrow=",
-  "rts": "",
+  "rts": "return=1,false,7,true\nthrow=",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[CleanupDoesNotEnd { region: RegionId(0), block: block11 }, CleanupDoesNotEnd { region: RegionId(0), block: block2 }, CleanupEndOutsideCleanup { block: block12 }]\")\n      at run of tests/cross-runtime/generators/276_generator_return_throw.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3487,16 +3487,16 @@
 ,
 {
   "name": "379_yield_star",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
   "node": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
-  "rts": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5",
+  "rts": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -3683,44 +3683,44 @@
 ,
 {
   "name": "codex_async_generator_yield_await_finally",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
   "node": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
-  "rts": "",
+  "rts": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}\n{\"done\":true}",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[UndeclaredSuspension { inst: inst45 }, CleanupDoesNotEnd { region: RegionId(0), block: block31 }, CleanupDoesNotEnd { region: RegionId(0), block: block2 }, CleanupEndOutsideCleanup { block: block32 }]\")\n      at run of tests/cross-runtime/generators/codex_async_generator_yield_await_finally.ts failed"
+  "rts_error": ""
 }
 ,
 {
   "name": "codex_generator_delegation_exception_path",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
-  "rts": "",
+  "rts": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: heap exhausted — the region holds 65536 cells and all of them are in use even after a collection.\n     Nothing left to reclaim, and the program cannot continue.\n     What would have happened instead is `undefined` from the allocation, which computes a wrong answer quietly."
+  "rts_error": ""
 }
 ,
 {
   "name": "codex_generator_finally_return",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}",
   "node": "{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}",
-  "rts": "",
+  "rts": "{\"value\":1,\"done\":false}\n{\"value\":7,\"done\":true}\n{\"done\":true}",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[CleanupDoesNotEnd { region: RegionId(0), block: block11 }, CleanupDoesNotEnd { region: RegionId(0), block: block2 }, CleanupEndOutsideCleanup { block: block12 }]\")\n      at run of tests/cross-runtime/generators/codex_generator_finally_return.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3739,24 +3739,24 @@
 ,
 {
   "name": "codex_generator_throw_recovery",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "{\"value\":\"start\",\"done\":false}\n{\"value\":\"caught:boom\",\"done\":false}\n{\"value\":\"done\",\"done\":true}",
   "node": "{\"value\":\"start\",\"done\":false}\n{\"value\":\"caught:boom\",\"done\":false}\n{\"value\":\"done\",\"done\":true}",
-  "rts": "{\"value\":\"start\",\"done\":false}",
+  "rts": "{\"value\":\"start\",\"done\":false}\n{\"value\":\"caught:boom\",\"done\":false}\n{\"value\":\"done\",\"done\":true}",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): Error: boom"
+  "rts_error": ""
 }
 ,
 {
   "name": "codex_yield_star_iterator_return_chain",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
   "node": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
-  "rts": "{\"value\":0,\"done\":false}\n{\"value\":\"bye\",\"done\":true}\ninner-next0|inner-next1|inner-next2|inner-next3",
+  "rts": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3837,24 +3837,24 @@
 ,
 {
   "name": "392_async_iterator_advanced",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "",
+  "rts": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[UndeclaredSuspension { inst: inst49 }]\")\n      at run of tests/cross-runtime/iteration/392_async_iterator_advanced.ts failed"
+  "rts_error": ""
 }
 ,
 {
   "name": "409_for_of_iterator_close",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "3\nnext0,next1,next2,return",
   "node": "3\nnext0,next1,next2,return",
-  "rts": "3\nnext0,next1,next2,next3,next4",
+  "rts": "3\nnext0,next1,next2,return",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3893,10 +3893,10 @@
 ,
 {
   "name": "claude-manual-iterator-past-done",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a1={\"value\":1,\"done\":false}\na2={\"value\":2,\"done\":false}\na3={\"done\":true}\na4={\"done\":true}\na5={\"done\":true}\nstableDone=true|true\nstableValue=true,true\nfreshResults=true\nkeys=done,value\nemptyFirst={\"done\":true}\nindependent=3,1\nlive=2,3|done=true\nshrunk={\"done\":true}\nm1={\"value\":\"m\",\"done\":false}\nm2={\"value\":\"post\",\"done\":true}\nm3={\"value\":\"post\",\"done\":true}\nmanualCalls=3\nresume=2,3,4\nspreadRest=3,4\ns1=a\ns2=b\ns3=undefined|done=true\nset1={\"value\":1,\"done\":false}\nset2={\"done\":true}\nset3={\"done\":true}",
   "node": "a1={\"value\":1,\"done\":false}\na2={\"value\":2,\"done\":false}\na3={\"done\":true}\na4={\"done\":true}\na5={\"done\":true}\nstableDone=true|true\nstableValue=true,true\nfreshResults=true\nkeys=done,value\nemptyFirst={\"done\":true}\nindependent=3,1\nlive=2,3|done=true\nshrunk={\"done\":true}\nm1={\"value\":\"m\",\"done\":false}\nm2={\"value\":\"post\",\"done\":true}\nm3={\"value\":\"post\",\"done\":true}\nmanualCalls=3\nresume=2,3,4\nspreadRest=3,4\ns1=a\ns2=b\ns3=undefined|done=true\nset1={\"value\":1,\"done\":false}\nset2={\"done\":true}\nset3={\"done\":true}",
-  "rts": "a1={\"value\":1,\"done\":false}\na2={\"value\":2,\"done\":false}\na3={\"done\":true}\na4={\"done\":true}\na5={\"done\":true}\nstableDone=true|true\nstableValue=true,true\nfreshResults=true\nkeys=done,value\nemptyFirst={\"done\":true}\nindependent=3,1\nlive=2,undefined|done=true\nshrunk={\"value\":2,\"done\":false}\nm1={\"value\":\"m\",\"done\":false}\nm2={\"value\":\"post\",\"done\":true}\nm3={\"value\":\"post\",\"done\":true}\nmanualCalls=3\nresume=2,3,4\nspreadRest=3,4\ns1=a\ns2=b\ns3=undefined|done=true\nset1={\"value\":1,\"done\":false}\nset2={\"done\":true}\nset3={\"done\":true}",
+  "rts": "a1={\"value\":1,\"done\":false}\na2={\"value\":2,\"done\":false}\na3={\"done\":true}\na4={\"done\":true}\na5={\"done\":true}\nstableDone=true|true\nstableValue=true,true\nfreshResults=true\nkeys=done,value\nemptyFirst={\"done\":true}\nindependent=3,1\nlive=2,3|done=true\nshrunk={\"done\":true}\nm1={\"value\":\"m\",\"done\":false}\nm2={\"value\":\"post\",\"done\":true}\nm3={\"value\":\"post\",\"done\":true}\nmanualCalls=3\nresume=2,3,4\nspreadRest=3,4\ns1=a\ns2=b\ns3=undefined|done=true\nset1={\"value\":1,\"done\":false}\nset2={\"done\":true}\nset3={\"done\":true}",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3949,24 +3949,24 @@
 ,
 {
   "name": "claude-symbol-iterator-inherited-lookup",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "inherited=p1,p2,p3\nownOnChild=false\nownOnParent=true\nshadowed=own1,own2\nparentUnaffected=p1,p2,p3\nthreeLevels=p1,p2,p3\nclassRange=1,2,3,4\nonProtoNotInstance=false,true\nsubclass=5,6,7\noverride=4,3,2,1\nbeforeAdd=threwBefore|afterAdd=late\nremovable=ok->threw\narrOwn=false\narrProto=true\narrChildIter=7,8,9",
   "node": "inherited=p1,p2,p3\nownOnChild=false\nownOnParent=true\nshadowed=own1,own2\nparentUnaffected=p1,p2,p3\nthreeLevels=p1,p2,p3\nclassRange=1,2,3,4\nonProtoNotInstance=false,true\nsubclass=5,6,7\noverride=4,3,2,1\nbeforeAdd=threwBefore|afterAdd=late\nremovable=ok->threw\narrOwn=false\narrProto=true\narrChildIter=7,8,9",
-  "rts": "inherited=p1,p2,p3\nownOnChild=false\nownOnParent=false\nshadowed=own1,own2\nparentUnaffected=p1,p2,p3\nthreeLevels=p1,p2,p3\nclassRange=1,2,3,4\nonProtoNotInstance=false,false\nsubclass=5,6,7\noverride=4,3,2,1\nbeforeAdd=threwBefore|afterAdd=late\nremovable=ok->threw\narrOwn=false\narrProto=true",
+  "rts": "inherited=p1,p2,p3\nownOnChild=false\nownOnParent=true\nshadowed=own1,own2\nparentUnaffected=p1,p2,p3\nthreeLevels=p1,p2,p3\nclassRange=1,2,3,4\nonProtoNotInstance=false,true\nsubclass=5,6,7\noverride=4,3,2,1\nbeforeAdd=threwBefore|afterAdd=late\nremovable=ok->threw\narrOwn=false\narrProto=true\narrChildIter=7,8,9",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: the value is not iterable: its iterator has no next()"
+  "rts_error": ""
 }
 ,
 {
   "name": "codex_async_iterator_break_close",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "1\nnext0,next1,return-start,return-end",
   "node": "1\nnext0,next1,return-start,return-end",
-  "rts": "1\nnext0,next1",
+  "rts": "1\nnext0,next1,return-start,return-end",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4201,10 +4201,10 @@
 ,
 {
   "name": "claude-stringify-string-escapes",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "quote=\"a\\\"b\"\nbackslash=\"a\\\\b\"\nnewline=\"a\\nb\"\ncr=\"a\\rb\"\ntab=\"a\\tb\"\nbackspace=\"a\\bb\"\nformfeed=\"a\\fb\"\nnul=\"a\\u0000b\"\nsoh=\"a\\u0001b\"\nvtab=\"a\\u000bb\"\nesc=\"a\\u001bb\"\nus=\"a\\u001fb\"\ndel=\"a\u007fb\"\nspace=\"a b\"\nslash=\"a/b\"\napostrophe=\"a'b\"\naccent=\"café\"\ncjk=\"日本\"\nlone_high=\"\\ud800\"\nlone_low=\"\\udfff\"\nlone_mid=\"a\\ud834b\"\npair=\"😀\"\npair_len=4\nreversed_pair=\"\\ude00\\ud83d\"\nkey_escape={\"a\\nb\":1}\nkey_quote={\"a\\\"b\":1}\nkey_ctrl={\"a\\u0001b\":1}\nroundtrip=true\nempty=\"\"",
   "node": "quote=\"a\\\"b\"\nbackslash=\"a\\\\b\"\nnewline=\"a\\nb\"\ncr=\"a\\rb\"\ntab=\"a\\tb\"\nbackspace=\"a\\bb\"\nformfeed=\"a\\fb\"\nnul=\"a\\u0000b\"\nsoh=\"a\\u0001b\"\nvtab=\"a\\u000bb\"\nesc=\"a\\u001bb\"\nus=\"a\\u001fb\"\ndel=\"a\u007fb\"\nspace=\"a b\"\nslash=\"a/b\"\napostrophe=\"a'b\"\naccent=\"café\"\ncjk=\"日本\"\nlone_high=\"\\ud800\"\nlone_low=\"\\udfff\"\nlone_mid=\"a\\ud834b\"\npair=\"😀\"\npair_len=4\nreversed_pair=\"\\ude00\\ud83d\"\nkey_escape={\"a\\nb\":1}\nkey_quote={\"a\\\"b\":1}\nkey_ctrl={\"a\\u0001b\":1}\nroundtrip=true\nempty=\"\"",
-  "rts": "quote=\"a\\\"b\"\nbackslash=\"a\\\\b\"\nnewline=\"a\\nb\"\ncr=\"a\\rb\"\ntab=\"a\\tb\"\nbackspace=\"a\\bb\"\nformfeed=\"a\\fb\"\nnul=\"a\\u0000b\"\nsoh=\"a\\u0001b\"\nvtab=\"a\\u000bb\"\nesc=\"a\\u001bb\"\nus=\"a\\u001fb\"\ndel=\"a\u007fb\"\nspace=\"a b\"\nslash=\"a/b\"\napostrophe=\"a'b\"\naccent=\"café\"\ncjk=\"日本\"\nlone_high=\"�\"\nlone_low=\"�\"\nlone_mid=\"a�b\"\npair=\"😀\"\npair_len=4\nreversed_pair=\"��\"\nkey_escape={\"a\\nb\":1}\nkey_quote={\"a\\\"b\":1}\nkey_ctrl={\"a\\u0001b\":1}\nroundtrip=true\nempty=\"\"",
+  "rts": "quote=\"a\\\"b\"\nbackslash=\"a\\\\b\"\nnewline=\"a\\nb\"\ncr=\"a\\rb\"\ntab=\"a\\tb\"\nbackspace=\"a\\bb\"\nformfeed=\"a\\fb\"\nnul=\"a\\u0000b\"\nsoh=\"a\\u0001b\"\nvtab=\"a\\u000bb\"\nesc=\"a\\u001bb\"\nus=\"a\\u001fb\"\ndel=\"a\u007fb\"\nspace=\"a b\"\nslash=\"a/b\"\napostrophe=\"a'b\"\naccent=\"café\"\ncjk=\"日本\"\nlone_high=\"\\ud800\"\nlone_low=\"\\udfff\"\nlone_mid=\"a\\ud834b\"\npair=\"😀\"\npair_len=4\nreversed_pair=\"\\ude00\\ud83d\"\nkey_escape={\"a\\nb\":1}\nkey_quote={\"a\\\"b\":1}\nkey_ctrl={\"a\\u0001b\":1}\nroundtrip=true\nempty=\"\"",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4257,16 +4257,16 @@
 ,
 {
   "name": "codex_json_bigint_tojson_monkeypatch",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "{\"x\":\"5n\",\"arr\":[\"1n\",\"2n\"]}\nTypeError",
   "node": "{\"x\":\"5n\",\"arr\":[\"1n\",\"2n\"]}\nTypeError",
-  "rts": "",
+  "rts": "{\"x\":\"5n\",\"arr\":[\"1n\",\"2n\"]}\nTypeError",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Do not know how to serialize a BigInt"
+  "rts_error": ""
 }
 ,
 {
@@ -4789,10 +4789,10 @@
 ,
 {
   "name": "97_structured_clone_edge",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=undefined:boom\nself=true",
+  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4943,10 +4943,10 @@
 ,
 {
   "name": "198_number_parseint_parsefloat",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=true\nsame_float=true",
   "node": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=true\nsame_float=true",
-  "rts": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=false\nsame_float=false",
+  "rts": "parseInt_123=123\nparseInt_ff_16=255\nparseInt_10_2=2\nparseFloat_3.14=3.14\nparseFloat_1e2=100\nsame_int=true\nsame_float=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -5531,10 +5531,10 @@
 ,
 {
   "name": "claude-tostring-radix-fractional",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0.5_b2=0.1\n0.25_b2=0.01\n0.75_b2=0.11\n0.125_b2=0.001\n0.375_b2=0.011\n0.0625_b2=0.0001\n2.5_b2=10.1\n10.625_b2=1010.101\n255.5_b2=11111111.1\n1.5_b2=1.1\n3.75_b2=11.11\n0.5_b8=0.4\n0.25_b8=0.2\n0.125_b8=0.1\n0.0625_b8=0.04\n255.5_b8=377.4\n10.625_b8=12.5\n1.75_b8=1.6\n0.5_b16=0.8\n0.25_b16=0.4\n0.0625_b16=0.1\n0.125_b16=0.2\n255.5_b16=ff.8\n10.625_b16=a.a\n4095.9375_b16=fff.f\n0.5_b4=0.2\n0.75_b4=0.3\n0.5_b32=0.g\n0.03125_b32=0.1\nneg0.5_b2=-0.1\nneg0.75_b2=-0.11\nneg10.625_b16=-a.a\nneg255.5_b8=-377.4\nneg2.5_b2=-10.1\n1e21_b2=1101100011010111001001101011011100010111011110101000000000000000000000\n1e21_b16=3635c9adc5dea00000\n2pow53_b2=100000000000000000000000000000000000000000000000000000\n2pow53_b16=20000000000000\nmaxsafe_b36=2gosa7pa2gv\nzero_b2=0\nnegzero_b2=0\nzero_b36=0\nnan_b2=NaN\nnan_b36=NaN\ninf_b2=Infinity\nneginf_b36=-Infinity\n--- radix bounds ---\nradix2_ok=101\nradix36_ok=z\nradix1 threw=true\nradix37 threw=true\nradix0 threw=true",
   "node": "0.5_b2=0.1\n0.25_b2=0.01\n0.75_b2=0.11\n0.125_b2=0.001\n0.375_b2=0.011\n0.0625_b2=0.0001\n2.5_b2=10.1\n10.625_b2=1010.101\n255.5_b2=11111111.1\n1.5_b2=1.1\n3.75_b2=11.11\n0.5_b8=0.4\n0.25_b8=0.2\n0.125_b8=0.1\n0.0625_b8=0.04\n255.5_b8=377.4\n10.625_b8=12.5\n1.75_b8=1.6\n0.5_b16=0.8\n0.25_b16=0.4\n0.0625_b16=0.1\n0.125_b16=0.2\n255.5_b16=ff.8\n10.625_b16=a.a\n4095.9375_b16=fff.f\n0.5_b4=0.2\n0.75_b4=0.3\n0.5_b32=0.g\n0.03125_b32=0.1\nneg0.5_b2=-0.1\nneg0.75_b2=-0.11\nneg10.625_b16=-a.a\nneg255.5_b8=-377.4\nneg2.5_b2=-10.1\n1e21_b2=1101100011010111001001101011011100010111011110101000000000000000000000\n1e21_b16=3635c9adc5dea00000\n2pow53_b2=100000000000000000000000000000000000000000000000000000\n2pow53_b16=20000000000000\nmaxsafe_b36=2gosa7pa2gv\nzero_b2=0\nnegzero_b2=0\nzero_b36=0\nnan_b2=NaN\nnan_b36=NaN\ninf_b2=Infinity\nneginf_b36=-Infinity\n--- radix bounds ---\nradix2_ok=101\nradix36_ok=z\nradix1 threw=true\nradix37 threw=true\nradix0 threw=true",
-  "rts": "0.5_b2=0.1\n0.25_b2=0.01\n0.75_b2=0.11\n0.125_b2=0.001\n0.375_b2=0.011\n0.0625_b2=0.0001\n2.5_b2=10.1\n10.625_b2=1010.101\n255.5_b2=11111111.1\n1.5_b2=1.1\n3.75_b2=11.11\n0.5_b8=0.4\n0.25_b8=0.2\n0.125_b8=0.1\n0.0625_b8=0.04\n255.5_b8=377.4\n10.625_b8=12.5\n1.75_b8=1.6\n0.5_b16=0.8\n0.25_b16=0.4\n0.0625_b16=0.1\n0.125_b16=0.2\n255.5_b16=ff.8\n10.625_b16=a.a\n4095.9375_b16=fff.f\n0.5_b4=0.2\n0.75_b4=0.3\n0.5_b32=0.g\n0.03125_b32=0.1\nneg0.5_b2=-0.1\nneg0.75_b2=-0.11\nneg10.625_b16=-a.a\nneg255.5_b8=-377.4\nneg2.5_b2=-10.1\n1e21_b2=1101100011010111001001101011011100010111011110101000000000000000000000\n1e21_b16=3635c9adc5dea00000\n2pow53_b2=100000000000000000000000000000000000000000000000000000\n2pow53_b16=20000000000000\nmaxsafe_b36=2gosa7pa2gv\nzero_b2=0\nnegzero_b2=0\nzero_b36=0\nnan_b2=NaN\nnan_b36=NaN\ninf_b2=Infinity\nneginf_b36=-Infinity\n--- radix bounds ---\nradix2_ok=101\nradix36_ok=z\nradix1 threw=true\nradix37 threw=true\nradix0=5",
+  "rts": "0.5_b2=0.1\n0.25_b2=0.01\n0.75_b2=0.11\n0.125_b2=0.001\n0.375_b2=0.011\n0.0625_b2=0.0001\n2.5_b2=10.1\n10.625_b2=1010.101\n255.5_b2=11111111.1\n1.5_b2=1.1\n3.75_b2=11.11\n0.5_b8=0.4\n0.25_b8=0.2\n0.125_b8=0.1\n0.0625_b8=0.04\n255.5_b8=377.4\n10.625_b8=12.5\n1.75_b8=1.6\n0.5_b16=0.8\n0.25_b16=0.4\n0.0625_b16=0.1\n0.125_b16=0.2\n255.5_b16=ff.8\n10.625_b16=a.a\n4095.9375_b16=fff.f\n0.5_b4=0.2\n0.75_b4=0.3\n0.5_b32=0.g\n0.03125_b32=0.1\nneg0.5_b2=-0.1\nneg0.75_b2=-0.11\nneg10.625_b16=-a.a\nneg255.5_b8=-377.4\nneg2.5_b2=-10.1\n1e21_b2=1101100011010111001001101011011100010111011110101000000000000000000000\n1e21_b16=3635c9adc5dea00000\n2pow53_b2=100000000000000000000000000000000000000000000000000000\n2pow53_b16=20000000000000\nmaxsafe_b36=2gosa7pa2gv\nzero_b2=0\nnegzero_b2=0\nzero_b36=0\nnan_b2=NaN\nnan_b36=NaN\ninf_b2=Infinity\nneginf_b36=-Infinity\n--- radix bounds ---\nradix2_ok=101\nradix36_ok=z\nradix1 threw=true\nradix37 threw=true\nradix0 threw=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -5587,10 +5587,10 @@
 ,
 {
   "name": "claude-unary-plus-vs-number-vs-parseint",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "\"42\" unary=42 Number=42 parseInt=42\n\"42abc\" unary=NaN Number=NaN parseInt=42\n\"abc42\" unary=NaN Number=NaN parseInt=NaN\n\"  42  \" unary=42 Number=42 parseInt=42\n\"\" unary=0 Number=0 parseInt=NaN\n\"   \" unary=0 Number=0 parseInt=NaN\n\"3.99\" unary=3.99 Number=3.99 parseInt=3\n\"0x1F\" unary=31 Number=31 parseInt=31\n\"0b101\" unary=5 Number=5 parseInt=0\n\"0o17\" unary=15 Number=15 parseInt=0\n\"1e3\" unary=1000 Number=1000 parseInt=1\n\"1e-3\" unary=0.001 Number=0.001 parseInt=1\n\".5\" unary=0.5 Number=0.5 parseInt=NaN\n\"5.\" unary=5 Number=5 parseInt=5\n\"+5\" unary=5 Number=5 parseInt=5\n\"-5\" unary=-5 Number=-5 parseInt=-5\n\"Infinity\" unary=Infinity Number=Infinity parseInt=NaN\n\"-Infinity\" unary=-Infinity Number=-Infinity parseInt=NaN\n\"1_000\" unary=NaN Number=NaN parseInt=1\n\"12px\" unary=NaN Number=NaN parseInt=12\n\"  -7.5e2xyz\" unary=NaN Number=NaN parseInt=-7\n\"0.0000001\" unary=1e-7 Number=1e-7 parseInt=0\n\"  0x10  \" unary=16 Number=16 parseInt=16\n\"null\" unary=NaN Number=NaN parseInt=NaN\n\"true\" unary=NaN Number=NaN parseInt=NaN\n--- non-strings ---\ntrue unary=1 Number=1 parseInt=NaN\nfalse unary=0 Number=0 parseInt=NaN\nnull unary=0 Number=0 parseInt=NaN\nundefined unary=NaN Number=NaN parseInt=NaN\nemptyArr unary=0 Number=0 parseInt=NaN\narr[7] unary=7 Number=7 parseInt=7\narr[1,2] unary=NaN Number=NaN parseInt=1\n--- exponent handling ---\n1e3 parseInt=1\n1e3 parseFloat=1000\n1e3 Number=1000\n--- ToString-then-parse trap ---\nparseInt(1e21)=1\nNumber(1e21)=1e+21\nparseInt(0.0000005)=5\nNumber(0.0000005)=5e-7\nparseInt(1e-7)=1",
   "node": "\"42\" unary=42 Number=42 parseInt=42\n\"42abc\" unary=NaN Number=NaN parseInt=42\n\"abc42\" unary=NaN Number=NaN parseInt=NaN\n\"  42  \" unary=42 Number=42 parseInt=42\n\"\" unary=0 Number=0 parseInt=NaN\n\"   \" unary=0 Number=0 parseInt=NaN\n\"3.99\" unary=3.99 Number=3.99 parseInt=3\n\"0x1F\" unary=31 Number=31 parseInt=31\n\"0b101\" unary=5 Number=5 parseInt=0\n\"0o17\" unary=15 Number=15 parseInt=0\n\"1e3\" unary=1000 Number=1000 parseInt=1\n\"1e-3\" unary=0.001 Number=0.001 parseInt=1\n\".5\" unary=0.5 Number=0.5 parseInt=NaN\n\"5.\" unary=5 Number=5 parseInt=5\n\"+5\" unary=5 Number=5 parseInt=5\n\"-5\" unary=-5 Number=-5 parseInt=-5\n\"Infinity\" unary=Infinity Number=Infinity parseInt=NaN\n\"-Infinity\" unary=-Infinity Number=-Infinity parseInt=NaN\n\"1_000\" unary=NaN Number=NaN parseInt=1\n\"12px\" unary=NaN Number=NaN parseInt=12\n\"  -7.5e2xyz\" unary=NaN Number=NaN parseInt=-7\n\"0.0000001\" unary=1e-7 Number=1e-7 parseInt=0\n\"  0x10  \" unary=16 Number=16 parseInt=16\n\"null\" unary=NaN Number=NaN parseInt=NaN\n\"true\" unary=NaN Number=NaN parseInt=NaN\n--- non-strings ---\ntrue unary=1 Number=1 parseInt=NaN\nfalse unary=0 Number=0 parseInt=NaN\nnull unary=0 Number=0 parseInt=NaN\nundefined unary=NaN Number=NaN parseInt=NaN\nemptyArr unary=0 Number=0 parseInt=NaN\narr[7] unary=7 Number=7 parseInt=7\narr[1,2] unary=NaN Number=NaN parseInt=1\n--- exponent handling ---\n1e3 parseInt=1\n1e3 parseFloat=1000\n1e3 Number=1000\n--- ToString-then-parse trap ---\nparseInt(1e21)=1\nNumber(1e21)=1e+21\nparseInt(0.0000005)=5\nNumber(0.0000005)=5e-7\nparseInt(1e-7)=1",
-  "rts": "\"42\" unary=42 Number=42 parseInt=42\n\"42abc\" unary=NaN Number=NaN parseInt=42\n\"abc42\" unary=NaN Number=NaN parseInt=NaN\n\"  42  \" unary=42 Number=42 parseInt=42\n\"\" unary=0 Number=0 parseInt=NaN\n\"   \" unary=0 Number=0 parseInt=NaN\n\"3.99\" unary=3.99 Number=3.99 parseInt=3\n\"0x1F\" unary=31 Number=31 parseInt=31\n\"0b101\" unary=5 Number=5 parseInt=0\n\"0o17\" unary=15 Number=15 parseInt=0\n\"1e3\" unary=1000 Number=1000 parseInt=1\n\"1e-3\" unary=0.001 Number=0.001 parseInt=1\n\".5\" unary=0.5 Number=0.5 parseInt=NaN\n\"5.\" unary=5 Number=5 parseInt=5\n\"+5\" unary=5 Number=5 parseInt=5\n\"-5\" unary=-5 Number=-5 parseInt=-5\n\"Infinity\" unary=Infinity Number=Infinity parseInt=NaN\n\"-Infinity\" unary=-Infinity Number=-Infinity parseInt=NaN\n\"1_000\" unary=NaN Number=NaN parseInt=1\n\"12px\" unary=NaN Number=NaN parseInt=12\n\"  -7.5e2xyz\" unary=NaN Number=NaN parseInt=-7\n\"0.0000001\" unary=1e-7 Number=1e-7 parseInt=0\n\"  0x10  \" unary=16 Number=16 parseInt=16\n\"null\" unary=NaN Number=NaN parseInt=NaN\n\"true\" unary=NaN Number=NaN parseInt=NaN\n--- non-strings ---\ntrue unary=1 Number=1 parseInt=NaN\nfalse unary=0 Number=0 parseInt=NaN\nnull unary=0 Number=0 parseInt=NaN\nundefined unary=NaN Number=0 parseInt=NaN\nemptyArr unary=0 Number=0 parseInt=NaN\narr[7] unary=7 Number=7 parseInt=NaN\narr[1,2] unary=NaN Number=NaN parseInt=NaN\n--- exponent handling ---\n1e3 parseInt=1\n1e3 parseFloat=1000\n1e3 Number=1000\n--- ToString-then-parse trap ---\nparseInt(1e21)=1\nNumber(1e21)=1e+21\nparseInt(0.0000005)=5\nNumber(0.0000005)=5e-7\nparseInt(1e-7)=1",
+  "rts": "\"42\" unary=42 Number=42 parseInt=42\n\"42abc\" unary=NaN Number=NaN parseInt=42\n\"abc42\" unary=NaN Number=NaN parseInt=NaN\n\"  42  \" unary=42 Number=42 parseInt=42\n\"\" unary=0 Number=0 parseInt=NaN\n\"   \" unary=0 Number=0 parseInt=NaN\n\"3.99\" unary=3.99 Number=3.99 parseInt=3\n\"0x1F\" unary=31 Number=31 parseInt=31\n\"0b101\" unary=5 Number=5 parseInt=0\n\"0o17\" unary=15 Number=15 parseInt=0\n\"1e3\" unary=1000 Number=1000 parseInt=1\n\"1e-3\" unary=0.001 Number=0.001 parseInt=1\n\".5\" unary=0.5 Number=0.5 parseInt=NaN\n\"5.\" unary=5 Number=5 parseInt=5\n\"+5\" unary=5 Number=5 parseInt=5\n\"-5\" unary=-5 Number=-5 parseInt=-5\n\"Infinity\" unary=Infinity Number=Infinity parseInt=NaN\n\"-Infinity\" unary=-Infinity Number=-Infinity parseInt=NaN\n\"1_000\" unary=NaN Number=NaN parseInt=1\n\"12px\" unary=NaN Number=NaN parseInt=12\n\"  -7.5e2xyz\" unary=NaN Number=NaN parseInt=-7\n\"0.0000001\" unary=1e-7 Number=1e-7 parseInt=0\n\"  0x10  \" unary=16 Number=16 parseInt=16\n\"null\" unary=NaN Number=NaN parseInt=NaN\n\"true\" unary=NaN Number=NaN parseInt=NaN\n--- non-strings ---\ntrue unary=1 Number=1 parseInt=NaN\nfalse unary=0 Number=0 parseInt=NaN\nnull unary=0 Number=0 parseInt=NaN\nundefined unary=NaN Number=NaN parseInt=NaN\nemptyArr unary=0 Number=0 parseInt=NaN\narr[7] unary=7 Number=7 parseInt=7\narr[1,2] unary=NaN Number=NaN parseInt=1\n--- exponent handling ---\n1e3 parseInt=1\n1e3 parseFloat=1000\n1e3 Number=1000\n--- ToString-then-parse trap ---\nparseInt(1e21)=1\nNumber(1e21)=1e+21\nparseInt(0.0000005)=5\nNumber(0.0000005)=5e-7\nparseInt(1e-7)=1",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -5629,16 +5629,16 @@
 ,
 {
   "name": "codex_date_toprimitive_addition",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "string\ntrue\n0\ntrue",
   "node": "string\ntrue\n0\ntrue",
-  "rts": "number",
+  "rts": "string\ntrue\n0\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: sum.endsWith is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -6119,10 +6119,10 @@
 ,
 {
   "name": "359_obf_getter_smuggle",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
   "node": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
-  "rts": "5\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
+  "rts": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6133,16 +6133,16 @@
 ,
 {
   "name": "368_iterator_protocol",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
   "node": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
-  "rts": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst",
+  "rts": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): Error: oops"
+  "rts_error": ""
 }
 ,
 {
@@ -6189,10 +6189,10 @@
 ,
 {
   "name": "388_globalThis",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue",
   "node": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue",
-  "rts": "object\ntrue\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\n1.0\ntrue\n1.0\nfalse\nfalse\nfalse",
+  "rts": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6203,16 +6203,16 @@
 ,
 {
   "name": "389_proto_accessor",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "hi from child\ntrue\nhello\nworld\ntrue\n2\nnull\nfalse\nnull\ntrue\n1\n2\n2\n0",
   "node": "hi from child\ntrue\nhello\nworld\ntrue\n2\nnull\nfalse\nnull\ntrue\n1\n2\n2\n0",
-  "rts": "",
+  "rts": "hi from child\ntrue\nhello\nworld\ntrue\n2\nnull\nfalse\nnull\ntrue\n1\n2\n2\n0",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: obj.greet is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -6234,7 +6234,7 @@
   "status": "rts_diverge",
   "bun": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
   "node": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
-  "rts": "{\"z\":0,\"b\":5,\"a\":3,\"hidden\":9,\"c\":4}\nz,b,a,hidden,c\nget-a,hidden",
+  "rts": "{\"z\":0,\"b\":5,\"a\":3,\"c\":4}\nz,b,a,c\nget-a",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6276,7 +6276,7 @@
   "status": "rts_diverge",
   "bun": "a,p1,p2\na,c\ntrue",
   "node": "a,p1,p2\na,c\ntrue",
-  "rts": "a,b\na,c\ntrue",
+  "rts": "a,b,p1,p2\na,c\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6357,10 +6357,10 @@
 ,
 {
   "name": "98_proxy_invariants",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "keys=a\nvals={\"a\":1}\nlog=ownKeys|desc:a|desc:b|del:b|ownKeys|desc:a|ownKeys",
+  "rts": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6595,10 +6595,10 @@
 ,
 {
   "name": "codex_getownpropertydescriptor_array_length",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "3:true:false:false\nfalse\nTypeError\n1,2,3",
   "node": "3:true:false:false\nfalse\nTypeError\n1,2,3",
-  "rts": "3:true:false:true\nfalse\n1,2,3,4",
+  "rts": "3:true:false:false\nfalse\nTypeError\n1,2,3",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6665,10 +6665,10 @@
 ,
 {
   "name": "codex_ownkeys_order_symbols",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "1,2,b,a,c,Symbol(s1),Symbol(s2)\n1,2,b,a,c\nSymbol(s1),Symbol(s2)",
   "node": "1,2,b,a,c,Symbol(s1),Symbol(s2)\n1,2,b,a,c\nSymbol(s1),Symbol(s2)",
-  "rts": "1,2,b,a,c\n1,2,b,a,c\nSymbol(s1),Symbol(s2)",
+  "rts": "1,2,b,a,c,Symbol(s1),Symbol(s2)\n1,2,b,a,c\nSymbol(s1),Symbol(s2)",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -7043,16 +7043,16 @@
 ,
 {
   "name": "365_async_patterns",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
   "node": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
-  "rts": "",
+  "rts": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[UndeclaredSuspension { inst: inst47 }]\")\n      at run of tests/cross-runtime/promises/365_async_patterns.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -7295,16 +7295,16 @@
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "2026-05-22\n6",
+  "rts": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: (intermediate value).join is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -7337,10 +7337,10 @@
 ,
 {
   "name": "70_regex_indices",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "indices=[[1,4],[2,3],[3,4]]",
   "node": "indices=[[1,4],[2,3],[3,4]]",
-  "rts": "indices=undefined",
+  "rts": "indices=[[1,4],[2,3],[3,4]]",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -7379,10 +7379,10 @@
 ,
 {
   "name": "codex_regex_indices_named_groups",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "aaab:2\n[2,6]\n[2,5]\naaa",
   "node": "aaab:2\n[2,6]\n[2,5]\naaa",
-  "rts": "aaab:2\nundefined\nundefined\naaa",
+  "rts": "aaab:2\n[2,6]\n[2,5]\naaa",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -7435,72 +7435,72 @@
 ,
 {
   "name": "101_textdecoder_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=caf|é",
   "node": "out=caf|é",
-  "rts": "",
+  "rts": "out=caf|é",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: TextEncoderStream is not defined"
+  "rts_error": ""
 }
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": "",
+  "rts": "out=a,b",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: ReadableStream is not defined"
+  "rts_error": ""
 }
 ,
 {
   "name": "86_blob_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "bytes=97,98",
   "node": "bytes=97,98",
-  "rts": "",
+  "rts": "bytes=97,98",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: blob.stream is not a function"
+  "rts_error": ""
 }
 ,
 {
   "name": "88_compression_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "gzip=28",
   "node": "gzip=28",
-  "rts": "",
+  "rts": "gzip=28",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: CompressionStream is not defined"
+  "rts_error": ""
 }
 ,
 {
   "name": "96_streams_transform",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=AB,CD",
   "node": "out=AB,CD",
-  "rts": "",
+  "rts": "out=AB,CD",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: TransformStream is not defined"
+  "rts_error": ""
 }
 ,
 {
@@ -7589,10 +7589,10 @@
 ,
 {
   "name": "140_string_charat_charcodeat",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
   "node": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
-  "rts": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\n{ '0': undefined, '1': undefined, '2': undefined, '3': undefined, '4': undefined, '5': undefined, '6': undefined, '7': undefined, '8': undefined, '9': undefined, '10': undefined, '11': undefined, '12': undefined, '13': undefined }\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
+  "rts": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -7897,10 +7897,10 @@
 ,
 {
   "name": "244_string_valueof",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true",
   "node": "valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true",
-  "rts": "valueOf=hello\nsame_type=true\nobj_type=false\nprimitive=world\nsame=true",
+  "rts": "valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -8037,10 +8037,10 @@
 ,
 {
   "name": "91_string_wellformed",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "wf=false\nfix=�",
   "node": "wf=false\nfix=�",
-  "rts": "wf=true\nfix=�",
+  "rts": "wf=false\nfix=�",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -8065,10 +8065,10 @@
 ,
 {
   "name": "claude-at-vs-charat-vs-bracket",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "i=0 at=h charAt=[h] bracket=h\ni=4 at=o charAt=[o] bracket=o\ni=5 at=undefined charAt=[] bracket=undefined\ni=99 at=undefined charAt=[] bracket=undefined\ni=-1 at=o charAt=[] bracket=undefined\ni=-5 at=h charAt=[] bracket=undefined\ni=-6 at=undefined charAt=[] bracket=undefined\ni=-0 at=h charAt=[h] bracket=h\ni=1.5 at=e charAt=[e] bracket=undefined\ni=0.9 at=h charAt=[h] bracket=undefined\ni=-1.5 at=o charAt=[] bracket=undefined\ni=4.99 at=o charAt=[o] bracket=undefined\ni=undefined at=h charAt=[h] bracket=undefined\ni=null at=h charAt=[h] bracket=undefined\ni=NaN at=h charAt=[h] bracket=undefined\ni=true at=e charAt=[e] bracket=undefined\ni=false at=h charAt=[h] bracket=undefined\ni='2' at=l charAt=[l] bracket=l\ni='' at=h charAt=[h] bracket=undefined\ni=Infinity at=undefined charAt=[] bracket=undefined\ni=-Infinity at=undefined charAt=[] bracket=undefined\nbracket-'1'=e\nbracket-'01'=undefined\nbracket-'1.0'=undefined\nbracket-' 1'=undefined\nbracket-'-0'=undefined\nbracket-length=5\ncharAt-noarg=h\nat-noarg=h\n0-in=true\n5-in=false\nempty-at=undefined\nempty-charAt=[]\nempty-bracket=undefined\nemoji-at1=d83d\nemoji-charAt1=d83d\nemoji-bracket1=d83d",
   "node": "i=0 at=h charAt=[h] bracket=h\ni=4 at=o charAt=[o] bracket=o\ni=5 at=undefined charAt=[] bracket=undefined\ni=99 at=undefined charAt=[] bracket=undefined\ni=-1 at=o charAt=[] bracket=undefined\ni=-5 at=h charAt=[] bracket=undefined\ni=-6 at=undefined charAt=[] bracket=undefined\ni=-0 at=h charAt=[h] bracket=h\ni=1.5 at=e charAt=[e] bracket=undefined\ni=0.9 at=h charAt=[h] bracket=undefined\ni=-1.5 at=o charAt=[] bracket=undefined\ni=4.99 at=o charAt=[o] bracket=undefined\ni=undefined at=h charAt=[h] bracket=undefined\ni=null at=h charAt=[h] bracket=undefined\ni=NaN at=h charAt=[h] bracket=undefined\ni=true at=e charAt=[e] bracket=undefined\ni=false at=h charAt=[h] bracket=undefined\ni='2' at=l charAt=[l] bracket=l\ni='' at=h charAt=[h] bracket=undefined\ni=Infinity at=undefined charAt=[] bracket=undefined\ni=-Infinity at=undefined charAt=[] bracket=undefined\nbracket-'1'=e\nbracket-'01'=undefined\nbracket-'1.0'=undefined\nbracket-' 1'=undefined\nbracket-'-0'=undefined\nbracket-length=5\ncharAt-noarg=h\nat-noarg=h\n0-in=true\n5-in=false\nempty-at=undefined\nempty-charAt=[]\nempty-bracket=undefined\nemoji-at1=d83d\nemoji-charAt1=d83d\nemoji-bracket1=d83d",
-  "rts": "i=0 at=h charAt=[h] bracket=h\ni=4 at=o charAt=[o] bracket=o\ni=5 at=undefined charAt=[] bracket=undefined\ni=99 at=undefined charAt=[] bracket=undefined\ni=-1 at=o charAt=[] bracket=undefined\ni=-5 at=h charAt=[] bracket=undefined\ni=-6 at=undefined charAt=[] bracket=undefined\ni=-0 at=h charAt=[h] bracket=h\ni=1.5 at=e charAt=[e] bracket=undefined\ni=0.9 at=h charAt=[h] bracket=undefined\ni=-1.5 at=o charAt=[] bracket=undefined\ni=4.99 at=o charAt=[o] bracket=undefined\ni=undefined at=h charAt=[h] bracket=undefined\ni=null at=h charAt=[h] bracket=undefined\ni=NaN at=h charAt=[h] bracket=undefined\ni=true at=e charAt=[e] bracket=undefined\ni=false at=h charAt=[h] bracket=undefined\ni='2' at=l charAt=[l] bracket=l\ni='' at=h charAt=[h] bracket=undefined\ni=Infinity at=undefined charAt=[] bracket=undefined\ni=-Infinity at=undefined charAt=[] bracket=undefined\nbracket-'1'=e\nbracket-'01'=undefined\nbracket-'1.0'=undefined\nbracket-' 1'=undefined\nbracket-'-0'=undefined\nbracket-length=5\ncharAt-noarg=h\nat-noarg=undefined\n0-in=false\n5-in=false\nempty-at=undefined\nempty-charAt=[]\nempty-bracket=undefined\nemoji-at1=d83d\nemoji-charAt1=d83d\nemoji-bracket1=d83d",
+  "rts": "i=0 at=h charAt=[h] bracket=h\ni=4 at=o charAt=[o] bracket=o\ni=5 at=undefined charAt=[] bracket=undefined\ni=99 at=undefined charAt=[] bracket=undefined\ni=-1 at=o charAt=[] bracket=undefined\ni=-5 at=h charAt=[] bracket=undefined\ni=-6 at=undefined charAt=[] bracket=undefined\ni=-0 at=h charAt=[h] bracket=h\ni=1.5 at=e charAt=[e] bracket=undefined\ni=0.9 at=h charAt=[h] bracket=undefined\ni=-1.5 at=o charAt=[] bracket=undefined\ni=4.99 at=o charAt=[o] bracket=undefined\ni=undefined at=h charAt=[h] bracket=undefined\ni=null at=h charAt=[h] bracket=undefined\ni=NaN at=h charAt=[h] bracket=undefined\ni=true at=e charAt=[e] bracket=undefined\ni=false at=h charAt=[h] bracket=undefined\ni='2' at=l charAt=[l] bracket=l\ni='' at=h charAt=[h] bracket=undefined\ni=Infinity at=undefined charAt=[] bracket=undefined\ni=-Infinity at=undefined charAt=[] bracket=undefined\nbracket-'1'=e\nbracket-'01'=undefined\nbracket-'1.0'=undefined\nbracket-' 1'=undefined\nbracket-'-0'=undefined\nbracket-length=5\ncharAt-noarg=h\nat-noarg=h\n0-in=true\n5-in=false\nempty-at=undefined\nempty-charAt=[]\nempty-bracket=undefined\nemoji-at1=d83d\nemoji-charAt1=d83d\nemoji-bracket1=d83d",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -8121,10 +8121,10 @@
 ,
 {
   "name": "claude-fromcharcode-as-value",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "direct=A\ndirect-multi=HI\ntypeof=function\nname=fromCharCode\nlength=1\nalias=B\nalias-multi=CDE\nalias-none=[]\nlet-alias=F\nobj-prop=G\narr-elem=H\nmap=IJK\nmap-direct=L|M\u0001|N\u0002\npassed=O\npassed-alias=P\nreturned=Q\nclosure=R\ncall=S\napply=TU\nbind=V\nbind-partial=WX\nidentity=true\nobj-identity=true\nspread=YZ\nalias-spread=YZ\nfcp-direct=a\nfcp-alias=b\nfcp-alias-astral-len=2",
   "node": "direct=A\ndirect-multi=HI\ntypeof=function\nname=fromCharCode\nlength=1\nalias=B\nalias-multi=CDE\nalias-none=[]\nlet-alias=F\nobj-prop=G\narr-elem=H\nmap=IJK\nmap-direct=L|M\u0001|N\u0002\npassed=O\npassed-alias=P\nreturned=Q\nclosure=R\ncall=S\napply=TU\nbind=V\nbind-partial=WX\nidentity=true\nobj-identity=true\nspread=YZ\nalias-spread=YZ\nfcp-direct=a\nfcp-alias=b\nfcp-alias-astral-len=2",
-  "rts": "direct=A\ndirect-multi=HI\ntypeof=function\nname=fromCharCode\nlength=undefined\nalias=B\nalias-multi=CDE\nalias-none=[]\nlet-alias=F\nobj-prop=G\narr-elem=H\nmap=IJK\nmap-direct=L|M\u0001|N\u0002\npassed=O\npassed-alias=P\nreturned=Q\nclosure=R\ncall=S\napply=TU\nbind=V\nbind-partial=WX\nidentity=true\nobj-identity=true\nspread=YZ\nalias-spread=YZ\nfcp-direct=a\nfcp-alias=b\nfcp-alias-astral-len=2",
+  "rts": "direct=A\ndirect-multi=HI\ntypeof=function\nname=fromCharCode\nlength=1\nalias=B\nalias-multi=CDE\nalias-none=[]\nlet-alias=F\nobj-prop=G\narr-elem=H\nmap=IJK\nmap-direct=L|M\u0001|N\u0002\npassed=O\npassed-alias=P\nreturned=Q\nclosure=R\ncall=S\napply=TU\nbind=V\nbind-partial=WX\nidentity=true\nobj-identity=true\nspread=YZ\nalias-spread=YZ\nfcp-direct=a\nfcp-alias=b\nfcp-alias-astral-len=2",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -8149,10 +8149,10 @@
 ,
 {
   "name": "claude-lone-surrogate-iteration",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue",
   "node": "3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue",
-  "rts": "3\n3\n[97,65533,98]\n1 65533\n1 128512\n2 2\ntrue\ntrue",
+  "rts": "3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -8219,10 +8219,10 @@
 ,
 {
   "name": "claude-split-empty-separator-units",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "split-len=4\nspread-len=3\nstr-len=4\nunits=61,d83d,de00,62\npiece-lens=1,1,1,1\nrejoin-eq=true\nhalf-hi-isLone=true\nhalf-lo-isLone=true\nhalf-hi-cp=d83d\nfull-cp=1f600\nspread-lens=1,2,1\nspread-cps=61,1f600,62\ntwo-split-len=4\ntwo-spread-len=2\nffff-split=1\n10000-split=2\ncombining-split=2\ncombining-spread=2\nempty-split-len=0\nascii-split=a|b|c\nlimit=61,d83d,de00\nlimit0-len=0",
   "node": "split-len=4\nspread-len=3\nstr-len=4\nunits=61,d83d,de00,62\npiece-lens=1,1,1,1\nrejoin-eq=true\nhalf-hi-isLone=true\nhalf-lo-isLone=true\nhalf-hi-cp=d83d\nfull-cp=1f600\nspread-lens=1,2,1\nspread-cps=61,1f600,62\ntwo-split-len=4\ntwo-spread-len=2\nffff-split=1\n10000-split=2\ncombining-split=2\ncombining-spread=2\nempty-split-len=0\nascii-split=a|b|c\nlimit=61,d83d,de00\nlimit0-len=0",
-  "rts": "split-len=4\nspread-len=3\nstr-len=4\nunits=61,d83d,de00,62\npiece-lens=1,1,1,1\nrejoin-eq=false\nhalf-hi-isLone=true\nhalf-lo-isLone=true\nhalf-hi-cp=d83d\nfull-cp=1f600\nspread-lens=1,2,1\nspread-cps=61,1f600,62\ntwo-split-len=4\ntwo-spread-len=2\nffff-split=1\n10000-split=2\ncombining-split=2\ncombining-spread=2\nempty-split-len=0\nascii-split=a|b|c\nlimit=61,d83d,de00\nlimit0-len=0",
+  "rts": "split-len=4\nspread-len=3\nstr-len=4\nunits=61,d83d,de00,62\npiece-lens=1,1,1,1\nrejoin-eq=true\nhalf-hi-isLone=true\nhalf-lo-isLone=true\nhalf-hi-cp=d83d\nfull-cp=1f600\nspread-lens=1,2,1\nspread-cps=61,1f600,62\ntwo-split-len=4\ntwo-spread-len=2\nffff-split=1\n10000-split=2\ncombining-split=2\ncombining-spread=2\nempty-split-len=0\nascii-split=a|b|c\nlimit=61,d83d,de00\nlimit0-len=0",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -8513,30 +8513,30 @@
 ,
 {
   "name": "codex_symbol_match_custom",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "M:3\nABC:x",
   "node": "M:3\nABC:x",
-  "rts": "",
+  "rts": "M:3\nABC:x",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: (intermediate value).join is not a function"
+  "rts_error": ""
 }
 ,
 {
   "name": "codex_symbol_split_custom",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "6,none,ab\n6,3,ab",
   "node": "6,none,ab\n6,3,ab",
-  "rts": "",
+  "rts": "6,none,ab\n6,3,ab",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: (intermediate value).join is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -8564,7 +8564,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: run is not a function"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: the Function body did not compile: const a = 10; let out = ''; with (obj) { out = a + ':' + b; …"
 }
 ,
 {
@@ -8821,16 +8821,16 @@
 ,
 {
   "name": "300_this_strict_top_level",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "strict=true\nsloppy=true",
   "node": "strict=true\nsloppy=true",
-  "rts": "strict=true",
+  "rts": "strict=true\nsloppy=false",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -9017,16 +9017,16 @@
 ,
 {
   "name": "352_obf_control_flow_flat",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos",
   "node": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos",
-  "rts": "",
+  "rts": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Emit(Build(ImplicitNarrowing { target: block8, position: 0, expected: F64, found: Tagged }))\n      at run of tests/cross-runtime/syntax/352_obf_control_flow_flat.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -9045,10 +9045,10 @@
 ,
 {
   "name": "377_for_in_detail",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
   "node": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
-  "rts": "own1,own2\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
+  "rts": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9143,16 +9143,16 @@
 ,
 {
   "name": "422_global_scope_chain",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "call=w:12\nread=live\nmiss_call=ReferenceError\nmiss_read=ReferenceError\nsc_and=n\nsc_membro=n\nsc_or=y\nsc_tern=sim\nsniff=nenhum\nsombra=param!\ntypeof=undefined",
   "node": "call=w:12\nread=live\nmiss_call=ReferenceError\nmiss_read=ReferenceError\nsc_and=n\nsc_membro=n\nsc_or=y\nsc_tern=sim\nsniff=nenhum\nsombra=param!\ntypeof=undefined",
-  "rts": "",
+  "rts": "call=w:12\nread=live\nmiss_call=ReferenceError\nmiss_read=ReferenceError\nsc_and=n\nsc_membro=n\nsc_or=y\nsc_tern=sim\nsniff=nenhum\nsombra=param!\ntypeof=undefined",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: __xrtFn is not defined\n    at chamaGlobal"
+  "rts_error": ""
 }
 ,
 {
@@ -9230,7 +9230,7 @@
   "status": "rts_diverge",
   "bun": "outer=outer inner=inner2\nlevels=1,2,3\nbranch=then\nvar_no_block_shadow=reassigned:block\nlet_shadows_var=var:let\nshadow_param=arg:shadowed\ncreated_before_shadow=mutated\nloop_block_shadow=I0,I1 outer=O",
   "node": "outer=outer inner=inner2\nlevels=1,2,3\nbranch=then\nvar_no_block_shadow=reassigned:block\nlet_shadows_var=var:let\nshadow_param=arg:shadowed\ncreated_before_shadow=mutated\nloop_block_shadow=I0,I1 outer=O",
-  "rts": "outer=inner2 inner=inner2\nlevels=3,3,3\nbranch=then\nvar_no_block_shadow=reassigned:block\nlet_shadows_var=let:let\nshadow_param=shadowed:shadowed\ncreated_before_shadow=mutated\nloop_block_shadow=I1,I1 outer=I1",
+  "rts": "outer=inner2 inner=inner2\nlevels=3,3,3\nbranch=then\nvar_no_block_shadow=reassigned:block\nlet_shadows_var=let:let\nshadow_param=shadowed:shadowed\ncreated_before_shadow=mutated\nloop_block_shadow=I0,I1 outer=O",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9437,10 +9437,10 @@
 ,
 {
   "name": "codex_for_in_shadowed_var_closure",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a1,b2,c3\nc,c,c",
   "node": "a1,b2,c3\nc,c,c",
-  "rts": "c3,c3,c3\nc,c,c",
+  "rts": "a1,b2,c3\nc,c,c",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9493,16 +9493,16 @@
 ,
 {
   "name": "codex_try_finally_control_flow",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "finally\ntry:catch\nfin0\nfin1\ndone",
   "node": "finally\ntry:catch\nfin0\nfin1\ndone",
-  "rts": "",
+  "rts": "try\ntry:catch\nfin0\ndone",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[CleanupDoesNotEnd { region: RegionId(0), block: block1 }, CleanupDoesNotEnd { region: RegionId(0), block: block1 }]\")\n      at run of tests/cross-runtime/syntax/codex_try_finally_control_flow.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -9911,4 +9911,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":708,"pass":593,"rts_diverge":65,"bun_node_diverge":5,"errors":45,"rejected":0}}
+],"summary":{"total":708,"pass":674,"rts_diverge":20,"bun_node_diverge":5,"errors":9,"rejected":0}}
