@@ -54,3 +54,25 @@ unicode-normalization = "0.1"
 # costs nothing at run time — and it emits tokens naming `rts_cranelift::abi`
 # rather than depending on it, so using it drags no compiler into anyone build.
 rtse = { package = "rts-macro", path = "../rts-macro" }
+# CLDR, in Rust, compiled into the binary — what `Intl` is made of.
+#
+# Availability, which is what rule 1 asks of a dependency: ICU4X exists FOR
+# targets that cannot ship a C library or read a data file at run time, which is
+# this engine's own situation on wasm. Rule 5 asks the other question — does it
+# decide anything the machine decides — and it does not: it answers what a
+# number, a date and a list look like in a language, and nothing about values,
+# layouts or the heap.
+#
+# Half of it was already linked here before `Intl` existed: `url` pulls `idna`,
+# which pulls `icu_normalizer` and `icu_properties`. So the size this adds is
+# the components on top of those, and it is measured in the commit rather than
+# guessed at.
+#
+# `unstable` is enabled and it is a real trade, stated: currency formatting and
+# `RelativeTimeFormat` live in `icu_experimental`, which that feature pulls in,
+# and there is no stable spelling of either. Without it `Intl.NumberFormat`
+# would answer a plain decimal where a program asked for `$1,234.50` — a wrong
+# answer that looks right, which is the thing this repository refuses. The cost
+# is that those two APIs may change shape across an ICU4X release; the rest of
+# the surface does not depend on them.
+icu = { version = "2", features = ["unstable"] }

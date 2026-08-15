@@ -11,7 +11,7 @@ use super::{Context, TIME, Value, read_property, undefined_of, with_current};
 use crate::text::Str;
 
 /// The clock. The one line a wasm target has to supply — see the module doc.
-pub(super) fn now_ms() -> f64 {
+pub(in crate::entry) fn now_ms() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(f64::NAN, |since| since.as_millis() as f64)
@@ -19,14 +19,7 @@ pub(super) fn now_ms() -> f64 {
 
 /// The object to write onto: the one `new` made, or one made here.
 pub(super) fn receiver(context: &mut Context, this: u64) -> Option<u32> {
-    if let Some(cell) = Value(this).as_slot() {
-        return Some(cell);
-    }
-    let cell = crate::entry::native::plain(context)?;
-    if let Some(prototype) = crate::entry::class_support::prototype(context, "Date") {
-        context.set_prototype(cell, prototype);
-    }
-    Some(cell)
+    crate::entry::class_support::receiver(context, this, "Date")
 }
 
 /// Writes the time value onto the object.

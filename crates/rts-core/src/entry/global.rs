@@ -85,6 +85,7 @@ pub fn global_get(key: i64) -> u64 {
         }
         let made = match text.as_str() {
             "RegExp" => super::regex::constructor(context),
+            "Intl" => super::intl::register_intl_namespace(context),
             "Math" => super::math::register_math(context),
             "Number" => super::number::register_number(context),
             "Boolean" => super::number::register_boolean(context),

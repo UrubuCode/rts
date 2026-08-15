@@ -66,6 +66,7 @@ mod generator;
 mod global;
 mod global_fns;
 mod integrity;
+mod intl;
 mod iterate;
 mod json;
 pub(in crate::entry) mod list_iterator;

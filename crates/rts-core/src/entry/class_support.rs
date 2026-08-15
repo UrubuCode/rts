@@ -172,3 +172,26 @@ pub(in crate::entry) fn to_boolean(value: u64) -> bool {
     super::primitives::to_boolean(value)
 }
 
+/// The object a constructor writes onto: the one `new` made, or one made here.
+///
+/// # Why a constructor may be handed nothing
+///
+/// `Date()` and `Intl.NumberFormat()` are legal without `new` in the shapes
+/// their own modules record, and a native reached that way has no receiver to
+/// write to. Making one here — with the class's own prototype, so it is an
+/// instance rather than a bare object — is what lets those bodies answer
+/// something usable instead of branching on how they were called.
+///
+/// Shared rather than copied: `date` wrote this first and `intl` needed the
+/// same eight lines, which is the point at which a second copy starts to drift
+/// about which prototype an instance gets.
+pub(in crate::entry) fn receiver(context: &mut Context, this: u64, class: &str) -> Option<u32> {
+    if let Some(cell) = crate::value::Value(this).as_slot() {
+        return Some(cell);
+    }
+    let cell = super::native::plain(context)?;
+    if let Some(prototype) = prototype(context, class) {
+        context.set_prototype(cell, prototype);
+    }
+    Some(cell)
+}

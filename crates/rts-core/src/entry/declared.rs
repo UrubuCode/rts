@@ -101,6 +101,19 @@ pub const CLASSES: &[Class] = &[
     super::json::JSON_TYPES,
     super::list_iterator::ITERATOR_TYPES,
     super::list_iterator::LIST_ITERATOR_TYPES,
+    // `Intl` and the seven services ON it. The namespace is what `global.rs`
+    // registers; the services are properties of it rather than globals, and
+    // they are listed because a declaration file has to name what a program can
+    // reach — `new Intl.NumberFormat()` is reachable and `NumberFormat` alone
+    // is not.
+    super::intl::INTL_TYPES,
+    super::intl::COLLATOR_TYPES,
+    super::intl::DATE_TIME_FORMAT_TYPES,
+    super::intl::LIST_FORMAT_TYPES,
+    super::intl::NUMBER_FORMAT_TYPES,
+    super::intl::PLURAL_RULES_TYPES,
+    super::intl::RELATIVE_TIME_FORMAT_TYPES,
+    super::intl::SEGMENTER_TYPES,
     super::math::MATH_TYPES,
     super::number::BOOLEAN_TYPES,
     super::number::NUMBER_TYPES,

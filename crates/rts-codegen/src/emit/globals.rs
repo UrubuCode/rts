@@ -81,6 +81,7 @@ const PROVIDED: &[&str] = &[
     "Int16Array",
     "Int32Array",
     "Int8Array",
+    "Intl",
     "JSON",
     "Map",
     "Math",

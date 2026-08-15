@@ -46,12 +46,18 @@ mod fields;
 mod parse;
 mod support;
 
+// The clock, reachable from `intl`. This module's own header promises that a
+// wasm target owes a host answer to EXACTLY ONE function; a second copy of
+// these four lines beside `Intl.DateTimeFormat` would have made that sentence
+// false the day someone read it.
+pub(in crate::entry) use support::now_ms;
+
 use civil::{
     clip, date_string, iso_text, locale_string, locale_time_string, time_string, utc_string,
 };
 use parse::parse_iso;
 use support::{
-    absent, commit, field, now_ms, null_of, receiver, store, text_value, time_of,
+    absent, commit, field, null_of, receiver, store, text_value, time_of,
 };
 
 use super::objects::{read_property, undefined_of};
