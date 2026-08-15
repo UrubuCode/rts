@@ -3118,7 +3118,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (9093) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (9075) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -3490,13 +3490,13 @@
   "status": "rts_error",
   "bun": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
   "node": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
-  "rts": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done",
+  "rts": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not iterable"
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -4579,9 +4579,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=immediate|micro|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -6136,13 +6136,13 @@
   "status": "rts_error",
   "bun": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
   "node": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
-  "rts": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c",
+  "rts": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not iterable"
+  "rts_error": "rts: uncaught exception (tag 1): Error: oops"
 }
 ,
 {
@@ -9911,4 +9911,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":708,"pass":590,"rts_diverge":64,"bun_node_diverge":6,"errors":48,"rejected":0}}
+],"summary":{"total":708,"pass":590,"rts_diverge":65,"bun_node_diverge":5,"errors":48,"rejected":0}}
