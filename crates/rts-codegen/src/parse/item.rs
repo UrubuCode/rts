@@ -683,6 +683,31 @@ pub(crate) fn class_expr(cx: &mut Cx, class: &swc::ClassExpr) -> Result<Class> {
 }
 
 fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
+    cx.enter_class(private_names_of(class));
+    let parts = class_members(cx, class);
+    cx.leave_class();
+    parts
+}
+
+/// The private names a class body declares, before any of it is parsed.
+///
+/// Its own pass because the order a body is written in is not the order it is
+/// resolved in: `class C { m() { return this.#y; } #y = 1; }` reads `#y` in a
+/// member parsed before the one that declares it, and a set filled as members
+/// are walked would be empty at that read.
+fn private_names_of(class: &swc::Class) -> std::collections::HashSet<String> {
+    class
+        .body
+        .iter()
+        .filter_map(|member| match member {
+            swc::ClassMember::PrivateMethod(method) => Some(method.key.name.to_string()),
+            swc::ClassMember::PrivateProp(property) => Some(property.key.name.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn class_members(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
     let mut body = Vec::new();
 
     for member in &class.body {

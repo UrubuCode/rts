@@ -103,6 +103,16 @@ pub struct Cx<'a> {
     /// second `namespace N { … }` block in the same file merges into the first
     /// object instead of shadowing it with a second hoisted declaration.
     pub(crate) declared_namespaces: std::collections::HashSet<crate::names::Name>,
+    /// The private names each enclosing class body declares, innermost last.
+    ///
+    /// A private name is resolved **lexically**, not by spelling: `#x` in one
+    /// class and `#x` in another are different fields, and an inner class body
+    /// may still name the outer class's. So the answer is a stack searched
+    /// innermost-first, which is the same shape `emit::scope` uses for ordinary
+    /// bindings and for the same reason.
+    pub(crate) private_scopes: Vec<(u32, std::collections::HashSet<String>)>,
+    /// How many class bodies have been entered, so each gets its own space.
+    pub(crate) classes_seen: u32,
 }
 
 impl Cx<'_> {
@@ -130,7 +140,41 @@ impl Cx<'_> {
         // `@@` is the space already reserved for keys no program can spell — see
         // `rts-core`'s `symbol` module — so a private name joins it rather
         // than opening a second one that collides with real text.
-        self.names.intern(&format!("@@#{text}"))
+        //
+        // The class's number is IN the key, which is what makes two classes
+        // that both write `#x` two different fields. Interning by text alone
+        // made them one, and that was a documented divergence rather than an
+        // oversight: `class Box { #x = 7 }` and `class Sub extends Box { #x =
+        // 20 }` answered `20:20` where every other engine answers `7:20`,
+        // because the subclass's field overwrote the base's on the same object.
+        //
+        // Innermost-first, and a name declared nowhere takes the innermost
+        // scope: an inner class body may legally read the OUTER class's private
+        // field, and reading one no enclosing class declares is a SyntaxError
+        // this crate does not check (`PLAN.md` L10) rather than a key to invent.
+        let space = self
+            .private_scopes
+            .iter()
+            .rev()
+            .find(|(_, declared)| declared.contains(text))
+            .or_else(|| self.private_scopes.last())
+            .map_or(0, |(space, _)| *space);
+        self.names.intern(&format!("@@#{space}#{text}"))
+    }
+
+    /// Enters a class body, with the private names it declares.
+    ///
+    /// The set is collected BEFORE any member is parsed, and it has to be: a
+    /// method written first may read a `#y` declared last, and a stack filled as
+    /// members are walked would still be empty when that read is interned.
+    pub(crate) fn enter_class(&mut self, declared: std::collections::HashSet<String>) {
+        self.classes_seen += 1;
+        self.private_scopes.push((self.classes_seen, declared));
+    }
+
+    /// Leaves it.
+    pub(crate) fn leave_class(&mut self) {
+        self.private_scopes.pop();
     }
 }
 
@@ -185,6 +229,8 @@ pub fn parse_as(source: &str, goal: Goal, dialect: Dialect, names: &mut Names) -
                     names,
                     goal,
                     declared_namespaces: std::collections::HashSet::new(),
+                    private_scopes: Vec::new(),
+                    classes_seen: 0,
                 };
                 let tree = item::program(&mut cx, &program, goal)?;
                 // An early error is a *syntax* error: a program with one is
