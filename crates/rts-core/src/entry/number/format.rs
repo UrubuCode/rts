@@ -1,10 +1,12 @@
-//! Writing a number in the two shapes `toString` does not produce.
+//! Writing a number in the shapes the shortest round-tripping decimal is not:
+//! a fixed number of places, an exponent, a count of significant digits, and a
+//! base that is not ten.
 //!
 //! # Why these are here rather than as `format!` widths
 //!
 //! Rust rounds half to **even** and the specification rounds half **away from
 //! zero**: `format!("{:.0}", 2.5)` is `"2"` and `(2.5).toFixed(0)` is `"3"`. The
-//! same gap [`super::fixed`] records, and the reason the digits are produced by
+//! same gap [`fixed`] records, and the reason the digits are produced by
 //! scaling and rounding rather than by handing the number to a formatter.
 //!
 //! # Why the exponent is recomputed after rounding
@@ -63,7 +65,132 @@ pub(super) fn precision(number: f64, digits: usize) -> String {
     // Below the decimal point, the digits left of it are already spent — so the
     // count that remains is the precision minus what the exponent used.
     let places = (digits as i32 - 1 - exponent).max(0) as usize;
-    super::fixed(number, places)
+    fixed(number, places)
+}
+
+/// A number written in a base other than ten.
+///
+/// The integer part by repeated division and the fraction by repeated
+/// multiplication, to twenty places — which is where a base-2 expansion of a
+/// double stops carrying information rather than an arbitrary cut. The
+/// specification leaves the exact digit count implementation-defined here, and
+/// saying so is better than implying a precision that is not there.
+pub(super) fn in_radix(number: f64, base: u32) -> String {
+    if !number.is_finite() {
+        return crate::coerce::number_to_string(number)
+            .to_rust()
+            .unwrap_or_default();
+    }
+    let negative = number < 0.0;
+    let number = number.abs();
+    let mut whole = number.trunc();
+    let mut fraction = number.fract();
+
+    let digit = |value: u32| char::from_digit(value, base).unwrap_or('0');
+    let mut left = String::new();
+    if whole == 0.0 {
+        left.push('0');
+    }
+    while whole >= 1.0 {
+        let rest = whole % f64::from(base);
+        left.push(digit(rest as u32));
+        whole = (whole / f64::from(base)).trunc();
+    }
+    let mut out: String = left.chars().rev().collect();
+
+    if fraction > 0.0 {
+        out.push('.');
+        for _ in 0..20 {
+            if fraction == 0.0 {
+                break;
+            }
+            fraction *= f64::from(base);
+            out.push(digit(fraction.trunc() as u32));
+            fraction = fraction.fract();
+        }
+    }
+    match negative {
+        true => format!("-{out}"),
+        false => out,
+    }
+}
+
+/// A number to a fixed number of decimal places, rounding half away from zero.
+///
+/// Written over the *exact* decimal expansion rather than a scale-then-round
+/// (`number * 10^places`, then `f64::round`), which is lossy in the
+/// multiplication itself: `2.55_f64` is `2.549999999999999822…`, but
+/// `2.55 * 10.0` rounds *up* to exactly `25.5` in f64, so a scaled round sees a
+/// tie that the real value never had and answers `"2.6"` where the spec (and
+/// Node) answer `"2.5"`. `format!("{:.N}")` on an `f64` is exact for any `N` —
+/// the standard library's fixed-precision float formatter computes the true
+/// decimal digits via big-integer arithmetic — so asking for far more digits
+/// than `places` and rounding the resulting *string* half-away-from-zero
+/// (ties round up, matching the spec's "pick the larger n") never sees a
+/// multiplication-introduced tie.
+pub(super) fn fixed(number: f64, places: usize) -> String {
+    // `x < 0`, and NOT the sign bit: the specification's step is "if x < 0, set
+    // s to `-`", which leaves negative zero unsigned. `(-0).toFixed(2)` is
+    // `"0.00"` in every engine, and reading the bit answered `"-0.00"`.
+    let negative = number < 0.0;
+    let magnitude = number.abs();
+    // f64's exact decimal expansion terminates within a few dozen digits for
+    // any value with a non-degenerate binary fraction; 60 digits of margin
+    // beyond `places` is enough to see whether the first dropped digit is a
+    // genuine tie or just close to one.
+    let exact = format!("{:.*}", places + 60, magnitude);
+    let rounded = round_decimal_string(&exact, places);
+    match negative {
+        true => format!("-{rounded}"),
+        false => rounded,
+    }
+}
+
+/// Rounds a `"123.456789…"` string to `places` fractional digits,
+/// half-away-from-zero (i.e. ties round up), on the digits themselves — so it
+/// never re-introduces the floating-point rounding [`fixed`] exists to avoid.
+fn round_decimal_string(digits: &str, places: usize) -> String {
+    let (int_part, frac_part) = digits.split_once('.').unwrap_or((digits, ""));
+    let mut int_digits: Vec<u8> = int_part.bytes().collect();
+    let frac_bytes = frac_part.as_bytes();
+    let round_up = frac_bytes.get(places).is_some_and(|&d| d >= b'5');
+    let mut frac_digits: Vec<u8> = frac_bytes[..places.min(frac_bytes.len())].to_vec();
+    frac_digits.resize(places, b'0');
+    if round_up {
+        let mut carry = true;
+        for d in frac_digits.iter_mut().rev() {
+            if !carry {
+                break;
+            }
+            match *d {
+                b'9' => *d = b'0',
+                _ => {
+                    *d += 1;
+                    carry = false;
+                }
+            }
+        }
+        for d in int_digits.iter_mut().rev() {
+            if !carry {
+                break;
+            }
+            match *d {
+                b'9' => *d = b'0',
+                _ => {
+                    *d += 1;
+                    carry = false;
+                }
+            }
+        }
+        if carry {
+            int_digits.insert(0, b'1');
+        }
+    }
+    let int_str = String::from_utf8(int_digits).unwrap();
+    match places {
+        0 => int_str,
+        _ => format!("{int_str}.{}", String::from_utf8(frac_digits).unwrap()),
+    }
 }
 
 /// A magnitude as a mantissa and the exponent it ended up with.
@@ -72,7 +199,7 @@ pub(super) fn precision(number: f64, digits: usize) -> String {
 /// documentation for the carry that makes taking the exponent first wrong.
 ///
 /// Built over the exact decimal expansion rather than `magnitude * 10^scale`
-/// then `f64::round` — the same lossy-multiplication trap `super::fixed`
+/// then `f64::round` — the same lossy-multiplication trap [`fixed`]
 /// documents: `9.95_f64` is `9.94999999999999928…`, but scaling by 10 and
 /// rounding can land exactly on a tie the real value never had, answering
 /// `"10"` where the spec (and Node) answer `"9.9"`. `format!("{:.N}")` is
@@ -167,5 +294,31 @@ mod tests {
     fn zero_keeps_its_places() {
         assert_eq!(exponential(0.0, Some(2)), "0.00e+0");
         assert_eq!(precision(0.0, 3), "0.00");
+    }
+
+    #[test]
+    fn a_fraction_terminates_in_a_base_that_divides_it() {
+        // A power of two written in base 2, 8 or 16 has a FINITE expansion, so
+        // there is one right answer and every engine gives it. The twenty-digit
+        // cut must not show up in any of these, which is what a loop that
+        // stops when the fraction reaches zero buys over one that always runs
+        // its full count.
+        assert_eq!(in_radix(0.5, 2), "0.1");
+        assert_eq!(in_radix(0.0625, 2), "0.0001");
+        assert_eq!(in_radix(10.625, 2), "1010.101");
+        assert_eq!(in_radix(255.5, 8), "377.4");
+        assert_eq!(in_radix(4095.9375, 16), "fff.f");
+        assert_eq!(in_radix(0.03125, 32), "0.1");
+        // The sign is written once, in front of the whole thing.
+        assert_eq!(in_radix(-2.5, 2), "-10.1");
+    }
+
+    #[test]
+    fn an_integer_keeps_every_digit_it_has() {
+        assert_eq!(in_radix(9_007_199_254_740_991.0, 36), "2gosa7pa2gv");
+        assert_eq!(in_radix(0.0, 2), "0");
+        // Negative zero is not negative here: `-0 < 0` is false, and every
+        // engine writes `"0"`.
+        assert_eq!(in_radix(-0.0, 2), "0");
     }
 }

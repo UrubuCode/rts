@@ -41,11 +41,16 @@ pub(super) fn provided(name: &str) -> Option<Native> {
     })
 }
 
-/// `parseInt(s, radix)`.
+/// `parseInt(s, radix)`, and `Number.parseInt` — one function object, not two.
+///
+/// The specification says they are the same one, and a program can see it. So
+/// this is the only body, and [`super::number::register_number`] hangs the cell
+/// made from it on the constructor as well. Two copies is where one of them
+/// would come to read a leading sign differently.
 extern "C" fn parse_int(_e: u64, _this: u64, value: u64, radix: u64, _a2: u64, _a3: u64) -> u64 {
-    // The same body `Number.parseInt` has, reached rather than repeated: the
-    // specification says the two are the same function object, and two copies
-    // is where one of them would come to read a leading sign differently.
+    // Zero for "not given", which is what `integer_prefix` means by it and what
+    // `parseInt(s, 0)` means too — the one argument where the sentinel and the
+    // value genuinely say the same thing.
     let base = super::number::radix_of(radix);
     let parsed = super::number::leading(value, move |text| {
         super::number::integer_prefix(text, base)
@@ -53,15 +58,9 @@ extern "C" fn parse_int(_e: u64, _this: u64, value: u64, radix: u64, _a2: u64, _
     Value::from_f64(parsed).bits()
 }
 
-/// `parseFloat(s)`.
+/// `parseFloat(s)`, and `Number.parseFloat` — see [`parse_int`].
 extern "C" fn parse_float(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let parsed = super::number::leading(value, |text| {
-        let end = super::number::float_prefix(text);
-        match end {
-            0 => f64::NAN,
-            _ => text[..end].parse().unwrap_or(f64::NAN),
-        }
-    });
+    let parsed = super::number::leading(value, super::number::float_of);
     Value::from_f64(parsed).bits()
 }
 
