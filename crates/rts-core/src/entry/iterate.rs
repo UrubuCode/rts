@@ -1,37 +1,39 @@
-//! Turning something iterable into the array a loop can walk.
+//! Turning something iterable into the array a caller can walk.
 //!
-//! # Why this materialises rather than stepping
+//! # Who still asks for the whole thing, and who no longer does
+//!
+//! `for-of` no longer does, and this note used to be written as though it were
+//! the only caller. `emit/foreach.rs` asks a source for its `Symbol.iterator`
+//! and STEPS it whenever stepping is observable — which is every source except
+//! an array and a string, the two whose primordial iterators answer a copy of
+//! something already in hand. So a `break` reaches `return()`, a `Map` mutated
+//! by the loop body is seen as it is now, and an endless iterable ends the pass
+//! it was told to.
+//!
+//! What still arrives here is everything that must consume the WHOLE sequence
+//! to answer at all: `[...xs]`, `Array.from`, an array pattern over a source
+//! that declares no `Symbol.iterator`, and `yield*` over the same. For those,
+//! draining is not a divergence — it is the operation.
+//!
+//! # Why it materialises rather than stepping
 //!
 //! The specification's iterator is a pair of calls per element: `next()`
-//! answering an object with `done` and `value`. Expressing that here is two
-//! property reads and a call for every pass of every `for-of` in the program,
-//! and the object it reads them from is allocated per element.
+//! answering an object with `done` and `value`, allocated per element. A caller
+//! that is going to hold every element anyway pays that for nothing, so this
+//! answers the elements **as an array** and the allocation happens once.
 //!
-//! So this answers the elements **as an array**, and `for-of` becomes the
-//! ordinary indexed loop `for-in` already reduces to — which buys `break`,
-//! `continue`, labels and a fresh binding per pass without any of them being
-//! written a second time.
+//! # What that still costs, stated
 //!
-//! # What that costs, stated
+//! An iterable that is endless cannot be answered this way, and this imposes no
+//! cap on the walk — deliberately: a limit would turn a program that hangs into
+//! a program that quietly walks part of a sequence, and a wrong answer that runs
+//! is worse than one that visibly does not. `[...endless]` does not terminate
+//! here, and does not terminate in any other engine either.
 //!
-//! An iterable that is infinite or lazy cannot be walked this way, and one whose
-//! side effects are meant to be interleaved with the body has them all up front.
-//!
-//! That divergence is **live now**, where it used to be hypothetical. An object
-//! declaring `Symbol.iterator` is walked here to exhaustion before the loop body
-//! runs once, so:
-//!
-//! - `for (const x of infinite) { break; }` does not terminate. The language
-//!   stops after one element; this asks for all of them first.
-//! - a `return()` on the iterator is never called, because there is no early
-//!   exit to report — `IteratorClose` has nothing to close.
-//! - side effects in `next()` all happen before the first pass of the body.
-//!
-//! No cap is imposed on the walk, and that is deliberate: a limit would turn a
-//! program that hangs into a program that quietly walks part of a sequence, and
-//! a wrong answer that runs is worse than one that visibly does not. The fix is
-//! a lazy cursor in the emitter, which is what `for-of` becomes when the
-//! compiler stops reducing it to an indexed loop.
+//! Side effects in `next()` all happen before the caller sees the first element,
+//! which for a spread is what the caller asked for and for a `yield*` over a
+//! source with no `Symbol.iterator` is a real divergence — `emit/delegate.rs`
+//! names it as the case where nothing is steppable.
 //!
 //! # Why a string iterates by code POINT
 //!

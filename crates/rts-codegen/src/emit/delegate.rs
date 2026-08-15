@@ -15,25 +15,33 @@
 //! dropped, and `const r = yield* inner()` answered `undefined` where the
 //! delegate's `return` value was the point.
 //!
-//! So the protocol is what is driven — WHEN there is one. `source.next` being a
-//! function is the question asked, at run time, because it is the only part of
-//! the protocol that is reachable from here: `Symbol.iterator` is a symbol key
-//! and this layer has no way to spell one, and every object this engine hands to
-//! a `yield*` that needs stepping (a generator, a list iterator) IS its own
-//! iterator and carries `next` directly.
+//! So the protocol is what is driven, and the source is asked for its ITERATOR
+//! before it is asked to step. That sentence used to say the opposite — that
+//! `source.next` was "the only part of the protocol reachable from here",
+//! because `Symbol.iterator` is a symbol key and "this layer has no way to spell
+//! one". It has: `@@iterator` is the reserved name `class.rs` already emits a
+//! `[Symbol.iterator]() {}` member under, and `foreach.rs` asks the same
+//! question with it. What that claim cost was measured against Bun: `yield* xs`
+//! where `xs` is an ordinary iterable — an object with a `Symbol.iterator` and
+//! no `next` of its own — drained the whole sequence before yielding the first
+//! element, so `return()` was never called on it and a value sent in went
+//! nowhere.
 //!
-//! Anything else — an array, a string, a `Map` — goes through
-//! [`RuntimeOp::Iterate`], which is what `for`-`of` uses, so the two agree about
-//! what iterating something means. That path keeps the two limits it always had,
-//! and they are the same limit: the whole thing is materialised first, so
-//! `yield*` over an endless one does not finish, and there is no return value to
-//! capture because what came back is the elements. Neither is a second answer to
-//! the stepping question — it is the case where nothing is steppable.
+//! What is left for [`RuntimeOp::Iterate`] is a source with NEITHER a
+//! `Symbol.iterator` nor a `next` — a typed array here, and whatever else this
+//! runtime iterates without declaring how. That path keeps the two limits it
+//! always had, and they are the same limit: the whole thing is materialised
+//! first, so `yield*` over an endless one does not finish, and there is no
+//! return value to capture because what came back is the elements.
 //!
-//! The rejected alternative was a new runtime operation answering "the iterator
-//! of this", which is the right end state and is a change to the operation set
-//! rather than to `yield*`: `for`-`of`, spread and this would all move to it
-//! together, and moving one of them alone is how the two would come to disagree.
+//! # What still does not forward
+//!
+//! `outer.return(v)` and `outer.throw(e)` do not reach the inner iterator's
+//! `return`/`throw`. That is not this file's to fix: `entry/generator.rs`'s
+//! `g.return(v)` DROPS the parked frame rather than re-entering it, so there is
+//! no resumption for this loop to observe as abrupt. Its own note names what
+//! would close it — `frame::resumable_form` producing a "resume abruptly"
+//! address beside the plain one.
 
 use rts_cranelift::ir::FuncBuilder;
 
@@ -51,6 +59,7 @@ pub(super) fn emit_delegated(
 ) -> EmitResult<rts_cranelift::ir::ValueId> {
     let produced = super::expr::emit_expr(builder, scope, ctx, subject)?;
     let source = super::expr::as_value(builder, produced);
+    let source = iterator_of(builder, ctx, source)?;
 
     let stepwise = builder.create_block();
     let listwise = builder.create_block();
@@ -81,6 +90,57 @@ pub(super) fn emit_delegated(
     emit_list(builder, ctx, source, listwise, done)?;
 
     builder.switch_to(done);
+    Ok(answer)
+}
+
+/// `source[Symbol.iterator]()`, when the source declares one — otherwise the
+/// source unchanged.
+///
+/// The reason it is not simply `source.next` that decides, and the reason the
+/// symbol is spelled `@@iterator` rather than read off the global `Symbol`, are
+/// both in the module doc. What is worth saying here is the SHAPE: an object
+/// that is already its own iterator — every generator this engine makes, and
+/// every `ListIterator` — answers itself from that method, so the two paths meet
+/// again immediately and nothing downstream has to know which was taken.
+fn iterator_of(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    source: rts_cranelift::ir::ValueId,
+) -> EmitResult<rts_cranelift::ir::ValueId> {
+    let named = ctx.names.intern("@@iterator");
+    let key = key_constant(builder, ctx, named);
+    let method = super::expr::call(builder, ctx, RuntimeOp::GetProperty, &[source, key])?[0];
+    let kind = super::expr::call(builder, ctx, RuntimeOp::TypeOf, &[method])?[0];
+    let callable = super::expr::string_literal(builder, ctx, "function")?;
+    let declares =
+        super::expr::call(builder, ctx, RuntimeOp::StrictEquals, &[kind, callable])?[0];
+    let declares = super::expr::to_boolean(builder, ctx, declares)?;
+
+    let asked = builder.create_block();
+    let itself = builder.create_block();
+    let join = builder.create_block();
+    let answer = builder.add_block_param(join, UNPROVEN);
+    builder.branch(declares, (asked, &[]), (itself, &[]))?;
+
+    builder.switch_to(asked);
+    let absent = super::expr::undefined(builder, ctx);
+    // No arguments, and the SOURCE as the receiver — which is what makes a
+    // `[Symbol.iterator]()` written on a class body see its own instance.
+    let written = super::expr::count_constant(builder, 0);
+    let iterator = super::expr::call(
+        builder,
+        ctx,
+        RuntimeOp::Call,
+        &[method, source, written, absent, absent, absent, absent],
+    )?[0];
+    let iterator = builder.widen(iterator);
+    builder.jump(join, &[iterator])?;
+
+    builder.switch_to(itself);
+    let source = builder.widen(source);
+    builder.jump(join, &[source])?;
+
+    builder.switch_to(join);
     Ok(answer)
 }
 

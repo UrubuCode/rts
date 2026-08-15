@@ -87,12 +87,15 @@ pub struct Compiled {
     function_names: Vec<(u64, String, u32)>,
     /// The text the last run's answer had, read while its heap still existed.
     described: Option<String>,
-    /// The text of every string literal the compilation collected.
+    /// Every string literal the compilation collected, as UTF-16 code units.
     ///
     /// Held rather than seeded once, because a context is built per run: the
     /// literals are interned into the heap, and a run that reused values from
     /// a previous context would name cells in a table that no longer exists.
-    literals: Vec<String>,
+    ///
+    /// Units and not `String`, which is what `rts_core::entry::declare_literals`
+    /// states: `"\uD83D"` is a legal string this table has to be able to hold.
+    literals: Vec<Vec<u16>>,
     /// What each tagged-template site is made of, by literal position.
     ///
     /// Beside the literals because a site names them: the two are seeded
@@ -280,7 +283,7 @@ fn run_region(
     singletons: rts_core::value::Singletons,
     kinds: rts_core::Kinds,
     keys: &[String],
-    literals: &[String],
+    literals: &[Vec<u16>],
     templates: &[Vec<u32>],
     // What a parked frame looks like, per generator body. Seeded like the
     // literals and for the same reason: the numbers were fixed when the program

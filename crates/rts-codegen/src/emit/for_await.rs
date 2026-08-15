@@ -44,12 +44,18 @@
 //! program, which is the same trade `foreach.rs`'s missing `IteratorClose`
 //! makes.
 //!
-//! **`IteratorClose`** — a `break`, a `return`, or a `throw` out of this loop
-//! does not call and await `.return()` on the iterator. `foreach.rs`'s
-//! `for-of` has the identical gap for the same reason: closing needs a
-//! `try`/`finally`-shaped cleanup around the loop, which is more than this
-//! change's scope, and an iterator that is simply dropped is a stated
-//! divergence rather than a silent one.
+//! **`IteratorClose` past a `break`** — a `return` out of this loop, or a
+//! `throw` through it, still does not call `.return()` on the iterator. A
+//! `break` now does: the loop clears `__rts_af_iter` when the iterator reports
+//! `done` and nothing else does, so a binding still holding one after the loop
+//! IS an abandonment. `foreach.rs`'s `for-of` closes on exactly the same rule
+//! and states the same remainder — the paths this misses leave without reaching
+//! the statement after the loop at all, which needs a `try`/`finally`-shaped
+//! region rather than a statement.
+//!
+//! The call is AWAITED, which the synchronous form has no equivalent of and is
+//! what the specification's `AsyncIteratorClose` says: an async `return()` that
+//! suspends must finish before whatever follows the loop runs.
 
 use rts_cranelift::ir::FuncBuilder;
 
@@ -183,11 +189,37 @@ pub fn emit_for_await(
         at,
     };
 
+    // Exhaustion CLEARS the iterator, which is what makes the binding itself
+    // the record of whether the loop abandoned one: only this path assigns it,
+    // so anything else that leaves the loop leaves it holding the iterator.
     let exit_when_done = Stmt {
         kind: StmtKind::If {
             condition: member(name(step), done_name),
             then_branch: Box::new(Stmt {
-                kind: StmtKind::Break(None),
+                kind: StmtKind::Block(vec![
+                    Stmt {
+                        kind: StmtKind::Expr(Expr {
+                            kind: ExprKind::Assign {
+                                target: AssignTarget::Place(Box::new(name(iter))),
+                                value: Box::new(Expr {
+                                    kind: ExprKind::Literal(
+                                        crate::syntax::Literal::Singleton(
+                                            crate::values::Singleton::Undefined,
+                                        ),
+                                    ),
+                                    at,
+                                }),
+                                op: AssignOp::Plain,
+                            },
+                            at,
+                        }),
+                        at,
+                    },
+                    Stmt {
+                        kind: StmtKind::Break(None),
+                        at,
+                    },
+                ]),
                 at,
             }),
             else_branch: None,
@@ -228,6 +260,15 @@ pub fn emit_for_await(
     };
 
     let result = super::loops::emit_for(builder, scope, ctx, loops, None, None, None, &inner, label);
+    // `AsyncIteratorClose`, on the one exit that reaches here — see the module
+    // doc for which exits do not. The rule itself is `foreach.rs`'s, called
+    // rather than copied: the synchronous loop and this one closing an iterator
+    // differently is exactly what one shared statement makes unrepresentable.
+    if matches!(result, Ok(false)) {
+        let guard = super::foreach::still_open(iter, at);
+        let close = super::foreach::close_iterator_stmt(ctx, at, iter, guard, true);
+        super::stmt::emit_stmt(builder, scope, ctx, &mut Loops::default(), &close)?;
+    }
     scope.leave();
     result
 }

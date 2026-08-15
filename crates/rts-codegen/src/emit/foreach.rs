@@ -1,14 +1,81 @@
-//! `for (k in o)` — walking an object's keys.
+//! `for (k in o)` — walking an object's keys — and `for (x of xs)` — stepping a
+//! sequence.
 //!
 //! Its own file for the same reason `switch.rs` is: `loops.rs` had reached the
 //! thousand-line ceiling and this is part of what pushed it there.
+//!
+//! # Why one loop walks an array AND steps an iterator
+//!
+//! `for-in` reduces to an indexed walk over the keys, and so did `for-of` over
+//! [`crate::runtime::RuntimeOp::Iterate`]'s materialised array. That reduction
+//! is wrong for `for-of` in three ways at once, all of them measured against
+//! Bun on `tests/cross-runtime/`: a `break` never calls `return()` on the
+//! iterator, a `Map` or `Set` mutated by the body is walked as it was BEFORE
+//! the body ran, and a source that never reports `done` is drained forever
+//! instead of once per pass.
+//!
+//! The obvious repair — step the protocol always — costs a `{ value, done }`
+//! ALLOCATION per element of every `for-of` in the program, including the
+//! overwhelmingly common `for (const x of anArray)`, which is exactly what the
+//! materialised walk exists to avoid. So the two live in one loop and the
+//! source picks:
+//!
+//! ```text
+//! for (let i = 0; ; i++) {
+//!   let e;
+//!   if (i < len)            e = ks[i];          // the array walk, unchanged
+//!   else if (it === undefined) break;           // …and its end
+//!   else { const s = it.next();                 // the protocol, one step
+//!          if (s.done) { it = undefined; break; }
+//!          e = s.value; }
+//!   let x = e;
+//!   body
+//! }
+//! if (it !== undefined) close(it);              // IteratorClose, on `break`
+//! ```
+//!
+//! Exactly one of the two arms is ever live for a given source: a stepped
+//! source gets `ks` empty (`len` is 0, so the first arm never fires) and an
+//! array-walked one gets `it` undefined. The array path therefore emits and
+//! executes what it did before — the same `ks[i]`, the same proven index, the
+//! same hoisted run — and pays one predicted branch it was already paying as
+//! the loop test.
+//!
+//! # What picks, and why it is not `Array.isArray`
+//!
+//! The source is STEPPED unless walking a copy of it is indistinguishable from
+//! stepping it, which is true for exactly two primordials: an array's
+//! `Symbol.iterator` and a string's. So the question asked is "is this value's
+//! `Symbol.iterator` the one a fresh array would use?" — an identity comparison
+//! against `[]`'s own method, which needs no global name and cannot be broken
+//! by a program that rebinds `Array`. A program that replaces
+//! `Array.prototype[Symbol.iterator]` moves both sides of that comparison at
+//! once and keeps the array walk, which is the behaviour this loop had before
+//! and not a new divergence.
+//!
+//! `typeof src === "string"` is the second half, rather than a third identity
+//! comparison, because a string primitive is not an object and reading a method
+//! off one to compare it allocates a wrapper for nothing.
+//!
+//! # What `IteratorClose` here does NOT cover
+//!
+//! A `break`, and nothing else. A `return` out of the body, a `throw` through
+//! it, or a `break` to a LABEL on an enclosing loop all leave by a path that
+//! never reaches the statement after this loop, so `return()` is not called.
+//! Covering those needs a `try`/`finally`-shaped region around the loop, and
+//! `destructure/array.rs`'s `apply_default_stepwise` records what a synthetic
+//! `try` built during emission costs here: `capture.rs` decided which names
+//! need heap storage before any of these statements existed.
 
-use rts_cranelift::ir::FuncBuilder;
+use rts_cranelift::fault::Position;
+use rts_cranelift::ir::{FuncBuilder, ValueId};
 
 use super::loops::{Loops, emit_for};
-use super::{Ctx, EmitResult, Scope};
+use super::{Ctx, EmitResult, Scope, UNPROVEN};
 use crate::names::Name;
-use crate::syntax::{Expr, Pattern, Stmt};
+use crate::runtime::RuntimeOp;
+use crate::syntax::{BinaryOp, Expr, ExprKind, Literal, LogicalOp, Pattern, Stmt, UnaryOp};
+use crate::values::Singleton;
 
 /// Emits `for (k in o)`.
 ///
@@ -50,8 +117,7 @@ pub fn emit_for_each(
     over: crate::runtime::RuntimeOp,
 ) -> EmitResult<bool> {
     use crate::syntax::{
-        AssignOp, AssignTarget, Binding as SyntaxBinding, BindingKind, ExprKind, ForEachTarget,
-        StmtKind,
+        AssignOp, AssignTarget, Binding as SyntaxBinding, BindingKind, ForEachTarget, StmtKind,
     };
 
     // `for (x of xs)` / `for (x in o)` where `x` already exists: no fresh
@@ -84,27 +150,28 @@ pub fn emit_for_each(
     let at = statement.at;
     let index = ctx.names.intern("__rts_in_index");
     let keys = ctx.names.intern("__rts_in_keys");
-    let name = |of: Name| Expr {
-        kind: ExprKind::Ident(of),
-        at,
-    };
+    let name = |of: Name| ident(of, at);
     let number = |value: f64| Expr {
         kind: ExprKind::Literal(crate::syntax::Literal::Number(value)),
         at,
     };
+
+    // `for-of` steps a real iterator when the source asks to be stepped;
+    // `for-in` never does, because an object's keys are a list by definition
+    // and nothing observes them being read.
+    let stepping = matches!(over, RuntimeOp::Iterate);
+    let iterator = ctx.names.intern("__rts_of_it");
 
     // The keys are emitted HERE rather than as a node in the expansion,
     // because there is no name a program could write that means "the runtime
     // operation". Bound in a scope of its own so the loop below sees an
     // ordinary binding and needs to know nothing about where it came from.
     scope.enter();
-    let enumerated = super::expr::emit_expr(builder, scope, ctx, subject)?;
-    let enumerated = super::expr::call(
-        builder,
-        ctx,
-        over,
-        &[enumerated],
-    )?[0];
+    let subject_value = super::expr::emit_expr(builder, scope, ctx, subject)?;
+    let enumerated = match stepping {
+        false => super::expr::call(builder, ctx, over, &[subject_value])?[0],
+        true => open_sequence(builder, scope, ctx, subject_value, iterator, at)?,
+    };
     super::binding::declare(builder, scope, ctx, keys, enumerated)?;
 
     let init = crate::syntax::ForInit::Declare {
@@ -179,13 +246,21 @@ pub fn emit_for_each(
     // — and `expr.rs` reads that when it lowers an `Index`. Inventing a node
     // for it would put a construct in the tree no program can write, and
     // spelling it as a call to a name would invent a binding nothing declares.
-    let element = Expr {
+    let indexed = Expr {
         kind: ExprKind::Index {
             object: Box::new(name(keys)),
             index: Box::new(name(index)),
             optional: false,
         },
         at,
+    };
+    // What the pattern is bound FROM. The walked form reads the array
+    // directly; the stepped form reads a local, because one of its two arms
+    // did not read the array at all.
+    let held = ctx.names.intern("__rts_of_elem");
+    let element = match stepping {
+        false => indexed.clone(),
+        true => name(held),
     };
     let bind = if fresh_binding {
         Stmt {
@@ -216,8 +291,18 @@ pub fn emit_for_each(
             at,
         }
     };
+    // The walked form's whole pass is "bind, then run the body"; the stepped
+    // form puts the two arms that decide WHERE the element came from in front
+    // of it. Both end in the same two statements, which is what keeps the
+    // per-pass binding rule stated once.
+    let mut passes = match stepping {
+        false => Vec::new(),
+        true => fetch_element(ctx, at, held, iterator, &test, indexed),
+    };
+    passes.push(bind);
+    passes.push(body.clone());
     let inner = Stmt {
-        kind: StmtKind::Block(vec![bind, body.clone()]),
+        kind: StmtKind::Block(passes),
         at,
     };
 
@@ -278,13 +363,22 @@ pub fn emit_for_each(
             ctx.set_element_run(Some((base, count)))
         }
     };
+    // The stepped form has NO header test: the two arms above decide when the
+    // sequence ended, and each of them says so with a `break`. Leaving the test
+    // in the header as well would ask `i < len` twice per pass and end the loop
+    // before the iterator was ever stepped, `len` being zero for a source that
+    // is stepped rather than walked.
+    let header_test = match stepping {
+        false => Some(&test),
+        true => None,
+    };
     let result = emit_for(
         builder,
         scope,
         ctx,
         loops,
         Some(&init),
-        Some(&test),
+        header_test,
         Some(&update),
         &inner,
         label,
@@ -308,6 +402,412 @@ pub fn emit_for_each(
     if !length_was_proven {
         ctx.forget_minted(length);
     }
+    // `IteratorClose`, and the reason it can be a plain statement after the loop
+    // rather than a cleanup region: the only early exit that reaches here is a
+    // `break` out of this loop, and a `break` leaves `it` holding the iterator
+    // because only exhaustion clears it. The module doc lists what that misses.
+    if stepping && matches!(result, Ok(false)) {
+        let close = close_iterator_stmt(ctx, at, iterator, still_open(iterator, at), false);
+        super::stmt::emit_stmt(builder, scope, ctx, &mut Loops::default(), &close)?;
+    }
     scope.leave();
     result
+}
+
+/// `it !== undefined` — the iterator was abandoned rather than exhausted.
+///
+/// The flag IS the binding: exhaustion is the one thing that clears it, so
+/// nothing else has to be kept agreeing with it.
+pub(super) fn still_open(iterator: Name, at: Position) -> Expr {
+    Expr {
+        kind: ExprKind::Binary {
+            op: BinaryOp::StrictNotEqual,
+            left: Box::new(ident(iterator, at)),
+            right: Box::new(undefined_expr(at)),
+        },
+        at,
+    }
+}
+
+/// The array a `for-of` walks, and — declared as `iterator` — what to step once
+/// it runs out.
+///
+/// Exactly one of the two is real for a given source, and the module doc says
+/// which and why. What this function owns is the QUESTION: it evaluates the
+/// source once, reads its `Symbol.iterator` once, and answers with an array in
+/// both cases so that everything downstream — the length read, the proven index,
+/// the hoisted run — sees what it has always seen.
+fn open_sequence(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    source: ValueId,
+    iterator: Name,
+    at: Position,
+) -> EmitResult<ValueId> {
+    let source_name = ctx.names.intern("__rts_of_src");
+    super::binding::declare(builder, scope, ctx, source_name, source)?;
+
+    // `"@@iterator"` rather than the global `Symbol.iterator`, which is what
+    // `for_await.rs` and `destructure/array.rs` spell. Two reasons, and the
+    // second is why this one differs from them: a `for-of` is in almost every
+    // program, so resolving a GLOBAL name for it would let `const Symbol = 1`
+    // anywhere in scope break every loop under it; and the reserved `@@` space
+    // is already how this crate names a symbol key — `class.rs` emits
+    // `[Symbol.iterator]() {}` in a class body under exactly this name.
+    let symbol_iterator = ctx.names.intern("@@iterator");
+    let key = super::property::key_constant(builder, ctx, symbol_iterator);
+    let method = super::expr::call(builder, ctx, RuntimeOp::GetProperty, &[source, key])?[0];
+    let method_name = ctx.names.intern("__rts_of_m");
+    super::binding::declare(builder, scope, ctx, method_name, method)?;
+
+    // The array a fresh `[]` would be stepped by. Made here rather than read off
+    // a global, so that no name a program can rebind decides which arm a loop
+    // takes — see the module doc.
+    let none = super::expr::count_constant(builder, 0);
+    let empty = super::expr::call(builder, ctx, RuntimeOp::ArrayNew, &[none])?[0];
+    let key = super::property::key_constant(builder, ctx, symbol_iterator);
+    let walked = super::expr::call(builder, ctx, RuntimeOp::GetProperty, &[empty, key])?[0];
+    let walked_name = ctx.names.intern("__rts_of_walked");
+    super::binding::declare(builder, scope, ctx, walked_name, walked)?;
+
+    let steppable = steppable_expr(at, source_name, method_name, walked_name);
+    let asked = super::expr::emit_expr(builder, scope, ctx, &steppable)?;
+    let asked = super::expr::to_boolean(builder, ctx, asked)?;
+
+    let stepped = builder.create_block();
+    let listed = builder.create_block();
+    let join = builder.create_block();
+    let held = builder.add_block_param(join, UNPROVEN);
+    let elements = builder.add_block_param(join, UNPROVEN);
+    builder.branch(asked, (stepped, &[]), (listed, &[]))?;
+
+    builder.switch_to(stepped);
+    let absent = super::expr::undefined(builder, ctx);
+    // `src[Symbol.iterator]()` takes no arguments, and takes the SOURCE as its
+    // receiver — which is what makes a class method reached through the
+    // prototype chain see its own instance.
+    let written = super::expr::count_constant(builder, 0);
+    let it = super::expr::call(
+        builder,
+        ctx,
+        RuntimeOp::Call,
+        &[method, source, written, absent, absent, absent, absent],
+    )?[0];
+    let it = builder.widen(it);
+    // The walk gets nothing to walk: `len` is 0, so the arm that reads the array
+    // never fires and the array itself is the one already allocated above.
+    let empty = builder.widen(empty);
+    builder.jump(join, &[it, empty])?;
+
+    builder.switch_to(listed);
+    let absent = super::expr::undefined(builder, ctx);
+    let materialised = super::expr::call(builder, ctx, RuntimeOp::Iterate, &[source])?[0];
+    let materialised = builder.widen(materialised);
+    builder.jump(join, &[absent, materialised])?;
+
+    builder.switch_to(join);
+    super::binding::declare(builder, scope, ctx, iterator, held)?;
+    Ok(elements)
+}
+
+/// `m !== walked && typeof src !== "string" && typeof m === "function"` — is
+/// this source one that has to be STEPPED rather than copied?
+///
+/// The identity comparison is FIRST, and the order is the only thing about this
+/// expression that is a performance decision rather than a semantic one: none of
+/// the three has a side effect, so `&&` may hold them in any order, and an array
+/// — by a wide margin the most common source — fails the first and evaluates
+/// neither of the other two.
+fn steppable_expr(at: Position, source: Name, method: Name, walked: Name) -> Expr {
+    let is_function = Expr {
+        kind: ExprKind::Binary {
+            op: BinaryOp::StrictEqual,
+            left: Box::new(Expr {
+                kind: ExprKind::Unary {
+                    op: UnaryOp::TypeOf,
+                    operand: Box::new(ident(method, at)),
+                },
+                at,
+            }),
+            right: Box::new(text_expr("function", at)),
+        },
+        at,
+    };
+    let not_an_array = Expr {
+        kind: ExprKind::Binary {
+            op: BinaryOp::StrictNotEqual,
+            left: Box::new(ident(method, at)),
+            right: Box::new(ident(walked, at)),
+        },
+        at,
+    };
+    let not_text = Expr {
+        kind: ExprKind::Binary {
+            op: BinaryOp::StrictNotEqual,
+            left: Box::new(Expr {
+                kind: ExprKind::Unary {
+                    op: UnaryOp::TypeOf,
+                    operand: Box::new(ident(source, at)),
+                },
+                at,
+            }),
+            right: Box::new(text_expr("string", at)),
+        },
+        at,
+    };
+    both(both(not_an_array, not_text, at), is_function, at)
+}
+
+/// `left && right`.
+fn both(left: Expr, right: Expr, at: Position) -> Expr {
+    Expr {
+        kind: ExprKind::Logical {
+            op: LogicalOp::And,
+            left: Box::new(left),
+            right: Box::new(right),
+        },
+        at,
+    }
+}
+
+/// The two arms that put one element in `held`, and the `break` that ends the
+/// loop when neither can.
+///
+/// Written as ordinary statements — `let`, `if`, an assignment, `break` — for
+/// the reason `destructure/array.rs` gives for the same choice: `if`'s own
+/// lowering already merges what each arm did to a binding, and building the
+/// merge here would be that rule written a second time.
+fn fetch_element(
+    ctx: &mut Ctx,
+    at: Position,
+    held: Name,
+    iterator: Name,
+    within_bounds: &Expr,
+    indexed: Expr,
+) -> Vec<Stmt> {
+    use crate::syntax::{Binding as SyntaxBinding, BindingKind, StmtKind};
+
+    let step = ctx.names.intern("__rts_of_step");
+    let next_name = ctx.names.intern("next");
+    let done_name = ctx.names.intern("done");
+    let value_name = ctx.names.intern("value");
+
+    let declare_held = Stmt {
+        kind: StmtKind::Declare {
+            kind: BindingKind::Let,
+            bindings: vec![SyntaxBinding {
+                target: Pattern::Name(held),
+                value: None,
+                claim: None,
+            }],
+        },
+        at,
+    };
+
+    // `const s = it.next(); if (s.done) { it = undefined; break; } e = s.value;`
+    let declare_step = Stmt {
+        kind: StmtKind::Declare {
+            kind: BindingKind::Const,
+            bindings: vec![SyntaxBinding {
+                target: Pattern::Name(step),
+                value: Some(Expr {
+                    kind: ExprKind::Call {
+                        callee: Box::new(member_expr(ident(iterator, at), next_name, at)),
+                        arguments: Vec::new(),
+                        optional: false,
+                    },
+                    at,
+                }),
+                claim: None,
+            }],
+        },
+        at,
+    };
+    let finish = Stmt {
+        kind: StmtKind::If {
+            condition: member_expr(ident(step, at), done_name, at),
+            then_branch: Box::new(Stmt {
+                kind: StmtKind::Block(vec![
+                    assign_stmt(ident(iterator, at), undefined_expr(at), at),
+                    Stmt {
+                        kind: StmtKind::Break(None),
+                        at,
+                    },
+                ]),
+                at,
+            }),
+            else_branch: None,
+        },
+        at,
+    };
+    let take_value = assign_stmt(
+        ident(held, at),
+        member_expr(ident(step, at), value_name, at),
+        at,
+    );
+    let from_iterator = Stmt {
+        kind: StmtKind::Block(vec![declare_step, finish, take_value]),
+        at,
+    };
+
+    // `else if (it === undefined) break;` — the walked form's own end, and the
+    // only place a `for-of` over an array leaves the loop.
+    let exhausted = Stmt {
+        kind: StmtKind::If {
+            condition: Expr {
+                kind: ExprKind::Binary {
+                    op: BinaryOp::StrictEqual,
+                    left: Box::new(ident(iterator, at)),
+                    right: Box::new(undefined_expr(at)),
+                },
+                at,
+            },
+            then_branch: Box::new(Stmt {
+                kind: StmtKind::Break(None),
+                at,
+            }),
+            else_branch: Some(Box::new(from_iterator)),
+        },
+        at,
+    };
+
+    let choose = Stmt {
+        kind: StmtKind::If {
+            condition: within_bounds.clone(),
+            then_branch: Box::new(Stmt {
+                kind: StmtKind::Block(vec![assign_stmt(ident(held, at), indexed, at)]),
+                at,
+            }),
+            else_branch: Some(Box::new(exhausted)),
+        },
+        at,
+    };
+
+    vec![declare_held, choose]
+}
+
+/// `if (<guard>) { if (typeof it.return === "function") { it.return(); } }` —
+/// `IteratorClose`, as far as this engine expresses it.
+///
+/// One home for three callers — this loop, `for_await.rs`, and
+/// `destructure/array.rs` — because the rule has three parts a second copy
+/// would get differently: `return()` is called only when the source has not
+/// already reported `done`, only when it exists and is callable (a plain
+/// iterator-like object with a bare `next()` has none, and that is legal), and
+/// `for await` must AWAIT what it answers, which is what makes an async
+/// `return()` that suspends finish before the loop's caller carries on.
+pub(super) fn close_iterator_stmt(
+    ctx: &mut Ctx,
+    at: Position,
+    iterator: Name,
+    guard: Expr,
+    awaited: bool,
+) -> Stmt {
+    use crate::syntax::StmtKind;
+
+    let return_name = ctx.names.intern("return");
+    let return_member = member_expr(ident(iterator, at), return_name, at);
+    let is_callable = Expr {
+        kind: ExprKind::Binary {
+            op: BinaryOp::StrictEqual,
+            left: Box::new(Expr {
+                kind: ExprKind::Unary {
+                    op: UnaryOp::TypeOf,
+                    operand: Box::new(return_member.clone()),
+                },
+                at,
+            }),
+            right: Box::new(text_expr("function", at)),
+        },
+        at,
+    };
+    let called = Expr {
+        kind: ExprKind::Call {
+            callee: Box::new(return_member),
+            arguments: Vec::new(),
+            optional: false,
+        },
+        at,
+    };
+    let called = match awaited {
+        false => called,
+        true => Expr {
+            kind: ExprKind::Await(Box::new(called)),
+            at,
+        },
+    };
+    let inner = Stmt {
+        kind: StmtKind::If {
+            condition: is_callable,
+            then_branch: Box::new(Stmt {
+                kind: StmtKind::Expr(called),
+                at,
+            }),
+            else_branch: None,
+        },
+        at,
+    };
+    Stmt {
+        kind: StmtKind::If {
+            condition: guard,
+            then_branch: Box::new(inner),
+            else_branch: None,
+        },
+        at,
+    }
+}
+
+/// `name`, as a synthetic identifier expression.
+fn ident(name: Name, at: Position) -> Expr {
+    Expr {
+        kind: ExprKind::Ident(name),
+        at,
+    }
+}
+
+/// `object.property`, as a synthetic expression.
+fn member_expr(object: Expr, property: Name, at: Position) -> Expr {
+    Expr {
+        kind: ExprKind::Member {
+            object: Box::new(object),
+            property,
+            optional: false,
+        },
+        at,
+    }
+}
+
+/// `place = value;`, as a synthetic statement.
+fn assign_stmt(place: Expr, value: Expr, at: Position) -> Stmt {
+    use crate::syntax::{AssignOp, AssignTarget, StmtKind};
+
+    Stmt {
+        kind: StmtKind::Expr(Expr {
+            kind: ExprKind::Assign {
+                target: AssignTarget::Place(Box::new(place)),
+                value: Box::new(value),
+                op: AssignOp::Plain,
+            },
+            at,
+        }),
+        at,
+    }
+}
+
+/// `undefined`, as a synthetic expression — the language's own singleton
+/// literal rather than a name, which nothing here binds.
+fn undefined_expr(at: Position) -> Expr {
+    Expr {
+        kind: ExprKind::Literal(Literal::Singleton(Singleton::Undefined)),
+        at,
+    }
+}
+
+/// A string literal, as a synthetic expression.
+fn text_expr(text: &str, at: Position) -> Expr {
+    Expr {
+        kind: ExprKind::Literal(Literal::String(text.into())),
+        at,
+    }
 }
