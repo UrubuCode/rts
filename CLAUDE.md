@@ -89,7 +89,7 @@ seven services over real CLDR data, not a table of English — plus what
 
 `crates/rts-host/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-14: 750 of the 808 `*.test.ts` files pass**, by
+claimed. **2026-08-15: 754 of the 808 `*.test.ts` files pass**, by
 `target/release/rts.exe test`, one process per file. It was 756 of 799 on
 08-10, 626 of 797 on 08-09 and 535 of 818 at the start of 08-08, through
 generators, `yield*`, `Proxy`, native iterators, `export *`, a catchable throw,
@@ -99,17 +99,20 @@ the bare `rts` specifier, stack traces, variadic natives and wrapper objects.
 The corpus grew by nine files and there were commits between the two
 measurements that neither was taken across, so the drop is not attributable to
 anything by subtraction. What IS attributable was measured per file, against a
-binary of the tree as it stood before the work: 748 → 750, two gained, **none
-lost**. That is the only comparison a number of this shape supports.
+binary of the tree as it stood before the work: 748 → 750 → 754, six gained,
+**none lost**. That is the only comparison a number of this shape supports —
+and the file that used to HANG is gone from the column:
+`for_await_break_return.test.ts` timed out on every run until `for`-`of`
+stopped materialising its sequence.
 
-**And the second ruler: 646 of 708 cross-runtime fixtures** (91.2%), measured
+**And the second ruler: 674 of 708 cross-runtime fixtures** (95.2%), measured
 2026-08-15 by `scripts/cross_runtime_check.sh`, one process per file, against
 Bun and Node. That corpus is a different question from the one above — it asks
 whether this engine and a real one agree about the same program, where
 `*.test.ts` asks whether the program does what it says.
 
-It was 630, 593 and 419 earlier in the same stretch. Every step between those
-figures was measured PER FILE against a kept binary and cost **nothing**: the
+It was 666, 646, 630, 593 and 419 earlier in the same stretch. Every step between
+those figures was measured PER FILE against a kept binary and cost **nothing**: the
 LOST list is empty at each one, which is the only form the claim "no regression"
 takes here. The net number never was.
 
