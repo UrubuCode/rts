@@ -11,22 +11,62 @@
 //! `Reflect.get(o, k)` and `o[k]` therefore reach the same function, and a
 //! getter runs in both because the path is shared rather than duplicated.
 //!
-//! # What is deliberately absent
+//! # Where the verdicts come from
 //!
-//! `Reflect.getOwnPropertyDescriptor` and `Reflect.defineProperty`'s full
-//! descriptor. A descriptor is an object with six fields and four of them —
-//! `writable`, `enumerable`, `configurable`, and own-versus-inherited — are facts
-//! the shape tree does not record, which is the same gap
-//! [`super::object_global`] names for `Object.defineProperty`. Answering a
-//! descriptor with three of six fields invented would be worse than not
-//! answering: a program branching on `writable` would branch on a guess.
+//! Four members answer a boolean rather than a value, and three of them used to
+//! invent it: `set`, `isExtensible` and `preventExtensions` each answered `true`
+//! for any object, on the stated grounds that nothing recorded a refusal. That
+//! stopped being true when [`super::integrity`] began recording one — an
+//! object's level and a property's three attributes — and an invented `true`
+//! beside a recorded `false` is the two-answers-to-one-question this crate
+//! keeps refusing. Every verdict here is now read from what that module holds,
+//! or from a proxy handler's own answer.
 //!
-//! `Reflect.construct(target, args, newTarget)` ignores its third argument. The
-//! target stack carries one class per construction and taking a different
-//! prototype from a fourth value is a capability, not a wrapper.
+//! # What is deliberately incomplete
+//!
+//! `Reflect.set(target, key, value, receiver)` ignores its fourth argument, and
+//! `Reflect.get(target, key, receiver)` its third. A receiver distinct from the
+//! target changes which object a setter's `this` is, which is a capability of
+//! the property path rather than of this wrapper.
+//!
+//! `Reflect.construct(target, args, newTarget)` reads its third argument for
+//! the PROTOTYPE and not for `new.target` — see [`Reflect::construct`] for
+//! exactly which half is missing and where the rest of it belongs.
 
-use super::with_current;
+use super::{Context, with_current};
+use crate::object::Key;
+use crate::value::Value;
 
+/// Whether a store to this key of this cell would land.
+///
+/// # Why this is a second function rather than `put`'s answer
+///
+/// Because `objects::put` has none. It refuses silently — a frozen object, a
+/// non-writable property, and a new property on a closed one all return without
+/// writing and without saying so — which is exactly right for `o.x = 1`, an
+/// expression whose value is `1` either way, and leaves `Reflect.set` and a
+/// proxy's forwarded write with nothing to report.
+///
+/// So the two refusals are asked here, from [`super::integrity`] — the one place
+/// that records them, so this composes facts rather than restating them. It
+/// belongs beside `put`, and moves there the day that function answers a
+/// verdict; until then this is the only spelling, which is what keeps
+/// `Reflect.set` and `proxy::set_verdict` from growing one each.
+pub(in crate::entry) fn write_lands(context: &mut Context, cell: u32, key: Key) -> bool {
+    if let Some(named) = super::objects::machine_key(key)
+        && super::integrity::refuses_key_write(context, cell, named)
+    {
+        return false;
+    }
+    if !super::integrity::refuses_growth(context, cell) {
+        return true;
+    }
+    // A closed object still accepts a write to something it already has, and one
+    // through a setter it inherits — `preventExtensions` refuses new properties
+    // and nothing else.
+    super::objects::own_property(context, cell, key).is_some()
+        || super::accessor::setter_for(context, cell, key).is_some()
+}
 
 /// `Reflect`.
 #[rtse::class("Reflect", namespace, tag)]
@@ -38,12 +78,27 @@ impl Reflect {
 
     /// `Reflect.set(target, key, value)` — answers whether it was written.
     ///
-    /// True whenever the write reached an object, which is what this engine can
-    /// establish: a refusal is a non-writable property or a frozen object, and
-    /// neither is recorded. Named rather than answered as a guess.
+    /// A proxy answers with its handler's own `set` verdict, and an ordinary
+    /// object with whether anything refused the store: `Object.freeze` and
+    /// `writable: false` are both recorded, and both mean `false` here.
     fn set(target: u64, key: u64, value: u64) -> bool {
+        if let Some(named) =
+            with_current(|context| super::computed::property_key(context, Value(key)))
+            && let Some(answered) = super::proxy::set_verdict(target, named, value)
+        {
+            return answered;
+        }
+        let lands = with_current(|context| {
+            let (Some(cell), Some(named)) = (
+                Value(target).as_slot(),
+                super::computed::property_key(context, Value(key)),
+            ) else {
+                return false;
+            };
+            write_lands(context, cell, named)
+        });
         super::computed::set_indexed(target, key, value);
-        crate::value::Value(target).as_slot().is_some()
+        lands
     }
 
     /// `Reflect.has(target, key)` — the same question `key in target` asks.
@@ -76,15 +131,12 @@ impl Reflect {
     }
 
     /// `Reflect.setPrototypeOf(target, prototype)`.
+    ///
+    /// The verdict `Object.setPrototypeOf` throws on: a cycle, and a target that
+    /// refuses to grow. `super::chain::apply_prototype` is the one place either
+    /// is decided, and this is the spelling that reports rather than raises.
     fn set_prototype_of(target: u64, prototype: u64) -> bool {
-        // A proxy answers with its handler's own verdict: a `setPrototypeOf`
-        // trap returning `false` is a refusal, and reporting `true` because the
-        // call reached an object would be this function inventing the answer.
-        if let Some(answered) = super::proxy::set_prototype_verdict(target, prototype) {
-            return answered;
-        }
-        super::chain::set_prototype(target, prototype);
-        crate::value::Value(target).as_slot().is_some()
+        super::chain::apply_prototype(target, prototype)
     }
 
     /// `Reflect.apply(target, thisArgument, argumentList)`.
@@ -95,9 +147,45 @@ impl Reflect {
         super::functions::call_with_args(target, receiver, arguments)
     }
 
-    /// `Reflect.construct(target, argumentList)`.
-    fn construct(target: u64, arguments: u64) -> u64 {
-        super::functions::construct_with_args(target, arguments)
+    /// `Reflect.construct(target, argumentList, newTarget)`.
+    ///
+    /// # What the third argument does here, and what it does not
+    ///
+    /// It decides what the produced object INHERITS FROM, which is what a
+    /// program reaches for it for: `Reflect.construct(Base, [x], Derived)`
+    /// answers something `instanceof Derived`. It does **not** decide what
+    /// `new.target` reads inside `target`'s body, which stays `target`.
+    ///
+    /// The two are one act in the specification and two here, because the object
+    /// is allocated by `functions::construct_with_args` from the target stack it
+    /// pushes itself — so a different prototype can only be applied after the
+    /// fact. Making them one again means a `newTarget` parameter on that entry
+    /// point, which is where the whole of `[[Construct]]` already lives; this
+    /// wrapper cannot spell it without writing a second `[[Construct]]` beside
+    /// it, and a second one is how the two come to disagree about what a derived
+    /// constructor allocates.
+    ///
+    /// The divergence, named: a constructor that branches on `new.target`
+    /// branches on the wrong value. Answering the wrong PROTOTYPE — which is
+    /// what dropping the argument did — is the larger of the two wrongs, because
+    /// every `instanceof` on the result reads it.
+    fn construct(target: u64, arguments: u64, new_target: u64) -> u64 {
+        let produced = super::functions::construct_with_args(target, arguments);
+        // Rule 8 of this crate's README: the constructor is user code, and a
+        // relink applied to the `undefined` a throw leaves behind would be work
+        // done under an exception that is already on its way out.
+        if super::throw::in_flight() {
+            return produced;
+        }
+        if new_target == target || Value(new_target).as_slot().is_none() {
+            return produced;
+        }
+        let key = with_current(|context| context.well_known_text("prototype"));
+        let prototype = super::computed::get_indexed(new_target, key);
+        if Value(prototype).as_slot().is_some() {
+            super::chain::apply_prototype(produced, prototype);
+        }
+        produced
     }
 
     /// `Reflect.defineProperty(target, key, descriptor)`.
@@ -106,15 +194,14 @@ impl Reflect {
     /// `false` says and what distinguishes this from `Object.defineProperty` —
     /// that one answers the object.
     fn define_property(target: u64, key: u64, descriptor: u64) -> bool {
-        if let Some(named) = with_current(|context| {
-            super::computed::property_key(context, crate::value::Value(key))
-        })
+        if let Some(named) =
+            with_current(|context| super::computed::property_key(context, Value(key)))
             && let Some(answered) = super::proxy::define(target, named, descriptor)
         {
             return answered;
         }
         super::object_global::define(target, key, descriptor);
-        crate::value::Value(target).as_slot().is_some()
+        Value(target).as_slot().is_some()
     }
 
     /// `Reflect.getOwnPropertyDescriptor(target, key)`.
@@ -128,21 +215,33 @@ impl Reflect {
 
     /// `Reflect.isExtensible(target)`.
     ///
-    /// Always true for an object, because nothing here can make one otherwise:
-    /// `Object.preventExtensions` is not built, and a flag no operation reads
-    /// would be a property this answers about and nothing enforces.
+    /// What `super::integrity` recorded, which is the same answer
+    /// `Object.isExtensible` gives — the two are one question and must not be
+    /// two. A proxy asks its handler, whose answer the specification pins to the
+    /// target's own.
     fn is_extensible(target: u64) -> bool {
-        crate::value::Value(target).as_slot().is_some()
+        if let Some(answered) = super::proxy::extensible(target) {
+            return answered;
+        }
+        with_current(|context| {
+            Value(target)
+                .as_slot()
+                .is_some_and(|cell| context.integrity_at(cell).is_none())
+        })
     }
 
     /// `Reflect.preventExtensions(target)`.
     ///
-    /// A no-op that answers `true`, the same trade [`is_extensible`] states:
-    /// nothing here enforces a sealed-to-new-properties object, so recording
-    /// the flag without an operation that reads it would be a promise no
-    /// write honours. `true` for any object, `false` for a non-object — the
-    /// one distinction this engine CAN make honestly.
+    /// The real thing, through the module that makes it stick: a closed object
+    /// refuses new properties at the store resolver, not only at the slow path.
+    /// This answered `true` without doing anything for as long as nothing here
+    /// could close an object — which was a promise no write honoured, and
+    /// `Object.preventExtensions` has honoured it since `integrity` landed.
     fn prevent_extensions(target: u64) -> bool {
-        crate::value::Value(target).as_slot().is_some()
+        if let Some(answered) = super::proxy::prevent_extensions(target) {
+            return answered;
+        }
+        super::integrity::restrict(target, super::integrity::Integrity::Closed);
+        Value(target).as_slot().is_some()
     }
 }
