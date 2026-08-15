@@ -105,9 +105,13 @@ pub(super) fn object_new_in(context: &mut Context) -> u64 {
 /// language does rather than an error being swallowed: reading an absent
 /// property is legal.
 ///
-/// It also answers `undefined` for a receiver that is not an object, and that is
-/// **not** what the language does — `null.x` throws a `TypeError`. A stated gap:
-/// throwing needs the machine's protected regions, and nothing emits those yet.
+/// It answered `undefined` for `null.x` and `undefined.x` too, which was a
+/// stated gap waiting on a throw a handler could catch. That arrived, so the
+/// gap closed: both raise a `TypeError` now, and [`refuse_access`] says why the
+/// difference is bigger than it looks. Every OTHER primitive still answers —
+/// a number reaches `Number.prototype` and a string reaches its own characters,
+/// which is the language and not a leftover.
+///
 /// # Why this is two statements rather than one expression
 ///
 /// Because the answer may be a **function to call**. An accessor's getter is
@@ -117,6 +121,16 @@ pub(super) fn object_new_in(context: &mut Context) -> u64 {
 /// shape `own_keys` and `exec` have, for the same reason.
 #[rtse::entry]
 pub fn get_property(object: u64, key: i64) -> u64 {
+    // `undefined` and `null` first, and BEFORE the proxy question: neither can
+    // be a proxy, and answering `undefined` for `u.x` is what let three
+    // unrelated failures report an operation two steps downstream — see
+    // [`refuse_access`].
+    if let Some(refusal) =
+        with_current(|context| access_refusal(context, object, key_of(context, key), true))
+    {
+        super::throw::type_error(&refusal);
+        return with_current(|context| undefined_of(context));
+    }
     // A proxy answers by running user code, so it is asked BEFORE any borrow
     // that a lookup would take — the trap may call straight back in here.
     // `None` means this is an ordinary object, which is every object in a
@@ -174,6 +188,14 @@ pub fn get_property(object: u64, key: i64) -> u64 {
 /// after the borrow ends.
 #[rtse::entry]
 pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
+    // The same refusal as the read, and the language spells it the same way:
+    // `u.x = 1` on `undefined` throws rather than writing into nothing.
+    if let Some(refusal) =
+        with_current(|context| access_refusal(context, object, key_of(context, key), false))
+    {
+        super::throw::type_error(&refusal);
+        return value;
+    }
     // ONE borrow of the context for the ordinary write, and the two paths that
     // cannot finish inside it — a proxy trap and a setter, both of which call
     // user code — leave with what they need instead.
@@ -544,6 +566,82 @@ pub(super) const CHAIN_LIMIT: usize = 1 << 16;
 fn key_of(context: &Context, number: i64) -> Option<Key> {
     let number = u32::try_from(number).ok()?;
     context.keys.key(number).map(Key::Name)
+}
+
+/// `undefined` and `null` — the two values a property access refuses.
+///
+/// Every other primitive HAS a property access: a number reaches
+/// `Number.prototype`, a string reaches its own characters. These two reach
+/// nothing, and the language says so by throwing rather than by answering
+/// `undefined`.
+pub(in crate::entry) fn nullish(context: &Context, value: u64) -> Option<&'static str> {
+    // `is_encoded` FIRST, which `tag_of`'s own documentation requires and which
+    // reading it without cost every integer in the corpus: a double is its own
+    // bits, and `100.0` is `0x4059…`, whose tag field reads as `TAG_SINGLETON`
+    // and whose payload field reads as `0` — the number `undefined` was given.
+    // So `(100).toString()` raised "Cannot read properties of undefined" while
+    // `(1e21).toPrecision(3)` did not, which is what a bit pattern misread as a
+    // tag looks like from the outside.
+    if !rts_cranelift::tags::is_encoded(value) {
+        return None;
+    }
+    if rts_cranelift::tags::tag_of(value) != rts_cranelift::tags::TAG_SINGLETON {
+        return None;
+    }
+    let payload = rts_cranelift::tags::payload_of(value);
+    if payload == u64::from(context.singletons.undefined) {
+        return Some("undefined");
+    }
+    if payload == u64::from(context.singletons.null) {
+        return Some("null");
+    }
+    None
+}
+
+/// Raises the `TypeError` an access on one of them is.
+///
+/// # Why this was worth finding rather than a detail
+///
+/// It answered `undefined` instead. That is not a milder wrong answer — it
+/// moves the failure. `m.indices![0].join(",")` on a match with no `d` flag
+/// reported `(intermediate value).join is not a function`, naming an operation
+/// two steps after the one that was actually wrong, and three separate
+/// investigations chased the `join`. The language throws AT the access for
+/// exactly this reason.
+///
+/// The message is V8's wording rather than JavaScriptCore's. Both engines are
+/// in the corpus and they disagree — "Cannot read properties of undefined
+/// (reading 'x')" against "undefined is not an object" — so one had to be
+/// picked, and the one that names the PROPERTY is the one worth having. Nothing
+/// compares the text: a fixture that printed it would already be unusable
+/// against two references that disagree.
+/// Built inside the borrow, RAISED outside it. That split is not a style
+/// choice: `throw::type_error` constructs an `Error` object, which takes the
+/// context of its own, and reaching it from inside a `with_current` closure
+/// re-enters the `RefCell` — in an `extern "C"` frame that is a non-unwinding
+/// abort rather than a catchable panic. Measured, with the backtrace naming
+/// `_rts_get_property` under it.
+pub(in crate::entry) fn access_refusal(
+    context: &Context,
+    object: u64,
+    key: Option<Key>,
+    reading: bool,
+) -> Option<String> {
+    let word = nullish(context, object)?;
+    let named = match key {
+        Some(Key::Name(key)) => context
+            .interner
+            .text(key)
+            .and_then(crate::text::Str::to_rust)
+            .map(|text| format!(" (reading '{text}')")),
+        Some(Key::Index(at)) => Some(format!(" (reading '{at}')")),
+        None => None,
+    };
+    let what = if reading { "read" } else { "set" };
+    Some(format!(
+        "Cannot {what} properties of {word}{}",
+        named.unwrap_or_default()
+    ))
 }
 
 /// The encoded `undefined`, from the numbering the language declared.

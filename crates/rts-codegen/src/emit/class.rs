@@ -237,8 +237,25 @@ pub(super) fn emit_class(
     }
 
     // Written now rather than with the parent, because the prototype did not
-    // exist until the constructor did.
-    if let Some(environment) = inner.environment() {
+    // exist until the constructor did — and only into an environment this CLASS
+    // built, which is the condition [`class_scope`] decides on.
+    //
+    // `inner.environment()` is not that condition, and reading it as one wrote
+    // into nothing. A `Scope` always carries `Some` environment: a function
+    // that builds none passes on the one it was HANDED, and at the top level
+    // what a program is handed is `undefined`. So `class Foo { m() {} }` at
+    // module scope wrote its home object onto `undefined` — a store that did
+    // nothing, silently, for as long as a store to `undefined` was allowed to.
+    // The moment one raised, every top-level class in the corpus stopped
+    // running, which is how a dead write announces itself.
+    //
+    // Nothing was lost by the write not happening, and that is the point: the
+    // simple case has no `super` to resolve a home object FOR, which is exactly
+    // why `class_scope` gives it no environment of its own.
+    if parent.is_some() || needs_environment {
+        let environment = inner
+            .environment()
+            .expect("a class that builds an environment has one");
         let home = ctx.names.intern(HOME);
         super::property::emit_write(builder, ctx, environment, home, prototype)?;
     }

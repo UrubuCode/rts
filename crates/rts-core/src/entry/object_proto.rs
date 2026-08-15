@@ -368,7 +368,18 @@ fn owns(this: u64, key: u64) -> bool {
 /// `None` for an object, whose `ToPropertyKey` runs a `toString` — user code
 /// this borrow cannot call. `hasOwnProperty({})` therefore answers false, which
 /// is the same stated boundary every coercion in this crate stops at.
+///
+/// A SYMBOL is asked first, and has to be: `to_text` refuses one on purpose —
+/// implicitly converting a symbol to a string is a `TypeError`, which is the
+/// language — so falling through to it made `hasOwnProperty(o, Symbol.iterator)`
+/// answer `false` for every symbol-keyed property in the program, including
+/// `Map.prototype`'s own. `ToPropertyKey` says the symbol case comes first
+/// precisely because it is not a conversion: a symbol already IS a key.
 fn own_key(context: &mut Context, key: u64) -> Option<Key> {
+    if let Some(text) = super::symbol::key_text_of(context, key) {
+        let text = crate::text::Str::from_str(&text);
+        return Some(Key::Name(context.interner.intern(&text, &mut context.keys)));
+    }
     let text = super::text::to_text(context, Value(key))?;
     Some(Key::Name(context.interner.intern(&text, &mut context.keys)))
 }

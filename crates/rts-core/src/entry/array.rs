@@ -303,7 +303,19 @@ pub(in crate::entry) fn key_texts(
         // has. Answered here and returned immediately: a string has no shape
         // and no accessors, so there is nothing further in this function for
         // it to reach.
-        if let Some(text) = context.text_at(slot) {
+        // A BOXED string reaches the same answer through one more link, and it
+        // has to: `new String("ab")` and `Object("ab")` are objects whose text
+        // hangs off `boxed_at` rather than being the cell, so reading only
+        // `text_at` answered `[]` for them. That went unnoticed while a wrapper
+        // WAS its primitive — the moment one became a real object,
+        // `Object.keys(Object("ab"))` stopped naming its characters.
+        let held = context
+            .text_at(slot)
+            .is_none()
+            .then(|| Value(context.boxed_at(slot)?).as_slot())
+            .flatten();
+        if let Some(text) = held.map_or_else(|| context.text_at(slot), |cell| context.text_at(cell))
+        {
             let mut keys: Vec<Str> = (0..text.units().count())
                 .map(|index| crate::coerce::number_to_string(index as f64))
                 .collect();
