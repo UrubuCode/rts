@@ -217,39 +217,6 @@ pub(in crate::entry) fn subarray(this: u64, begin: u64, end: u64) -> u64 {
     })
 }
 
-/// `t.slice(begin, end)` — a copy, in a buffer of its own.
-pub(in crate::entry) fn slice(this: u64, begin: u64, end: u64) -> u64 {
-    let begin = super::optional_number(begin);
-    let end = super::optional_number(end);
-    with_current(|context| {
-        let absent = undefined_of(context);
-        let Some(view) = super::view_of(context, this) else {
-            return absent;
-        };
-        let (first, last) = super::range(view.count(), begin, end);
-        let size = view.kind.size();
-        let Some(bytes) = super::window(context, &view) else {
-            return absent;
-        };
-        // Copied out before the buffer is made, because allocating one takes the
-        // byte store mutably and this slice borrows it.
-        let taken = bytes[first * size..last * size].to_vec();
-        let Some(buffer) = super::new_buffer(context, taken.len()) else {
-            return absent;
-        };
-        let fresh = View {
-            buffer,
-            offset: 0,
-            length: taken.len(),
-            kind: view.kind,
-        };
-        if let Some(destination) = super::window_mut(context, &fresh) {
-            destination.copy_from_slice(&taken);
-        }
-        made(context, fresh)
-    })
-}
-
 /// `t.fill(value, begin, end)` — the array itself, so that calls chain.
 pub(in crate::entry) fn fill(this: u64, value: u64, begin: u64, end: u64) -> u64 {
     let begin = super::optional_number(begin);
@@ -379,7 +346,12 @@ fn words_of(context: &Context, source: u64, kind: Kind) -> Vec<u64> {
 /// write leaves the old value. They differ because a bulk copy is building bytes
 /// that did not exist, so there is nothing to leave — and a fresh
 /// `BigInt64Array` full of zeros is what a program sees either way.
-fn word_of(context: &Context, value: u64, kind: Kind) -> u64 {
+///
+/// Reachable from the sibling modules because a sort writing an ordered run
+/// back is the same bulk write: the values came out of this very view, so the
+/// refusal cannot fire, and a second `unwrap_or` beside it would be the place
+/// the two answers came to differ.
+pub(super) fn word_of(context: &Context, value: u64, kind: Kind) -> u64 {
     super::element_word(context, value, kind).unwrap_or(0)
 }
 

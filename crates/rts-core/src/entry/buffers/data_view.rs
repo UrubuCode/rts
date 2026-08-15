@@ -14,12 +14,16 @@
 //! alternative: it would make the same program answer differently on two
 //! machines, which is the one thing a class for foreign data must not do.
 //!
-//! # Why sixteen members and not four with a width argument
+//! # Why twenty members and not four with a width argument
 //!
 //! `getInt16` is the name a program writes. A `get(width, signed)` would be one
-//! function and nobody's API — and the sixteen here are each one line over
-//! [`fetch`] and [`store`], so what is repeated is the name, which is the part
-//! that has to be repeated.
+//! function and nobody's API — and the twenty here are each one line over
+//! [`fetch`] and [`store`], or over [`fetch_big`] and [`store_big`], so what is
+//! repeated is the name, which is the part that has to be repeated.
+//!
+//! Four of them answer and take a **bigint** rather than a number, and that is
+//! the one split the pair cannot absorb: it is a difference in the TYPE of the
+//! value, not in its width. [`fetch_big`] states why.
 
 use super::element::Kind;
 use super::{View, with_current};
@@ -150,6 +154,26 @@ impl DataView {
     fn set_float64(this: u64, at: f64, value: f64, little: bool) -> u64 {
         store(this, at, value, Kind::Float64, little)
     }
+
+    /// `v.getBigInt64(byteOffset, littleEndian?)`.
+    fn get_big_int64(this: u64, at: f64, little: bool) -> u64 {
+        fetch_big(this, at, Kind::BigInt64, little)
+    }
+
+    /// `v.getBigUint64(byteOffset, littleEndian?)`.
+    fn get_big_uint64(this: u64, at: f64, little: bool) -> u64 {
+        fetch_big(this, at, Kind::BigUint64, little)
+    }
+
+    /// `v.setBigInt64(byteOffset, value, littleEndian?)`.
+    fn set_big_int64(this: u64, at: f64, value: u64, little: bool) -> u64 {
+        store_big(this, at, value, Kind::BigInt64, little)
+    }
+
+    /// `v.setBigUint64(byteOffset, value, littleEndian?)`.
+    fn set_big_uint64(this: u64, at: f64, value: u64, little: bool) -> u64 {
+        store_big(this, at, value, Kind::BigUint64, little)
+    }
 }
 
 /// One read, at a byte offset within the view's own window.
@@ -168,6 +192,67 @@ fn fetch(this: u64, at: f64, kind: Kind, little: bool) -> f64 {
         };
         let index = super::as_count(at);
         super::element::read(bytes, index, kind, little).unwrap_or(f64::NAN)
+    })
+}
+
+/// One sixty-four-bit read, answered as a **bigint**.
+///
+/// # Why these four are not [`fetch`] with a wider kind
+///
+/// Because the answer has a different TYPE. Every other accessor here answers a
+/// number, and at sixty-four bits a double stops being able to carry the value
+/// — which is the whole reason the language made `BigInt64Array`'s elements
+/// bigints rather than numbers. So the signature differs, and a `f64` in it
+/// would round exactly the range these methods exist to reach.
+///
+/// The bytes are gathered by the same [`super::element::word_at`] the typed
+/// arrays use, so a `DataView` and a `BigInt64Array` over one buffer cannot
+/// come to disagree about byte three.
+///
+/// `undefined` for an offset the width does not fit at, where the language
+/// throws a `RangeError` — the same stated gap [`fetch`] records, answered with
+/// `undefined` rather than `NaN` because a bigint accessor has no `NaN` to
+/// answer with.
+fn fetch_big(this: u64, at: f64, kind: Kind, little: bool) -> u64 {
+    with_current(|context| {
+        let absent = undefined_of(context);
+        let Some(view) = super::view_of(context, this) else {
+            return absent;
+        };
+        let index = super::as_count(at);
+        let Some(bytes) = super::window(context, &view) else {
+            return absent;
+        };
+        let Some(word) = super::element::word_at(bytes, index, kind, little) else {
+            return absent;
+        };
+        // The read is finished with the bytes, which is what lets the borrow
+        // become mutable — allocating the digits needs it.
+        super::bigint_value(context, word, kind)
+    })
+}
+
+/// One sixty-four-bit write, taking a **bigint** and nothing else.
+///
+/// A number is refused rather than coerced, which is the language's rule in
+/// both directions and [`super`]'s stated answer to it: the write is dropped
+/// and the bytes keep what they held. Coercing would make a program no other
+/// engine accepts run and answer something.
+fn store_big(this: u64, at: f64, value: u64, kind: Kind, little: bool) -> u64 {
+    with_current(|context| {
+        let index = super::as_count(at);
+        let Some(view) = super::view_of(context, this) else {
+            return undefined_of(context);
+        };
+        // Read out of the digit slab before the window is taken mutably: both
+        // want the context, and the word is what crosses between them.
+        let word = super::bigint_word(context, value, kind);
+        if let Some(word) = word
+            && let Some(bytes) = super::window_mut(context, &view)
+        {
+            super::element::write_word(bytes, index, kind, word, little);
+        }
+        undefined_of(context)
     })
 }
 

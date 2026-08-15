@@ -33,7 +33,7 @@
 //! attribute rather than to this file.
 
 use super::element::Kind;
-use super::{Context, typed};
+use super::{Context, typed, typed_order, typed_species};
 use crate::value::Value;
 
 /// `BYTES_PER_ELEMENT` on the **constructor**, beside the one on the prototype.
@@ -104,9 +104,23 @@ macro_rules! declare {
                     typed::subarray(this, begin, end)
                 }
 
-                /// `t.slice(begin, end)` — a copy, in a buffer of its own.
+                /// `t.slice(begin, end)` — a copy, in a buffer of its own,
+                /// and in the class the species protocol names.
                 fn slice(this: u64, begin: u64, end: u64) -> u64 {
-                    typed::slice(this, begin, end)
+                    typed_species::slice(this, begin, end)
+                }
+
+                /// `t.copyWithin(target, start, end)` — elements moved
+                /// within this same view, answering it so calls chain.
+                fn copy_within(this: u64, target: u64, start: u64, end: u64) -> u64 {
+                    typed_order::copy_within(this, target, start, end)
+                }
+
+                /// `t.sort(compare)` — in place, and NUMERICALLY when no
+                /// comparator is given, which is where this differs from an
+                /// array's.
+                fn sort(this: u64, compare: u64) -> u64 {
+                    typed_order::sort(this, compare)
                 }
 
                 /// `t.fill(value, begin, end)` — the array, so calls chain.
@@ -146,6 +160,25 @@ macro_rules! declare {
                 made
             }
         )+
+
+        /// The class name a kind's instances answer to.
+        ///
+        /// `None` for `Kind::Raw`, which is a `DataView` and not one of these —
+        /// the one kind that is a view without being a typed array, and the
+        /// reason this answers an `Option` rather than a name it would have to
+        /// invent.
+        ///
+        /// Written off the same list as everything else here, because a second
+        /// table from kind to name is the one that would come to disagree about
+        /// `Uint8ClampedArray`.
+        pub(in crate::entry) fn named(kind: Kind) -> Option<&'static str> {
+            $(
+                if kind == $kind {
+                    return Some($js);
+                }
+            )+
+            None
+        }
 
         /// The prototype instances of a kind inherit from, registering the class
         /// if nothing has read its name yet.

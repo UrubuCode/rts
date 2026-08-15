@@ -74,18 +74,25 @@
 //! the rejected alternative, and it is the dangerous one: it would make a program
 //! no other engine accepts run and answer something.
 //!
-//! A `DataView` has no `getBigInt64` here. It would need the same split at every
-//! one of its sixteen methods and nothing has asked; the class-shaped spelling
-//! reaches the same bytes.
+//! A `DataView` reads and writes them too, through four members of its own —
+//! `getBigInt64`, `getBigUint64`, `setBigInt64`, `setBigUint64`. They are four
+//! rather than a flag on the existing sixteen because the split is in the TYPE
+//! of the value and not in its width, and they gather bytes through the same
+//! [`element::word_at`] the typed arrays do, so the two cannot come to disagree
+//! about byte three. This paragraph said they were absent and that "nothing has
+//! asked"; something did.
 
 mod array_buffer;
 pub(in crate::entry) mod atomics;
+mod bounds;
 pub(in crate::entry) mod detach;
 mod data_view;
 pub(in crate::entry) mod element;
 mod shared_array_buffer;
 pub(in crate::entry) mod typed;
 mod typed_classes;
+mod typed_order;
+mod typed_species;
 
 // The declared-type consts travel with the registrations, for the same reason:
 // `entry::declared` names one class per line and cannot reach into a private
@@ -97,9 +104,14 @@ pub(in crate::entry) use shared_array_buffer::SHARED_ARRAY_BUFFER_TYPES;
 pub(in crate::entry) use atomics::register_atomics;
 pub(in crate::entry) use data_view::register_data_view;
 pub(in crate::entry) use shared_array_buffer::register_shared_array_buffer;
-// The eight wrappers rather than the eight names `#[rtse::class]` derives: each
-// also installs `BYTES_PER_ELEMENT` on the constructor, which is a property the
-// language puts on both halves and the attribute can only put on one.
+// The argument rules, re-exported rather than moved at the call sites: every
+// member reads them as `super::range` and `super::optional_number`, and where
+// they are written is not a fact any of them should have to know.
+pub(in crate::entry) use bounds::{as_count, optional_number, range, undefined};
+// The eleven wrappers rather than the eleven names `#[rtse::class]` derives:
+// each also installs `BYTES_PER_ELEMENT` on the constructor, which is a
+// property the language puts on both halves and the attribute can only put on
+// one.
 pub(in crate::entry) use typed_classes::{
     big_int64_array, big_uint64_array, float32_array, float64_array, int8_array, int16_array,
     int32_array, uint8_array, uint8_clamped_array, uint16_array,
@@ -229,19 +241,6 @@ pub(in crate::entry) fn install_bytes(context: &mut Context, cell: u32, length: 
     let store = context.buffers.insert(vec![0u8; length]).slot();
     context.mark_buffer(cell, store);
     stamp(context, cell, "byteLength", length as f64);
-}
-
-/// A length argument as a count of bytes.
-///
-/// Negative, fractional and non-finite all become zero rather than an error: the
-/// language throws a `RangeError` for a negative one, which this engine cannot
-/// raise where a handler could catch it — the same stated gap every refusal in
-/// this layer settles on.
-pub(in crate::entry) fn as_count(length: f64) -> usize {
-    match length.is_finite() && length > 0.0 {
-        true => length.trunc() as usize,
-        false => 0,
-    }
 }
 
 /// Attaches a view to a cell and writes the four facts a program reads off it.
@@ -466,80 +465,3 @@ pub(in crate::entry) fn element_word(context: &Context, value: u64, kind: Kind) 
     Some(element::to_bits(number, kind))
 }
 
-/// `undefined`, from outside a borrow.
-pub(in crate::entry) fn undefined() -> u64 {
-    with_current(|context| undefined_of(context))
-}
-
-/// An argument that may have been left off, as a number.
-///
-/// **Called at the top of a member body, never inside a borrow.** Both halves
-/// take one of their own, and a second borrow of the `RefCell` panics inside an
-/// `extern "C"` frame that cannot unwind — so the process aborts rather than
-/// failing a test.
-///
-/// `None` for an absent argument rather than `NaN`, because the two mean opposite
-/// things at a range boundary: `t.slice(0)` ends at the length and
-/// `t.slice(0, NaN)` ends at zero. Coercing first and testing for `NaN` would
-/// merge them.
-pub(in crate::entry) fn optional_number(value: u64) -> Option<f64> {
-    if value == undefined() {
-        return None;
-    }
-    Some(super::class_support::to_number(value))
-}
-
-/// A `[begin, end)` pair over `count` items, with the language's clamping.
-///
-/// A negative index counts from the end, everything is clamped into range, and an
-/// empty range comes back as `begin == end` rather than as `None` — the callers
-/// all want to produce something empty rather than to refuse.
-pub(in crate::entry) fn range(count: usize, begin: Option<f64>, end: Option<f64>) -> (usize, usize) {
-    let first = relative(begin.unwrap_or(0.0), count);
-    let last = match end {
-        Some(number) => relative(number, count),
-        None => count,
-    };
-    (first, last.max(first))
-}
-
-/// One relative index, resolved against a length.
-fn relative(index: f64, count: usize) -> usize {
-    if !index.is_finite() {
-        // ToIntegerOrInfinity: -Infinity is before the start, +Infinity past the
-        // end, and NaN is zero.
-        return match (index.is_nan(), index > 0.0) {
-            (true, _) => 0,
-            (false, true) => count,
-            (false, false) => 0,
-        };
-    }
-    let index = index.trunc();
-    match index < 0.0 {
-        true => ((count as f64) + index).max(0.0) as usize,
-        false => (index as usize).min(count),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_negative_bound_counts_from_the_end_and_never_past_the_start() {
-        assert_eq!(range(8, Some(-3.0), None), (5, 8));
-        assert_eq!(range(8, Some(-99.0), Some(2.0)), (0, 2));
-        // An inverted range is empty, not reversed: `t.slice(5, 2)` answers
-        // nothing rather than three elements backwards.
-        assert_eq!(range(8, Some(5.0), Some(2.0)), (5, 5));
-    }
-
-    #[test]
-    fn an_absent_end_is_the_length_and_an_explicit_nan_is_zero() {
-        // The distinction `optional_number` exists to keep: these two are not
-        // the same call, and a coercion that answered `NaN` for both would make
-        // `t.slice(0)` empty.
-        assert_eq!(range(4, Some(0.0), None), (0, 4));
-        assert_eq!(range(4, Some(0.0), Some(f64::NAN)), (0, 0));
-    }
-}
