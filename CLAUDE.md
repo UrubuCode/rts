@@ -83,7 +83,8 @@ now understates it by a long way. Classes with inheritance and private fields,
 closures, `try`/`catch`/`finally` across calls, `async`/`await` over real timers
 and sockets, modules, template literals, regular expressions, destructuring,
 spread, `for-of`, and the built-ins a program reaches by name: the `Error`
-family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
+family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, `Intl` — its
+seven services over real CLDR data, not a table of English — plus what
 `node:` provides.
 
 `crates/rts-host/tests/running.rs` is what says so — every test in it runs
@@ -101,11 +102,17 @@ anything by subtraction. What IS attributable was measured per file, against a
 binary of the tree as it stood before the work: 748 → 750, two gained, **none
 lost**. That is the only comparison a number of this shape supports.
 
-**And the second ruler: 590 of 708 cross-runtime fixtures** (83.3%), measured
-2026-08-14 by `scripts/cross_runtime_check.sh`, one process per file, against
-Bun and Node. It was 419 the same morning. That corpus is a different question
-from the one above — it asks whether this engine and a real one agree about the
-same program, where `*.test.ts` asks whether the program does what it says.
+**And the second ruler: 593 of 708 cross-runtime fixtures** (83.8%), measured
+2026-08-15 by `scripts/cross_runtime_check.sh`, one process per file, against
+Bun and Node. It was 419 on the morning of 08-14. That corpus is a different
+question from the one above — it asks whether this engine and a real one agree
+about the same program, where `*.test.ts` asks whether the program does what it
+says.
+
+The last three came from `Intl`, and the ceiling under them is worth reading
+with the number: **five of the 708 have no comparable answer**, because Bun and
+Node disagree with each other and the harness refuses to elect one of them. So
+the reachable total is 703, not 708.
 
 The 08-10 figure was measured by the same `suite_run`, one process per file, on
 the same corpus plus the two files that day's own work added — which is why the
