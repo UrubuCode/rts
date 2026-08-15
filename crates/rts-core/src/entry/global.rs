@@ -115,7 +115,11 @@ pub(in crate::entry) fn supply(
             "Boolean" => super::number::register_boolean(context),
             "BigInt" => super::bigint_class::register_big_int_class(context),
             "Promise" => super::promise::register_promise(context),
-            "Function" => super::function_proto::register_function(context),
+            // Through `eval`, which is the same registration with the one thing
+            // a class declaration cannot give it: what `new Function(…)` runs.
+            // See that module for why the constructor is not a `#[construct]`
+            // member of `Function` itself.
+            "Function" => super::eval::register_function_constructor(context),
             "Reflect" => super::reflect::register_reflect(context),
             "Symbol" => super::symbol::constructor(context),
             "JSON" => super::json::register_json(context),

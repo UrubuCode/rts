@@ -140,7 +140,12 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         None => return undefined_of(context),
     };
     if let Some(cell) = Value(callable).as_slot() {
-        super::native::install(context, cell, points::STATICS);
+        // With arity, which is the spelling `Object`'s statics already use and
+        // for the same reason: these three are read as function VALUES —
+        // aliased, forwarded, introspected — so `.length` is observable rather
+        // than decoration. See `points::STATICS` for why each number is stated
+        // instead of defaulted.
+        super::native::install_with_arity(context, cell, points::STATICS);
         let key = context.well_known("prototype");
         super::objects::put(context, cell, key, prototype);
     }

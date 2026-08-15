@@ -34,14 +34,27 @@
 //! first, so `yield*` over an endless one does not finish, and there is no
 //! return value to capture because what came back is the elements.
 //!
-//! # What still does not forward
+//! # What forwards now, and where the forwarding lives
 //!
-//! `outer.return(v)` and `outer.throw(e)` do not reach the inner iterator's
-//! `return`/`throw`. That is not this file's to fix: `entry/generator.rs`'s
-//! `g.return(v)` DROPS the parked frame rather than re-entering it, so there is
-//! no resumption for this loop to observe as abrupt. Its own note names what
-//! would close it — `frame::resumable_form` producing a "resume abruptly"
-//! address beside the plain one.
+//! `outer.return(v)` and `outer.throw(e)` DO reach the inner iterator's
+//! `return`/`throw`, and none of that is here. This loop's part is one thing:
+//! the step is [`RuntimeOp::DelegateStep`] rather than a property read and a
+//! call, so the runtime records which iterator the generator is standing in
+//! front of at the moment it parks. Everything else — calling the inner
+//! `throw`, deciding from its answer whether the delegation is over, closing an
+//! iterator that has no `throw` — is `rts-core`'s `entry/generator/delegate.rs`,
+//! because it happens while this frame is parked and emitted code does not run
+//! then.
+//!
+//! The alternative was for this loop to observe the abrupt resumption itself:
+//! the machine turns `ResumeMode::Unwind` into a throw AT the suspension, so a
+//! protected region written around it would catch one. It cannot see a
+//! `ResumeMode::Return` — that is a `Return` terminator, which runs cleanups and
+//! never reaches a handler — so half the protocol would be here and half in the
+//! runtime, deciding the same question in two places.
+//!
+//! The [`emit_list`] path forwards nothing, and that is the same limit it always
+//! had: a materialised list has no iterator left to forward to.
 
 use rts_cranelift::ir::FuncBuilder;
 
@@ -166,27 +179,16 @@ fn emit_protocol(
     let yielded = builder.add_block_param(body, UNPROVEN);
 
     builder.switch_to(head);
-    let absent = super::expr::undefined(builder, ctx);
     // `next` is called with the inner iterator as the receiver, which is what
     // makes a delegated generator advance its own frame rather than someone
-    // else's.
-    // ONE argument written: the value sent in. The count is what lets the
-    // callee tell `it.next(undefined)` from `it.next()`.
-    let written = super::expr::count_constant(builder, 1);
-    let answered = super::expr::call(
-        builder,
-        ctx,
-        RuntimeOp::Call,
-        &[
-            step,
-            source,
-            written,
-            sent,
-            absent,
-            absent,
-            absent,
-        ],
-    )?[0];
+    // else's — and it is called through the runtime rather than emitted here,
+    // because the same turn has to record WHAT this generator is delegating to.
+    // `outer.throw(e)` reaches the inner iterator's own `throw` only if
+    // something remembers that while the frame is parked, and a frame is parked
+    // exactly where emitted code has stopped running. See
+    // `rts-core`'s `entry/generator/delegate.rs`.
+    let answered = super::expr::call(builder, ctx, RuntimeOp::DelegateStep, &[step, source, sent])?
+        [0];
     let named = ctx.names.intern("value");
     let key = key_constant(builder, ctx, named);
     let value = super::expr::call(builder, ctx, RuntimeOp::GetProperty, &[answered, key])?[0];

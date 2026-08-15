@@ -39,6 +39,7 @@ pub mod describe;
 mod entries;
 pub mod graph;
 mod link;
+mod live;
 pub mod object;
 mod run;
 mod stack;

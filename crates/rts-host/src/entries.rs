@@ -121,6 +121,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::GeneratorYield => (CoreEntry::GeneratorYield, {
             rts_core::entry::generator_yield as extern "C" fn(u64) -> u64 as *const u8
         }),
+        RuntimeOp::DelegateStep => (CoreEntry::DelegateStep, {
+            rts_core::entry::delegate_step as extern "C" fn(u64, u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::ModulePublishAll => (CoreEntry::ModulePublishAll, {
             rts_core::entry::module_publish_all as extern "C" fn(i64, i64) -> u64 as *const u8
         }),

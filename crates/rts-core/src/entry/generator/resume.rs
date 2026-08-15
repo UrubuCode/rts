@@ -48,11 +48,19 @@ fn parked(context: &Context, cell: u32) -> bool {
 /// Shared by `return` and `throw` because the completion is the same for both —
 /// only what they answer differs — and writing it twice is how one of them would
 /// keep letting a dead generator be advanced.
-pub(super) fn finish(context: &mut Context, this: u64) {
-    if let Some(cell) = Value(this).as_slot()
-        && let Some(state) = context.generators.get_mut(cell)
-    {
+pub(super) fn finish(context: &mut Context, cell: u32) {
+    if let Some(state) = context.generators.get_mut(cell) {
         state.done = true;
+    }
+}
+
+/// The same, for a caller holding the object rather than its cell.
+///
+/// Anything that is not a cell is not a generator, and there is nothing to
+/// finish — which is why this answers nothing rather than refusing.
+pub(super) fn finish_value(context: &mut Context, this: u64) {
+    if let Some(cell) = Value(this).as_slot() {
+        finish(context, cell);
     }
 }
 
@@ -111,6 +119,16 @@ pub(super) fn resume(cell: u32, sent: u64, mode: ResumeMode) -> u64 {
             return None;
         }
         let resuming = Resuming::of(state);
+        // Which generator is being re-entered, for the length of the body. A
+        // stack because the calls are: a `yield*` steps its inner iterator from
+        // inside this body, and if that iterator is itself a generator its own
+        // re-entry pushes and pops before this one ends. See `super::delegate`.
+        context.resuming.push(cell);
+        // A delegation belongs to the turn that established it. Cleared on the
+        // way in rather than trusted to be cleared on the way out — see
+        // `super::delegate::entering` for the paths that would otherwise leave
+        // a stale one behind.
+        super::delegate::entering(context, cell);
         context.region.set_spanning_field(
             resuming.frame,
             resuming.resumed_field,
@@ -154,6 +172,7 @@ pub(super) fn resume(cell: u32, sent: u64, mode: ResumeMode) -> u64 {
     // error back out IS the throw the body did not stop.
     if throw::in_flight() {
         return with_current(|context| {
+            context.resuming.pop();
             if let Some(state) = context.generators.get_mut(cell) {
                 state.done = true;
             }
@@ -162,6 +181,7 @@ pub(super) fn resume(cell: u32, sent: u64, mode: ResumeMode) -> u64 {
     }
 
     with_current(|context| {
+        context.resuming.pop();
         let produced = match finished {
             // A resumption that RETURNED answers the value it was given. The
             // machine writes nothing where the function's answer goes on that

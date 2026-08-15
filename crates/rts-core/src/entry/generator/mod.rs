@@ -83,11 +83,13 @@
 //! own `return`/`throw` is called first, and that is the shape of the loop
 //! `emit/delegate.rs` emits.
 
+mod delegate;
 mod resume;
 
 use rts_cranelift::frame::ResumeMode;
 
-use self::resume::{finish, resumable, resume};
+pub use self::delegate::{DELEGATE_STEP_ENTRY, delegate_step};
+use self::resume::{finish_value, resumable, resume};
 use super::{Context, with_current};
 use crate::value::Value;
 
@@ -136,6 +138,21 @@ pub(super) struct State {
     shape: FrameShape,
     /// Whether the body has run to its end.
     done: bool,
+    /// The iterator a `yield*` is standing in front of, while it is standing.
+    ///
+    /// Here rather than in [`Context`] because it is a fact about ONE generator
+    /// and outlives the re-entry that established it: `outer.return(v)` asks
+    /// about a frame that has been parked since some earlier call. A slot in
+    /// the context would be the shape `yielded` has, and `yielded` is written
+    /// and taken within one re-entry — which is exactly the property this does
+    /// not have.
+    delegating: Option<u64>,
+    /// The iterator result a forwarded `throw` already obtained.
+    ///
+    /// Handed to the next [`delegate_step`] instead of stepping, because the
+    /// step for that turn has happened: the inner iterator was advanced from
+    /// outside the parked frame. See [`delegate`].
+    pending: Option<u64>,
 }
 
 impl State {
@@ -161,6 +178,13 @@ impl State {
                 out.push(word);
             }
         }
+        // What a `yield*` is delegating to, and what a forwarded `throw` left
+        // for the next step. Neither is in the frame — the frame holds the
+        // iterator the BODY spilled, and these are the runtime's own record of
+        // the same delegation — so nothing else names them while the generator
+        // is parked.
+        out.extend(self.delegating);
+        out.extend(self.pending);
     }
 }
 
@@ -248,6 +272,8 @@ pub fn generator_new(
                 frame,
                 shape,
                 done: false,
+                delegating: None,
+                pending: None,
             },
         );
         Value::from_slot(cell).bits()
@@ -294,10 +320,20 @@ impl Generator {
     /// not run because `.return()` was called on it.
     #[js("return")]
     fn returned(this: u64, value: u64) -> u64 {
+        // A generator parked inside a `yield*` owes the INNER iterator its
+        // `return` first, and what that answers decides whether the outer's own
+        // return completion happens at all. `None` means it did not decide —
+        // there was no delegation, or the inner has no `return` — so the
+        // ordinary completion below proceeds.
+        if let Some((cell, inner)) = delegate::delegated(this)
+            && let Some(answered) = delegate::forward_return(cell, inner, value)
+        {
+            return answered;
+        }
         match resumable(this) {
             Some(cell) => resume(cell, value, ResumeMode::Return),
             None => with_current(|context| {
-                finish(context, this);
+                finish_value(context, this);
                 result(context, value, true)
             }),
         }
@@ -319,10 +355,19 @@ impl Generator {
     /// program can be written against.
     #[js("throw")]
     fn thrown(this: u64, error: u64) -> u64 {
+        // The delegated iterator's own `throw` runs first, and the outer frame
+        // is re-entered only if it says the delegation is over. See
+        // [`delegate::forward_throw`], which always decides — an inner iterator
+        // with no `throw` is closed and refused rather than skipped.
+        if let Some((cell, inner)) = delegate::delegated(this)
+            && let Some(answered) = delegate::forward_throw(cell, inner, error)
+        {
+            return answered;
+        }
         match resumable(this) {
             Some(cell) => resume(cell, error, ResumeMode::Unwind),
             None => {
-                with_current(|context| finish(context, this));
+                with_current(|context| finish_value(context, this));
                 super::throw::throw_value(error);
                 with_current(|context| super::objects::undefined_of(context))
             }

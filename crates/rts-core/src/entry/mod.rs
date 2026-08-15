@@ -57,6 +57,7 @@ mod current;
 pub mod declared;
 mod date;
 mod error;
+mod eval;
 pub mod external;
 mod finalize;
 mod foreign;
@@ -111,7 +112,8 @@ pub use functions::{
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
     mark_derived, set_call_name, super_construct, super_construct_with_args,
 };
-pub use generator::{FrameShape, declare_frames, generator_new, generator_yield};
+pub use eval::{Addition, Agreement, FunctionCompiler, adopt, agreement, declare_function_compiler};
+pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
 pub use global::{global_get, global_get_unbound, global_set};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use modules::{
@@ -437,6 +439,20 @@ pub struct Context {
     /// taken: whoever resumed reads it the instant the call returns. See
     /// `generator.rs` for why a stack is the thing that would drift.
     yielded: Option<u64>,
+    /// Which generator cell each re-entry currently in progress belongs to.
+    ///
+    /// A stack, unlike `yielded`, and for the reason `callees` is one: a
+    /// generator advanced from inside another's body is a re-entry inside a
+    /// re-entry, and the inner one must not be mistaken for the outer when it
+    /// returns. `yield*` is what asks — see `generator::delegate` — and it asks
+    /// while the body is running, which is exactly when the cell is not
+    /// available any other way.
+    ///
+    /// Cells rather than values, and not a root: the generator being resumed is
+    /// the receiver of the `.next()` that started this, so it is already held by
+    /// the caller. `generator::resume` has depended on that since it was
+    /// written — it reads `generators.get_mut(cell)` after the body returns.
+    resuming: Vec<u32>,
     /// What a parked frame looks like, per compiled generator body.
     ///
     /// Filled by the host before the program runs, keyed by code address — the
@@ -751,6 +767,10 @@ pub struct Context {
     /// that does depends on this one, so the capability can only arrive from
     /// above. See [`modules::evaluate`].
     pub evaluator: Option<modules::Evaluator>,
+    /// How a host compiles source text into a callable IN THIS CONTEXT, if it
+    /// offered a way — what `new Function` needs and what [`Self::evaluator`]
+    /// cannot answer, since that one builds a region of its own. See [`eval`].
+    pub function_compiler: Option<eval::FunctionCompiler>,
     /// What still has work to do after the program.s last statement.
     ///
     /// Registered by whoever owns a background thread, never by the host — see
@@ -836,6 +856,7 @@ impl Context {
             collections: Aside::in_region(bits),
             generators: Aside::in_region(bits),
             yielded: None,
+            resuming: Vec::new(),
             frames: Vec::new(),
             function_names: Vec::new(),
             buffer_of: Aside::in_region(bits),
@@ -918,6 +939,7 @@ impl Context {
             collections: Aside::new(),
             generators: Aside::new(),
             yielded: None,
+            resuming: Vec::new(),
             frames: Vec::new(),
             function_names: Vec::new(),
             regexes: Aside::new(),
@@ -948,6 +970,7 @@ impl Context {
             next_external: 1,
             modules: Vec::new(),
             evaluator: None,
+            function_compiler: None,
             loop_sources: Vec::new(),
             rest: None,
             templates: Vec::new(),

@@ -45,7 +45,7 @@ const JS_THROW: rts_cranelift::unwind::Tag = rts_cranelift::unwind::Tag(1);
 /// four argument slots. It used to take nothing, which meant the host had a
 /// second way into compiled code that only the entry used — and a second way in
 /// is a second thing to keep in agreement with the callee.
-type Entry = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
+pub(crate) type Entry = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 
 /// A compiled program, and the memory its code lives in.
 ///
@@ -339,6 +339,12 @@ fn run_region(
     // DOWN because they cannot reach up — this crate depends on them, so the
     // other direction is a cycle. See `entry::declare_evaluator`.
     rts_core::entry::declare_evaluator(&mut context, evaluate_source);
+    // The other half of that capability, and the half `evaluate_source` cannot
+    // give: `new Function` needs a CALLABLE, which is a reference, and a
+    // reference belongs to the region that made it. `crate::live` compiles into
+    // THIS context's region instead of building one, which is why it is a
+    // second injection rather than a second caller of the first.
+    rts_core::entry::declare_function_compiler(&mut context, crate::live::compile_function);
     // The other capability that has to come down rather than up: letting time
     // pass. `rts-core`'s membership rule is availability and
     // `std::thread::sleep` is not on every target, so the runtime holds a hook
@@ -524,8 +530,42 @@ pub(crate) struct FrontEnd {
     pub names: Names,
 }
 
+/// A numbering a compilation has to be made to AGREE with, because something is
+/// already running against it.
+///
+/// # Why the direction reverses, and what `run.rs` says about the ordinary one
+///
+/// [`run_region`] seeds the runtime from the compilation — *"seeded rather than
+/// shared, because the compiler's is finished before this one exists"*. That
+/// sentence is a statement about ORDER, and it stops holding the moment a
+/// second compilation happens while the first program is running: then the
+/// runtime's numbering is the finished one, and the new compilation is what has
+/// to line up with it.
+///
+/// What lining up costs is exactly this struct: the key texts and the literal
+/// table are handed to `Ctx` before the first statement is emitted, so key `n`
+/// and literal `n` mean here what they already mean there, and everything the
+/// second compilation mints starts past the end of both.
+pub(crate) struct Seed<'a> {
+    /// The text of every property key already issued, in key order. `None`
+    /// where the text is not expressible as Rust text — the position is still
+    /// spent, or every later key would be numbered one lower here than there.
+    pub keys: &'a [Option<String>],
+    /// The literal table already seeded, in index order.
+    pub literals: &'a [Vec<u16>],
+}
+
 /// Parses and emits source text into one program. See [`FrontEnd`].
 pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
+    front_end_agreeing(source, None)
+}
+
+/// The same, for a compilation that must agree with a numbering that already
+/// exists. See [`Seed`].
+pub(crate) fn front_end_agreeing(
+    source: &str,
+    seed: Option<&Seed<'_>>,
+) -> Result<FrontEnd, HostError> {
     let _timing = rts_cranelift::probe::Phase::start("front-end");
     let mut names = Names::default();
     // A file that imports is compiled as a MODULE, and one that does not is
@@ -587,6 +627,12 @@ pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
     let mut funcs = FuncRegistry::new();
     let mut calls = RuntimeCalls::new();
     let mut keys = KeyRegistry::new();
+    // Before anything asks for a key, because minting is what fixes a number:
+    // the first key this compilation asks for on its own has to land past the
+    // last one the running program already issued.
+    if let Some(seed) = seed {
+        reserve_keys(&mut names, &mut keys, seed.keys);
+    }
 
     // Unwrapping what was wrapped above. Anything other than the one function
     // declaration means the wrapping did not produce what it was written to
@@ -623,6 +669,17 @@ pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
         let mut ctx = Ctx::new(
             &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
         );
+        // The same reservation for the literal table, and it has to happen here
+        // rather than beside the keys: the table belongs to `Ctx`, and the only
+        // way to occupy a position in it is to ask for the string that is
+        // already there. Deduplicated by text, so a literal the new source
+        // shares with the running program reuses the position it already has
+        // instead of adding a second one.
+        if let Some(seed) = seed {
+            for units in seed.literals {
+                ctx.literal_units(units);
+            }
+        }
         let emitted = match &module {
             // A module binds its imports and then runs its statements — one
             // function, like a script, because what differs is what is in
@@ -664,6 +721,145 @@ pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
         calls,
         names,
     })
+}
+
+/// Spends the first `texts.len()` keys of a fresh registry on the names that
+/// already have them, so that this compilation and the running runtime number
+/// the same property the same way.
+///
+/// A placeholder for a name with no Rust spelling, because the POSITION is what
+/// has to line up: skipping one would shift every key after it. `\0` cannot
+/// begin an identifier or a property name a program writes, so the placeholder
+/// can never be the name the source is asking about.
+fn reserve_keys(names: &mut Names, keys: &mut KeyRegistry, texts: &[Option<String>]) {
+    for (at, text) in texts.iter().enumerate() {
+        let spelled = match text {
+            Some(text) => text.clone(),
+            None => format!("\u{0}rts-unnamed-key-{at}"),
+        };
+        let name = names.intern(&spelled);
+        names.key(name, keys);
+    }
+}
+
+/// Everything a placement needs that is not the destination: which names are
+/// expected from the runtime, where each is, and what to define.
+///
+/// # Why this is shared rather than inline in [`assemble`]
+///
+/// Because a second caller places a program too — `crate::live`, for a `new
+/// Function` body — and the set of symbols a program expects is one of the
+/// three agreements this crate exists to hold. A second statement of it is a
+/// second thing to keep in step with `rts-core`, which is the drift rule 2 of
+/// this crate's `README.md` is about.
+pub(crate) fn place(
+    prepared: &Prepared,
+    bases: rts_cranelift::mem::RegionBases,
+) -> Result<InMemory, HostError> {
+    let mut placing: Vec<Placing<'_>> = prepared
+        .expected
+        .iter()
+        .map(|(op, id)| Placing {
+            id: *id,
+            name: op.symbol(),
+            visibility: Visibility::Expected,
+            body: None,
+        })
+        .collect();
+    for ((id, body), name) in prepared
+        .emitted
+        .functions
+        .iter()
+        .zip(&prepared.names_for_placing)
+    {
+        placing.push(Placing {
+            id: *id,
+            // Every one is exported. Internal linkage would be right for the
+            // ones only this program calls, and it is not what decides
+            // anything here: the addresses are taken with `FuncAddr` inside
+            // the same module either way.
+            name,
+            visibility: Visibility::Exported,
+            body: Some(body),
+        });
+    }
+
+    let mut outside: Vec<(&str, *const u8)> = prepared
+        .expected
+        .iter()
+        .map(|(op, _)| (op.symbol(), resolve(*op).1))
+        .collect();
+
+    // The machine's own entry points, which it dials without being asked: a
+    // program that allocates calls `rts_alloc`, and a cached read that misses
+    // calls `rts_cache_resolve`. Neither is a `RuntimeOp` — the language never
+    // names them — so neither appears in what the compilation declared, and
+    // supplying them is the host's job rather than something to discover from a
+    // missing symbol.
+    //
+    // Given unconditionally rather than when a program looks like it needs one:
+    // a JIT resolves a name at finalization and an unused address costs a row
+    // in a table, while a missing one is a crash with no diagnostic.
+    // From `RtEntry::ALL` and not from a list written here. It WAS such a list,
+    // and it omitted the three promise operations — so the first compiled
+    // `async function` reached finalization and died on "can't resolve symbol
+    // rts_promise_new", with nothing between the machine emitting the call and
+    // the JIT failing to find it. A hand-written list of everything is a list
+    // that forgets one; the machine already enumerates them.
+    for &entry in RtEntry::ALL {
+        let address = machine_entry(entry);
+        assert!(
+            !address.is_null(),
+            "the machine emits {} and this host has no address for it — a program \n             reaching it would die inside compiled code with no diagnostic",
+            entry.symbol()
+        );
+        outside.push((entry.symbol(), address));
+    }
+
+    // SAFETY: every address comes from `address_of`, which returns the runtime's
+    // own entry points — functions in this binary, alive for the whole process,
+    // whose signatures the runtime derives from the same Rust definitions the
+    // compiler was told about.
+    let _timing = rts_cranelift::probe::Phase::start("place");
+    Ok(unsafe {
+        place_in_memory(&placing, &outside, &prepared.funcs, &prepared.types, Some(bases))?
+    })
+}
+
+/// The two tables that cannot exist until placement has chosen addresses: what
+/// each function is called, and what each generator's parked frame looks like.
+///
+/// Shared with `crate::live` for the reason [`place`] is: a run-time
+/// compilation seeds the same two tables, and computing an address-keyed table
+/// twice is how the two come to disagree about which body a shape describes.
+pub(crate) fn addressed(
+    prepared: &Prepared,
+    placed: &InMemory,
+) -> (Vec<(u64, String, u32)>, Vec<rts_core::entry::FrameShape>) {
+    let function_names = prepared
+        .emitted
+        .function_names
+        .iter()
+        .filter_map(|(id, name, arity)| {
+            let at = placed.address_of(*id)?;
+            Some((at as u64, name.clone(), *arity))
+        })
+        .collect();
+    // A body that was rewritten and then not placed would leave a wrapper
+    // handing over an address nothing describes, which the runtime answers
+    // `undefined` for rather than guessing.
+    let frames = prepared
+        .frames
+        .iter()
+        .filter_map(|(id, shape)| {
+            let at = placed.address_of(*id)?;
+            Some(rts_core::entry::FrameShape {
+                code: at as u64,
+                ..shape.clone()
+            })
+        })
+        .collect();
+    (function_names, frames)
 }
 
 /// Places a finished compilation and hands back something that can run it.
@@ -814,73 +1010,8 @@ fn assemble(
     calls: RuntimeCalls,
     names: Names,
 ) -> Result<Compiled, HostError> {
-    let Prepared {
-        emitted,
-        funcs,
-        types,
-        script,
-        frames,
-        expected,
-        names_for_placing,
-    } = prepare(emitted, funcs, types, calls)?;
+    let prepared = prepare(emitted, funcs, types, calls)?;
 
-    let mut placing: Vec<Placing<'_>> = expected
-        .iter()
-        .map(|(op, id)| Placing {
-            id: *id,
-            name: op.symbol(),
-            visibility: Visibility::Expected,
-            body: None,
-        })
-        .collect();
-    for ((id, body), name) in emitted.functions.iter().zip(&names_for_placing) {
-        placing.push(Placing {
-            id: *id,
-            name,
-            // Every one is exported. Internal linkage would be right for the
-            // ones only this program calls, and it is not what decides
-            // anything here: the addresses are taken with `FuncAddr` inside
-            // the same module either way.
-            visibility: Visibility::Exported,
-            body: Some(body),
-        });
-    }
-
-    let mut outside: Vec<(&str, *const u8)> = expected
-        .iter()
-        .map(|(op, _)| (op.symbol(), resolve(*op).1))
-        .collect();
-
-    // The machine's own entry points, which it dials without being asked: a
-    // program that allocates calls `rts_alloc`, and a cached read that misses
-    // calls `rts_cache_resolve`. Neither is a `RuntimeOp` — the language never
-    // names them — so neither appears in what the compilation declared, and
-    // supplying them is the host's job rather than something to discover from a
-    // missing symbol.
-    //
-    // Given unconditionally rather than when a program looks like it needs one:
-    // a JIT resolves a name at finalization and an unused address costs a row
-    // in a table, while a missing one is a crash with no diagnostic.
-    // From `RtEntry::ALL` and not from a list written here. It WAS such a list,
-    // and it omitted the three promise operations — so the first compiled
-    // `async function` reached finalization and died on "can't resolve symbol
-    // rts_promise_new", with nothing between the machine emitting the call and
-    // the JIT failing to find it. A hand-written list of everything is a list
-    // that forgets one; the machine already enumerates them.
-    for &entry in RtEntry::ALL {
-        let address = machine_entry(entry);
-        assert!(
-            !address.is_null(),
-            "the machine emits {} and this host has no address for it — a program \n             reaching it would die inside compiled code with no diagnostic",
-            entry.symbol()
-        );
-        outside.push((entry.symbol(), address));
-    }
-
-    // SAFETY: every address comes from `address_of`, which returns the runtime's
-    // own entry points — functions in this binary, alive for the whole process,
-    // whose signatures the runtime derives from the same Rust definitions the
-    // compiler was told about.
     // The heaps compiled code will address, made here rather than by a runtime
     // context, because a base — or the table of them — is a NUMBER baked into
     // the code. The context that runs the program must be the one holding these
@@ -914,41 +1045,15 @@ fn assemble(
         }
     };
 
-    let placed = {
-        let _timing = rts_cranelift::probe::Phase::start("place");
-        unsafe { place_in_memory(&placing, &outside, &funcs, &types, Some(bases))? }
-    };
+    let placed = place(&prepared, bases)?;
 
-    // Now the addresses exist, so the shapes can be keyed by the one thing the
-    // runtime holds about a compiled function. A body that was rewritten and
-    // then not placed would leave a wrapper handing over an address nothing
-    // describes, which the runtime answers `undefined` for rather than guessing.
-
-    // The same trick for what a stack trace prints: a name per code address,
-    // which is the only handle the runtime has on a compiled function. The
-    // compiler collected the names while emitting, because that is the one place
-    // that has both the identifier and the tree it came from.
-    let function_names: Vec<(u64, String, u32)> = emitted
-        .function_names
-        .iter()
-        .filter_map(|(id, name, arity)| {
-            let at = placed.address_of(*id)?;
-            Some((at as u64, name.clone(), *arity))
-        })
-        .collect();
-    let frames: Vec<rts_core::entry::FrameShape> = frames
-        .into_iter()
-        .filter_map(|(id, shape)| {
-            let at = placed.address_of(id)?;
-            Some(rts_core::entry::FrameShape {
-                code: at as u64,
-                ..shape
-            })
-        })
-        .collect();
+    // Now the addresses exist, so the two address-keyed tables can be built:
+    // what each function is called, for a stack trace, and what each generator's
+    // parked frame looks like.
+    let (function_names, frames) = addressed(&prepared, &placed);
 
     let address = placed
-        .address_of(script)
+        .address_of(prepared.script)
         .expect("the script was placed with a body");
     // SAFETY: every compiled function is emitted under one convention, which
     // `Entry` spells and `emit_program` builds — including the script, which is
@@ -974,8 +1079,8 @@ fn assemble(
         frames,
         function_names,
         described: None,
-        literals: emitted.literals,
-        templates: emitted.templates,
+        literals: prepared.emitted.literals,
+        templates: prepared.emitted.templates,
         keys: names.keyed_texts().into_iter().map(str::to_owned).collect(),
     })
 }

@@ -138,13 +138,38 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     callable
 }
 
-/// `a.push(…)` — answers the new length.
+/// `a.push(…)` — answers the new length, or throws when the array refuses one.
+///
+/// # Why the refusal is a throw and why it is decided BEFORE the append
+///
+/// `push` is defined as `Set(O, ToString(len), E, true)` followed by
+/// `Set(O, "length", len, true)`, and an array's `[[DefineOwnProperty]]`
+/// rejects an index at or past a `length` that is not writable — so the throw
+/// happens on the first element and nothing is stored. Appending first and
+/// letting `set_length` quietly fail is what this used to do, and it produced
+/// an array disagreeing with itself: `Object.defineProperty(a, "length",
+/// {writable: false}); a.push(4)` left `a.length` at 3 with four elements in
+/// it, which every read of `a[3]` could see and every loop over `a.length`
+/// could not.
+///
+/// The raise is OUTSIDE the borrow. `throw::type_error` builds the program's
+/// own `TypeError`, which takes the context — raising from inside would
+/// re-enter the `RefCell`, and an `extern "C"` frame cannot unwind out of that,
+/// so it ends the process rather than the call. The message is therefore built
+/// in and thrown out, which is the two-stage shape every native that raises
+/// here uses.
 extern "C" fn push(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    with_current(|context| {
+    let (answer, refused) = with_current(|context| {
         let more = arguments_at(context, 0, [a0, a1, a2, a3]);
         let Some(cell) = Value(this).as_slot() else {
-            return undefined_of(context);
+            return (undefined_of(context), None);
         };
+        // Nothing to add is nothing to refuse: `a.push()` re-states the length
+        // it already has, and re-stating the same value is permitted even on a
+        // non-writable property.
+        if !more.is_empty() && refuses_append(context, cell) {
+            return (undefined_of(context), Some(refusal(context, cell)));
+        }
         // Appended IN PLACE. `staged` copies, and it copies for a reason —
         // a method that calls user code cannot hold a borrow of the context
         // across the call — but `push` calls nothing. Copying here made
@@ -155,13 +180,51 @@ extern "C" fn push(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u6
         // The borrow ends before `set_length`, which is why this is two
         // statements and not one.
         let Some(elements) = context.elements_at_mut(cell) else {
-            return undefined_of(context);
+            return (undefined_of(context), None);
         };
         elements.extend_from_slice(&more);
         let count = elements.len();
         super::array::set_length(context, cell, count);
-        Value::from_f64(count as f64).bits()
-    })
+        (Value::from_f64(count as f64).bits(), None)
+    });
+    if let Some(message) = refused {
+        super::throw::type_error(&message);
+    }
+    answer
+}
+
+/// Whether an array refuses to grow.
+///
+/// Asked of `length` rather than of the elements, because that is where the
+/// language records it: `Object.defineProperty(a, "length", {writable: false})`
+/// and `Object.freeze(a)` are the two ways to reach this, and
+/// [`super::integrity::refuses_key_write`] already folds the object's own
+/// refusal into the property's — so one question answers both instead of two
+/// that could come to disagree.
+fn refuses_append(context: &mut Context, cell: u32) -> bool {
+    match super::computed::length_key(context) {
+        crate::object::Key::Name(named) => {
+            super::integrity::refuses_key_write(context, cell, named)
+        }
+        // `length` is a name, always. A key registry that answered otherwise is
+        // malformed, and refusing every push over it would be a wrong answer
+        // dressed as caution.
+        crate::object::Key::Index(_) => false,
+    }
+}
+
+/// What the refusal SAYS, which differs by which of the two caused it.
+///
+/// The message is the only part of a `TypeError` a program usually reads, and
+/// the two causes are genuinely different repairs: a frozen array needs the
+/// freeze removed and an array with a pinned `length` needs the descriptor
+/// changed. One message for both would name the wrong one half the time.
+fn refusal(context: &Context, cell: u32) -> String {
+    if super::integrity::refuses_write(context, cell) {
+        let at = context.elements_at(cell).map_or(0, Vec::len);
+        return format!("Cannot add property {at}, object is not extensible");
+    }
+    "Cannot assign to read only property 'length' of object '[object Array]'".to_owned()
 }
 
 /// `a.pop()` — the last element, removed.

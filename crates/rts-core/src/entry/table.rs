@@ -63,7 +63,7 @@ use super::objects::{
     SET_PROPERTY_ENTRY, SET_SUPER_PROPERTY_ENTRY,
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
-use super::generator::{GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
+use super::generator::{DELEGATE_STEP_ENTRY, GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
 use super::array::{ELEMENTS_BASE_ENTRY, ELEMENT_AT_ENTRY};
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ADDRESS_ENTRY, THROWN_ENTRY};
@@ -476,6 +476,15 @@ pub enum CoreEntry {
     /// difference, and a write carries none. An instance FIELD stays an
     /// ordinary write: the language makes that one enumerable.
     DefineMethod = 79,
+
+    /// One turn of a `yield*`: [`super::delegate_step`].
+    ///
+    /// Here rather than emitted, although the call it makes is an ordinary one
+    /// the emitter could write: it also records which iterator the generator
+    /// being resumed is delegating to, which is global mutable state — the
+    /// membership rule's third clause — and is the only way `g.throw(e)` can
+    /// reach the inner iterator's own `throw`.
+    DelegateStep = 80,
 }
 
 /// How many entry points exist.
@@ -483,7 +492,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 80;
+pub const CORE_ENTRY_COUNT: usize = 81;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -568,6 +577,7 @@ impl CoreEntry {
         CoreEntry::StringOf,
         CoreEntry::EnumerateKeys,
         CoreEntry::DefineMethod,
+        CoreEntry::DelegateStep,
     ];
 
     /// The number a call site holds.
@@ -663,6 +673,7 @@ impl CoreEntry {
             CoreEntry::ArrayAppend => ARRAY_APPEND_ENTRY,
             CoreEntry::ArrayAppendAll => ARRAY_APPEND_ALL_ENTRY,
             CoreEntry::SuperConstructWithArgs => SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
+            CoreEntry::DelegateStep => DELEGATE_STEP_ENTRY,
         }
     }
 
@@ -780,8 +791,19 @@ mod tests {
         // something `OwnKeys` looks like it answers — it does not, because
         // `for`-`in` walks the chain and object rest must not, and one
         // operation cannot be both without a flag nobody could get right.
+        // Moved to 80 on 2026-08-15 for `DelegateStep`, and the answer is the
+        // membership rule's THIRD clause rather than the first two: it does not
+        // allocate and it does not walk the heap, but it records which iterator
+        // the generator being resumed is delegating to — global mutable state,
+        // and the only way `g.throw(e)` can reach the inner iterator's own
+        // `throw`. An emitted call could make the call and could not remember.
+        //
+        // The ceiling is a reading limit rather than a capacity one, and it has
+        // moved four times in one day. That is a signal about the day and not
+        // about the mechanism, but the next move should come with an argument
+        // for the LIST rather than for the entry.
         assert!(
-            CORE_ENTRY_COUNT <= 80,
+            CORE_ENTRY_COUNT <= 81,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

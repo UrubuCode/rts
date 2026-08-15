@@ -33,6 +33,7 @@
 
 mod from;
 mod from_async;
+mod natural_run;
 mod sorting;
 mod splice;
 

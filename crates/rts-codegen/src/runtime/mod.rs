@@ -225,6 +225,17 @@ pub enum RuntimeOp {
     /// in the layer defined by having none.
     GeneratorYield,
 
+    /// One turn of a `yield*`: `inner.next(v)`, and what it answered.
+    ///
+    /// A call and not the two the emitter used to write — a property read and
+    /// an ordinary invocation — because the turn is only half of what happens
+    /// here. The other half is that the generator being resumed is now standing
+    /// in front of `inner`, which is global mutable state and is what lets
+    /// `outer.throw(e)` reach the inner iterator's own `throw`. The same
+    /// operation also hands back the answer a forwarded `throw` already
+    /// obtained, instead of stepping an iterator that has finished.
+    DelegateStep,
+
     /// `export * from "m"` — every name another module exports, published here.
     ///
     /// A call rather than a list the compiler emits, because the compiler does
@@ -720,6 +731,7 @@ impl RuntimeOp {
         RuntimeOp::ClosureNew,
         RuntimeOp::GeneratorNew,
         RuntimeOp::GeneratorYield,
+        RuntimeOp::DelegateStep,
         RuntimeOp::ModulePublishAll,
         RuntimeOp::ObjectSpread,
         RuntimeOp::KeyNumber,
@@ -810,6 +822,7 @@ impl RuntimeOp {
             RuntimeOp::ClosureNew => "__rts_closure_new",
             RuntimeOp::GeneratorNew => "__rts_generator_new",
             RuntimeOp::GeneratorYield => "__rts_generator_yield",
+            RuntimeOp::DelegateStep => "__rts_delegate_step",
             RuntimeOp::ModulePublishAll => "__rts_module_publish_all",
             RuntimeOp::ObjectSpread => "__rts_object_spread",
             RuntimeOp::KeyNumber => "__rts_key_number",
@@ -923,6 +936,11 @@ impl RuntimeOp {
             // expression — NOT what the yield evaluates to, which comes out of
             // the suspension beside it.
             RuntimeOp::GeneratorYield => (vec![UNPROVEN], vec![UNPROVEN]),
+            // The `next` method, the iterator it is called on, and the value
+            // sent in. Nothing is proved about the answer: it is whatever the
+            // inner iterator handed back, and the loop above reads `value` and
+            // `done` off it.
+            RuntimeOp::DelegateStep => (vec![UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             // Two literal indices: this module's specifier and the one it is
             // re-exporting from. Neither is a value.
             RuntimeOp::ModulePublishAll => (vec![Repr::I64, Repr::I64], vec![UNPROVEN]),

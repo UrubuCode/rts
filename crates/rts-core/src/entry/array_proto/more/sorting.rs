@@ -129,7 +129,7 @@ fn ordered(elements: Vec<u64>, comparator: u64) -> Vec<u64> {
         (present, missing)
     });
     if calls(comparator) {
-        present = merge_sorted(present, &mut |a, b| precedes(comparator, a, b));
+        present = with_comparator(present, comparator);
     } else {
         let mut keyed: Vec<(Vec<u16>, u64)> = with_current(|context| {
             present
@@ -145,6 +145,20 @@ fn ordered(elements: Vec<u64>, comparator: u64) -> Vec<u64> {
     }
     present.extend(missing);
     present
+}
+
+/// The order a comparator produces, by whichever of the two algorithms applies.
+///
+/// Two, because the answer is only implementation-defined for a comparator that
+/// contradicts itself — and where it is, the corpus compares this engine against
+/// V8 and JavaScriptCore, which agree with each other. [`super::natural_run`] is
+/// that agreement, stated exactly for the sizes at which it is short enough to
+/// state; its own documentation says what is given up above them and why.
+fn with_comparator(values: Vec<u64>, comparator: u64) -> Vec<u64> {
+    match values.len() < super::natural_run::LIMIT {
+        true => super::natural_run::sorted(values, &mut |a, b| compared(comparator, a, b)),
+        false => merge_sorted(values, &mut |a, b| precedes(comparator, a, b)),
+    }
 }
 
 /// A stable bottom-up merge sort, driven by a comparison that may lie.
@@ -201,6 +215,38 @@ fn merge_sorted(mut values: Vec<u64>, before: &mut impl FnMut(u64, u64) -> bool)
     values
 }
 
+/// `SortCompare` for one pair, or `None` when the comparator threw.
+///
+/// # Why `NaN` never leaves this function
+///
+/// The specification says it in one line — "if v is NaN, return +0" — and every
+/// caller above reads the answer's SIGN. Leaving `NaN` in would make `order < 0`
+/// and `order >= 0` both false, so the two branches of a descending run would
+/// disagree about the same pair. Normalising here is the one place that decision
+/// belongs, and it is what makes a comparator written for numbers put an object
+/// (whose `ToNumber` is `NaN`) where it found it rather than somewhere arbitrary.
+///
+/// # Why the type asks about the throw
+///
+/// Rule 8 of this crate's README: a native that calls user code asks before it
+/// looks at the answer. `functions::call` answers `undefined` for a call that
+/// did not run, and `undefined` is a VALUE — a comparison that read it as "+0"
+/// would go on running the whole sort against a comparator that stopped
+/// answering. `Option` makes each caller decide instead of inheriting that.
+fn compared(comparator: u64, a: u64, b: u64) -> Option<f64> {
+    let receiver = nothing();
+    // Outside every borrow: this is the call the two-stage shape exists for.
+    let answered = functions::call(comparator, receiver, a, b, receiver, receiver);
+    if super::super::super::throw::in_flight() {
+        return None;
+    }
+    let order = super::super::super::class_support::to_number(answered);
+    Some(match order.is_nan() {
+        true => 0.0,
+        false => order,
+    })
+}
+
 /// Whether the comparator says `a` comes before `b`, or with it.
 ///
 /// A positive answer is the only one that moves `b` first. `NaN` — which is what
@@ -208,16 +254,15 @@ fn merge_sorted(mut values: Vec<u64>, before: &mut impl FnMut(u64, u64) -> bool)
 /// gives for an object — therefore counts as equal, which the specification says
 /// explicitly and which leaves the order stable instead of arbitrary.
 fn precedes(comparator: u64, a: u64, b: u64) -> bool {
-    let receiver = nothing();
-    // Outside every borrow: this is the call the two-stage shape exists for.
-    let answered = functions::call(comparator, receiver, a, b, receiver, receiver);
-    // A comparator that threw answers `undefined`, whose `ToNumber` is `NaN`,
-    // which reads as "equal" here — so the merge finishes rather than hanging,
-    // in an order decided partly by a comparator that stopped running. That is
-    // inside what the specification permits for an inconsistent comparator,
-    // and it is why the throw is caught one level up instead: `ordered`'s
-    // callers do not STORE a result they got while unwinding.
-    !(super::super::super::class_support::to_number(answered) > 0.0)
+    // A comparator that threw reads as "equal" here — so the merge finishes
+    // rather than hanging, in an order decided partly by a comparator that
+    // stopped running. That is inside what the specification permits for an
+    // inconsistent comparator, and it is why the throw is caught one level up
+    // instead: `ordered`'s callers do not STORE a result they got while
+    // unwinding. The two sorts differ here on purpose — a merge must finish its
+    // pass to keep every element, where an insertion sort can stop mid-array
+    // and lose nothing.
+    !(compared(comparator, a, b).unwrap_or(0.0) > 0.0)
 }
 
 /// What an element sorts as when no comparator was given.

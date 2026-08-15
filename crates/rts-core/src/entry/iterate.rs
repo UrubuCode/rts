@@ -258,7 +258,7 @@ fn refuse(value: u64) {
 /// A data read: a getter is not run, which is the same boundary
 /// [`super::error::joined`] draws and for a smaller reason — an accessor on
 /// `next` or `done` is not something a real iterator has.
-fn member(value: u64, name: &str) -> u64 {
+pub(super) fn member(value: u64, name: &str) -> u64 {
     with_current(|context| {
         let Some(cell) = Value(value).as_slot() else {
             return super::objects::undefined_of(context);
@@ -272,7 +272,7 @@ fn member(value: u64, name: &str) -> u64 {
 }
 
 /// Whether a value can be called at all.
-fn callable(value: u64) -> bool {
+pub(super) fn callable(value: u64) -> bool {
     with_current(|context| {
         Value(value)
             .as_slot()

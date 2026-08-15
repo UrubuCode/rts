@@ -21,15 +21,29 @@ use crate::value::Value;
 /// What a string's prototype holds that reads whole code points.
 pub(super) const NATIVES: &[(&str, Native)] = &[("codePointAt", code_point_at)];
 
-/// What `String` itself holds.
+/// What `String` itself holds, each with the arity the specification pins.
 ///
 /// Statics, because they build a string out of nothing — there is no receiver
 /// for them to be a method on, which is exactly why the language put them on the
 /// constructor rather than on the prototype.
-pub(super) const STATICS: &[(&str, Native)] = &[
-    ("fromCharCode", from_char_code),
-    ("fromCodePoint", from_code_point),
-    ("raw", raw),
+///
+/// # Why the number is carried here rather than defaulted at the install
+///
+/// All three are variadic and all three have `length` **1** — ECMA-262 gives
+/// `String.fromCharCode`, `String.fromCodePoint` and `String.raw` one declared
+/// parameter each, the rest being a rest element, which `SetFunctionLength`
+/// does not count. A shared `0` would have replaced `undefined` with a number
+/// that is wrong for every one of them, and a wrong `length` is worse than an
+/// absent one: a program that forwards a function by arity (`fn.length ? … : …`)
+/// takes the other branch and keeps running.
+///
+/// It matters because these are read as VALUES. `const cc = String.fromCharCode`
+/// is what the fixture that found this does, and `cc.length` answered
+/// `undefined` where every engine answers 1.
+pub(super) const STATICS: &[(&str, Native, u32)] = &[
+    ("fromCharCode", from_char_code, 1),
+    ("fromCodePoint", from_code_point, 1),
+    ("raw", raw, 1),
 ];
 
 /// `s.codePointAt(i)` — the whole character at a position, not half of one.
