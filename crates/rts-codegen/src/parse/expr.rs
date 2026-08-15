@@ -6,7 +6,7 @@ use swc_ecma_ast as swc;
 use super::{Cx, ParseError, Result, position, unsupported};
 use crate::syntax::{
     AssignOp, AssignTarget, BinaryOp, Expr, ExprKind, Literal, LogicalOp, Property, PropertyKey,
-    Spreadable, TemplatePart, UnaryOp, UpdateOp, UpdatePosition,
+    Spreadable, TemplatePart, Text, UnaryOp, UpdateOp, UpdatePosition,
 };
 use crate::values::Singleton;
 
@@ -308,15 +308,37 @@ fn quasi(element: &swc::TplElement) -> TemplatePart {
         cooked: element
             .cooked
             .as_ref()
-            .map(|c| c.to_string_lossy().to_string()),
+            .map(|cooked| text(cooked.as_wtf8().to_ill_formed_utf16())),
         raw: element.raw.to_string(),
     }
+}
+
+/// What SWC read, as the code units it is.
+///
+/// # Why not `to_string_lossy()`, which is what this bridge called
+///
+/// SWC holds a string literal's cooked value as **WTF-8**, which is exactly the
+/// shape a JavaScript string needs and exactly the shape a Rust `String` cannot
+/// be: `"\uD83D"` is one code unit in the surrogate range, and the lossy
+/// conversion replaced it with `U+FFFD` before the tree ever saw it. The
+/// resulting program was not merely missing a character — it was a *different
+/// program*, in which `"\uD83D".isWellFormed()` answers `true` because by then
+/// the string really is well-formed and really is the wrong one.
+///
+/// Takes the iterator rather than the atom so that this file names no SWC type
+/// beyond what `swc_ecma_ast` re-exports: the atom's own crate is not a
+/// dependency here, and adding one to write a parameter's type would be paying
+/// a dependency edge for a signature.
+fn text(code_units: impl Iterator<Item = u16>) -> Text {
+    Text::from_units(code_units.collect())
 }
 
 fn lit(literal: &swc::Lit) -> Result<Literal> {
     Ok(match literal {
         swc::Lit::Num(number) => Literal::Number(number.value),
-        swc::Lit::Str(string) => Literal::String(string.value.to_string_lossy().to_string()),
+        swc::Lit::Str(string) => {
+            Literal::String(text(string.value.as_wtf8().to_ill_formed_utf16()))
+        }
         swc::Lit::Bool(boolean) => Literal::Boolean(boolean.value),
         swc::Lit::Null(_) => Literal::Singleton(Singleton::Null),
         // Both are carried as the text that was written. SWC read them
@@ -397,7 +419,26 @@ fn property(cx: &mut Cx, prop: &swc::PropOrSpread) -> Result<Property> {
 pub(crate) fn property_key(cx: &mut Cx, key: &swc::PropName) -> Result<PropertyKey> {
     Ok(match key {
         swc::PropName::Ident(ident) => PropertyKey::Named(cx.name(&ident.sym)),
-        swc::PropName::Str(string) => PropertyKey::Named(cx.name(&string.value.to_string_lossy())),
+        swc::PropName::Str(string) => match string.value.as_wtf8().as_str() {
+            Some(named) => PropertyKey::Named(cx.name(named)),
+            // A key the NAME table cannot hold. `names` maps Rust text to the
+            // number a layout is keyed by, and `{ "\uD83D": 1 }` names a
+            // property no Rust text spells — so it is carried as the string it
+            // is and resolved while running, which is exactly the path
+            // `o["\uD83D"]` already takes to READ it (`emit::expr::literal_name`
+            // refuses the same key for the same reason).
+            //
+            // Naming it lossily is what the bridge did, and the failure was
+            // quiet rather than absent: the write and the read agreed about
+            // `U+FFFD` and both disagreed with the program, so `o["�"]`
+            // and `o["\uD83D"]` were one property.
+            None => PropertyKey::Computed(Expr::new(
+                ExprKind::Literal(Literal::String(text(
+                    string.value.as_wtf8().to_ill_formed_utf16(),
+                ))),
+                position(string.span),
+            )),
+        },
         swc::PropName::Num(number) => {
             // A numeric key is a property key, which is a string. Which string
             // is decided by Number::toString, so this is the one place the

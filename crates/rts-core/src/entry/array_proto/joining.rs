@@ -65,7 +65,7 @@ pub(super) extern "C" fn join(
             false => super::super::text::to_text(context, Value(separator))?,
         };
         Some((
-            between.to_rust().unwrap_or_default(),
+            between,
             elements,
             [undefined_of(context), null_of(context)],
         ))
@@ -74,24 +74,36 @@ pub(super) extern "C" fn join(
         return with_current(|context| undefined_of(context));
     };
 
-    let parts: Vec<String> = elements
+    // Assembled as UTF-16 UNITS rather than through Rust strings, and that is a
+    // correctness difference rather than a shortcut. `Str::to_rust` refuses
+    // text that is not well-formed — deliberately, and every other caller
+    // depends on that refusal — so a lone surrogate became `""` here and
+    // `["a", hi, lo, "b"].join("")` answered a two-unit string where the
+    // language says four. `split("")` already produced the right pieces; it
+    // was putting them back that lost them.
+    let parts: Vec<Vec<u16>> = elements
         .iter()
         .map(|held| {
             if empty.contains(held) {
-                return String::new();
+                return Vec::new();
             }
             let held = super::super::primitive::to_primitive(*held, crate::coerce::Hint::String);
             with_current(|context| super::super::text::to_text(context, Value(held)))
-                .and_then(|text| text.to_rust())
+                .map(|text| text.units().collect())
                 .unwrap_or_default()
         })
         .collect();
 
-    with_current(|context| {
-        context
-            .intern_value(Str::from_str(&parts.join(&between)))
-            .bits()
-    })
+    let between: Vec<u16> = between.units().collect();
+    let mut joined: Vec<u16> = Vec::new();
+    for (at, part) in parts.iter().enumerate() {
+        if at > 0 {
+            joined.extend_from_slice(&between);
+        }
+        joined.extend_from_slice(part);
+    }
+
+    with_current(|context| context.intern_value(Str::from_utf16(&joined)).bits())
 }
 
 /// The encoded `null`, which [`join`] treats as the empty string.

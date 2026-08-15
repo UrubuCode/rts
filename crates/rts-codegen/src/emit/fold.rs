@@ -52,12 +52,14 @@ use crate::syntax::{BinaryOp, Literal};
 pub(super) fn fold_binary(op: BinaryOp, left: &Literal, right: &Literal) -> Option<Literal> {
     match (left, right) {
         (Literal::Number(a), Literal::Number(b)) => fold_numeric(op, *a, *b),
-        // Concatenation only. `format!` does not allocate on the heap this
-        // compiler manages — the result is still a `Literal::String` at this
-        // point, and it goes through the ordinary string-literal path (the
-        // interned-text table) exactly as if it had been typed that way.
+        // Concatenation only, and over CODE UNITS rather than through Rust
+        // text: `"\uD83D" + "\uDE00"` folds to the pair, and a fold that went
+        // through `format!` would have folded two replacement characters. The
+        // result is still a `Literal::String` at this point, and it goes
+        // through the ordinary string-literal path (the interned-text table)
+        // exactly as if it had been typed that way.
         (Literal::String(a), Literal::String(b)) if op == BinaryOp::Add => {
-            Some(Literal::String(format!("{a}{b}")))
+            Some(Literal::String(a.concat(b)))
         }
         _ => None,
     }
@@ -268,10 +270,10 @@ mod tests {
         assert_eq!(
             fold_binary(
                 BinaryOp::Add,
-                &Literal::String("foo".to_owned()),
-                &Literal::String("bar".to_owned())
+                &Literal::String("foo".into()),
+                &Literal::String("bar".into())
             ),
-            Some(Literal::String("foobar".to_owned()))
+            Some(Literal::String("foobar".into()))
         );
     }
 
@@ -280,7 +282,7 @@ mod tests {
         // `"a" + 1` decides after ToPrimitive on both sides, not from static
         // types — folding it here would be restating that decision.
         assert_eq!(
-            fold_binary(BinaryOp::Add, &Literal::String("a".to_owned()), &n(1.0)),
+            fold_binary(BinaryOp::Add, &Literal::String("a".into()), &n(1.0)),
             None
         );
     }
@@ -300,6 +302,6 @@ mod tests {
 
     #[test]
     fn negate_of_a_string_does_not_fold() {
-        assert_eq!(fold_negate(&Literal::String("3".to_owned())), None);
+        assert_eq!(fold_negate(&Literal::String("3".into())), None);
     }
 }

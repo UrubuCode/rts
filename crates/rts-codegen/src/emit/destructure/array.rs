@@ -561,7 +561,7 @@ fn close_stmt(iter: Name, done: Name, ctx: &mut Ctx, at: Position) -> Stmt {
                 at,
             }),
             right: Box::new(Expr {
-                kind: ExprKind::Literal(Literal::String("function".to_owned())),
+                kind: ExprKind::Literal(Literal::String("function".into())),
                 at,
             }),
         },

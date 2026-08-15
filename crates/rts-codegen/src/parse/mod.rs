@@ -365,6 +365,45 @@ mod tests {
         }
     }
 
+    /// The code units of a string literal written as a whole program.
+    ///
+    /// Parenthesised, because a bare string literal at the top of a script is a
+    /// DIRECTIVE and lands in the prologue rather than in the body.
+    fn first_string(literal: &str) -> Vec<u16> {
+        let mut names = Names::new();
+        let source = format!("({literal});");
+        let program = parse_script(&source, &mut names).expect("the source is a legal script");
+        let crate::syntax::ModuleItem::Stmt(statement) = &program.body[0] else {
+            panic!("expected a statement");
+        };
+        let crate::syntax::StmtKind::Expr(expression) = &statement.kind else {
+            panic!("expected an expression statement");
+        };
+        let crate::syntax::ExprKind::Literal(crate::syntax::Literal::String(text)) =
+            &expression.kind
+        else {
+            panic!("expected a string literal");
+        };
+        text.units().to_vec()
+    }
+
+    #[test]
+    fn a_lone_surrogate_written_in_a_literal_survives_the_bridge() {
+        // `"\uD83D"` is a legal one-unit JavaScript string holding half a
+        // surrogate pair. This bridge used to cook it through Rust text, which
+        // cannot hold that unit, so what reached the tree was `U+FFFD` — a
+        // DIFFERENT string, one that `isWellFormed()` answers `true` about.
+        assert_eq!(first_string(r#""\uD83D""#), vec![0xD83D]);
+        assert_eq!(
+            first_string(r#""a\uD83Db""#),
+            vec![b'a' as u16, 0xD83D, b'b' as u16]
+        );
+        // The braced spelling of the same code point is the same string, and a
+        // whole pair still decodes to two units rather than to one scalar.
+        assert_eq!(first_string(r#""\u{D83D}""#), vec![0xD83D]);
+        assert_eq!(first_string(r#""\u{1F600}""#), vec![0xD83D, 0xDE00]);
+    }
+
     #[test]
     fn a_syntax_error_and_an_unsupported_construct_are_different_answers() {
         let mut names = Names::new();

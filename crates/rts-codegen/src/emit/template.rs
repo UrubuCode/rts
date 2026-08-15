@@ -23,10 +23,10 @@ use rts_cranelift::ir::{FuncBuilder, ValueId};
 use rts_cranelift::ir::{ConstDecl, ScalarBits};
 use rts_cranelift::repr::Repr;
 
-use super::expr::{emit_binary, emit_expr, gap, string_literal};
+use super::expr::{emit_binary, emit_expr, gap, string_literal_units};
 use crate::runtime::RuntimeOp;
 use super::{Ctx, EmitError, EmitResult, Scope};
-use crate::syntax::{BinaryOp, Expr, TemplatePart};
+use crate::syntax::{BinaryOp, Expr, TemplatePart, Text};
 
 /// Emits a template literal.
 ///
@@ -103,7 +103,7 @@ pub fn emit_template(
         // this one reads neither of those: it reads the text to join.
         let mut pieces = Vec::with_capacity(parts.len());
         for part in parts {
-            pieces.push(ctx.literal(cooked(part)?));
+            pieces.push(ctx.literal_units(cooked(part)?.units()));
         }
         let which = ctx.template(pieces);
         let site = builder.declare_const(ConstDecl::Scalar {
@@ -130,7 +130,7 @@ pub fn emit_template(
         return Ok(super::expr::call(builder, ctx, RuntimeOp::TemplateJoin, &args)?[0]);
     }
 
-    let mut joined = string_literal(builder, ctx, cooked(first)?)?;
+    let mut joined = string_literal_units(builder, ctx, cooked(first)?.units())?;
     // One part after each expression, which is the invariant the tree records
     // as "always one more than `expressions`". Zipping is what reads it.
     for (value, part) in values.into_iter().zip(rest) {
@@ -146,7 +146,7 @@ pub fn emit_template(
         if text.is_empty() {
             continue;
         }
-        let text = string_literal(builder, ctx, text)?;
+        let text = string_literal_units(builder, ctx, text.units())?;
         joined = emit_binary(builder, ctx, BinaryOp::Add, joined, text)?;
     }
     Ok(joined)
@@ -202,7 +202,7 @@ pub fn emit_tagged_template(
     let mut pieces = Vec::with_capacity(parts.len() * 2);
     for part in parts {
         pieces.push(match &part.cooked {
-            Some(text) => ctx.literal(text),
+            Some(text) => ctx.literal_units(text.units()),
             None => super::NO_COOKED,
         });
         pieces.push(ctx.literal(&part.raw));
@@ -226,7 +226,7 @@ pub fn emit_tagged_template(
 }
 
 /// The value a template part stands for.
-fn cooked(part: &TemplatePart) -> EmitResult<&str> {
+fn cooked(part: &TemplatePart) -> EmitResult<&Text> {
     match &part.cooked {
         Some(text) => Ok(text),
         // Legal only in a tagged template, where the tag reads `raw` instead.

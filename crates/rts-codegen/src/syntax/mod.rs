@@ -21,7 +21,7 @@ mod stmt;
 
 pub use class::{Class, ClassElement, ClassKey, Field, Method, MethodKind};
 pub use expr::{
-    AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey, Spreadable, TemplatePart,
+    AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey, Spreadable, TemplatePart, Text,
     number_to_key,
 };
 pub use module::{

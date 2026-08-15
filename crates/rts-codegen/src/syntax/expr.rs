@@ -8,13 +8,101 @@ use super::pattern::Pattern;
 use crate::names::Name;
 use crate::values::Singleton;
 
+/// Text a program wrote down, as the code units it means.
+///
+/// # Why this is not a `String`
+///
+/// A JavaScript string is a sequence of UTF-16 code units, and `"\uD83D"` is a
+/// legal one-unit string holding half a surrogate pair. A Rust `String` is valid
+/// UTF-8, so it cannot hold that unit at all — and the bridge that built one
+/// replaced it with `U+FFFD`, which is a *different string*: `"\uD83D".length`
+/// stayed 1 and `isWellFormed()` answered `true` where every engine answers
+/// `false`.
+///
+/// So the tree carries units. The alternative considered and rejected was a
+/// second `Literal` variant for the ill-formed case, which would have made
+/// `a["k"]`'s fast path fire or not depending on whether the key happened to be
+/// valid Unicode — one meaning written twice, decided by accident.
+///
+/// Constructed from `&str`/`String` as well, because most literals *are* valid
+/// text and every synthesised one is: the conversion is `encode_utf16`, which
+/// cannot lose anything in that direction.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Text {
+    units: Vec<u16>,
+}
+
+impl Text {
+    /// From the code units themselves.
+    pub fn from_units(units: Vec<u16>) -> Self {
+        Self { units }
+    }
+
+    /// The code units, in order.
+    pub fn units(&self) -> &[u16] {
+        &self.units
+    }
+
+    /// Whether it has no code units.
+    pub fn is_empty(&self) -> bool {
+        self.units.is_empty()
+    }
+
+    /// Rust text, when every unit of it is a scalar value.
+    ///
+    /// `None` for a lone surrogate rather than `U+FFFD`, which is the same
+    /// refusal `rts_core::text::Str::to_rust` makes and for the same reason: a
+    /// replacement character is a different string, and a caller that cannot
+    /// take the absence is a caller that would have been given the wrong text.
+    pub fn as_rust(&self) -> Option<String> {
+        String::from_utf16(&self.units).ok()
+    }
+
+    /// Two of them joined.
+    pub fn concat(&self, other: &Text) -> Text {
+        let mut units = Vec::with_capacity(self.units.len() + other.units.len());
+        units.extend_from_slice(&self.units);
+        units.extend_from_slice(&other.units);
+        Text { units }
+    }
+}
+
+impl From<&str> for Text {
+    fn from(text: &str) -> Self {
+        Text {
+            units: text.encode_utf16().collect(),
+        }
+    }
+}
+
+impl From<String> for Text {
+    fn from(text: String) -> Self {
+        Text::from(text.as_str())
+    }
+}
+
+impl From<Vec<u16>> for Text {
+    fn from(units: Vec<u16>) -> Self {
+        Text { units }
+    }
+}
+
+/// Lossy, and only for a message: `Display` has no refusal available, so a lone
+/// surrogate prints as `U+FFFD` here. Anything deciding a value asks
+/// [`Text::units`] instead.
+impl std::fmt::Display for Text {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&String::from_utf16_lossy(&self.units))
+    }
+}
+
 /// A value written in the program.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Literal {
     /// A number. Always a double, because JavaScript has one numeric type.
     Number(f64),
-    /// Text.
-    String(String),
+    /// Text, as the code units it means — see [`Text`].
+    String(Text),
     /// `true` or `false`.
     Boolean(bool),
     /// `undefined` or `null`.
@@ -494,7 +582,10 @@ impl Spreadable {
 #[derive(Clone, PartialEq, Debug)]
 pub struct TemplatePart {
     /// The text with escapes resolved, absent if any of them was invalid.
-    pub cooked: Option<String>,
+    ///
+    /// Units rather than a `String` for the reason [`Text`] states: `` `\uD83D` ``
+    /// cooks to one code unit that no valid UTF-8 can hold.
+    pub cooked: Option<Text>,
     /// The text exactly as it was written.
     pub raw: String,
 }

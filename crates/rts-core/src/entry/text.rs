@@ -31,14 +31,23 @@ use crate::value::{Kind, Value};
 /// Called by the host with what the compilation collected, in the order it
 /// collected them — the index the code carries is a position in that list, so
 /// the order is the agreement rather than an incidental detail.
-pub fn declare_literals(context: &mut Context, texts: &[String]) {
+///
+/// # Why UTF-16 code units and not `String`
+///
+/// Because a string literal is not Rust text. `"\uD83D"` is a legal one-unit
+/// JavaScript string holding half a surrogate pair, and no `String` can carry
+/// that unit — so a table of `String`s meant the compiler had already replaced
+/// it with `U+FFFD` by the time this was called, and `isWellFormed()` answered
+/// `true` about a string the program never wrote. [`Str::from_utf16`] takes the
+/// units for the same reason, and narrows them when they fit.
+pub fn declare_literals(context: &mut Context, texts: &[Vec<u16>]) {
     // A loop rather than a `map`, because interning needs the context mutably
     // and so does the field being filled. Pushing one at a time is also what
     // makes the index a position in `texts` rather than something a collect
     // happened to preserve.
     context.literals.clear();
     for text in texts {
-        let value = context.intern_value(Str::from_str(text)).bits();
+        let value = context.intern_value(Str::from_utf16(text)).bits();
         context.literals.push(value);
     }
 }

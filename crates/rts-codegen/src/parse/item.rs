@@ -946,9 +946,20 @@ fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Result<Stmt> 
                 swc::Expr::Lit(swc::Lit::Num(number)) => {
                     (Literal::Number(number.value), Some(number.value))
                 }
-                swc::Expr::Lit(swc::Lit::Str(text)) => {
-                    (Literal::String(text.value.to_string_lossy().to_string()), None)
-                }
+                swc::Expr::Lit(swc::Lit::Str(text)) => (
+                    // Units, for the reason `parse::expr::text` states: an enum
+                    // member's value is a string literal like any other, and a
+                    // lossy conversion here would make `E.A` a different string
+                    // from the one written.
+                    Literal::String(
+                        text.value
+                            .as_wtf8()
+                            .to_ill_formed_utf16()
+                            .collect::<Vec<u16>>()
+                            .into(),
+                    ),
+                    None,
+                ),
                 _ => {
                     return unsupported("an enum member that is not a literal", at);
                 }
@@ -978,7 +989,7 @@ fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Result<Stmt> 
                     cx.names.intern(&crate::syntax::number_to_key(held)),
                 ),
                 value: Expr {
-                    kind: ExprKind::Literal(Literal::String(member_name)),
+                    kind: ExprKind::Literal(Literal::String(member_name.into())),
                     at,
                 },
                 shorthand: false,

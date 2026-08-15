@@ -90,15 +90,19 @@ fn current_thread_stack_high() -> Option<usize> {
 
 /// What `rts_host::object::write_manifest` wrote, read back.
 ///
-/// Owns its bytes decoded into owned `String`s and `Vec<u32>`s rather than
-/// borrowing the file's buffer: `declare_keys`/`declare_literals` want
-/// `&[String]`, and a manifest that borrowed would tie the seed tables'
-/// lifetime to a buffer this function has no reason to keep alive past seeding.
+/// Owns its bytes decoded into owned tables rather than borrowing the file's
+/// buffer: `declare_keys`/`declare_literals` want slices of owned entries, and
+/// a manifest that borrowed would tie the seed tables' lifetime to a buffer
+/// this function has no reason to keep alive past seeding.
 struct Manifest {
     singletons: [u32; 3],
     kinds: [u8; 2],
     keys: Vec<String>,
-    literals: Vec<String>,
+    /// Code units, not text. `declare_literals` says why: a string literal may
+    /// be a lone surrogate, which no UTF-8 spelling can carry — and an AOT
+    /// binary that lost one where a JIT run kept it would answer differently
+    /// about the same program.
+    literals: Vec<Vec<u16>>,
     templates: Vec<Vec<u32>>,
 }
 
@@ -134,8 +138,23 @@ fn read_manifest(bytes: &[u8]) -> Option<Manifest> {
         }
         Some(out)
     };
+    let read_units = |at: &mut usize| -> Option<Vec<Vec<u16>>> {
+        let count = u32_at(at)?;
+        let mut out = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let len = u32_at(at)? as usize;
+            let mut units = Vec::with_capacity(len);
+            for _ in 0..len {
+                let slice = bytes.get(*at..*at + 2)?;
+                *at += 2;
+                units.push(u16::from_le_bytes(slice.try_into().ok()?));
+            }
+            out.push(units);
+        }
+        Some(out)
+    };
     let keys = read_strings(&mut at)?;
-    let literals = read_strings(&mut at)?;
+    let literals = read_units(&mut at)?;
 
     let count = u32_at(&mut at)?;
     let mut templates = Vec::with_capacity(count as usize);

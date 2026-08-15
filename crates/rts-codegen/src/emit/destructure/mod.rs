@@ -222,7 +222,7 @@ fn object_pattern(
             // never the name a value ends up bound to.
             PropertyKey::Named(name) => {
                 excluded.push(Expr {
-                    kind: ExprKind::Literal(Literal::String(ctx.names.text(*name).to_owned())),
+                    kind: ExprKind::Literal(Literal::String(ctx.names.text(*name).into())),
                     at,
                 });
                 member_expr(ident(src, at), *name, at)

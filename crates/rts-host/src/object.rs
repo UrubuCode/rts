@@ -77,8 +77,9 @@ pub struct ObjectProgram {
     /// `declare_keys` before the entry runs — same requirement `run_region`
     /// states, same order.
     pub keys: Vec<String>,
-    /// Every string literal, by position. Seeded by `declare_literals`.
-    pub literals: Vec<String>,
+    /// Every string literal, by position, as UTF-16 code units. Seeded by
+    /// `declare_literals`, which states why it is units and not `String`.
+    pub literals: Vec<Vec<u16>>,
     /// Every tagged-template site, by literal position. Seeded by
     /// `declare_templates`, after the literals.
     pub templates: Vec<Vec<u32>>,
@@ -165,9 +166,12 @@ pub fn compile_to_object(source: &str) -> Result<ObjectProgram, HostError> {
 ///
 /// Little-endian throughout. Three `u32` singletons, then two `u8` kinds
 /// (padded to 4 bytes), then three tables — keys, literals, templates — each a
-/// `u32` count followed by its entries. A key or literal entry is a `u32` byte
-/// length followed by UTF-8 bytes. A template entry is a `u32` length followed
-/// by that many `u32` values.
+/// `u32` count followed by its entries. A key entry is a `u32` byte length
+/// followed by UTF-8 bytes. A **literal** entry is a `u32` count followed by
+/// that many `u16` code units, because a string literal may hold a lone
+/// surrogate and UTF-8 cannot carry one — the same reason
+/// `rts_core::entry::declare_literals` takes units. A template entry is a `u32`
+/// length followed by that many `u32` values.
 ///
 /// This is hand-rolled rather than an existing serializer because the reader is
 /// a `#![no_std]`-shaped `extern "C" fn` in a different crate with no shared
@@ -184,7 +188,7 @@ pub fn write_manifest(path: &std::path::Path, program: &ObjectProgram) -> std::i
     out.extend_from_slice(&[0u8; 2]);
 
     write_strings(&mut out, &program.keys);
-    write_strings(&mut out, &program.literals);
+    write_units(&mut out, &program.literals);
 
     out.extend_from_slice(&(program.templates.len() as u32).to_le_bytes());
     for template in &program.templates {
@@ -203,5 +207,22 @@ fn write_strings(out: &mut Vec<u8>, strings: &[String]) {
         let bytes = text.as_bytes();
         out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
         out.extend_from_slice(bytes);
+    }
+}
+
+/// The literal table, as counts of code units rather than of bytes.
+///
+/// A separate writer rather than encoding the units as UTF-8 first: the whole
+/// point of carrying units is that a lone surrogate has no UTF-8 spelling, and
+/// an AOT binary that lost one where a JIT run kept it would be this crate's
+/// rule 4 broken — the two destinations differ about the destination, never
+/// about what was compiled.
+fn write_units(out: &mut Vec<u8>, literals: &[Vec<u16>]) {
+    out.extend_from_slice(&(literals.len() as u32).to_le_bytes());
+    for units in literals {
+        out.extend_from_slice(&(units.len() as u32).to_le_bytes());
+        for unit in units {
+            out.extend_from_slice(&unit.to_le_bytes());
+        }
     }
 }

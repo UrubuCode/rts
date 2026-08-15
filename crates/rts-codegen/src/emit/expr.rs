@@ -116,7 +116,7 @@ pub fn emit_expr(
             if let (BinaryOp::In, ExprKind::PrivateName(held)) = (op, &left.kind) {
                 let object = emit_expr(builder, scope, ctx, right)?;
                 let text = ctx.names.text(*held).to_owned();
-                let key = emit_literal(builder, ctx, &Literal::String(text))?;
+                let key = emit_literal(builder, ctx, &Literal::String(text.into()))?;
                 return emit_binary(builder, ctx, BinaryOp::In, key, object);
             }
             // Left before right, unconditionally. Every JavaScript binary
@@ -398,10 +398,15 @@ fn literal_name(ctx: &mut Ctx, index: &Expr) -> Option<Name> {
     let ExprKind::Literal(Literal::String(text)) = &index.kind else {
         return None;
     };
+    // A key the name table cannot hold takes the slow path. `names` is Rust
+    // text, so `o["\uD83D"]` has no `Name` to intern — and the slow path is
+    // where a key that is a runtime string is looked up anyway, so this loses
+    // an optimisation rather than an answer.
+    let text = text.as_rust()?;
     if text.chars().any(|character| character.is_ascii_digit()) {
         return None;
     }
-    Some(ctx.names.intern(text))
+    Some(ctx.names.intern(&text))
 }
 
 /// Widens a value for a position that takes a JavaScript value.
@@ -632,7 +637,7 @@ fn emit_literal(
         // WHICH literal and the runtime holds the text — the same shape as a
         // property key, and for the same reason. An immediate here would be a
         // number that is not a string and compares wrongly with everything.
-        Literal::String(text) => string_literal(builder, ctx, text),
+        Literal::String(text) => string_literal_units(builder, ctx, text.units()),
 
         // Never a constant — `super::regex` says what hoisting one would break.
         Literal::Regex { pattern, flags } => super::regex::literal(builder, ctx, pattern, flags),
@@ -1519,6 +1524,27 @@ pub(super) fn string_literal(
     text: &str,
 ) -> EmitResult<ValueId> {
     let which = ctx.literal(text);
+    string_const(builder, ctx, which)
+}
+
+/// The same, for a literal whose text is code units.
+///
+/// A JavaScript string literal is UTF-16, and `"\uD83D"` is one unit that no
+/// `&str` can hold — see `crate::syntax::Text`. The `&str` form above stays
+/// because the emitter also synthesises literals from names it holds as Rust
+/// text, and both mint from one table so the two spellings of one string are
+/// one string.
+pub(super) fn string_literal_units(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    units: &[u16],
+) -> EmitResult<ValueId> {
+    let which = ctx.literal_units(units);
+    string_const(builder, ctx, which)
+}
+
+/// The call that turns a literal's number into its value.
+fn string_const(builder: &mut FuncBuilder, ctx: &mut Ctx, which: u32) -> EmitResult<ValueId> {
     let index = builder.declare_const(ConstDecl::Scalar {
         repr: Repr::I64,
         bits: ScalarBits(u64::from(which)),

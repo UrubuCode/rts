@@ -187,19 +187,24 @@ pub struct Program {
     pub function_names: Vec<(FuncId, String, u32)>,
     /// Which of them is the program's entry.
     pub entry: FuncId,
-    /// The text of every string literal, indexed by the number the code holds.
+    /// Every string literal, as UTF-16 code units, indexed by the number the
+    /// code holds.
     ///
     /// Travels with the functions because it is half of the program: the code
     /// names a literal by its position here, and placing the code without
     /// seeding this would leave every string reading as absent.
-    pub literals: Vec<String>,
+    ///
+    /// Units and not `String` for the reason [`crate::syntax::Text`] states:
+    /// `"\uD83D"` is a legal one-unit string that no valid UTF-8 can carry, and
+    /// a table of `String`s made it `U+FFFD` on the way to the runtime.
+    pub literals: Vec<Vec<u16>>,
     /// The pieces of every tagged-template site, indexed the same way.
     ///
     /// A site is a flat list of literal positions, two per piece: the cooked
     /// text then the raw text, with [`NO_COOKED`] where the escapes were invalid.
     /// Flat rather than a structure because it crosses to a runtime that must
     /// not depend on this crate to name one — the same reason the literals cross
-    /// as text and not as a table.
+    /// as bare code units and not as a table.
     ///
     /// The strings object is built ONCE per site, on first evaluation, which is
     /// what the specification requires: a tag using it as a map key sees the
@@ -310,7 +315,7 @@ pub struct Ctx<'a> {
     /// numbering, and what crosses at every use is the number. A literal is
     /// referred to by its index here exactly as a property is referred to by its
     /// key.
-    literals: Vec<String>,
+    literals: Vec<Vec<u16>>,
     /// The pieces of each tagged-template site, in the order the sites were met.
     templates: Vec<Vec<u32>>,
     /// Which locals were proved to hold a number.
@@ -483,10 +488,25 @@ impl<'a> Ctx<'a> {
     /// literals and the same reasoning the scope layers record applies —
     /// hashing a string costs more than scanning a handful of them.
     pub fn literal(&mut self, text: &str) -> u32 {
-        if let Some(found) = self.literals.iter().position(|held| held == text) {
+        // Through the same table, because a literal the emitter SYNTHESISES —
+        // a module specifier, a private name's key, a template's raw text — is
+        // the same string as one the program wrote with those characters. Rust
+        // text loses nothing on the way in: `encode_utf16` of valid UTF-8 is
+        // exactly its code units.
+        let units: Vec<u16> = text.encode_utf16().collect();
+        self.literal_units(&units)
+    }
+
+    /// The same, for text that is already code units.
+    ///
+    /// This is what a string LITERAL takes, and the reason [`Self::literal`]
+    /// delegates here rather than the other way round: `"\uD83D"` is a legal
+    /// one-unit string, and there is no `&str` that spells it.
+    pub fn literal_units(&mut self, units: &[u16]) -> u32 {
+        if let Some(found) = self.literals.iter().position(|held| held == units) {
             return found as u32;
         }
-        self.literals.push(text.to_owned());
+        self.literals.push(units.to_vec());
         (self.literals.len() - 1) as u32
     }
 
