@@ -88,10 +88,24 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-10: 756 of the 799 `*.test.ts` files pass** — 626 of 797 on
-08-09 and 535 of 818 at the start of 08-08, through generators, `yield*`,
-`Proxy`, native iterators, `export *`, a catchable throw, the bare `rts`
-specifier, stack traces, variadic natives and wrapper objects.
+claimed. **2026-08-14: 750 of the 808 `*.test.ts` files pass**, by
+`target/release/rts.exe test`, one process per file. It was 756 of 799 on
+08-10, 626 of 797 on 08-09 and 535 of 818 at the start of 08-08, through
+generators, `yield*`, `Proxy`, native iterators, `export *`, a catchable throw,
+the bare `rts` specifier, stack traces, variadic natives and wrapper objects.
+
+**The share fell between 08-10 and 08-14 and nothing here claims to know why.**
+The corpus grew by nine files and there were commits between the two
+measurements that neither was taken across, so the drop is not attributable to
+anything by subtraction. What IS attributable was measured per file, against a
+binary of the tree as it stood before the work: 748 → 750, two gained, **none
+lost**. That is the only comparison a number of this shape supports.
+
+**And the second ruler: 590 of 708 cross-runtime fixtures** (83.3%), measured
+2026-08-14 by `scripts/cross_runtime_check.sh`, one process per file, against
+Bun and Node. It was 419 the same morning. That corpus is a different question
+from the one above — it asks whether this engine and a real one agree about the
+same program, where `*.test.ts` asks whether the program does what it says.
 
 The 08-10 figure was measured by the same `suite_run`, one process per file, on
 the same corpus plus the two files that day's own work added — which is why the
