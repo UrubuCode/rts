@@ -32,32 +32,50 @@
 
 use super::{Context, with_current};
 use crate::entry::objects::undefined_of;
+use crate::entry::{primitive, throw};
 use crate::value::Value;
+
+/// What a weak collection says when handed a key it cannot hold.
+///
+/// One string for four entry points, because it is one rule — the same reason
+/// [`write`] is one function.
+const NOT_A_KEY: &str = "a WeakMap key and a WeakSet member must be an object";
 
 /// `WeakMap`.
 #[rtse::class("WeakMap", tag)]
 impl WeakMap {
     /// `new WeakMap(iterable?)` — an array of `[key, value]` pairs.
+    ///
+    /// A pair whose key is not an object stops the walk and raises, as `set`
+    /// does: the entries before it are already written, which is what the
+    /// language's own loop leaves behind too.
     #[construct]
     fn build(this: u64, iterable: u64) -> u64 {
-        let absent = super::undefined();
-        let pairs = match iterable == absent {
+        let pairs = match super::nothing_to_fill_from(iterable) {
             true => Vec::new(),
             false => super::pairs_of(iterable),
         };
-        with_current(|context| {
+        let (made, refused) = with_current(|context| {
             let Some(cell) = super::built(context, this, "WeakMap") else {
-                return undefined_of(context);
+                return (undefined_of(context), false);
             };
             let Some(mut table) = super::taken(context, cell) else {
-                return undefined_of(context);
+                return (undefined_of(context), false);
             };
+            let mut refused = false;
             for (key, value) in pairs {
-                write(context, &mut table, key, value);
+                if !write(context, &mut table, key, value) {
+                    refused = true;
+                    break;
+                }
             }
             super::restore(context, cell, table);
-            Value::from_slot(cell).bits()
-        })
+            (Value::from_slot(cell).bits(), refused)
+        });
+        if refused {
+            throw::type_error(NOT_A_KEY);
+        }
+        made
     }
 
     /// `w.get(k)`.
@@ -79,12 +97,22 @@ impl WeakMap {
 
     /// `w.set(k, v)` — the map, so that writes chain.
     ///
-    /// A primitive key is **refused**, silently. The language throws a
-    /// `TypeError`, which is the one thing this layer cannot do where a handler
-    /// could catch it — and refusing is the less wrong of the two answers, since
-    /// storing a primitive would make a collection whose whole contract is
-    /// "keyed by object identity" hold something with none.
+    /// A primitive key is a `TypeError`, which is what the language says and
+    /// what this could not do until a native could raise one a `catch` sees. It
+    /// was a silent refusal, and the silence was the worse half: a program that
+    /// wrote `wm.set(id, x)` with a numeric id got a map that never held
+    /// anything and never said so.
+    ///
+    /// The divergence that remains, named: ES2023 also admits an unregistered
+    /// SYMBOL as a weak key, and this does not. A symbol here is not a cell, so
+    /// admitting it means a second notion of identity beside the one
+    /// [`super::Table::identical`] has, which is a change about identity rather
+    /// than about this refusal.
     fn set(this: u64, key: u64, value: u64) -> u64 {
+        if !keyed(key) {
+            throw::type_error(NOT_A_KEY);
+            return this;
+        }
         with_current(|context| {
             if let Some(cell) = Value(this).as_slot()
                 && let Some(mut table) = super::taken(context, cell)
@@ -111,31 +139,43 @@ impl WeakMap {
 /// `WeakSet`.
 #[rtse::class("WeakSet", tag)]
 impl WeakSet {
-    /// `new WeakSet(iterable?)`.
+    /// `new WeakSet(iterable?)` — a member that is not an object raises, as in
+    /// `WeakMap`'s constructor.
     #[construct]
     fn build(this: u64, iterable: u64) -> u64 {
-        let absent = super::undefined();
-        let values = match iterable == absent {
+        let values = match super::nothing_to_fill_from(iterable) {
             true => Vec::new(),
             false => super::elements_of(iterable),
         };
-        with_current(|context| {
+        let (made, refused) = with_current(|context| {
             let Some(cell) = super::built(context, this, "WeakSet") else {
-                return undefined_of(context);
+                return (undefined_of(context), false);
             };
             let Some(mut table) = super::taken(context, cell) else {
-                return undefined_of(context);
+                return (undefined_of(context), false);
             };
+            let mut refused = false;
             for value in values {
-                write(context, &mut table, value, value);
+                if !write(context, &mut table, value, value) {
+                    refused = true;
+                    break;
+                }
             }
             super::restore(context, cell, table);
-            Value::from_slot(cell).bits()
-        })
+            (Value::from_slot(cell).bits(), refused)
+        });
+        if refused {
+            throw::type_error(NOT_A_KEY);
+        }
+        made
     }
 
-    /// `w.add(v)` — the set. A primitive is refused, as in `WeakMap.set`.
+    /// `w.add(v)` — the set. A primitive is a `TypeError`, as in `WeakMap.set`.
     fn add(this: u64, value: u64) -> u64 {
+        if !keyed(value) {
+            throw::type_error(NOT_A_KEY);
+            return this;
+        }
         with_current(|context| {
             if let Some(cell) = Value(this).as_slot()
                 && let Some(mut table) = super::taken(context, cell)
@@ -162,17 +202,36 @@ impl WeakSet {
 /// Writes an entry, if the key is something a weak collection may hold.
 ///
 /// One function for both classes and for the constructor as well, because "a
-/// weak key is a reference" is one rule — and this crate keeps refusing to write
+/// weak key is an object" is one rule — and this crate keeps refusing to write
 /// a rule twice, on the grounds that the second copy is where the two come to
 /// disagree.
-fn write(context: &Context, table: &mut super::Table, key: u64, value: u64) {
-    if Value(key).as_slot().is_none() {
-        return;
+///
+/// Answers whether it wrote, so a caller can raise. The test was `as_slot`,
+/// which is every REFERENCE — and a string is one: `wm.set("x", 1)` was
+/// therefore stored rather than refused, keyed by text under a collection whose
+/// whole contract is identity.
+fn write(context: &Context, table: &mut super::Table, key: u64, value: u64) -> bool {
+    if !primitive::is_object_in(context, key) {
+        return false;
     }
     match table.identical(context, key) {
         Some(at) => table.set_value_at(at, value),
         None => table.push_unindexed(key, value),
     }
+    true
+}
+
+/// Whether a value may key a weak collection, from outside a borrow.
+///
+/// # Why the raise is not inside [`write`]
+///
+/// `throw::type_error` CONSTRUCTS the program's own `TypeError`, which allocates
+/// and runs a constructor — so it cannot happen under the borrow every mutation
+/// here holds. The question is asked first and the answer is raised after, which
+/// is the shape rule 8 of `crates/rts-core/README.md` forces on every native
+/// that has to report something.
+fn keyed(key: u64) -> bool {
+    with_current(|context| primitive::is_object_in(context, key))
 }
 
 /// Where a key is in a weak collection, from inside a borrow that exists.

@@ -20,6 +20,16 @@
 //! that is nothing; for a million-element array iterated to the third element
 //! it is a million-element copy. The lazy form is where that goes, and this is
 //! the thing it will replace rather than something it will sit beside.
+//!
+//! # Half of that is already gone
+//!
+//! A `Map` or a `Set` is walked LIVE — `collections::cursor` holds a position in
+//! the table rather than a copy of it, because the copy was not merely slow but
+//! WRONG: the language says an iterator sees entries added after it was made.
+//! The same object serves both, so this file's helpers work on either, and the
+//! two paths meet in [`ListIterator::next`] and [`remaining`]. What is still a
+//! copy is everything that is not a collection: an array's three, a string's,
+//! and whatever [`Iterator::from`] was handed.
 
 use super::with_current;
 use crate::value::Value;
@@ -188,7 +198,14 @@ impl ListIterator {
     }
 
     /// `it.next()` — the element the cursor is on, and then the next one.
+    ///
+    /// An iterator over a COLLECTION answers from the collection as it is now,
+    /// not from a list taken when the iterator was made — see
+    /// `collections::cursor` for what that costs and why the copy was wrong.
     fn next(this: u64) -> u64 {
+        if let Some(step) = super::collections::stepped(this) {
+            return super::collections::result_of(step);
+        }
         with_current(|context| {
             let Some(cell) = Value(this).as_slot() else {
                 let absent = super::objects::undefined_of(context);
@@ -268,6 +285,11 @@ extern "C" fn itself(_environment: u64, this: u64, _a0: u64, _a1: u64, _a2: u64,
 /// Read outside any borrow the caller may still be holding, because everything
 /// here goes on to call user code.
 fn remaining(this: u64) -> Vec<u64> {
+    // A collection cursor drains itself, because "what is left" is a question
+    // only the collection can answer and the answer changes as it is asked.
+    if let Some(values) = super::collections::drained(this) {
+        return values;
+    }
     with_current(|context| {
         let Some(cell) = Value(this).as_slot() else {
             return Vec::new();

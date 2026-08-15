@@ -20,6 +20,28 @@
 //! rebuilt — deliberately the slow path, chosen once rather than paid on every
 //! read.
 //!
+//! # Why every entry additionally carries a SEQUENCE number
+//!
+//! Because a live iterator has to survive the shift. The specification says an
+//! iterator over a `Map` sees entries added after it was made, skips entries
+//! deleted before it reaches them, and — once it has answered `done` — stays
+//! done. Its model for that is a record list with tombstones and an index into
+//! it, so "the next entry" is "the next record that is not empty".
+//!
+//! Tombstones were the obvious transcription and were rejected: a `Map` used as
+//! a queue would grow a record per `delete` forever, and compacting is only safe
+//! when no iterator is positioned in the table — which nothing here can know,
+//! because an iterator is an ordinary object and its death is not reported.
+//!
+//! A sequence number answers the same question without holding the corpse. Every
+//! entry gets one when it is inserted, they only ever increase, and a cursor
+//! remembers the last one it answered rather than a position. Then a shift is
+//! invisible (the numbers move with their entries), a deletion in front of the
+//! cursor simply is not there when it looks, a re-insertion gets a NEW number and
+//! is therefore revisited at the end — which is what the language says — and
+//! [`Table::clear`] keeps the counter so that what is added after it is still
+//! numbered above what a cursor has already seen.
+//!
 //! # Why the equality is not `==` on the bits
 //!
 //! `Map` keys on **SameValueZero**, which differs from `===` in the one cell
@@ -46,6 +68,17 @@ use crate::value::{Value, same_value_zero, strict_equals};
 pub(in crate::entry) struct Table {
     keys: Vec<u64>,
     values: Vec<u64>,
+    /// When each entry was inserted, strictly increasing along the vector.
+    ///
+    /// What a live cursor remembers instead of a position — see the module doc.
+    seqs: Vec<u32>,
+    /// The number the last insertion took, and zero when there has been none.
+    ///
+    /// Never reset by [`Table::clear`], which is what makes an entry added after
+    /// a clear sort above everything a cursor has already answered. Counting
+    /// from one leaves zero to mean "this cursor has answered nothing yet",
+    /// which is what a fresh iterator carries.
+    last_seq: u32,
     /// The first slot in each bucket, or `-1`.
     heads: Vec<i32>,
     /// The next slot with the same bucket, or `-1`.
@@ -54,6 +87,21 @@ pub(in crate::entry) struct Table {
     /// there is no index yet.
     mask: usize,
 }
+
+/// The highest sequence number an entry may carry.
+///
+/// `u32::MAX` is reserved for the cursor that has run off the end, which has to
+/// name a number no entry can ever have — otherwise an iterator that answered
+/// `done` would start answering again the moment the map grew, where the
+/// language says an exhausted iterator stays exhausted.
+///
+/// The width is the cursor's, not this table's: the position an iterator object
+/// carries is a `u32` field of the context's cursor table, and widening it is a
+/// decision about that table rather than about this one. So a table that has
+/// seen this many insertions RENUMBERS, which is order-preserving and costs a
+/// live cursor at most a repeat of what it already answered — where the
+/// alternative, saturating, would silently end every iteration from then on.
+const LAST_SEQ: u32 = u32::MAX - 1;
 
 impl Table {
     /// How many entries there are.
@@ -102,13 +150,16 @@ impl Table {
     /// order, which is what the specification says and what a program printing
     /// a map after updating it would otherwise show.
     pub(in crate::entry) fn set(&mut self, context: &Context, key: u64, value: u64) {
+        let key = canonical(key);
         if let Some(at) = self.slot(context, key) {
             self.values[at] = value;
             return;
         }
         let index = self.keys.len();
+        let seq = self.issued();
         self.keys.push(key);
         self.values.push(value);
+        self.seqs.push(seq);
         self.link(context, key, index);
     }
 
@@ -119,17 +170,49 @@ impl Table {
         };
         self.keys.remove(at);
         self.values.remove(at);
+        self.seqs.remove(at);
         self.rehash(context, self.keys.len());
         true
     }
 
-    /// Empties it, index and all.
+    /// Empties it, index and all — but not the counter.
+    ///
+    /// Keeping [`Self::last_seq`] is what makes `m.forEach(… m.clear(); m.set(k,
+    /// v) …)` visit `k`, which is what the language says: a cleared entry is
+    /// gone and a re-added one is new, so it sorts after everything the walk has
+    /// already answered rather than before it.
     pub(super) fn clear(&mut self) {
         self.keys.clear();
         self.values.clear();
+        self.seqs.clear();
         self.heads.clear();
         self.next.clear();
         self.mask = 0;
+    }
+
+    /// The entry after a cursor's position: its number, its key and its value.
+    ///
+    /// The numbers increase along the vector, so this is a binary search rather
+    /// than a scan — which is what keeps a full walk linear instead of
+    /// quadratic in the number of entries.
+    pub(super) fn after(&self, seq: u32) -> Option<(u32, u64, u64)> {
+        let at = self.seqs.partition_point(|held| *held <= seq);
+        Some((*self.seqs.get(at)?, self.keys[at], self.values[at]))
+    }
+
+    /// The number a new entry takes, renumbering when the counter runs out.
+    ///
+    /// See [`LAST_SEQ`] for why running out is answered by renumbering rather
+    /// than by refusing or by saturating.
+    fn issued(&mut self) -> u32 {
+        if self.last_seq >= LAST_SEQ {
+            for (index, seq) in self.seqs.iter_mut().enumerate() {
+                *seq = index as u32 + 1;
+            }
+            self.last_seq = self.seqs.len() as u32;
+        }
+        self.last_seq += 1;
+        self.last_seq
     }
 
     /// Where a key is, by hash when there is an index and by scan when there is
@@ -215,15 +298,42 @@ impl Table {
     /// Only the weak pair may call this: it has no index to keep, where a
     /// hashed table appended to this way would hold an entry no lookup could
     /// reach.
+    ///
+    /// It DOES take a sequence number, which nothing will ever ask for — the
+    /// weak pair has no iteration at all. Keeping the three vectors the same
+    /// length is one invariant instead of "and the sequence column is short for
+    /// these two classes", which is the kind that holds until one function
+    /// forgets.
     pub(super) fn push_unindexed(&mut self, key: u64, value: u64) {
+        let seq = self.issued();
         self.keys.push(key);
         self.values.push(value);
+        self.seqs.push(seq);
     }
 
     /// Removes at a position, without rebuilding an index there is none of.
     pub(super) fn remove_at(&mut self, at: usize) {
         self.keys.remove(at);
         self.values.remove(at);
+        self.seqs.remove(at);
+    }
+}
+
+/// A key as it is STORED, which is not always the key that was passed.
+///
+/// `-0` becomes `+0`, and that is the whole of it. The bucket already
+/// canonicalises — [`hash_of`] adds `0.0` so the two land together — and
+/// [`same_key`] already unites them, so lookup was right before this existed.
+/// What was wrong is what came back OUT: `m.set(-0, v)` then `[...m.keys()][0]`
+/// answered `-0`, so `1 / k` was `-Infinity` where the language says `Infinity`.
+///
+/// Here rather than in each caller because it is one rule, and a `Set` needs it
+/// on the member it stores in both columns — which [`super::set`] asks for by
+/// name for exactly that reason.
+pub(super) fn canonical(key: u64) -> u64 {
+    match Value(key).numeric() {
+        Some(number) if number == 0.0 && number.is_sign_negative() => Value::from_f64(0.0).bits(),
+        _ => key,
     }
 }
 

@@ -33,12 +33,12 @@
 //! present one is merely a leak, and a leak is what every collection here is
 //! until there is a collector.
 //!
-//! # What the iteration methods answer, and what they do not
+//! # What the iteration methods answer
 //!
-//! `keys()`, `values()` and `entries()` each answer an **array**. A real
-//! iterator object — one with `next()` — is still absent, and
-//! [`super::iterate`] records why materialising is the shape this engine
-//! walks. So `m.keys().next()` is not a function.
+//! `keys()`, `values()` and `entries()` each answer a LIVE iterator — a cursor
+//! into the table rather than a copy of it, which is what makes an insertion
+//! during a walk visible and a deletion in front of one invisible. [`cursor`] is
+//! the mechanism and says why a copy was not enough.
 //!
 //! What a collection IS iterable by is answered by [`iterated`]: `for-of` over a
 //! `Map` or a `Set` reaches the table directly rather than through a declared
@@ -47,7 +47,14 @@
 //! declare its own. It is that a built-in whose elements the runtime already
 //! holds has nothing to gain from being asked for them through two calls per
 //! element into itself.
+//!
+//! It is also, today, the one place a snapshot survives: `for-of` materialises
+//! everything it walks before the body runs once — [`super::iterate`] states
+//! that as the emitter's shape rather than this module's — so a `m.set` from
+//! inside `for (const e of m)` is not seen, where the same `m.set` from inside
+//! `m.forEach` is.
 
+mod cursor;
 mod map;
 mod set;
 mod table;
@@ -55,18 +62,79 @@ mod weak;
 mod weakref;
 
 // The declared-type consts travel with the registrations — see `buffers/mod.rs`.
-pub(in crate::entry) use map::{MAP_TYPES, register_map};
+pub(in crate::entry) use map::MAP_TYPES;
 pub(in crate::entry) use set::SET_TYPES;
 pub(in crate::entry) use weak::{WEAK_MAP_TYPES, WEAK_SET_TYPES};
 pub(in crate::entry) use weakref::WEAK_REF_TYPES;
-pub(in crate::entry) use set::register_set;
 pub(in crate::entry) use table::Table;
 pub(in crate::entry) use weak::{register_weak_map, register_weak_set};
 pub(in crate::entry) use weakref::register_weak_ref;
+// What `list_iterator` asks of a cursor: is this iterator over a collection,
+// and if so, step it. The kind and the making of one stay inside this module.
+pub(in crate::entry) use cursor::{drained, result_of, stepped};
 
 use super::objects::undefined_of;
 use super::{Context, with_current};
 use crate::value::Value;
+
+/// Installs `Map`, and the aliases the attribute cannot spell.
+///
+/// # Why two of its members are the SAME function object
+///
+/// `Map.prototype[Symbol.iterator] === Map.prototype.entries` is true in the
+/// language and a program can see it — the fixture that found this compares
+/// them. So the symbol-keyed member cannot be a second native doing the same
+/// thing: it has to be the one already installed, read back off the prototype
+/// and written under the second key.
+///
+/// `#[rtse::class]` names a member with a STRING and this key is a symbol, so
+/// the attribute has no spelling for it. The alternative — teaching the
+/// attribute symbol keys — buys one line here and a second way to name a member
+/// everywhere, and would still not make the two identical.
+pub(in crate::entry) fn register_map(context: &mut Context) -> u64 {
+    let made = map::register_map(context);
+    alias(context, "Map", "entries", &iterator_key());
+    made
+}
+
+/// Installs `Set`, and the two aliases that make three names one function.
+///
+/// `Set.prototype.keys`, `Set.prototype.values` and
+/// `Set.prototype[Symbol.iterator]` are ONE function object in the language, not
+/// three that agree — `s.keys === s.values` is `true`. So `values` is the only
+/// one written, and the other two are it.
+pub(in crate::entry) fn register_set(context: &mut Context) -> u64 {
+    let made = set::register_set(context);
+    alias(context, "Set", "values", "keys");
+    alias(context, "Set", "values", &iterator_key());
+    made
+}
+
+/// The key `Symbol.iterator` writes, spelled from the one place the encoding is
+/// decided rather than written out again here.
+fn iterator_key() -> String {
+    format!("{}iterator", super::symbol::PREFIX)
+}
+
+/// Puts what a prototype already holds under a second name.
+///
+/// Idempotent, which matters because a registration answers early when the class
+/// is already made: writing the same value under the same key twice is the same
+/// prototype either way.
+fn alias(context: &mut Context, class: &'static str, from: &str, to: &str) {
+    let Some(prototype) = super::class_support::prototype(context, class) else {
+        return;
+    };
+    let Some(cell) = Value(prototype).as_slot() else {
+        return;
+    };
+    let source = context.well_known(from);
+    let Some(found) = super::objects::read_property(context, cell, source) else {
+        return;
+    };
+    let target = context.well_known(to);
+    super::objects::put(context, cell, target, found.bits());
+}
 
 impl Context {
     /// The entries a cell holds, if it is one of these collections.
@@ -81,9 +149,14 @@ impl Context {
 ///
 /// Every mutation needs the context too — hashing a string key reads its text,
 /// and comparing two reads both — and `context.collections.get_mut(cell)` holds
-/// the context mutably for as long as the table is in hand. Moving the five
-/// vectors out is five pointer copies and leaves the context free, where the
+/// the context mutably for as long as the table is in hand. Moving its vectors
+/// out is a handful of pointer copies and leaves the context free, where the
 /// alternative is a second borrow the compiler refuses.
+///
+/// The counter moves with them, which is what a `mem::take` gets right for free
+/// and a "copy the entries out and write them back" would not: the empty table
+/// left behind is never read, and [`Table::clear`] keeping the counter would
+/// mean nothing if `restore` put a fresh one in its place.
 ///
 /// Nothing calls out to JavaScript while the table is out, which is what makes
 /// the gap invisible: a re-entrant `m.set` during a `m.set` would find an empty
@@ -142,7 +215,12 @@ pub(super) fn fresh(context: &mut Context, class: &'static str) -> u64 {
     if let Some(prototype) = super::class_support::prototype(context, class) {
         context.set_prototype(cell, prototype);
     }
-    context.collections.set(cell, Table::default());
+    // Through `restore_sized` rather than straight onto the cell, so that `size`
+    // is there before the first mutation. It was not: `Map.groupBy([], f).size`
+    // read `undefined` because nothing had written the property yet, and a
+    // collection that answers a count only once it has been written to is worse
+    // than one that answers none.
+    restore_sized(context, cell, Table::default());
     Value::from_slot(cell).bits()
 }
 
@@ -168,15 +246,27 @@ pub(super) fn undefined() -> u64 {
     with_current(|context| undefined_of(context))
 }
 
+/// Whether a constructor was given nothing to fill from.
+///
+/// `new Map()`, `new Map(undefined)` and `new Map(null)` all answer an empty
+/// map: the specification says "if iterable is either undefined or null,
+/// return", and `null` was missing here. It fell through to the iteration
+/// protocol instead, which answered nothing — an invisible near-miss for as long
+/// as a non-iterable answered an empty list, and `TypeError: null is not
+/// iterable` from `new Map(null)` the day iterating one started raising.
+pub(super) fn nothing_to_fill_from(iterable: u64) -> bool {
+    with_current(|context| {
+        iterable == undefined_of(context) || iterable == super::modules::null_in(context)
+    })
+}
+
 /// The entries of a collection, snapshotted.
 ///
-/// A copy rather than a cursor, and that is what makes `forEach` safe to write:
-/// the callback runs with no borrow held and may mutate the map it is walking.
-/// The divergence, named: the specification says a `forEach` callback sees
-/// entries added during the walk, and this one does not. The same snapshotting
-/// trade [`super::array::own_keys`] records, and in the same direction — the one
-/// a program notices least.
-pub(super) fn entries_of(collection: u64) -> Vec<(u64, u64)> {
+/// A COPY, and the one caller left is `structuredClone` — which is copying the
+/// collection anyway, so a cursor would buy it nothing. Everything that walks a
+/// collection while a program can mutate it goes through [`cursor`] instead, for
+/// the reason recorded there.
+pub(in crate::entry) fn entries_of(collection: u64) -> Vec<(u64, u64)> {
     with_current(|context| {
         Value(collection)
             .as_slot()
@@ -293,8 +383,14 @@ fn inherits(context: &Context, cell: u32, class: &'static str) -> bool {
 const MAX_CHAIN: usize = 1024;
 
 /// An array holding these values.
+///
+/// ROOTED across the allocation, the way [`super::iterate::iterate`] roots the
+/// same step: until the array exists and holds them, these values are named only
+/// by a `Vec` on the Rust heap, and `array_new` is where a collection can happen.
 pub(super) fn array_of(values: Vec<u64>) -> u64 {
+    let values = super::rooted::Rooted::with(values);
     let array = super::array::array_new(values.len() as i64);
+    let values = values.take();
     with_current(|context| {
         if let Some(cell) = Value(array).as_slot()
             && let Some(elements) = context.elements_at_mut(cell)
@@ -303,15 +399,6 @@ pub(super) fn array_of(values: Vec<u64>) -> u64 {
         }
         array
     })
-}
-
-/// An array of two-element arrays, which is what `entries()` answers.
-pub(super) fn pairs_array(pairs: Vec<(u64, u64)>) -> u64 {
-    let inner: Vec<u64> = pairs
-        .into_iter()
-        .map(|(key, value)| array_of(vec![key, value]))
-        .collect();
-    array_of(inner)
 }
 
 /// Appends to an array that already exists.

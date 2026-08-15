@@ -4,7 +4,8 @@
 //! argument rather than a comment asking for care: take the table off the cell,
 //! work on it with the context free, put it back with `size` in step. Nothing
 //! here calls out to JavaScript with a borrow held, and the two members that
-//! call out at all — `forEach` and `groupBy` — snapshot first.
+//! call out at all — `forEach` and `groupBy` — take one short borrow per step
+//! and give it back before the call.
 
 use super::{Context, with_current};
 use crate::entry::objects::undefined_of;
@@ -24,8 +25,7 @@ impl Map {
     fn build(this: u64, iterable: u64) -> u64 {
         // Read before any borrow is taken, because `iterate` is itself an entry
         // point and takes one of its own.
-        let absent = super::undefined();
-        let pairs = match iterable == absent {
+        let pairs = match super::nothing_to_fill_from(iterable) {
             true => Vec::new(),
             false => super::pairs_of(iterable),
         };
@@ -110,12 +110,17 @@ impl Map {
 
     /// `m.forEach(cb, thisArg)` — `cb(value, key, map)`, in insertion order.
     ///
-    /// The entries are collected into a `Vec` and the borrow is dropped before
-    /// the first call. That is not tidiness: the callback is arbitrary user code
+    /// A LIVE walk: each step asks the table what comes after the last entry it
+    /// answered, and the borrow that asks is over before the callback runs. That
+    /// is not tidiness on either count — the callback is arbitrary user code
     /// which will reach the runtime, a second `with_current` panics, and an
-    /// `extern "C"` frame cannot unwind — so the process aborts.
+    /// `extern "C"` frame cannot unwind, so the process aborts — and a snapshot,
+    /// which is what this was, makes an entry added by the callback invisible
+    /// where the language says it is visited.
     fn for_each(this: u64, callback: u64, this_arg: u64) -> u64 {
-        for (key, value) in super::entries_of(this) {
+        let mut at = 0;
+        while let Some((seq, key, value)) = super::cursor::after(this, at) {
+            at = seq;
             // A callback that throws stops the walk. Running it over the rest
             // produces effects the language says never happen.
             if super::invoke(callback, this_arg, value, key, this).is_none() {
@@ -125,26 +130,22 @@ impl Map {
         super::undefined()
     }
 
-    /// `m.keys()` — an array, for the reason the module documentation gives.
+    /// `m.keys()` — a live iterator, for the reason [`super::cursor`] gives.
     fn keys(this: u64) -> u64 {
-        crate::entry::list_iterator::over(super::array_of(
-            super::entries_of(this).into_iter().map(|(key, _)| key).collect(),
-        ))
+        super::cursor::over(this, super::cursor::Kind::Keys)
     }
 
     /// `m.values()`.
     fn values(this: u64) -> u64 {
-        crate::entry::list_iterator::over(super::array_of(
-            super::entries_of(this)
-                .into_iter()
-                .map(|(_, value)| value)
-                .collect(),
-        ))
+        super::cursor::over(this, super::cursor::Kind::Values)
     }
 
-    /// `m.entries()` — an array of `[key, value]` arrays.
+    /// `m.entries()` — a `[key, value]` array per entry.
+    ///
+    /// Also what `m[Symbol.iterator]` is, and the SAME function object rather
+    /// than one that agrees: [`super::register_map`] installs the second name.
     fn entries(this: u64) -> u64 {
-        crate::entry::list_iterator::over(super::pairs_array(super::entries_of(this)))
+        super::cursor::over(this, super::cursor::Kind::Entries)
     }
 
     /// `Map.groupBy(items, cb)` — ES2024.
