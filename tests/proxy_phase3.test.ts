@@ -80,12 +80,25 @@ const desc9 = Reflect.getOwnPropertyDescriptor(p9, "missing");
 // desc9 eh handle 0 (invalido). Reflect.has(0, "value") -> false.
 const desc9HasValue = Reflect.has(desc9, "value");
 
-// 10. getOwnPropertyDescriptor trap retorna 0 (chave nao existe segundo trap)
+// 10. getOwnPropertyDescriptor trap retorna 0 — nao e nem objeto nem undefined
+//
+// Este caso afirmava que `desc10` nao tinha `value`, e passava porque o motor
+// aceitava a resposta do trap sem a olhar. A linguagem RECUSA-a: o resultado do
+// trap tem de ser um objeto ou `undefined`, e um numero e um TypeError. Node e
+// Bun lancam ("result of 'getOwnPropertyDescriptor' call should either be an
+// Object or undefined"), verificado.
+//
+// Corrigido em vez de removido, que e a regra: um teste que fixa o contrario do
+// que a linguagem diz deixa de proteger o motor e passa a impedi-lo de acertar.
+let desc10Refused = false;
 const lyingDesc: any = new Proxy({ real: 1 } as any, {
     getOwnPropertyDescriptor: (_t: any, _k: any) => 0 as any
 });
-const desc10 = Reflect.getOwnPropertyDescriptor(lyingDesc, "real");
-const desc10HasValue = Reflect.has(desc10, "value");
+try {
+    Reflect.getOwnPropertyDescriptor(lyingDesc, "real");
+} catch (e: any) {
+    desc10Refused = e instanceof TypeError;
+}
 
 // 11. setPrototypeOf nao-Proxy (Map normal) ainda funciona (regressao)
 const reg11: any = {};
@@ -134,8 +147,8 @@ describe("proxy_phase3", () => {
         expect(desc8Value).toBe(50));
     test("getOwnDesc forward missing has no value", () =>
         expect(desc9HasValue).toBe(false));
-    test("getOwnDesc trap=0 has no value", () =>
-        expect(desc10HasValue).toBe(false));
+    test("getOwnDesc trap answering a number is refused", () =>
+        expect(desc10Refused).toBe(true));
     // Regressao: nao-proxy ainda funciona
     test("setProto on plain map still works", () =>
         expect(reg11HasTag).toBe(true));

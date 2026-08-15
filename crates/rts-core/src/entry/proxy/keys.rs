@@ -137,6 +137,22 @@ pub(in crate::entry) fn describe(object: u64, key: Key) -> Option<u64> {
 
 /// The refusals a descriptor has to survive.
 fn checked_descriptor(target: u64, key: Key, answered: u64) {
+    // WHAT it is, before what it CLAIMS. The specification refuses a trap
+    // result that is neither an object nor `undefined` in its own step, ahead
+    // of every invariant — and taking the invariants first reported a number as
+    // "non-configurability for a property that is configurable in the target",
+    // which is a true sentence about the wrong mistake and points the reader at
+    // the target instead of at the handler.
+    let shaped = answered == super::absent()
+        || crate::entry::with_current(|context| {
+            crate::entry::primitive::is_object_in(context, answered)
+        });
+    if !shaped {
+        throw::type_error(
+            "'getOwnPropertyDescriptor' on proxy: trap must answer an object or undefined",
+        );
+        return;
+    }
     let held = invariant::own_state(target, key);
     if answered == super::absent() {
         let hidden = match &held {
