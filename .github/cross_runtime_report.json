@@ -1443,10 +1443,10 @@
 ,
 {
   "name": "267_private_fields",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "inner=7:20\nouter=SyntaxError",
   "node": "inner=7:20\nouter=SyntaxError",
-  "rts": "inner=7:20\nouter=ReferenceError",
+  "rts": "inner=7:20\nouter=SyntaxError",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1457,10 +1457,10 @@
 ,
 {
   "name": "268_private_methods",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "both=6:15\nerr=SyntaxError",
   "node": "both=6:15\nerr=SyntaxError",
-  "rts": "both=6:15\nerr=ReferenceError",
+  "rts": "both=6:15\nerr=SyntaxError",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1485,16 +1485,16 @@
 ,
 {
   "name": "270_new_target",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
   "node": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
-  "rts": "",
+  "rts": "f1=call\nf2=[object Object]\nwrap=undef\ncls=undefined:undefined",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Emit(Unsupported { construct: \"`new.target`\" })\n      at run of tests/cross-runtime/classes/270_new_target.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -1821,10 +1821,10 @@
 ,
 {
   "name": "codex_class_static_block_throw_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "boom\na,block",
   "node": "boom\na,block",
-  "rts": "[Function (anonymous)]\na,block,b",
+  "rts": "boom\na,block",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2703,10 +2703,10 @@
 ,
 {
   "name": "393_promise_microtask",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "A1,A2,A3,B1,B2,B3\ncaught:handled\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
+  "rts": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2786,11 +2786,25 @@
 }
 ,
 {
+  "name": "claude-await-parks-the-frame",
+  "status": "pass",
+  "bun": "1 body-start\n2 caller-continues\n3 after-await\n4 then\n6 caught boom\n8 rejected escaped\n5 settled-with value\n7 recovered 1\n9 total 6",
+  "node": "1 body-start\n2 caller-continues\n3 after-await\n4 then\n6 caught boom\n8 rejected escaped\n5 settled-with value\n7 recovered 1\n9 total 6",
+  "rts": "1 body-start\n2 caller-continues\n3 after-await\n4 then\n6 caught boom\n8 rejected escaped\n5 settled-with value\n7 recovered 1\n9 total 6",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-promise-resolve-then-number",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nchain=10\nawait=11",
   "node": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nchain=10\nawait=11",
-  "rts": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nawait=11\nchain=10",
+  "rts": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nchain=10\nawait=11",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2815,16 +2829,16 @@
 ,
 {
   "name": "180_function_call_apply",
-  "status": "bun_node_diverge",
-  "bun": "call=Hello World!\napply=Hi There!",
-  "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "call=Hello World!\napply=Hi There!",
-  "bun_exit": 1,
+  "status": "pass",
+  "bun": "call=Hello World!\napply=Hi There!\ncall_null=TypeError\nmax=9",
+  "node": "call=Hello World!\napply=Hi There!\ncall_null=TypeError\nmax=9",
+  "rts": "call=Hello World!\napply=Hi There!\ncall_null=TypeError\nmax=9",
+  "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
-  "bun_error": "1 | // Cross-runtime: Function.call and apply\n2 | function greet(this: any, greeting: string, name: string) {\n3 |   return greeting + \" \" + name + (this.suffix || \"\");\n                                      ^\nTypeError: null is not an object (evaluating 'this.suffix')\n      at greet (/home/runner/work/rts/rts/tests/cross-runtime/fn-meta/180_function_call_apply.ts:3:35)\n      at /home/runner/work/rts/rts/tests/cross-runtime/fn-meta/180_function_call_apply.ts:12:34\n\nBun v1.3.14 (Linux x64)",
+  "rts_exit": 0,
+  "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of null (reading 'suffix')\n    at greet"
+  "rts_error": ""
 }
 ,
 {
@@ -2899,9 +2913,9 @@
 ,
 {
   "name": "391_arguments_object",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "15\nfalse\nobject\n3\n10,20,30\n99,1,2,2\n42\n1,3,4\n5",
-  "node": "15\nfalse\nobject\n3\n10,20,30\n99,99,2,2\n42\n1,3,4\n5",
+  "node": "15\nfalse\nobject\n3\n10,20,30\n99,1,2,2\n42\n1,3,4\n5",
   "rts": "15\ntrue\nobject\n3\n10,20,30\n99,1,2,2\n42\n1,3,4\n5",
   "bun_exit": 0,
   "node_exit": 0,
@@ -2913,9 +2927,9 @@
 ,
 {
   "name": "411_function_arguments_aliasing",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "a:b\nY:X:a",
-  "node": "A:B\nY:X:a",
+  "node": "a:b\nY:X:a",
   "rts": "a:b\nY:X:a",
   "bun_exit": 0,
   "node_exit": 0,
@@ -3053,16 +3067,16 @@
 ,
 {
   "name": "claude-closure-from-try-finally",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
   "node": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
-  "rts": "",
+  "rts": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 134,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\n\u001b[1;31m[RTS PANIC]\u001b[0m block belongs to this function\n  at \u001b[33mcrates/rts-cranelift/src/ir/builder.rs:998:14\u001b[0m\n\n\u001b[2mPanic backtrace:\u001b[0m\n  \u001b[2m#1  \u001b[0m \u001b[36mstd[1e3c4ec04c5261a9]::panicking::panic_with_hook\u001b[0m\n  \u001b[2m#3  \u001b[0m \u001b[36mstd[1e3c4ec04c5261a9]::sys::backtrace::__rust_end_short_backtrace::<std[1e3c4ec04c5261a9]::panicking::panic_handler::{closure#0}, !>\u001b[0m\n  \u001b[2m#4  \u001b[0m \u001b[36m__rustc[6ef78fba13ac776c]::rust_begin_unwind\u001b[0m\n  \u001b[2m#5  \u001b[0m \u001b[36mcore[37f591cfbe66b0b1]::panicking::panic_fmt\u001b[0m\n  \u001b[2m#6  \u001b[0m \u001b[36mcore[37f591cfbe66b0b1]::option::expect_failed\u001b[0m\n  \u001b[2m#9  \u001b[0m \u001b[36m<rts_cranelift[fa9d28a45406d68d]::ir::builder::FuncBuilder>::jump\u001b[0m\n  \u001b[2m#10 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::stmt::emit_stmt\u001b[0m\n  \u001b[2m#13 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::expr::emit_expr\u001b[0m\n  \u001b[2m#14 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::stmt::emit_stmt\u001b[0m\n  \u001b[2m#15 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::stmt::emit_stmt\u001b[0m\n  \u001b[2m#20 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::emit_program_with_exports\u001b[0m\n  \u001b[2m#21 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::emit_program\u001b[0m\n  \u001b[2m#23 \u001b[0m \u001b[36mrts_host[be3ad7f4d99829ae]::run::compile_for\u001b[0m\n  \u001b[2m#24 \u001b[0m \u001b[36mrts_cli[43e025e5d730cfcd]::cli::new_engine::run_path_inner\u001b[0m\n  \u001b[2m#25 \u001b[0m \u001b[36mrts_cli[43e025e5d730cfcd]::cli::new_engine::run_path_and::<core[37f591cfbe66b0b1]::result::Result<(), alloc[24b8200b0946867]::string::String>, rts_cli[43e025e5d730cfcd]::cli::new_engine::run_path::{closure#0}>\u001b[0m\n  \u001b[2m#26 \u001b[0m \u001b[36mrts_cli[43e025e5d730cfcd]::cli::run::command\u001b[0m\n  \u001b[2m#30 \u001b[0m \u001b[36mstd[1e3c4ec04c5261a9]::rt::lang_start_internal\u001b[0m\n  \u001b[2m#33 \u001b[0m \u001b[36m__libc_start_main\u001b[0m\ntimeout: the monitored command dumped core"
+  "rts_error": ""
 }
 ,
 {
@@ -3305,10 +3319,10 @@
 ,
 {
   "name": "codex_arguments_callee_shape",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "3\nfunction\ntrue",
   "node": "3\nfunction\ntrue",
-  "rts": "3\nundefined\nfalse",
+  "rts": "3\nfunction\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3319,16 +3333,16 @@
 ,
 {
   "name": "codex_bound_constructor_new_target",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "2:5:7\ntrue\ntrue",
   "node": "2:5:7\ntrue\ntrue",
-  "rts": "",
+  "rts": "2:5:7\ntrue\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot set properties of null (reading 'x')\n    at Point"
+  "rts_error": ""
 }
 ,
 {
@@ -3342,7 +3356,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: eval is not defined"
+  "rts_error": "rts: uncaught exception (tag 1): Error: eval parsed this source but this engine cannot run it in the caller's scope, and running it against the globals would answer a shadowed name wrongly: x += 2"
 }
 ,
 {
@@ -3361,10 +3375,10 @@
 ,
 {
   "name": "codex_function_name_inferred_destructure",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a\nb\nc\nd",
   "node": "a\nb\nc\nd",
-  "rts": "",
+  "rts": "a\nb\nc\nd",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3459,10 +3473,10 @@
 ,
 {
   "name": "276_generator_return_throw",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "return=1,false,99,false\nthrow=",
   "node": "return=1,false,99,false\nthrow=",
-  "rts": "return=1,false,7,true\nthrow=",
+  "rts": "return=1,false,99,false\nthrow=",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3683,10 +3697,10 @@
 ,
 {
   "name": "codex_async_generator_yield_await_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
   "node": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
-  "rts": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}\n{\"done\":true}",
+  "rts": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3711,10 +3725,10 @@
 ,
 {
   "name": "codex_generator_finally_return",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}",
   "node": "{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}",
-  "rts": "{\"value\":1,\"done\":false}\n{\"value\":7,\"done\":true}\n{\"done\":true}",
+  "rts": "{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4537,16 +4551,16 @@
 ,
 {
   "name": "100_dynamic_import",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "named=7\ndefault=default(x)\nsame=true\ncount=42",
   "node": "named=7\ndefault=default(x)\nsame=true\ncount=42",
-  "rts": "",
+  "rts": "named=7\ndefault=default(x)\nsame=true\ncount=42",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Emit(Unsupported { construct: \"`import()`\" })\n      at run of tests/cross-runtime/misc-platform/100_dynamic_import.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -4579,10 +4593,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
-  "rts": "order=immediate|micro|timeout",
+  "node": "order=micro|immediate|timeout",
+  "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6469,14 +6483,14 @@
 ,
 {
   "name": "152_object_seal_freeze",
-  "status": "bun_node_diverge",
-  "bun": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true",
-  "node": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
-  "rts": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
-  "bun_exit": 1,
+  "status": "rts_diverge",
+  "bun": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nwrite=TypeError\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
+  "node": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nwrite=TypeError\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
+  "rts": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nwrite=silent\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
+  "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
-  "bun_error": " 8 | \n 9 | const obj2 = { x: 1, y: 2 };\n10 | Object.freeze(obj2);\n11 | console.log(\"frozen2=\" + Object.isFrozen(obj2));\n12 | console.log(\"sealed2=\" + Object.isSealed(obj2));\n13 | obj2.x = 10;\n     ^\nTypeError: Attempted to assign to readonly property.\n      at /home/runner/work/rts/rts/tests/cross-runtime/object-meta/152_object_seal_freeze.ts:13:1\n\nBun v1.3.14 (Linux x64)",
+  "bun_error": "",
   "node_error": "",
   "rts_error": ""
 }
@@ -6497,14 +6511,14 @@
 ,
 {
   "name": "154_object_defineproperty",
-  "status": "bun_node_diverge",
-  "bun": "value=42",
-  "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "bun_exit": 1,
+  "status": "rts_diverge",
+  "bun": "value=42\nwrite=TypeError\nstill=42\nkeys=a\nb=10\ngetter=10",
+  "node": "value=42\nwrite=TypeError\nstill=42\nkeys=a\nb=10\ngetter=10",
+  "rts": "value=42\nwrite=silent\nstill=42\nkeys=a\nb=10\ngetter=10",
+  "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
-  "bun_error": " 6 |   enumerable: true,\n 7 |   configurable: false\n 8 | });\n 9 | \n10 | console.log(\"value=\" + obj.a);\n11 | obj.a = 100;\n     ^\nTypeError: Attempted to assign to readonly property.\n      at /home/runner/work/rts/rts/tests/cross-runtime/object-meta/154_object_defineproperty.ts:11:1\n\nBun v1.3.14 (Linux x64)",
+  "bun_error": "",
   "node_error": "",
   "rts_error": ""
 }
@@ -7029,10 +7043,10 @@
 ,
 {
   "name": "419_property_enumeration_mutation",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a,p1,p2\na,c\ntrue",
   "node": "a,p1,p2\na,c\ntrue",
-  "rts": "a,b,p1,p2\na,c\ntrue",
+  "rts": "a,p1,p2\na,c\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -7435,10 +7449,10 @@
 ,
 {
   "name": "codex_proxy_construct_apply_newtarget",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "13\n5:proxy:true:true",
   "node": "13\n5:proxy:true:true",
-  "rts": "13\n5:proxy:true:false",
+  "rts": "13\n5:proxy:true:true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9577,10 +9591,10 @@
 ,
 {
   "name": "300_this_strict_top_level",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "strict=true\nsloppy=true",
   "node": "strict=true\nsloppy=true",
-  "rts": "strict=true\nsloppy=false",
+  "rts": "strict=true\nsloppy=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9605,16 +9619,16 @@
 ,
 {
   "name": "314_import_meta",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "url=true\nmain=true",
   "node": "url=true\nmain=true",
-  "rts": "",
+  "rts": "url=true\nmain=true",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Emit(Unsupported { construct: \"`import.meta`\" })\n      at run of tests/cross-runtime/syntax/314_import_meta.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -9866,7 +9880,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: eval is not defined\n    at probe"
+  "rts_error": "rts: uncaught exception (tag 1): Error: eval parsed this source but this engine cannot run it in the caller's scope, and running it against the globals would answer a shadowed name wrongly: x\n    at probe"
 }
 ,
 {
@@ -9983,10 +9997,10 @@
 ,
 {
   "name": "claude-closure-block-shadowing",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "outer=outer inner=inner2\nlevels=1,2,3\nbranch=then\nvar_no_block_shadow=reassigned:block\nlet_shadows_var=var:let\nshadow_param=arg:shadowed\ncreated_before_shadow=mutated\nloop_block_shadow=I0,I1 outer=O",
   "node": "outer=outer inner=inner2\nlevels=1,2,3\nbranch=then\nvar_no_block_shadow=reassigned:block\nlet_shadows_var=var:let\nshadow_param=arg:shadowed\ncreated_before_shadow=mutated\nloop_block_shadow=I0,I1 outer=O",
-  "rts": "outer=inner2 inner=inner2\nlevels=3,3,3\nbranch=then\nvar_no_block_shadow=reassigned:block\nlet_shadows_var=let:let\nshadow_param=shadowed:shadowed\ncreated_before_shadow=mutated\nloop_block_shadow=I0,I1 outer=O",
+  "rts": "outer=outer inner=inner2\nlevels=1,2,3\nbranch=then\nvar_no_block_shadow=reassigned:block\nlet_shadows_var=var:let\nshadow_param=arg:shadowed\ncreated_before_shadow=mutated\nloop_block_shadow=I0,I1 outer=O",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -10179,10 +10193,10 @@
 ,
 {
   "name": "codex_destructuring_iterator_close_on_default_throw",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "default\nnext0,return",
   "node": "default\nnext0,return",
-  "rts": "default\nnext0",
+  "rts": "default\nnext0,return",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -10235,10 +10249,10 @@
 ,
 {
   "name": "codex_tdz_typeof_let",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "ReferenceError\n1",
   "node": "ReferenceError\n1",
-  "rts": "undefined\n1",
+  "rts": "ReferenceError\n1",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -10667,4 +10681,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":762,"pass":728,"rts_diverge":17,"bun_node_diverge":6,"errors":11,"rejected":0}}
+],"summary":{"total":763,"pass":753,"reachable":763,"rts_diverge":4,"bun_node_diverge":0,"errors":6,"rejected":0}}
