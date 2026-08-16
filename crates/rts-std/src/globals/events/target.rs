@@ -162,9 +162,32 @@ pub(super) fn dispatch_event(target: u64, event: u64) -> bool {
     stamp(event, target, super::event::AT_TARGET);
     let callees = callees_of(target, &records);
     let absent = super::absent();
-    for (callee, receiver) in callees {
+    for (record, (callee, receiver)) in records.iter().copied().zip(callees) {
         if super::flag(event, super::event::STOPPED) {
             break;
+        }
+        // Whether this registration is STILL registered, asked immediately
+        // before the call rather than once at the top.
+        //
+        // The list is snapshotted — it has to be, or a listener that adds
+        // another would have the new one run in the same dispatch, which the
+        // specification forbids. But a listener REMOVED during the dispatch
+        // must not run, and a snapshot alone cannot express that: the classic
+        // pair is a listener whose job is to remove the next one, and it was
+        // removing something that then ran anyway.
+        //
+        // Re-read rather than tracked with a flag on the record: `remove`
+        // deletes the record from the store, so the store is the only thing
+        // that knows, and a second bookkeeping place would be the one that
+        // disagrees.
+        //
+        // A `once` record is EXEMPT, and getting that wrong is how this was
+        // first written: `once` registrations are dropped from the store before
+        // any listener runs — the module's second paragraph says why — so the
+        // check would find every one of them missing and skip it, and a `once`
+        // listener would never run at all.
+        if !super::flag(record, "once") && !still_registered(store, &name, record) {
+            continue;
         }
         entry::call(callee, receiver, event, absent, absent, absent);
     }
@@ -175,6 +198,24 @@ pub(super) fn dispatch_event(target: u64, event: u64) -> bool {
         entry::put_member(context, event, "eventPhase", phase);
     });
     !(super::flag(event, "cancelable") && super::flag(event, "defaultPrevented"))
+}
+
+/// Whether a snapshotted record is still in the target's list for this type.
+///
+/// Identity and not equality: two registrations of the same function with the
+/// same `capture` cannot both exist — `addEventListener` refuses the duplicate —
+/// so the record object itself is the registration, and comparing the object is
+/// what distinguishes "still there" from "an equal one was added back".
+///
+/// Never asked about a `once` record. Those are dropped from the store before
+/// any listener runs, so this would find every one of them missing and skip it —
+/// and a `once` listener that never runs is a worse bug than the one this
+/// function exists to fix. The caller carries that exemption, where it is
+/// visible beside the call it guards.
+fn still_registered(store: u64, name: &str, record: u64) -> bool {
+    super::elements(super::get(store, name))
+        .iter()
+        .any(|&held| held == record)
 }
 
 /// Marks an event as being dispatched at a target, and clears the flag

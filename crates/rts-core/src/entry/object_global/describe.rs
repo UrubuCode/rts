@@ -85,7 +85,7 @@ extern "C" fn prevent_extensions(
 /// A primitive is frozen, which the specification says and which falls out of
 /// there being nothing to write rather than out of a special case.
 extern "C" fn is_frozen(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let held = with_current(|context| match Value(object).as_slot() {
+    let held = with_current(|context| match object_cell(context, object) {
         Some(cell) => super::super::integrity::is_frozen(context, cell),
         None => true,
     });
@@ -94,7 +94,7 @@ extern "C" fn is_frozen(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a
 
 /// `Object.isSealed(o)`.
 extern "C" fn is_sealed(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let held = with_current(|context| match Value(object).as_slot() {
+    let held = with_current(|context| match object_cell(context, object) {
         Some(cell) => super::super::integrity::is_sealed(context, cell),
         None => true,
     });
@@ -107,11 +107,35 @@ extern "C" fn is_sealed(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a
 /// `true`: a primitive cannot be frozen further and cannot be extended either.
 extern "C" fn is_extensible(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let open = with_current(|context| {
-        Value(object)
-            .as_slot()
-            .is_some_and(|cell| context.integrity_at(cell).is_none())
+        object_cell(context, object).is_some_and(|cell| context.integrity_at(cell).is_none())
     });
     Value::from_bool(open).bits()
+}
+
+/// The cell of a value that is an OBJECT, and `None` for anything else.
+///
+/// # Why `as_slot` is the wrong question here
+///
+/// Because a string primitive has a cell. Text lives in the region like every
+/// other allocated thing, so `Value("a").as_slot()` is `Some` — and the three
+/// integrity predicates read that as "an object, ask its record", found no
+/// record, and answered that a string is extensible and not frozen.
+///
+/// The specification says the opposite and says it for a reason that is not a
+/// special case: a non-object has nothing to write, so it is frozen and sealed
+/// by construction, and nothing can be added to it, so it is not extensible.
+/// `Object.isFrozen("a")` is `true` and `Object.isExtensible("a")` is `false`.
+///
+/// The distinction between "has a cell" and "is an object" already exists —
+/// `primitive::is_object_in` is what answers it, and it is what a set operation
+/// asks before deciding an argument is set-like. Asking it here too is what
+/// keeps a string, a symbol and a boxed primitive from diverging in three
+/// separate places.
+fn object_cell(context: &super::super::Context, object: u64) -> Option<u32> {
+    if !super::super::primitive::is_object_in(context, object) {
+        return None;
+    }
+    Value(object).as_slot()
 }
 
 /// `Object.create(proto, descriptors?)`.

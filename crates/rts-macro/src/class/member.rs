@@ -34,6 +34,14 @@ pub(super) struct Member {
     pub(super) ts: String,
     /// The `///` comments above it, as written.
     pub(super) doc: String,
+    /// How many arguments JavaScript sees, which is `Function.prototype.length`.
+    ///
+    /// Derived from the Rust signature rather than declared, because the
+    /// signature IS the arity — the wrapper coerces one JavaScript argument per
+    /// typed parameter, so a second spelling could only ever disagree with the
+    /// first. `this` is excluded for the reason [`ts_signature`] excludes it: a
+    /// receiver is not an argument.
+    pub(super) arity: u32,
 }
 
 impl Member {
@@ -59,6 +67,7 @@ impl Member {
             role,
             ts,
             doc: doc_of(&function.attrs),
+            arity: arity_of(function),
         })
     }
 
@@ -78,11 +87,18 @@ impl Member {
         })
     }
 
-    /// The `(name, wrapper)` pair the install list holds.
+    /// The `(name, wrapper, arity)` row the install list holds.
+    ///
+    /// The arity rides along so that every declared built-in gets a `.length`.
+    /// It was absent, and `undefined` is not a smaller answer than a number:
+    /// `Math.max.length` participates in arithmetic, and a currying or
+    /// forwarding helper that reads it got `NaN`. Six fixtures failed on exactly
+    /// this line and nothing else.
     pub(super) fn row(&self) -> TokenStream {
         let js = &self.js;
         let wrapper = &self.wrapper;
-        quote!((#js, #wrapper))
+        let arity = self.arity;
+        quote!((#js, #wrapper, #arity))
     }
 
     /// The author's function, plus the wrapper that gives it the shape a
@@ -276,6 +292,31 @@ fn ts_signature(js: &str, function: &ImplItemFn) -> String {
         ReturnType::Type(_, ty) => ts_type(ty),
     };
     format!("{js}({}): {returns}", params.join(", "))
+}
+
+/// How many arguments the language sees, from the Rust signature.
+///
+/// The same walk [`ts_signature`] performs, and deliberately so: both answer
+/// "what does a caller pass", and two walks would eventually disagree about the
+/// receiver. `this` is not an argument; everything else is one.
+///
+/// This is the arity the SIGNATURE declares and not always the one the
+/// specification pins — a variadic member like `Math.max` takes four slots here
+/// and the language says its `length` is 2. Where the two differ, the member
+/// says so with `#[js]`-adjacent documentation rather than this guessing: a
+/// derived number that is right for almost every member beats `undefined` for
+/// all of them, and the exceptions are visible because they are written down.
+fn arity_of(function: &ImplItemFn) -> u32 {
+    function
+        .sig
+        .inputs
+        .iter()
+        .enumerate()
+        .filter(|(position, argument)| match argument {
+            FnArg::Typed(typed) => !(*position == 0 && is_named(&typed.pat, "this")),
+            FnArg::Receiver(_) => false,
+        })
+        .count() as u32
 }
 
 /// The three types a member can spell, as TypeScript spells them.

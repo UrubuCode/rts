@@ -146,7 +146,7 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
         Flavour::Namespace => quote!(),
         Flavour::Class => quote! {
             /// What the constructor holds.
-            const #statics_name: &[(&str, crate::entry::native::Native)] =
+            const #statics_name: &[(&str, crate::entry::native::Native, u32)] =
                 &[#(#statics),*];
 
             /// The constructor's own constants.
@@ -201,7 +201,7 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             };
 
         /// What the prototype holds — or, for a namespace, the object itself.
-        const #natives: &[(&str, crate::entry::native::Native)] = &[#(#members),*];
+        const #natives: &[(&str, crate::entry::native::Native, u32)] = &[#(#members),*];
 
         #statics_decl
 
@@ -239,7 +239,7 @@ fn namespace_body(
         // cell first, and the reason that version recursed until the region ran
         // out when it did not.
         crate::entry::class_support::record(context, #name, object, object, Some("rts-core::class"));
-        crate::entry::native::install(context, cell, #natives);
+        crate::entry::native::install_with_arity(context, cell, #natives);
         crate::entry::class_support::constants(context, cell, #constants);
         #tagged
         object
@@ -328,12 +328,12 @@ fn class_body(
         crate::entry::class_support::record(context, #name, callable, prototype, Some("rts-core::class"));
 
         if let Some(cell) = crate::value::Value(callable).as_slot() {
-            crate::entry::native::install(context, cell, #statics);
+            crate::entry::native::install_with_arity(context, cell, #statics);
             crate::entry::class_support::constants(context, cell, #static_constants);
             let key = context.well_known("prototype");
             crate::entry::objects::put(context, cell, key, prototype);
         }
-        crate::entry::native::install(context, prototype_cell, #natives);
+        crate::entry::native::install_with_arity(context, prototype_cell, #natives);
         crate::entry::class_support::constants(context, prototype_cell, #constants);
         // `p.constructor` is an ordinary property, and a program reads it.
         let key = context.well_known("constructor");
