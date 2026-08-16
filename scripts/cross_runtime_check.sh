@@ -185,6 +185,21 @@ process_fixture() {
     else
         status="pass"
     fi
+
+    # Um defeito de TERCEIROS, declarado na propria fixture.
+    #
+    # A marca vive no ficheiro e nao numa lista central de propósito: uma lista
+    # e um sitio onde uma falha nossa se pode esconder, enquanto uma marca ao
+    # lado do programa obriga quem a poe a escrever a razao onde ela se le. E
+    # so vale enquanto o ficheiro FALHA — se passar, e `pass` como qualquer
+    # outro, portanto a marca nao pode manter verde uma coisa que quebrou.
+    #
+    # O criterio para a por e o mesmo que a primeira cumpriu: a causa esta
+    # provada FORA deste repositorio, por bisseccao de uma variavel — mudar so
+    # a dependencia faz o ficheiro passar, sem tocar em nada nosso.
+    if [ "$status" != "pass" ] && grep -q "cross-runtime:upstream-defect" "$fixture" 2>/dev/null; then
+        status="upstream_defect"
+    fi
     echo "$status" > "$out_status"
 
     # JSON entry
@@ -217,6 +232,7 @@ process_fixture() {
         pass) echo "ok|$name" ;;
         rts_diverge) echo "xx|$name (RTS difere de Bun/Node)" ;;
         bun_node_diverge) echo "~|$name (Bun != Node - skip)" ;;
+        upstream_defect) echo "~|$name (defeito de dependencia - skip)" ;;
         rts_error)
             # Primeira linha util do stderr direto no progresso — o motivo do
             # erro aparece durante a corrida, sem abrir o report. `|` vira `/`
@@ -262,7 +278,7 @@ done
 elapsed=$(($(date +%s) - start_time))
 
 # Conta status
-pass=0; diverge_rts=0; diverge_bun_node=0; errors=0; rejected=0
+pass=0; diverge_rts=0; diverge_bun_node=0; errors=0; rejected=0; upstream=0
 for fixture in "${FIXTURES[@]}"; do
     name=$(basename "$fixture" .ts)
     s_file="$TMP/${name}.status"
@@ -272,12 +288,33 @@ for fixture in "${FIXTURES[@]}"; do
         pass) pass=$((pass + 1)) ;;
         rts_diverge) diverge_rts=$((diverge_rts + 1)) ;;
         bun_node_diverge) diverge_bun_node=$((diverge_bun_node + 1)) ;;
+        upstream_defect) upstream=$((upstream + 1)) ;;
         rts_error) errors=$((errors + 1)) ;;
         rejected) rejected=$((rejected + 1)) ;;
     esac
 done
 
 # Monta JSON report final agrupando entries por ordem alfabetica de nome
+# O denominador da percentagem e o ALCANCAVEL, nao o total. Calculado ANTES do
+# bloco que escreve o relatorio, porque o JSON tambem o carrega — um numero que
+# so existisse para o ecra sairia do ficheiro como zero.
+#
+# Um ficheiro em que o Bun e o Node se respondem coisas diferentes nao tem
+# resposta certa que este arnes possa nomear — ele recusa eleger um deles, de
+# proposito. Conta-lo contra nos e cobrar uma resposta que ninguem sabe qual e:
+# a percentagem ficaria com um tecto abaixo de 100 que nenhum trabalho podia
+# levantar, e um numero cujo maximo nao e atingivel deixa de dizer o que falta.
+#
+# O total continua impresso ao lado, e os divergentes continuam CONTADOS e
+# listados. O que muda e so o que a fraccao pergunta: "de tudo o que tem uma
+# resposta comparavel, quanto e que acertamos".
+reachable=$((TOTAL - diverge_bun_node - upstream))
+if [ "$reachable" -gt 0 ]; then
+    share=$(awk -v p="$pass" -v r="$reachable" 'BEGIN { printf "%.1f", p * 100 / r }')
+else
+    share="n/a"
+fi
+
 {
     printf '{"results":[\n'
     first=1
@@ -292,27 +329,10 @@ done
         fi
         cat "$entry_file"
     done
-    printf '\n],"summary":{"total":%d,"pass":%d,"reachable":%d,"rts_diverge":%d,"bun_node_diverge":%d,"errors":%d,"rejected":%d}}\n' \
-        "$TOTAL" "$pass" "$((TOTAL - diverge_bun_node))" "$diverge_rts" "$diverge_bun_node" "$errors" "$rejected"
+    printf '\n],"summary":{"total":%d,"pass":%d,"reachable":%d,"rts_diverge":%d,"bun_node_diverge":%d,"errors":%d,"rejected":%d,"upstream_defect":%d}}\n' \
+        "$TOTAL" "$pass" "$reachable" "$diverge_rts" "$diverge_bun_node" "$errors" "$rejected" "$upstream"
 } > "$REPORT_FILE"
 
-# O denominador da percentagem e o ALCANCAVEL, nao o total.
-#
-# Um ficheiro em que o Bun e o Node se respondem coisas diferentes nao tem
-# resposta certa que este arnes possa nomear — ele recusa eleger um deles, de
-# proposito. Conta-lo contra nos e cobrar uma resposta que ninguem sabe qual e:
-# a percentagem ficaria com um tecto abaixo de 100 que nenhum trabalho podia
-# levantar, e um numero cujo maximo nao e atingivel deixa de dizer o que falta.
-#
-# O total continua impresso ao lado, e os divergentes continuam CONTADOS e
-# listados. O que muda e so o que a fraccao pergunta: "de tudo o que tem uma
-# resposta comparavel, quanto e que acertamos".
-reachable=$((TOTAL - diverge_bun_node))
-if [ "$reachable" -gt 0 ]; then
-    share=$(awk -v p="$pass" -v r="$reachable" 'BEGIN { printf "%.1f", p * 100 / r }')
-else
-    share="n/a"
-fi
 
 echo ""
 echo -e "${BOLD}Summary:${NC} (tempo: ${elapsed}s, $JOBS jobs paralelos)"
@@ -321,6 +341,7 @@ echo -e "  ${GREEN}Pass:                $pass${NC}"
 echo -e "  ${BOLD}Alcancavel:          $reachable  (${share}% de $reachable)${NC}"
 echo -e "  ${RED}RTS divergente:      $diverge_rts${NC}"
 echo -e "  ${YELLOW}Bun/Node divergem:   $diverge_bun_node  (fora do denominador)${NC}"
+echo -e "  ${YELLOW}Defeito de dependencia: $upstream  (fora do denominador)${NC}"
 echo -e "  ${RED}RTS runtime error:   $errors${NC}"
 echo -e "  ${YELLOW}Rejeitados (RTS-only): $rejected${NC}"
 echo ""

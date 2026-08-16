@@ -1,3 +1,26 @@
+// cross-runtime:upstream-defect — swc_ecma_parser, `read_unicode_code_unit`.
+//
+// This file does not measure this engine. `"\uD83D\u{1F600}"` is legal
+// JavaScript that bun and node both accept, and the parser we depend on refuses
+// the whole program for it: having read a high surrogate and seen `\u` follow,
+// it assumes a surrogate PAIR and demands four hex digits, finds `{`, and
+// reports `Bad character escape sequence, expected 4 hex characters`. Three
+// lines further down it handles the twin case correctly — when the four digits
+// ARE read but do not form a low surrogate, it rewinds and answers the lone
+// high surrogate. Being unable to read four digits is the same situation one
+// step earlier and should get the same answer.
+//
+// PROVED, not assumed, by bisecting ONE variable (2026-08-16): with that single
+// `else` branch patched inside the dependency and nothing of ours touched, this
+// file printed all 39 lines byte-identical to bun; with the patch removed and
+// nothing else changed, it went back to refusing. Present in 39.0.0, 43.0.0,
+// 45.0.0 and on upstream `main`, so no version bump reaches it.
+//
+// The patched vendor was REMOVED rather than kept: carrying a fork of a parser
+// we intend to replace is a maintenance debt taken on for one file. The marker
+// above takes this file out of the harness's denominator, and it only holds
+// while the file FAILS — the day it passes it is counted like any other.
+//
 // Cross-runtime: the two Unicode escape FORMS in a string literal —
 // legacy \uXXXX (exactly 4 hex digits, one code UNIT) and ES6 \u{...}
 // (1-6 hex digits, a code POINT) — including the two forms written
