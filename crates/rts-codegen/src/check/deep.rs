@@ -1,10 +1,12 @@
-//! The deep walk: the rules that need to reach every node.
+//! The walk, and every rule that rides it.
 //!
-//! The scope rules in `walk` ask about statement lists and never look inside an
-//! expression. These do the opposite — they visit everything, carrying a
-//! context down — so they share one traversal rather than having one each. A
-//! second walk of the same shape is a second place that has to agree on what an
-//! arrow inherits, and it would not.
+//! One traversal for all of them. The rules divide into two shapes — the ones
+//! about a *set* (the names a scope declares, the members a class has) and the
+//! ones about a *context* (where `await` may name something, where `super`
+//! reaches anything) — and they used to have a walk each. The set rules' walk
+//! visited statement lists and never entered an expression, so no function
+//! expression and no class method was ever checked by them. They are the same
+//! rules; what they were missing is the walk that already reaches everything.
 //!
 //! # `await` and `yield`: reserved by where you are, not by what they spell
 //!
@@ -113,7 +115,6 @@ enum Home {
 }
 
 impl Context {
-    /// The context a script's top level is in: nothing is reserved.
     /// The context a whole program's top level is in.
     ///
     /// A module is strict and reserves `await` at its top level — top-level
@@ -153,6 +154,7 @@ impl Context {
     /// An arrow inherits what reaches through it and adds its own; anything
     /// else replaces both. That difference is the rule, and putting it here
     /// means no caller can get it half right.
+    ///
     /// `home` is what the function is *written as*, and an arrow ignores it:
     /// an arrow has no home object of its own, exactly as it has no `this`, so
     /// its `super` is whatever the enclosing method's was. That is what makes
@@ -249,12 +251,27 @@ impl<'a> Scan<'a> {
         if self.found.is_some() {
             return;
         }
-        match self.names.text(name) {
-            word @ "await" if context.forbids_await() => {
-                self.found = Some(format!("`{word}` cannot name anything here"));
+        let word = self.names.text(name);
+        if is_reserved(word) {
+            // Reaching here at all means the word was written with a unicode
+            // escape. `var break = 1` does not parse — the lexer sees the
+            // keyword — so the only way a reserved word arrives as an
+            // *identifier* is `var break = 1`, which is the program this
+            // refuses. Which is why the rule needs no source text: the tree
+            // holding this node is itself the evidence.
+            self.found = Some(format!("`{word}` is a reserved word and cannot name anything"));
+            return;
+        }
+        if context.strict && is_reserved_in_strict(word) {
+            self.found = Some(format!("`{word}` cannot name anything in strict code"));
+            return;
+        }
+        match word {
+            "await" if context.forbids_await() => {
+                self.found = Some("`await` cannot name anything here".to_owned());
             }
-            word @ "yield" if context.no_yield => {
-                self.found = Some(format!("`{word}` cannot name anything here"));
+            "yield" if context.no_yield => {
+                self.found = Some("`yield` cannot name anything here".to_owned());
             }
             _ => {}
         }
@@ -337,6 +354,46 @@ impl<'a> Scan<'a> {
         }
     }
 
+    /// A position that takes a Statement, where a Declaration is not one.
+    ///
+    /// The body of `if`, of every loop and of `with` is a *Statement*, and
+    /// `let`, `const`, `class` and `function` are Declarations — so
+    /// `while (false) let [a] = 0;` is not a program even though every piece of
+    /// it parses. The rule is not decoration: a declaration there would have a
+    /// scope nobody can name, since the body of a loop is not a block.
+    ///
+    /// `plain_function_allowed` is Annex B B.3.4, which is real and narrow: a
+    /// bare `function f() {}` is allowed as the body of an `if` in sloppy code,
+    /// and nothing else is allowed anywhere. Not a generator, not an async
+    /// function, and not the same declaration behind a label — which is why the
+    /// label case recurses with the permission withdrawn.
+    fn statement_body(&mut self, body: &Stmt, plain_function_allowed: bool, context: Context) {
+        if self.found.is_some() {
+            return;
+        }
+        match &body.kind {
+            // `var` is a *Statement*, which is why it is the one declaring form
+            // allowed here: `for (;;) var x;` is a program and `for (;;) let x;`
+            // is not. The two spellings look alike and the grammar puts them in
+            // different productions.
+            StmtKind::Declare { kind, .. } if kind.is_block_scoped() => {
+                self.fail("a lexical declaration cannot be the body of this statement".to_owned());
+            }
+            StmtKind::Using { .. } | StmtKind::Class(_) => {
+                self.fail("a declaration cannot be the body of this statement".to_owned());
+            }
+            StmtKind::Function(function) => {
+                let plain = !function.is_generator && !function.is_async;
+                if !(plain_function_allowed && plain && !context.strict) {
+                    self.fail("a function declaration cannot be the body of this statement"
+                        .to_owned());
+                }
+            }
+            StmtKind::Labelled { body, .. } => self.statement_body(body, false, context),
+            _ => {}
+        }
+    }
+
     /// The whole program, from its top level.
     pub(super) fn program(&mut self, program: &Program) {
         let context = Context::top(program);
@@ -384,13 +441,16 @@ impl<'a> Scan<'a> {
                 else_branch,
             } => {
                 self.expr(condition, context);
+                self.statement_body(then_branch, true, context);
                 self.stmt(then_branch, context);
                 if let Some(otherwise) = else_branch {
+                    self.statement_body(otherwise, true, context);
                     self.stmt(otherwise, context);
                 }
             }
             StmtKind::While { condition, body } | StmtKind::DoWhile { condition, body } => {
                 self.expr(condition, context);
+                self.statement_body(body, false, context);
                 self.stmt(body, context);
             }
             StmtKind::For {
@@ -424,6 +484,7 @@ impl<'a> Scan<'a> {
                 if let Some(update) = update {
                     self.expr(update, context);
                 }
+                self.statement_body(body, false, context);
                 self.stmt(body, context);
             }
             StmtKind::ForEach {
@@ -445,6 +506,7 @@ impl<'a> Scan<'a> {
                     ForEachTarget::Dispose { target, .. } => self.name(*target, context),
                 }
                 self.expr(subject, context);
+                self.statement_body(body, false, context);
                 self.stmt(body, context);
             }
             StmtKind::Return(value) => {
@@ -459,8 +521,11 @@ impl<'a> Scan<'a> {
                     self.name(*label, context);
                 }
             }
+            // A label may name a declaration in exactly one case: a plain
+            // function declaration in sloppy code, which Annex B keeps alive.
             StmtKind::Labelled { label, body } => {
                 self.name(*label, context);
+                self.statement_body(body, true, context);
                 self.stmt(body, context);
             }
             StmtKind::Switch {
@@ -488,6 +553,7 @@ impl<'a> Scan<'a> {
                 body,
             } => {
                 self.expr(subject, context);
+                self.statement_body(body, false, context);
                 self.stmt(body, context);
             }
             StmtKind::Try {
@@ -955,4 +1021,77 @@ impl Scan<'_> {
             _ => false,
         }
     }
+}
+
+/// Whether a word is a keyword in every context.
+///
+/// `null`, `true` and `false` are in the list because they are literals rather
+/// than names, and the language reserves their spelling for the same reason it
+/// reserves `if`: nothing else may be called that.
+///
+/// Absent, deliberately: `let`, `static`, `async`, `of`, `get`, `set` and the
+/// rest of the contextual words. Each is a perfectly good identifier —
+/// `var let = 1` is a program in sloppy code — and putting them here would
+/// refuse programs that run everywhere.
+fn is_reserved(word: &str) -> bool {
+    matches!(
+        word,
+        "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "debugger"
+            | "default"
+            | "delete"
+            | "do"
+            | "else"
+            | "enum"
+            | "export"
+            | "extends"
+            | "false"
+            | "finally"
+            | "for"
+            | "function"
+            | "if"
+            | "import"
+            | "in"
+            | "instanceof"
+            | "new"
+            | "null"
+            | "return"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "true"
+            | "try"
+            | "typeof"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+    )
+}
+
+/// Whether a word is reserved only where the code is strict.
+///
+/// These are the future reserved words. They name things perfectly well in
+/// sloppy code — jQuery shipped a `private` for years — and strict mode is what
+/// takes the spelling away, so the answer depends on the context the walk
+/// carries rather than on the word alone.
+fn is_reserved_in_strict(word: &str) -> bool {
+    matches!(
+        word,
+        "implements"
+            | "interface"
+            | "let"
+            | "package"
+            | "private"
+            | "protected"
+            | "public"
+            | "static"
+            | "yield"
+    )
 }

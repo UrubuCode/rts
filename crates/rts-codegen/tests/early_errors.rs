@@ -349,3 +349,50 @@ fn a_function_expression_body_is_checked_like_any_other() {
     assert!(refused("(function () { let x; let x; });").contains("declared twice"));
     assert!(refused("class C { m() { let x; var x; } }").contains("lexically and with `var`"));
 }
+
+#[test]
+fn only_a_statement_may_be_the_body_of_a_statement() {
+    // The declaring forms SWC already refuses here are not restated: it knows
+    // `let` and `class` are Declarations, and a second copy of a rule is the
+    // copy that goes stale. What it does not refuse is a function declaration,
+    // because Annex B makes one legal in exactly one of these positions.
+    assert!(refused("if (true) async function f() {}").contains("cannot be the body"));
+    refused("while (false) function f() {}");
+    assert!(refused("while (false) l: function f() {}").contains("cannot be the body"));
+    assert!(refused("label: async function f() {}").contains("cannot be the body"));
+    refused("with (o) function f() {}");
+
+    // `var` is a Statement rather than a Declaration — the one declaring form
+    // this position takes.
+    accepted("for (;;) var x;");
+    // Annex B B.3.4: a plain function declaration is an `if` branch in sloppy
+    // code, and a labelled one is a statement-list item.
+    accepted("if (true) function f() {}");
+    accepted("label: function f() {}");
+}
+
+#[test]
+fn a_reserved_word_escaped_into_an_identifier_is_still_reserved() {
+    // The word, built rather than written: a Rust escape in a literal would be
+    // resolved by rustc, and what has to reach the parser is the six characters
+    // of the JavaScript escape rather than the letter they stand for. 92 is the
+    // backslash.
+    let escaped = format!("{}u0062reak", char::from(92));
+
+    // Reaching the checker at all means the word was spelled with an escape:
+    // the plain `break` never parses as an identifier, so the tree holding one
+    // is itself the evidence, and no source text has to be consulted.
+    assert!(refused(&format!("var {escaped} = 1;")).contains("reserved word"));
+    assert!(refused(&format!("({escaped});")).contains("reserved word"));
+
+    // A property of that name is a property, however it is spelled.
+    accepted("var o = { break: 1 }; o.break;");
+    accepted(&format!("var o = {{ {escaped}: 1 }};"));
+
+    // The future reserved words are ordinary names in sloppy code, and strict
+    // mode is what takes the spelling away. SWC refuses both spellings of this
+    // one, which is why the rule here is the one for the sloppy program next to
+    // it: that must still be accepted.
+    accepted("var private = 1;");
+    refused("'use strict'; var private = 1;");
+}
