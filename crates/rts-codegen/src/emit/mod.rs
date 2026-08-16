@@ -1314,6 +1314,51 @@ mod tests {
     }
 
     #[test]
+    fn a_switch_over_proven_numbers_tests_with_instructions() {
+        let func = emit_source("let x = 3; let hit = 0; switch (x) { case 1: hit = 1; break; case 2: hit = 2; break; case 3: hit = 3; break; }").expect("emits");
+        // One call, and it is the entry's throw-flag address — the same floor
+        // `an_operator_on_proven_numbers_is_an_instruction` documents. A switch
+        // used to add one call PER LABEL on top of it, each with the throw
+        // check a call implies, while every operand at every label was a proven
+        // double. Three labels here, so this asserted 4 before the change.
+        let calls = instructions(&func)
+            .iter()
+            .filter(|inst| matches!(inst, Inst::Call { .. }))
+            .count();
+        assert_eq!(
+            calls, 1,
+            "a switch over proven numbers must reach the runtime no more often \
+             than an empty body does"
+        );
+        assert!(
+            instructions(&func)
+                .iter()
+                .any(|inst| matches!(inst, Inst::Compare(..))),
+            "each label is a comparison instruction"
+        );
+    }
+
+    #[test]
+    fn a_switch_over_something_unproven_still_reaches_the_runtime() {
+        // `s` comes from a call, so nothing knows what it is — and `===`
+        // between two strings compares their TEXT, which reads the heap. The
+        // call is the correct emission, and this is the twin that stops the
+        // fold above from being applied where it would be wrong.
+        let func = emit_source(
+            "function f() { return 1; } let s = f(); switch (s) { case 1: break; }",
+        )
+        .expect("emits");
+        let calls = instructions(&func)
+            .iter()
+            .filter(|inst| matches!(inst, Inst::Call { .. }))
+            .count();
+        assert!(
+            calls > 1,
+            "nothing proved the subject, so the label test must ask the runtime"
+        );
+    }
+
+    #[test]
     fn a_value_crossing_a_boundary_is_widened_back() {
         let func = emit_body_of("let x = 1; return x;").expect("emits");
         // `1 + 1` is not integer addition until something proves both sides are

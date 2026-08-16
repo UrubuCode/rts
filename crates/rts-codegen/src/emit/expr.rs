@@ -1194,6 +1194,40 @@ fn emit_assign(
     super::binding::write(builder, scope, ctx, *name, result)
 }
 
+/// `a === b` as the PROVEN boolean, without widening it back into a value.
+///
+/// [`compared`] is the expression form and ends in a widening because an
+/// expression is a value. A test chain wants the opposite: it feeds a branch,
+/// which takes the proof directly. `switch` is the one such chain, and it used
+/// to reach the runtime unconditionally — so `switch (i & 7)` over numeric
+/// labels made one call per label, with the throw check each call implies,
+/// where the operands were already proven doubles at every one of them.
+///
+/// Which instruction a proven pair becomes is NOT decided here: it is read from
+/// [`proven_binary`], the same table [`emit_binary_inner`] consumes. A second
+/// answer to "what is `===` on two doubles" is how the two come to disagree.
+///
+/// Deliberately does NOT speculate when nothing is proven. [`emit_guarded`] is
+/// right for one operator in expression position and wrong for a chain: a
+/// switch with eight labels would emit eight guard pairs against the same
+/// subject, and seven of them cannot tell it anything the first did not.
+/// Guarding the subject ONCE, ahead of the chain, is the shape that would pay —
+/// it is a different change and is not smuggled in here.
+pub(super) fn strict_equals_proof(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    a: ValueId,
+    b: ValueId,
+) -> EmitResult<ValueId> {
+    if builder.repr_of(a) == Repr::F64
+        && builder.repr_of(b) == Repr::F64
+        && let Some(Proven::Compare(cmp)) = proven_binary(BinaryOp::StrictEqual)
+    {
+        return Ok(builder.compare(cmp, a, b)?);
+    }
+    Ok(call(builder, ctx, RuntimeOp::StrictEquals, &[a, b])?[0])
+}
+
 /// A comparison, as a JavaScript value.
 ///
 /// The runtime answers `Repr::Bool` — it **proved** one, which is what lets a

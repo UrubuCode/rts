@@ -121,15 +121,14 @@ pub fn emit_switch(
             builder.switch_to(previous);
         }
         let candidate = super::expr::emit_expr(builder, scope, ctx, test)?;
-        // The runtime answers a PROVEN boolean, which is what a branch takes —
-        // so this is the one comparison in the emitter that does not widen it
-        // back into a value afterwards.
-        let matched = super::expr::call(
-            builder,
-            ctx,
-            crate::runtime::RuntimeOp::StrictEquals,
-            &[subject, candidate],
-        )?[0];
+        // A PROVEN boolean, which is what a branch takes — so this is the one
+        // comparison in the emitter that does not widen it back into a value
+        // afterwards. Whether it costs a call or a single instruction is
+        // `strict_equals_proof`'s question and not this file's: a switch over
+        // numbers should not have to know that `===` on two doubles is IEEE
+        // equality, and it is the second place that knew it that made this a
+        // call at every label.
+        let matched = super::expr::strict_equals_proof(builder, ctx, subject, candidate)?;
         let next = builder.create_block();
         let here = scope.snapshot();
         builder.branch(
