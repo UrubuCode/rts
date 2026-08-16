@@ -162,6 +162,11 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     // `Array.name`, for the reason `string::constructor` gives: a hand-built
     // constructor has nothing deriving its name.
     super::native::name_of(context, callable, "Array");
+    // `Array.length` is 1 — the `SetFunctionLength` every constructor gets, and
+    // it answered `undefined`. A program forwarding a constructor reads it, and
+    // `undefined` there is not a smaller answer than 1: `f.length` participates
+    // in arithmetic, and `NaN` is what a currying helper got.
+    super::native::length_of(context, callable, 1);
     let prototype = match prototype_of(context) {
         Some(cell) => Value::from_slot(cell).bits(),
         None => return undefined_of(context),
@@ -184,6 +189,12 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         super::objects::put(context, cell, key, callable);
         super::native::hidden(context, cell, key);
     }
+    // `Array[Symbol.species]`, the other half of the protocol the comment above
+    // describes. Without it the read answered `undefined` and the derivation
+    // fell back to the intrinsic — which looks identical for `Array` itself and
+    // is exactly wrong for a subclass, whose whole reason to inherit the hook is
+    // to be answered instead.
+    super::native::species(context, callable);
     callable
 }
 

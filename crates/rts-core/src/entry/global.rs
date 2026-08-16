@@ -114,7 +114,15 @@ pub(in crate::entry) fn supply(
             "Number" => super::number::register_number(context),
             "Boolean" => super::number::register_boolean(context),
             "BigInt" => super::bigint_class::register_big_int_class(context),
-            "Promise" => super::promise::register_promise(context),
+            // The species hook is installed here rather than by the class
+            // attribute: only seven built-ins have one, so a member every
+            // `#[rtse::class]` emitted would be six wrong answers to buy one
+            // right one.
+            "Promise" => {
+                let made = super::promise::register_promise(context);
+                super::native::species(context, made);
+                made
+            }
             // Through `eval`, which is the same registration with the one thing
             // a class declaration cannot give it: what `new Function(…)` runs.
             // See that module for why the constructor is not a `#[construct]`

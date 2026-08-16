@@ -224,11 +224,25 @@ fn prototype_of(context: &mut Context) -> u64 {
 /// exists and knows nothing about regular expressions.
 pub(super) fn constructor(context: &mut Context) -> u64 {
     let callable = super::native::callable(context, methods::construct);
+    // `RegExp.name`, which nothing else derives for a hand-built constructor.
+    super::native::name_of(context, callable, "RegExp");
+    // `RegExp.length` is 2 — the pattern and the flags.
+    super::native::length_of(context, callable, 2);
     let prototype = prototype_of(context);
     if let Some(cell) = Value(callable).as_slot() {
         let key = context.well_known("prototype");
         super::objects::put(context, cell, key, prototype);
     }
+    // `RegExp.prototype.constructor`, and then the species hook that reads it.
+    // Both were missing, and the pair is what makes a subclass of `RegExp`
+    // answer itself from `Symbol.split` and `Symbol.replace` rather than a
+    // plain one.
+    if let Some(cell) = Value(prototype).as_slot() {
+        let key = context.well_known("constructor");
+        super::objects::put(context, cell, key, callable);
+        super::native::hidden(context, cell, key);
+    }
+    super::native::species(context, callable);
     callable
 }
 
