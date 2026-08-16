@@ -59,6 +59,42 @@ use super::{Context, with_current};
 use crate::text::Str;
 use crate::value::Value;
 
+/// Raises the `SyntaxError` a refused pattern owes, OUTSIDE any borrow.
+///
+/// # Why this is a second function and not two lines inside [`make`]
+///
+/// Because `make` runs inside a `with_current` closure at every call site, and
+/// building an error borrows the context again — a re-entrant `RefCell` borrow,
+/// which is an abort in an `extern "C"` frame and not a catchable fault. The
+/// first version raised in place and the panic was immediate.
+///
+/// So the shape every raising native in this crate uses applies here too:
+/// decide inside the borrow, answer, and raise after it ends. `make` answers
+/// `undefined` for a pattern it could not build, and this turns that answer into
+/// the throw the language owes — which matters because `undefined` from a
+/// CONSTRUCTOR is not a quiet failure: `new` hands back the half-built `this`
+/// instead, and the program dies later reading `.exec` off an object with no
+/// pattern in it.
+///
+/// The two messages are kept apart because they are different faults with
+/// different fixes for whoever reads one: an unknown FLAG LETTER is a typo in
+/// the second argument, and an unbuildable PATTERN is the first.
+pub(super) fn refusal(made: u64, source: &str, letters: &str) -> bool {
+    let refused = with_current(|context| made == undefined_of(context));
+    if !refused {
+        return false;
+    }
+    match Flags::parse(letters) {
+        None => super::throw::syntax_error(&format!(
+            "invalid regular expression flags: {letters:?}"
+        )),
+        Some(_) => super::throw::syntax_error(&format!(
+            "invalid regular expression: /{source}/{letters}"
+        )),
+    }
+    true
+}
+
 /// A compiled pattern and how a match is driven over it.
 ///
 /// `lastIndex` is **not** here. It is an ordinary property of the object,
@@ -91,15 +127,18 @@ pub(super) struct Regexp {
 /// program uses the result rather than at an arbitrary later point.
 #[rtse::entry]
 pub fn regex_new(pattern: u64, flags: u64) -> u64 {
-    with_current(|context| {
-        let Some(source) = text_of(context, pattern) else {
-            return undefined_of(context);
-        };
-        let Some(letters) = text_of(context, flags) else {
-            return undefined_of(context);
-        };
-        make(context, &source, &letters)
-    })
+    let read = with_current(|context| {
+        let source = text_of(context, pattern)?;
+        let letters = text_of(context, flags)?;
+        let made = make(context, &source, &letters);
+        Some((made, source, letters))
+    });
+    let Some((made, source, letters)) = read else {
+        return with_current(|context| undefined_of(context));
+    };
+    // Outside the borrow, for the reason [`refusal`] states.
+    refusal(made, &source, &letters);
+    made
 }
 
 /// The object, from text that has already been read.
@@ -110,7 +149,10 @@ pub fn regex_new(pattern: u64, flags: u64) -> u64 {
 /// where the text came from, and that difference ends here.
 pub(super) fn make(context: &mut Context, source: &str, letters: &str) -> u64 {
     {
-        let Some(parsed) = Flags::parse(letters) else {
+        // A pattern this engine cannot build answers `undefined`, and the
+        // CALLER raises the `SyntaxError` after its borrow has ended — see
+        // [`refusal`] for why the raise cannot happen here.
+let Some(parsed) = Flags::parse(letters) else {
             return undefined_of(context);
         };
         let Some(engine) = Engine::compile(source, parsed) else {

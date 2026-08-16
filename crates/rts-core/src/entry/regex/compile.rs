@@ -43,7 +43,7 @@ impl Engine {
     /// `SyntaxError` there; see [`super::regex_new`] for why this answers rather
     /// than throws.
     pub(super) fn compile(pattern: &str, flags: Flags) -> Option<Engine> {
-        let pattern = unescape_solidus(pattern);
+        let pattern = empty_classes(&unescape_solidus(pattern));
         match regex::RegexBuilder::new(&pattern)
             .case_insensitive(flags.ignore_case)
             .multi_line(flags.multiline)
@@ -262,9 +262,87 @@ fn unescape_solidus(pattern: &str) -> String {
     out
 }
 
+/// Rewrites the two character classes JavaScript has and Rust's engine refuses.
+///
+/// `[]` matches NOTHING and `[^]` matches ANY character, both legal JavaScript
+/// and both a parse error for the `regex` crate, which reads an empty class as
+/// malformed. Neither is exotic: `[^]` is the ordinary way to write "any
+/// character including a newline" in code predating the `s` flag, and it appears
+/// in minified output constantly.
+///
+/// They are translated rather than refused because the translations are EXACT
+/// and there is no ambiguity to lose: `[^\s\S]` is the empty set by
+/// construction, and `[\s\S]` is its complement. That is the difference from
+/// [`unescape_solidus`]'s neighbouring case, which refuses rather than guesses —
+/// a wrong translation there would be a pattern matching the wrong text, and
+/// here there is only one thing either class can mean.
+///
+/// Only outside a class, and only where the bracket is not itself escaped: `[[]`
+/// is a class containing `[`, and `\[]` is the two literal characters. A blind
+/// `replace` on the string got both wrong.
+fn empty_classes(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len());
+    let characters: Vec<char> = pattern.chars().collect();
+    let mut at = 0;
+    let mut inside = false;
+    while at < characters.len() {
+        let character = characters[at];
+        if character == '\\' {
+            out.push(character);
+            if let Some(next) = characters.get(at + 1) {
+                out.push(*next);
+            }
+            at += 2;
+            continue;
+        }
+        if !inside && character == '[' {
+            if characters.get(at + 1) == Some(&']') {
+                out.push_str("[^\\s\\S]");
+                at += 2;
+                continue;
+            }
+            if characters.get(at + 1) == Some(&'^') && characters.get(at + 2) == Some(&']') {
+                out.push_str("[\\s\\S]");
+                at += 3;
+                continue;
+            }
+            inside = true;
+        } else if inside && character == ']' {
+            inside = false;
+        }
+        out.push(character);
+        at += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_two_empty_classes_are_translated_and_nothing_else_is() {
+        assert_eq!(empty_classes("[]"), "[^\\s\\S]");
+        assert_eq!(empty_classes("[^]"), "[\\s\\S]");
+        assert_eq!(empty_classes("a[]b[^]c"), "a[^\\s\\S]b[\\s\\S]c");
+        // A bracket INSIDE a class is an ordinary member, and one that is
+        // escaped is a literal — a blind `replace` got both of these wrong.
+        assert_eq!(empty_classes("[[]"), "[[]");
+        assert_eq!(empty_classes("\\[]"), "\\[]");
+        assert_eq!(empty_classes("[a]"), "[a]");
+        assert_eq!(empty_classes("[^a]"), "[^a]");
+        assert_eq!(empty_classes("[\\]]"), "[\\]]");
+    }
+
+    #[test]
+    fn the_empty_class_matches_nothing_and_its_complement_matches_everything() {
+        let never = Engine::compile("[]", Flags::default()).expect("`[]` is legal JavaScript");
+        assert!(!never.matches_at("a", 0));
+        assert!(!never.matches_at("\n", 0));
+        let always = Engine::compile("[^]", Flags::default()).expect("`[^]` is legal JavaScript");
+        assert!(always.matches_at("a", 0));
+        assert!(always.matches_at("\n", 0));
+    }
 
     #[test]
     fn an_unknown_flag_letter_is_refused_rather_than_ignored() {

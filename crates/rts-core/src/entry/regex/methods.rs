@@ -48,7 +48,7 @@ pub(super) extern "C" fn construct(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    with_current(|context| {
+    let outcome = with_current(|context| {
         // `RegExp(re)` called WITHOUT `new`, with no explicit `flags`, answers
         // the SAME object — `context.new_targets` is how `wrap` above answers
         // the identical "was this a construct" question for `Number`/`Boolean`/
@@ -63,7 +63,7 @@ pub(super) extern "C" fn construct(
             && context.regexp_at(cell).is_some()
             && text_of(context, flags).is_none()
         {
-            return pattern;
+            return Made::Answered(pattern);
         }
         // `new RegExp(existingRegExp)` copies `source`/`flags` from the
         // original rather than `ToString`-ing it: `String(/ab+c/)` is the
@@ -81,18 +81,42 @@ pub(super) extern "C" fn construct(
                 Some(explicit) => explicit,
                 None => inherited,
             };
-            return super::make(context, &source, &letters);
+            let made = super::make(context, &source, &letters);
+            return Made::Built(made, source, letters);
         }
         let Some(source) = text_of(context, pattern) else {
             // A pattern that is not a string. `new RegExp(1)` runs `ToString`
             // on it, and `ToString` of an object calls user code an entry point
             // cannot call — so the conversion stops where that becomes true,
             // rather than half-doing it for the cases that would work.
-            return undefined_of(context);
+            return Made::Answered(undefined_of(context));
         };
         let letters = text_of(context, flags).unwrap_or_default();
-        super::make(context, &source, &letters)
-    })
+        let made = super::make(context, &source, &letters);
+        Made::Built(made, source, letters)
+    });
+    // Outside the borrow: `super::refusal` builds an error, which borrows the
+    // context again — the re-entrant `RefCell` this crate's rule 8 exists to
+    // keep out of an `extern "C"` frame.
+    match outcome {
+        Made::Answered(value) => value,
+        Made::Built(made, source, letters) => {
+            super::refusal(made, &source, &letters);
+            made
+        }
+    }
+}
+
+/// What the borrow above decided, so the raise can happen after it ends.
+///
+/// Two arms and not an `Option`: a value answered WITHOUT compiling anything —
+/// the `RegExp(re)` identity case, and a pattern that is not a string — owes no
+/// `SyntaxError`, and collapsing it into "no value" would raise for both.
+enum Made {
+    /// Answered without building a pattern; nothing to refuse.
+    Answered(u64),
+    /// Built (or failed to build) from this source and these flags.
+    Built(u64, String, String),
 }
 
 /// `re.test(s)` — whether there is a match.
