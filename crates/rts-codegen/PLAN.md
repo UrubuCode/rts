@@ -364,6 +364,23 @@ wrongly rejected      214    0.9 %   valid programs we refused
 wrongly accepted    1 249    5.3 %   invalid programs we did not refuse
 ```
 
+**Re-measured 2026-08-16, same harness, same 23 724 files:**
+
+```
+read correctly     23 436   98.8 %
+refused, named          0    0.0 %   the bridge names nothing it cannot lower
+wrongly rejected      215    0.9 %   valid programs we refuse
+wrongly accepted       73    0.3 %   invalid programs we do not refuse
+```
+
+The middle row going to zero is the bridge finishing, and it is why the first
+row moved by more than the last two explain. The 215 have barely changed since
+the first measurement and are mostly not ours: **151 of them are one SWC lexer
+defect** — a reserved word with a unicode escape somewhere after its first
+character (`break`) is refused even as a property key, where it is legal.
+The harness writes a per-file report with `RTS_TEST262_REPORT`, which is what
+makes a comparison between two runs a LOST list rather than a subtraction.
+
 **What that measures, precisely.** Whether the front end *reads* each program
 correctly: accepts what the corpus says is valid, refuses what it says is not.
 Nothing runs. This is not a pass rate, and calling it one would be false — a
@@ -404,9 +421,28 @@ targets. Static semantics: rules that no grammar production encodes and no node
 can hold, which is exactly the class §2b named and said would need checking
 rather than shaping.
 
-So the tree is finished and the *checker* has not started. That is one phase, it
-is measurable from the day it begins — the 1 249 is its scoreboard — and it is
-where the next work goes.
+**MOSTLY DONE. 2026-08-16: the false accepts are 73, and the number they came
+down from that morning was 855.** The scoreboard worked exactly as this section
+said it would — and the column beside it is what says the work was sound:
+*wrongly rejected stayed at 215 through every one of the eight steps*, and the
+LOST list — files that passed before a change and not after — was empty at each.
+Tightening a checker is paid for in programs that used to run, so a net number
+would have hidden the price rather than shown there was none.
+
+What closed, in the order the corpus ranked it: `super` outside a method (126),
+a function declaration in a block being a *lexical* name (117), the regular
+expression pattern having a grammar of its own (169), a declaration where a
+Statement belongs (54), a reserved word spelled with an escape (39), a module's
+top level not being a script's (31), duplicate private names in a class (28),
+`using` needing a scope that ends, `eval` as a target in strict code, and a
+strict prologue's legacy octal escapes.
+
+**What is left needs something the tree does not carry.** Of the 73, roughly
+half are the raw text of a literal — `'\8'`, `` `\u{1F_639}` ``, `get m() {}` —
+which reaches us cooked, and the rest are the lexer's: an identifier with a
+zero-width joiner in it, a line separator inside a regular expression literal,
+ASI in a `for` head. Both are one decision, not thirty: either the bridge starts
+carrying raw text past the point where SWC has it, or those stay accepted.
 
 
 ## 3b. Phase E — the tree, in the machine's representation

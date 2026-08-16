@@ -134,9 +134,21 @@ production shapes and early errors instead of through nodes.
 parser because ASI decides what parses and getting it wrong yields a program that
 compiles and means something else.
 
-Measured against test262's `test/language`, 23 724 files: **91.5 % read
-correctly**. That is a reading rate, not a pass rate — nothing runs. `PLAN.md`
-L9 has the full table and what each column means.
+Measured against test262's `test/language`, 23 724 files: **98.8 % read
+correctly** (2026-08-16, `cargo test -p rts-codegen --test test262 -- --ignored`).
+That is a reading rate, not a pass rate — nothing runs. `PLAN.md` L9 has the
+full table and what each column means.
+
+It was 95.5 % that same morning, and what moved it was `check/` rather than the
+bridge: **855 invalid programs we accepted became 73**, with the wrongly-
+rejected count unchanged at 215 across every step and the LOST list empty at
+each one. The 215 are mostly not ours — 151 of them are one SWC lexer defect,
+a reserved word with an escape in the middle of it (`break`), which is
+refused as a property key it is legal in.
+
+`RTS_TEST262_REPORT=<path>` writes one verdict per file, which is what makes
+that a per-file comparison rather than a net one; `RTS_TEST262_ONLY=<fragment>`
+runs a subset, because the whole corpus is minutes in a debug build.
 
 `emit/` turns that tree into the machine's IR. Done: literals — including
 strings and templates — locals, declarations, blocks, `return`, control flow,
@@ -254,10 +266,21 @@ the same pipeline, and it claims to be the only module that constructs
 code-generator instructions. Two things called lowering would make that claim
 uncheckable.
 
-What does not exist yet is the **checker**. The 1 249 programs the corpus says
-are invalid and we accept are early errors — redeclarations, duplicate
-`__proto__`, `delete` of a name in strict code — rules no grammar production
-encodes and no node can hold. `PLAN.md` L10.
+The **checker** exists, in `check/`, and the paragraph that stood here said it
+did not. It is one walk with every rule riding it — the ones about a *set* (the
+names a scope declares, the members a class has, the names a module exports) and
+the ones about a *context* (where `await` may name something, where `super`
+reaches anything, whether the code is strict). It had two walks until 2026-08-16
+and the split had a hole exactly the size of an expression: the set rules never
+entered one, so no function *expression* and no class method was ever asked.
+
+`check/regexp.rs` is the odd member and says why in its own header: the pattern
+between the slashes has a grammar of its own, and the only other module in the
+repository that looks inside one hands the text to the `regex` crate — which
+answers with its own language rather than this one's.
+
+What is left is in `PLAN.md` L10, and most of it now needs something the tree
+does not carry: the raw text of a literal, or a lexer that reports an escape.
 
 ## What this crate deliberately holds, having been audited for the opposite
 
@@ -291,11 +314,12 @@ src/
   names/    identifiers, interned into what the machine keys layouts by
   values/   what a JavaScript value is, registered with the machine's encoding
   parse/    source text in, tree out, through SWC
+  check/    early errors — what a program may not be, said once
+  emit/     the tree onto the machine's IR
 ```
 
-Planned and absent: `check/` (early errors — see PLAN.md L10), `scope/` (bindings
-and what a name resolves to), `lower/` (semantics onto the machine's
-representation), `types/` (what a claim is worth and what checks it).
+Planned and absent: `scope/` (bindings and what a name resolves to), `types/`
+(what a claim is worth and what checks it).
 
 The tree is deliberately shaped for what has to be decided rather than for what
 was typed. `a.b` and `a[e]` are different nodes because one has a key and the
