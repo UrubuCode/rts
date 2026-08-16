@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4914) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (5010) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -5750,7 +5750,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (14954) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (15054) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -7458,7 +7458,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (18717) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (18817) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -9647,9 +9647,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -15648,7 +15648,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'exec')\n    at ex"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /\\1(a)/"
 }
 ,
 {
@@ -15656,13 +15656,13 @@
   "status": "rts_error",
   "bun": "empty=false\nempty-empty=false\nempty-any=false\nnegempty-letter=true\nnegempty-newline=true\nnegempty-astral=--\nnegempty-len=3\ndot-newline=false\ndot-s=true\ndot-cr=false\ndot-ls=false\ndot-tab=true\ndot-astral-units=2\ndot-astral-u=1\nboundary=true\nboundary-mid=false\nbackspace=true\nbackspace-not-b=false\nbackspace-code=x-x\nnonboundary=true\ndash-first=true\ndash-last=true\ndash-escaped=true\ndash-escaped-range=false\ndash-range=true\ndash-after-class=true\ncaret-first=false\ncaret-inner=true\ncaret-only=true\nopen-bracket=true\nclose-bracket=true\nboth=true\ndigit-in-class=true\nunion=true\nnegated-shorthand=true\nboth-shorthands=true\ns-class=true\nS-class=false\nw-underscore=true\nw-accent=false\ni-range-up=true\ni-range-down=true\ni-negated=false\ni-kelvin=true\ni-sharp-s=false\nreversed!SyntaxError\nunit-range=true\nhex-range=true\noctal-ish=true\nunknown-escape=true\nunknown-escape-u!SyntaxError\nsource-roundtrip=[-a\\]]",
   "node": "empty=false\nempty-empty=false\nempty-any=false\nnegempty-letter=true\nnegempty-newline=true\nnegempty-astral=--\nnegempty-len=3\ndot-newline=false\ndot-s=true\ndot-cr=false\ndot-ls=false\ndot-tab=true\ndot-astral-units=2\ndot-astral-u=1\nboundary=true\nboundary-mid=false\nbackspace=true\nbackspace-not-b=false\nbackspace-code=x-x\nnonboundary=true\ndash-first=true\ndash-last=true\ndash-escaped=true\ndash-escaped-range=false\ndash-range=true\ndash-after-class=true\ncaret-first=false\ncaret-inner=true\ncaret-only=true\nopen-bracket=true\nclose-bracket=true\nboth=true\ndigit-in-class=true\nunion=true\nnegated-shorthand=true\nboth-shorthands=true\ns-class=true\nS-class=false\nw-underscore=true\nw-accent=false\ni-range-up=true\ni-range-down=true\ni-negated=false\ni-kelvin=true\ni-sharp-s=false\nreversed!SyntaxError\nunit-range=true\nhex-range=true\noctal-ish=true\nunknown-escape=true\nunknown-escape-u!SyntaxError\nsource-roundtrip=[-a\\]]",
-  "rts": "",
+  "rts": "empty=false\nempty-empty=false\nempty-any=false\nnegempty-letter=true\nnegempty-newline=true\nnegempty-astral=-\nnegempty-len=3\ndot-newline=false\ndot-s=true\ndot-cr=true\ndot-ls=true\ndot-tab=true\ndot-astral-units=1\ndot-astral-u=1\nboundary=true\nboundary-mid=false\nbackspace=true\nbackspace-not-b=false\nbackspace-code=x-x\nnonboundary=true\ndash-first=true\ndash-last=true\ndash-escaped=true\ndash-escaped-range=false\ndash-range=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'test')\n    at t"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /[\\d-a]/"
 }
 ,
 {
@@ -15718,7 +15718,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'exec')\n    at ex"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /(?<=a+)b/"
 }
 ,
 {
@@ -15802,7 +15802,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'test')\n    at t"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /^[\\q{abc|d|}]$/v"
 }
 ,
 {
@@ -15830,7 +15830,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'exec')\n    at m"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /^\\1a$/"
 }
 ,
 {
@@ -15891,16 +15891,16 @@
 ,
 {
   "name": "claude2-line-terminator-set",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "dot-lf plain=false s=true u=false su=true\ndot-cr plain=false s=true u=false su=true\ndot-ls plain=false s=true u=false su=true\ndot-ps plain=false s=true u=false su=true\ndot-nel plain=true s=true u=true su=true\ndot-vt plain=true s=true u=true su=true\ndot-ff plain=true s=true u=true su=true\ndot-nbsp plain=true s=true u=true su=true\ndot-tab plain=true s=true u=true su=true\ndot-space plain=true s=true u=true su=true\nanchor-lf parts=2 matches=[\"a\",\"b\"]\nanchor-cr parts=2 matches=[\"a\",\"b\"]\nanchor-ls parts=2 matches=[\"a\",\"b\"]\nanchor-ps parts=2 matches=[\"a\",\"b\"]\nanchor-nel parts=1 matches=null\nanchor-vt parts=1 matches=null\nanchor-ff parts=1 matches=null\nanchor-nbsp parts=1 matches=null\nanchor-tab parts=1 matches=null\nanchor-space parts=1 matches=null\nno-m-caret=1\nno-m-dollar=null\nno-m-whole=false\nno-m-whole-strict=true\ncrlf-lines=[2,1,1]\ncrlf-empty-line=[\"a\",\"\",\"b\"]\ncrlf-dollar-count=3\nlf-dollar-count=2\nm-index=2 len=1\nm-first-index=0\nm-empty-at-end=[\"\"]\ns-class-lf=true\ns-class-cr=true\ns-class-ls=true\ns-class-ps=true\ns-class-nel=false\ns-class-vt=true\ns-class-ff=true\ns-class-nbsp=true\ns-class-tab=true\ns-class-space=true\nnegempty-lf=true\nnegempty-ls=true\ndotall-count=---\ndot-count=3\nexplicit-lf=true\nexplicit-range=true\nword-boundary=[\"a\",\"b\"]\nm-dot=false\ns-anchor=2\nms-both=[\"a\",\"b\"]",
   "node": "dot-lf plain=false s=true u=false su=true\ndot-cr plain=false s=true u=false su=true\ndot-ls plain=false s=true u=false su=true\ndot-ps plain=false s=true u=false su=true\ndot-nel plain=true s=true u=true su=true\ndot-vt plain=true s=true u=true su=true\ndot-ff plain=true s=true u=true su=true\ndot-nbsp plain=true s=true u=true su=true\ndot-tab plain=true s=true u=true su=true\ndot-space plain=true s=true u=true su=true\nanchor-lf parts=2 matches=[\"a\",\"b\"]\nanchor-cr parts=2 matches=[\"a\",\"b\"]\nanchor-ls parts=2 matches=[\"a\",\"b\"]\nanchor-ps parts=2 matches=[\"a\",\"b\"]\nanchor-nel parts=1 matches=null\nanchor-vt parts=1 matches=null\nanchor-ff parts=1 matches=null\nanchor-nbsp parts=1 matches=null\nanchor-tab parts=1 matches=null\nanchor-space parts=1 matches=null\nno-m-caret=1\nno-m-dollar=null\nno-m-whole=false\nno-m-whole-strict=true\ncrlf-lines=[2,1,1]\ncrlf-empty-line=[\"a\",\"\",\"b\"]\ncrlf-dollar-count=3\nlf-dollar-count=2\nm-index=2 len=1\nm-first-index=0\nm-empty-at-end=[\"\"]\ns-class-lf=true\ns-class-cr=true\ns-class-ls=true\ns-class-ps=true\ns-class-nel=false\ns-class-vt=true\ns-class-ff=true\ns-class-nbsp=true\ns-class-tab=true\ns-class-space=true\nnegempty-lf=true\nnegempty-ls=true\ndotall-count=---\ndot-count=3\nexplicit-lf=true\nexplicit-range=true\nword-boundary=[\"a\",\"b\"]\nm-dot=false\ns-anchor=2\nms-both=[\"a\",\"b\"]",
-  "rts": "dot-lf plain=false s=true u=false su=true\ndot-cr plain=true s=true u=true su=true\ndot-ls plain=true s=true u=true su=true\ndot-ps plain=true s=true u=true su=true\ndot-nel plain=true s=true u=true su=true\ndot-vt plain=true s=true u=true su=true\ndot-ff plain=true s=true u=true su=true\ndot-nbsp plain=true s=true u=true su=true\ndot-tab plain=true s=true u=true su=true\ndot-space plain=true s=true u=true su=true\nanchor-lf parts=2 matches=[\"a\",\"b\"]\nanchor-cr parts=1 matches=null\nanchor-ls parts=1 matches=null\nanchor-ps parts=1 matches=null\nanchor-nel parts=1 matches=null\nanchor-vt parts=1 matches=null\nanchor-ff parts=1 matches=null\nanchor-nbsp parts=1 matches=null\nanchor-tab parts=1 matches=null\nanchor-space parts=1 matches=null\nno-m-caret=1\nno-m-dollar=null\nno-m-whole=false\nno-m-whole-strict=true\ncrlf-lines=[3,1]\ncrlf-empty-line=[\"a\\r\",\"b\"]\ncrlf-dollar-count=2\nlf-dollar-count=2\nm-index=2 len=1\nm-first-index=0\nm-empty-at-end=[\"\"]\ns-class-lf=true\ns-class-cr=true\ns-class-ls=true\ns-class-ps=true\ns-class-nel=true\ns-class-vt=true\ns-class-ff=true\ns-class-nbsp=true\ns-class-tab=true\ns-class-space=true",
+  "rts": "dot-lf plain=false s=true u=false su=true\ndot-cr plain=true s=true u=true su=true\ndot-ls plain=true s=true u=true su=true\ndot-ps plain=true s=true u=true su=true\ndot-nel plain=true s=true u=true su=true\ndot-vt plain=true s=true u=true su=true\ndot-ff plain=true s=true u=true su=true\ndot-nbsp plain=true s=true u=true su=true\ndot-tab plain=true s=true u=true su=true\ndot-space plain=true s=true u=true su=true\nanchor-lf parts=2 matches=[\"a\",\"b\"]\nanchor-cr parts=1 matches=null\nanchor-ls parts=1 matches=null\nanchor-ps parts=1 matches=null\nanchor-nel parts=1 matches=null\nanchor-vt parts=1 matches=null\nanchor-ff parts=1 matches=null\nanchor-nbsp parts=1 matches=null\nanchor-tab parts=1 matches=null\nanchor-space parts=1 matches=null\nno-m-caret=1\nno-m-dollar=null\nno-m-whole=false\nno-m-whole-strict=true\ncrlf-lines=[3,1]\ncrlf-empty-line=[\"a\\r\",\"b\"]\ncrlf-dollar-count=2\nlf-dollar-count=2\nm-index=2 len=1\nm-first-index=0\nm-empty-at-end=[\"\"]\ns-class-lf=true\ns-class-cr=true\ns-class-ls=true\ns-class-ps=true\ns-class-nel=true\ns-class-vt=true\ns-class-ff=true\ns-class-nbsp=true\ns-class-tab=true\ns-class-space=true\nnegempty-lf=true\nnegempty-ls=true\ndotall-count=---\ndot-count=3\nexplicit-lf=true\nexplicit-range=true\nword-boundary=[\"a\",\"b\"]\nm-dot=false\ns-anchor=2\nms-both=[\"a\",\"b\"]",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'test')"
+  "rts_error": ""
 }
 ,
 {
@@ -15914,7 +15914,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'exec')\n    at m"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /(?<=^(\\w+))c/"
 }
 ,
 {
@@ -15978,7 +15978,7 @@
   "status": "rts_diverge",
   "bun": "Lu-bare=true\nLu-long=true\nLu-gc=true\nLu-gc-long=true\nLu-on-lower=false\nLl=true/true\nNd=true/true\nL-supercat=true/true\nP-punct=true/true\nZs-space=true/true\nsc-greek=true\nsc-short=true\nsc-code=true\nscx-greek=true\nscx-short=true\nsc-cyrillic=true\nsc-greek-on-cyr=false\nsc-hiragana=true\ndot-sc-common=true\ndot-sc-kana=false\ndot-scx-kana=true\ndot-scx-hira=true\nAlphabetic=true\nAlpha-alias=true\nASCII=true/false\nAny=true\nAssigned=true\nWhite_Space=true\nEmoji-prop=true\nID_Start=true/false\nP-neg=true/false\nP-neg-script=true\nneg-in-class=true\nunion-in-class=true/true\nno-u-flag=false\nunknown-name=!SyntaxError\nunknown-value=!SyntaxError\nbinary-with-value=!SyntaxError\ngc-as-binary-loose=!SyntaxError\nlowercase-lu=!SyntaxError\nscript-lowercase=!SyntaxError\nempty-braces=!SyntaxError\nno-braces=!SyntaxError\nspace-in-name=!SyntaxError",
   "node": "Lu-bare=true\nLu-long=true\nLu-gc=true\nLu-gc-long=true\nLu-on-lower=false\nLl=true/true\nNd=true/true\nL-supercat=true/true\nP-punct=true/true\nZs-space=true/true\nsc-greek=true\nsc-short=true\nsc-code=true\nscx-greek=true\nscx-short=true\nsc-cyrillic=true\nsc-greek-on-cyr=false\nsc-hiragana=true\ndot-sc-common=true\ndot-sc-kana=false\ndot-scx-kana=true\ndot-scx-hira=true\nAlphabetic=true\nAlpha-alias=true\nASCII=true/false\nAny=true\nAssigned=true\nWhite_Space=true\nEmoji-prop=true\nID_Start=true/false\nP-neg=true/false\nP-neg-script=true\nneg-in-class=true\nunion-in-class=true/true\nno-u-flag=false\nunknown-name=!SyntaxError\nunknown-value=!SyntaxError\nbinary-with-value=!SyntaxError\ngc-as-binary-loose=!SyntaxError\nlowercase-lu=!SyntaxError\nscript-lowercase=!SyntaxError\nempty-braces=!SyntaxError\nno-braces=!SyntaxError\nspace-in-name=!SyntaxError",
-  "rts": "Lu-bare=true\nLu-long=true\nLu-gc=true\nLu-gc-long=true\nLu-on-lower=false\nLl=true/true\nNd=true/true\nL-supercat=true/true\nP-punct=true/true\nZs-space=true/true\nsc-greek=true\nsc-short=true\nsc-code=true\nscx-greek=true\nscx-short=true\nsc-cyrillic=true\nsc-greek-on-cyr=false\nsc-hiragana=true\ndot-sc-common=true\ndot-sc-kana=false\ndot-scx-kana=true\ndot-scx-hira=true\nAlphabetic=true\nAlpha-alias=true\nASCII=true/false\nAny=true\nAssigned=true\nWhite_Space=true\nEmoji-prop=true\nID_Start=true/false\nP-neg=true/false\nP-neg-script=true\nneg-in-class=true\nunion-in-class=true/true\nno-u-flag=true\nunknown-name=ok\nunknown-value=ok\nbinary-with-value=ok\ngc-as-binary-loose=ok\nlowercase-lu=ok\nscript-lowercase=ok\nempty-braces=ok\nno-braces=ok\nspace-in-name=ok",
+  "rts": "Lu-bare=true\nLu-long=true\nLu-gc=true\nLu-gc-long=true\nLu-on-lower=false\nLl=true/true\nNd=true/true\nL-supercat=true/true\nP-punct=true/true\nZs-space=true/true\nsc-greek=true\nsc-short=true\nsc-code=true\nscx-greek=true\nscx-short=true\nsc-cyrillic=true\nsc-greek-on-cyr=false\nsc-hiragana=true\ndot-sc-common=true\ndot-sc-kana=false\ndot-scx-kana=true\ndot-scx-hira=true\nAlphabetic=true\nAlpha-alias=true\nASCII=true/false\nAny=true\nAssigned=true\nWhite_Space=true\nEmoji-prop=true\nID_Start=true/false\nP-neg=true/false\nP-neg-script=true\nneg-in-class=true\nunion-in-class=true/true\nno-u-flag=true\nunknown-name=!SyntaxError\nunknown-value=!SyntaxError\nbinary-with-value=!SyntaxError\ngc-as-binary-loose=ok\nlowercase-lu=ok\nscript-lowercase=ok\nempty-braces=!SyntaxError\nno-braces=ok\nspace-in-name=ok",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -15992,7 +15992,7 @@
   "status": "rts_diverge",
   "bun": "lparen=u=ok v=!SyntaxError\nrparen=u=ok v=!SyntaxError\nlbrace=u=ok v=!SyntaxError\nrbrace=u=ok v=!SyntaxError\nlbracket=u=ok v=!SyntaxError\nslash=u=ok v=!SyntaxError\npipe=u=ok v=!SyntaxError\nminus=u=ok v=!SyntaxError\nesc-lparen=true\nesc-lbrace=true\nesc-slash=true\nesc-pipe=true\nesc-minus=true\nesc-lbracket=true\nrange=true\nrange-out=false\nbangbang=u=ok v=!SyntaxError\nhashhash=u=ok v=!SyntaxError\ndollardollar=u=ok v=!SyntaxError\npercentpercent=u=ok v=!SyntaxError\nstarstar=u=ok v=!SyntaxError\nplusplus=u=ok v=!SyntaxError\ncommacomma=u=ok v=!SyntaxError\ndotdot=u=ok v=!SyntaxError\ncoloncolon=u=ok v=!SyntaxError\nsemisemi=u=ok v=!SyntaxError\nltlt=u=ok v=!SyntaxError\neqeq=u=ok v=!SyntaxError\ngtgt=u=ok v=!SyntaxError\nquestquest=u=ok v=!SyntaxError\natat=u=ok v=!SyntaxError\ntildetilde=u=ok v=!SyntaxError\nsingle-bang=true\nsingle-star=true\nsingle-at=true\nsingle-tilde=true\ncaretcaret-source=ok\ncaretcaret-match=true/false\namp-intersect=false\namp-intersect-real=true\nsingle-amp=true\nu-bangbang=true\nu-amp=true\nu-lone-dash=true\nnested-v=true\nnested-u=!SyntaxError\nneg-strings=!SyntaxError\npos-strings=true\nflags=v\nuv-together=!SyntaxError\nvv=!SyntaxError",
   "node": "lparen=u=ok v=!SyntaxError\nrparen=u=ok v=!SyntaxError\nlbrace=u=ok v=!SyntaxError\nrbrace=u=ok v=!SyntaxError\nlbracket=u=ok v=!SyntaxError\nslash=u=ok v=!SyntaxError\npipe=u=ok v=!SyntaxError\nminus=u=ok v=!SyntaxError\nesc-lparen=true\nesc-lbrace=true\nesc-slash=true\nesc-pipe=true\nesc-minus=true\nesc-lbracket=true\nrange=true\nrange-out=false\nbangbang=u=ok v=!SyntaxError\nhashhash=u=ok v=!SyntaxError\ndollardollar=u=ok v=!SyntaxError\npercentpercent=u=ok v=!SyntaxError\nstarstar=u=ok v=!SyntaxError\nplusplus=u=ok v=!SyntaxError\ncommacomma=u=ok v=!SyntaxError\ndotdot=u=ok v=!SyntaxError\ncoloncolon=u=ok v=!SyntaxError\nsemisemi=u=ok v=!SyntaxError\nltlt=u=ok v=!SyntaxError\neqeq=u=ok v=!SyntaxError\ngtgt=u=ok v=!SyntaxError\nquestquest=u=ok v=!SyntaxError\natat=u=ok v=!SyntaxError\ntildetilde=u=ok v=!SyntaxError\nsingle-bang=true\nsingle-star=true\nsingle-at=true\nsingle-tilde=true\ncaretcaret-source=ok\ncaretcaret-match=true/false\namp-intersect=false\namp-intersect-real=true\nsingle-amp=true\nu-bangbang=true\nu-amp=true\nu-lone-dash=true\nnested-v=true\nnested-u=!SyntaxError\nneg-strings=!SyntaxError\npos-strings=true\nflags=v\nuv-together=!SyntaxError\nvv=!SyntaxError",
-  "rts": "lparen=u=ok v=ok\nrparen=u=ok v=ok\nlbrace=u=ok v=ok\nrbrace=u=ok v=ok\nlbracket=u=ok v=ok\nslash=u=ok v=ok\npipe=u=ok v=ok\nminus=u=ok v=ok\nesc-lparen=true\nesc-lbrace=true\nesc-slash=true\nesc-pipe=true\nesc-minus=true\nesc-lbracket=true\nrange=true\nrange-out=false\nbangbang=u=ok v=ok\nhashhash=u=ok v=ok\ndollardollar=u=ok v=ok\npercentpercent=u=ok v=ok\nstarstar=u=ok v=ok\nplusplus=u=ok v=ok\ncommacomma=u=ok v=ok\ndotdot=u=ok v=ok\ncoloncolon=u=ok v=ok\nsemisemi=u=ok v=ok\nltlt=u=ok v=ok\neqeq=u=ok v=ok\ngtgt=u=ok v=ok\nquestquest=u=ok v=ok\natat=u=ok v=ok\ntildetilde=u=ok v=ok\nsingle-bang=true\nsingle-star=true\nsingle-at=true\nsingle-tilde=true\ncaretcaret-source=ok\ncaretcaret-match=true/false\namp-intersect=false\namp-intersect-real=true\nsingle-amp=true\nu-bangbang=true\nu-amp=false\nu-lone-dash=true\nnested-v=true\nnested-u=ok\nneg-strings=ok\npos-strings=false\nflags=v\nuv-together=ok\nvv=ok",
+  "rts": "lparen=u=ok v=ok\nrparen=u=ok v=ok\nlbrace=u=ok v=ok\nrbrace=u=ok v=ok\nlbracket=u=!SyntaxError v=!SyntaxError\nslash=u=ok v=ok\npipe=u=ok v=ok\nminus=u=ok v=ok\nesc-lparen=true\nesc-lbrace=true\nesc-slash=true\nesc-pipe=true\nesc-minus=true\nesc-lbracket=true\nrange=true\nrange-out=false\nbangbang=u=ok v=ok\nhashhash=u=ok v=ok\ndollardollar=u=ok v=ok\npercentpercent=u=ok v=ok\nstarstar=u=ok v=ok\nplusplus=u=ok v=ok\ncommacomma=u=ok v=ok\ndotdot=u=ok v=ok\ncoloncolon=u=ok v=ok\nsemisemi=u=ok v=ok\nltlt=u=ok v=ok\neqeq=u=ok v=ok\ngtgt=u=ok v=ok\nquestquest=u=ok v=ok\natat=u=ok v=ok\ntildetilde=u=ok v=ok\nsingle-bang=true\nsingle-star=true\nsingle-at=true\nsingle-tilde=true\ncaretcaret-source=ok\ncaretcaret-match=true/false\namp-intersect=false\namp-intersect-real=true\nsingle-amp=true\nu-bangbang=true\nu-amp=false\nu-lone-dash=true\nnested-v=true\nnested-u=ok\nneg-strings=!SyntaxError\npos-strings=!SyntaxError\nflags=v\nuv-together=ok\nvv=ok",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -16297,16 +16297,16 @@
 ,
 {
   "name": "codex3_072_regex_vflag_string_properties",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "[\"🇧🇷\",\"🇺🇸\"]\n1,6",
   "node": "[\"🇧🇷\",\"🇺🇸\"]\n1,6",
-  "rts": "null",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /\\p{RGI_Emoji_Flag_Sequence}/gv"
 }
 ,
 {
@@ -16334,7 +16334,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'exec')"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /(?<=([ab]+)([bc]+))$/"
 }
 ,
 {
@@ -21167,4 +21167,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1512,"pass":1079,"reachable":1511,"rts_diverge":303,"bun_node_diverge":0,"errors":129,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1512,"pass":1078,"reachable":1510,"rts_diverge":303,"bun_node_diverge":1,"errors":129,"rejected":0,"upstream_defect":1}}
