@@ -58,7 +58,29 @@ use crate::value::Value;
 /// One constant, because it is read by the minting side, the enumeration filter
 /// and the well-known spelling — and three copies is where one of them would
 /// come to use a single `@`.
-pub(super) const PREFIX: &str = "@@";
+pub(super) const PREFIX: &str = prefix!();
+
+/// The prefix as a literal, so a well-known spelling can be built at COMPILE
+/// time.
+///
+/// `concat!` takes literals and not constants, and the spellings below have to
+/// exist as `&'static str` — a `format!` per call is what this replaces. One
+/// macro rather than a second `"@@"` written out: [`PREFIX`] is defined from it
+/// too, so the two cannot drift.
+macro_rules! prefix {
+    () => {
+        "@@"
+    };
+}
+use prefix;
+
+/// `Symbol.hasInstance`'s key text, spelled once.
+///
+/// `instance_of` reads this on EVERY `instanceof`, and it used to build the
+/// text with `format!` and intern the result each time — two allocations and a
+/// hash of the text per operation, for a string that never changes. Measured at
+/// the head of a 477 ns operation.
+pub(super) const HAS_INSTANCE: &str = concat!(prefix!(), "hasInstance");
 
 /// What a symbol is, beside its number.
 struct SymbolInfo {
@@ -139,8 +161,13 @@ impl Context {
 /// It was `#x` for one commit, and `#` alone is a prefix a program CAN write —
 /// `o["#main"]` is an ordinary property, and it would have disappeared from
 /// `Object.keys` and `JSON.stringify`.
-pub(super) fn is_symbol_key(text: &str) -> bool {
-    text.starts_with(PREFIX)
+/// Asked of the string as it is HELD, and that is the whole of why the
+/// signature is a [`Str`]. It took `&str`, so every caller reached it through
+/// `to_rust()` — a full copy of the subject — to look at two bytes. Enumeration
+/// asks it once per key, so `Object.keys` on a four-property object allocated
+/// four strings and dropped them.
+pub(super) fn is_symbol_key(text: &Str) -> bool {
+    text.starts_with_ascii(PREFIX)
 }
 
 /// Whether a value is a symbol at all.

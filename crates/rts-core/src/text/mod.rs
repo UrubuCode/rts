@@ -275,6 +275,43 @@ impl Str {
         }
     }
 
+    /// Whether this begins with an ASCII prefix, without building anything.
+    ///
+    /// # Why this exists rather than `to_rust().starts_with(…)`
+    ///
+    /// Because that was the spelling, and it allocated a whole `String` copy of
+    /// the subject to look at its first two bytes. Enumeration asks it ONCE PER
+    /// KEY — `Object.keys` filters symbol-keyed properties out by exactly this
+    /// test — so a four-property object allocated four strings it read two
+    /// bytes of and dropped.
+    ///
+    /// ASCII-only in the parameter and that is the point: a JavaScript string
+    /// is UTF-16 units, and a prefix outside ASCII would need to know how the
+    /// two representations line up. Every caller here spells an ASCII marker,
+    /// so the comparison is unit-against-byte and no encoding question arises.
+    ///
+    /// # Panics
+    ///
+    /// Never. A non-ASCII `prefix` answers `false` rather than asserting: this
+    /// is a predicate, and a caller that passes one is asking whether a UTF-16
+    /// string starts with something this cannot represent, which it does not.
+    pub fn starts_with_ascii(&self, prefix: &str) -> bool {
+        if !prefix.is_ascii() {
+            return false;
+        }
+        let bytes = prefix.as_bytes();
+        match &self.repr {
+            Repr::Latin1(held) => held.starts_with(bytes),
+            Repr::Utf16(units) => {
+                units.len() >= bytes.len()
+                    && units
+                        .iter()
+                        .zip(bytes)
+                        .all(|(unit, byte)| *unit == u16::from(*byte))
+            }
+        }
+    }
+
     /// Rust text, if this is well-formed.
     ///
     /// Absent for a lone surrogate rather than replaced with `U+FFFD`. A

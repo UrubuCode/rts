@@ -225,7 +225,15 @@ pub const CACHED_KEYS: [&str; 6] = [
 ///
 /// `toJSON` is why this exists: `JSON.stringify` asks every object value
 /// whether it has one, and asking built the name as a fresh cell each time.
-pub const CACHED_TEXTS: [&str; 2] = ["toJSON", ""];
+///
+/// `@@hasInstance` is the same shape one operation further out. `instanceof`
+/// consults it before it walks anything — a class may decide for itself what an
+/// instance of it is — so a name that never changes was formatted, allocated
+/// and interned once per operation. It is spelled from
+/// [`symbol::HAS_INSTANCE`] rather than written out, because the `@@` in it is
+/// that module's encoding and a second copy here is where the two would come to
+/// disagree.
+pub const CACHED_TEXTS: [&str; 3] = ["toJSON", "", symbol::HAS_INSTANCE];
 
 /// Every string `typeof` can answer, in the order [`Context::type_names`]
 /// caches them.
@@ -757,6 +765,31 @@ pub struct Context {
     /// Rooted by [`roots`], like `type_names`: nothing else holds these, and a
     /// collection between two uses would free the one the next use hands back.
     pub(super) well_known_texts: [Option<u64>; CACHED_TEXTS.len()],
+    /// The string CELL each interned key text has been handed out as.
+    ///
+    /// # Why a second table beside the interner, rather than a field in it
+    ///
+    /// Because they hold different things and one of them is collectable. The
+    /// interner maps text to a `Key` — a number, which no collection can
+    /// invalidate. This maps that number to a **cell**, which is a heap object
+    /// and has to be a root, so it belongs where roots are enumerated. Putting
+    /// it inside `text::Interner` would put a collectable thing in a module
+    /// that knows nothing about the heap.
+    ///
+    /// # What it is worth
+    ///
+    /// `intern_value` does not intern, despite its name: it allocates a fresh
+    /// cell every call. So enumeration built a new string for every key on
+    /// every call — `Object.keys` of a four-property object allocated four,
+    /// each one text the interner already held and that can never change.
+    ///
+    /// # Why it cannot grow without bound
+    ///
+    /// One entry per DISTINCT property name the program enumerates, and the
+    /// interner already holds every one of those texts forever. So this adds a
+    /// cell per name the interner already refused to forget, rather than a new
+    /// class of retention.
+    pub(super) key_texts_as_values: std::collections::HashMap<crate::object::Key, u64>,
     /// The nine strings `typeof` can answer, each built at most once.
     ///
     /// # Why a cache rather than building the answer
@@ -1028,6 +1061,7 @@ impl Context {
             // compilation that produced the code.
             well_known_keys: [None; CACHED_KEYS.len()],
             well_known_texts: [None; CACHED_TEXTS.len()],
+            key_texts_as_values: std::collections::HashMap::new(),
             literals: Vec::new(),
             type_names: [None; TYPE_NAMES.len()],
             external: Vec::new(),

@@ -274,6 +274,37 @@ impl Context {
         ))
     }
 
+    /// The string cell for a text that is a property KEY, built at most once.
+    ///
+    /// # Why this is not [`Context::intern_value`] with a cache bolted on
+    ///
+    /// Because interning a `Str` and interning a *key* are different questions.
+    /// `intern_value` builds a cell for any text — most of them are values a
+    /// program computed, distinct every time, and remembering those would be a
+    /// leak wearing a cache's clothes. A key is the opposite: the interner
+    /// already holds its text forever, the set is closed by the program's own
+    /// property names, and enumeration hands the same one back over and over.
+    ///
+    /// The hash is what replaces the allocation. Resolving the text to its
+    /// `Key` costs one hash of a short string; building the cell costs a slab
+    /// insert, a region allocation and two field writes — and an allocation is
+    /// what brings the next collection closer, which is the cost that does not
+    /// show up in a per-call number.
+    ///
+    /// Sound because a JavaScript string is immutable and has no observable
+    /// identity: `===` compares text, and there is no operation that can tell
+    /// two equal strings apart. So one cell per distinct key is not a
+    /// deduplication a program can notice.
+    pub(super) fn key_text_value(&mut self, text: &Str) -> u64 {
+        let key = crate::object::Key::Name(self.interner.intern(text, &mut self.keys));
+        if let Some(held) = self.key_texts_as_values.get(&key) {
+            return *held;
+        }
+        let value = self.intern_value(text.clone()).bits();
+        self.key_texts_as_values.insert(key, value);
+        value
+    }
+
     /// Put a string on the heap and return the value naming it.
     pub fn intern_value(&mut self, text: Str) -> Value {
         let length = text.len();

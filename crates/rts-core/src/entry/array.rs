@@ -471,11 +471,7 @@ pub(in crate::entry) fn key_texts(
                 // see [`super::symbol`] for why — so this is the one place the
                 // encoding has to be known, and it is the whole cost of that
                 // decision.
-                if text
-                    .to_rust()
-                    .as_deref()
-                    .is_some_and(super::symbol::is_symbol_key)
-                {
+                if super::symbol::is_symbol_key(text) {
                     continue;
                 }
                 keys.push(text.clone());
@@ -529,8 +525,6 @@ pub(in crate::entry) fn symbol_keyed_with(
             context
                 .interner
                 .text(*key)
-                .and_then(|text| text.to_rust())
-                .as_deref()
                 .is_some_and(super::symbol::is_symbol_key)
         })
         .map(|(key, _)| key)
@@ -577,7 +571,12 @@ fn interned(texts: Vec<Str>) -> u64 {
             return;
         };
         for (at, text) in texts.into_iter().enumerate() {
-            let value = context.intern_value(text).bits();
+            // Through the key cache, because these ARE keys: every one came
+            // from a shape or from an element index, both closed sets the
+            // interner already holds. `intern_value` allocated a fresh cell per
+            // key per call — `Object.keys` of a four-property object built four
+            // strings that already existed, every time it was asked.
+            let value = context.key_text_value(&text);
             if let Some(elements) = context.elements_at_mut(slot) {
                 elements[at] = value;
             }

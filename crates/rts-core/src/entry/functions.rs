@@ -888,9 +888,7 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
     // emprestimo, porque e uma leitura de propriedade que pode correr um getter
     // ou um trap de proxy — e por isso mesmo passa a alcancar um Proxy, que
     // antes caia no `callable_at` e respondia falso.
-    let key = with_current(|context| {
-        context.well_known_text(&format!("{}hasInstance", super::symbol::PREFIX))
-    });
+    let key = with_current(|context| context.well_known_text(super::symbol::HAS_INSTANCE));
     let hook = super::computed::get_indexed(callee, key);
     if super::throw::in_flight() {
         return false;

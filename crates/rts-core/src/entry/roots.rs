@@ -168,6 +168,12 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // cache is the only holder, so a collection between two uses would free
     // what the next use hands back.
     words.extend(context.well_known_texts.iter().flatten().copied());
+    // And the string handed back for each key an enumeration has named. Same
+    // argument once more, and the consequence of getting it wrong is sharper
+    // here than above: this cache is what `Object.keys` answers WITH, so a
+    // collection between two calls would hand the second one a freed cell
+    // rather than merely rebuild something.
+    words.extend(context.key_texts_as_values.values().copied());
     // Only the ones a program has actually named: a module registered lazily
     // has no object yet, and there is nothing to keep alive until it does.
     words.extend(context.modules.iter().filter_map(|held| held.namespace));
