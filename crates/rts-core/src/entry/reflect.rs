@@ -41,31 +41,21 @@ use crate::value::Value;
 ///
 /// # Why this is a second function rather than `put`'s answer
 ///
-/// Because `objects::put` has none. It refuses silently — a frozen object, a
-/// non-writable property, and a new property on a closed one all return without
-/// writing and without saying so — which is exactly right for `o.x = 1`, an
-/// expression whose value is `1` either way, and leaves `Reflect.set` and a
-/// proxy's forwarded write with nothing to report.
+/// It no longer is one. This asked [`super::integrity`] itself while `put`
+/// refused silently, and said so — "it belongs beside `put`, and moves there the
+/// day that function answers a verdict". That day arrived with the strict-mode
+/// throw: [`super::objects::resolve_store`] decides every refusal a write can
+/// meet, so this reads the verdict rather than re-deriving it.
 ///
-/// So the two refusals are asked here, from [`super::integrity`] — the one place
-/// that records them, so this composes facts rather than restating them. It
-/// belongs beside `put`, and moves there the day that function answers a
-/// verdict; until then this is the only spelling, which is what keeps
-/// `Reflect.set` and `proxy::set_verdict` from growing one each.
+/// What stays here is the DIFFERENCE between the two callers. `o.x = 1` throws
+/// on a refusal because a module is strict; `Reflect.set` and a proxy's
+/// forwarded write answer `false` and throw nothing, which is why they ask for a
+/// verdict instead of performing the write and being unwound by it.
 pub(in crate::entry) fn write_lands(context: &mut Context, cell: u32, key: Key) -> bool {
-    if let Some(named) = super::objects::machine_key(key)
-        && super::integrity::refuses_key_write(context, cell, named)
-    {
-        return false;
-    }
-    if !super::integrity::refuses_growth(context, cell) {
-        return true;
-    }
-    // A closed object still accepts a write to something it already has, and one
-    // through a setter it inherits — `preventExtensions` refuses new properties
-    // and nothing else.
-    super::objects::own_property(context, cell, key).is_some()
-        || super::accessor::setter_for(context, cell, key).is_some()
+    !matches!(
+        super::objects::resolve_store(context, cell, key),
+        super::objects::Store::Refused(_)
+    )
 }
 
 /// An array's elements, the borrow ending here.
@@ -112,7 +102,13 @@ impl Reflect {
             };
             write_lands(context, cell, named)
         });
-        super::computed::set_indexed(target, key, value);
+        // Only when it lands. The write path THROWS on a refusal now — a module
+        // is strict — and `Reflect.set` is the operation whose entire purpose is
+        // to answer that question instead of raising it, so performing the write
+        // to find out would end the program it was asked to inform.
+        if lands {
+            super::computed::set_indexed(target, key, value);
+        }
         lands
     }
 

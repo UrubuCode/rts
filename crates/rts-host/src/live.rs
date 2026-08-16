@@ -89,15 +89,6 @@ pub(crate) fn check_source(source: &str) -> Option<String> {
 /// runtime this cannot compile against — the caller turns that into a
 /// `SyntaxError`, which is what a program sees for the same input in Node.
 pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64> {
-    let agreement = rts_core::entry::agreement();
-    // See the module documentation: a second compilation under single-region
-    // addressing would build references the running program reads as other
-    // cells, and this crate cannot re-derive the selector width the running
-    // code was placed with.
-    if agreement.region_selector_bits != 0 {
-        return None;
-    }
-
     // A SCRIPT that answers the function, rather than the function itself.
     // `front_end` compiles a function body, so a `return` of a function
     // expression is what makes the value come back — and it means the wrapper
@@ -110,6 +101,48 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
         "return function anonymous({}) {{\n{body}\n}};",
         parameters.join(", ")
     );
+    let nothing = rts_core::entry::undefined_value();
+    place_and_enter(&source, None, nothing)
+}
+
+/// Runs `eval` source in the scope the running program handed over.
+///
+/// `environment` is the caller's environment object for a DIRECT `eval` and
+/// `undefined` for an indirect one — which is the whole of the difference
+/// between the two, and the reason this takes it at all. The names reachable
+/// through that chain are read back out of the runtime rather than remembered
+/// here: `rts_core::entry::environment_names` owns the link's spelling and the
+/// shape of an environment, and this crate restating either would be the second
+/// statement of an agreement that already has one.
+///
+/// Answers the value the source completed with. `None` for source that did not
+/// parse, emit, verify or place — which `rts_core::entry::eval` turns into a
+/// `SyntaxError`.
+pub(crate) fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
+    let enclosing = rts_core::entry::environment_names(environment);
+    place_and_enter(source, Some(&enclosing), environment)
+}
+
+/// Compiles one source text into the running region and enters it, answering
+/// what it returned.
+///
+/// `enclosing` is `None` for a `Function` body — whose free names resolve
+/// against the globals, which is what the specification says — and `Some` for an
+/// `eval` fragment, where they resolve against the environment chain
+/// `environment` names.
+fn place_and_enter(
+    source: &str,
+    enclosing: Option<&[(String, u32)]>,
+    environment: u64,
+) -> Option<u64> {
+    let agreement = rts_core::entry::agreement();
+    // See the module documentation: a second compilation under single-region
+    // addressing would build references the running program reads as other
+    // cells, and this crate cannot re-derive the selector width the running
+    // code was placed with.
+    if agreement.region_selector_bits != 0 {
+        return None;
+    }
 
     let seed = Seed {
         keys: &agreement.keys,
@@ -121,7 +154,7 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
     // call that passed no receiver, and `arguments.callee` names the function.
     // `emit::nonstrict` states both; a body that DOES open with the directive
     // turns it back off there, per function and inherited inward.
-    let front = front_end_agreeing(&source, Some(&seed), true).ok()?;
+    let front = front_end_agreeing(source, Some(&seed), true, enclosing).ok()?;
 
     // The first agreement, checked rather than trusted. It costs nothing to be
     // right — both sides declare over a fresh `TagRegistry` and the declaration
@@ -178,9 +211,14 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
     // `Entry` spells and `emit_program` builds — including this script, which
     // was placed with a body by the same `place` the whole-program path uses.
     let entry: Entry = unsafe { std::mem::transmute(address) };
-    // A script closes over nothing, has no receiver and was passed no
-    // arguments. The context is the caller's and is already installed: this is
-    // reached from inside a native, which runs with one and holds no borrow.
+    // The ENVIRONMENT is the one thing this script may be handed: an `eval`
+    // fragment resolves its free names through it, and `emit_eval_program`
+    // emitted the reads at hop counts measured from exactly this object. A
+    // `Function` body is handed `undefined`, which closes over nothing.
+    //
+    // No receiver and no arguments either way. The context is the caller's and
+    // is already installed: this is reached from inside a native, which runs
+    // with one and holds no borrow.
     let nothing = rts_core::entry::undefined_value();
-    Some(entry(nothing, nothing, nothing, nothing, nothing, nothing))
+    Some(entry(environment, nothing, nothing, nothing, nothing, nothing))
 }

@@ -5,7 +5,7 @@
 //! second statement — the getter or the setter — that runs with no borrow
 //! held. `in` and `delete` answer a boolean and never call anything.
 
-use super::super::objects::{put, undefined_of};
+use super::super::objects::{Store, put, undefined_of};
 use super::super::string::text::{string_element, string_property};
 use super::super::with_current;
 use super::{opened, primitive_found, property_key};
@@ -127,8 +127,24 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
             return None;
         };
         if let Some(at) = super::super::array::as_index(context, Value(key))
-            && let Some(elements) = context.elements_at_mut(slot)
+            && let Some(count) = context.elements_at(slot).map(Vec::len)
         {
+            // An element is not a shape property, so it never reaches
+            // `resolve_store` below — the integrity questions have to be asked
+            // here as well or a frozen array is frozen only in its named
+            // properties. `Object.freeze([1,2])` then `a[0] = 9` STORED, which
+            // was a wrong value and not merely a missing refusal.
+            let grows = at >= count;
+            if super::super::integrity::refuses_write(context, slot) {
+                return Some(Store::Refused(format!(
+                    "Cannot assign to read only property '{at}' of object"
+                )));
+            }
+            if grows && super::super::integrity::refuses_growth(context, slot) {
+                return Some(Store::Refused(format!(
+                    "Cannot add property {at}, object is not extensible"
+                )));
+            }
             // Writing past the end grows the array and fills the gap with
             // `undefined`, which is what the language does — `let a = []; a[2]
             // = 1` leaves length 3. Holes are `undefined` here rather than a
@@ -141,7 +157,7 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
             // double. So `a[0] = 0; a[2] = 1;` turned `a[0]` into `undefined`:
             // a stored value destroyed by a later write somewhere else, which
             // is the worst shape a wrong answer takes. There is no scan now.
-            let cresceu = at >= elements.len();
+            let cresceu = grows;
             if cresceu {
                 let wanted = at + 1;
                 // As posições que o salto pula são BURACOS, não `undefined`
@@ -185,15 +201,25 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
         // too: `o[k] = v` and `o.x = v` reach one property, so a setter found
         // by one spelling and a slot written by the other is two answers to
         // what that property IS.
-        if let Some(setter) = super::super::accessor::setter_for(context, slot, key) {
-            return Some(setter);
+        match super::super::objects::resolve_store(context, slot, key) {
+            Store::Setter(setter) => Some(Store::Setter(setter)),
+            Store::Refused(why) => Some(Store::Refused(why)),
+            Store::Direct => {
+                put(context, slot, key, value);
+                None
+            }
         }
-        put(context, slot, key, value);
-        None
     });
-    if let Some(setter) = setter {
-        let undefined = with_current(|context| undefined_of(context));
-        super::super::functions::call(setter, object, value, undefined, undefined, undefined);
+    match setter {
+        Some(Store::Setter(setter)) => {
+            let undefined = with_current(|context| undefined_of(context));
+            super::super::functions::call(setter, object, value, undefined, undefined, undefined);
+        }
+        // Built inside the borrow and raised outside it, for the reason
+        // `objects::resolve_store` states: constructing the error takes the
+        // context, and re-entering it here would abort rather than throw.
+        Some(Store::Refused(why)) => super::super::throw::type_error(&why),
+        Some(Store::Direct) | None => {}
     }
     value
 }

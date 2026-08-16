@@ -25,26 +25,38 @@ use std::process::Command;
 /// The environment variable that tells a child which fixture to be.
 const ROLE: &str = "RTS_EXHAUSTION_ROLE";
 
-/// A program that asks for far more objects than a region holds.
+/// A program that keeps more objects alive than the region can ever hold.
 ///
-/// A region is 65 536 cells and nothing reclaims them, so a loop of a quarter of
-/// a million allocations cannot finish however the engine behaves. What differs
-/// is whether it says so.
+/// # Why they are KEPT, and what that replaced
 ///
-/// # Why the object is handed to a function
+/// This fixture used to allocate a quarter of a million short-lived objects and
+/// hand each to a function, on the premise that a region of 65 536 cells could
+/// not survive them. That premise is gone: the region grows when a collection
+/// does not make room, so a program whose garbage is collectable now finishes
+/// — which is the whole point of the change, and it made this fixture return a
+/// perfectly correct sum instead of running out.
 ///
-/// Because it has to allocate, and this fixture used to read `o.a` and nothing
-/// else — which scalar replacement now recognises as an object that cannot
-/// escape and removes entirely. The program then ran a quarter of a million
-/// iterations of plain arithmetic and returned, and the test failed for the
-/// right reason: its premise had gone.
+/// What is still true, and what this pins, is that the growth has a **ceiling**
+/// — the reservation, which cannot be exceeded because the base of it is an
+/// immediate in the compiled code — and that reaching it is loud. So the
+/// objects go into an array and stay reachable: the collector cannot free one,
+/// growth runs out, and the program ends saying so.
 ///
-/// `keep` makes the object reach somewhere the compiler cannot see through, so
-/// the allocation is real again. It is the escape analysis's own control case,
-/// borrowed: if this ever stops allocating, the analysis has become wrong.
-const TOO_MANY: &str = "function keep(x) { return x.a; } let t = 0; \
-     for (let i = 0; i < 250000; i = i + 1) { let o = {a: i}; t = t + keep(o); } \
-     return t;";
+/// The array also keeps the allocation real against scalar replacement, which
+/// is what the function call was doing before: an object nothing outside the
+/// loop can observe is removed entirely, and the fixture would measure
+/// arithmetic.
+const TOO_MANY: &str = "let keep = []; \
+     for (let i = 0; i < 5000000; i = i + 1) { keep.push({a: i}); } \
+     return keep.length;";
+
+/// How many cells the region reserves, which is where growth stops.
+///
+/// Computed rather than written, so that a change to either half moves this
+/// test with it instead of leaving it asserting a number nothing produces.
+fn reserved_cells() -> u32 {
+    (1u32 << 16) * rts_core::heap::GROWTH_CEILING
+}
 
 #[test]
 fn a_full_heap_ends_the_program_and_says_so() {
@@ -80,11 +92,35 @@ fn a_full_heap_ends_the_program_and_says_so() {
         "a full heap ended the program without saying why.\nstderr: {err}\nstdout: {out}"
     );
     // The number of cells, so that the diagnostic says what ran out rather than
-    // that something did.
+    // that something did — and the RESERVATION rather than the starting bound,
+    // because the starting bound is not where a growing region stops.
+    let reserved = reserved_cells().to_string();
     assert!(
-        err.contains("65536"),
-        "the report did not say how large the region was: {err}"
+        err.contains(&reserved),
+        "the report did not say how large the region could have grown: {err}"
     );
+}
+
+#[test]
+fn more_live_objects_than_the_region_starts_with_is_not_the_end_of_the_program() {
+    // The limitation this file used to encode as normal: the region held 65 536
+    // cells and a program with more LIVE objects than that died, however well
+    // the collector worked — nothing here was reclaimable, so a collection
+    // could not help. It grows instead, and the answer is the count rather than
+    // a report on stderr.
+    //
+    // A hundred thousand rather than a round million: it is comfortably past
+    // the starting bound, which is what is being pinned, and a test that also
+    // measured the growth of a large heap would take seconds to say the same
+    // thing.
+    let mut program = rts_host::compile(
+        "let keep = []; \
+         for (let i = 0; i < 100000; i = i + 1) { keep.push({a: i}); } \
+         return keep.length;",
+    )
+    .expect("compiles");
+    let produced = program.run();
+    assert_eq!(rts_cranelift::tags::decode_double(produced), 100000.0);
 }
 
 #[test]

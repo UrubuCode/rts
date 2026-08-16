@@ -379,6 +379,7 @@ fn run_region(
     // second injection rather than a second caller of the first.
     rts_core::entry::declare_function_compiler(&mut context, crate::live::compile_function);
     rts_core::entry::declare_source_parser(&mut context, crate::live::check_source);
+    rts_core::entry::declare_eval_compiler(&mut context, crate::live::evaluate_in_scope);
     // The other capability that has to come down rather than up: letting time
     // pass. `rts-core`'s membership rule is availability and
     // `std::thread::sleep` is not on every target, so the runtime holds a hook
@@ -592,7 +593,7 @@ pub(crate) struct Seed<'a> {
 
 /// Parses and emits source text into one program. See [`FrontEnd`].
 pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
-    front_end_agreeing(source, None, false)
+    front_end_agreeing(source, None, false, None)
 }
 
 /// The same, for a compilation that must agree with a numbering that already
@@ -605,6 +606,7 @@ pub(crate) fn front_end_agreeing(
     source: &str,
     seed: Option<&Seed<'_>>,
     sloppy: bool,
+    enclosing: Option<&[(String, u32)]>,
 ) -> Result<FrontEnd, HostError> {
     let _timing = rts_cranelift::probe::Phase::start("front-end");
     let mut names = Names::default();
@@ -625,7 +627,15 @@ pub(crate) fn front_end_agreeing(
     // message named the wrapper this host wrote rather than anything in the
     // file. A diagnostic that points at the wrong thing is worse than a terse
     // one.
-    let looks_like_a_module = source.contains("import ") || source.contains("export ");
+    // An `eval` fragment is NEVER a module, whatever words are in it. `eval`
+    // compiles script code by definition, and the guess below reads the text
+    // rather than the goal — so `eval("import ('x')")` would have taken the
+    // module path, which ignores the caller's scope and resolves every free
+    // name against the globals. That is the silent wrong answer this whole
+    // change exists to avoid, reached through the ONE branch that does not look
+    // at `enclosing`.
+    let looks_like_a_module = enclosing.is_none()
+        && (source.contains("import ") || source.contains("export "));
     let module = match looks_like_a_module {
         true => Some(
             parse_module(source, &mut names)
@@ -721,12 +731,24 @@ pub(crate) fn front_end_agreeing(
                 ctx.literal_units(units);
             }
         }
-        let emitted = match &module {
+        let emitted = match (&module, enclosing) {
             // A module binds its imports and then runs its statements — one
             // function, like a script, because what differs is what is in
             // scope before the first statement rather than how it is entered.
-            Some(program) => rts_codegen::emit::emit_module(&program.body, &mut ctx),
-            None => emit_program(&body, &mut ctx),
+            (Some(program), _) => rts_codegen::emit::emit_module(&program.body, &mut ctx),
+            // An `eval` fragment, whose free names resolve against the frame
+            // that wrote it. Interned into THIS compilation's table, which
+            // reuses the number each name already has: they came out of the
+            // running interner, and `reserve_keys` put every one of those in
+            // above.
+            (None, Some(enclosing)) => {
+                let enclosing: Vec<_> = enclosing
+                    .iter()
+                    .map(|(text, hops)| (ctx.names.intern(text), *hops))
+                    .collect();
+                rts_codegen::emit::emit_eval_program(&body, &enclosing, &mut ctx)
+            }
+            (None, None) => emit_program(&body, &mut ctx),
         };
         // The NAME, not its number. A `Name` is an index into a table this
         // function owns and the error crosses out of, so rendering it here is

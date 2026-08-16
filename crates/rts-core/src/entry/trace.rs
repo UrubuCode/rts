@@ -254,7 +254,7 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     //     read never reaches this table (`cache_resolve` already answers
     //     negative for an accessor), so this is the only path that visits it.
     if let Some(list) = context.accessors.get(cell) {
-        for (_, getter, setter) in list {
+        for (_, getter, setter, _) in list {
             out.extend(getter.iter().copied());
             out.extend(setter.iter().copied());
         }

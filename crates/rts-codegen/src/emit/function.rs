@@ -558,6 +558,29 @@ pub(super) fn emit_body(
     {
         captured.insert(name);
     }
+    // A body that can reach a DIRECT `eval` puts everything it binds on the
+    // heap, and this is the one place that can say so.
+    //
+    // `eval("x += 2")` assigns the caller's `x`, and source compiled while the
+    // program runs reaches a binding only through the environment chain — a
+    // name left in a register is not addressable from code emitted afterwards.
+    // So the choice is between forcing the names out and answering a GLOBAL `x`
+    // for a local one, silently, which is the wrong answer this engine refused
+    // to ship before there was an alternative.
+    //
+    // The test is a MENTION of the name anywhere in or under this body, not a
+    // direct call: `function outer() { let y = 1; return () => eval("y"); }`
+    // needs `y` in `outer`'s environment although the `eval` is a function
+    // deeper in, and nothing in the inner text mentions `y` for the capture
+    // analysis to find. Over-including costs an environment slot in a body that
+    // writes `eval` and never calls it; under-including costs a wrong answer.
+    let eval_name = ctx.names.intern("eval");
+    if capture::mentions(body, eval_name) {
+        captured.extend(candidates.iter().copied());
+        for statement in body {
+            capture::declared_by_statement(statement, &mut captured);
+        }
+    }
     let builds_environment = !captured.is_empty();
 
     let mut func = MachineFunction::new(signature());
@@ -835,12 +858,17 @@ fn emit_body_into(
     // that one binds it as an ordinary local and the capture analysis carries it
     // in like any other name.
     //
-    // What this answers is an ARRAY, where the language says an arguments
-    // exotic object. `length` and indexing are what a program reads and they
-    // agree; `Array.isArray(arguments)` is `true` here and `false` in a real
-    // engine. `arguments.callee` DOES exist now, for a non-strict function —
-    // see below and `emit::nonstrict`. Named rather than papered over: the
-    // exotic object needs a kind of cell this runtime does not have.
+    // What this answers is an array-LIKE object: `length`, the indices, and
+    // `Symbol.iterator` — so `[...arguments]` and `Array.from(arguments)` walk
+    // it — with `Object.prototype` above it. It used to be `RestArguments`, a
+    // real Array, and that was visible on the first line that asked:
+    // `Array.isArray(arguments)` answered `true`, and `arguments.map` existed.
+    // `arguments.callee` is added below, for a non-strict function.
+    //
+    // What is still absent is the sloppy-mode ALIAS between a parameter and its
+    // index — `function f(a) { a = 9; return arguments[0] }`. A `.ts` module is
+    // strict, where the language says there is no alias, so nothing here needs
+    // it; a cell that holds one is what a sloppy script would need.
     // `this` handed to the arrows inside, declared before anything can read it.
     // The value is the receiver this function was called with, which is exactly
     // what an arrow written here should see.
@@ -852,15 +880,8 @@ fn emit_body_into(
     let named = ctx.names.intern("arguments");
     if !captures_this && capture::mentions(body, named) {
         {
-            let from = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-                repr: rts_cranelift::repr::Repr::I64,
-                bits: rts_cranelift::ir::ScalarBits(0),
-            });
-            let from = builder.use_const(from);
-            let given: Vec<ValueId> = (0..ARGUMENT_SLOTS).map(|at| incoming[2 + at]).collect();
-            let mut passed = vec![from];
-            passed.extend(given);
-            let all = expr::call(&mut builder, ctx, RuntimeOp::RestArguments, &passed)?[0];
+            let passed: Vec<ValueId> = (0..ARGUMENT_SLOTS).map(|at| incoming[2 + at]).collect();
+            let all = expr::call(&mut builder, ctx, RuntimeOp::ArgumentsObject, &passed)?[0];
             // `callee` only where the function is NON-STRICT. A strict one has
             // the name too, as an accessor that throws, and answering the
             // function there would make a program that tests for the throw see

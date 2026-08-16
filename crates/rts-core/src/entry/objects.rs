@@ -225,11 +225,14 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
         if context.proxy_at(slot).is_some() {
             return Some(Handled::Proxy(key));
         }
-        if let Some(setter) = super::accessor::setter_for(context, slot, key) {
-            return Some(Handled::Setter(setter));
+        match resolve_store(context, slot, key) {
+            Store::Setter(setter) => Some(Handled::Setter(setter)),
+            Store::Refused(why) => Some(Handled::Refused(why)),
+            Store::Direct => {
+                put(context, slot, key, value);
+                None
+            }
         }
-        put(context, slot, key, value);
-        None
     });
     match decided {
         // A write to a non-object is a silent no-op in sloppy mode and a
@@ -242,16 +245,110 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
             super::functions::call(setter, object, value, undefined, undefined, undefined);
             value
         }
+        Some(Handled::Refused(why)) => {
+            super::throw::type_error(&why);
+            value
+        }
     }
 }
 
 /// What a write turned out to need that cannot be done while the context is
-/// borrowed, because it calls user code.
+/// borrowed, because it calls user code — or, for a refusal, because building
+/// the `TypeError` takes the context itself. See [`resolve_store`].
 enum Handled {
     /// A proxy's `set` trap, with the key already resolved.
     Proxy(Key),
     /// A setter found on the receiver or above it.
     Setter(u64),
+    /// The language refuses this write, with the message it refuses it by.
+    Refused(String),
+}
+
+/// What a write to one key of one cell resolves to, before anything runs.
+pub(in crate::entry) enum Store {
+    /// Nothing intercepts it: the value goes to the key.
+    Direct,
+    /// A setter found on the receiver or above it.
+    Setter(u64),
+    /// The language refuses this write, with the message it refuses it by.
+    Refused(String),
+}
+
+/// Decides a write, and says so when the language refuses it.
+///
+/// # Why a refusal is a returned message rather than a raise
+///
+/// Every caller is inside a `with_current` borrow, and `throw::type_error`
+/// builds the program's own `TypeError` — which takes the context of its own.
+/// Raising from in here re-enters the `RefCell` inside an `extern "C"` frame,
+/// which is a NON-unwinding abort rather than a catchable panic. So the message
+/// is built inside the borrow and raised outside it, which is exactly the split
+/// [`access_refusal`] already uses and the reason it uses it.
+///
+/// # Why the refusals throw at all
+///
+/// Every program this engine compiles is a MODULE, so every program is strict,
+/// and in strict mode a write the object refuses is a `TypeError` rather than a
+/// silent no-op. The refusals themselves are not new — [`put`] has consulted
+/// [`super::integrity`] since freezing existed, and the value has always been
+/// correct. What was missing is the refusal saying so: `Object.freeze(o); o.x =
+/// 1` left the program running with the belief that it had written.
+///
+/// The three integrity refusals and the accessor one are decided together
+/// because they are one question — "does this write land?" — asked of one
+/// property, and answering them at four call sites is four places for them to
+/// come to different conclusions.
+pub(in crate::entry) fn resolve_store(context: &mut Context, slot: u32, key: Key) -> Store {
+    // The accessor first, because it shadows: a property defined with `get`
+    // and no `set` is not a data property that happens to be unwritable, and
+    // the integrity questions below say nothing about it.
+    if let Some((_, set)) = super::accessor::accessor_for(context, slot, key) {
+        return match set {
+            Some(setter) => Store::Setter(setter),
+            None => Store::Refused(format!(
+                "Cannot set property {} of #<Object> which has only a getter",
+                key_text(context, key)
+            )),
+        };
+    }
+    // `Object.freeze` says it of every key at once; `writable: false` says it
+    // of one. `refuses_key_write` is where that pair is folded together, and
+    // an index reaches only the first half — there is no per-element attribute
+    // record for it to be refused by.
+    let refused = match key {
+        Key::Name(named) => super::integrity::refuses_key_write(context, slot, named),
+        Key::Index(_) => super::integrity::refuses_write(context, slot),
+    };
+    if refused {
+        return Store::Refused(format!(
+            "Cannot assign to read only property '{}' of object",
+            key_text(context, key)
+        ));
+    }
+    // A key the object does not have yet is GROWTH, which all three integrity
+    // levels refuse — and a sealed object refuses only that, which is why the
+    // question is asked of presence rather than of the level.
+    if super::integrity::refuses_growth(context, slot)
+        && own_property(context, slot, key).is_none()
+    {
+        return Store::Refused(format!(
+            "Cannot add property {}, object is not extensible",
+            key_text(context, key)
+        ));
+    }
+    Store::Direct
+}
+
+/// A key as a program spells it, for a message a program reads.
+fn key_text(context: &Context, key: Key) -> String {
+    match key {
+        Key::Name(name) => context
+            .interner
+            .text(name)
+            .and_then(crate::text::Str::to_rust)
+            .unwrap_or_default(),
+        Key::Index(at) => at.to_string(),
+    }
 }
 
 /// `super.x` — resolved above the home object, called against the receiver.

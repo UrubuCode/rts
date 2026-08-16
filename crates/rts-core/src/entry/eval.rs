@@ -1,7 +1,12 @@
 //! `Function(…)` and `new Function(…)` — a function whose body is text the
-//! program produced while running — and the global `eval`, which is here
-//! because it asks the same question of the host and answers less of it. See
-//! [`eval_source`] for what it refuses and why refusing is the honest answer.
+//! program produced while running.
+//!
+//! `eval` lived here too while it could only PARSE, because it asked the same
+//! question of the host and answered less of it. It runs now, and what makes it
+//! run is a thing this module has no use for: the caller's scope. So it moved to
+//! [`super::eval_scope`], which is the whole of that difference, and what stayed
+//! is the registration — [`eval_callable`] — since a global function is made
+//! where the other globals are made.
 //!
 //! # Why this is not [`super::modules::evaluate`]
 //!
@@ -80,6 +85,7 @@ pub fn declare_source_parser(context: &mut Context, parser: SourceParser) {
     context.source_parser = Some(parser);
 }
 
+
 /// The global `eval`, made the same way every other provided global function is.
 ///
 /// Not spelled `register_*`: that prefix means a `#[rtse::class]` registration
@@ -88,76 +94,9 @@ pub fn declare_source_parser(context: &mut Context, parser: SourceParser) {
 /// function VALUE, like `parseInt` — there is no interface for `emit-types` to
 /// describe — so it must not look like one.
 pub(in crate::entry) fn eval_callable(context: &mut Context) -> u64 {
-    super::native::callable(context, eval_source)
+    super::native::callable(context, super::eval_scope::eval_source)
 }
 
-/// `eval(source)` — as much of it as this engine can answer without lying.
-///
-/// # What it does, and what it refuses
-///
-/// A *direct* `eval` sees the scope it was written in: `eval("x += 2")` inside a
-/// function assigns that function's `x`. Nothing here can supply that. The
-/// compiler this crate is handed by the host compiles into the running region
-/// but against the GLOBAL scope, and it cannot be told about a caller's frame —
-/// the emitter would have to mark a call to the name `eval` as direct and hand
-/// over its bindings, which is a decision in `rts-codegen`, not here.
-///
-/// So this parses, and stops:
-///
-/// - source that does not parse raises a `SyntaxError`, which is the whole
-///   answer for a program that only asks whether text is well formed —
-///   `eval("obj.#x")` is a `SyntaxError` in every engine and two fixtures test
-///   exactly that;
-/// - source that DOES parse is refused by name, with a plain `Error` saying
-///   why.
-///
-/// The refusal is the point. Compiling the source against the globals and
-/// running it would answer for `eval("x")` inside a function whose own `x`
-/// shadows a global — silently, with the wrong value. This crate's rule is that
-/// a surface which cannot do what its name means does not ship one; an error at
-/// the call is worse than nothing only if nothing were correct, and it is not.
-///
-/// A non-string argument is answered unchanged, which is what the specification
-/// says and needs no compiler at all.
-extern "C" fn eval_source(_e: u64, _this: u64, source: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    // Whether it is a string at all, and its text, in one borrow — and released
-    // before anything raises, since building an error re-enters the context.
-    let (is_text, text) = with_current(|context| {
-        match Value(source).as_slot().and_then(|cell| context.text_at(cell)) {
-            Some(held) => (true, held.to_rust()),
-            None => (false, None),
-        }
-    });
-    if !is_text {
-        return source;
-    }
-    let Some(text) = text else {
-        // A lone surrogate is a legal string and no parser here reads one, so
-        // it is refused rather than lossily replaced — the same call
-        // `compile_from_text` makes about its arguments.
-        super::throw::syntax_error(
-            "an eval argument that is not expressible as text cannot be parsed",
-        );
-        return with_current(|context| undefined_of(context));
-    };
-    let parser = with_current(|context| context.source_parser);
-    let Some(parser) = parser else {
-        super::throw::syntax_error(
-            "this host installed no parser, so eval cannot look at its argument",
-        );
-        return with_current(|context| undefined_of(context));
-    };
-    if let Some(message) = parser(&text) {
-        super::throw::syntax_error(&message);
-        return with_current(|context| undefined_of(context));
-    }
-    super::throw::plain_error(&format!(
-        "eval parsed this source but this engine cannot run it in the caller's scope, \
-         and running it against the globals would answer a shadowed name wrongly: {}",
-        shortened(&text)
-    ));
-    with_current(|context| undefined_of(context))
-}
 
 /// The numbering a second compilation has to be made to agree with, read out of
 /// the context that is running.
@@ -380,7 +319,7 @@ extern "C" fn compile_from_text(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, 
 ///
 /// A whole body can be a page, and a `SyntaxError` whose message is a page is
 /// one nobody reads. The first line, cut, is what names the failure.
-fn shortened(body: &str) -> String {
+pub(in crate::entry) fn shortened(body: &str) -> String {
     let first = body.lines().find(|line| !line.trim().is_empty()).unwrap_or("");
     let trimmed = first.trim();
     match trimmed.char_indices().nth(60) {

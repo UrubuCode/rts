@@ -220,7 +220,10 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
             // created, so growing here would silently skip it. Checking only
             // the receiver was not enough and three files said so:
             // class_extras, computed_accessor and super_field_setter.
-            && super::accessor::setter_for(context, object as u32, crate::object::Key::Name(key))
+            // An accessor with NO setter is not "no accessor": growing here
+            // would put a data slot under a property the language refuses to
+            // write at all, so the whole pair is asked rather than the setter.
+            && super::accessor::accessor_for(context, object as u32, crate::object::Key::Name(key))
                 .is_none()
             && let Ok(grown) = context
                 .shapes

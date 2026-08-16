@@ -35,6 +35,7 @@
 mod accessor;
 mod alloc;
 mod array;
+mod arguments;
 mod array_proto;
 mod barrier;
 mod bigint_class;
@@ -58,6 +59,7 @@ pub mod declared;
 mod date;
 mod error;
 mod eval;
+mod eval_scope;
 pub mod external;
 mod finalize;
 mod foreign;
@@ -103,6 +105,7 @@ mod uri;
 pub use array::{array_new, array_of, element_at, elements_base, enumerate_keys, own_keys};
 pub use math::math_random;
 pub use array_proto::arguments_at;
+pub use arguments::arguments_object;
 pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right, shift_right_unsigned,
@@ -116,6 +119,9 @@ pub use functions::{
 pub use eval::{
     Addition, Agreement, FunctionCompiler, SourceParser, adopt, agreement,
     declare_function_compiler, declare_source_parser,
+};
+pub use eval_scope::{
+    EvalCompiler, declare_eval_compiler, environment_names, eval_direct,
 };
 pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
 pub use global::{global_get, global_get_unbound, global_set, sloppy_this};
@@ -539,7 +545,15 @@ pub struct Context {
     /// would find a getter recorded as an ordinary property and RETURN it
     /// instead of calling it. See [`accessor`] for why the absence is
     /// load-bearing rather than an omission.
-    accessors: Aside<Vec<(u32, Option<u64>, Option<u64>)>>,
+    ///
+    /// Four fields and not three: the last is WHERE the property belongs in
+    /// enumeration order — how many properties the cell's shape already held
+    /// when the accessor was defined. Insertion order is what `Object.keys`
+    /// reports, and with the pair out of the layout there is nothing in the
+    /// shape to interleave it with; recording the prefix is what lets
+    /// [`array::key_texts`] merge the two sequences without the shape holding a
+    /// property it deliberately does not hold.
+    accessors: Aside<Vec<(u32, Option<u64>, Option<u64>, u32)>>,
     /// Which cells refuse to be changed, and how much.
     ///
     /// # Why this is beside the cell and not in the shape
@@ -817,6 +831,10 @@ pub struct Context {
     /// How a host answers whether source text parses, if it offered a way —
     /// which is as much of `eval` as this engine can perform. See [`eval`].
     pub source_parser: Option<eval::SourceParser>,
+    /// How a host RUNS source text, in a scope this program hands it — what
+    /// `eval` needs, direct or indirect. See [`eval_scope::EvalCompiler`] for why the
+    /// function compiler beside it cannot answer the same question.
+    pub eval_compiler: Option<eval_scope::EvalCompiler>,
     /// What still has work to do after the program.s last statement.
     ///
     /// Registered by whoever owns a background thread, never by the host — see
@@ -1021,6 +1039,7 @@ impl Context {
             resolver: None,
             function_compiler: None,
             source_parser: None,
+            eval_compiler: None,
             loop_sources: Vec::new(),
             rest: None,
             templates: Vec::new(),

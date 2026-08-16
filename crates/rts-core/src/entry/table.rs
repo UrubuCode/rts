@@ -64,6 +64,8 @@ use super::objects::{
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
 use super::generator::{DELEGATE_STEP_ENTRY, GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
+use super::arguments::ARGUMENTS_OBJECT_ENTRY;
+use super::eval_scope::EVAL_DIRECT_ENTRY;
 use super::promise::ASYNC_START_ENTRY;
 use super::dynamic_module::{IMPORT_META_ENTRY, MODULE_IMPORT_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
@@ -531,6 +533,24 @@ pub enum CoreEntry {
     /// is the third clause — the promise reaction that resumes it is the
     /// runtime's own table, and no instruction can attach one.
     AsyncStart = 85,
+
+    /// `arguments` — the array-LIKE object, not the array
+    /// [`RestArguments`](CoreEntry::RestArguments) builds.
+    ///
+    /// Here for the same reason that one is — the object is allocated, and
+    /// where the arguments of a running call live is this crate's question —
+    /// and separate from it because what comes out differs in a way a program
+    /// reads: `Array.isArray(arguments)` is `false`.
+    ArgumentsObject = 86,
+
+    /// [`super::eval_direct`] — a call whose callee was written as the bare
+    /// name `eval`, with the caller's environment beside the source.
+    ///
+    /// A row rather than an ordinary call because direct and indirect `eval`
+    /// are the SAME value called two ways: only the emitter can tell them
+    /// apart, and only a distinct entry can carry the environment that
+    /// difference is about.
+    EvalDirect = 87,
 }
 
 /// How many entry points exist.
@@ -538,7 +558,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 86;
+pub const CORE_ENTRY_COUNT: usize = 88;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -629,6 +649,8 @@ impl CoreEntry {
         CoreEntry::ModuleImport,
         CoreEntry::SloppyThis,
         CoreEntry::AsyncStart,
+        CoreEntry::ArgumentsObject,
+        CoreEntry::EvalDirect,
     ];
 
     /// The number a call site holds.
@@ -673,6 +695,8 @@ impl CoreEntry {
             CoreEntry::GeneratorNew => GENERATOR_NEW_ENTRY,
             CoreEntry::GeneratorYield => GENERATOR_YIELD_ENTRY,
             CoreEntry::AsyncStart => ASYNC_START_ENTRY,
+            CoreEntry::ArgumentsObject => ARGUMENTS_OBJECT_ENTRY,
+            CoreEntry::EvalDirect => EVAL_DIRECT_ENTRY,
             CoreEntry::ModulePublishAll => MODULE_PUBLISH_ALL_ENTRY,
             CoreEntry::ObjectSpread => OBJECT_SPREAD_ENTRY,
             CoreEntry::KeyNumber => KEY_NUMBER_ENTRY,
@@ -891,8 +915,18 @@ mod tests {
         // different design. The generated view `#[rtse::entry]` already has
         // enough information to produce is the thing that ends this, and the
         // next mover inherits an argument that has now failed to be made twice.
+        // Moved to 87 on 2026-08-15 for `ArgumentsObject`. The entry-level
+        // question is easy — it allocates an object and reads the running
+        // call's argument vector, which is global mutable state — and the
+        // LIST-level argument this ceiling asks for is still not made. What it
+        // is NOT is a row bought cheaply: the alternative was leaving
+        // `arguments` as an Array, which is a wrong answer to
+        // `Array.isArray` and gives every `arguments` a `map` the language
+        // says it has not. Reusing `RestArguments` with a sentinel `from` was
+        // rejected: one number would then mean two shapes of result, which is
+        // the kind of second meaning this list exists to keep out.
         assert!(
-            CORE_ENTRY_COUNT <= 86,
+            CORE_ENTRY_COUNT <= 88,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

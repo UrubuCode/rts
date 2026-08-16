@@ -153,6 +153,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::RunningFunction => (CoreEntry::RunningFunction, {
             rts_core::entry::running_function as extern "C" fn() -> u64 as *const u8
         }),
+        RuntimeOp::EvalDirect => (CoreEntry::EvalDirect, {
+            rts_core::entry::eval_direct as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::ObjectSpread => (CoreEntry::ObjectSpread, {
             rts_core::entry::object_spread as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
@@ -315,6 +318,10 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::RestArguments => (CoreEntry::RestArguments, {
             rts_core::entry::rest_arguments
                 as extern "C" fn(i64, u64, u64, u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArgumentsObject => (CoreEntry::ArgumentsObject, {
+            rts_core::entry::arguments_object
+                as extern "C" fn(u64, u64, u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8

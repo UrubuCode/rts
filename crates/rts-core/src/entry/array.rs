@@ -427,7 +427,33 @@ pub(in crate::entry) fn key_texts(
         let Some(shape) = context.shape_of(ty) else {
             return keys;
         };
-        for (key, _) in context.shapes.properties(shape) {
+        // The two sequences are merged before either is filtered, because
+        // enumeration order is INSERTION order and an accessor is deliberately
+        // not in the layout. Each accessor carries how many properties the
+        // shape held when it was defined, so putting it back in front of that
+        // property restores the order the program wrote — `{ get a(){}, b: 1 }`
+        // enumerates `a, b`, and used to enumerate `b, a` because accessors were
+        // appended after the whole layout.
+        //
+        // Merged first and filtered after: a non-enumerable property still
+        // occupies its place in the sequence, so dropping it early would move
+        // everything an accessor is ranked against.
+        let ranked = context.ranked_accessors(slot);
+        let mut order: Vec<rts_cranelift::shape::Key> = Vec::new();
+        let mut next = 0;
+        for (position, (key, _)) in context.shapes.properties(shape).into_iter().enumerate() {
+            while next < ranked.len() && (ranked[next].1 as usize) <= position {
+                order.push(ranked[next].0);
+                next += 1;
+            }
+            order.push(key);
+        }
+        while next < ranked.len() {
+            order.push(ranked[next].0);
+            next += 1;
+        }
+
+        for key in order {
             // An array's `length` and a collection's `size` are real properties
             // — so that compiled code and the runtime answer them the same way
             // — and the language says neither is enumerable. That used to be a
@@ -453,33 +479,6 @@ pub(in crate::entry) fn key_texts(
                     continue;
                 }
                 keys.push(text.clone());
-            }
-        }
-        // Accessors are own properties too, and enumerable ones. They are not
-        // in the layout — deliberately, so a cached read cannot find a getter
-        // and return it — so a walk of the shape alone reports an object with
-        // `get b()` as having no `b` at all. `Object.keys` and `for (k in o)`
-        // both read this, and both were wrong until it was added.
-        //
-        // After the layout's, because the shape's order is the order they were
-        // created in and an accessor was created by a separate operation. That
-        // is a divergence for an object mixing the two: the specification
-        // interleaves them in creation order, and recording that needs the
-        // shape to know about a property it is deliberately not holding.
-        if let Some(defined) = context.accessors_at(slot) {
-            for key in defined {
-                // The same filter the shape's own loop above applies, and the
-                // day it was missing here is the day `Object.prototype` grew a
-                // non-enumerable `__proto__` accessor: `for (const k in {})`
-                // answered `__proto__` on every object in the program. An
-                // accessor is a property like any other, and `enumerable` is a
-                // property of the PROPERTY rather than of where it is stored.
-                if enumerable_only && !super::integrity::enumerable(context, slot, key) {
-                    continue;
-                }
-                if let Some(text) = context.interner.text(key) {
-                    keys.push(text.clone());
-                }
             }
         }
         ordered(keys)

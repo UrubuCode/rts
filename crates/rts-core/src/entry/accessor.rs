@@ -65,23 +65,47 @@ impl Context {
         let defined = self.accessors.get(cell)?;
         defined
             .iter()
-            .find(|(at, _, _)| *at == key)
-            .map(|(_, get, set)| (*get, *set))
+            .find(|(at, _, _, _)| *at == key)
+            .map(|(_, get, set, _)| (*get, *set))
     }
 
-    /// Which keys a cell defines accessors for.
+    /// Which keys a cell defines accessors for, each with where it belongs
+    /// among the shape's properties.
     ///
     /// Read by enumeration, which would otherwise report an object holding only
     /// `get x()` as having no properties: the pair is deliberately out of the
     /// layout, so a walk of the shape alone cannot see it.
-    pub(super) fn accessors_at(&self, cell: u32) -> Option<Vec<rts_cranelift::shape::Key>> {
-        let defined = self.accessors.get(cell)?;
-        Some(
-            defined
-                .iter()
-                .filter_map(|(key, _, _)| self.keys.key(*key))
-                .collect(),
-        )
+    ///
+    /// Enumeration order is INSERTION order, and an accessor is deliberately
+    /// out of the layout — so the shape's own sequence has no place to hold it
+    /// and a walk that appended accessors reported `{ get a(){}, b: 1 }` as
+    /// `b, a`. The number is the count of shape properties the cell had when
+    /// the pair was defined, which is exactly where it goes back.
+    ///
+    /// It is a prefix and not an identity, so deleting a data property that was
+    /// defined BEFORE an accessor shifts the accessor one place later. That is
+    /// the one case this does not answer, and it is stated rather than hidden:
+    /// closing it means re-ranking on every removal, which is a cost paid by
+    /// every `delete` for a case no measured program reaches.
+    pub(super) fn ranked_accessors(&self, cell: u32) -> Vec<(rts_cranelift::shape::Key, u32)> {
+        let Some(defined) = self.accessors.get(cell) else {
+            return Vec::new();
+        };
+        defined
+            .iter()
+            .filter_map(|(key, _, _, rank)| Some((self.keys.key(*key)?, *rank)))
+            .collect()
+    }
+
+    /// How many properties the cell's layout holds right now.
+    ///
+    /// `width` rather than `properties().len()`: one slot per property, and it
+    /// answers without building the list.
+    fn property_rank(&self, cell: u32) -> u32 {
+        self.region
+            .type_of(cell)
+            .and_then(|ty| self.shape_of(ty))
+            .map_or(0, |shape| self.shapes.width(shape))
     }
 
     /// Records one, keeping whichever half was already there.
@@ -96,16 +120,17 @@ impl Context {
         get: Option<u64>,
         set: Option<u64>,
     ) {
+        let rank = self.property_rank(cell);
         if let Some(defined) = self.accessors.get_mut(cell) {
-            if let Some(found) = defined.iter_mut().find(|(at, _, _)| *at == key) {
+            if let Some(found) = defined.iter_mut().find(|(at, _, _, _)| *at == key) {
                 found.1 = get.or(found.1);
                 found.2 = set.or(found.2);
                 return;
             }
-            defined.push((key, get, set));
+            defined.push((key, get, set, rank));
             return;
         }
-        self.accessors.set(cell, vec![(key, get, set)]);
+        self.accessors.set(cell, vec![(key, get, set, rank)]);
     }
 
     /// Records one and tells every warmed read site to ask again.
@@ -153,15 +178,16 @@ impl Context {
         get: Option<u64>,
         set: Option<u64>,
     ) {
+        let rank = self.property_rank(cell);
         match self.accessors.get_mut(cell) {
-            Some(defined) => match defined.iter_mut().find(|(at, _, _)| *at == key) {
+            Some(defined) => match defined.iter_mut().find(|(at, _, _, _)| *at == key) {
                 Some(found) => {
                     found.1 = get;
                     found.2 = set;
                 }
-                None => defined.push((key, get, set)),
+                None => defined.push((key, get, set, rank)),
             },
-            None => self.accessors.set(cell, vec![(key, get, set)]),
+            None => self.accessors.set(cell, vec![(key, get, set, rank)]),
         }
         super::integrity::retype(self, cell);
     }
@@ -180,12 +206,12 @@ impl Context {
         let Some(defined) = self.accessors.get(cell) else {
             return false;
         };
-        if !defined.iter().any(|(at, _, _)| *at == key) {
+        if !defined.iter().any(|(at, _, _, _)| *at == key) {
             return false;
         }
-        let kept: Vec<(u32, Option<u64>, Option<u64>)> = defined
+        let kept: Vec<(u32, Option<u64>, Option<u64>, u32)> = defined
             .iter()
-            .filter(|(at, _, _)| *at != key)
+            .filter(|(at, _, _, _)| *at != key)
             .copied()
             .collect();
         self.accessors.set(cell, kept);
@@ -318,6 +344,21 @@ pub(super) fn resolve(context: &mut Context, start: u32, key: Key) -> Found {
 /// An own **data** property stops the walk: `o.x = 1` on an object that has its
 /// own `x` writes the slot, whatever an inherited setter would have done.
 pub(super) fn setter_for(context: &mut Context, start: u32, key: Key) -> Option<u64> {
+    accessor_for(context, start, key).and_then(|(_, set)| set)
+}
+
+/// The accessor a key resolves to along the chain, getter and setter together.
+///
+/// [`setter_for`] cannot answer the question a strict-mode write asks, and the
+/// difference is the whole of why this exists: it answers `None` both for "no
+/// accessor anywhere" — where the write STORES — and for "an accessor with no
+/// `set`" — where the language throws. One walk, both answers, so the two
+/// cannot disagree about which property was found.
+pub(super) fn accessor_for(
+    context: &mut Context,
+    start: u32,
+    key: Key,
+) -> Option<(Option<u64>, Option<u64>)> {
     // Nothing in this program has ever defined an accessor, so no walk of any
     // chain can find one. Exact rather than approximate: `reach` is zero until
     // something is attached, and a setter is only ever reachable through this
@@ -339,8 +380,8 @@ pub(super) fn setter_for(context: &mut Context, start: u32, key: Key) -> Option<
     let number = machine.index() as u32;
     let mut cell = start;
     for _ in 0..super::objects::CHAIN_LIMIT {
-        if let Some((_, set)) = context.accessor_at(cell, number) {
-            return set;
+        if let Some(pair) = context.accessor_at(cell, number) {
+            return Some(pair);
         }
         if super::objects::own_property(context, cell, key).is_some() {
             return None;

@@ -353,6 +353,18 @@ pub enum RuntimeOp {
     /// at the top level is nothing at all.
     RunningFunction,
 
+    /// A DIRECT `eval` — a call whose callee was written as the bare name
+    /// `eval` — with the environment the caller's captured bindings live in.
+    ///
+    /// Its own operation and not an ordinary call, because direct and indirect
+    /// `eval` are one value reached two ways: the difference is syntactic, so
+    /// this crate is the only one that can still see it, and the environment is
+    /// what the difference is about. `emit::call::direct_eval` states the rule
+    /// and `emit::function` states what it costs — a body mentioning `eval`
+    /// puts every name in scope on the heap, since a register is not reachable
+    /// from source compiled afterwards.
+    EvalDirect,
+
     /// A string literal, named by the number the compilation gave it.
     ///
     /// An entry point because a string is a heap value and two occurrences of
@@ -612,6 +624,15 @@ pub enum RuntimeOp {
     /// anyway.
     RestArguments,
 
+    /// `arguments` — the array-LIKE object, not the array [`RuntimeOp::RestArguments`]
+    /// builds.
+    ///
+    /// Takes the four slots for the same reason that one does. It is a
+    /// separate operation because what it answers differs in a way a program
+    /// reads: `Array.isArray(arguments)` is `false`, and an `arguments` built
+    /// as an array inherits `Array.prototype` on top of it.
+    ArgumentsObject,
+
     /// `new f(…)` with more arguments than the convention carries.
     ///
     /// Its own operation rather than the call one with a flag, for the reason
@@ -815,6 +836,7 @@ impl RuntimeOp {
         RuntimeOp::ThrownAddress,
         RuntimeOp::TakeThrown,
         RuntimeOp::RunningFunction,
+        RuntimeOp::EvalDirect,
         RuntimeOp::StringConst,
         RuntimeOp::TemplateStrings,
         RuntimeOp::ModuleBinding,
@@ -852,6 +874,7 @@ impl RuntimeOp {
         RuntimeOp::MarkClassConstructor,
         RuntimeOp::CallWithArgs,
         RuntimeOp::RestArguments,
+        RuntimeOp::ArgumentsObject,
         RuntimeOp::ConstructWithArgs,
         RuntimeOp::SuperConstructWithArgs,
         RuntimeOp::Iterate,
@@ -911,6 +934,7 @@ impl RuntimeOp {
             RuntimeOp::ElementsBase => "__rts_elements_base",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::RunningFunction => "__rts_running_function",
+            RuntimeOp::EvalDirect => "__rts_eval_direct",
             RuntimeOp::StringConst => "__rts_string_const",
             RuntimeOp::TemplateStrings => "__rts_template_strings",
             RuntimeOp::ModuleBinding => "__rts_module_binding",
@@ -952,6 +976,7 @@ impl RuntimeOp {
             RuntimeOp::MarkClassConstructor => "__rts_mark_class_constructor",
             RuntimeOp::CallWithArgs => "__rts_call_with_args",
             RuntimeOp::RestArguments => "__rts_rest_arguments",
+            RuntimeOp::ArgumentsObject => "__rts_arguments_object",
             RuntimeOp::ConstructWithArgs => "__rts_construct_with_args",
             RuntimeOp::SuperConstructWithArgs => "__rts_super_construct_with_args",
             RuntimeOp::Iterate => "__rts_iterate",
@@ -1048,6 +1073,9 @@ impl RuntimeOp {
             RuntimeOp::ElementsBase => (vec![UNPROVEN], vec![Repr::I64]),
             RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),
             RuntimeOp::RunningFunction => (vec![], vec![UNPROVEN]),
+            // The source and the environment, both ordinary values — the second
+            // is `undefined` where the caller has no environment at all.
+            RuntimeOp::EvalDirect => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             // Which literal, not the text: an index the compilation minted.
             RuntimeOp::StringConst => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::TemplateStrings => (vec![Repr::I64], vec![UNPROVEN]),
@@ -1150,6 +1178,12 @@ impl RuntimeOp {
             // How many are declared, then the four the convention carried.
             RuntimeOp::RestArguments => {
                 (vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
+            }
+            // The four the convention carried. No leading count: `arguments`
+            // always starts at zero, and a parameter for a constant is a
+            // parameter that can be passed wrongly.
+            RuntimeOp::ArgumentsObject => {
+                (vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
             }
             RuntimeOp::DefineGetter | RuntimeOp::DefineSetter => {
                 (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])

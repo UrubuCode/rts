@@ -228,9 +228,30 @@ pub fn rest_arguments(from: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     // barely moved it — three arguments cost 465 — so what was being paid was
     // the machinery and not the copying.
     with_current(|context| {
-        let absent = undefined_of(context);
-        let from = from.max(0) as usize;
-        let collected = match context.pending_arguments.last().copied() {
+        let collected = collected(context, from, a0, a1, a2, a3);
+        super::array::built_in(context, collected)
+    })
+}
+
+/// What the running call really passed, from position `from` on.
+///
+/// Shared with [`super::arguments::arguments_object`], which builds an
+/// array-LIKE object out of the same values: where the arguments of a running
+/// call live is one question with one answer, and only what is built out of
+/// them differs. Split out of `rest_arguments` when the second caller arrived
+/// rather than copied, because a second copy of this reconstruction is a second
+/// opinion about whether `f(undefined)` passed one argument or none.
+pub(in crate::entry) fn collected(
+    context: &Context,
+    from: i64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+) -> Vec<u64> {
+    let absent = undefined_of(context);
+    let from = from.max(0) as usize;
+    match context.pending_arguments.last().copied() {
             Some(vector) if Value(vector).as_slot().is_some() => {
                 let cell = Value(vector).as_slot().expect("just checked");
                 match context.elements_at(cell) {
@@ -257,9 +278,7 @@ pub fn rest_arguments(from: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
                 };
                 given[from.min(real)..real].to_vec()
             }
-        };
-        super::array::built_in(context, collected)
-    })
+        }
 }
 
 /// A call, told HOW MANY arguments the site wrote.

@@ -71,7 +71,39 @@ pub(super) fn alloc_after_collecting(context: &mut Context, size: u32, ty: u32) 
     let stack_low = &anchor as *const u64 as usize;
     super::collect_cycle::collect(context, stack_low);
 
-    context.region.alloc(size, ty)
+    if let Some(cell) = context.region.alloc(size, ty) {
+        return Some(cell);
+    }
+    grow_and_retry(context, |region| region.alloc(size, ty))
+}
+
+/// Raises the region's bound until the allocation fits, or the reservation is
+/// spent.
+///
+/// # Why growing comes AFTER a collection and never before
+///
+/// Because the two answers to a full region are not interchangeable. A
+/// collection costs a cycle and gives the memory back; growth costs memory and
+/// never gives it back — the bound only ever rises, since lowering it would
+/// abandon cells references still name. Asking the collector first is what
+/// keeps a program whose garbage is collectable — the common one — at the
+/// working set it actually has, instead of at the high-water mark of its
+/// allocation rate. The loop's own shape says the same thing: it is reached
+/// only when a full cycle reclaimed too little.
+///
+/// A loop rather than one doubling, because one allocation can need more than
+/// one step: a spanning object wants a RUN of cells, and a single doubling can
+/// leave the bound past `next` without leaving that run contiguous.
+fn grow_and_retry(
+    context: &mut Context,
+    mut attempt: impl FnMut(&mut crate::heap::Region) -> Option<u32>,
+) -> Option<u32> {
+    while context.region.grow() {
+        if let Some(cell) = attempt(&mut context.region) {
+            return Some(cell);
+        }
+    }
+    None
 }
 
 /// The same, ending the program when a collection did not make enough room.
@@ -100,7 +132,10 @@ pub(super) fn alloc_spanning_or_die(context: &mut Context, size: u32, ty: u32) -
     let anchor = 0u64;
     let stack_low = &anchor as *const u64 as usize;
     super::collect_cycle::collect(context, stack_low);
-    match context.region.alloc_spanning(size, ty) {
+    if let Some(cell) = context.region.alloc_spanning(size, ty) {
+        return cell;
+    }
+    match grow_and_retry(context, |region| region.alloc_spanning(size, ty)) {
         Some(cell) => cell,
         None => heap_exhausted(context),
     }
@@ -155,19 +190,23 @@ pub fn alloc(size: i64, ty: i64) -> u64 {
 ///
 /// # What still removes this
 ///
-/// [`alloc`] now collects and retries before reaching here, so this is what
-/// runs when a full cycle reclaimed too little, or nothing — a genuinely full
-/// region, still the end: no larger region can be moved to, because the base
-/// is an immediate in the compiled code. Growing is a moving collector's
-/// business, which is what "compacting by requirement rather than by
-/// preference" means, and there is no moving collector.
+/// [`alloc`] collects, and then GROWS, before reaching here — so this now runs
+/// only when a full cycle reclaimed too little AND the region's whole
+/// reservation is spent. The reservation is the ceiling because the base is an
+/// immediate in the compiled code and therefore cannot move; `heap::Region`
+/// carries the reasoning and what was rejected.
+///
+/// It reports the reservation rather than the current bound, because the
+/// current bound is by then equal to it and the reservation is the number a
+/// reader can act on.
 pub(super) fn heap_exhausted(context: &Context) -> ! {
     eprintln!(
-        "rts: heap exhausted — the region holds {} cells and all of them are in \
-         use even after a collection.\n     Nothing left to reclaim, and the \
-         program cannot continue.\n     What would have happened instead is \
-         `undefined` from the allocation, which computes a wrong answer quietly.",
-        context.region.capacity()
+        "rts: heap exhausted — the region grew to its whole reservation of {} \
+         cells and all of them are in use even after a collection.\n     \
+         Nothing left to reclaim, and the program cannot continue.\n     What \
+         would have happened instead is `undefined` from the allocation, which \
+         computes a wrong answer quietly.",
+        context.region.reserved()
     );
     std::process::exit(1);
 }

@@ -296,6 +296,27 @@ pub fn sloppy_this(receiver: u64) -> u64 {
     })
 }
 
+/// What a provided name currently holds, by its spelling.
+///
+/// The same read [`global_get`] performs — the property first, the lazy
+/// registration on a miss — for a caller that has a NAME rather than a key
+/// number. `eval` is the one: it asks whether the global still holds the
+/// function this runtime built, and a native has no compiled key to ask with.
+///
+/// `None` for a name this runtime does not supply and the program never
+/// assigned, which is the same answer a read would give.
+pub(in crate::entry) fn provided_value(name: &str) -> Option<u64> {
+    with_current(|context| {
+        let text = crate::text::Str::from_str(name);
+        let key = context.interner.intern(&text, &mut context.keys);
+        let object = holder(context)?;
+        if let Some(found) = read_property(context, object, Key::Name(key)) {
+            return Some(found.bits());
+        }
+        supply(context, key)
+    })
+}
+
 /// The object the provided names are properties of, made once.
 pub(in crate::entry) fn holder(context: &mut Context) -> Option<u32> {
     if let Some(made) = context.globals {

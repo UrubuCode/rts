@@ -4917,3 +4917,53 @@ fn arguments_callee_names_the_function_in_non_strict_code() {
     );
     assert!(tags::payload_of(produced) != 0, "callee is the function");
 }
+
+/// A direct `eval` reads and writes the bindings of the frame it was written in,
+/// and an indirect one does not.
+///
+/// The pair is one test because the distinction is the whole feature: the two
+/// call the same function value, so a test of either alone would pass against an
+/// implementation that answered the global scope for both.
+#[test]
+fn a_direct_eval_sees_the_callers_scope_and_an_indirect_one_sees_the_globals() {
+    // The read. `x` here is a local that shadows nothing, so an implementation
+    // compiling the fragment against the globals answers a ReferenceError
+    // rather than a wrong value — which is why the write below matters more.
+    holds("function f() { let x = 5; return eval(\"x\") === 5; } return f();");
+
+    // The WRITE, which is what a scope object cannot fake: `eval` assigns the
+    // caller's binding, and the caller sees it afterwards.
+    holds("function f() { let x = 1; eval(\"x += 2\"); return x === 3; } return f();");
+
+    // Through a closure, so the binding is one an enclosing function owns and
+    // the environment chain has to be walked rather than read at zero hops.
+    holds(
+        "function make() { let x = 1; return { bump() { eval(\"x += 2\"); return x; } }; } \
+         let m = make(); m.bump(); return m.bump() === 5;",
+    );
+
+    // A local SHADOWING a global is the case the refusal this replaces existed
+    // to protect: answering the global here is a wrong answer that runs.
+    holds(
+        "var x = \"global\"; function f() { let x = \"local\"; return eval(\"x\"); } \
+         return f() === \"local\";",
+    );
+
+    // INDIRECT: the comma expression makes the callee a value rather than the
+    // name, and the fragment then runs in the global scope where the local
+    // does not exist.
+    holds(
+        "function f() { let hidden = 1; return (0, eval)(\"typeof hidden\"); } \
+         return f() === \"undefined\";",
+    );
+
+    // A completion value comes back, which is what makes `eval` an expression.
+    holds("return eval(\"1 + 2 * 3\") === 7;");
+
+    // A name bound to `eval` is NOT a direct eval: the call names that binding.
+    holds("function f(eval) { return eval(\"s\"); } return f(function (s) { return s + \"!\"; }) === \"s!\";");
+
+    // Nor is a replaced global, which is why the entry point asks whether the
+    // one it was built for is still there.
+    holds("globalThis.eval = function (s) { return \"replaced\"; }; return eval(\"1\") === \"replaced\";");
+}

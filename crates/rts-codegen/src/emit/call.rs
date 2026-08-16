@@ -46,6 +46,12 @@ pub fn emit_call(
     callee: &Expr,
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
+    // A DIRECT `eval`, which is a syntactic form rather than a value and so has
+    // to be recognised here, before the callee becomes an ordinary expression.
+    if let Some(value) = direct_eval(builder, scope, ctx, callee, arguments)? {
+        return Ok(value);
+    }
+
     // One machine instruction, when the whole program proves the name still
     // means what it means and the argument is already a proven double.
     if let Some(value) = machine_operation(builder, scope, ctx, callee, arguments)? {
@@ -64,6 +70,57 @@ pub fn emit_call(
     let (receiver, function) = callee_and_receiver(builder, scope, ctx, callee)?;
     let name = callee_spelling(ctx, callee);
     emit_call_with_name(builder, scope, ctx, function, receiver, arguments, name)
+}
+
+/// `eval(source)` written as exactly that, and nothing else.
+///
+/// # Why this is decided here and cannot be decided anywhere else
+///
+/// A direct `eval` sees the bindings of the frame it was written in; an indirect
+/// one — `(0, eval)(s)`, `const e = eval; e(s)`, `globalThis.eval(s)` — runs in
+/// the global scope. The two call the SAME function value, so nothing at run
+/// time can tell them apart. The difference is in the syntax, which exists only
+/// while this crate is looking at it.
+///
+/// So the direct form becomes its own entry point, carrying the environment
+/// object beside the source. A name lexically bound to `eval` — a parameter, a
+/// local, an import — is NOT this: the callee then names that binding, and the
+/// ordinary call is what runs. `scope.lookup` answers exactly that, and
+/// `ctx.globals` answers the sloppy case where the program assigns `eval`
+/// itself.
+///
+/// A spread argument (`eval(...parts)`) is left to the ordinary call: the
+/// environment could still be passed, but the source is then whatever the spread
+/// produced first and this engine has no way to hand a list to the entry. Left
+/// as the indirect path rather than answered wrongly.
+fn direct_eval(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    callee: &Expr,
+    arguments: &[Spreadable],
+) -> EmitResult<Option<ValueId>> {
+    let ExprKind::Ident(name) = &callee.kind else {
+        return Ok(None);
+    };
+    if ctx.names.text(*name) != "eval" || scope.lookup(*name).is_some() {
+        return Ok(None);
+    }
+    let [Spreadable::Single(source)] = arguments else {
+        return Ok(None);
+    };
+    let source = emit_expr(builder, scope, ctx, source)?;
+    // The environment the caller's captured names live in. A body that mentions
+    // `eval` has every name in its scope forced into one — see
+    // `emit::function` — so this is what makes those names reachable from
+    // source compiled afterwards. `None` is a body with nothing in scope at
+    // all, where `undefined` says truthfully that there is nothing to see.
+    let environment = match scope.environment() {
+        Some(environment) => environment,
+        None => expr::undefined(builder, ctx),
+    };
+    let answered = expr::call(builder, ctx, RuntimeOp::EvalDirect, &[source, environment])?[0];
+    Ok(Some(answered))
 }
 
 /// `Math.sqrt(x)` and its four siblings, as the instruction the hardware has.

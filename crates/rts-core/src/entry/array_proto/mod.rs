@@ -361,7 +361,22 @@ extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
 /// `a.slice(from, to)` — a new array, negative counting from the end.
 extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
     let taken = with_current(|context| {
-        let (_, elements) = staged(context, this)?;
+        // `slice` is GENERIC — the specification defines it over
+        // `LengthOfArrayLike(ToObject(this))` rather than over an array — and
+        // the oldest idiom in JavaScript is exactly the generic use:
+        // `Array.prototype.slice.call(arguments, 1)`. It answered `undefined`
+        // for every non-array receiver, which went unnoticed for as long as
+        // `arguments` WAS an array; it stopped being one, and the idiom broke.
+        //
+        // Only the read-only methods can take this fallback. `reverse` and
+        // `fill` are generic in the specification too and are NOT given it
+        // here: they would have to write the positions back through the
+        // property path, and a version that quietly wrote nothing is the hollow
+        // surface CLAUDE.md refuses.
+        let elements = match staged(context, this) {
+            Some((_, elements)) => elements,
+            None => array_like(context, this)?,
+        };
         let start = relative(Value(from).numeric().unwrap_or(0.0), elements.len());
         let end = if absent(context, to) {
             elements.len()
@@ -428,6 +443,43 @@ extern "C" fn fill(_e: u64, this: u64, value: u64, from: u64, to: u64, _a3: u64)
 /// `None` for a receiver that is not an array. Answering `undefined` rather than
 /// panicking is the rule every entry point here follows — a runtime that aborts
 /// on `Array.prototype.push.call(1)` turns a `TypeError` into a dead process.
+/// The elements of an array-LIKE receiver: its `length`, then that many reads.
+///
+/// For a receiver [`staged`] answers `None` for — one that carries no elements
+/// vector, which in this runtime is what "is not an array" means. `arguments`
+/// is the receiver this exists for, and the specification's own definition of
+/// the generic methods is what it implements: `LengthOfArrayLike` then `Get`
+/// per index.
+///
+/// `None` when there is no `length` to read, which keeps
+/// `Array.prototype.slice.call(1)` answering `undefined` rather than an empty
+/// array it invented.
+fn array_like(context: &mut Context, this: u64) -> Option<Vec<u64>> {
+    let cell = Value(this).as_slot()?;
+    let key = context.well_known("length");
+    let length = super::objects::read_property(context, cell, key)?.numeric()?;
+    if !length.is_finite() || length <= 0.0 {
+        return Some(Vec::new());
+    }
+    let count = length as usize;
+    let mut found = Vec::with_capacity(count);
+    for at in 0..count {
+        // The key an index NAMES. Not `objects::key_for`, which maps a key
+        // NUMBER back to its key — passing an index to that reads whatever
+        // property happens to hold that number, and it answered four nulls
+        // before the difference was noticed.
+        let key = context.well_known(&at.to_string());
+        let value = match super::objects::read_property(context, cell, key) {
+            Some(value) => value.bits(),
+            // A hole in an array-like reads `undefined`, which is what the
+            // specification's `Get` answers for an absent index.
+            None => super::objects::undefined_of(context),
+        };
+        found.push(value);
+    }
+    Some(found)
+}
+
 pub(super) fn staged(context: &Context, this: u64) -> Option<(u32, Vec<u64>)> {
     let cell = Value(this).as_slot()?;
     Some((cell, context.elements_at(cell)?.clone()))

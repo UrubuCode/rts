@@ -62,6 +62,7 @@ mod class;
 mod delegate;
 mod destructure;
 mod escape;
+mod eval;
 mod dynamic;
 mod expr;
 mod fold;
@@ -92,6 +93,7 @@ mod unary;
 mod wrap;
 
 pub use dynamic::dynamic_specifiers;
+pub use eval::emit_eval_program;
 pub use expr::emit_expr;
 pub use loops::Loops;
 pub use proven::Numeric;
@@ -828,6 +830,23 @@ pub fn emit_program_with_exports(
     publications: &[module::Publication],
     ctx: &mut Ctx,
 ) -> EmitResult<Program> {
+    // Nothing encloses a script, so nothing is reachable through a chain that
+    // does not exist. An empty scope says exactly that — which is what
+    // [`emit_eval_program`] is the one exception to.
+    let nothing = Scope::new();
+    emit_program_into(body, imports, specifier, publications, &nothing, ctx)
+}
+
+/// What both program doors do, with the enclosing scope either empty or the
+/// caller's.
+pub(super) fn emit_program_into(
+    body: &[Stmt],
+    imports: &[crate::syntax::Import],
+    specifier: Option<&str>,
+    publications: &[module::Publication],
+    enclosing: &Scope,
+    ctx: &mut Ctx,
+) -> EmitResult<Program> {
     // The script is a function like any other, under the same convention. It
     // was not before: it took no parameters, and every test that ran one called
     // it directly. Making it uniform is what lets a program call itself, and
@@ -861,10 +880,9 @@ pub fn emit_program_with_exports(
     // may emit as their own body rather than calling. See `inline`.
     ctx.inlinable = inline::candidates(body, eval_name, global_this);
 
-    let nothing = Scope::new();
     let mut emitted = function::emit_body(
         ctx,
-        &nothing,
+        enclosing,
         &[],
         // A module body and a program body have no parameter list, so there
         // is no annotation on one to read.

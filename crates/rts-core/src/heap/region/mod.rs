@@ -90,9 +90,13 @@
 //! answers absent rather than reading the wrong memory — which is a refusal, not
 //! protection. A program that arranges to share anyway is protected by nothing.
 
+mod growth;
 mod span;
 
 use rts_cranelift::mem::{HeaderLayout, SLOT_BYTES};
+
+pub use growth::GROWTH_CEILING;
+use growth::words_for;
 
 /// How many inline slots a cell holds.
 ///
@@ -190,10 +194,23 @@ pub const STRIDE: u32 = HeaderLayout::BYTES + INLINE_SLOTS * SLOT_BYTES;
 /// line rather than merely inside one, is **not** arranged. It would need an
 /// over-allocation and an offset, and whether it is worth that has not been
 /// measured.
+///
+/// # How it grows without moving
+///
+/// It reserves the whole span it may ever use at construction and raises a
+/// bound inside it. [`growth`] is that, and holds why every other way of
+/// growing was refused.
 pub struct Region {
     words: Vec<u64>,
     next: u32,
+    /// The bound [`Region::alloc`] enforces, which is **not** how much space the
+    /// region has claimed. It starts at what the host asked for and is raised by
+    /// [`Region::grow`], so a program whose garbage is collectable never pays
+    /// for room it does not need.
     capacity: u32,
+    /// The ceiling `capacity` may be raised to: how many cells the words
+    /// allocation actually covers.
+    reserved: u32,
     /// Which region this is, and what goes in the low bits of its references.
     index: u32,
     /// How many low bits that takes.
@@ -273,11 +290,11 @@ const NO_NEXT: u64 = u64::MAX;
 impl Region {
     /// A region with room for `cells` objects.
     ///
-    /// Fixed at construction and never grown, which is a limitation rather than
-    /// a decision: growing moves the base, and every reference compiled code
-    /// holds was turned into an address against the old one. Growing a region is
-    /// the collector's business — it is what "compacting by requirement rather
-    /// than by preference" means — and there is no collector yet.
+    /// `cells` is where it STARTS, not where it stops: the region reserves
+    /// [`GROWTH_CEILING`] times that many cells of address space and raises the
+    /// bound towards it through [`Self::grow`]. The doc on [`Region`] says why
+    /// the reservation is claimed up front and why no other way of growing is
+    /// available.
     ///
     /// The lone region of a single-region heap: index 0, selector width 0. Its
     /// references are cell numbers, unshifted, which is why every existing
@@ -292,11 +309,19 @@ impl Region {
     /// because the single-region case is the one that must stay free: a caller
     /// that never asks for shards must not be able to accidentally pay for them.
     pub fn sharded(cells: u32, index: u32, selector_bits: u32) -> Self {
-        let words = (cells as usize) * (STRIDE as usize / SLOT_BYTES as usize);
+        let reserved = cells.saturating_mul(GROWTH_CEILING);
+        // Reserved, then filled to the starting bound. `reserve_exact` claims
+        // the whole span in one allocation so that no later `resize` can move
+        // it; only the first `cells` worth is written, and the rest costs
+        // address space rather than memory.
+        let mut words = Vec::new();
+        words.reserve_exact(words_for(reserved));
+        words.resize(words_for(cells), 0);
         Region {
-            words: vec![0; words],
+            words,
             next: 0,
             capacity: cells,
+            reserved,
             index,
             selector_bits,
             free_head: None,
@@ -370,7 +395,12 @@ impl Region {
         STRIDE
     }
 
-    /// How many cells the region has room for.
+    /// How many cells the region has room for **right now**.
+    ///
+    /// Not how many it may ever have: [`Self::grow`] raises this towards
+    /// [`Self::reserved`], so a caller reporting the size of the heap wants the
+    /// reservation and a caller asking whether the next allocation will bump
+    /// wants this.
     pub fn capacity(&self) -> u32 {
         self.capacity
     }
@@ -625,7 +655,7 @@ impl Region {
 
     /// Which word a cell starts at.
     fn word_of(&self, index: u32) -> usize {
-        (index as usize) * (STRIDE as usize / SLOT_BYTES as usize)
+        words_for(index)
     }
 
     /// Records that `index` is a trailing cell of a spanning allocation, not an

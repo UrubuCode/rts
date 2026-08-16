@@ -56,7 +56,7 @@ mod region;
 mod slab;
 
 pub use aside::Aside;
-pub use region::{INLINE_SLOTS, Region, STRIDE};
+pub use region::{GROWTH_CEILING, INLINE_SLOTS, Region, STRIDE};
 pub use slab::{Handle, Slab, Slot, Stale};
 
 /// Where compiled code reads each region's base from.
