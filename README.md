@@ -21,7 +21,7 @@
 <!-- CROSS_RUNTIME_STATS_START -->
 ## 🌐 Cross-runtime parity
 
-JS spec compatibility validated against **Bun** and **Node** over 763 standalone TS fixtures.
+JS spec compatibility validated against **Bun** and **Node** over 764 standalone TS fixtures.
 
 ```
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   762/762 fixtures passing
@@ -34,9 +34,9 @@ JS spec compatibility validated against **Bun** and **Node** over 763 standalone
 | ❌ RTS diverges | 0 |
 | 💥 RTS runtime error | 0 |
 | 🛠️  **Left to fix** | **0** |
-| ⚠️ Bun ≠ Node (skip) | 0 |
+| ⚠️ Bun ≠ Node (skip) | 1 |
 | 🚫 Rejected (RTS-only) | 0 |
-| 📦 Total fixtures | 763 |
+| 📦 Total fixtures | 764 |
 
 _Updated: 2026-08-16 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 

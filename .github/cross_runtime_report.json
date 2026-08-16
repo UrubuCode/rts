@@ -4593,9 +4593,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -10122,6 +10122,20 @@
 }
 ,
 {
+  "name": "claude-param-shadows-toplevel-in-try-loop",
+  "status": "pass",
+  "bun": "comFor           ok\ncomWhile         ok\ncomForOf         ok\ncomForIn         ok\ncomForAninhado   ok\nnoCatch          ok\nnoFinally        ok\nsemTry           ok\nsemLaco          ok\nlidoAntes        ok/ok\nsemColisao       ok\ncomClosure       ok\nporIndice        ok\nqualDosDois      PARAMETRO\netiqueta         MODULO\ncatchSombra      APANHADO/MODULO",
+  "node": "comFor           ok\ncomWhile         ok\ncomForOf         ok\ncomForIn         ok\ncomForAninhado   ok\nnoCatch          ok\nnoFinally        ok\nsemTry           ok\nsemLaco          ok\nlidoAntes        ok/ok\nsemColisao       ok\ncomClosure       ok\nporIndice        ok\nqualDosDois      PARAMETRO\netiqueta         MODULO\ncatchSombra      APANHADO/MODULO",
+  "rts": "comFor           ok\ncomWhile         ok\ncomForOf         ok\ncomForIn         ok\ncomForAninhado   ok\nnoCatch          ok\nnoFinally        ok\nsemTry           ok\nsemLaco          ok\nlidoAntes        ok/ok\nsemColisao       ok\ncomClosure       ok\nporIndice        ok\nqualDosDois      PARAMETRO\netiqueta         MODULO\ncatchSombra      APANHADO/MODULO",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-pre-post-increment",
   "status": "pass",
   "bun": "5\n6\n7\n7\n4\n3\n10,11,13\n13\n2\n1\n0",
@@ -10681,4 +10695,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":763,"pass":762,"reachable":762,"rts_diverge":0,"bun_node_diverge":0,"errors":0,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":764,"pass":762,"reachable":762,"rts_diverge":0,"bun_node_diverge":1,"errors":0,"rejected":0,"upstream_defect":1}}
