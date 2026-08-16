@@ -1,384 +1,220 @@
 <div align="center">
 
-<img src=".github/imgs/logo.png" alt="RTS — TypeScript that flies" width="220" />
+<img src=".github/imgs/logo.png" alt="RTS logo" width="220" />
 
-# `rts_`
+# RTS
 
-### **TypeScript compiled to a native binary. No runtime. No heavy GC. No excuses.**
+### TypeScript and JavaScript compiled to native code.
 
-*A vulture in sunglasses is never in a hurry — it has already arrived.*
+A Rust-based experimental toolchain that parses, compiles, and runs TypeScript and JavaScript programs as native machine code. RTS is an active compiler/runtime project—not a drop-in replacement for Node.js or a finished browser runtime.
 
 [![Cranelift](https://img.shields.io/badge/backend-Cranelift-orange?style=flat-square)](https://cranelift.dev)
 [![Rust](https://img.shields.io/badge/runtime-Rust-black?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Single Binary](https://img.shields.io/badge/output-single%20binary-blue?style=flat-square)](#)
-<!-- CROSS_RUNTIME_BADGE_START -->
-[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-72.9%25-yellowgreen?style=flat-square)](the spec removed 2026-08-03 (see git history))
-<!-- CROSS_RUNTIME_BADGE_END -->
+[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-72.9%25-yellowgreen?style=flat-square)](#cross-runtime-parity)
 
 </div>
 
-<!-- CROSS_RUNTIME_STATS_START -->
-## 🌐 Cross-runtime parity
+> **Project status:** RTS is under active development. The sections below describe the current tree and deliberately distinguish verified behavior from roadmap work.
 
-JS spec compatibility validated against **Bun** and **Node** over 1512 standalone TS fixtures.
+## What RTS is
 
-```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 72.9%   1101/1511 fixtures passing
-```
+RTS is a compiler and runtime for TypeScript and JavaScript written in Rust. The language front end, machine layer, runtime, and host are separate components with explicit boundaries. The compiler emits an intermediate representation, the machine layer lowers that representation through Cranelift, and the host connects compiled code to the runtime.
 
-| Metric | Value |
+The project is designed around a simple division of responsibility:
+
+| Component | Responsibility |
 |---|---|
-| **Parity** | **72.9%** (1101/1511) |
-| ✅ RTS = Bun = Node | 1101 |
-| ❌ RTS diverges | 283 |
-| 💥 RTS runtime error | 127 |
-| 🛠️  **Left to fix** | **410** |
-| ⚠️ Bun ≠ Node (skip) | 0 |
-| 🚫 Rejected (RTS-only) | 0 |
-| 📦 Total fixtures | 1512 |
+| `rts-codegen` | JavaScript/TypeScript syntax, parsing bridge, semantic checks, and emission to RTS IR. |
+| `rts-cranelift` | Machine-level IR, representations, object layout, GC contract, frames, calls, unwinding, and lowering to Cranelift. |
+| `rts-core` | Runtime values, objects, text, memory, coercion, collection, scheduling, and entry points. |
+| `rts-host` | The integration point that wires the language, machine, and runtime together and executes programs. |
+| `rts-std` / `rts-node` | The `rts:` and `node:` compatibility surfaces. |
+| `rts-runtime` / `rts-linker` | The runtime archive and native linking required by AOT compilation. |
+| `rts-cli` | Command-line dispatch and project operations. |
+| `rts-egui`, `rts-dom`, `rts-render`, `rts-input`, `rts-ui` | Experimental windowing, DOM, rendering, input, and UI capabilities. |
+| `rts-napi` | N-API compatibility for loading native `.node` addons. |
 
-_Updated: 2026-08-16 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
+The canonical architecture is documented in [`docs/engine/architecture.md`](docs/engine/architecture.md). The binding rules for the two central compiler crates live in [`crates/rts-codegen/README.md`](crates/rts-codegen/README.md) and [`crates/rts-cranelift/README.md`](crates/rts-cranelift/README.md).
 
-<!-- CROSS_RUNTIME_STATS_END -->
+## Current status
 
----
+RTS has a working execution path for a growing JavaScript/TypeScript subset, including classes, closures, modules, async/generator constructs, objects, property access, regular expressions, promises, error handling, and a growing set of built-ins. The project measures progress with executable fixtures rather than relying only on feature checklists.
 
-## 🦅 What it is
+The latest status recorded in the repository reports **754 of 808 runtime fixtures passing** on 2026-08-15. A separate cross-runtime corpus compares standalone TypeScript output with Bun and Node; its scope, exclusions, and reproduction instructions are documented in [`tests/cross-runtime/README.md`](tests/cross-runtime/README.md). These figures are dated measurements, not a claim of full ECMAScript or Node.js conformance.
 
-**RTS** is a compiler + runtime that takes your `.ts` and spits out a native `.exe`.
-It is not a transpiler, not a bundler, not a wrapper around V8 — it is Cranelift
-generating machine code directly from the SWC AST, with a minimal Rust runtime
-and a typed, boxing-free ABI.
+| Area | Current position | Source of truth |
+|---|---|---|
+| JavaScript/TypeScript execution | Broad and expanding; the runtime suite is the primary executable measure. | [`CLAUDE.md`](CLAUDE.md) and [`crates/rts-host/tests/running.rs`](crates/rts-host/tests/running.rs) |
+| Front-end grammar | The syntax tree and parser bridge are measured against test262 input. | [`crates/rts-codegen/README.md`](crates/rts-codegen/README.md) and [`crates/rts-codegen/PLAN.md`](crates/rts-codegen/PLAN.md) |
+| `node:` compatibility | Several modules are fully verified, while many others remain partial or specification-only. | [`docs/reference/node/node_completed.md`](docs/reference/node/node_completed.md) |
+| HTML/CSS and UI | Experimental and intentionally scoped; it is not a general-purpose browser engine. | [`docs/ui/html-engine/README.md`](docs/ui/html-engine/README.md) |
 
-Two paths, same codegen:
+## Install from source
 
-| Mode | Command | What it does |
-|------|---------|-----------|
-| 🚀 **JIT** | `rts run app.ts` | Compiles to executable memory and runs. Zero disk. |
-| 📦 **AOT** | `rts compile -p app.ts out` | Object file → linker → standalone binary (~3 KB). |
-
----
-
-## ⚡ Performance — honest numbers, new engine
-
-> **Context.** The engine was rewritten from scratch on a sound value model
-> (`PolyValue` NaN-box + shapes + inline caches) and the campaign so far has
-> been **correctness-first** (parity badge above). The deleted old engine's
-> peak (Monte Carlo AOT **16.9 ms**, 5.4× faster than Bun; HTTP 29k req/s)
-> is the documented performance **target to re-clear**, not the current
-> state. Numbers below are **end-to-end process time** (startup included —
-> AOT runtime init is ~70 ms of every figure) measured now on the new engine.
-
-<!-- BENCH_STATS_START -->
-### 📊 Measured benchmarks (auto-updated by CI)
-
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `e55b753`.
-
-| Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
-|---|---|---|---|---|---|---:|---:|
-| Hello/startup | 69 ms | 59 ms | 56 ms | 144 ms | **43 ms** | **1.63×** | **1.38×** |
-| Monte Carlo π 10M (same xorshift algorithm) | 467 ms | 792 ms | 767 ms | 1.81 s | **1.68 s** | **0.28×** | **0.47×** |
-| Monte Carlo π 10M (JS `Math.random`) | 122 ms | 264 ms | 217 ms | 1.81 s | **1.68 s** | **0.07×** | **0.16×** |
-| π decimal ~30 digits (i128 vs BigInt) | 55 ms | 59 ms | 45 ms | 112 ms | **21 ms** | **2.59×** | **2.77×** |
-| Monte Carlo 10M threaded (vs Bun Workers) | 177 ms | — | — | 163 ms | **54 ms** | **3.30×** | — |
-| π Machin f64 (RTS only) | — | — | — | 112 ms | **21 ms** | — | — |
-
-_Updated: 2026-08-10 — run locally with `powershell -File bench/benchmark.ps1`_
-
-<!-- BENCH_STATS_END -->
-
-**Why native wins (and where the work is).** RTS compiles TS to machine
-code via Cranelift — no JIT warmup, no interpreter tier, native 64-bit
-integer arithmetic JS engines can't touch without BigInt. The `PolyValue`
-NaN-box only pays where code is actually polymorphic and the Cranelift
-egraph folds redundant box/unbox away — the design that made the old
-engine 5× faster than Bun is intact; wiring the new engine's hot paths
-back to it (plus cutting the ~70 ms AOT startup) is the tuning phase after
-the parity campaign.
-
----
-
-## 🧰 The runtime stack — the whole `std::*`, in pure Rust
-
-40+ namespaces today — being reshaped into per-module `rts:*` imports
-(camelCase, JS globals for everything the language already covers): see
-[`docs/engine/architecture.md`](docs/engine/architecture.md). No
-dependency on OpenSSL, schannel, libuv, or any external runtime.
-
-| Family | Namespaces |
-|---|---|
-| **I/O & FS** | `io` `fs` `path` `process` `env` `os` |
-| **Compute** | `math` `num` `bigfloat` `fmt` `hash` `crypto` |
-| **Memory** | `gc` `buffer` `mem` `alloc` `ptr` `ffi` |
-| **Concurrency** | `thread` `atomic` `sync` `parallel` |
-| **Network** | `net` `tls` `http_server` (embedded actix-web) |
-| **Data** | `collections` `string` `regex` `json` `date` |
-| **Async** | `events` (EventEmitter), native Promise + Function |
-| **Meta** | `runtime` `test` `trace` `hint` |
-
-🌐 **Painless HTTPS**: `rustls` + `webpki-roots` (Mozilla CAs embedded in the binary)
-🧵 **Threading**: 4 coexisting mechanisms — `spawn/join`, `spawn_async`,
-   `spawn_detached` (8-worker pool, 5M spawn/s), `scope` auto-join
-🔒 **Shard-aware HandleTable**: 32 mutually lock-free shards
-
----
-
-## 🕸️ Native HTML/CSS render engine
-
-<div align="center">
-<img src=".github/imgs/urubu-mascote.png" alt="The UrubuCode — the mascot, drawn with nothing but CSS boxes and animated by the RTS render engine" width="560" />
-
-*The mascot above is an HTML page — no images: just CSS boxes + `@keyframes`, rendered and animated by the engine.*
-</div>
-
-RTS has its **own HTML+CSS render engine, in pure Rust** (`crates/rts-dom`),
-following the canonical browser pipeline: `DOM → CSS cascade → layout (x,y,w,h) →
-display list → paint`. The backend (egui/wgpu) only **paints** — the DOM owns
-everything, headless and testable without a window.
-
-What already renders faithfully (validated **number by number against real Chrome**,
-`getBoundingClientRect` element by element — the Bootstrap cover and the `.row`/`.col`
-grid come out **pixel-perfect**):
-
-- **Full cascade** (specificity, `!important`, inheritance, `@media` per viewport)
-  with **per-element custom properties** (`var()` with per-component override)
-- **Flexbox**: `grow`/`shrink`/`basis`, `align-self`, `order`, real stretch,
-  column with absorbing `margin:auto`, gap, wrap
-- **Units**: `rem`/`em`/`%`/`vw`/`vh` and **`calc()`** (fluid typography),
-  negative margins, `box-sizing`
-- **Flow**: rich inline (links/bold flowing inside a paragraph), `float`,
-  `position: absolute/fixed` v1, scroll containers with their own scrollbars
-- **CSS animations**: `@keyframes` + `transition` with full easing —
-  colors, sizes, and margins interpolating (the vulture above flaps its wings with this)
-- **External resources**: local `<link rel="stylesheet">` + `@import`
-
-Test any local page with one line:
+A source checkout currently provides the most complete development path. Install a stable [Rust toolchain](https://www.rust-lang.org/tools/install), Git, and the platform dependencies required by the workspace. On Linux, the CI build installs `libasound2-dev`, `pkg-config`, and `jq`; Windows builds use the MSVC toolchain. macOS builds are exercised by CI on Apple Silicon.
 
 ```bash
-rts run examples/view.ts examples/urubu.html                            # the mascot
-rts run examples/view.ts examples/bootstrap-5.3.8-examples/cover/index.html  # real Bootstrap
-rts run examples/view.ts path/to/your/index.html                    # your site
-```
-
-Full state and technical backlog: [issue #1793](https://github.com/UrubuCode/rts/issues/1793).
-
----
-
-## 🎯 What the language understands today
-
-✅ **Control flow** — `if/else`, `while`, `do-while`, `for`, `for-of`/`for-in`
-   (real iterator protocol with `IteratorClose` on break), `switch`
-   (native jump table via `br_table` when all cases are integer literals),
-   labeled break/continue
-
-✅ **Functions** — declaration, expression, arrow, closures with mutable
-   capture (cells), **tail call optimization** (`return f(x)` becomes
-   `return_call`), first-class function pointers, `call/apply/bind/toString`,
-   `new Function` (runtime compile), spread call `f(...args)`
-
-✅ **Classes** — `constructor`, methods, `this`, `extends`, `super(...)`,
-   `super.method(...)`, static methods/fields + `static {}`, getters/setters,
-   real `C.prototype` + `constructor.name`, **shape-keyed virtual dispatch**,
-   private fields `#x`, **Rust-style operator overload** (`a + b` becomes
-   `a.add(b)` at compile time)
-
-✅ **Generators & async** — `function*`/`yield`/`yield*` (lazy state
-   machine), async generators + `for await`, `async/await` with a real
-   microtask queue (`.then` chains in spec order), Promise combinators
-   (`all/allSettled/race/any`), thenable adoption, `withResolvers`
-
-✅ **Objects** — hidden-class shapes + inline caches, getters/setters in
-   literals, computed keys, spread, `Object.*` statics, property descriptors,
-   freeze/seal, prototype chain, `Proxy` (get/set/delete/apply/ownKeys traps)
-   + `Reflect`, `Symbol` (+ well-known, `Symbol.iterator` protocol)
-
-✅ **Data** — TypedArrays/`ArrayBuffer`/`DataView`/`SharedArrayBuffer` +
-   `Atomics`, `Map`/`Set`/`WeakMap`/`WeakSet` (TS stdlib), `WeakRef`/
-   `FinalizationRegistry` (strong interim, #217), JSON (+JSON5), `Date`,
-   `RegExp` (exec/matchAll/named groups/`d` flag), big decimal (`bigfloat`,
-   i128 fixed-point ~30 digits), full destructuring (incl. assignment
-   targets), template literals + tagged templates + `String.raw`
-
-✅ **Errors** — `try/catch/finally`, real `throw`/instanceof over the Error
-   family, error slot + pending-error unwind at call edges
-
-✅ **Web/Node surface** — fetch/Headers/FormData/Blob/streams, URL,
-   TextEncoder/Decoder, timers + microtasks, EventTarget/AbortController,
-   console, `node:fs/os/path/process/crypto/util` shims, N-API addons
-   (`.node`), `import.meta`
-
-❌ **Not there yet** — decorators, full generics/type-checker, real weak
-   semantics (#217), `Intl` (partial), full BigInt semantics, real async
-   event loop for every path (#207), `var` hoisting edge cases (#301)
-
----
-
-## 🏗️ Architecture
-
-> **The cutover happened.** The old engine (`rts-codegen-old`) and the MIR
-> tier (`rts-mir`) are **deleted** — `crates/rts-codegen-new/` is the only
-> engine (single HIR→Cranelift path; `PolyValue` NaN-boxed value model in
-> `crates/rts-runtime/src/adapters/`; hidden-class shapes + AOT-safe data inline caches;
-> data-driven dispatch). Canonical design:
-> [`docs/engine/architecture.md`](docs/engine/architecture.md).
-> Public-surface direction:
-> [`docs/engine/architecture.md`](docs/engine/architecture.md).
-
-Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin (re-exports
-the crates); real paths live under `crates/<crate>/src/`.
-
-```
-crates/
-├─ rts-ast/          internal AST
-├─ rts-parser/       SWC parse → AST (+ generator/async state-machine desugar)
-├─ rts-diagnostics/  structured errors
-├─ rts-engine/       ⚡ heap GC + ABI contract (SPECS, AbiType, Intrinsic, symbols)
-│                    + Registry/builder + global shape registry
-├─ rts-hir/          typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any)
-├─ rts-codegen-new/  THE engine — front/run (single HIR→Cranelift lowering),
-│                    module_jit + module_aot, adapter_symbols (JIT table harvested from SPECS),
-│                    repr.rs (Repr lattice) + shape.rs (hidden-class shapes) + state.rs
-├─ rts-primitives/   PRIMORDIAL classes (String/Object/Array/Function/Promise/Boolean/Number/Error…)
-├─ rts-shared/       non-primordial universal (collections/json/globals + stdlib/*.ts preludes)
-├─ rts-std/          backend (io/net/tokio/console/promise/streams/audio)
-├─ rts-runtime/      thin facade (pub use of the four above) + AOT staticlib;
-│                    src/adapters/ = value model (PolyValue 64-bit NaN-box +
-│                    runtime trampolines + data-driven dispatch) — folded in
-│                    from the former rts-adapters crate
-├─ rts-node/         node:* shims (fs, os, path, process, crypto, util)
-├─ rts-napi/         N-API (.node addons) via libloading + HandleTable
-├─ rts-dom/          headless HTML+CSS engine (DOM → cascade → layout → display list)
-├─ rts-egui/         window/paint backend (egui/wgpu) + render/input namespaces
-├─ rts-linker/       native link (system linker + object fallback, per-target archives)
-└─ rts-cli/          run · compile · apis · init · repl · eval · ir
-```
-
-### Pipeline (new engine — single path, no MIR)
-
-```
-TS → SWC → AST → HIR (rts-hir) → lower/ (HIR → Cranelift IR, ONE path) → Cranelift egraph → JIT/AOT
-```
-
-There is no MIR tier and no dual AST/MIR in the new engine. The **Cranelift egraph**
-(`use_egraphs=true`) is the ONLY optimizer (const-fold, CSE, DCE, FMA, strength
-reduction, intraprocedural inlining). The front-end only does what Cranelift cannot
-(JS semantics): `ToNumber/ToString/ToBoolean` coercions, the polymorphic `+`,
-box/unbox insertion (pure IR the egraph folds), shape/IC site emission,
-narrow-int wrap, exception edges. AOT/JIT share `compile_program`
-(`FnCtx.module` is `&mut dyn Module`).
-
-**PRIMORDIAL-vs-Registry doctrine (central to the new engine):** the engine NAMES only
-the primordial classes; everything else resolves via the data-driven Registry — **no
-non-primordial name hardcoded in the front, not even in an "allow-list"** (see
-[`CLAUDE.md`](CLAUDE.md) § anti-hardcode). The non-primordial globals (console,
-Map/Set, JSON, Date) live as prelude `.ts` (`rts-shared/stdlib/*.ts`) and
-call private `engine.*` bridges; the front does not name them.
-
-**Boxing-free ABI**: each namespace function is a symbol
-`#[no_mangle] extern "C" fn __RTS_FN_NS_<NS>_<NAME>(...)`. No `JsValue`,
-no central dispatcher. `i64`/`f64` in native bits, strings as UTF-8
-`(ptr, len)`, opaque `u64` handles for resources. In the new engine the JIT symbol
-table is DERIVED from `SPECS` (`abi_gen.rs`), not manual `add_fn!`.
-
----
-
-## 🚀 Get started in 30 seconds
-
-```bash
-# Install
-git clone https://github.com/UrubuCode/rts && cd rts
+git clone https://github.com/UrubuCode/rts.git
+cd rts
 cargo build --release
+```
 
-# Run
-./target/release/rts run examples/console.ts
+The optimized executable is written to `target/release/rts` on Unix-like systems and `target/release/rts.exe` on Windows. During development, prefer `cargo run` and crate-scoped checks instead of repeatedly rebuilding the whole release workspace.
 
-# Compile to a binary (~3 KB, no runtime DLL)
-./target/release/rts compile -p examples/console.ts hello
+## Run a program
+
+The smallest reproducible example does not depend on a repository fixture:
+
+```bash
+cat > hello.ts <<'EOF'
+console.log("hello from RTS")
+console.log(1 + 2)
+EOF
+
+cargo run -- run hello.ts
+cargo run -- -e 'console.log(6 * 7)'
+```
+
+After a release build, the same commands are:
+
+```bash
+target/release/rts run hello.ts
+target/release/rts -e 'console.log(6 * 7)'
+```
+
+On Windows, use `target/release/rts.exe` instead of `target/release/rts`.
+
+## Command-line interface
+
+The CLI is intentionally small and is implemented in [`crates/rts-cli/src/cli/mod.rs`](crates/rts-cli/src/cli/mod.rs).
+
+| Command | Purpose |
+|---|---|
+| `rts run <file.ts>` | Compile to executable memory and run a source file. |
+| `rts -e <source>` | Evaluate inline TypeScript/JavaScript source. `rts eval` is also accepted. |
+| `rts compile <file.ts> <output>` | Build an AOT executable from a source file. Use `-p`/`--production` for the production profile. |
+| `rts test [path]` | Run one fixture or the runtime test suite. |
+| `rts ir <file.ts>` | Print RTS IR without executing the program. |
+| `rts init [name]` | Scaffold a project. |
+| `rts clean` | Remove generated project artifacts handled by the CLI. |
+| `rts emit-types [output.d.ts]` | Emit TypeScript declarations derived from registered native classes. |
+| `rts install`, `rts i`, `rts add` | Install packages from a manifest or command-line arguments. |
+| `rts napi <file.node>` | Load a native N-API addon. |
+
+Use `rts help` for the current built-in help text. Commands are evolving, so this table intentionally does not describe removed or experimental commands as if they were stable.
+
+## JIT and AOT
+
+RTS exposes two compilation destinations. `run` uses the in-memory path, while `compile` creates a native executable through the linker and the RTS runtime archive.
+
+```bash
+# JIT: source is compiled and executed in memory.
+target/release/rts run hello.ts
+
+# AOT: source is compiled into a native executable.
+target/release/rts compile -p hello.ts hello
 ./hello
 ```
 
-### CLI
+The AOT path is currently best treated as a **source-build workflow**. The CI build performs an AOT smoke test immediately after compiling the workspace, while the downloaded release-artifact job does not yet have the runtime archive on disk needed by `rts compile`. This limitation is tracked in the build workflow rather than hidden behind the “single binary” claim that the previous README made.
 
-```bash
-rts run file.ts                  # in-memory JIT
-rts compile -p file.ts out       # AOT with use-based slicing
-rts apis                         # list APIs registered in abi::SPECS
-rts ir file.ts                   # dump Cranelift IR (for codegen debugging)
-rts init my-app                  # project scaffolding
+## Cross-runtime parity
+
+[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-72.9%25-yellowgreen?style=flat-square)](#cross-runtime-parity)
+
+The CI corpus contains standalone TypeScript fixtures that run in Bun, Node, and RTS. Output is compared line by line. The current snapshot contains **1,101 passing fixtures out of 1,511 comparable fixtures**, with one additional fixture classified as an upstream defect. The numbers below are dated and should be refreshed from the CI report when the corpus or engine changes.
+
+```text
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 72.9%   1101/1511 fixtures passing
 ```
 
----
-
-## 🔬 Codegen debugging
-
-Want to see exactly what Cranelift is generating?
+For fixture conventions, exclusions, local execution, and the Bun-versus-Node policy, read [`tests/cross-runtime/README.md`](tests/cross-runtime/README.md). To run the complete corpus locally:
 
 ```bash
-rts ir file.ts 2>&1 | head -50
+bash scripts/cross_runtime_check.sh
 ```
 
-Prints the IR of every user fn + `__rts_startup` without executing. Great for hunting
-redundant loads/stores in hot loops, unnecessary extern calls, and
-intrinsic opportunities. See `CLAUDE.md` § Codegen debugging.
 
----
+## Node.js compatibility
 
-## 🎯 JS/TS compatibility
+RTS is not a Node.js replacement yet. The compatibility surface is implemented incrementally and must be verified module by module. The repository's audited tracker currently lists `node:string_decoder`, `node:querystring`, `node:punycode`, `node:os`, `node:path`, `node:url`, `node:net`, and `node:fs` as fully verified. `node:dgram` is near-complete; other modules are partial or not started.
 
-> **Honest number:** the **new** engine's real cross-runtime parity is the block
-> [🌐 Cross-runtime parity](#-cross-runtime-parity) at the top (generated by CI against
-> Bun+Node). The old engine hit 100% (372/372) at tag `v0.0-202606072107` — a
-> local maximum of a hardcoded approach on an unsound value model; the
-> redesign exists to break through that wall, not to repeat the number. Do NOT quote
-> "1015/1015"/"100%" as current state.
+See [`docs/reference/node/node_completed.md`](docs/reference/node/node_completed.md) for the evidence and exact remaining gaps. The full reference index is [`docs/reference/node/INDEX.md`](docs/reference/node/INDEX.md).
 
-What the **new** engine already covers (under construction, parity climbing):
+## HTML, CSS, and UI
 
-- **Core syntax**: classes (extends/super/static/getters/setters),
-  destructuring, spread in literals, optional chaining, nullish coalescing,
-  arrow/function expressions, template literals
-- **Async**: Promise + async/await (synchronous path without `await`; real event loop
-  still open, #207)
-- **JS globals as prelude `.ts` (data-driven)**: Object + statics,
-  Boolean/Number/String prototypes, Error family, console.*, Map/Set, JSON, Date —
-  none named in the front
-- **Operators**: JS-spec division (`/` ALWAYS f64 — `44100/48000 === 0.91875`,
-  even when assigned to a `const`), comparisons, ternary, bitwise, shifts
-- **try/catch/finally** phase 1 (thread-local error slot; finally runs and
-  re-propagates the error correctly)
-- **Diagnostics**: an unresolved identifier becomes a compile error, never a
-  segfault — and never a wrong value (the redesign's soundness floor)
+The repository also contains an experimental retained DOM and rendering direction built around `rts-egui`. The current roadmap prioritizes rich text, styled boxes, and interaction, while deliberately leaving broad browser features such as general flexbox, grid, absolute positioning, animations, and modern CSS out of the initial scope.
 
-Heavy items still open (some in redesign phase): real async event loop
-(#207), closures with mutable capture (#195), TCO, Proxy (#218), typed
-arrays/DataView/ArrayBuffer, Symbol/Reflect/BigInt (#216/#219). Master JS/TS
-parity tracker: [#226](https://github.com/UrubuCode/rts/issues/226).
+<img src=".github/imgs/urubu-mascote.png" alt="RTS mascot rendered by the experimental UI engine" width="560" />
 
----
+Read [`docs/ui/html-engine/README.md`](docs/ui/html-engine/README.md) for the current strategy and [`docs/ui/html-engine/rts-html-roadmap.md`](docs/ui/html-engine/rts-html-roadmap.md) for the operational roadmap. UI examples live under [`examples/`](examples/) and [`site/`](site/).
 
-## 📚 Documentation
+## Benchmarks
 
-- 🛠️ [`CLAUDE.md`](CLAUDE.md) — internal architecture + codebase rules (includes § anti-hardcode)
-- 📖 [`the specs removed 2026-08-03 (see git history)`](the specs removed 2026-08-03 (see git history)) — technical feature specs
-- 🗺️ [`docs/engine/architecture.md`](docs/engine/architecture.md) — canonical plan of the engine redesign
-- 🐛 Issues: master JS/TS parity tracker at [#226](https://github.com/UrubuCode/rts/issues/226)
+<!-- BENCH_STATS_START -->
+### Measured benchmarks
 
----
+Benchmark results are generated by CI from end-to-end process measurements. They include startup and compilation costs, are platform-specific, and should not be interpreted as universal performance claims. Run the benchmark locally with:
 
-## 🛡️ Guardrails
+```powershell
+./bench/benchmark.ps1
+```
 
-- ✋ No `xtask` — the build is pure `cargo`
-- ✋ No runtime-support download at build time
-- ✋ No Rust/Cargo dependency in the AOT binary's final environment
-- ✋ Single distributed binary, runs on any Windows/Linux/macOS without installing anything
+The table below is refreshed automatically after the benchmark workflow completes.
+<!-- BENCH_STATS_END -->
 
----
+## Repository map
+
+```text
+.
+├── crates/
+│   ├── rts-codegen/    JavaScript/TypeScript front end
+│   ├── rts-cranelift/  machine IR and Cranelift lowering
+│   ├── rts-core/      runtime values, objects, heap, and scheduling
+│   ├── rts-host/      compiler/runtime integration and executable tests
+│   ├── rts-std/       rts: compatibility surface
+│   ├── rts-node/      node: compatibility surface
+│   ├── rts-runtime/   AOT runtime archive
+│   ├── rts-cli/       command-line operations
+│   ├── rts-napi/      N-API support
+│   └── rts-egui/      DOM/UI engine foundations
+├── docs/
+│   ├── engine/        compiler and runtime architecture
+│   ├── guides/        task-oriented guides
+│   ├── reference/     external surfaces implemented against
+│   └── ui/            graphical engine documentation
+├── examples/           TypeScript and UI examples
+├── tests/              runtime, compatibility, and cross-runtime fixtures
+├── bench/              benchmark programs and runners
+└── scripts/            validation and repository automation
+```
+
+The project contains more crates than the abbreviated map above. Use the [Cargo workspace manifest](Cargo.toml) and [`docs/README.md`](docs/README.md) as the authoritative indexes.
+
+## Contributing
+
+Before changing a crate, read its local `README.md`. The repository-wide engineering rules, testing gates, and source-of-truth policy are in [`CLAUDE.md`](CLAUDE.md). Documentation is written in English; development discussion may use the team's working language.
+
+During iteration, use the narrowest useful check:
+
+```bash
+cargo check -p rts-codegen
+cargo test -p rts-codegen
+cargo check -p rts-cranelift
+cargo test -p rts-cranelift
+cargo run -- run hello.ts
+cargo run -- ir hello.ts
+```
+
+Before a merge that changes runtime or code generation, follow the release and fixture gates in [`CLAUDE.md`](CLAUDE.md). Do not report a feature as complete based only on a verifier or a compile check; the relevant runtime fixture must execute successfully.
+
+## License
+
+RTS is distributed under the [MIT License](LICENSE). Third-party notices and corpus licensing information are documented in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
 <div align="center">
 
-**Made with 🦅 by [UrubuCode](https://github.com/UrubuCode)**
-
-*If Bun is a rocket, RTS is a bird of prey.*
+Made by [UrubuCode](https://github.com/UrubuCode).
 
 </div>
