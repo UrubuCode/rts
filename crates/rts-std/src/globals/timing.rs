@@ -264,6 +264,16 @@ extern "C" fn queue_microtask(
     });
     let absent = entry::undefined_value();
     let Some((source, then_fn)) = prepared else {
+        // A callback that is not callable is a `TypeError`, raised where the
+        // call is written. It answered `undefined` quietly, which is the worst
+        // shape this failure can take: `queueMicrotask(maybeFn)` with a typo in
+        // `maybeFn` did nothing at all, at a point in the program where nothing
+        // else would ever mention it — a microtask that never runs leaves no
+        // trace, unlike a call that throws.
+        //
+        // Raised OUTSIDE the borrow above, for the reason every raising native
+        // here has: building the error asks the context again.
+        entry::throw_type_error("queueMicrotask requires a callback function");
         return absent;
     };
     // No borrow held: `entry::call` takes its own, and the callback it will

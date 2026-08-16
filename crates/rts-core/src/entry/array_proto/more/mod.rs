@@ -50,6 +50,7 @@ pub(in crate::entry) const NATIVES: &[(&str, Native)] = &[
     ("at", at),
     ("lastIndexOf", last_index_of),
     ("toString", to_string_),
+    ("toLocaleString", to_locale_string),
     ("keys", keys),
     ("values", values),
     ("entries", entries),
@@ -145,6 +146,93 @@ extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64
 extern "C" fn to_string_(e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let missing = nothing();
     super::joining::join(e, this, missing, missing, missing, missing)
+}
+
+/// `a.toLocaleString()` — each element's own `toLocaleString`, comma-joined.
+///
+/// # Why this is not [`to_string_`] with another name
+///
+/// Because it calls a DIFFERENT method on every element. It was absent
+/// altogether, so the lookup walked past `Array.prototype` to
+/// `Object.prototype.toLocaleString`, which delegates to `this.toString()` —
+/// which is the array's `join`, which stringifies each element with its
+/// `toString`. The result for an array of objects declaring a `toLocaleString`
+/// was `[object Object],[object Object]`: every element's own method skipped,
+/// by a chain of three correct delegations to the wrong thing.
+///
+/// `null` and `undefined` join as the empty string, exactly as in `join`, and
+/// that is the one rule the two share. A hole reads as `undefined` and joins
+/// the same way.
+///
+/// The separator is a plain comma. The specification says it is
+/// implementation-defined and locale-dependent; every engine uses a comma, and
+/// inventing a locale-aware one here would make this the only place in the crate
+/// that guesses at a locale — `crates/rts-core/src/entry/intl` is where that
+/// question is answered, and it answers it with real CLDR data or not at all.
+extern "C" fn to_locale_string(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let staged = with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        let elements: Vec<u64> = context
+            .elements_at(cell)?
+            .clone()
+            .iter()
+            .map(|held| super::super::array::visible(context, *held))
+            .collect();
+        let key = context.well_known("toLocaleString");
+        Some((elements, key, undefined_of(context)))
+    });
+    let Some((elements, key, absent)) = staged else {
+        return with_current(|context| undefined_of(context));
+    };
+    let null = with_current(|context| Value::from_singleton(context.singletons.null).bits());
+
+    // Assembled as UTF-16 UNITS, for the reason `joining::join` records: a lone
+    // surrogate is not well-formed text, `Str::to_rust` refuses it, and going
+    // through Rust strings would silently drop it.
+    let mut parts: Vec<Vec<u16>> = Vec::with_capacity(elements.len());
+    for element in elements {
+        if element == absent || element == null {
+            parts.push(Vec::new());
+            continue;
+        }
+        // The element's own method, read through the chain so an INHERITED one
+        // participates — which is the whole point, since the method is almost
+        // always on a prototype.
+        let method = with_current(|context| {
+            Value(element)
+                .as_slot()
+                .and_then(|cell| super::super::objects::read_property(context, cell, key))
+                .map_or(absent, |found| found.bits())
+        });
+        let answered = match method == absent {
+            // No method at all: fall back to the element's text form rather
+            // than skipping it, so the shape of the output does not depend on
+            // which elements happened to declare one.
+            true => super::super::primitive::to_primitive(element, crate::coerce::Hint::String),
+            false => functions::call(method, element, absent, absent, absent, absent),
+        };
+        // Rule 8: a callee that threw did not answer, and `undefined` is a
+        // VALUE — carrying on would join the word "undefined" into the result of
+        // a call that never happened.
+        if super::super::throw::in_flight() {
+            return with_current(|context| undefined_of(context));
+        }
+        parts.push(
+            with_current(|context| super::super::text::to_text(context, Value(answered)))
+                .map(|text| text.units().collect())
+                .unwrap_or_default(),
+        );
+    }
+
+    let comma = u16::from(b',');
+    let mut joined: Vec<u16> = Vec::new();
+    for (at, part) in parts.iter().enumerate() {
+        if at > 0 {
+            joined.push(comma);
+        }
+        joined.extend_from_slice(part);
+    }
+    with_current(|context| context.intern_value(crate::text::Str::from_utf16(&joined)).bits())
 }
 
 /// `a.keys()` — the indices.
