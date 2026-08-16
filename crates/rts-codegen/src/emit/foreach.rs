@@ -744,26 +744,37 @@ pub(super) fn close_iterator_stmt(
 
     let return_name = ctx.names.intern("return");
     let return_member = member_expr(ident(iterator, at), return_name, at);
-    let is_callable = Expr {
-        kind: ExprKind::Binary {
-            op: BinaryOp::StrictEqual,
-            left: Box::new(Expr {
-                kind: ExprKind::Unary {
-                    op: UnaryOp::TypeOf,
-                    operand: Box::new(return_member.clone()),
-                },
-                at,
-            }),
-            right: Box::new(text_expr("function", at)),
-        },
-        at,
-    };
+    // `it.return?.()` — an OPTIONAL call, which is `GetMethod` exactly.
+    //
+    // It was `typeof it.return === "function"` followed by `it.return()`, and
+    // the member expression was CLONED between the two — so the property was
+    // read twice. For an ordinary method that is invisible; for a `return`
+    // defined as a getter it is not, and an iterator whose `return` counts its
+    // own reads saw two where the language performs one.
+    //
+    // The optional form also gets the refusal right without a second test: it
+    // skips `null` and `undefined`, and throws a `TypeError` for anything else
+    // that is not callable — which is what `GetMethod` says and what the
+    // `typeof` guard silently swallowed. A plain iterator-like object with a
+    // bare `next()` and no `return` still closes without calling anything,
+    // which is the case the guard existed for.
     let called = Expr {
         kind: ExprKind::Call {
             callee: Box::new(return_member),
             arguments: Vec::new(),
-            optional: false,
+            optional: true,
         },
+        at,
+    };
+    // Wrapped in the chain BOUNDARY, which is what makes the `optional` flag do
+    // anything at all. Without it the flag says "this link may skip" with
+    // nowhere to skip TO, and the call happened regardless — six fixtures went
+    // from passing to `TypeError: it.return is not a function` before this line
+    // existed, because every iterator without a `return` was suddenly called.
+    // `ExprKind::Chain`'s own documentation says the flag on a link is only half
+    // of it; this is the other half.
+    let called = Expr {
+        kind: ExprKind::Chain(Box::new(called)),
         at,
     };
     let called = match awaited {
@@ -774,14 +785,7 @@ pub(super) fn close_iterator_stmt(
         },
     };
     let inner = Stmt {
-        kind: StmtKind::If {
-            condition: is_callable,
-            then_branch: Box::new(Stmt {
-                kind: StmtKind::Expr(called),
-                at,
-            }),
-            else_branch: None,
-        },
+        kind: StmtKind::Expr(called),
         at,
     };
     Stmt {

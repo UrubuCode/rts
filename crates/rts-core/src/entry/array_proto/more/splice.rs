@@ -10,7 +10,7 @@ use super::super::super::objects::undefined_of;
 use super::super::super::string::{absent, relative};
 use super::super::super::with_current;
 use super::super::{built, staged, store};
-use super::{nothing, snapshot};
+use super::nothing;
 use crate::value::Value;
 
 /// `a.splice(start, count, x, y)` — removes, inserts, answers what it removed.
@@ -26,9 +26,19 @@ use crate::value::Value;
 pub(super) extern "C" fn splice(_e: u64, this: u64, start: u64, count: u64, x: u64, y: u64) -> u64 {
     let removed = with_current(|context| {
         let (cell, mut elements) = staged(context, this)?;
+        // How many arguments the SITE wrote, which is what decides the deletion
+        // and cannot be read off the values: `a.splice()` deletes NOTHING and
+        // `a.splice(0)` deletes everything from zero, yet both arrive here with
+        // `start` and `count` padded to `undefined`. Comparing against
+        // `undefined` answered "delete to the end" for both, so `a.splice()`
+        // emptied the array — the most destructive possible reading of a call
+        // that asks for nothing.
+        let written = super::super::arguments_at(context, 0, [start, count, x, y]).len();
         let from = relative(Value(start).numeric().unwrap_or(0.0), elements.len());
         let left = (elements.len() - from) as f64;
-        let taken = if absent(context, count) {
+        let taken = if written == 0 {
+            0
+        } else if absent(context, count) {
             left as usize
         } else {
             Value(count).numeric().unwrap_or(0.0).clamp(0.0, left) as usize
@@ -67,7 +77,14 @@ pub(super) extern "C" fn splice(_e: u64, this: u64, start: u64, count: u64, x: u
 /// passes the same array twice.
 pub(super) extern "C" fn to_spliced(_e: u64, this: u64, start: u64, count: u64, x: u64, a3: u64) -> u64 {
     let spliced = with_current(|context| {
-        let (_, mut elements) = staged(context, this)?;
+        // Every hole materialised, the same rule `with` and `toReversed` follow:
+        // a copying method reads its source with `Get`, so the result has an own
+        // `undefined` where the source had nothing.
+        let (_, elements) = staged(context, this)?;
+        let mut elements: Vec<u64> = elements
+            .iter()
+            .map(|held| super::super::super::array::visible(context, *held))
+            .collect();
         let from = relative(Value(start).numeric().unwrap_or(0.0), elements.len());
         let left = (elements.len() - from) as f64;
         // An absent count removes to the end, for the reason `splice` records:
@@ -95,7 +112,10 @@ pub(super) extern "C" fn to_spliced(_e: u64, this: u64, start: u64, count: u64, 
 /// Answering the unchanged copy was rejected: that is a wrong program that
 /// keeps running, where this one fails at the next use of the result.
 pub(super) extern "C" fn with(_e: u64, this: u64, index: u64, value: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(mut elements) = snapshot(this) else {
+    // `seen` and not `snapshot`: the ES2023 copying methods read the source with
+    // `Get`, so a HOLE becomes an own `undefined` in the copy. `[1, , 3].with(0, 9)`
+    // has three own indices, and carrying the hole across made it have two.
+    let Some(mut elements) = super::seen(this) else {
         return nothing();
     };
     let asked = Value(index).numeric().unwrap_or(f64::NAN);

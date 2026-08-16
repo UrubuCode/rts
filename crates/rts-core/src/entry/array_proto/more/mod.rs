@@ -372,8 +372,15 @@ extern "C" fn flat_map(
 
 
 /// `a.toReversed()` — a new array, where `reverse` mutates.
+///
+/// Reads with [`seen`] and not [`snapshot`], which is the whole difference
+/// between this and `reverse`: the ES2023 copying methods are defined with
+/// `Get`, not `HasProperty`, so a HOLE in the source becomes an own `undefined`
+/// in the result. `[0, , 2].toReversed()` has three own indices where
+/// `[0, , 2].reverse()` still has two — and this answered the second shape,
+/// carrying the hole across into an array the language says has none.
 extern "C" fn to_reversed(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    match snapshot(this) {
+    match seen(this) {
         Some(mut elements) => {
             elements.reverse();
             built(elements)
