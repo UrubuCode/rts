@@ -3053,16 +3053,16 @@
 ,
 {
   "name": "claude-closure-from-try-finally",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
   "node": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
-  "rts": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:thrown_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "\n\u001b[1;31m[RTS PANIC]\u001b[0m block belongs to this function\n  at \u001b[33mcrates/rts-cranelift/src/ir/builder.rs:998:14\u001b[0m\n\n\u001b[2mPanic backtrace:\u001b[0m\n  \u001b[2m#1  \u001b[0m \u001b[36mstd[1e3c4ec04c5261a9]::panicking::panic_with_hook\u001b[0m\n  \u001b[2m#3  \u001b[0m \u001b[36mstd[1e3c4ec04c5261a9]::sys::backtrace::__rust_end_short_backtrace::<std[1e3c4ec04c5261a9]::panicking::panic_handler::{closure#0}, !>\u001b[0m\n  \u001b[2m#4  \u001b[0m \u001b[36m__rustc[6ef78fba13ac776c]::rust_begin_unwind\u001b[0m\n  \u001b[2m#5  \u001b[0m \u001b[36mcore[37f591cfbe66b0b1]::panicking::panic_fmt\u001b[0m\n  \u001b[2m#6  \u001b[0m \u001b[36mcore[37f591cfbe66b0b1]::option::expect_failed\u001b[0m\n  \u001b[2m#9  \u001b[0m \u001b[36m<rts_cranelift[fa9d28a45406d68d]::ir::builder::FuncBuilder>::jump\u001b[0m\n  \u001b[2m#10 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::stmt::emit_stmt\u001b[0m\n  \u001b[2m#13 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::expr::emit_expr\u001b[0m\n  \u001b[2m#14 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::stmt::emit_stmt\u001b[0m\n  \u001b[2m#15 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::stmt::emit_stmt\u001b[0m\n  \u001b[2m#20 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::emit_program_with_exports\u001b[0m\n  \u001b[2m#21 \u001b[0m \u001b[36mrts_codegen[ea3e28c0ba53c9f1]::emit::emit_program\u001b[0m\n  \u001b[2m#23 \u001b[0m \u001b[36mrts_host[be3ad7f4d99829ae]::run::compile_for\u001b[0m\n  \u001b[2m#24 \u001b[0m \u001b[36mrts_cli[43e025e5d730cfcd]::cli::new_engine::run_path_inner\u001b[0m\n  \u001b[2m#25 \u001b[0m \u001b[36mrts_cli[43e025e5d730cfcd]::cli::new_engine::run_path_and::<core[37f591cfbe66b0b1]::result::Result<(), alloc[24b8200b0946867]::string::String>, rts_cli[43e025e5d730cfcd]::cli::new_engine::run_path::{closure#0}>\u001b[0m\n  \u001b[2m#26 \u001b[0m \u001b[36mrts_cli[43e025e5d730cfcd]::cli::run::command\u001b[0m\n  \u001b[2m#30 \u001b[0m \u001b[36mstd[1e3c4ec04c5261a9]::rt::lang_start_internal\u001b[0m\n  \u001b[2m#33 \u001b[0m \u001b[36m__libc_start_main\u001b[0m\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -4579,9 +4579,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=immediate|micro|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -5670,6 +5670,76 @@
 }
 ,
 {
+  "name": "obf_arrays_higher_order_deadcode",
+  "status": "pass",
+  "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "rts": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_arrays_higher_order_everything",
+  "status": "rts_error",
+  "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "rts": "",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 1,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": "rts: heap exhausted — the region holds 65536 cells and all of them are in use even after a collection.\n     Nothing left to reclaim, and the program cannot continue.\n     What would have happened instead is `undefined` from the allocation, which computes a wrong answer quietly."
+}
+,
+{
+  "name": "obf_arrays_higher_order_flatten",
+  "status": "pass",
+  "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "rts": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_arrays_higher_order_numbers",
+  "status": "pass",
+  "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "rts": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_arrays_higher_order_strings",
+  "status": "pass",
+  "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "rts": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "obf_closures_scope_deadcode",
   "status": "pass",
   "bun": "0,3,6,9|12|inner|outer|12|3:2",
@@ -5741,24 +5811,24 @@
 ,
 {
   "name": "obf_control_flow_deadcode",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
-  "rts": "",
+  "rts": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Malformed(\"[CleanupDoesNotEnd { region: RegionId(0), block: block117 }]\")\n      at run of tests/cross-runtime/obfuscated/obf_control_flow_deadcode.ts failed"
+  "rts_error": ""
 }
 ,
 {
   "name": "obf_control_flow_everything",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
-  "rts": "00|01|10|11|20|21|zootd|RangeError|ok1|dflt||falsy|truthy|8",
+  "rts": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -5871,6 +5941,202 @@
   "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
   "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
   "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_errors_throw_deadcode",
+  "status": "pass",
+  "bun": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "node": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "rts": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_errors_throw_everything",
+  "status": "pass",
+  "bun": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "node": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "rts": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_errors_throw_flatten",
+  "status": "pass",
+  "bun": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "node": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "rts": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_errors_throw_numbers",
+  "status": "pass",
+  "bun": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "node": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "rts": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_errors_throw_strings",
+  "status": "pass",
+  "bun": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "node": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "rts": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_generators_async_deadcode",
+  "status": "pass",
+  "bun": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "node": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "rts": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_generators_async_everything",
+  "status": "pass",
+  "bun": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "node": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "rts": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_generators_async_flatten",
+  "status": "pass",
+  "bun": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "node": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "rts": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_generators_async_numbers",
+  "status": "pass",
+  "bun": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "node": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "rts": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_generators_async_strings",
+  "status": "pass",
+  "bun": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "node": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "rts": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_getters_proxy_deadcode",
+  "status": "pass",
+  "bun": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "node": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "rts": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_getters_proxy_everything",
+  "status": "pass",
+  "bun": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "node": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "rts": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_getters_proxy_flatten",
+  "status": "pass",
+  "bun": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "node": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "rts": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "obf_getters_proxy_strings",
+  "status": "pass",
+  "bun": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "node": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "rts": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9983,10 +10249,10 @@
 ,
 {
   "name": "codex_try_finally_control_flow",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "finally\ntry:catch\nfin0\nfin1\ndone",
   "node": "finally\ntry:catch\nfin0\nfin1\ndone",
-  "rts": "try\ntry:catch\nfin0\ndone",
+  "rts": "finally\ntry:catch\nfin0\nfin1\ndone",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -10401,4 +10667,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":743,"pass":707,"rts_diverge":21,"bun_node_diverge":5,"errors":10,"rejected":0}}
+],"summary":{"total":762,"pass":728,"rts_diverge":17,"bun_node_diverge":6,"errors":11,"rejected":0}}
