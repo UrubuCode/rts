@@ -49,7 +49,17 @@ pub(super) extern "C" fn join(
     // what it expects.
     let separator = super::super::primitive::to_primitive(separator, crate::coerce::Hint::String);
     let staged = with_current(|context| {
-        let (_, elements) = staged(context, this)?;
+        // Generic over an array-LIKE, the same fallback `at` and `slice` take.
+        // The specification defines `join` over `LengthOfArrayLike(ToObject(this))`
+        // and never asks whether the receiver is an Array, so
+        // `Array.prototype.join.call({length: 2, 0: "a", 1: "b"}, "-")` is
+        // `"a-b"` — and it answered `undefined` here for every receiver that was
+        // not a real array. That is the spelling `Array.prototype.toString`
+        // reaches for a non-array receiver, so the two were wrong together.
+        let elements = match staged(context, this) {
+            Some((_, elements)) => elements,
+            None => super::array_like(context, this)?,
+        };
         // O buraco vira `undefined` AQUI, dentro do mesmo empréstimo que leu os
         // elementos. Sem isto ele escapava ao conjunto `empty` de baixo — que
         // tem `undefined` e `null` e não tinha como listar um terceiro word —

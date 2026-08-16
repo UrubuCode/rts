@@ -266,7 +266,21 @@ extern "C" fn reduce(_e: u64, this: u64, callback: u64, initial: u64, _a2: u64, 
     let Some(count) = len_of(this) else {
         return nothing();
     };
-    let seeded = !with_current(|context| initial == undefined_of(context));
+    // Whether a seed was PASSED, not whether it is `undefined`.
+    //
+    // `[1].reduce(f, undefined)` has a seed and it is `undefined`; `[1].reduce(f)`
+    // has none and the first element becomes the accumulator. The two are
+    // different programs and comparing against `undefined` answered the same for
+    // both — so an explicit `undefined` seed was silently dropped and the fold
+    // started one element later than the program wrote.
+    //
+    // `arguments_at` is what knows: the call site records how many arguments it
+    // wrote, so the padding the convention adds is distinguishable from a value
+    // the program passed. Its own documentation names this as the thing the
+    // count made possible.
+    let seeded = with_current(|context| {
+        super::arguments_at(context, 0, [callback, initial, initial, initial]).len() >= 2
+    });
     let (mut carried, from) = if seeded {
         (initial, 0)
     } else {
