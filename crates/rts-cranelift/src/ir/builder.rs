@@ -228,6 +228,12 @@ impl<'a> FuncBuilder<'a> {
     /// by the caller naming a domain — the representation already says which.
     pub fn arith(&mut self, op: NumOp, a: ValueId, b: ValueId) -> BuildResult<ValueId> {
         let repr = self.same_proven("arith", a, b)?;
+        // Checked after `same_proven` so an ill-formed pair is still refused:
+        // a fold that skipped the domain check would accept operands the
+        // instruction itself would not.
+        if let Some(unchanged) = super::fold::arith_answer(&self.func, op, a, b) {
+            return Ok(unchanged);
+        }
         if repr.is_integer() {
             Ok(self.emit(Inst::IntArith(op, a, b), repr))
         } else if repr.is_float() {
@@ -653,12 +659,28 @@ impl<'a> FuncBuilder<'a> {
         ok: (BlockId, &[ValueId]),
         fail: (BlockId, &[ValueId]),
     ) -> BuildResult<()> {
-        let input = self.widen_if_needed(input);
+        // Asked BEFORE widening, so an operand already in the expected
+        // representation is never boxed to be immediately unboxed. Where the
+        // client widened explicitly the widening stays — it may have a second
+        // use, and this is not a pass that can see one — but the test does not.
+        let settled = super::fold::guard_answer(&self.func, input, expect);
 
+        // Checked whether or not the test can fail. A success block that does
+        // not declare the narrowed value is malformed either way, and reporting
+        // it only when the fold misses would make the check a lottery.
         let ok_params = self.block_param_reprs(ok.0);
         if ok_params.first() != Some(&expect) {
             return Err(BuildError::GuardTargetMissingValue { target: ok.0 });
         }
+
+        if let Some(narrowed) = settled {
+            let mut args = Vec::with_capacity(ok.1.len() + 1);
+            args.push(narrowed);
+            args.extend_from_slice(ok.1);
+            return self.jump(ok.0, &args);
+        }
+
+        let input = self.widen_if_needed(input);
 
         // The narrowed value is supplied by the guard itself, so the caller's
         // arguments fill the block's remaining parameters.

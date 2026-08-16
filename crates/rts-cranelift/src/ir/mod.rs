@@ -20,6 +20,7 @@
 pub mod builder;
 pub mod consts;
 pub mod entity;
+mod fold;
 pub mod func;
 pub mod funcs;
 pub mod inst;
