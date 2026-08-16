@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (5073) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4966) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -19530,6 +19530,20 @@
 }
 ,
 {
+  "name": "claude-switch-number-matching-edges",
+  "status": "pass",
+  "bun": "NaN default default\n0/0 default default\n+0 case_0 case_0\n-0 case_0 case_0\n1 case_1 case_1\n1.0 case_1 case_1\nInfinity case_Infinity case_Infinity\n-Infinity case_-Infinity case_-Infinity\n'1' case_string_1 case_string_1\n'0' default default\ntrue case_true case_true\nfalse default default\nnull case_null case_null\nundefined default default\n2 default default\nproven -0 case_0 vs +0 case_0\nproven NaN default\nproven 1 case_1 2 case_2 3 default\nfall 1 one,two\nfall 2 two\nfall 3 three\nfall 4 none\nmixed 1 one\nmixed 2 none\nmixed 3 three",
+  "node": "NaN default default\n0/0 default default\n+0 case_0 case_0\n-0 case_0 case_0\n1 case_1 case_1\n1.0 case_1 case_1\nInfinity case_Infinity case_Infinity\n-Infinity case_-Infinity case_-Infinity\n'1' case_string_1 case_string_1\n'0' default default\ntrue case_true case_true\nfalse default default\nnull case_null case_null\nundefined default default\n2 default default\nproven -0 case_0 vs +0 case_0\nproven NaN default\nproven 1 case_1 2 case_2 3 default\nfall 1 one,two\nfall 2 two\nfall 3 three\nfall 4 none\nmixed 1 one\nmixed 2 none\nmixed 3 three",
+  "rts": "NaN default default\n0/0 default default\n+0 case_0 case_0\n-0 case_0 case_0\n1 case_1 case_1\n1.0 case_1 case_1\nInfinity case_Infinity case_Infinity\n-Infinity case_-Infinity case_-Infinity\n'1' case_string_1 case_string_1\n'0' default default\ntrue case_true case_true\nfalse default default\nnull case_null case_null\nundefined default default\n2 default default\nproven -0 case_0 vs +0 case_0\nproven NaN default\nproven 1 case_1 2 case_2 3 default\nfall 1 one,two\nfall 2 two\nfall 3 three\nfall 4 none\nmixed 1 one\nmixed 2 none\nmixed 3 three",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-tagged-invalid-escape-raw",
   "status": "rts_diverge",
   "bun": "legal_newline=cooked[\"a\\nb\"] raw[\"a\\\\nb\"] vals[]\nlegal_tab=cooked[\"a\\tb\"] raw[\"a\\\\tb\"] vals[]\nlegal_cr=cooked[\"a\\rb\"] raw[\"a\\\\rb\"] vals[]\nlegal_codepoint=cooked[\"aBb\"] raw[\"a\\\\u{42}b\"] vals[]\nlegal_hex=cooked[\"aAb\"] raw[\"a\\\\x41b\"] vals[]\nlegal_backslash=cooked[\"a\\\\b\"] raw[\"a\\\\\\\\b\"] vals[]\nbad_u_word=cooked[<undef>] raw[\"\\\\unicode\"] vals[]\nbad_u_short=cooked[<undef>] raw[\"\\\\u12\"] vals[]\nbad_u_brace_empty=cooked[<undef>] raw[\"\\\\u{}\"] vals[]\nbad_u_brace_bad=cooked[<undef>] raw[\"\\\\u{zz}\"] vals[]\nbad_x=cooked[<undef>] raw[\"\\\\xZZ\"] vals[]\nbad_x_short=cooked[<undef>] raw[\"\\\\x1\"] vals[]\nbad_octal=cooked[<undef>] raw[\"\\\\01\"] vals[]\nbad_octal_8=cooked[<undef>] raw[\"\\\\08\"] vals[]\none_bad_segment=cooked[\"ok\\t\" <undef> \"fine\\n\"] raw[\"ok\\\\t\" \"\\\\unicode\" \"fine\\\\n\"] vals[1,2]\nfirst_bad=cooked[<undef> \"good\"] raw[\"\\\\xZZ\" \"good\"] vals[1]\nlast_bad=cooked[\"good\" <undef>] raw[\"good\" \"\\\\u{\"] vals[1]\nraw_word=\\unicode\nraw_octal=\\01\nraw_len=8\nstring_raw_bad=\\unicode\\xZZ\nstring_raw_octal=\\01\\02\nshape_all_good=3/3/2 undef=000\nshape_middle_bad=3/3/2 undef=010\nshape_all_bad=3/3/2 undef=111\nstill_cached=true\nstill_frozen=true\ncooked_is_undefined=true\nraw_survives=\"\\\\unicode\"\nuntagged_legal=\"a\\nb\"\nuntagged_hex=\"aAb\"\njoin_raw=pre\\unicode42post\\01\nmixed_segment=cooked[<undef>] raw[\"\\\\n\\\\unicode\\\\t\"] vals[]\nmixed_valid_first=cooked[<undef>] raw[\"A\\\\u{zz}\"] vals[]",
@@ -21167,4 +21181,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1512,"pass":1174,"reachable":1511,"rts_diverge":248,"bun_node_diverge":0,"errors":89,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1513,"pass":1175,"reachable":1512,"rts_diverge":248,"bun_node_diverge":0,"errors":89,"rejected":0,"upstream_defect":1}}
