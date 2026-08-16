@@ -107,6 +107,7 @@ use crate::value::Value;
 pub(in crate::entry) fn register_map(context: &mut Context) -> u64 {
     let made = map::register_map(context);
     alias(context, "Map", "entries", &iterator_key());
+    sized(context, "Map");
     made
 }
 
@@ -120,7 +121,59 @@ pub(in crate::entry) fn register_set(context: &mut Context) -> u64 {
     let made = set::register_set(context);
     alias(context, "Set", "values", "keys");
     alias(context, "Set", "values", &iterator_key());
+    sized(context, "Set");
     made
+}
+
+/// Installs `size` as a prototype ACCESSOR, which is what the language makes it.
+///
+/// # What this replaced, and why the replacement is not merely tidier
+///
+/// It was an own DATA property on each instance, rewritten by every mutation.
+/// That spelling answers `m.size` correctly and is wrong about the property
+/// three ways a program can see:
+///
+/// - `Object.getOwnPropertyDescriptor(Map.prototype, "size")` was `undefined`
+///   for a property every Map has — the descriptor and the read disagreeing
+///   about one name.
+/// - `m.size = 5` STORED, and the next `m.set` overwrote it. An accessor with
+///   no setter refuses instead, which is what the specification says.
+/// - `Object.keys(new Map())` had to be taught to skip it, and `size` had to be
+///   marked non-enumerable per instance to stay hidden.
+///
+/// The reason it was a data property is recorded at [`restore_sized`]: a value
+/// only the slow path knows about is one the fast path disagrees with the moment
+/// `cached_get` warms up. An accessor does not have that problem, and the reason
+/// is the inverse of the one that made `length` a real property — see
+/// `super::accessor`'s first page: an accessor is deliberately kept OUT of the
+/// layout, so `cache_resolve` answers negative and every read reaches the
+/// runtime by construction.
+fn sized(context: &mut Context, class: &'static str) {
+    let Some(prototype) = super::class_support::prototype(context, class) else {
+        return;
+    };
+    let Some(cell) = Value(prototype).as_slot() else {
+        return;
+    };
+    super::native::getter(context, cell, "size", size as super::native::Native);
+}
+
+/// `m.size` / `s.size` — the entry count, read from the table itself.
+///
+/// A receiver that is not one of these collections answers `undefined` rather
+/// than throwing, which is the tolerance every refusal in this module settles
+/// on while the brand check has no handler to reach.
+extern "C" fn size(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    super::with_current(|context| {
+        match Value(this)
+            .as_slot()
+            .and_then(|cell| context.table_at(cell))
+            .map(|table| table.len())
+        {
+            Some(count) => Value::from_f64(count as f64).bits(),
+            None => super::objects::undefined_of(context),
+        }
+    })
 }
 
 /// The key `Symbol.iterator` writes, spelled from the one place the encoding is
@@ -184,35 +237,24 @@ pub(super) fn restore(context: &mut Context, cell: u32, table: Table) {
     context.collections.set(cell, table);
 }
 
-/// Puts one back and writes `size` to match.
+/// Puts one back after a mutation that changed the entry count.
 ///
-/// # Why `size` is a real property and not an answer the runtime invents
+/// # Why this is still a separate name when its body is [`restore`]'s
 ///
-/// The reason [`super::array::set_length`] records, which was learned the hard
-/// way there: compiled code reading a property that is in the layout never asks
-/// the runtime at all — it emits `cached_get` and finds the stored slot — so a
-/// value only the slow path knows about is one the fast path disagrees with the
-/// moment it starts working.
+/// It used to write an own `size` data property to match the new count, and
+/// fifteen call sites exist BECAUSE of that: each is a mutation that had to
+/// remember to re-publish the number. `size` is now a prototype accessor
+/// reading the table directly — see [`sized`] for what that fixed — so there is
+/// nothing to re-publish and the two functions do the same thing.
 ///
-/// The divergence that leaves, named: `size` is an own **data** property where
-/// the language makes it an accessor on the prototype, so `m.size = 5` stores a
-/// number and the next mutation overwrites it, rather than being refused. The
-/// same trade `length` on an array already makes.
+/// The name stays because the DISTINCTION is still real and still load-bearing:
+/// these fifteen sites changed the count and the others did not. Collapsing
+/// them into `restore` would erase the only record of which mutations are
+/// size-affecting, and the next thing that needs to react to a count change —
+/// an observer, a cached iterator length — would have to rediscover the list by
+/// reading every caller.
 pub(super) fn restore_sized(context: &mut Context, cell: u32, table: Table) {
-    let size = table.len();
     restore(context, cell, table);
-    let key = context.well_known("size");
-    let value = Value::from_f64(size as f64).bits();
-    super::objects::put(context, cell, key, value);
-    // Not enumerable, like an array's `length` and for the same reason: it is a
-    // real property so both paths agree about it, and the language does not
-    // report it. `Object.keys(new Map())` was `["size"]` before this.
-    if let crate::object::Key::Name(key) = key {
-        super::integrity::set_attributes(context, cell, key, super::integrity::Attributes {
-            enumerable: false,
-            ..super::integrity::Attributes::default()
-        });
-    }
 }
 
 /// A fresh instance of one of these classes, empty.

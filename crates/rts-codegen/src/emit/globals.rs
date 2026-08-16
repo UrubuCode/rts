@@ -89,6 +89,13 @@ const PROVIDED: &[&str] = &[
     "decodeURIComponent",
     "encodeURI",
     "encodeURIComponent",
+    // Annex B, and normative: an engine that claims the web has them. They sit
+    // beside the four URI functions because that is where the runtime answers
+    // them from, and NOT because they share a table — `escape` leaves `@`, `+`
+    // and `/` alone and escapes `!`, `~` and `'`, which `encodeURIComponent`
+    // does the other way round on every one of those.
+    "escape",
+    "unescape",
     "eval",
     "isFinite",
     "isNaN",

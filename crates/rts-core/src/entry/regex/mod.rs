@@ -164,12 +164,30 @@ fn describe(context: &mut Context, cell: u32, source: &str, letters: &str, flags
     };
     let source_value = context.intern_value(Str::from_str(printed_source)).bits();
     let flags_value = context.intern_value(Str::from_str(letters)).bits();
-    let written: [(&str, u64); 6] = [
+    // Every flag, not the three that happened to be needed first. `sticky`,
+    // `unicode`, `dotAll` and `hasIndices` answered `undefined` — and
+    // `undefined` is not `false`: `if (re.sticky)` behaves the same either way,
+    // but `re.sticky === false` does not, and a program that builds a flag
+    // string by filtering the accessors produced `"undefinedundefined"` rather
+    // than skipping them. Four of the eight being present is the shape that
+    // makes a reader believe the other four do not exist in the language.
+    //
+    // `unicode` and `unicodeSets` are reported from the letters rather than
+    // from `Flags`, which has no field for them: `u` and `v` are accepted and
+    // not acted on — `Flags::parse` says why — so the flag a program READS is
+    // the letter it wrote, and inventing `false` for a `/x/u` would be a
+    // different lie from the one already documented.
+    let written: [(&str, u64); 11] = [
         ("source", source_value),
         ("flags", flags_value),
         ("global", Value::from_bool(flags.global).bits()),
         ("ignoreCase", Value::from_bool(flags.ignore_case).bits()),
         ("multiline", Value::from_bool(flags.multiline).bits()),
+        ("sticky", Value::from_bool(flags.sticky).bits()),
+        ("dotAll", Value::from_bool(flags.dot_all).bits()),
+        ("hasIndices", Value::from_bool(flags.has_indices).bits()),
+        ("unicode", Value::from_bool(letters.contains('u')).bits()),
+        ("unicodeSets", Value::from_bool(letters.contains('v')).bits()),
         // Zero even for a pattern that never reads it, because a program may
         // read it, and `undefined` is not what the language says is there.
         ("lastIndex", Value::from_f64(0.0).bits()),
