@@ -40,11 +40,30 @@
 //! a property key — `o.await` is a property, and always legal — which is why
 //! this walks the tree rather than scanning the text.
 
+use super::scope::{
+    Declared, first_illegal_repeat, first_repeat, first_shared, function_names, lexical_names,
+    var_names,
+};
 use crate::names::{Name, Names};
 use crate::syntax::{
     Catch, Class, ClassElement, ClassKey, Element, Expr, ExprKind, ForEachTarget, ForInit,
-    Function, FunctionBody, Pattern, Property, PropertyKey, Stmt, StmtKind, UnaryOp,
+    Function, FunctionBody, Goal, Pattern, Program, Property, PropertyKey, Stmt, StmtKind, UnaryOp,
 };
+
+/// What a statement list is a scope *of*.
+///
+/// The one difference is where a function declaration lands. In a block it is a
+/// lexical name, so `{ function f() {} let f; }` is not a program. At the top of
+/// a script or a function body it is var-declared, so `function f() {} var f;`
+/// is one. Nothing else about the two differs, and a checker that could not tell
+/// them apart would have to refuse one of those two programs wrongly.
+#[derive(Clone, Copy, PartialEq)]
+enum ScopeKind {
+    /// A block, a `switch` body, a `catch` body.
+    Block,
+    /// The top of a script or module, and a function body.
+    VarRoot,
+}
 
 /// Which context a piece of code is in.
 ///
@@ -63,24 +82,69 @@ pub(super) struct Context {
     no_await_outside_arrow: bool,
     /// `yield` may not name anything.
     no_yield: bool,
+    /// `super.x` reaches a home object from here.
+    super_property: bool,
+    /// `super()` reaches a parent constructor from here.
+    super_call: bool,
+    /// Whether this code is strict.
+    ///
+    /// Carried rather than asked for, because strictness is inherited: a
+    /// `"use strict"` at the top of a function makes every function written
+    /// inside it strict too, and a class body is strict whatever surrounds it.
+    /// Nothing in the tree records the answer, so the walk is what remembers.
+    strict: bool,
+}
+
+/// What `super` means where a function was written.
+///
+/// A function does not decide this for itself — being a method is a fact about
+/// where it appears, not about how it is spelled, and the same
+/// `function () {}` is a method in `{ m: … }`'s place and not one two
+/// characters away. So the walk hands it down.
+#[derive(Clone, Copy, PartialEq)]
+enum Home {
+    /// Not a method. `super` reaches nothing at all.
+    None,
+    /// A method definition: `super.x` has a home object, `super()` has no
+    /// parent constructor to call.
+    Method,
+    /// A derived class's constructor, the one place `super()` exists.
+    DerivedConstructor,
 }
 
 impl Context {
     /// The context a script's top level is in: nothing is reserved.
-    pub(super) fn sloppy() -> Self {
+    /// The context a whole program's top level is in.
+    ///
+    /// A module is strict and reserves `await` at its top level — top-level
+    /// `await` is an operator there, so the word cannot also be a name. A
+    /// script is neither, unless it opens with the directive.
+    pub(super) fn top(program: &Program) -> Self {
+        let module = program.goal == Goal::Module;
         Self {
-            no_await: false,
+            no_await: module,
             no_await_outside_arrow: false,
             no_yield: false,
+            super_property: false,
+            super_call: false,
+            strict: module || program.directives.iter().any(|d| d.is_use_strict()),
         }
     }
 
     /// A class static block, and a field initialiser.
-    fn static_block() -> Self {
+    ///
+    /// `super.x` works in both — they have the class as a home object — and
+    /// `super()` does not: a field initialiser runs *after* the parent
+    /// constructor has already been called, and a static block never has one.
+    fn static_block(self) -> Self {
         Self {
             no_await: false,
             no_await_outside_arrow: true,
             no_yield: false,
+            super_property: true,
+            super_call: false,
+            // A class body is strict code, always, whatever surrounds it.
+            strict: true,
         }
     }
 
@@ -89,18 +153,30 @@ impl Context {
     /// An arrow inherits what reaches through it and adds its own; anything
     /// else replaces both. That difference is the rule, and putting it here
     /// means no caller can get it half right.
-    fn inside(self, function: &Function) -> Self {
+    /// `home` is what the function is *written as*, and an arrow ignores it:
+    /// an arrow has no home object of its own, exactly as it has no `this`, so
+    /// its `super` is whatever the enclosing method's was. That is what makes
+    /// `class D extends B { constructor() { (() => super())(); } }` legal and
+    /// the same arrow at the top level not.
+    fn inside(self, function: &Function, home: Home) -> Self {
+        let strict = self.strict || function.directives.iter().any(|d| d.is_use_strict());
         if function.captures_this {
             Self {
                 no_await: self.no_await || function.is_async,
                 no_await_outside_arrow: false,
                 no_yield: self.no_yield || function.is_generator,
+                super_property: self.super_property,
+                super_call: self.super_call,
+                strict,
             }
         } else {
             Self {
                 no_await: function.is_async,
                 no_await_outside_arrow: false,
                 no_yield: function.is_generator,
+                super_property: home != Home::None,
+                super_call: home == Home::DerivedConstructor,
+                strict,
             }
         }
     }
@@ -184,6 +260,98 @@ impl<'a> Scan<'a> {
         }
     }
 
+    fn fail(&mut self, message: String) {
+        if self.found.is_none() {
+            self.found = Some(message);
+        }
+    }
+
+    /// One statement list, asked the questions a scope answers.
+    ///
+    /// Two questions, and they are separate because the sets are: no name may
+    /// be declared lexically twice, and no lexically declared name may also be
+    /// var-declared anywhere the list reaches. Where function declarations
+    /// count is [`ScopeKind`]'s whole subject.
+    fn scope(&mut self, statements: &[Stmt], kind: ScopeKind, context: Context) {
+        if self.found.is_some() {
+            return;
+        }
+
+        let functions = function_names(statements);
+        let mut lexical: Vec<Declared> = lexical_names(statements)
+            .into_iter()
+            .map(|name| Declared {
+                name,
+                relaxable: false,
+            })
+            .collect();
+        if kind == ScopeKind::Block {
+            lexical.extend(functions.iter().copied());
+        }
+
+        if let Some(name) = first_illegal_repeat(&lexical, context.strict) {
+            return self.fail(format!(
+                "`{}` is declared twice in the same scope",
+                self.names.text(name)
+            ));
+        }
+
+        let mut vars = Vec::new();
+        var_names(statements, &mut vars);
+        if kind == ScopeKind::VarRoot {
+            vars.extend(functions.iter().map(|declared| declared.name));
+        }
+
+        let names: Vec<Name> = lexical.iter().map(|declared| declared.name).collect();
+        if let Some(name) = first_shared(&names, &vars) {
+            return self.fail(format!(
+                "`{}` is declared both lexically and with `var` in the same scope",
+                self.names.text(name)
+            ));
+        }
+    }
+
+    /// A loop head that declares names, and the body that may not repeat them.
+    ///
+    /// `for (let x of []) { var x; }` is not a program: the head's names are
+    /// lexical and belong to the loop's own scope, which the body is inside —
+    /// so a `var` there, which belongs to the enclosing function, would be two
+    /// bindings of one name in scopes that nest.
+    fn loop_head(&mut self, declared: &[Name], body: &Stmt) {
+        if self.found.is_some() {
+            return;
+        }
+        if let Some(name) = first_repeat(declared) {
+            return self.fail(format!(
+                "`{}` is declared twice in the same `for` head",
+                self.names.text(name)
+            ));
+        }
+        let mut vars = Vec::new();
+        var_names(std::slice::from_ref(body), &mut vars);
+        if let Some(name) = first_shared(declared, &vars) {
+            return self.fail(format!(
+                "`{}` is declared in a `for` head and with `var` in its body",
+                self.names.text(name)
+            ));
+        }
+    }
+
+    /// The whole program, from its top level.
+    pub(super) fn program(&mut self, program: &Program) {
+        let context = Context::top(program);
+        let statements: Vec<Stmt> = program
+            .body
+            .iter()
+            .filter_map(|item| match item {
+                crate::syntax::ModuleItem::Stmt(statement) => Some(statement.clone()),
+                _ => None,
+            })
+            .collect();
+        self.scope(&statements, ScopeKind::VarRoot, context);
+        self.stmts(&statements, context);
+    }
+
     pub(super) fn stmts(&mut self, statements: &[Stmt], context: Context) {
         for statement in statements {
             self.stmt(statement, context);
@@ -206,7 +374,10 @@ impl<'a> Scan<'a> {
                     }
                 }
             }
-            StmtKind::Block(body) => self.stmts(body, context),
+            StmtKind::Block(body) => {
+                self.scope(body, ScopeKind::Block, context);
+                self.stmts(body, context);
+            }
             StmtKind::If {
                 condition,
                 then_branch,
@@ -229,7 +400,14 @@ impl<'a> Scan<'a> {
                 body,
             } => {
                 match init {
-                    Some(ForInit::Declare { bindings, .. }) => {
+                    Some(ForInit::Declare { kind, bindings }) => {
+                        if kind.is_block_scoped() {
+                            let mut declared = Vec::new();
+                            for binding in bindings {
+                                binding.target.bound_names(&mut declared);
+                            }
+                            self.loop_head(&declared, body);
+                        }
                         for binding in bindings {
                             self.pattern(&binding.target, context);
                             if let Some(value) = &binding.value {
@@ -255,9 +433,15 @@ impl<'a> Scan<'a> {
                 ..
             } => {
                 match target {
-                    ForEachTarget::Declare { target, .. } | ForEachTarget::Assign(target) => {
+                    ForEachTarget::Declare { kind, target } => {
+                        if kind.is_block_scoped() {
+                            let mut declared = Vec::new();
+                            target.bound_names(&mut declared);
+                            self.loop_head(&declared, body);
+                        }
                         self.pattern(target, context);
                     }
+                    ForEachTarget::Assign(target) => self.pattern(target, context),
                     ForEachTarget::Dispose { target, .. } => self.name(*target, context),
                 }
                 self.expr(subject, context);
@@ -284,6 +468,14 @@ impl<'a> Scan<'a> {
                 clauses,
             } => {
                 self.expr(subject, context);
+                // The clauses share one scope — a `let` in one case is visible
+                // from the others, and in its temporal dead zone there — so
+                // they are asked the scope question as a single list.
+                let body: Vec<Stmt> = clauses
+                    .iter()
+                    .flat_map(|clause| clause.body.iter().cloned())
+                    .collect();
+                self.scope(&body, ScopeKind::Block, context);
                 for clause in clauses {
                     if let Some(test) = &clause.test {
                         self.expr(test, context);
@@ -303,14 +495,13 @@ impl<'a> Scan<'a> {
                 catch,
                 finally,
             } => {
+                self.scope(body, ScopeKind::Block, context);
                 self.stmts(body, context);
-                if let Some(Catch { binding, body }) = catch {
-                    if let Some(binding) = binding {
-                        self.pattern(binding, context);
-                    }
-                    self.stmts(body, context);
+                if let Some(catch) = catch {
+                    self.catch(catch, context);
                 }
                 if let Some(finally) = finally {
+                    self.scope(finally, ScopeKind::Block, context);
                     self.stmts(finally, context);
                 }
             }
@@ -443,8 +634,26 @@ impl<'a> Scan<'a> {
             ExprKind::Function(function) => self.function(function, context, false),
             ExprKind::Class(class) => self.class(class, context),
 
-            ExprKind::SuperMember { property } => self.key(property, context),
+            // `super` is not an expression that resolves at run time and fails:
+            // outside a method there is no home object for `super.x` to read
+            // from and no parent constructor for `super()` to reach, so the
+            // text does not name anything at all. Which is why it is refused
+            // here rather than compiled into something that throws.
+            ExprKind::SuperMember { property } => {
+                if !context.super_property {
+                    self.found = Some("`super` is only available in a method".to_owned());
+                    return;
+                }
+                self.key(property, context);
+            }
             ExprKind::SuperCall { arguments } => {
+                if !context.super_call {
+                    self.found = Some(
+                        "`super()` is only available in the constructor of a derived class"
+                            .to_owned(),
+                    );
+                    return;
+                }
                 for argument in arguments {
                     self.argument(argument, context);
                 }
@@ -462,6 +671,37 @@ impl<'a> Scan<'a> {
         }
     }
 
+    /// A `catch`, whose binding shares the block's scope.
+    ///
+    /// `try {} catch (e) { let e; }` is an error and `try {} catch (e) { var e; }`
+    /// is not, which is exactly the lexical-versus-var line the scope rules
+    /// already draw — so the binding is folded into the block's lexical names
+    /// rather than checked by a rule of its own.
+    fn catch(&mut self, catch: &Catch, context: Context) {
+        let mut bound = Vec::new();
+        if let Some(binding) = &catch.binding {
+            binding.bound_names(&mut bound);
+            if let Some(name) = first_repeat(&bound) {
+                return self.fail(format!(
+                    "`{}` is bound twice by the same `catch`",
+                    self.names.text(name)
+                ));
+            }
+            self.pattern(binding, context);
+        }
+
+        let lexical = lexical_names(&catch.body);
+        if let Some(name) = first_shared(&bound, &lexical) {
+            return self.fail(format!(
+                "`{}` is declared in a `catch` block that already binds it",
+                self.names.text(name)
+            ));
+        }
+
+        self.scope(&catch.body, ScopeKind::Block, context);
+        self.stmts(&catch.body, context);
+    }
+
     fn argument(&mut self, argument: &crate::syntax::Spreadable, context: Context) {
         match argument {
             crate::syntax::Spreadable::Single(expression)
@@ -475,11 +715,14 @@ impl<'a> Scan<'a> {
                 self.key(key, context);
                 self.expr(value, context);
             }
+            // An object literal's method has a home object too — the object —
+            // so `({ m() { super.toString(); } })` is a program. `super()` is
+            // not: there is no parent constructor anywhere in sight.
             Property::Method { key, function }
             | Property::Getter { key, function }
             | Property::Setter { key, function } => {
                 self.key(key, context);
-                self.function(function, context, false);
+                self.function_as(function, context, false, Home::Method);
             }
             Property::Spread(expression) | Property::Prototype(expression) => {
                 self.expr(expression, context);
@@ -538,7 +781,18 @@ impl<'a> Scan<'a> {
     /// Parameters and body are always the inner context, because that is where
     /// they are read.
     fn function(&mut self, function: &Function, outer: Context, declares_outward: bool) {
-        let inner = outer.inside(function);
+        self.function_as(function, outer, declares_outward, Home::None);
+    }
+
+    /// The same, for a function that is a method of something.
+    fn function_as(
+        &mut self,
+        function: &Function,
+        outer: Context,
+        declares_outward: bool,
+        home: Home,
+    ) {
+        let inner = outer.inside(function, home);
         if let Some(name) = function.name {
             self.name(name, if declares_outward { outer } else { inner });
         }
@@ -551,8 +805,61 @@ impl<'a> Scan<'a> {
         if let Some(rest) = &function.rest_parameter {
             self.pattern(rest, inner);
         }
+        let mut parameters: Vec<Name> = Vec::new();
+        for parameter in &function.parameters {
+            parameter.target.bound_names(&mut parameters);
+        }
+        if let Some(rest) = &function.rest_parameter {
+            rest.bound_names(&mut parameters);
+        }
+
+        // Two parameters of one name are legal in exactly one shape: an
+        // ordinary sloppy function whose parameter list is simple. Everything
+        // else takes UniqueFormalParameters — an arrow, a method, a class
+        // member — and so does any list with a default, a pattern or a rest,
+        // because the second binding would have to be initialised twice.
+        let unique_required = inner.strict
+            || function.captures_this
+            || home != Home::None
+            || !function.has_simple_parameter_list();
+        if unique_required
+            && let Some(name) = first_repeat(&parameters)
+        {
+            return self.fail(format!(
+                "`{}` is a parameter twice, where every parameter must be distinct",
+                self.names.text(name)
+            ));
+        }
+
+        // `"use strict"` is refused rather than ignored on a non-simple list.
+        // The directive would decide how the defaults are evaluated, and they
+        // are evaluated before the body the directive is written in — so the
+        // language forbids the question instead of answering it.
+        if !function.has_simple_parameter_list()
+            && function.directives.iter().any(|d| d.is_use_strict())
+        {
+            return self.fail(
+                "a function with a default, a pattern or a rest parameter cannot declare \
+                 `\"use strict\"`"
+                    .to_owned(),
+            );
+        }
+
         match &function.body {
-            FunctionBody::Block(body) => self.stmts(body, inner),
+            FunctionBody::Block(body) => {
+                // A parameter and a `let` of the same name collide, always —
+                // unlike two parameters of the same name, which the rule above
+                // allows in a sloppy function with a simple list.
+                let lexical = lexical_names(body);
+                if let Some(name) = first_shared(&parameters, &lexical) {
+                    return self.fail(format!(
+                        "`{}` is a parameter and is declared again in the body",
+                        self.names.text(name)
+                    ));
+                }
+                self.scope(body, ScopeKind::VarRoot, inner);
+                self.stmts(body, inner);
+            }
             FunctionBody::Expression(value) => self.expr(value, inner),
         }
     }
@@ -595,13 +902,30 @@ impl<'a> Scan<'a> {
                 .collect(),
         );
 
-        let initialiser = Context::static_block();
+        // Everything from here down is inside the body, which is strict code
+        // however the surrounding program is written.
+        let inside = Context {
+            strict: true,
+            ..outer
+        };
+        let initialiser = inside.static_block();
         for element in &class.body {
             if let Some(ClassKey::Public(key)) = element.key() {
                 self.key(key, outer);
             }
             match element {
-                ClassElement::Method(method) => self.function(&method.function, outer, false),
+                ClassElement::Method(method) => {
+                    // Only the constructor of a class that extends something
+                    // may call `super()`. A method of the same class may not:
+                    // the parent constructor runs once, when the object is
+                    // made, and a method runs on one that already exists.
+                    let home = if method.is_constructor(self.names) && class.heritage.is_some() {
+                        Home::DerivedConstructor
+                    } else {
+                        Home::Method
+                    };
+                    self.function_as(&method.function, inside, false, home);
+                }
                 ClassElement::Field(field) => {
                     if let Some(value) = &field.value {
                         self.expr(value, initialiser);

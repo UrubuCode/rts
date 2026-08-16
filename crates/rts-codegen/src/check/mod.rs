@@ -21,16 +21,23 @@
 //! switch has — and a set is not a node either. The walk builds the set the rule
 //! is about and asks its question once, which is why each rule is stated in one
 //! function and none of them is spread across the bridge.
+//!
+//! # One walk, and why it used to be two
+//!
+//! The scope rules had a traversal of their own, over statement lists, beside
+//! the one that carries a context to every identifier. It looked like a clean
+//! split and it had a hole exactly the size of an expression: nothing descended
+//! into a function *expression*, so `(function () { let x; let x; })` was never
+//! asked the question, and neither was any method of any class. The rules are
+//! the same rules; only the walk that reached them was missing, so they moved
+//! onto the walk that already reaches everything.
 
 mod class;
 mod deep;
 mod scope;
-mod walk;
 
 use crate::names::Names;
 use crate::syntax::Program;
-
-pub(crate) use walk::Checker;
 
 /// What a program may not be, and where it said it.
 pub(crate) struct EarlyError {
@@ -46,29 +53,10 @@ pub(crate) struct EarlyError {
 /// not exist yet — and adding it later is a change to this signature, not to any
 /// rule below it.
 pub(crate) fn check(program: &Program, names: &Names) -> Result<(), EarlyError> {
-    let mut checker = Checker::new(names);
-    checker.program(program);
-    if let Some(error) = checker.finish() {
-        return Err(error);
-    }
-
-    // A separate walk, deliberately. The scope rules ask about statement lists
-    // and never look inside an expression; this one visits every identifier in
-    // the program and carries a context down. Folding them together would make
-    // one traversal that has to remember which half it is doing.
-    let statements: Vec<_> = program
-        .body
-        .iter()
-        .filter_map(|item| match item {
-            crate::syntax::ModuleItem::Stmt(statement) => Some(statement.clone()),
-            _ => None,
-        })
-        .collect();
     let mut scan = deep::Scan::new(names);
-    scan.stmts(&statements, deep::Context::sloppy());
-    if let Some(message) = scan.finish() {
-        return Err(EarlyError { message });
+    scan.program(program);
+    match scan.finish() {
+        Some(message) => Err(EarlyError { message }),
+        None => Ok(()),
     }
-
-    Ok(())
 }

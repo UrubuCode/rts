@@ -16,14 +16,29 @@
 use crate::names::Name;
 use crate::syntax::{Binding, ForEachTarget, ForInit, Stmt, StmtKind};
 
+/// A name a statement list declares, and whether it may be declared twice.
+///
+/// The flag exists for exactly one production. Annex B's web compatibility
+/// semantics let a *plain* function declaration be repeated in a block in
+/// sloppy code — `{ function f() {} function f() {} }` runs everywhere — and
+/// nothing else in the language is repeatable. A generator, an async function,
+/// a `let` or a `class` of the same name is an error, and so is a plain
+/// function beside any of them.
+#[derive(Clone, Copy)]
+pub(super) struct Declared {
+    /// What it is called.
+    pub(super) name: Name,
+    /// Whether Annex B lets this one share its name with another like it.
+    pub(super) relaxable: bool,
+}
+
 /// The names a statement list declares lexically.
 ///
-/// Function declarations are deliberately absent. In a block in sloppy code they
-/// are lexical, hoisted, *and* additionally var-declared by Annex B's web
-/// compatibility semantics, under which two of them in one block is legal — so
-/// counting them here would refuse programs that run everywhere. That rule is
-/// worth stating separately, with its conditions, rather than smuggled into this
-/// one.
+/// Function declarations are deliberately absent *here* and added by the
+/// caller, because whether one is lexical depends on where the list is: in a
+/// block it is, at the top of a script or a function body it is var-declared
+/// instead. A function that could not tell those apart would have to guess, and
+/// the two answers refuse different programs.
 pub(super) fn lexical_names(statements: &[Stmt]) -> Vec<Name> {
     let mut names = Vec::new();
     for statement in statements {
@@ -125,6 +140,48 @@ fn bind_all(bindings: &[Binding], names: &mut Vec<Name>) {
     for binding in bindings {
         binding.target.bound_names(names);
     }
+}
+
+/// The function declarations a statement list makes, in source order.
+///
+/// Reaches through a label, because `l: function f() {}` declares `f` exactly
+/// as the unlabelled form does — the label names the statement, not the
+/// function.
+pub(super) fn function_names(statements: &[Stmt]) -> Vec<Declared> {
+    let mut declared = Vec::new();
+    for statement in statements {
+        match &statement.kind {
+            StmtKind::Function(function) => {
+                if let Some(name) = function.name {
+                    declared.push(Declared {
+                        name,
+                        relaxable: !function.is_generator && !function.is_async,
+                    });
+                }
+            }
+            StmtKind::Labelled { body, .. } => {
+                declared.extend(function_names(std::slice::from_ref(body)));
+            }
+            _ => {}
+        }
+    }
+    declared
+}
+
+/// The first name declared twice in a way the language does not allow.
+///
+/// Two plain function declarations are the one exception, and they are only an
+/// exception in sloppy code — which is why `strict` is a parameter rather than
+/// a constant. In strict code Annex B does not apply and a repeat is a repeat.
+pub(super) fn first_illegal_repeat(declared: &[Declared], strict: bool) -> Option<Name> {
+    for (index, entry) in declared.iter().enumerate() {
+        if let Some(earlier) = declared[..index].iter().find(|d| d.name == entry.name)
+            && (strict || !earlier.relaxable || !entry.relaxable)
+        {
+            return Some(entry.name);
+        }
+    }
+    None
 }
 
 /// The first name that appears twice, if any.

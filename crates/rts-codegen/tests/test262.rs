@@ -219,6 +219,26 @@ fn the_front_end_reads_test262() {
 
     check_checkout_is_complete(Path::new(&root), files.len());
 
+    // A substring of the relative path, for working on one rule at a time. The
+    // full corpus is minutes in a debug build, and a rule about `switch` is
+    // answered by the `switch` directory — so iterating on the whole thing
+    // means most of the wait measures code the change cannot reach.
+    //
+    // Deliberately applied AFTER the completeness check, so a filtered run
+    // still refuses a short checkout: a subset of a corpus is a legitimate
+    // thing to measure, a subset of an unknown corpus is not.
+    let only = std::env::var("RTS_TEST262_ONLY").ok();
+    if let Some(fragment) = &only {
+        files.retain(|path| path.display().to_string().replace('\\', "/").contains(fragment));
+        println!("note: filtered to {} files matching {fragment:?}", files.len());
+    }
+
+    // Every verdict, one line each, for comparing two runs PER FILE. The
+    // printed report groups by rule, which says what to write next and nothing
+    // about what a change cost: a count that moves by −3 is equally consistent
+    // with three fixed and with five fixed against two broken.
+    let mut report = String::new();
+
     let mut tally = Tally::default();
     let mut considered = 0usize;
 
@@ -260,6 +280,25 @@ fn the_front_end_reads_test262() {
 
         let must_fail_to_parse = meta.negative_phase.as_deref() == Some("parse");
 
+        let relative = path
+            .strip_prefix(&language)
+            .unwrap_or(path)
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let verdict = match (&result, must_fail_to_parse) {
+            (Ok(_), false) | (Err(ParseError::Syntax(_)), true) => "ok",
+            (Err(ParseError::Unsupported { .. }), _) => "unsupported",
+            (Err(ParseError::Syntax(_)), false) => "rejected",
+            (Ok(_), true) => "accepted",
+        };
+        let detail = match &result {
+            Err(ParseError::Syntax(message)) => message.replace('\t', " "),
+            Err(ParseError::Unsupported { construct, .. }) => (*construct).to_owned(),
+            Ok(_) => String::new(),
+        };
+        report.push_str(&format!("{verdict}\t{relative}\t{detail}\n"));
+
         match (&result, must_fail_to_parse) {
             // Correctly read a valid program.
             (Ok(_), false) => tally.correct += 1,
@@ -285,11 +324,7 @@ fn the_front_end_reads_test262() {
                     .or_insert_with(|| (0, String::new()));
                 entry.0 += 1;
                 if entry.1.is_empty() {
-                    entry.1 = path
-                        .strip_prefix(&language)
-                        .unwrap_or(path)
-                        .display()
-                        .to_string();
+                    entry.1 = relative.clone();
                 }
             }
 
@@ -298,20 +333,10 @@ fn the_front_end_reads_test262() {
             // says does not exist.
             (Ok(_), true) => {
                 tally.wrongly_accepted += 1;
-                let relative = path.strip_prefix(&language).unwrap_or(path);
-                let area: Vec<_> = relative
-                    .components()
-                    .take(2)
-                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
-                    .collect();
+                let area: Vec<_> = relative.split('/').take(2).collect();
                 *tally.acceptance_areas.entry(area.join("/")).or_default() += 1;
                 if tally.acceptance_examples.len() < 15 {
-                    tally.acceptance_examples.push(
-                        path.strip_prefix(&language)
-                            .unwrap_or(path)
-                            .display()
-                            .to_string(),
-                    );
+                    tally.acceptance_examples.push(relative.clone());
                 }
             }
         }
@@ -369,9 +394,16 @@ fn the_front_end_reads_test262() {
     }
     println!();
 
+    if let Ok(destination) = std::env::var("RTS_TEST262_REPORT") {
+        fs::write(&destination, &report).expect("could not write the report");
+        println!("per-file verdicts written to {destination}");
+    }
+
     // No threshold asserted. A number that a test can fail on becomes a number
     // people tune, and this one is here to be read.
-    assert!(considered > 1000, "the corpus looks truncated");
+    if only.is_none() {
+        assert!(considered > 1000, "the corpus looks truncated");
+    }
 }
 
 #[test]

@@ -284,3 +284,68 @@ fn import_cannot_be_used_with_new() {
 
     accepted("import('./a.js');");
 }
+
+#[test]
+fn a_function_declared_in_a_block_is_a_lexical_name() {
+    // Which is why it collides with everything a block declares lexically, and
+    // with a `var` of the same name anywhere the block reaches.
+    assert!(refused("{ function f() {} let f; }").contains("declared twice"));
+    assert!(refused("{ class f {} function f() {} }").contains("declared twice"));
+    assert!(refused("{ function f() {} var f; }").contains("lexically and with `var`"));
+    assert!(refused("{ function f() {} { var f; } }").contains("lexically and with `var`"));
+
+    // At the top of a script it is var-declared instead, and `var` beside it is
+    // one binding declared twice rather than two bindings of one name.
+    accepted("function f() {} var f;");
+    // Annex B: two plain function declarations in one block run everywhere.
+    accepted("{ function f() {} function f() {} }");
+    // The relaxation is for plain functions only — a generator is not one.
+    assert!(refused("{ function f() {} function* f() {} }").contains("declared twice"));
+    // Nor does it survive strict code, where Annex B does not apply.
+    assert!(
+        refused("'use strict'; { function f() {} function f() {} }").contains("declared twice")
+    );
+}
+
+#[test]
+fn super_is_only_available_where_there_is_something_to_reach() {
+    assert!(refused("function f() { super(); }").contains("derived class"));
+    assert!(refused("function f() { super.x; }").contains("only available in a method"));
+    assert!(refused("class C { m() { super(); } }").contains("derived class"));
+    assert!(refused("class C extends B { m() { super(); } }").contains("derived class"));
+    // A field initialiser runs after the parent constructor already has.
+    assert!(refused("class C extends B { x = super(); }").contains("derived class"));
+
+    // An object literal's method has a home object, so `super.x` reads from it.
+    accepted("({ m() { super.toString(); } });");
+    accepted("class C extends B { constructor() { super(); } }");
+    // An arrow has no `super` of its own, so it keeps the one it was written in.
+    accepted("class C extends B { constructor() { (() => super())(); } }");
+    accepted("class C extends B { static { super.x; } }");
+}
+
+#[test]
+fn a_parameter_is_repeatable_only_in_a_sloppy_function_with_a_simple_list() {
+    accepted("function f(a, a) {}");
+    assert!(refused("'use strict'; function f(a, a) {}").contains("parameter twice"));
+    assert!(refused("function f(a, a = 1) {}").contains("parameter twice"));
+    assert!(refused("(a, a) => a;").contains("parameter twice"));
+    assert!(refused("({ m(a, a) {} });").contains("parameter twice"));
+    assert!(refused("class C { m(a, a) {} }").contains("parameter twice"));
+}
+
+#[test]
+fn a_loop_head_and_its_body_do_not_declare_one_name_twice() {
+    assert!(refused("for (let x; false; ) { var x; }").contains("`for` head"));
+    assert!(refused("for (const x of []) { var x; }").contains("`for` head"));
+    // A `var` head is one binding, not two, and the body may name it again.
+    accepted("for (var x; false; ) { var x; }");
+}
+
+#[test]
+fn a_function_expression_body_is_checked_like_any_other() {
+    // It is reached through an expression, which the scope rules did not visit
+    // when they had a walk of their own.
+    assert!(refused("(function () { let x; let x; });").contains("declared twice"));
+    assert!(refused("class C { m() { let x; var x; } }").contains("lexically and with `var`"));
+}

@@ -143,13 +143,10 @@ pub(crate) fn expr(cx: &mut Cx, node: &swc::Expr) -> Result<Expr> {
         swc::Expr::New(new) => ExprKind::New {
             // `new import('')` is an error and `new (import(''))` is a valid
             // program: the parentheses make it a MemberExpression, which is
-            // what `new` needs. The bridge deletes parentheses -- they change
-            // nothing else -- so the two arrive identical, and the rule can
-            // only be asked here, one step before that happens.
+            // what `new` needs. See [`reaches_an_import_call`] for why the
+            // question can only be asked here.
             callee: {
-                if matches!(&*new.callee, swc::Expr::Call(call)
-                    if matches!(call.callee, swc::Callee::Import(_)))
-                {
+                if reaches_an_import_call(&new.callee) {
                     return Err(ParseError::Syntax(
                         "`import()` cannot be the callee of `new` unless it is parenthesised"
                             .to_owned(),
@@ -610,4 +607,30 @@ fn assign_op(op: swc::AssignOp, at: rts_cranelift::fault::Position) -> Result<As
             }
         }
     })
+}
+
+/// Whether a `new` callee bottoms out in an `import()` call.
+///
+/// `new` takes a MemberExpression, and `import()` is not one — so `new
+/// import('')` is not a program. Neither is `new import('').prop`, because the
+/// member chain is only as valid as the thing it starts from, which is why this
+/// peels the chain rather than looking at the callee alone.
+///
+/// It stops at parentheses on purpose. `new (import('')).prop` *is* a program:
+/// a parenthesised expression is a PrimaryExpression and therefore a legal
+/// MemberExpression. SWC keeps `Expr::Paren`, and everything downstream of the
+/// bridge drops it — so this is the last point at which the two spellings are
+/// still distinguishable, and the only place the rule can be asked.
+fn reaches_an_import_call(callee: &swc::Expr) -> bool {
+    match callee {
+        swc::Expr::Call(call) => matches!(call.callee, swc::Callee::Import(_)),
+        swc::Expr::Member(member) => reaches_an_import_call(&member.obj),
+        // `new import('')?.prop` — optional chaining does not change what the
+        // chain starts from.
+        swc::Expr::OptChain(chain) => match &*chain.base {
+            swc::OptChainBase::Member(member) => reaches_an_import_call(&member.obj),
+            swc::OptChainBase::Call(call) => reaches_an_import_call(&call.callee),
+        },
+        _ => false,
+    }
 }
