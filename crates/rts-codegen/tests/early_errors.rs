@@ -399,3 +399,69 @@ fn a_reserved_word_escaped_into_an_identifier_is_still_reserved() {
     accepted("var private = 1;");
     refused("'use strict'; var private = 1;");
 }
+
+#[test]
+fn a_private_name_is_declared_once_by_a_class_body() {
+    assert!(refused("class C { #x; #x; }").contains("declared twice"));
+    assert!(refused("class C { #m; #m() {} }").contains("declared twice"));
+    assert!(refused("class C { get #m() {} get #m() {} }").contains("declared twice"));
+    // Different objects, and still one binding of the name.
+    assert!(refused("class C { static #m; #m() {} }").contains("declared twice"));
+
+    // The one pair that describes a single member.
+    accepted("class C { get #m() {} set #m(v) {} }");
+    accepted("class C { static get #m() {} static set #m(v) {} }");
+    // And a public name of the same spelling is a different thing entirely.
+    accepted("class C { #m; m; }");
+}
+
+/// A module is a different scope from a script, and has a rule a script has not.
+mod modules {
+    use rts_codegen::names::Names;
+    use rts_codegen::parse::{ParseError, parse_module};
+
+    #[track_caller]
+    fn refused(source: &str) -> String {
+        let mut names = Names::new();
+        match parse_module(source, &mut names) {
+            Err(ParseError::Syntax(message)) => message,
+            other => panic!("{source:?} was not refused: {other:?}"),
+        }
+    }
+
+    #[track_caller]
+    fn accepted(source: &str) {
+        let mut names = Names::new();
+        if let Err(error) = parse_module(source, &mut names) {
+            panic!("{source:?} is a valid module and was refused: {error}");
+        }
+    }
+
+    #[test]
+    fn a_function_at_the_top_of_a_module_is_a_lexical_name() {
+        // The same two lines are a program in a script, where a top-level
+        // function declaration is var-declared instead.
+        assert!(refused("var f; function f() {}").contains("lexically and with `var`"));
+        assert!(refused("function x() {} async function x() {}").contains("declared twice"));
+        assert!(refused("export function f() {} export function* f() {}").contains("twice"));
+        assert!(refused("class F {} export default function F() {}").contains("twice"));
+    }
+
+    #[test]
+    fn an_import_binds_a_lexical_name_of_the_module() {
+        assert!(refused("import x from './m.js'; let x;").contains("declared twice"));
+        accepted("import x from './m.js'; { let x; }");
+    }
+
+    #[test]
+    fn no_name_is_exported_twice() {
+        assert!(refused("var x; export { x }; export { x };").contains("exported twice"));
+        assert!(refused("var x, y; export { x as z }; export { y as z };").contains("exported"));
+        assert!(refused("var x, y; export default x; export { y as default };").contains("default"));
+
+        // `export *` forwards names this module cannot know, so it can never be
+        // found to collide here.
+        accepted("export * from './m.js'; export * from './n.js';");
+        accepted("var x, y; export { x }; export { y as z };");
+    }
+}

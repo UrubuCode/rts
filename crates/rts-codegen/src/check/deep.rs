@@ -290,17 +290,33 @@ impl<'a> Scan<'a> {
     /// var-declared anywhere the list reaches. Where function declarations
     /// count is [`ScopeKind`]'s whole subject.
     fn scope(&mut self, statements: &[Stmt], kind: ScopeKind, context: Context) {
+        self.scope_with(statements, kind, &[], context);
+    }
+
+    /// The same, plus names declared by something that is not a statement.
+    ///
+    /// Only a module has any: its imports bind names at the top level while
+    /// being module items rather than statements, so a rule that read the
+    /// statement list alone would not see them collide with anything.
+    fn scope_with(
+        &mut self,
+        statements: &[Stmt],
+        kind: ScopeKind,
+        extra: &[Declared],
+        context: Context,
+    ) {
         if self.found.is_some() {
             return;
         }
 
         let functions = function_names(statements);
-        let mut lexical: Vec<Declared> = lexical_names(statements)
-            .into_iter()
-            .map(|name| Declared {
+        let mut lexical: Vec<Declared> = extra
+            .iter()
+            .copied()
+            .chain(lexical_names(statements).into_iter().map(|name| Declared {
                 name,
                 relaxable: false,
-            })
+            }))
             .collect();
         if kind == ScopeKind::Block {
             lexical.extend(functions.iter().copied());
@@ -395,17 +411,23 @@ impl<'a> Scan<'a> {
     }
 
     /// The whole program, from its top level.
+    ///
+    /// A module's top level takes the block's rule rather than the script's: a
+    /// function declared there is a lexical name, so `function f() {} var f;`
+    /// is a program in a script and is not one in a module.
     pub(super) fn program(&mut self, program: &Program) {
         let context = Context::top(program);
-        let statements: Vec<Stmt> = program
-            .body
-            .iter()
-            .filter_map(|item| match item {
-                crate::syntax::ModuleItem::Stmt(statement) => Some(statement.clone()),
-                _ => None,
-            })
-            .collect();
-        self.scope(&statements, ScopeKind::VarRoot, context);
+        let statements = super::module::statements(program);
+        let (kind, extra) = if program.goal == Goal::Module {
+            (ScopeKind::Block, super::module::imported_names(program))
+        } else {
+            (ScopeKind::VarRoot, Vec::new())
+        };
+
+        if let Some(message) = super::module::duplicate_export(program, self.names) {
+            return self.fail(message);
+        }
+        self.scope_with(&statements, kind, &extra, context);
         self.stmts(&statements, context);
     }
 

@@ -16,11 +16,15 @@
 //! - `#constructor` is reserved outright, so that no private name can be made to
 //!   look like the one member that is not a property at all.
 
-use crate::names::Names;
+use crate::names::{Name, Names};
 use crate::syntax::{Class, ClassElement, ClassKey, MethodKind, PropertyKey};
 
 /// Check one class body, and say what is wrong with it.
 pub(super) fn check(class: &Class, names: &Names) -> Option<String> {
+    if let Some(message) = private_names_are_declared_once(class, names) {
+        return Some(message);
+    }
+
     let mut constructors = 0;
 
     for element in &class.body {
@@ -94,4 +98,71 @@ fn static_text<'a>(key: &ClassKey, names: &'a Names) -> Option<&'a str> {
         ClassKey::Public(PropertyKey::Named(name)) => Some(names.text(*name)),
         ClassKey::Public(PropertyKey::Computed(_)) | ClassKey::Private(_) => None,
     }
+}
+
+/// No private name is declared twice, with one exception.
+///
+/// A private name is not a property key: it is a binding of the class body, so
+/// two of them is two bindings of one name and nothing decides which `this.#m`
+/// means. The exception is the pair the language builds one accessor out of —
+/// a `get #m` beside a `set #m`, both static or both not — because those two
+/// declarations describe a single member.
+///
+/// `static #m` beside `#m` is *not* that pair. They live on different objects,
+/// which sounds like it should make them independent, and the specification
+/// refuses it anyway: the name is bound once for the whole body.
+fn private_names_are_declared_once(class: &Class, names: &Names) -> Option<String> {
+    /// One private declaration, in the terms the rule is written in.
+    struct Bound {
+        name: Name,
+        /// `None` for a field, which is not any kind of method.
+        kind: Option<MethodKind>,
+        statically: bool,
+    }
+
+    let declared: Vec<Bound> = class
+        .body
+        .iter()
+        .filter_map(|element| match element {
+            ClassElement::Method(method) => match &method.key {
+                ClassKey::Private(name) => Some(Bound {
+                    name: *name,
+                    kind: Some(method.kind),
+                    statically: method.is_static,
+                }),
+                ClassKey::Public(_) => None,
+            },
+            ClassElement::Field(field) => match &field.key {
+                ClassKey::Private(name) => Some(Bound {
+                    name: *name,
+                    kind: None,
+                    statically: field.is_static,
+                }),
+                ClassKey::Public(_) => None,
+            },
+            ClassElement::StaticBlock(_) => None,
+        })
+        .collect();
+
+    for (index, bound) in declared.iter().enumerate() {
+        let Some(earlier) = declared[..index]
+            .iter()
+            .find(|other| other.name == bound.name)
+        else {
+            continue;
+        };
+        let accessor_pair = earlier.statically == bound.statically
+            && matches!(
+                (earlier.kind, bound.kind),
+                (Some(MethodKind::Getter), Some(MethodKind::Setter))
+                    | (Some(MethodKind::Setter), Some(MethodKind::Getter))
+            );
+        if !accessor_pair {
+            return Some(format!(
+                "`{}` is declared twice by the same class body",
+                names.text(bound.name)
+            ));
+        }
+    }
+    None
 }

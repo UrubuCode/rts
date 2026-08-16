@@ -34,6 +34,7 @@
 
 mod class;
 mod deep;
+mod module;
 mod scope;
 
 use crate::names::Names;
