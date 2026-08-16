@@ -344,7 +344,7 @@ impl Reader<'_> {
                 }
             }
         }
-        if !is_identifier_text(&name) {
+        if !is_group_name(&name) {
             self.fail("a group name is not an identifier");
             return None;
         }
@@ -490,7 +490,7 @@ impl Reader<'_> {
                 }
             }
         }
-        if !is_identifier_text(&name) {
+        if !is_group_name(&name) {
             return self.fail("a group name is not an identifier");
         }
         self.referenced.push(name);
@@ -684,21 +684,94 @@ impl Reader<'_> {
 
 /// Whether the text between `<` and `>` is a legal group name.
 ///
-/// Deliberately not the full `IdentifierName` grammar with escapes: what is
-/// checked is that it starts with something a name may start with and contains
-/// nothing obviously outside one. A name this accepts and the specification
-/// does not is an accepted invalid program, which is the direction this module
-/// errs in on purpose.
-fn is_identifier_text(name: &str) -> bool {
-    let mut characters = name.chars();
+/// The escapes are decoded first, because a group name may be written with
+/// them and the rule is about what they *stand for*: `(?<a\u{1F08B}>x)` is
+/// refused for the code point, not for the backslash. Decoding is also what
+/// catches a lone surrogate — `\uD801` alone is half of nothing — and a
+/// backslash that starts no escape at all, which is what `(?<a\>x)` is.
+///
+/// The category test is an approximation of `ID_Start`/`ID_Continue`:
+/// alphanumeric, plus the two characters every identifier grammar adds and the
+/// two zero-width joiners. A name it accepts and the specification does not is
+/// an accepted invalid program, which is the direction this module errs in.
+fn is_group_name(name: &str) -> bool {
+    let Some(decoded) = decode_escapes(name) else {
+        return false;
+    };
+    let mut characters = decoded.chars();
     let Some(first) = characters.next() else {
         return false;
     };
-    if !(first.is_alphabetic() || first == '_' || first == '$' || first == '\\') {
+    if !(first.is_alphabetic() || first == '_' || first == '$') {
         return false;
     }
-    characters
-        .all(|c| c.is_alphanumeric() || c == '_' || c == '$' || c == '\\' || c == '{' || c == '}')
+    characters.all(|c| {
+        c.is_alphanumeric() || c == '_' || c == '$' || c == '\u{200c}' || c == '\u{200d}'
+    })
+}
+
+/// The text a name stands for, or `None` if an escape in it is not one.
+fn decode_escapes(name: &str) -> Option<String> {
+    let text: Vec<char> = name.chars().collect();
+    let mut out = String::new();
+    let mut at = 0;
+    while at < text.len() {
+        if text[at] != '\u{5c}' {
+            out.push(text[at]);
+            at += 1;
+            continue;
+        }
+        // Only `\u` is an escape in a name. Anything else is a backslash where
+        // no backslash may be.
+        if text.get(at + 1) != Some(&'u') {
+            return None;
+        }
+        at += 2;
+        let value = if text.get(at) == Some(&'{') {
+            at += 1;
+            let start = at;
+            let mut value: u32 = 0;
+            while let Some(digit) = text.get(at).and_then(|c| c.to_digit(16)) {
+                at += 1;
+                value = value.checked_mul(16)?.checked_add(digit)?;
+            }
+            if at == start || text.get(at) != Some(&'}') {
+                return None;
+            }
+            at += 1;
+            value
+        } else {
+            let value = four_hex(&text, at)?;
+            at += 4;
+            // A high surrogate is half a code point, and the other half has to
+            // be the next escape — not the next character, which is why this
+            // reads the pair here rather than letting `char::from_u32` fail.
+            if (0xD800..0xDC00).contains(&value) {
+                if text.get(at) != Some(&'\u{5c}') || text.get(at + 1) != Some(&'u') {
+                    return None;
+                }
+                let low = four_hex(&text, at + 2)?;
+                if !(0xDC00..0xE000).contains(&low) {
+                    return None;
+                }
+                at += 6;
+                0x1_0000 + ((value - 0xD800) << 10) + (low - 0xDC00)
+            } else {
+                value
+            }
+        };
+        out.push(char::from_u32(value)?);
+    }
+    Some(out)
+}
+
+/// Four hexadecimal digits at a position, as a number.
+fn four_hex(text: &[char], at: usize) -> Option<u32> {
+    let mut value = 0;
+    for offset in 0..4 {
+        value = value * 16 + text.get(at + offset)?.to_digit(16)?;
+    }
+    Some(value)
 }
 
 /// Whether a character may follow a backslash and mean itself.

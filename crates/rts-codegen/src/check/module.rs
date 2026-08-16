@@ -69,6 +69,68 @@ pub(super) fn imported_names(program: &Program) -> Vec<Declared> {
     names
 }
 
+/// The first `with { … }` clause that gives one key twice.
+///
+/// The keys arrive decoded, which is the whole reason this is checkable here:
+/// `type` and `type` are one key written two ways, and a rule reading the
+/// source would have to decode them to find that out.
+pub(super) fn duplicate_attribute(program: &Program) -> Option<String> {
+    for item in &program.body {
+        let attributes = match item {
+            ModuleItem::Import(import) => &import.attributes,
+            ModuleItem::Export(Export {
+                kind:
+                    ExportKind::Named { attributes, .. } | ExportKind::All { attributes, .. },
+                ..
+            }) => attributes,
+            _ => continue,
+        };
+        for (index, attribute) in attributes.iter().enumerate() {
+            if attributes[..index]
+                .iter()
+                .any(|earlier| earlier.key == attribute.key)
+            {
+                return Some(format!("`{}` is given twice in one `with`", attribute.key));
+            }
+        }
+    }
+    None
+}
+
+/// An `export { x }` that names nothing this module declares.
+///
+/// Only the form without a source: `export { x } from "m"` forwards a name the
+/// other module answers for, and this one never sees it. Without a source the
+/// name has to be something here, and if it is not there is nothing to export —
+/// which the specification makes a syntax error rather than an export of
+/// `undefined`.
+pub(super) fn unresolvable_export(program: &Program, declared: &[String]) -> Option<String> {
+    for item in &program.body {
+        let ModuleItem::Export(Export {
+            kind:
+                ExportKind::Named {
+                    specifiers,
+                    source: None,
+                    ..
+                },
+            ..
+        }) = item
+        else {
+            continue;
+        };
+        if let Some(specifier) = specifiers
+            .iter()
+            .find(|specifier| !declared.contains(&specifier.local))
+        {
+            return Some(format!(
+                "`{}` is exported and never declared",
+                specifier.local
+            ));
+        }
+    }
+    None
+}
+
 /// The first name exported twice, if any.
 ///
 /// The name compared is the *exported* one — what the outside sees — which is

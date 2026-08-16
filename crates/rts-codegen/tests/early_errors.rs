@@ -483,8 +483,8 @@ fn a_using_declaration_needs_a_scope_that_ends() {
 fn eval_and_arguments_cannot_be_bound_in_strict_code() {
     // The directive is inside the body and the name is outside it: the language
     // reads the body first, so this is decided by the function's own strictness.
-    assert!(refused("function eval() { 'use strict'; }").contains("cannot be bound"));
-    assert!(refused("function f(arguments) { 'use strict'; }").contains("cannot be bound"));
+    assert!(refused("function eval() { 'use strict'; }").contains("cannot be assigned to or bound"));
+    assert!(refused("function f(arguments) { 'use strict'; }").contains("cannot be assigned to or bound"));
     // Reading them is not binding them.
     accepted("'use strict'; eval('1'); function f() { return arguments; }");
     accepted("function eval() {}");
@@ -500,4 +500,25 @@ fn a_strict_prologue_cannot_contain_a_legacy_octal_escape() {
     );
     // The same string in a sloppy function is an ordinary escape.
     accepted(&format!("function f() {{ \"{octal}\"; }}"));
+}
+
+#[test]
+fn a_class_static_block_is_a_scope_of_its_own() {
+    // It was walked and never asked the scope question, which is the shape of
+    // hole a second traversal leaves.
+    assert!(refused("class C { static { let x; let x; } }").contains("declared twice"));
+    assert!(refused("class C { static { let x; var x; } }").contains("lexically and with `var`"));
+    // Its `var` belongs to the block, so it does not reach out.
+    accepted("class C { static { var x; } } var x;");
+}
+
+#[test]
+fn an_object_has_at_most_one_proto_setter() {
+    assert!(refused("({ __proto__: null, other: 1, '__proto__': null });").contains("twice"));
+    // Every other repeated key is legal, and the last one wins.
+    accepted("({ a: 1, a: 2 });");
+    // And these two do not set the prototype at all, so there is nothing to
+    // have twice.
+    accepted("({ ['__proto__']: 1, ['__proto__']: 2 });");
+    accepted("var __proto__ = 1; ({ __proto__, __proto__ });");
 }

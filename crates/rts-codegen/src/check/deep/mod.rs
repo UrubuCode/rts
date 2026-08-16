@@ -282,6 +282,25 @@ impl<'a> Scan<'a> {
         }
     }
 
+    /// A name in a position that *binds* or *assigns to* it.
+    ///
+    /// Strict mode takes `eval` and `arguments` away from both, and from
+    /// neither as a reference — `eval("1")` is a call and `let eval` is not a
+    /// program. One rule for the two positions because the language gives one:
+    /// what it refuses is the name being a target, however it got there.
+    fn bound_name(&mut self, name: Name, context: Context) {
+        if self.found.is_none()
+            && context.strict
+            && matches!(self.names.text(name), "eval" | "arguments")
+        {
+            return self.fail(format!(
+                "`{}` cannot be assigned to or bound in strict code",
+                self.names.text(name)
+            ));
+        }
+        self.name(name, context);
+    }
+
     fn fail(&mut self, message: String) {
         if self.found.is_none() {
             self.found = Some(message);
@@ -303,8 +322,42 @@ impl<'a> Scan<'a> {
             (ScopeKind::VarRoot, Vec::new())
         };
 
+        // An `import` or an `export` at the top of a script is not a statement
+        // the host ignores — a script has no module record for either to mean
+        // anything against, so the text is not a program.
+        if program.goal == Goal::Script
+            && program
+                .body
+                .iter()
+                .any(|item| !matches!(item, crate::syntax::ModuleItem::Stmt(_)))
+        {
+            return self
+                .fail("`import` and `export` need a module rather than a script".to_owned());
+        }
+
         if let Some(message) = super::module::duplicate_export(program, self.names) {
             return self.fail(message);
+        }
+        if let Some(message) = super::module::duplicate_attribute(program) {
+            return self.fail(message);
+        }
+        if program.goal == Goal::Module {
+            let mut visible: Vec<String> = extra
+                .iter()
+                .map(|declared| self.names.text(declared.name).to_owned())
+                .collect();
+            let mut bound = Vec::new();
+            crate::check::scope::var_names(&statements, &mut bound);
+            bound.extend(crate::check::scope::lexical_names(&statements));
+            bound.extend(
+                crate::check::scope::function_names(&statements)
+                    .iter()
+                    .map(|declared| declared.name),
+            );
+            visible.extend(bound.into_iter().map(|name| self.names.text(name).to_owned()));
+            if let Some(message) = super::module::unresolvable_export(program, &visible) {
+                return self.fail(message);
+            }
         }
 
         // A script's top level is not a scope anything disposes of — it ends
@@ -420,7 +473,13 @@ impl<'a> Scan<'a> {
                         self.pattern(target, context);
                     }
                     ForEachTarget::Assign(target) => self.pattern(target, context),
-                    ForEachTarget::Dispose { target, .. } => self.name(*target, context),
+                    // `for (using x of …)` binds `x` lexically for the loop, so a
+                    // `var` of that name in the body is the same collision a
+                    // `let` head makes.
+                    ForEachTarget::Dispose { target, .. } => {
+                        self.loop_head(&[*target], body);
+                        self.name(*target, context);
+                    }
                 }
                 self.expr(subject, context);
                 self.statement_body(body, false, context);
@@ -593,6 +652,19 @@ impl<'a> Scan<'a> {
             }
 
             ExprKind::Object { properties } => {
+                // `{ __proto__: a, __proto__: b }` is the one duplicate key the
+                // language refuses, because that spelling does not make a
+                // property at all — it sets the prototype, and two of them ask
+                // for two prototypes. Every other repeated key is legal and the
+                // last one wins.
+                if properties
+                    .iter()
+                    .filter(|property| matches!(property, Property::Prototype(_)))
+                    .count()
+                    > 1
+                {
+                    return self.fail("`__proto__` is given twice in one object".to_owned());
+                }
                 for property in properties {
                     self.property(property, context);
                 }
@@ -714,7 +786,7 @@ impl<'a> Scan<'a> {
 
     fn pattern(&mut self, pattern: &Pattern, context: Context) {
         match pattern {
-            Pattern::Name(name) => self.name(*name, context),
+            Pattern::Name(name) => self.bound_name(*name, context),
             Pattern::Target(place) => self.expr(place, context),
             Pattern::Array(array) => {
                 for element in array.elements.iter().flatten() {
@@ -787,23 +859,17 @@ impl<'a> Scan<'a> {
             rest.bound_names(&mut parameters);
         }
 
-        // `eval` and `arguments` may not be *bound* in strict code — reading
-        // them is fine, and that asymmetry is the point: strict mode takes away
-        // the ability to shadow the two names whose meaning it depends on.
-        //
-        // The strictness that decides it is the function's own, which is what
-        // makes `function eval() { "use strict"; }` an error: the directive is
-        // inside the body and the name is outside it, and the language reads
-        // the body first.
+        // The parameters go through [`Self::bound_name`] like every other
+        // binding; what is left here is the function's own name, which is
+        // decided by the *inner* strictness even though it is written outside.
+        // That is what makes `function eval() { "use strict"; }` an error: the
+        // directive is in the body and the language reads the body first.
         if inner.strict
-            && let Some(name) = function
-                .name
-                .into_iter()
-                .chain(parameters.iter().copied())
-                .find(|name| matches!(self.names.text(*name), "eval" | "arguments"))
+            && let Some(name) = function.name
+            && matches!(self.names.text(name), "eval" | "arguments")
         {
             return self.fail(format!(
-                "`{}` cannot be bound in strict code",
+                "`{}` cannot be assigned to or bound in strict code",
                 self.names.text(name)
             ));
         }
@@ -928,7 +994,13 @@ impl<'a> Scan<'a> {
                         self.expr(value, initialiser);
                     }
                 }
-                ClassElement::StaticBlock(body) => self.stmts(body, initialiser),
+                // A static block is a var scope of its own: a `var` in it belongs
+                // to the block and not to any function around it, and nothing
+                // declared in it is visible outside.
+                ClassElement::StaticBlock(body) => {
+                    self.scope(body, ScopeKind::VarRoot, initialiser);
+                    self.stmts(body, initialiser);
+                }
             }
         }
 
