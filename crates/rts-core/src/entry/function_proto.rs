@@ -245,8 +245,9 @@ impl Context {
 /// three `undefined`s in front of the caller's arguments and no bound call would
 /// ever line up.
 fn bound(target: u64, receiver: u64, partial: Vec<u64>) -> u64 {
-    let made = with_current(|context| {
+    with_current(|context| {
         let made = super::native::callable(context, forward);
+        let taken = partial.len();
         if let Some(cell) = Value(made).as_slot() {
             context.bound.set(cell, Bound {
                 target,
@@ -254,9 +255,42 @@ fn bound(target: u64, receiver: u64, partial: Vec<u64>) -> u64 {
                 partial,
             });
         }
+        // `name` and `length`, which the specification's `BoundFunctionCreate`
+        // writes and this wrote neither of — both read `undefined`.
+        //
+        // The name is the TARGET's with `"bound "` in front, and it chains:
+        // `f.bind().bind().name` is `"bound bound f"`. That is not decoration —
+        // a stack trace and a debugger label a bound function by it, and the
+        // prefix is how a reader tells a wrapper from the thing it wraps.
+        //
+        // The length is the target's MINUS the partial arguments, floored at
+        // zero. Flooring matters: `((a) => a).bind(null, 1, 2, 3).length` is 0
+        // and not -2, and a negative arity reaching arithmetic in a currying
+        // helper is the failure this would otherwise cause somewhere else.
+        //
+        // Both are read off the TARGET's own properties rather than from a
+        // table, because a program may have redefined them — and a bound
+        // function must describe the function it actually forwards to.
+        let described = Value(target).as_slot().and_then(|cell| {
+            let name = context.well_known("name");
+            let length = context.well_known("length");
+            let named = super::objects::read_property(context, cell, name)
+                .and_then(|value| value.as_slot())
+                .and_then(|cell| context.text_at(cell))
+                .and_then(|text| text.to_rust())
+                .unwrap_or_default();
+            let arity = super::objects::read_property(context, cell, length)
+                .and_then(|value| value.numeric())
+                .unwrap_or(0.0);
+            Some((named, arity))
+        });
+        if let Some((named, arity)) = described {
+            super::native::name_of(context, made, &format!("bound {named}"));
+            let left = (arity - taken as f64).max(0.0);
+            super::native::length_of(context, made, left as u32);
+        }
         made
-    });
-    made
+    })
 }
 
 /// What every bound function runs.

@@ -83,11 +83,40 @@ pub(super) fn emit_object(
         // written.
         let (key, value) = match property {
             Property::Value { key, value, .. } => {
+                // The KEY is lent to an anonymous function on the right, which
+                // is `NamedEvaluation`: `{ gamma: function () {} }` and
+                // `{ delta: () => {} }` are both called by their property name,
+                // exactly as `const f = function () {}` is called `f`. Only
+                // three of the four forms in a literal were inferred here and
+                // this was the missing one, so `obj.gamma.name` read `""`.
+                //
+                // Only for a WRITTEN key: a computed one is an expression whose
+                // value is not known while compiling, and a name inferred from
+                // the source text of `{ [k]: f }` would be a different string
+                // from the one the language says (`k`'s value at run time).
+                //
+                // Lent rather than assigned, so `take_lent_name` can be taken by
+                // the function that is actually the initialiser and not by one
+                // nested inside it — the same reason the declaration form lends.
+                if let PropertyKey::Named(name) = key {
+                    ctx.lend_name(*name);
+                }
                 let value = emit_expr(builder, scope, ctx, value)?;
+                // Anything the initialiser did not take is dropped: a lent name
+                // that outlived its initialiser would be picked up by the next
+                // function emitted anywhere, which is a wrong name rather than a
+                // missing one.
+                let _ = ctx.take_lent_name();
                 (key, value)
             }
             Property::Method { key, function } => {
+                // A method shorthand — `{ beta() {} }` — has no name of its own
+                // either, and the key is it.
+                if let PropertyKey::Named(name) = key {
+                    ctx.lend_name(*name);
+                }
                 let value = super::function::emit_closure(builder, scope, ctx, function)?;
+                let _ = ctx.take_lent_name();
                 (key, value)
             }
             // An accessor is defined, not written: a getter stored under the
