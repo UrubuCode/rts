@@ -514,7 +514,7 @@ fn emit_labelled(
 /// of its own. `const f = g` copies a function that is already called `g`, and
 /// `const f = cond ? function () {} : h` names neither branch — in both, the
 /// binding's name is a fact about the binding and not about the value.
-fn anonymous_definition(expr: &Expr) -> bool {
+pub(super) fn anonymous_definition(expr: &Expr) -> bool {
     match &expr.kind {
         ExprKind::Function(function) => function.name.is_none(),
         ExprKind::Class(class) => class.name.is_none(),

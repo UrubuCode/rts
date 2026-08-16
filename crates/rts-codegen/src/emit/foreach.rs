@@ -173,6 +173,12 @@ pub fn emit_for_each(
         true => open_sequence(builder, scope, ctx, subject_value, iterator, at)?,
     };
     super::binding::declare(builder, scope, ctx, keys, enumerated)?;
+    // The subject itself, bound so the guard below can ask about it once per
+    // pass. Only for `for`-`in`: nothing in the stepped path needs it.
+    let subject_name = ctx.names.intern("__rts_in_src");
+    if !stepping {
+        super::binding::declare(builder, scope, ctx, subject_name, subject_value)?;
+    }
 
     let init = crate::syntax::ForInit::Declare {
         kind: BindingKind::Let,
@@ -300,7 +306,37 @@ pub fn emit_for_each(
         true => fetch_element(ctx, at, held, iterator, &test, indexed),
     };
     passes.push(bind);
-    passes.push(body.clone());
+    // A key DELETED during a `for`-`in` must not be visited, and the keys are a
+    // snapshot — collected once, because a cursor into a shape is a mechanism
+    // this engine does not have. The snapshot is right in one direction already:
+    // a key ADDED during the loop need not be visited, and is not. This guard
+    // fixes the other direction, and `k in o` is exactly the question — the key
+    // is visited if it is still reachable, own or inherited.
+    //
+    // Only for `for`-`in`. A `for`-`of` steps a real iterator now, so nothing
+    // there is a snapshot to go stale.
+    //
+    // It costs one `HasProperty` per pass, on a construct that was already the
+    // slow path — and the alternative is visiting a property the program has
+    // deleted, which is a read of something that is not there.
+    match stepping {
+        true => passes.push(body.clone()),
+        false => passes.push(Stmt {
+            kind: StmtKind::If {
+                condition: Expr {
+                    kind: ExprKind::Binary {
+                        op: BinaryOp::In,
+                        left: Box::new(key_expression(pattern, at)),
+                        right: Box::new(name(subject_name)),
+                    },
+                    at,
+                },
+                then_branch: Box::new(body.clone()),
+                else_branch: None,
+            },
+            at,
+        }),
+    }
     let inner = Stmt {
         kind: StmtKind::Block(passes),
         at,
@@ -759,6 +795,22 @@ pub(super) fn close_iterator_stmt(
 }
 
 /// `name`, as a synthetic identifier expression.
+/// The key a `for`-`in` head just bound, as an expression.
+///
+/// A plain name in the head is the only shape a `for`-`in` key can take that
+/// this guard can ask about — a destructuring head over a KEY is legal grammar
+/// and no program writes it, so it is left unguarded rather than approximated.
+fn key_expression(pattern: &Pattern, at: Position) -> Expr {
+    match pattern {
+        Pattern::Name(name) => ident(*name, at),
+        // Nothing to name, so the guard is `true` and the snapshot stands.
+        _ => Expr {
+            kind: ExprKind::Literal(Literal::Boolean(true)),
+            at,
+        },
+    }
+}
+
 fn ident(name: Name, at: Position) -> Expr {
     Expr {
         kind: ExprKind::Ident(name),

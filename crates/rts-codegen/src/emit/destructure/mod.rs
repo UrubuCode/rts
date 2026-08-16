@@ -238,7 +238,14 @@ fn object_pattern(
             }
         };
         let raw = super::expr::emit_expr(builder, scope, ctx, &read)?;
-        let value = apply_default(builder, scope, ctx, raw, property.value.default.as_ref())?;
+        let value = apply_default(
+            builder,
+            scope,
+            ctx,
+            raw,
+            property.value.default.as_ref(),
+            &property.value.pattern,
+        )?;
         place(builder, scope, ctx, &property.value.pattern, value, at, depth + 1, role)?;
     }
 
@@ -417,10 +424,24 @@ fn apply_default(
     ctx: &mut Ctx,
     value: ValueId,
     default: Option<&Expr>,
+    bound: &crate::syntax::Pattern,
 ) -> EmitResult<ValueId> {
     let Some(default) = default else {
         return Ok(value);
     };
+    // NamedEvaluation reaches a DEFAULT too: `const { f = () => {} } = {}` names
+    // that function `f`, exactly as `const f = () => {}` does. It was done only
+    // at the plain declaration, so every function arriving through a
+    // destructuring default had an empty `.name`.
+    //
+    // Only for a leaf that is a plain name, and only when the default IS an
+    // anonymous definition — the same two conditions `stmt.rs` states, asked
+    // through the same function rather than re-derived.
+    if let crate::syntax::Pattern::Name(name) = bound
+        && super::stmt::anonymous_definition(default)
+    {
+        ctx.lend_name(*name);
+    }
 
     let undefined = super::expr::singleton(builder, ctx, Singleton::Undefined);
     let is_undefined =

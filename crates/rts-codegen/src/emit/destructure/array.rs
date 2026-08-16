@@ -216,6 +216,7 @@ fn array_pattern_stepwise(
             ctx,
             raw,
             element.default.as_ref(),
+            &element.pattern,
             depth,
             position,
             at,
@@ -373,6 +374,7 @@ fn apply_default_stepwise(
     ctx: &mut Ctx,
     raw: ValueId,
     default: Option<&Expr>,
+    bound: &Pattern,
     depth: u32,
     position: usize,
     at: Position,
@@ -380,6 +382,13 @@ fn apply_default_stepwise(
     let Some(default) = default else {
         return Ok(raw);
     };
+    // NamedEvaluation, for the same reason the object path states it: a
+    // function arriving through `const [f = () => {}] = []` is named `f`.
+    if let Pattern::Name(name) = bound
+        && super::super::stmt::anonymous_definition(default)
+    {
+        ctx.lend_name(*name);
+    }
 
     let raw_name = ctx.names.intern(&format!("__rts_destructure_raw_{depth}_{position}"));
     super::super::binding::declare(builder, scope, ctx, raw_name, raw)?;

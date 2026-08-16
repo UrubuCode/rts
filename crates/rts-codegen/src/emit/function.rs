@@ -579,6 +579,17 @@ pub(super) fn emit_body(
     // and reading the outer function's here would name a value defined in a
     // function this one is not in.
     let outer_flag = ctx.thrown_flag.take();
+    // The `finally` targets, for the same reason and with a sharper failure. A
+    // `return` inside a `try` jumps to a block that runs the `finally` — and
+    // that block belongs to the function the `try` is in. A nested function
+    // emitted inside one would jump to a block of ANOTHER function, which the
+    // builder refuses by panicking: "block belongs to this function". Measured
+    // on `try { return (() => 2)(); } finally { … }`, which is ordinary code.
+    //
+    // Cleared rather than saved-and-shared: a `return` in the inner function
+    // returns from IT, and owes nothing to a `finally` written outside.
+    let outer_returns = std::mem::take(&mut ctx.finally_returns);
+    let outer_jumps = std::mem::take(&mut ctx.finally_jumps);
 
     let result = emit_body_into(
         ctx,
@@ -602,6 +613,8 @@ pub(super) fn emit_body(
     ctx.flattened = outer_flattened;
     ctx.claims = outer_claims;
     ctx.thrown_flag = outer_flag;
+    ctx.finally_returns = outer_returns;
+    ctx.finally_jumps = outer_jumps;
     result?;
     Ok(func)
 }
