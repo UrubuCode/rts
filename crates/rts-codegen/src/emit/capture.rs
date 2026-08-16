@@ -834,6 +834,19 @@ pub(super) fn children(expr: &Expr, on: &mut impl FnMut(Child)) {
     walk_expr(expr, on);
 }
 
+/// The children of a statement, for a traversal that is not one of this
+/// module's own.
+///
+/// The statement-side pair of [`children`], exposed for the reason that one is:
+/// [`walk_stmt`] is the single description of the tree's shape on this side, and
+/// a second copy is a node one analysis walks and another silently skips.
+pub(super) fn statement_children<'a>(
+    statement: &'a Stmt,
+    on: &mut impl FnMut(StmtChild<'a>),
+) {
+    walk_stmt(statement, on);
+}
+
 /// Whether a body mentions a name anywhere inside it, nested code included.
 ///
 /// # Why nested code counts, which over-approximates on purpose

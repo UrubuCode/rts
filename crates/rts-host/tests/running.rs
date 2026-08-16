@@ -527,10 +527,11 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // `super()` past four arguments saiu desta lista quando ganhou uma entrada
     // com forma de vetor que NAO define `new.target` — a razao pela qual nao
     // podia simplesmente reutilizar a que ja existia.
-    for source in [
-        "return [...[1], , 2];",
-        "let o = {}; let x = 1; return delete x;",
-    ] {
+    // `delete x` saiu desta lista porque deixou de ser um buraco: o emissor
+    // responde `false` para um nome ligado — que e o que a linguagem diz — e o
+    // erro precoce que o modo estrito quer e do verificador, nao daqui. Uma
+    // recusa por nome ali seria recusar um programa que a linguagem define.
+    for source in ["return [...[1], , 2];"] {
         let error = compile(source).expect_err("still a gap");
         assert!(
             format!("{error:?}").contains("Unsupported"),
@@ -3546,10 +3547,15 @@ fn for_of_asks_an_object_how_it_iterates() {
     );
     assert_eq!(tags::decode_double(spread), 2.0);
 
-    // An object declaring nothing still walks zero times rather than failing,
-    // which is the stated gap while a throw cannot reach a handler.
-    let none = run("let n = 0; for (let v of {a: 1}) { n = n + 1; } return n;");
-    assert_eq!(tags::decode_double(none), 0.0);
+    // An object declaring nothing is not iterable, and saying so is the point.
+    // This asserted zero passes while a throw could not reach a handler — the
+    // gap, pinned as though it were the behaviour. It closed when natives
+    // learned to raise, so the loop stopped running zero times and started
+    // ending the program, and the test aborted rather than failed.
+    holds(
+        "try { for (let v of {a: 1}) { } return false; } \
+         catch (e) { return e instanceof TypeError; }",
+    );
 }
 
 #[test]
@@ -3612,9 +3618,16 @@ fn json_round_trips_what_it_can_represent() {
     let _ = (round, direct);
     holds("let o = {a: [1, {b: true}], c: null}; return JSON.stringify(JSON.parse(JSON.stringify(o))) === JSON.stringify(o);");
 
-    // A cycle answers `null` rather than hanging. The specification throws, and
-    // why this does not is the stated gap.
-    holds("let o = {}; o.self = o; return JSON.stringify(o) === \"{\\\"self\\\":null}\";");
+    // A cycle THROWS, which is what the specification says. This asserted the
+    // `null` a writer that could not raise had to answer instead — the gap,
+    // pinned as though it were the behaviour — so when natives learned to raise
+    // the program stopped answering and started ending, and the test aborted
+    // rather than failed.
+    holds(
+        "let o = {}; o.self = o; \
+         try { JSON.stringify(o); return false; } \
+         catch (e) { return e instanceof TypeError; }",
+    );
 }
 
 #[test]
@@ -3686,10 +3699,16 @@ fn a_set_holds_each_member_once_and_answers_the_es2025_operations() {
 fn a_weak_collection_takes_objects_only_and_is_strong_here() {
     holds("let k = {}; let m = new WeakMap(); m.set(k, 5); return m.get(k) === 5 && m.has(k);");
     holds("let k = {}; let m = new WeakMap(); m.set(k, 5); m.delete(k); return m.has(k) === false;");
-    // A primitive key is refused rather than stored. The specification throws;
-    // this cannot yet, so it refuses silently — the divergence is stated, and
-    // the important half is that the key does not go in.
-    holds("let m = new WeakMap(); m.set(1, 5); return m.has(1) === false;");
+    // A primitive key THROWS, which is what the specification says and what
+    // this asserted the absence of: it read `m.has(1) === false` back when a
+    // native could not raise, and kept reading it after natives learned to —
+    // so the program stopped answering `false` and started ending, and the test
+    // died with it rather than failing.
+    holds(
+        "let m = new WeakMap(); \
+         try { m.set(1, 5); return false; } \
+         catch (e) { return e instanceof TypeError; }",
+    );
     holds("let k = {}; let s = new WeakSet(); s.add(k); return s.has(k) && !s.has({});");
 }
 
@@ -4315,8 +4334,17 @@ fn a_trap_answers_the_computed_spelling_too() {
     assert_eq!(tags::decode_double(written), 5.0);
 
     // And a descriptor, which is the trap `Reflect` had no member for at all.
+    //
+    // The trap has to name a property the target could actually have: a
+    // descriptor with no `configurable` is completed to `configurable: false`,
+    // and claiming a non-configurable property that an extensible target does
+    // not own is the invariant `[[GetOwnProperty]]` refuses. This asserted `42`
+    // until the invariant check existed, so it was pinning the absence of the
+    // check rather than the trap — bun and node both throw on the version it
+    // asserted.
     let described = run(
-        "const p = new Proxy({}, { getOwnPropertyDescriptor: (t, k) => ({ value: 42 }) }); \
+        "const p = new Proxy({ x: 0 }, \
+             { getOwnPropertyDescriptor: (t, k) => ({ value: 42, configurable: true }) }); \
          return Reflect.getOwnPropertyDescriptor(p, 'x').value;",
     );
     assert_eq!(tags::decode_double(described), 42.0);
@@ -4802,4 +4830,90 @@ fn negating_a_proven_double_is_a_sign_flip_and_still_answers_what_the_language_s
          return ok ? 1 : 0;",
     );
     assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+/// `import.meta` names the module's own file, and `import()` answers the SAME
+/// namespace a second call does.
+///
+/// Written against the graph, for the reason the `export *` test above is: a
+/// single file has no specifier, so neither operation has a module to be about.
+/// What it pins is the language's, not this engine's: the specification gives a
+/// module ONE `import.meta` object, `import.meta.url` is a `file:` URL, and two
+/// imports of one specifier are one module — which is what a module cache means
+/// and is the only thing `first === second` can be testing.
+#[test]
+fn a_module_knows_its_own_url_and_imports_itself_once() {
+    use std::io::Write;
+
+    let dir = std::env::temp_dir().join("rts_import_meta");
+    std::fs::create_dir_all(&dir).expect("a directory to write fixtures in");
+    let write = |name: &str, source: &str| {
+        let path = dir.join(name);
+        let mut file = std::fs::File::create(&path).expect("a fixture file");
+        file.write_all(source.as_bytes()).expect("written");
+        path
+    };
+
+    write("meta_inner.ts", "export const value = 7;\n");
+    let entry = write(
+        "meta_entry.ts",
+        "import { test, expect } from \"rts:test\";\n\
+         test(\"url\", () => expect(import.meta.url.startsWith(\"file:\")).toBe(true));\n\
+         test(\"identity\", () => expect(import.meta === import.meta).toBe(true));\n\
+         test(\"main\", () => expect(import.meta.main).toBe(true));\n\
+         test(\"dynamic\", async () => {\n\
+           const first = await import(\"./meta_inner\");\n\
+           const second = await import(\"./meta_inner\");\n\
+           expect(first.value).toBe(7);\n\
+           expect(first === second).toBe(true);\n\
+         });\n",
+    );
+
+    rts_std::test::reset();
+    let mut program = rts_host::compile_graph(&entry).expect("the graph compiles");
+    program.run();
+    let reported = rts_std::test::record();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
+    assert_eq!(reported.len(), 4, "the fixture registers four tests");
+    assert!(failed.is_empty(), "{failed:?}");
+}
+
+#[test]
+fn a_function_built_from_text_is_not_strict() {
+    // The language rule, not ours: `Function(body)` compiles SCRIPT code, and
+    // script code with no directive of its own is non-strict — so a call that
+    // passed no receiver sees the global object where every function in a
+    // module sees `undefined`. Both halves are asserted in one program,
+    // because the failure worth catching is the substitution leaking OUT of
+    // the text and making module code sloppy too.
+    let produced = run(
+        "const sloppy = Function(\"return this === globalThis\")();\n\
+         const strict = (function () { return this === undefined; })();\n\
+         return sloppy && strict;",
+    );
+    assert!(tags::payload_of(produced) != 0, "sloppy this, strict this");
+}
+
+#[test]
+fn a_directive_inside_the_text_takes_the_substitution_back() {
+    // `"use strict"` in the compiled text is what the language says it is, and
+    // it reaches the function written INSIDE that text as well: strictness is
+    // inherited downward, so the inner function must answer `undefined` too.
+    let produced = run(
+        "const outer = Function(\"'use strict'; return this === undefined\")();\n\
+         const inner = Function(\"'use strict'; return function () { return this === undefined; }\")()();\n\
+         return outer && inner;",
+    );
+    assert!(tags::payload_of(produced) != 0, "the directive is obeyed");
+}
+
+#[test]
+fn arguments_callee_names_the_function_in_non_strict_code() {
+    // `arguments.callee` is the function the arguments object was made for,
+    // and it is the FUNCTION rather than the name it was bound to — which is
+    // why the assertion compares identity rather than asking for a name.
+    let produced = run(
+        "return Function(\"function f() { return arguments.callee === f; } return f(1, 2, 3);\")();",
+    );
+    assert!(tags::payload_of(produced) != 0, "callee is the function");
 }

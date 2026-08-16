@@ -232,6 +232,12 @@ impl Machine {
                 // value live, and a table that later forgot a settled value
                 // would take this with it silently.
                 Handler::Restore { value, .. } => out.push(value),
+                // The parked frame's owner, and this IS the only path to it: an
+                // async call's frame object is never handed to the program, so
+                // between the `await` that parked it and the settlement that
+                // resumes it, nothing else in the heap names it. Without this
+                // the collector frees a body mid-`await`.
+                Handler::Frame { frame, .. } => out.push(Value::from_slot(frame).bits()),
                 Handler::Member { .. } => {}
             }
         }

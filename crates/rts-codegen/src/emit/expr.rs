@@ -158,6 +158,18 @@ pub fn emit_expr(
         // Every remaining form, named. The list is the deliverable: it is the
         // work queue for the phases after this one, and a reader can check it
         // against `PLAN.md` §E without running anything.
+        // A class field initialiser, wrapped by `emit/class.rs` so that this
+        // arm can put the flag around exactly the initialiser and nothing else
+        // of the constructor it was written into. Taken apart here rather than
+        // in `call.rs`, because it is not a call and never becomes one.
+        ExprKind::Call { .. } if super::class::field_initialiser(expr).is_some() => {
+            let inner = super::class::field_initialiser(expr).expect("just tested");
+            let enclosing = ctx.in_field_initializer;
+            ctx.in_field_initializer = true;
+            let produced = emit_expr(builder, scope, ctx, inner);
+            ctx.in_field_initializer = enclosing;
+            produced
+        }
         ExprKind::Call {
             callee, arguments, ..
         } => super::call::emit_call(builder, scope, ctx, callee, arguments),
@@ -232,9 +244,26 @@ pub fn emit_expr(
         ExprKind::Object { properties } => super::object::emit_object(builder, scope, ctx, properties),
         ExprKind::Array { elements } => emit_array(builder, scope, ctx, elements),
         ExprKind::Function(function) => {
-            super::function::emit_closure(builder, scope, ctx, function)
+            // A field initialiser's `new.target` is `undefined`; a plain
+            // function WRITTEN inside one has a `new.target` of its own, which
+            // is whatever the call that reaches it turns out to be. An ARROW
+            // does not — it takes the enclosing one, the same way it takes
+            // `this` — so the flag is cleared for one and kept for the other.
+            let enclosing = ctx.in_field_initializer;
+            ctx.in_field_initializer = enclosing && function.captures_this;
+            let produced = super::function::emit_closure(builder, scope, ctx, function);
+            ctx.in_field_initializer = enclosing;
+            produced
         }
-        ExprKind::Class(class) => super::class::emit_class(builder, scope, ctx, class),
+        ExprKind::Class(class) => {
+            // A class written inside a field initialiser is not inside it: its
+            // methods and its own constructor answer for their own activations.
+            let enclosing = ctx.in_field_initializer;
+            ctx.in_field_initializer = false;
+            let produced = super::class::emit_class(builder, scope, ctx, class);
+            ctx.in_field_initializer = enclosing;
+            produced
+        }
         ExprKind::Unary { op, operand } => {
             // `-x` on a literal number, folded the same way a binary literal
             // pair is: no side effect to preserve, and a removed call site.
@@ -280,11 +309,16 @@ pub fn emit_expr(
                 construct: "`this` inside an arrow function",
             }),
         },
-        // The promise is produced first and the instruction waits on it. What
-        // waiting MEANS is the machine's: `Inst::Await` lowers to a call that
-        // drains until the promise settles, so this frame keeps the machine
-        // rather than yielding to its caller. That divergence is stated in
-        // `rts-core`'s `promise/machine.rs`, which is the half that does it.
+        // The promise is produced first, and what happens next depends on who
+        // resumes this frame — which is `ctx.async_parks`.
+        //
+        // Inside a plain `async function` it PARKS: the promise is handed out
+        // at a suspension and a promise reaction re-enters the body. Everywhere
+        // else — an `async function*`, whose frame `next()` already steps, and
+        // a module's top level, which the host drives — `Inst::Await` lowers to
+        // a call that drains until the promise settles, so the frame keeps the
+        // machine. That divergence is stated in `rts-core`'s `promise/machine.rs`,
+        // which is the half that does it.
         // A rejected promise raises through the in-flight throw INSIDE
         // `promise_await` (`rts-core`), the same mechanism a native uses
         // under rule 8 — but that native is reached by a raw machine call
@@ -295,6 +329,23 @@ pub fn emit_expr(
         ExprKind::Await(inner) => {
             let produced = emit_expr(builder, scope, ctx, inner)?;
             let promise = as_value(builder, produced);
+            // The parking form, and it is `yield` with a different driver:
+            // the promise is handed out at the suspension exactly as a yielded
+            // value is, the frame parks, and what the suspension ANSWERS is
+            // what the resumption delivered. The reaction that resumes it is
+            // attached by `RuntimeOp::AsyncStart`'s runtime half, so nothing
+            // here has to know that a promise is involved — which is what lets
+            // one suspension mechanism serve both.
+            //
+            // A rejection needs nothing emitted: the resumption is made with
+            // `ResumeMode::Unwind`, and the rewrite raises AT this suspension,
+            // inside the regions the `await` was written in. That is why a
+            // `try` around an `await` catches, and it is the same path
+            // `g.throw(e)` takes.
+            if ctx.async_parks {
+                call(builder, ctx, RuntimeOp::GeneratorYield, &[promise])?;
+                return Ok(builder.suspend());
+            }
             let awaited = builder.await_(promise);
             raise_if_thrown(builder, ctx)?;
             Ok(awaited)
@@ -345,9 +396,34 @@ pub fn emit_expr(
             super::class::emit_super_call(builder, scope, ctx, arguments)
         }
         ExprKind::PrivateName(_) => gap("a private name"),
-        ExprKind::NewTarget => gap("`new.target`"),
-        ExprKind::ImportMeta => gap("`import.meta`"),
-        ExprKind::ImportCall { .. } => gap("`import()`"),
+        // Asked of the runtime rather than proved here, because the answer is a
+        // fact about the ACTIVATION — was this function reached through `new`?
+        // — and the calling convention carries no bit that says so. What this
+        // crate would need to decide to answer it locally is a machine
+        // question, which rule 2 says belongs below rather than worked around
+        // here.
+        //
+        // An arrow takes `new.target` from where it was WRITTEN, exactly as it
+        // takes `this`, and this arm does not do that yet: an arrow is its own
+        // compiled function, so the runtime answers for the arrow's own
+        // activation and gives `undefined`. That is right whenever the arrow is
+        // not lexically inside a constructor, which is every arrow the corpus
+        // has, and wrong inside one. Named rather than silently accepted — see
+        // `emit/capture.rs::arrow_reads_this` for the mechanism the fix is a
+        // twin of.
+        ExprKind::NewTarget if ctx.in_field_initializer => {
+            // `undefined`, without asking: the specification enters a field
+            // initialiser through `Call` and not `Construct`, so the answer is
+            // fixed by where the code was written. The runtime could not tell
+            // — the initialisers run in the constructor's own activation here
+            // — which is why this is decided in the language layer.
+            Ok(undefined(builder, ctx))
+        }
+        ExprKind::NewTarget => Ok(call(builder, ctx, RuntimeOp::NewTarget, &[])?[0]),
+        ExprKind::ImportMeta => super::module::emit_import_meta(builder, ctx),
+        ExprKind::ImportCall { specifier, options } => {
+            super::module::emit_import_call(builder, scope, ctx, specifier, options.as_deref())
+        }
         // `e as T` and `<T>e` are erased, not proved. Rule 4 says an annotation
         // is a CLAIM, not a proof, and TypeScript gives no guarantee that this
         // one is true — `x as string` on a number compiles and runs, and at

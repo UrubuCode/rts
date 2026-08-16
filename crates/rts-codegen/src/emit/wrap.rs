@@ -147,27 +147,28 @@ pub(super) fn async_generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId
 
 /// Wraps an async function's body so that calling it answers a promise.
 ///
-/// # Why a wrapper and not a rewritten body
+/// # What this used to be, and why the shape changed
 ///
-/// An `await` here does not park the frame — `Inst::Await` lowers to a call that
-/// drains until the promise settles, which is the contract `rts-cranelift`'s own
-/// signature doc states for it. So an async function runs to completion the
-/// moment it is called, and the only thing that separates it from an ordinary
-/// one is what the CALLER receives: a promise rather than the value.
+/// It called the body, took what came back, and settled a fresh promise with
+/// it. That was correct about the VALUE and wrong about the ordering: the body
+/// ran to its end before the call returned, because `Inst::Await` lowers to a
+/// call that drains until the promise settles rather than parking anything. So
+/// everything after `await` ran before the caller's next statement, which is
+/// the one thing an async function exists not to do.
 ///
-/// That is a boundary, and a boundary is a wrapper. The alternative was
-/// threading "this body is async" through `emit_body` and rewriting every
-/// `return` inside it — more code, in the one place shared with a module's own
-/// body, to express something that only happens at the edge.
+/// It is now [`generator`] with a different driver, which is what the language
+/// says an async function IS: the body is a parked frame, `await` hands its
+/// promise out at a suspension exactly as `yield` hands out a value, and the
+/// reaction that resumes it settles the promise this answers. Nothing about the
+/// frame machinery is new — it is the one `function*` already uses.
 ///
-/// # What this does NOT do, by name
+/// # Why the two are still two functions here
 ///
-/// A `throw` escaping the body does not reject the promise; it escapes, and with
-/// nothing to catch it the program ends. Rejecting would need the body's
-/// unwinding to be visible here, and `try` around a call is refused by this
-/// crate anyway — so there is no shape in which the difference is observable
-/// yet. It is written down because there will be.
-pub(super) fn async_function(ctx: &mut Ctx, inner: FuncId) -> FuncId {
+/// They differ in one operand and in nothing else, and merging them would put a
+/// `RuntimeOp` parameter on a wrapper whose whole content is which operation it
+/// calls. Kept apart because the DOC is the difference: what a caller receives
+/// is the fact each of them exists to state.
+pub(super) fn async_function(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
     let sig = ctx.funcs.declare_signature(signature());
     let id = ctx.funcs.declare_function(sig);
     let mut func = MachineFunction::new(signature());
@@ -186,25 +187,17 @@ pub(super) fn async_function(ctx: &mut Ctx, inner: FuncId) -> FuncId {
     // here, and every generator in the suite loaded the callee's address as if
     // it were the flag.
     let outer_flag = ctx.thrown_flag.take();
-    // The body runs first and to its end. Its completion value is what the
-    // promise carries, which is what `async function f() { return 1 }`
-    // resolving with `1` means.
-    let produced = builder
-        .call(ctx.funcs, inner, &arguments)
-        .map(|results| results.first().copied())
-        .ok()
-        .flatten();
-    let promise = builder.promise_new();
-    if let Some(value) = produced {
-        builder.promise_settle(promise, value, false);
-    }
-    // Widened, because the convention returns `Tagged` and a promise is a
-    // reference. The verifier caught this rather than a test: a function whose
-    // declared return and actual return disagree is refused at build time, which
-    // is the point of declaring it.
-    let answered = builder.widen(promise);
-    builder.ret(&[answered]);
+    // The address of the body as it will be PLACED — the rewritten form, for
+    // the reason [`generator`] states. The body is not called: `AsyncStart`
+    // builds its frame, drives it as far as the first `await`, and answers the
+    // promise it will settle.
+    let code = builder.func_addr(ctx.funcs, inner)?;
+    let mut operands = Vec::with_capacity(1 + arguments.len());
+    operands.push(code);
+    operands.extend(arguments);
+    let made = expr::call(&mut builder, ctx, RuntimeOp::AsyncStart, &operands)?[0];
+    builder.ret(&[made]);
     ctx.thrown_flag = outer_flag;
     ctx.pending.push((id, func));
-    id
+    Ok(id)
 }

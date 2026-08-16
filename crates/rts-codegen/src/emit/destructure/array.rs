@@ -7,15 +7,17 @@
 //! object shape stayed behind because it never grew past reading properties.
 
 use rts_cranelift::fault::Position;
-use rts_cranelift::ir::{FuncBuilder, ValueId};
+use rts_cranelift::ir::{BlockId, FuncBuilder, ValueId};
+use rts_cranelift::repr::Repr;
+use rts_cranelift::unwind::Handler;
 
 use super::super::loops::Loops;
 use super::super::{Ctx, EmitResult, Scope, UNPROVEN};
 use crate::names::Name;
 use crate::runtime::RuntimeOp;
 use crate::syntax::{
-    ArrayPattern, BinaryOp, Binding as SyntaxBinding, BindingKind, Expr, ExprKind, Literal,
-    Pattern, Spreadable, Stmt, StmtKind, UnaryOp,
+    ArrayPattern, BinaryOp, Binding as SyntaxBinding, BindingKind, Element, Expr, ExprKind,
+    Literal, Pattern, Spreadable, Stmt, StmtKind, UnaryOp,
 };
 use crate::values::Singleton;
 
@@ -43,10 +45,10 @@ use super::{ident, member_expr, place, plain_assign_stmt, Role};
 /// extra side effect) and fatal for a source that never reports `done` — an
 /// infinite generator, legitimately. [`close_stmt`] calls `return()` on the
 /// iterator when it is abandoned before exhaustion, after the named positions
-/// when there is no rest — the one case this change closes; a default
-/// initializer's evaluation throwing is a second case the specification calls
-/// out and [`apply_default_stepwise`]'s own doc states as a named gap, with
-/// why.
+/// when there is no rest. An element's initialization leaving ABRUPTLY — a
+/// throwing default, a throwing nested pattern — is the second case the
+/// specification calls out, and [`open_close_region`] closes it from one place
+/// rather than adding a second rule for the default alone.
 ///
 /// There is exactly one iterator, gotten by [`get_pattern_iterator`], never
 /// two competing notions of "the source": a `string`, a `Map`, a `Set`, and a
@@ -210,6 +212,17 @@ fn array_pattern_stepwise(
         // path, and stepping is what "consuming a slot" means here.
         let raw = step_iterator(builder, scope, ctx, iter, done, depth, position, at)?;
         let Some(element) = element else { continue };
+        // `BindingInitialization` of ONE element — the default and the target
+        // together — is what the specification protects: a throw from either
+        // closes the iterator, and a throw from `next()` does not (the
+        // iterator has already failed, and `IteratorClose` on it is exactly
+        // what the specification declines to do). So the region starts AFTER
+        // `step_iterator` and not before it.
+        let region = can_throw(element).then(|| open_close_region(builder));
+        let region = match region {
+            Some(region) => Some(region?),
+            None => None,
+        };
         let value = apply_default_stepwise(
             builder,
             scope,
@@ -222,6 +235,9 @@ fn array_pattern_stepwise(
             at,
         )?;
         place(builder, scope, ctx, &element.pattern, value, at, depth + 1, role)?;
+        if let Some(region) = region {
+            close_close_region(builder, scope, ctx, region, iter, done, at)?;
+        }
     }
 
     if let Some(rest) = &pattern.rest {
@@ -345,29 +361,100 @@ fn step_iterator(
     super::super::binding::read(builder, scope, ctx, val)
 }
 
+/// Whether initializing this element can leave abruptly, and therefore needs
+/// the closing region [`open_close_region`] opens.
+///
+/// A bare name with no default cannot: binding a name is a store, and a store
+/// throws nothing. Everything else can — a default is an arbitrary expression,
+/// a nested pattern destructures again (`Symbol.iterator` lookups, more
+/// `next()` calls), and a member target evaluates an object that may be
+/// `null`. Asked rather than always wrapping because the region is not free
+/// and `let [a, b] = xs` is the shape almost every program writes.
+fn can_throw(element: &Element) -> bool {
+    element.default.is_some() || !matches!(element.pattern, Pattern::Name(_))
+}
+
+/// Opens a protected region whose handler will close the iterator.
+///
+/// # Why raw blocks rather than a synthetic `try` statement
+///
+/// A `try` invented during emission is unsound here, and this module used to
+/// state that as the reason `[a = f()] = it` did not close when `f` threw.
+/// `capture.rs`'s `assigned_under_protection` is what decides that a name
+/// written inside a `try` needs heap storage, and it runs ONCE over the real
+/// parse tree, before any synthetic statement exists — so `protect::emit_try`'s
+/// `scope.restore` at the join threw away every SSA binding the body had made,
+/// and `[p = 5, q = 9] = [1]` answered `q = undefined` with nothing thrown at
+/// all.
+///
+/// The region built here has no such join. Its handler RE-RAISES, so the block
+/// after it is reached from the normal path alone — the bindings the body made
+/// dominate it exactly as an `if`'s do, and nothing has to be restored. The
+/// handler itself reads only `iter` and `done`, and neither is rebound inside
+/// the region — so it needs no snapshot of its own, and taking one would have
+/// been wrong anyway: the body DECLARES names (the element's own target among
+/// them), so the scope it leaves is longer than the one it started in and
+/// `Scope::restore` refuses that by construction.
+fn open_close_region(builder: &mut FuncBuilder) -> EmitResult<CloseRegion> {
+    let after = builder.create_unprotected_block();
+    let protected = builder.create_block();
+    builder.jump(protected, &[])?;
+    builder.switch_to(protected);
+    let handler = builder.create_block();
+    builder.open_region(
+        vec![Handler {
+            tag: super::super::protect::JS_THROW,
+            block: handler,
+        }],
+        None,
+    );
+    Ok(CloseRegion { after, handler })
+}
+
+/// What [`open_close_region`] opened, so [`close_close_region`] can finish it.
+struct CloseRegion {
+    after: BlockId,
+    handler: BlockId,
+}
+
+/// Closes the region: the normal path leaves for `after`, and the handler
+/// calls `return()` on the iterator and re-raises what it caught.
+fn close_close_region(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    region: CloseRegion,
+    iter: Name,
+    done: Name,
+    at: Position,
+) -> EmitResult<()> {
+    builder.close_region();
+    let normal = scope.snapshot();
+    builder.jump(region.after, &[])?;
+
+    // The thrown value arrives as the handler's parameter — the machine's
+    // discipline for it, same as `protect::emit_try`'s handler.
+    let thrown = builder.add_block_param(region.handler, Repr::Tagged);
+    builder.switch_to(region.handler);
+    let close = close_stmt(iter, done, ctx, at);
+    let mut loops = Loops::default();
+    let terminated = super::super::stmt::emit_stmt(builder, scope, ctx, &mut loops, &close)?;
+    if !terminated {
+        builder.throw(super::super::protect::JS_THROW, thrown);
+    }
+
+    builder.switch_to(region.after);
+    scope.restore(&normal);
+    Ok(())
+}
+
 /// A default over a stepped source: the same rule [`apply_default`] states —
 /// fires on `undefined` alone, never evaluated otherwise.
 ///
-/// # A named gap: `[a = f()] = iterable` where `f` THROWS does not close
-///
-/// The specification calls `IteratorClose` on `iterable`'s iterator before the
-/// throw leaves this pattern. Building that means catching the throw here,
-/// which needs a real `try`/`catch` — and a synthetic one built at this point,
-/// during emission, is unsound in this compiler: `capture.rs`'s
-/// `assigned_under_protection` is what decides a name written inside a `try`
-/// body needs heap storage rather than a register, so a handler reached by
-/// unwinding still sees the write, and it runs ONCE, over the real parse tree,
-/// before any of this module's synthetic statements exist. A `try` invented
-/// here is invisible to it, so `out` below — written inside the very `try`
-/// this gap describes, when it was tried — read back whatever it held BEFORE
-/// the write on the fall-through path too, not only on the thrown one. Found
-/// by a fixture that regressed silently: `[p = 5, q = 9] = [1]` answered `q =
-/// undefined` with no exception in flight at all. Reverted rather than shipped
-/// for that reason, and this is the same absence `foreach.rs`'s `for-of` and
-/// `for_await.rs`'s loop both already state for their own `IteratorClose`
-/// gaps, for adjacent reasons of their own. Closing it needs either teaching
-/// `capture.rs` to anticipate a pattern default's synthetic `try`, or a
-/// close-on-throw mechanism that does not write a name across one.
+/// A throw from the default's evaluation closes the iterator, which is
+/// [`open_close_region`]'s doing rather than this function's: the region wraps
+/// the default AND the target it binds, because the specification protects
+/// `BindingInitialization` as a whole and not one half of it.
 fn apply_default_stepwise(
     builder: &mut FuncBuilder,
     scope: &mut Scope,

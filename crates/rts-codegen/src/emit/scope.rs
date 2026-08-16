@@ -100,6 +100,30 @@ struct Layer {
     /// innermost-first, which is also what shadowing means, so the two are the
     /// same loop.
     entries: Vec<(Name, Binding)>,
+
+    /// The names this layer declares with `let`, `const` or `class` and has
+    /// **not reached the declaration of yet** — the temporal dead zone, as a
+    /// compile-time list.
+    ///
+    /// # Why the zone is lexical rather than a sentinel in the storage
+    ///
+    /// The usual implementation puts a distinguished "empty" value in the slot
+    /// and makes every read compare against it. That is a check on the fast
+    /// path of every local read, paid by every program, to serve the one case
+    /// where the read is *lexically* before the declaration in the same
+    /// emission. The emitter already knows which reads those are: it collects a
+    /// block's lexical names before emitting the block (`binding::block_layer`
+    /// needs the same list), so a read reaching a name still on this list is in
+    /// the dead zone by position, decided while compiling and costing a
+    /// compiled program nothing.
+    ///
+    /// It is exact rather than approximate for the reads it covers, and it
+    /// covers only reads emitted in this layer or one nested inside it. A read
+    /// in a FUNCTION body is not covered — `Scope::for_function` starts a fresh
+    /// scope with no pending names — which is required rather than a shortfall:
+    /// `let f = () => x; let x = 1; f();` is a legal program, and the arrow's
+    /// body runs after the declaration however early it was written.
+    pending: Vec<Name>,
 }
 
 /// The lexical environment during emission.
@@ -201,7 +225,10 @@ impl Scope {
             )
         }));
         Scope {
-            layers: vec![Layer { entries }],
+            layers: vec![Layer {
+                entries,
+                pending: Vec::new(),
+            }],
             environment,
             captured,
             this_value: None,
@@ -345,7 +372,10 @@ impl Scope {
                 },
             )
         }));
-        self.layers.push(Layer { entries });
+        self.layers.push(Layer {
+            entries,
+            pending: Vec::new(),
+        });
         std::mem::replace(&mut self.environment, Some(environment))
     }
 
@@ -389,6 +419,56 @@ impl Scope {
             .last_mut()
             .expect("a scope always has at least the function's own layer");
         layer.entries.push((name, Binding::Value(value)));
+    }
+
+    /// Records that the innermost layer declares these names further down.
+    ///
+    /// Called once per body, with exactly the `let`, `const` and `class` names
+    /// the body declares **at its own level** — the list
+    /// [`super::binding::lexical_names`] answers, which is the same list the
+    /// block's environment is sized from. A `var` and a hoisted `function` are
+    /// deliberately absent: neither has a dead zone, and a `var` read before
+    /// its line is `undefined` by specification.
+    pub fn expect_lexical(&mut self, names: &[Name]) {
+        let layer = self
+            .layers
+            .last_mut()
+            .expect("a scope always has at least the function's own layer");
+        layer.pending.extend_from_slice(names);
+    }
+
+    /// Records that a pending name has now been declared.
+    ///
+    /// The dead zone ends at the declaration and not at the end of the block,
+    /// so this is called from the one place a name comes into existence —
+    /// [`super::binding::declare`] — rather than from each of its callers.
+    pub fn initialize(&mut self, name: Name) {
+        for layer in self.layers.iter_mut().rev() {
+            if let Some(at) = layer.pending.iter().position(|pending| *pending == name) {
+                layer.pending.remove(at);
+                return;
+            }
+        }
+    }
+
+    /// Whether reading this name here is a read in the temporal dead zone.
+    ///
+    /// Scanned innermost-first and stopping at the first layer that says
+    /// anything, because that is what shadowing means: a name pending in an
+    /// inner block is in its dead zone even though an outer binding of the same
+    /// spelling is perfectly readable — the inner declaration is what the name
+    /// refers to for the whole block, which is the rule that makes the zone
+    /// exist at all.
+    pub fn in_dead_zone(&self, name: Name) -> bool {
+        for layer in self.layers.iter().rev() {
+            if layer.pending.contains(&name) {
+                return true;
+            }
+            if layer.entries.iter().any(|(bound, _)| *bound == name) {
+                return false;
+            }
+        }
+        false
     }
 
     /// What a name currently means, innermost layer first.
@@ -548,6 +628,62 @@ mod tests {
             "assignment writes the binding it found; it does not introduce a \
              new one in the block it was written in"
         );
+    }
+
+    #[test]
+    fn a_lexical_name_is_unreadable_until_its_own_declaration_and_readable_after() {
+        let mut names = Names::default();
+        let x = names.intern("x");
+        let (value, _) = two_values();
+
+        let mut scope = Scope::new();
+        scope.expect_lexical(&[x]);
+        assert!(
+            scope.in_dead_zone(x),
+            "`{{ x; let x = 1; }}` reads a name the block declares below, which \
+             is the temporal dead zone and a ReferenceError"
+        );
+        scope.declare(x, value);
+        scope.initialize(x);
+        assert!(
+            !scope.in_dead_zone(x),
+            "the zone ends at the declaration, not at the end of the block"
+        );
+    }
+
+    #[test]
+    fn an_inner_declaration_puts_an_outer_binding_of_the_same_name_in_the_zone() {
+        let mut names = Names::default();
+        let x = names.intern("x");
+        let (outer, _) = two_values();
+
+        let mut scope = Scope::new();
+        scope.declare(x, outer);
+        scope.enter();
+        scope.expect_lexical(&[x]);
+        assert!(
+            scope.in_dead_zone(x),
+            "`let x = 1; {{ x; let x = 2; }}` throws: inside the block the name \
+             refers to the INNER declaration for the whole block, so the outer \
+             binding is not what the read finds"
+        );
+        scope.leave();
+        assert!(
+            !scope.in_dead_zone(x),
+            "leaving the block leaves the outer binding readable again"
+        );
+    }
+
+    #[test]
+    fn a_name_a_nested_block_declares_leaves_the_enclosing_one_readable() {
+        let mut names = Names::default();
+        let x = names.intern("x");
+
+        let mut scope = Scope::new();
+        scope.enter();
+        // Nothing pending here: `{ x; { let x = 1; } }` reads the OUTER `x`,
+        // because a block's declarations are the block's alone.
+        assert!(!scope.in_dead_zone(x));
     }
 
     #[test]

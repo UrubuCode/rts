@@ -89,6 +89,7 @@ const PROVIDED: &[&str] = &[
     "decodeURIComponent",
     "encodeURI",
     "encodeURIComponent",
+    "eval",
     "isFinite",
     "isNaN",
     "parseFloat",

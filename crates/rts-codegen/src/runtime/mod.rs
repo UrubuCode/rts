@@ -217,6 +217,21 @@ pub enum RuntimeOp {
     /// the same reason an async function is wrapped rather than marked.
     GeneratorNew,
 
+    /// The promise a call to an `async function` answers, with its body parked.
+    ///
+    /// The same row as [`RuntimeOp::GeneratorNew`] and for the same reason —
+    /// the address of the REWRITTEN body plus the convention's own arguments,
+    /// written into the frame because a resumed body is entered afresh — with
+    /// the one difference that is the whole of what `async` means: this DRIVES
+    /// the frame once before answering, and what it answers is the promise the
+    /// body will settle rather than an object the caller steps.
+    ///
+    /// One entry point rather than `GeneratorNew` followed by a step: the drive
+    /// is where the promise reaction is attached and the reaction is the
+    /// runtime's, so splitting it would make two halves separable that no
+    /// program wants separately.
+    AsyncStart,
+
     /// What `yield x` produced, left where whoever resumed will read it.
     ///
     /// Half of `yield`: this hands the value over, and `Inst::Suspend` beside it
@@ -704,6 +719,59 @@ pub enum RuntimeOp {
     /// whole difference and a write carries none. An instance FIELD stays an
     /// ordinary write: the language makes that one enumerable.
     DefineMethod,
+
+    /// `new.target` — the constructor `new` named, or `undefined`.
+    ///
+    /// An entry point because the answer is global mutable state the runtime
+    /// keeps: which construction is in progress, and for which activation. The
+    /// alternative was a bit in the calling convention, which is a machine
+    /// question this crate must not decide and one every call would pay for.
+    ///
+    /// **Appended**, not placed beside `Construct` where it belongs by
+    /// subject, for the reason `BigIntNew` records: the discriminant is the
+    /// position in `ALL`.
+    NewTarget,
+
+    /// `import.meta` — the object the host describes this module with.
+    ///
+    /// An entry point rather than an object literal the emitter builds, and the
+    /// reason is IDENTITY: the language gives a module ONE `import.meta` for the
+    /// life of the program, so `import.meta === import.meta` is true. An object
+    /// literal emitted at each occurrence answers false. Only the runtime
+    /// outlives an activation, so only the runtime can hold the one object —
+    /// the same argument [`RuntimeOp::TemplateStrings`] records.
+    ///
+    /// The argument is which literal holds this module's own specifier. What is
+    /// IN the object — the URL, and whether this module is the entry — is the
+    /// host's and comes down as a declaration, because a compiler knows neither.
+    ImportMeta,
+
+    /// `import(specifier)` — a promise for a module's namespace.
+    ///
+    /// An entry point because it allocates a promise and reads the specifier
+    /// table, both of which are the runtime's. The specifier crosses as a
+    /// VALUE, not as a literal index: `import(name)` may compute it, which is
+    /// the whole difference between this and [`RuntimeOp::ModuleNamespace`].
+    ///
+    /// The second argument is which literal holds the IMPORTING module's
+    /// specifier, because `"./x"` means different files in different
+    /// directories and only the referrer says which. Resolving it is the
+    /// host's, reached through the hook `rts-core` holds for exactly this.
+    ModuleImport,
+
+    /// The `this` a NON-STRICT function was entered with, substituted.
+    ///
+    /// `OrdinaryCallBindThis` replaces `undefined` and `null` with the global
+    /// object for a function that is not strict. A call is what this takes
+    /// rather than a branch this crate emits, because the substitute is the
+    /// global OBJECT — a cell only the runtime can make, and one it makes
+    /// lazily, so reaching it would be a call anyway with a comparison spelled
+    /// in IR on top.
+    ///
+    /// **Appended**, not placed beside `NewTarget` where it belongs by subject,
+    /// for the reason [`RuntimeOp::NewTarget`] records: the discriminant is the
+    /// position in `ALL`.
+    SloppyThis,
 }
 
 impl RuntimeOp {
@@ -730,6 +798,12 @@ impl RuntimeOp {
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
         RuntimeOp::GeneratorNew,
+        // In the ENUM's order, which `RuntimeCalls::declared` reads as an index:
+        // it pairs `op as usize` with this list's position, so a row out of
+        // place hands one operation another's symbol. It did — an `AsyncStart`
+        // listed one row late called `__rts_generator_yield`, and the program
+        // ran no async body at all.
+        RuntimeOp::AsyncStart,
         RuntimeOp::GeneratorYield,
         RuntimeOp::DelegateStep,
         RuntimeOp::ModulePublishAll,
@@ -790,6 +864,10 @@ impl RuntimeOp {
         RuntimeOp::UnboundGlobalGet,
         RuntimeOp::EnumerateKeys,
         RuntimeOp::DefineMethod,
+        RuntimeOp::NewTarget,
+        RuntimeOp::ImportMeta,
+        RuntimeOp::ModuleImport,
+        RuntimeOp::SloppyThis,
     ];
 
     /// The linker name the runtime must define.
@@ -822,6 +900,7 @@ impl RuntimeOp {
             RuntimeOp::ClosureNew => "__rts_closure_new",
             RuntimeOp::GeneratorNew => "__rts_generator_new",
             RuntimeOp::GeneratorYield => "__rts_generator_yield",
+            RuntimeOp::AsyncStart => "__rts_async_start",
             RuntimeOp::DelegateStep => "__rts_delegate_step",
             RuntimeOp::ModulePublishAll => "__rts_module_publish_all",
             RuntimeOp::ObjectSpread => "__rts_object_spread",
@@ -881,6 +960,10 @@ impl RuntimeOp {
             RuntimeOp::GetSuperProperty => "__rts_get_super_property",
             RuntimeOp::SetSuperProperty => "__rts_set_super_property",
             RuntimeOp::UnboundGlobalGet => "__rts_global_get_unbound",
+            RuntimeOp::NewTarget => "__rts_new_target",
+            RuntimeOp::ImportMeta => "__rts_import_meta",
+            RuntimeOp::ModuleImport => "__rts_module_import",
+            RuntimeOp::SloppyThis => "__rts_sloppy_this",
         }
     }
 
@@ -936,6 +1019,15 @@ impl RuntimeOp {
             // expression — NOT what the yield evaluates to, which comes out of
             // the suspension beside it.
             RuntimeOp::GeneratorYield => (vec![UNPROVEN], vec![UNPROVEN]),
+            // The same row as `GeneratorNew`: the same frame with the same
+            // arguments. What differs is what comes back, and both spell that
+            // `UNPROVEN`.
+            RuntimeOp::AsyncStart => (
+                std::iter::once(Repr::I64)
+                    .chain(std::iter::repeat_n(UNPROVEN, 2 + ARGUMENT_SLOTS))
+                    .collect(),
+                vec![UNPROVEN],
+            ),
             // The `next` method, the iterator it is called on, and the value
             // sent in. Nothing is proved about the answer: it is whatever the
             // inner iterator handed back, and the loop above reads `value` and
@@ -989,6 +1081,18 @@ impl RuntimeOp {
             RuntimeOp::OwnKeys => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::EnumerateKeys => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::DefineMethod => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            // Nothing goes in: the question is about the activation asking, and
+            // the runtime is what knows which one that is.
+            RuntimeOp::NewTarget => (vec![], vec![UNPROVEN]),
+            // Which literal holds this module's own specifier — an index the
+            // compilation minted, exactly as `StringConst`'s is.
+            RuntimeOp::ImportMeta => (vec![Repr::I64], vec![UNPROVEN]),
+            // The specifier is a VALUE because `import(name)` computes it; the
+            // referrer is a literal index because the compiler knows it.
+            RuntimeOp::ModuleImport => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
+            // The receiver in, the receiver or the global object out: nothing
+            // is proved about either, so both sides are unproven.
+            RuntimeOp::SloppyThis => (vec![UNPROVEN], vec![UNPROVEN]),
             // The callee and the arguments — no receiver, because `new` makes
             // the one the callee gets.
             RuntimeOp::Construct => (vec![UNPROVEN; 1 + ARGUMENT_SLOTS], vec![UNPROVEN]),

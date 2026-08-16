@@ -80,6 +80,16 @@ fn perform(step: Step) {
             settlement,
             value,
         } => with_current(|context| settle_through(context, derived, settlement, value)),
+        // The one step that runs a compiled BODY rather than a callable. It
+        // takes its own borrows and settles its own promise, which is why
+        // nothing is done with an answer here: an async function's completion
+        // is a settlement, not a value handed back to a caller.
+        Step::Resume {
+            frame,
+            result,
+            settlement,
+            value,
+        } => super::async_fn::resumed(frame, result, settlement, value),
         Step::Finally {
             callback,
             derived,

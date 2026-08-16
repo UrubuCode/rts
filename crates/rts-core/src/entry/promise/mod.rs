@@ -7,13 +7,18 @@
 //! and the sentence stood long enough that a reader could have believed the
 //! whole `await` path was dead code.
 //!
-//! What is still missing is the SUSPENSION, not the feature: an awaiting frame
-//! keeps the machine and drains until its promise settles, rather than yielding
-//! to its caller. So the values a program computes are right and the
-//! interleaving of two `async` functions is not. [`machine`] is where that is
-//! stated in full, including what it needs — `Inst::Suspend` lowered over the
-//! frame transformation `rts_cranelift::frame` already implements — and it is
-//! stated THERE rather than here so there is one answer to it.
+//! The SUSPENSION is built, and it needed nothing new in the machine — which is
+//! what [`machine`] predicted: `rts_cranelift::frame` already parks and resumes
+//! a frame three ways, and every generator goes through it. A plain `async
+//! function`'s body is one of those frames now, `await` hands its promise out
+//! at the suspension exactly as `yield` hands out a value, and [`async_fn`] is
+//! the driver that re-enters it when the promise settles. So `f(); g()` runs
+//! `g` before the half of `f` that follows its first `await`, which is the one
+//! thing an async function decides.
+//!
+//! Two bodies still DRAIN instead: an `async function*`, whose frame is already
+//! stepped by `next()`, and a module's top level, which the host drives.
+//! [`machine`] says why in full, so there is one answer to it.
 //!
 //! # The decision: the machine drives this, and one thing does not fit
 //!
@@ -70,6 +75,7 @@
 //! longer than a copy, so every operation reads one, then the other, in
 //! sequence.
 
+mod async_fn;
 mod class;
 mod machine;
 mod combinators;
@@ -82,12 +88,52 @@ mod thenable;
 
 pub(in crate::entry) use class::{PROMISE_TYPES, register_promise};
 pub use drain::drain_microtasks;
+pub use async_fn::{ASYNC_START_ENTRY, async_start};
 pub use machine::{promise_await, promise_new, promise_settle};
 pub(in crate::entry) use state::Machine;
 
 use super::objects::undefined_of;
 use super::with_current;
 use crate::value::Value;
+
+/// A promise already resolved with a value — what `Promise.resolve(v)` is.
+///
+/// Here rather than only inside [`class`] because a second caller needs it and
+/// is not a program: `import()` answers a promise for a namespace the runtime
+/// already holds. Written once, so the two cannot come to disagree about the
+/// two rules that are easy to get wrong — a promise is passed through as it
+/// stands (`Promise.resolve(p) === p`), and a thenable is ADOPTED rather than
+/// wrapped, which is why this goes through `state::resolve` and not through a
+/// straight fulfilment.
+pub(in crate::entry) fn resolved_with(value: u64) -> u64 {
+    with_current(|context| {
+        if let Some(cell) = Value(value).as_slot()
+            && context.promises.id_of(cell).is_some()
+        {
+            return value;
+        }
+        let Some((cell, id)) = state::fresh(context) else {
+            return undefined_of(context);
+        };
+        state::resolve(context, id, value);
+        Value::from_slot(cell).bits()
+    })
+}
+
+/// A promise already rejected with a reason — the pair of [`resolved_with`].
+///
+/// A reason is **not** adopted: `Promise.reject(p)` rejects with the promise
+/// itself, which is the asymmetry a symmetrical implementation gets wrong
+/// quietly.
+pub(in crate::entry) fn rejected_with(reason: u64) -> u64 {
+    with_current(|context| {
+        let Some((cell, id)) = state::fresh(context) else {
+            return undefined_of(context);
+        };
+        state::reject(context, id, reason);
+        Value::from_slot(cell).bits()
+    })
+}
 
 /// `undefined`, from outside a borrow.
 fn undefined() -> u64 {

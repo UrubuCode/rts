@@ -86,6 +86,22 @@ pub(super) enum Handler {
         /// The promise the settlers settle.
         promise: PromiseId,
     },
+    /// A parked async frame, waiting for what it awaited.
+    ///
+    /// The variant [`super`] was documented as lacking: everything else here is
+    /// a callable, and this is the one waiter that is a FRAME. It shares the
+    /// identifier space and the queue with them, which is what makes "a `.then`
+    /// and an `await` on one promise run in the order they attached" a fact
+    /// rather than a coincidence.
+    Frame {
+        /// The frame owner whose body is parked — the cell [`super::async_fn`]
+        /// made, which is the same object a `function*` call answers.
+        frame: u32,
+        /// The promise the async call handed its caller, settled when the body
+        /// finishes or throws.
+        result: PromiseId,
+    },
+
     /// What `finally` does after its callback answered something to wait for.
     ///
     /// The callback ran, the value it produced was resolved into a promise of
@@ -152,6 +168,23 @@ pub(super) enum Step {
         /// a `then` that turns out not to be callable — has to settle.
         promise: PromiseId,
     },
+    /// Re-enter a parked async frame with what it awaited.
+    ///
+    /// A step and not a call, because what runs is a compiled body rather than
+    /// a callable — but it is in the same list for the same reason: it runs
+    /// user code, so it cannot happen where it was decided.
+    Resume {
+        /// The frame owner.
+        frame: u32,
+        /// The promise the async call answered.
+        result: PromiseId,
+        /// Which way what it awaited settled — a rejection re-enters the body
+        /// raising at the `await`.
+        settlement: Settlement,
+        /// The value or the reason.
+        value: u64,
+    },
+
     /// A combinator finished, and its answer is a list that becomes an array.
     Collect {
         /// The promise it answers.
@@ -243,6 +276,15 @@ pub(super) fn prepare(context: &mut Context, waiter: ContinuationId) -> Option<S
                     value,
                 }),
             }
+        }
+        Handler::Frame { frame, result } => {
+            let (settlement, value) = settled(context, reaction.source)?;
+            Some(Step::Resume {
+                frame,
+                result,
+                settlement,
+                value,
+            })
         }
         Handler::Member { group, index } => {
             let (settlement, value) = settled(context, reaction.source)?;

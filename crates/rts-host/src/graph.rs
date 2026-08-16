@@ -99,7 +99,78 @@ pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
             found.push(specifier);
         }
     }
+    // And what a `import("./x")` names. It is the same question — which files
+    // is this program made of — and a module reached only that way still has to
+    // be compiled into the one compilation, for the reason at the top of this
+    // file: a namespace built in another region is one the importer cannot
+    // touch. The walk is `rts-codegen`'s because the tree is.
+    //
+    // The divergence this leaves is stated rather than hidden: such a module is
+    // EVALUATED with the rest of the graph, dependencies first, where the
+    // language evaluates it at the `import()` call. A program whose dynamic
+    // import is behind a condition runs its body anyway.
+    for specifier in rts_codegen::emit::dynamic_specifiers(&parsed.body) {
+        if is_relative(&specifier) {
+            found.push(specifier);
+        }
+    }
     Ok(found)
+}
+
+/// What a dynamic `import()` specifier means, from the module that wrote it.
+///
+/// # Why the runtime asks instead of the tree being rewritten
+///
+/// A static specifier is rewritten in place ([`rewrite`]), because it is written
+/// in the grammar and the loader has already resolved it. A dynamic one may be
+/// COMPUTED — `import("./" + name)` — so there is nothing in the tree to
+/// rewrite, and the question only exists once the program is running. This is
+/// the same resolution, reached from there: `rts-core` holds the hook and this
+/// fills it, exactly as it does for compiling source.
+///
+/// `None` for anything that is not a relative path, which leaves the specifier
+/// as the program wrote it — the rule the loader applies to `node:fs` and to a
+/// bare name, stated once and applied in both directions.
+pub(crate) fn resolve_specifier(from: &str, specifier: &str) -> Option<String> {
+    if !is_relative(specifier) {
+        return None;
+    }
+    Some(resolve(Path::new(from), specifier).display().to_string())
+}
+
+/// What `import.meta` answers for one module of the graph.
+///
+/// The host's two facts about a file and nothing else: a compiler knows neither,
+/// and the runtime holds the object rather than these fields — see
+/// `rts_core::entry::declare_module_meta` for why it takes a built object.
+pub struct ModuleMeta {
+    /// The specifier the module is registered under.
+    pub specifier: String,
+    /// `import.meta.url`.
+    pub url: String,
+    /// `import.meta.main` — whether this file is the one the user named.
+    pub main: bool,
+}
+
+/// A path as the `file:` URL `import.meta.url` answers.
+///
+/// # Why this is spelled out rather than taken from a crate
+///
+/// Because the one rule that matters here is small and the failure mode of
+/// getting it wrong is invisible: Node and Bun both answer a `file:` URL, and a
+/// program tests it with `startsWith("file:")`. What a full URL crate would add
+/// is percent-encoding of the characters a path may hold, which is real and is
+/// why the encoding below is named as partial rather than claimed complete: a
+/// space becomes `%20`, and anything else is left as written.
+fn file_url(path: &Path) -> String {
+    let text = path.display().to_string();
+    // A Windows path is `C:\a\b`, which is `file:///C:/a/b`. A POSIX one
+    // already starts with `/`, so the third slash is the path's own.
+    let slashed = text.replace('\\', "/").replace(' ', "%20");
+    match slashed.starts_with('/') {
+        true => format!("file://{slashed}"),
+        false => format!("file:///{slashed}"),
+    }
 }
 
 /// The path a relative specifier names, from the file that wrote it.
@@ -249,8 +320,28 @@ pub fn rewrite(items: &mut [ModuleItem], from: &Path) {
 /// the entry itself removed — it is what `assemble` is handed as `before`.
 pub(crate) fn front_end(
     entry: &Path,
-) -> Result<(crate::run::FrontEnd, Vec<rts_cranelift::ir::FuncId>), HostError> {
+) -> Result<
+    (
+        crate::run::FrontEnd,
+        Vec<rts_cranelift::ir::FuncId>,
+        Vec<ModuleMeta>,
+    ),
+    HostError,
+> {
     let loaded = load(entry)?;
+    // The load order is dependencies-first, so the ENTRY is the last file —
+    // the same fact `emitted.entries.pop()` below relies on, read once here
+    // rather than re-derived from the path the caller passed, which may be
+    // spelled differently from the canonical one the loader resolved.
+    let metas: Vec<ModuleMeta> = loaded
+        .iter()
+        .enumerate()
+        .map(|(at, file)| ModuleMeta {
+            specifier: file.specifier.clone(),
+            url: file_url(&file.path),
+            main: at + 1 == loaded.len(),
+        })
+        .collect();
     let mut names = Names::default();
 
     // Parsed HERE, against the `Names` the whole compilation shares — the walk
@@ -311,5 +402,6 @@ pub(crate) fn front_end(
             names,
         },
         entries,
+        metas,
     ))
 }

@@ -99,13 +99,46 @@ impl Resuming {
     }
 }
 
+/// What one re-entry left behind, before anything dresses it as a result.
+///
+/// # Why this is not the `{ value, done }` object
+///
+/// Two clients re-enter a frame and they want different shapes. A generator's
+/// `next()` wants the iterator result, which is what [`resume`] builds; an
+/// async function's driver wants the three facts — a value, whether the body
+/// finished, and whether it left a throw in flight — because what it does with
+/// them is settle a promise rather than answer an object. Reading `value` and
+/// `done` back off an object the other client just built would be one shape
+/// serving as a wire format between two halves of this crate.
+pub(in crate::entry) struct Advanced {
+    /// What came out: the awaited or yielded value, or the body's answer.
+    pub(in crate::entry) value: u64,
+    /// Whether the body ran to its end rather than parking again.
+    pub(in crate::entry) finished: bool,
+    /// Whether it left by throwing, which leaves the throw in flight.
+    pub(in crate::entry) threw: bool,
+}
+
 /// Re-enters a generator's body and answers what came out of it.
+///
+/// The iterator-protocol dressing of [`advance`], and nothing else: everything
+/// about the re-entry is there, because an async function's driver performs the
+/// same re-entry and answers a promise instead of an object.
+pub(super) fn resume(cell: u32, sent: u64, mode: ResumeMode) -> u64 {
+    let stepped = advance(cell, sent, mode);
+    if stepped.threw {
+        return stepped.value;
+    }
+    with_current(|context| result(context, stepped.value, stepped.finished))
+}
+
+/// Re-enters a parked frame once.
 ///
 /// The borrow is dropped before the body runs. Compiled code allocates, reads
 /// properties and calls back into this crate, all of which take the context —
 /// and a second borrow inside an `extern "C"` frame aborts the process rather
 /// than unwinding.
-pub(super) fn resume(cell: u32, sent: u64, mode: ResumeMode) -> u64 {
+pub(in crate::entry) fn advance(cell: u32, sent: u64, mode: ResumeMode) -> Advanced {
     // The SCALARS the resumption needs, not a clone of the whole state.
     //
     // `State` holds a `FrameShape`, which holds `param_fields: Vec<u32>` — so
@@ -146,10 +179,11 @@ pub(super) fn resume(cell: u32, sent: u64, mode: ResumeMode) -> u64 {
         Some(resuming)
     });
     let Some(state) = entered else {
-        return with_current(|context| {
-            let absent = objects::undefined_of(context);
-            result(context, absent, true)
-        });
+        return Advanced {
+            value: with_current(|context| objects::undefined_of(context)),
+            finished: true,
+            threw: false,
+        };
     };
 
     // SAFETY: the address came from the host's own record of what it placed, and
@@ -176,7 +210,11 @@ pub(super) fn resume(cell: u32, sent: u64, mode: ResumeMode) -> u64 {
             if let Some(state) = context.generators.get_mut(cell) {
                 state.done = true;
             }
-            objects::undefined_of(context)
+            Advanced {
+                value: objects::undefined_of(context),
+                finished: true,
+                threw: true,
+            }
         });
     }
 
@@ -210,6 +248,10 @@ pub(super) fn resume(cell: u32, sent: u64, mode: ResumeMode) -> u64 {
         if finished && let Some(state) = context.generators.get_mut(cell) {
             state.done = true;
         }
-        result(context, produced, finished)
+        Advanced {
+            value: produced,
+            finished,
+            threw: false,
+        }
     })
 }

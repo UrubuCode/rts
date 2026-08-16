@@ -62,6 +62,7 @@ mod class;
 mod delegate;
 mod destructure;
 mod escape;
+mod dynamic;
 mod expr;
 mod fold;
 mod for_await;
@@ -72,6 +73,7 @@ mod inline;
 mod loops;
 mod merge;
 mod module;
+mod nonstrict;
 mod object;
 mod optional;
 mod primordial;
@@ -89,6 +91,7 @@ mod template;
 mod unary;
 mod wrap;
 
+pub use dynamic::dynamic_specifiers;
 pub use expr::emit_expr;
 pub use loops::Loops;
 pub use proven::Numeric;
@@ -253,6 +256,35 @@ pub struct Ctx<'a> {
     /// one: what reads it is several frames down, inside another function's
     /// emission, and threading it would touch every step in between.
     pub in_static_method: bool,
+    /// Whether what is being emitted is a class FIELD INITIALISER.
+    ///
+    /// One reader: `new.target`, which the language says is `undefined` there.
+    /// The specification enters a field initialiser through `Call` rather than
+    /// `Construct`, and this engine cannot inherit that answer from the shape
+    /// of the emitted code — `emit/class.rs` writes the initialisers as
+    /// statements at the head of the constructor, so the ACTIVATION is the
+    /// constructor's and the runtime would rightly answer the class.
+    ///
+    /// A flag rather than a parameter for [`Ctx::in_static_method`]'s reason,
+    /// and scoped by a marker in the tree rather than by the constructor's
+    /// emission, because the constructor's own body must still see the real
+    /// answer. See `emit/class.rs::FIELD_INITIALISER`.
+    pub in_field_initializer: bool,
+    /// Whether the code being emitted is NON-STRICT.
+    ///
+    /// `false` for everything a file compiles to: module code is strict by
+    /// definition and a script this host compiles is wrapped in a function it
+    /// treats the same way. The only producer of `true` is `rts-host`'s
+    /// `live.rs` — the text of `Function(…)` and `eval(…)`, which is a script
+    /// body and therefore sloppy unless it says otherwise.
+    ///
+    /// What reads it is `emit::nonstrict`, which states both consequences.
+    /// Cleared for the duration of a body carrying `"use strict"`, and NOT
+    /// restored for the functions nested inside it — strictness is inherited
+    /// downward, so a sloppy function cannot appear inside a strict one.
+    ///
+    /// A flag rather than a parameter for [`Ctx::in_static_method`]'s reason.
+    pub sloppy: bool,
     /// Where a `return` inside a protected span goes instead of returning.
     ///
     /// A `finally` runs on EVERY way out, and a `return` written inside the
@@ -403,6 +435,17 @@ pub struct Ctx<'a> {
     /// the read can come first: `function f() { return n; } n = 0;` emits the
     /// body before reaching the assignment. See [`sloppy`].
     globals: std::collections::BTreeSet<Name>,
+    /// The specifier of the module being emitted, as the host resolved it.
+    ///
+    /// `None` for a script, which is not a module and has no `import.meta` to
+    /// read — the language says so, and answering one anyway would be a name
+    /// with nothing behind it.
+    ///
+    /// On the context rather than threaded as a parameter, for the reason
+    /// [`Ctx::in_static_method`] is: `import.meta` and `import()` are ordinary
+    /// expressions and may sit inside any nested function, several emissions
+    /// below the one place that knows which file is being compiled.
+    pub module_specifier: Option<String>,
     /// Whether `Math` still refers to the primordial the runtime installed.
     ///
     /// Proved over the whole program before anything is emitted — see
@@ -425,6 +468,20 @@ pub struct Ctx<'a> {
     /// back to the call, which is what a body with no entry block of its own
     /// gets. See `expr::raise_if_thrown`.
     thrown_flag: Option<rts_cranelift::ir::ValueId>,
+    /// Whether an `await` in the body being emitted PARKS this frame.
+    ///
+    /// True inside a plain `async function` — whose body is put through
+    /// `frame::resumable_form` and driven by a promise reaction — and false
+    /// everywhere else, which is what keeps the two forms of `await` from
+    /// meeting. See `expr`'s `ExprKind::Await` for what the other form is and
+    /// why an `async function*` and a module's top level still use it: a body
+    /// whose suspensions are already stepped by something else (`next()`, the
+    /// host) cannot have a second party resuming the same frame, and one
+    /// `Suspend` cannot say which of the two parked it.
+    ///
+    /// Scoped exactly as `thrown_flag` is: saved and restored around every
+    /// nested function, because an `await` written inside one parks THAT frame.
+    async_parks: bool,
     /// The one `array[index]` pair a desugaring has PROVEN, while it is being
     /// emitted.
     ///
@@ -454,6 +511,8 @@ impl<'a> Ctx<'a> {
         Ctx {
             in_cleanup: false,
             in_static_method: false,
+            in_field_initializer: false,
+            sloppy: false,
             finally_returns: Vec::new(),
             finally_jumps: Vec::new(),
             model,
@@ -475,9 +534,11 @@ impl<'a> Ctx<'a> {
             counting_claims: types::Census::wanted(),
             class_fields: types::Classes::default(),
             globals: std::collections::BTreeSet::new(),
+            module_specifier: None,
             math_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
             thrown_flag: None,
+            async_parks: false,
             proven_element: None,
             element_run: None,
         }
@@ -785,6 +846,10 @@ pub fn emit_program_with_exports(
     // that creates it is reached.
     let global_this = ctx.names.intern("globalThis");
     ctx.globals = sloppy::created(body, global_this);
+    // Which file is being compiled, for `import.meta` and `import()`. Recorded
+    // once here because both are ordinary expressions that may sit inside any
+    // nested function, which is emitted below this point.
+    ctx.module_specifier = specifier.map(str::to_owned);
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
@@ -924,6 +989,10 @@ fn emit_unit(
     let entry = ctx.funcs.declare_function(sig);
     let global_this = ctx.names.intern("globalThis");
     ctx.globals = sloppy::created(body, global_this);
+    // Which file is being compiled, for `import.meta` and `import()`. Recorded
+    // once here because both are ordinary expressions that may sit inside any
+    // nested function, which is emitted below this point.
+    ctx.module_specifier = specifier.map(str::to_owned);
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask

@@ -167,6 +167,12 @@ pub fn emit_stmt(
             // closure written above one can still reach it — the same reason
             // a function body hoists.
             super::function::hoist(builder, scope, ctx, body)?;
+            // Everything the block declares with `let`, `const` or `class` is
+            // unreadable until its own declaration is reached — the temporal
+            // dead zone, armed here because this is where the block's own level
+            // is known and emitted from.
+            let lexical = super::binding::lexical_names(body);
+            scope.expect_lexical(&lexical);
             let mut terminated = false;
             for inner in body {
                 if emit_stmt(builder, scope, ctx, loops, inner)? {

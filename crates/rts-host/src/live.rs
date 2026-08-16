@@ -63,6 +63,25 @@ thread_local! {
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// Answers whether source text is a well-formed program, and nothing else.
+///
+/// `Some(message)` when it is not. This is what `eval` is given, and giving it
+/// only this is deliberate: the compilation below places code that reads the
+/// GLOBAL scope, and a direct `eval` is defined by seeing the caller's — so
+/// handing `eval` a compiler would let it answer a shadowed name wrongly and
+/// silently. `rts_core::entry::eval` states the refusal from the other side.
+///
+/// The script goal, in the default dialect, because that is what the rest of
+/// this host reads a file with — an `eval` argument parsed by different rules
+/// from the program around it would accept text the file itself cannot contain.
+pub(crate) fn check_source(source: &str) -> Option<String> {
+    let mut names = rts_codegen::names::Names::default();
+    match rts_codegen::parse::parse_script(source, &mut names) {
+        Ok(_) => None,
+        Err(error) => Some(format!("{error:?}")),
+    }
+}
+
 /// Compiles `function anonymous(<parameters>) { <body> }` into the running
 /// context and answers it as a callable value.
 ///
@@ -96,7 +115,13 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
         keys: &agreement.keys,
         literals: &agreement.literals,
     };
-    let front = front_end_agreeing(&source, Some(&seed)).ok()?;
+    // NON-STRICT, which is the whole difference between this compilation and a
+    // file's. A `Function` body is script code, and script code with no
+    // `"use strict"` of its own is sloppy — so `this` is the global object in a
+    // call that passed no receiver, and `arguments.callee` names the function.
+    // `emit::nonstrict` states both; a body that DOES open with the directive
+    // turns it back off there, per function and inherited inward.
+    let front = front_end_agreeing(&source, Some(&seed), true).ok()?;
 
     // The first agreement, checked rather than trusted. It costs nothing to be
     // right — both sides declare over a fresh `TagRegistry` and the declaration

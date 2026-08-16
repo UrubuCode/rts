@@ -15,6 +15,20 @@
 //! existed. Nothing here re-derives a promise; every operation goes through
 //! [`super::state`], which is what `Promise` itself goes through.
 //!
+//! # A plain `async function` no longer comes through here
+//!
+//! It parks. `super::async_fn` is the driver — the frame is the one every
+//! generator already uses, and the reaction that resumes it is the fifth
+//! [`super::react::Handler`] the list below asked for. Everything the list
+//! named was built, and it is left standing because it is the map of where the
+//! four pieces are, not because any of it is outstanding.
+//!
+//! What still reaches [`promise_await`] is the two bodies whose suspensions
+//! belong to somebody else: an `async function*`, whose frame is stepped by
+//! `next()` and cannot have a second party resuming it, and a module's own top
+//! level, which the host drives to completion. Both drain, and both keep the
+//! divergence stated below.
+//!
 //! # What `await` does here, and the divergence that is not one
 //!
 //! It drains. `rts-cranelift`'s own signature doc for `PromiseAwait` states the
@@ -28,12 +42,45 @@
 //! arrives. Here the awaiting frame keeps the machine, so they run after. The
 //! values a program computes are the same; the interleaving is not.
 //!
-//! Removing that needs `Inst::Suspend` lowered — `lower/body.rs` refuses it with
-//! `Capability::Suspension` — over the frame transformation
-//! `rts_cranelift::frame::transform` already implements and nothing yet calls.
-//! That is the correct shape and it is named here rather than implied, because a
-//! blocking `await` that nobody wrote down is how an engine acquires a
-//! permanent one.
+//! # What removing it actually needs, and what it does NOT
+//!
+//! This said it needs `Inst::Suspend` **lowered** in `lower/body.rs`. That is
+//! wrong, and it is corrected here rather than deleted because it sent a reader
+//! at the one file where the work is not.
+//!
+//! `Inst::Suspend` is not lowerable and must not become so. A bare suspension
+//! has no promise and no frame record, so `lower/body.rs`'s refusal is the
+//! correct answer for it — `frame::resumable_form` REMOVES every `Suspend`
+//! before lowering ever sees a body, which is why a `function*` reaches the
+//! machine at all today. The machine capability is therefore already built,
+//! already used by every generator, and already carries the three ways back in
+//! (`frame::ResumeMode`) that a rejected `await` needs.
+//!
+//! What is missing is entirely on the two sides of it, and none of it is in
+//! this crate's promise machinery alone:
+//!
+//! - **`rts-codegen`**, three places. `emit/expr.rs` emits `Inst::Await` — a
+//!   call that blocks — where it would have to emit "register this frame as
+//!   this promise's waiter" followed by `builder.suspend()`. `emit/function.rs`
+//!   registers only `is_generator` bodies for the rewrite, so an `async fn`
+//!   body is never made resumable. `emit/wrap.rs`'s `async_function` calls the
+//!   body and settles afterwards, which is the shape that cannot yield: it
+//!   would have to build a frame, drive it once, and answer the promise while
+//!   the frame is still parked.
+//! - **here**, the fifth reaction. [`super::react::Reaction`] is documented as
+//!   "something waiting on a promise that is NOT a parked frame"; a parked frame
+//!   is the variant that was left out, and settling one resumes the frame with
+//!   `ResumeMode::Deliver` or `Unwind` and, when it answers finished, settles
+//!   the promise the async call handed its caller.
+//! - **`rts_cranelift::sched::Scheduler::park`**, which [`super`] already names
+//!   as the one part of the scheduler this module does not use: it takes a
+//!   `Continuation`, which is precisely a parked frame and a resume label, and
+//!   it shares the identifier space and the queue with the reactions above —
+//!   which is what makes "a `.then` and an `await` on one promise run in the
+//!   order they attached" a fact rather than a coincidence.
+//!
+//! It is named at this length rather than implied, because a blocking `await`
+//! that nobody wrote down is how an engine acquires a permanent one.
 //!
 //! # Not handled here, by name
 //!

@@ -425,6 +425,13 @@ fn emit_block(
     loops: &mut super::loops::Loops,
     body: &[Stmt],
 ) -> EmitResult<bool> {
+    // A `try`, a `catch` and a `finally` body are each their own lexical scope,
+    // so each has its own temporal dead zone. Armed here rather than at the six
+    // call sites for the reason this function exists at all: they differ in
+    // where control goes afterwards, never in what the body means. The caller
+    // has already opened the layer this lands in and closes it after.
+    let lexical = super::binding::lexical_names(body);
+    scope.expect_lexical(&lexical);
     for statement in body {
         if emit_stmt(builder, scope, ctx, loops, statement)? {
             return Ok(true);

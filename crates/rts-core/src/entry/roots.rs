@@ -129,7 +129,11 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     words.extend(context.regexp_prototype);
     words.extend_from_slice(&context.callees);
     words.extend_from_slice(&context.pending_arguments);
-    words.extend_from_slice(&context.new_targets);
+    // Only the target half is a value: the number beside it is an activation
+    // depth, and offering it here would ask the filter to decide whether a
+    // small integer is a reference — which is exactly the question a root scan
+    // must never be handed.
+    words.extend(context.new_targets.iter().map(|(target, _)| *target));
     words.extend_from_slice(&context.literals);
     // What a native kept after its call returned. The stack scan cannot see
     // these: they live in the holder's own memory, not on a frame. See
@@ -167,6 +171,10 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // Only the ones a program has actually named: a module registered lazily
     // has no object yet, and there is nothing to keep alive until it does.
     words.extend(context.modules.iter().filter_map(|held| held.namespace));
+    // And the `import.meta` object beside it, for the same reason: the table is
+    // the only holder, and a module whose meta was collected would answer a
+    // freed cell the next time it read `import.meta.url`.
+    words.extend(context.modules.iter().filter_map(|held| held.meta));
     words.extend(
         context
             .classes
@@ -174,6 +182,15 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
             .flat_map(|entry| [entry.made, entry.prototype]),
     );
     words.extend(context.promises.root_words());
+    // An async function's frame while its body is actually running. Nothing
+    // else names it: it is not the receiver of anything and it has not been
+    // attached to a promise yet. See `Context::driving`.
+    words.extend(
+        context
+            .driving
+            .iter()
+            .map(|&cell| crate::value::Value::from_slot(cell).bits()),
+    );
 
     roots.extend(conservative_roots(&words));
     roots
@@ -323,7 +340,7 @@ mod tests {
     fn context_roots_reject_a_non_reference_word_in_a_value_field() {
         let mut context = empty_context();
         context.callees.push(Value::from_i32(42).bits());
-        context.new_targets.push(Value::from_f64(1.5).bits());
+        context.new_targets.push((Value::from_f64(1.5).bits(), 0));
         assert!(
             context_roots(&context).is_empty(),
             "an integer and a double are not references, on the call stack \

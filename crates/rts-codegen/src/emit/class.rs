@@ -376,10 +376,33 @@ pub(super) fn emit_class(
             ClassElement::StaticBlock(statements) => {
                 function::hoist(builder, &mut inner, ctx, statements)?;
                 let mut loops = Loops::default();
+                let mut terminated = false;
                 for statement in statements {
                     if super::emit_stmt(builder, &mut inner, ctx, &mut loops, statement)? {
+                        terminated = true;
                         break;
                     }
+                }
+                if terminated {
+                    // A `throw` in a static block leaves the class expression
+                    // ITSELF, and everything after it — the remaining static
+                    // elements, and whatever the enclosing expression was going
+                    // to do with the constructor — never runs.
+                    //
+                    // A class is an EXPRESSION, so there is no `bool` to return
+                    // saying the block terminated; the value has to come back
+                    // whatever happened. So the emitter continues into a fresh
+                    // block that nothing jumps to: the terminator just written
+                    // stays the terminator of the block it ended, and the code
+                    // that follows is emitted where it is unreachable, which is
+                    // what the language says it is.
+                    //
+                    // Without this the `throw` was written as a terminator and
+                    // then OVERWRITTEN by the next statement's, so the class
+                    // finished initialising and the `catch` never ran.
+                    let unreachable = builder.create_block();
+                    builder.switch_to(unreachable);
+                    break;
                 }
             }
             // An instance field runs per construction, so it is not emitted
@@ -520,6 +543,70 @@ fn emit_constructor(
 /// calling. So a derived field initialiser that reads a property the parent
 /// constructor sets reads it too early, and that is the one program this order
 /// gets wrong.
+/// The callee text that says "what follows is a class field initialiser".
+///
+/// # Why a marker in the tree and not a flag around the emission
+///
+/// Because the initialisers are statements at the head of the CONSTRUCTOR, and
+/// the constructor's own body must still see the real `new.target`. A flag set
+/// around `emit_constructor` would cover both; a flag set here would be set
+/// while the tree is built rather than while it is emitted, which is a
+/// different moment entirely.
+///
+/// # Why a literal callee and not a name
+///
+/// A synthetic IDENTIFIER is a name every later pass has to be told about —
+/// capture, the escape analysis and the sloppy-write scan would each see a free
+/// variable nothing declares, and the honest failure mode of that is a program
+/// refused as unbound. A literal names nothing, so no pass has anything to
+/// resolve, and `emit/expr.rs` takes the node apart before `emit/call.rs` ever
+/// sees a call. What it costs is that `"@@rts_field_initialiser"(x)` written by
+/// hand would be read as the marker — a program that is a `TypeError`
+/// everywhere else, and the only spelling that collides.
+const FIELD_INITIALISER: &str = "@@rts_field_initialiser";
+
+/// Wraps a field initialiser so the emitter can tell it from the rest of the
+/// constructor body. See [`FIELD_INITIALISER`].
+fn marked_as_field_initialiser(value: Expr) -> Expr {
+    let at = value.at;
+    Expr {
+        kind: ExprKind::Call {
+            callee: Box::new(Expr {
+                kind: ExprKind::Literal(crate::syntax::Literal::String(
+                    crate::syntax::Text::from_units(
+                        FIELD_INITIALISER.encode_utf16().collect::<Vec<u16>>(),
+                    ),
+                )),
+                at,
+            }),
+            arguments: vec![crate::syntax::Spreadable::Single(value)],
+            optional: false,
+        },
+        at,
+    }
+}
+
+/// Whether an expression is one [`marked_as_field_initialiser`] wrapped, and
+/// what it wrapped.
+pub(super) fn field_initialiser(expr: &Expr) -> Option<&Expr> {
+    let ExprKind::Call {
+        callee, arguments, ..
+    } = &expr.kind
+    else {
+        return None;
+    };
+    let ExprKind::Literal(crate::syntax::Literal::String(text)) = &callee.kind else {
+        return None;
+    };
+    if text.units() != FIELD_INITIALISER.encode_utf16().collect::<Vec<u16>>() {
+        return None;
+    }
+    match arguments.as_slice() {
+        [crate::syntax::Spreadable::Single(inner)] => Some(inner),
+        _ => None,
+    }
+}
+
 fn with_fields(
     ctx: &mut Ctx,
     class: &Class,
@@ -535,7 +622,7 @@ fn with_fields(
             continue;
         }
         let value = match &field.value {
-            Some(value) => value.clone(),
+            Some(value) => marked_as_field_initialiser(value.clone()),
             // Declaring `x;` with no initialiser is not the same as never
             // declaring it: the property exists, which is what fixes the layout.
             None => Expr {

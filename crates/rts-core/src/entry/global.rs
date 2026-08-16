@@ -120,6 +120,10 @@ pub(in crate::entry) fn supply(
             // See that module for why the constructor is not a `#[construct]`
             // member of `Function` itself.
             "Function" => super::eval::register_function_constructor(context),
+            // Not in `global_fns`, although it is a global function: that
+            // module holds natives which need nothing from the host, and this
+            // one is answerable only because a parser was installed from above.
+            "eval" => super::eval::eval_callable(context),
             "Reflect" => super::reflect::register_reflect(context),
             "Symbol" => super::symbol::constructor(context),
             "JSON" => super::json::register_json(context),
@@ -246,6 +250,50 @@ pub fn global_get_unbound(key: i64) -> u64 {
     // the pending throw, and every call site this crosses
     // (`rts-codegen::emit::expr::call`) checks for one immediately after the
     // call and re-raises before the value is used.
+}
+
+/// `OrdinaryCallBindThis` for a NON-STRICT function: the receiver it was called
+/// with, or the global object when it was called with none.
+///
+/// # Why the runtime and not the emitter
+///
+/// Because the answer is the global object, which only this crate can produce —
+/// it is made on demand by [`holder`] and lives in the context. The emitter's
+/// alternative was a branch around a `GlobalGet("globalThis")`, which is the
+/// same call plus a comparison the compiler would have to spell in IR; this way
+/// the substitution rule is stated once, where the object is.
+///
+/// # Why only a function the compiler CALLED non-strict reaches this
+///
+/// Module code is strict, so `this` stays `undefined` there and must: the whole
+/// engine is strict, and substituting everywhere would make `this === undefined`
+/// answer `false` in code that reads it. `rts-codegen`'s `emit::nonstrict` is
+/// what decides, and the only source of a non-strict function here is
+/// `Function`/`eval` — text compiled into a running program.
+///
+/// # What is deliberately absent
+///
+/// A primitive receiver. The specification wraps one — `Number.prototype.f`
+/// called on `1` sees a `Number` OBJECT in sloppy mode — and this crate has no
+/// `ToObject`, so a primitive is answered unchanged. Named rather than papered
+/// over: it is the same wrapper cell absent everywhere else.
+#[rtse::entry]
+pub fn sloppy_this(receiver: u64) -> u64 {
+    with_current(|context| {
+        let nullish = match Value(receiver).kind() {
+            crate::value::Kind::Singleton(number) => {
+                number == context.singletons.undefined || number == context.singletons.null
+            }
+            _ => false,
+        };
+        if !nullish {
+            return receiver;
+        }
+        match holder(context) {
+            Some(object) => Value::from_slot(object).bits(),
+            None => receiver,
+        }
+    })
 }
 
 /// The object the provided names are properties of, made once.

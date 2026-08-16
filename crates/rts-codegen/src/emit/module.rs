@@ -106,6 +106,68 @@ pub fn emit_import(
     Ok(())
 }
 
+/// `import.meta`.
+///
+/// # Why the module's own specifier is what crosses
+///
+/// Because it is the only thing that identifies the module, and the emitter is
+/// the last place that knows it: the object itself holds a URL and whether this
+/// module is the program's entry, and a compiler knows neither. Both come down
+/// as a declaration from the host, which resolved the file in the first place.
+///
+/// A script is refused rather than answered. `import.meta` is a module-only
+/// syntax in the language, and a script given one would be a name with nothing
+/// behind it — the rule this repository states for a surface that cannot do what
+/// its name means.
+pub fn emit_import_meta(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+) -> EmitResult<ValueId> {
+    let Some(own) = ctx.module_specifier.clone() else {
+        return Err(refuse("`import.meta` outside a module"));
+    };
+    let own = ctx.literal(&own);
+    let own = number(builder, u64::from(own));
+    Ok(super::expr::call(builder, ctx, RuntimeOp::ImportMeta, &[own])?[0])
+}
+
+/// `import(specifier)` — a promise for a module's namespace.
+///
+/// # Why the specifier is not resolved here
+///
+/// A static `import` is resolved by the host before this crate ever sees it —
+/// `rts-host`'s loader rewrites the tree, which is why [`emit_import`] can hand
+/// the runtime a literal. A dynamic one cannot be: `import(name)` computes its
+/// argument, so there is nothing in the tree to rewrite. So the VALUE crosses,
+/// together with which module asked, and the host answers what `"./x"` means
+/// from that pair — the same division of labour, decided at run time because
+/// that is when the question exists.
+///
+/// # The second argument is ignored, and said so
+///
+/// `import(specifier, { with: … })` carries import attributes, which decide how
+/// a non-JavaScript module is interpreted. Nothing here interprets one, so
+/// evaluating the options object and discarding it would be a promise that the
+/// attributes were honoured. It is refused instead.
+pub fn emit_import_call(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    specifier: &crate::syntax::Expr,
+    options: Option<&crate::syntax::Expr>,
+) -> EmitResult<ValueId> {
+    if options.is_some() {
+        return Err(refuse("`import()` with import attributes"));
+    }
+    let Some(own) = ctx.module_specifier.clone() else {
+        return Err(refuse("`import()` outside a module"));
+    };
+    let value = super::expr::emit_expr(builder, scope, ctx, specifier)?;
+    let own = ctx.literal(&own);
+    let own = number(builder, u64::from(own));
+    Ok(super::expr::call(builder, ctx, RuntimeOp::ModuleImport, &[value, own])?[0])
+}
+
 /// One name this module makes visible, and where its value comes from.
 ///
 /// Collected while lowering the module's items and emitted after its body, so
@@ -307,10 +369,50 @@ pub fn lower_export(
         }
         ExportKind::Default(ExportDefault::Declaration(statement)) => {
             let Some(name) = declared_names(statement).into_iter().next() else {
-                // `export default function () {}` has nothing to bind, and a
-                // synthetic name would be a name the program could collide
-                // with. Refused rather than invented.
-                return Err(refuse("an anonymous `export default` declaration"));
+                // `export default function () {}` binds nothing of its own, so
+                // it becomes the EXPRESSION form below: a `const` in the
+                // reserved space no program can spell, declared where the
+                // declaration was written. This was refused, on the reasoning
+                // that a synthetic name could collide — which was already
+                // answered two arms down, by `@@default`, for exactly the same
+                // problem. One answer, reached from both spellings.
+                //
+                // The divergence that leaves, stated rather than discovered: a
+                // function DECLARATION is hoisted and a `const` is not, so a
+                // module reading its own anonymous default above the `export`
+                // line sees nothing here and the function there. Nothing can
+                // read it from OUTSIDE before the module has run, which is
+                // where the name is observable.
+                let kind = match &statement.kind {
+                    StmtKind::Function(function) => {
+                        crate::syntax::ExprKind::Function(function.clone())
+                    }
+                    StmtKind::Class(class) => crate::syntax::ExprKind::Class(class.clone()),
+                    // Nothing else can be an `export default` declaration: the
+                    // grammar admits a function, a class, and an expression,
+                    // and the third arrives at the arm below.
+                    _ => return Err(refuse("an anonymous `export default` declaration")),
+                };
+                let local = ctx.names.intern("@@default");
+                body.push(crate::syntax::Stmt {
+                    kind: StmtKind::Declare {
+                        kind: crate::syntax::BindingKind::Const,
+                        bindings: vec![crate::syntax::Binding {
+                            target: crate::syntax::Pattern::Name(local),
+                            value: Some(crate::syntax::Expr {
+                                kind,
+                                at: statement.at,
+                            }),
+                            claim: None,
+                        }],
+                    },
+                    at: export.at,
+                });
+                publications.push(Publication {
+                    exported: "default".to_owned(),
+                    source: PublicationSource::Local(local),
+                });
+                return Ok(());
             };
             publications.push(Publication {
                 exported: "default".to_owned(),

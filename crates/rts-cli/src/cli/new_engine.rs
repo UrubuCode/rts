@@ -33,6 +33,19 @@ fn imports_a_file(source: &str) -> bool {
         || source.contains("from \"../")
         || source.contains("from './")
         || source.contains("from '../")
+        // A dynamic `import("./x")` names a file too, and no `from` appears in
+        // it — so the test above answered "no imports" and the module was
+        // compiled alone, which is the failure this file's own header warns
+        // about arriving through the other spelling.
+        || source.contains("import(")
+        // `import.meta` names no file, and is here for the other half of what
+        // the graph gives: a module compiled alone has no SPECIFIER, and
+        // `import.meta` is refused without one. A substring test decides how a
+        // file is compiled, which is the shape this whole function is — the
+        // thing that ends it is compiling every file as a graph of one, and
+        // that is a change to measure on its own rather than to smuggle in
+        // beside a feature.
+        || source.contains("import.meta")
 }
 
 /// Compiles and runs `path` through the new engine, on a thread with the

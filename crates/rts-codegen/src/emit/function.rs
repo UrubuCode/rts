@@ -261,6 +261,23 @@ fn emit_function(
     shape.may_suspend = function.is_async || function.is_generator;
     let sig = ctx.funcs.declare_signature(shape);
     let id = ctx.funcs.declare_function(sig);
+    // Whether an `await` in THIS body parks it. Saved and restored around the
+    // emission rather than set once, because a nested function's `await` parks
+    // the nested frame and an ordinary function nested in an async one has no
+    // frame to park at all. Only a PLAIN async function: an `async function*`
+    // is already stepped through its own object, so a second party resuming the
+    // same frame could not be told apart from `next()`.
+    let outer_parks = ctx.async_parks;
+    ctx.async_parks = function.is_async && !function.is_generator;
+    // Strictness, saved and restored like the flag above and set in ONE
+    // direction: `"use strict"` makes this body and every function written
+    // inside it strict, and nothing makes a body sloppy that was not already.
+    // That asymmetry is the language's, so clearing here is all the inheritance
+    // the nested emissions need — they read the cleared flag.
+    let outer_sloppy = ctx.sloppy;
+    if ctx.sloppy && super::nonstrict::is_strict(&function.directives) {
+        ctx.sloppy = false;
+    }
     let emitted = emit_body(
         ctx,
         enclosing,
@@ -279,7 +296,10 @@ fn emit_function(
         // re-publish its exports on every call.
         None,
         &[],
-    )?;
+    );
+    ctx.async_parks = outer_parks;
+    ctx.sloppy = outer_sloppy;
+    let emitted = emitted?;
     // Set on the EMITTED function and not only on the declared signature:
     // `emit_body` builds its own `Function` from `signature()`, so a flag set on
     // the registry copy alone never reached the thing the verifier reads. It
@@ -339,7 +359,15 @@ fn emit_function(
     }
     match function.is_async {
         false => Ok(id),
-        true => Ok(super::wrap::async_function(ctx, id)),
+        // The body is a PARKED frame, exactly as a generator's is, so it goes
+        // through the same rewrite: `ctx.generators` is the list the host puts
+        // through `frame::resumable_form`. What differs is who resumes it —
+        // a promise reaction rather than `next()` — and that lives entirely in
+        // the runtime half of `RuntimeOp::AsyncStart`.
+        true => {
+            ctx.generators.push(id);
+            super::wrap::async_function(ctx, id)
+        }
     }
 }
 
@@ -590,7 +618,6 @@ pub(super) fn emit_body(
     // returns from IT, and owes nothing to a `finally` written outside.
     let outer_returns = std::mem::take(&mut ctx.finally_returns);
     let outer_jumps = std::mem::take(&mut ctx.finally_jumps);
-
     let result = emit_body_into(
         ctx,
         enclosing,
@@ -703,8 +730,19 @@ fn emit_body_into(
         .map(|(name, hops)| (name, hops + further))
         .collect();
 
+    // A non-strict function called with no receiver sees the GLOBAL OBJECT
+    // rather than `undefined`, and it sees it from the first statement — so the
+    // substitution happens once here and every reader below takes this value
+    // instead of the incoming slot. An arrow is excluded because it has no
+    // `this` of its own to bind: it reads the enclosing function's, which was
+    // already substituted there if that function was the sloppy one.
+    let receiver = match ctx.sloppy && !captures_this {
+        true => super::nonstrict::substitute_receiver(&mut builder, ctx, incoming[THIS_PARAM])?,
+        false => incoming[THIS_PARAM],
+    };
+
     let mut scope = Scope::for_function(Some(environment), captured, &reachable);
-    scope.set_this(incoming[THIS_PARAM], captures_this);
+    scope.set_this(receiver, captures_this);
     if let Some(name) = late_this {
         // DECLARED only where this function owns the name. A derived constructor
         // does: `this` does not exist in one until `super()` returns, so the
@@ -717,7 +755,7 @@ fn emit_body_into(
         // the one it came for — which is what it did, and every `this` inside an
         // arrow read `undefined` while looking like it worked.
         if !captures_this {
-            binding::declare(&mut builder, &mut scope, ctx, name, incoming[THIS_PARAM])?;
+            binding::declare(&mut builder, &mut scope, ctx, name, receiver)?;
         }
         scope.bind_this_late(name);
     }
@@ -800,14 +838,14 @@ fn emit_body_into(
     // What this answers is an ARRAY, where the language says an arguments
     // exotic object. `length` and indexing are what a program reads and they
     // agree; `Array.isArray(arguments)` is `true` here and `false` in a real
-    // engine, and `arguments.callee` does not exist. Named rather than papered
-    // over: the exotic object needs a kind of cell this runtime does not have.
+    // engine. `arguments.callee` DOES exist now, for a non-strict function —
+    // see below and `emit::nonstrict`. Named rather than papered over: the
+    // exotic object needs a kind of cell this runtime does not have.
     // `this` handed to the arrows inside, declared before anything can read it.
     // The value is the receiver this function was called with, which is exactly
     // what an arrow written here should see.
     if !captures_this && capture::arrow_reads_this(body) {
         let held_this = ctx.names.intern("__rts_this");
-        let receiver = incoming[THIS_PARAM];
         binding::declare(&mut builder, &mut scope, ctx, held_this, receiver)?;
     }
 
@@ -823,6 +861,13 @@ fn emit_body_into(
             let mut passed = vec![from];
             passed.extend(given);
             let all = expr::call(&mut builder, ctx, RuntimeOp::RestArguments, &passed)?[0];
+            // `callee` only where the function is NON-STRICT. A strict one has
+            // the name too, as an accessor that throws, and answering the
+            // function there would make a program that tests for the throw see
+            // a callable instead — the wrong direction to be wrong in.
+            if ctx.sloppy {
+                super::nonstrict::define_callee(&mut builder, ctx, all)?;
+            }
             binding::declare(&mut builder, &mut scope, ctx, named, all)?;
         }
     }
@@ -834,6 +879,12 @@ fn emit_body_into(
     // answer `undefined` instead of refusing to compile.
     hoist_vars(&mut builder, &mut scope, ctx, body)?;
     hoist(&mut builder, &mut scope, ctx, body)?;
+    // The body's own `let`, `const` and `class` names are in their dead zone
+    // until their declarations are reached. Armed after both hoists on purpose:
+    // a `var` and a hoisted `function` have no dead zone, and binding them first
+    // is what keeps them out of this one.
+    let lexical = binding::lexical_names(body);
+    scope.expect_lexical(&lexical);
 
     let mut loops = Loops::default();
     let mut terminated = false;

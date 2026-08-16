@@ -118,6 +118,10 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::generator_new
                 as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::AsyncStart => (CoreEntry::AsyncStart, {
+            rts_core::entry::async_start
+                as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::GeneratorYield => (CoreEntry::GeneratorYield, {
             rts_core::entry::generator_yield as extern "C" fn(u64) -> u64 as *const u8
         }),
@@ -185,6 +189,16 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ModuleNamespace => (CoreEntry::ModuleNamespace, {
             rts_core::entry::module_namespace as extern "C" fn(i64) -> u64 as *const u8
         }),
+        // Which literal holds the asking module's own specifier, exactly as
+        // `ModulePublish`'s first argument is.
+        RuntimeOp::ImportMeta => (CoreEntry::ImportMeta, {
+            rts_core::entry::import_meta as extern "C" fn(i64) -> u64 as *const u8
+        }),
+        // The specifier is a VALUE and the referrer a literal index, and the
+        // cast is where that pair is checked rather than assumed.
+        RuntimeOp::ModuleImport => (CoreEntry::ModuleImport, {
+            rts_core::entry::module_import as extern "C" fn(u64, i64) -> u64 as *const u8
+        }),
         RuntimeOp::ModulePublish => (CoreEntry::ModulePublish, {
             rts_core::entry::module_publish as extern "C" fn(i64, i64, u64) -> u64 as *const u8
         }),
@@ -241,6 +255,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::DefineMethod => (CoreEntry::DefineMethod, {
             rts_core::entry::define_method as extern "C" fn(u64, i64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::NewTarget => (CoreEntry::NewTarget, {
+            rts_core::entry::new_target as extern "C" fn() -> u64 as *const u8
         }),
         RuntimeOp::Construct => (CoreEntry::Construct, {
             rts_core::entry::construct as extern "C" fn(u64, u64, u64, u64, u64) -> u64
@@ -319,6 +336,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::UnboundGlobalGet => (CoreEntry::GlobalGetUnbound, {
             rts_core::entry::global_get_unbound as extern "C" fn(i64) -> u64 as *const u8
+        }),
+        RuntimeOp::SloppyThis => (CoreEntry::SloppyThis, {
+            rts_core::entry::sloppy_this as extern "C" fn(u64) -> u64 as *const u8
         }),
     }
 }

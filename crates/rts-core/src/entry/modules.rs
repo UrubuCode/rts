@@ -73,12 +73,78 @@ pub struct Registered {
     /// Registered by a host (`true`) rather than published by a compiled
     /// module's own `export`.
     pub provided: bool,
+    /// The object `import.meta` answers for this module, built by the host.
+    ///
+    /// Here rather than in a second table keyed by specifier, because this IS
+    /// the table keyed by specifier — a second one would be a second answer to
+    /// "which module is this", and the two would disagree the first time a
+    /// specifier was registered through one and looked up through the other.
+    ///
+    /// `None` for every module a host did not describe: a host module has no
+    /// `import.meta` at all, and a compiled one whose meta was never declared
+    /// must say so rather than answer an empty object. See
+    /// [`super::dynamic_module::import_meta`].
+    pub meta: Option<u64>,
+}
+
+/// The text of a specifier the compiler passed as a literal index.
+///
+/// Written once because five callers need it and a sixth arrived with
+/// `import()`: the chain is index → literal table → cell → text → Rust string,
+/// and every step of it can miss. Two spellings of it would be two answers to
+/// what a specifier is.
+pub(in crate::entry) fn literal_text(context: &Context, specifier: i64) -> Option<String> {
+    context
+        .literals
+        .get(usize::try_from(specifier).ok()?)
+        .copied()
+        .and_then(|held| Value(held).as_slot())
+        .and_then(|cell| context.text_at(cell))
+        .and_then(Str::to_rust)
+}
+
+/// The namespace a compiled module publishes into, making it if this is its
+/// first export.
+///
+/// # Why the entry may already exist without a namespace
+///
+/// Because a module can be REGISTERED before it has published anything: the
+/// host describes every module of the graph up front so that `import.meta` has
+/// an object, and that describes a specifier whose exports have not run yet.
+/// Pushing a second entry for the same specifier there is what makes the
+/// question "what does this specifier resolve to" have two answers — the first
+/// one found wins the lookup, and it is the one with no namespace. So the entry
+/// is FILLED rather than shadowed.
+///
+/// The namespace is still created on the first export rather than at
+/// registration: a module that exports nothing has none, and `import * as ns`
+/// of it answering `undefined` is the honest result of that.
+pub(in crate::entry) fn namespace_for(context: &mut Context, specifier: String) -> u64 {
+    if let Some(namespace) = context.module_at(&specifier) {
+        return namespace;
+    }
+    let made = make_object(context);
+    match context
+        .modules
+        .iter_mut()
+        .find(|held| held.specifier == specifier)
+    {
+        Some(held) => held.namespace = Some(made),
+        None => context.modules.push(Registered {
+            specifier,
+            namespace: Some(made),
+            build: None,
+            provided: false,
+            meta: None,
+        }),
+    }
+    made
 }
 
 impl Context {
     /// The namespace object a specifier names, if the host provided one —
     /// building it here if this is the first time a program has named it.
-    fn module_at(&mut self, specifier: &str) -> Option<u64> {
+    pub(in crate::entry) fn module_at(&mut self, specifier: &str) -> Option<u64> {
         let at = self
             .modules
             .iter()
@@ -132,6 +198,7 @@ pub fn declare_module(context: &mut Context, specifier: &str, namespace: u64) {
             namespace: Some(namespace),
             build: None,
             provided: true,
+            meta: None,
         }),
     }
 }
@@ -187,6 +254,7 @@ pub fn declare_module_lazy(context: &mut Context, specifiers: &[&str], build: Bu
                 namespace: None,
                 build: Some(build),
                 provided: true,
+                meta: None,
             }),
         }
     }
@@ -1050,19 +1118,7 @@ pub fn module_publish(specifier: i64, key: i64, value: u64) -> u64 {
         // compiles the module: a module that exports nothing has no namespace
         // to speak of, and `import * as ns` of it answering `undefined` is the
         // honest result of that rather than an empty object pretending.
-        let namespace = match context.module_at(&text) {
-            Some(namespace) => namespace,
-            None => {
-                let made = make_object(context);
-                context.modules.push(Registered {
-                    specifier: text,
-                    namespace: Some(made),
-                    build: None,
-                    provided: false,
-                });
-                made
-            }
-        };
+        let namespace = namespace_for(context, text);
         let Some(cell) = Value(namespace).as_slot() else {
             return value;
         };
@@ -1183,19 +1239,7 @@ pub fn module_publish_all(specifier: i64, from: i64) -> u64 {
         else {
             return;
         };
-        let namespace = match context.module_at(&text) {
-            Some(namespace) => namespace,
-            None => {
-                let made = make_object(context);
-                context.modules.push(Registered {
-                    specifier: text,
-                    namespace: Some(made),
-                    build: None,
-                    provided: false,
-                });
-                made
-            }
-        };
+        let namespace = namespace_for(context, text);
         if let Some(cell) = Value(namespace).as_slot() {
             for (key, value) in pairs {
                 super::objects::put(context, cell, key, value);

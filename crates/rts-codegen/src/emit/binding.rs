@@ -53,6 +53,9 @@ pub fn read(
     ctx: &mut Ctx,
     name: Name,
 ) -> EmitResult<ValueId> {
+    if scope.in_dead_zone(name) && !ctx.in_cleanup {
+        return dead_zone(builder, ctx, name);
+    }
     match scope.lookup(name) {
         Some(Binding::Value(value)) => Ok(value),
         Some(Binding::InEnvironment { hops, name }) => {
@@ -91,6 +94,13 @@ pub fn write(
     name: Name,
     value: ValueId,
 ) -> EmitResult<ValueId> {
+    // Assigning into the zone throws for the same reason reading does: the name
+    // exists lexically and has no binding to write yet. Without this the write
+    // falls past `Scope::lookup` and CREATES a global, so `x = 1; let x;` would
+    // publish a property nothing meant to publish.
+    if scope.in_dead_zone(name) && !ctx.in_cleanup {
+        return dead_zone(builder, ctx, name);
+    }
     match scope.lookup(name) {
         Some(Binding::InEnvironment { hops, name }) => {
             let environment = walk(builder, scope, ctx, hops)?;
@@ -130,6 +140,10 @@ pub fn declare(
     name: Name,
     value: ValueId,
 ) -> EmitResult<()> {
+    // The dead zone ends here, at the declaration itself — which is why this is
+    // the one place that says so. `let x = x;` still throws: the initialiser is
+    // emitted by the caller before this is reached.
+    scope.initialize(name);
     if scope.is_captured(name) {
         // The binding already exists — `Scope::for_function` created it at
         // function entry, because a hoisted inner function may have read it
@@ -253,6 +267,84 @@ pub fn push_environment(
     Ok(Some(scope.enter_environment(fresh, names)))
 }
 
+/// The `let`, `const` and `class` names a body declares at its OWN level.
+///
+/// One list, two readers, which is why it is a function rather than a loop
+/// written twice: [`block_layer`] sizes the block's environment from it, and
+/// [`Scope::expect_lexical`] arms the dead zone from it. Two traversals would be
+/// two answers to "what does this block declare", and the one that disagreed
+/// would either allocate a slot nothing uses or refuse a legal program.
+///
+/// `var` is excluded because a `var` was hoisted to the function and reading one
+/// before its line is `undefined`, not an error. A `function` declaration is
+/// excluded for the stronger reason: it is bound before the body runs, so it has
+/// no dead zone at all.
+pub fn lexical_names(body: &[crate::syntax::Stmt]) -> Vec<Name> {
+    use crate::syntax::StmtKind;
+    let mut names = Vec::new();
+    for statement in body {
+        match &statement.kind {
+            StmtKind::Declare { kind, bindings } if *kind != crate::syntax::BindingKind::Var => {
+                for binding in bindings {
+                    binding.target.bound_names(&mut names);
+                }
+            }
+            StmtKind::Class(class) => names.extend(class.name),
+            _ => {}
+        }
+    }
+    names
+}
+
+/// Emits a read of a name whose declaration this body has not reached yet.
+///
+/// # Why a `throw` here rather than a check at every read
+///
+/// The zone is decided while compiling — see [`Scope::in_dead_zone`] — so the
+/// program that has no such read pays nothing, and the one that has it gets the
+/// error unconditionally because the read cannot be anything else. The
+/// alternative, a sentinel in the storage compared on every read, taxes every
+/// local read in every program to serve this one.
+///
+/// # Why the error is constructed rather than raised by an entry point
+///
+/// `ReferenceError` is an ordinary constructor the program can reach, and
+/// `globals::unbound_read` is deliberately NOT reused: that entry consults the
+/// global object first and answers what it finds, which is right for a name
+/// nothing declared and wrong here — `globalThis.x` existing does not make a
+/// block's own `let x` readable before its line.
+///
+/// # Why a cleanup copy is exempt
+///
+/// The callers guard on [`Ctx::in_cleanup`]. A `finally` emitted as a CLEANUP
+/// has a block shape the machine checks — `CleanupDoesNotEnd` — and a `throw`
+/// is a terminator with no successor, so raising inside one produces IR the
+/// verifier refuses. That is the same limit `expr::raise_if_thrown` already
+/// states from the other side: nothing can throw out of a cleanup copy in this
+/// engine yet, so a dead-zone read written there reads as it did before rather
+/// than being refused. It is a stated divergence, not a case handled quietly.
+///
+/// Emission continues in a fresh block with no predecessor. Everything after a
+/// `throw` in the same statement list is unreachable, and the machine's verifier
+/// accepts a block with no predecessor at all — the alternative, refusing to
+/// emit the rest, would mean this function deciding for its caller what a
+/// terminator means.
+fn dead_zone(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> EmitResult<ValueId> {
+    let spelling = ctx.names.text(name).to_owned();
+    let reference_error = ctx.names.intern("ReferenceError");
+    let constructor = super::globals::force_read(builder, ctx, reference_error)?;
+    let message = super::expr::string_literal(
+        builder,
+        ctx,
+        &format!("Cannot access '{spelling}' before initialization"),
+    )?;
+    let error = super::call::construct_value(builder, ctx, constructor, &[message])?;
+    builder.throw(super::protect::JS_THROW, error);
+    let unreached = builder.create_block();
+    builder.switch_to(unreached);
+    Ok(super::expr::undefined(builder, ctx))
+}
+
 /// The environment a BLOCK needs, if any of what it declares was captured.
 ///
 /// Only the block's own level: a nested block opens its own layer when it
@@ -268,18 +360,13 @@ pub fn block_layer(
     ctx: &mut Ctx,
     body: &[crate::syntax::Stmt],
 ) -> EmitResult<Option<Option<ValueId>>> {
-    use crate::syntax::StmtKind;
-    let mut names = Vec::new();
+    let mut names = lexical_names(body);
+    // A hoisted function is bound before the block runs and is therefore not in
+    // the dead zone — which is why it is added HERE rather than in
+    // [`lexical_names`], although the environment must still hold a slot for it.
     for statement in body {
-        match &statement.kind {
-            StmtKind::Declare { kind, bindings } if *kind != crate::syntax::BindingKind::Var => {
-                for binding in bindings {
-                    binding.target.bound_names(&mut names);
-                }
-            }
-            StmtKind::Function(function) => names.extend(function.name),
-            StmtKind::Class(class) => names.extend(class.name),
-            _ => {}
+        if let crate::syntax::StmtKind::Function(function) = &statement.kind {
+            names.extend(function.name);
         }
     }
     names.retain(|name| scope.is_captured(*name));

@@ -276,9 +276,26 @@ extern "C" fn forward(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -
         // with five arguments has them in the vector, and reading the slots would
         // drop the fifth after `bind` was careful to keep its own.
         arguments.extend(super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]));
-        Some((held.target, held.receiver, arguments))
+        let target = held.target;
+        let receiver = held.receiver;
+        // Whether THIS activation was reached through `new`. A bound
+        // function's `[[Construct]]` is defined as its target's, and the bound
+        // receiver is explicitly not used — so `Point.bind(null, 2)` reached by
+        // `new` must build an object rather than write to `null`, which is the
+        // `Cannot set properties of null` this closes.
+        //
+        // Asked of the target stack rather than of the receiver, because the
+        // receiver a construction hands over is a perfectly ordinary object and
+        // nothing about it says how it was made. See
+        // `functions::new_target` for why the depth is what makes the answer
+        // this activation's rather than an outer construction's.
+        let constructing = context
+            .new_targets
+            .last()
+            .is_some_and(|(_, depth)| depth + 1 == context.callees.len());
+        Some((target, receiver, arguments, constructing))
     });
-    let Some((target, receiver, arguments)) = plan else {
+    let Some((target, receiver, arguments, constructing)) = plan else {
         return with_current(|context| super::objects::undefined_of(context));
     };
     let vector = super::array::array_new(arguments.len() as i64);
@@ -291,6 +308,15 @@ extern "C" fn forward(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -
     });
     // Through the vector path, because the partial arguments plus the caller's
     // can be seven and the convention carries four.
+    if constructing {
+        // The object `construct` already made for this activation is discarded
+        // and the target makes its own, which is what delegating
+        // `[[Construct]]` means: the target may be a class, a native, or
+        // something that allocates a cell only it knows the shape of, and
+        // handing it a plain object would be the derived-constructor mistake
+        // one level over.
+        return super::functions::construct_with_args(target, vector);
+    }
     super::functions::call_with_args(target, receiver, vector)
 }
 

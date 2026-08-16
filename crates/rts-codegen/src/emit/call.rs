@@ -524,16 +524,49 @@ fn emit_construction(
         return Ok(expr::call(builder, ctx, vector_op, &[function, vector])?[0]);
     }
 
-    let mut passed = Vec::with_capacity(1 + ARGUMENT_SLOTS);
-    passed.push(function);
+    let mut values = Vec::with_capacity(arguments.len());
     for argument in arguments {
         let Spreadable::Single(value) = argument else {
             return Err(EmitError::Unsupported {
                 construct: "a spread argument",
             });
         };
-        passed.push(emit_expr(builder, scope, ctx, value)?);
+        values.push(emit_expr(builder, scope, ctx, value)?);
     }
+    construct_with(builder, ctx, function, &values, op)
+}
+
+/// `new f(…)` where both the callee and every argument are already values.
+///
+/// The emitter builds a construction of its own in one place — `binding`'s
+/// dead-zone read, which throws a `ReferenceError` the program can catch and
+/// inspect — and it has no expressions to evaluate. Sharing the padded path
+/// rather than writing a second one is rule 3: the arity and the padding are one
+/// rule, and a second copy is where the two would come to pad differently.
+///
+/// Fewer than [`ARGUMENT_SLOTS`] arguments only; a caller with more has an
+/// argument vector to build, which needs the syntax this does not take.
+pub(super) fn construct_value(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    function: ValueId,
+    values: &[ValueId],
+) -> EmitResult<ValueId> {
+    debug_assert!(values.len() <= ARGUMENT_SLOTS);
+    construct_with(builder, ctx, function, values, RuntimeOp::Construct)
+}
+
+/// The padded crossing both of the above end in.
+fn construct_with(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    function: ValueId,
+    values: &[ValueId],
+    op: RuntimeOp,
+) -> EmitResult<ValueId> {
+    let mut passed = Vec::with_capacity(1 + ARGUMENT_SLOTS);
+    passed.push(function);
+    passed.extend_from_slice(values);
     while passed.len() < 1 + ARGUMENT_SLOTS {
         let undefined = expr::undefined(builder, ctx);
         passed.push(undefined);

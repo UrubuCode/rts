@@ -90,6 +90,10 @@ use rts_cranelift::frame::ResumeMode;
 
 pub use self::delegate::{DELEGATE_STEP_ENTRY, delegate_step};
 use self::resume::{finish_value, resumable, resume};
+/// One re-entry of a parked frame, for the driver that is not the iterator
+/// protocol: an async function's body is the same frame and is entered the same
+/// way, and only what happens to the answer differs. See `promise::async_fn`.
+pub(in crate::entry) use self::resume::advance;
 use super::{Context, with_current};
 use crate::value::Value;
 

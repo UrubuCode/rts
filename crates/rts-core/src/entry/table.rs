@@ -55,7 +55,7 @@ use super::computed::{
 use super::functions::{
     CALL_COUNTED_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
     CONSTRUCT_WITH_ARGS_ENTRY, INSTANCE_OF_ENTRY,
-    MARK_CLASS_CONSTRUCTOR_ENTRY, MARK_DERIVED_ENTRY, REST_ARGUMENTS_ENTRY,
+    MARK_CLASS_CONSTRUCTOR_ENTRY, MARK_DERIVED_ENTRY, NEW_TARGET_ENTRY, REST_ARGUMENTS_ENTRY,
     SET_CALL_NAME_ENTRY, SUPER_CONSTRUCT_ENTRY, SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
 };
 use super::objects::{
@@ -64,6 +64,8 @@ use super::objects::{
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
 use super::generator::{DELEGATE_STEP_ENTRY, GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
+use super::promise::ASYNC_START_ENTRY;
+use super::dynamic_module::{IMPORT_META_ENTRY, MODULE_IMPORT_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
 use super::array::{ELEMENTS_BASE_ENTRY, ELEMENT_AT_ENTRY};
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ADDRESS_ENTRY, THROWN_ENTRY};
@@ -73,7 +75,9 @@ use super::operators::{
     REMAINDER_ENTRY, SUBTRACT_ENTRY,
 };
 use super::primitives::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
-use super::global::{GLOBAL_GET_ENTRY, GLOBAL_GET_UNBOUND_ENTRY, GLOBAL_SET_ENTRY};
+use super::global::{
+    GLOBAL_GET_ENTRY, GLOBAL_GET_UNBOUND_ENTRY, GLOBAL_SET_ENTRY, SLOPPY_THIS_ENTRY,
+};
 use super::iterate::{ARRAY_APPEND_ALL_ENTRY, ARRAY_APPEND_ENTRY, ITERATE_ENTRY};
 use super::bigint_class::{BIGINT_NEW_ENTRY, NEGATE_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
@@ -485,6 +489,48 @@ pub enum CoreEntry {
     /// membership rule's third clause — and is the only way `g.throw(e)` can
     /// reach the inner iterator's own `throw`.
     DelegateStep = 80,
+
+    /// `new.target` — the constructor `new` named, for the activation asking.
+    ///
+    /// The membership rule's THIRD clause and not the heap one: the answer is a
+    /// read of the target stack, which is global mutable state, and no
+    /// instruction can see it. The calling convention carries no "was this a
+    /// construct" bit — inventing one would be a machine change every call in
+    /// the program pays for, so that a meta-property almost no program writes
+    /// could be read without a call.
+    NewTarget = 81,
+
+    /// `import.meta` — [`super::import_meta`].
+    ///
+    /// The heap clause and the identity one together: the object is built once
+    /// per module and kept for the life of the program, and only this crate
+    /// outlives an activation. An object literal emitted at each occurrence
+    /// would make `import.meta === import.meta` false.
+    ImportMeta = 82,
+
+    /// `import(specifier)` — [`super::module_import`].
+    ///
+    /// Allocates a promise and reads the specifier table: the first clause
+    /// twice over. Distinct from [`CoreEntry::ModuleNamespace`] because the
+    /// specifier is a VALUE the program computed rather than a literal the
+    /// compiler resolved, which is the whole reason a dynamic import exists.
+    ModuleImport = 83,
+
+    /// The receiver a NON-STRICT function was entered with — [`super::sloppy_this`].
+    ///
+    /// The heap clause: the substitute is the global object, which this crate
+    /// makes on demand and holds. Reached only from a body the compiler knows
+    /// is non-strict, which in this engine means text `Function`/`eval`
+    /// compiled into a program that is already running.
+    SloppyThis = 84,
+
+    /// The promise a call to an `async function` answers — [`super::async_start`].
+    ///
+    /// The heap clause twice over: it allocates the body's frame and the
+    /// promise. What it does that no other entry does is DRIVE the frame, which
+    /// is the third clause — the promise reaction that resumes it is the
+    /// runtime's own table, and no instruction can attach one.
+    AsyncStart = 85,
 }
 
 /// How many entry points exist.
@@ -492,7 +538,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 81;
+pub const CORE_ENTRY_COUNT: usize = 86;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -578,6 +624,11 @@ impl CoreEntry {
         CoreEntry::EnumerateKeys,
         CoreEntry::DefineMethod,
         CoreEntry::DelegateStep,
+        CoreEntry::NewTarget,
+        CoreEntry::ImportMeta,
+        CoreEntry::ModuleImport,
+        CoreEntry::SloppyThis,
+        CoreEntry::AsyncStart,
     ];
 
     /// The number a call site holds.
@@ -621,6 +672,7 @@ impl CoreEntry {
             CoreEntry::RunningFunction => RUNNING_FUNCTION_ENTRY,
             CoreEntry::GeneratorNew => GENERATOR_NEW_ENTRY,
             CoreEntry::GeneratorYield => GENERATOR_YIELD_ENTRY,
+            CoreEntry::AsyncStart => ASYNC_START_ENTRY,
             CoreEntry::ModulePublishAll => MODULE_PUBLISH_ALL_ENTRY,
             CoreEntry::ObjectSpread => OBJECT_SPREAD_ENTRY,
             CoreEntry::KeyNumber => KEY_NUMBER_ENTRY,
@@ -655,12 +707,16 @@ impl CoreEntry {
             CoreEntry::ModulePublish => MODULE_PUBLISH_ENTRY,
             CoreEntry::GlobalGet => GLOBAL_GET_ENTRY,
             CoreEntry::GlobalGetUnbound => GLOBAL_GET_UNBOUND_ENTRY,
+            CoreEntry::SloppyThis => SLOPPY_THIS_ENTRY,
             CoreEntry::GetPrototype => GET_PROTOTYPE_ENTRY,
             CoreEntry::SetPrototype => SET_PROTOTYPE_ENTRY,
             CoreEntry::GlobalSet => GLOBAL_SET_ENTRY,
             CoreEntry::DefineGetter => DEFINE_GETTER_ENTRY,
             CoreEntry::DefineSetter => DEFINE_SETTER_ENTRY,
             CoreEntry::SuperConstruct => SUPER_CONSTRUCT_ENTRY,
+            CoreEntry::NewTarget => NEW_TARGET_ENTRY,
+            CoreEntry::ImportMeta => IMPORT_META_ENTRY,
+            CoreEntry::ModuleImport => MODULE_IMPORT_ENTRY,
             CoreEntry::MarkDerived => MARK_DERIVED_ENTRY,
             CoreEntry::MarkClassConstructor => MARK_CLASS_CONSTRUCTOR_ENTRY,
             CoreEntry::SetCallName => SET_CALL_NAME_ENTRY,
@@ -798,12 +854,45 @@ mod tests {
         // and the only way `g.throw(e)` can reach the inner iterator's own
         // `throw`. An emitted call could make the call and could not remember.
         //
+        // Moved to 82 on 2026-08-15 for `NewTarget`, and the answer is the
+        // third clause again: it neither allocates nor walks the heap, it reads
+        // the target stack — state the runtime keeps and no instruction can
+        // see. The alternative was a bit in the calling convention, which is a
+        // machine change every call in the program would pay for so that a
+        // meta-property almost no program writes could be read without one.
+        //
+        // And the argument for the LIST, which the paragraph below asks the
+        // next mover to make: this entry is the last one the list should absorb
+        // on its present terms. Eighty-two hand-numbered rows are past what a
+        // reader checks, and the NUMBER is now the only hand-written part of
+        // the row — `#[rtse::entry]` derives the definition and the host maps
+        // it. A number that three files must agree about by inspection is
+        // exactly what "one source, generated views" says a generated view
+        // should be answering.
+        //
         // The ceiling is a reading limit rather than a capacity one, and it has
         // moved four times in one day. That is a signal about the day and not
         // about the mechanism, but the next move should come with an argument
         // for the LIST rather than for the entry.
+        // Moved to 84 on 2026-08-15 for `ImportMeta` and `ModuleImport`, and
+        // the entry-level question is not the hard one here: both allocate a
+        // heap object — an `import.meta` and a promise — so neither is
+        // arithmetic wearing a call, and both read the specifier table, which
+        // is global mutable state. The membership rule admits them twice over.
+        //
+        // The argument for the LIST, which the paragraph above asks for and
+        // which this move does NOT make: there isn't one. Two more hand-numbered
+        // rows past a limit already declared unreadable is the mechanism debt
+        // being paid again rather than settled, and it is recorded here as debt
+        // instead of being dressed up as a reason. What makes the debt bearable
+        // and not silent is that these two close the module system's last two
+        // holes — a program could not write `import.meta` or `import()` at all
+        // — so the alternative to the rows was a refusal by name, not a
+        // different design. The generated view `#[rtse::entry]` already has
+        // enough information to produce is the thing that ends this, and the
+        // next mover inherits an argument that has now failed to be made twice.
         assert!(
-            CORE_ENTRY_COUNT <= 81,
+            CORE_ENTRY_COUNT <= 86,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

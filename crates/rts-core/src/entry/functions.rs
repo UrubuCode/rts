@@ -516,7 +516,11 @@ fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
             return None;
         };
         context.callable_at(cell)?;
-        context.new_targets.push(callee);
+        // The depth is `callees.len()` BEFORE `invoke` pushes this callee, so
+        // the activation about to start is the one that matches. See the field
+        // on `Context` for why an activation and not merely a target.
+        let depth = context.callees.len();
+        context.new_targets.push((callee, depth));
         Some(context.is_derived(cell))
     });
 
@@ -548,11 +552,46 @@ fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     // number, `undefined`, the usual — leaves the fresh object as the answer.
     // For a derived one there is no fresh object, so what came back IS the
     // answer: the compiler makes such a constructor return its `this`.
-    if Value(produced).as_slot().is_some() {
+    //
+    // `is_object_in` and not "is it a cell": a STRING is a cell here, so
+    // `function F() { return "new"; }` reached through `new` answered the
+    // string and threw the fresh object away — a primitive winning over the
+    // object, which is the one clause the specification is explicit about.
+    if with_current(|context| super::primitive::is_object_in(context, produced)) {
         produced
     } else {
         this
     }
+}
+
+/// `new.target` — the constructor `new` named, for the activation ASKING.
+///
+/// # Why the answer is not simply the top of the stack
+///
+/// Because the stack is per CONSTRUCTION and the question is per ACTIVATION.
+/// A construction in progress leaves its target on the stack for as long as the
+/// constructor runs, so an ordinary function called from inside a constructor
+/// would read it and answer the class as its own — where the language says
+/// `undefined`, because that function was called rather than constructed.
+///
+/// So the target carries the activation depth it was pushed for, and this
+/// answers it only when that depth is the one running. [`invoke`] pushes the
+/// callee onto `callees` after `construct_inner` pushed the target, which is
+/// why the comparison is `depth + 1` and not `depth`.
+///
+/// Answering `undefined` everywhere would make more programs than not print the
+/// right thing — a function is called far more often than constructed — and it
+/// is refused for exactly that reason: it is a wrong answer that reads like a
+/// right one wherever the value is discarded.
+#[rtse::entry]
+pub fn new_target() -> u64 {
+    with_current(|context| {
+        let running = context.callees.len();
+        match context.new_targets.last() {
+            Some((target, depth)) if depth + 1 == running => *target,
+            _ => undefined_of(context),
+        }
+    })
 }
 
 /// `super(…)` — the parent constructor, producing the object.
@@ -576,25 +615,48 @@ fn super_construct_inner(parent: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64
     let derived = with_current(|context| {
         let cell = Value(parent).as_slot()?;
         context.callable_at(cell)?;
+        // The SAME target the chain already has, re-pushed at the parent
+        // constructor's own depth. Not the parent: the object the whole chain
+        // builds has to keep inheriting from the prototype of the class `new`
+        // actually named, and pushing `parent` here is exactly the bug that
+        // makes `new B()` produce something inheriting from `A.prototype`.
+        //
+        // Re-pushed rather than left alone because `new.target` is per
+        // ACTIVATION: the parent constructor's body is a new activation, and
+        // the entry only answers for the one the target was pushed for. This
+        // is what makes `new.target` SURVIVE `super()`, which the language
+        // requires — a base constructor reached through `super()` sees the
+        // derived class, not `undefined`.
+        let carried = context
+            .new_targets
+            .last()
+            .map(|(target, _)| *target)
+            .unwrap_or(parent);
+        let depth = context.callees.len();
+        context.new_targets.push((carried, depth));
         Some(context.is_derived(cell))
     });
     let Some(derived) = derived else {
         return with_current(|context| undefined_of(context));
     };
 
-    // Deliberately NOT pushing a target: the one `new` established is the one
-    // the whole chain builds against. Pushing the parent here is exactly the
-    // bug that makes `new B()` produce something inheriting from `A.prototype`.
     let this = match derived {
         true => with_current(|context| undefined_of(context)),
         false => match allocate_for_target(parent) {
             Some(fresh) => fresh,
-            None => return with_current(|context| undefined_of(context)),
+            None => {
+                with_current(|context| context.new_targets.pop());
+                return with_current(|context| undefined_of(context));
+            }
         },
     };
 
     let produced = invoke(parent, this, a0, a1, a2, a3);
-    if Value(produced).as_slot().is_some() {
+    with_current(|context| context.new_targets.pop());
+    // The same question `construct_inner` asks, and for the same reason: a
+    // parent constructor that returns a string must not have it become the
+    // object the chain is building.
+    if with_current(|context| super::primitive::is_object_in(context, produced)) {
         produced
     } else {
         this
@@ -676,7 +738,11 @@ pub fn construct_with_args(callee: u64, arguments: u64) -> u64 {
 /// else once every path is emitted.
 fn allocate_for_target(callee: u64) -> Option<u64> {
     with_current(|context| {
-        let target = context.new_targets.last().copied().unwrap_or(callee);
+        let target = context
+            .new_targets
+            .last()
+            .map(|(target, _)| *target)
+            .unwrap_or(callee);
         let cell = Value(target).as_slot().or_else(|| Value(callee).as_slot())?;
         // A `.bind()`-produced function has no OWN `prototype` — the language
         // never gives one a property by that name — so reading it here used
@@ -734,7 +800,7 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
 /// fallback is what the built-in would have chosen: a construction that is not
 /// in progress — `RegExp("a")` without `new` — has no target to consult.
 pub(super) fn prototype_for_new(context: &mut Context, fallback: u64) -> u64 {
-    let Some(target) = context.new_targets.last().copied() else {
+    let Some(target) = context.new_targets.last().map(|(target, _)| *target) else {
         return fallback;
     };
     let Some(cell) = Value(target).as_slot() else {
@@ -819,16 +885,53 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         return super::class_support::to_boolean(answered);
     }
     with_current(|context| {
-        let Some(function) = Value(callee).as_slot() else {
+        let Some(mut function) = Value(callee).as_slot() else {
             return false;
         };
-        if context.callable_at(function).is_none() {
-            // `1 instanceof 2` is a `TypeError`. Answering false is the same
-            // stated gap every other operation has while throwing is missing.
-            return false;
-        }
+        // A PROXY and a BOUND function are both callable with no code address
+        // of their own, so `callable_at` answered `None` and the operator
+        // answered false for `x instanceof P` and `x instanceof f.bind(null)`
+        // — where the language says both delegate. The specification says so
+        // in two places that agree: a bound function's `[[HasInstance]]` IS
+        // its target's, and a proxy with no `get` trap forwards `prototype` to
+        // its target. Walked rather than special-cased once, because a proxy
+        // may wrap a bound function and a bound function may bind another.
+        //
+        // The step is taken when `prototype` is ABSENT rather than when the
+        // cell is not callable, and the difference is the bound case: a bound
+        // function IS a callable cell here — it carries `forward`'s address —
+        // and merely has no `prototype` of its own, which the language is
+        // explicit that `bind` never gives one. A proxy is the other half: it
+        // has no code address at all, so a `callable_at` test refuses it before
+        // any chain is walked.
+        //
+        // The divergence, named: a proxy WITH a `get` trap should have that
+        // trap answer for `prototype`, and this reads the target's instead.
+        // Running the trap needs a call, and a call may not happen inside this
+        // borrow — the same limit `entry/primitive.rs` records.
         let key = prototype_key(context);
-        let Some(wanted) = super::objects::read_property(context, function, key) else {
+        let mut found = None;
+        for _ in 0..super::objects::CHAIN_LIMIT {
+            if context.callable_at(function).is_none() && context.proxy_at(function).is_none() {
+                // `1 instanceof 2` is a `TypeError`. Answering false is the
+                // same stated gap every other operation has while throwing is
+                // missing.
+                return false;
+            }
+            if let Some(value) = super::objects::read_property(context, function, key) {
+                found = Some(value);
+                break;
+            }
+            let underneath = context
+                .proxy_at(function)
+                .map(|(target, _)| target)
+                .or_else(|| context.bound_at(function).map(|bound| bound.target));
+            match underneath.and_then(|value| Value(value).as_slot()) {
+                Some(next) => function = next,
+                None => break,
+            }
+        }
+        let Some(wanted) = found else {
             return false;
         };
         let Some(mut cell) = Value(value).as_slot() else {

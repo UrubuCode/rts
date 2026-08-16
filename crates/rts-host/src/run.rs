@@ -102,6 +102,16 @@ pub struct Compiled {
     function_names: Vec<(u64, String, u32)>,
     /// The text the last run's answer had, read while its heap still existed.
     described: Option<String>,
+    /// What `import.meta` answers, per module of the graph.
+    ///
+    /// Held rather than seeded once, for the reason [`Self::literals`] is: the
+    /// object is built in the region a run owns, and a run reusing one from an
+    /// earlier context would name a cell in a heap that no longer exists.
+    ///
+    /// Empty for a program compiled from source text, which has no file and
+    /// therefore no URL — `import.meta` in one says so rather than answering an
+    /// object with nothing in it.
+    module_metas: Vec<crate::graph::ModuleMeta>,
     /// Every string literal the compilation collected, as UTF-16 code units.
     ///
     /// Held rather than seeded once, because a context is built per run: the
@@ -159,6 +169,7 @@ impl Compiled {
             &self.templates,
             &self.frames,
             &self.function_names,
+            &self.module_metas,
             region,
         );
         self.regions[0] = Some(outcome.region);
@@ -231,7 +242,7 @@ impl Compiled {
                         let outcome =
                             run_region(
                                 entry, &[], nothing, singletons, kinds, keys, literals,
-                                templates, frames, function_names, region,
+                                templates, frames, function_names, &[], region,
                             );
                         (outcome.value, outcome.region)
                     })
@@ -306,6 +317,9 @@ fn run_region(
     frames: &[rts_core::entry::FrameShape],
     // What each compiled function is called, for a stack trace to name a frame.
     function_names: &[(u64, String, u32)],
+    // What `import.meta` answers, per module. Seeded like the literals: the
+    // object is built in THIS region, and one from another is a dead cell.
+    module_metas: &[crate::graph::ModuleMeta],
     region: rts_core::heap::Region,
 ) -> Outcome {
     let _seeding = rts_cranelift::probe::Phase::start("seed-context");
@@ -339,12 +353,32 @@ fn run_region(
     // DOWN because they cannot reach up — this crate depends on them, so the
     // other direction is a cycle. See `entry::declare_evaluator`.
     rts_core::entry::declare_evaluator(&mut context, evaluate_source);
+    // The same shape of injection, for the other thing only this crate knows:
+    // what `"./x"` means from a given file. A static import was resolved before
+    // the program was compiled; a dynamic one asks while it runs, and this is
+    // the answer coming down rather than the runtime learning about paths.
+    rts_core::entry::declare_resolver(&mut context, crate::graph::resolve_specifier);
+    // And what `import.meta` is, per module — built HERE, in this run's region,
+    // out of the host's own two facts about the file. The runtime holds the
+    // object and hands it back; it does not know what a URL is.
+    for meta in module_metas {
+        let object = rts_core::entry::make_object(&mut context);
+        let url = rts_core::entry::make_string(&mut context, &meta.url);
+        rts_core::entry::put_member(&mut context, object, "url", url);
+        // Bun and Node both answer a boolean here, and a program tests it with
+        // `typeof`. `boolean_value` and not a Rust `bool` across the boundary,
+        // for the reason that function's own documentation gives.
+        let main = rts_core::entry::boolean_value(meta.main);
+        rts_core::entry::put_member(&mut context, object, "main", main);
+        rts_core::entry::declare_module_meta(&mut context, &meta.specifier, object);
+    }
     // The other half of that capability, and the half `evaluate_source` cannot
     // give: `new Function` needs a CALLABLE, which is a reference, and a
     // reference belongs to the region that made it. `crate::live` compiles into
     // THIS context's region instead of building one, which is why it is a
     // second injection rather than a second caller of the first.
     rts_core::entry::declare_function_compiler(&mut context, crate::live::compile_function);
+    rts_core::entry::declare_source_parser(&mut context, crate::live::check_source);
     // The other capability that has to come down rather than up: letting time
     // pass. `rts-core`'s membership rule is availability and
     // `std::thread::sleep` is not on every target, so the runtime holds a hook
@@ -507,6 +541,7 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
         front.types,
         front.calls,
         front.names,
+        Vec::new(),
     )
 }
 
@@ -557,14 +592,19 @@ pub(crate) struct Seed<'a> {
 
 /// Parses and emits source text into one program. See [`FrontEnd`].
 pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
-    front_end_agreeing(source, None)
+    front_end_agreeing(source, None, false)
 }
 
 /// The same, for a compilation that must agree with a numbering that already
 /// exists. See [`Seed`].
+/// `sloppy` says the text is a SCRIPT BODY that nothing made strict — which is
+/// true of what `Function(…)` and `eval(…)` compile and false of a file, since
+/// module code is strict by definition. It reaches `emit::nonstrict`, which is
+/// where the two observable consequences are stated.
 pub(crate) fn front_end_agreeing(
     source: &str,
     seed: Option<&Seed<'_>>,
+    sloppy: bool,
 ) -> Result<FrontEnd, HostError> {
     let _timing = rts_cranelift::probe::Phase::start("front-end");
     let mut names = Names::default();
@@ -669,6 +709,7 @@ pub(crate) fn front_end_agreeing(
         let mut ctx = Ctx::new(
             &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
         );
+        ctx.sloppy = sloppy;
         // The same reservation for the literal table, and it has to happen here
         // rather than beside the keys: the table belongs to `Ctx`, and the only
         // way to occupy a position in it is to ask for the string that is
@@ -1009,6 +1050,9 @@ fn assemble(
     types: TypeRegistry,
     calls: RuntimeCalls,
     names: Names,
+    // What `import.meta` answers, one per module of the graph. Empty for a
+    // program compiled from source text: it has no file to describe.
+    module_metas: Vec<crate::graph::ModuleMeta>,
 ) -> Result<Compiled, HostError> {
     let prepared = prepare(emitted, funcs, types, calls)?;
 
@@ -1079,6 +1123,7 @@ fn assemble(
         frames,
         function_names,
         described: None,
+        module_metas,
         literals: prepared.emitted.literals,
         templates: prepared.emitted.templates,
         keys: names.keyed_texts().into_iter().map(str::to_owned).collect(),
@@ -1152,7 +1197,7 @@ fn evaluate_source(source: &str) -> Option<u64> {
 /// finishes ([`rts_codegen::emit`]'s `emit_publications`). So by the time a
 /// module's body starts, every namespace it imports from has been written.
 pub fn compile_graph(entry: &std::path::Path) -> Result<Compiled, HostError> {
-    let (front, entries) = crate::graph::front_end(entry)?;
+    let (front, entries, metas) = crate::graph::front_end(entry)?;
     assemble(
         front.emitted,
         &entries,
@@ -1162,5 +1207,6 @@ pub fn compile_graph(entry: &std::path::Path) -> Result<Compiled, HostError> {
         front.types,
         front.calls,
         front.names,
+        metas,
     )
 }

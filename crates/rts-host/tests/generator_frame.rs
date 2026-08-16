@@ -191,9 +191,13 @@ fn a_word_wide_frame_puts_its_field_n_in_slot_n() {
 #[test]
 fn a_frame_wider_than_a_cell_lives_in_consecutive_ones() {
     let mut types = TypeRegistry::new();
-    // Six parameters and a return: with the label and the resumed slot, that is
-    // nine words, and a cell holds seven. Six is not a large generator.
-    let params = [Repr::I64; 6];
+    // Enough parameters that the label and the resumed slot push it past a
+    // cell, DERIVED rather than written down: this said "six, and a cell holds
+    // seven" and stopped being about anything the day the cell grew — the frame
+    // fit, the allocation succeeded, and the test died on the assertion it was
+    // not about. Whatever `INLINE_SLOTS` is, one more than it plus the two the
+    // rewrite adds does not fit.
+    let params = vec![Repr::I64; INLINE_SLOTS as usize + 1];
     let mut func = suspending(&params, &[Repr::I64]);
     let held = param(&func, 0);
     let entry = func.entry;
@@ -218,11 +222,6 @@ fn a_frame_wider_than_a_cell_lives_in_consecutive_ones() {
         "the heap refuses it rather than handing back a cell missing its last \
          fields — so an ordinary cell is not where every frame can live"
     );
-    assert_eq!(
-        INLINE_SLOTS, 7,
-        "the ceiling this test is about is the cell's slot count"
-    );
-
     // Where it lives instead: consecutive cells, addressed by the same base and
     // stride as everything else. Nothing about the addressing changes, which is
     // why the rewritten function below is compiled exactly as the small one was.

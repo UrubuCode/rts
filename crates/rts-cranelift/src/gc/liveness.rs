@@ -69,6 +69,35 @@ impl Liveness {
                 out.extend(self.live_in[&successor].iter().copied());
             }
         }
+        // The successors a TERMINATOR does not name. A block inside a protected
+        // region can leave through a throw at any call in it, and where it goes
+        // is the region's handler or its cleanup — an edge that exists in the
+        // unwinder and in no terminator, so a walk over `successors()` alone
+        // cannot see it.
+        //
+        // Missing them is not a missing optimisation, it is a wrong answer
+        // twice over. `frame::plan_suspension` reads this to decide what a
+        // parked frame must keep, so a value a HANDLER reads was left in a
+        // register across a suspension, and the rewritten function used a
+        // definition that no longer dominated it — Cranelift refused
+        // `retry(fn, times)`, the ordinary shape of `try { return await f() }
+        // catch {}` inside a loop, with "uses value from non-dominating". The
+        // collector reads it too, so the same value was also absent from the
+        // root set at every allocation in the region.
+        //
+        // Outward through the enclosing regions, because a tag no handler here
+        // matches propagates to the one outside, and a cleanup on the way owes
+        // its own code either way.
+        if let Some(region) = func.region_of(id) {
+            for (_, enclosing) in func.regions.enclosing(region) {
+                for handler in &enclosing.handlers {
+                    out.extend(self.live_in[&handler.block].iter().copied());
+                }
+                if let Some(cleanup) = enclosing.cleanup {
+                    out.extend(self.live_in[&cleanup].iter().copied());
+                }
+            }
+        }
 
         // Walk the block backwards: a value read here is live before this point,
         // a value defined here is not live before it.
@@ -126,4 +155,67 @@ pub fn live_after_each_inst(
         live.extend(inst.inst.operands());
     }
     after
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::{ConstDecl, FuncBuilder, Function, ScalarBits, Signature};
+    use crate::repr::Repr;
+    use crate::types::TypeRegistry;
+    use crate::unwind::{Handler, Tag};
+
+    /// A value only the HANDLER reads is live for every block the region covers.
+    ///
+    /// The edge that carries it is the throw, which no terminator names — so a
+    /// walk over successors alone answers "dead" for a value the program is
+    /// about to read. What that wrong answer costs is two things at once: the
+    /// frame rewrite leaves it in a register across a suspension, and the
+    /// collector leaves it out of the root set at every allocation inside the
+    /// region.
+    #[test]
+    fn a_value_only_the_handler_reads_is_live_inside_the_region() {
+        let mut func = Function::new(Signature {
+            params: vec![Repr::Tagged],
+            returns: vec![Repr::Tagged],
+            ..Signature::default()
+        });
+        let entry = func.entry;
+        let held = func.block(entry).expect("entry exists").params[0];
+        let types = TypeRegistry::new();
+
+        let mut b = FuncBuilder::new(&mut func, &types, entry);
+        let handler = b.create_block();
+        b.add_block_param(handler, Repr::Tagged);
+        let protected = b.create_block();
+        b.jump(protected, &[]).expect("an ordinary edge");
+
+        // The protected block reads NOTHING that outlives it: what makes `held`
+        // live here is only the possibility of leaving through the handler.
+        let mut b = FuncBuilder::new(&mut func, &types, protected);
+        b.open_region(
+            vec![Handler {
+                tag: Tag(1),
+                block: handler,
+            }],
+            None,
+        );
+        let answer = b.declare_const(ConstDecl::Scalar {
+            repr: Repr::Tagged,
+            bits: ScalarBits(0),
+        });
+        let answer = b.use_const(answer);
+        b.ret(&[answer]);
+        b.close_region();
+
+        let mut b = FuncBuilder::new(&mut func, &types, handler);
+        b.ret(&[held]);
+
+        let liveness = Liveness::compute(&func);
+        assert!(
+            liveness.live_out(protected).contains(&held),
+            "the parameter is read by the handler, and the only way there from \
+             this block is the throw — so it is live leaving it"
+        );
+    }
 }

@@ -77,6 +77,7 @@ mod native;
 mod number;
 mod object_global;
 mod object_proto;
+mod dynamic_module;
 mod modules;
 mod objects;
 mod operators;
@@ -110,12 +111,16 @@ pub use computed::{delete_property, get_indexed, has_property, key_number, set_i
 pub use functions::{
     call_counted, call_with_args, construct_with_args, rest_arguments,
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
-    mark_derived, set_call_name, super_construct, super_construct_with_args,
+    mark_derived, new_target, set_call_name, super_construct, super_construct_with_args,
 };
-pub use eval::{Addition, Agreement, FunctionCompiler, adopt, agreement, declare_function_compiler};
+pub use eval::{
+    Addition, Agreement, FunctionCompiler, SourceParser, adopt, agreement,
+    declare_function_compiler, declare_source_parser,
+};
 pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
-pub use global::{global_get, global_get_unbound, global_set};
+pub use global::{global_get, global_get_unbound, global_set, sloppy_this};
 pub use iterate::{array_append, array_append_all, iterate};
+pub use dynamic_module::{Resolver, declare_module_meta, declare_resolver, import_meta, module_import};
 pub use modules::{
     module_publish_all,
     Provided, boolean_value, buffer_class, canonical_encoding, decode_base64, decode_bytes, declare_global,
@@ -131,7 +136,7 @@ pub use objects::{
     get_property, get_super_property, object_new, object_spread, set_property,
     set_super_property,
 };
-pub use promise::{drain_microtasks, promise_await, promise_new, promise_settle, settled};
+pub use promise::{async_start, drain_microtasks, promise_await, promise_new, promise_settle, settled};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };
@@ -453,6 +458,22 @@ pub struct Context {
     /// the caller. `generator::resume` has depended on that since it was
     /// written — it reads `generators.get_mut(cell)` after the body returns.
     resuming: Vec<u32>,
+    /// The async frames being driven right now, and this one IS a root.
+    ///
+    /// The difference from `resuming` is who holds the object. A generator is
+    /// the receiver of the `.next()` that started the re-entry, so the caller
+    /// holds it; an async function's frame owner is never handed to the
+    /// program at all — between the call that made it and the reaction that
+    /// waits on it, this crate is the only thing that names it.
+    ///
+    /// The window is not hypothetical and was measured: `async_start` makes the
+    /// frame, then allocates a promise, then runs a body that allocates
+    /// hundreds of objects. A collection anywhere in there freed the frame the
+    /// body was standing in, and 500 concurrent async calls turned `console`
+    /// itself into `undefined`. While the frame is PARKED the reaction holds
+    /// it — see `promise::state::Machine::root_words` — so the two together
+    /// cover its whole life.
+    pub(in crate::entry) driving: Vec<u32>,
     /// What a parked frame looks like, per compiled generator body.
     ///
     /// Filled by the host before the program runs, keyed by code address — the
@@ -608,12 +629,29 @@ pub struct Context {
     pub next_death: u32,
     /// What the sweep queued and the next drain will call.
     pub dying: Vec<finalize::Pending>,
-    /// The class each `new` in progress actually named.
+    /// The class each `new` in progress actually named, and the activation it
+    /// belongs to.
     ///
     /// A stack because construction nests, and a stack rather than an argument
     /// because the fact has to survive an arbitrary number of `super()` calls
     /// and the calling convention has no slot left to carry it.
-    pub new_targets: Vec<u64>,
+    ///
+    /// # Why the second half exists
+    ///
+    /// Because a stack of targets alone answers "is a construction in
+    /// progress?", and `new.target` asks "was THIS activation constructed?".
+    /// An ordinary function called from inside a constructor would read the
+    /// constructor's target and answer it as its own — `function F() { return
+    /// new.target; }` called from a class body is `undefined` in the language
+    /// and would have been the class here.
+    ///
+    /// The number is `callees.len()` at the moment of the push, which is one
+    /// less than it will be once [`functions::invoke`] has pushed the callee:
+    /// the entry point matches when `depth + 1 == callees.len()`, so exactly
+    /// the activation the target was pushed for sees it. A depth rather than a
+    /// callable identity, because the same function may be constructed and then
+    /// call itself plainly.
+    pub new_targets: Vec<(u64, usize)>,
     /// Which cells are arrays, and where their elements are.
     ///
     /// # Why a side table and not a reserved layout
@@ -767,10 +805,18 @@ pub struct Context {
     /// that does depends on this one, so the capability can only arrive from
     /// above. See [`modules::evaluate`].
     pub evaluator: Option<modules::Evaluator>,
+    /// How a host turns a dynamic `import()` specifier into the name the module
+    /// table is keyed by, if it offered a way. The same shape and the same
+    /// reason as [`Self::evaluator`]: paths are the host.s and this crate is
+    /// below it. See [`dynamic_module`].
+    pub resolver: Option<dynamic_module::Resolver>,
     /// How a host compiles source text into a callable IN THIS CONTEXT, if it
     /// offered a way — what `new Function` needs and what [`Self::evaluator`]
     /// cannot answer, since that one builds a region of its own. See [`eval`].
     pub function_compiler: Option<eval::FunctionCompiler>,
+    /// How a host answers whether source text parses, if it offered a way —
+    /// which is as much of `eval` as this engine can perform. See [`eval`].
+    pub source_parser: Option<eval::SourceParser>,
     /// What still has work to do after the program.s last statement.
     ///
     /// Registered by whoever owns a background thread, never by the host — see
@@ -857,6 +903,7 @@ impl Context {
             generators: Aside::in_region(bits),
             yielded: None,
             resuming: Vec::new(),
+            driving: Vec::new(),
             frames: Vec::new(),
             function_names: Vec::new(),
             buffer_of: Aside::in_region(bits),
@@ -940,6 +987,7 @@ impl Context {
             generators: Aside::new(),
             yielded: None,
             resuming: Vec::new(),
+            driving: Vec::new(),
             frames: Vec::new(),
             function_names: Vec::new(),
             regexes: Aside::new(),
@@ -970,7 +1018,9 @@ impl Context {
             next_external: 1,
             modules: Vec::new(),
             evaluator: None,
+            resolver: None,
             function_compiler: None,
+            source_parser: None,
             loop_sources: Vec::new(),
             rest: None,
             templates: Vec::new(),

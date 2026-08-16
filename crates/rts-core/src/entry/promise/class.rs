@@ -79,23 +79,12 @@ impl Promise {
     /// A promise is answered as it stands rather than wrapped, which the
     /// language requires: `Promise.resolve(p) === p`, and a wrapper would be a
     /// second promise settling one microtask later than every program expects.
+    /// The rules — pass a promise through, adopt a thenable — live in
+    /// [`super::resolved_with`], because `import()` answers a promise for a
+    /// namespace and must obey the same two.
     #[stat]
     fn resolve(value: u64) -> u64 {
-        with_current(|context| {
-            if let Some(cell) = Value(value).as_slot()
-                && context.promises.id_of(cell).is_some()
-            {
-                return value;
-            }
-            let Some((cell, id)) = state::fresh(context) else {
-                return undefined_of(context);
-            };
-            // Through `resolve` rather than a straight fulfilment, so that
-            // `Promise.resolve(thenable)` adopts it — which is what the language
-            // says and the reason this is not `settle(Fulfilled)`.
-            state::resolve(context, id, value);
-            Value::from_slot(cell).bits()
-        })
+        super::resolved_with(value)
     }
 
     /// `Promise.reject(reason)`.
@@ -105,13 +94,7 @@ impl Promise {
     /// symmetrical implementation gets wrong quietly.
     #[stat]
     fn reject(reason: u64) -> u64 {
-        with_current(|context| {
-            let Some((cell, id)) = state::fresh(context) else {
-                return undefined_of(context);
-            };
-            state::reject(context, id, reason);
-            Value::from_slot(cell).bits()
-        })
+        super::rejected_with(reason)
     }
 
     /// `Promise.all(values)` — every value, or the first rejection.

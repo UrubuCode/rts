@@ -118,6 +118,13 @@ pub fn emit_unary(
                 // object. Skipping straight to `force_read` answered
                 // `typeof NaN` from a property named `"NaN"` that no global
                 // object holds, i.e. `undefined`.
+                // `typeof` is exempt from the error an UNDECLARED name raises,
+                // and is NOT exempt from the temporal dead zone: the name is
+                // declared, so there is no reference to take — which is why
+                // this arm asks before the exemption below applies.
+                ExprKind::Ident(name) if scope.in_dead_zone(*name) => {
+                    return super::binding::read(builder, scope, ctx, *name);
+                }
                 ExprKind::Ident(name) if scope.lookup(*name).is_none() => {
                     match super::binding::predefined(builder, ctx, *name) {
                         Some(value) => value,
