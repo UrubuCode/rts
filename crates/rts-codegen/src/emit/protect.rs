@@ -280,10 +280,27 @@ pub fn emit_try(
         // The binding belongs to the handler alone — `catch (e)` introduces `e`
         // for the handler body and nowhere else.
         scope.enter();
+        // A CAPTURED parameter needs its own environment, not just its own
+        // lexical layer: a closure reaches a captured name through the
+        // function's environment keyed by spelling, so `catch (e)` inside a
+        // function that also has an `e` would otherwise write the outer slot
+        // and the shadow would be invisible to every closure. Measured on
+        // `fn-meta/claude-closure-from-try-finally.ts`, which read
+        // `thrown_e:thrown_e` where every other runtime reads
+        // `thrown_e:outer_e`.
+        let layer = match &catch.binding {
+            Some(crate::syntax::Pattern::Name(name)) if scope.is_captured(*name) => {
+                super::binding::push_environment(builder, scope, ctx, &[*name])?
+            }
+            _ => None,
+        };
         if let Some(pattern) = &catch.binding {
             bind_caught(builder, scope, ctx, pattern, thrown)?;
         }
         let handler_terminated = emit_block(builder, scope, ctx, loops, &catch.body)?;
+        if let Some(previous) = layer {
+            scope.leave_environment(previous);
+        }
         scope.leave();
         if !handler_terminated {
             reaches_join = true;

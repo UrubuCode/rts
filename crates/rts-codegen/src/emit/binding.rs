@@ -209,3 +209,80 @@ pub(super) fn predefined(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -
         _ => None,
     }
 }
+
+/// Opens a fresh environment holding `names`, linked to the enclosing one.
+///
+/// # Why this exists rather than a second `scope.enter()`
+///
+/// `Scope::enter` is lexical bookkeeping: it hides a name from what follows.
+/// That is enough for a binding held in a register, and not enough for one a
+/// closure captured — a captured name is a PROPERTY of the function's
+/// environment, keyed by its spelling, so two declarations of `e` in one
+/// function are one slot however many `enter` calls stand between them. Giving
+/// the inner declaration its own environment is what makes them two.
+///
+/// The alternative was minting a distinct property name per declaration site.
+/// It was rejected because every reader would then have to agree on the minted
+/// spelling — the per-iteration layer binds by the name as written, and would
+/// have had to learn a second rule to stay correct.
+///
+/// Answers `None` when nothing here is captured: a layer no closure can observe
+/// is an allocation per pass with no reader.
+pub fn push_environment(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    names: &[Name],
+) -> EmitResult<Option<Option<ValueId>>> {
+    if names.is_empty() {
+        return Ok(None);
+    }
+    let enclosing = scope
+        .environment()
+        .expect("a captured name means the function built an environment");
+    // One slot per name plus the link — the same width rule `function::emit`
+    // uses when it builds the activation's own environment.
+    let width = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+        repr: rts_cranelift::repr::Repr::I64,
+        bits: rts_cranelift::ir::ScalarBits(names.len() as u64 + 1),
+    });
+    let width = builder.use_const(width);
+    let fresh = super::expr::call(builder, ctx, crate::runtime::RuntimeOp::ObjectNew, &[width])?[0];
+    let outer = outer_link(ctx);
+    super::property::emit_write(builder, ctx, fresh, outer, enclosing)?;
+    Ok(Some(scope.enter_environment(fresh, names)))
+}
+
+/// The environment a BLOCK needs, if any of what it declares was captured.
+///
+/// Only the block's own level: a nested block opens its own layer when it
+/// reaches it, and hoisting the inner name here would put a slot in the outer
+/// record that the inner declaration then shadows anyway.
+///
+/// `var` is excluded because a `var` is not the block's — it was hoisted to the
+/// function, and binding it here would make the block's write invisible outside
+/// it. That is the same rule [`super::loops::per_iteration_names`] states.
+pub fn block_layer(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    body: &[crate::syntax::Stmt],
+) -> EmitResult<Option<Option<ValueId>>> {
+    use crate::syntax::StmtKind;
+    let mut names = Vec::new();
+    for statement in body {
+        match &statement.kind {
+            StmtKind::Declare { kind, bindings } if *kind != crate::syntax::BindingKind::Var => {
+                for binding in bindings {
+                    binding.target.bound_names(&mut names);
+                }
+            }
+            StmtKind::Function(function) => names.extend(function.name),
+            StmtKind::Class(class) => names.extend(class.name),
+            _ => {}
+        }
+    }
+    names.retain(|name| scope.is_captured(*name));
+    names.dedup();
+    push_environment(builder, scope, ctx, &names)
+}

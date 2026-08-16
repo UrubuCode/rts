@@ -675,20 +675,8 @@ fn open_iteration(
         .iter()
         .map(|name| super::binding::read(builder, scope, ctx, *name))
         .collect::<EmitResult<Vec<_>>>()?;
-    let enclosing = scope
-        .environment()
-        .expect("a captured name means the function built an environment");
-    // One slot per resident name plus the link, which is the same width rule
-    // `function::emit` uses when it builds the activation's own environment.
-    let width = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-        repr: rts_cranelift::repr::Repr::I64,
-        bits: rts_cranelift::ir::ScalarBits(resident.len() as u64 + 1),
-    });
-    let width = builder.use_const(width);
-    let fresh = super::expr::call(builder, ctx, crate::runtime::RuntimeOp::ObjectNew, &[width])?[0];
-    let outer = super::binding::outer_link(ctx);
-    super::property::emit_write(builder, ctx, fresh, outer, enclosing)?;
-    let previous = scope.enter_environment(fresh, resident);
+    let previous = super::binding::push_environment(builder, scope, ctx, resident)?
+        .expect("resident is non-empty, checked above");
     for (name, value) in copied.iter().zip(incoming) {
         super::binding::write(builder, scope, ctx, *name, value)?;
     }

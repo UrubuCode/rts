@@ -157,6 +157,12 @@ pub fn emit_stmt(
 
         StmtKind::Block(body) => {
             scope.enter();
+            // A block that shadows a CAPTURED name needs its own environment,
+            // not just its own lexical layer: a closure reaches a captured name
+            // as a property of the function's environment, keyed by spelling,
+            // so `{ let v = … }` inside a function that also has a captured `v`
+            // would write the one slot both share.
+            let layer = super::binding::block_layer(builder, scope, ctx, body)?;
             // Declarations in a block are bound before the block runs, so a
             // closure written above one can still reach it — the same reason
             // a function body hoists.
@@ -167,6 +173,9 @@ pub fn emit_stmt(
                     terminated = true;
                     break;
                 }
+            }
+            if let Some(previous) = layer {
+                scope.leave_environment(previous);
             }
             scope.leave();
             Ok(terminated)
