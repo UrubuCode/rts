@@ -203,6 +203,22 @@ pub(in crate::entry) fn method_of(context: &mut Context, value: u64, name: &str)
     context.callable_at(held).is_some().then(|| found.bits())
 }
 
+/// `object[Symbol.unscopables]`, when it is an object.
+///
+/// Here rather than at the caller for [`method_of`]'s reason: `"@@unscopables"`
+/// is this module's encoding of a well-known symbol, and a third place spelling
+/// [`PREFIX`] is a third place to get it wrong the day the prefix changes.
+///
+/// Read through the prototype chain, which is what makes
+/// `Array.prototype[Symbol.unscopables]` apply to every array — the list the
+/// language ships it for. `None` covers "not an object", "no such property" and
+/// "the property is not an object": in all three nothing is blocked, which is
+/// the answer the specification's `HasBinding` reaches by the same three steps.
+pub(in crate::entry) fn unscopables_of(context: &mut Context, cell: u32) -> Option<u32> {
+    let key = context.well_known(&format!("{PREFIX}unscopables"));
+    super::objects::read_property(context, cell, key)?.as_slot()
+}
+
 /// A new symbol under a key nothing has used.
 fn mint(context: &mut Context, key: String, description: Option<String>) -> u64 {
     let number = context.symbols.made.len() as u64;

@@ -100,7 +100,56 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     let key = context.well_known(&format!("{}iterator", super::symbol::PREFIX));
     let values = super::native::callable(context, more::values);
     super::objects::put(context, cell, key, values);
+    install_unscopables(context, cell);
     Some(cell)
+}
+
+/// `Array.prototype[Symbol.unscopables]`.
+///
+/// # Why an array of all things needs one
+///
+/// Every name on this list was added to `Array.prototype` AFTER `with` already
+/// existed, and a `with (array)` in code written before them would silently
+/// change meaning the day one arrived — `with (a) { keys }` reaching
+/// `Array.prototype.keys` instead of the program's own `keys`. The list is how
+/// the language kept that from happening, and it is the reason
+/// [`super::computed::with_has`] is not `in`.
+///
+/// Written out rather than derived from the method lists above, because it is
+/// not "the methods": `push`, `join` and `slice` are old enough to predate the
+/// problem and are deliberately absent, so an array still unscopes exactly what
+/// the specification says and nothing else. A list derived from what this engine
+/// happens to install would change meaning every time a method is added.
+fn install_unscopables(context: &mut Context, prototype: u32) {
+    const BLOCKED: &[&str] = &[
+        "at",
+        "copyWithin",
+        "entries",
+        "fill",
+        "find",
+        "findIndex",
+        "findLast",
+        "findLastIndex",
+        "flat",
+        "flatMap",
+        "includes",
+        "keys",
+        "toReversed",
+        "toSorted",
+        "toSpliced",
+        "values",
+    ];
+    let Some(list) = super::native::plain(context) else {
+        return;
+    };
+    let yes = Value::from_bool(true).bits();
+    for name in BLOCKED {
+        let key = context.well_known(name);
+        super::objects::put(context, list, key, yes);
+    }
+    let key = context.well_known(&format!("{}unscopables", super::symbol::PREFIX));
+    let list = Value::from_slot(list).bits();
+    super::objects::put(context, prototype, key, list);
 }
 
 /// `Array` itself, as the value the name reads.

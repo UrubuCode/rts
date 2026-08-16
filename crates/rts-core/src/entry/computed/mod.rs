@@ -28,7 +28,10 @@ mod query;
 // already names — `super::computed::get_indexed` reads the same from a folder
 // as it did from a file, which is what makes the split invisible outside it.
 pub use access::{GET_INDEXED_ENTRY, SET_INDEXED_ENTRY, get_indexed, set_indexed};
-pub use query::{DELETE_PROPERTY_ENTRY, HAS_PROPERTY_ENTRY, delete_property, has_property};
+pub use query::{
+    DELETE_PROPERTY_ENTRY, HAS_PROPERTY_ENTRY, WITH_HAS_ENTRY, delete_property, has_property,
+    with_has,
+};
 pub(in crate::entry) use query::{length_key, remove_own};
 
 use super::objects::undefined_of;

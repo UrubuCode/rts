@@ -862,6 +862,44 @@ pub(super) fn statement_children<'a>(
 /// Reported rather than fixed because the cost is one allocation on a call to a
 /// function that mentions the word, and the alternative is a second traversal
 /// that has to agree with `emit_body` about what an arrow is.
+/// Whether a `with` statement appears anywhere in this body.
+///
+/// Asked for the same reason [`mentions`] is asked about `eval`, and answered
+/// separately because a `with` is a NODE rather than a name: nothing a program
+/// can spell makes one, so there is no identifier to look for.
+///
+/// Nested functions are deliberately NOT walked. A `with` inside one is that
+/// function's own problem and forces that function's bindings when it is
+/// emitted; forcing this body's bindings for it would cost an environment for
+/// nothing, since the inner `with` cannot reach a name the capture analysis has
+/// not already put in one.
+pub(super) fn has_with(body: &[Stmt]) -> bool {
+    fn in_stmt(statement: &Stmt, found: &mut bool) {
+        if *found {
+            return;
+        }
+        if matches!(statement.kind, crate::syntax::StmtKind::With { .. }) {
+            *found = true;
+            return;
+        }
+        walk_stmt(statement, &mut |child| {
+            if let StmtChild::Stmt(inner) = child {
+                in_stmt(inner, found);
+            }
+            if let StmtChild::Catch(catch) = child {
+                for inner in &catch.body {
+                    in_stmt(inner, found);
+                }
+            }
+        });
+    }
+    let mut found = false;
+    for statement in body {
+        in_stmt(statement, &mut found);
+    }
+    found
+}
+
 pub(super) fn mentions(body: &[Stmt], wanted: Name) -> bool {
     let mut found = false;
     for statement in body {

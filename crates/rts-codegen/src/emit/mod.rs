@@ -90,6 +90,7 @@ mod types;
 mod switch;
 mod template;
 mod unary;
+mod with_scope;
 mod wrap;
 
 pub use dynamic::dynamic_specifiers;
@@ -287,6 +288,16 @@ pub struct Ctx<'a> {
     ///
     /// A flag rather than a parameter for [`Ctx::in_static_method`]'s reason.
     pub sloppy: bool,
+    /// The objects a `with` put on the scope chain, innermost LAST.
+    ///
+    /// Empty everywhere except inside a `with` body. What reads it is
+    /// `emit/binding.rs`, which resolves a name against each of these before
+    /// the lexical answer, and `emit/call.rs`, which turns off the two call
+    /// fast paths that assume a bare name means what the scope says it means.
+    ///
+    /// A stack rather than one object because `with (a) with (b) x` asks `b`
+    /// first and then `a`, and a single slot would lose the outer one.
+    pub with_objects: Vec<rts_cranelift::ir::ValueId>,
     /// Where a `return` inside a protected span goes instead of returning.
     ///
     /// A `finally` runs on EVERY way out, and a `return` written inside the
@@ -515,6 +526,7 @@ impl<'a> Ctx<'a> {
             in_static_method: false,
             in_field_initializer: false,
             sloppy: false,
+            with_objects: Vec::new(),
             finally_returns: Vec::new(),
             finally_jumps: Vec::new(),
             model,

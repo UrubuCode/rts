@@ -315,6 +315,26 @@ fn es_syntax() -> Syntax {
     })
 }
 
+/// Whether a recoverable diagnostic is TypeScript's opinion rather than a
+/// syntax error.
+///
+/// SWC's TypeScript dialect reports `with` as recoverable — *"The 'with'
+/// statement is not supported. All symbols in a 'with' block will have type
+/// 'any'."* — and hands the tree back anyway, which says exactly what it is: a
+/// complaint from the type checker about a construct JavaScript has and
+/// TypeScript declines to type. Refusing on it made `with` unreachable in the
+/// dialect every file here is parsed in, and the ECMAScript fallback does not
+/// rescue it, because that pass then fails on the type annotations.
+///
+/// Matched by message rather than by an error kind because SWC does not export
+/// one for this. That is narrow on purpose: anything else recoverable is still
+/// a refusal, so this cannot quietly grow into "ignore the parser's errors".
+/// Whether the program may CONTAIN a `with` is decided in `emit/stmt.rs`, from
+/// the goal — strict code is where it is a real SyntaxError.
+fn is_type_checker_complaint(message: &str) -> bool {
+    message.starts_with("The 'with' statement is not supported")
+}
+
 fn parse_with(source: &str, syntax: Syntax) -> std::result::Result<swc_ecma_ast::Program, String> {
     let map: Lrc<SourceMap> = Default::default();
     let file = map.new_source_file(
@@ -328,8 +348,13 @@ fn parse_with(source: &str, syntax: Syntax) -> std::result::Result<swc_ecma_ast:
         .parse_program()
         .map_err(|error| error.kind().msg().to_string())?;
 
-    if let Some(error) = parser.take_errors().into_iter().next() {
-        return Err(error.kind().msg().to_string());
+    if let Some(message) = parser
+        .take_errors()
+        .into_iter()
+        .map(|error| error.kind().msg().to_string())
+        .find(|message| !is_type_checker_complaint(message))
+    {
+        return Err(message);
     }
 
     Ok(parsed)

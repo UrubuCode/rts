@@ -460,6 +460,20 @@ pub(super) fn emit_body(
     module: Option<&str>,
     publications: &[super::module::Publication],
 ) -> EmitResult<MachineFunction> {
+    // A function WRITTEN INSIDE a `with` body closes over the `with` scope: its
+    // free names resolve against the object first, every time it is called,
+    // wherever it is called from. This engine cannot express that — the objects
+    // are SSA values of the enclosing activation, and a separately compiled
+    // function has no access to them — so it is refused rather than emitted
+    // with lexical resolution, which would answer a DIFFERENT binding without
+    // saying so.
+    //
+    // Refusing by name is what this crate does with what it cannot answer, and
+    // it is what `with` did as a whole until this change; the cost of guessing
+    // instead is a program that runs and reads the wrong variable.
+    if !ctx.with_objects.is_empty() {
+        return super::expr::gap("a function declared inside `with`");
+    }
     // An import is bound at entry and may be read from inside a nested function,
     // exactly as a parameter is — so it is a capture CANDIDATE like one. Without
     // this the name is declared as a plain local, a closure that reads it finds
@@ -574,8 +588,18 @@ pub(super) fn emit_body(
     // deeper in, and nothing in the inner text mentions `y` for the capture
     // analysis to find. Over-including costs an environment slot in a body that
     // writes `eval` and never calls it; under-including costs a wrong answer.
+    // A `with` needs exactly the same thing, for a reason worth stating rather
+    // than inheriting: `emit/with_scope.rs` emits two paths per name, and the
+    // lexical path of a WRITE would rebind a `Binding::Value` while the object
+    // path stores a property — leaving the two paths disagreeing about what the
+    // binding IS, which `Binding::value()` says cannot happen. In memory both
+    // paths are stores and only the value needs merging.
+    //
+    // Extended here rather than written as a second mechanism because the two
+    // questions have one answer: "this body's bindings must be addressable from
+    // code that does not know their names at compile time".
     let eval_name = ctx.names.intern("eval");
-    if capture::mentions(body, eval_name) {
+    if capture::mentions(body, eval_name) || capture::has_with(body) {
         captured.extend(candidates.iter().copied());
         for statement in body {
             capture::declared_by_statement(statement, &mut captured);

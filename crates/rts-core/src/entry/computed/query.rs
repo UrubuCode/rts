@@ -76,6 +76,59 @@ pub fn has_property(key: u64, object: u64) -> bool {
     })
 }
 
+/// Whether a `with` scope resolves a name against this object.
+///
+/// # Why this is not `has_property`
+///
+/// It is `has_property` **minus** what `Symbol.unscopables` blocks, and the
+/// difference is the whole reason the operator exists: `with (array) { keys }`
+/// must reach the outer `keys` rather than `Array.prototype.keys`, and the way
+/// the language says so is a property on the object listing the names a `with`
+/// may not see. So the two questions have one answer only for an object that
+/// carries no such list, and a `with` asking the plain question would resolve
+/// the wrong binding on every array and every `Math`-like object that grows one.
+///
+/// Nothing answers this already — the nearest is [`has_property`], which this
+/// calls rather than restates, so the two can never disagree about what having
+/// a property means.
+///
+/// # Why the answer is a `bool` and the read is separate
+///
+/// The caller branches on it and then emits an ORDINARY property read, which is
+/// the same read `o.x` compiles to and therefore the same one a cache, a proxy
+/// and an accessor already handle. An entry that answered "the value, or a
+/// sentinel" would need a sentinel no program can produce, and there is none.
+#[rtse::entry]
+pub fn with_has(object: u64, key: u64) -> bool {
+    if !has_property(key, object) {
+        return false;
+    }
+    // Rule 8. `has_property` reaches a proxy trap and a key's `toString`, both
+    // of which are user code — and a throw left behind makes every answer here
+    // meaningless. `false` sends the caller to the next link of the scope
+    // chain, whose own emitted code re-raises before it does anything with it.
+    if super::super::throw::in_flight() {
+        return false;
+    }
+    with_current(|context| {
+        let Some(cell) = Value(object).as_slot() else {
+            return false;
+        };
+        let Some(blocking) = super::super::symbol::unscopables_of(context, cell) else {
+            return true;
+        };
+        let Some(key) = property_key(context, Value(key)) else {
+            return true;
+        };
+        // Truthy blocks — not "present". `{ a: false }` unscopes nothing, which
+        // is what makes a list a list rather than a set of keys.
+        match super::super::objects::read_property(context, blocking, key) {
+            Some(held) => !super::super::primitives::to_boolean_in(context, held.bits()),
+            None => true,
+        }
+    })
+}
+
 /// The key `length` has.
 ///
 /// Interned rather than held as a constant, because the number is whatever the

@@ -323,7 +323,7 @@ pub fn emit_stmt(
         // correctly and disposes nothing -- which reads as working and is the
         // one failure a resource construct must not have.
         StmtKind::Using { .. } => super::expr::gap("`using`, which needs `Symbol.dispose`"),
-        StmtKind::With { .. } => super::expr::gap("`with`"),
+        StmtKind::With { object, body } => emit_with(builder, scope, ctx, loops, object, body),
     }
 }
 
@@ -535,4 +535,58 @@ pub(super) fn anonymous_definition(expr: &Expr) -> bool {
         ExprKind::Class(class) => class.name.is_none(),
         _ => false,
     }
+}
+
+/// Emits `with (object) body`.
+///
+/// # What it is, and what makes it different from every other statement
+///
+/// Not control flow. `with` changes what a NAME MEANS inside its body: a free
+/// identifier is looked up on the object first, and only reaches its lexical
+/// binding when the object does not have it — and the object is a value, so
+/// which binding a name means is not decided until the program runs.
+///
+/// So there is nothing to emit here beyond the object and the body. The work is
+/// in `emit/binding.rs`, which reads [`Ctx::with_objects`] and emits the branch
+/// per name. This function's whole job is to make sure the stack is exactly
+/// right around the body — including on the failure path, which is why the pop
+/// is not written after a `?`.
+///
+/// # Why strict code is not checked here
+///
+/// `with` is a SyntaxError in strict code, and the PARSER already refuses it
+/// there — *"With statement are not allowed in strict mode"*, fatal rather than
+/// recoverable, for module code and for any body carrying `"use strict"`.
+/// Checking it a second time here would be one rule with two statements, which
+/// is what this crate's rule 3 exists to keep out; the day the two disagree,
+/// one of them is wrong and nothing says which.
+///
+/// The divergence that leaves, stated rather than covered: an `eval` fragment
+/// inherits its caller's strictness, and this host compiles the fragment on its
+/// own — so `with` inside `eval` called from strict code is accepted here where
+/// the language refuses it. Closing that means carrying the caller's strictness
+/// to the fragment, which is the same missing channel `eval` has for several
+/// other decisions and belongs with them rather than in a flag for this one.
+///
+/// # The stated divergence
+///
+/// `with (null)` and `with (undefined)` must throw a `TypeError` — the
+/// specification calls `ToObject` on the value — and here they resolve nothing
+/// and fall through to the lexical binding. That is the same gap every property
+/// operation in this engine states for a non-object receiver, reached through
+/// `with_has`, rather than a second answer invented here.
+fn emit_with(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    loops: &mut Loops,
+    object: &Expr,
+    body: &Stmt,
+) -> EmitResult<bool> {
+    let object = emit_expr(builder, scope, ctx, object)?;
+    let object = super::expr::as_value(builder, object);
+    ctx.with_objects.push(object);
+    let terminated = emit_stmt(builder, scope, ctx, loops, body);
+    ctx.with_objects.pop();
+    terminated
 }

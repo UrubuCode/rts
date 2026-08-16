@@ -4967,3 +4967,75 @@ fn a_direct_eval_sees_the_callers_scope_and_an_indirect_one_sees_the_globals() {
     // one it was built for is still there.
     holds("globalThis.eval = function (s) { return \"replaced\"; }; return eval(\"1\") === \"replaced\";");
 }
+
+/// A `with` resolves a free name against its object first and lexically after.
+///
+/// The claim is about the LANGUAGE and not about this engine's chain: `with` is
+/// the one construct where which binding a name means is decided by a value, so
+/// each assertion here pairs a name the object has with one it does not. A test
+/// of the first alone would pass against an implementation that read every name
+/// off the object; a test of the second alone would pass against one that
+/// ignored `with` entirely.
+#[test]
+fn a_with_resolves_a_name_against_its_object_before_its_binding() {
+    // Found on the object, and the outer binding of the same name untouched.
+    holds("let width = 1; let out = 0; with ({ width: 10 }) { out = width; } return out === 10 && width === 1;");
+
+    // Not on the object: the lexical binding answers.
+    holds("let outer = 7; let out = 0; with ({ other: 1 }) { out = outer; } return out === 7;");
+
+    // A WRITE goes where the read would: onto the object when it has the name,
+    // and to the binding when it does not. This is the half that a scope built
+    // for reading only would get wrong, silently.
+    holds(
+        "let o = { a: 1 }; let b = 2; with (o) { a = 10; b = 20; } \
+         return o.a === 10 && b === 20 && o.b === undefined;",
+    );
+
+    // Nested: the INNER object is asked first, and the outer one still answers
+    // a name the inner lacks.
+    holds(
+        "let out = \"\"; with ({ p: \"outer\" }) { with ({ q: \"inner\" }) { out = p + q; } } \
+         return out === \"outerinner\";",
+    );
+
+    // A CALL through a `with` object, which is where the emitter's inlining and
+    // its `Math` fast path would answer the lexical function instead.
+    holds("function f() { return \"lexical\"; } let out = \"\"; with ({ f: () => \"object\" }) { out = f(); } return out === \"object\";");
+
+    // `var` inside a `with` belongs to the function, not to the object — the
+    // declaration is hoisted and only the assignment is in the body.
+    holds("with ({ x: 10 }) { var captured = x; } return captured === 10;");
+}
+
+/// `Symbol.unscopables` takes a name back out of a `with` scope.
+///
+/// The whole point of the protocol: the object HAS the property, `in` says so,
+/// and the `with` must not see it. So each case here is one the plain
+/// has-property question answers the other way.
+#[test]
+fn symbol_unscopables_hides_a_property_a_with_would_otherwise_find() {
+    // Truthy blocks, and the outer binding answers instead.
+    holds(
+        "let a = \"lexical\"; let o = { a: \"object\" }; o[Symbol.unscopables] = { a: true }; \
+         let out = \"\"; with (o) { out = a; } return out === \"lexical\" && \"a\" in o;",
+    );
+
+    // FALSY does not block — a list is a list, not a set of keys.
+    holds(
+        "let a = \"lexical\"; let o = { a: \"object\" }; o[Symbol.unscopables] = { a: false }; \
+         let out = \"\"; with (o) { out = a; } return out === \"object\";",
+    );
+
+    // `Array.prototype[Symbol.unscopables]` is the list the language ships it
+    // for, and it is why every method added to arrays since ES5 did not change
+    // the meaning of programs written before them.
+    holds(
+        "let keys = \"mine\"; let out = null; with ([1, 2, 3]) { out = keys; } \
+         return out === \"mine\";",
+    );
+
+    // …and a method NOT on that list is still reachable, which is what stops
+    // the fix from being "arrays unscope everything".
+    holds("let out = null; with ([1, 2, 3]) { out = join(\"-\"); } return out === \"1-2-3\";");
+}

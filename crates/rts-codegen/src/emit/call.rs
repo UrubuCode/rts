@@ -46,22 +46,42 @@ pub fn emit_call(
     callee: &Expr,
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
+    // The three paths below prove something about a NAME from the whole
+    // program: that `Math` is untouched and unbound, or that a call names one
+    // particular function declaration. Inside a `with` neither proof holds —
+    // the object may carry `Math`, or `round`, or the very function being
+    // inlined, and the answer is not known until it runs. So they are asked
+    // only where the scope chain is decidable while compiling.
+    //
+    // This is the one place a `with` costs anything to a program that has none,
+    // and it costs a comparison against an empty vector.
+    let scope_is_lexical = ctx.with_objects.is_empty();
+
     // A DIRECT `eval`, which is a syntactic form rather than a value and so has
     // to be recognised here, before the callee becomes an ordinary expression.
-    if let Some(value) = direct_eval(builder, scope, ctx, callee, arguments)? {
+    // A `with` can carry an `eval` of its own, and then the bare name is not
+    // the global one at all — which is the same proof about a name the two
+    // paths below need.
+    if scope_is_lexical
+        && let Some(value) = direct_eval(builder, scope, ctx, callee, arguments)?
+    {
         return Ok(value);
     }
 
     // One machine instruction, when the whole program proves the name still
     // means what it means and the argument is already a proven double.
-    if let Some(value) = machine_operation(builder, scope, ctx, callee, arguments)? {
+    if scope_is_lexical
+        && let Some(value) = machine_operation(builder, scope, ctx, callee, arguments)?
+    {
         return Ok(value);
     }
 
     // No call at all, when the whole program proves which function this is and
     // that function is one expression. Asked before the callee is emitted:
     // reading the name would be the one piece of the call this removes.
-    if let Some(value) = super::inline::emit_substituted(builder, scope, ctx, callee, arguments)? {
+    if scope_is_lexical
+        && let Some(value) = super::inline::emit_substituted(builder, scope, ctx, callee, arguments)?
+    {
         return Ok(value);
     }
 
@@ -330,6 +350,14 @@ pub(super) fn callee_and_receiver(
                 construct: "`super.m()` where there is no receiver",
             })?;
             (receiver, function)
+        }
+        // A bare name inside a `with` is a reference whose BASE may be the
+        // object, and a call passes its base as the receiver. Without this arm
+        // the plain-call case below passes `undefined`, so
+        // `with (a) { join("-") }` finds `Array.prototype.join` and runs it
+        // against nothing — a wrong answer, not a refusal.
+        ExprKind::Ident(name) if !ctx.with_objects.is_empty() => {
+            super::with_scope::read_callee(builder, scope, ctx, *name)?
         }
         _ => {
             // A plain call has no receiver, and `undefined` is what the

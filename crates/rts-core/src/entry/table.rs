@@ -50,7 +50,7 @@ use super::bitwise::{
 use super::chain::{GET_PROTOTYPE_ENTRY, SET_PROTOTYPE_ENTRY};
 use super::computed::{
     DELETE_PROPERTY_ENTRY, GET_INDEXED_ENTRY, HAS_PROPERTY_ENTRY, KEY_NUMBER_ENTRY,
-    SET_INDEXED_ENTRY,
+    SET_INDEXED_ENTRY, WITH_HAS_ENTRY,
 };
 use super::functions::{
     CALL_COUNTED_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
@@ -551,6 +551,17 @@ pub enum CoreEntry {
     /// apart, and only a distinct entry can carry the environment that
     /// difference is about.
     EvalDirect = 87,
+
+    /// [`super::with_has`] — whether a `with` scope resolves a name against its
+    /// object, which is `in` minus what `Symbol.unscopables` blocks.
+    ///
+    /// A row rather than the emitter calling [`HasProperty`](CoreEntry::
+    /// HasProperty) and reading the list itself, because reading the list is a
+    /// property read through a prototype chain and the answer decides which
+    /// BINDING a name means — asking it in two instructions would put the
+    /// unscopables rule in the language layer, where a second spelling of it
+    /// would eventually disagree with this one.
+    WithHas = 88,
 }
 
 /// How many entry points exist.
@@ -558,7 +569,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 88;
+pub const CORE_ENTRY_COUNT: usize = 89;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -651,6 +662,7 @@ impl CoreEntry {
         CoreEntry::AsyncStart,
         CoreEntry::ArgumentsObject,
         CoreEntry::EvalDirect,
+        CoreEntry::WithHas,
     ];
 
     /// The number a call site holds.
@@ -715,6 +727,7 @@ impl CoreEntry {
             CoreEntry::GetIndexed => GET_INDEXED_ENTRY,
             CoreEntry::SetIndexed => SET_INDEXED_ENTRY,
             CoreEntry::HasProperty => HAS_PROPERTY_ENTRY,
+            CoreEntry::WithHas => WITH_HAS_ENTRY,
             CoreEntry::ArrayNew => ARRAY_NEW_ENTRY,
             CoreEntry::DeleteProperty => DELETE_PROPERTY_ENTRY,
             CoreEntry::OwnKeys => OWN_KEYS_ENTRY,
@@ -925,8 +938,17 @@ mod tests {
         // says it has not. Reusing `RestArguments` with a sentinel `from` was
         // rejected: one number would then mean two shapes of result, which is
         // the kind of second meaning this list exists to keep out.
+        // Moved to 88 on 2026-08-16 for `WithHas`. The entry-level question is
+        // easy — it walks a prototype chain and reads two properties, which is
+        // the heap — and the LIST-level argument is still not made. What this
+        // row is NOT is a convenience: the alternative was the emitter asking
+        // `HasProperty` and then reading `Symbol.unscopables` itself, which
+        // puts a scoping rule in the language layer in a second spelling, and
+        // the day the two disagree a `with` resolves the wrong binding
+        // silently. Reusing `HasProperty` was rejected for the same reason one
+        // number must not mean two answers.
         assert!(
-            CORE_ENTRY_COUNT <= 88,
+            CORE_ENTRY_COUNT <= 89,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

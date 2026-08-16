@@ -53,6 +53,24 @@ pub fn read(
     ctx: &mut Ctx,
     name: Name,
 ) -> EmitResult<ValueId> {
+    if !ctx.with_objects.is_empty() {
+        return super::with_scope::read(builder, scope, ctx, name);
+    }
+    lexical_read(builder, scope, ctx, name)
+}
+
+/// The read a name has when no `with` encloses it.
+///
+/// Split from [`read`] so [`with_scope`] can use it as the LAST link of the
+/// chain it builds, which is the whole of what "the object does not have it"
+/// means. Written once for that reason: a second copy of the lexical rules is a
+/// second chance to resolve a name differently inside a `with` than outside it.
+pub(super) fn lexical_read(
+    builder: &mut FuncBuilder,
+    scope: &Scope,
+    ctx: &mut Ctx,
+    name: Name,
+) -> EmitResult<ValueId> {
     if scope.in_dead_zone(name) && !ctx.in_cleanup {
         return dead_zone(builder, ctx, name);
     }
@@ -88,6 +106,20 @@ pub fn read(
 /// value written rather than the binding — the same rule a property assignment
 /// follows, and for the same reason: an assignment is an expression.
 pub fn write(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    name: Name,
+    value: ValueId,
+) -> EmitResult<ValueId> {
+    if !ctx.with_objects.is_empty() {
+        return super::with_scope::write(builder, scope, ctx, name, value);
+    }
+    lexical_write(builder, scope, ctx, name, value)
+}
+
+/// The write a name has when no `with` encloses it. [`lexical_read`]'s reason.
+pub(super) fn lexical_write(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
