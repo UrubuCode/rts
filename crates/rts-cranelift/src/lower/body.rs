@@ -319,6 +319,20 @@ impl<'a> Body<'a> {
                 value::narrow(builder, raw, *to)?
             }
 
+            // One comparison against a constant word. A singleton has exactly
+            // one encoding, so nothing is loaded and no NaN case arises: the
+            // encoded quadrant is disjoint from every double by construction,
+            // which is what `BOX_BASE` reserves it for.
+            Inst::IsSingleton { value, singleton } => {
+                let word = self.value(*value);
+                let raw = builder.ins().icmp_imm(
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    word,
+                    singleton.word() as i64,
+                );
+                value::to_machine_bool(builder, raw)
+            }
+
             Inst::Generic(..) => {
                 return Err(LowerError::NotYetLowered {
                     inst: id,

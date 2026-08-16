@@ -202,6 +202,33 @@ pub enum Inst {
     /// An operation on operands whose representation is not proven.
     Generic(GenericOp, ValueId, ValueId),
 
+    /// Whether a generic value is exactly the singleton with this number.
+    ///
+    /// # Why this is answerable and a general equality is not
+    ///
+    /// A singleton has exactly one encoding — [`crate::tags::SingletonId::word`]
+    /// — and no other value shares it. So comparing the word answers the
+    /// question exactly, with no load and no call.
+    ///
+    /// That is NOT true of generic values in general: two references with
+    /// different indices may designate whatever a client considers one thing,
+    /// and two doubles that differ in bits may be the same number. There is
+    /// deliberately no instruction comparing two arbitrary generic values,
+    /// because it would be right here and wrong everywhere else it got used.
+    ///
+    /// Takes the number rather than a second value for the same reason: a
+    /// client cannot hand it something that is not a singleton.
+    ///
+    /// Refuses a proven operand rather than answering `false` for it (rule 10).
+    /// A value proven to be a double is not a singleton and asking is a client
+    /// that lost track of what it had — a constant answer would hide it.
+    IsSingleton {
+        /// The generic value under test.
+        value: ValueId,
+        /// Which singleton it is being compared against.
+        singleton: crate::tags::SingletonId,
+    },
+
     /// Reads one machine word from an address a value holds.
     ///
     /// # What it guarantees, and what it deliberately does not
@@ -456,6 +483,8 @@ impl Inst {
             | Inst::Bitwise(_, a, b)
             | Inst::Compare(_, a, b)
             | Inst::Generic(_, a, b) => vec![*a, *b],
+
+            Inst::IsSingleton { value, .. } => vec![*value],
 
             Inst::WordLoad { address } => vec![*address],
 

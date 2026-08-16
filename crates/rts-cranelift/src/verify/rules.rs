@@ -795,6 +795,21 @@ pub(super) fn check_instructions(
                     }
                 }
 
+                // The same refusal the builder makes, for a representation that
+                // did not come from the builder. Rule 10 keeps the proven and
+                // the generic form apart, and this is the half that would erode
+                // first: a proven operand here has a constant answer, so it
+                // would go unnoticed instead of failing.
+                Inst::IsSingleton { value, .. } => {
+                    let repr = func.repr_of(*value);
+                    if repr != Repr::Tagged {
+                        errors.push(VerifyError::WrongDomain {
+                            inst: inst_id,
+                            found: repr,
+                        });
+                    }
+                }
+
                 Inst::FieldLoad { ty, field, .. } => {
                     check_field(types, inst_id, *ty, *field, errors);
                 }

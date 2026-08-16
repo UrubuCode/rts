@@ -54,7 +54,13 @@ for (const c of calls) {
   // Fixed iteration count: the point is the IR, and a fixed n keeps the emitted
   // code identical between runs so two dumps are diffable.
   keep.push("");
-  keep.push("const N = Number(globalThis.process?.env?.BENCH_N ?? 1000000);");
+  // A literal, and NOT `globalThis.process?.env?.BENCH_N`, which is what this
+  // line said until it was caught changing what it measured: `globalThis` ends
+  // the whole-program proof in `emit/primordial.rs`, so every emitted case
+  // reported `Math.sqrt` as a global read and a dynamic call while the real
+  // `bench/analytic.ts` — which contains no `globalThis` — compiled it to one
+  // instruction. A driver that has to be invisible cannot name that.
+  keep.push("const N = 1000000;");
   keep.push("const t0 = Date.now();");
   keep.push("const r = CASES[0].run(N);");
   keep.push("const dt = Date.now() - t0;");

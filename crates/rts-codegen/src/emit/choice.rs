@@ -29,7 +29,6 @@ use rts_cranelift::ir::{BlockId, FuncBuilder, ValueId};
 use super::expr::{self, emit_condition, emit_expr};
 use super::scope::Binding;
 use super::{Ctx, EmitResult, Scope, UNPROVEN};
-use crate::runtime::RuntimeOp;
 use crate::syntax::{Expr, LogicalOp};
 use crate::values::Singleton;
 
@@ -231,12 +230,24 @@ pub fn emit_logical_write(
 ///
 /// # Why two comparisons and not one test
 ///
-/// Because there is no single operation that answers it. The runtime defines
-/// strict equality and nothing else that distinguishes the two singletons, and
-/// inventing a `to_nullish` entry point to save a compare would be adding to
-/// the contract between two crates for something the existing one already
-/// answers. The second comparison is only reached when the first said no, which
-/// is where the cost sits: a value that IS undefined pays one.
+/// Because nullish is TWO singletons and the machine answers about one at a
+/// time. Which two they are is this crate's knowledge and not the machine's,
+/// so a single `is_nullish` operation down there would be a language concept in
+/// the layer that is not allowed one. The second comparison is only reached
+/// when the first said no, which is where the cost sits: a value that IS
+/// undefined pays one.
+///
+/// # Why neither is a call any more
+///
+/// It used to be two calls to strict equality, and the comment here argued that
+/// nothing else could distinguish the singletons — true at the time, and it
+/// cost every `?.`, every `??` and every defaulted parameter two calls with the
+/// throw check each implies.
+///
+/// `FuncBuilder::is_singleton` is the machine's answer to exactly that, and it
+/// is not a `to_nullish` entry point smuggled in: it names no language concept,
+/// it takes a number the machine itself issued, and it is one comparison
+/// against a constant word because a singleton has exactly one encoding.
 pub(super) fn branch_on_nullish(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
@@ -244,15 +255,25 @@ pub(super) fn branch_on_nullish(
     nullish: BlockId,
     present: BlockId,
 ) -> EmitResult<()> {
-    let undefined = expr::singleton(builder, ctx, Singleton::Undefined);
-    let is_undefined = expr::call(builder, ctx, RuntimeOp::StrictEquals, &[value, undefined])?[0];
+    // Nothing proven is a singleton — a proved double, boolean or reference
+    // cannot be either of them — so the test has one answer and the branch has
+    // one destination. The machine refuses the question for a proven operand
+    // rather than answering a constant, which is what surfaces this case here
+    // instead of leaving it emitted and always false.
+    if builder.repr_of(value) != UNPROVEN {
+        builder.jump(present, &[])?;
+        return Ok(());
+    }
+
+    let undefined = ctx.model.singleton(Singleton::Undefined);
+    let is_undefined = builder.is_singleton(value, undefined)?;
 
     let against_null = builder.create_block();
     builder.branch(is_undefined, (nullish, &[]), (against_null, &[]))?;
 
     builder.switch_to(against_null);
-    let null = expr::singleton(builder, ctx, Singleton::Null);
-    let is_null = expr::call(builder, ctx, RuntimeOp::StrictEquals, &[value, null])?[0];
+    let null = ctx.model.singleton(Singleton::Null);
+    let is_null = builder.is_singleton(value, null)?;
     builder.branch(is_null, (nullish, &[]), (present, &[]))?;
     Ok(())
 }

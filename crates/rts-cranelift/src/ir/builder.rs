@@ -316,6 +316,33 @@ impl<'a> FuncBuilder<'a> {
         self.emit(Inst::Generic(op, a, b), Repr::Tagged)
     }
 
+    /// Whether a generic value is exactly the given singleton.
+    ///
+    /// The generic-only counterpart to [`FuncBuilder::compare`], which takes
+    /// proven operands and refuses generic ones. Rule 10 asks for two entry
+    /// points with two names and two costs rather than one that inspects what
+    /// it got, and this is the second of the pair for the one question the
+    /// encoding can answer about a generic value without reading anything.
+    ///
+    /// Refuses a proven operand: nothing proven is a singleton, so the answer
+    /// would be a constant `false`, and a client asking has lost track of what
+    /// it holds. See [`Inst::IsSingleton`] for why no general equality over
+    /// generic values exists beside it.
+    pub fn is_singleton(
+        &mut self,
+        value: ValueId,
+        singleton: crate::tags::SingletonId,
+    ) -> BuildResult<ValueId> {
+        let found = self.repr_of(value);
+        if found != Repr::Tagged {
+            return Err(BuildError::WrongDomain {
+                operation: "is_singleton",
+                found,
+            });
+        }
+        Ok(self.emit(Inst::IsSingleton { value, singleton }, Repr::Bool))
+    }
+
     /// Widens a value into the generic form, or returns it unchanged.
     pub fn widen(&mut self, value: ValueId) -> ValueId {
         self.widen_if_needed(value)
