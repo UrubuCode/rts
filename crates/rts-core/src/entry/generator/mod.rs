@@ -425,6 +425,21 @@ pub(in crate::entry) fn register(context: &mut Context) -> u64 {
         let key = context.well_known(&format!("{}iterator", super::symbol::PREFIX));
         let itself = super::native::callable(context, itself as super::native::Native);
         super::objects::put(context, cell, key, itself);
+
+        // `Symbol.toStringTag`, so `Object.prototype.toString.call(g())` answers
+        // `[object Generator]`. It went to `[object Object]`, which is the
+        // fallback `object_proto`'s per-kind table gives anything it does not
+        // recognise — and a generator is exactly the case that table cannot
+        // recognise, because a generator object has no internal slot this engine
+        // records and is otherwise an ordinary object with a prototype.
+        //
+        // On the PROTOTYPE rather than each instance: every generator shares it,
+        // a tag is a fact about the kind rather than the object, and a program
+        // that makes a million of them should not pay a property for each.
+        let tag = context.well_known(&format!("{}toStringTag", super::symbol::PREFIX));
+        let value = context.intern_value(crate::text::Str::from_str("Generator")).bits();
+        super::objects::put(context, cell, tag, value);
+        super::native::hidden(context, cell, tag);
     }
     made
 }

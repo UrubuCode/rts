@@ -93,5 +93,25 @@ fn build(context: &mut Context, collected: Vec<u64>) -> u64 {
             super::native::hidden(context, cell, key);
         }
     }
+
+    // `Symbol.toStringTag`, so `Object.prototype.toString.call(arguments)`
+    // answers `[object Arguments]`.
+    //
+    // The language gives this one an internal class rather than a tag property,
+    // and this engine has no slot to record that in: an arguments object is an
+    // ordinary object carrying indices, a `length` and an iterator, which is
+    // precisely why `object_proto`'s per-kind table cannot tell it from any
+    // other object and answered `[object Object]`. A real tag is the one
+    // spelling available, and it is observable in the direction that matters —
+    // the value is right, and the extra own key it costs is non-enumerable.
+    //
+    // The cost is a property per arguments object rather than one on a shared
+    // prototype, and that is not a choice: these inherit from
+    // `Object.prototype`, so a tag installed there would label every object in
+    // the program.
+    let tag = context.well_known(&format!("{}toStringTag", super::symbol::PREFIX));
+    let value = context.intern_value(crate::text::Str::from_str("Arguments")).bits();
+    super::objects::put(context, cell, tag, value);
+    super::native::hidden(context, cell, tag);
     object
 }
