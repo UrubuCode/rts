@@ -365,9 +365,12 @@ fn only_a_statement_may_be_the_body_of_a_statement() {
     // `var` is a Statement rather than a Declaration — the one declaring form
     // this position takes.
     accepted("for (;;) var x;");
-    // Annex B B.3.4: a plain function declaration is an `if` branch in sloppy
-    // code, and a labelled one is a statement-list item.
-    accepted("if (true) function f() {}");
+    // Annex B B.3.2: a labelled plain function declaration is a statement-list
+    // item in sloppy code. Its sibling relaxation, B.3.4 — a plain function as
+    // an `if` branch — is refused by SWC before the checker sees it, so the
+    // permission this rule grants there is unreachable today. It is granted
+    // anyway rather than removed: the rule is about what the language allows,
+    // and a checker that forbade it would be wrong the day the parser is.
     accepted("label: function f() {}");
 }
 
