@@ -26,7 +26,7 @@
 //! spelling. Renaming one would work and would lose the fact that they are
 //! different, which a diagnostic pointing at the inner one needs.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rts_cranelift::ir::ValueId;
 
@@ -342,18 +342,54 @@ impl Scope {
     /// and no chain reaches it, so bumping it would be inventing a hop for a
     /// name that does not travel one.
     ///
+    /// # Only the INNERMOST binding of a spelling travels, and dropping the rest
+    /// is the shadowing rule
+    ///
+    /// Re-binding walks every layer, and a spelling can appear in several: an
+    /// enclosing environment holds `t`, and a parameter or a local named `t`
+    /// shadows it. Copying both into the new layer puts the OUTER one beside
+    /// the inner one at the innermost level, and [`Scope::lookup`] scans in
+    /// reverse — so the outer binding wins and the loop body reads the
+    /// enclosing variable in place of the parameter.
+    ///
+    /// That is not a hypothetical ordering argument. `f(t)` under a `try`, with
+    /// a module-level `t`, read the module's value inside `for (let w = …)` and
+    /// answered it — silently, since the enclosing name exists and holds
+    /// something. `tests/cross-runtime/syntax/claude-param-shadows-toplevel-in-try-loop.ts`
+    /// is the fixture; the `try` is what makes the function build an
+    /// environment at all, and the classic `for` is the only loop that opens a
+    /// per-iteration one.
+    ///
+    /// So the innermost binding of each spelling is the one that travels, and a
+    /// spelling whose innermost binding is a `Value` travels not at all —
+    /// `lookup` then falls through to that `Value`, which is still in scope and
+    /// still dominates the body.
+    ///
     /// Returns the environment that was in force, for [`Scope::leave_environment`].
     pub fn enter_environment(&mut self, environment: ValueId, names: &[Name]) -> Option<ValueId> {
-        let mut entries: Vec<(Name, Binding)> = self
-            .layers
-            .iter()
-            .flat_map(|layer| layer.entries.iter())
+        // Innermost-wins, in one pass over the layers outermost-first: a later
+        // entry of the same spelling overwrites the position it already holds,
+        // so the ORDER of first appearance survives while the BINDING is the
+        // one `lookup` would have answered.
+        let mut seen: BTreeMap<Name, usize> = BTreeMap::new();
+        let mut effective: Vec<(Name, Binding)> = Vec::new();
+        for (bound, binding) in self.layers.iter().flat_map(|layer| layer.entries.iter()) {
+            match seen.get(bound) {
+                Some(&at) => effective[at].1 = *binding,
+                None => {
+                    seen.insert(*bound, effective.len());
+                    effective.push((*bound, *binding));
+                }
+            }
+        }
+        let mut entries: Vec<(Name, Binding)> = effective
+            .into_iter()
             .filter_map(|(bound, binding)| match binding {
                 Binding::InEnvironment { hops, name } => Some((
-                    *bound,
+                    bound,
                     Binding::InEnvironment {
                         hops: hops + 1,
-                        name: *name,
+                        name,
                     },
                 )),
                 Binding::Value(_) => None,
@@ -684,6 +720,54 @@ mod tests {
         // Nothing pending here: `{ x; { let x = 1; } }` reads the OUTER `x`,
         // because a block's declarations are the block's alone.
         assert!(!scope.in_dead_zone(x));
+    }
+
+    #[test]
+    fn a_per_iteration_environment_does_not_resurrect_a_shadowed_enclosing_name() {
+        let mut names = Names::default();
+        let t = names.intern("t");
+        let (environment, parameter) = two_values();
+
+        // The shape a `for (let …)` under a `try` produces: an enclosing
+        // environment holds `t`, the function's own parameter is also `t`, and
+        // the loop opens a record of its own for `w`.
+        let mut scope = Scope::for_function(Some(environment), BTreeSet::new(), &[(t, 1)]);
+        scope.declare(t, parameter);
+        let w = names.intern("w");
+        scope.enter_environment(environment, &[w]);
+
+        assert_eq!(
+            scope.lookup(t),
+            Some(Binding::Value(parameter)),
+            "the parameter still shadows the enclosing `t` inside the pass's \
+             record. Re-binding every environment name one hop further out put \
+             the ENCLOSING binding in the innermost layer, and `lookup` scans \
+             in reverse — so the loop body read the enclosing variable and \
+             answered its value, silently, wherever one existed"
+        );
+    }
+
+    #[test]
+    fn a_per_iteration_environment_still_pushes_a_name_it_does_not_shadow_one_hop_out() {
+        let mut names = Names::default();
+        let outer = names.intern("outer");
+        let (environment, _) = two_values();
+
+        let mut scope = Scope::for_function(Some(environment), BTreeSet::new(), &[(outer, 1)]);
+        let w = names.intern("w");
+        scope.enter_environment(environment, &[w]);
+
+        assert_eq!(
+            scope.lookup(outer),
+            Some(Binding::InEnvironment {
+                hops: 2,
+                name: outer
+            }),
+            "a name nothing shadows travels: inserting a link means every \
+             binding past it is one hop further out, and dropping the re-bind \
+             would read the pass's own record for something written in the \
+             function's"
+        );
     }
 
     #[test]
