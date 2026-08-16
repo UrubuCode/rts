@@ -317,9 +317,20 @@ fn other_of(other: u64) -> Option<Other> {
         // borrow this reads under — the one thing every function in this module
         // is shaped to avoid. It is a refusal where the language accepts, which
         // is the direction a program notices and can correct.
-        let key = context.well_known("size");
-        let size = crate::entry::objects::read_property(context, cell, key)
-            .and_then(|found| found.numeric())?;
+        // A real Map or Set answers from its TABLE rather than through the
+        // property. `size` is a prototype accessor now — see
+        // `super::sized` — and `read_property` walks slots, not accessors, so
+        // asking through the property would report every genuine Set as
+        // size-less and refuse `a.union(b)` for two Sets. Reading the table is
+        // also what the getter itself does, so the two cannot come apart.
+        let size = match context.table_at(cell) {
+            Some(table) => table.len() as f64,
+            None => {
+                let key = context.well_known("size");
+                crate::entry::objects::read_property(context, cell, key)
+                    .and_then(|found| found.numeric())?
+            }
+        };
         if size.is_nan() {
             return None;
         }

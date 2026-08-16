@@ -148,6 +148,52 @@ fn introspective(context: &mut Context, cell: u32, key: crate::object::Key) {
     }
 }
 
+/// Hangs a native **getter** on an object, by name.
+///
+/// # Why this exists beside [`install`]
+///
+/// Because a getter is not a method, and installing it as one is a wrong answer
+/// that reads correctly. `Map.prototype.size`, `RegExp.prototype.flags` and
+/// `Symbol.prototype.description` are accessors in the language, and this engine
+/// served each of them as something else — a data property on the INSTANCE, or
+/// nothing at all. Both work for `m.size`, and both fail the moment a program
+/// asks about the property rather than through it:
+/// `Object.getOwnPropertyDescriptor(Map.prototype, "size")` answered `undefined`
+/// for a property every Map has, which is two readable facts about one object
+/// that cannot both be true. Thirty-seven fixtures died on exactly that
+/// `undefined`, reading `.get`, `.writable` or `.value` off it.
+///
+/// The instance-data-property spelling has a second cost the descriptor hides:
+/// `m.size = 5` STORED, and the next mutation overwrote it. An accessor with no
+/// setter refuses the write instead, which is what the language says.
+///
+/// # Why the pair is `(get, None)` and not `(get, get)`
+///
+/// A setter-less accessor is the point. The specification gives every one of
+/// these `[[Set]]: undefined`, so assigning is refused — and a `set` that
+/// silently did nothing would look identical from inside the engine while
+/// answering `true` to `Reflect.set`, which is the observable difference.
+pub(in crate::entry) fn getter(context: &mut Context, cell: u32, name: &str, code: Native) {
+    let function = callable(context, code);
+    // `get size`, which is what `SetFunctionName` puts on an accessor's getter —
+    // a program reading `descriptor.get.name` sees the prefix, and it is the
+    // only place the two halves of an accessor pair are told apart by name.
+    name_of(context, function, &format!("get {name}"));
+    let key = context.well_known(name);
+    if let crate::object::Key::Name(named) = key {
+        context.define_accessor_and_invalidate(cell, named.index() as u32, Some(function), None);
+        // Non-enumerable and configurable, like every built-in member. Recorded
+        // rather than assumed: `super::integrity::effective` is what the
+        // descriptor reads, and a property it has no record for reports the
+        // defaults, which say enumerable.
+        super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
+            writable: false,
+            enumerable: false,
+            configurable: true,
+        });
+    }
+}
+
 /// An object with nothing on it, for something to be a prototype.
 pub(in crate::entry) fn plain(context: &mut Context) -> Option<u32> {
     let shape = context.shapes.root();

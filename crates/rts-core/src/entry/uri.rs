@@ -69,8 +69,89 @@ pub(super) fn provided(name: &str) -> Option<Native> {
         "decodeURIComponent" => decode_uri_component,
         "encodeURI" => encode_uri,
         "decodeURI" => decode_uri,
+        "escape" => escape,
+        "unescape" => unescape,
         _ => return None,
     })
+}
+
+/// The set `escape` leaves alone — Annex B's own list, which is NOT
+/// [`UNRESERVED`].
+///
+/// Kept apart rather than reusing the URI one because the two genuinely differ:
+/// `escape` leaves `@`, `+` and `/` unescaped and escapes `!`, `~` and `'`,
+/// which `encodeURIComponent` does the other way round on every one of them.
+/// Sharing a constant would have made the two agree, and being told they agree
+/// is worse than not having `escape` at all — a program round-tripping through
+/// the wrong table gets a plausible string back.
+const ESCAPE_KEPT: &str = "@*_+-./";
+
+/// `escape(s)` — Annex B, and present for the reason `getYear` is.
+///
+/// Deprecated since ES3 and still normative, so an engine that claims the web
+/// has it. Its absence was a `ReferenceError` on a name the language defines,
+/// which reads as a broken engine rather than as a deprecated function.
+///
+/// The encoding is per UTF-16 CODE UNIT and has two forms: `%XX` below U+0100
+/// and `%uXXXX` at or above it. That second form is what makes it not a URI
+/// encoder — `encodeURIComponent` emits UTF-8 bytes instead — and it is why a
+/// lone surrogate survives here and becomes U+FFFD there.
+extern "C" fn escape(_e: u64, _t: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let units = with_current(|context| super::string::units_of(context, value));
+    let Some(units) = units else {
+        return with_current(|context| undefined_of(context));
+    };
+    let mut out = String::new();
+    for unit in units {
+        match char::from_u32(u32::from(unit)) {
+            Some(ch) if ch.is_ascii_alphanumeric() || ESCAPE_KEPT.contains(ch) => out.push(ch),
+            _ if unit < 0x100 => out.push_str(&format!("%{unit:02X}")),
+            _ => out.push_str(&format!("%u{unit:04X}")),
+        }
+    }
+    with_current(|context| context.intern_value(Str::from_str(&out)).bits())
+}
+
+/// `unescape(s)` — the inverse, and deliberately forgiving.
+///
+/// A `%` that does not begin a well-formed escape is kept LITERALLY rather than
+/// raising: Annex B says so, and it is the half that differs most from
+/// `decodeURIComponent`, which answers a `URIError` for the same input. A
+/// version that threw would be a stricter function under a name programs use
+/// precisely because it does not.
+extern "C" fn unescape(_e: u64, _t: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let units = with_current(|context| super::string::units_of(context, value));
+    let Some(units) = units else {
+        return with_current(|context| undefined_of(context));
+    };
+    let hex = |slice: &[u16]| -> Option<u16> {
+        let text: String = slice.iter().map(|u| char::from_u32(u32::from(*u))).collect::<Option<String>>()?;
+        u16::from_str_radix(&text, 16).ok()
+    };
+    let mut out: Vec<u16> = Vec::with_capacity(units.len());
+    let mut at = 0;
+    while at < units.len() {
+        if units[at] == u16::from(b'%') {
+            if at + 6 <= units.len()
+                && (units[at + 1] == u16::from(b'u') || units[at + 1] == u16::from(b'U'))
+                && let Some(unit) = hex(&units[at + 2..at + 6])
+            {
+                out.push(unit);
+                at += 6;
+                continue;
+            }
+            if at + 3 <= units.len()
+                && let Some(unit) = hex(&units[at + 1..at + 3])
+            {
+                out.push(unit);
+                at += 3;
+                continue;
+            }
+        }
+        out.push(units[at]);
+        at += 1;
+    }
+    with_current(|context| super::string::answer(context, &out))
 }
 
 /// What a URI calls unreserved — never escaped by either encoder.
