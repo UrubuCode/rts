@@ -420,6 +420,14 @@ impl Dom {
             .wrapping_add(crate::style::props::style_epoch())
     }
 
+    /// Identidade da instância da árvore para caches do backend. Combina a geração
+    /// com o endereço da instância: clones independentes e novas árvores nunca
+    /// compartilham uma `DisplayList` por acidente.
+    pub fn cache_identity(&self) -> u64 {
+        let address = self as *const Dom as usize as u64;
+        address.rotate_left(17) ^ self.generation as u64
+    }
+
     /// A revisão ESTRUTURAL: muda com árvore/atributo/estilo/viewport (o que altera o
     /// ALVO-BASE da cascade), mas NÃO com a interpolação de animação (`anim_epoch`).
     /// É a chave do `base_memo` — o que o `advance` reusa entre frames de animação.
@@ -578,6 +586,10 @@ impl Dom {
     /// Núcleo do `query` em índices crus (interno). O `query` público embrulha o
     /// resultado no `NodeId` versionado.
     fn query_idx(&self, sel: &str) -> Option<NodeIdx> {
+        let selectors = crate::style::parse_selector_list(sel);
+        if selectors.is_empty() {
+            return None;
+        }
         // Índices servem como filtro rápido, mas a resposta final sempre vem de uma
         // busca em pré-ordem. Isso é necessário porque IDs/classes duplicados e
         // reordenação por appendChild devem seguir a ordem documental do DOM, não a
@@ -589,7 +601,9 @@ impl Dom {
                         self.is_attached(i) && self.nodes[i].attr("id") == Some(key)
                     })
                 }).unwrap_or(false);
-                return has_candidate.then(|| self.find_idx_pre_order(self.root, sel)).flatten();
+                return has_candidate
+                    .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
+                    .flatten();
             }
         }
         if let Some(cls) = sel.strip_prefix('.') {
@@ -603,20 +617,26 @@ impl Dom {
                                 .unwrap_or(false)
                     })
                 }).unwrap_or(false);
-                return has_candidate.then(|| self.find_idx_pre_order(self.root, sel)).flatten();
+                return has_candidate
+                    .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
+                    .flatten();
             }
         }
         // Caso geral (composto/combinador/atributo/pseudo): pré-ordem + matches.
-        self.find_idx_pre_order(self.root, sel)
+        self.find_idx_pre_order_parsed(self.root, &selectors)
     }
 
-    /// Pré-ordem buscando o 1º elemento que casa o seletor completo.
-    fn find_idx_pre_order(&self, idx: NodeIdx, sel: &str) -> Option<NodeIdx> {
-        if idx != self.root && self.matches(idx, sel) {
+    /// Pré-ordem buscando o 1º elemento que casa uma lista já parseada de seletores.
+    fn find_idx_pre_order_parsed(
+        &self,
+        idx: NodeIdx,
+        selectors: &[crate::style::ComplexSelector],
+    ) -> Option<NodeIdx> {
+        if idx != self.root && selectors.iter().any(|sel| self.matches_complex(idx, sel)) {
             return Some(idx);
         }
         for &child in &self.nodes[idx].children {
-            if let Some(found) = self.find_idx_pre_order(child, sel) {
+            if let Some(found) = self.find_idx_pre_order_parsed(child, selectors) {
                 return Some(found);
             }
         }
@@ -635,19 +655,6 @@ impl Dom {
             cur = self.nodes[c].parent;
         }
         false
-    }
-
-    fn find_pre_order(&self, idx: NodeIdx, m: &dyn Fn(&Node) -> bool) -> Option<NodeIdx> {
-        let node = &self.nodes[idx];
-        if idx != self.root && m(node) {
-            return Some(idx);
-        }
-        for &child in &node.children {
-            if let Some(hit) = self.find_pre_order(child, m) {
-                return Some(hit);
-            }
-        }
-        None
     }
 
     // ── Mutação (base da API DOM do JS) ─────────────────────────────────────
@@ -1399,12 +1406,15 @@ impl Dom {
 
     /// `element.querySelectorAll(sel)` restrito à subárvore do nó (exclui o próprio).
     pub fn query_all_within(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
-        let sel = selector.trim();
+        let selectors = crate::style::parse_selector_list(selector.trim());
+        if selectors.is_empty() {
+            return Vec::new();
+        }
         let Some(root_idx) = self.resolve(root) else { return Vec::new() };
         let mut out = Vec::new();
         // só os DESCENDENTES (o próprio nó não casa a si mesmo no querySelector).
         for &child in &self.nodes[root_idx].children {
-            self.query_all_into(child, sel, &mut out);
+            self.query_all_into(child, &selectors, &mut out);
         }
         out
     }
@@ -1752,21 +1762,30 @@ impl Dom {
         Some(self.make_id(sibs[target as usize]))
     }
 
-    /// Todos os nós que casam um seletor simples (`querySelectorAll`), em ordem de
-    /// documento. `tag` varre pré-ordem; `#id`/`.classe` usam os índices.
+    /// Todos os nós que casam um seletor (`querySelectorAll`), em ordem de documento.
+    /// O seletor é parseado uma vez por chamada e a travessia preserva a ordem mesmo
+    /// após mutações que reordenam a árvore.
     pub fn query_all(&self, selector: &str) -> Vec<NodeId> {
-        let sel = selector.trim();
+        let selectors = crate::style::parse_selector_list(selector.trim());
+        if selectors.is_empty() {
+            return Vec::new();
+        }
         let mut out = Vec::new();
-        self.query_all_into(self.root, sel, &mut out);
+        self.query_all_into(self.root, &selectors, &mut out);
         out
     }
 
-    fn query_all_into(&self, idx: NodeIdx, sel: &str, out: &mut Vec<NodeId>) {
-        if idx != self.root && self.matches(idx, sel) {
+    fn query_all_into(
+        &self,
+        idx: NodeIdx,
+        selectors: &[crate::style::ComplexSelector],
+        out: &mut Vec<NodeId>,
+    ) {
+        if idx != self.root && selectors.iter().any(|sel| self.matches_complex(idx, sel)) {
             out.push(self.make_id(idx));
         }
         for &child in &self.nodes[idx].children {
-            self.query_all_into(child, sel, out);
+            self.query_all_into(child, selectors, out);
         }
     }
 

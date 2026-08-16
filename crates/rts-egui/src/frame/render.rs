@@ -67,9 +67,14 @@ thread_local! {
     /// só a mudança real de DOM/estilo/viewport re-roda o layout.
     static LAYOUT_CACHE: std::cell::RefCell<std::collections::HashMap<u64, (u64, u32, u32, layout::DisplayList)>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
+    /// Cache equivalente para o caminho sem scroll, que recebe `&Dom` diretamente
+    /// em vez de um handle. A identidade da árvore evita reutilizar uma lista de
+    /// outro DOM quando a alocação de memória for reaproveitada.
+    static DIRECT_LAYOUT_CACHE: std::cell::RefCell<std::collections::HashMap<u64, (u64, u32, u32, layout::DisplayList)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-/// Renderiza um `Dom` inteiro: calcula o layout (rts-dom) e PINTA a display list.
+/// Renderiza um `Dom` inteiro: reutiliza ou calcula o layout (rts-dom) e PINTA a display list.
 ///
 /// A origem do conteúdo é o canto superior-esquerdo da área do `ui`
 /// (`ui.max_rect().min`); cada item da lista vem em coordenadas de conteúdo e é
@@ -78,13 +83,28 @@ thread_local! {
 /// saber o tamanho ocupado).
 pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
     let avail = ui.available_size();
+    let viewport_w = avail.x.max(1.0);
+    let viewport_h = ui.ctx().screen_rect().height().max(1.0);
     let measurer = EguiMeasurer { ctx: ui.ctx() };
-    let ctx = layout::LayoutCtx {
-        viewport_w: avail.x.max(1.0),
-        viewport_h: ui.ctx().screen_rect().height().max(1.0),
-        measurer: &measurer,
-    };
-    let list = layout::layout_document(dom, &ctx);
+    let ctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
+    let key = dom.cache_identity();
+    let rev = dom.render_revision();
+    let list = DIRECT_LAYOUT_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((c_rev, c_w, c_h, cached)) = cache.get(&key) {
+            if *c_rev == rev && *c_w == viewport_w.to_bits() && *c_h == viewport_h.to_bits() {
+                return cached.clone();
+            }
+        }
+        let fresh = layout::layout_document(dom, &ctx);
+        if cache.len() >= 64 && !cache.contains_key(&key) {
+            if let Some(old_key) = cache.keys().next().copied() {
+                cache.remove(&old_key);
+            }
+        }
+        cache.insert(key, (rev, viewport_w.to_bits(), viewport_h.to_bits(), fresh.clone()));
+        fresh
+    });
     paint_list(ui, &list, 0.0);
     // reserva a altura total ocupada (p/ o egui ao redor dimensionar).
     ui.allocate_space(egui::vec2(ui.available_width(), list.content_height));
