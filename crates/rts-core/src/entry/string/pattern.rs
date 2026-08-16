@@ -259,7 +259,7 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
     });
 
     let Some((found, subject, positions)) = collected else {
-        return super::super::array_proto::built(Vec::new());
+        return iterator_over(Vec::new());
     };
     let matches: Vec<u64> = found
         .into_iter()
@@ -294,7 +294,28 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
             array
         })
         .collect();
-    super::super::array_proto::built(matches)
+    iterator_over(matches)
+}
+
+/// What `matchAll` answers: an ITERATOR over the matches, not the array.
+///
+/// # Why the array was wrong even though it iterated
+///
+/// `for (const m of s.matchAll(re))` and `[...s.matchAll(re)]` work over either,
+/// which is why this went unnoticed. What does not work over an array is
+/// `s.matchAll(re).next()`, and that is the whole difference between a method
+/// that answers a sequence and one that answers a collection: a program driving
+/// the matches by hand — the reason to reach for `matchAll` over `match` — found
+/// no `next` at all. `Array.isArray(s.matchAll(re))` also answered `true`, and
+/// `Object.prototype.toString.call` said `[object Array]` where the language
+/// says `[object RegExp String Iterator]`.
+///
+/// The list is still built eagerly. That is [`super::super::list_iterator`]'s
+/// stated cost rather than a new one, and wrapping does not add to it: the
+/// matches were already all collected before this is reached.
+fn iterator_over(matches: Vec<u64>) -> u64 {
+    let listed = super::super::array_proto::built(matches);
+    super::super::list_iterator::over(listed, "RegExp String Iterator")
 }
 
 /// The matcher's group names by position, when the pattern asked for `indices`.

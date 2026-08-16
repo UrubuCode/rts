@@ -215,6 +215,15 @@ pub(super) fn over(receiver: u64, kind: Kind) -> u64 {
         let key = context.well_known(&format!("{}iterator", symbol::PREFIX));
         let itself = native::callable(context, itself as native::Native);
         objects::put(context, cell, key, itself);
+
+        // `Symbol.toStringTag`, so `Object.prototype.toString.call([].values())`
+        // answers `[object Array Iterator]`. On the INSTANCE for the same reason
+        // as the key above, and a plain string because all three kinds share one
+        // tag — the language distinguishes `keys`, `values` and `entries` by
+        // what they yield, not by what they call themselves.
+        let key = context.well_known(&format!("{}toStringTag", symbol::PREFIX));
+        let tag = context.intern_value(crate::text::Str::from_str("Array Iterator")).bits();
+        objects::put(context, cell, key, tag);
         Value::from_slot(cell).bits()
     })
 }
