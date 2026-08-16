@@ -48,9 +48,9 @@ use super::scope::{
 };
 use crate::names::{Name, Names};
 use crate::syntax::{
-    Catch, Class, ClassElement, ClassKey, Element, Expr, ExprKind, ForEachTarget, ForInit,
-    Directive, Function, FunctionBody, Goal, Pattern, Program, Property, PropertyKey, Stmt,
-    StmtKind, UnaryOp,
+    Catch, Class, ClassElement, ClassKey, Directive, Element, Expr, ExprKind, ForEachTarget,
+    ForInit, Function, FunctionBody, Goal, Pattern, Program, Property, PropertyKey, Stmt, StmtKind,
+    UnaryOp,
 };
 
 /// What a statement list is a scope *of*.
@@ -260,7 +260,9 @@ impl<'a> Scan<'a> {
             // *identifier* is `var break = 1`, which is the program this
             // refuses. Which is why the rule needs no source text: the tree
             // holding this node is itself the evidence.
-            self.found = Some(format!("`{word}` is a reserved word and cannot name anything"));
+            self.found = Some(format!(
+                "`{word}` is a reserved word and cannot name anything"
+            ));
             return;
         }
         if context.strict && is_reserved_in_strict(word) {
@@ -402,8 +404,9 @@ impl<'a> Scan<'a> {
             StmtKind::Function(function) => {
                 let plain = !function.is_generator && !function.is_async;
                 if !(plain_function_allowed && plain && !context.strict) {
-                    self.fail("a function declaration cannot be the body of this statement"
-                        .to_owned());
+                    self.fail(
+                        "a function declaration cannot be the body of this statement".to_owned(),
+                    );
                 }
             }
             StmtKind::Labelled { body, .. } => self.statement_body(body, false, context),
@@ -781,6 +784,15 @@ impl<'a> Scan<'a> {
 
             // A literal names nothing, and `this`, `new.target`, `import.meta`
             // and a private name are each one fixed thing.
+            // Every literal but one is a value and nothing else. A regular
+            // expression carries a program in its text, and the rules about it
+            // are early errors: `/(?<a>x)(?<a>y)/` is not a pattern that fails
+            // to match, it is not a program.
+            ExprKind::Literal(crate::syntax::Literal::Regex { pattern, flags }) => {
+                if let Some(message) = super::regexp::check(pattern, flags) {
+                    self.found = Some(message);
+                }
+            }
             ExprKind::Literal(_) | ExprKind::This | ExprKind::NewTarget | ExprKind::ImportMeta => {}
 
             // `#x in obj` — the only place a private name stands alone, and it
@@ -965,9 +977,7 @@ impl<'a> Scan<'a> {
             || function.captures_this
             || home != Home::None
             || !function.has_simple_parameter_list();
-        if unique_required
-            && let Some(name) = first_repeat(&parameters)
-        {
+        if unique_required && let Some(name) = first_repeat(&parameters) {
             return self.fail(format!(
                 "`{}` is a parameter twice, where every parameter must be distinct",
                 self.names.text(name)

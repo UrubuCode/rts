@@ -35,6 +35,7 @@
 mod class;
 mod deep;
 mod module;
+mod regexp;
 mod scope;
 
 use crate::names::Names;

@@ -457,7 +457,9 @@ mod modules {
     fn no_name_is_exported_twice() {
         assert!(refused("var x; export { x }; export { x };").contains("exported twice"));
         assert!(refused("var x, y; export { x as z }; export { y as z };").contains("exported"));
-        assert!(refused("var x, y; export default x; export { y as default };").contains("default"));
+        assert!(
+            refused("var x, y; export default x; export { y as default };").contains("default")
+        );
 
         // `export *` forwards names this module cannot know, so it can never be
         // found to collide here.
