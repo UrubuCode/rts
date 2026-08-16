@@ -151,6 +151,60 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
     })
 }
 
+/// `CreateListFromArrayLike` — a real array over whatever was handed in.
+///
+/// Answers the argument UNCHANGED when it is already an array, which is the
+/// common case and the one that must cost nothing: `f.apply(t, [1, 2])` walks
+/// no properties and allocates nothing here.
+///
+/// A non-object answers an empty list rather than throwing. The specification
+/// makes `f.apply(t, 5)` a `TypeError`, and this is the same stated tolerance
+/// the rest of this crate takes where a throw would land somewhere a program
+/// cannot correct from — a call with no arguments is the answer a program can
+/// see and fix, and `null`/`undefined` legitimately mean "no arguments" anyway.
+///
+/// Indices are read with the ordinary property path, so an inherited index and
+/// a getter both participate — which is what the specification's `Get` says and
+/// what an `arguments` object needs, since its indices are own properties of an
+/// object that is not an array.
+fn array_like(arguments: u64) -> u64 {
+    let read = with_current(|context| {
+        let cell = Value(arguments).as_slot()?;
+        if context.elements_at(cell).is_some() {
+            return None;
+        }
+        let key = context.well_known("length");
+        let length = super::objects::read_property(context, cell, key)?.numeric()?;
+        // `ToLength`: negative and NaN clamp to zero, and the cap keeps a
+        // hostile `{length: 1e9}` from asking for a billion reads.
+        let count = length.max(0.0).min(MAX_APPLY_ARGUMENTS as f64) as usize;
+        Some((cell, count))
+    });
+    let Some((cell, count)) = read else {
+        return arguments;
+    };
+    let values = with_current(|context| {
+        (0..count)
+            .map(|at| {
+                let key = context.well_known(&at.to_string());
+                super::objects::read_property(context, cell, key)
+                    .map(|found| found.bits())
+                    .unwrap_or_else(|| undefined_of(context))
+            })
+            .collect::<Vec<u64>>()
+    });
+    super::array_proto::built(values)
+}
+
+/// The ceiling on how many arguments an array-like may contribute.
+///
+/// The specification allows 2^53-1 and every engine refuses far below it. The
+/// number is arbitrary and the ceiling is not: without one, `f.apply(t,
+/// {length: 1e9})` is a billion property reads and an allocation to match,
+/// which is a hang rather than a wrong answer — the failure this repository's
+/// own corpus already caught twice in other shapes.
+const MAX_APPLY_ARGUMENTS: usize = 65_535;
+
 /// Calling with more arguments than the convention carries.
 ///
 /// # Why the vector is the runtime's and not a stack slot
@@ -175,6 +229,17 @@ pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
         super::throw::type_error("Class constructor cannot be invoked without 'new'");
         return with_current(|context| undefined_of(context));
     }
+    // An ARRAY-LIKE is materialised into a real array first.
+    //
+    // `f.apply(t, {0:"x", 1:"y", length: 2})` is ordinary JavaScript and the
+    // specification's own `CreateListFromArrayLike` — it reads `length` and then
+    // the indices, and never asks whether the object is an Array. This read
+    // `context.elements_at` alone, which answers only for a real array, so every
+    // array-like passed to `apply` produced a call with NO arguments: the
+    // callee saw `undefined` in every position and nothing said why. An
+    // `arguments` object is the array-like a program passes most often, and
+    // `f.apply(this, arguments)` is the reason `apply` exists at all.
+    let arguments = array_like(arguments);
     let first = with_current(|context| {
         let absent = undefined_of(context);
         let mut first = [absent; ARGUMENT_SLOTS];
