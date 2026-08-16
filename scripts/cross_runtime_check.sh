@@ -292,16 +292,35 @@ done
         fi
         cat "$entry_file"
     done
-    printf '\n],"summary":{"total":%d,"pass":%d,"rts_diverge":%d,"bun_node_diverge":%d,"errors":%d,"rejected":%d}}\n' \
-        "$TOTAL" "$pass" "$diverge_rts" "$diverge_bun_node" "$errors" "$rejected"
+    printf '\n],"summary":{"total":%d,"pass":%d,"reachable":%d,"rts_diverge":%d,"bun_node_diverge":%d,"errors":%d,"rejected":%d}}\n' \
+        "$TOTAL" "$pass" "$((TOTAL - diverge_bun_node))" "$diverge_rts" "$diverge_bun_node" "$errors" "$rejected"
 } > "$REPORT_FILE"
+
+# O denominador da percentagem e o ALCANCAVEL, nao o total.
+#
+# Um ficheiro em que o Bun e o Node se respondem coisas diferentes nao tem
+# resposta certa que este arnes possa nomear — ele recusa eleger um deles, de
+# proposito. Conta-lo contra nos e cobrar uma resposta que ninguem sabe qual e:
+# a percentagem ficaria com um tecto abaixo de 100 que nenhum trabalho podia
+# levantar, e um numero cujo maximo nao e atingivel deixa de dizer o que falta.
+#
+# O total continua impresso ao lado, e os divergentes continuam CONTADOS e
+# listados. O que muda e so o que a fraccao pergunta: "de tudo o que tem uma
+# resposta comparavel, quanto e que acertamos".
+reachable=$((TOTAL - diverge_bun_node))
+if [ "$reachable" -gt 0 ]; then
+    share=$(awk -v p="$pass" -v r="$reachable" 'BEGIN { printf "%.1f", p * 100 / r }')
+else
+    share="n/a"
+fi
 
 echo ""
 echo -e "${BOLD}Summary:${NC} (tempo: ${elapsed}s, $JOBS jobs paralelos)"
 echo "  Total:               $TOTAL"
 echo -e "  ${GREEN}Pass:                $pass${NC}"
+echo -e "  ${BOLD}Alcancavel:          $reachable  (${share}% de $reachable)${NC}"
 echo -e "  ${RED}RTS divergente:      $diverge_rts${NC}"
-echo -e "  ${YELLOW}Bun/Node divergem:   $diverge_bun_node${NC}"
+echo -e "  ${YELLOW}Bun/Node divergem:   $diverge_bun_node  (fora do denominador)${NC}"
 echo -e "  ${RED}RTS runtime error:   $errors${NC}"
 echo -e "  ${YELLOW}Rejeitados (RTS-only): $rejected${NC}"
 echo ""

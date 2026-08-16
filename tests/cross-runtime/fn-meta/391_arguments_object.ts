@@ -47,3 +47,8 @@ function applyOld(fn: Function) {
   return fn.apply(null, args);
 }
 console.log(applyOld(Math.max, 3, 1, 4, 1, 5));  // 5
+
+// Declara-se MODULO de proposito: sem isto o node trata um .ts sem
+// import/export como CommonJS (nao-estrito) e o bun como modulo ES (estrito),
+// e os dois respondiam coisas diferentes ao MODO em vez de a semantica.
+export {};
