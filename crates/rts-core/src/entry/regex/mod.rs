@@ -173,6 +173,8 @@ let Some(parsed) = Flags::parse(letters) else {
         let own = prototype_of(context);
         let prototype = super::functions::prototype_for_new(context, own);
         context.set_prototype(cell, prototype);
+        // The CANONICAL order, not the written one — see `Flags::canonical`.
+        let letters = &parsed.canonical(letters);
         describe(context, cell, source, letters, parsed);
         context.regexes.set(cell, Regexp {
             engine,

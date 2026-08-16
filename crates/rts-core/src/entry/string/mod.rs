@@ -327,6 +327,28 @@ pub(super) fn nothing(context: &Context) -> u64 {
 /// The infinities pass through as themselves. A caller compares against a length
 /// before it casts, so `±∞` is out of range by arithmetic rather than by a case.
 ///
+/// The same conversion, performed OUTSIDE any borrow so an object converts.
+///
+/// [`integer_arg`] answers zero for an object, and its own documentation calls
+/// that the stated gap: `ToNumber` on an object runs the program's `valueOf`,
+/// and calling user code from inside a `with_current` re-enters the `RefCell`.
+///
+/// This is the other half. A method that wants an object argument to work calls
+/// this BEFORE it borrows, and passes the number in — which is exactly the shape
+/// `array_proto::more::at` already uses and the reason its own two statements
+/// are two. `"abc".substring({valueOf: () => 1}, {valueOf: () => 3})` answered
+/// the empty string and now answers `"bc"`.
+///
+/// A symbol raises here rather than answering zero, because [`super::class_support::to_number`]
+/// is what performs the conversion and that refusal is the language's.
+pub(super) fn integer_outside(value: u64) -> f64 {
+    let number = super::class_support::to_number(value);
+    match number.is_nan() {
+        true => 0.0,
+        false => number.trunc(),
+    }
+}
+
 /// An object answers `NaN` and therefore zero, because `ToNumber` on one runs
 /// user code and this is inside a borrow. The stated gap: `s.at({valueOf: …})`
 /// reads index 0.

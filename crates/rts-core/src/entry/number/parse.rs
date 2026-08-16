@@ -70,6 +70,16 @@ pub(in crate::entry) fn leading(value: u64, parse: impl FnOnce(&str) -> f64) -> 
     if super::super::throw::in_flight() {
         return f64::NAN;
     }
+    // A SYMBOL has no text form: `ToString(sym)` is a `TypeError`, which is what
+    // both parsers inherit. It answered `NaN` — and `NaN` is what these two
+    // answer for ordinary unparseable text, so a symbol reaching `parseInt` was
+    // indistinguishable from the string `"abc"` reaching it. `Number(sym)`
+    // already refused; these did not, which made the three disagree about one
+    // value.
+    if with_current(|context| super::super::symbol::is_symbol(context, value)) {
+        super::super::throw::type_error("Cannot convert a Symbol value to a string");
+        return f64::NAN;
+    }
     let text = with_current(|context| {
         super::super::text::to_text(context, Value(value)).and_then(|text| text.to_rust())
     });
