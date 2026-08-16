@@ -42,13 +42,15 @@
 //! a property key — `o.await` is a property, and always legal — which is why
 //! this walks the tree rather than scanning the text.
 
-use super::scope::{
-    Declared, first_illegal_repeat, first_repeat, first_shared, function_names, lexical_names,
-    var_names,
-};
+mod scopes;
+mod words;
+
+use words::{is_reserved, is_reserved_in_strict, legacy_escape_in_a_strict_prologue};
+
+use crate::check::scope::{first_repeat, first_shared, lexical_names};
 use crate::names::{Name, Names};
 use crate::syntax::{
-    Catch, Class, ClassElement, ClassKey, Directive, Element, Expr, ExprKind, ForEachTarget,
+    Class, ClassElement, ClassKey, Element, Expr, ExprKind, ForEachTarget,
     ForInit, Function, FunctionBody, Goal, Pattern, Program, Property, PropertyKey, Stmt, StmtKind,
     UnaryOp,
 };
@@ -286,133 +288,6 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// One statement list, asked the questions a scope answers.
-    ///
-    /// Two questions, and they are separate because the sets are: no name may
-    /// be declared lexically twice, and no lexically declared name may also be
-    /// var-declared anywhere the list reaches. Where function declarations
-    /// count is [`ScopeKind`]'s whole subject.
-    fn scope(&mut self, statements: &[Stmt], kind: ScopeKind, context: Context) {
-        self.scope_with(statements, kind, &[], context);
-    }
-
-    /// The same, plus names declared by something that is not a statement.
-    ///
-    /// Only a module has any: its imports bind names at the top level while
-    /// being module items rather than statements, so a rule that read the
-    /// statement list alone would not see them collide with anything.
-    fn scope_with(
-        &mut self,
-        statements: &[Stmt],
-        kind: ScopeKind,
-        extra: &[Declared],
-        context: Context,
-    ) {
-        if self.found.is_some() {
-            return;
-        }
-
-        let functions = function_names(statements);
-        let mut lexical: Vec<Declared> = extra
-            .iter()
-            .copied()
-            .chain(lexical_names(statements).into_iter().map(|name| Declared {
-                name,
-                relaxable: false,
-            }))
-            .collect();
-        if kind == ScopeKind::Block {
-            lexical.extend(functions.iter().copied());
-        }
-
-        if let Some(name) = first_illegal_repeat(&lexical, context.strict) {
-            return self.fail(format!(
-                "`{}` is declared twice in the same scope",
-                self.names.text(name)
-            ));
-        }
-
-        let mut vars = Vec::new();
-        var_names(statements, &mut vars);
-        if kind == ScopeKind::VarRoot {
-            vars.extend(functions.iter().map(|declared| declared.name));
-        }
-
-        let names: Vec<Name> = lexical.iter().map(|declared| declared.name).collect();
-        if let Some(name) = first_shared(&names, &vars) {
-            return self.fail(format!(
-                "`{}` is declared both lexically and with `var` in the same scope",
-                self.names.text(name)
-            ));
-        }
-    }
-
-    /// A loop head that declares names, and the body that may not repeat them.
-    ///
-    /// `for (let x of []) { var x; }` is not a program: the head's names are
-    /// lexical and belong to the loop's own scope, which the body is inside —
-    /// so a `var` there, which belongs to the enclosing function, would be two
-    /// bindings of one name in scopes that nest.
-    fn loop_head(&mut self, declared: &[Name], body: &Stmt) {
-        if self.found.is_some() {
-            return;
-        }
-        if let Some(name) = first_repeat(declared) {
-            return self.fail(format!(
-                "`{}` is declared twice in the same `for` head",
-                self.names.text(name)
-            ));
-        }
-        let mut vars = Vec::new();
-        var_names(std::slice::from_ref(body), &mut vars);
-        if let Some(name) = first_shared(declared, &vars) {
-            return self.fail(format!(
-                "`{}` is declared in a `for` head and with `var` in its body",
-                self.names.text(name)
-            ));
-        }
-    }
-
-    /// A position that takes a Statement, where a Declaration is not one.
-    ///
-    /// The body of `if`, of every loop and of `with` is a *Statement*, and
-    /// `let`, `const`, `class` and `function` are Declarations — so
-    /// `while (false) let [a] = 0;` is not a program even though every piece of
-    /// it parses. The rule is not decoration: a declaration there would have a
-    /// scope nobody can name, since the body of a loop is not a block.
-    ///
-    /// `plain_function_allowed` is Annex B B.3.4, which is real and narrow: a
-    /// bare `function f() {}` is allowed as the body of an `if` in sloppy code,
-    /// and nothing else is allowed anywhere. Not a generator, not an async
-    /// function, and not the same declaration behind a label — which is why the
-    /// label case recurses with the permission withdrawn.
-    fn statement_body(&mut self, body: &Stmt, plain_function_allowed: bool, context: Context) {
-        if self.found.is_some() {
-            return;
-        }
-        match &body.kind {
-            // `var` is a *Statement*, which is why it is the one declaring form
-            // allowed here: `for (;;) var x;` is a program and `for (;;) let x;`
-            // is not. The two spellings look alike and the grammar puts them in
-            // different productions.
-            StmtKind::Declare { kind, .. } if kind.is_block_scoped() => {
-                self.fail("a lexical declaration cannot be the body of this statement".to_owned());
-            }
-            StmtKind::Using { .. } | StmtKind::Class(_) => {
-                self.fail("a declaration cannot be the body of this statement".to_owned());
-            }
-            StmtKind::Function(function) => {
-                let plain = !function.is_generator && !function.is_async;
-                if !(plain_function_allowed && plain && !context.strict) {
-                    self.fail(
-                        "a function declaration cannot be the body of this statement".to_owned(),
-                    );
-                }
-            }
-            StmtKind::Labelled { body, .. } => self.statement_body(body, false, context),
-            _ => {}
-        }
-    }
 
     /// The whole program, from its top level.
     ///
@@ -801,37 +676,6 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// A `catch`, whose binding shares the block's scope.
-    ///
-    /// `try {} catch (e) { let e; }` is an error and `try {} catch (e) { var e; }`
-    /// is not, which is exactly the lexical-versus-var line the scope rules
-    /// already draw — so the binding is folded into the block's lexical names
-    /// rather than checked by a rule of its own.
-    fn catch(&mut self, catch: &Catch, context: Context) {
-        let mut bound = Vec::new();
-        if let Some(binding) = &catch.binding {
-            binding.bound_names(&mut bound);
-            if let Some(name) = first_repeat(&bound) {
-                return self.fail(format!(
-                    "`{}` is bound twice by the same `catch`",
-                    self.names.text(name)
-                ));
-            }
-            self.pattern(binding, context);
-        }
-
-        let lexical = lexical_names(&catch.body);
-        if let Some(name) = first_shared(&bound, &lexical) {
-            return self.fail(format!(
-                "`{}` is declared in a `catch` block that already binds it",
-                self.names.text(name)
-            ));
-        }
-
-        self.scope(&catch.body, ScopeKind::Block, context);
-        self.stmts(&catch.body, context);
-    }
-
     fn argument(&mut self, argument: &crate::syntax::Spreadable, context: Context) {
         match argument {
             crate::syntax::Spreadable::Single(expression)
@@ -1108,128 +952,4 @@ impl Scan<'_> {
             _ => false,
         }
     }
-}
-
-/// Whether a word is a keyword in every context.
-///
-/// `null`, `true` and `false` are in the list because they are literals rather
-/// than names, and the language reserves their spelling for the same reason it
-/// reserves `if`: nothing else may be called that.
-///
-/// Absent, deliberately: `let`, `static`, `async`, `of`, `get`, `set` and the
-/// rest of the contextual words. Each is a perfectly good identifier —
-/// `var let = 1` is a program in sloppy code — and putting them here would
-/// refuse programs that run everywhere.
-fn is_reserved(word: &str) -> bool {
-    matches!(
-        word,
-        "break"
-            | "case"
-            | "catch"
-            | "class"
-            | "const"
-            | "continue"
-            | "debugger"
-            | "default"
-            | "delete"
-            | "do"
-            | "else"
-            | "enum"
-            | "export"
-            | "extends"
-            | "false"
-            | "finally"
-            | "for"
-            | "function"
-            | "if"
-            | "import"
-            | "in"
-            | "instanceof"
-            | "new"
-            | "null"
-            | "return"
-            | "super"
-            | "switch"
-            | "this"
-            | "throw"
-            | "true"
-            | "try"
-            | "typeof"
-            | "var"
-            | "void"
-            | "while"
-            | "with"
-    )
-}
-
-/// Whether a word is reserved only where the code is strict.
-///
-/// These are the future reserved words. They name things perfectly well in
-/// sloppy code — jQuery shipped a `private` for years — and strict mode is what
-/// takes the spelling away, so the answer depends on the context the walk
-/// carries rather than on the word alone.
-fn is_reserved_in_strict(word: &str) -> bool {
-    matches!(
-        word,
-        "implements"
-            | "interface"
-            | "let"
-            | "package"
-            | "private"
-            | "protected"
-            | "public"
-            | "static"
-            | "yield"
-    )
-}
-
-/// A directive prologue that turns on strict mode and contains a legacy escape.
-///
-/// `function f() { "\1"; "use strict"; }` is not a program, and the reason is
-/// the order it is *not* read in: a prologue is decided whole before any of it
-/// means anything, so the `"use strict"` later in it makes the earlier string
-/// strict code too. A reader going line by line would see a legal string
-/// followed by a directive.
-///
-/// This is the one rule that asks a literal for its raw text, and it is why
-/// [`crate::syntax::Directive`] keeps it: `"1"` is the same *value* as
-/// `"1"` and a different program, so the cooked string cannot answer.
-fn legacy_escape_in_a_strict_prologue(directives: &[Directive]) -> Option<String> {
-    if !directives.iter().any(|directive| directive.is_use_strict()) {
-        return None;
-    }
-    directives
-        .iter()
-        .find(|directive| has_legacy_escape(&directive.raw))
-        .map(|_| "a legacy octal escape cannot appear in strict code".to_owned())
-}
-
-/// Whether a string's raw text contains an escape strict mode forbids.
-///
-/// Three shapes, and they are one rule: `\1` … `\7` are octal, `\8` and `\9`
-/// are the "non-octal decimal" escapes that exist only because the web has
-/// them, and `\0` is fine alone and forbidden the moment a digit follows —
-/// `\08` is the octal escape wearing a zero.
-fn has_legacy_escape(raw: &str) -> bool {
-    let text: Vec<char> = raw.chars().collect();
-    let mut index = 0;
-    while index < text.len() {
-        if text[index] != '\u{5c}' {
-            index += 1;
-            continue;
-        }
-        match text.get(index + 1) {
-            Some('0') => {
-                if text.get(index + 2).is_some_and(char::is_ascii_digit) {
-                    return true;
-                }
-            }
-            Some('1'..='9') => return true,
-            _ => {}
-        }
-        // Past the backslash and whatever it escaped, so that `\1` is a
-        // backslash followed by a digit rather than an octal escape.
-        index += 2;
-    }
-    false
 }
