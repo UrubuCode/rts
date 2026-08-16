@@ -97,3 +97,4 @@ DRAIN_MOTOR.md
 # Artefato que a suíte de node:fs/promises deixa ao rodar — entrou num commit
 # uma vez por ser criado no diretório de trabalho em vez de num temporário.
 __fs_promises_import_tmp/
+base.json
