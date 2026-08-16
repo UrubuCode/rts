@@ -221,6 +221,15 @@ pub fn emit_try(
             })
             .unwrap_or_default();
         builder.open_region(handlers, cleanup_block);
+        // The same block a written `return` reaches, told to the region as
+        // well — because one `return` in the protected span is never written
+        // anywhere: `g.return(v)` injects it AT a parked `yield`, after this
+        // emitter has stopped. Routing it to a second block would give
+        // `try { yield 1 } finally { yield 99 }` two `finally` copies that
+        // disagree about which one holds the pending value.
+        if let Some((block, _)) = returning {
+            builder.set_region_return(block);
+        }
     }
 
     // Created while the cleanup's region is open, so a throw from inside the

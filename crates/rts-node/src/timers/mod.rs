@@ -129,6 +129,14 @@ struct Timer {
     deliver: Deliver,
     deadline: Instant,
     period: Option<Duration>,
+    /// Whether this came from `setImmediate`.
+    ///
+    /// An immediate is a PHASE and not a deadline: Node drains every one of
+    /// them before it looks at a timer, whatever order they were registered in.
+    /// Sorting by id alone made `setTimeout(f, 0); setImmediate(g);` run `f`
+    /// first, because `f` was registered first — which is the right rule for
+    /// two timers and the wrong one across the two phases.
+    immediate: bool,
 }
 
 thread_local! {
@@ -176,12 +184,15 @@ pub fn pump() {
     reject_aborted();
     let now = Instant::now();
     let due: Vec<Deliver> = with_timers(|table| {
-        let mut ready: Vec<u64> = table
+        // Every immediate before any timer, and within each phase by
+        // registration — which is what the id orders. See [`Timer::immediate`].
+        let mut ready: Vec<(bool, u64)> = table
             .iter()
             .filter(|(_, timer)| timer.deadline <= now)
-            .map(|(&id, _)| id)
+            .map(|(&id, timer)| (!timer.immediate, id))
             .collect();
         ready.sort_unstable();
+        let ready: Vec<u64> = ready.into_iter().map(|(_, id)| id).collect();
         ready
             .into_iter()
             .filter_map(|id| {
@@ -301,28 +312,40 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
 }
 
 /// `setTimeout(callback, delay?, arg?)`.
+///
+/// # Why none of these pumps first
+///
+/// Every extern here used to call [`pump`] before doing anything, which was
+/// right when there was no event loop: the only chance a due callback had to
+/// run was when the program next touched a timer.
+///
+/// There is a loop now — `rts-host`'s `run` drains microtasks and then pumps —
+/// so pumping here runs a due callback SYNCHRONOUSLY, in the middle of whatever
+/// statement happened to mention a timer. Measured: `setImmediate(f);
+/// queueMicrotask(g);` alone orders correctly, and adding a `setTimeout` after
+/// them inverts it — the `setTimeout` call fires the already-due immediate
+/// before the synchronous code that follows.
+///
+/// [`source`] keeps its own, and that one is not the same thing: it is the loop
+/// ASKING what is due, which is the question pumping answers.
 extern "C" fn set_timeout(_e: u64, _this: u64, callback: u64, delay: u64, arg: u64, _a3: u64) -> u64 {
-    pump();
     schedule(callback, arg, clamp_delay(delay, 0), None)
 }
 
 /// `clearTimeout(id)`.
 extern "C" fn clear_timeout(_e: u64, _this: u64, id: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    pump();
     cancel(id);
     entry::undefined_value()
 }
 
 /// `setInterval(callback, delay?, arg?)`.
 extern "C" fn set_interval(_e: u64, _this: u64, callback: u64, delay: u64, arg: u64, _a3: u64) -> u64 {
-    pump();
     let period = Duration::from_millis(clamp_delay(delay, 0));
     schedule(callback, arg, period.as_millis() as u64, Some(period))
 }
 
 /// `clearInterval(id)`.
 extern "C" fn clear_interval(_e: u64, _this: u64, id: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    pump();
     cancel(id);
     entry::undefined_value()
 }
@@ -330,16 +353,16 @@ extern "C" fn clear_interval(_e: u64, _this: u64, id: u64, _a1: u64, _a2: u64, _
 /// `setImmediate(callback, arg?)` — due at the next [`pump`], not after any
 /// delay.
 extern "C" fn set_immediate(_e: u64, _this: u64, callback: u64, arg: u64, _a2: u64, _a3: u64) -> u64 {
-    pump();
     if !PRESENT(callback) {
         return entry::undefined_value();
     }
-    entry::make_number(register(Deliver::Call { callback, arg }, Instant::now(), None) as f64)
+    entry::make_number(
+        registered(Deliver::Call { callback, arg }, Instant::now(), None, true) as f64,
+    )
 }
 
 /// `clearImmediate(id)`.
 extern "C" fn clear_immediate(_e: u64, _this: u64, id: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    pump();
     cancel(id);
     entry::undefined_value()
 }
@@ -360,9 +383,24 @@ fn schedule(callback: u64, arg: u64, delay_ms: u64, period: Option<Duration>) ->
 /// coercing it out to a number value and back again would be two conversions
 /// around a value nothing else reads.
 fn register(deliver: Deliver, deadline: Instant, period: Option<Duration>) -> u64 {
+    registered(deliver, deadline, period, false)
+}
+
+/// The same, saying which phase it belongs to.
+fn registered(
+    deliver: Deliver,
+    deadline: Instant,
+    period: Option<Duration>,
+    immediate: bool,
+) -> u64 {
     let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
     with_timers(|table| {
-        table.insert(id, Timer { deliver, deadline, period });
+        table.insert(id, Timer {
+            deliver,
+            deadline,
+            period,
+            immediate,
+        });
     });
     id
 }

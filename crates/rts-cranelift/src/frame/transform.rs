@@ -248,7 +248,11 @@ impl<'a> Rewrite<'a> {
                 })
                 .collect();
             let cleanup = region.cleanup.map(|block| self.blocks[&block]);
-            self.out.regions.declare(region.parent, handlers, cleanup);
+            let resume_return = region.resume_return.map(|block| self.blocks[&block]);
+            let id = self.out.regions.declare(region.parent, handlers, cleanup);
+            if let Some(block) = resume_return {
+                self.out.regions.set_resume_return(id, block);
+            }
         }
 
         for (id, _) in self.source.blocks() {
@@ -434,11 +438,44 @@ impl<'a> Rewrite<'a> {
         // [`ResumeMode::Return`]. What this owes is that the regions between
         // here and the exit are left properly, which is what a `Return` in this
         // block means and what lowering does with it.
-        let finished = self.constant(returning, Repr::Bool, 1);
-        self.out
-            .set_terminator(returning, Terminator::Return(vec![finished]));
+        //
+        // Unless a region between here and the exit said where such a
+        // resumption carries on. A cleanup cannot be one that PARKS — see
+        // [`crate::unwind::Region::resume_return`] — so a region holding one
+        // names an ordinary block instead, and the `Return` written here would
+        // walk straight past it.
+        match self.returns_through(region) {
+            Some(target) => {
+                let held = self.load_field(returning, self.layout.resumed_field, Repr::Tagged);
+                self.out.set_terminator(
+                    returning,
+                    Terminator::Jump(BlockCall {
+                        block: target,
+                        args: vec![held],
+                    }),
+                );
+            }
+            None => {
+                let finished = self.constant(returning, Repr::Bool, 1);
+                self.out
+                    .set_terminator(returning, Terminator::Return(vec![finished]));
+            }
+        }
 
         deliver
+    }
+
+    /// Where a resumption that returns from inside `region` carries on.
+    ///
+    /// The innermost enclosing region that named one, which is the same search
+    /// order a thrown value's handler is found in — and it has to be, because
+    /// the two are the same nesting seen from two exits.
+    fn returns_through(&self, region: Option<RegionId>) -> Option<BlockId> {
+        self.source
+            .regions
+            .enclosing(region?)
+            .find_map(|(_, held)| held.resume_return)
+            .map(|block| self.blocks[&block])
     }
 
     /// A fresh block, inside the region the one it continues was inside.

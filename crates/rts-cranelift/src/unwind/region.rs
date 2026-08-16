@@ -56,6 +56,33 @@ pub struct Region {
     /// established, and undoing it after an outer handler has already run is
     /// indistinguishable from not undoing it at all.
     pub cleanup: Option<BlockId>,
+    /// Where a resumption of [`crate::frame::ResumeMode::Return`] made at a
+    /// suspension inside this region carries on, instead of returning.
+    ///
+    /// # Why this is not `cleanup`
+    ///
+    /// A cleanup ends by handing control back to whatever is unwinding, which
+    /// is what [`crate::ir::Terminator::CleanupDone`] says structurally. A
+    /// region whose cleanup can itself PARK has no such end — the park is a
+    /// return with a resume label — so such a region carries no cleanup at all
+    /// and the client emits an ordinary block instead. That block is what this
+    /// names.
+    ///
+    /// # Why the client cannot route this one itself
+    ///
+    /// It routes every other return: a `return` written inside the region is a
+    /// jump the client emits. This one is not written anywhere. It is injected
+    /// AT a parked suspension by [`crate::frame::resumable_form`], long after
+    /// the client stopped emitting, so the only place the destination can be
+    /// stated is on the region the suspension is in.
+    ///
+    /// The block receives the delivered value as its first parameter, the same
+    /// discipline a [`Handler`] uses, and for the same reason.
+    ///
+    /// Read by the frame rewrite alone. Lowering ignores it, deliberately: an
+    /// ordinary `Return` inside the region has already been routed by the
+    /// client, and honouring this as well would run the destination twice.
+    pub resume_return: Option<BlockId>,
 }
 
 /// Every region in one function.
@@ -89,8 +116,21 @@ impl RegionTree {
             parent,
             handlers,
             cleanup,
+            resume_return: None,
         });
         id
+    }
+
+    /// Says where a resumption that returns carries on inside `id`.
+    ///
+    /// Separate from [`RegionTree::declare`] rather than a fourth argument to
+    /// it, because every other caller of `declare` — the frame rewrite's own
+    /// copy included — has nothing to say about it, and a parameter they all
+    /// pass `None` to is a question asked in the wrong place.
+    pub fn set_resume_return(&mut self, id: RegionId, block: BlockId) {
+        if let Some(region) = self.regions.get_mut(id.index()) {
+            region.resume_return = Some(block);
+        }
     }
 
     /// A declared region.

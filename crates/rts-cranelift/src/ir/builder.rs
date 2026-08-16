@@ -858,6 +858,24 @@ impl<'a> FuncBuilder<'a> {
         region
     }
 
+    /// Says where a resumption that RETURNS carries on, for the open region.
+    ///
+    /// See [`crate::unwind::Region::resume_return`] for what it is and why the
+    /// client cannot emit the jump itself. Applies to the innermost open
+    /// region, for [`FuncBuilder::open_region`]'s reason: a client that could
+    /// name a region could name one that does not enclose the suspension.
+    ///
+    /// # Panics
+    ///
+    /// If no region is open — the same client bug `close_region` refuses.
+    pub fn set_region_return(&mut self, block: BlockId) {
+        let region = *self
+            .open_regions
+            .last()
+            .expect("set_region_return without an open region");
+        self.func.regions.set_resume_return(region, block);
+    }
+
     /// Closes the innermost open region.
     ///
     /// # Panics
