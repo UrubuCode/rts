@@ -294,7 +294,40 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // interning allocates, which can reach back here.
     context.symbols.prototype = Some(cell);
     super::native::install(context, cell, NATIVES);
+    // `description` as a prototype ACCESSOR, and `Symbol.prototype
+    // [Symbol.toStringTag]` as a data property.
+    //
+    // `description` was already answerable — [`property`] intercepts the read on
+    // a primitive receiver, the same shape `"a".length` has — but it was not a
+    // PROPERTY: `Object.getOwnPropertyDescriptor(Symbol.prototype,
+    // "description")` said `undefined` for something every symbol answers, and a
+    // program walking the prototype to describe it found nothing there. The
+    // accessor does not replace that interception: a primitive has no cell, so
+    // the read still cannot reach a getter through an ordinary property walk.
+    // What it adds is the property being VISIBLE, which is what the descriptor,
+    // `Object.getOwnPropertyNames` and a wrapper object all ask for.
+    super::native::getter(context, cell, "description", description as super::native::Native);
+    let tag = context.well_known(&format!("{PREFIX}toStringTag"));
+    let value = context.intern_value(Str::from_str("Symbol")).bits();
+    super::objects::put(context, cell, tag, value);
+    super::native::hidden(context, cell, tag);
     Some(cell)
+}
+
+/// `Symbol.prototype.description` — the getter half of the accessor above.
+///
+/// Reaches the same [`property`] the primitive path does, so the two cannot
+/// answer differently for one symbol: a wrapper object and the primitive it
+/// boxes describe themselves alike, which is the one thing a second reader here
+/// would eventually get wrong.
+extern "C" fn description(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    super::with_current(|context| {
+        let wanted = context.well_known("description");
+        match property(context, this, wanted) {
+            Some(found) => found,
+            None => undefined_of(context),
+        }
+    })
 }
 
 /// What `Symbol.prototype` holds.

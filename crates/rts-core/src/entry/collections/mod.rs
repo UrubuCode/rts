@@ -108,6 +108,7 @@ pub(in crate::entry) fn register_map(context: &mut Context) -> u64 {
     let made = map::register_map(context);
     alias(context, "Map", "entries", &iterator_key());
     sized(context, "Map");
+    super::native::species(context, made);
     made
 }
 
@@ -122,6 +123,7 @@ pub(in crate::entry) fn register_set(context: &mut Context) -> u64 {
     alias(context, "Set", "values", "keys");
     alias(context, "Set", "values", &iterator_key());
     sized(context, "Set");
+    super::native::species(context, made);
     made
 }
 

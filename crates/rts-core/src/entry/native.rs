@@ -119,7 +119,7 @@ pub(in crate::entry) fn name_of(context: &mut Context, callable: u64, name: &str
 
 /// Writes `.length` on a callable — the parameter count the specification's
 /// `SetFunctionLength` puts there before a body ever runs.
-fn length_of(context: &mut Context, callable: u64, arity: u32) {
+pub(in crate::entry) fn length_of(context: &mut Context, callable: u64, arity: u32) {
     if let Some(cell) = Value(callable).as_slot() {
         let key = context.well_known("length");
         let value = Value::from_f64(f64::from(arity)).bits();
@@ -178,7 +178,17 @@ pub(in crate::entry) fn getter(context: &mut Context, cell: u32, name: &str, cod
     // `get size`, which is what `SetFunctionName` puts on an accessor's getter —
     // a program reading `descriptor.get.name` sees the prefix, and it is the
     // only place the two halves of an accessor pair are told apart by name.
-    name_of(context, function, &format!("get {name}"));
+    //
+    // A SYMBOL key is spelled `[Symbol.species]` rather than by the internal
+    // encoding: `super::symbol::PREFIX` is how this crate stores a symbol key
+    // in a string-keyed table, and it is an implementation detail that must not
+    // reach `descriptor.get.name`. The specification's own spelling for a
+    // well-known symbol's accessor is the bracketed form.
+    let label = match name.strip_prefix(super::symbol::PREFIX) {
+        Some(described) => format!("get [Symbol.{described}]"),
+        None => format!("get {name}"),
+    };
+    name_of(context, function, &label);
     let key = context.well_known(name);
     if let crate::object::Key::Name(named) = key {
         context.define_accessor_and_invalidate(cell, named.index() as u32, Some(function), None);
@@ -192,6 +202,39 @@ pub(in crate::entry) fn getter(context: &mut Context, cell: u32, name: &str, cod
             configurable: true,
         });
     }
+}
+
+/// Installs `Symbol.species` on a constructor, answering the constructor.
+///
+/// # Why every one of them is the same function
+///
+/// Because `get [Symbol.species] { return this; }` IS the specification's
+/// definition, for `Array`, `Map`, `Set`, `Promise`, `RegExp`, `ArrayBuffer` and
+/// `%TypedArray%` alike. The whole point of the hook is that a SUBCLASS inherits
+/// it and therefore answers itself, which is what makes `sub.map(f)` build a
+/// `Sub` — so a per-class function would be seven copies of `return this` that
+/// could only ever differ by being wrong.
+///
+/// It answered `undefined` before, which is not a smaller version of this: the
+/// species protocol reads the property and falls back to the intrinsic when it
+/// is `undefined`, so every derivation quietly produced a plain `Array` and a
+/// program could not tell the hook was missing from the answer alone —
+/// `Object.getOwnPropertyDescriptor(Array, Symbol.species)` was the only thing
+/// that said so, and it said `undefined` too.
+/// Takes the constructor VALUE rather than a class name: `Array` and `RegExp`
+/// are built by hand and never recorded in `class_support`, so a name lookup
+/// would silently skip exactly the two whose species protocol is most used.
+pub(in crate::entry) fn species(context: &mut Context, constructor: u64) {
+    let Some(cell) = Value(constructor).as_slot() else {
+        return;
+    };
+    let key = format!("{}species", super::symbol::PREFIX);
+    getter(context, cell, &key, receiver as Native);
+}
+
+/// A getter answering its receiver — `Symbol.species`, and nothing else yet.
+extern "C" fn receiver(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    this
 }
 
 /// An object with nothing on it, for something to be a prototype.

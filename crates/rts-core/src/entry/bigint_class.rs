@@ -45,7 +45,12 @@ use crate::bigint::BigInt;
 use crate::value::Value;
 
 /// `BigInt`.
-#[rtse::class("BigInt")]
+///
+/// `tag` because `BigInt.prototype[Symbol.toStringTag]` is `"BigInt"` in the
+/// language and answered `undefined` here — so a boxed BigInt described itself
+/// as `[object Object]`, and the descriptor for a property the specification
+/// requires was absent.
+#[rtse::class("BigInt", tag)]
 impl BigIntClass {
     /// `BigInt(x)` — from a number, a string, or a boolean.
     ///
