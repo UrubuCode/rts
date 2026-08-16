@@ -2913,10 +2913,10 @@
 ,
 {
   "name": "391_arguments_object",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "15\nfalse\nobject\n3\n10,20,30\n99,1,2,2\n42\n1,3,4\n5",
   "node": "15\nfalse\nobject\n3\n10,20,30\n99,1,2,2\n42\n1,3,4\n5",
-  "rts": "15\ntrue\nobject\n3\n10,20,30\n99,1,2,2\n42\n1,3,4\n5",
+  "rts": "15\nfalse\nobject\n3\n10,20,30\n99,1,2,2\n42\n1,3,4\n5",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3347,16 +3347,16 @@
 ,
 {
   "name": "codex_closure_eval_mutates_outer",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "3\n5\n5",
   "node": "3\n5\n5",
-  "rts": "",
+  "rts": "3\n5\n5",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): Error: eval parsed this source but this engine cannot run it in the caller's scope, and running it against the globals would answer a shadowed name wrongly: x += 2"
+  "rts_error": ""
 }
 ,
 {
@@ -5699,16 +5699,16 @@
 ,
 {
   "name": "obf_arrays_higher_order_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
   "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
-  "rts": "",
+  "rts": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: heap exhausted — the region holds 65536 cells and all of them are in use even after a collection.\n     Nothing left to reclaim, and the program cannot continue.\n     What would have happened instead is `undefined` from the allocation, which computes a wrong answer quietly."
+  "rts_error": ""
 }
 ,
 {
@@ -6483,10 +6483,10 @@
 ,
 {
   "name": "152_object_seal_freeze",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nwrite=TypeError\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
   "node": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nwrite=TypeError\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
-  "rts": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nwrite=silent\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
+  "rts": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nwrite=TypeError\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6511,10 +6511,10 @@
 ,
 {
   "name": "154_object_defineproperty",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "value=42\nwrite=TypeError\nstill=42\nkeys=a\nb=10\ngetter=10",
   "node": "value=42\nwrite=TypeError\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "value=42\nwrite=silent\nstill=42\nkeys=a\nb=10\ngetter=10",
+  "rts": "value=42\nwrite=TypeError\nstill=42\nkeys=a\nb=10\ngetter=10",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -7001,10 +7001,10 @@
 ,
 {
   "name": "408_object_spread_getter_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
   "node": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
-  "rts": "{\"z\":0,\"b\":5,\"a\":3,\"c\":4}\nz,b,a,c\nget-a",
+  "rts": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9325,16 +9325,16 @@
 ,
 {
   "name": "codex_symbol_unscopables_with",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "10:2",
   "node": "10:2",
-  "rts": "",
+  "rts": "10:2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: the Function body did not compile: const a = 10; let out = ''; with (obj) { out = a + ':' + b; …"
+  "rts_error": ""
 }
 ,
 {
@@ -9829,16 +9829,16 @@
 ,
 {
   "name": "390_with_statement",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "50\nred rect\n5\n14\n10",
   "node": "",
-  "rts": "",
+  "rts": "50\nred rect\n5\n14\n10",
   "bun_exit": 0,
   "node_exit": 1,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/syntax/390_with_statement.ts:10\n// @ts-ignore — with is valid JS but TypeScript disallows it\nwith (rect) {\n^^^^\n  area = width * height;   // resolves width/height from rect\n\nSyntaxError [ERR_INVALID_TYPESCRIPT_SYNTAX]: The 'with' statement is not supported. All symbols in a 'with' block will have type 'any'.\n    at parseTypeScript (node:internal/modules/typescript:67:36)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_INVALID_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.2",
-  "rts_error": "error: Parse(\"Syntax(\\\"The 'with' statement is not supported. All symbols in a 'with' block will have type 'any'.\\\")\")\n      at run of tests/cross-runtime/syntax/390_with_statement.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -9871,16 +9871,16 @@
 ,
 {
   "name": "400_eval_scope_edges",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "local:missing\n7",
   "node": "local:missing\n7",
-  "rts": "",
+  "rts": "local:missing\n7",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): Error: eval parsed this source but this engine cannot run it in the caller's scope, and running it against the globals would answer a shadowed name wrongly: x\n    at probe"
+  "rts_error": ""
 }
 ,
 {
@@ -10151,7 +10151,7 @@
 ,
 {
   "name": "claude-unicode-escape-forms",
-  "status": "rts_error",
+  "status": "upstream_defect",
   "bun": "hex4=A\nhex4-lower=a\nhex4-upper-hex=é\nhex4-lower-hex=é\nhex4-case-eq=true\nhex4-max=ffff\nhex4-nul-len=1\nbrace-1=A\nbrace-2=A\nbrace-pad5=A\nbrace-pad6=A\nbrace-astral-len=2\nbrace-astral-cp=1f600\nbrace-max-len=2\nbrace-bmp-len=1\nmix-hi-then-brace-len=3\nmix-hi-then-brace=d83d,d83d,de00\nmix-brace-then-lo-len=3\nmix-brace-then-lo=d83d,de00,de00\nmix-hex4-text=ABC\nmix-brace-text=ABC\nmix-alternating=ABC\npair-eq-brace=true\npair-len=2\ntext-adjacent=aBcDe\nhex4-then-digit=A1\nbrace-then-digit=A1\nbrace-then-brace-char=A{}\ntpl-hex4=A\ntpl-brace=B\ntpl-mix-len=3\ntpl-interp=AB\nkey-hex4=1\nkey-brace=2\nlone-hi-len=1\nlone-brace-hi-len=1\nlone-forms-eq=true\nrun-len=7\nrun-points=5",
   "node": "",
   "rts": "",
@@ -10159,7 +10159,7 @@
   "node_exit": 1,
   "rts_exit": 1,
   "bun_error": "",
-  "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/syntax/claude-unicode-escape-forms.ts:30\n// --- the two forms ADJACENT in one literal ---\nconst mix1 = \"\\uD83D\\u{1F600}\";\n              ^^^^^^^^\nconsole.log(\"mix-hi-then-brace-len=\" + mix1.length);\n\nSyntaxError [ERR_INVALID_TYPESCRIPT_SYNTAX]: Bad character escape sequence, expected 4 hex characters\n    at parseTypeScript (node:internal/modules/typescript:67:36)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_INVALID_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.2",
+  "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/syntax/claude-unicode-escape-forms.ts:53\n// --- the two forms ADJACENT in one literal ---\nconst mix1 = \"\\uD83D\\u{1F600}\";\n              ^^^^^^^^\nconsole.log(\"mix-hi-then-brace-len=\" + mix1.length);\n\nSyntaxError [ERR_INVALID_TYPESCRIPT_SYNTAX]: Bad character escape sequence, expected 4 hex characters\n    at parseTypeScript (node:internal/modules/typescript:67:36)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_INVALID_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.2",
   "rts_error": "error: Parse(\"Syntax(\\\"Bad character escape sequence, expected 4 hex characters\\\")\")\n      at run of tests/cross-runtime/syntax/claude-unicode-escape-forms.ts failed"
 }
 ,
@@ -10681,4 +10681,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":763,"pass":753,"reachable":763,"rts_diverge":4,"bun_node_diverge":0,"errors":6,"rejected":0}}
+],"summary":{"total":763,"pass":762,"reachable":762,"rts_diverge":0,"bun_node_diverge":0,"errors":0,"rejected":0,"upstream_defect":1}}
