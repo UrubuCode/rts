@@ -105,8 +105,8 @@ const SPENT: u32 = u32::MAX;
 /// A value that is not one of these collections answers an iterator that yields
 /// nothing, where the language throws — the same tolerance every refusal in this
 /// module settles on while a throw from here cannot find a handler.
-pub(in crate::entry) fn over(collection: u64, kind: Kind) -> u64 {
-    let iterator = list_iterator::over(collection);
+pub(in crate::entry) fn over(collection: u64, kind: Kind, tag: &str) -> u64 {
+    let iterator = list_iterator::over(collection, tag);
     with_current(|context| {
         if let Some(cell) = Value(iterator).as_slot() {
             let key = context.well_known(KIND);

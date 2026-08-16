@@ -380,6 +380,118 @@ pub(in crate::entry) fn includes(this: u64, search: u64, from: u64) -> bool {
     })
 }
 
+/// `t.indexOf(search, from)` — the first index holding it, or `-1`.
+///
+/// Strict equality rather than [`includes`]'s SameValueZero, and the difference
+/// is the whole reason both exist: `new Float64Array([NaN]).includes(NaN)` is
+/// `true` and `.indexOf(NaN)` is `-1`. A single implementation serving both
+/// would have to pick one, and whichever it picked would be wrong for the other
+/// on exactly that input.
+///
+/// A typed array has no holes, so there is no skipping rule to mirror from
+/// `Array.prototype` — every index in range is a property.
+pub(in crate::entry) fn index_of(this: u64, search: u64, from: u64) -> f64 {
+    let from = super::optional_number(from);
+    with_current(|context| {
+        let Some(view) = super::view_of(context, this) else {
+            return -1.0;
+        };
+        let values = elements(context, &view);
+        let start = relative_start(from, values.len());
+        for (at, held) in values.iter().enumerate().skip(start) {
+            if crate::value::strict_equals(Value(*held), Value(search), |a, b| context.same_text(a, b)) {
+                return at as f64;
+            }
+        }
+        -1.0
+    })
+}
+
+/// `t.lastIndexOf(search, from)` — the last index holding it, or `-1`.
+///
+/// The backwards walk clamps its `from` differently from [`index_of`], which is
+/// the asymmetry `Array.prototype` has and the reason this is not the forward
+/// scan reversed: a negative `from` past the start makes `lastIndexOf` find
+/// nothing at all, where `indexOf` clamps to zero and searches everything.
+pub(in crate::entry) fn last_index_of(this: u64, search: u64, from: u64) -> f64 {
+    let from = super::optional_number(from);
+    with_current(|context| {
+        let Some(view) = super::view_of(context, this) else {
+            return -1.0;
+        };
+        let values = elements(context, &view);
+        let count = values.len() as f64;
+        let last = match from {
+            Some(asked) if asked.is_nan() => return -1.0,
+            Some(asked) if asked < 0.0 => {
+                let shifted = count + asked;
+                if shifted < 0.0 {
+                    return -1.0;
+                }
+                shifted as usize
+            }
+            Some(asked) => (asked as usize).min(values.len().saturating_sub(1)),
+            None => values.len().saturating_sub(1),
+        };
+        for at in (0..=last).rev() {
+            let Some(held) = values.get(at) else { continue };
+            if crate::value::strict_equals(Value(*held), Value(search), |a, b| context.same_text(a, b)) {
+                return at as f64;
+            }
+        }
+        -1.0
+    })
+}
+
+/// `t.join(separator)` — the elements as text, separated.
+///
+/// An absent separator is a comma, and — unlike `Array.prototype.join` — there
+/// is no `null`/`undefined`-becomes-empty rule to apply, because a typed array's
+/// elements are numbers and every one of them has a text form.
+pub(in crate::entry) fn join(this: u64, separator: u64) -> u64 {
+    let apart = with_current(|context| match super::super::string::absent(context, separator) {
+        true => ",".to_owned(),
+        false => super::super::string::text_of(context, separator)
+            .and_then(|text| text.to_rust())
+            .unwrap_or_else(|| ",".to_owned()),
+    });
+    with_current(|context| {
+        let Some(view) = super::view_of(context, this) else {
+            return undefined_of(context);
+        };
+        let joined = elements(context, &view)
+            .into_iter()
+            .map(|held| {
+                Value(held)
+                    .numeric()
+                    .map(|number| {
+                        crate::coerce::number_to_string(number)
+                            .to_rust()
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<String>>()
+            .join(&apart);
+        context
+            .intern_value(crate::text::Str::from_str(&joined))
+            .bits()
+    })
+}
+
+/// The index a forward scan starts at, given the argument as written.
+///
+/// Shared by [`index_of`] so the clamping is stated once; `last_index_of` walks
+/// the other way and clamps differently, which is why it does not call this.
+fn relative_start(from: Option<f64>, count: usize) -> usize {
+    match from {
+        Some(asked) if asked.is_nan() => 0,
+        Some(asked) if asked < 0.0 => (count as f64 + asked).max(0.0) as usize,
+        Some(asked) => asked as usize,
+        None => 0,
+    }
+}
+
 /// `t.values()` — an iterator over the elements.
 ///
 /// # Why the borrow ends before `over`
@@ -398,7 +510,7 @@ pub(in crate::entry) fn values(this: u64) -> u64 {
         return with_current(|context| undefined_of(context));
     };
     let listed = with_current(|context| crate::entry::array::built_in(context, elements));
-    crate::entry::list_iterator::over(listed)
+    crate::entry::list_iterator::over(listed, "Array Iterator")
 }
 
 /// `t.keys()` — an iterator over the indices.
@@ -408,7 +520,7 @@ pub(in crate::entry) fn keys(this: u64) -> u64 {
     };
     let indices = (0..count).map(|at| Value::from_f64(at as f64).bits()).collect();
     let listed = with_current(|context| crate::entry::array::built_in(context, indices));
-    crate::entry::list_iterator::over(listed)
+    crate::entry::list_iterator::over(listed, "Array Iterator")
 }
 
 /// `t.entries()` — an iterator over `[index, element]` pairs.
@@ -428,7 +540,7 @@ pub(in crate::entry) fn entries(this: u64) -> u64 {
         })
         .collect();
     let listed = with_current(|context| crate::entry::array::built_in(context, pairs));
-    crate::entry::list_iterator::over(listed)
+    crate::entry::list_iterator::over(listed, "Array Iterator")
 }
 
 /// A new instance of the view's own class, over these bytes.

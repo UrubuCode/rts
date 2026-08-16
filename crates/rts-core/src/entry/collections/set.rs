@@ -136,12 +136,12 @@ impl Set {
     /// rather than three that agree — [`super::register_set`] installs the other
     /// two names, which is why neither is written here.
     fn values(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Keys)
+        super::cursor::over(this, super::cursor::Kind::Keys, "Set Iterator")
     }
 
     /// `s.entries()` — `[v, v]` pairs, for parity with `Map`.
     fn entries(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Entries)
+        super::cursor::over(this, super::cursor::Kind::Entries, "Set Iterator")
     }
 
     /// `s.union(other)`.

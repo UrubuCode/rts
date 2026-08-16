@@ -373,8 +373,12 @@ impl Math {
     }
 
     /// `Math.pow(base, exponent)`.
+    ///
+    /// The same `Number::exponentiate` the `**` operator performs, and the same
+    /// function: `super::bitwise::exponentiate` says which rows Rust's `powf`
+    /// gets wrong and why the two callers must not each carry their own copy.
     fn pow(base: f64, exponent: f64) -> f64 {
-        base.powf(exponent)
+        super::bitwise::exponentiate(base, exponent)
     }
 
     /// `Math.fround(x)` — the nearest single-precision value.

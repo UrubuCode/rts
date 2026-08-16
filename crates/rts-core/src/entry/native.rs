@@ -113,6 +113,7 @@ pub(in crate::entry) fn name_of(context: &mut Context, callable: u64, name: &str
         let key = context.well_known("name");
         let value = context.intern_value(Str::from_str(name)).bits();
         super::objects::put(context, cell, key, value);
+        introspective(context, cell, key);
     }
 }
 
@@ -123,6 +124,27 @@ fn length_of(context: &mut Context, callable: u64, arity: u32) {
         let key = context.well_known("length");
         let value = Value::from_f64(f64::from(arity)).bits();
         super::objects::put(context, cell, key, value);
+        introspective(context, cell, key);
+    }
+}
+
+/// Marks `name` or `length` on a callable: **non-writable**, non-enumerable,
+/// configurable.
+///
+/// Not [`hidden`], which is the attribute set for a METHOD — writable, so that a
+/// program may replace `Array.prototype.map`. `SetFunctionName` and
+/// `SetFunctionLength` both spell out `[[Writable]]: false` instead, and the
+/// difference is program-visible twice: `Object.keys(Array.prototype.map)`
+/// answered `["name"]` because nothing marked it non-enumerable, and
+/// `fn.name = "x"` stored a new name where the language refuses the write and
+/// leaves `defineProperty` as the only way through.
+fn introspective(context: &mut Context, cell: u32, key: crate::object::Key) {
+    if let crate::object::Key::Name(named) = key {
+        super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
+            writable: false,
+            enumerable: false,
+            configurable: true,
+        });
     }
 }
 

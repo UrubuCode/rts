@@ -133,6 +133,31 @@ macro_rules! declare {
                     typed::includes(this, search, from)
                 }
 
+                /// `t.indexOf(search, from)` — strict equality, so it and
+                /// `includes` disagree about `NaN`. See [`typed::index_of`].
+                #[js("indexOf")]
+                fn index_of(this: u64, search: u64, from: u64) -> f64 {
+                    typed::index_of(this, search, from)
+                }
+
+                /// `t.lastIndexOf(search, from)`.
+                #[js("lastIndexOf")]
+                fn last_index_of(this: u64, search: u64, from: u64) -> f64 {
+                    typed::last_index_of(this, search, from)
+                }
+
+                /// `t.join(separator)`.
+                ///
+                /// Present because its absence was not a missing feature but a
+                /// missing NAME: `t.join(",")` is a `TypeError` on a method the
+                /// language defines, and `String(t)` reaches it through
+                /// `Array.prototype.toString`, so a typed array printed as
+                /// `[object Uint8Array]` where every other engine prints its
+                /// elements.
+                fn join(this: u64, separator: u64) -> u64 {
+                    typed::join(this, separator)
+                }
+
                 /// `t.values()`. `for`-`of` and spread reach a typed array's
                 /// elements directly — `iterate::iterate` knows a view — so
                 /// no `[Symbol.iterator]` member is installed here; only this

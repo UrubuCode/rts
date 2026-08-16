@@ -34,6 +34,15 @@
 use super::with_current;
 use crate::value::Value;
 
+/// The `Symbol.toStringTag` every ES2025 iterator HELPER carries.
+///
+/// Named once rather than spelled at each of the five, because the five are the
+/// same thing to a program asking what it holds: `it.map(f)`, `it.filter(p)`,
+/// `it.take(n)`, `it.drop(n)` and `it.flatMap(f)` all answer an Iterator Helper
+/// and the specification gives them one tag between them. A literal repeated
+/// five times is five chances to write a sixth spelling.
+const HELPER: &str = "Iterator Helper";
+
 /// `Iterator` — the ES2025 helper base, as a namespace carrying `from`.
 ///
 /// Not a class with a `prototype` every iterator inherits: this engine's
@@ -57,7 +66,7 @@ impl Iterator {
     /// rather than adding a second notion of "iterable-ish" beside it.
     fn from(iterable: u64) -> u64 {
         let array = super::iterate::iterate(iterable);
-        over(array)
+        over(array, "Iterator")
     }
 }
 
@@ -74,7 +83,7 @@ impl ListIterator {
         for (index, element) in remaining(this).into_iter().enumerate() {
             produced.push(apply(callback, element, index));
         }
-        over(listed(produced))
+        over(listed(produced), HELPER)
     }
 
     /// `it.filter(p)` — the elements `p` answers truthy for.
@@ -85,19 +94,19 @@ impl ListIterator {
                 kept.push(element);
             }
         }
-        over(listed(kept))
+        over(listed(kept), HELPER)
     }
 
     /// `it.take(n)` — at most the first `n`.
     fn take(this: u64, count: f64) -> u64 {
         let count = at_most(count);
-        over(listed(remaining(this).into_iter().take(count).collect()))
+        over(listed(remaining(this).into_iter().take(count).collect()), HELPER)
     }
 
     /// `it.drop(n)` — everything after the first `n`.
     fn drop(this: u64, count: f64) -> u64 {
         let count = at_most(count);
-        over(listed(remaining(this).into_iter().skip(count).collect()))
+        over(listed(remaining(this).into_iter().skip(count).collect()), HELPER)
     }
 
     /// `it.flatMap(f)` — `f`'s answers, one level flattened.
@@ -121,7 +130,7 @@ impl ListIterator {
                 None => produced.push(answered),
             }
         }
-        over(listed(produced))
+        over(listed(produced), HELPER)
     }
 
     /// `it.toArray()` — the elements, as an array.
@@ -241,7 +250,7 @@ impl ListIterator {
 ///
 /// `listed` is an array value — what every caller already had — and it is held
 /// rather than copied, so nothing walks it twice.
-pub(in crate::entry) fn over(listed: u64) -> u64 {
+pub(in crate::entry) fn over(listed: u64, tag: &str) -> u64 {
     with_current(|context| {
         let prototype = match super::class_support::prototype(context, "ListIterator") {
             Some(prototype) => prototype,
@@ -266,6 +275,24 @@ pub(in crate::entry) fn over(listed: u64) -> u64 {
         let key = context.well_known(&format!("{}iterator", super::symbol::PREFIX));
         let itself = super::native::callable(context, itself as super::native::Native);
         super::objects::put(context, cell, key, itself);
+
+        // `Symbol.toStringTag`, so `Object.prototype.toString.call([].values())`
+        // answers `[object Array Iterator]` rather than `[object Object]` —
+        // the idiom a program uses to ask what something really is.
+        //
+        // The tag is a PARAMETER because one prototype serves every kind here:
+        // the language gives an array's iterator, a map's, a set's and a
+        // string's four different tags, and this engine builds all four from
+        // this function. Hard-coding one would have made three of them lie,
+        // which is worse than the `[object Object]` they answered before —
+        // a wrong specific answer is believed where a generic one is not.
+        //
+        // On the INSTANCE for the reason `Symbol.iterator` above is: the
+        // attribute helper names a member with a string and this key is a
+        // symbol.
+        let tag_key = context.well_known(&format!("{}toStringTag", super::symbol::PREFIX));
+        let tag_value = context.intern_value(crate::text::Str::from_str(tag)).bits();
+        super::objects::put(context, cell, tag_key, tag_value);
         Value::from_slot(cell).bits()
     })
 }

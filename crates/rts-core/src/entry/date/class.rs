@@ -244,6 +244,24 @@ impl Date {
         field(this, |parts| parts.year as f64)
     }
 
+    /// `date.getYear()` — the year MINUS 1900, and Annex B rather than an
+    /// oversight.
+    ///
+    /// Present because a program that predates `getFullYear` still runs, and
+    /// because its absence is the loud kind: `d.getYear()` is a `TypeError` on
+    /// a name the language does define, which reads as a broken engine rather
+    /// than as a deprecated method. It is normative in Annex B, so an engine
+    /// that claims the web has it.
+    ///
+    /// The offset is the whole method — `getYear` on a date in 2026 answers
+    /// `126`, not `26` — and getting that wrong is the bug the method is famous
+    /// for. An invalid date answers `NaN`, which falls out of `field` rather
+    /// than being special-cased: `NaN - 1900` is `NaN`.
+    #[js("getYear")]
+    fn get_year(this: u64) -> f64 {
+        field(this, |parts| parts.year as f64 - 1900.0)
+    }
+
     /// `date.getMonth()` — zero-based, as the language spells it.
     fn get_month(this: u64) -> f64 {
         field(this, |parts| parts.month as f64)

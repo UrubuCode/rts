@@ -121,7 +121,7 @@ extern "C" fn iterate_units(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
     // reached the object path and iterated nothing, where the language iterates
     // its `[[StringData]]`.
     let held = with_current(|context| receiver(context, this));
-    super::list_iterator::over(super::iterate::iterate(held))
+    super::list_iterator::over(super::iterate::iterate(held), "String Iterator")
 }
 
 /// `String` itself, as the value the name reads.
