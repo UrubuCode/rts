@@ -329,6 +329,7 @@ pub(in crate::entry) fn range_error(message: &str) {
     named_error("RangeError", message);
 }
 
+
 /// Raises a plain `Error` a `catch` in the program can see.
 ///
 /// For a failure that is about none of the three things the errors above name —
@@ -342,9 +343,17 @@ pub(in crate::entry) fn plain_error(message: &str) {
 
 /// Raises a `SyntaxError` a `catch` in the program can see.
 ///
-/// Same construction as [`type_error`], for `JSON.parse` of text that is not
-/// JSON — the one place in this crate that is malformed *input* rather than a
-/// misused value.
+/// Same construction as [`type_error`], for malformed *input* rather than a
+/// misused value. Two places reach it, and both are text a program computed:
+/// `JSON.parse` of something that is not JSON, and a pattern `new RegExp(…)`
+/// cannot build.
+///
+/// The second was answering `undefined` instead, which is worse than it looks:
+/// `new` on a callable that answers a primitive gives back the half-built
+/// `this`, so `new RegExp("[]")` produced an object with no `source`, no
+/// `flags` and no compiled pattern. The program carried on and died several
+/// lines later reading `.exec` off it — naming neither the pattern nor the line
+/// that wrote it.
 pub(in crate::entry) fn syntax_error(message: &str) {
     named_error("SyntaxError", message);
 }
