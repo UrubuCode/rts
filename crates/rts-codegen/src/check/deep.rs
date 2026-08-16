@@ -49,7 +49,8 @@ use super::scope::{
 use crate::names::{Name, Names};
 use crate::syntax::{
     Catch, Class, ClassElement, ClassKey, Element, Expr, ExprKind, ForEachTarget, ForInit,
-    Function, FunctionBody, Goal, Pattern, Program, Property, PropertyKey, Stmt, StmtKind, UnaryOp,
+    Directive, Function, FunctionBody, Goal, Pattern, Program, Property, PropertyKey, Stmt,
+    StmtKind, UnaryOp,
 };
 
 /// What a statement list is a scope *of*.
@@ -427,6 +428,22 @@ impl<'a> Scan<'a> {
         if let Some(message) = super::module::duplicate_export(program, self.names) {
             return self.fail(message);
         }
+
+        // A script's top level is not a scope anything disposes of — it ends
+        // when the host says so — so there is no moment at which a `using`
+        // there would run its cleanup. A module's top level does end, and takes
+        // one.
+        if program.goal == Goal::Script
+            && statements
+                .iter()
+                .any(|statement| matches!(statement.kind, StmtKind::Using { .. }))
+        {
+            return self.fail("`using` cannot be declared at the top level of a script".to_owned());
+        }
+
+        if let Some(message) = legacy_escape_in_a_strict_prologue(&program.directives) {
+            return self.fail(message);
+        }
         self.scope_with(&statements, kind, &extra, context);
         self.stmts(&statements, context);
     }
@@ -563,6 +580,19 @@ impl<'a> Scan<'a> {
                     .flat_map(|clause| clause.body.iter().cloned())
                     .collect();
                 self.scope(&body, ScopeKind::Block, context);
+                // `using` is refused directly in a clause because the clauses
+                // share one scope and a clause is not one: the disposal would
+                // have to happen at the end of the whole `switch`, from a
+                // declaration that looks like it belongs to one case. Wrapping
+                // the case body in a block says which, and is legal.
+                if body
+                    .iter()
+                    .any(|statement| matches!(statement.kind, StmtKind::Using { .. }))
+                {
+                    return self.fail(
+                        "`using` cannot be declared directly in a `switch` clause".to_owned(),
+                    );
+                }
                 for clause in clauses {
                     if let Some(test) = &clause.test {
                         self.expr(test, context);
@@ -901,6 +931,31 @@ impl<'a> Scan<'a> {
             rest.bound_names(&mut parameters);
         }
 
+        // `eval` and `arguments` may not be *bound* in strict code — reading
+        // them is fine, and that asymmetry is the point: strict mode takes away
+        // the ability to shadow the two names whose meaning it depends on.
+        //
+        // The strictness that decides it is the function's own, which is what
+        // makes `function eval() { "use strict"; }` an error: the directive is
+        // inside the body and the name is outside it, and the language reads
+        // the body first.
+        if inner.strict
+            && let Some(name) = function
+                .name
+                .into_iter()
+                .chain(parameters.iter().copied())
+                .find(|name| matches!(self.names.text(*name), "eval" | "arguments"))
+        {
+            return self.fail(format!(
+                "`{}` cannot be bound in strict code",
+                self.names.text(name)
+            ));
+        }
+
+        if let Some(message) = legacy_escape_in_a_strict_prologue(&function.directives) {
+            return self.fail(message);
+        }
+
         // Two parameters of one name are legal in exactly one shape: an
         // ordinary sloppy function whose parameter list is simple. Everything
         // else takes UniqueFormalParameters — an arrow, a method, a class
@@ -1116,4 +1171,55 @@ fn is_reserved_in_strict(word: &str) -> bool {
             | "static"
             | "yield"
     )
+}
+
+/// A directive prologue that turns on strict mode and contains a legacy escape.
+///
+/// `function f() { "\1"; "use strict"; }` is not a program, and the reason is
+/// the order it is *not* read in: a prologue is decided whole before any of it
+/// means anything, so the `"use strict"` later in it makes the earlier string
+/// strict code too. A reader going line by line would see a legal string
+/// followed by a directive.
+///
+/// This is the one rule that asks a literal for its raw text, and it is why
+/// [`crate::syntax::Directive`] keeps it: `"1"` is the same *value* as
+/// `"1"` and a different program, so the cooked string cannot answer.
+fn legacy_escape_in_a_strict_prologue(directives: &[Directive]) -> Option<String> {
+    if !directives.iter().any(|directive| directive.is_use_strict()) {
+        return None;
+    }
+    directives
+        .iter()
+        .find(|directive| has_legacy_escape(&directive.raw))
+        .map(|_| "a legacy octal escape cannot appear in strict code".to_owned())
+}
+
+/// Whether a string's raw text contains an escape strict mode forbids.
+///
+/// Three shapes, and they are one rule: `\1` … `\7` are octal, `\8` and `\9`
+/// are the "non-octal decimal" escapes that exist only because the web has
+/// them, and `\0` is fine alone and forbidden the moment a digit follows —
+/// `\08` is the octal escape wearing a zero.
+fn has_legacy_escape(raw: &str) -> bool {
+    let text: Vec<char> = raw.chars().collect();
+    let mut index = 0;
+    while index < text.len() {
+        if text[index] != '\u{5c}' {
+            index += 1;
+            continue;
+        }
+        match text.get(index + 1) {
+            Some('0') => {
+                if text.get(index + 2).is_some_and(char::is_ascii_digit) {
+                    return true;
+                }
+            }
+            Some('1'..='9') => return true,
+            _ => {}
+        }
+        // Past the backslash and whatever it escaped, so that `\1` is a
+        // backslash followed by a digit rather than an octal escape.
+        index += 2;
+    }
+    false
 }

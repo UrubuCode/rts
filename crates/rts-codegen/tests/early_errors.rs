@@ -465,3 +465,37 @@ mod modules {
         accepted("var x, y; export { x }; export { y as z };");
     }
 }
+
+#[test]
+fn a_using_declaration_needs_a_scope_that_ends() {
+    assert!(refused("using x = null;").contains("top level of a script"));
+    assert!(
+        refused("switch (0) { case 0: using x = null; }").contains("directly in a `switch` clause")
+    );
+    // A block inside the clause says which scope disposes of it, and is legal.
+    accepted("switch (0) { case 0: { using x = null; } }");
+    accepted("function f() { using x = null; }");
+}
+
+#[test]
+fn eval_and_arguments_cannot_be_bound_in_strict_code() {
+    // The directive is inside the body and the name is outside it: the language
+    // reads the body first, so this is decided by the function's own strictness.
+    assert!(refused("function eval() { 'use strict'; }").contains("cannot be bound"));
+    assert!(refused("function f(arguments) { 'use strict'; }").contains("cannot be bound"));
+    // Reading them is not binding them.
+    accepted("'use strict'; eval('1'); function f() { return arguments; }");
+    accepted("function eval() {}");
+}
+
+#[test]
+fn a_strict_prologue_cannot_contain_a_legacy_octal_escape() {
+    // The prologue is decided whole before any of it means anything, so a
+    // `"use strict"` later in it makes the earlier string strict code too.
+    let octal = format!("{}1", char::from(92));
+    assert!(
+        refused(&format!("function f() {{ \"{octal}\"; 'use strict'; }}")).contains("legacy octal")
+    );
+    // The same string in a sloppy function is an ordinary escape.
+    accepted(&format!("function f() {{ \"{octal}\"; }}"));
+}
