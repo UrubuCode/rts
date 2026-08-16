@@ -185,6 +185,18 @@ extern "C" fn raw(_e: u64, _this: u64, strings: u64, a: u64, b: u64, c: u64) -> 
         let Some(value) = substitutions.get(at).copied() else {
             continue;
         };
+        // `ToString` of the substitution, which for an object means calling its
+        // `toString` — user code, therefore OUTSIDE the borrow. `arg_units`
+        // alone answers `None` for an object, so a substitution that was not
+        // already a primitive was silently DROPPED: `` String.raw`a${obj}b` ``
+        // produced `"ab"`, losing a piece rather than converting it.
+        let value = super::super::primitive::to_primitive(value, crate::coerce::Hint::String);
+        // Rule 8: a `toString` that threw did not answer, and appending
+        // `undefined` would put the word into the result of a call that never
+        // happened.
+        if super::super::throw::in_flight() {
+            return with_current(|context| super::super::objects::undefined_of(context));
+        }
         with_current(|context| {
             if let Some(units) = arg_units(context, value) {
                 out.extend(units);

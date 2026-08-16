@@ -207,6 +207,50 @@ impl Flags {
     /// `fancy-regex` takes options as inline groups, so the same three facts are
     /// spelled as a prefix. Written from the same structure the builder is
     /// configured from, so the two cannot disagree about what `i` means.
+    /// The flag letters in the CANONICAL order the language prints them.
+    ///
+    /// `RegExp.prototype.flags` is defined as a getter that reads each flag in a
+    /// fixed sequence — `d g i m s u v y` — and appends its letter. It is not
+    /// the text the program wrote: `new RegExp("a", "mis").flags` is `"ims"` and
+    /// `/x/yug.flags` is `"guy"`.
+    ///
+    /// This engine kept the written text and answered it verbatim, so two
+    /// regular expressions with the same meaning compared unequal through their
+    /// `flags` and `source` — which is exactly what `new RegExp(re)` copies and
+    /// what a program uses to cache a compiled pattern by key.
+    ///
+    /// `u` and `v` are carried from the written text rather than from a field,
+    /// because [`Flags`] has none for them: both are accepted and not acted on,
+    /// which [`Flags::parse`] states as the divergence it is.
+    pub(super) fn canonical(self, written: &str) -> String {
+        let mut letters = String::new();
+        if self.has_indices {
+            letters.push('d');
+        }
+        if self.global {
+            letters.push('g');
+        }
+        if self.ignore_case {
+            letters.push('i');
+        }
+        if self.multiline {
+            letters.push('m');
+        }
+        if self.dot_all {
+            letters.push('s');
+        }
+        if written.contains('u') {
+            letters.push('u');
+        }
+        if written.contains('v') {
+            letters.push('v');
+        }
+        if self.sticky {
+            letters.push('y');
+        }
+        letters
+    }
+
     fn inline(self, pattern: &str) -> String {
         let mut prefix = String::new();
         if self.ignore_case {

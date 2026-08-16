@@ -175,17 +175,29 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
 
 /// `s.substring(from, to)` — negative clamps to zero, and the two swap.
 extern "C" fn substring(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
+    // Converted BEFORE the borrow: `ToNumber` of an object runs the program's
+    // `valueOf`, and calling user code from inside `with_current` re-enters the
+    // `RefCell`. See `super::integer_outside`.
+    let missing = with_current(|context| absent(context, to));
+    let asked_from = super::integer_outside(from);
+    let asked_to = match missing {
+        true => 0.0,
+        false => super::integer_outside(to),
+    };
+    if super::super::throw::in_flight() {
+        return with_current(|context| nothing(context));
+    }
     with_current(|context| {
         let Some(units) = units_of(context, this) else {
             return nothing(context);
         };
         let length = units.len() as f64;
         let clamp = |value: f64| value.clamp(0.0, length) as usize;
-        let start = clamp(super::integer_arg(context, from).max(0.0));
-        let end = if absent(context, to) {
+        let start = clamp(asked_from.max(0.0));
+        let end = if missing {
             units.len()
         } else {
-            clamp(super::integer_arg(context, to).max(0.0))
+            clamp(asked_to.max(0.0))
         };
         let (start, end) = if start > end { (end, start) } else { (start, end) };
         answer(context, &units[start..end])

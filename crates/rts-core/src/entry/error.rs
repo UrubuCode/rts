@@ -218,6 +218,13 @@ impl AggregateError {
             };
             let key = context.well_known("errors");
             super::objects::put(context, cell, key, listed[0]);
+            // NON-ENUMERABLE, which the specification spells out and which is
+            // observable in the most ordinary way there is: `JSON.stringify(agg)`
+            // and `{...agg}` included the whole error list, and
+            // `Object.keys(agg)` reported `["errors"]` where every other engine
+            // reports nothing. `message` and `stack` are non-enumerable for the
+            // same reason and this was the one that was not.
+            super::native::hidden(context, cell, key);
             made
         })
     }

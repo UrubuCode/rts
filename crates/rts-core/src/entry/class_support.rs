@@ -149,6 +149,21 @@ pub(in crate::entry) fn constants(context: &mut Context, cell: u32, constants: &
 /// out, in four suite files, the moment this learned to convert.
 pub(in crate::entry) fn to_number(value: u64) -> f64 {
     let value = super::primitive::to_primitive(value, crate::coerce::Hint::Number);
+    // A SYMBOL has no numeric form and the language says so with a `TypeError`,
+    // not with `NaN`. The difference is the whole point of the rule: `NaN`
+    // propagates silently through arithmetic, so `Number(sym)` answering it made
+    // a symbol that reached a numeric path produce a plausible-looking result
+    // pages later instead of failing where it was written.
+    //
+    // Asked AFTER `ToPrimitive`, which is where the specification asks it: an
+    // object whose `Symbol.toPrimitive` answers a symbol reaches the same
+    // refusal as a bare symbol, and asking first would let it through.
+    //
+    // Raised outside the borrow below, for the reason every raising native has.
+    if with_current(|context| super::symbol::is_symbol(context, value)) {
+        super::throw::type_error("Cannot convert a Symbol value to a number");
+        return f64::NAN;
+    }
     with_current(|context| super::operators::as_number(context, Value(value)).unwrap_or(f64::NAN))
 }
 
