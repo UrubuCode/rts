@@ -132,12 +132,12 @@ impl Map {
 
     /// `m.keys()` — a live iterator, for the reason [`super::cursor`] gives.
     fn keys(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Keys)
+        super::cursor::over(this, super::cursor::Kind::Keys, "Map Iterator")
     }
 
     /// `m.values()`.
     fn values(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Values)
+        super::cursor::over(this, super::cursor::Kind::Values, "Map Iterator")
     }
 
     /// `m.entries()` — a `[key, value]` array per entry.
@@ -145,7 +145,7 @@ impl Map {
     /// Also what `m[Symbol.iterator]` is, and the SAME function object rather
     /// than one that agrees: [`super::register_map`] installs the second name.
     fn entries(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Entries)
+        super::cursor::over(this, super::cursor::Kind::Entries, "Map Iterator")
     }
 
     /// `Map.groupBy(items, cb)` — ES2024.

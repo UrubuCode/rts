@@ -353,7 +353,7 @@ fn forwarded(this: u64, name: &str, a0: u64, a1: u64) -> u64 {
     if throw::in_flight() {
         return absent();
     }
-    let iterator = list_iterator::over(listed);
+    let iterator = list_iterator::over(listed, "Array Iterator");
     let method = with_current(|context| {
         let Some(cell) = Value(iterator).as_slot() else {
             return objects::undefined_of(context);

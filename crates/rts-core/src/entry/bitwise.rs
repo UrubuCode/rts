@@ -196,17 +196,41 @@ pub fn shift_right_unsigned(left: u64, right: u64) -> u64 {
     })
 }
 
+/// `Number::exponentiate`, where it disagrees with Rust's `powf`.
+///
+/// # The two rows IEEE-754 and ECMAScript answer differently
+///
+/// - **`1 ** NaN` is `NaN`.** IEEE makes a base of one absorbing, so
+///   `pow(1, NaN)` is `1`, and Rust follows it. The language propagates the
+///   `NaN` instead. This is the kind of divergence nothing finds later: the
+///   answer is a plausible number rather than a crash, and `x ** y` over
+///   unknown data quietly answers 1 where every other NaN-touching operation
+///   propagates.
+/// - **`(±1) ** ±Infinity` is `NaN`**, for the same reason.
+///
+/// Every other row `powf` already agrees with — `0 ** -1` being `Infinity`, the
+/// odd/even-integer sign rules on a negative base — so only the exceptions are
+/// written, rather than the whole table restated in a form that could drift
+/// from it.
+///
+/// # Why this is a function and not two copies
+///
+/// There are two callers: the `**` operator below and `Math.pow`. They were
+/// two copies of a partial table, and they had already drifted — the operator
+/// handled the infinite exponent and `Math.pow` handled neither. A rule written
+/// twice is a rule that will be written differently, which here means `x ** 2`
+/// and `Math.pow(x, 2)` answering differently for the same `x`.
+pub(super) fn exponentiate(base: f64, power: f64) -> f64 {
+    if power.is_nan() {
+        return f64::NAN;
+    }
+    if power.is_infinite() && base.abs() == 1.0 {
+        return f64::NAN;
+    }
+    base.powf(power)
+}
+
 /// `a ** b`.
-///
-/// # The case Rust and JavaScript disagree about
-///
-/// `(-1) ** Infinity` is `NaN` in JavaScript and `1.0` from Rust's `powf`,
-/// which follows IEEE-754's `pow` where the specification does not. The
-/// specification is explicit: if the exponent is infinite and the base's
-/// magnitude is exactly one, the answer is `NaN`.
-///
-/// Handled rather than inherited, because it is the kind of divergence nothing
-/// finds later — the answer is a plausible number rather than a crash.
 #[rtse::entry]
 pub fn exponent(left: u64, right: u64) -> u64 {
     // Asked in a borrow of its own: a refused count becomes a `RangeError`,
@@ -219,11 +243,6 @@ pub fn exponent(left: u64, right: u64) -> u64 {
     }
     with_current(|context| {
         let (base, power) = operands(context, Value(left), Value(right));
-        let answer = if power.is_infinite() && base.abs() == 1.0 {
-            f64::NAN
-        } else {
-            base.powf(power)
-        };
-        Value::from_f64(answer).bits()
+        Value::from_f64(exponentiate(base, power)).bits()
     })
 }
