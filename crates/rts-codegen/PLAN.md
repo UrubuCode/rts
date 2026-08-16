@@ -364,7 +364,11 @@ wrongly rejected      214    0.9 %   valid programs we refused
 wrongly accepted    1 249    5.3 %   invalid programs we did not refuse
 ```
 
-**Re-measured 2026-08-16, same harness, same 23 724 files:**
+**Re-measured 2026-08-16, same harness, same 23 724 files** — one area of five.
+The harness now reads the whole corpus (53 459 files), and the per-area table is
+in the crate's `README.md`; the rows below are `test/language` alone so that they
+compare with the ones above them. Nothing here is a conformance claim, and
+`THIRD-PARTY-NOTICES.md` says why that sentence has to appear.
 
 ```
 read correctly     23 436   98.8 %

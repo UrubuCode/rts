@@ -43,6 +43,7 @@
 //! this walks the tree rather than scanning the text.
 
 mod scopes;
+use scopes::Allows;
 mod words;
 
 use words::{is_reserved, is_reserved_in_strict, legacy_escape_in_a_strict_prologue};
@@ -411,16 +412,16 @@ impl<'a> Scan<'a> {
                 else_branch,
             } => {
                 self.expr(condition, context);
-                self.statement_body(then_branch, true, context);
+                self.statement_body(then_branch, Allows::BareFunction, context);
                 self.stmt(then_branch, context);
                 if let Some(otherwise) = else_branch {
-                    self.statement_body(otherwise, true, context);
+                    self.statement_body(otherwise, Allows::BareFunction, context);
                     self.stmt(otherwise, context);
                 }
             }
             StmtKind::While { condition, body } | StmtKind::DoWhile { condition, body } => {
                 self.expr(condition, context);
-                self.statement_body(body, false, context);
+                self.statement_body(body, Allows::Nothing, context);
                 self.stmt(body, context);
             }
             StmtKind::For {
@@ -454,7 +455,7 @@ impl<'a> Scan<'a> {
                 if let Some(update) = update {
                     self.expr(update, context);
                 }
-                self.statement_body(body, false, context);
+                self.statement_body(body, Allows::Nothing, context);
                 self.stmt(body, context);
             }
             StmtKind::ForEach {
@@ -482,7 +483,7 @@ impl<'a> Scan<'a> {
                     }
                 }
                 self.expr(subject, context);
-                self.statement_body(body, false, context);
+                self.statement_body(body, Allows::Nothing, context);
                 self.stmt(body, context);
             }
             StmtKind::Return(value) => {
@@ -501,7 +502,7 @@ impl<'a> Scan<'a> {
             // function declaration in sloppy code, which Annex B keeps alive.
             StmtKind::Labelled { label, body } => {
                 self.name(*label, context);
-                self.statement_body(body, true, context);
+                self.statement_body(body, Allows::LabelledFunction, context);
                 self.stmt(body, context);
             }
             StmtKind::Switch {
@@ -542,7 +543,7 @@ impl<'a> Scan<'a> {
                 body,
             } => {
                 self.expr(subject, context);
-                self.statement_body(body, false, context);
+                self.statement_body(body, Allows::Nothing, context);
                 self.stmt(body, context);
             }
             StmtKind::Try {

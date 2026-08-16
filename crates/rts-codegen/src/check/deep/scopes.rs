@@ -110,12 +110,14 @@ impl Scan<'_> {
     /// it parses. The rule is not decoration: a declaration there would have a
     /// scope nobody can name, since the body of a loop is not a block.
     ///
-    /// `plain_function_allowed` is Annex B B.3.4, which is real and narrow: a
-    /// bare `function f() {}` is allowed as the body of an `if` in sloppy code,
-    /// and nothing else is allowed anywhere. Not a generator, not an async
-    /// function, and not the same declaration behind a label — which is why the
-    /// label case recurses with the permission withdrawn.
-    pub(super) fn statement_body(&mut self, body: &Stmt, plain_function_allowed: bool, context: Context) {
+    /// `allows` is Annex B, which is real and narrow and has *two* shapes here.
+    /// B.3.4 lets a bare `function f() {}` be the body of an `if` in sloppy
+    /// code — but not behind a label, so that permission is withdrawn on the
+    /// way through one. B.3.2 lets a labelled function declaration be a
+    /// statement-list item, and a chain of labels does not change that:
+    /// `label1: label2: function f() {}` is a program, which is what the
+    /// withdrawal alone got wrong.
+    pub(super) fn statement_body(&mut self, body: &Stmt, allows: Allows, context: Context) {
         if self.found.is_some() {
             return;
         }
@@ -132,13 +134,22 @@ impl Scan<'_> {
             }
             StmtKind::Function(function) => {
                 let plain = !function.is_generator && !function.is_async;
-                if !(plain_function_allowed && plain && !context.strict) {
+                if !(allows != Allows::Nothing && plain && !context.strict) {
                     self.fail(
                         "a function declaration cannot be the body of this statement".to_owned(),
                     );
                 }
             }
-            StmtKind::Labelled { body, .. } => self.statement_body(body, false, context),
+            // A label chain keeps B.3.2's permission and loses B.3.4's: what
+            // the `if` allows is a bare declaration, and what a statement list
+            // allows is a labelled one, however many labels deep.
+            StmtKind::Labelled { body, .. } => {
+                let inner = match allows {
+                    Allows::LabelledFunction => Allows::LabelledFunction,
+                    _ => Allows::Nothing,
+                };
+                self.statement_body(body, inner, context);
+            }
             _ => {}
         }
     }
@@ -174,4 +185,21 @@ impl Scan<'_> {
         self.stmts(&catch.body, context);
     }
 
+}
+
+/// What Annex B permits in a position that otherwise takes a Statement.
+///
+/// Two permissions rather than one flag, because the two relaxations reach
+/// different distances: B.3.4 is a *bare* function declaration as an `if`
+/// branch, and B.3.2 is a *labelled* one as a statement-list item. Collapsing
+/// them refuses `label1: label2: function f() {}`, which is how the pair came
+/// to be told apart.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Allows {
+    /// Nothing but a Statement. Every loop body and `with` body.
+    Nothing,
+    /// A bare plain function declaration, in sloppy code. An `if` branch.
+    BareFunction,
+    /// A plain function declaration behind any number of labels.
+    LabelledFunction,
 }

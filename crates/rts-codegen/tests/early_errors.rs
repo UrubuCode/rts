@@ -372,6 +372,8 @@ fn only_a_statement_may_be_the_body_of_a_statement() {
     // anyway rather than removed: the rule is about what the language allows,
     // and a checker that forbade it would be wrong the day the parser is.
     accepted("label: function f() {}");
+    // A chain of labels does not change what B.3.2 allows.
+    accepted("label1: label2: function f() {}");
 }
 
 #[test]

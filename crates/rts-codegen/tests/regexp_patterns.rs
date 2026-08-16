@@ -103,11 +103,12 @@ fn a_modifier_group_has_to_mean_something() {
     assert!(refused("/(?i-i:a)/;").contains("both added and removed"));
     assert!(refused("/(?-:a)/;").contains("adds and removes nothing"));
     assert!(refused("/(?ii:a)/;").contains("given twice"));
-    assert!(refused("/(?i-:a)/;").contains("removes nothing"));
     assert!(refused("/(?ms-i)/;").contains("not a modifier"));
     assert!(refused("/(?-Q:a)/;").contains("not a modifier"));
 
-    accepted("/(?i:a)/; /(?i-ms:a)/; /(?-s:a)/;");
+    // One empty half is legal: `(?s-:x)` adds `s` and removes nothing. Only
+    // both halves empty changes nothing and is refused.
+    accepted("/(?i:a)/; /(?i-ms:a)/; /(?-s:a)/; /(?s-:a)/;");
 }
 
 #[test]
@@ -124,4 +125,23 @@ fn ordinary_patterns_are_left_alone() {
     accepted(r"/a(?!b)(?<!c)d/;");
     accepted(r"/[\]\[\^-]/;");
     accepted(r"/x{1,}?y+?z*?/;");
+}
+
+#[test]
+fn the_v_flag_is_a_different_class_grammar() {
+    // `v` is not `u` and more. Its classes nest, subtract and intersect, and
+    // hold string literals — none of which `u`'s grammar has. This module does
+    // not read that grammar, so it asks none of `u`'s class questions under it
+    // rather than answering them wrongly.
+    accepted(r"/^[\d--\d]+$/v;");
+    accepted(r"/^[\d--[0-9]]+$/v;");
+    accepted(r"/^[[0-9]--\q{0|2|4}]+$/v;");
+    accepted(r"/^[\d&&\p{ASCII_Hex_Digit}]+$/v;");
+
+    // The same shapes under `u` are refused, which is what makes the two modes
+    // worth telling apart.
+    assert!(refused(r"/[\d--\d]/u;").contains("single characters"));
+
+    // The rules that are about neither grammar still apply under `v`.
+    assert!(refused(r"/(?<a>x)(?<a>y)/v;").contains("two groups"));
 }

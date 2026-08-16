@@ -12,6 +12,15 @@
 //! still worth having: a front end that mis-reads a program cannot possibly
 //! compile it correctly, so this is the floor everything else stands on.
 //!
+//! # The corpus is read, never carried
+//!
+//! Nothing from test262 is vendored: this reads a checkout the developer clones
+//! and points `RTS_TEST262` at, and no file from it enters this repository or
+//! any artefact. Its licence forbids using Ecma International's name to endorse
+//! or promote, so what this harness produces is a measurement about *us* and
+//! never a conformance claim. `THIRD-PARTY-NOTICES.md` carries the licence in
+//! full and is the thing to read before any of this is copied anywhere.
+//!
 //! Three outcomes are distinguished, because they mean different things:
 //!
 //! - **Correct** — a valid program was accepted, or an invalid one rejected.
@@ -27,7 +36,7 @@
 //! ```text
 //! git clone --depth 1 --filter=blob:none --sparse -c core.longpaths=true \
 //!     https://github.com/tc39/test262
-//! cd test262 && git sparse-checkout set test/language
+//! cd test262 && git sparse-checkout set test harness
 //! RTS_TEST262=<path-to-test262> cargo test -p rts-codegen --test test262 -- --ignored --nocapture
 //! ```
 //!
@@ -152,11 +161,28 @@ struct Tally {
     /// hundred move the other way. Grouping by message names the rule that
     /// overreached, which is the only thing that makes it findable at all.
     rejection_messages: BTreeMap<String, (usize, String)>,
+    /// One row per area of the corpus, because they measure different things.
+    ///
+    /// `language` is the grammar and the early errors, and a defect there is
+    /// usually a rule. `built-ins` is the library, where almost every file is a
+    /// *valid* program — so its only reportable column is what we refuse, and
+    /// one number covering both would let a good half hide a bad one.
+    by_area: BTreeMap<String, Area>,
+}
+
+/// What one area of the corpus answered.
+#[derive(Default)]
+struct Area {
+    considered: usize,
+    correct: usize,
+    unsupported: usize,
+    wrongly_rejected: usize,
+    wrongly_accepted: usize,
 }
 
 /// Refuse to report a score for a corpus that is missing files.
 ///
-/// Asks git what `test/language` should contain and compares it with what was
+/// Asks git what the areas being read should contain and compares that with
 /// found on disk. A short checkout is not a smaller measurement of the same
 /// thing — the files that go missing are the ones with the longest paths, which
 /// are the deeply-nested feature directories, so the loss is biased toward
@@ -165,12 +191,19 @@ struct Tally {
 /// If git cannot answer — not a checkout, git absent — this says so and lets
 /// the run continue. An unverifiable corpus is worth reporting with a caveat;
 /// a corpus verified as incomplete is not worth reporting at all.
-fn check_checkout_is_complete(root: &Path, found: usize) {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["ls-files", "test/language/**/*.js"])
-        .output();
+fn check_checkout_is_complete(root: &Path, areas: &[String], found: usize) {
+    // A directory pathspec rather than a `**/*.js` glob, and the difference is
+    // not cosmetic: `test/intl402/**/*.js` does not match the 22 files that sit
+    // directly in `test/intl402`, so the check reported 26 files too FEW across
+    // the corpus and failed a complete checkout. A glob that quietly means
+    // something narrower than it reads is exactly the failure this function
+    // exists to catch, and it had it.
+    let mut command = std::process::Command::new("git");
+    command.arg("-C").arg(root).args(["ls-files", "--"]);
+    for area in areas {
+        command.arg(format!("test/{area}"));
+    }
+    let output = command.output();
 
     let Ok(output) = output else {
         println!("note: git not available — corpus completeness unverified");
@@ -181,7 +214,10 @@ fn check_checkout_is_complete(root: &Path, found: usize) {
         return;
     }
 
-    let expected = String::from_utf8_lossy(&output.stdout).lines().count();
+    let expected = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.ends_with(".js"))
+        .count();
     if expected == 0 {
         println!("note: git listed no files — corpus completeness unverified");
         return;
@@ -205,19 +241,36 @@ fn the_front_end_reads_test262() {
     let Ok(root) = std::env::var("RTS_TEST262") else {
         panic!("set RTS_TEST262 to a test262 checkout");
     };
-    let language = Path::new(&root).join("test").join("language");
-    assert!(
-        language.is_dir(),
-        "{} is not a directory — sparse-checkout test/language",
-        language.display()
-    );
+    // Which areas to read. `language` is the grammar and the early errors;
+    // `built-ins` is the library, and reading it measures something different
+    // and worth having on its own — those programs are almost all *valid*, so
+    // what they can report is our gaps and our false refusals rather than a
+    // checker's misses. `annexB`, `intl402` and `staging` are the same shape.
+    //
+    // Default to all of them, because a corpus that is quietly a subset is the
+    // failure this harness exists to refuse.
+    let areas: Vec<String> = std::env::var("RTS_TEST262_AREAS")
+        .unwrap_or_else(|_| "language,built-ins,annexB,intl402,staging".to_owned())
+        .split(',')
+        .map(|area| area.trim().to_owned())
+        .filter(|area| !area.is_empty())
+        .collect();
 
+    let tests = Path::new(&root).join("test");
     let mut files = Vec::new();
-    collect(&language, &mut files);
+    for area in &areas {
+        let directory = tests.join(area);
+        assert!(
+            directory.is_dir(),
+            "{} is not a directory — the checkout needs `git sparse-checkout set test harness`",
+            directory.display()
+        );
+        collect(&directory, &mut files);
+    }
     files.sort();
     assert!(!files.is_empty(), "found no tests");
 
-    check_checkout_is_complete(Path::new(&root), files.len());
+    check_checkout_is_complete(Path::new(&root), &areas, files.len());
 
     // A substring of the relative path, for working on one rule at a time. The
     // full corpus is minutes in a debug build, and a rule about `switch` is
@@ -281,7 +334,7 @@ fn the_front_end_reads_test262() {
         let must_fail_to_parse = meta.negative_phase.as_deref() == Some("parse");
 
         let relative = path
-            .strip_prefix(&language)
+            .strip_prefix(&tests)
             .unwrap_or(path)
             .display()
             .to_string()
@@ -298,6 +351,18 @@ fn the_front_end_reads_test262() {
             Ok(_) => String::new(),
         };
         report.push_str(&format!("{verdict}\t{relative}\t{detail}\n"));
+
+        let area = tally
+            .by_area
+            .entry(relative.split('/').next().unwrap_or("?").to_owned())
+            .or_default();
+        area.considered += 1;
+        match verdict {
+            "ok" => area.correct += 1,
+            "unsupported" => area.unsupported += 1,
+            "rejected" => area.wrongly_rejected += 1,
+            _ => area.wrongly_accepted += 1,
+        }
 
         match (&result, must_fail_to_parse) {
             // Correctly read a valid program.
@@ -345,7 +410,7 @@ fn the_front_end_reads_test262() {
     let readable = tally.correct + tally.unsupported;
     let rate = 100.0 * tally.correct as f64 / considered as f64;
 
-    println!("\n=== test262 test/language — front end reading ===");
+    println!("\n=== test262 — front end reading: {} ===", areas.join(", "));
     println!("files considered      {considered}");
     println!("read correctly        {} ({rate:.1}%)", tally.correct);
     println!("refused, named        {}", tally.unsupported);
@@ -355,6 +420,24 @@ fn the_front_end_reads_test262() {
         "                      ({} of {considered} produced an answer rather than a defect)",
         readable
     );
+
+    println!("\n--- by area ---");
+    println!(
+        "{:<12} {:>8} {:>8} {:>7} {:>8} {:>9}",
+        "area", "files", "correct", "%", "refused", "accepted"
+    );
+    for (name, area) in &tally.by_area {
+        let share = 100.0 * area.correct as f64 / area.considered.max(1) as f64;
+        println!(
+            "{:<12} {:>8} {:>8} {:>6.1}% {:>8} {:>9}",
+            name,
+            area.considered,
+            area.correct,
+            share,
+            area.wrongly_rejected + area.unsupported,
+            area.wrongly_accepted
+        );
+    }
 
     if !tally.by_construct.is_empty() {
         println!("\n--- what the bridge refuses, most first ---");

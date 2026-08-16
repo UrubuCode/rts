@@ -232,7 +232,93 @@ claim endorsement, certification, or affiliation.
   node kinds and operator sets while auditing for omissions. No text or
   structure was copied; RTS's tree deliberately differs. Check the project's own
   licence before reproducing any of its material here.
-- **test262** (`tc39/test262`) — planned as the coverage measurement in phase L9.
-  It carries its own licence, separate from ECMA-262's. If test files or their
-  content are ever vendored or reproduced, that licence must be reviewed and
-  recorded in this file first.
+- **test262** — no longer "consulted". It is measured against, and it has a
+  section of its own below.
+
+---
+
+## test262 — the ECMAScript conformance suite
+
+**This section arrived late, and that is the first thing it has to say.** The
+entry above it used to read: "planned as the coverage measurement in phase L9…
+If test files or their content are ever vendored or reproduced, that licence
+must be reviewed and recorded in this file first." The measurement was built and
+run — 53 459 files, five areas, a number published in two documents — before the
+licence was read. The requirement was written by us, in this file, and not
+followed by us. It is recorded here rather than quietly satisfied, because a
+notice that hides its own lateness is worth less than the obligation it covers.
+
+**What we actually do with it.**
+
+- The corpus is **never vendored**. `crates/rts-codegen/tests/test262.rs` reads a
+  checkout the developer clones separately and points `RTS_TEST262` at; nothing
+  from it is copied into this repository, into any artefact, or into any binary.
+- No test file is redistributed, in source or in binary form. Conditions 1 and 2
+  of the licence below govern redistribution, and there is none.
+- What our documents carry are **measurements and file paths** — counts per
+  area, and names like `annexB/language/statements/labeled/function-declaration.js`
+  used to say which rule a defect belonged to. A path is a fact about the corpus
+  rather than its content.
+- `crates/rts-codegen/tests/early_errors.rs` and `tests/regexp_patterns.rs`
+  contain one-line programs that state the same language rules the corpus does —
+  `{ function f() {} let f; }` and the like. They were written while reading
+  those cases and several are necessarily near-identical, because a grammar rule
+  has few ways of being written. None carries a test262 file's frontmatter,
+  harness call, or copyright header. If that is judged to be reproduction rather
+  than independent statement of a rule, the attribution required is the notice
+  below, which is why it is here in full.
+
+**Trademark and endorsement, which is condition 3.** *"Neither the name of the
+authors nor Ecma International may be used to endorse or promote products
+derived from this software without specific prior written permission."* So: RTS
+states what it measured, with the date, the command and the corpus, and claims
+**no conformance, certification, endorsement or affiliation**. "98.8 % read
+correctly" is a reading rate this project produced about itself using a public
+corpus — it is not a test262 result, not a pass rate, and not a badge anybody
+granted us. Where that number appears it says which of those it is.
+
+**Patents.** The licence points at Ecma's code of conduct in patent matters
+(<https://www.ecma-international.org/ipr>) and grants nothing under third-party
+rights. Reading a corpus grants us no patent licence and we claim none.
+
+### Copyright notice and licence
+
+> Test262: ECMAScript Test Suite ("Software") is protected by copyright and is
+> being made available under the "BSD License", included below. This Software may
+> be subject to third party rights (rights from parties other than Ecma
+> International), including patent rights, and no licenses under such third party
+> rights are granted under this license even if the third party concerned is a
+> member of Ecma International. SEE THE ECMA CODE OF CONDUCT IN PATENT MATTERS
+> AVAILABLE AT https://www.ecma-international.org/ipr FOR INFORMATION REGARDING
+> THE LICENSING OF PATENT CLAIMS THAT ARE REQUIRED TO IMPLEMENT ECMA
+> INTERNATIONAL STANDARDS.
+>
+> Copyright (C) 2012 Ecma International
+> All rights reserved.
+>
+> Redistribution and use in source and binary forms, with or without
+> modification, are permitted provided that the following conditions are met:
+>
+> 1. Redistributions of source code must retain the above copyright notice, this
+>    list of conditions and the following disclaimer.
+> 2. Redistributions in binary form must reproduce the above copyright notice,
+>    this list of conditions and the following disclaimer in the documentation
+>    and/or other materials provided with the distribution.
+> 3. Neither the name of the authors nor Ecma International may be used to
+>    endorse or promote products derived from this software without specific
+>    prior written permission.
+>
+> THIS SOFTWARE IS PROVIDED BY THE ECMA INTERNATIONAL "AS IS" AND ANY EXPRESS OR
+> IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+> MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+> EVENT SHALL ECMA INTERNATIONAL BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+> SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+> PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+> BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+> IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+> ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+> POSSIBILITY OF SUCH DAMAGE.
+
+**If the corpus is ever vendored** — into `vendor/`, into a container image, into
+a release artefact — conditions 1 and 2 start applying and this section is not
+enough on its own: the `LICENSE` file must travel with the copied material.

@@ -30,15 +30,16 @@ use std::collections::HashSet;
 
 /// Check one literal, and say what is wrong with it.
 pub(super) fn check(pattern: &str, flags: &str) -> Option<String> {
-    let unicode = match unicode_mode(flags) {
-        Ok(unicode) => unicode,
+    let mode = match unicode_mode(flags) {
+        Ok(mode) => mode,
         Err(message) => return Some(message),
     };
     let text: Vec<char> = pattern.chars().collect();
     let mut reader = Reader {
         text: &text,
         at: 0,
-        unicode,
+        unicode: mode != Mode::Legacy,
+        sets: mode == Mode::Sets,
         declared: declared_group_names(&text),
         referenced: Vec::new(),
         capture_groups: count_capture_groups(&text),
@@ -52,13 +53,30 @@ pub(super) fn check(pattern: &str, flags: &str) -> Option<String> {
     reader.error
 }
 
-/// Whether the flags turn unicode mode on, or what is wrong with them.
+/// Which character-set grammar the pattern is written against.
+///
+/// The `v` flag is not "`u` and more": it replaces the class grammar with one
+/// that has nested classes, set difference and intersection (`[\d--[0-9]]`) and
+/// string literals (`\q{abc}`). Reading a `v` pattern with `u`'s rules refuses
+/// programs that run — which is how this enum came to exist, 74 of them, and
+/// only the wider corpus showed it because `test/language` has no `v` pattern.
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    /// Neither flag. Annex B applies and almost nothing is refused.
+    Legacy,
+    /// `u`.
+    Unicode,
+    /// `v`.
+    Sets,
+}
+
+/// The mode the flags put the pattern in, or what is wrong with them.
 ///
 /// Asked first, and not only because the answer is needed: the flags are their
 /// own early error, so a pattern with `gg` after it is refused whatever the
-/// pattern says. Which also means this cannot answer with a bare `bool` — a
-/// failure here is a refusal, not "no unicode".
-fn unicode_mode(flags: &str) -> Result<bool, String> {
+/// pattern says. Which is why this answers a `Result` — a failure here is a
+/// refusal, not a mode.
+fn unicode_mode(flags: &str) -> Result<Mode, String> {
     let mut seen: Vec<char> = Vec::new();
     for letter in flags.chars() {
         if !matches!(letter, 'd' | 'g' | 'i' | 'm' | 's' | 'u' | 'v' | 'y') {
@@ -74,7 +92,13 @@ fn unicode_mode(flags: &str) -> Result<bool, String> {
     if seen.contains(&'u') && seen.contains(&'v') {
         return Err("the flags `u` and `v` cannot both be given".to_owned());
     }
-    Ok(seen.contains(&'u') || seen.contains(&'v'))
+    Ok(if seen.contains(&'v') {
+        Mode::Sets
+    } else if seen.contains(&'u') {
+        Mode::Unicode
+    } else {
+        Mode::Legacy
+    })
 }
 
 /// What a term turned out to be, which decides whether it may be repeated.
@@ -94,6 +118,9 @@ struct Reader<'a> {
     text: &'a [char],
     at: usize,
     unicode: bool,
+    /// Whether the `v` flag is on, so the class grammar is not the one this
+    /// module reads. Its rules are skipped rather than guessed at.
+    sets: bool,
     /// Every group name the pattern declares, found before parsing so that a
     /// backreference may precede its group: `/\k<a>(?<a>x)/` is valid.
     declared: HashSet<String>,
@@ -313,11 +340,12 @@ impl Reader<'_> {
                 _ => return self.fail("this is not a modifier"),
             }
         }
+        // Both sides empty is `(?-:x)`, which changes nothing and is refused.
+        // One side empty is not: `(?s-:x)` adds `s` and removes nothing, and
+        // the grammar allows the empty half — refusing it cost 25 valid
+        // programs before the wider corpus said so.
         if added.is_empty() && removed.is_empty() {
             return self.fail("a modifier group adds and removes nothing");
-        }
-        if removing && removed.is_empty() {
-            return self.fail("a modifier group removes nothing");
         }
         if let Some(letter) = added.iter().find(|letter| removed.contains(letter)) {
             return self.fail(&format!("`{letter}` is both added and removed"));
@@ -555,7 +583,7 @@ impl Reader<'_> {
                 }
             }
             _ => {
-                if self.unicode && !is_identity_escape(c) {
+                if self.unicode && !self.sets && !is_identity_escape(c) {
                     self.fail("this escape has no meaning in a unicode pattern");
                 }
             }
@@ -614,6 +642,25 @@ impl Reader<'_> {
     /// is a unicode-mode rule.
     fn character_class(&mut self) {
         self.at += 1;
+        if self.sets {
+            // A `v` class nests — `[[0-9]--[a-z]]` is one class containing two
+            // — so it is consumed by balancing brackets and asked nothing. A
+            // reader that stopped at the first `]` would leave the rest of the
+            // class to be read as a pattern, which is how `\q{…}` came to be
+            // refused as a lone brace.
+            let mut depth = 1;
+            while depth > 0 {
+                match self.peek() {
+                    None => return self.fail("a character class is not closed"),
+                    Some('\u{5c}') => self.at += 1,
+                    Some('[') => depth += 1,
+                    Some(']') => depth -= 1,
+                    _ => {}
+                }
+                self.at += 1;
+            }
+            return;
+        }
         self.eat('^');
         // What the last item was, for the range rule: `Some(true)` for a class
         // escape, `Some(false)` for a single character.
@@ -638,7 +685,7 @@ impl Reader<'_> {
                     if self.error.is_some() {
                         return;
                     }
-                    if self.unicode && (left_is_a_set || right_is_a_set) {
+                    if self.unicode && !self.sets && (left_is_a_set || right_is_a_set) {
                         return self.fail("a character class range needs single characters");
                     }
                     previous = None;
