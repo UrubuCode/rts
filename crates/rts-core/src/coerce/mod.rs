@@ -187,16 +187,29 @@ pub enum Relational {
 
 /// The order a relational operator coerces its operands in.
 ///
-/// Two of the four coerce the **right** operand first, because they are
-/// specified in terms of `<` with the operands swapped: `a <= b` is
-/// `!(b < a)` and `a > b` is `b < a`.
+/// **All four coerce the left operand first**, and this function used to say
+/// two of them coerced the right one first — read off `a <= b` being `!(b < a)`
+/// and `a > b` being `b < a`, and stopping one step short of what the
+/// specification does with the swap.
 ///
-/// The operands are still *evaluated* left to right — this is only about when
-/// each one's `valueOf` runs, which is invisible until both have one.
+/// `IsLessThan(x, y, leftFirst)` takes a flag precisely because of the swap: the
+/// swapped forms pass `leftFirst = false`, which makes it convert `y` before
+/// `x` — and `y` is the operand that was written on the LEFT. The flag exists to
+/// undo the swap for observation, so the conversions run in source order for
+/// every one of the four.
+///
+/// Measured against Node and Bun by `symbol/codex3_016_relational_coercion_order`:
+/// both answer `a,b,a,b,a,b,a,b` for `<`, `>`, `<=`, `>=` over two objects with
+/// a recording `Symbol.toPrimitive`, where this answered `a,b,b,a,b,a,a,b`.
+///
+/// The function stays — rather than the callers taking a constant — because the
+/// order is a fact about the operators and this is where it is stated.
 pub fn relational_operand_order(op: Relational) -> [Side; 2] {
     match op {
-        Relational::Less | Relational::GreaterEqual => [Side::Left, Side::Right],
-        Relational::LessEqual | Relational::Greater => [Side::Right, Side::Left],
+        Relational::Less
+        | Relational::LessEqual
+        | Relational::Greater
+        | Relational::GreaterEqual => [Side::Left, Side::Right],
     }
 }
 
@@ -422,24 +435,21 @@ mod tests {
     }
 
     #[test]
-    fn two_of_the_four_relational_operators_coerce_the_right_side_first() {
-        assert_eq!(
-            relational_operand_order(Relational::Less),
-            [Side::Left, Side::Right]
-        );
-        assert_eq!(
-            relational_operand_order(Relational::GreaterEqual),
-            [Side::Left, Side::Right]
-        );
-        assert_eq!(
-            relational_operand_order(Relational::LessEqual),
-            [Side::Right, Side::Left],
-            "a <= b is !(b < a), so b's valueOf runs first"
-        );
-        assert_eq!(
-            relational_operand_order(Relational::Greater),
-            [Side::Right, Side::Left]
-        );
+    fn every_relational_operator_coerces_in_source_order() {
+        for op in [
+            Relational::Less,
+            Relational::LessEqual,
+            Relational::Greater,
+            Relational::GreaterEqual,
+        ] {
+            assert_eq!(
+                relational_operand_order(op),
+                [Side::Left, Side::Right],
+                "the swapped forms pass leftFirst = false, which converts the \
+                 operand written on the left first — so all four observe in \
+                 source order"
+            );
+        }
     }
 
     #[test]

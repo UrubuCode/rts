@@ -34,12 +34,17 @@ pub(super) struct Member {
     pub(super) ts: String,
     /// The `///` comments above it, as written.
     pub(super) doc: String,
-    /// How many arguments JavaScript sees, which is `Function.prototype.length`.
+    /// What `fn.length` answers — `SetFunctionLength`'s arity.
     ///
-    /// Derived from the Rust signature rather than declared, because the
-    /// signature IS the arity — the wrapper coerces one JavaScript argument per
-    /// typed parameter, so a second spelling could only ever disagree with the
-    /// first. `this` is excluded for the reason [`ts_signature`] excludes it: a
+    /// Derived from the Rust signature, because that is the one place the two
+    /// cannot drift: a member taking `(x: f64)` has arity 1 and nothing has to
+    /// remember to say so. `#[arity(n)]` overrides it, and exists for exactly
+    /// one shape — a VARIADIC, which reads four `u64` slots regardless of the
+    /// arity the language pins. `Math.max` takes four slots here and answers
+    /// `2`, which is the specification's number and not a count of anything in
+    /// the Rust signature.
+    ///
+    /// `this` is excluded for the reason [`ts_signature`] excludes it: a
     /// receiver is not an argument.
     pub(super) arity: u32,
 }
@@ -49,6 +54,7 @@ impl Member {
     pub(super) fn read(function: &ImplItemFn, prefix: &str) -> syn::Result<Self> {
         let mut role = Role::Member;
         let mut js = camel_of(&function.sig.ident.to_string());
+        let mut arity = None;
 
         for attribute in &function.attrs {
             if attribute.path().is_ident("stat") {
@@ -57,17 +63,20 @@ impl Member {
                 role = Role::Construct;
             } else if attribute.path().is_ident("js") {
                 js = attribute.parse_args::<syn::LitStr>()?.value();
+            } else if attribute.path().is_ident("arity") {
+                arity = Some(attribute.parse_args::<syn::LitInt>()?.base10_parse::<u32>()?);
             }
         }
 
         let ts = ts_signature(&js, function);
+        let arity = arity.unwrap_or_else(|| declared_arity(function));
         Ok(Member {
             js,
             wrapper: format_ident!("__{prefix}_{}", function.sig.ident),
             role,
             ts,
             doc: doc_of(&function.attrs),
-            arity: arity_of(function),
+            arity,
         })
     }
 
@@ -201,7 +210,8 @@ impl Member {
             .filter(|attribute| {
                 !(attribute.path().is_ident("stat")
                     || attribute.path().is_ident("construct")
-                    || attribute.path().is_ident("js"))
+                    || attribute.path().is_ident("js")
+                    || attribute.path().is_ident("arity"))
             })
             .collect();
         let signature = &function.sig;
@@ -294,31 +304,6 @@ fn ts_signature(js: &str, function: &ImplItemFn) -> String {
     format!("{js}({}): {returns}", params.join(", "))
 }
 
-/// How many arguments the language sees, from the Rust signature.
-///
-/// The same walk [`ts_signature`] performs, and deliberately so: both answer
-/// "what does a caller pass", and two walks would eventually disagree about the
-/// receiver. `this` is not an argument; everything else is one.
-///
-/// This is the arity the SIGNATURE declares and not always the one the
-/// specification pins — a variadic member like `Math.max` takes four slots here
-/// and the language says its `length` is 2. Where the two differ, the member
-/// says so with `#[js]`-adjacent documentation rather than this guessing: a
-/// derived number that is right for almost every member beats `undefined` for
-/// all of them, and the exceptions are visible because they are written down.
-fn arity_of(function: &ImplItemFn) -> u32 {
-    function
-        .sig
-        .inputs
-        .iter()
-        .enumerate()
-        .filter(|(position, argument)| match argument {
-            FnArg::Typed(typed) => !(*position == 0 && is_named(&typed.pat, "this")),
-            FnArg::Receiver(_) => false,
-        })
-        .count() as u32
-}
-
 /// The three types a member can spell, as TypeScript spells them.
 ///
 /// Anything else is not reachable: `Member::expand` refuses it with a message
@@ -356,6 +341,27 @@ pub(super) fn doc_of(attrs: &[syn::Attribute]) -> String {
         lines.push(text.value().trim_start().to_owned());
     }
     lines.join("\n")
+}
+
+/// How many arguments the Rust signature declares, not counting the receiver.
+///
+/// This is `fn.length` for every member that is not variadic, and it is derived
+/// rather than written for the same reason the TypeScript signature is: a number
+/// stated twice is a number that will be stated differently. A variadic says so
+/// with `#[arity(n)]`, because its four `u64` slots are a calling convention and
+/// not a count of what the language pins.
+fn declared_arity(function: &ImplItemFn) -> u32 {
+    let mut count = 0;
+    for (position, argument) in function.sig.inputs.iter().enumerate() {
+        let FnArg::Typed(typed) = argument else {
+            continue;
+        };
+        if position == 0 && is_named(&typed.pat, "this") {
+            continue;
+        }
+        count += 1;
+    }
+    count
 }
 
 /// The same constant as the row the declared-type list holds.

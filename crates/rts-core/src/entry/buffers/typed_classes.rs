@@ -33,7 +33,7 @@
 //! attribute rather than to this file.
 
 use super::element::Kind;
-use super::{Context, typed, typed_order, typed_species};
+use super::{Context, typed, typed_order, typed_species, typed_visit};
 use crate::value::Value;
 
 /// `BYTES_PER_ELEMENT` on the **constructor**, beside the one on the prototype.
@@ -167,6 +167,30 @@ macro_rules! declare {
                     typed::values(this)
                 }
 
+                /// `t[Symbol.iterator]()` — the same iterator `values()` gives.
+                ///
+                /// # Why this is here after all
+                ///
+                /// [`typed::values`]'s own note says no `Symbol.iterator` member
+                /// is installed, because `for`-`of` and spread reach a view's
+                /// elements directly. That was true and was not enough:
+                /// `const [a, b] = t` does NOT go through either. Array
+                /// destructuring reads `Symbol.iterator` off the source, and
+                /// when it is absent falls back to `Iterator.from(t)`, which
+                /// treats the value ITSELF as the iterator — so `next` was
+                /// `undefined` and a destructuring that every other engine runs
+                /// ended the program.
+                ///
+                /// It is a member rather than a special case in that fallback
+                /// because a typed array genuinely HAS this method in the
+                /// language, and a program can read it: teaching one caller
+                /// about views would have left `t[Symbol.iterator]` answering
+                /// `undefined` to everybody else.
+                #[js("@@iterator")]
+                fn iterator(this: u64) -> u64 {
+                    typed::values(this)
+                }
+
                 /// `t.keys()`.
                 fn keys(this: u64) -> u64 {
                     typed::keys(this)
@@ -175,6 +199,101 @@ macro_rules! declare {
                 /// `t.entries()`.
                 fn entries(this: u64) -> u64 {
                     typed::entries(this)
+                }
+
+                /// `T.from(source, mapFn, thisArg)`.
+                ///
+                /// A STATIC, and the only one here — every other member is an
+                /// instance's. Its absence read as a broken engine rather than
+                /// as a gap: `Uint8Array.from([1,2])` is how most programs
+                /// build one at all.
+                #[stat]
+                fn from(source: u64, mapper: u64, receiver: u64) -> u64 {
+                    typed_visit::from($kind, source, mapper, receiver)
+                }
+
+                /// `t.forEach(callback, thisArg)`.
+                fn for_each(this: u64, callback: u64, receiver: u64) -> u64 {
+                    typed_visit::for_each(this, callback, receiver)
+                }
+
+                /// `t.map(callback, thisArg)` — a new array of THIS kind, which
+                /// is where it differs from an array's: the answers are written
+                /// back through this class's element conversion.
+                fn map(this: u64, callback: u64, receiver: u64) -> u64 {
+                    typed_visit::map(this, callback, receiver)
+                }
+
+                /// `t.filter(callback, thisArg)`.
+                fn filter(this: u64, callback: u64, receiver: u64) -> u64 {
+                    typed_visit::filter(this, callback, receiver)
+                }
+
+                /// `t.find(callback, thisArg)`.
+                fn find(this: u64, callback: u64, receiver: u64) -> u64 {
+                    typed_visit::find(this, callback, receiver)
+                }
+
+                /// `t.findIndex(callback, thisArg)`.
+                fn find_index(this: u64, callback: u64, receiver: u64) -> u64 {
+                    typed_visit::find_index(this, callback, receiver)
+                }
+
+                /// `t.findLast(callback, thisArg)`.
+                fn find_last(this: u64, callback: u64, receiver: u64) -> u64 {
+                    typed_visit::find_last(this, callback, receiver)
+                }
+
+                /// `t.findLastIndex(callback, thisArg)`.
+                fn find_last_index(this: u64, callback: u64, receiver: u64) -> u64 {
+                    typed_visit::find_last_index(this, callback, receiver)
+                }
+
+                /// `t.some(callback, thisArg)`.
+                fn some(this: u64, callback: u64, receiver: u64) -> bool {
+                    typed_visit::some(this, callback, receiver)
+                }
+
+                /// `t.every(callback, thisArg)`.
+                fn every(this: u64, callback: u64, receiver: u64) -> bool {
+                    typed_visit::every(this, callback, receiver)
+                }
+
+                /// `t.reduce(callback, initial)`.
+                fn reduce(this: u64, callback: u64, initial: u64) -> u64 {
+                    typed_visit::reduce(this, callback, initial)
+                }
+
+                /// `t.reduceRight(callback, initial)`.
+                fn reduce_right(this: u64, callback: u64, initial: u64) -> u64 {
+                    typed_visit::reduce_right(this, callback, initial)
+                }
+
+                /// `t.reverse()` — in place, answering the receiver.
+                fn reverse(this: u64) -> u64 {
+                    typed_visit::reverse(this)
+                }
+
+                /// `t.toReversed()` — a copy.
+                fn to_reversed(this: u64) -> u64 {
+                    typed_visit::to_reversed(this)
+                }
+
+                /// `t.toSorted(compare)` — a copy, over the same sort.
+                fn to_sorted(this: u64, compare: u64) -> u64 {
+                    typed_visit::to_sorted(this, compare)
+                }
+
+                /// `t.with(index, value)` — a copy with one element replaced,
+                /// and a `RangeError` for an index the array does not have,
+                /// which is what separates it from `t[i] = v`.
+                fn with(this: u64, index: f64, value: u64) -> u64 {
+                    typed_visit::with(this, index, value)
+                }
+
+                /// `t.toString()`.
+                fn to_string(this: u64) -> u64 {
+                    typed_visit::to_string(this)
                 }
             }
 

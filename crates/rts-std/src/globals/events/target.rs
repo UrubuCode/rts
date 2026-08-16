@@ -27,6 +27,13 @@ use rts_core::entry::{self, Context, Provided};
 /// why two contracts must not share one store.
 const STORE: &str = "__listeners__";
 
+/// The flag one dispatch sets on the event for the length of that dispatch.
+///
+/// Named as a constant for the reason `event::STOPPED` is: the set and the test
+/// must agree on the spelling, and a typo in one of them is the unbounded
+/// recursion this flag exists to refuse.
+const IN_FLIGHT: &str = "__dispatching__";
+
 const METHODS: &[(&str, Provided)] = &[
     ("addEventListener", add),
     ("removeEventListener", remove),
@@ -41,7 +48,7 @@ pub(super) fn prototype(context: &mut Context) -> u64 {
 /// Builds the `EventTarget` class and answers its constructor.
 pub(super) fn install(context: &mut Context) -> u64 {
     let prototype = prototype(context);
-    super::class_ctor(context, construct, prototype)
+    super::class_ctor(context, "EventTarget", 0, construct, prototype)
 }
 
 /// `new EventTarget()`.
@@ -92,6 +99,33 @@ extern "C" fn add(_e: u64, this: u64, kind: u64, listener: u64, options: u64, _d
     let Some(name) = super::text(kind) else {
         return super::absent();
     };
+    // `options.signal`, which the module doc refused by name and which needs
+    // nothing new: the same list `AbortSignal.any` keeps of who depends on a
+    // signal serves a registration that wants removing, so the reaction that
+    // "a native callable cannot carry" is not a callable at all.
+    //
+    // Anything that is not a signal is a `TypeError`, `null` included — that is
+    // the specification's own coercion of the `signal` entry, and a lenient
+    // reading of it is worse than the error: a program passing the wrong thing
+    // gets a listener that is never removed, which is the leak it was writing
+    // `signal` to avoid.
+    let signal = match super::options_bag(options).map(|bag| super::get(bag, "signal")) {
+        Some(value) if value != super::absent() => {
+            if !super::abort::is_signal(value) {
+                entry::throw_type_error(
+                    "addEventListener: options.signal must be an AbortSignal",
+                );
+                return super::absent();
+            }
+            // Already aborted: the registration is over before it began, and
+            // the language says nothing is added rather than added-and-removed.
+            if super::flag(value, "aborted") {
+                return super::absent();
+            }
+            Some(value)
+        }
+        _ => None,
+    };
     let once = super::option_flag(options, "once");
     let capture = capture_of(options);
     let store = store_of(this);
@@ -108,7 +142,29 @@ extern "C" fn add(_e: u64, this: u64, kind: u64, listener: u64, options: u64, _d
     });
     records.push(record);
     super::store_elements(store, &name, records);
+    if let Some(signal) = signal {
+        super::abort::remove_on_abort(signal, this, &name, listener, capture);
+    }
     super::absent()
+}
+
+/// Drops one registration, named the way `removeEventListener` names it.
+///
+/// The body `remove` used to hold, lifted so that an abort can withdraw a
+/// registration without going through the JavaScript-visible method — the same
+/// reason `dispatch_event` exists beside `dispatch`: the method is a property a
+/// program can have replaced, and a signal's promise to remove a listener is not
+/// a promise a program's monkey patch may break.
+pub(super) fn drop_registration(target: u64, name: &str, listener: u64, capture: bool) {
+    let store = store_of(target);
+    let mut records = super::elements(super::get(store, name));
+    if let Some(at) = records
+        .iter()
+        .position(|&held| matches(held, listener, capture))
+    {
+        records.remove(at);
+        super::store_elements(store, name, records);
+    }
 }
 
 /// `target.removeEventListener(type, listener, options?)` — removes the one
@@ -117,22 +173,39 @@ extern "C" fn remove(_e: u64, this: u64, kind: u64, listener: u64, options: u64,
     let Some(name) = super::text(kind) else {
         return super::absent();
     };
-    let capture = capture_of(options);
-    let store = store_of(this);
-    let mut records = super::elements(super::get(store, &name));
-    if let Some(at) = records
-        .iter()
-        .position(|&held| matches(held, listener, capture))
-    {
-        records.remove(at);
-        super::store_elements(store, &name, records);
-    }
+    drop_registration(this, &name, listener, capture_of(options));
     super::absent()
 }
 
 /// `target.dispatchEvent(event)`.
 extern "C" fn dispatch(_e: u64, this: u64, event: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    // Anything that is not an `Event` is a `TypeError`, which is the
+    // specification's own coercion of the argument. A plain object with a
+    // `type` property used to be delivered, so a program that meant to pass an
+    // event and passed its options bag got listeners called with the wrong
+    // thing and no signal at all.
+    if !is_event(event) {
+        entry::throw_type_error("dispatchEvent: the argument must be an Event");
+        return super::absent();
+    }
     entry::boolean_value(dispatch_event(this, event))
+}
+
+/// Whether a value inherits from `Event.prototype`.
+///
+/// By the chain rather than by a `type` property, for the reason
+/// `abort::is_signal` gives: a duck test accepts the very mistake the error
+/// exists to report.
+fn is_event(value: u64) -> bool {
+    let wanted = entry::with_runtime(super::event::prototype);
+    let mut held = entry::get_prototype(value);
+    while held != entry::null_value() && held != entry::undefined_value() {
+        if held == wanted {
+            return true;
+        }
+        held = entry::get_prototype(held);
+    }
+    false
 }
 
 /// Delivers one event to one target, synchronously, in registration order.
@@ -149,6 +222,20 @@ pub(super) fn dispatch_event(target: u64, event: u64) -> bool {
     let Some(name) = super::text(super::get(event, "type")) else {
         return true;
     };
+    // An event that is already being dispatched is refused, and the refusal is
+    // what stops a HANG: `t.dispatchEvent(ev)` from inside a listener for `ev`
+    // re-entered this function with the same event for ever and took the process
+    // with a stack overflow. Node raises here; the flag is cleared on the way
+    // out, so the same object may be dispatched again afterwards, which is the
+    // half a "spent event" reading would get wrong.
+    if super::flag(event, IN_FLIGHT) {
+        entry::throw_value(
+            entry::make_named_error("Error", "dispatchEvent: the event is already being dispatched")
+                .unwrap_or_else(super::absent),
+        );
+        return true;
+    }
+    super::put(event, IN_FLIGHT, entry::boolean_value(true));
     let store = store_of(target);
     let records = super::elements(super::get(store, &name));
     let remaining: Vec<u64> = records
@@ -196,6 +283,7 @@ pub(super) fn dispatch_event(target: u64, event: u64) -> bool {
         entry::put_member(context, event, "currentTarget", nothing);
         let phase = entry::make_number(super::event::NONE);
         entry::put_member(context, event, "eventPhase", phase);
+        entry::put_member(context, event, IN_FLIGHT, entry::boolean_value(false));
     });
     !(super::flag(event, "cancelable") && super::flag(event, "defaultPrevented"))
 }

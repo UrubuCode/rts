@@ -180,6 +180,21 @@ pub(super) struct Trap {
     pub(super) revoked: bool,
 }
 
+/// Whether this value is a proxy at all, asked WITHOUT running anything.
+///
+/// [`trap_for`] and the `Option`-answering entry points are the usual way to
+/// ask, and they are the wrong way for a caller that has to decide which of two
+/// walks to perform: each of them calls a handler, so asking "is this a proxy?"
+/// with `own_keys` reports one `ownKeys` the program never wrote. This reads
+/// the cell and calls nothing.
+pub(in crate::entry) fn is_proxy(object: u64) -> bool {
+    with_current(|context| {
+        Value(object)
+            .as_slot()
+            .is_some_and(|cell| context.proxy_at(cell).is_some())
+    })
+}
+
 /// Looks a trap up, without holding a borrow for the call that follows.
 ///
 /// `None` when the object is not a proxy at all, which is what tells every call

@@ -93,16 +93,20 @@ fn min2(x: f64, y: f64) -> f64 {
 /// `Infinity` for `min` — so a call with no arguments answers it, and one with
 /// a single argument answers that argument rather than a comparison against
 /// zero.
+/// **Every** argument is coerced, and only then is the answer decided. Not
+/// "stop at the first `NaN`": the specification runs `ToNumber` over the whole
+/// list before comparing anything, and a `valueOf` after the `NaN` is user code
+/// a program watches run — `Math.max(NaN, { valueOf() { seen.push("a"); …` }})`
+/// records the visit in every runtime and recorded nothing here.
 fn folded(values: &[u64], identity: f64, better: fn(f64, f64) -> f64) -> f64 {
-    let mut answer = identity;
-    for value in values {
-        let number = super::class_support::to_number(*value);
-        if number.is_nan() {
-            return f64::NAN;
-        }
-        answer = better(answer, number);
+    let numbers: Vec<f64> = values
+        .iter()
+        .map(|value| super::class_support::to_number(*value))
+        .collect();
+    if numbers.iter().any(|number| number.is_nan()) {
+        return f64::NAN;
     }
-    answer
+    numbers.into_iter().fold(identity, better)
 }
 
 /// `Math`.
@@ -353,6 +357,7 @@ impl Math {
     ///
     /// Zero is the identity, which is also the answer the language gives for no
     /// arguments at all.
+    #[arity(2)]
     fn hypot(a: u64, b: u64, c: u64, d: u64) -> f64 {
         let numbers: Vec<f64> = given(a, b, c, d)
             .into_iter()
@@ -400,11 +405,13 @@ impl Math {
     /// programs really write. That is why these two take the values as they
     /// arrived rather than coerced: `given` drops the padding, so an argument
     /// that was never written is never coerced.
+    #[arity(2)]
     fn max(a: u64, b: u64, c: u64, d: u64) -> f64 {
         folded(&given(a, b, c, d), f64::NEG_INFINITY, max2)
     }
 
     /// `Math.min(…)`, with the same two rules as [`Math::max`].
+    #[arity(2)]
     fn min(a: u64, b: u64, c: u64, d: u64) -> f64 {
         folded(&given(a, b, c, d), f64::INFINITY, min2)
     }

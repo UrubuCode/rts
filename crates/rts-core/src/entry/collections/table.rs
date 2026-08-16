@@ -66,6 +66,19 @@ use crate::value::{Value, same_value_zero, strict_equals};
 /// is identity rather than SameValueZero — see [`Table::identical`].
 #[derive(Default)]
 pub(in crate::entry) struct Table {
+    /// Which class made it — the internal slot, as a value.
+    ///
+    /// One table type for four classes is what the doc above argues for, and it
+    /// costs the one thing the language spends everywhere: a BRAND.
+    /// `Map.prototype.get.call(new Set())` has to be a `TypeError`, and without
+    /// a kind recorded here there is nothing to tell the two apart — every
+    /// method answered from whatever table it found and a `Set` behaved like a
+    /// `Map` with equal keys and values.
+    ///
+    /// A field on the table rather than a second slab keyed by cell, because the
+    /// table IS the internal slot: the two can never be set apart, and
+    /// [`super::taken`] carries the brand across the gap for the same reason.
+    brand: Brand,
     keys: Vec<u64>,
     values: Vec<u64>,
     /// When each entry was inserted, strictly increasing along the vector.
@@ -103,7 +116,61 @@ pub(in crate::entry) struct Table {
 /// alternative, saturating, would silently end every iteration from then on.
 const LAST_SEQ: u32 = u32::MAX - 1;
 
+/// Which class a table belongs to — the internal slot, named.
+///
+/// `WeakRef` and `FinalizationRegistry` keep a table here too, and each is its
+/// own brand for the same reason the four collections are: `deref` on a
+/// registry has to be refused.
+///
+/// `Map` is the `Default` only because `Table` derives `Default` and
+/// [`super::taken`] leaves an empty one behind — that leftover is overwritten by
+/// the `restore` that always follows, and nothing reads it in between. Every
+/// table a program can reach is made through [`Table::of`], which states its
+/// brand.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub(in crate::entry) enum Brand {
+    #[default]
+    Map,
+    Set,
+    WeakMap,
+    WeakSet,
+    /// `WeakRef` and `FinalizationRegistry`, which hold a table without being
+    /// collections a method walks.
+    Other,
+}
+
+impl Brand {
+    /// The class name, for the message a refusal carries.
+    pub(super) fn named(self) -> &'static str {
+        match self {
+            Brand::Map => "Map",
+            Brand::Set => "Set",
+            Brand::WeakMap => "WeakMap",
+            Brand::WeakSet => "WeakSet",
+            Brand::Other => "the collection",
+        }
+    }
+}
+
 impl Table {
+    /// An empty table of a stated brand.
+    pub(super) fn of(brand: Brand) -> Self {
+        Table {
+            brand,
+            ..Table::default()
+        }
+    }
+
+    /// Which class made it.
+    pub(super) fn brand(&self) -> Brand {
+        self.brand
+    }
+
+    /// Restates the brand on the empty table [`super::taken`] left behind.
+    pub(super) fn set_brand(&mut self, brand: Brand) {
+        self.brand = brand;
+    }
+
     /// How many entries there are.
     pub(super) fn len(&self) -> usize {
         self.keys.len()

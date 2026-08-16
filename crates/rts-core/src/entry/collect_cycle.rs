@@ -203,6 +203,7 @@ fn release(context: &mut Context, cell: u32) {
     if let Some(state) = context.generators.remove(cell) {
         context.region.free(state.frame_cell());
     }
+    context.helpers.remove(cell);
     context.regexes.remove(cell);
     context.accessors.remove(cell);
     context.integrity.remove(cell);

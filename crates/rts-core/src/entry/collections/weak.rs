@@ -39,7 +39,8 @@ use crate::value::Value;
 ///
 /// One string for four entry points, because it is one rule — the same reason
 /// [`write`] is one function.
-const NOT_A_KEY: &str = "a WeakMap key and a WeakSet member must be an object";
+const NOT_A_KEY: &str =
+    "a WeakMap key and a WeakSet member must be an object or an unregistered symbol";
 
 /// `WeakMap`.
 #[rtse::class("WeakMap", tag)]
@@ -50,7 +51,13 @@ impl WeakMap {
     /// does: the entries before it are already written, which is what the
     /// language's own loop leaves behind too.
     #[construct]
+    /// Arity 0, not 1: the specification pins `Map.length` at zero because
+    /// the iterable is optional in the way `length` counts.
+    #[arity(0)]
     fn build(this: u64, iterable: u64) -> u64 {
+        if !super::requires_new(this, "WeakMap") {
+            return super::undefined();
+        }
         let pairs = match super::nothing_to_fill_from(iterable) {
             true => Vec::new(),
             false => super::pairs_of(iterable),
@@ -80,11 +87,11 @@ impl WeakMap {
 
     /// `w.get(k)`.
     fn get(this: u64, key: u64) -> u64 {
+        let Some(cell) = super::branded(this, super::Brand::WeakMap) else {
+            return super::undefined();
+        };
         with_current(|context| {
             let absent = undefined_of(context);
-            let Some(cell) = Value(this).as_slot() else {
-                return absent;
-            };
             let Some(table) = context.table_at(cell) else {
                 return absent;
             };
@@ -109,14 +116,17 @@ impl WeakMap {
     /// [`super::Table::identical`] has, which is a change about identity rather
     /// than about this refusal.
     fn set(this: u64, key: u64, value: u64) -> u64 {
+        // The receiver's brand BEFORE the key's kind, which is the order
+        // `RequireInternalSlot` puts it in.
+        let Some(cell) = super::branded(this, super::Brand::WeakMap) else {
+            return super::undefined();
+        };
         if !keyed(key) {
             throw::type_error(NOT_A_KEY);
             return this;
         }
         with_current(|context| {
-            if let Some(cell) = Value(this).as_slot()
-                && let Some(mut table) = super::taken(context, cell)
-            {
+            if let Some(mut table) = super::taken(context, cell) {
                 write(context, &mut table, key, value);
                 super::restore(context, cell, table);
             }
@@ -126,12 +136,18 @@ impl WeakMap {
 
     /// `w.has(k)`.
     fn has(this: u64, key: u64) -> bool {
+        if super::branded(this, super::Brand::WeakMap).is_none() {
+            return false;
+        }
         with_current(|context| found(context, this, key).is_some())
     }
 
     /// `w.delete(k)`.
     #[js("delete")]
     fn remove(this: u64, key: u64) -> bool {
+        if super::branded(this, super::Brand::WeakMap).is_none() {
+            return false;
+        }
         with_current(|context| dropped(context, this, key))
     }
 }
@@ -142,7 +158,13 @@ impl WeakSet {
     /// `new WeakSet(iterable?)` — a member that is not an object raises, as in
     /// `WeakMap`'s constructor.
     #[construct]
+    /// Arity 0, not 1: the specification pins `Map.length` at zero because
+    /// the iterable is optional in the way `length` counts.
+    #[arity(0)]
     fn build(this: u64, iterable: u64) -> u64 {
+        if !super::requires_new(this, "WeakSet") {
+            return super::undefined();
+        }
         let values = match super::nothing_to_fill_from(iterable) {
             true => Vec::new(),
             false => super::elements_of(iterable),
@@ -172,14 +194,15 @@ impl WeakSet {
 
     /// `w.add(v)` — the set. A primitive is a `TypeError`, as in `WeakMap.set`.
     fn add(this: u64, value: u64) -> u64 {
+        let Some(cell) = super::branded(this, super::Brand::WeakSet) else {
+            return super::undefined();
+        };
         if !keyed(value) {
             throw::type_error(NOT_A_KEY);
             return this;
         }
         with_current(|context| {
-            if let Some(cell) = Value(this).as_slot()
-                && let Some(mut table) = super::taken(context, cell)
-            {
+            if let Some(mut table) = super::taken(context, cell) {
                 write(context, &mut table, value, value);
                 super::restore(context, cell, table);
             }
@@ -189,12 +212,18 @@ impl WeakSet {
 
     /// `w.has(v)`.
     fn has(this: u64, value: u64) -> bool {
+        if super::branded(this, super::Brand::WeakSet).is_none() {
+            return false;
+        }
         with_current(|context| found(context, this, value).is_some())
     }
 
     /// `w.delete(v)`.
     #[js("delete")]
     fn remove(this: u64, value: u64) -> bool {
+        if super::branded(this, super::Brand::WeakSet).is_none() {
+            return false;
+        }
         with_current(|context| dropped(context, this, value))
     }
 }
@@ -211,7 +240,7 @@ impl WeakSet {
 /// therefore stored rather than refused, keyed by text under a collection whose
 /// whole contract is identity.
 fn write(context: &Context, table: &mut super::Table, key: u64, value: u64) -> bool {
-    if !primitive::is_object_in(context, key) {
+    if !holdable_in(context, key) {
         return false;
     }
     match table.identical(context, key) {
@@ -231,7 +260,31 @@ fn write(context: &Context, table: &mut super::Table, key: u64, value: u64) -> b
 /// is the shape rule 8 of `crates/rts-core/README.md` forces on every native
 /// that has to report something.
 fn keyed(key: u64) -> bool {
-    with_current(|context| primitive::is_object_in(context, key))
+    with_current(|context| holdable_in(context, key))
+}
+
+/// Whether a value is something a weak collection may hold weakly.
+///
+/// An object, or a symbol the global registry does NOT hold — which is ES2023's
+/// rule and the one this file's `set` used to name as a stated divergence:
+/// "a symbol here is not a cell, so admitting it means a second notion of
+/// identity". It does not. [`super::Table::identical`] compares with
+/// `strict_equals`, and two symbols are strictly equal exactly when they are the
+/// same symbol, so identity was already answered for them; what was missing was
+/// only the admission.
+///
+/// A REGISTERED symbol stays refused, and that refusal is the language's own
+/// reasoning rather than an implementation limit: `Symbol.for("k")` is reachable
+/// from the registry for the whole life of the program, so it can never die, so
+/// a weak reference to one could never be observed to break. Shared by
+/// `WeakMap`, `WeakSet`, `WeakRef` and `FinalizationRegistry` because it is one
+/// rule — the same reason [`write`] is one function.
+pub(super) fn holdable_in(context: &Context, value: u64) -> bool {
+    if primitive::is_object_in(context, value) {
+        return true;
+    }
+    crate::entry::symbol::is_symbol(context, value)
+        && !crate::entry::symbol::is_registered(context, value)
 }
 
 /// Where a key is in a weak collection, from inside a borrow that exists.

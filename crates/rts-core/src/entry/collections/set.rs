@@ -27,7 +27,7 @@
 //! whatever it holds — and the case is a subclass deliberately lying about its
 //! own contents.
 
-use super::{Context, with_current};
+use super::with_current;
 use crate::entry::objects::undefined_of;
 use crate::value::Value;
 
@@ -35,8 +35,16 @@ use crate::value::Value;
 #[rtse::class("Set", tag)]
 impl Set {
     /// `new Set(iterable?)` — from an array or a string, today.
+    /// Arity 0, not 1: the specification pins `Set.length` at zero because the
+    /// iterable is optional in the way `length` counts.
     #[construct]
+    #[arity(0)]
     fn build(this: u64, iterable: u64) -> u64 {
+        // Before the argument is read: `Set()` without `new` is a `TypeError`,
+        // and the order is observable.
+        if !super::requires_new(this, "Set") {
+            return super::undefined();
+        }
         let values = match super::nothing_to_fill_from(iterable) {
             true => Vec::new(),
             false => super::elements_of(iterable),
@@ -64,11 +72,12 @@ impl Set {
     /// the key — which [`super::table::Table::set`] does — would leave `-0` in
     /// the half `s.entries()` reads out as the value.
     fn add(this: u64, value: u64) -> u64 {
+        let Some(cell) = super::branded(this, super::Brand::Set) else {
+            return super::undefined();
+        };
         let value = super::table::canonical(value);
         with_current(|context| {
-            if let Some(cell) = Value(this).as_slot()
-                && let Some(mut table) = super::taken(context, cell)
-            {
+            if let Some(mut table) = super::taken(context, cell) {
                 table.set(context, value, value);
                 super::restore_sized(context, cell, table);
             }
@@ -78,16 +87,19 @@ impl Set {
 
     /// `s.has(v)`.
     fn has(this: u64, value: u64) -> bool {
+        if super::branded(this, super::Brand::Set).is_none() {
+            return false;
+        }
         with_current(|context| super::map::held(context, this, value))
     }
 
     /// `s.delete(v)`.
     #[js("delete")]
     fn remove(this: u64, value: u64) -> bool {
+        let Some(cell) = super::branded(this, super::Brand::Set) else {
+            return false;
+        };
         with_current(|context| {
-            let Some(cell) = Value(this).as_slot() else {
-                return false;
-            };
             let Some(mut table) = super::taken(context, cell) else {
                 return false;
             };
@@ -99,10 +111,11 @@ impl Set {
 
     /// `s.clear()`.
     fn clear(this: u64) -> u64 {
+        let Some(cell) = super::branded(this, super::Brand::Set) else {
+            return super::undefined();
+        };
         with_current(|context| {
-            if let Some(cell) = Value(this).as_slot()
-                && let Some(mut table) = super::taken(context, cell)
-            {
+            if let Some(mut table) = super::taken(context, cell) {
                 table.clear();
                 super::restore_sized(context, cell, table);
             }
@@ -118,7 +131,12 @@ impl Set {
     ///
     /// A LIVE walk, for the reason `Map.forEach` records: a snapshot makes a
     /// member added by the callback invisible, where the language visits it.
+    /// Arity 1: `thisArg` is optional in the way `length` counts.
+    #[arity(1)]
     fn for_each(this: u64, callback: u64, this_arg: u64) -> u64 {
+        if super::branded(this, super::Brand::Set).is_none() {
+            return super::undefined();
+        }
         let mut at = 0;
         while let Some((seq, value, _)) = super::cursor::after(this, at) {
             at = seq;
@@ -136,17 +154,23 @@ impl Set {
     /// rather than three that agree — [`super::register_set`] installs the other
     /// two names, which is why neither is written here.
     fn values(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Keys, "Set Iterator")
+        match super::branded(this, super::Brand::Set) {
+            Some(_) => super::cursor::over(this, super::cursor::Kind::Keys, "Set Iterator"),
+            None => super::undefined(),
+        }
     }
 
     /// `s.entries()` — `[v, v]` pairs, for parity with `Map`.
     fn entries(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Entries, "Set Iterator")
+        match super::branded(this, super::Brand::Set) {
+            Some(_) => super::cursor::over(this, super::cursor::Kind::Entries, "Set Iterator"),
+            None => super::undefined(),
+        }
     }
 
     /// `s.union(other)`.
     fn union(this: u64, other: u64) -> u64 {
-        let Some(other) = other_of(other) else {
+        let Some(other) = other_of(this, other) else {
             return super::undefined();
         };
         let mut values = members(this);
@@ -158,7 +182,7 @@ impl Set {
 
     /// `s.intersection(other)`.
     fn intersection(this: u64, other: u64) -> u64 {
-        let Some(other) = other_of(other) else {
+        let Some(other) = other_of(this, other) else {
             return super::undefined();
         };
         assembled(kept(this, &other, true))
@@ -166,7 +190,7 @@ impl Set {
 
     /// `s.difference(other)`.
     fn difference(this: u64, other: u64) -> u64 {
-        let Some(other) = other_of(other) else {
+        let Some(other) = other_of(this, other) else {
             return super::undefined();
         };
         assembled(kept(this, &other, false))
@@ -178,7 +202,7 @@ impl Set {
     /// it as a copy of the receiver with the shared members removed and the rest
     /// appended, and that order is what a program printing the result sees.
     fn symmetric_difference(this: u64, other: u64) -> u64 {
-        let Some(other) = other_of(other) else {
+        let Some(other) = other_of(this, other) else {
             return super::undefined();
         };
         let mut values = kept(this, &other, false);
@@ -188,7 +212,7 @@ impl Set {
 
     /// `s.isSubsetOf(other)`.
     fn is_subset_of(this: u64, other: u64) -> bool {
-        let Some(other) = other_of(other) else {
+        let Some(other) = other_of(this, other) else {
             return false;
         };
         kept(this, &other, false).is_empty()
@@ -196,7 +220,7 @@ impl Set {
 
     /// `s.isSupersetOf(other)`.
     fn is_superset_of(this: u64, other: u64) -> bool {
-        let Some(other) = other_of(other) else {
+        let Some(other) = other_of(this, other) else {
             return false;
         };
         other.members().into_iter().all(|value| held_by(this, value))
@@ -204,7 +228,7 @@ impl Set {
 
     /// `s.isDisjointFrom(other)`.
     fn is_disjoint_from(this: u64, other: u64) -> bool {
-        let Some(other) = other_of(other) else {
+        let Some(other) = other_of(this, other) else {
             return false;
         };
         kept(this, &other, true).is_empty()
@@ -275,7 +299,12 @@ impl Other {
         if crate::entry::throw::in_flight() {
             return Vec::new();
         }
-        super::elements_of(iterator)
+        // Driven by `next`, not spread as an iterable. `keys()` answers an
+        // ITERATOR, and an iterator written by hand almost never declares a
+        // `Symbol.iterator` of its own — `elements_of` went through `iterate`,
+        // found none, and refused every set-like in the corpus with "the value
+        // is not iterable".
+        crate::entry::iterate::drained(iterator).unwrap_or_default()
     }
 
     /// Whether it holds a value.
@@ -299,51 +328,24 @@ impl Other {
 /// `None` means a throw is in flight and the caller must stop — the discipline
 /// `crates/rts-core/README.md` states as rule 8, in the direction where THIS is
 /// the native that found the fault rather than a callee.
-fn other_of(other: u64) -> Option<Other> {
-    let read = with_current(|context| {
-        let cell = Value(other).as_slot()?;
-        // A string has a cell and is not an object, and a set operation over one
-        // is the same refusal an array gets.
-        if !crate::entry::primitive::is_object_in(context, other) {
-            return None;
+fn other_of(this: u64, other: u64) -> Option<Other> {
+    // The RECEIVER first, which is the order the specification states and one a
+    // program can watch: every set operation begins with
+    // `RequireInternalSlot(O, [[SetData]])`, so `Set.prototype.union.call({}, x)`
+    // throws before `x`'s `size` getter runs at all.
+    super::branded(this, super::Brand::Set)?;
+    // The only question this crate can answer without running anything: is it an
+    // object at all, and does it carry a table of its own. A string has a cell
+    // and is not an object, and a set operation over one is the same refusal an
+    // array gets.
+    let table = with_current(|context| match Value(other).as_slot() {
+        Some(cell) if crate::entry::primitive::is_object_in(context, other) => {
+            Some(context.table_at(cell).map(|_| cell))
         }
-        // `size` first, and it decides the whole refusal: an array has none, so
-        // it is absent, and absent is what makes `a.union([1, 2])` a `TypeError`
-        // rather than a union with an empty set.
-        //
-        // Required to BE a number, where the specification runs `ToNumber` over
-        // it. The difference is an object whose `size` is `"2"` or has a
-        // `valueOf`, and coercing here would run user code from inside the
-        // borrow this reads under — the one thing every function in this module
-        // is shaped to avoid. It is a refusal where the language accepts, which
-        // is the direction a program notices and can correct.
-        // A real Map or Set answers from its TABLE rather than through the
-        // property. `size` is a prototype accessor now — see
-        // `super::sized` — and `read_property` walks slots, not accessors, so
-        // asking through the property would report every genuine Set as
-        // size-less and refuse `a.union(b)` for two Sets. Reading the table is
-        // also what the getter itself does, so the two cannot come apart.
-        let size = match context.table_at(cell) {
-            Some(table) => table.len() as f64,
-            None => {
-                let key = context.well_known("size");
-                crate::entry::objects::read_property(context, cell, key)
-                    .and_then(|found| found.numeric())?
-            }
-        };
-        if size.is_nan() {
-            return None;
-        }
-        let has = named(context, cell, "has")?;
-        let keys = named(context, cell, "keys")?;
-        Some(Other {
-            object: other,
-            has,
-            keys,
-            table: context.table_at(cell).map(|_| cell),
-        })
+        _ => None,
     });
-    if read.is_none() {
+    let read = read_record(other, table);
+    if read.is_none() && !crate::entry::throw::in_flight() {
         crate::entry::throw::type_error(
             "a set operation takes a Set or a set-like object: one with a numeric \
              `size` and callable `has` and `keys`",
@@ -352,13 +354,94 @@ fn other_of(other: u64) -> Option<Other> {
     read
 }
 
-/// One CALLABLE member of an object, by name.
-fn named(context: &mut Context, cell: u32, name: &str) -> Option<u64> {
-    let key = context.well_known(name);
-    let found = crate::entry::objects::read_property(context, cell, key)?.bits();
-    let slot = Value(found).as_slot()?;
-    context.callable_at(slot)?;
-    Some(found)
+/// `GetSetRecord` proper, with **no borrow held**.
+///
+/// `size`, `has` and `keys` are read in that order and through the crate's one
+/// property read, so an ACCESSOR runs. That is not a nicety: `size` is a
+/// prototype accessor on this engine's own `Set` — see `super::sized` — and a
+/// set-like written by hand almost always spells it `get size()`, which is what
+/// the fixture corpus does. Reading slots instead reported every such object as
+/// size-less and refused `a.union(setLike)` outright.
+///
+/// `ToNumber` over `size`, which is what the specification runs. The previous
+/// spelling required the property to already BE a number because it read under a
+/// borrow and coercion is user code; splitting the borrow is what removes that
+/// refusal rather than documenting it.
+///
+/// Rule 8 at every step: each of these four reads may run user code, and a
+/// throw left behind means the record was never obtained — the `None` here is
+/// the caller's signal to stop, and `other_of` does not turn it into a second,
+/// wrong `TypeError`.
+fn read_record(other: u64, table: Option<Option<u32>>) -> Option<Other> {
+    let table = table?;
+    let size = match table {
+        // A real Map or Set answers from its TABLE, which is also what the
+        // getter itself does, so the two cannot come apart.
+        Some(cell) => with_current(|context| context.table_at(cell).map(|t| t.len() as f64))?,
+        None => {
+            let raw = read_member(other, "size");
+            if crate::entry::throw::in_flight() {
+                return None;
+            }
+            let size = crate::entry::class_support::to_number(raw);
+            if crate::entry::throw::in_flight() {
+                return None;
+            }
+            size
+        }
+    };
+    if size.is_nan() {
+        return None;
+    }
+    // A NEGATIVE size is a `RangeError`, not a `TypeError`, and the
+    // specification is explicit about which: `GetSetRecord` runs
+    // `ToIntegerOrInfinity` and then refuses anything below zero by range. The
+    // distinction is program-visible — a fixture catches one and prints the
+    // constructor's name — and answering `TypeError` for both would have made
+    // `{ size: -1 }` indistinguishable from `{}`.
+    if size < 0.0 {
+        crate::entry::throw::range_error("a set-like object's `size` cannot be negative");
+        return None;
+    }
+    let has = callable_member(other, "has")?;
+    let keys = callable_member(other, "keys")?;
+    Some(Other {
+        object: other,
+        has,
+        keys,
+        table,
+    })
+}
+
+/// One property of a value by name, **getters run**.
+///
+/// Through `objects::get_property` — the crate's one property read, and the
+/// reason `super::super::promise::drain` reaches for it too: a `size` behind an
+/// inherited getter or a proxy trap answers here the way it answers everywhere
+/// else in the program. No borrow is held across it, which is what lets it run
+/// user code at all.
+fn read_member(object: u64, name: &str) -> u64 {
+    let key = with_current(|context| {
+        let key = context.well_known(name);
+        crate::entry::objects::machine_key(key).map(|key| key.index() as i64)
+    });
+    match key {
+        Some(key) => crate::entry::objects::get_property(object, key),
+        None => super::undefined(),
+    }
+}
+
+/// One CALLABLE member of an object, by name, **getters run**.
+fn callable_member(object: u64, name: &str) -> Option<u64> {
+    let found = read_member(object, name);
+    if crate::entry::throw::in_flight() {
+        return None;
+    }
+    with_current(|context| {
+        let slot = Value(found).as_slot()?;
+        context.callable_at(slot)?;
+        Some(found)
+    })
 }
 
 /// The members of `source` that `other` does or does not hold.

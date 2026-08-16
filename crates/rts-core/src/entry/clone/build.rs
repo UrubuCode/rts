@@ -53,6 +53,13 @@ fn empty(node: &Node) -> u64 {
         // A `Date` is complete at this point: its whole state is the number,
         // and it has no members to fill in a second pass.
         Node::Date(ms) => with_current(|context| dated(context, *ms)),
+        // Complete here as well, and rebuilt rather than copied: `make` is the
+        // one definition of "a pattern from two texts" that the literal and the
+        // constructor already share, so the clone compiles the same way they do
+        // and gets its own `lastIndex` for free.
+        Node::Regexp(source, flags) => {
+            with_current(|context| super::super::regex::make(context, source, flags))
+        }
         // Complete here too, for the same reason and with one more field: an
         // error's whole serialised state is its class, its message and its
         // stack — see [`super::Node::Error`] for why nothing else of it
@@ -157,7 +164,7 @@ fn fill(node: &Node, value: u64, made: &[u64]) {
             }
             super::super::collections::restore_sized(context, cell, table);
         }),
-        Node::Date(_) | Node::Buffer(_) | Node::Error { .. } => {}
+        Node::Date(_) | Node::Regexp(_, _) | Node::Buffer(_) | Node::Error { .. } => {}
     }
 }
 

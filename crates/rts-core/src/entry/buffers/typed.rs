@@ -221,6 +221,26 @@ pub(in crate::entry) fn subarray(this: u64, begin: u64, end: u64) -> u64 {
 pub(in crate::entry) fn fill(this: u64, value: u64, begin: u64, end: u64) -> u64 {
     let begin = super::optional_number(begin);
     let end = super::optional_number(end);
+    // `ToNumber` FIRST, and outside every borrow, because it may be user code:
+    // `t.fill({ valueOf() { … } })` runs that method exactly once, before any
+    // element is written. [`super::element_word`] cannot do it — it is handed a
+    // borrow, and `as_number` inside one answers `NaN` for an object rather
+    // than calling its `valueOf`, so the whole range was filled with zero and
+    // the method never ran.
+    //
+    // A bigint element takes the value AS IT ARRIVED: `ToNumber` of a bigint is
+    // the `TypeError` the two families refuse each other with, and coercing
+    // here would have made every `BigInt64Array.fill(1n)` fill zeros.
+    let value = match with_current(|context| {
+        let numeric = super::view_of(context, this).is_none_or(|view| !view.kind.is_bigint());
+        numeric && super::super::bigints::digits_of(context, value).is_none()
+    }) {
+        true => Value::from_f64(super::super::class_support::to_number(value)).bits(),
+        false => value,
+    };
+    if crate::entry::throw::in_flight() {
+        return super::undefined();
+    }
     with_current(|context| {
         if let Some(view) = super::view_of(context, this) {
             let (first, last) = super::range(view.count(), begin, end);
@@ -272,6 +292,14 @@ pub(in crate::entry) fn elements(context: &mut Context, view: &View) -> Vec<u64>
 
 /// An index within a view, or `None` for one outside it.
 fn resolve(view: &View, index: f64, negatives: bool) -> Option<usize> {
+    // `NaN` is index ZERO, not "no index": `ToIntegerOrInfinity` maps it to 0,
+    // so `t.at(NaN)` is the first element and not `undefined`. Refusing it here
+    // read as a bounds check and was a different function — the two are told
+    // apart only by a fixture that passes `NaN` deliberately.
+    let index = match index.is_nan() {
+        true => 0.0,
+        false => index,
+    };
     if !index.is_finite() {
         return None;
     }
@@ -462,6 +490,13 @@ pub(in crate::entry) fn join(this: u64, separator: u64) -> u64 {
         let joined = elements(context, &view)
             .into_iter()
             .map(|held| {
+                // A bigint element FIRST, because `numeric()` answers `None`
+                // for one and the fallback was the empty string — so
+                // `new BigInt64Array([1n, -2n]).join(",")` was `","`, an answer
+                // that looks like an empty array rather than like a bug.
+                if let Some(digits) = super::super::bigints::digits_of(context, held) {
+                    return digits.to_decimal();
+                }
                 Value(held)
                     .numeric()
                     .map(|number| {

@@ -149,6 +149,11 @@ pub(super) fn hooked(
 
 /// `s.search(re)` — where the first match is, or -1.
 extern "C" fn search(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     if let Some(answered) = hooked(this, pattern, "search", None) {
         return answered;
     }
@@ -170,6 +175,11 @@ extern "C" fn search(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
 /// choice: without `g` it is `exec`, with `g` it is the list of matched text and
 /// no groups at all.
 extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     if let Some(answered) = hooked(this, pattern, "match", None) {
         return answered;
     }
@@ -180,6 +190,12 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
             Sought::Text(_) => false,
         };
         let found = scan(context, &subject, &sought, global);
+        // Before the early return below, because a global pattern that matched
+        // NOTHING still ends with `lastIndex` at zero — see
+        // `super::super::regex::methods::reset_global`.
+        if let Sought::Pattern(cell) = sought {
+            super::super::regex::methods::reset_global(context, cell);
+        }
         let first = found.first()?;
         let at = units_before(&subject, first.from());
         let parts: Vec<Option<String>> = if global {
@@ -248,6 +264,11 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
 /// function on the result, and the matches are all found before the first is
 /// looked at.
 extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     if let Some(answered) = hooked(this, pattern, "matchAll", None) {
         return answered;
     }

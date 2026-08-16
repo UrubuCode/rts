@@ -128,7 +128,38 @@ pub(in crate::entry) fn constants(context: &mut Context, cell: u32, constants: &
         };
         let key = context.well_known(name);
         super::objects::put(context, cell, key, value);
+        attributed(context, cell, key, held);
     }
+}
+
+/// The attribute set a class constant gets, decided by which spelling it is.
+///
+/// The two spellings are not the same kind of property and the specification
+/// does not give them the same attributes, so the enum carries the decision
+/// rather than a second list:
+///
+/// - A NUMBER is `Math.PI`, `Number.MAX_SAFE_INTEGER`, `Number.EPSILON`. Every
+///   one of those is `{ writable: false, enumerable: false, configurable: false }`
+///   — the language pins them, and `Math.PI = 3` is a silent no-op rather than
+///   an assignment.
+/// - TEXT is `Error.prototype.name` and `Error.prototype.message`, which are
+///   ordinary `{ writable: true, enumerable: false, configurable: true }` data
+///   properties: a subclass assigning `this.name` has to work.
+///
+/// Enumerability is the half a program notices first and the half that was
+/// wrong for both: nothing marked these, so `Object.keys(Math)` answered its
+/// eight constants where every runtime answers `[]`, and `JSON.stringify(Math)`
+/// serialised them.
+fn attributed(context: &mut Context, cell: u32, key: crate::object::Key, held: &Constant) {
+    let crate::object::Key::Name(named) = key else {
+        return;
+    };
+    let writable = matches!(held, Constant::Text(_));
+    super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
+        writable,
+        enumerable: false,
+        configurable: writable,
+    });
 }
 
 /// `ToNumber` of an argument.

@@ -12,8 +12,7 @@
 //!
 //! So this is two passes over a pure Rust arena that names no heap object it did
 //! not put there: [`walk`] reads the source into [`Node`]s, and [`materialise`]
-//! turns them into values. Neither is recursive at the point it touches the
-//! heap.
+//! turns them into values. Neither recurses where it touches the heap.
 //!
 //! # Why an arena and not a tree
 //!
@@ -105,9 +104,12 @@ pub fn deep_copy(value: u64) -> u64 {
     resolve(root, &made)
 }
 
-pub(super) fn provided(name: &str) -> Option<super::native::Native> {
+pub(super) fn provided(name: &str) -> Option<(super::native::Native, u32)> {
     match name {
-        "structuredClone" => Some(structured_clone),
+        // `structuredClone(value, options)` — arity 1, because `options` is
+        // optional. See `super::global_fns::provided` for why the number is
+        // here rather than in a table beside it.
+        "structuredClone" => Some((structured_clone, 1)),
         _ => None,
     }
 }
@@ -186,6 +188,15 @@ enum Node {
     Set(Vec<Slot>),
     /// The time value, which is all a `Date` is.
     Date(f64),
+    /// A pattern and its flags, which is all a `RegExp` is.
+    ///
+    /// It had no arm and cloned through the plain-object walk, which worked
+    /// only while `source` and `flags` were own PROPERTIES — the clone was a
+    /// plain object answering them, and `structuredClone(/a/g).exec` was
+    /// already `undefined`. Once they became prototype accessors
+    /// (`regex::accessors` says why) the walk had nothing to copy and the wrong
+    /// answer became visible. Rebuilt from the two texts instead.
+    Regexp(String, String),
     /// An error, as the three things the specification says survives one.
     ///
     /// `class` is the name of the registered class whose prototype the clone
@@ -260,6 +271,10 @@ enum Shape {
     Map(u32),
     Set(u32),
     Date(u32, f64),
+    /// A regular expression, recognised by carrying a compiled pattern. The
+    /// cell alone, unlike [`Shape::Date`]'s number: `Shape` is `Copy` so that
+    /// classification costs nothing, and two owned strings are not.
+    Regexp(u32),
     /// An `ArrayBuffer`, recognised by owning a byte store — see
     /// [`super::buffers`], the one thing here that reaches into another
     /// module's storage rather than reading properties like everything else.
@@ -301,6 +316,12 @@ fn shape_of(context: &mut Context, value: u64) -> Shape {
     // the element/plain-object fallback, none of which know what a buffer is.
     if context.bytes_at(cell).is_some() {
         return Shape::Buffer(cell);
+    }
+    // Before the plain-object fallback: a regular expression answers
+    // `source`/`flags` through PROTOTYPE accessors, so the walk below would
+    // find no own members and clone it as an empty object.
+    if context.regexp_at(cell).is_some() {
+        return Shape::Regexp(cell);
     }
     if context.table_at(cell).is_some() {
         // Which of the two it is comes from the prototype the class
@@ -364,6 +385,23 @@ fn walk(graph: &mut Graph, value: u64, depth: usize) -> Slot {
             }
             let at = graph.reserve(cell);
             graph.nodes[at] = Node::Date(ms);
+            return Slot::At(at);
+        }
+        Shape::Regexp(cell) => {
+            // `Date`'s reasoning: no child VALUES, and still registered so one
+            // pattern appearing twice comes back as one object twice.
+            if let Some(at) = graph.found(cell) {
+                return Slot::At(at);
+            }
+            let at = graph.reserve(cell);
+            let read = with_current(|context| {
+                let pattern = context.regexp_at(cell)?;
+                Some((pattern.source().to_owned(), pattern.flags().to_owned()))
+            });
+            // The classification saw a pattern under a borrow since given back,
+            // so the absence is unreachable rather than unhandled.
+            let (source, flags) = read.unwrap_or_default();
+            graph.nodes[at] = Node::Regexp(source, flags);
             return Slot::At(at);
         }
         Shape::Error(cell) => {

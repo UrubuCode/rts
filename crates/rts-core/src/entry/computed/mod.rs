@@ -32,7 +32,7 @@ pub use query::{
     DELETE_PROPERTY_ENTRY, HAS_PROPERTY_ENTRY, WITH_HAS_ENTRY, delete_property, has_property,
     with_has,
 };
-pub(in crate::entry) use query::{length_key, remove_own};
+pub(in crate::entry) use query::{delete_own, length_key, remove_own};
 
 use super::objects::undefined_of;
 use super::{Context, with_current};

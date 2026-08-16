@@ -37,18 +37,27 @@ use super::state;
 /// `Object.keys(resolve)` would show it, a program could overwrite it, and it
 /// would mint a property key for a fact no program named.
 ///
-/// What crosses is the promise's INDEX, not a `PromiseId`: the machine keeps
-/// that field private so nothing outside can invent one, and `Machine::at` is
-/// the honest way back.
-pub(super) fn settler(context: &mut Context, id: PromiseId, settlement: Settlement) -> u64 {
+/// What crosses is the PAIR number, not a `PromiseId`: the machine keeps that
+/// field private so nothing outside can invent one, and the pair table is the
+/// honest way back — it carries the promise AND the one `alreadyResolved` cell
+/// the two functions share.
+pub(super) fn settler(context: &mut Context, pair: usize, settlement: Settlement) -> u64 {
     let code = match settlement {
         Settlement::Fulfilled => resolve_native as crate::entry::native::Native,
         Settlement::Rejected => reject_native as crate::entry::native::Native,
     };
     let made = crate::entry::native::callable(context, code);
     if let Some(cell) = Value(made).as_slot() {
-        context.mark_callable(cell, code as usize as u64, id.index() as u64);
+        context.mark_callable(cell, code as usize as u64, pair as u64);
     }
+    // `SetFunctionLength(1)` and `SetFunctionName("")` — the specification names
+    // both for these two, and a program reads them: a library deciding how to
+    // call something it was handed asks `f.length`, and it read `undefined`
+    // here. The empty name is not an omission either; it is what the language
+    // says a settler answers, and leaving the property off answered `undefined`
+    // where `""` is the fact.
+    crate::entry::native::name_of(context, made, "");
+    crate::entry::native::length_of(context, made, 1);
     made
 }
 
@@ -81,7 +90,10 @@ extern "C" fn reject_native(
 /// The body both settlers share: find the promise, act, answer `undefined`.
 fn with(environment: u64, body: impl FnOnce(&mut Context, PromiseId)) -> u64 {
     crate::entry::with_current(|context| {
-        if let Some(id) = context.promises.at(environment as usize) {
+        // `alreadyResolved`: the first of the PAIR to run wins, and every later
+        // call — of either function — does nothing. Asked of the pair and not of
+        // the promise, because one promise has several pairs over its life.
+        if let Some(id) = context.promises.claim_pair(environment as usize) {
             body(context, id);
         }
         undefined_of(context)

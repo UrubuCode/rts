@@ -23,6 +23,68 @@ pub(super) fn held(array: u64) -> Option<Vec<u64>> {
     })
 }
 
+/// The keys `EnumerableOwnProperties` visits, with the descriptor asked
+/// **per key** and immediately before that key's read.
+///
+/// # Why the order and not just the set
+///
+/// `Object.values`, `Object.entries`, `Object.assign` and object spread are all
+/// defined as one loop: `[[OwnPropertyKeys]]` once, then `[[GetOwnProperty]]`
+/// and `[[Get]]` alternating per key. Over a plain object nothing can tell,
+/// which is why every one of them here asked `super::super::array::own_keys` —
+/// the already-filtered list — and then read the values in a second pass.
+///
+/// A **proxy** can tell, and a program that logs its handler is exactly what
+/// these fixtures do: `super::super::proxy::enumerable_keys` runs every
+/// `getOwnPropertyDescriptor` first, so the sequence came out
+/// `ownKeys, gopd:a, gopd:b, get:a, get:b` where every other engine reports
+/// `ownKeys, gopd:a, get:a, gopd:b, get:b`. Same answer, different observable
+/// order — and the order is the thing a trap exists to observe.
+///
+/// The filter is skipped entirely for a non-proxy, because `own_keys` has
+/// already applied it there and asking again would be a second descriptor read
+/// per property on the path every ordinary `{...o}` takes.
+/// A closure and not a returned list, because a list is what forces the wrong
+/// order: the caller's work for key *a* has to happen before the descriptor of
+/// key *b* is asked for.
+pub(in crate::entry) fn each_enumerable_own(object: u64, mut visit: impl FnMut(u64)) {
+    let filter = super::super::proxy::is_proxy(object);
+    let listed = match filter {
+        true => super::super::proxy::own_keys(object).unwrap_or(object),
+        false => super::super::array::own_keys(object),
+    };
+    if super::super::throw::in_flight() {
+        return;
+    }
+    let Some(names) = held(listed) else {
+        return;
+    };
+    for name in names {
+        if filter {
+            let described = super::describe_of(object, name);
+            // Rule 8: the descriptor came from a handler, so it may not have
+            // come at all.
+            if super::super::throw::in_flight() {
+                return;
+            }
+            let enumerable = with_current(|context| {
+                let key = context.well_known("enumerable");
+                Value(described)
+                    .as_slot()
+                    .and_then(|cell| super::super::objects::read_property(context, cell, key))
+                    .map(|found| found.bits())
+            });
+            if !enumerable.is_some_and(|found| super::super::primitives::to_boolean(found)) {
+                continue;
+            }
+        }
+        visit(name);
+        if super::super::throw::in_flight() {
+            return;
+        }
+    }
+}
+
 /// `Object.assign(target, ...sources)` — copies the own keys across.
 ///
 /// Three sources rather than any number, because the arity a call carries is
@@ -47,16 +109,13 @@ pub(super) extern "C" fn assign(
         // keys — so the same skip serves both the spec's rule (a null or
         // undefined source contributes nothing) and the missing-argument case,
         // without this having to know which it is looking at.
-        let Some(found) = held(super::super::array::own_keys(source)) else {
-            continue;
-        };
-        for name in found {
+        each_enumerable_own(source, |name| {
             // Through the ordinary paths on both sides, so a getter on the
             // source runs and a setter on the target runs — which is what
             // `assign` does and what a slot-to-slot copy would have skipped.
             let value = super::super::computed::get_indexed(source, name);
             super::super::computed::set_indexed(target, name, value);
-        }
+        });
         // `own_keys` never reports a symbol — it is the string enumeration,
         // and a symbol has no string spelling for it to report — so a
         // `[sym]: v` entry used to vanish across `Object.assign` and spread

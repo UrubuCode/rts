@@ -175,6 +175,24 @@ pub(super) fn is_symbol(context: &Context, value: u64) -> bool {
     Value(value).as_client(context.kinds.symbol).is_some()
 }
 
+/// Whether a value is a symbol the global registry holds — one `Symbol.for`
+/// made, as against one `Symbol()` did.
+///
+/// The weak collections are what asks. ES2023 admits a symbol as a `WeakMap`
+/// key, a `WeakSet` member, a `WeakRef` target and a `FinalizationRegistry`
+/// target — but *only* an unregistered one, because a registered symbol is
+/// reachable from the registry for ever and so can never die: holding one
+/// weakly is a subscription to an event that cannot happen.
+///
+/// Asked of the key text's prefix, which is where [`for_key`] already writes
+/// that fact and where [`key_for`] already reads it back. A flag on
+/// `SymbolInfo` would be the same fact in a second place.
+pub(in crate::entry) fn is_registered(context: &Context, value: u64) -> bool {
+    context
+        .symbol_of(value)
+        .is_some_and(|symbol| symbol.key.starts_with(&format!("{PREFIX}for:")))
+}
+
 /// The key text a value names, when the value is a symbol.
 ///
 /// This is `ToPropertyKey` for the one case that is not a string: a symbol is
@@ -294,6 +312,10 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // interning allocates, which can reach back here.
     context.symbols.prototype = Some(cell);
     super::native::install(context, cell, NATIVES);
+    // Forces `Symbol` itself, which is what writes the `constructor` link back
+    // here — the registrations are lazy, so a program that never spells
+    // `Symbol` read `Symbol("s").constructor === undefined`.
+    super::global::ensure(context, "Symbol");
     // `description` as a prototype ACCESSOR, and `Symbol.prototype
     // [Symbol.toStringTag]` as a data property.
     //
@@ -447,6 +469,12 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         let key = context.well_known("prototype");
         let value = Value::from_slot(prototype).bits();
         super::objects::put(context, cell, key, value);
+        // And back: `Symbol("s").constructor` answered `undefined` without it,
+        // where the language says `Symbol`. Non-enumerable like every other
+        // member of a built-in prototype.
+        let key = context.well_known("constructor");
+        super::objects::put(context, prototype, key, callable);
+        super::native::hidden(context, prototype, key);
     }
     for name in WELL_KNOWN {
         let symbol = well_known(context, name);

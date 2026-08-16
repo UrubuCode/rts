@@ -46,6 +46,7 @@ impl Date {
     /// [`super::super::error`]'s `written` does. Stated rather than guessed at:
     /// the information genuinely is not here to branch on.
     #[construct]
+    #[arity(7)]
     fn build(this: u64, a: u64, b: u64, c: u64, d: u64) -> u64 {
         let given = fields::given([a, b, c, d]);
         let ms = match given.len() {
@@ -105,6 +106,7 @@ impl Date {
     /// "no arguments means now" is the constructor's rule alone.
     #[stat]
     #[js("UTC")]
+    #[arity(7)]
     fn utc(a: u64, b: u64, c: u64, d: u64) -> f64 {
         let given = fields::given([a, b, c, d]);
         match given.is_empty() {

@@ -39,7 +39,7 @@
 //! that pair grows a third field, this property and its reads come out.
 
 use super::{Context, with_current};
-use crate::entry::{list_iterator, objects, rooted};
+use crate::entry::{list_iterator, objects};
 use crate::value::Value;
 
 /// Which of a collection's three views an iterator answers.
@@ -178,28 +178,6 @@ pub(in crate::entry) fn result_of(step: Stepped) -> u64 {
     }
 }
 
-/// Everything a cursor has left, taking it to the end.
-///
-/// What the ES2025 helpers on an iterator read, and `None` for an iterator that
-/// is not over a collection — the same distinction [`stepped`] draws and for the
-/// same reason.
-///
-/// ROOTED, because a pair becomes an array and that allocation can collect: what
-/// has been drained so far is named only by a `Vec` on the Rust heap until the
-/// caller stores it somewhere the heap can see.
-pub(in crate::entry) fn drained(this: u64) -> Option<Vec<u64>> {
-    let mut held = rooted::Rooted::new();
-    loop {
-        match stepped(this)? {
-            Stepped::Done => return Some(held.take()),
-            Stepped::One(value) => held.values().push(value),
-            Stepped::Pair(key, value) => {
-                let pair = super::array_of(vec![key, value]);
-                held.values().push(pair);
-            }
-        }
-    }
-}
 
 /// The entry after `seq`, read without an iterator object in the way.
 ///

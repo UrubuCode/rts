@@ -454,6 +454,31 @@ impl Scope {
             .layers
             .last_mut()
             .expect("a scope always has at least the function's own layer");
+        // A name this layer already holds AS A VALUE is REPLACED in place rather
+        // than pushed beside. That is the emitter's own seed and nothing else:
+        // a `switch` gives its clauses one shared block scope and has to create
+        // the slot before the tests branch, so `case 0: let x = 5` is a store
+        // into a binding that already exists. Pushing a second entry would leave
+        // the first where `snapshot` counted it, and the block parameter
+        // carrying the name across a fall-through would carry the SEED.
+        //
+        // Only a `Binding::Value`, and the restriction is load-bearing.
+        // `Scope::for_function` puts the enclosing function's names in this same
+        // layer as `InEnvironment`, and its documentation says the ORDER is the
+        // shadowing rule — `lookup` scans in reverse, so a parameter pushed
+        // after one of them wins. Replacing those in place made
+        // `function inner(x) { … }` inside a function with its own captured `x`
+        // read the OUTER one: measured on
+        // `fn-meta/codex2_104_nested_closure_shadowing.ts`, which answered
+        // `param` where every other runtime answers `inner`.
+        if let Some(entry) = layer
+            .entries
+            .iter_mut()
+            .find(|(held, binding)| *held == name && matches!(binding, Binding::Value(_)))
+        {
+            entry.1 = Binding::Value(value);
+            return;
+        }
         layer.entries.push((name, Binding::Value(value)));
     }
 

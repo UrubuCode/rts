@@ -263,6 +263,12 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
         {
             install_proto(context, cell);
         }
+        // `Object.prototype.constructor` is written by `Object`'s own lazy
+        // registration, so a program that never spells `Object` read
+        // `({}).constructor === undefined`. Forcing the global here is the same
+        // move the array and string prototypes make, and it terminates for the
+        // same reason: the name is recorded before this line runs.
+        super::global::ensure(context, "Object");
     }
     Value(super::class_support::prototype(context, "Object.prototype")?).as_slot()
 }

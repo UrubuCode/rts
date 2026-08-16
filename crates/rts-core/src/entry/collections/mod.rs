@@ -63,6 +63,7 @@
 //! inside `for (const e of m)` is not seen, where the same `m.set` from inside
 //! `m.forEach` is.
 
+mod brand;
 mod cursor;
 mod finalization;
 mod map;
@@ -80,11 +81,14 @@ pub(in crate::entry) use finalization::{
 };
 pub(in crate::entry) use weakref::WEAK_REF_TYPES;
 pub(in crate::entry) use table::Table;
+pub(super) use table::Brand;
+pub(super) use brand::{branded, requires_new};
+use brand::of_class as brand_of;
 pub(in crate::entry) use weak::{register_weak_map, register_weak_set};
 pub(in crate::entry) use weakref::register_weak_ref;
 // What `list_iterator` asks of a cursor: is this iterator over a collection,
 // and if so, step it. The kind and the making of one stay inside this module.
-pub(in crate::entry) use cursor::{drained, result_of, stepped};
+pub(in crate::entry) use cursor::{result_of, stepped};
 
 use super::objects::undefined_of;
 use super::{Context, with_current};
@@ -136,12 +140,10 @@ pub(in crate::entry) fn register_set(context: &mut Context) -> u64 {
 /// three ways a program can see:
 ///
 /// - `Object.getOwnPropertyDescriptor(Map.prototype, "size")` was `undefined`
-///   for a property every Map has — the descriptor and the read disagreeing
-///   about one name.
+///   for a property every Map has.
 /// - `m.size = 5` STORED, and the next `m.set` overwrote it. An accessor with
 ///   no setter refuses instead, which is what the specification says.
-/// - `Object.keys(new Map())` had to be taught to skip it, and `size` had to be
-///   marked non-enumerable per instance to stay hidden.
+/// - `Object.keys(new Map())` had to be taught to skip it.
 ///
 /// The reason it was a data property is recorded at [`restore_sized`]: a value
 /// only the slow path knows about is one the fast path disagrees with the moment
@@ -157,25 +159,7 @@ fn sized(context: &mut Context, class: &'static str) {
     let Some(cell) = Value(prototype).as_slot() else {
         return;
     };
-    super::native::getter(context, cell, "size", size as super::native::Native);
-}
-
-/// `m.size` / `s.size` — the entry count, read from the table itself.
-///
-/// A receiver that is not one of these collections answers `undefined` rather
-/// than throwing, which is the tolerance every refusal in this module settles
-/// on while the brand check has no handler to reach.
-extern "C" fn size(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    super::with_current(|context| {
-        match Value(this)
-            .as_slot()
-            .and_then(|cell| context.table_at(cell))
-            .map(|table| table.len())
-        {
-            Some(count) => Value::from_f64(count as f64).bits(),
-            None => super::objects::undefined_of(context),
-        }
-    })
+    super::native::getter(context, cell, "size", brand::size_getter(class));
 }
 
 /// The key `Symbol.iterator` writes, spelled from the one place the encoding is
@@ -186,9 +170,8 @@ fn iterator_key() -> String {
 
 /// Puts what a prototype already holds under a second name.
 ///
-/// Idempotent, which matters because a registration answers early when the class
-/// is already made: writing the same value under the same key twice is the same
-/// prototype either way.
+/// Idempotent: a registration answers early when the class is already made, and
+/// writing the same value under the same key twice is the same prototype.
 fn alias(context: &mut Context, class: &'static str, from: &str, to: &str) {
     let Some(prototype) = super::class_support::prototype(context, class) else {
         return;
@@ -202,6 +185,11 @@ fn alias(context: &mut Context, class: &'static str, from: &str, to: &str) {
     };
     let target = context.well_known(to);
     super::objects::put(context, cell, target, found.bits());
+    // Non-enumerable, like the member it aliases. `install` marks what it
+    // installs and this writes a second name straight onto the cell, so
+    // `Set.prototype.keys` was the one enumerable property on either prototype
+    // — `Object.keys(Set.prototype).length` answered 1 where it answers 0.
+    super::native::hidden(context, cell, target);
 }
 
 impl Context {
@@ -231,7 +219,15 @@ impl Context {
 /// map, and the only way to get one is a callback this module never runs from
 /// here.
 pub(super) fn taken(context: &mut Context, cell: u32) -> Option<Table> {
-    Some(std::mem::take(context.collections.get_mut(cell)?))
+    let held = context.collections.get_mut(cell)?;
+    let brand = held.brand();
+    let table = std::mem::take(held);
+    // The leftover keeps the brand, so a cell whose table is momentarily out is
+    // still the class it was. Nothing reads it in between today — see the note
+    // above about re-entry — and the day something does, "a Set briefly became a
+    // Map" is not a failure anyone would find.
+    context.collections.get_mut(cell)?.set_brand(brand);
+    Some(table)
 }
 
 /// Puts one back.
@@ -277,24 +273,15 @@ pub(super) fn fresh(context: &mut Context, class: &'static str) -> u64 {
     // read `undefined` because nothing had written the property yet, and a
     // collection that answers a count only once it has been written to is worse
     // than one that answers none.
-    restore_sized(context, cell, Table::default());
+    restore_sized(context, cell, Table::of(brand_of(class)));
     Value::from_slot(cell).bits()
 }
 
 /// The object a constructor writes into: the one `new` made, or one made here.
-///
-/// # Why a plain call is not refused
-///
-/// `Map()` without `new` is a `TypeError` in the language, and raising one here
-/// would end the program: [`super::throw`] cannot find a handler in a caller.
-/// The same tolerance `Error("x")` without `new` settles on there, and it fails where
-/// the program uses the result rather than at an arbitrary later point.
+/// See [`brand::requires_new`], the half that can raise.
 pub(super) fn built(context: &mut Context, this: u64, class: &'static str) -> Option<u32> {
-    let cell = match Value(this).as_slot() {
-        Some(cell) => cell,
-        None => Value(fresh(context, class)).as_slot()?,
-    };
-    context.collections.set(cell, Table::default());
+    let cell = Value(this).as_slot()?;
+    context.collections.set(cell, Table::of(brand_of(class)));
     Some(cell)
 }
 
@@ -355,24 +342,40 @@ pub(super) fn elements_of(iterable: u64) -> Vec<u64> {
 /// language throws — the same tolerance every other refusal here settles on.
 pub(super) fn pairs_of(iterable: u64) -> Vec<(u64, u64)> {
     let entries = elements_of(iterable);
-    with_current(|context| {
+    let (pairs, refused) = with_current(|context| {
         let absent = undefined_of(context);
-        entries
-            .into_iter()
-            .map(|entry| {
-                let held = Value(entry)
-                    .as_slot()
-                    .and_then(|cell| context.elements_at(cell));
-                match held {
-                    Some(pair) => (
-                        pair.first().copied().unwrap_or(absent),
-                        pair.get(1).copied().unwrap_or(absent),
-                    ),
-                    None => (absent, absent),
-                }
-            })
-            .collect()
-    })
+        let mut pairs = Vec::new();
+        for entry in entries {
+            // An entry that is not an OBJECT is a `TypeError`: the specification
+            // spells it `AddEntriesFromIterable` and refuses the step outright,
+            // where this tolerated it as `undefined => undefined` — so
+            // `new Map([1, 2])` built a map with one `undefined` key instead of
+            // stopping. The comment here used to call that "the same tolerance
+            // every refusal in this module settles on"; a native raises now.
+            if !super::primitive::is_object_in(context, entry) {
+                return (pairs, true);
+            }
+            let held = Value(entry)
+                .as_slot()
+                .and_then(|cell| context.elements_at(cell));
+            pairs.push(match held {
+                Some(pair) => (
+                    pair.first().copied().unwrap_or(absent),
+                    pair.get(1).copied().unwrap_or(absent),
+                ),
+                // An object that is not an array: the specification reads its
+                // `"0"` and `"1"`, and this does not. Named rather than fixed
+                // here because the read is a property get and this runs under a
+                // borrow — the entries before it are already correct.
+                None => (absent, absent),
+            });
+        }
+        (pairs, false)
+    });
+    if refused {
+        super::throw::type_error("an entry of a Map iterable must be an object");
+    }
+    pairs
 }
 
 /// What a `for-of` over a collection yields.

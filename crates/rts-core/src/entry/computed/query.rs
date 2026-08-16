@@ -159,8 +159,37 @@ pub(in crate::entry) fn length_key(context: &mut Context) -> Key {
 /// slot, so they are read out against the old layout before the header changes
 /// and written back against the new — reading after would read the new offsets
 /// out of the old contents.
+/// # Why the SYNTAX throws and `Reflect` does not
+///
+/// `delete o.x` on a non-configurable property is a `TypeError` in strict code
+/// — every module here is strict — and `Reflect.deleteProperty(o, "x")` is the
+/// spelling that reports the same refusal as `false`. One operation, two
+/// readings, so the refusal is decided once in [`delete_own`] and this is the
+/// half that raises. Both used to answer `false` quietly, which made
+/// `delete` on a sealed object a statement that did nothing and said nothing.
 #[rtse::entry]
 pub fn delete_property(object: u64, key: u64) -> bool {
+    let spelled = with_current(|context| {
+        property_key(context, Value(key))
+            .and_then(machine_key)
+            .and_then(|machine| context.interner.text(machine))
+            .and_then(|text| text.to_rust())
+    });
+    if delete_own(object, key) {
+        return true;
+    }
+    // A refusal already raised by something deeper — a revoked proxy, a
+    // handler of its own — stays that one. Rule 8: the throw in flight is the
+    // more specific answer.
+    if !super::super::throw::in_flight() {
+        let named = spelled.unwrap_or_default();
+        super::super::throw::type_error(&format!("Cannot delete property '{named}' of object"));
+    }
+    false
+}
+
+/// The removal itself, refusals reported rather than raised.
+pub(in crate::entry) fn delete_own(object: u64, key: u64) -> bool {
     let (key, trap) = opened(object, key);
     if let Some(named) = trap
         && let Some(answered) = super::super::proxy::delete(object, named)

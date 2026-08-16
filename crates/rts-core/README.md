@@ -173,7 +173,15 @@ wired at `+`, the four relational operators, `==`, `String()`, `Number()` and
 `join`.
 
 What is still deliberately absent: the write barrier's runtime side (waits for
-regions) and `Symbol.toPrimitive` (additive on the above).
+regions).
+
+`Symbol.toPrimitive` was listed here as the second absence and is not one:
+`entry/primitive.rs` consults it ahead of `valueOf`/`toString` for every hint,
+and — since 2026-08-16 — an object answered by the hook is the `TypeError` the
+language says it is, rather than a fall-through to the ordinary pair. So is an
+object whose two methods both answer objects. That raise is rule 8 applied from
+the raising side, and it is what `symbol/codex3_012_toprimitive_nonprimitive_throws`
+measures.
 
 **A collector is no longer among them**, and this paragraph said it was: `collect/`
 marks and sweeps, `entry/collect_cycle.rs` runs a cycle from `entry/alloc.rs`

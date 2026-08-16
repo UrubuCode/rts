@@ -61,9 +61,47 @@ pub(in crate::entry) fn slice(this: u64, begin: u64, end: u64) -> u64 {
         return super::undefined();
     }
     match made {
-        Some(made) => filled(this, made, begin, end),
+        Some(made) => match mismatched(this, made) {
+            true => super::undefined(),
+            false => filled(this, made, begin, end),
+        },
         None => copied(this, begin, end),
     }
+}
+
+/// Whether the destination a species produced holds the other content type,
+/// raising the `TypeError` that is when it does.
+///
+/// # Why this is a refusal and no longer a dropped write
+///
+/// The module's first page says a mismatched species "copies nothing rather
+/// than throwing", and that was the honest answer while no native could raise.
+/// One can now, so the answer changed rather than the reasoning: a `slice` of a
+/// `Uint8Array` through a species naming `BigInt64Array` used to hand back an
+/// array of zeros, which is a wrong answer wearing a right answer's shape. The
+/// language throws, and a program that reached this asked for something
+/// impossible.
+pub(super) fn mismatched(this: u64, made: u64) -> bool {
+    let differs = with_current(|context| {
+        let source = super::view_of(context, this)?.kind.is_bigint();
+        Some(source != super::view_of(context, made)?.kind.is_bigint())
+    });
+    if differs != Some(true) {
+        return false;
+    }
+    crate::entry::throw::type_error("species answers an array of the other content type");
+    true
+}
+
+/// The object the species protocol produces for `count` elements, if it is not
+/// this receiver's own built-in class.
+///
+/// Exposed for [`super::typed_visit`], whose `map` and `filter` make a new
+/// array by the same protocol `slice` does. A second reading of `constructor`
+/// and `@@species` there would be a second answer to which class a derived
+/// typed array belongs to.
+pub(super) fn derived(this: u64, count: usize) -> Option<u64> {
+    species_made(this, count)
 }
 
 /// The species-constructed destination, if the answer is not this class itself.

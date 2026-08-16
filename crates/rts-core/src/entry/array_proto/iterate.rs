@@ -64,6 +64,9 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
 
 /// `a.forEach(f, thisArg)` — answers `undefined`.
 extern "C" fn for_each(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    if !required(callback) {
+        return nothing();
+    }
     let Some(count) = len_of(this) else {
         return nothing();
     };
@@ -83,6 +86,9 @@ extern "C" fn for_each(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u6
 
 /// `a.map(f, thisArg)` — a new array of what `f` answered.
 extern "C" fn map(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    if !required(callback) {
+        return nothing();
+    }
     let Some(count) = len_of(this) else {
         return nothing();
     };
@@ -137,6 +143,9 @@ extern "C" fn map(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a
 
 /// `a.filter(f, thisArg)` — a new array of the elements `f` kept.
 extern "C" fn filter(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    if !required(callback) {
+        return nothing();
+    }
     let Some(count) = len_of(this) else {
         return nothing();
     };
@@ -216,6 +225,9 @@ extern "C" fn some(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _
 /// True for an empty array, which is the language and the corner an
 /// implementation written as "found one that failed" gets right by construction.
 extern "C" fn every(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, _a3: u64) -> u64 {
+    if !required(callback) {
+        return Value::from_bool(false).bits();
+    }
     let Some(count) = len_of(this) else {
         return Value::from_bool(false).bits();
     };
@@ -248,6 +260,9 @@ extern "C" fn every(_e: u64, this: u64, callback: u64, receiver: u64, _a2: u64, 
 /// and `undefined` then flowed into whatever the program did next — a wrong
 /// number rather than a stopped program.
 extern "C" fn reduce(_e: u64, this: u64, callback: u64, initial: u64, _a2: u64, _a3: u64) -> u64 {
+    if !required(callback) {
+        return nothing();
+    }
     let Some(count) = len_of(this) else {
         return nothing();
     };
@@ -369,6 +384,9 @@ pub(super) fn visit(
 /// Shared by `find`, `findIndex` and `some`, which differ only in what they
 /// report about the same scan.
 fn sought(this: u64, callback: u64, receiver: u64, skip_absent: bool) -> Option<(u64, usize)> {
+    if !required(callback) {
+        return None;
+    }
     let count = len_of(this)?;
     for index in 0..count {
         // `some` is the caller that SKIPS, and that is why the parameter exists:
@@ -402,4 +420,20 @@ fn truthy(value: u64) -> bool {
 /// The `undefined` a method answers when there is nothing to answer.
 fn nothing() -> u64 {
     with_current(|context| undefined_of(context))
+}
+
+/// Whether the callback is one, refused with a `TypeError` when it is not.
+///
+/// Asked BEFORE the array is touched, which is the specification's order and is
+/// observable: a receiver whose index reads are a proxy trap must see none of
+/// them. It silently walked zero elements and answered instead — so
+/// `[1,2].map(undefined)` was an empty array where every other engine stops the
+/// program, and a program written against that is correct here and broken
+/// everywhere else.
+fn required(callback: u64) -> bool {
+    if crate::entry::iterate::callable(callback) {
+        return true;
+    }
+    throw::type_error("the array method was given something that is not a function");
+    false
 }

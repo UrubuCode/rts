@@ -42,19 +42,47 @@
 //! language-visible change it has always been.
 
 use super::with_current;
-use crate::entry::objects;
+use crate::entry::{objects, throw};
 use crate::value::Value;
 
 /// `WeakRef`.
 #[rtse::class("WeakRef", tag)]
 impl WeakRef {
     /// `new WeakRef(target)`.
+    ///
+    /// The target must be something that could die — an object, or a symbol the
+    /// global registry does not hold — which is [`super::weak::holdable_in`]'s
+    /// rule and the same one `WeakMap` applies to a key. Nothing checked, so
+    /// `new WeakRef(1)` answered a reference to a number: a subscription to an
+    /// event that cannot happen, and one the specification refuses at the
+    /// constructor.
+    ///
+    /// `WeakRef(x)` without `new` is refused too, and the test for it is that
+    /// `this` is not a cell: the machine hands a constructor its fresh instance
+    /// there, and an ordinary call hands it the receiver of a call that has none.
     #[construct]
     fn build(this: u64, target: u64) -> u64 {
+        let refusal = with_current(|context| match Value(this).as_slot() {
+            None => Some("Constructor WeakRef requires 'new'"),
+            Some(_) if !super::weak::holdable_in(context, target) => {
+                Some("WeakRef: the target must be an object or an unregistered symbol")
+            }
+            Some(_) => None,
+        });
+        if let Some(message) = refusal {
+            throw::type_error(message);
+            return super::undefined();
+        }
         with_current(|context| {
             if let Some(cell) = Value(this).as_slot() {
-                let key = context.well_known("__target__");
-                objects::put(context, cell, key, target);
+                // In the side table every collection here keeps, and not as an
+                // own property: `Reflect.ownKeys(new WeakRef(o))` is empty in
+                // the language, and a `"__target__"` property answered one key
+                // — a program-visible field on an object the specification says
+                // has none. It doubles as the brand `deref` checks.
+                let mut table = super::Table::default();
+                table.push_unindexed(target, target);
+                super::restore(context, cell, table);
             }
         });
         this
@@ -62,16 +90,28 @@ impl WeakRef {
 
     /// `w.deref()` — the target, while nothing collects it out from under this
     /// reference. See the module doc: this is not weak yet.
+    ///
+    /// A receiver with no table is refused, which is the brand check
+    /// `WeakRef.prototype.deref.call({})` must fail. What it does NOT
+    /// distinguish is a `Map`, which keeps its entries in the same table: that
+    /// answers the first key instead of raising, and it is written here rather
+    /// than hidden because the alternative — a class tag beside every cell —
+    /// is a machine question and not this file's.
     fn deref(this: u64) -> u64 {
-        with_current(|context| {
-            let absent = objects::undefined_of(context);
-            let Some(cell) = Value(this).as_slot() else {
-                return absent;
-            };
-            let key = context.well_known("__target__");
-            objects::read_property(context, cell, key)
-                .map(|value: Value| value.bits())
-                .unwrap_or(absent)
-        })
+        let held = with_current(|context| {
+            let cell = Value(this).as_slot()?;
+            let table = context.table_at(cell)?;
+            Some(match table.len() {
+                0 => objects::undefined_of(context),
+                _ => table.value_at(0),
+            })
+        });
+        match held {
+            Some(value) => value,
+            None => {
+                throw::type_error("WeakRef.prototype.deref called on a non-WeakRef");
+                super::undefined()
+            }
+        }
     }
 }

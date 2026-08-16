@@ -48,9 +48,11 @@
 //! separator, and splitting them across two modules is where they would come to
 //! disagree about the empty one.
 
+mod accessors;
 mod compile;
 pub(in crate::entry) mod indices;
 pub(in crate::entry) mod methods;
+mod translate;
 
 use compile::{Engine, Flags};
 
@@ -159,6 +161,12 @@ let Some(parsed) = Flags::parse(letters) else {
             return undefined_of(context);
         };
 
+        // From here on the flags are the ones `RegExp.prototype.flags` names,
+        // in its order — see [`Flags::canonical`]. The text the program WROTE
+        // is not kept: nothing observable answers it, and keeping both would
+        // be two answers to "which flags does this pattern have".
+        let letters = &parsed.canonical(letters);
+
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
         let Some(cell) = context.region.alloc(crate::heap::STRIDE, ty) else {
@@ -191,55 +199,79 @@ fn text_of(context: &Context, value: u64) -> Option<String> {
     context.text_at(Value(value).as_slot()?)?.to_rust()
 }
 
-/// Writes the properties a regular expression answers about itself.
+/// Writes the ONE own property a regular expression has.
 ///
-/// Real properties rather than answers the runtime invents, for the reason
-/// [`super::array::set_length`] records: compiled code reading a property that
-/// is in the layout never asks the runtime at all, so a value only the slow path
-/// knows about is one the fast path disagrees with the moment it starts working.
-fn describe(context: &mut Context, cell: u32, source: &str, letters: &str, flags: Flags) {
-    // `RegExp.prototype.source` answers `"(?:)"` for the pattern that matches
-    // everywhere and matches nothing when written back into a literal —
-    // `new RegExp("").source` is `""`, and `/${re.source}/` would then be `//`,
-    // an empty *comment* rather than an empty pattern. `(?:)` round-trips.
-    let printed_source = match source.is_empty() {
-        true => "(?:)",
-        false => source,
-    };
-    let source_value = context.intern_value(Str::from_str(printed_source)).bits();
-    let flags_value = context.intern_value(Str::from_str(letters)).bits();
-    // Every flag, not the three that happened to be needed first. `sticky`,
-    // `unicode`, `dotAll` and `hasIndices` answered `undefined` — and
-    // `undefined` is not `false`: `if (re.sticky)` behaves the same either way,
-    // but `re.sticky === false` does not, and a program that builds a flag
-    // string by filtering the accessors produced `"undefinedundefined"` rather
-    // than skipping them. Four of the eight being present is the shape that
-    // makes a reader believe the other four do not exist in the language.
-    //
-    // `unicode` and `unicodeSets` are reported from the letters rather than
-    // from `Flags`, which has no field for them: `u` and `v` are accepted and
-    // not acted on — `Flags::parse` says why — so the flag a program READS is
-    // the letter it wrote, and inventing `false` for a `/x/u` would be a
-    // different lie from the one already documented.
-    let written: [(&str, u64); 11] = [
-        ("source", source_value),
-        ("flags", flags_value),
-        ("global", Value::from_bool(flags.global).bits()),
-        ("ignoreCase", Value::from_bool(flags.ignore_case).bits()),
-        ("multiline", Value::from_bool(flags.multiline).bits()),
-        ("sticky", Value::from_bool(flags.sticky).bits()),
-        ("dotAll", Value::from_bool(flags.dot_all).bits()),
-        ("hasIndices", Value::from_bool(flags.has_indices).bits()),
-        ("unicode", Value::from_bool(letters.contains('u')).bits()),
-        ("unicodeSets", Value::from_bool(letters.contains('v')).bits()),
-        // Zero even for a pattern that never reads it, because a program may
-        // read it, and `undefined` is not what the language says is there.
-        ("lastIndex", Value::from_f64(0.0).bits()),
-    ];
-    for (name, value) in written {
-        let key = context.well_known(name);
-        super::objects::put(context, cell, key, value);
+/// `lastIndex`, and nothing else. `source`, `flags` and the eight booleans were
+/// written here too and are now accessors on the prototype — [`accessors`] says
+/// what that fixed, and why an accessor does not have the fast-path problem
+/// this comment used to give as the reason they were data.
+///
+/// The value is zero even for a pattern that never reads it, because a program
+/// may, and `undefined` is not what the language says is there. The attributes
+/// are recorded rather than left to default: `lastIndex` is the one built-in
+/// property that is WRITABLE and NOT configurable, so `delete re.lastIndex`
+/// answers false and `Object.defineProperty` refuses to turn it into an
+/// accessor — both program-visible, and the defaults had both backwards.
+fn describe(context: &mut Context, cell: u32, _source: &str, _letters: &str, _flags: Flags) {
+    let key = context.well_known("lastIndex");
+    super::objects::put(context, cell, key, Value::from_f64(0.0).bits());
+    if let crate::object::Key::Name(named) = key {
+        super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
+            writable: true,
+            enumerable: false,
+            configurable: false,
+        });
     }
+}
+
+/// `re.source` — the pattern written so that `/` + it + `/` is the same pattern.
+///
+/// The specification calls this `EscapeRegExpPattern` and it exists for one
+/// reason: `source` is what a program puts back between slashes, and two kinds
+/// of character break that round trip. A bare `/` would CLOSE the literal, and a
+/// line terminator would end the line the literal is on — so both are spelled as
+/// escapes, and the result is text a reader can paste back.
+///
+/// The empty pattern is `(?:)` for the same reason and not as a special case:
+/// `//` is a comment, so the one pattern that matches everywhere would round
+/// trip into something that is not a pattern at all.
+///
+/// A `/` INSIDE a character class is left alone, which is what V8 and
+/// JavaScriptCore both answer: it cannot close the literal from there, so
+/// escaping it would change the text a program reads back without changing what
+/// it means.
+pub(super) fn escaped_source(source: &str) -> String {
+    if source.is_empty() {
+        return "(?:)".to_owned();
+    }
+    let mut out = String::with_capacity(source.len());
+    let mut inside = false;
+    let mut characters = source.chars();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            out.push(character);
+            // Already an escape: whatever follows is spelled, not written raw,
+            // so re-escaping it would double every backslash in the pattern.
+            if let Some(next) = characters.next() {
+                out.push(next);
+            }
+            continue;
+        }
+        match character {
+            '[' => inside = true,
+            ']' => inside = false,
+            _ => {}
+        }
+        match character {
+            '/' if !inside => out.push_str("\\/"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            _ => out.push(character),
+        }
+    }
+    out
 }
 
 /// What every regular expression inherits from, made once.
@@ -256,6 +288,9 @@ fn prototype_of(context: &mut Context) -> u64 {
     };
     let object = Value::from_slot(cell).bits();
     super::native::install(context, cell, methods::NATIVES);
+    // `source`, `flags` and the eight booleans — accessors here rather than
+    // properties on every instance. [`accessors`] says what that fixed.
+    accessors::install(context, cell);
     context.regexp_prototype = Some(object);
     object
 }

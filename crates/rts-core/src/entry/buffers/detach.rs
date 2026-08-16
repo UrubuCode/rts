@@ -61,6 +61,7 @@ impl Context {
         }
         self.detached.set(cell, true);
         super::stamp(self, cell, "byteLength", 0.0);
+        super::flag(self, cell, "detached", true);
         true
     }
 

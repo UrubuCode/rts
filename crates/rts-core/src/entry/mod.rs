@@ -67,10 +67,12 @@ mod function_proto;
 mod functions;
 mod generator;
 mod global;
+mod host_class;
 mod global_fns;
 mod integrity;
 mod intl;
 mod iterate;
+mod iterator;
 mod json;
 pub(in crate::entry) mod list_iterator;
 mod loops;
@@ -138,6 +140,7 @@ pub use modules::{
     text_of, undefined_in, undefined_value, with_runtime,
 };
 pub use function_proto::running_function;
+pub use host_class::{declare_host_class, describe_callable};
 pub use objects::{
     get_property, get_super_property, object_new, object_spread, set_property,
     set_super_property,
@@ -452,6 +455,13 @@ pub struct Context {
     /// slots stay ordinary properties, so hanging a field on one costs nothing
     /// and takes nothing from the runtime.
     generators: Aside<generator::State>,
+    /// What an ES2025 iterator helper is doing, and to what.
+    ///
+    /// Beside the cell for the reason `generators` is, and holding an OPERATION
+    /// rather than a list: a helper is lazy, so what it holds is what it will
+    /// do on the next pull rather than what it already did. See
+    /// `iterator::helper`.
+    helpers: Aside<iterator::Helper>,
     /// What the running generator's last `yield` produced.
     ///
     /// One slot rather than a stack, because it is written and immediately
@@ -952,6 +962,7 @@ impl Context {
             bound: Aside::in_region(bits),
             collections: Aside::in_region(bits),
             generators: Aside::in_region(bits),
+            helpers: Aside::in_region(bits),
             yielded: None,
             resuming: Vec::new(),
             driving: Vec::new(),
@@ -1036,6 +1047,7 @@ impl Context {
             views: Aside::new(),
             collections: Aside::new(),
             generators: Aside::new(),
+            helpers: Aside::new(),
             yielded: None,
             resuming: Vec::new(),
             driving: Vec::new(),

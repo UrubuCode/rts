@@ -89,7 +89,7 @@ mod resume;
 use rts_cranelift::frame::ResumeMode;
 
 pub use self::delegate::{DELEGATE_STEP_ENTRY, delegate_step};
-use self::resume::{finish_value, resumable, resume};
+use self::resume::{finish_value, refuse_running, resumable, resume, running};
 /// One re-entry of a parked frame, for the driver that is not the iterator
 /// protocol: an async function's body is the same frame and is entered the same
 /// way, and only what happens to the answer differs. See `promise::async_fn`.
@@ -304,6 +304,9 @@ pub fn generator_yield(value: u64) -> u64 {
 impl Generator {
     /// `g.next(v)` — runs until the next `yield`, or until the body ends.
     fn next(this: u64, sent: u64) -> u64 {
+        if running(this) {
+            return refuse_running();
+        }
         let Some(cell) = Value(this).as_slot() else {
             return with_current(|context| super::objects::undefined_of(context));
         };
@@ -324,6 +327,9 @@ impl Generator {
     /// not run because `.return()` was called on it.
     #[js("return")]
     fn returned(this: u64, value: u64) -> u64 {
+        if running(this) {
+            return refuse_running();
+        }
         // A generator parked inside a `yield*` owes the INNER iterator its
         // `return` first, and what that answers decides whether the outer's own
         // return completion happens at all. `None` means it did not decide —
@@ -359,6 +365,9 @@ impl Generator {
     /// program can be written against.
     #[js("throw")]
     fn thrown(this: u64, error: u64) -> u64 {
+        if running(this) {
+            return refuse_running();
+        }
         // The delegated iterator's own `throw` runs first, and the outer frame
         // is re-entered only if it says the delegation is over. See
         // [`delegate::forward_throw`], which always decides — an inner iterator
@@ -441,6 +450,10 @@ pub(in crate::entry) fn register(context: &mut Context) -> u64 {
         super::objects::put(context, cell, tag, value);
         super::native::hidden(context, cell, tag);
     }
+    // `%GeneratorPrototype%` sits on `%IteratorPrototype%`, which is what makes
+    // `g().map(f)` a thing at all — it was a `TypeError` for as long as the
+    // helpers were copied onto each kind of iterator instead of inherited.
+    super::iterator::adopt(context);
     made
 }
 

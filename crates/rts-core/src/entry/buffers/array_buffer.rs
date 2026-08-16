@@ -82,4 +82,76 @@ impl ArrayBuffer {
             Value::from_slot(made).bits()
         })
     }
+
+    /// `b.transfer(newLength)` — the bytes move to a NEW buffer and this one is
+    /// detached.
+    ///
+    /// # Why this is not `slice` with a detach after it
+    ///
+    /// Because the two differ in what the caller may assume afterwards. `slice`
+    /// leaves the source readable, so a program holding it keeps a second copy
+    /// of however many megabytes; `transfer` exists to say that it does not, and
+    /// the detach is the operation rather than a tidy-up. A version that copied
+    /// and left the source attached would run every program that uses it and be
+    /// wrong about the one thing it was called for.
+    ///
+    /// A shorter length truncates and a longer one zero-fills, which is the
+    /// language's rule and is why the new length is read before the copy.
+    fn transfer(this: u64, length: u64) -> u64 {
+        transferred(this, length)
+    }
+
+    /// `b.transferToFixedLength(newLength)`.
+    ///
+    /// The same operation, and here literally so: it differs from [`transfer`]
+    /// only in that the answer is never resizable, and nothing this engine makes
+    /// is resizable yet. Present under its own name rather than absent, because
+    /// the two spellings do the same thing to the SOURCE — it is detached either
+    /// way — and a program that called the wrong one of two would otherwise keep
+    /// reading bytes it had given away.
+    fn transfer_to_fixed_length(this: u64, length: u64) -> u64 {
+        transferred(this, length)
+    }
+}
+
+/// The bytes moved into a new buffer, leaving this one detached.
+fn transferred(this: u64, length: u64) -> u64 {
+    let wanted = super::optional_number(length);
+    let taken = with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        if context.buffer_detached(cell) {
+            return None;
+        }
+        let bytes = context.bytes_at(cell)?;
+        let wanted = match wanted {
+            // `ToIndex` of the argument, and a negative one is a `RangeError`
+            // the caller below raises — `None` here would be indistinguishable
+            // from an already-detached buffer.
+            Some(number) if number >= 0.0 => number as usize,
+            Some(_) => return None,
+            None => bytes.len(),
+        };
+        let mut moved = vec![0u8; wanted];
+        let carried = wanted.min(bytes.len());
+        moved[..carried].copy_from_slice(&bytes[..carried]);
+        Some(moved)
+    });
+    let Some(taken) = taken else {
+        crate::entry::throw::type_error("ArrayBuffer is detached");
+        return super::undefined();
+    };
+    // The source is detached BEFORE the answer is made: allocating takes the
+    // byte store mutably, and a program that observed the order would see the
+    // detach either way. Doing it first keeps the failure mode honest — if the
+    // region is full, the caller has lost the bytes rather than kept two copies.
+    super::detach::detach_buffer(this);
+    with_current(|context| {
+        let Some(made) = super::new_buffer(context, taken.len()) else {
+            return undefined_of(context);
+        };
+        if let Some(destination) = context.bytes_at_mut(made) {
+            destination.copy_from_slice(&taken);
+        }
+        Value::from_slot(made).bits()
+    })
 }

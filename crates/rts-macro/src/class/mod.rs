@@ -87,7 +87,7 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
                              [[Construct]], and `new Math()` is a TypeError",
                         ));
                     }
-                    (Role::Construct, _) => construct = Some(member.wrapper.clone()),
+                    (Role::Construct, _) => construct = Some((member.wrapper.clone(), member.arity)),
                     (Role::Static, _) => statics.push(row),
                     (Role::Member, _) => members.push(row),
                 }
@@ -135,7 +135,7 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             &statics_name,
             &constants_name,
             &static_constants_name,
-            construct.as_ref(),
+            construct.as_ref().map(|(wrapper, arity)| (wrapper, *arity)),
             options.extends.as_ref(),
             &prefix,
             options.tag,
@@ -253,7 +253,7 @@ fn class_body(
     statics: &syn::Ident,
     constants: &syn::Ident,
     static_constants: &syn::Ident,
-    construct: Option<&syn::Ident>,
+    construct: Option<(&syn::Ident, u32)>,
     extends: Option<&Path>,
     prefix: &str,
     tag: bool,
@@ -263,12 +263,13 @@ fn class_body(
     // `new C()` runs one. The default keeps the object `construct` made, which
     // is what a JavaScript constructor with an empty body does.
     let code = match construct {
-        Some(wrapper) => quote!(#wrapper),
+        Some((wrapper, _)) => quote!(#wrapper),
         None => {
             let default = format_ident!("__{prefix}_construct_default");
             quote!(#default)
         }
     };
+    let construct_arity = construct.map_or(0u32, |(_, arity)| arity);
     let default = match construct {
         Some(_) => quote!(),
         None => {
@@ -322,6 +323,11 @@ fn class_body(
         // `new Error("x").constructor.name` respondia vazio, e o inspetor do
         // console nao tinha como rotular uma instancia.
         crate::entry::native::name_of(context, callable, #name);
+        // `C.length` is `SetFunctionLength` over the constructor, exactly as it
+        // is over a method: what `new C(…)` declares. Without it a program
+        // reading `Map.length` saw `undefined` where every runtime answers `0`,
+        // and `Boolean.length` where every runtime answers `1`.
+        crate::entry::native::length_of(context, callable, #construct_arity);
         // Before installing anything, for the reason the namespace body states:
         // installing interns, interning allocates, and an allocation can reach
         // back here.
@@ -332,6 +338,12 @@ fn class_body(
             crate::entry::class_support::constants(context, cell, #static_constants);
             let key = context.well_known("prototype");
             crate::entry::objects::put(context, cell, key, prototype);
+            // `{ writable: false, enumerable: false, configurable: false }` — a
+            // built-in constructor's `prototype` is the one property the
+            // specification nails down completely. Unmarked it was enumerable,
+            // so `Object.keys(Boolean)` answered `["prototype"]` where every
+            // runtime answers `[]`, and `for (const k in Map)` walked it.
+            crate::entry::native::pinned(context, cell, key);
         }
         crate::entry::native::install_with_arity(context, prototype_cell, #natives);
         crate::entry::class_support::constants(context, prototype_cell, #constants);
@@ -369,6 +381,12 @@ fn tagging(name: &str, cell: TokenStream, tag: bool) -> TokenStream {
         let key = context.well_known(concat!("@@toStringTag"));
         let tag = context.intern_value(crate::text::Str::from_str(#name)).bits();
         crate::entry::objects::put(context, #cell, key, tag);
+        // `{ writable: false, enumerable: false, configurable: true }`, which is
+        // what the specification gives every `@@toStringTag`. Unmarked it was
+        // writable AND enumerable, so `Object.keys(Math)` listed a symbol-keyed
+        // property and `Math[Symbol.toStringTag] = "x"` silently retagged the
+        // namespace.
+        crate::entry::native::tagged(context, #cell, key);
     }
 }
 

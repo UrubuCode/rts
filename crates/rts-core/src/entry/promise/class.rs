@@ -22,22 +22,62 @@ impl Promise {
     ///
     /// The executor is called at once with a `resolve` and a `reject` — and with
     /// no borrow held, because it is arbitrary user code. What it is *not*
-    /// wrapped in is a `try`: the language rejects the promise when an executor
-    /// throws, and a throw here ends the program, which `entry::throw`
-    /// records as the boundary the whole engine currently draws.
+    /// An executor that throws REJECTS the promise — unless it had already
+    /// resolved it, in which case the throw is dropped. This doc said the throw
+    /// "ends the program, which `entry::throw` records as the boundary the whole
+    /// engine currently draws"; that boundary moved when a native could raise.
     #[construct]
     fn build(this: u64, executor: u64) -> u64 {
+        // The two refusals the constructor owes, and both used to be silent.
+        // `new` hands over a fresh instance; a plain call hands over a receiver
+        // that is not a cell, and `Promise(f)` must be a `TypeError` rather than
+        // a promise nobody can be sure of.
+        let refusal = with_current(|context| match Value(this).as_slot() {
+            None => Some("Promise constructor cannot be invoked without 'new'"),
+            Some(_) if !crate::entry::modules::is_callable_in(context, executor) => {
+                Some("Promise resolver is not a function")
+            }
+            Some(_) => None,
+        });
+        if let Some(message) = refusal {
+            crate::entry::throw::type_error(message);
+            return super::undefined();
+        }
         let prepared = with_current(|context| {
             let (cell, id) = state::built(context, this)?;
-            let resolve_fn = settler::settler(context, id, Settlement::Fulfilled);
-            let reject_fn = settler::settler(context, id, Settlement::Rejected);
-            Some((Value::from_slot(cell).bits(), resolve_fn, reject_fn))
+            let pair = context.promises.open_pair(id);
+            let resolve_fn = settler::settler(context, pair, Settlement::Fulfilled);
+            let reject_fn = settler::settler(context, pair, Settlement::Rejected);
+            Some((Value::from_slot(cell).bits(), resolve_fn, reject_fn, pair))
         });
-        let Some((promise, resolve_fn, reject_fn)) = prepared else {
+        let Some((promise, resolve_fn, reject_fn, pair)) = prepared else {
             return super::undefined();
         };
         let absent = super::undefined();
         crate::entry::functions::call(executor, absent, resolve_fn, reject_fn, absent, absent);
+        // Rule 8, in its HANDLING form: an executor that throws REJECTS the
+        // promise with what it threw, and a promise already settled ignores it.
+        // The doc above said the throw "ends the program, which `entry::throw`
+        // records as the boundary the whole engine currently draws" — that
+        // boundary moved when a native could raise, and this is the one place
+        // where the language says a throw becomes a rejection rather than
+        // travelling.
+        if let Some(reason) = crate::entry::throw::caught() {
+            with_current(|context| {
+                // Only while the executor's own pair is unspent: one that
+                // called `resolve` and THEN threw leaves that resolution
+                // standing, which is what "a promise resolves once" means.
+                // Asked of `alreadyResolved` and not of the settlement, because
+                // `resolve(thenable)` is resolved while still pending — the
+                // case an "is it settled" test overwrote.
+                if !context.promises.pair_spent(pair)
+                    && let Some(cell) = Value(promise).as_slot()
+                    && let Some(id) = context.promises.id_of(cell)
+                {
+                    state::reject(context, id, reason);
+                }
+            });
+        }
         promise
     }
 
@@ -142,6 +182,7 @@ impl Promise {
             let Some((cell, id)) = state::fresh(context) else {
                 return undefined_of(context);
             };
+            let pair = context.promises.open_pair(id);
             // Rooted, because each of the three allocates and the record that
             // will hold them does too — so until the last `put` runs they are
             // named by a Rust local and nothing else, which is the hole
@@ -149,9 +190,9 @@ impl Promise {
             let mut held = crate::entry::rooted::Rooted::new();
             held.values().push(Value::from_slot(cell).bits());
             held.values()
-                .push(settler::settler(context, id, Settlement::Fulfilled));
+                .push(settler::settler(context, pair, Settlement::Fulfilled));
             held.values()
-                .push(settler::settler(context, id, Settlement::Rejected));
+                .push(settler::settler(context, pair, Settlement::Rejected));
             let Some(kit) = crate::entry::native::plain(context) else {
                 return undefined_of(context);
             };

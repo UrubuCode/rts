@@ -8,7 +8,7 @@
 
 use rts_cranelift::ir::{BlockId, FuncBuilder, ValueId};
 
-use super::loops::{Frame, Loops, add_params, merged_args, plan, settle};
+use super::loops::{Frame, Loops, add_params, merged_args, settle};
 use super::stmt::emit_stmt;
 use super::{Ctx, EmitResult, Scope};
 use crate::syntax::{Expr, Stmt};
@@ -63,9 +63,43 @@ pub fn emit_switch(
     discriminant: &Expr,
     clauses: &[crate::syntax::SwitchClause],
 ) -> EmitResult<bool> {
-    let (merged, depth) = plan(scope, statement);
+    // The discriminant is evaluated in the ENCLOSING scope, before the block the
+    // clauses share exists — `switch (x) { case 0: let x = 1; }` reads the outer
+    // `x`, not the dead zone of the inner one.
     let subject = super::expr::emit_expr(builder, scope, ctx, discriminant)?;
 
+    // ONE block scope for the whole statement, not one per clause. The clauses
+    // are not nested scopes: `case 0: let n = 1;` declares a binding `case 1:`
+    // can read and assign, which is what fall-through means — and emitting each
+    // clause inside `enter`/`leave` of its own made that name `Unbound` at
+    // compile time.
+    scope.enter();
+    // Seeded before anything branches, because a block PARAMETER is what carries
+    // a binding from one clause into the next and a parameter list has to exist
+    // before the first jump. A name declared partway through clause zero would
+    // sit past `depth` and be truncated out of every argument list.
+    // A function declared in ANY clause is bound before the statement runs, over
+    // the whole switch block and not the clause it sits in — `case 0: return
+    // f(); case 1: function f() {}` calls it, which is what a block hoisting its
+    // declarations means and what the per-clause scope made impossible.
+    for clause in clauses {
+        super::function::hoist(builder, scope, ctx, &clause.body)?;
+    }
+    let mut lexical = Vec::new();
+    for clause in clauses {
+        lexical.extend(super::binding::lexical_names(&clause.body));
+    }
+    let seed = super::expr::undefined(builder, ctx);
+    for name in &lexical {
+        super::binding::declare(builder, scope, ctx, *name, seed)?;
+    }
+    // And the dead zone re-armed on top of the seed: the seed is bookkeeping,
+    // not a declaration, so a read before the clause that declares the name is
+    // still the `ReferenceError` the language gives it. `binding::declare`
+    // clears the pending entry, which is why this comes after the loop.
+    scope.expect_lexical(&lexical);
+
+    let (merged, depth) = super::loops::plan_including(scope, statement, &lexical);
     let entering = scope.snapshot();
     let exit = builder.create_block();
     let exit_params = add_params(builder, exit, &merged, &entering);
@@ -132,7 +166,6 @@ pub fn emit_switch(
         for (position, clause) in clauses.iter().enumerate() {
             builder.switch_to(bodies[position]);
             settle(scope, &entering, &merged, &body_params[position]);
-            scope.enter();
             let mut terminated = false;
             for inner in &clause.body {
                 if emit_stmt(builder, scope, ctx, loops, inner)? {
@@ -140,7 +173,6 @@ pub fn emit_switch(
                     break;
                 }
             }
-            scope.leave();
             if !terminated {
                 let leaving = scope.snapshot();
                 let next = bodies.get(position + 1).copied().unwrap_or(exit);
@@ -152,6 +184,10 @@ pub fn emit_switch(
 
     builder.switch_to(exit);
     settle(scope, &entering, &merged, &exit_params);
+    // After `settle`, which reads positions the block scope's own bindings are
+    // counted in: leaving first would renumber the snapshot the exit parameters
+    // were built against.
+    scope.leave();
     // Control reaches whatever follows: a switch with no matching clause and no
     // `default` runs nothing at all.
     Ok(false)

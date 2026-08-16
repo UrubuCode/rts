@@ -99,6 +99,13 @@ impl FinalizationRegistry {
     /// that accepts every `register` and can never do anything with one.
     #[construct]
     fn build(this: u64, cleanup: u64) -> u64 {
+        // `FinalizationRegistry(f)` without `new` is a `TypeError`, and the test
+        // is the one `WeakRef`'s constructor uses: `new` hands over a fresh
+        // instance, an ordinary call hands over a receiver that is not a cell.
+        if Value(this).as_slot().is_none() {
+            throw::type_error("Constructor FinalizationRegistry requires 'new'");
+            return nothing();
+        }
         if !callable(cleanup) {
             throw::type_error("FinalizationRegistry: the cleanup callback must be a function");
             return nothing();
@@ -125,14 +132,37 @@ impl FinalizationRegistry {
     /// one is a subscription to an event that cannot happen; and a `heldValue`
     /// that IS the target would keep the target alive through the very record
     /// that is supposed to outlive it, so the callback could never run.
+    #[arity(2)]
     fn register(this: u64, target: u64, held: u64, token: u64) -> u64 {
-        if Value(target).as_slot().is_none() {
-            throw::type_error("FinalizationRegistry.register: the target must be an object");
+        if !is_registry(this) {
+            throw::type_error("FinalizationRegistry.register called on a non-registry");
+            return nothing();
+        }
+        // An unregistered SYMBOL is a target too, which ES2023 admits for the
+        // same reason `WeakMap` admits one: it can die. A REGISTERED one cannot
+        // — see [`super::weak::holdable_in`] — so it stays a `TypeError`.
+        if !with_current(|context| super::weak::holdable_in(context, target)) {
+            throw::type_error(
+                "FinalizationRegistry.register: the target must be an object or an \
+                 unregistered symbol",
+            );
             return nothing();
         }
         if primitives::same_value(target, held) {
             throw::type_error(
                 "FinalizationRegistry.register: the held value must not be the target",
+            );
+            return nothing();
+        }
+        // The token is held weakly as well, so it obeys the same rule the target
+        // does — and `undefined` means "no token", which is the one value that
+        // is not a token and not an error.
+        if !with_current(|context| {
+            token == undefined_of(context) || super::weak::holdable_in(context, token)
+        }) {
+            throw::type_error(
+                "FinalizationRegistry.register: the unregister token must be an object or an \
+                 unregistered symbol",
             );
             return nothing();
         }
@@ -163,16 +193,26 @@ impl FinalizationRegistry {
                     hint: 0,
                 },
             );
-            let Some(waiting) = waiting else {
-                // Unreachable while the target is a cell, which was checked
-                // above — and released rather than leaked anyway, because a hold
-                // nothing will ever give back is a value kept alive for ever.
-                external::release(context, hold);
-                return None;
-            };
-            for (name, value) in [(RECORD.death, waiting as f64), (RECORD.hold, hold as f64)] {
-                let key = context.well_known(name);
-                objects::put(context, cell, key, Value::from_f64(value).bits());
+            match waiting {
+                Some(waiting) => {
+                    for (name, value) in
+                        [(RECORD.death, waiting as f64), (RECORD.hold, hold as f64)]
+                    {
+                        let key = context.well_known(name);
+                        objects::put(context, cell, key, Value::from_f64(value).bits());
+                    }
+                }
+                // A SYMBOL target, which the check above now admits. Nothing
+                // watches one — `finalize::on_death` is over cells — so the
+                // registration carries no death notice and the callback simply
+                // never fires, which is what a symbol that outlives the program
+                // means. The record is still kept, because `unregister` must
+                // find it: dropping it here would make a legal registration
+                // silently unwithdrawable. The hold goes back, since the list
+                // itself is what keeps the record reachable.
+                None => {
+                    external::release(context, hold);
+                }
             }
             Some(record)
         });
@@ -189,6 +229,21 @@ impl FinalizationRegistry {
     /// says a token may be used for several targets, and unregistering one of
     /// them while leaving the rest would be a leak a program cannot see.
     fn unregister(this: u64, token: u64) -> u64 {
+        if !is_registry(this) {
+            throw::type_error("FinalizationRegistry.unregister called on a non-registry");
+            return nothing();
+        }
+        // A token that could never have been registered is a `TypeError` rather
+        // than `false`, and the difference is the point: `false` says "nothing
+        // matched", which is a truthful-looking answer to a call that was never
+        // capable of matching anything.
+        if !with_current(|context| super::weak::holdable_in(context, token)) {
+            throw::type_error(
+                "FinalizationRegistry.unregister: the token must be an object or an \
+                 unregistered symbol",
+            );
+            return nothing();
+        }
         let list = list_of(this);
         let records = elements(list);
         // SameValue, outside every borrow — it is an entry point that takes one.
@@ -254,6 +309,24 @@ extern "C" fn fire(data: usize, _hint: usize) {
 /// is the ordinary way. The alternative is a silent drop: appending to something
 /// that is `undefined` is a no-op, so every `register` would succeed and nothing
 /// would ever be pruned or unregistered.
+/// Whether a value is a registry rather than something wearing the prototype.
+///
+/// By the callback the constructor writes: `Object.create(FR.prototype)` and
+/// `FR.prototype` itself both answer the methods and neither ever ran the
+/// constructor, so `register` on one used to succeed and queue a death notice
+/// against a registry that has no callback to run. The specification's brand
+/// check is an internal slot; the callback IS this engine's, which is why it is
+/// asked for rather than a second marker property being invented.
+fn is_registry(value: u64) -> bool {
+    with_current(|context| {
+        let Some(cell) = Value(value).as_slot() else {
+            return false;
+        };
+        let key = context.well_known(CLEANUP);
+        objects::own_property(context, cell, key).is_some()
+    })
+}
+
 fn list_of(registry: u64) -> u64 {
     let held = field(registry, WAITING);
     if Value(held).as_slot().is_some() {

@@ -35,6 +35,20 @@ use crate::value::Value;
 pub(super) fn combine(iterable: u64, kind: Kind) -> u64 {
     // Before any borrow: `iterate` is an entry point and takes one of its own.
     let elements = super::elements_of(iterable);
+    // Rule 8 of `crates/rts-core/README.md`, in its HANDLING form: walking the
+    // argument runs user code — `Symbol.iterator`, `next`, a getter — and any of
+    // it may throw. The specification says the combinator REJECTS in that case;
+    // it never throws out of the call, because a caller writing
+    // `Promise.all(x).catch(f)` has already said where the failure goes.
+    //
+    // Left in flight it was both wrong answers at once: the throw escaped
+    // `Promise.all` synchronously AND the call answered `undefined`, so the
+    // `.then` on the next line died with "Cannot read properties of undefined".
+    // `caught` takes it, which is the right half here — this native is handling
+    // the throw rather than propagating it.
+    if let Some(reason) = crate::entry::throw::caught() {
+        return super::rejected_with(reason);
+    }
     if elements.is_empty() {
         return empty(kind);
     }

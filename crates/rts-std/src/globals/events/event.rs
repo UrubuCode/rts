@@ -69,19 +69,46 @@ const METHODS: &[(&str, Provided)] = &[
 /// rather than held in a static: `e instanceof Event` and a method a program
 /// adds to `Event.prototype` both depend on there being exactly one.
 pub(super) fn prototype(context: &mut Context) -> u64 {
-    entry::make_prototype(context, "Event", METHODS)
+    let made = entry::make_prototype(context, "Event", METHODS);
+    // `Object.prototype.toString.call(new Event("x"))` answered `[object
+    // Object]`. The tag is a property in this engine — `#[rtse::class]`'s `tag`
+    // writes the same one — and a symbol key is an interned name in a space no
+    // program can spell, so a host can write it with the ordinary member call.
+    let tag = entry::make_string(context, "Event");
+    entry::put_member(context, made, "@@toStringTag", tag);
+    // The four phase constants, on the prototype so an INSTANCE answers them
+    // (`ev.AT_TARGET` is how a program compares `ev.eventPhase`) and on the
+    // constructor below for the `Event.AT_TARGET` spelling.
+    for (name, value) in PHASES {
+        entry::put_member(context, made, name, entry::make_number(*value));
+    }
+    made
 }
+
+/// The `eventPhase` values, named where both the class and the prototype can
+/// install them — one list rather than two, because a program compares
+/// `Event.AT_TARGET` with `ev.AT_TARGET` and they must be the same number.
+const PHASES: &[(&str, f64)] = &[
+    ("NONE", NONE),
+    ("CAPTURING_PHASE", 1.0),
+    ("AT_TARGET", AT_TARGET),
+    ("BUBBLING_PHASE", 3.0),
+];
 
 /// Builds the `Event` class and answers its constructor.
 pub(super) fn install(context: &mut Context) -> u64 {
     let prototype = prototype(context);
-    super::class_ctor(context, construct, prototype)
+    let ctor = super::class_ctor(context, "Event", 1, construct, prototype);
+    for (name, value) in PHASES {
+        entry::put_member(context, ctor, name, entry::make_number(*value));
+    }
+    ctor
 }
 
 /// Builds the `CustomEvent` class and answers its constructor.
 pub(super) fn install_custom(context: &mut Context) -> u64 {
     let prototype = custom_prototype(context);
-    super::class_ctor(context, construct_custom, prototype)
+    super::class_ctor(context, "CustomEvent", 1, construct_custom, prototype)
 }
 
 /// `CustomEvent.prototype`, linked to `Event.prototype`.
@@ -98,6 +125,16 @@ fn custom_prototype(context: &mut Context) -> u64 {
 
 /// `new Event(type, options?)`.
 extern "C" fn construct(_e: u64, this: u64, kind: u64, options: u64, _c: u64, _d: u64) -> u64 {
+    // `new Event()` with no type is a `TypeError`, which the module doc listed
+    // as impossible — "nothing in this engine can raise one where a handler
+    // could catch it". That stopped being true, and the coercion this used
+    // instead was `String(undefined)`, so the argument-less call answered an
+    // event of type `"undefined"`: a listener registered for that string would
+    // have received it.
+    if kind == super::absent() {
+        entry::throw_type_error("Event: the type argument is required");
+        return super::absent();
+    }
     // Both reads are ambient entry points and must finish before the borrow
     // below opens: a second borrow inside the first aborts the process, and an
     // `extern "C"` frame cannot unwind to report it.

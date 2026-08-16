@@ -53,15 +53,17 @@ pub(super) fn is_object_in(context: &Context, value: u64) -> bool {
 /// which is what makes this safe to call on every operand rather than only on
 /// the ones that look like they need it.
 ///
-/// An object whose `valueOf` and `toString` both answer objects is answered
-/// **unchanged**, not as `undefined`. The specification throws a `TypeError`
-/// there; answering the object back leaves the caller's existing "this is not a
-/// primitive" path to report it, which is the honest absence it already has.
-/// Inventing `undefined` here would turn a contract violation into a value.
+/// An object whose `valueOf` and `toString` both answer objects **raises a
+/// `TypeError`** and is then answered unchanged. The raise is the language's
+/// answer; answering the object back after it is what lets the caller's
+/// existing "this is not a primitive" path stay as it was, rather than every
+/// caller learning a second failure shape. Inventing `undefined` here would
+/// still turn a contract violation into a value, which is why it is not that.
 ///
 /// `Symbol.toPrimitive` is consulted first, ahead of both methods: an object
 /// defining it decides its own conversion for every hint, and `valueOf`/
-/// `toString` never run when it does.
+/// `toString` never run when it does — including when it answers an object,
+/// which is a `TypeError` rather than a reason to try the pair.
 pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
     if !with_current(|context| is_object_in(context, value)) {
         return value;
@@ -69,10 +71,7 @@ pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
 
     // `Symbol.toPrimitive`, asked BEFORE `valueOf`/`toString`: the language
     // says a user method under this name overrides both rather than sitting
-    // beside them, and it is the one call in this file whose ANSWER is taken
-    // even when it is an object — the spec makes that a `TypeError`, and this
-    // engine's honest absence for a throw it cannot raise is to fall through
-    // to the ordinary pair rather than pretend the object was the primitive.
+    // beside them.
     if let Some((key, hint_text)) = with_current(|context| {
         Some((
             super::symbol::well_known(context, "toPrimitive"),
@@ -96,6 +95,19 @@ pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
             if !with_current(|context| is_object_in(context, answer)) {
                 return answer;
             }
+            // An object back from `Symbol.toPrimitive` is a `TypeError`, and it
+            // does NOT fall through to `valueOf`/`toString`: the hook replaced
+            // both, so running them would answer where the language refuses.
+            //
+            // This file used to fall through, with a note calling that "the
+            // honest absence for a throw it cannot raise". A native CAN raise
+            // now — rule 8 of this crate's README — so the absence is over, and
+            // it was measurable: `+v`, `String(v)` and `v == 1` over a hook
+            // answering `{}` each ran to a wrong value where Node and Bun throw.
+            super::throw::type_error(
+                "Cannot convert object to primitive value",
+            );
+            return value;
         }
     }
 
@@ -123,11 +135,20 @@ pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
             continue;
         }
         let answer = super::functions::call(method, value, absent, absent, absent, absent);
+        // Rule 8, for the same reason the hook above states it: a `valueOf` that
+        // threw answers `undefined`, and `undefined` is a primitive — so the
+        // conversion would SUCCEED with it and the throw would be spent.
+        if super::throw::in_flight() {
+            return value;
+        }
         if !with_current(|context| is_object_in(context, answer)) {
             return answer;
         }
     }
 
+    // Neither method answered a primitive. `Object.create(null)` reaches here,
+    // and so does an object whose two methods both answer objects.
+    super::throw::type_error("Cannot convert object to primitive value");
     value
 }
 

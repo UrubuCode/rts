@@ -694,6 +694,22 @@ fn key_of(context: &Context, number: i64) -> Option<Key> {
     context.keys.key(number).map(Key::Name)
 }
 
+/// Whether this value is an OBJECT in the language's sense.
+///
+/// `Value::as_slot` is not that question and was being used as though it were:
+/// a string and a symbol are cells here too, so `Object.isFrozen("abc")`
+/// answered `false` where the specification says a non-object is frozen, and
+/// `Object.create("s")` built an object inheriting from a string instead of
+/// raising. The distinction is read from beside the cell, the same way
+/// `super::text::type_of` reads it — a callable IS an object, a text cell is
+/// not.
+pub(in crate::entry) fn is_object(context: &Context, value: u64) -> bool {
+    match Value(value).as_slot() {
+        Some(cell) => context.text_at(cell).is_none() && !super::symbol::is_symbol(context, value),
+        None => false,
+    }
+}
+
 /// `undefined` and `null` — the two values a property access refuses.
 ///
 /// Every other primitive HAS a property access: a number reaches
@@ -1060,6 +1076,18 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
     // across a get and a set per key, both of which run user code that
     // allocates. Named only by a `Vec` on the Rust heap, they were invisible to
     // every one of those collections. See `super::rooted`.
+    // A proxy has no keys of its own to walk — `key_texts` reads the cell
+    // standing for it, which holds nothing, so `{ ...proxy }` answered `{}`
+    // and no trap ran. The shared walk is the same one `Object.assign` takes,
+    // which is what keeps the two spellings of this operation from disagreeing
+    // about the order a handler observes.
+    if super::proxy::is_proxy(source) {
+        super::object_global::each_enumerable_own(source, |key| {
+            let value = super::computed::get_indexed(source, key);
+            super::computed::set_indexed(target, key, value);
+        });
+        return target;
+    }
     let mut keys = super::rooted::Rooted::new();
     with_current(|context| {
         for text in super::array::key_texts(context, source, true) {
@@ -1121,7 +1149,11 @@ fn reconcile_length(context: &mut Context, slot: u32, key: Key, value: u64) {
         return;
     }
     let wanted = wanted as usize;
-    let absent = undefined_of(context);
+    // The HOLE marker, not `undefined`. `a.length = 3` on a one-element array
+    // adds two positions that do not exist — `2 in a` is false and
+    // `Object.keys(a)` is `["0"]` — where filling with `undefined` makes both
+    // answer as though the program had written the value there.
+    let absent = super::array::hole_of(context);
     let Some(elements) = context.elements_at_mut(slot) else {
         return;
     };

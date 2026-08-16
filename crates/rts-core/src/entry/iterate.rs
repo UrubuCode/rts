@@ -191,6 +191,22 @@ fn protocol(value: u64) -> Option<Vec<u64>> {
     if super::throw::in_flight() {
         return None;
     }
+    drained(iterator)
+}
+
+/// Everything an ITERATOR yields, driven by its own `next`.
+///
+/// Split out of [`protocol`] because a caller can arrive holding the iterator
+/// rather than the iterable: `GetSetRecord`'s `keys()` answers an iterator
+/// DIRECTLY, and the specification drives it with `next` — it never asks the
+/// answer for a `Symbol.iterator`. Handing it to [`iterate`] instead refused
+/// every hand-written set-like with "the value is not iterable", because an
+/// iterator that is not also iterable is exactly what the protocol allows and
+/// what a `keys()` written by hand returns.
+///
+/// Rule 8 at every step, for the reason stated above the loop.
+pub(super) fn drained(iterator: u64) -> Option<Vec<u64>> {
+    let absent = with_current(|context| super::objects::undefined_of(context));
     let next = member(iterator, "next");
     if !callable(next) {
         // An object that answered `Symbol.iterator` and then handed back
@@ -211,6 +227,23 @@ fn protocol(value: u64) -> Option<Vec<u64>> {
     loop {
         let step = super::functions::call(next, iterator, absent, absent, absent, absent);
         if super::throw::in_flight() {
+            return None;
+        }
+        // An iterator result must be an OBJECT. Without this the reads below
+        // answer `undefined` for `done`, `undefined` is never true, and this
+        // loop fills a vector until the process dies — which is not
+        // hypothetical: `{ next() { return 1 } }` spread into an array HUNG,
+        // and the same shape is what rule 8 of the crate's README was written
+        // about. A string is refused with the rest: `as_slot` is true for one,
+        // so the check is what the language means by Object rather than what
+        // the encoding means by reference.
+        let object = with_current(|context| {
+            Value(step)
+                .as_slot()
+                .is_some_and(|cell| context.text_at(cell).is_none())
+        });
+        if !object {
+            super::throw::type_error("the iterator answered a result that is not an object");
             return None;
         }
         // `done` is read before `value`, which is the order the specification

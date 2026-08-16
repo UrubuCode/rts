@@ -1182,23 +1182,38 @@ mod tests {
     #[test]
     fn a_gap_is_named_rather_than_counted() {
         // This has named `f()`, an array literal, `new`, a class, a class
-        // getter, a spread argument and a HOLE in turn, and each moved on when
-        // it landed. The hole was the longest-standing of them: it waited for
-        // the runtime to grow a marker for an absent position, because writing
-        // it as `undefined` would have made `0 in [,1]` answer true.
+        // getter, a spread argument, a HOLE and then a spread BESIDE a hole in
+        // turn, and each moved on when it landed. The last of those is now
+        // emitted — the appending path says "skip this one" by appending the
+        // absence marker `ArrayNew` already fills an unwritten position with —
+        // so the test follows the refusal to the next construct rather than
+        // being deleted with the gap it happened to name.
         //
-        // What is still missing is a spread BESIDE a hole — `[...a, , 1]` — for
-        // which the argument-vector path has no way to say "skip this one".
-        // The name in the refusal is the point, so the test follows it rather
-        // than being deleted with the gap it happened to name.
-        let error = emit_source("let a = [...[1], , 2];").expect_err("a spread beside a hole is not emitted");
+        // `using` is that construct: it needs `Symbol.dispose`, which the
+        // runtime does not have. Written inside a function because the checker
+        // refuses one at a script's top level before emission is reached — a
+        // different refusal, and pinning it here would be testing the checker.
+        let error = emit_source("function f() { using r = {}; }")
+            .expect_err("`using` is not emitted");
         assert_eq!(
             error,
             EmitError::Unsupported {
-                construct: "a hole beside a spread in an array literal"
+                construct: "`using`, which needs `Symbol.dispose`"
             },
             "the name is the deliverable — a gap reported as `Unsupported` with              no word in it is indistinguishable from any other gap"
         );
+    }
+
+    /// `[...a, , 1]` is elision beside a spread, and elision is not `undefined`.
+    ///
+    /// It was refused by name until the appending path learned to append the
+    /// absence marker. Pinned as EMITTING rather than as the array it builds,
+    /// because nothing here runs — what the marker means is
+    /// `tests/cross-runtime/syntax/claude2-array-literal-holes-elision.ts`,
+    /// which compares `1 in [1, , ...[]]` against Node and Bun.
+    #[test]
+    fn a_hole_beside_a_spread_is_emitted() {
+        emit_source("let a = [...[1], , 2];").expect("a hole beside a spread emits");
     }
 
     #[test]

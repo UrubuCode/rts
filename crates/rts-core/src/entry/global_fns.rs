@@ -31,12 +31,17 @@ use crate::value::Value;
 ///
 /// `None` for anything else, which is what lets [`super::global`] ask one
 /// question of this module rather than carry an arm per function.
-pub(super) fn provided(name: &str) -> Option<Native> {
+///
+/// The arity travels WITH the function pointer rather than in a second table
+/// beside it, for the reason this crate keeps refusing a second numbering: a
+/// list of names and a list of lengths come to disagree, and `fn.length` is a
+/// number a program reads. `parseInt` is 2 and every other one here is 1.
+pub(super) fn provided(name: &str) -> Option<(Native, u32)> {
     Some(match name {
-        "parseInt" => parse_int,
-        "parseFloat" => parse_float,
-        "isNaN" => is_nan,
-        "isFinite" => is_finite,
+        "parseInt" => (parse_int as Native, 2),
+        "parseFloat" => (parse_float as Native, 1),
+        "isNaN" => (is_nan as Native, 1),
+        "isFinite" => (is_finite as Native, 1),
         _ => return None,
     })
 }

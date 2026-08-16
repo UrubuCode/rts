@@ -118,6 +118,20 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // `for (const k in C)` answered `prototype,name,length` before it
             // answered anything the program wrote.
             super::native::hidden(context, cell, key);
+            // And the BACK-link, which nothing wrote: `f.prototype.constructor`
+            // is `f`, so `new f().constructor === f` and `x.constructor.name`
+            // both work. Every engine has it, a great deal of ordinary code
+            // reads it — a clone helper asking `obj.constructor` is the common
+            // shape — and here `f.prototype` was an object with no properties
+            // at all, so the whole family answered `undefined`.
+            //
+            // `{writable: true, enumerable: false, configurable: true}`, which
+            // is `hidden` rather than `introspective`: the specification lets a
+            // program replace `constructor`, and a class body that declares a
+            // method called `constructor` is doing exactly that.
+            let constructor = context.well_known("constructor");
+            super::objects::put(context, prototype, constructor, made);
+            super::native::hidden(context, prototype, constructor);
             super::external::release(context, held_prototype);
         }
         // `f.name` and `f.length`, which every function has and this wrote
@@ -140,6 +154,20 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             let key = context.well_known("name");
             let text = context.intern_value(crate::text::Str::from_str(&name)).bits();
             super::objects::put(context, cell, key, text);
+            // `hidden` and not `introspective`, which is a KNOWN divergence
+            // rather than an oversight: `SetFunctionName` says
+            // `[[Writable]]: false`, and a compiled function's descriptors
+            // therefore report `writable: true` where every other engine
+            // reports `false`.
+            //
+            // It cannot be corrected here alone. `emit/class.rs` writes
+            // `C.name` with an ordinary STORE after this has run, and a
+            // non-writable record turns that store into
+            // `TypeError: Cannot assign to read only property 'name'` — every
+            // class in every program, measured. Closing it needs the class
+            // emitter to DEFINE the name instead, which is an entry point that
+            // does not exist; changing only this half trades a wrong descriptor
+            // for a dead program.
             super::native::hidden(context, cell, key);
             let key = context.well_known("length");
             let count = Value::from_f64(f64::from(arity)).bits();
@@ -151,59 +179,71 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
     })
 }
 
-/// `CreateListFromArrayLike` — a real array over whatever was handed in.
-///
-/// Answers the argument UNCHANGED when it is already an array, which is the
-/// common case and the one that must cost nothing: `f.apply(t, [1, 2])` walks
-/// no properties and allocates nothing here.
-///
-/// A non-object answers an empty list rather than throwing. The specification
-/// makes `f.apply(t, 5)` a `TypeError`, and this is the same stated tolerance
-/// the rest of this crate takes where a throw would land somewhere a program
-/// cannot correct from — a call with no arguments is the answer a program can
-/// see and fix, and `null`/`undefined` legitimately mean "no arguments" anyway.
-///
-/// Indices are read with the ordinary property path, so an inherited index and
-/// a getter both participate — which is what the specification's `Get` says and
-/// what an `arguments` object needs, since its indices are own properties of an
-/// object that is not an array.
-fn array_like(arguments: u64) -> u64 {
-    let read = with_current(|context| {
-        let cell = Value(arguments).as_slot()?;
-        if context.elements_at(cell).is_some() {
-            return None;
-        }
-        let key = context.well_known("length");
-        let length = super::objects::read_property(context, cell, key)?.numeric()?;
-        // `ToLength`: negative and NaN clamp to zero, and the cap keeps a
-        // hostile `{length: 1e9}` from asking for a billion reads.
-        let count = length.max(0.0).min(MAX_APPLY_ARGUMENTS as f64) as usize;
-        Some((cell, count))
-    });
-    let Some((cell, count)) = read else {
-        return arguments;
-    };
-    let values = with_current(|context| {
-        (0..count)
-            .map(|at| {
-                let key = context.well_known(&at.to_string());
-                super::objects::read_property(context, cell, key)
-                    .map(|found| found.bits())
-                    .unwrap_or_else(|| undefined_of(context))
-            })
-            .collect::<Vec<u64>>()
-    });
-    super::array_proto::built(values)
-}
-
 /// The ceiling on how many arguments an array-like may contribute.
 ///
-/// The specification allows 2^53-1 and every engine refuses far below it. The
-/// number is arbitrary and the ceiling is not: without one, `f.apply(t,
-/// {length: 1e9})` is a billion property reads and an allocation to match,
-/// which is a hang rather than a wrong answer — the failure this repository's
-/// own corpus already caught twice in other shapes.
+/// See [`list_from_array_like`] for why there is one at all.
 const MAX_APPLY_ARGUMENTS: usize = 65_535;
+
+/// `CreateListFromArrayLike`, as an argument vector this crate's call paths can
+/// read.
+///
+/// `apply`, `Reflect.apply` and `Reflect.construct` are all defined over an
+/// ARRAY-LIKE and not over an array: `f.apply(o, arguments)` and
+/// `f.apply(o, { length: 2, 0: "a", 1: "b" })` are both legal, and the vector
+/// paths below read `elements_at`, which only a real array has. So every one of
+/// them answered zero arguments for a receiver the specification says carries
+/// some — `f.apply(o, {length:2,…})` ran `f` with nothing.
+///
+/// A real array goes through untouched rather than being re-read index by
+/// index, because that read is the property path and a program can have put a
+/// getter on `Array.prototype[0]`.
+///
+/// `undefined` and `null` mean "no arguments" for `apply` alone, which is why
+/// the caller decides that and this answers `None` for them: `Reflect.apply`
+/// makes the same value a `TypeError`.
+///
+/// The count is CAPPED by [`MAX_APPLY_ARGUMENTS`], and the cap is not arbitrary
+/// even though the number is:
+/// the specification allows 2^53-1 and every engine refuses far below it, so
+/// without one `f.apply(t, {length: 1e9})` is a billion property reads and an
+/// allocation to match — a hang rather than a wrong answer, which is the worse
+/// of the two failures and the one this corpus has already caught twice.
+pub(super) fn list_from_array_like(arguments: u64) -> Option<u64> {
+    let ready = with_current(|context| {
+        let cell = Value(arguments).as_slot()?;
+        context.elements_at(cell).map(|_| arguments)
+    });
+    if let Some(ready) = ready {
+        return Some(ready);
+    }
+    // Not "has a length": the specification refuses a PRIMITIVE and accepts
+    // every object, so `Reflect.apply(f, o, new Set())` is a call with no
+    // arguments rather than a `TypeError`, and `f.apply(o, "ab")` is the
+    // refusal. `as_slot` is what separates the two here.
+    Value(arguments).as_slot()?;
+    let key = with_current(|context| context.well_known_text("length"));
+    // `ToLength`: the property is read through the ordinary path — a getter on
+    // it runs, and a program counts how many times — then coerced, because
+    // `{length: "2"}` and `{length: 2.7}` both name two arguments.
+    let raw = super::computed::get_indexed(arguments, key);
+    if super::throw::in_flight() {
+        return Some(super::array_proto::built(Vec::new()));
+    }
+    let length = super::class_support::to_number(raw);
+    let count = match length.is_nan() || length <= 0.0 {
+        true => 0usize,
+        false => length.trunc().min(MAX_APPLY_ARGUMENTS as f64) as usize,
+    };
+    let mut found = Vec::with_capacity(count);
+    for at in 0..count {
+        let key = with_current(|context| context.well_known_text(&at.to_string()));
+        found.push(super::computed::get_indexed(arguments, key));
+        if super::throw::in_flight() {
+            break;
+        }
+    }
+    Some(super::array_proto::built(found))
+}
 
 /// Calling with more arguments than the convention carries.
 ///
@@ -239,7 +279,10 @@ pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
     // callee saw `undefined` in every position and nothing said why. An
     // `arguments` object is the array-like a program passes most often, and
     // `f.apply(this, arguments)` is the reason `apply` exists at all.
-    let arguments = array_like(arguments);
+    // `None` is a primitive, which for THIS caller means "no arguments" — the
+    // tolerance `list_from_array_like` leaves to whoever calls it, and which
+    // `Reflect.apply` spends on a `TypeError` instead.
+    let arguments = list_from_array_like(arguments).unwrap_or(arguments);
     let first = with_current(|context| {
         let absent = undefined_of(context);
         let mut first = [absent; ARGUMENT_SLOTS];

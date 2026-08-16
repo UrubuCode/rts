@@ -93,6 +93,7 @@ pub(in crate::entry) mod typed;
 mod typed_classes;
 mod typed_order;
 mod typed_species;
+mod typed_visit;
 
 // The declared-type consts travel with the registrations, for the same reason:
 // `entry::declared` names one class per line and cannot reach into a private
@@ -241,6 +242,24 @@ pub(in crate::entry) fn install_bytes(context: &mut Context, cell: u32, length: 
     let store = context.buffers.insert(vec![0u8; length]).slot();
     context.mark_buffer(cell, store);
     stamp(context, cell, "byteLength", length as f64);
+    // Written at birth rather than at the detach, so that the property EXISTS
+    // on every buffer: a program asking `b.detached` before anything detached it
+    // has to read `false` and not `undefined`, and `undefined` is falsy — so the
+    // bug would be invisible in the `if` every caller writes and visible only in
+    // the `===` a test writes.
+    flag(context, cell, "detached", false);
+}
+
+/// One boolean property, by name.
+///
+/// Beside [`stamp`] rather than folded into it: a property whose value is a
+/// number and one whose value is a boolean are different enough that a single
+/// `f64` entry point would have callers passing `1.0` for true, which is the
+/// value `b.detached === true` does not equal.
+pub(in crate::entry) fn flag(context: &mut Context, cell: u32, name: &str, value: bool) {
+    let key = context.well_known(name);
+    let value = Value::from_bool(value).bits();
+    super::objects::put(context, cell, key, value);
 }
 
 /// Attaches a view to a cell and writes the four facts a program reads off it.

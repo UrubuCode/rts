@@ -31,7 +31,7 @@
 //! reason none of the three worked on a receiver that is an array-LIKE, which is
 //! what the language defines all three over.
 
-mod from;
+pub(in crate::entry) mod from;
 mod from_async;
 mod natural_run;
 mod sorting;
@@ -81,8 +81,17 @@ pub(in crate::entry) const STATICS: &[(&str, Native)] =
 extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let asked = super::numeric::integer_or_infinity(index);
     with_current(|context| {
-        let Some((_, elements)) = staged(context, this) else {
-            return undefined_of(context);
+        // Generic, the same fallback `slice` takes and for the same reason: the
+        // specification defines `at` over `LengthOfArrayLike(ToObject(this))`,
+        // so `Array.prototype.at.call({ length: 3, 2: "c" }, -1)` is `"c"` and
+        // answered `undefined` here for every receiver that was not a real
+        // array.
+        let elements = match staged(context, this) {
+            Some((_, elements)) => elements,
+            None => match super::array_like(context, this) {
+                Some(elements) => elements,
+                None => return undefined_of(context),
+            },
         };
         let at = if asked < 0.0 {
             elements.len() as f64 + asked
@@ -140,12 +149,40 @@ extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64
 /// `a.toString()` — `join` with a comma, which is what the language defines it
 /// as.
 ///
-/// Delegated rather than reimplemented. The two must agree that `null` joins as
-/// the empty string, and a second implementation is where one of them would
-/// produce `"1,null,2"`.
-extern "C" fn to_string_(e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+/// Delegated rather than reimplemented — and delegated through the PROPERTY,
+/// not to this file's `join`.
+///
+/// The specification is explicit: `Get(array, "join")`, and if what comes back
+/// is not callable, `%Object.prototype.toString%` instead. Calling
+/// `joining::join` directly ignored both halves, so an object with its own
+/// `join` answered `1,2,3` where every other engine answers what the program
+/// installed, and `Array.prototype.toString.call({ })` answered the empty
+/// string where the language answers `[object Object]`.
+extern "C" fn to_string_(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let missing = nothing();
-    super::joining::join(e, this, missing, missing, missing, missing)
+    // Through the same accessor-running read the species protocol uses: `join`
+    // may be a getter, and it may be inherited.
+    let joiner = super::species::property(this, "join").unwrap_or(missing);
+    if super::super::throw::in_flight() {
+        return missing;
+    }
+    if super::super::iterate::callable(joiner) {
+        return functions::call(joiner, this, missing, missing, missing, missing);
+    }
+    // `%Object.prototype.toString%`, read off the object every plain object
+    // inherits from rather than reimplemented: the `[object X]` rule lives
+    // there, tag included, and a second spelling of it here is a second answer
+    // to what an object calls itself.
+    let fallback = with_current(|context| {
+        let prototype = super::super::class_support::prototype(context, "Object.prototype")?;
+        let cell = Value(prototype).as_slot()?;
+        let key = context.well_known("toString");
+        super::super::objects::read_property(context, cell, key).map(|found| found.bits())
+    });
+    match fallback {
+        Some(found) => functions::call(found, this, missing, missing, missing, missing),
+        None => missing,
+    }
 }
 
 /// `a.toLocaleString()` — each element's own `toLocaleString`, comma-joined.
@@ -283,7 +320,7 @@ extern "C" fn flat(_e: u64, this: u64, depth: u64, _a1: u64, _a2: u64, _a3: u64)
         Some(out)
     });
     match flattened {
-        Some(out) => built(out),
+        Some(out) => super::species::collected(this, out),
         None => nothing(),
     }
 }

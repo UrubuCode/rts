@@ -158,7 +158,11 @@ pub fn emit_while(
     label: Option<Name>,
 ) -> EmitResult<bool> {
     let header = builder.create_block();
-    let (merged, depth) = plan(scope, body);
+    // The CONDITION assigns too, and leaving it out is not a corner:
+    // `while ((n -= 1) > 0)` writes `n` in the header and nowhere else, so with
+    // no parameter for it the header re-entered with the value from BEFORE the
+    // loop and the test never changed — a hang, not a wrong answer.
+    let (merged, depth) = plan_including(scope, body, &assigned_in_expr_names(condition));
     let entering = scope.snapshot();
     let carried = add_params(builder, header, &merged, &entering);
 
@@ -229,7 +233,10 @@ pub fn emit_do_while(
     let top = builder.create_block();
     let test = builder.create_block();
     let exit = builder.create_block();
-    let (merged, depth) = plan(scope, body);
+    // Including what the CONDITION assigns, for the reason `emit_while` states:
+    // `do { … } while ((n -= 1) > 0)` writes `n` in the test block alone, and a
+    // name with no parameter re-enters the loop holding what it held before it.
+    let (merged, depth) = plan_including(scope, body, &assigned_in_expr_names(condition));
     let entering = scope.snapshot();
     let at_top = add_params(builder, top, &merged, &entering);
     let params = add_params(builder, exit, &merged, &entering);
@@ -264,8 +271,14 @@ pub fn emit_do_while(
 
     builder.switch_to(test);
     settle(scope, &entering, &merged, &at_test_params);
-    let at_test = scope.snapshot();
     let cond = super::expr::emit_condition(builder, scope, ctx, condition)?;
+    // AFTER the condition, not before it. `do { … } while ((n -= 1) > 0)`
+    // writes `n` while the test is being emitted, and a snapshot taken first
+    // hands the back edge the value from before the write — so every pass
+    // re-entered with the same number and the loop never ended. `emit_while`
+    // already takes its snapshot in this order; this one did not, and the two
+    // differing was the whole of the bug.
+    let at_test = scope.snapshot();
     builder.branch(
         cond,
         (top, &merged_args(&at_test, &merged)),
@@ -562,6 +575,21 @@ pub fn emit_labelled_block(
 /// Decides which bindings a loop must carry, and how deep the environment is.
 pub(super) fn plan(scope: &Scope, body: &Stmt) -> (Vec<usize>, usize) {
     (assigned_positions(scope, body), scope.snapshot().len())
+}
+
+/// The same, plus names the caller knows must be carried although nothing
+/// assigns them.
+///
+/// A `switch` needs it and a loop does not: `case 0: let x = 5;` followed by
+/// `case 1: use(x)` is ONE binding shared by two blocks, and a body that only
+/// ever declares `x` assigns it nowhere the syntactic walk can see. Without the
+/// name in the carried set the second clause reads the seed the switch wrote
+/// before the tests rather than what the first clause put there.
+pub(super) fn plan_including(scope: &Scope, body: &Stmt, also: &[Name]) -> (Vec<usize>, usize) {
+    let mut names = Vec::new();
+    assigned_in_stmt(body, &mut names);
+    names.extend_from_slice(also);
+    (positions_of(scope, &names), scope.snapshot().len())
 }
 
 /// Where the names a statement assigns sit in the current environment.

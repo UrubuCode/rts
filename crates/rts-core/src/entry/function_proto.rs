@@ -149,8 +149,26 @@ impl Function {
     /// The reason the argument vector had to exist first: this is the spelling
     /// that carries any number of arguments, and it is `call_with_args` from the
     /// other side.
+    ///
+    /// The list is ARRAY-LIKE and not an array: `f.apply(o, arguments)` and
+    /// `f.apply(o, {length: 2, 0: "a", 1: "b"})` are both legal, and this read
+    /// the elements vector directly — which only a real array has — so every
+    /// other receiver ran the callee with nothing. `undefined` and `null` are
+    /// the two the specification says mean "no arguments" rather than being a
+    /// refusal.
     fn apply(this: u64, receiver: u64, arguments: u64) -> u64 {
-        super::functions::call_with_args(this, receiver, arguments)
+        let empty = with_current(|context| super::objects::nullish(context, arguments).is_some());
+        let list = match empty {
+            true => super::array_proto::built(Vec::new()),
+            false => match super::functions::list_from_array_like(arguments) {
+                Some(list) => list,
+                None => {
+                    super::throw::type_error("CreateListFromArrayLike called on non-object");
+                    return with_current(|context| super::objects::undefined_of(context));
+                }
+            },
+        };
+        super::functions::call_with_args(this, receiver, list)
     }
 
     /// `f.bind(thisArg, …)` — a new function with the receiver fixed.

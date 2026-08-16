@@ -226,8 +226,11 @@ pub(super) fn prepare(context: &mut Context, waiter: ContinuationId) -> Option<S
             then_fn,
             promise,
         } => {
-            let resolve_fn = settler::settler(context, promise, Settlement::Fulfilled);
-            let reject_fn = settler::settler(context, promise, Settlement::Rejected);
+            // One pair, one `alreadyResolved`: whichever of the two the
+            // thenable calls first decides, and the other does nothing.
+            let pair = context.promises.open_pair(promise);
+            let resolve_fn = settler::settler(context, pair, Settlement::Fulfilled);
+            let reject_fn = settler::settler(context, pair, Settlement::Rejected);
             Some(Step::Adopt {
                 thenable,
                 then_fn,

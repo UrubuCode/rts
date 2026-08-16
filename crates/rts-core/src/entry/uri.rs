@@ -63,8 +63,11 @@ use crate::value::Value;
 /// merged into that list: these four are one subject with one page of reasoning
 /// behind them, and a name in a list somewhere else is a name whose reasoning
 /// has to be found.
-pub(super) fn provided(name: &str) -> Option<Native> {
-    Some(match name {
+pub(super) fn provided(name: &str) -> Option<(Native, u32)> {
+    // Every one of these takes exactly one argument, which is the arity the
+    // specification pins on each. See `super::global_fns::provided` for why the
+    // number travels with the pointer.
+    let code: Native = match name {
         "encodeURIComponent" => encode_uri_component,
         "decodeURIComponent" => decode_uri_component,
         "encodeURI" => encode_uri,
@@ -72,7 +75,8 @@ pub(super) fn provided(name: &str) -> Option<Native> {
         "escape" => escape,
         "unescape" => unescape,
         _ => return None,
-    })
+    };
+    Some((code, 1))
 }
 
 /// The set `escape` leaves alone — Annex B's own list, which is NOT

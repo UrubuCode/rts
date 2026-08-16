@@ -42,6 +42,12 @@
 //! already asked for a bare string cell.
 
 mod basic;
+mod coerce;
+// Re-exported so every native still writes `super::coerce_receiver` — the
+// prologue is the same sentence in eleven files and moving it to a module is a
+// file-size split, not a change of who calls it.
+use coerce::{coerce_receiver, is_regexp, number_arg, text_arg};
+mod html;
 mod more;
 pub(super) mod pattern;
 mod points;
@@ -78,7 +84,16 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     super::native::install(context, cell, replace::NATIVES);
     super::native::install(context, cell, more::NATIVES);
     super::native::install(context, cell, points::NATIVES);
+    // Annex B, through `install_with_arity` rather than `install`: their
+    // `.length` is read by programs that introspect the prototype, and the four
+    // that take an attribute answer 1 where the nine tag-only ones answer 0.
+    super::native::install_with_arity(context, cell, html::NATIVES);
     iterator_method(context, cell);
+    // `String.prototype.constructor` is written by `String`'s own lazy
+    // registration, so a program that never spells `String` read
+    // `"s".constructor === undefined`. Forcing the global here re-enters this
+    // function, which answers from the cell recorded above.
+    super::global::ensure(context, "String");
     Some(cell)
 }
 
@@ -120,7 +135,12 @@ extern "C" fn iterate_units(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
     // a TEXT CELL, and a `new String("ab")` wrapper is not one — so a wrapper
     // reached the object path and iterated nothing, where the language iterates
     // its `[[StringData]]`.
-    let held = with_current(|context| receiver(context, this));
+    // Coerced like every other method's receiver: `String.prototype[Symbol.iterator]`
+    // is specified over `ToString(RequireObjectCoercible(this))` too, so calling
+    // it on a number iterates that number's DIGITS rather than nothing.
+    let Some(held) = coerce_receiver(this) else {
+        return refused();
+    };
     super::list_iterator::over(super::iterate::iterate(held), "String Iterator")
 }
 
@@ -148,6 +168,15 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         super::native::install_with_arity(context, cell, points::STATICS);
         let key = context.well_known("prototype");
         super::objects::put(context, cell, key, prototype);
+    }
+    // The other half of the link, which was missing: `"s".constructor` answered
+    // `undefined` where every other runtime answers `String`, and
+    // `.constructor.name` is how a program asks what a value is. Non-enumerable
+    // like every built-in prototype member — `for (k in "")` walks the chain.
+    if let Some(cell) = Value(prototype).as_slot() {
+        let key = context.well_known("constructor");
+        super::objects::put(context, cell, key, callable);
+        super::native::hidden(context, cell, key);
     }
     callable
 }
@@ -211,6 +240,7 @@ extern "C" fn convert(
 pub(super) fn receiver(context: &Context, value: u64) -> u64 {
     super::primitive_proto::unwrap(context, value)
 }
+
 
 /// The receiver as code units.
 ///
@@ -308,6 +338,15 @@ pub(super) fn answer_owned(context: &mut Context, bytes: Vec<u8>) -> u64 {
 /// The undefined a method answers when there is nothing to answer.
 pub(super) fn nothing(context: &Context) -> u64 {
     undefined_of(context)
+}
+
+/// The same, for a method that has NOT taken the borrow yet.
+///
+/// Only [`coerce_receiver`]'s refusal needs it, and it needs it in eleven files:
+/// the prologue runs before any `with_current`, so the answer for a receiver the
+/// language refuses cannot come from a context the native is not holding.
+pub(super) fn refused() -> u64 {
+    with_current(|context| undefined_of(context))
 }
 
 /// An index argument, as the language reads one.

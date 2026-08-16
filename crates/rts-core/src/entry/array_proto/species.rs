@@ -23,10 +23,11 @@
 //!
 //! # What is NOT routed through it yet, said rather than left to be found
 //!
-//! `slice`, `splice`, `concat`, `flat` and `flatMap` also consult the protocol
-//! in the language and do not here. That is a gap and not a decision: each is
-//! the same two reads in front of a different loop, and they are absent because
-//! nothing measured yet needed them, not because they were judged not to.
+//! `slice`, `splice`, `concat` and `flat` consult it now, through
+//! [`collected`], which is [`made`] and [`placed`] in one call — the gap this
+//! paragraph used to name, closed once rather than written out four times in
+//! front of four different loops. `flatMap` still does not: its flattening runs
+//! inside a borrow this call could not be taken from, which is its own change.
 //! `toSorted`, `toReversed`, `toSpliced` and `with` genuinely never consult it —
 //! ES2023 defines all four as always producing a plain `Array`.
 //!
@@ -155,4 +156,34 @@ pub(in crate::entry) fn property(value: u64, name: &str) -> Option<u64> {
         }
         Found::Absent => None,
     }
+}
+
+/// The array a method that PRODUCES one answers, species consulted.
+///
+/// [`made`] plus [`placed`] in one call, because the five callers that were
+/// missing the protocol — `slice`, `splice`, `concat`, `flat` and `flatMap` —
+/// each had the same three lines to write in front of a different loop, and
+/// three lines written five times is where the fourth one is written
+/// differently. The module documentation named those five as a gap rather than
+/// a decision; this is the gap closed.
+///
+/// `None` from [`made`] takes the path they always took: one `array_new` and
+/// one store, so a program that never named a species pays two property reads
+/// and nothing else.
+pub(super) fn collected(original: u64, values: Vec<u64>) -> u64 {
+    // ROOTED across the construction: the species is user code and allocates,
+    // and until the destination holds them these values are named only by a
+    // `Vec` on the Rust heap. See `super::super::rooted`.
+    let values = crate::entry::rooted::Rooted::with(values);
+    let Some(destination) = made(original, values.len()) else {
+        return super::built(values.take());
+    };
+    let values = values.take();
+    for (index, value) in values.into_iter().enumerate() {
+        placed(destination, index, value);
+        if super::super::throw::in_flight() {
+            return destination;
+        }
+    }
+    destination
 }

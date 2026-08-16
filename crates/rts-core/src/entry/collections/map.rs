@@ -21,8 +21,17 @@ impl Map {
     /// cannot yet take is another `Map`, a generator, or anything else declaring
     /// `Symbol.iterator` — see [`super::elements_of`] for why that is a gap in
     /// the iteration protocol rather than in this constructor.
+    /// Arity 0, not 1: the specification pins `Map.length` at zero because the
+    /// iterable is optional in the way `length` counts.
     #[construct]
+    #[arity(0)]
     fn build(this: u64, iterable: u64) -> u64 {
+        // Before the argument is even looked at: `Map()` without `new` is a
+        // `TypeError` before it reads anything, and `brand_before_arg` in the
+        // corpus asserts exactly that order.
+        if !super::requires_new(this, "Map") {
+            return super::undefined();
+        }
         // Read before any borrow is taken, because `iterate` is itself an entry
         // point and takes one of its own.
         let pairs = match super::nothing_to_fill_from(iterable) {
@@ -46,11 +55,11 @@ impl Map {
 
     /// `m.get(k)` — the value, or `undefined`.
     fn get(this: u64, key: u64) -> u64 {
+        let Some(cell) = super::branded(this, super::Brand::Map) else {
+            return super::undefined();
+        };
         with_current(|context| {
             let absent = undefined_of(context);
-            let Some(cell) = Value(this).as_slot() else {
-                return absent;
-            };
             let Some(table) = context.table_at(cell) else {
                 return absent;
             };
@@ -60,10 +69,11 @@ impl Map {
 
     /// `m.set(k, v)` — the map, so that writes chain.
     fn set(this: u64, key: u64, value: u64) -> u64 {
+        let Some(cell) = super::branded(this, super::Brand::Map) else {
+            return super::undefined();
+        };
         with_current(|context| {
-            if let Some(cell) = Value(this).as_slot()
-                && let Some(mut table) = super::taken(context, cell)
-            {
+            if let Some(mut table) = super::taken(context, cell) {
                 table.set(context, key, value);
                 super::restore_sized(context, cell, table);
             }
@@ -73,6 +83,9 @@ impl Map {
 
     /// `m.has(k)`.
     fn has(this: u64, key: u64) -> bool {
+        if super::branded(this, super::Brand::Map).is_none() {
+            return false;
+        }
         with_current(|context| held(context, this, key))
     }
 
@@ -82,10 +95,10 @@ impl Map {
     /// have here, and spelled back with `#[js]`.
     #[js("delete")]
     fn remove(this: u64, key: u64) -> bool {
+        let Some(cell) = super::branded(this, super::Brand::Map) else {
+            return false;
+        };
         with_current(|context| {
-            let Some(cell) = Value(this).as_slot() else {
-                return false;
-            };
             let Some(mut table) = super::taken(context, cell) else {
                 return false;
             };
@@ -97,10 +110,11 @@ impl Map {
 
     /// `m.clear()`.
     fn clear(this: u64) -> u64 {
+        let Some(cell) = super::branded(this, super::Brand::Map) else {
+            return super::undefined();
+        };
         with_current(|context| {
-            if let Some(cell) = Value(this).as_slot()
-                && let Some(mut table) = super::taken(context, cell)
-            {
+            if let Some(mut table) = super::taken(context, cell) {
                 table.clear();
                 super::restore_sized(context, cell, table);
             }
@@ -117,7 +131,12 @@ impl Map {
     /// `extern "C"` frame cannot unwind, so the process aborts — and a snapshot,
     /// which is what this was, makes an entry added by the callback invisible
     /// where the language says it is visited.
+    /// Arity 1: `thisArg` is optional in the way `length` counts.
+    #[arity(1)]
     fn for_each(this: u64, callback: u64, this_arg: u64) -> u64 {
+        if super::branded(this, super::Brand::Map).is_none() {
+            return super::undefined();
+        }
         let mut at = 0;
         while let Some((seq, key, value)) = super::cursor::after(this, at) {
             at = seq;
@@ -132,12 +151,18 @@ impl Map {
 
     /// `m.keys()` — a live iterator, for the reason [`super::cursor`] gives.
     fn keys(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Keys, "Map Iterator")
+        match super::branded(this, super::Brand::Map) {
+            Some(_) => super::cursor::over(this, super::cursor::Kind::Keys, "Map Iterator"),
+            None => super::undefined(),
+        }
     }
 
     /// `m.values()`.
     fn values(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Values, "Map Iterator")
+        match super::branded(this, super::Brand::Map) {
+            Some(_) => super::cursor::over(this, super::cursor::Kind::Values, "Map Iterator"),
+            None => super::undefined(),
+        }
     }
 
     /// `m.entries()` — a `[key, value]` array per entry.
@@ -145,7 +170,10 @@ impl Map {
     /// Also what `m[Symbol.iterator]` is, and the SAME function object rather
     /// than one that agrees: [`super::register_map`] installs the second name.
     fn entries(this: u64) -> u64 {
-        super::cursor::over(this, super::cursor::Kind::Entries, "Map Iterator")
+        match super::branded(this, super::Brand::Map) {
+            Some(_) => super::cursor::over(this, super::cursor::Kind::Entries, "Map Iterator"),
+            None => super::undefined(),
+        }
     }
 
     /// `Map.groupBy(items, cb)` — ES2024.

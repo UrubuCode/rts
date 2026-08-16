@@ -55,6 +55,18 @@ pub(in crate::entry) struct Machine {
     /// A vector because `PromiseId::index` is dense and issued in order — the
     /// same reason `Settlements` indexes by it.
     cells: Vec<u32>,
+    /// Every `(resolve, reject)` pair handed out, and whether it has been used.
+    ///
+    /// The specification's `alreadyResolved`, which the pair of settlers share:
+    /// once either has run, the promise is RESOLVED even though it may not have
+    /// settled — `resolve(thenable)` leaves it pending while its fate is already
+    /// decided. Nothing else may decide it afterwards, which is what makes
+    /// `new Promise(r => { r(x); throw e })` keep the fulfilment.
+    ///
+    /// Not derivable from the settlement: a pending-but-resolved promise and a
+    /// pending one look identical there, and that is exactly the pair this has
+    /// to tell apart.
+    pairs: Vec<(PromiseId, bool)>,
 }
 
 impl Default for Machine {
@@ -93,6 +105,7 @@ impl Machine {
             groups: Vec::new(),
             of_cell: HashMap::new(),
             cells: Vec::new(),
+            pairs: Vec::new(),
         }
     }
 
@@ -107,18 +120,38 @@ impl Machine {
         id
     }
 
+    /// A fresh `(resolve, reject)` pair for a promise, and the number the two
+    /// carry.
+    ///
+    /// `CreateResolvingFunctions` makes a pair with ONE `alreadyResolved` cell
+    /// between them, and a promise can have several pairs over its life: the
+    /// constructor's, and one per thenable it adopts. Keying the flag by the
+    /// PROMISE instead was tried and is wrong in a way a test caught at once —
+    /// `resolve(thenable)` spends the flag, and the pair handed to the
+    /// thenable's own `then` could then never settle anything.
+    pub(super) fn open_pair(&mut self, id: PromiseId) -> usize {
+        self.pairs.push((id, false));
+        self.pairs.len() - 1
+    }
+
+    /// The promise a pair settles, once — `None` for a pair already spent.
+    pub(super) fn claim_pair(&mut self, at: usize) -> Option<PromiseId> {
+        let (id, resolved) = self.pairs.get_mut(at)?;
+        if *resolved {
+            return None;
+        }
+        *resolved = true;
+        Some(*id)
+    }
+
+    /// Whether a pair has been used, without using it.
+    pub(super) fn pair_spent(&self, at: usize) -> bool {
+        self.pairs.get(at).is_some_and(|(_, resolved)| *resolved)
+    }
+
     /// Which promise a cell is, if it is one.
     pub(super) fn id_of(&self, cell: u32) -> Option<PromiseId> {
         self.of_cell.get(&cell).copied()
-    }
-
-    /// The promise at an index, which is what a settler native carries.
-    pub(super) fn at(&self, index: usize) -> Option<PromiseId> {
-        // Through the cell table rather than by constructing a `PromiseId`:
-        // its field is private on purpose, so nothing outside the machine can
-        // invent one, and this is the honest way back.
-        let cell = *self.cells.get(index)?;
-        self.id_of(cell)
     }
 
     /// What a promise settled with, if it has settled.

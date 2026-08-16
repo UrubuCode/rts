@@ -150,6 +150,19 @@ extern "C" fn create(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    // An object or `null`, and nothing else — `undefined` included, which is
+    // what makes `Object.create(undefined)` a `TypeError` rather than the
+    // prototype-less object `Object.create(null)` gives. This accepted
+    // anything, so `Object.create(7)` answered an object whose prototype was
+    // the number 7 and every read through it went nowhere.
+    let refused = with_current(|context| {
+        !super::super::objects::is_object(context, prototype)
+            && prototype != Value::from_singleton(context.singletons.null).bits()
+    });
+    if refused {
+        super::super::throw::type_error("Object prototype may only be an Object or null");
+        return with_current(|context| undefined_of(context));
+    }
     let fresh = super::super::objects::object_new(0);
     with_current(|context| {
         if let Some(cell) = Value(fresh).as_slot() {
@@ -194,10 +207,24 @@ fn apply(object: u64, descriptors: u64) {
     if descriptors == absent {
         return;
     }
+    // `ToObject` is what the specification applies to the map, so
+    // `Object.create(null, 7)` is a wrapper with no own keys and defines
+    // nothing — only `null` refuses, and `undefined` was answered above as "no
+    // properties". `Object.create(null, null)` answered an empty object here,
+    // which is a refusal wearing success's clothes.
+    if with_current(|context| super::super::objects::nullish(context, descriptors).is_some()) {
+        super::super::throw::type_error("Object.defineProperties called on non-object");
+        return;
+    }
     let names = super::super::array::own_keys(descriptors);
-    let Some(names) = elements(names) else {
+    let Some(mut names) = elements(names) else {
         return;
     };
+    // And the symbol-keyed entries, which `own_keys` cannot report — so
+    // `Object.create(proto, Object.getOwnPropertyDescriptors(o))`, the idiom
+    // for cloning an object with its attributes intact, dropped every symbol
+    // property silently.
+    names.extend(elements(own_symbols(descriptors)).unwrap_or_default());
     let mut gathered = Vec::with_capacity(names.len());
     for name in names {
         // Reading the entry runs a getter, and so does reading each of its six
@@ -311,9 +338,15 @@ extern "C" fn get_own_property_descriptors(
     // the enumerable list here made such a property vanish from its own
     // descriptor object rather than report `enumerable: false` on it.
     let names = super::super::array::own_names(object);
-    let Some(names) = elements(names) else {
+    let Some(mut names) = elements(names) else {
         return made;
     };
+    // And the symbol-keyed ones. `own_names` is the STRING enumeration — a
+    // symbol has no string spelling for it to report — so `{[s]: 1}` came back
+    // from the operation whose whole job is to describe everything with the
+    // symbol property missing, and `Object.defineProperties(t, gopds(o))` lost
+    // it silently. Same second list `Reflect.ownKeys` already stitches on.
+    names.extend(elements(own_symbols(object)).unwrap_or_default());
     for name in names {
         if let Some(built) = descriptor(object, name) {
             super::super::computed::set_indexed(made, name, built);

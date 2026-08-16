@@ -43,7 +43,15 @@ impl Engine {
     /// `SyntaxError` there; see [`super::regex_new`] for why this answers rather
     /// than throws.
     pub(super) fn compile(pattern: &str, flags: Flags) -> Option<Engine> {
+        // The three rewrites that are EXACT — see [`super::translate`] for why
+        // the list stops at three.
+        use super::translate::{empty_classes, unescape_solidus, wide_dot};
         let pattern = empty_classes(&unescape_solidus(pattern));
+        let pattern = match flags.dot_all {
+            true => pattern,
+            // With `s` the builder below already says the whole set is allowed.
+            false => wide_dot(&pattern),
+        };
         match regex::RegexBuilder::new(&pattern)
             .case_insensitive(flags.ignore_case)
             .multi_line(flags.multiline)
@@ -181,7 +189,20 @@ impl Flags {
     /// `d` was in that list and no longer is — see [`Flags::has_indices`].
     pub(super) fn parse(text: &str) -> Option<Flags> {
         let mut flags = Flags::default();
+        let mut seen: Vec<char> = Vec::new();
         for letter in text.chars() {
+            // A REPEATED letter is a `SyntaxError`, and so is `u` beside `v`.
+            // Both were accepted, and both are the shape a hand-edited flag
+            // string takes: `/a/gg` read as `/a/g`, and `/a/uv` as a pattern in
+            // two mutually exclusive class grammars at once. Accepting either
+            // turns a typo into a regular expression that quietly runs.
+            if seen.contains(&letter) {
+                return None;
+            }
+            if (letter == 'u' && seen.contains(&'v')) || (letter == 'v' && seen.contains(&'u')) {
+                return None;
+            }
+            seen.push(letter);
             match letter {
                 'i' => flags.ignore_case = true,
                 'm' => flags.multiline = true,
@@ -196,6 +217,31 @@ impl Flags {
         Some(flags)
     }
 
+    /// The letters in the order `RegExp.prototype.flags` answers them.
+    ///
+    /// `re.flags` is BUILT by the specification's getter, one flag at a time in
+    /// a fixed order — it is not the text the program wrote. So `/a/yusimgd`
+    /// answers `"dgimsuy"`, and echoing the written order made every program
+    /// that compares two patterns by their flags string disagree with itself
+    /// over the same set. `u` and `v` are read from the letters because
+    /// [`Flags`] has no field for them; see [`Flags::parse`].
+    pub(super) fn canonical(self, letters: &str) -> String {
+        let order: [(char, bool); 8] = [
+            ('d', self.has_indices),
+            ('g', self.global),
+            ('i', self.ignore_case),
+            ('m', self.multiline),
+            ('s', self.dot_all),
+            ('u', letters.contains('u')),
+            ('v', letters.contains('v')),
+            ('y', self.sticky),
+        ];
+        order
+            .into_iter()
+            .filter_map(|(letter, on)| on.then_some(letter))
+            .collect()
+    }
+
     /// Whether a match resumes from `lastIndex` rather than from the start.
     pub(super) fn tracks_last_index(self) -> bool {
         self.global || self.sticky
@@ -207,50 +253,6 @@ impl Flags {
     /// `fancy-regex` takes options as inline groups, so the same three facts are
     /// spelled as a prefix. Written from the same structure the builder is
     /// configured from, so the two cannot disagree about what `i` means.
-    /// The flag letters in the CANONICAL order the language prints them.
-    ///
-    /// `RegExp.prototype.flags` is defined as a getter that reads each flag in a
-    /// fixed sequence — `d g i m s u v y` — and appends its letter. It is not
-    /// the text the program wrote: `new RegExp("a", "mis").flags` is `"ims"` and
-    /// `/x/yug.flags` is `"guy"`.
-    ///
-    /// This engine kept the written text and answered it verbatim, so two
-    /// regular expressions with the same meaning compared unequal through their
-    /// `flags` and `source` — which is exactly what `new RegExp(re)` copies and
-    /// what a program uses to cache a compiled pattern by key.
-    ///
-    /// `u` and `v` are carried from the written text rather than from a field,
-    /// because [`Flags`] has none for them: both are accepted and not acted on,
-    /// which [`Flags::parse`] states as the divergence it is.
-    pub(super) fn canonical(self, written: &str) -> String {
-        let mut letters = String::new();
-        if self.has_indices {
-            letters.push('d');
-        }
-        if self.global {
-            letters.push('g');
-        }
-        if self.ignore_case {
-            letters.push('i');
-        }
-        if self.multiline {
-            letters.push('m');
-        }
-        if self.dot_all {
-            letters.push('s');
-        }
-        if written.contains('u') {
-            letters.push('u');
-        }
-        if written.contains('v') {
-            letters.push('v');
-        }
-        if self.sticky {
-            letters.push('y');
-        }
-        letters
-    }
-
     fn inline(self, pattern: &str) -> String {
         let mut prefix = String::new();
         if self.ignore_case {
@@ -270,112 +272,25 @@ impl Flags {
     }
 }
 
-/// `\/` back to `/`.
-///
-/// The one syntactic difference that is not optional. A literal has to escape
-/// the slash that would otherwise end it, so `/a\/b/` is how a program spells
-/// the pattern `a/b` — and both Rust engines reject `\/` as an unrecognised
-/// escape, because neither has a delimiter to protect.
-///
-/// Only this one is translated. The rest of the gap between JavaScript's syntax
-/// and Rust's — `\cX`, the octal escapes, `[]` meaning "match nothing" — is
-/// named rather than papered over: a pattern using one is refused at
-/// compilation, which is visible, where a wrong translation would be a regular
-/// expression that matches the wrong text.
-fn unescape_solidus(pattern: &str) -> String {
-    let mut out = String::with_capacity(pattern.len());
-    let mut characters = pattern.chars();
-    while let Some(character) = characters.next() {
-        if character != '\\' {
-            out.push(character);
-            continue;
-        }
-        match characters.next() {
-            Some('/') => out.push('/'),
-            // Any other escape is passed through unchanged, backslash included:
-            // it is the engine's to interpret, and this function's whole job is
-            // the one case where a JavaScript literal has a delimiter and a Rust
-            // pattern does not.
-            Some(other) => {
-                out.push('\\');
-                out.push(other);
-            }
-            None => out.push('\\'),
-        }
-    }
-    out
-}
-
-/// Rewrites the two character classes JavaScript has and Rust's engine refuses.
-///
-/// `[]` matches NOTHING and `[^]` matches ANY character, both legal JavaScript
-/// and both a parse error for the `regex` crate, which reads an empty class as
-/// malformed. Neither is exotic: `[^]` is the ordinary way to write "any
-/// character including a newline" in code predating the `s` flag, and it appears
-/// in minified output constantly.
-///
-/// They are translated rather than refused because the translations are EXACT
-/// and there is no ambiguity to lose: `[^\s\S]` is the empty set by
-/// construction, and `[\s\S]` is its complement. That is the difference from
-/// [`unescape_solidus`]'s neighbouring case, which refuses rather than guesses —
-/// a wrong translation there would be a pattern matching the wrong text, and
-/// here there is only one thing either class can mean.
-///
-/// Only outside a class, and only where the bracket is not itself escaped: `[[]`
-/// is a class containing `[`, and `\[]` is the two literal characters. A blind
-/// `replace` on the string got both wrong.
-fn empty_classes(pattern: &str) -> String {
-    let mut out = String::with_capacity(pattern.len());
-    let characters: Vec<char> = pattern.chars().collect();
-    let mut at = 0;
-    let mut inside = false;
-    while at < characters.len() {
-        let character = characters[at];
-        if character == '\\' {
-            out.push(character);
-            if let Some(next) = characters.get(at + 1) {
-                out.push(*next);
-            }
-            at += 2;
-            continue;
-        }
-        if !inside && character == '[' {
-            if characters.get(at + 1) == Some(&']') {
-                out.push_str("[^\\s\\S]");
-                at += 2;
-                continue;
-            }
-            if characters.get(at + 1) == Some(&'^') && characters.get(at + 2) == Some(&']') {
-                out.push_str("[\\s\\S]");
-                at += 3;
-                continue;
-            }
-            inside = true;
-        } else if inside && character == ']' {
-            inside = false;
-        }
-        out.push(character);
-        at += 1;
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn the_two_empty_classes_are_translated_and_nothing_else_is() {
-        assert_eq!(empty_classes("[]"), "[^\\s\\S]");
-        assert_eq!(empty_classes("[^]"), "[\\s\\S]");
-        assert_eq!(empty_classes("a[]b[^]c"), "a[^\\s\\S]b[\\s\\S]c");
-        // A bracket INSIDE a class is an ordinary member, and one that is
-        // escaped is a literal — a blind `replace` got both of these wrong.
-        assert_eq!(empty_classes("[[]"), "[[]");
-        assert_eq!(empty_classes("\\[]"), "\\[]");
-        assert_eq!(empty_classes("[a]"), "[a]");
-        assert_eq!(empty_classes("[^a]"), "[^a]");
-        assert_eq!(empty_classes("[\\]]"), "[\\]]");
+    fn a_dot_excludes_the_four_line_terminators_and_not_only_the_newline() {
+        let flags = Flags::parse("").expect("no flags");
+        let engine = Engine::compile("a.b", flags).expect("compiles");
+        assert!(engine.find_at("axb", 0).is_some());
+        for terminator in ["\n", "\r", "\u{2028}", "\u{2029}"] {
+            assert!(
+                engine.find_at(&format!("a{terminator}b"), 0).is_none(),
+                "`.` must not match a line terminator without `s`"
+            );
+        }
+        // With `s` every one of them is allowed, and the translation is not
+        // applied at all.
+        let all = Engine::compile("a.b", Flags::parse("s").expect("s")).expect("compiles");
+        assert!(all.find_at("a\rb", 0).is_some());
     }
 
     #[test]
@@ -394,6 +309,10 @@ mod tests {
         // regular expression quietly meaning something else.
         assert!(Flags::parse("q").is_none());
         assert!(Flags::parse("gimsy").is_some());
+        // Repeated, and the two class grammars at once — both `SyntaxError`.
+        assert!(Flags::parse("gg").is_none());
+        assert!(Flags::parse("uv").is_none());
+        assert!(Flags::parse("vu").is_none());
     }
 
     #[test]

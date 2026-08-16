@@ -1,30 +1,18 @@
 //! `AbortController` and `AbortSignal`.
 //!
-//! # Why `throwIfAborted()` ends the program
+//! # `throwIfAborted()` raises the reason, and what changed
 //!
-//! Because in this engine there is no third answer, and the two that exist are
-//! not equally honest. A native cannot raise a JavaScript exception —
-//! `rts_core::entry::throw` ends the process rather than transferring to a
-//! handler, and `rts-codegen` refuses at compile time to emit a `try` whose body
-//! contains a call. So **no program this engine compiles could have caught the
-//! throw anyway**: every use of `throwIfAborted()` on an aborted signal is, by
-//! construction, an uncaught exception, and ending the program with the reason
-//! reported is exactly what an uncaught exception does.
+//! This section said the method ends the program, and gave a reason that was
+//! true when it was written: a native could not raise a JavaScript exception,
+//! and `rts-codegen` refused to compile a `try` whose body contained a call, so
+//! no program could have caught the throw anyway. Both of those stopped being
+//! true. `entry::throw_value` raises a VALUE a `catch` sees, which is the shape
+//! this method needs and one a message-only raise could not have given it: the
+//! reason is whatever `controller.abort(x)` was handed, and `abort(42)` throws
+//! `42`.
 //!
-//! Returning `undefined` instead was the alternative, and it is what
-//! `node:assert` chose for its own unraisable failures. It loses here for a
-//! reason that does not apply there: `assert.ok(false)` is a diagnostic whose
-//! whole value is the message, while `throwIfAborted()` exists to *stop the
-//! caller* — a program that continues past it operates on a cancelled request,
-//! which is a wrong answer that runs.
-//!
-//! The exit is written here rather than through `entry::throw` because that
-//! entry point takes a tag, and the tag numbering belongs to `rts-codegen`'s
-//! `JS_THROW`, which this crate cannot name. Writing the number by hand is the
-//! second-source-of-one-number mistake the reuse rule exists to prevent, and it
-//! would buy nothing: on the escaping path the tag is printed and not
-//! interpreted. `node:events` ends the process the same way for an unhandled
-//! `'error'`.
+//! Ending the process was never the lesser half of the same answer. The whole
+//! point of the method is a cancellation the caller catches.
 //!
 //! # `onabort`, and where it fires
 //!
@@ -58,6 +46,16 @@ const TIMEOUT_ERROR: (&str, &str) = ("TimeoutError", "The operation timed out.")
 /// the one abort path in this module reads the list.
 const DEPENDENTS: &str = "__dependents__";
 
+/// The registrations an abort of this signal withdraws.
+///
+/// The `signal` entry of `AddEventListenerOptions`, kept exactly the way
+/// [`DEPENDENTS`] keeps a composite: the signal remembers what depends on it,
+/// so nothing has to be captured in a callable that has no environment slot.
+/// Each element is a record of `(target, type, fn, capture)` — the four
+/// `removeEventListener` is defined over, and no fewer: two listeners of one
+/// function on one target differ only in `capture`.
+const REMOVALS: &str = "__removals__";
+
 thread_local! {
     /// Signals waiting on a deadline, and when each is due.
     ///
@@ -81,13 +79,20 @@ pub(super) fn install(context: &mut Context) -> (u64, u64) {
     // object cannot carry one that `new` respects.
     let signal = entry::make_callable(context, illegal_constructor);
     entry::put_member(context, signal, "prototype", signal_prototype);
-    let statics: [(&str, Provided); 3] = [
-        ("abort", static_abort),
-        ("timeout", static_timeout),
-        ("any", static_any),
+    // Named and back-linked like any other class, even though `new` on it
+    // throws: `signal.constructor.name` is what a program reads to find out
+    // what it is holding, and it answered nothing.
+    entry::declare_host_class(context, signal, signal_prototype, "AbortSignal", 0);
+    // Each static carries its own `name` and `length`: they are ordinary
+    // functions, and a program reading `AbortSignal.any.length` read nothing.
+    let statics: [(&str, u32, Provided); 3] = [
+        ("abort", 0, static_abort),
+        ("timeout", 1, static_timeout),
+        ("any", 1, static_any),
     ];
-    for (name, code) in statics {
+    for (name, arity, code) in statics {
         let made = entry::make_callable(context, code);
+        entry::describe_callable(context, made, name, arity);
         entry::put_member(context, signal, name, made);
     }
     // Registered by this module at install time, never by the host: a host that
@@ -96,7 +101,7 @@ pub(super) fn install(context: &mut Context) -> (u64, u64) {
     entry::declare_loop_source(context, "rts-std:abort-timeout", pump);
     let controller_prototype =
         entry::make_prototype(context, "AbortController", CONTROLLER_METHODS);
-    let controller = super::class_ctor(context, construct, controller_prototype);
+    let controller = super::class_ctor(context, "AbortController", 0, construct, controller_prototype);
     (controller, signal)
 }
 
@@ -193,7 +198,20 @@ extern "C" fn static_timeout(_e: u64, _this: u64, delay: u64, _b: u64, _c: u64, 
 /// which is what makes `AbortSignal.any([AbortSignal.abort("a"), other])` answer
 /// a signal whose reason is `"a"` before anything is registered at all.
 extern "C" fn static_any(_e: u64, _this: u64, signals: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    // The argument is iterated and every member must be a signal, both of which
+    // the specification checks before anything is built. Neither was checked:
+    // `AbortSignal.any(1)` answered a composite that nothing could ever abort,
+    // and `AbortSignal.any([{}])` answered one that had registered a dependency
+    // on a plain object.
+    if super::options_bag(signals).is_none() {
+        entry::throw_type_error("AbortSignal.any: the argument must be iterable");
+        return super::absent();
+    }
     let inputs = super::elements(signals);
+    if !inputs.iter().all(|&input| is_signal(input)) {
+        entry::throw_type_error("AbortSignal.any: every member must be an AbortSignal");
+        return super::absent();
+    }
     let composite = entry::with_runtime(fresh_signal);
     if let Some(aborted) = inputs.iter().find(|&&input| super::flag(input, "aborted")) {
         signal_abort(composite, super::get(*aborted, "reason"), ABORT_ERROR);
@@ -216,25 +234,26 @@ extern "C" fn illegal_constructor(_e: u64, _t: u64, _a: u64, _b: u64, _c: u64, _
     super::absent()
 }
 
-/// `signal.throwIfAborted()` — see the module doc for why this ends the program
-/// rather than returning.
+/// `signal.throwIfAborted()` — raises the reason, whatever the reason is.
+///
+/// This printed a message and called `std::process::exit(1)`, and the module doc
+/// called that faithful because nothing in this engine could raise a value a
+/// program's `catch` would see. `entry::throw_value` is exactly that, and it
+/// takes the VALUE rather than a message — which is what this method needs and
+/// what a `TypeError`-only raise could not have served: the reason is whatever
+/// `controller.abort(x)` was handed, and `abort(42)` must throw `42`.
+///
+/// The whole point of the method is a cancellation a caller catches, so ending
+/// the process was not a lesser answer to the same question — it was the
+/// opposite one.
 extern "C" fn throw_if_aborted(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     if !super::flag(this, "aborted") {
         return super::absent();
     }
-    let reason = super::get(this, "reason");
-    // `described` answers the text of a primitive and nothing for an object,
-    // whose `toString` is user code. A reason built by this module is an object,
-    // so its two data properties are read directly — the same read
-    // `entry::throw` performs on an `Error` for the same reason.
-    let text = entry::described(reason).unwrap_or_else(|| {
-        let name = super::text(super::get(reason, "name")).unwrap_or_else(|| "Error".to_owned());
-        let message = super::text(super::get(reason, "message")).unwrap_or_default();
-        format!("{name}: {message}")
-    });
-    eprintln!("rts: uncaught exception from AbortSignal.throwIfAborted(): {text}");
-    std::process::exit(1)
+    entry::throw_value(super::get(this, "reason"));
+    super::absent()
 }
+
 
 /// Aborts a signal once: records the reason, fires `'abort'`, calls `onabort`.
 ///
@@ -277,6 +296,9 @@ fn signal_abort(signal: u64, reason: u64, default: (&str, &str)) {
             })
             .collect()
     });
+    for (target, _) in &events {
+        withdraw(*target);
+    }
     for (target, event) in events {
         super::target::dispatch_event(target, event);
         let handler = super::get(target, "onabort");
@@ -284,6 +306,70 @@ fn signal_abort(signal: u64, reason: u64, default: (&str, &str)) {
             let absent = super::absent();
             entry::call(handler, target, event, absent, absent, absent);
         }
+    }
+}
+
+/// Whether a value is one of this module's signals.
+///
+/// By the prototype chain rather than by a property, so that a plain object
+/// carrying `aborted: false` is refused: `addEventListener`'s `signal` entry is
+/// a `TypeError` for anything that is not a signal, and a duck test would accept
+/// the very mistake the error exists to report.
+pub(super) fn is_signal(value: u64) -> bool {
+    let wanted = entry::with_runtime(signal_prototype);
+    let mut held = entry::get_prototype(value);
+    while held != entry::null_value() && held != entry::undefined_value() {
+        if held == wanted {
+            return true;
+        }
+        held = entry::get_prototype(held);
+    }
+    false
+}
+
+/// Remembers a registration to withdraw when this signal aborts.
+pub(super) fn remove_on_abort(
+    signal: u64,
+    target: u64,
+    kind: &str,
+    listener: u64,
+    capture: bool,
+) {
+    let text = super::string(kind);
+    let record = entry::with_runtime(|context| {
+        let record = entry::make_object(context);
+        entry::put_member(context, record, "target", target);
+        entry::put_member(context, record, "type", text);
+        entry::put_member(context, record, "fn", listener);
+        entry::put_member(context, record, "capture", entry::boolean_value(capture));
+        record
+    });
+    let mut held = super::elements(super::get(signal, REMOVALS));
+    held.push(record);
+    super::store_elements(signal, REMOVALS, held);
+}
+
+/// Withdraws every registration tied to a signal that has just aborted.
+///
+/// Before the `'abort'` event is delivered, which is observable: a listener
+/// registered with the same signal for the same type must not run for the abort
+/// that removed it.
+fn withdraw(signal: u64) {
+    let held = super::elements(super::get(signal, REMOVALS));
+    if held.is_empty() {
+        return;
+    }
+    super::store_elements(signal, REMOVALS, Vec::new());
+    for record in held {
+        let Some(kind) = super::text(super::get(record, "type")) else {
+            continue;
+        };
+        super::target::drop_registration(
+            super::get(record, "target"),
+            &kind,
+            super::get(record, "fn"),
+            super::flag(record, "capture"),
+        );
     }
 }
 

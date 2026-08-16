@@ -39,7 +39,7 @@ mod cursor;
 pub(super) mod iterate;
 mod joining;
 mod like;
-mod more;
+pub(in crate::entry) mod more;
 mod numeric;
 pub(in crate::entry) mod species;
 
@@ -101,6 +101,13 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     let values = super::native::callable(context, more::values);
     super::objects::put(context, cell, key, values);
     install_unscopables(context, cell);
+    // `Array.prototype.constructor` is written by `Array`'s registration, and
+    // that registration is lazy — so a program that never spells `Array` read
+    // `[].constructor === undefined`. Forcing the global here re-enters
+    // `constructor`, which calls this function and gets the cell recorded
+    // above, so the recursion terminates on the line that already had to be
+    // there for interning.
+    super::global::ensure(context, "Array");
     Some(cell)
 }
 
@@ -420,6 +427,18 @@ extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
 
 /// `a.slice(from, to)` — a new array, negative counting from the end.
 extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToIntegerOrInfinity` of both bounds, OUTSIDE every borrow, because it may
+    // run a `valueOf`. It was `Value::numeric()`, which answers `None` for
+    // anything that is not already a number — so `a.slice(true)`, `a.slice("2")`
+    // and `a.slice({ valueOf() { return 2 } })` all silently started at zero and
+    // answered the whole array. Reading a bound as "the whole thing" is the
+    // failure mode that looks like success.
+    let given_end = with_current(|context| !absent(context, to));
+    let asked_start = numeric::integer_or_infinity(from);
+    let asked_end = given_end.then(|| numeric::integer_or_infinity(to));
+    if super::throw::in_flight() {
+        return with_current(|context| undefined_of(context));
+    }
     let taken = with_current(|context| {
         // `slice` is GENERIC — the specification defines it over
         // `LengthOfArrayLike(ToObject(this))` rather than over an array — and
@@ -437,11 +456,10 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
             Some((_, elements)) => elements,
             None => array_like(context, this)?,
         };
-        let start = relative(Value(from).numeric().unwrap_or(0.0), elements.len());
-        let end = if absent(context, to) {
-            elements.len()
-        } else {
-            relative(Value(to).numeric().unwrap_or(0.0), elements.len())
+        let start = relative(asked_start, elements.len());
+        let end = match asked_end {
+            None => elements.len(),
+            Some(asked) => relative(asked, elements.len()),
         };
         // Crossed rather than swapped, the same as the string method:
         // `[1,2,3].slice(2, 1)` is empty.
@@ -452,7 +470,7 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
         })
     });
     match taken {
-        Some(taken) => built(taken),
+        Some(taken) => species::collected(this, taken),
         None => with_current(|context| undefined_of(context)),
     }
 }
@@ -514,7 +532,7 @@ extern "C" fn fill(_e: u64, this: u64, value: u64, from: u64, to: u64, _a3: u64)
 /// `None` when there is no `length` to read, which keeps
 /// `Array.prototype.slice.call(1)` answering `undefined` rather than an empty
 /// array it invented.
-fn array_like(context: &mut Context, this: u64) -> Option<Vec<u64>> {
+pub(super) fn array_like(context: &mut Context, this: u64) -> Option<Vec<u64>> {
     let cell = Value(this).as_slot()?;
     let key = context.well_known("length");
     let length = super::objects::read_property(context, cell, key)?.numeric()?;
@@ -531,9 +549,14 @@ fn array_like(context: &mut Context, this: u64) -> Option<Vec<u64>> {
         let key = context.well_known(&at.to_string());
         let value = match super::objects::read_property(context, cell, key) {
             Some(value) => value.bits(),
-            // A hole in an array-like reads `undefined`, which is what the
-            // specification's `Get` answers for an absent index.
-            None => super::objects::undefined_of(context),
+            // An absent index stays ABSENT. The specification's `slice` asks
+            // `HasProperty` and only does `CreateDataProperty` when the answer
+            // is yes, so `Array.prototype.slice.call({length: 3, 0: "a", 2: "c"})`
+            // has a hole at 1 and `1 in result` is false. It read `undefined`
+            // here, which gave the right VALUE and the wrong shape — and `in`
+            // is how a program asks the difference. `array::visible` turns the
+            // marker back into `undefined` for every read that wants one.
+            None => super::array::hole_of(context),
         };
         found.push(value);
     }

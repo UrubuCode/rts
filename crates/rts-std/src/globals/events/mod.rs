@@ -161,9 +161,23 @@ pub fn install(context: &mut Context) {
 /// from the constructor is NOT enough on its own — `new` over a native keeps the
 /// object it allocated, so a constructor with no `prototype` property hands back
 /// something with none of the methods on it.
-fn class_ctor(context: &mut Context, construct: Provided, prototype: u64) -> u64 {
+///
+/// The name and the arity are written here rather than left off, and so is
+/// `prototype.constructor`: without them `new Event("x").constructor` read
+/// `undefined`, which is not a detail a program has to go looking for — it is
+/// what `e.constructor.name` does, and it ended the process with a `TypeError`
+/// on the most ordinary line in a fixture. `entry::declare_host_class` is where
+/// the four writes a declared class gets for free are spelled once.
+fn class_ctor(
+    context: &mut Context,
+    name: &str,
+    arity: u32,
+    construct: Provided,
+    prototype: u64,
+) -> u64 {
     let ctor = entry::make_callable(context, construct);
     entry::put_member(context, ctor, "prototype", prototype);
+    entry::declare_host_class(context, ctor, prototype, name, arity);
     ctor
 }
 

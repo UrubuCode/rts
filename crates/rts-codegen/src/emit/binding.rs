@@ -180,7 +180,19 @@ pub fn declare(
         // The binding already exists — `Scope::for_function` created it at
         // function entry, because a hoisted inner function may have read it
         // before this declaration was reached. So declaring is only the store.
-        let environment = walk(builder, scope, ctx, 0)?;
+        //
+        // Into the environment the BINDING names, not into the innermost one.
+        // `Scope::enter_environment` pushes every name it did not list one hop
+        // further out, so a captured name declared inside a block that owns an
+        // environment — `catch (c) { const read = () => c; }`, where the layer
+        // exists for `c` alone — resolves at one hop while a store fixed at
+        // zero wrote the block's own object. The read then found nothing:
+        // `read is not a function`, on code where nothing is wrong.
+        let hops = match scope.lookup(name) {
+            Some(Binding::InEnvironment { hops, .. }) => hops,
+            _ => 0,
+        };
+        let environment = walk(builder, scope, ctx, hops)?;
         super::property::emit_write(builder, ctx, environment, name, value)?;
         return Ok(());
     }

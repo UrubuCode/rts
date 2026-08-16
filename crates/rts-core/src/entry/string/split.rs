@@ -59,12 +59,23 @@ pub(super) const NATIVES: &[(&str, Native)] = &[("split", split)];
 /// smaller half of that, and [`narrow`] is that path for the calls where it is
 /// the whole of it.
 extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     // `Symbol.split` FIRST, before anything decides the separator is text —
     // see [`super::pattern::hooked`] for why the order is the specification's
     // and not a preference.
     if let Some(answered) = super::pattern::hooked(this, separator, "split", Some(limit)) {
         return answered;
     }
+    // `ToUint32(limit)` — and the `ToPrimitive` it starts with, which is why it
+    // is HERE and not inside `listed`: an object limit runs user code, and every
+    // path below is inside a borrow. The hook above still sees the argument
+    // unconverted, which is what the specification hands it.
+    let limit = super::super::primitive::to_primitive(limit, crate::coerce::Hint::Number);
+    let limit = with_current(|context| wanted(context, limit));
     // Narrow subject, narrow literal separator: the pieces are slices of the
     // subject until each becomes a cell, and none of the allocation below
     // happens.
@@ -104,8 +115,8 @@ extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a
     let Some(mut pieces) = collected else {
         return with_current(|context| nothing(context));
     };
-    if let Some(wanted) = Value(limit).numeric().filter(|wanted| *wanted >= 0.0) {
-        pieces.truncate(wanted as usize);
+    if let Some(count) = limit {
+        pieces.truncate(count);
     }
     let array = super::super::array::array_new(pieces.len() as i64);
     with_current(|context| {
@@ -185,17 +196,43 @@ fn narrow(context: &super::Context, this: u64, separator: u64) -> Option<Vec<Str
     Some(found)
 }
 
+/// How many pieces the caller asked for — `ToUint32(limit)`, or `None` for an
+/// absent limit.
+///
+/// # Why `ToUint32` and not "a non-negative number"
+///
+/// That is what the specification names, and the difference is not pedantry:
+/// `ToUint32` takes the value **modulo 2³²**, so `split(",", 2 ** 32)` asks for
+/// ZERO pieces and `split(",", 2 ** 32 + 3)` asks for three. It also reads a
+/// string, a boolean and `null` as numbers, where reading the raw value made
+/// every one of those "not a number" and therefore unlimited.
+///
+/// Measured against Node and Bun by `string/claude-split-limit-touint32`:
+/// fourteen of its rows answered the whole five-piece list, including
+/// `split(",", "2")` and `split(",", NaN)`.
+///
+/// `NaN` and both infinities are zero, which `ToUint32` gives for free and a
+/// hand-written clamp would have had to remember; the argument arrives already
+/// through `ToPrimitive`, so an object is a number by the time it is here.
+fn wanted(context: &super::super::Context, limit: u64) -> Option<usize> {
+    if super::absent(context, limit) {
+        return None;
+    }
+    let number = super::super::operators::as_number(context, Value(limit)).unwrap_or(f64::NAN);
+    Some(super::super::bitwise::to_uint32(number) as usize)
+}
+
 /// Pieces already built, as the array `split` answers.
 ///
 /// Shared by both paths above, which is what keeps `limit` from being applied
 /// in one and forgotten in the other — it WAS forgotten, in the two rules
 /// [`by_units`] now states, so `"abc".split(undefined, 0)` answered one piece
 /// where the language answers none.
-fn listed(mut parts: Vec<Str>, limit: u64) -> u64 {
+fn listed(mut parts: Vec<Str>, limit: Option<usize>) -> u64 {
     // Truncated before anything is allocated on the heap, so a limit smaller
     // than the number of pieces does not pay for the pieces it discards.
-    if let Some(wanted) = Value(limit).numeric().filter(|wanted| *wanted >= 0.0) {
-        parts.truncate(wanted as usize);
+    if let Some(count) = limit {
+        parts.truncate(count);
     }
     // Outside the borrow: making the array may collect, and a collection needs
     // the context the callers above were holding.

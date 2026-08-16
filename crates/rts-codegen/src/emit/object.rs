@@ -34,6 +34,25 @@ use crate::syntax::{Property, PropertyKey};
 /// two ways and must not disagree about it — the pair is kept beside the cell,
 /// deliberately absent from the layout, and a second copy of that decision is
 /// where one of them would write a property instead.
+/// The name `SetFunctionName` gives an accessor: the key with `get ` or `set `
+/// in front of it.
+///
+/// Interned rather than carried as a string, because `Ctx::lend_name` takes a
+/// `Name` — and interning is what makes the prefixed spelling one name in the
+/// table rather than a second string per accessor emitted.
+pub(super) fn accessor_name(
+    ctx: &mut super::Ctx,
+    key: crate::names::Name,
+    is_getter: bool,
+) -> crate::names::Name {
+    let prefix = match is_getter {
+        true => "get ",
+        false => "set ",
+    };
+    let spelled = format!("{prefix}{}", ctx.names.text(key));
+    ctx.names.intern(&spelled)
+}
+
 pub(super) fn define_accessor(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
@@ -83,22 +102,23 @@ pub(super) fn emit_object(
         // written.
         let (key, value) = match property {
             Property::Value { key, value, .. } => {
-                // The KEY is lent to an anonymous function on the right, which
-                // is `NamedEvaluation`: `{ gamma: function () {} }` and
-                // `{ delta: () => {} }` are both called by their property name,
-                // exactly as `const f = function () {}` is called `f`. Only
-                // three of the four forms in a literal were inferred here and
-                // this was the missing one, so `obj.gamma.name` read `""`.
+                // NamedEvaluation, the same rule `const f = function () {}`
+                // gets: `{ gamma: function () {} }` names that function
+                // `gamma`. It was done only at a declaration, so every function
+                // reached through an object literal — which is most of them in
+                // a module that exports a table of handlers — had an empty
+                // `.name`, and `bind` inherits the emptiness on top of that.
                 //
-                // Only for a WRITTEN key: a computed one is an expression whose
-                // value is not known while compiling, and a name inferred from
-                // the source text of `{ [k]: f }` would be a different string
-                // from the one the language says (`k`'s value at run time).
+                // A COMPUTED key lends nothing: the name would be whatever the
+                // expression evaluates to, which is a runtime string this
+                // emitter does not have.
                 //
-                // Lent rather than assigned, so `take_lent_name` can be taken by
-                // the function that is actually the initialiser and not by one
-                // nested inside it — the same reason the declaration form lends.
-                if let PropertyKey::Named(name) = key {
+                // And only an ANONYMOUS definition is named: `{ gamma: named }`
+                // must keep the name the function already has, so the guard is
+                // what makes lending safe rather than merely convenient.
+                if let PropertyKey::Named(name) = key
+                    && super::stmt::anonymous_definition(value)
+                {
                     ctx.lend_name(*name);
                 }
                 let value = emit_expr(builder, scope, ctx, value)?;
@@ -110,8 +130,9 @@ pub(super) fn emit_object(
                 (key, value)
             }
             Property::Method { key, function } => {
-                // A method shorthand — `{ beta() {} }` — has no name of its own
-                // either, and the key is it.
+                // A method has no name of its own in the tree — `{ beta() {} }`
+                // parses as a function with no identifier — so the key is the
+                // only thing that can name it, and the language says it does.
                 if let PropertyKey::Named(name) = key {
                     ctx.lend_name(*name);
                 }
@@ -125,8 +146,17 @@ pub(super) fn emit_object(
             // the compiler resolved, and a value would need a second entry
             // point that interns one.
             Property::Getter { key, function } | Property::Setter { key, function } => {
-                let closure = super::function::emit_closure(builder, scope, ctx, function)?;
                 let is_getter = matches!(property, Property::Getter { .. });
+                // `SetFunctionName` with a PREFIX: the specification names a
+                // getter `"get width"` and a setter `"set width"`, which is how
+                // a stack trace tells the two halves of one property apart.
+                // Both answered `""`, since an accessor's function has no
+                // identifier of its own in the tree.
+                if let PropertyKey::Named(name) = key {
+                    let spelled = accessor_name(ctx, *name, is_getter);
+                    ctx.lend_name(spelled);
+                }
+                let closure = super::function::emit_closure(builder, scope, ctx, function)?;
                 match key {
                     PropertyKey::Named(name) => {
                         define_accessor(builder, ctx, object, *name, closure, is_getter)?;
@@ -218,3 +248,4 @@ pub(super) fn define_computed_accessor(
     };
     Ok(call(builder, ctx, op, &[object, key, function])?[0])
 }
+

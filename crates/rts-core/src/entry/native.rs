@@ -105,6 +105,32 @@ pub(in crate::entry) fn install_with_arity(context: &mut Context, cell: u32, nat
     }
 }
 
+/// Marks a property nothing may change: non-writable, non-enumerable,
+/// NON-configurable.
+///
+/// The strictest of the three sets here, and it has exactly one user — a
+/// built-in constructor's `prototype`. Being non-configurable is the half that
+/// matters beyond enumeration: `delete Map.prototype` has to fail, and
+/// `Object.defineProperty(Map, "prototype", …)` has to refuse.
+pub(in crate::entry) fn pinned(context: &mut Context, cell: u32, key: crate::object::Key) {
+    if let crate::object::Key::Name(named) = key {
+        super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        });
+    }
+}
+
+/// Marks a `@@toStringTag`: non-writable, non-enumerable, configurable.
+///
+/// Same attributes as [`introspective`] gives `name` and `length`, and named
+/// apart because the reason is a different one: this is the tag, not a function's
+/// own description, and the two would drift the day one of them changes.
+pub(in crate::entry) fn tagged(context: &mut Context, cell: u32, key: crate::object::Key) {
+    introspective(context, cell, key);
+}
+
 /// Writes `.name` on a callable — a real property, per the specification's own
 /// `SetFunctionName`, so `fn.name` reads the same whether `fn` is a built-in or
 /// a declared one.
@@ -189,6 +215,11 @@ pub(in crate::entry) fn getter(context: &mut Context, cell: u32, name: &str, cod
         None => format!("get {name}"),
     };
     name_of(context, function, &label);
+    // A getter takes no arguments, so `SetFunctionLength` puts `0` on it.
+    // Absent, `Object.getOwnPropertyDescriptor(Map.prototype, "size").get.length`
+    // read `undefined` where every runtime answers `0` — the same gap `name`
+    // had before the line above.
+    length_of(context, function, 0);
     let key = context.well_known(name);
     if let crate::object::Key::Name(named) = key {
         context.define_accessor_and_invalidate(cell, named.index() as u32, Some(function), None);

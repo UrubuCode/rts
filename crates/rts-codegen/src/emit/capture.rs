@@ -1112,7 +1112,13 @@ fn this_in_expr(expr: &Expr, found: &mut bool) {
     if *found {
         return;
     }
-    if matches!(expr.kind, ExprKind::This) {
+    // `super.x` counts as a read of `this`, and not as a technicality: the
+    // access is a lookup that starts above the home object and a call that runs
+    // against `this`, so an arrow containing one needs the enclosing function's
+    // receiver exactly as `this` does. Without this arm
+    // `m() { const f = () => super.label; }` compiled an arrow nothing handed a
+    // receiver to.
+    if matches!(expr.kind, ExprKind::This | ExprKind::SuperMember { .. }) {
         *found = true;
         return;
     }

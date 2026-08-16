@@ -48,7 +48,11 @@ fn to_int32(value: f64) -> i32 {
 ///
 /// The same conversion read as unsigned, which is what `>>>` answers with and
 /// what every shift takes its count from.
-fn to_uint32(value: f64) -> u32 {
+///
+/// Reachable from the rest of `entry` because `String.prototype.split` takes its
+/// limit through this exact conversion — modulo 2³², not a clamp — and a second
+/// copy of it beside `split` would be the one that forgot the wrap.
+pub(in crate::entry) fn to_uint32(value: f64) -> u32 {
     if !value.is_finite() || value == 0.0 {
         return 0;
     }

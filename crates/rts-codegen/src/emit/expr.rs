@@ -1654,6 +1654,44 @@ fn emit_array(
         .iter()
         .any(|element| matches!(element, Some(crate::syntax::Spreadable::Spread(_))))
     {
+        // A HOLE among them is not a reason to refuse. `[1, , ...xs]` is
+        // ordinary elision, and the appending path can express it: the marker
+        // `ArrayNew` already fills an unwritten position with is a value like
+        // any other here, so appending it lengthens the array while leaving the
+        // position genuinely absent — `1 in [1, , ...[]]` stays false.
+        //
+        // Not routed through `call::emit_argument_vector`, which is the same
+        // loop for a CALL: an argument list has no holes to express, and giving
+        // it a case for one would put a shape the callers cannot produce into
+        // the path every call takes.
+        if elements.iter().any(Option::is_none) {
+            let zero = builder.declare_const(ConstDecl::Scalar {
+                repr: Repr::I64,
+                bits: ScalarBits(0),
+            });
+            let zero = builder.use_const(zero);
+            let array = call(builder, ctx, RuntimeOp::ArrayNew, &[zero])?[0];
+            let hole = ctx.model.hole().word();
+            for element in elements {
+                let (value, op) = match element {
+                    None => {
+                        let marker = constant(builder, hole);
+                        call(builder, ctx, RuntimeOp::ArrayAppend, &[array, marker])?;
+                        continue;
+                    }
+                    Some(crate::syntax::Spreadable::Single(value)) => {
+                        (value, RuntimeOp::ArrayAppend)
+                    }
+                    Some(crate::syntax::Spreadable::Spread(value)) => {
+                        (value, RuntimeOp::ArrayAppendAll)
+                    }
+                };
+                let value = emit_expr(builder, scope, ctx, value)?;
+                let value = tagged(builder, value);
+                call(builder, ctx, op, &[array, value])?;
+            }
+            return Ok(array);
+        }
         let written: Vec<crate::syntax::Spreadable> = elements
             .iter()
             .map(|element| element.clone().ok_or(()))
@@ -1720,7 +1758,10 @@ fn emit_array(
         // de ideia sobre isso — foi o runtime passar a ter um marcador.
         let Some(element) = element else { continue };
         let crate::syntax::Spreadable::Single(value) = element else {
-            return gap("a spread in an array literal beside a hole");
+            // Not a gap any more: a literal containing a spread returned at the
+            // top of this function, so reaching here with one would be that
+            // branch failing to fire rather than anything a program can write.
+            unreachable!("a literal with a spread took the appending path above")
         };
         let value = emit_expr(builder, scope, ctx, value)?;
         let value = tagged(builder, value);

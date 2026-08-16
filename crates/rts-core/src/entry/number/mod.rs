@@ -75,10 +75,17 @@ fn shared_with_global(context: &mut Context, cell: u32, name: &str) {
     let shared = match super::objects::read_property(context, holder, key) {
         Some(found) => found.bits(),
         None => {
-            let Some(code) = super::global_fns::provided(name) else {
+            let Some((code, arity)) = super::global_fns::provided(name) else {
                 return;
             };
             let made = super::native::callable(context, code);
+            // `name` and `length`, exactly as `super::global` writes them on the
+            // same cell reached from the other side. Written in both places
+            // because either one may be the FIRST to make it, and a function
+            // whose description depended on which spelling a program touched
+            // first is the identity bug this whole function exists to avoid.
+            super::native::name_of(context, made, name);
+            super::native::length_of(context, made, arity);
             super::objects::put(context, holder, key, made);
             made
         }
@@ -150,7 +157,7 @@ mod tests {
             let seeded = with_current(|context| {
                 let holder = super::super::global::holder(context).expect("a global object");
                 let key = context.well_known("parseInt");
-                let code = super::super::global_fns::provided("parseInt").expect("a body");
+                let (code, _) = super::super::global_fns::provided("parseInt").expect("a body");
                 let made = super::super::native::callable(context, code);
                 objects::put(context, holder, key, made);
                 made

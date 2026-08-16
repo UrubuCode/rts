@@ -93,6 +93,26 @@ impl Atomics {
             None => objects::undefined_of(context),
         })
     }
+
+    /// `Atomics.isLockFree(size)`.
+    ///
+    /// # Why the answer is a width and not `true`
+    ///
+    /// The question is whether an atomic operation at that byte width is done
+    /// without taking a lock, and it is asked so a program can choose a layout.
+    /// Answering `true` for every size would be the useful-looking lie: a
+    /// program picking eight-byte elements on the strength of it would get the
+    /// slow path on any target where that width is emulated.
+    ///
+    /// So the answer is the set every implementation this engine can run on
+    /// agrees about — 1, 2, 4 and 8 bytes, which is what a 64-bit target does
+    /// natively — and `false` for the sizes that are not element widths at all.
+    /// The operations above run on one thread and compute exactly what their
+    /// names say, which is the same argument `rts:atomic`'s own module makes for
+    /// existing at all.
+    fn is_lock_free(size: f64) -> bool {
+        matches!(size, 1.0 | 2.0 | 4.0 | 8.0)
+    }
 }
 
 /// A read-modify-write over the element as a plain number: reads the prior

@@ -32,6 +32,16 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
 
 /// `s.indexOf(t, from)` — where `t` first occurs, or -1.
 extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    // `ToString(argument)`, outside the borrow for the reason
+    // `super::text_arg` states.
+    let Some(search) = super::text_arg(search) else {
+        return super::refused();
+    };
     with_current(|context| {
         // The narrow path first, and it is the common one: both sides ASCII, so
         // there is nothing to widen and nothing to copy. `units_of` builds a
@@ -84,6 +94,16 @@ extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
 /// so an empty needle matches at `start` immediately and every other needle
 /// stops at the first hit, which is the last one.
 extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    // `ToString(argument)`, outside the borrow for the reason
+    // `super::text_arg` states.
+    let Some(search) = super::text_arg(search) else {
+        return super::refused();
+    };
     with_current(|context| {
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
@@ -120,6 +140,24 @@ extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64
 /// The position was accepted and discarded, so `"abc".includes("a", 1)` was
 /// `true` — an answer that is wrong in the direction a search is trusted in.
 extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    // `IsRegExp` FIRST, before the argument is read as text — the language
+    // refuses the brand rather than stringifying it. See `super::is_regexp`.
+    if super::is_regexp(search) {
+        super::super::throw::type_error(
+            "First argument to String.prototype method must not be a regular expression",
+        );
+        return super::refused();
+    }
+    // `ToString(argument)`, outside the borrow for the reason
+    // `super::text_arg` states.
+    let Some(search) = super::text_arg(search) else {
+        return super::refused();
+    };
     with_current(|context| {
         if let Some((hay, pin)) = narrow_pair(context, this, search) {
             let start = relative(super::integer_arg(context, from).max(0.0), hay.len());
@@ -141,6 +179,24 @@ extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
 /// `"abc".startsWith("b", 1)` answer false, which is the opposite error to the
 /// one `includes` had — both directions, from one dropped argument.
 extern "C" fn starts_with(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    // `IsRegExp` FIRST, before the argument is read as text — the language
+    // refuses the brand rather than stringifying it. See `super::is_regexp`.
+    if super::is_regexp(search) {
+        super::super::throw::type_error(
+            "First argument to String.prototype method must not be a regular expression",
+        );
+        return super::refused();
+    }
+    // `ToString(argument)`, outside the borrow for the reason
+    // `super::text_arg` states.
+    let Some(search) = super::text_arg(search) else {
+        return super::refused();
+    };
     with_current(|context| {
         // Narrow on both sides is a slice comparison and nothing else — no
         // widening, no copy of the receiver. The wide path below is unchanged.
@@ -164,6 +220,24 @@ extern "C" fn starts_with(_e: u64, this: u64, search: u64, from: u64, _a2: u64, 
 /// the clamp with `startsWith` above: `"abc".endsWith("b", 2)` is true, because
 /// the string considered is `"ab"`. It was discarded, so that answered false.
 extern "C" fn ends_with(_e: u64, this: u64, search: u64, end: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    // `IsRegExp` FIRST, before the argument is read as text — the language
+    // refuses the brand rather than stringifying it. See `super::is_regexp`.
+    if super::is_regexp(search) {
+        super::super::throw::type_error(
+            "First argument to String.prototype method must not be a regular expression",
+        );
+        return super::refused();
+    }
+    // `ToString(argument)`, outside the borrow for the reason
+    // `super::text_arg` states.
+    let Some(search) = super::text_arg(search) else {
+        return super::refused();
+    };
     with_current(|context| {
         if let Some((hay, pin)) = narrow_pair(context, this, search) {
             // The default is the WHOLE string and not zero, which is the

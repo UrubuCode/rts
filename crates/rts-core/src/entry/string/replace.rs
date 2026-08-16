@@ -22,6 +22,11 @@ pub(super) const NATIVES: &[(&str, Native)] =
 
 /// `s.replace(pattern, replacement)`.
 extern "C" fn replace(_e: u64, this: u64, pattern: u64, with: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     replaced(this, pattern, with, false)
 }
 
@@ -32,6 +37,11 @@ extern "C" fn replace(_e: u64, this: u64, pattern: u64, with: u64, _a2: u64, _a3
 /// every occurrence whatever the flags say, which is the stated gap throwing
 /// leaves — and it is the answer the name asks for.
 extern "C" fn replace_all(_e: u64, this: u64, pattern: u64, with: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     replaced(this, pattern, with, true)
 }
 
@@ -59,6 +69,11 @@ fn replaced(this: u64, pattern: u64, with: u64, every: bool) -> u64 {
             Sought::Text(_) => every,
         };
         let found = scan(context, &subject, &sought, all);
+        // A global pattern ends a replacement with `lastIndex` back at zero —
+        // see `super::super::regex::methods::reset_global`.
+        if let Sought::Pattern(cell) = &sought {
+            super::super::regex::methods::reset_global(context, *cell);
+        }
         let callee = Value(with)
             .as_slot()
             .filter(|cell| context.callable_at(*cell).is_some());
@@ -196,12 +211,20 @@ fn expand(out: &mut String, template: &str, subject: &str, one: &Found) {
                     }
                     name.push(character);
                 }
-                match closed.then(|| one.named(&name)).flatten() {
-                    Some(group) => {
+                // A pattern with NO named groups keeps the token literal; a
+                // pattern that HAS them consumes `$<zz>` and produces the
+                // empty string for a name it does not declare. The two were
+                // one branch, so an unknown name printed `$<zz>` in a program
+                // whose pattern named something else — which is the shape a
+                // template with a typo in it takes, and the specification
+                // makes the two cases different on purpose.
+                match closed && !one.names.is_empty() {
+                    true => {
                         characters = ahead;
+                        let group = one.named(&name).cloned().flatten();
                         out.push_str(group.as_deref().unwrap_or(""));
                     }
-                    None => out.push('$'),
+                    false => out.push('$'),
                 }
             }
             Some(digit) if digit.is_ascii_digit() => {

@@ -100,7 +100,7 @@ pub const CLASSES: &[Class] = &[
     super::function_proto::FUNCTION_TYPES,
     super::generator::GENERATOR_TYPES,
     super::json::JSON_TYPES,
-    super::list_iterator::ITERATOR_TYPES,
+    super::iterator::ITERATOR_TYPES,
     super::list_iterator::LIST_ITERATOR_TYPES,
     // `Intl` and the seven services ON it. The namespace is what `global.rs`
     // registers; the services are properties of it rather than globals, and

@@ -45,16 +45,31 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
 
 /// `s.trim()`.
 extern "C" fn trim(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     trimmed(this, true, true)
 }
 
 /// `s.trimStart()`.
 extern "C" fn trim_start(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     trimmed(this, true, false)
 }
 
 /// `s.trimEnd()`.
 extern "C" fn trim_end(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     trimmed(this, false, true)
 }
 
@@ -90,6 +105,11 @@ fn trimmed(this: u64, at_start: bool, at_end: bool) -> u64 {
 /// `"bc"` where `"abcd".substring(1, 2)` is `"b"`. A second argument meaning two
 /// different things is why both are implemented rather than aliased.
 extern "C" fn substr(_e: u64, this: u64, from: u64, count: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     with_current(|context| {
         let Some(units) = units_of(context, this) else {
             return nothing(context);
@@ -125,6 +145,11 @@ extern "C" fn substr(_e: u64, this: u64, from: u64, count: u64, _a2: u64, _a3: u
 /// per language, which is the whole reason this crate carries the first and
 /// refuses the second.
 extern "C" fn locale_compare(_e: u64, this: u64, other: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     with_current(|context| {
         let (Some(units), Some(against)) = (units_of(context, this), arg_units(context, other))
         else {
@@ -196,6 +221,11 @@ fn ascii_locale_order(a: &[u16], b: &[u16]) -> std::cmp::Ordering {
 /// program that misspells `"NFKD"` gets told, where guessing would give it text
 /// it did not ask for. Absent means NFC, which is the specification's default.
 extern "C" fn normalize(_e: u64, this: u64, form: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     let asked = with_current(|context| match absent(context, form) {
         true => Some(Form::Nfc),
         false => super::text_of(context, form)
@@ -261,6 +291,11 @@ fn identity(this: u64) -> u64 {
 /// reason the pair of methods exists, and it is why they cannot be written over
 /// `char`s: converting first is what would hide the answer.
 extern "C" fn is_well_formed(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     let well =
         with_current(|context| units_of(context, this).is_some_and(|units| lone(&units).is_none()));
     Value::from_bool(well).bits()
@@ -271,6 +306,11 @@ extern "C" fn is_well_formed(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _
 /// Replaced rather than dropped, which the specification requires and which is
 /// the difference a program notices: dropping shifts every later index by one.
 extern "C" fn to_well_formed(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     with_current(|context| {
         let Some(mut units) = units_of(context, this) else {
             return nothing(context);

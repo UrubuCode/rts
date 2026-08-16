@@ -38,17 +38,16 @@
 //! `0 in c` answers `false` for the same object with no iterator involved. It
 //! is written here because this is where a reader will notice it.
 //!
-//! # Why the helper family is forwarded rather than written again
+//! # Where the helper family went
 //!
-//! `map`, `take`, `toArray` and the rest of the ES2025 set are
-//! [`crate::entry::list_iterator`]'s, and a second copy is exactly what
-//! `collections::cursor` refused when it reused that object for `Map` and `Set`.
-//! This cannot reuse the OBJECT — its `next` has to be this file's, and the
-//! cursor table `ListIterator` walks holds one array where this needs a
-//! receiver, an index and a view — so it reuses the METHODS instead: a helper
-//! drains this cursor the way its own view says, hands the result to a
-//! `ListIterator`, and calls the same-named method on it. One implementation,
-//! reached the way a program reaches it.
+//! It was ELEVEN methods here, each draining this cursor and forwarding the
+//! result to a `ListIterator` that held eleven more. Both copies were eager,
+//! and a generator — which reaches neither — had none at all.
+//!
+//! They are `%IteratorPrototype%`'s now, lazy, and this prototype INHERITS
+//! them: `crate::entry::iterator` is the object and the reason. What is left
+//! here is the one thing that genuinely is this file's, which is what `next`
+//! means for a live view of an array-like.
 //!
 //! # Where the third field lives, and what it should be
 //!
@@ -61,9 +60,8 @@
 //! `entry::context`. The day that pair grows a third field, this property and
 //! its reads come out — along with that module's.
 
-use super::super::rooted::Rooted;
 use super::super::{
-    array, computed, functions, generator, list_iterator, native, objects, symbol, throw,
+    array, computed, generator, native, objects, symbol, throw,
     with_current,
 };
 use crate::text::Str;
@@ -123,61 +121,6 @@ impl ArrayCursor {
             }
         })
     }
-
-    /// `it.map(f)` — the same positions, each through `f`.
-    fn map(this: u64, callback: u64) -> u64 {
-        forwarded(this, "map", callback, absent())
-    }
-
-    /// `it.filter(p)` — the positions `p` answers truthy for.
-    fn filter(this: u64, callback: u64) -> u64 {
-        forwarded(this, "filter", callback, absent())
-    }
-
-    /// `it.take(n)` — at most the first `n`.
-    fn take(this: u64, count: u64) -> u64 {
-        forwarded(this, "take", count, absent())
-    }
-
-    /// `it.drop(n)` — everything after the first `n`.
-    fn drop(this: u64, count: u64) -> u64 {
-        forwarded(this, "drop", count, absent())
-    }
-
-    /// `it.flatMap(f)` — `f`'s answers, one level flattened.
-    fn flat_map(this: u64, callback: u64) -> u64 {
-        forwarded(this, "flatMap", callback, absent())
-    }
-
-    /// `it.toArray()` — what is left, as an array.
-    fn to_array(this: u64) -> u64 {
-        forwarded(this, "toArray", absent(), absent())
-    }
-
-    /// `it.forEach(f)` — `f` over each, answering nothing.
-    fn for_each(this: u64, callback: u64) -> u64 {
-        forwarded(this, "forEach", callback, absent())
-    }
-
-    /// `it.reduce(f, initial)`.
-    fn reduce(this: u64, callback: u64, initial: u64) -> u64 {
-        forwarded(this, "reduce", callback, initial)
-    }
-
-    /// `it.some(p)` — whether any remaining position satisfies `p`.
-    fn some(this: u64, callback: u64) -> u64 {
-        forwarded(this, "some", callback, absent())
-    }
-
-    /// `it.every(p)` — whether all of them do.
-    fn every(this: u64, callback: u64) -> u64 {
-        forwarded(this, "every", callback, absent())
-    }
-
-    /// `it.find(p)` — the first that satisfies `p`, or `undefined`.
-    fn find(this: u64, callback: u64) -> u64 {
-        forwarded(this, "find", callback, absent())
-    }
 }
 
 /// A cursor positioned before the first element of `receiver`.
@@ -193,6 +136,27 @@ pub(super) fn over(receiver: u64, kind: Kind) -> u64 {
                 // class is not a global name, so `entry::global` has no row that
                 // would ever reach it.
                 register_array_cursor(context);
+                // The helpers are inherited rather than owned now, so the chain
+                // is joined the moment this prototype exists. `adopt` is
+                // idempotent and every registration calls it, because which
+                // iterator a program reaches first is the program's choice.
+                super::super::iterator::adopt(context);
+                if let Some(found) = super::super::class_support::prototype(context, "ArrayCursor")
+                    && let Some(cell) = Value(found).as_slot()
+                {
+                    // `Symbol.toStringTag` on the PROTOTYPE, which is where the
+                    // specification puts %ArrayIteratorPrototype%'s — so
+                    // `Object.prototype.toString.call([].values())` answers
+                    // `[object Array Iterator]` and the tag is an own property
+                    // of the prototype rather than of every cursor made.
+                    let key =
+                        context.well_known(&format!("{}toStringTag", symbol::PREFIX));
+                    let tag = context
+                        .intern_value(Str::from_str("Array Iterator"))
+                        .bits();
+                    objects::put(context, cell, key, tag);
+                    native::hidden(context, cell, key);
+                }
                 match super::super::class_support::prototype(context, "ArrayCursor") {
                     Some(prototype) => prototype,
                     None => return objects::undefined_of(context),
@@ -208,29 +172,8 @@ pub(super) fn over(receiver: u64, kind: Kind) -> u64 {
         let kind = Value::from_f64(kind as u8 as f64).bits();
         objects::put(context, cell, key, kind);
 
-        // `Symbol.iterator` answering the cursor itself, which is what makes
-        // `for`-`of` and spread reach one. On the instance rather than the
-        // prototype for the reason `list_iterator::over` installs its own there:
-        // the attribute names a member with a string and this key is a symbol.
-        let key = context.well_known(&format!("{}iterator", symbol::PREFIX));
-        let itself = native::callable(context, itself as native::Native);
-        objects::put(context, cell, key, itself);
-
-        // `Symbol.toStringTag`, so `Object.prototype.toString.call([].values())`
-        // answers `[object Array Iterator]`. On the INSTANCE for the same reason
-        // as the key above, and a plain string because all three kinds share one
-        // tag — the language distinguishes `keys`, `values` and `entries` by
-        // what they yield, not by what they call themselves.
-        let key = context.well_known(&format!("{}toStringTag", symbol::PREFIX));
-        let tag = context.intern_value(crate::text::Str::from_str("Array Iterator")).bits();
-        objects::put(context, cell, key, tag);
         Value::from_slot(cell).bits()
     })
-}
-
-/// `it[Symbol.iterator]()` — the cursor itself.
-extern "C" fn itself(_environment: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    this
 }
 
 /// One step: the value this cursor's view answers, or `None` when it is spent.
@@ -334,50 +277,3 @@ fn element_of(receiver: u64, index: usize) -> Option<u64> {
     (!throw::in_flight()).then_some(read)
 }
 
-/// Everything this cursor has not answered yet, in its own view's shape.
-///
-/// Draining CONSUMES it, which is what the specification says a helper does to
-/// the iterator it was called on — and what stops `it.take(1)` and `it.take(1)`
-/// from both answering the first element.
-///
-/// ROOTED, because a pair is an allocation and an allocation collects: what has
-/// been drained so far would otherwise live only in a `Vec` on the Rust heap,
-/// which no scan of ours reaches. See [`super::super::rooted`].
-fn drained(this: u64) -> Vec<u64> {
-    let mut produced = Rooted::new();
-    while let Some(value) = stepped(this) {
-        produced.values().push(value);
-    }
-    produced.take()
-}
-
-/// One helper, answered by a `ListIterator` over what this cursor had left.
-///
-/// The method is READ off that iterator and called, rather than reached from
-/// Rust: `list_iterator`'s helpers are private to their own module, and going
-/// through the property protocol is both the only way in and the one that stays
-/// right if a program replaced one of them.
-fn forwarded(this: u64, name: &str, a0: u64, a1: u64) -> u64 {
-    let listed = super::built(drained(this));
-    if throw::in_flight() {
-        return absent();
-    }
-    let iterator = list_iterator::over(listed, "Array Iterator");
-    let method = with_current(|context| {
-        let Some(cell) = Value(iterator).as_slot() else {
-            return objects::undefined_of(context);
-        };
-        let key = context.well_known(name);
-        match objects::read_property(context, cell, key) {
-            Some(found) => found.bits(),
-            None => objects::undefined_of(context),
-        }
-    });
-    let nothing = absent();
-    functions::call(method, iterator, a0, a1, nothing, nothing)
-}
-
-/// The `undefined` a helper passes for an argument the program did not give.
-fn absent() -> u64 {
-    with_current(|context| objects::undefined_of(context))
-}

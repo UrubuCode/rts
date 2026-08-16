@@ -245,6 +245,14 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
         state.trace(&context.region, out);
     }
 
+    // 9b. An iterator helper's source, its callback, and the inner sequence a
+    //     `flatMap` is in the middle of. None of the three is reachable through
+    //     an own property — a helper has none — so this table is the only path
+    //     to them while the helper is alive.
+    if let Some(state) = context.helpers.get(cell) {
+        state.trace(out);
+    }
+
     // 10. What a cell inherits from.
     if let Some(prototype) = context.prototypes.copied(cell) {
         out.push(prototype);

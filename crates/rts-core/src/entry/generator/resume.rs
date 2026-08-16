@@ -26,6 +26,34 @@ pub(super) fn resumable(this: u64) -> Option<u32> {
     with_current(|context| parked(context, cell)).then_some(cell)
 }
 
+/// Whether a generator's body is on the machine stack right now.
+///
+/// A generator that is RUNNING refuses to be driven again — `next`, `throw` and
+/// `return` alike raise a `TypeError`, and the generator survives it. Asked
+/// once, at the three entry points, rather than at the re-entry: two of the
+/// three do not re-enter at all for a generator that has not yet reached its
+/// first `yield`, and that is precisely the case a body poking itself is in.
+/// `g.throw(e)` re-raised `e` and `g.return(v)` quietly completed the
+/// generator, where both must refuse — and `g.next()` recursed until the
+/// machine stack ran out.
+///
+/// Asked of `context.resuming`, which already records exactly this: pushed on
+/// the way into a body and popped on every way out, including the throwing one.
+/// A second flag on `State` would be the same fact in a second place, and the
+/// two would disagree the first time a body left by throwing.
+pub(super) fn running(this: u64) -> bool {
+    let Some(cell) = Value(this).as_slot() else {
+        return false;
+    };
+    with_current(|context| context.resuming.contains(&cell))
+}
+
+/// The refusal itself: raises, and answers the value the caller returns.
+pub(super) fn refuse_running() -> u64 {
+    throw::type_error("Generator is already running");
+    with_current(|context| objects::undefined_of(context))
+}
+
 /// Whether a generator's frame is sitting at a suspension.
 ///
 /// Asked of the frame's own label field, which the machine writes when it

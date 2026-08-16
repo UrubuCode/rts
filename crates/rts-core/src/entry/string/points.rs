@@ -53,6 +53,11 @@ pub(super) const STATICS: &[(&str, Native, u32)] = &[
 /// 128512. An implementation that shared their bodies would have to pick one,
 /// and either choice makes the other method pointless.
 extern "C" fn code_point_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     with_current(|context| {
         let Some(units) = units_of(context, this) else {
             return nothing(context);
@@ -185,18 +190,14 @@ extern "C" fn raw(_e: u64, _this: u64, strings: u64, a: u64, b: u64, c: u64) -> 
         let Some(value) = substitutions.get(at).copied() else {
             continue;
         };
-        // `ToString` of the substitution, which for an object means calling its
-        // `toString` — user code, therefore OUTSIDE the borrow. `arg_units`
-        // alone answers `None` for an object, so a substitution that was not
-        // already a primitive was silently DROPPED: `` String.raw`a${obj}b` ``
-        // produced `"ab"`, losing a piece rather than converting it.
-        let value = super::super::primitive::to_primitive(value, crate::coerce::Hint::String);
-        // Rule 8: a `toString` that threw did not answer, and appending
-        // `undefined` would put the word into the result of a call that never
-        // happened.
-        if super::super::throw::in_flight() {
-            return with_current(|context| super::super::objects::undefined_of(context));
-        }
+        // `ToString(substitution)`, outside the borrow: an object one runs user
+        // code, and reading it inside the borrow answered nothing at all — so a
+        // substitution that was an object was DROPPED rather than becoming
+        // `[object Object]`. A symbol is a `TypeError`, which is why the failure
+        // ends the loop instead of skipping the piece.
+        let Some(value) = super::text_arg(value) else {
+            return super::refused();
+        };
         with_current(|context| {
             if let Some(units) = arg_units(context, value) {
                 out.extend(units);

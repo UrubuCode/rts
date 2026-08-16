@@ -288,14 +288,33 @@ pub fn emit_try(
         // `fn-meta/claude-closure-from-try-finally.ts`, which read
         // `thrown_e:thrown_e` where every other runtime reads
         // `thrown_e:outer_e`.
+        // Every name the binding introduces, not just a bare one: `catch ({ e })`
+        // declares `e` exactly as `catch (e)` does, so a captured name inside a
+        // pattern needs the same private environment or a closure made in the
+        // handler reads the outer slot.
         let layer = match &catch.binding {
-            Some(crate::syntax::Pattern::Name(name)) if scope.is_captured(*name) => {
-                super::binding::push_environment(builder, scope, ctx, &[*name])?
+            Some(pattern) => {
+                let mut names = Vec::new();
+                pattern.bound_names(&mut names);
+                names.retain(|name| scope.is_captured(*name));
+                if names.is_empty() {
+                    None
+                } else {
+                    super::binding::push_environment(builder, scope, ctx, &names)?
+                }
             }
-            _ => None,
+            None => None,
         };
         if let Some(pattern) = &catch.binding {
-            bind_caught(builder, scope, ctx, pattern, thrown)?;
+            // The handler's own first statement is the nearest thing the tree
+            // holds to a position for the binding — a `Catch` carries none of
+            // its own — and an empty handler blames nothing rather than
+            // borrowing a line from elsewhere.
+            let at = catch
+                .body
+                .first()
+                .map_or(rts_cranelift::fault::Position::UNKNOWN, |stmt| stmt.at);
+            bind_caught(builder, scope, ctx, pattern, thrown, at)?;
         }
         let handler_terminated = emit_block(builder, scope, ctx, loops, &catch.body)?;
         if let Some(previous) = layer {
@@ -430,6 +449,10 @@ fn emit_block(
     // call sites for the reason this function exists at all: they differ in
     // where control goes afterwards, never in what the body means. The caller
     // has already opened the layer this lands in and closes it after.
+    // A `function` declared in one of these three bodies is bound before the
+    // body runs, exactly as it is in an ordinary block — `try { function f() {}
+    // f() }` called it and found `undefined`, because nothing hoisted here.
+    super::function::hoist(builder, scope, ctx, body)?;
     let lexical = super::binding::lexical_names(body);
     scope.expect_lexical(&lexical);
     for statement in body {
@@ -447,15 +470,15 @@ fn bind_caught(
     ctx: &mut Ctx,
     pattern: &crate::syntax::Pattern,
     thrown: rts_cranelift::ir::ValueId,
+    at: rts_cranelift::fault::Position,
 ) -> EmitResult<()> {
     match pattern {
         crate::syntax::Pattern::Name(name) => {
             super::binding::declare(builder, scope, ctx, *name, thrown)
         }
-        // A destructuring catch binding is the destructuring emitter's job, and
-        // that does not exist yet. Named here rather than silently binding
-        // nothing, which would make `catch ({ message })` a `message` that is
-        // always `undefined`.
-        _ => super::expr::gap("a destructuring `catch` binding").map(|_: bool| ()),
+        // Everything else is the destructuring emitter's job, in the binding
+        // role: `catch ({ message })` INTRODUCES `message` rather than writing
+        // one that exists, which is exactly what `declare` means there.
+        _ => super::destructure::declare(builder, scope, ctx, pattern, thrown, at),
     }
 }

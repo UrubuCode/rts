@@ -28,6 +28,19 @@ use crate::value::Value;
 /// `new` named, which is [`inherited_for_new`]'s question.
 pub(super) extern "C" fn make(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let given = with_current(|context| arguments_at(context, 0, [a0, a1, a2, a3]));
+    // A single NUMBER is a length, and a number that is not a valid length is a
+    // `RangeError` — `Array(-1)`, `Array(1.5)`, `Array(NaN)`, `Array(Infinity)`
+    // and `Array(2 ** 32)` all stop the program in every other engine. They fell
+    // through to `built` here, so each answered a ONE-element array holding the
+    // number it was refused for: a wrong program that runs, and the exact shape
+    // the honesty floor calls a hollow answer.
+    if given.len() == 1
+        && let Some(count) = Value(given[0]).numeric()
+        && !((0.0..4_294_967_296.0).contains(&count) && count.fract() == 0.0)
+    {
+        super::super::throw::range_error("Invalid array length");
+        return with_current(|context| super::super::objects::undefined_of(context));
+    }
     let made = if given.len() == 1
         && let Some(count) = Value(given[0]).numeric()
         && (0.0..4_294_967_295.0).contains(&count)

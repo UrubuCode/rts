@@ -1,211 +1,41 @@
-//! The iterator `values()`, `keys()` and `entries()` answer.
+//! The iterator `Map`, `Set`, a string and a typed array answer.
 //!
 //! # Why it wraps a materialised list rather than walking the collection
 //!
-//! Because the collection is already walked: `Map::keys` and the array
-//! prototype's three each build the list they describe, and every one of them
-//! is reached by `for`-`of` today through exactly that array. Making them lazy
-//! is a different change — it means a cursor into a shape or a table that a
-//! mutation during iteration has to keep meaning something — and doing it here
-//! would decide that question for six methods at once, inside a change about
-//! `.next()`.
+//! Because for what still reaches here, the collection is already walked: a
+//! string's code points and a typed array's elements are built before the
+//! iterator exists, and every one of them is reached by `for`-`of` through
+//! exactly that array. Making them lazy is a different change — it means a
+//! cursor into a shape or a table that a mutation during iteration has to keep
+//! meaning something.
 //!
-//! What was actually missing is the PROTOCOL. `[1, 2].values()` answered an
-//! array, so `for (const x of [1,2].values())` worked and `.next()` did not
-//! exist at all. This is the object that has one.
-//!
-//! # What it costs, said rather than hidden
-//!
-//! The whole list is built before the first `next()`. For `[1, 2].values()`
-//! that is nothing; for a million-element array iterated to the third element
-//! it is a million-element copy. The lazy form is where that goes, and this is
-//! the thing it will replace rather than something it will sit beside.
-//!
-//! # Half of that is already gone
+//! # Half of that is already gone, twice
 //!
 //! A `Map` or a `Set` is walked LIVE — `collections::cursor` holds a position in
 //! the table rather than a copy of it, because the copy was not merely slow but
 //! WRONG: the language says an iterator sees entries added after it was made.
-//! The same object serves both, so this file's helpers work on either, and the
-//! two paths meet in [`ListIterator::next`] and [`remaining`]. What is still a
-//! copy is everything that is not a collection: an array's three, a string's,
-//! and whatever [`Iterator::from`] was handed.
+//! An ARRAY is walked live too, by `array_proto::cursor`, for the same reason.
+//! The same object serves all of them, so [`ListIterator::next`] is where the
+//! two paths meet.
+//!
+//! # Where the helpers went
+//!
+//! This file held eleven — `map`, `filter`, `take`, `drop`, `flatMap` and the
+//! six terminal ones — and they were EAGER: each drained the iterator and
+//! answered another one over the result. `ArrayCursor` held eleven more that
+//! forwarded here, and a generator held none, so `g().map(f)` was a
+//! `TypeError`.
+//!
+//! They live on `%IteratorPrototype%` now — one copy, lazy, inherited by all
+//! three — and `entry::iterator` is both the object and the reason. What is
+//! left here is the protocol: `next`, and the cursor it moves.
 
 use super::with_current;
 use crate::value::Value;
 
-/// The `Symbol.toStringTag` every ES2025 iterator HELPER carries.
-///
-/// Named once rather than spelled at each of the five, because the five are the
-/// same thing to a program asking what it holds: `it.map(f)`, `it.filter(p)`,
-/// `it.take(n)`, `it.drop(n)` and `it.flatMap(f)` all answer an Iterator Helper
-/// and the specification gives them one tag between them. A literal repeated
-/// five times is five chances to write a sixth spelling.
-const HELPER: &str = "Iterator Helper";
-
-/// `Iterator` — the ES2025 helper base, as a namespace carrying `from`.
-///
-/// Not a class with a `prototype` every iterator inherits: this engine's
-/// iterators (`ListIterator`, the generator wrapper) each carry their own
-/// helper methods rather than reaching one shared prototype, which
-/// `ListIterator`'s own doc already states as the shape. `Iterator.from(x)`
-/// is the one static real Node/the spec put directly on the constructor, and
-/// it is what a program reaches for to turn a plain iterable into something
-/// with `.map`/`.take`/`.toArray` on it — exactly what `over` already builds.
-#[rtse::class("Iterator", namespace)]
-impl Iterator {
-    /// `Iterator.from(iterable)` — an iterator over `iterable`'s elements,
-    /// with the ES2025 helpers on it.
-    ///
-    /// Spec `Iterator.from` also accepts an iterator-*like* object (something
-    /// with a bare `next()` and no `Symbol.iterator`) and answers it wrapped
-    /// rather than copied. That half is not built: [`super::iterate::iterate`]
-    /// is this engine's one answer to "what does iterable mean", and it already
-    /// materialises everything it walks — an array, a string, a `Map`/`Set`, or
-    /// an object declaring `Symbol.iterator` — so `from` reuses exactly that
-    /// rather than adding a second notion of "iterable-ish" beside it.
-    fn from(iterable: u64) -> u64 {
-        let array = super::iterate::iterate(iterable);
-        over(array, "Iterator")
-    }
-}
-
 /// An iterator over a list that has already been built.
 #[rtse::class("ListIterator")]
 impl ListIterator {
-    /// `it.map(f)` — the same elements, each through `f`.
-    ///
-    /// ES2025's iterator helper. Answers an ITERATOR, which is what makes
-    /// `.map(f).toArray()` the way an array comes back out and `.map(f).join()`
-    /// a mistake — the same shape Node has.
-    fn map(this: u64, callback: u64) -> u64 {
-        let mut produced = Vec::new();
-        for (index, element) in remaining(this).into_iter().enumerate() {
-            produced.push(apply(callback, element, index));
-        }
-        over(listed(produced), HELPER)
-    }
-
-    /// `it.filter(p)` — the elements `p` answers truthy for.
-    fn filter(this: u64, callback: u64) -> u64 {
-        let mut kept = Vec::new();
-        for (index, element) in remaining(this).into_iter().enumerate() {
-            if super::primitives::to_boolean(apply(callback, element, index)) {
-                kept.push(element);
-            }
-        }
-        over(listed(kept), HELPER)
-    }
-
-    /// `it.take(n)` — at most the first `n`.
-    fn take(this: u64, count: f64) -> u64 {
-        let count = at_most(count);
-        over(listed(remaining(this).into_iter().take(count).collect()), HELPER)
-    }
-
-    /// `it.drop(n)` — everything after the first `n`.
-    fn drop(this: u64, count: f64) -> u64 {
-        let count = at_most(count);
-        over(listed(remaining(this).into_iter().skip(count).collect()), HELPER)
-    }
-
-    /// `it.flatMap(f)` — `f`'s answers, one level flattened.
-    fn flat_map(this: u64, callback: u64) -> u64 {
-        let mut produced = Vec::new();
-        for (index, element) in remaining(this).into_iter().enumerate() {
-            let answered = apply(callback, element, index);
-            // Whatever the callback answered, iterated: an array, another
-            // iterator, or a string. `iterate` is the one place that decides
-            // what "iterable" means, and asking it here is what keeps this from
-            // being a second answer to that.
-            let inner = super::iterate::iterate(answered);
-            let flattened = with_current(|context| {
-                Value(inner)
-                    .as_slot()
-                    .and_then(|cell| context.elements_at(cell))
-                    .map(|elements| elements.clone())
-            });
-            match flattened {
-                Some(values) => produced.extend(values),
-                None => produced.push(answered),
-            }
-        }
-        over(listed(produced), HELPER)
-    }
-
-    /// `it.toArray()` — the elements, as an array.
-    fn to_array(this: u64) -> u64 {
-        listed(remaining(this))
-    }
-
-    /// `it.forEach(f)` — `f` over each, answering nothing.
-    fn for_each(this: u64, callback: u64) -> u64 {
-        for (index, element) in remaining(this).into_iter().enumerate() {
-            apply(callback, element, index);
-        }
-        with_current(|context| super::objects::undefined_of(context))
-    }
-
-    /// `it.reduce(f, initial)`.
-    ///
-    /// Without an initial value the first element is one, and an EMPTY iterator
-    /// with no initial value answers `undefined` here where the specification
-    /// throws a `TypeError` — a native cannot yet raise a catchable error, which
-    /// `crates/rts-core/README.md` states as the gap it is.
-    fn reduce(this: u64, callback: u64, initial: u64) -> u64 {
-        let absent = with_current(|context| super::objects::undefined_of(context));
-        let elements = remaining(this);
-        let mut walking = elements.into_iter();
-        let mut carried = match initial == absent {
-            true => match walking.next() {
-                Some(first) => first,
-                None => return absent,
-            },
-            false => initial,
-        };
-        for (index, element) in walking.enumerate() {
-            carried = super::functions::call(
-                callback,
-                absent,
-                carried,
-                element,
-                super::modules::make_number(index as f64),
-                absent,
-            );
-        }
-        carried
-    }
-
-    /// `it.some(p)` — whether any element satisfies `p`.
-    fn some(this: u64, callback: u64) -> bool {
-        remaining(this)
-            .into_iter()
-            .enumerate()
-            .any(|(index, element)| {
-                super::primitives::to_boolean(apply(callback, element, index))
-            })
-    }
-
-    /// `it.every(p)` — whether all of them do.
-    fn every(this: u64, callback: u64) -> bool {
-        remaining(this)
-            .into_iter()
-            .enumerate()
-            .all(|(index, element)| {
-                super::primitives::to_boolean(apply(callback, element, index))
-            })
-    }
-
-    /// `it.find(p)` — the first that satisfies `p`, or `undefined`.
-    fn find(this: u64, callback: u64) -> u64 {
-        for (index, element) in remaining(this).into_iter().enumerate() {
-            if super::primitives::to_boolean(apply(callback, element, index)) {
-                return element;
-            }
-        }
-        with_current(|context| super::objects::undefined_of(context))
-    }
-
     /// `it.next()` — the element the cursor is on, and then the next one.
     ///
     /// An iterator over a COLLECTION answers from the collection as it is now,
@@ -256,6 +86,11 @@ pub(in crate::entry) fn over(listed: u64, tag: &str) -> u64 {
             Some(prototype) => prototype,
             None => {
                 register_list_iterator(context);
+                // The helpers are inherited rather than owned, so the chain has
+                // to be joined the moment this prototype exists — `adopt` is
+                // idempotent and is called from each of the four registrations
+                // for exactly that reason.
+                super::iterator::adopt(context);
                 match super::class_support::prototype(context, "ListIterator") {
                     Some(prototype) => prototype,
                     None => return super::objects::undefined_of(context),
@@ -268,14 +103,6 @@ pub(in crate::entry) fn over(listed: u64, tag: &str) -> u64 {
         context.set_prototype(cell, prototype);
         context.set_cursor(cell, listed, 0);
 
-        // `Symbol.iterator` answering the iterator itself, which is what makes
-        // `for`-`of` and spread reach one. Installed on the instance rather than
-        // the prototype for the reason the generator's is installed by hand: the
-        // attribute names a member with a string and this key is a symbol.
-        let key = context.well_known(&format!("{}iterator", super::symbol::PREFIX));
-        let itself = super::native::callable(context, itself as super::native::Native);
-        super::objects::put(context, cell, key, itself);
-
         // `Symbol.toStringTag`, so `Object.prototype.toString.call([].values())`
         // answers `[object Array Iterator]` rather than `[object Object]` —
         // the idiom a program uses to ask what something really is.
@@ -287,8 +114,8 @@ pub(in crate::entry) fn over(listed: u64, tag: &str) -> u64 {
         // which is worse than the `[object Object]` they answered before —
         // a wrong specific answer is believed where a generic one is not.
         //
-        // On the INSTANCE for the reason `Symbol.iterator` above is: the
-        // attribute helper names a member with a string and this key is a
+        // On the INSTANCE for the reason a symbol-keyed member always is here:
+        // the attribute helper names a member with a string and this key is a
         // symbol.
         let tag_key = context.well_known(&format!("{}toStringTag", super::symbol::PREFIX));
         let tag_value = context.intern_value(crate::text::Str::from_str(tag)).bits();
@@ -297,58 +124,3 @@ pub(in crate::entry) fn over(listed: u64, tag: &str) -> u64 {
     })
 }
 
-/// `it[Symbol.iterator]()` — the iterator itself.
-extern "C" fn itself(_environment: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    this
-}
-
-/// The elements an iterator has not answered yet.
-///
-/// Taking them CONSUMES the iterator: the cursor moves to the end, so a helper
-/// followed by `next()` answers done. That is what the specification says a
-/// helper does to the iterator it was called on, and it is what stops
-/// `it.take(1)` and `it.take(1)` from both answering the first element.
-///
-/// Read outside any borrow the caller may still be holding, because everything
-/// here goes on to call user code.
-fn remaining(this: u64) -> Vec<u64> {
-    // A collection cursor drains itself, because "what is left" is a question
-    // only the collection can answer and the answer changes as it is asked.
-    if let Some(values) = super::collections::drained(this) {
-        return values;
-    }
-    with_current(|context| {
-        let Some(cell) = Value(this).as_slot() else {
-            return Vec::new();
-        };
-        let Some((listed, at)) = context.cursor_at(cell) else {
-            return Vec::new();
-        };
-        let elements = match Value(listed).as_slot().and_then(|list| context.elements_at(list)) {
-            Some(elements) => elements[(at as usize).min(elements.len())..].to_vec(),
-            None => Vec::new(),
-        };
-        context.set_cursor(cell, listed, at + elements.len() as u32);
-        elements
-    })
-}
-
-/// One call of a helper's callback: the element and its position.
-fn apply(callback: u64, element: u64, index: usize) -> u64 {
-    let absent = with_current(|context| super::objects::undefined_of(context));
-    let counted = super::modules::make_number(index as f64);
-    super::functions::call(callback, absent, element, counted, absent, absent)
-}
-
-/// The array a helper's result is carried in.
-fn listed(values: Vec<u64>) -> u64 {
-    super::modules::make_array(values)
-}
-
-/// A count, as a length: negative and `NaN` are none, and infinity is all.
-fn at_most(count: f64) -> usize {
-    match count.is_nan() || count < 0.0 {
-        true => 0,
-        false => count.min(usize::MAX as f64) as usize,
-    }
-}

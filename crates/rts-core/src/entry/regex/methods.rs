@@ -23,7 +23,11 @@ use crate::value::Value;
 use super::super::native::Native;
 
 /// What a regular expression's prototype holds.
-pub(super) const NATIVES: &[(&str, Native)] = &[("test", test), ("exec", exec)];
+pub(super) const NATIVES: &[(&str, Native)] = &[
+    ("test", test),
+    ("exec", exec),
+    ("toString", super::accessors::to_string),
+];
 
 /// `RegExp(p, f)` and `new RegExp(p, f)`, which are the same thing here.
 ///
@@ -125,6 +129,10 @@ enum Made {
 /// language throws a `TypeError`. The same stated gap the rest of this crate
 /// has while a throw cannot find a handler in a caller.
 extern "C" fn test(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(S)` FIRST and outside every borrow — see [`coerced`].
+    let Some(subject) = coerced(subject) else {
+        return with_current(|context| undefined_of(context));
+    };
     with_current(|context| {
         // A pattern that tracks `lastIndex` still goes through `search`, which
         // is what advances it — the boolean is not the whole observable effect of
@@ -160,6 +168,10 @@ extern "C" fn test(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
 /// says is collected first, the borrow is released, and the array is filled in a
 /// second one. The same two-step shape `own_keys` has, for the same reason.
 extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(S)` FIRST and outside every borrow — see [`coerced`].
+    let Some(subject) = coerced(subject) else {
+        return with_current(|context| undefined_of(context));
+    };
     let found = with_current(|context| {
         let spans = search(context, this, subject)?;
         let text = text_of(context, subject)?;
@@ -305,11 +317,62 @@ fn last_index(context: &mut Context, cell: u32) -> usize {
     }
 }
 
+/// `re.lastIndex = 0` — what a GLOBAL string method leaves behind.
+///
+/// `"aaa".replace(/a/g, "-")` and `"aaa".match(/a/g)` both start from the
+/// beginning whatever `lastIndex` said and both end with it back at zero: the
+/// specification's `Symbol.replace` and `Symbol.match` set it explicitly, and
+/// the walk they drive ends on a failed match, which resets it again. Neither
+/// happened here — the scan never touched the property — so a `g` pattern
+/// reused across two calls searched from wherever the FIRST call's last match
+/// ended, and the second answered fewer matches than the string has.
+///
+/// Here rather than at the two call sites because it is one rule about one
+/// property, and the two spellings of it would be two places to forget.
+pub(in crate::entry) fn reset_global(context: &mut Context, cell: u32) {
+    if context
+        .regexp_at(cell)
+        .is_some_and(|pattern| pattern.is_global())
+    {
+        set_last_index(context, cell, 0.0);
+    }
+}
+
 /// Writes it back.
 fn set_last_index(context: &mut Context, cell: u32, at: f64) {
     let key = context.well_known("lastIndex");
     let value = Value::from_f64(at).bits();
     put(context, cell, key, value);
+}
+
+/// The subject as a STRING, which is the first thing `exec` and `test` do.
+///
+/// `re.test(123)` searches `"123"` and `re.exec(undefined)` searches
+/// `"undefined"` — the specification's step 1 is `ToString(S)`, and it was not
+/// performed at all: `text_of` answered `None` for anything that was not
+/// already a string cell, so both methods reported "no match" for every
+/// non-string subject. That is a wrong answer rather than a missing feature,
+/// and the shape it takes in a program is `str.match(re)` working while
+/// `re.exec(n)` silently does not.
+///
+/// Outside every borrow, because `ToString` of an object calls user code —
+/// `text::string_of` is the entry point that already owns that protocol, so
+/// this is a call rather than a second copy of it.
+///
+/// `None` is a conversion that THREW — a symbol refuses to become text, which
+/// is rule 8's question asked before the answer is looked at. The caller
+/// returns immediately and the compiled call site re-raises.
+fn coerced(subject: u64) -> Option<u64> {
+    let already = with_current(|context| {
+        Value(subject)
+            .as_slot()
+            .is_some_and(|cell| context.text_at(cell).is_some())
+    });
+    if already {
+        return Some(subject);
+    }
+    let text = super::super::text::string_of(subject);
+    (!super::super::throw::in_flight()).then_some(text)
 }
 
 /// The text a value has, when it is genuinely a string.

@@ -194,5 +194,10 @@ pub(super) fn aggregate(context: &mut Context, reasons: u64) -> u64 {
     super::super::objects::put(context, cell, key, value);
     let key = context.well_known("errors");
     super::super::objects::put(context, cell, key, reasons);
+    // Non-enumerable, which is what `AggregateError`'s own definition says about
+    // `errors` and what `message` already gets from the `Error` constructor:
+    // left enumerable, `JSON.stringify(err)` and `Object.keys(err)` answered a
+    // field no other error has.
+    super::super::native::hidden(context, cell, key);
     Value::from_slot(cell).bits()
 }

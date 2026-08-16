@@ -99,11 +99,19 @@ pub(in crate::entry) fn supply(
         // members — so it is made here rather than by a class registration, and
         // recorded as a property like every other name so that
         // `parseInt === parseInt` is true.
-        if let Some(code) = super::global_fns::provided(&text)
+        if let Some((code, arity)) = super::global_fns::provided(&text)
             .or_else(|| super::uri::provided(&text))
             .or_else(|| super::clone::provided(&text))
         {
             let made = super::native::callable(context, code);
+            // `name` and `length`, as `SetFunctionName` and `SetFunctionLength`
+            // put them on every function. A global function reached this way had
+            // neither, so `parseInt.name` and `Number.parseInt.length` both read
+            // `undefined` where a method installed by `#[rtse::class]` answered
+            // properly — the same property, absent only because this path made
+            // its cell by hand.
+            super::native::name_of(context, made, &text);
+            super::native::length_of(context, made, arity);
             super::objects::put(context, object, Key::Name(name), made);
             return Some(made);
         }
@@ -160,7 +168,7 @@ pub(in crate::entry) fn supply(
             "FinalizationRegistry" => super::collections::register_finalization_registry(context),
             "SharedArrayBuffer" => super::buffers::register_shared_array_buffer(context),
             "Atomics" => super::buffers::register_atomics(context),
-            "Iterator" => super::list_iterator::register_iterator(context),
+            "Iterator" => super::iterator::register(context),
             "String" => super::string::constructor(context),
             "Array" => super::array_proto::constructor(context),
             "Object" => super::object_global::constructor(context),
@@ -323,6 +331,35 @@ pub(in crate::entry) fn provided_value(name: &str) -> Option<u64> {
         }
         supply(context, key)
     })
+}
+
+/// Materialises a provided global by name, if it is not already there.
+///
+/// # Why a prototype needs this
+///
+/// `Array.prototype.constructor` is written by `Array`'s own registration, and
+/// the registrations are lazy — so a program that never spells `Array` had
+/// `[].constructor === undefined`, where every other runtime answers the
+/// constructor. The prototype is what the program reached, and the link back to
+/// the constructor is part of the prototype rather than a decoration on the
+/// name: the species protocol reads it, `.constructor.name` reads it, and a
+/// subclass check reads it.
+///
+/// Routed through the global OBJECT rather than by calling the registration
+/// directly, because a registration builds a fresh callable each time it runs:
+/// calling it twice would make `Array !== [].constructor`, which is a worse
+/// answer than the missing one.
+pub(in crate::entry) fn ensure(context: &mut Context, name: &str) {
+    let Some(object) = holder(context) else {
+        return;
+    };
+    let key = context.well_known(name);
+    if read_property(context, object, key).is_some() {
+        return;
+    }
+    if let Key::Name(named) = key {
+        supply(context, named);
+    }
 }
 
 /// The object the provided names are properties of, made once.

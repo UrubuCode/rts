@@ -114,7 +114,7 @@ pub(super) fn install(context: &mut Context) -> u64 {
     // `entry::loops` was written to end.
     entry::declare_loop_source(context, "rts-std:message-channel", pump);
     let prototype = entry::make_prototype(context, "MessageChannel", &[]);
-    super::class_ctor(context, construct, prototype)
+    super::class_ctor(context, "MessageChannel", 0, construct, prototype)
 }
 
 /// `MessagePort.prototype`, linked to `EventTarget.prototype`.

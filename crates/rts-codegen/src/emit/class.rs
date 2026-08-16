@@ -327,6 +327,28 @@ pub(super) fn emit_class(
                 // instance methods emitted after it.
                 let enclosing = ctx.in_static_method;
                 ctx.in_static_method = method.is_static;
+                // The key names the method, which is the only thing that can:
+                // `read() {}` parses as a function with no identifier of its
+                // own, so `K.prototype.read.name` was `""` — and every spelling
+                // built on it inherited the emptiness, `bind` reporting
+                // `"bound "` for a method every other engine names.
+                //
+                // A private method's spec name is `"#name"` and a computed key
+                // names whatever the expression answers; neither is spelled
+                // here, because both need a name the source never wrote and
+                // this only carries one the interner already holds.
+                if let ClassKey::Public(PropertyKey::Named(name)) = &method.key {
+                    let spelled = match method.kind {
+                        MethodKind::Normal => *name,
+                        // `"get width"` / `"set width"`, the prefixed spelling
+                        // an object literal's accessor also takes — asked
+                        // through that module rather than re-derived, so the
+                        // two cannot come to disagree about the space.
+                        MethodKind::Getter => super::object::accessor_name(ctx, *name, true),
+                        MethodKind::Setter => super::object::accessor_name(ctx, *name, false),
+                    };
+                    ctx.lend_name(spelled);
+                }
                 let closure = function::emit_closure(builder, &inner, ctx, &method.function)?;
                 ctx.in_static_method = enclosing;
                 let target = if method.is_static { constructor } else { prototype };
@@ -900,7 +922,7 @@ pub(super) fn emit_super_member(
     // The key FIRST: a computed one is an expression, and the language
     // evaluates it before anything else the access does.
     let key = super_key(builder, scope, ctx, property)?;
-    let (above, receiver) = super_lookup_root_and_receiver(builder, scope, ctx, property)?;
+    let (above, receiver) = super_lookup_root_and_receiver(builder, scope, ctx)?;
     Ok(expr::call(
         builder,
         ctx,
@@ -925,7 +947,7 @@ pub(super) fn emit_super_member_write(
     // The key FIRST: a computed one is an expression, and the language
     // evaluates it before anything else the access does.
     let key = super_key(builder, scope, ctx, property)?;
-    let (above, receiver) = super_lookup_root_and_receiver(builder, scope, ctx, property)?;
+    let (above, receiver) = super_lookup_root_and_receiver(builder, scope, ctx)?;
     let value = expr::tagged(builder, value);
     Ok(expr::call(
         builder,
@@ -942,7 +964,6 @@ fn super_lookup_root_and_receiver(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
-    property: &PropertyKey,
 ) -> EmitResult<(ValueId, ValueId)> {
     // A STATIC method's home object is the constructor; an instance method's is
     // the prototype. Read from the flag the method's own emission set, because
@@ -956,19 +977,40 @@ fn super_lookup_root_and_receiver(
     // `m` again, which is the whole reason the home object exists rather than
     // the search starting at `this`.
     let above = expr::call(builder, ctx, RuntimeOp::GetPrototype, &[home])?[0];
-    // `this`, read the ordinary way — a derived constructor's late binding is
-    // irrelevant here, because `super.x` inside a class body is always
-    // written inside a method, never inside the constructor before `super()`
-    // has answered an instance.
-    let receiver = match scope.this_value() {
-        Some(receiver) => receiver,
-        None => {
-            return Err(EmitError::Unsupported {
-                construct: "`super.x` outside a method with a receiver",
-            });
-        }
+    let Some(receiver) = current_receiver(builder, scope, ctx)? else {
+        return Err(EmitError::Unsupported {
+            construct: "`super.x` outside a method with a receiver",
+        });
     };
     Ok((above, receiver))
+}
+
+/// What `this` is where the emitter currently stands, by the two routes it can
+/// take — said once, because three places asked and two of them knew only one
+/// of the routes.
+///
+/// The NAME comes first, exactly as `ExprKind::This` orders it: a derived
+/// constructor holds `this` in its environment because there is no object until
+/// `super()` answers one, and an ARROW holds the enclosing function's under the
+/// same name because it has no receiver of its own. Asking the parameter first
+/// answers `undefined` in both.
+///
+/// The comment that stood here said `super.x` is "always written inside a
+/// method, never inside the constructor before `super()`". It is also written
+/// inside ARROWS in methods — `m() { const f = () => super.label; }` — and that
+/// refusal is what this replaces.
+///
+/// `None` means there is genuinely no receiver, and each caller says what it
+/// refuses.
+pub(super) fn current_receiver(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+) -> EmitResult<Option<ValueId>> {
+    match scope.late_this() {
+        Some(name) => binding::read(builder, scope, ctx, name).map(Some),
+        None => Ok(scope.this_value()),
+    }
 }
 
 /// The one property-key shape a `super` access supports today.

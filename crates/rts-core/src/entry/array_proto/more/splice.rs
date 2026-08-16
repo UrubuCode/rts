@@ -43,7 +43,12 @@ pub(super) extern "C" fn splice(_e: u64, this: u64, start: u64, count: u64, x: u
         Some(removed)
     });
     match removed {
-        Some(removed) => built(removed),
+        // `ArraySpeciesCreate`: the REMOVED elements go in whatever the
+        // receiver's species names, which is what `source.splice(…) instanceof
+        // Removed` asks. The receiver itself is untouched and stays its own
+        // class — the two are different objects, and only one of them is made
+        // here.
+        Some(removed) => super::super::species::collected(this, removed),
         None => nothing(),
     }
 }

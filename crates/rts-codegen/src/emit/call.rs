@@ -346,9 +346,15 @@ pub(super) fn callee_and_receiver(
         // and then called as if it were a loose function.
         ExprKind::SuperMember { property } => {
             let function = super::class::emit_super_member(builder, scope, ctx, property)?;
-            let receiver = scope.this_value().ok_or(EmitError::Unsupported {
-                construct: "`super.m()` where there is no receiver",
-            })?;
+            // Through the one answer to "what is `this` here": an arrow and a
+            // derived constructor both hold it under a name rather than in the
+            // receiver slot, and asking the slot refused
+            // `m() { const f = () => super.greet(); }` — ordinary code.
+            let receiver = super::class::current_receiver(builder, scope, ctx)?.ok_or(
+                EmitError::Unsupported {
+                    construct: "`super.m()` where there is no receiver",
+                },
+            )?;
             (receiver, function)
         }
         // A bare name inside a `with` is a reference whose BASE may be the

@@ -57,6 +57,14 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
 /// difference is the whole reason both spellings exist, and an implementation
 /// that answered the same for both would make `s.charAt(9) === ""` false.
 extern "C" fn char_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    let Some(index) = super::number_arg(index) else {
+        return super::refused();
+    };
     with_current(|context| {
         let Some(length) = super::length_of(context, this) else {
             return nothing(context);
@@ -74,6 +82,14 @@ extern "C" fn char_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u
 
 /// `s.charCodeAt(i)` — the code unit as a number.
 extern "C" fn char_code_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    let Some(index) = super::number_arg(index) else {
+        return super::refused();
+    };
     with_current(|context| {
         let Some(length) = super::length_of(context, this) else {
             return nothing(context);
@@ -95,6 +111,14 @@ extern "C" fn char_code_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _
 
 /// `s.at(i)` — like the index, but negative counts from the end.
 extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    let Some(index) = super::number_arg(index) else {
+        return super::refused();
+    };
     with_current(|context| {
         let Some(length) = super::length_of(context, this) else {
             return nothing(context);
@@ -124,6 +148,19 @@ extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -
 
 /// `s.slice(from, to)` — negative counts from the end.
 extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    // Both bounds converted here, in argument order, for the reason
+    // `super::number_arg` states: an object bound runs user code.
+    let Some(from) = super::number_arg(from) else {
+        return super::refused();
+    };
+    let Some(to) = super::number_arg(to) else {
+        return super::refused();
+    };
     with_current(|context| {
         // Narrow in and narrow out: the receiver is borrowed rather than copied
         // and widened, and the result is built without re-deciding a layout the
@@ -175,14 +212,30 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
 
 /// `s.substring(from, to)` — negative clamps to zero, and the two swap.
 extern "C" fn substring(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     // Converted BEFORE the borrow: `ToNumber` of an object runs the program's
     // `valueOf`, and calling user code from inside `with_current` re-enters the
-    // `RefCell`. See `super::integer_outside`.
+    // `RefCell`. `number_arg` rather than `integer_outside` alone because it is
+    // the one that REFUSES a symbol and a bigint, which `ToNumber` must.
     let missing = with_current(|context| absent(context, to));
+    let Some(from) = super::number_arg(from) else {
+        return super::refused();
+    };
     let asked_from = super::integer_outside(from);
+    // An absent `to` is the LENGTH, not zero, so it is never converted: asking
+    // `ToNumber(undefined)` would answer `NaN` and clamp to the wrong end.
     let asked_to = match missing {
         true => 0.0,
-        false => super::integer_outside(to),
+        false => {
+            let Some(to) = super::number_arg(to) else {
+                return super::refused();
+            };
+            super::integer_outside(to)
+        }
     };
     if super::super::throw::in_flight() {
         return with_current(|context| nothing(context));
@@ -211,6 +264,11 @@ extern "C" fn substring(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u
 /// what the language says too, and it is why this converts through text rather
 /// than mapping units in place.
 extern "C" fn to_upper_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     mapped(this, str::to_uppercase, u8::to_ascii_uppercase)
 }
 
@@ -223,11 +281,27 @@ extern "C" fn to_upper_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
 /// name and one more place for the two to drift. The divergence is the locale
 /// data, not the dispatch.
 extern "C" fn to_lower_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     mapped(this, str::to_lowercase, u8::to_ascii_lowercase)
 }
 
 /// `s.repeat(n)`.
 extern "C" fn repeat(_e: u64, this: u64, count: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
+    // The count AFTER the receiver, which is the order the specification states
+    // and the order a throwing `toString` observes — see the `order` rows of
+    // `string/claude2-repeat-count-coercion-and-errors`.
+    let Some(count) = super::number_arg(count) else {
+        return super::refused();
+    };
     let asked = with_current(|context| super::integer_arg(context, count));
     // A negative count, or one that never terminates, is a `RangeError` —
     // raising is possible now that rule 8's discipline is in place (`repeat`
@@ -241,17 +315,32 @@ extern "C" fn repeat(_e: u64, this: u64, count: u64, _a1: u64, _a2: u64, _a3: u6
         super::super::throw::range_error("Invalid count value");
         return with_current(|context| nothing(context));
     }
+    let Some(units) = with_current(|context| units_of(context, this)) else {
+        return super::refused();
+    };
+    // A result past the length a string can have is the SECOND `RangeError` the
+    // specification names, and it was a silent empty string here: `asked > 4096`
+    // answered `""` for `"ab".repeat(1e10)`, which every engine refuses. The
+    // ceiling was also wrong in the other direction — `"x".repeat(10000)` is an
+    // ordinary thing to write and answered nothing.
+    //
+    // The bound is on the RESULT, not on the count, which is what makes
+    // `"".repeat(1e10)` the empty string rather than an error: an empty receiver
+    // produces nothing however many times it is repeated, and the fixture asks
+    // for exactly that.
+    const LIMIT: f64 = 536_870_888.0;
+    // An empty receiver answers the empty string for ANY finite count, and the
+    // check has to come before the loop rather than fall out of it: repeating
+    // nothing 10^10 times is 10^10 iterations of copying nothing, which is a
+    // hang and not a wrong answer.
+    if units.is_empty() || asked == 0.0 {
+        return with_current(|context| answer(context, &[]));
+    }
+    if asked * units.len() as f64 > LIMIT {
+        super::super::throw::range_error("Invalid string length");
+        return super::refused();
+    }
     with_current(|context| {
-        let Some(units) = units_of(context, this) else {
-            return nothing(context);
-        };
-        // An absurdly large but finite count is still bounded rather than
-        // thrown for: the specification has no upper bound, but multiplying by
-        // a number a program chose would let a script exhaust memory, and that
-        // is a stated gap this change does not close.
-        if asked > 4096.0 {
-            return answer(context, &[]);
-        }
         let mut out = Vec::with_capacity(units.len() * asked as usize);
         for _ in 0..asked as usize {
             out.extend_from_slice(&units);
@@ -286,6 +375,11 @@ extern "C" fn repeat(_e: u64, this: u64, count: u64, _a1: u64, _a2: u64, _a3: u6
 /// convention pads the unused slots with `undefined`, so a native cannot tell
 /// padding from something a program wrote.
 extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     let given =
         with_current(|context| super::super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]));
     let mut pieces = Vec::with_capacity(given.len() + 1);
@@ -316,11 +410,21 @@ extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> 
 
 /// `s.padStart(n, fill)`.
 extern "C" fn pad_start(_e: u64, this: u64, width: u64, fill: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     padded(this, width, fill, true)
 }
 
 /// `s.padEnd(n, fill)`.
 extern "C" fn pad_end(_e: u64, this: u64, width: u64, fill: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
+    // `super::coerce_receiver`.
+    let Some(this) = super::coerce_receiver(this) else {
+        return super::refused();
+    };
     padded(this, width, fill, false)
 }
 

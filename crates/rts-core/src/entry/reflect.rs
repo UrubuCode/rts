@@ -118,8 +118,12 @@ impl Reflect {
     }
 
     /// `Reflect.deleteProperty(target, key)`.
+    ///
+    /// The quiet spelling: `delete o.x` raises on a refusal because a module is
+    /// strict, and this is the operation whose whole purpose is to report the
+    /// refusal instead — the same split `set` above already makes.
     fn delete_property(target: u64, key: u64) -> bool {
-        super::computed::delete_property(target, key)
+        super::computed::delete_own(target, key)
     }
 
     /// `Reflect.ownKeys(target)`.
@@ -176,8 +180,16 @@ impl Reflect {
     ///
     /// The vector spelling, not the four-slot one: a list is what the caller
     /// has, and `call_with_args` is the path that carries any number.
+    ///
+    /// The list is array-LIKE, and unlike `Function.prototype.apply` there is
+    /// no spelling of it that means "no arguments": `Reflect.apply(f, o)` is a
+    /// `TypeError` where `f.apply(o)` is a call with none.
     fn apply(target: u64, receiver: u64, arguments: u64) -> u64 {
-        super::functions::call_with_args(target, receiver, arguments)
+        let Some(list) = super::functions::list_from_array_like(arguments) else {
+            super::throw::type_error("CreateListFromArrayLike called on non-object");
+            return with_current(|context| super::objects::undefined_of(context));
+        };
+        super::functions::call_with_args(target, receiver, list)
     }
 
     /// `Reflect.construct(target, argumentList, newTarget)`.
@@ -203,7 +215,11 @@ impl Reflect {
     /// what dropping the argument did — is the larger of the two wrongs, because
     /// every `instanceof` on the result reads it.
     fn construct(target: u64, arguments: u64, new_target: u64) -> u64 {
-        let produced = super::functions::construct_with_args(target, arguments);
+        let Some(list) = super::functions::list_from_array_like(arguments) else {
+            super::throw::type_error("CreateListFromArrayLike called on non-object");
+            return with_current(|context| super::objects::undefined_of(context));
+        };
+        let produced = super::functions::construct_with_args(target, list);
         // Rule 8 of this crate's README: the constructor is user code, and a
         // relink applied to the `undefined` a throw leaves behind would be work
         // done under an exception that is already on its way out.

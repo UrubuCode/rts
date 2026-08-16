@@ -35,6 +35,7 @@ mod descriptor;
 mod describe;
 
 use copy::held;
+pub(in crate::entry) use copy::each_enumerable_own;
 pub(in crate::entry) use describe::{describe_of, describe_own, own_symbols};
 
 use super::native::Native;
@@ -195,30 +196,16 @@ extern "C" fn keys(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u6
 /// cannot disagree about order — which is the property `Object.keys` and
 /// `Object.values` are useful in pairs for.
 extern "C" fn values(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let names = super::array::own_keys(object);
-    let found = with_current(|context| {
-        let cell = Value(names).as_slot()?;
-        Some(context.elements_at(cell)?.clone())
-    });
-    let Some(found) = found else {
-        return names;
-    };
+    let mut read = Vec::new();
     // Each read goes through the ordinary property path, so a key that names an
     // accessor runs its getter — which is what the language says and what a
-    // direct read of the layout would have skipped.
-    let read: Vec<u64> = found
-        .into_iter()
-        .map(|name| super::computed::get_indexed(object, name))
-        .collect();
-    let array = super::array::array_new(read.len() as i64);
-    with_current(|context| {
-        if let Some(cell) = Value(array).as_slot()
-            && let Some(elements) = context.elements_at_mut(cell)
-        {
-            *elements = read;
-        }
-        array
-    })
+    // direct read of the layout would have skipped. `each_enumerable_own` is
+    // what puts a proxy's descriptor read immediately before its value read
+    // rather than in a pass of its own; see there.
+    copy::each_enumerable_own(object, |name| {
+        read.push(super::computed::get_indexed(object, name));
+    });
+    super::array_proto::built(read)
 }
 
 /// `Object.getPrototypeOf(o)`.
@@ -348,17 +335,11 @@ pub(super) fn key_for(context: &mut Context, name: u64) -> Option<Key> {
 /// Built from `keys` and `values` rather than from a third walk, for the reason
 /// [`values`] records: the three are useful because they agree about order.
 extern "C" fn entries(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let names = super::array::own_keys(object);
-    let Some(names) = held(names) else {
-        return names;
-    };
-    let pairs: Vec<u64> = names
-        .into_iter()
-        .map(|name| {
-            let value = super::computed::get_indexed(object, name);
-            super::array_proto::built(vec![name, value])
-        })
-        .collect();
+    let mut pairs = Vec::new();
+    copy::each_enumerable_own(object, |name| {
+        let value = super::computed::get_indexed(object, name);
+        pairs.push(super::array_proto::built(vec![name, value]));
+    });
     super::array_proto::built(pairs)
 }
 

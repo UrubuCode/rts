@@ -12,7 +12,7 @@
 use super::super::rooted::Rooted;
 use super::super::string::absent;
 use super::super::{throw, with_current};
-use super::{arguments_at, built};
+use super::arguments_at;
 use crate::value::Value;
 
 /// `a.concat(…)` — a new array, with everything spreadable spliced in.
@@ -42,7 +42,7 @@ pub(super) extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a
             break;
         }
     }
-    built(joined.take())
+    super::species::collected(this, joined.take())
 }
 
 /// What an item contributes when it spreads, or `None` when it goes in whole.
