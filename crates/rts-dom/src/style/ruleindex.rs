@@ -38,6 +38,9 @@ pub struct RuleIndex {
     /// stale e é reconstruído.
     covered: usize,
     has_custom_rules: bool,
+    /// Há seletores cuja correspondência depende de atributos ou pseudo-classes
+    /// representadas por atributos (`:checked`, `:disabled`, etc.).
+    has_attribute_selectors: bool,
 }
 
 /// A âncora do compound-alvo (último compound) de um seletor. Id > Class > Tag; se
@@ -79,6 +82,20 @@ impl RuleIndex {
         }
         idx.covered = rules.len();
         idx.has_custom_rules = rules.iter().any(|r| !r.decls.custom.is_empty());
+        idx.has_attribute_selectors = rules.iter().any(|rule| {
+            rule.selector.compounds.iter().any(|compound| {
+                compound.parts.iter().any(|part| matches!(
+                    part,
+                    SimpleSelector::Attr { .. }
+                        | SimpleSelector::Pseudo(
+                            super::selector::PseudoClass::Checked
+                                | super::selector::PseudoClass::Disabled
+                                | super::selector::PseudoClass::Enabled
+                                | super::selector::PseudoClass::Required
+                        )
+                ))
+            })
+        });
         idx
     }
 
@@ -89,6 +106,10 @@ impl RuleIndex {
 
     pub fn has_custom_rules(&self) -> bool {
         self.has_custom_rules
+    }
+
+    pub fn has_attribute_selectors(&self) -> bool {
+        self.has_attribute_selectors
     }
 
     /// Os índices das regras CANDIDATAS a casar um nó `(tag, id, classes)`: a união

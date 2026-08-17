@@ -30,8 +30,15 @@ fn rgba_to_color32(c: u32) -> egui::Color32 {
 /// o egui vai de fato pintar. Guarda o `Context` para consultar `fonts`.
 struct EguiMeasurer<'a> {
     ctx: &'a egui::Context,
-    width_cache: RefCell<HashMap<(u32, bool, bool), HashMap<String, f32>>>,
-    line_height_cache: RefCell<HashMap<u32, f32>>,
+}
+
+thread_local! {
+    /// Métricas persistentes entre relayouts. O contexto faz parte da chave para não
+    /// misturar fontes de janelas egui diferentes; o limite evita crescimento infinito.
+    static TEXT_WIDTH_CACHE: RefCell<HashMap<(usize, u32, bool, bool), HashMap<String, f32>>> =
+        RefCell::new(HashMap::new());
+    static LINE_HEIGHT_CACHE: RefCell<HashMap<(usize, u32), f32>> =
+        RefCell::new(HashMap::new());
 }
 
 impl<'a> EguiMeasurer<'a> {
@@ -53,34 +60,48 @@ impl<'a> EguiMeasurer<'a> {
 
 impl<'a> TextMeasurer for EguiMeasurer<'a> {
     fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32 {
-        let font_key = (size.to_bits(), mono, bold);
-        if let Some(width) = self
-            .width_cache
-            .borrow()
-            .get(&font_key)
-            .and_then(|bucket| bucket.get(text))
-            .copied()
-        {
+        let context_key = self.ctx as *const egui::Context as usize;
+        let font_key = (context_key, size.to_bits(), mono, bold);
+        if let Some(width) = TEXT_WIDTH_CACHE.with(|cache| {
+            cache
+                .borrow()
+                .get(&font_key)
+                .and_then(|bucket| bucket.get(text))
+                .copied()
+        }) {
             return width;
         }
         let font = Self::font_id(size, mono, bold);
         // `fonts_mut` dá um `&mut FontsView` (glyph_width exige `&mut`).
         let width = self.ctx.fonts_mut(|f| text.chars().map(|c| f.glyph_width(&font, c)).sum());
-        self.width_cache
-            .borrow_mut()
-            .entry(font_key)
-            .or_default()
-            .insert(text.to_owned(), width);
+        TEXT_WIDTH_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            let bucket = cache.entry(font_key).or_default();
+            if bucket.len() >= 8192 && !bucket.contains_key(text) {
+                if let Some(old_text) = bucket.keys().next().cloned() {
+                    bucket.remove(&old_text);
+                }
+            }
+            bucket.insert(text.to_owned(), width);
+        });
         width
     }
     fn line_height(&self, size: f32) -> f32 {
-        let key = size.to_bits();
-        if let Some(height) = self.line_height_cache.borrow().get(&key).copied() {
+        let key = (self.ctx as *const egui::Context as usize, size.to_bits());
+        if let Some(height) = LINE_HEIGHT_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
             return height;
         }
         let font = Self::font_id(size, false, false);
         let height = self.ctx.fonts_mut(|f| f.row_height(&font));
-        self.line_height_cache.borrow_mut().insert(key, height);
+        LINE_HEIGHT_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.len() >= 256 && !cache.contains_key(&key) {
+                if let Some(old_key) = cache.keys().next().copied() {
+                    cache.remove(&old_key);
+                }
+            }
+            cache.insert(key, height);
+        });
         height
     }
 }
@@ -111,11 +132,7 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
     let avail = ui.available_size();
     let viewport_w = avail.x.max(1.0);
     let viewport_h = ui.ctx().screen_rect().height().max(1.0);
-    let measurer = EguiMeasurer {
-        ctx: ui.ctx(),
-        width_cache: RefCell::new(HashMap::new()),
-        line_height_cache: RefCell::new(HashMap::new()),
-    };
+    let measurer = EguiMeasurer { ctx: ui.ctx() };
     let ctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
     let key = dom.cache_identity();
     let rev = dom.render_revision();
@@ -161,11 +178,7 @@ pub(crate) fn render_dom_scrolled(
     // (cascade de todas as regras × nós — numa página Bootstrap ~2700 regras) só
     // precisa re-rodar quando o DOM/estilo MUDAM (`render_revision`) ou o viewport
     // muda. Era a "travada" ao clicar: re-layout completo por frame.
-    let measurer = EguiMeasurer {
-        ctx: ui.ctx(),
-        width_cache: RefCell::new(HashMap::new()),
-        line_height_cache: RefCell::new(HashMap::new()),
-    };
+    let measurer = EguiMeasurer { ctx: ui.ctx() };
     let lctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
     let rev = rts_dom::store::with_dom(h, |d| d.render_revision()).unwrap_or(0);
     let mut list = LAYOUT_CACHE.with(|cache| {

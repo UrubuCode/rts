@@ -223,6 +223,12 @@ impl Stylesheet {
         self.index.borrow().has_custom_rules()
     }
 
+    /// `true` quando alguma regra depende da presença/valor de um atributo.
+    pub fn has_attribute_selectors(&self) -> bool {
+        self.ensure_rule_index();
+        self.index.borrow().has_attribute_selectors()
+    }
+
     /// `true` se não há nenhuma regra (atalho para o `computed_style` pular a
     /// cascade quando a página não tem `<style>`).
     pub fn is_empty(&self) -> bool {
