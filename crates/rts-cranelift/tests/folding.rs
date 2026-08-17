@@ -173,6 +173,45 @@ fn a_function_whose_guard_was_settled_still_verifies() {
     );
 }
 
+// ------------------------------------------------------------- the widening
+
+#[test]
+fn a_widened_value_can_say_what_it_was_widened_from() {
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::Bool], &[Repr::Tagged]);
+    let proof = param(&func, 0);
+
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let widened = b.widen(proof);
+
+    assert_eq!(
+        b.widened_source(widened),
+        Some(proof),
+        "a client that widened a proof and is asked for the proof again must be \
+         able to find it, or it converts back the expensive way"
+    );
+}
+
+#[test]
+fn a_value_that_was_never_widened_says_so() {
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::Tagged, Repr::Bool], &[Repr::Tagged]);
+    let (generic, proof) = (param(&func, 0), param(&func, 1));
+
+    let entry = func.entry;
+    let b = FuncBuilder::new(&mut func, &types, entry);
+
+    assert_eq!(
+        b.widened_source(generic), None,
+        "a generic value that arrived generic hides no proof"
+    );
+    assert_eq!(
+        b.widened_source(proof), None,
+        "and neither does a proof that was never widened"
+    );
+}
+
 // --------------------------------------------------------------- arithmetic
 
 /// The constant `1.0`, materialized in the block being built.

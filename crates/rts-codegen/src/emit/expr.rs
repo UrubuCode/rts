@@ -686,6 +686,24 @@ pub(super) fn to_boolean(
     if builder.repr_of(value) == Repr::Bool {
         return Ok(value);
     }
+
+    // And a boolean that was WIDENED is still the answer. `compared` widens
+    // because a comparison written in expression position is a value; a
+    // condition then asks for the proof back, and without this the way to get
+    // it is a call to the runtime that undoes an instruction emitted three
+    // lines earlier.
+    //
+    // It fires wherever a comparison could not take the guarded form —
+    // `typeof x === "string"` is the everyday one, since a string operand makes
+    // that form's instruction unreachable. Removing the speculation there was
+    // tried first and measured SLOWER for exactly this reason: the guards were
+    // paying for a proof, and dropping them without this left the call.
+    if let Some(source) = builder.widened_source(value)
+        && builder.repr_of(source) == Repr::Bool
+    {
+        return Ok(source);
+    }
+
     Ok(call(builder, ctx, RuntimeOp::ToBoolean, &[value])?[0])
 }
 

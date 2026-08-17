@@ -1137,6 +1137,38 @@ mod tests {
         verified(func, &types, &funcs)
     }
 
+    /// The same, keeping the runtime operations the body declared.
+    ///
+    /// A test about which operation was reached cannot read that from the
+    /// function alone: a call names a `FuncId`, and what that id means lives in
+    /// the registry the emission was given. Returning it is the only way to ask
+    /// "did this reach `ToBoolean`" rather than "did this make a call".
+    fn emit_source_with_calls(source: &str) -> EmitResult<(Function, RuntimeCalls)> {
+        let mut names = Names::default();
+        let mut tags = TagRegistry::new();
+        let model = ValueModel::declare(&mut tags);
+        let types = TypeRegistry::default();
+        let mut funcs = FuncRegistry::new();
+        let mut calls = RuntimeCalls::new();
+        let program = parse_script(source, &mut names).expect("the test's source must parse");
+        let body: Vec<_> = program
+            .body
+            .into_iter()
+            .filter_map(|item| match item {
+                ModuleItem::Stmt(statement) => Some(statement),
+                _ => None,
+            })
+            .collect();
+        let mut keys = rts_cranelift::shape::KeyRegistry::new();
+        let func = {
+            let mut ctx = Ctx::new(
+                &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
+            );
+            emit_program(&body, &mut ctx).map(entry_of)
+        };
+        verified(func, &types, &funcs).map(|func| (func, calls))
+    }
+
     /// Emits a FUNCTION body, where `return` is legal.
     ///
     /// Wrapped in a declaration and unwrapped again rather than parsed as a
@@ -1310,6 +1342,59 @@ mod tests {
                 .iter()
                 .any(|inst| matches!(inst, Inst::Call { .. })),
             "nothing proved `s`, so `1 + s` may concatenate and must be a call"
+        );
+    }
+
+    /// How many times the body asks the runtime to convert a value to a boolean.
+    ///
+    /// Counted by callee rather than by call count, because every body makes
+    /// calls: the throw-flag address at the entry, the property reads, the
+    /// operator that could not be proven. A total would move for reasons that
+    /// have nothing to do with the claim.
+    fn to_boolean_calls(func: &Function, calls: &RuntimeCalls) -> usize {
+        let Some((_, wanted)) = calls
+            .declared()
+            .find(|(op, _)| *op == crate::runtime::RuntimeOp::ToBoolean)
+        else {
+            // Never declared, so it was never called: the operation is declared
+            // lazily, at the first site that asks for it.
+            return 0;
+        };
+        instructions(func)
+            .iter()
+            .filter(|inst| matches!(inst, Inst::Call { callee, .. } if *callee == wanted))
+            .count()
+    }
+
+    #[test]
+    fn a_condition_does_not_pay_to_undo_a_widening_it_just_paid_for() {
+        // `typeof o.x === "string"` cannot take the guarded form's instruction —
+        // a string is never a double — so the comparison is the runtime's, which
+        // answers a PROVEN boolean. The emitter widens it because a comparison
+        // written in an expression is a value; `if` then wants the proof back.
+        // Asking the runtime for it undoes an instruction emitted three lines
+        // earlier.
+        let (func, calls) =
+            emit_source_with_calls("let o = {}; if (typeof o.x === \"string\") { o.y = 1; }")
+                .expect("emits");
+        assert_eq!(
+            to_boolean_calls(&func, &calls),
+            0,
+            "the condition already holds the proof; converting it back is a call \
+             that buys nothing"
+        );
+    }
+
+    #[test]
+    fn a_condition_over_a_value_that_is_not_a_boolean_still_converts() {
+        // The twin. `if (o.x)` has no proof to recover — the truthiness of an
+        // arbitrary value is the runtime's question, and this is the case that
+        // stops the assertion above from being satisfied by never converting.
+        let (func, calls) =
+            emit_source_with_calls("let o = {}; if (o.x) { o.y = 1; }").expect("emits");
+        assert!(
+            to_boolean_calls(&func, &calls) >= 1,
+            "an arbitrary value's truthiness is not something the emitter knows"
         );
     }
 

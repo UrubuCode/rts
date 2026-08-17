@@ -343,6 +343,22 @@ impl<'a> FuncBuilder<'a> {
         Ok(self.emit(Inst::IsSingleton { value, singleton }, Repr::Bool))
     }
 
+    /// What a value was widened from, if it was widened here.
+    ///
+    /// The counterpart to [`FuncBuilder::widen`], and the only way a client can
+    /// find out that a value it is about to convert back is one it converted.
+    /// Without it the round trip is invisible: a client that proved something,
+    /// widened it because an expression is a value, and is then asked for the
+    /// proof again has to reconstruct it — which for a language layer means
+    /// calling its own runtime to undo an instruction this layer emitted.
+    ///
+    /// Answers `None` for a block parameter, and for anything not widened. It
+    /// looks at one instruction: a proof arriving through two predecessors is a
+    /// traversal, and a traversal belongs in a pass.
+    pub fn widened_source(&self, value: ValueId) -> Option<ValueId> {
+        super::fold::widened_source(self.func, value)
+    }
+
     /// Widens a value into the generic form, or returns it unchanged.
     pub fn widen(&mut self, value: ValueId) -> ValueId {
         self.widen_if_needed(value)

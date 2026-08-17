@@ -101,6 +101,24 @@ fn is_f64_one(func: &Function, value: ValueId) -> bool {
     )
 }
 
+/// What a value was widened FROM, when it was widened at all.
+///
+/// A query and not a fold: it emits nothing and decides nothing. It exists
+/// because a client that widened a proof and is now asked to consume the proof
+/// again has no other way to discover that the two are the same thing — and the
+/// round trip it cannot see costs whatever un-widening costs that client, which
+/// for the language layer is a call to its runtime.
+///
+/// Answers about ONE instruction, so a value that reaches a block parameter
+/// through two widened predecessors answers `None`. That is a traversal, and a
+/// traversal is a pass.
+pub(crate) fn widened_source(func: &Function, value: ValueId) -> Option<ValueId> {
+    match *defining_inst(func, value)? {
+        Inst::Widen(source) => Some(source),
+        _ => None,
+    }
+}
+
 /// The instruction that defined a value, or `None` for a block parameter.
 ///
 /// A block parameter has no defining instruction here on purpose: finding what
