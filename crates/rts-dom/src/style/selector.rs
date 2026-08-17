@@ -403,6 +403,33 @@ pub fn compound_matches(
     })
 }
 
+/// Matcher usado pelo DOM no caminho quente: lê classes e atributos por empréstimo,
+/// sem criar `Vec<&str>` ou `String` para cada candidato de regra.
+pub fn compound_matches_borrowed<'a, F, P>(
+    compound: &CompoundSelector,
+    tag: &str,
+    id: Option<&str>,
+    class_attr: Option<&str>,
+    attr: &F,
+    pseudo: &P,
+) -> bool
+where
+    F: Fn(&str) -> Option<&'a str>,
+    P: Fn(&PseudoClass) -> bool,
+{
+    compound.parts.iter().all(|p| match p {
+        SimpleSelector::Universal => true,
+        SimpleSelector::Tag(t) => t == tag,
+        SimpleSelector::Id(i) => id == Some(i.as_str()),
+        SimpleSelector::Class(c) => class_attr
+            .is_some_and(|raw| raw.split_whitespace().any(|class| class == c)),
+        SimpleSelector::Attr { name, op, value } => attr(name)
+            .map(|actual| attr_op_matches(*op, actual, value))
+            .unwrap_or(false),
+        SimpleSelector::Pseudo(pc) => pseudo(pc),
+    })
+}
+
 /// Aplica o operador de um seletor de atributo `[attr OP value]` ao valor real.
 fn attr_op_matches(op: AttrOp, actual: &str, expected: &str) -> bool {
     match op {

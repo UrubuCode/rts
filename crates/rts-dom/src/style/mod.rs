@@ -56,8 +56,8 @@ pub use props::{
     SLOT_TEXT_ALIGN, SLOT_TEXT_DECORATION, SLOT_WIDTH,
 };
 pub use selector::{
-    compound_matches, parse_selector, parse_selector_list, AttrOp, Combinator, ComplexSelector,
-    CompoundSelector, PseudoClass, Selector, SimpleSelector,
+    compound_matches, compound_matches_borrowed, parse_selector, parse_selector_list, AttrOp, Combinator,
+    ComplexSelector, CompoundSelector, PseudoClass, Selector, SimpleSelector,
 };
 pub use stylesheet::{parse_rules, DeclBlock, MediaQuery, Rule, Stylesheet};
 pub use values::{

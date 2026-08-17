@@ -34,6 +34,9 @@ pub struct RuleIndex {
     by_class: HashMap<String, Vec<usize>>,
     by_tag: HashMap<String, Vec<usize>>,
     universal: Vec<usize>,
+    /// Especificidade pré-computada por índice de regra; evita percorrer todos os
+    /// compounds novamente em cada cascade de nó.
+    specificity: Vec<u32>,
     /// Nº de regras que o índice cobre — se `rules.len()` diverge, o índice está
     /// stale e é reconstruído.
     covered: usize,
@@ -80,6 +83,7 @@ impl RuleIndex {
                 Key::Universal => idx.universal.push(i),
             }
         }
+        idx.specificity = rules.iter().map(|r| r.selector.specificity()).collect();
         idx.covered = rules.len();
         idx.has_custom_rules = rules.iter().any(|r| !r.decls.custom.is_empty());
         idx.has_attribute_selectors = rules.iter().any(|rule| {
@@ -112,6 +116,10 @@ impl RuleIndex {
         self.has_attribute_selectors
     }
 
+    pub fn specificity(&self, rule: usize) -> u32 {
+        self.specificity.get(rule).copied().unwrap_or(0)
+    }
+
     /// Os índices das regras CANDIDATAS a casar um nó `(tag, id, classes)`: a união
     /// dos buckets do id, de cada classe, da tag e do universal. Cada regra foi
     /// indexada por uma única âncora (`key_of`), portanto não há duplicatas entre
@@ -125,6 +133,18 @@ impl RuleIndex {
             .sum();
         let tag_len = self.by_tag.get(tag).map_or(0, Vec::len);
         let mut out = Vec::with_capacity(self.universal.len() + id_len + class_len + tag_len);
+        self.candidates_into(tag, id, classes, &mut out);
+        out
+    }
+
+    pub fn candidates_into(
+        &self,
+        tag: &str,
+        id: Option<&str>,
+        classes: &[&str],
+        out: &mut Vec<usize>,
+    ) {
+        out.clear();
         out.extend_from_slice(&self.universal);
         if let Some(id) = id {
             if let Some(v) = self.by_id.get(id) {
@@ -139,6 +159,5 @@ impl RuleIndex {
         if let Some(v) = self.by_tag.get(tag) {
             out.extend_from_slice(v);
         }
-        out
     }
 }
