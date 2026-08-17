@@ -517,14 +517,37 @@ impl Dom {
 
     /// Registra um nó nos índices a partir de seus atributos `id`/`class`.
     fn deindex_node(&mut self, id: NodeIdx) {
-        self.id_index.retain(|_, v| {
-            v.retain(|&x| x != id);
-            !v.is_empty()
-        });
-        for v in self.class_index.values_mut() {
-            v.retain(|&x| x != id);
+        let old_id = self.nodes[id].attr("id").map(str::to_owned);
+        let old_classes: Vec<String> = self.nodes[id]
+            .attr("class")
+            .map(|value| value.split_whitespace().map(str::to_owned).collect())
+            .unwrap_or_default();
+        if let Some(key) = old_id {
+            if let Some(bucket) = self.id_index.get_mut(&key) {
+                bucket.retain(|&x| x != id);
+                if bucket.is_empty() {
+                    self.id_index.remove(&key);
+                }
+            }
         }
-        self.class_index.retain(|_, v| !v.is_empty());
+        for key in old_classes {
+            if let Some(bucket) = self.class_index.get_mut(&key) {
+                bucket.retain(|&x| x != id);
+                if bucket.is_empty() {
+                    self.class_index.remove(&key);
+                }
+            }
+        }
+    }
+
+    fn remove_index_key(&mut self, key: &str, id: NodeIdx, is_id: bool) {
+        let index = if is_id { &mut self.id_index } else { &mut self.class_index };
+        if let Some(bucket) = index.get_mut(key) {
+            bucket.retain(|&x| x != id);
+            if bucket.is_empty() {
+                index.remove(key);
+            }
+        }
     }
 
     fn index_node(&mut self, id: NodeIdx) {
@@ -918,7 +941,6 @@ impl Dom {
 
     /// `el.style.cssText = v` (set) — substitui o `style=""` inteiro.
     pub fn set_css_text(&mut self, id: NodeId, text: &str) {
-        self.touch();
         self.set_attr(id, "style", text);
     }
 
@@ -926,7 +948,6 @@ impl Dom {
     /// inline, preservando as demais. Re-serializa a string `style`. Valor vazio
     /// REMOVE a propriedade (como `removeProperty`).
     pub fn set_style_property(&mut self, id: NodeId, name: &str, value: &str) {
-        self.touch();
         let cur = self.css_text(id);
         let new = upsert_css_decl(&cur, name.trim(), value.trim());
         self.set_attr(id, "style", &new);
@@ -934,7 +955,6 @@ impl Dom {
 
     /// `el.style.removeProperty(name)` — remove a propriedade do `style=""`.
     pub fn remove_style_property(&mut self, id: NodeId, name: &str) {
-        self.touch();
         let cur = self.css_text(id);
         let new = upsert_css_decl(&cur, name.trim(), ""); // valor vazio = remover
         self.set_attr(id, "style", &new);
@@ -1466,8 +1486,10 @@ impl Dom {
     fn collect_by_classes(&self, idx: NodeIdx, wanted: &[&str], out: &mut Vec<NodeId>) {
         if idx != self.root {
             if let Some(class_attr) = self.nodes[idx].attr("class") {
-                let have: Vec<&str> = class_attr.split_whitespace().collect();
-                if wanted.iter().all(|w| have.contains(w)) {
+                if wanted
+                    .iter()
+                    .all(|wanted_class| class_attr.split_whitespace().any(|class| class == *wanted_class))
+                {
                     out.push(self.make_id(idx));
                 }
             }
@@ -1679,22 +1701,24 @@ impl Dom {
     /// `element.removeAttribute(name)`: remove o atributo (no-op se ausente).
     /// Limpa os índices id/class para o nó (a busca revalida, mas evita stale).
     pub fn remove_attr(&mut self, id: NodeId, name: &str) {
-        self.touch();
         let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
+        let Some(old_value) = self.nodes[idx]
+            .attrs
+            .iter()
+            .find(|a| a.name == name_lc)
+            .map(|a| a.value.clone())
+        else {
+            return;
+        };
+        self.touch();
         self.nodes[idx].attrs.retain(|a| a.name != name_lc);
-        // limpa o índice correspondente (entradas stale são toleradas, mas
-        // remover ajuda a manter o índice enxuto).
+        // Limpa somente os buckets que o atributo removido ocupava.
         match name_lc.as_str() {
-            "id" => {
-                self.id_index.retain(|_, v| {
-                    v.retain(|&x| x != idx);
-                    !v.is_empty()
-                });
-            }
+            "id" => self.remove_index_key(&old_value, idx, true),
             "class" => {
-                for v in self.class_index.values_mut() {
-                    v.retain(|&x| x != idx);
+                for class in old_value.split_whitespace() {
+                    self.remove_index_key(class, idx, false);
                 }
             }
             _ => {}
@@ -1968,9 +1992,17 @@ impl Dom {
     /// Define/atualiza um atributo (`element.setAttribute`). Cria se não existir.
     /// Reindexa `id`/`class` para que mudanças de valor não deixem candidatos stale.
     pub fn set_attr(&mut self, id: NodeId, name: &str, value: &str) {
-        self.touch();
         let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
+        if self.nodes[idx]
+            .attrs
+            .iter()
+            .find(|a| a.name == name_lc)
+            .is_some_and(|a| a.value == value)
+        {
+            return;
+        }
+        self.touch();
         let affects_index = matches!(name_lc.as_str(), "id" | "class");
         if affects_index {
             self.deindex_node(idx);
@@ -2892,6 +2924,19 @@ mod tests {
         let r2 = dom.render_revision();
         crate::style::define_style("tag_rev_teste", crate::style::SLOT_COLOR, 0x11223344);
         assert_ne!(dom.render_revision(), r2, "defineStyle bumpa o epoch global");
+    }
+
+    #[test]
+    fn no_op_mutations_nao_invalidam_layout() {
+        let mut dom = parse_html_to_dom("<div id='a' style='color:#fff'>x</div>");
+        let a = dom.query("#a").unwrap();
+        let r0 = dom.render_revision();
+        dom.set_attr(a, "style", "color:#fff");
+        assert_eq!(dom.render_revision(), r0, "set_attr igual deve ser no-op");
+        dom.remove_attr(a, "data-ausente");
+        assert_eq!(dom.render_revision(), r0, "remove_attr ausente deve ser no-op");
+        dom.set_css_text(a, "color:#fff");
+        assert_eq!(dom.render_revision(), r0, "set_css_text igual deve ser no-op");
     }
 
     #[test]
