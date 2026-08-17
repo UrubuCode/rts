@@ -52,6 +52,18 @@ pub(crate) struct LayoutMeasureKey {
     pub(crate) measurer: u64,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct IntrinsicWidthKey {
+    pub(crate) tree: u64,
+    pub(crate) node_epoch: u64,
+    pub(crate) style_epoch: u64,
+    pub(crate) node: NodeIdx,
+    pub(crate) font_size: u32,
+    pub(crate) viewport_w: u32,
+    pub(crate) viewport_h: u32,
+    pub(crate) measurer: u64,
+}
+
 /// Contador global de gerações de árvore. Cada `Dom` novo (parse ou vazio) toma a
 /// próxima geração; assim duas árvores nunca colidem e um `NodeId` de uma árvore
 /// velha é detectável como stale na árvore atual.
@@ -261,6 +273,9 @@ pub struct Dom {
     /// flex/grid/inline-block/out-of-flow. É limpo em qualquer mutação visual para
     /// não reutilizar tamanho sob estilo ou conteúdo stale.
     layout_measure_cache: std::cell::RefCell<HashMap<LayoutMeasureKey, (f32, f32)>>,
+    /// Cache derivado de largura intrínseca (max-content), usada pelos pré-passos
+    /// de shrink-to-fit/flex/grid. A chave inclui o contexto tipográfico completo.
+    intrinsic_width_cache: std::cell::RefCell<HashMap<IntrinsicWidthKey, f32>>,
     /// Epoch local de geometria. Filhos e ancestrais são incrementados quando uma
     /// mutação pode alterar seu tamanho; irmãos independentes mantêm o valor.
     layout_epochs: Vec<u64>,
@@ -332,6 +347,7 @@ impl Dom {
             base_memo_revision: std::cell::Cell::new(u64::MAX),
             base_memo_viewport: std::cell::Cell::new((0, 0)),
             layout_measure_cache: std::cell::RefCell::new(HashMap::new()),
+            intrinsic_width_cache: std::cell::RefCell::new(HashMap::new()),
             layout_epochs: vec![0],
             viewport: std::cell::Cell::new((1280.0, 800.0)),
             memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),
@@ -443,6 +459,7 @@ impl Dom {
         self.computed_memo.borrow_mut().clear();
         self.base_memo.borrow_mut().clear();
         self.layout_measure_cache.borrow_mut().clear();
+        self.intrinsic_width_cache.borrow_mut().clear();
     }
 
     /// Marca uma mudança que altera pixels/geometria, mas não o estilo computado.
@@ -450,6 +467,7 @@ impl Dom {
     fn touch_render_only(&mut self) {
         self.revision = self.revision.wrapping_add(1);
         self.layout_measure_cache.borrow_mut().clear();
+        self.intrinsic_width_cache.borrow_mut().clear();
     }
 
     /// Invalida estilo apenas no nó e em seus descendentes. É seguro para `style=""`
@@ -531,6 +549,20 @@ impl Dom {
         cache.insert(key, value);
     }
 
+    pub(crate) fn intrinsic_width_get(&self, key: IntrinsicWidthKey) -> Option<f32> {
+        self.intrinsic_width_cache.borrow().get(&key).copied()
+    }
+
+    pub(crate) fn intrinsic_width_put(&self, key: IntrinsicWidthKey, value: f32) {
+        let mut cache = self.intrinsic_width_cache.borrow_mut();
+        if cache.len() >= 4096 && !cache.contains_key(&key) {
+            if let Some(old_key) = cache.keys().next().copied() {
+                cache.remove(&old_key);
+            }
+        }
+        cache.insert(key, value);
+    }
+
     /// A revisão de RENDER desta árvore: muda sempre que árvore/estilo/animação
     /// mudam — inclui o epoch GLOBAL de estilo por-tag (`defineStyle`/`defineBlock`,
     /// que vivem fora do `Dom`). É a chave de cache de layout do backend e da ABI:
@@ -555,6 +587,7 @@ impl Dom {
     fn touch_anim(&mut self) {
         self.anim_epoch = self.anim_epoch.wrapping_add(1);
         self.layout_measure_cache.borrow_mut().clear();
+        self.intrinsic_width_cache.borrow_mut().clear();
     }
 
     /// O ALVO-BASE (cascade sem animação) de um nó, MEMOIZADO por revisão estrutural.
