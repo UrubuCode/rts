@@ -34,6 +34,24 @@ use crate::html::{tokenize, Token};
 /// cruza a fronteira (TS/ABI) é sempre o `NodeId` VERSIONADO, nunca este índice.
 pub type NodeIdx = usize;
 
+/// Chave de uma medição de layout descartável. O cache guarda apenas `(outer_w,
+/// outer_h)`, nunca itens de pintura; por isso a posição `(x,y)` não participa.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct LayoutMeasureKey {
+    pub(crate) tree: u64,
+    pub(crate) node_epoch: u64,
+    pub(crate) style_epoch: u64,
+    pub(crate) node: NodeIdx,
+    pub(crate) avail_w: u32,
+    pub(crate) avail_h: Option<u32>,
+    pub(crate) forced_outer_w: Option<u32>,
+    pub(crate) forced_outer_h: Option<u32>,
+    pub(crate) shrink_to_fit: bool,
+    pub(crate) viewport_w: u32,
+    pub(crate) viewport_h: u32,
+    pub(crate) measurer: u64,
+}
+
 /// Contador global de gerações de árvore. Cada `Dom` novo (parse ou vazio) toma a
 /// próxima geração; assim duas árvores nunca colidem e um `NodeId` de uma árvore
 /// velha é detectável como stale na árvore atual.
@@ -239,9 +257,16 @@ pub struct Dom {
     /// A revisão estrutural em que o `base_memo` foi preenchido.
     base_memo_revision: std::cell::Cell<u64>,
     base_memo_viewport: std::cell::Cell<(u32, u32)>,
+    /// Cache derivado de medições de bloco feitas em listas descartáveis durante
+    /// flex/grid/inline-block/out-of-flow. É limpo em qualquer mutação visual para
+    /// não reutilizar tamanho sob estilo ou conteúdo stale.
+    layout_measure_cache: std::cell::RefCell<HashMap<LayoutMeasureKey, (f32, f32)>>,
+    /// Epoch local de geometria. Filhos e ancestrais são incrementados quando uma
+    /// mutação pode alterar seu tamanho; irmãos independentes mantêm o valor.
+    layout_epochs: Vec<u64>,
     /// O VIEWPORT corrente (w, h) — setado pelo layout no início da passada
     /// ([`set_viewport`](Dom::set_viewport)); a base de `vw`/`vh` na cascade
-    /// (font-size fluido) e do `@media` futuro. Default 1280×800 (headless).
+    /// (font-size fluido/calc) e do `@media` futuro. Default 1280×800 (headless).
     viewport: std::cell::Cell<(f32, f32)>,
     /// O viewport com que o `computed_memo` foi preenchido (o computed depende
     /// dele via vw/vh) — muda → memo invalida.
@@ -306,6 +331,8 @@ impl Dom {
             base_memo: std::cell::RefCell::new(HashMap::new()),
             base_memo_revision: std::cell::Cell::new(u64::MAX),
             base_memo_viewport: std::cell::Cell::new((0, 0)),
+            layout_measure_cache: std::cell::RefCell::new(HashMap::new()),
+            layout_epochs: vec![0],
             viewport: std::cell::Cell::new((1280.0, 800.0)),
             memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),
             input_values: HashMap::new(),
@@ -415,25 +442,38 @@ impl Dom {
         self.revision = self.revision.wrapping_add(1);
         self.computed_memo.borrow_mut().clear();
         self.base_memo.borrow_mut().clear();
+        self.layout_measure_cache.borrow_mut().clear();
     }
 
     /// Marca uma mudança que altera pixels/geometria, mas não o estilo computado.
     /// O cache de cascade pode continuar válido para o próximo layout.
     fn touch_render_only(&mut self) {
         self.revision = self.revision.wrapping_add(1);
+        self.layout_measure_cache.borrow_mut().clear();
     }
 
     /// Invalida estilo apenas no nó e em seus descendentes. É seguro para `style=""`
     /// e overrides locais porque a mudança pode afetar propriedades herdadas.
     fn touch_subtree(&mut self, idx: NodeIdx) {
         self.revision = self.revision.wrapping_add(1);
+        let mut affected = HashSet::new();
         let mut stack = vec![idx];
+        while let Some(node) = stack.pop() {
+            if affected.insert(node) {
+                stack.extend(self.nodes[node].children.iter().copied());
+            }
+        }
         let mut computed = self.computed_memo.borrow_mut();
         let mut base = self.base_memo.borrow_mut();
-        while let Some(node) = stack.pop() {
+        for &node in &affected {
             computed.remove(&node);
             base.remove(&node);
-            stack.extend(self.nodes[node].children.iter().copied());
+            self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
+        }
+        let mut ancestor = self.nodes[idx].parent;
+        while let Some(node) = ancestor {
+            self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
+            ancestor = self.nodes[node].parent;
         }
     }
 
@@ -445,11 +485,20 @@ impl Dom {
         I: IntoIterator<Item = NodeIdx>,
     {
         self.revision = self.revision.wrapping_add(1);
+        let roots: Vec<NodeIdx> = roots.into_iter().collect();
         let mut affected = HashSet::new();
-        let mut stack: Vec<NodeIdx> = roots.into_iter().collect();
+        let mut stack = roots.clone();
         while let Some(node) = stack.pop() {
             if affected.insert(node) {
                 stack.extend(self.nodes[node].children.iter().copied());
+            }
+        }
+        let mut ancestors = HashSet::new();
+        for root in roots {
+            let mut ancestor = self.nodes[root].parent;
+            while let Some(node) = ancestor {
+                ancestors.insert(node);
+                ancestor = self.nodes[node].parent;
             }
         }
         let mut computed = self.computed_memo.borrow_mut();
@@ -457,7 +506,29 @@ impl Dom {
         for node in affected {
             computed.remove(&node);
             base.remove(&node);
+            self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
         }
+        for node in ancestors {
+            self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
+        }
+    }
+
+    pub(crate) fn layout_epoch(&self, idx: NodeIdx) -> u64 {
+        self.layout_epochs[idx]
+    }
+
+    pub(crate) fn layout_measure_get(&self, key: LayoutMeasureKey) -> Option<(f32, f32)> {
+        self.layout_measure_cache.borrow().get(&key).copied()
+    }
+
+    pub(crate) fn layout_measure_put(&self, key: LayoutMeasureKey, value: (f32, f32)) {
+        let mut cache = self.layout_measure_cache.borrow_mut();
+        if cache.len() >= 4096 && !cache.contains_key(&key) {
+            if let Some(old_key) = cache.keys().next().copied() {
+                cache.remove(&old_key);
+            }
+        }
+        cache.insert(key, value);
     }
 
     /// A revisão de RENDER desta árvore: muda sempre que árvore/estilo/animação
@@ -483,6 +554,7 @@ impl Dom {
     /// `touch()`, para o `base_memo` sobreviver ao frame.
     fn touch_anim(&mut self) {
         self.anim_epoch = self.anim_epoch.wrapping_add(1);
+        self.layout_measure_cache.borrow_mut().clear();
     }
 
     /// O ALVO-BASE (cascade sem animação) de um nó, MEMOIZADO por revisão estrutural.
@@ -617,6 +689,7 @@ impl Dom {
             parent: Some(parent),
             children: Vec::new(),
         });
+        self.layout_epochs.push(0);
         self.index_node(id);
         self.nodes[parent].children.push(id);
         id
@@ -2193,6 +2266,7 @@ impl Dom {
     fn push_detached(&mut self, kind: NodeKind) -> NodeIdx {
         let id = self.nodes.len();
         self.nodes.push(Node { kind, attrs: Vec::new(), parent: None, children: Vec::new() });
+        self.layout_epochs.push(0);
         id
     }
 

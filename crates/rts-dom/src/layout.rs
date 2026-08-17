@@ -39,7 +39,7 @@
 //!   fatia futura generaliza `layout_children_horizontal` por eixo (`column` =
 //!   main vertical, justify no Y). `flex-grow`/`shrink`/`basis` também fora.
 
-use crate::dom::{Dom, NodeIdx, NodeKind};
+use crate::dom::{Dom, LayoutMeasureKey, NodeIdx, NodeKind};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 /// Um retângulo em coordenadas de conteúdo (a origem é o canto da área de render;
@@ -226,6 +226,57 @@ pub struct LayoutCtx<'a> {
     pub measurer: &'a dyn TextMeasurer,
 }
 
+/// Mede um bloco sem emitir pintura. É usado apenas pelos pré-passos de flex/grid/
+/// inline-block e pelo posicionamento out-of-flow. O resultado depende das constraints
+/// e do estilo vigente, mas não da posição absoluta; por isso o cache não guarda uma
+/// DisplayList e a chamada final continua responsável por pintar tudo no z-order certo.
+#[allow(clippy::too_many_arguments)]
+fn measure_block(
+    dom: &Dom,
+    id: NodeIdx,
+    avail_w: f32,
+    avail_h: Option<f32>,
+    forced_outer_w: Option<f32>,
+    forced_outer_h: Option<f32>,
+    shrink_to_fit: bool,
+    ctx: &LayoutCtx,
+) -> (f32, f32) {
+    let measurer = std::ptr::from_ref(ctx.measurer) as *const () as usize as u64;
+    let key = LayoutMeasureKey {
+        tree: dom.cache_identity(),
+        node_epoch: dom.layout_epoch(id),
+        style_epoch: crate::style::props::style_epoch(),
+        node: id,
+        avail_w: avail_w.to_bits(),
+        avail_h: avail_h.map(f32::to_bits),
+        forced_outer_w: forced_outer_w.map(f32::to_bits),
+        forced_outer_h: forced_outer_h.map(f32::to_bits),
+        shrink_to_fit,
+        viewport_w: ctx.viewport_w.to_bits(),
+        viewport_h: ctx.viewport_h.to_bits(),
+        measurer,
+    };
+    if let Some(size) = dom.layout_measure_get(key) {
+        return size;
+    }
+    let mut scratch = DisplayList::default();
+    let size = layout_block(
+        dom,
+        id,
+        0.0,
+        0.0,
+        avail_w,
+        avail_h,
+        forced_outer_w,
+        forced_outer_h,
+        shrink_to_fit,
+        ctx,
+        &mut scratch,
+    );
+    dom.layout_measure_put(key, size);
+    size
+}
+
 /// Calcula o layout de um `Dom` inteiro e devolve a [`DisplayList`]. Ponto de
 /// entrada do motor: percorre os filhos de `#document` como blocos empilhados na
 /// largura do viewport, resolvendo box model e emitindo os itens de pintura.
@@ -357,8 +408,7 @@ fn layout_out_of_flow(
         viewport_h: ctx.viewport_h,
     };
     // mede (w, h) numa lista descartável para resolver right/bottom.
-    let mut scratch = DisplayList::default();
-    let (w, h) = layout_block(dom, id, 0.0, 0.0, cb.w, Some(cb.h), None, None, true, ctx, &mut scratch);
+    let (w, h) = measure_block(dom, id, cb.w, Some(cb.h), None, None, true, ctx);
     let left = resolve_inset(css.inset_left, cb.w, &resolve);
     let right = resolve_inset(css.inset_right, cb.w, &resolve);
     let top = resolve_inset(css.inset_top, cb.h, &resolve);
@@ -1889,10 +1939,7 @@ fn layout_inline_block_line(
     // 1) mede a largura+altura desejada (shrink) de cada item numa lista descartável.
     let mut sizes: Vec<(NodeIdx, f32, f32)> = Vec::with_capacity(run.len());
     for &child in run {
-        let mut scratch = DisplayList::default();
-        let (w, h) = layout_block(
-            dom, child, content_x, y, content_w, avail_h, None, None, true, ctx, &mut scratch,
-        );
+        let (w, h) = measure_block(dom, child, content_w, avail_h, None, None, true, ctx);
         sizes.push((child, w, h));
     }
     // 2) agrupa em LINHAS (soma das larguras ≤ content_w). Cada linha guarda os
@@ -2152,10 +2199,8 @@ fn layout_children_horizontal(
         // só quando o main mudou (senão a medição do pré-pass vale).
         for it in line.iter_mut() {
             if !it.is_text && (it.main - it.base).abs() > 0.5 {
-                let mut scratch = DisplayList::default();
-                let (_, h) = layout_block(
-                    dom, it.node, 0.0, 0.0, content_w, container_content_h,
-                    Some(it.main), None, true, ctx, &mut scratch,
+                let (_, h) = measure_block(
+                    dom, it.node, content_w, container_content_h, Some(it.main), None, true, ctx,
                 );
                 it.h = h;
             }
@@ -2317,8 +2362,7 @@ fn layout_children_grid(
         let r = i / ncols;
         let ci = i % ncols;
         let cw = col_sizes[ci.min(col_sizes.len() - 1)];
-        let mut scratch = DisplayList::default();
-        let (_, h) = layout_block(dom, child, 0.0, 0.0, cw, container_content_h, None, None, true, ctx, &mut scratch);
+        let (_, h) = measure_block(dom, child, cw, container_content_h, None, None, true, ctx);
         content_row_h[r] = content_row_h[r].max(h);
     }
     let auto_row = css.grid_auto_rows;
@@ -2374,8 +2418,7 @@ fn layout_children_grid(
         // mede o tamanho natural do item (shrink) p/ o alinhamento não-stretch.
         let stretch_x = justify == crate::style::AlignItems::Stretch;
         let stretch_y = align == crate::style::AlignItems::Stretch;
-        let mut scratch = DisplayList::default();
-        let (nat_w, nat_h) = layout_block(dom, child, 0.0, 0.0, cell_w, Some(cell_h), None, None, true, ctx, &mut scratch);
+        let (nat_w, nat_h) = measure_block(dom, child, cell_w, Some(cell_h), None, None, true, ctx);
         let iw = if stretch_x { cell_w } else { nat_w.min(cell_w) };
         let ih = if stretch_y { cell_h } else { nat_h.min(cell_h) };
         let x = cell_x + cell_align_offset(justify, cell_w, iw);
@@ -2591,9 +2634,9 @@ fn layout_children_column(
             let child_x = if stretch {
                 content_x
             } else {
-                let mut scratch = DisplayList::default();
-                let (w, _) =
-                    layout_block(dom, it.node, content_x, y, content_w, container_content_h, None, None, true, ctx, &mut scratch);
+                let (w, _) = measure_block(
+                    dom, it.node, content_w, container_content_h, None, None, true, ctx,
+                );
                 let free_x = (content_w - w).max(0.0);
                 content_x + align_offset(align, content_w, content_w - free_x)
             };
@@ -2679,8 +2722,7 @@ fn child_outer_height(
     match &dom.node(id).kind {
         NodeKind::Element { .. } if is_block_level(dom, id) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
-            let mut scratch = DisplayList::default();
-            let (_, outer_h) = layout_block(dom, id, 0.0, 0.0, container_w, container_h, None, None, true, ctx, &mut scratch);
+            let (_, outer_h) = measure_block(dom, id, container_w, container_h, None, None, true, ctx);
             outer_h
         }
         NodeKind::Text(_) => ctx.measurer.line_height(parent_font),
@@ -3267,6 +3309,26 @@ mod tests {
         let dom = parse_html_to_dom(html);
         let ctx = LayoutCtx { viewport_w: vw, viewport_h: 600.0, measurer: &ApproxMeasurer };
         layout_document(&dom, &ctx)
+    }
+
+    #[test]
+    fn cache_de_medidas_invalida_largura_mutada() {
+        def_div();
+        let mut dom = parse_html_to_dom(
+            "<div id='host' style='display:flex'><div id='card' style='width:100px;height:10px'></div></div>",
+        );
+        let card = dom.query("#card").unwrap();
+        let card_idx = dom.resolve(card).unwrap();
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+
+        let first = layout_document(&dom, &ctx);
+        let _warm = layout_document(&dom, &ctx);
+        let before = first.node_rects[&card_idx].w;
+        dom.set_style_property(card, "width", "200px");
+        let after = layout_document(&dom, &ctx).node_rects[&card_idx].w;
+
+        assert!((before - 100.0).abs() < 0.1);
+        assert!((after - 200.0).abs() < 0.1);
     }
 
     #[test]
