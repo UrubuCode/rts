@@ -14,14 +14,18 @@ if (-not (Test-Path $RtsExe)) {
   throw "RTS binary not found at $RtsExe - rode 'cargo build --release' antes."
 }
 
-# O AOT do motor novo liga contra o archive de `rts-runtime-rwk`, e o cargo so
-# emite um staticlib para um pacote construido como alvo DIRETO — ou seja, um
-# `cargo build --release` da raiz nao o produz. Falhar aqui, com o comando, em vez
-# de deixar cada `rts compile` falhar em sequencia e o script reportar treze
+# O AOT liga contra o archive de `rts-runtime`. Falhar aqui, com o comando, em
+# vez de deixar cada `rts compile` falhar em sequencia e o script reportar treze
 # benches "SKIPPED" por uma causa que nao esta em nenhum dos logs.
-$RuntimeArchive = "target\release\rts_runtime_rwk.lib"
+#
+# O nome carregava um sufixo `-rwk`, de quando o crate do motor novo estava ao
+# lado do antigo e o cargo nao aceita dois pacotes com um nome. O sufixo saiu a
+# 2026-08-10 com o motor antigo; este script nao saiu com ele, e passou a
+# procurar um pacote que nao existe. O workflow Benchmarks falhava em 35s em
+# TODAS as corridas desde entao, sempre nesta linha.
+$RuntimeArchive = "target\release\rts_runtime.lib"
 if (-not (Test-Path $RuntimeArchive)) {
-  throw "AOT runtime archive nao encontrado em $RuntimeArchive - rode 'cargo build --release -p rts-runtime-rwk' antes."
+  throw "AOT runtime archive nao encontrado em $RuntimeArchive - rode 'cargo build --release -p rts-runtime' antes."
 }
 
 # -------------------------------------------------------------------

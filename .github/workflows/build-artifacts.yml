@@ -124,6 +124,24 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
+      # The AOT runtime archive, for the Benchmarks workflow, which downloads a
+      # built binary instead of compiling the workspace and therefore has no
+      # `target/` of its own. `rts compile` links against this, so without it
+      # every AOT bench is skipped — which is what it did, invisibly, until the
+      # name in `bench/benchmark.ps1` was corrected and the absence became the
+      # remaining cause.
+      #
+      # A SEPARATE artifact, not another file in the one above: the release job
+      # publishes what it downloads, and a static library is not a release
+      # asset. That is also why the release job matches artifacts by name.
+      - name: Upload AOT runtime archive (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-archive-${{ runner.os }}-${{ runner.arch }}
+          path: target/release/rts_runtime.lib
+          if-no-files-found: error
+
       - name: Upload artifact (Unix)
         if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
@@ -210,9 +228,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # By NAME, not everything. The build also uploads the AOT runtime archive
+      # for the Benchmarks workflow, and `files: artifacts/**/*` below would
+      # publish a static library as a release asset. Matching `rts-*` keeps the
+      # release exactly the three binaries it has always been.
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: rts-*
           path: artifacts
 
       - name: List artifacts

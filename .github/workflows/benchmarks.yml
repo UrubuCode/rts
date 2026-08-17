@@ -60,6 +60,18 @@ jobs:
           run-id: ${{ steps.build.outputs.run_id }}
           github-token: ${{ github.token }}
 
+      # `rts compile` links against this, so the AOT half of the benchmark
+      # cannot run without it. This job never builds the workspace — that is the
+      # point of downloading a binary — so the archive has to arrive the same
+      # way the binary does.
+      - name: Download AOT runtime archive
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-archive-Windows-X64
+          path: rts-archive
+          run-id: ${{ steps.build.outputs.run_id }}
+          github-token: ${{ github.token }}
+
       - name: Stage RTS binary
         shell: pwsh
         run: |
@@ -72,6 +84,26 @@ jobs:
           if (-not $exe) { throw "no .exe found in rts-bin/ (contents: $((Get-ChildItem rts-bin -Recurse | ForEach-Object FullName) -join ', '))" }
           Copy-Item $exe.FullName target/release/rts.exe
           Write-Host "staged $($exe.FullName) -> target/release/rts.exe"
+
+          # Same directory, because that is where `rts compile` looks for it and
+          # where `bench/benchmark.ps1` checks for it before running anything.
+          $lib = Get-ChildItem rts-archive -Recurse -Filter rts_runtime.lib | Select-Object -First 1
+          if (-not $lib) { throw "rts_runtime.lib not found in rts-archive/ (contents: $((Get-ChildItem rts-archive -Recurse | ForEach-Object FullName) -join ', '))" }
+          Copy-Item $lib.FullName target/release/rts_runtime.lib
+          Write-Host "staged $($lib.FullName) -> target/release/rts_runtime.lib"
+
+          # `rts compile` refuses an archive OLDER than the sources, and it is
+          # right to: a stale archive links yesterday's runtime into today's
+          # program. The comparison is by modification time, and that proxy does
+          # not survive artifact transport — the archive was built in an earlier
+          # run, so its timestamp predates this run's checkout and every compile
+          # would be refused for a staleness that is not real.
+          #
+          # Stamped rather than the check weakened: the binary and the archive
+          # come from ONE build of ONE commit, which is the fact the timestamp
+          # is standing in for.
+          (Get-Item target/release/rts_runtime.lib).LastWriteTime = Get-Date
+          (Get-Item target/release/rts.exe).LastWriteTime = Get-Date
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
