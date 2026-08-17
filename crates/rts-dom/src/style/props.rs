@@ -129,6 +129,7 @@ macro_rules! css_props {
                 if let Some(parents) = &parent.custom_props {
                     self.custom_props = Some(match self.custom_props.take() {
                         None => parents.clone(),
+                        Some(mine) if std::sync::Arc::ptr_eq(&mine, parents) => mine,
                         Some(mine) => {
                             let mut m = (**parents).clone();
                             for (k, v) in mine.iter() {

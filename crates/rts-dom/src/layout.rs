@@ -249,6 +249,11 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     let mut cursor_y = 0.0f32;
     let root = dom.node(dom.root);
     for &child in &root.children {
+        // position:absolute/fixed não participa do fluxo, inclusive quando é filho
+        // direto do documento; será layoutado na passada final por z-index.
+        if is_out_of_flow(dom, child) {
+            continue;
+        }
         // o containing block da raiz é a VIEWPORT: `height:100%` no <html> resolve
         // contra a altura da janela (base do `h-100` de páginas reais).
         let (_, h) =
@@ -279,47 +284,9 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita
     // para o hit-test: fluxo normal em pré-ordem e, depois, posicionados em ordem
     // crescente de z-index (o último pintado fica no topo).
-    let node_rects = &list.node_rects;
-    let hit_order = &mut list.hit_order;
-    collect_in_flow_hit_order(dom, dom.root, node_rects, hit_order);
-    for id in out_of_flow {
-        collect_hit_subtree(dom, id, node_rects, hit_order);
-    }
+    // A ordem de pintura já foi registrada durante as inserções de retângulos:
+    // fluxo normal durante a descida e out-of-flow na ordem de z-index acima.
     list
-}
-
-/// Coleta os nós do fluxo normal na ordem de pintura. Elementos `absolute/fixed`
-/// são deixados para a segunda passada, depois de todos os nós normais.
-fn collect_in_flow_hit_order(
-    dom: &Dom,
-    id: NodeIdx,
-    node_rects: &std::collections::HashMap<NodeIdx, Rect>,
-    out: &mut Vec<NodeIdx>,
-) {
-    for &child in &dom.node(id).children {
-        if is_out_of_flow(dom, child) {
-            continue;
-        }
-        if node_rects.contains_key(&child) {
-            out.push(child);
-        }
-        collect_in_flow_hit_order(dom, child, node_rects, out);
-    }
-}
-
-/// Coleta uma subárvore já posicionada na ordem de pintura local.
-fn collect_hit_subtree(
-    dom: &Dom,
-    id: NodeIdx,
-    node_rects: &std::collections::HashMap<NodeIdx, Rect>,
-    out: &mut Vec<NodeIdx>,
-) {
-    if node_rects.contains_key(&id) {
-        out.push(id);
-    }
-    for &child in &dom.node(id).children {
-        collect_hit_subtree(dom, child, node_rects, out);
-    }
 }
 
 /// O rect do CONTAINING BLOCK de um `position:absolute` = o ancestral mais próximo
@@ -800,6 +767,9 @@ fn layout_block(
     // inserida (antes de qualquer filho), descemos nos filhos (que dão append no
     // fim), e só DEPOIS — conhecendo a altura — inserimos o fundo nesse índice.
     let box_index = list.items.len();
+    // Reserva a posição do pai antes dos filhos; a geometria final é preenchida
+    // depois que a altura natural do conteúdo for conhecida.
+    reserve_node_order(list, id);
 
     // ── Filhos: o EIXO depende do `display` do bloco ─────────────────────────────
     // vertical (default): cada filho ABAIXO do anterior, ocupando a largura.
@@ -912,7 +882,7 @@ fn layout_block(
         content_h + pad_top + pad_bottom + 2.0 * border,
     );
     // Registra a geometria deste nó (base do getBoundingClientRect/offsetWidth).
-    list.node_rects.insert(id, box_rect);
+    record_node_rect(list, id, box_rect);
 
     // Pinta a CAIXA (fundo/borda) ATRÁS dos filhos. `insert` no `box_index` põe o
     // fundo antes dos itens dos filhos (z-order).
@@ -1363,7 +1333,7 @@ fn layout_svg_placeholder(
         color: 0xE8EAEDFF,
         radius: 2.0,
     });
-    list.node_rects.insert(id, Rect::new(x, y, w, h));
+    record_node_rect(list, id, Rect::new(x, y, w, h));
     Some((w, h))
 }
 
@@ -1419,7 +1389,7 @@ fn layout_image(
         w = max_w;
     }
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
-    list.node_rects.insert(id, rect);
+    record_node_rect(list, id, rect);
     list.items.push(DisplayItem::Image {
         rect,
         pixels_handle: handle,
@@ -1473,7 +1443,7 @@ fn layout_button(
         letter_spacing: 0.0,
         decoration: 0,
     });
-    list.node_rects.insert(id, Rect::new(x, y, w, h));
+    record_node_rect(list, id, Rect::new(x, y, w, h));
     (w + 6.0, h + 4.0) // margenzinha UA entre botões
 }
 
@@ -1537,7 +1507,7 @@ fn layout_input(
         content_w + padding_h + 2.0 * border,
         content_h + pad_top + pad_bottom + 2.0 * border,
     );
-    list.node_rects.insert(id, box_rect);
+    record_node_rect(list, id, box_rect);
 
     // Fundo: o `background` do CSS, senão branco (campo de texto clássico).
     let radius = css.corner_radius.unwrap_or(0.0);
@@ -1769,6 +1739,41 @@ fn layout_children_vertical(
         };
     }
     for &child in &dom.node(id).children {
+        let child_css = match &dom.node(child).kind {
+            NodeKind::Element { .. } => Some(dom.computed_style_idx(child).unwrap_or_default()),
+            _ => None,
+        };
+        let child_out = child_css
+            .as_ref()
+            .and_then(|c| c.position)
+            .map(|p| p.out_of_flow())
+            .unwrap_or(false);
+        let child_float = child_css
+            .as_ref()
+            .and_then(|c| c.float_side)
+            .unwrap_or(crate::style::FloatSide::None);
+        let (child_block, child_inline_block) = match &dom.node(child).kind {
+            NodeKind::Element { tag } => {
+                let replaced = (tag == "img" && dom.image_of(child).is_some()) || tag == "svg";
+                let effective = child_css.as_ref().and_then(|c| c.effective_display());
+                let explicit_block = effective
+                    .map(|d| d != crate::style::DisplayKind::Inline)
+                    .unwrap_or(false);
+                let block = replaced
+                    || effective.is_some()
+                    || crate::block::lookup(tag).is_some()
+                    || child_css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false);
+                let inline_block = if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
+                    !explicit_block
+                } else if crate::block::lookup(tag).is_some() || explicit_block {
+                    false
+                } else {
+                    child_css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false)
+                };
+                (block, inline_block)
+            }
+            _ => (false, false),
+        };
         match &dom.node(child).kind {
             // Metadata não-renderável (`<head>`/`<title>`/`<style>`/`<script>`):
             // pula — NÃO coleta seu texto como inline (senão o título e o CSS cru
@@ -1776,11 +1781,11 @@ fn layout_children_vertical(
             NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
             // Fora do fluxo (`position:absolute/fixed`): não ocupa espaço aqui —
             // pintado na passada out-of-flow de layout_document.
-            NodeKind::Element { .. } if is_out_of_flow(dom, child) => {}
+            NodeKind::Element { .. } if child_out => {}
             // FLOAT left/right: shrink-to-fit na linha de floats corrente.
-            NodeKind::Element { .. } if float_of(dom, child) != crate::style::FloatSide::None => {
+            NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {
                 flush_inline!(child_y);
-                let side = float_of(dom, child);
+                let side = child_float;
                 let top = *float_top.get_or_insert(child_y);
                 let w = child_outer_width(dom, child, content_w, font_size, ctx);
                 let h = child_outer_height(dom, child, content_w, avail_h, font_size, ctx);
@@ -1796,13 +1801,12 @@ fn layout_children_vertical(
                 float_h = float_h.max(h);
                 prev_margin = 0.0; // float quebra a sequência de collapse
             }
-            NodeKind::Element { .. } if is_block_level(dom, child) && !is_inline_block(dom, child) => {
+            NodeKind::Element { .. } if child_block && !child_inline_block => {
                 flush_inline!(child_y);
                 close_floats!(child_y);
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
-                let m = dom.computed_style_idx(child)
-                    .map(|c| {
+                let m = child_css.as_ref().map(|c| {
                         // margem TOP do filho p/ o collapse (unidades relativas
                         // resolvem contra o content deste container).
                         let r = ResolveCtx {
@@ -1831,7 +1835,7 @@ fn layout_children_vertical(
             // LADO, quebrando quando enche). Os botões 'Pesquisa Google'/'Estou
             // com sorte' do google são 2 inline-block irmãos que compartilham a
             // linha. Um texto/inline entre eles fecha a corrida (flush_inline).
-            NodeKind::Element { .. } if is_inline_block(dom, child) => {
+            NodeKind::Element { .. } if child_inline_block => {
                 // descarrega só o TEXTO inline pendente (não o ib_run — este b
                 // continua a acumular os inline-blocks IRMÃOS na mesma corrida).
                 if !inline_group.is_empty() {
@@ -2787,7 +2791,7 @@ fn layout_inline_flow(
             .iter()
             .map(|seg| match seg.widget {
                 Some(_) => seg.ww,
-                None => ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold),
+                None => seg.text_width,
             })
             .sum();
         // altura da linha: o texto (lh) ou o widget mais alto nela.
@@ -2820,14 +2824,13 @@ fn layout_inline_flow(
                 }
                 let widget_fragment = Rect::new(seg_x, cy, seg.ww, seg.wh);
                 for &owner in &seg.owners {
-                    union_inline_rect(&mut list.node_rects, owner, widget_fragment);
+                    union_inline_rect(list, owner, widget_fragment);
                 }
                 seg_x += seg.ww;
                 continue;
             }
             let ls = parent_css.letter_spacing.unwrap_or(0.0);
-            let w = ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold)
-                + ls * seg.text.chars().count() as f32;
+            let w = seg.text_width + ls * seg.text.chars().count() as f32;
             list.items.push(DisplayItem::Text {
                 x: seg_x,
                 y: cy,
@@ -2841,7 +2844,7 @@ fn layout_inline_flow(
             });
             let text_fragment = Rect::new(seg_x, cy, w.max(0.0), line_h);
             for &owner in &seg.owners {
-                union_inline_rect(&mut list.node_rects, owner, text_fragment);
+                union_inline_rect(list, owner, text_fragment);
             }
             seg_x += w;
         }
@@ -2882,13 +2885,26 @@ fn is_inline_text_container(dom: &Dom, id: NodeIdx) -> bool {
     }
 }
 
+/// Reserva uma posição de pintura antes de layoutar os descendentes. Um retângulo
+/// placeholder fica invisível para o hit-test até ser preenchido por `record_node_rect`.
+fn reserve_node_order(list: &mut DisplayList, idx: NodeIdx) {
+    if !list.node_rects.contains_key(&idx) {
+        list.node_rects.insert(idx, Rect::new(0.0, 0.0, 0.0, 0.0));
+        list.hit_order.push(idx);
+    }
+}
+
+/// Registra uma caixa e sua geometria. Se o nó já foi reservado como ancestral,
+/// apenas substitui o placeholder sem duplicar a ordem de hit-test.
+fn record_node_rect(list: &mut DisplayList, idx: NodeIdx, rect: Rect) {
+    if list.node_rects.insert(idx, rect).is_none() {
+        list.hit_order.push(idx);
+    }
+}
+
 /// Une um fragmento de linha ao retângulo acumulado do elemento inline.
-fn union_inline_rect(
-    rects: &mut std::collections::HashMap<NodeIdx, Rect>,
-    idx: NodeIdx,
-    fragment: Rect,
-) {
-    rects.entry(idx).and_modify(|old| {
+fn union_inline_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
+    if let Some(old) = list.node_rects.get_mut(&idx) {
         let right = old.x + old.w;
         let bottom = old.y + old.h;
         let new_right = fragment.x + fragment.w;
@@ -2896,7 +2912,10 @@ fn union_inline_rect(
         let x = old.x.min(fragment.x);
         let y = old.y.min(fragment.y);
         *old = Rect::new(x, y, right.max(new_right) - x, bottom.max(new_bottom) - y);
-    }).or_insert(fragment);
+    } else {
+        list.node_rects.insert(idx, fragment);
+        list.hit_order.push(idx);
+    }
 }
 
 /// Coleta os RUNS de texto de `id` em ordem de documento, cada um com a COR efetiva
@@ -3031,6 +3050,7 @@ fn inline_widget_size(dom: &Dom, id: NodeIdx, itype: &str, ctx: &LayoutCtx) -> (
 /// `widget: Some(idx)` = um widget inline de `ww × wh` (pintado pela emissão).
 struct Segment {
     text: String,
+    text_width: f32,
     color: u32,
     bold: bool,
     deco: u8,
@@ -3074,6 +3094,7 @@ fn wrap_runs(
             }
             cur.push(Segment {
                 text: String::new(),
+                text_width: 0.0,
                 color: run.color,
                 bold: false,
                 deco: 0,
@@ -3109,6 +3130,7 @@ fn wrap_runs(
                 at_line_start = true;
             }
             let sep = pending_space && !at_line_start;
+            let piece_w = if sep { space_w + ww } else { ww };
             let piece = if sep { format!(" {word}") } else { word.to_string() };
             // junta no último segmento se mesma cor E peso (e não-widget), senão novo.
             if let Some(last) = cur.last_mut() {
@@ -3119,9 +3141,11 @@ fn wrap_runs(
                     && last.owners == run.owners
                 {
                     last.text.push_str(&piece);
+                    last.text_width += piece_w;
                 } else {
                     cur.push(Segment {
                         text: piece,
+                        text_width: piece_w,
                         color: run.color,
                         bold: run.bold,
                         deco: run.deco,
@@ -3134,6 +3158,7 @@ fn wrap_runs(
             } else {
                 cur.push(Segment {
                     text: piece,
+                    text_width: piece_w,
                     color: run.color,
                     bold: run.bold,
                     deco: run.deco,
@@ -3143,7 +3168,7 @@ fn wrap_runs(
                     wh: 0.0,
                 });
             }
-            cur_w += if sep { space_w + ww } else { ww };
+            cur_w += piece_w;
             at_line_start = false;
             pending_space = false;
         }
@@ -3154,6 +3179,7 @@ fn wrap_runs(
     if lines.is_empty() {
         lines.push(vec![Segment {
             text: String::new(),
+            text_width: 0.0,
             color: 0,
             bold: false,
             deco: 0,

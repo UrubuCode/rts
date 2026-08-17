@@ -732,17 +732,25 @@ impl Dom {
     fn computed_style_idx_inner(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
         use crate::style;
         let tag = match &self.nodes[idx].kind {
-            NodeKind::Element { tag } => tag.clone(),
+            NodeKind::Element { tag } => tag.as_str(),
             _ => return None,
         };
-        // id/classes do nó — a CHAVE do índice de regras da cascade (só as regras
-        // cujo alvo o nó pode satisfazer são testadas, não todas). Materializados em
-        // String/Vec para não conflitar com o borrow de `self` nos closures abaixo.
-        let node_id: Option<String> = self.nodes[idx].attr("id").map(str::to_string);
-        let node_classes: Vec<String> = self.nodes[idx]
-            .attr("class")
-            .map(|c| c.split_whitespace().map(str::to_string).collect())
-            .unwrap_or_default();
+        // id/classes só são materializados quando há regras de autor para testar.
+        // Em páginas sem `<style>`, o layout ainda computa cada nó, mas não precisa
+        // alocar strings que nunca serão consultadas pelo RuleIndex.
+        let node_id: Option<String> = if self.stylesheet.is_empty() {
+            None
+        } else {
+            self.nodes[idx].attr("id").map(str::to_string)
+        };
+        let node_classes: Vec<String> = if self.stylesheet.is_empty() {
+            Vec::new()
+        } else {
+            self.nodes[idx]
+                .attr("class")
+                .map(|c| c.split_whitespace().map(str::to_string).collect())
+                .unwrap_or_default()
+        };
         let class_refs: Vec<&str> = node_classes.iter().map(String::as_str).collect();
         // `style=""` inline (normal + important + customs/pendentes).
         let inline = self.nodes[idx]
