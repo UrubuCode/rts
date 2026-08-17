@@ -181,6 +181,10 @@ pub struct Stylesheet {
     /// do índice detecta). Estado DERIVADO — fora do `PartialEq` (que compara só
     /// `rules`).
     index: std::cell::RefCell<super::ruleindex::RuleIndex>,
+    /// Buffer derivado reutilizado por uma cascade por vez; evita criar um Vec de
+    /// índices candidatos para cada elemento. O stylesheet já usa RefCell para o
+    /// índice lazy e a cascade é chamada de forma síncrona pelo DOM.
+    candidate_scratch: std::cell::RefCell<Vec<usize>>,
 }
 
 // PartialEq manual (Keyframes tem f32, não derivamos Eq; o diff de árvore só compara
@@ -198,6 +202,7 @@ impl Stylesheet {
             rules: Vec::new(),
             keyframes: std::collections::HashMap::new(),
             index: std::cell::RefCell::new(super::ruleindex::RuleIndex::default()),
+            candidate_scratch: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -213,9 +218,16 @@ impl Stylesheet {
 
     /// Garante o índice e devolve os índices das regras CANDIDATAS a casar um nó
     /// `(tag, id, classes)` — a base do fast-path da cascade.
-    fn candidate_indices(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> Vec<usize> {
+    fn candidate_indices(
+        &self,
+        tag: &str,
+        id: Option<&str>,
+        classes: &[&str],
+    ) -> std::cell::RefMut<'_, Vec<usize>> {
         self.ensure_rule_index();
-        self.index.borrow().candidates(tag, id, classes)
+        let mut scratch = self.candidate_scratch.borrow_mut();
+        self.index.borrow().candidates_into(tag, id, classes, &mut scratch);
+        scratch
     }
 
     fn has_custom_rules(&self) -> bool {
@@ -295,15 +307,19 @@ impl Stylesheet {
         // FAST PATH: só as regras cuja chave-alvo o nó pode satisfazer (índice), em
         // vez de TODAS as regras. O `matches` completo (navega a árvore) ainda decide.
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
-        let mut matched: Vec<&Rule> = cand
+        let index = self.index.borrow();
+        let mut matched: Vec<(u32, u32, &Rule)> = cand
             .iter()
-            .map(|&i| &self.rules[i])
-            .filter(|r| r.media.map(|m| m.matches(viewport_w)).unwrap_or(true))
-            .filter(|r| matches(&r.selector))
+            .filter_map(|&i| {
+                let r = &self.rules[i];
+                (r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
+                    && matches(&r.selector))
+                    .then(|| (index.specificity(i), r.order, r))
+            })
             .collect();
-        matched.sort_by_key(|r| (r.selector.specificity(), r.order));
+        matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
         let mut out = DeclBlock::default();
-        for r in &matched {
+        for (_, _, r) in &matched {
             out.normal.merge_over(&r.decls.normal);
             // declarações PENDENTES (`prop: …var(--x)…`) resolvem AQUI, na posição
             // da regra na cascade, contra as custom props do ELEMENTO (#1779).
@@ -315,7 +331,7 @@ impl Stylesheet {
                 }
             }
         }
-        for r in &matched {
+        for (_, _, r) in &matched {
             out.important.merge_over(&r.decls.important);
             if let Some(v) = vars {
                 for (prop, raw, important) in &r.decls.pending {
@@ -343,15 +359,19 @@ impl Stylesheet {
             return Vec::new();
         }
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
-        let mut matched: Vec<&Rule> = cand
+        let index = self.index.borrow();
+        let mut matched: Vec<(u32, u32, &Rule)> = cand
             .iter()
-            .map(|&i| &self.rules[i])
-            .filter(|r| !r.decls.custom.is_empty())
-            .filter(|r| r.media.map(|m| m.matches(viewport_w)).unwrap_or(true))
-            .filter(|r| matches(&r.selector))
+            .filter_map(|&i| {
+                let r = &self.rules[i];
+                (!r.decls.custom.is_empty()
+                    && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
+                    && matches(&r.selector))
+                    .then(|| (index.specificity(i), r.order, r))
+            })
             .collect();
-        matched.sort_by_key(|r| (r.selector.specificity(), r.order));
-        matched.iter().flat_map(|r| r.decls.custom.iter().cloned()).collect()
+        matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        matched.iter().flat_map(|(_, _, r)| r.decls.custom.iter().cloned()).collect()
     }
 
     /// Conveniência: computa o estilo para um elemento dado SÓ tag/id/classes (sem

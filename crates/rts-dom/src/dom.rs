@@ -2030,13 +2030,10 @@ impl Dom {
             _ => return false,
         };
         let id = self.nodes[idx].attr("id");
-        let classes: Vec<&str> = self.nodes[idx]
-            .attr("class")
-            .map(|c| c.split_whitespace().collect())
-            .unwrap_or_default();
-        let attr = |name: &str| self.nodes[idx].attr(name).map(str::to_string);
+        let class_attr = self.nodes[idx].attr("class");
+        let attr = |name: &str| self.nodes[idx].attr(name);
         let pseudo = |pc: &crate::style::PseudoClass| self.pseudo_matches(idx, pc);
-        crate::style::compound_matches(compound, tag, id, &classes, &attr, &pseudo)
+        crate::style::compound_matches_borrowed(compound, tag, id, class_attr, &attr, &pseudo)
     }
 
     /// Resolve uma pseudo-classe contra o nó (posição entre irmãos / atributo de estado).
