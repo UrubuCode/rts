@@ -201,18 +201,26 @@ impl Stylesheet {
         }
     }
 
-    /// Garante o índice de regras sincronizado com `self.rules` e devolve os índices
-    /// das regras CANDIDATAS a casar um nó `(tag, id, classes)` — a base do fast-path
-    /// da cascade. Constrói/reconstrói o índice sob demanda (lazy) se estiver stale.
-    fn candidate_indices(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> Vec<usize> {
-        {
-            let idx = self.index.borrow();
-            if !idx.is_current(self.rules.len()) {
-                drop(idx);
-                *self.index.borrow_mut() = super::ruleindex::RuleIndex::build(&self.rules);
-            }
+    /// Garante o índice de regras sincronizado com `self.rules`. A construção é lazy
+    /// porque o parser anexa as regras depois de criar o stylesheet.
+    fn ensure_rule_index(&self) {
+        let idx = self.index.borrow();
+        if !idx.is_current(self.rules.len()) {
+            drop(idx);
+            *self.index.borrow_mut() = super::ruleindex::RuleIndex::build(&self.rules);
         }
+    }
+
+    /// Garante o índice e devolve os índices das regras CANDIDATAS a casar um nó
+    /// `(tag, id, classes)` — a base do fast-path da cascade.
+    fn candidate_indices(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> Vec<usize> {
+        self.ensure_rule_index();
         self.index.borrow().candidates(tag, id, classes)
+    }
+
+    fn has_custom_rules(&self) -> bool {
+        self.ensure_rule_index();
+        self.index.borrow().has_custom_rules()
     }
 
     /// `true` se não há nenhuma regra (atalho para o `computed_style` pular a
@@ -325,6 +333,9 @@ impl Stylesheet {
         node_classes: &[&str],
         matches: impl Fn(&ComplexSelector) -> bool,
     ) -> Vec<(String, String)> {
+        if !self.has_custom_rules() {
+            return Vec::new();
+        }
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
         let mut matched: Vec<&Rule> = cand
             .iter()

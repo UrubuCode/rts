@@ -143,9 +143,10 @@ pub struct Dom {
     pub nodes: Vec<Node>,
     /// A raiz sintética `#document` (índice cru — sempre 0).
     pub root: NodeIdx,
-    /// Índice `valor-de-id → NodeIdx` (último a registrar vence, como no browser).
-    id_index: HashMap<String, NodeIdx>,
-    /// Índice `classe → nós que a têm` (em ordem de inserção).
+    /// Índice `valor-de-id → [NodeIdx]`. Mantém todos os candidatos para que a
+    /// consulta possa escolher o primeiro em ordem documental, como no browser.
+    id_index: HashMap<String, Vec<NodeIdx>>,
+    /// Índice `classe → nós que a têm` (usado como filtro; a ordem final vem da árvore).
     class_index: HashMap<String, Vec<NodeIdx>>,
     /// Override de estilo POR-NÓ (`setStyleBatch`) — a 3ª e mais forte fonte de
     /// estilo (precedência: tag < `style=""` inline < override por-nó). Mapa à
@@ -419,6 +420,14 @@ impl Dom {
             .wrapping_add(crate::style::props::style_epoch())
     }
 
+    /// Identidade da instância da árvore para caches do backend. Combina a geração
+    /// com o endereço da instância: clones independentes e novas árvores nunca
+    /// compartilham uma `DisplayList` por acidente.
+    pub fn cache_identity(&self) -> u64 {
+        let address = self as *const Dom as usize as u64;
+        address.rotate_left(17) ^ self.generation as u64
+    }
+
     /// A revisão ESTRUTURAL: muda com árvore/atributo/estilo/viewport (o que altera o
     /// ALVO-BASE da cascade), mas NÃO com a interpolação de animação (`anim_epoch`).
     /// É a chave do `base_memo` — o que o `advance` reusa entre frames de animação.
@@ -507,6 +516,17 @@ impl Dom {
     }
 
     /// Registra um nó nos índices a partir de seus atributos `id`/`class`.
+    fn deindex_node(&mut self, id: NodeIdx) {
+        self.id_index.retain(|_, v| {
+            v.retain(|&x| x != id);
+            !v.is_empty()
+        });
+        for v in self.class_index.values_mut() {
+            v.retain(|&x| x != id);
+        }
+        self.class_index.retain(|_, v| !v.is_empty());
+    }
+
     fn index_node(&mut self, id: NodeIdx) {
         // Coleta antes para não emprestar `self.nodes` e os índices juntos.
         let id_attr = self.nodes[id].attr("id").map(str::to_string);
@@ -515,7 +535,7 @@ impl Dom {
             .map(|c| c.split_whitespace().map(str::to_string).collect())
             .unwrap_or_default();
         if let Some(k) = id_attr {
-            self.id_index.insert(k, id);
+            self.id_index.entry(k).or_default().push(id);
         }
         for c in classes {
             self.class_index.entry(c).or_default().push(id);
@@ -554,9 +574,9 @@ impl Dom {
     /// (`"#alvo"`) ou `.classe` (`".card"`). `None` se nada casar. É o
     /// `querySelector` de um seletor só.
     ///
-    /// `#id`/`.classe` usam os índices O(1); `tag` varre em pré-ordem (ordem de
-    /// documento). Valida que o hit do índice ainda está vivo (anexado à raiz),
-    /// já que mutações podem ter desligado o nó sem limpar o índice.
+    /// `#id`/`.classe` usam os índices como filtro de candidatos; a resposta final
+    /// varre em pré-ordem para preservar a ordem documental. Valida que o candidato
+    /// ainda está vivo (anexado à raiz), já que mutações podem desligar nós.
     pub fn query(&self, selector: &str) -> Option<NodeId> {
         let sel = selector.trim();
         let idx = self.query_idx(sel)?;
@@ -566,38 +586,57 @@ impl Dom {
     /// Núcleo do `query` em índices crus (interno). O `query` público embrulha o
     /// resultado no `NodeId` versionado.
     fn query_idx(&self, sel: &str) -> Option<NodeIdx> {
-        // Atalho por ÍNDICE p/ seletores simples PUROS (`#id`/`.classe`) — O(1).
+        let selectors = crate::style::parse_selector_list(sel);
+        if selectors.is_empty() {
+            return None;
+        }
+        // Índices servem como filtro rápido, mas a resposta final sempre vem de uma
+        // busca em pré-ordem. Isso é necessário porque IDs/classes duplicados e
+        // reordenação por appendChild devem seguir a ordem documental do DOM, não a
+        // ordem de alocação da arena.
         if let Some(key) = sel.strip_prefix('#') {
             if is_plain_ident(key) {
-                return self
-                    .id_index
-                    .get(key)
-                    .copied()
-                    .filter(|&i| self.is_attached(i) && self.nodes[i].attr("id") == Some(key));
+                let has_candidate = self.id_index.get(key).map(|v| {
+                    v.iter().any(|&i| {
+                        self.is_attached(i) && self.nodes[i].attr("id") == Some(key)
+                    })
+                }).unwrap_or(false);
+                return has_candidate
+                    .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
+                    .flatten();
             }
         }
         if let Some(cls) = sel.strip_prefix('.') {
             if is_plain_ident(cls) {
-                return self.class_index.get(cls)?.iter().copied().find(|&i| {
-                    self.is_attached(i)
-                        && self.nodes[i]
-                            .attr("class")
-                            .map(|c| c.split_whitespace().any(|x| x == cls))
-                            .unwrap_or(false)
-                });
+                let has_candidate = self.class_index.get(cls).map(|v| {
+                    v.iter().any(|&i| {
+                        self.is_attached(i)
+                            && self.nodes[i]
+                                .attr("class")
+                                .map(|c| c.split_whitespace().any(|x| x == cls))
+                                .unwrap_or(false)
+                    })
+                }).unwrap_or(false);
+                return has_candidate
+                    .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
+                    .flatten();
             }
         }
         // Caso geral (composto/combinador/atributo/pseudo): pré-ordem + matches.
-        self.find_idx_pre_order(self.root, sel)
+        self.find_idx_pre_order_parsed(self.root, &selectors)
     }
 
-    /// Pré-ordem buscando o 1º elemento que casa o seletor completo.
-    fn find_idx_pre_order(&self, idx: NodeIdx, sel: &str) -> Option<NodeIdx> {
-        if idx != self.root && self.matches(idx, sel) {
+    /// Pré-ordem buscando o 1º elemento que casa uma lista já parseada de seletores.
+    fn find_idx_pre_order_parsed(
+        &self,
+        idx: NodeIdx,
+        selectors: &[crate::style::ComplexSelector],
+    ) -> Option<NodeIdx> {
+        if idx != self.root && selectors.iter().any(|sel| self.matches_complex(idx, sel)) {
             return Some(idx);
         }
         for &child in &self.nodes[idx].children {
-            if let Some(found) = self.find_idx_pre_order(child, sel) {
+            if let Some(found) = self.find_idx_pre_order_parsed(child, selectors) {
                 return Some(found);
             }
         }
@@ -616,19 +655,6 @@ impl Dom {
             cur = self.nodes[c].parent;
         }
         false
-    }
-
-    fn find_pre_order(&self, idx: NodeIdx, m: &dyn Fn(&Node) -> bool) -> Option<NodeIdx> {
-        let node = &self.nodes[idx];
-        if idx != self.root && m(node) {
-            return Some(idx);
-        }
-        for &child in &node.children {
-            if let Some(hit) = self.find_pre_order(child, m) {
-                return Some(hit);
-            }
-        }
-        None
     }
 
     // ── Mutação (base da API DOM do JS) ─────────────────────────────────────
@@ -706,17 +732,25 @@ impl Dom {
     fn computed_style_idx_inner(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
         use crate::style;
         let tag = match &self.nodes[idx].kind {
-            NodeKind::Element { tag } => tag.clone(),
+            NodeKind::Element { tag } => tag.as_str(),
             _ => return None,
         };
-        // id/classes do nó — a CHAVE do índice de regras da cascade (só as regras
-        // cujo alvo o nó pode satisfazer são testadas, não todas). Materializados em
-        // String/Vec para não conflitar com o borrow de `self` nos closures abaixo.
-        let node_id: Option<String> = self.nodes[idx].attr("id").map(str::to_string);
-        let node_classes: Vec<String> = self.nodes[idx]
-            .attr("class")
-            .map(|c| c.split_whitespace().map(str::to_string).collect())
-            .unwrap_or_default();
+        // id/classes só são materializados quando há regras de autor para testar.
+        // Em páginas sem `<style>`, o layout ainda computa cada nó, mas não precisa
+        // alocar strings que nunca serão consultadas pelo RuleIndex.
+        let node_id: Option<String> = if self.stylesheet.is_empty() {
+            None
+        } else {
+            self.nodes[idx].attr("id").map(str::to_string)
+        };
+        let node_classes: Vec<String> = if self.stylesheet.is_empty() {
+            Vec::new()
+        } else {
+            self.nodes[idx]
+                .attr("class")
+                .map(|c| c.split_whitespace().map(str::to_string).collect())
+                .unwrap_or_default()
+        };
         let class_refs: Vec<&str> = node_classes.iter().map(String::as_str).collect();
         // `style=""` inline (normal + important + customs/pendentes).
         let inline = self.nodes[idx]
@@ -1380,12 +1414,15 @@ impl Dom {
 
     /// `element.querySelectorAll(sel)` restrito à subárvore do nó (exclui o próprio).
     pub fn query_all_within(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
-        let sel = selector.trim();
+        let selectors = crate::style::parse_selector_list(selector.trim());
+        if selectors.is_empty() {
+            return Vec::new();
+        }
         let Some(root_idx) = self.resolve(root) else { return Vec::new() };
         let mut out = Vec::new();
         // só os DESCENDENTES (o próprio nó não casa a si mesmo no querySelector).
         for &child in &self.nodes[root_idx].children {
-            self.query_all_into(child, sel, &mut out);
+            self.query_all_into(child, &selectors, &mut out);
         }
         out
     }
@@ -1649,7 +1686,12 @@ impl Dom {
         // limpa o índice correspondente (entradas stale são toleradas, mas
         // remover ajuda a manter o índice enxuto).
         match name_lc.as_str() {
-            "id" => self.id_index.retain(|_, &mut v| v != idx),
+            "id" => {
+                self.id_index.retain(|_, v| {
+                    v.retain(|&x| x != idx);
+                    !v.is_empty()
+                });
+            }
             "class" => {
                 for v in self.class_index.values_mut() {
                     v.retain(|&x| x != idx);
@@ -1728,21 +1770,30 @@ impl Dom {
         Some(self.make_id(sibs[target as usize]))
     }
 
-    /// Todos os nós que casam um seletor simples (`querySelectorAll`), em ordem de
-    /// documento. `tag` varre pré-ordem; `#id`/`.classe` usam os índices.
+    /// Todos os nós que casam um seletor (`querySelectorAll`), em ordem de documento.
+    /// O seletor é parseado uma vez por chamada e a travessia preserva a ordem mesmo
+    /// após mutações que reordenam a árvore.
     pub fn query_all(&self, selector: &str) -> Vec<NodeId> {
-        let sel = selector.trim();
+        let selectors = crate::style::parse_selector_list(selector.trim());
+        if selectors.is_empty() {
+            return Vec::new();
+        }
         let mut out = Vec::new();
-        self.query_all_into(self.root, sel, &mut out);
+        self.query_all_into(self.root, &selectors, &mut out);
         out
     }
 
-    fn query_all_into(&self, idx: NodeIdx, sel: &str, out: &mut Vec<NodeId>) {
-        if idx != self.root && self.matches(idx, sel) {
+    fn query_all_into(
+        &self,
+        idx: NodeIdx,
+        selectors: &[crate::style::ComplexSelector],
+        out: &mut Vec<NodeId>,
+    ) {
+        if idx != self.root && selectors.iter().any(|sel| self.matches_complex(idx, sel)) {
             out.push(self.make_id(idx));
         }
         for &child in &self.nodes[idx].children {
-            self.query_all_into(child, sel, out);
+            self.query_all_into(child, selectors, out);
         }
     }
 
@@ -1915,32 +1966,23 @@ impl Dom {
     }
 
     /// Define/atualiza um atributo (`element.setAttribute`). Cria se não existir.
-    /// Mantém os índices `id`/`class` em dia (adiciona a nova entrada; entradas
-    /// antigas viram stale mas a busca valida alcançabilidade/valor).
+    /// Reindexa `id`/`class` para que mudanças de valor não deixem candidatos stale.
     pub fn set_attr(&mut self, id: NodeId, name: &str, value: &str) {
         self.touch();
         let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
+        let affects_index = matches!(name_lc.as_str(), "id" | "class");
+        if affects_index {
+            self.deindex_node(idx);
+        }
         let node = &mut self.nodes[idx];
         if let Some(a) = node.attrs.iter_mut().find(|a| a.name == name_lc) {
             a.value = value.to_string();
         } else {
-            node.attrs.push(Attr { name: name_lc.clone(), value: value.to_string() });
+            node.attrs.push(Attr { name: name_lc, value: value.to_string() });
         }
-        // Atualiza índices se o atributo afeta busca.
-        match name_lc.as_str() {
-            "id" => {
-                self.id_index.insert(value.to_string(), idx);
-            }
-            "class" => {
-                for c in value.split_whitespace() {
-                    let v = self.class_index.entry(c.to_string()).or_default();
-                    if !v.contains(&idx) {
-                        v.push(idx);
-                    }
-                }
-            }
-            _ => {}
+        if affects_index {
+            self.index_node(idx);
         }
     }
 
@@ -2426,10 +2468,13 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
         } else {
             String::new() // atributo booleano (sem `=valor`).
         };
-        attrs.push(Attr {
-            name,
-            value: crate::html::decode_entities(&value),
-        });
+        // No HTML, um atributo duplicado é ignorado depois da primeira ocorrência.
+        if !attrs.iter().any(|a: &Attr| a.name == name) {
+            attrs.push(Attr {
+                name,
+                value: crate::html::decode_entities(&value),
+            });
+        }
     }
     attrs
 }
@@ -2487,11 +2532,12 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                 }
             }
             Token::Text(text) => {
-                if text.trim().is_empty() {
-                    continue; // whitespace puro entre tags — descarta.
+                // O DOM do browser preserva whitespace entre elementos como nós de
+                // texto. O layout decide depois se esse whitespace colapsa visualmente.
+                if !text.is_empty() {
+                    let parent = open.last().unwrap().0;
+                    dom.push(NodeKind::Text(text), Vec::new(), parent);
                 }
-                let parent = open.last().unwrap().0;
-                dom.push(NodeKind::Text(text), Vec::new(), parent);
             }
             Token::Comment(content) => {
                 // DOM fiel preserva comentários como nós (nodeType 8); o render os
@@ -3830,6 +3876,26 @@ mod tests {
         let inner_kids = dom.child_nodes(inner_ul);
         assert_eq!(inner_kids.len(), 1);
         assert_eq!(dom.text_content(inner_kids[0]).unwrap(), "b");
+    }
+
+    #[test]
+    fn parser_preserva_whitespace_e_descarta_atributos_duplicados() {
+        let dom = parse_html_to_dom("<div><span>A</span> <span>B</span></div>");
+        let div = dom.query("div").unwrap();
+        assert_eq!(dom.child_nodes(div).len(), 3);
+
+        let dup = parse_html_to_dom("<div id='first' id='second'></div>");
+        let element = dup.query("div").unwrap();
+        let idx = idx(&dup, element);
+        assert_eq!(dup.node(idx).attrs.len(), 1);
+        assert_eq!(dup.node(idx).attr("id"), Some("first"));
+    }
+
+    #[test]
+    fn query_id_duplicado_retorna_primeiro_na_ordem_documental() {
+        let dom = parse_html_to_dom("<div id='same'></div><span id='same'></span>");
+        let first = dom.query("div").unwrap();
+        assert_eq!(dom.query("#same"), Some(first));
     }
 
     #[test]

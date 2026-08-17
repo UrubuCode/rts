@@ -138,24 +138,33 @@ pub struct DisplayList {
     /// Geometria por NÓ (border-box, em coordenadas de conteúdo) — a base do
     /// `element.getBoundingClientRect()`/`offsetWidth`/etc. Preenchido durante o
     /// layout: cada bloco registra seu retângulo (margin EXCLUÍDA — border-box, como
-    /// o `getBoundingClientRect` do browser). Nós inline/texto não entram (a API só
-    /// dá rect de elementos; um inline teria múltiplos rects — fase futura).
+    /// o `getBoundingClientRect` do browser); elementos inline recebem a união dos
+    /// fragmentos de linha; nós de texto não entram.
     pub node_rects: std::collections::HashMap<NodeIdx, Rect>,
     /// Containers roláveis internos (divs com `overflow`) — o backend gerencia o
-    /// offset de cada um e recorta. Vazio quando a página não tem scroll interno.
+    /// offset de cada região e recorta. Vazio quando a página não tem scroll interno.
     pub scroll_regions: Vec<ScrollRegion>,
+    /// Nós em ordem de pintura para hit-test: ancestrais antes de descendentes,
+    /// irmãos na ordem documental e elementos fora do fluxo por `z-index` crescente.
+    /// O último nó que contém o ponto é o que está visualmente no topo.
+    pub hit_order: Vec<NodeIdx>,
 }
 
 impl DisplayList {
     /// HIT-TEST: o nó sob o ponto `(x, y)` em COORDENADAS DE CONTEÚDO (o backend
-    /// converte tela→conteúdo somando o offset de scroll antes de chamar). Entre
-    /// todos os `node_rects` que contêm o ponto, vence o de MENOR ÁREA — numa
-    /// árvore DOM os rects dos descendentes estão contidos nos dos ancestrais,
-    /// então menor área = nó mais profundo = top-most (o critério do north-star
-    /// §3, "ordem reversa da display list", sem depender de ordem num HashMap).
-    /// Limite documentado: irmãos sobrepostos por position/z-index podem resolver
-    /// pro rect menor em vez do maior z — aceito na v1 (raro em fluxo normal).
+    /// converte tela→conteúdo somando o offset de scroll antes de chamar). Quando a
+    /// lista foi produzida por `layout_document`, a ordem de pintura respeita
+    /// ancestrais/descendentes, irmãos e `z-index`; o ÚLTIMO retângulo que contém o
+    /// ponto é o elemento visualmente no topo. Listas antigas sem `hit_order` usam o
+    /// fallback por menor área para manter compatibilidade.
     pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeIdx> {
+        if !self.hit_order.is_empty() {
+            return self.hit_order.iter().rev().copied().find(|&idx| {
+                self.node_rects.get(&idx).is_some_and(|r| {
+                    x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
+                })
+            });
+        }
         let mut best: Option<(NodeIdx, f32)> = None;
         for (&idx, r) in &self.node_rects {
             if x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h {
@@ -240,6 +249,11 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     let mut cursor_y = 0.0f32;
     let root = dom.node(dom.root);
     for &child in &root.children {
+        // position:absolute/fixed não participa do fluxo, inclusive quando é filho
+        // direto do documento; será layoutado na passada final por z-index.
+        if is_out_of_flow(dom, child) {
+            continue;
+        }
         // o containing block da raiz é a VIEWPORT: `height:100%` no <html> resolve
         // contra a altura da janela (base do `h-100` de páginas reais).
         let (_, h) =
@@ -264,9 +278,14 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
     // empréstimo mutável de `list`.
     let flow_rects = list.node_rects.clone();
-    for id in out_of_flow {
-        layout_out_of_flow(dom, id, ctx, &flow_rects, &mut list);
+    for id in &out_of_flow {
+        layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut list);
     }
+    // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita
+    // para o hit-test: fluxo normal em pré-ordem e, depois, posicionados em ordem
+    // crescente de z-index (o último pintado fica no topo).
+    // A ordem de pintura já foi registrada durante as inserções de retângulos:
+    // fluxo normal durante a descida e out-of-flow na ordem de z-index acima.
     list
 }
 
@@ -525,8 +544,8 @@ fn find_body_bg(dom: &Dom, idx: NodeIdx) -> Option<u32> {
 }
 
 /// O retângulo (border-box) de um nó, computando o layout do documento na largura
-/// dada — a base de `element.getBoundingClientRect()`. `None` se o nó não é um
-/// bloco renderável (texto/inline/`display:none`/metadata não têm rect próprio).
+/// dada — a base de `element.getBoundingClientRect()`. `None` se o nó não é
+/// renderável (texto/`display:none`/metadata não têm rect próprio).
 /// Roda o layout inteiro (O(n)); para várias consultas no mesmo frame, reuse a
 /// `DisplayList` de `layout_document` e leia `node_rects` direto.
 pub fn bounding_rect(dom: &Dom, node: NodeIdx, ctx: &LayoutCtx) -> Option<Rect> {
@@ -623,6 +642,12 @@ fn layout_block(
             css
         }
         NodeKind::Text(t) => {
+            // Whitespace estrutural é preservado no DOM, mas não cria uma linha
+            // visual quando chega sozinho ao fluxo de blocos/root. Em contexto
+            // inline, ele é tratado por `wrap_runs` e continua separando palavras.
+            if t.trim().is_empty() {
+                return (0.0, 0.0);
+            }
             let size = DEFAULT_FONT_SIZE;
             let lh = ctx.measurer.line_height(size);
             let tw = ctx.measurer.text_width(t, size, false, false);
@@ -742,6 +767,9 @@ fn layout_block(
     // inserida (antes de qualquer filho), descemos nos filhos (que dão append no
     // fim), e só DEPOIS — conhecendo a altura — inserimos o fundo nesse índice.
     let box_index = list.items.len();
+    // Reserva a posição do pai antes dos filhos; a geometria final é preenchida
+    // depois que a altura natural do conteúdo for conhecida.
+    reserve_node_order(list, id);
 
     // ── Filhos: o EIXO depende do `display` do bloco ─────────────────────────────
     // vertical (default): cada filho ABAIXO do anterior, ocupando a largura.
@@ -854,7 +882,7 @@ fn layout_block(
         content_h + pad_top + pad_bottom + 2.0 * border,
     );
     // Registra a geometria deste nó (base do getBoundingClientRect/offsetWidth).
-    list.node_rects.insert(id, box_rect);
+    record_node_rect(list, id, box_rect);
 
     // Pinta a CAIXA (fundo/borda) ATRÁS dos filhos. `insert` no `box_index` põe o
     // fundo antes dos itens dos filhos (z-order).
@@ -1305,7 +1333,7 @@ fn layout_svg_placeholder(
         color: 0xE8EAEDFF,
         radius: 2.0,
     });
-    list.node_rects.insert(id, Rect::new(x, y, w, h));
+    record_node_rect(list, id, Rect::new(x, y, w, h));
     Some((w, h))
 }
 
@@ -1361,7 +1389,7 @@ fn layout_image(
         w = max_w;
     }
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
-    list.node_rects.insert(id, rect);
+    record_node_rect(list, id, rect);
     list.items.push(DisplayItem::Image {
         rect,
         pixels_handle: handle,
@@ -1415,7 +1443,7 @@ fn layout_button(
         letter_spacing: 0.0,
         decoration: 0,
     });
-    list.node_rects.insert(id, Rect::new(x, y, w, h));
+    record_node_rect(list, id, Rect::new(x, y, w, h));
     (w + 6.0, h + 4.0) // margenzinha UA entre botões
 }
 
@@ -1479,7 +1507,7 @@ fn layout_input(
         content_w + padding_h + 2.0 * border,
         content_h + pad_top + pad_bottom + 2.0 * border,
     );
-    list.node_rects.insert(id, box_rect);
+    record_node_rect(list, id, box_rect);
 
     // Fundo: o `background` do CSS, senão branco (campo de texto clássico).
     let radius = css.corner_radius.unwrap_or(0.0);
@@ -1602,6 +1630,34 @@ fn resolve_height(
     }
 }
 
+/// Retorna se um whitespace entre irmãos deve participar do contexto inline. O
+/// parser preserva o nó de texto por fidelidade ao DOM, mas whitespace entre dois
+/// blocos/floats não cria uma linha visual; whitespace adjacente a texto/inline sim.
+fn whitespace_is_inline_separator(dom: &Dom, parent: NodeIdx, child: NodeIdx) -> bool {
+    let children = &dom.node(parent).children;
+    let Some(pos) = children.iter().position(|&c| c == child) else { return false };
+    let is_inline_candidate = |idx: NodeIdx| match &dom.node(idx).kind {
+        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Element { tag } => {
+            !is_non_rendered_tag(tag)
+                && !is_block_level(dom, idx)
+                && !is_inline_block(dom, idx)
+                && float_of(dom, idx) == crate::style::FloatSide::None
+        }
+        _ => false,
+    };
+    let previous = children[..pos]
+        .iter()
+        .rev()
+        .copied()
+        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if t.trim().is_empty()));
+    let next = children[pos + 1..]
+        .iter()
+        .copied()
+        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if t.trim().is_empty()));
+    previous.is_some_and(is_inline_candidate) || next.is_some_and(is_inline_candidate)
+}
+
 /// Empilha os filhos VERTICAL (cada um abaixo do anterior), ocupando a largura do
 /// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
 /// `avail_h` = altura do content DESTE container quando explícita (containing
@@ -1683,6 +1739,41 @@ fn layout_children_vertical(
         };
     }
     for &child in &dom.node(id).children {
+        let child_css = match &dom.node(child).kind {
+            NodeKind::Element { .. } => Some(dom.computed_style_idx(child).unwrap_or_default()),
+            _ => None,
+        };
+        let child_out = child_css
+            .as_ref()
+            .and_then(|c| c.position)
+            .map(|p| p.out_of_flow())
+            .unwrap_or(false);
+        let child_float = child_css
+            .as_ref()
+            .and_then(|c| c.float_side)
+            .unwrap_or(crate::style::FloatSide::None);
+        let (child_block, child_inline_block) = match &dom.node(child).kind {
+            NodeKind::Element { tag } => {
+                let replaced = (tag == "img" && dom.image_of(child).is_some()) || tag == "svg";
+                let effective = child_css.as_ref().and_then(|c| c.effective_display());
+                let explicit_block = effective
+                    .map(|d| d != crate::style::DisplayKind::Inline)
+                    .unwrap_or(false);
+                let block = replaced
+                    || effective.is_some()
+                    || crate::block::lookup(tag).is_some()
+                    || child_css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false);
+                let inline_block = if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
+                    !explicit_block
+                } else if crate::block::lookup(tag).is_some() || explicit_block {
+                    false
+                } else {
+                    child_css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false)
+                };
+                (block, inline_block)
+            }
+            _ => (false, false),
+        };
         match &dom.node(child).kind {
             // Metadata não-renderável (`<head>`/`<title>`/`<style>`/`<script>`):
             // pula — NÃO coleta seu texto como inline (senão o título e o CSS cru
@@ -1690,11 +1781,11 @@ fn layout_children_vertical(
             NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
             // Fora do fluxo (`position:absolute/fixed`): não ocupa espaço aqui —
             // pintado na passada out-of-flow de layout_document.
-            NodeKind::Element { .. } if is_out_of_flow(dom, child) => {}
+            NodeKind::Element { .. } if child_out => {}
             // FLOAT left/right: shrink-to-fit na linha de floats corrente.
-            NodeKind::Element { .. } if float_of(dom, child) != crate::style::FloatSide::None => {
+            NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {
                 flush_inline!(child_y);
-                let side = float_of(dom, child);
+                let side = child_float;
                 let top = *float_top.get_or_insert(child_y);
                 let w = child_outer_width(dom, child, content_w, font_size, ctx);
                 let h = child_outer_height(dom, child, content_w, avail_h, font_size, ctx);
@@ -1710,13 +1801,12 @@ fn layout_children_vertical(
                 float_h = float_h.max(h);
                 prev_margin = 0.0; // float quebra a sequência de collapse
             }
-            NodeKind::Element { .. } if is_block_level(dom, child) && !is_inline_block(dom, child) => {
+            NodeKind::Element { .. } if child_block && !child_inline_block => {
                 flush_inline!(child_y);
                 close_floats!(child_y);
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
-                let m = dom.computed_style_idx(child)
-                    .map(|c| {
+                let m = child_css.as_ref().map(|c| {
                         // margem TOP do filho p/ o collapse (unidades relativas
                         // resolvem contra o content deste container).
                         let r = ResolveCtx {
@@ -1745,7 +1835,7 @@ fn layout_children_vertical(
             // LADO, quebrando quando enche). Os botões 'Pesquisa Google'/'Estou
             // com sorte' do google são 2 inline-block irmãos que compartilham a
             // linha. Um texto/inline entre eles fecha a corrida (flush_inline).
-            NodeKind::Element { .. } if is_inline_block(dom, child) => {
+            NodeKind::Element { .. } if child_inline_block => {
                 // descarrega só o TEXTO inline pendente (não o ib_run — este b
                 // continua a acumular os inline-blocks IRMÃOS na mesma corrida).
                 if !inline_group.is_empty() {
@@ -1758,6 +1848,11 @@ fn layout_children_vertical(
                 ib_run.push(child);
                 prev_margin = 0.0;
             }
+            // Whitespace estrutural continua no DOM, mas não cria uma linha entre
+            // blocos/floats. Quando está perto de texto/inline, entra no grupo e o
+            // `wrap_runs` o colapsa como um espaço normal.
+            NodeKind::Text(t)
+                if t.trim().is_empty() && !whitespace_is_inline_separator(dom, id, child) => {}
             // Texto / elemento inline: entra no CONTEXTO INLINE corrente — flui
             // com os irmãos inline adjacentes (o flush pinta o grupo inteiro).
             _ => {
@@ -2696,7 +2791,7 @@ fn layout_inline_flow(
             .iter()
             .map(|seg| match seg.widget {
                 Some(_) => seg.ww,
-                None => ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold),
+                None => seg.text_width,
             })
             .sum();
         // altura da linha: o texto (lh) ou o widget mais alto nela.
@@ -2727,12 +2822,15 @@ fn layout_inline_flow(
                 } else {
                     layout_input(dom, w_idx, &wcss, seg_x, cy, seg.ww, None, ctx, list);
                 }
+                let widget_fragment = Rect::new(seg_x, cy, seg.ww, seg.wh);
+                for &owner in &seg.owners {
+                    union_inline_rect(list, owner, widget_fragment);
+                }
                 seg_x += seg.ww;
                 continue;
             }
             let ls = parent_css.letter_spacing.unwrap_or(0.0);
-            let w = ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold)
-                + ls * seg.text.chars().count() as f32;
+            let w = seg.text_width + ls * seg.text.chars().count() as f32;
             list.items.push(DisplayItem::Text {
                 x: seg_x,
                 y: cy,
@@ -2744,6 +2842,10 @@ fn layout_inline_flow(
                 letter_spacing: ls,
                 decoration: seg.deco,
             });
+            let text_fragment = Rect::new(seg_x, cy, w.max(0.0), line_h);
+            for &owner in &seg.owners {
+                union_inline_rect(list, owner, text_fragment);
+            }
             seg_x += w;
         }
         cy += line_h;
@@ -2762,9 +2864,58 @@ struct InlineRun {
     /// decoração do RUN (0=none 1=underline 2=line-through) — vem do <a>/<span>
     /// que contém o texto, não do bloco pai (um <a> sublinha só o seu texto).
     deco: u8,
+    /// Elementos inline ancestrais deste run. Cada um recebe a união dos fragmentos.
+    owners: Vec<NodeIdx>,
     widget: Option<NodeIdx>,
     ww: f32,
     wh: f32,
+}
+
+/// Um elemento inline de texto não cria caixa própria no fluxo, mas ainda assim
+/// deve receber um retângulo união dos fragmentos que seus descendentes pintam.
+fn is_inline_text_container(dom: &Dom, id: NodeIdx) -> bool {
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } => {
+            !is_non_rendered_tag(tag)
+                && !is_out_of_flow(dom, id)
+                && !is_block_level(dom, id)
+                && !is_inline_block(dom, id)
+        }
+        _ => false,
+    }
+}
+
+/// Reserva uma posição de pintura antes de layoutar os descendentes. Um retângulo
+/// placeholder fica invisível para o hit-test até ser preenchido por `record_node_rect`.
+fn reserve_node_order(list: &mut DisplayList, idx: NodeIdx) {
+    if !list.node_rects.contains_key(&idx) {
+        list.node_rects.insert(idx, Rect::new(0.0, 0.0, 0.0, 0.0));
+        list.hit_order.push(idx);
+    }
+}
+
+/// Registra uma caixa e sua geometria. Se o nó já foi reservado como ancestral,
+/// apenas substitui o placeholder sem duplicar a ordem de hit-test.
+fn record_node_rect(list: &mut DisplayList, idx: NodeIdx, rect: Rect) {
+    if list.node_rects.insert(idx, rect).is_none() {
+        list.hit_order.push(idx);
+    }
+}
+
+/// Une um fragmento de linha ao retângulo acumulado do elemento inline.
+fn union_inline_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
+    if let Some(old) = list.node_rects.get_mut(&idx) {
+        let right = old.x + old.w;
+        let bottom = old.y + old.h;
+        let new_right = fragment.x + fragment.w;
+        let new_bottom = fragment.y + fragment.h;
+        let x = old.x.min(fragment.x);
+        let y = old.y.min(fragment.y);
+        *old = Rect::new(x, y, right.max(new_right) - x, bottom.max(new_bottom) - y);
+    } else {
+        list.node_rects.insert(idx, fragment);
+        list.hit_order.push(idx);
+    }
 }
 
 /// Coleta os RUNS de texto de `id` em ordem de documento, cada um com a COR efetiva
@@ -2787,6 +2938,7 @@ fn collect_runs(
         decoration_code(parent_css),
         parent_css.text_transform,
         parent_css.bold.unwrap_or(false),
+        &[],
         &mut runs,
     );
     return runs;
@@ -2799,6 +2951,7 @@ fn collect_runs(
         inherited_deco: u8,
         inherited_tt: Option<crate::style::TextTransform>,
         inherited_bold: bool,
+        inherited_owners: &[NodeIdx],
         out: &mut Vec<InlineRun>,
     ) {
         match &dom.node(id).kind {
@@ -2812,6 +2965,7 @@ fn collect_runs(
                     color: inherited_color,
                     bold: inherited_bold,
                     deco: inherited_deco,
+                    owners: inherited_owners.to_vec(),
                     widget: None,
                     ww: 0.0,
                     wh: 0.0,
@@ -2838,11 +2992,14 @@ fn collect_runs(
                         return;
                     }
                     let (ww, wh) = inline_widget_size(dom, id, &itype, ctx);
+                    let mut owners = inherited_owners.to_vec();
+                    owners.push(id);
                     out.push(InlineRun {
                         text: String::new(),
                         color: inherited_color,
                         bold: false,
                         deco: 0,
+                        owners,
                         widget: Some(id),
                         ww,
                         wh,
@@ -2859,8 +3016,12 @@ fn collect_runs(
                     Some(d) if d != 0 => d,
                     _ => inherited_deco,
                 };
+                let mut owners = inherited_owners.to_vec();
+                if is_inline_text_container(dom, id) {
+                    owners.push(id);
+                }
                 for &c in &dom.node(id).children {
-                    walk(dom, ctx, c, color, deco, tt, bold, out);
+                    walk(dom, ctx, c, color, deco, tt, bold, &owners, out);
                 }
             }
             _ => {}
@@ -2889,9 +3050,11 @@ fn inline_widget_size(dom: &Dom, id: NodeIdx, itype: &str, ctx: &LayoutCtx) -> (
 /// `widget: Some(idx)` = um widget inline de `ww × wh` (pintado pela emissão).
 struct Segment {
     text: String,
+    text_width: f32,
     color: u32,
     bold: bool,
     deco: u8,
+    owners: Vec<NodeIdx>,
     widget: Option<NodeIdx>,
     ww: f32,
     wh: f32,
@@ -2931,9 +3094,11 @@ fn wrap_runs(
             }
             cur.push(Segment {
                 text: String::new(),
+                text_width: 0.0,
                 color: run.color,
                 bold: false,
                 deco: 0,
+                owners: run.owners.clone(),
                 widget: Some(w_idx),
                 ww: run.ww,
                 wh: run.wh,
@@ -2965,6 +3130,7 @@ fn wrap_runs(
                 at_line_start = true;
             }
             let sep = pending_space && !at_line_start;
+            let piece_w = if sep { space_w + ww } else { ww };
             let piece = if sep { format!(" {word}") } else { word.to_string() };
             // junta no último segmento se mesma cor E peso (e não-widget), senão novo.
             if let Some(last) = cur.last_mut() {
@@ -2972,14 +3138,18 @@ fn wrap_runs(
                     && last.color == run.color
                     && last.bold == run.bold
                     && last.deco == run.deco
+                    && last.owners == run.owners
                 {
                     last.text.push_str(&piece);
+                    last.text_width += piece_w;
                 } else {
                     cur.push(Segment {
                         text: piece,
+                        text_width: piece_w,
                         color: run.color,
                         bold: run.bold,
                         deco: run.deco,
+                        owners: run.owners.clone(),
                         widget: None,
                         ww: 0.0,
                         wh: 0.0,
@@ -2988,15 +3158,17 @@ fn wrap_runs(
             } else {
                 cur.push(Segment {
                     text: piece,
+                    text_width: piece_w,
                     color: run.color,
                     bold: run.bold,
                     deco: run.deco,
+                    owners: run.owners.clone(),
                     widget: None,
                     ww: 0.0,
                     wh: 0.0,
                 });
             }
-            cur_w += if sep { space_w + ww } else { ww };
+            cur_w += piece_w;
             at_line_start = false;
             pending_space = false;
         }
@@ -3007,9 +3179,11 @@ fn wrap_runs(
     if lines.is_empty() {
         lines.push(vec![Segment {
             text: String::new(),
+            text_width: 0.0,
             color: 0,
             bold: false,
             deco: 0,
+            owners: Vec::new(),
             widget: None,
             ww: 0.0,
             wh: 0.0,
@@ -3119,6 +3293,29 @@ mod tests {
         assert_eq!(hit2, Some(pai_idx));
         // fora de tudo.
         assert_eq!(list.hit_test(-10.0, -10.0), None);
+    }
+
+    #[test]
+    fn elemento_inline_recebe_bounding_rect() {
+        let dom = parse_html_to_dom("<div><span id='s'>texto</span></div>");
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let span = dom.query("#s").unwrap();
+        let span_idx = dom.resolve(span).unwrap();
+        let rect = list.node_rects.get(&span_idx).expect("inline deveria ter rect");
+        assert!(rect.w > 0.0);
+        assert!(rect.h > 0.0);
+    }
+
+    #[test]
+    fn hit_test_respeita_z_index_em_elementos_sobrepostos() {
+        let dom = parse_html_to_dom(
+            "<style>#back { position:absolute; left:0; top:0; width:200px; height:200px; z-index:10 } #front { position:absolute; left:0; top:0; width:100px; height:100px; z-index:0 }</style><div id='back'></div><div id='front'></div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let back = dom.resolve(dom.query("#back").unwrap()).unwrap();
+        assert_eq!(list.hit_test(50.0, 50.0), Some(back));
     }
 
     /// Primeiro `SolidRect` da lista (o fundo da 1ª caixa) — atalho de assert.

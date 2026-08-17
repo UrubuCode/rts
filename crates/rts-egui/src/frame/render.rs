@@ -11,6 +11,8 @@
 //! aproximada, e mesmo assim o DOM continua dono do layout.
 
 use rts_dom::layout::{self, DisplayItem, DisplayList, TextMeasurer};
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 /// Converte a cor própria do motor de estilo (`u32` RGBA `0xRRGGBBAA`, egui-free)
 /// para o `Color32` do egui. A conversão vive AQUI (no backend), nunca no rts-dom.
@@ -28,6 +30,8 @@ fn rgba_to_color32(c: u32) -> egui::Color32 {
 /// o egui vai de fato pintar. Guarda o `Context` para consultar `fonts`.
 struct EguiMeasurer<'a> {
     ctx: &'a egui::Context,
+    width_cache: RefCell<HashMap<(u32, bool, bool), HashMap<String, f32>>>,
+    line_height_cache: RefCell<HashMap<u32, f32>>,
 }
 
 impl<'a> EguiMeasurer<'a> {
@@ -49,13 +53,35 @@ impl<'a> EguiMeasurer<'a> {
 
 impl<'a> TextMeasurer for EguiMeasurer<'a> {
     fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32 {
+        let font_key = (size.to_bits(), mono, bold);
+        if let Some(width) = self
+            .width_cache
+            .borrow()
+            .get(&font_key)
+            .and_then(|bucket| bucket.get(text))
+            .copied()
+        {
+            return width;
+        }
         let font = Self::font_id(size, mono, bold);
         // `fonts_mut` dá um `&mut FontsView` (glyph_width exige `&mut`).
-        self.ctx.fonts_mut(|f| text.chars().map(|c| f.glyph_width(&font, c)).sum())
+        let width = self.ctx.fonts_mut(|f| text.chars().map(|c| f.glyph_width(&font, c)).sum());
+        self.width_cache
+            .borrow_mut()
+            .entry(font_key)
+            .or_default()
+            .insert(text.to_owned(), width);
+        width
     }
     fn line_height(&self, size: f32) -> f32 {
+        let key = size.to_bits();
+        if let Some(height) = self.line_height_cache.borrow().get(&key).copied() {
+            return height;
+        }
         let font = Self::font_id(size, false, false);
-        self.ctx.fonts_mut(|f| f.row_height(&font))
+        let height = self.ctx.fonts_mut(|f| f.row_height(&font));
+        self.line_height_cache.borrow_mut().insert(key, height);
+        height
     }
 }
 
@@ -67,9 +93,14 @@ thread_local! {
     /// só a mudança real de DOM/estilo/viewport re-roda o layout.
     static LAYOUT_CACHE: std::cell::RefCell<std::collections::HashMap<u64, (u64, u32, u32, layout::DisplayList)>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
+    /// Cache equivalente para o caminho sem scroll, que recebe `&Dom` diretamente
+    /// em vez de um handle. A identidade da árvore evita reutilizar uma lista de
+    /// outro DOM quando a alocação de memória for reaproveitada.
+    static DIRECT_LAYOUT_CACHE: std::cell::RefCell<std::collections::HashMap<u64, (u64, u32, u32, layout::DisplayList)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-/// Renderiza um `Dom` inteiro: calcula o layout (rts-dom) e PINTA a display list.
+/// Renderiza um `Dom` inteiro: reutiliza ou calcula o layout (rts-dom) e PINTA a display list.
 ///
 /// A origem do conteúdo é o canto superior-esquerdo da área do `ui`
 /// (`ui.max_rect().min`); cada item da lista vem em coordenadas de conteúdo e é
@@ -78,13 +109,32 @@ thread_local! {
 /// saber o tamanho ocupado).
 pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
     let avail = ui.available_size();
-    let measurer = EguiMeasurer { ctx: ui.ctx() };
-    let ctx = layout::LayoutCtx {
-        viewport_w: avail.x.max(1.0),
-        viewport_h: ui.ctx().screen_rect().height().max(1.0),
-        measurer: &measurer,
+    let viewport_w = avail.x.max(1.0);
+    let viewport_h = ui.ctx().screen_rect().height().max(1.0);
+    let measurer = EguiMeasurer {
+        ctx: ui.ctx(),
+        width_cache: RefCell::new(HashMap::new()),
+        line_height_cache: RefCell::new(HashMap::new()),
     };
-    let list = layout::layout_document(dom, &ctx);
+    let ctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
+    let key = dom.cache_identity();
+    let rev = dom.render_revision();
+    let list = DIRECT_LAYOUT_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((c_rev, c_w, c_h, cached)) = cache.get(&key) {
+            if *c_rev == rev && *c_w == viewport_w.to_bits() && *c_h == viewport_h.to_bits() {
+                return cached.clone();
+            }
+        }
+        let fresh = layout::layout_document(dom, &ctx);
+        if cache.len() >= 64 && !cache.contains_key(&key) {
+            if let Some(old_key) = cache.keys().next().copied() {
+                cache.remove(&old_key);
+            }
+        }
+        cache.insert(key, (rev, viewport_w.to_bits(), viewport_h.to_bits(), fresh.clone()));
+        fresh
+    });
     paint_list(ui, &list, 0.0);
     // reserva a altura total ocupada (p/ o egui ao redor dimensionar).
     ui.allocate_space(egui::vec2(ui.available_width(), list.content_height));
@@ -111,7 +161,11 @@ pub(crate) fn render_dom_scrolled(
     // (cascade de todas as regras × nós — numa página Bootstrap ~2700 regras) só
     // precisa re-rodar quando o DOM/estilo MUDAM (`render_revision`) ou o viewport
     // muda. Era a "travada" ao clicar: re-layout completo por frame.
-    let measurer = EguiMeasurer { ctx: ui.ctx() };
+    let measurer = EguiMeasurer {
+        ctx: ui.ctx(),
+        width_cache: RefCell::new(HashMap::new()),
+        line_height_cache: RefCell::new(HashMap::new()),
+    };
     let lctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
     let rev = rts_dom::store::with_dom(h, |d| d.render_revision()).unwrap_or(0);
     let mut list = LAYOUT_CACHE.with(|cache| {

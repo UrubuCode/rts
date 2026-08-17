@@ -37,6 +37,7 @@ pub struct RuleIndex {
     /// Nº de regras que o índice cobre — se `rules.len()` diverge, o índice está
     /// stale e é reconstruído.
     covered: usize,
+    has_custom_rules: bool,
 }
 
 /// A âncora do compound-alvo (último compound) de um seletor. Id > Class > Tag; se
@@ -77,6 +78,7 @@ impl RuleIndex {
             }
         }
         idx.covered = rules.len();
+        idx.has_custom_rules = rules.iter().any(|r| !r.decls.custom.is_empty());
         idx
     }
 
@@ -85,11 +87,24 @@ impl RuleIndex {
         self.covered == n
     }
 
+    pub fn has_custom_rules(&self) -> bool {
+        self.has_custom_rules
+    }
+
     /// Os índices das regras CANDIDATAS a casar um nó `(tag, id, classes)`: a união
-    /// dos buckets do id, de cada classe, da tag e do universal. Ordenados por índice
-    /// (= ordem no fonte) e deduplicados — o consumidor reordena por especificidade.
+    /// dos buckets do id, de cada classe, da tag e do universal. Cada regra foi
+    /// indexada por uma única âncora (`key_of`), portanto não há duplicatas entre
+    /// buckets; o consumidor reordena os matches pela especificidade e pela ordem.
     pub fn candidates(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> Vec<usize> {
-        let mut out: Vec<usize> = self.universal.clone();
+        let id_len = id.and_then(|key| self.by_id.get(key)).map_or(0, Vec::len);
+        let class_len: usize = classes
+            .iter()
+            .filter_map(|class| self.by_class.get(*class))
+            .map(Vec::len)
+            .sum();
+        let tag_len = self.by_tag.get(tag).map_or(0, Vec::len);
+        let mut out = Vec::with_capacity(self.universal.len() + id_len + class_len + tag_len);
+        out.extend_from_slice(&self.universal);
         if let Some(id) = id {
             if let Some(v) = self.by_id.get(id) {
                 out.extend_from_slice(v);
@@ -103,8 +118,6 @@ impl RuleIndex {
         if let Some(v) = self.by_tag.get(tag) {
             out.extend_from_slice(v);
         }
-        out.sort_unstable();
-        out.dedup();
         out
     }
 }
