@@ -98,6 +98,15 @@
       "total": 708,
       "rts_diverge": 119,
       "errors": 63
+    },
+    {
+      "date": "2026-08-17",
+      "pct": 77.7,
+      "pass": 1175,
+      "total_valid": 1512,
+      "total": 1513,
+      "rts_diverge": 248,
+      "errors": 89
     }
   ]
 }
