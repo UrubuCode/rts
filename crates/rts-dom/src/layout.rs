@@ -39,7 +39,7 @@
 //!   fatia futura generaliza `layout_children_horizontal` por eixo (`column` =
 //!   main vertical, justify no Y). `flex-grow`/`shrink`/`basis` também fora.
 
-use crate::dom::{Dom, LayoutMeasureKey, NodeIdx, NodeKind};
+use crate::dom::{Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeIdx, NodeKind};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 /// Um retângulo em coordenadas de conteúdo (a origem é o canto da área de render;
@@ -1121,6 +1121,20 @@ fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> 
 /// - texto: a largura do texto concatenado.
 /// Recursivo: a largura de um filho é a SUA intrínseca + frame (ou seu `width` fixo).
 fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+    let key = IntrinsicWidthKey {
+        tree: dom.cache_identity(),
+        node_epoch: dom.layout_epoch(id),
+        style_epoch: crate::style::props::style_epoch(),
+        node: id,
+        font_size: font.to_bits(),
+        viewport_w: ctx.viewport_w.to_bits(),
+        viewport_h: ctx.viewport_h.to_bits(),
+        measurer: std::ptr::from_ref(ctx.measurer) as *const () as usize as u64,
+    };
+    if let Some(hit) = dom.intrinsic_width_get(key) {
+        return hit;
+    }
+
     // folha de texto puro → largura do texto.
     let own_text = collect_text(dom, id);
     let only_text = !dom.node(id).children.is_empty()
@@ -1135,7 +1149,9 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         // o peso importa p/ a largura natural: medir regular mas o wrap/paint usar bold
         // (mais largo) faz o conteúdo não caber na largura natural → quebra indevida.
         let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(false);
-        return ctx.measurer.text_width(&own_text, font, mono, bold);
+        let width = ctx.measurer.text_width(&own_text, font, mono, bold);
+        dom.intrinsic_width_put(key, width);
+        return width;
     }
 
     // o EIXO em que os filhos se dispõem decide SOMA vs MAX.
@@ -1173,12 +1189,14 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         sum += w;
         max = max.max(w);
     }
-    if is_row {
+    let width = if is_row {
         // soma + gaps entre os itens.
         sum + (count.saturating_sub(1)) as f32 * gap
     } else {
         max
-    }
+    };
+    dom.intrinsic_width_put(key, width);
+    width
 }
 
 /// A largura OUTER intrínseca de UM filho (max-content): seu `width` fixo (+ frame),
@@ -3329,6 +3347,24 @@ mod tests {
 
         assert!((before - 100.0).abs() < 0.1);
         assert!((after - 200.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn cache_intrinseca_invalida_texto_mutado() {
+        def_div();
+        let mut dom = parse_html_to_dom(
+            "<div id='host' style='display:flex'><span id='text' style='display:inline-block'>a</span></div>",
+        );
+        let text = dom.query("#text").unwrap();
+        let text_idx = dom.resolve(text).unwrap();
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+
+        let before = layout_document(&dom, &ctx).node_rects[&text_idx].w;
+        let _warm = layout_document(&dom, &ctx);
+        dom.set_text(text, "uma linha de texto bem mais comprida");
+        let after = layout_document(&dom, &ctx).node_rects[&text_idx].w;
+
+        assert!(after > before, "a largura intrínseca deve acompanhar o novo texto");
     }
 
     #[test]
