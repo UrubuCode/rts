@@ -170,3 +170,19 @@ fn rem_conta_do_html_e_nao_do_pai() {
     let filho = dom.query("#filho").unwrap();
     assert_eq!(dom.computed_property(filho, "font-size"), "20px");
 }
+
+#[test]
+fn a_base_do_rem_nao_sobrevive_ao_documento() {
+    // A base do `rem` é estado POR THREAD (não cabe num parâmetro sem atravessar
+    // toda a cadeia do layout), e estado por thread entre documentos é a receita
+    // de um teste que passa ou falha conforme a ordem. Um documento sem `html {
+    // font-size }` tem de voltar aos 16px do browser.
+    let com = crate::parse_html_to_dom(
+        "<style>html{font-size:10px}#a{font-size:2rem}</style><html><body><div id='a'>x</div></body></html>",
+    );
+    assert_eq!(com.computed_property(com.query("#a").unwrap(), "font-size"), "20px");
+    let sem = crate::parse_html_to_dom(
+        "<style>#a{font-size:2rem}</style><html><body><div id='a'>x</div></body></html>",
+    );
+    assert_eq!(sem.computed_property(sem.query("#a").unwrap(), "font-size"), "32px");
+}

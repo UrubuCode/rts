@@ -1,3 +1,11 @@
+[1/4] a combinar paridade/example.html + paridade/example.css -> scripts/parity/pagina.combinada.html
+      html=559B css=0B
+[2/4] lado Chrome
+chrome: 13 elementos, 0 falhas de extração, viewport 1280x800, scroll 0,0
+[3/4] lado RTS (leva minutos — 9 chamadas de fronteira por elemento)
+      14 linhas
+[4/4] comparação (tolerância 1px)
+
 PARIDADE DE LAYOUT — RTS x Chrome
 medido em 2026-08-18T23:33:30.132Z, tolerância 1px
   chrome: scripts/parity/out-example/chrome.jsonl  [1280,800]

@@ -693,7 +693,7 @@ fn layout_out_of_flow(
     let resolve = ResolveCtx {
         parent_content_w: cb.w,
         node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -1023,7 +1023,7 @@ pub(crate) fn layout_block(
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
         node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -2078,7 +2078,7 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         let resolve = ResolveCtx {
             parent_content_w: ctx.viewport_w,
             node_font_size: font,
-            root_font_size: DEFAULT_FONT_SIZE,
+            root_font_size: crate::style::root_font_size(),
             viewport_w: ctx.viewport_w,
             viewport_h: ctx.viewport_h,
         };
@@ -2133,7 +2133,7 @@ pub(crate) fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ct
             let resolve = ResolveCtx {
                 parent_content_w: ctx.viewport_w,
                 node_font_size: f,
-                root_font_size: DEFAULT_FONT_SIZE,
+                root_font_size: crate::style::root_font_size(),
                 viewport_w: ctx.viewport_w,
                 viewport_h: ctx.viewport_h,
             };
@@ -2334,7 +2334,7 @@ fn layout_svg_placeholder(
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
         node_font_size: font,
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -2397,7 +2397,7 @@ fn layout_image(
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
         node_font_size: font,
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -2462,7 +2462,7 @@ fn layout_canvas(
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
         node_font_size: font,
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -2565,7 +2565,7 @@ fn medida_do_input(
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
         node_font_size: font,
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -2676,7 +2676,7 @@ fn layout_input(
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
         node_font_size: font,
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -3126,7 +3126,7 @@ fn layout_children_vertical(
                         let r = ResolveCtx {
                             parent_content_w: content_w,
                             node_font_size: font_px(&c, font_size),
-                            root_font_size: DEFAULT_FONT_SIZE,
+                            root_font_size: crate::style::root_font_size(),
                             viewport_w: ctx.viewport_w,
                             viewport_h: ctx.viewport_h,
                         };
@@ -3387,7 +3387,7 @@ fn flex_base_outer(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, c
     let resolve = ResolveCtx {
         parent_content_w: container_w,
         node_font_size: font,
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -3439,7 +3439,7 @@ fn layout_children_horizontal(
     let resolve = ResolveCtx {
         parent_content_w: content_w,
         node_font_size: font_size,
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -3679,7 +3679,7 @@ fn layout_children_grid(
     let resolve = ResolveCtx {
         parent_content_w: content_w,
         node_font_size: font_size,
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -4066,7 +4066,7 @@ fn layout_children_column(
     let resolve = ResolveCtx {
         parent_content_w: content_w,
         node_font_size: font_size,
-        root_font_size: DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
@@ -4308,7 +4308,7 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
             let resolve = ResolveCtx {
                 parent_content_w: container_w,
                 node_font_size: font,
-                root_font_size: DEFAULT_FONT_SIZE,
+                root_font_size: crate::style::root_font_size(),
                 viewport_w: ctx.viewport_w,
                 viewport_h: ctx.viewport_h,
             };
@@ -4445,7 +4445,7 @@ fn layout_inline_flow(
             d.resolve_signed(&ResolveCtx {
                 parent_content_w: content_w,
                 node_font_size: font_size,
-                root_font_size: DEFAULT_FONT_SIZE,
+                root_font_size: crate::style::root_font_size(),
                 viewport_w: ctx.viewport_w,
                 viewport_h: ctx.viewport_h,
             })
@@ -4546,9 +4546,12 @@ fn layout_inline_flow(
                 // linha, com a altura da FONTE — um `<a>` à volta de uma imagem de
                 // 528px de altura mede 17px no browser, não 528. É a mesma regra
                 // que já vale para o texto, aplicada ao que não é texto.
-                let na_linha = Rect::new(seg_x, cy + meia, seg.ww, conteudo);
                 for &owner in &seg.owners {
-                    crate::inline_box::union_rect(list, owner, na_linha);
+                    crate::inline_box::union_rect(
+                        list,
+                        owner,
+                        fragmento_do_dono(dom, owner, seg_x, cy + meia, seg.ww, conteudo, ctx),
+                    );
                 }
                 // A CAIXA DOS ANCESTRAIS inline: a largura que esta caixa ocupa na
                 // linha, com a altura da FONTE — um `<a>` à volta de uma imagem de
@@ -4571,15 +4574,49 @@ fn layout_inline_flow(
                 letter_spacing: ls,
                 decoration: seg.deco,
             });
-            let text_fragment = Rect::new(seg_x, cy + meia, w.max(0.0), conteudo);
             for &owner in &seg.owners {
-                crate::inline_box::union_rect(list, owner, text_fragment);
+                crate::inline_box::union_rect(
+                    list,
+                    owner,
+                    fragmento_do_dono(dom, owner, seg_x, cy + meia, w.max(0.0), conteudo, ctx),
+                );
             }
             seg_x += w;
         }
         cy += line_h;
     }
     cy
+}
+
+/// O fragmento que ESTE dono recebe desta fatia de linha.
+///
+/// A altura é a content area da fonte DELE, não a do bloco que conduz o fluxo:
+/// um `<span>` de 14px dentro de um título de 17,5px mede 15,75 e não 19,7. Sem
+/// isto, 1 172 dos 1 257 `<span>` da Wikipédia com altura errada tinham
+/// exatamente `1.125 x a fonte de um ANCESTRAL` — quase sempre o bloco quatro
+/// níveis acima.
+///
+/// Fica CENTRADO na content area da linha, que é a mesma aproximação da
+/// meia-entrelinha (o browser alinha pela linha de base; centrar acertou dentro
+/// de 1px no caso medido do `<a>` à volta de uma imagem).
+#[allow(clippy::too_many_arguments)]
+fn fragmento_do_dono(
+    dom: &Dom,
+    dono: NodeIdx,
+    x: f32,
+    y: f32,
+    w: f32,
+    conteudo_da_linha: f32,
+    ctx: &LayoutCtx,
+) -> Rect {
+    let Some(css) = dom.computed_style_idx(dono) else {
+        return Rect::new(x, y, w, conteudo_da_linha);
+    };
+    let Some(crate::style::Dimension::Px(fonte)) = css.font_size else {
+        return Rect::new(x, y, w, conteudo_da_linha);
+    };
+    let conteudo = crate::inline_box::altura_do_conteudo(fonte, ctx.measurer);
+    Rect::new(x, y + (conteudo_da_linha - conteudo) / 2.0, w, conteudo)
 }
 
 /// Um pedaço de texto inline com seu estilo resolvido (cor/peso herdados do span pai).

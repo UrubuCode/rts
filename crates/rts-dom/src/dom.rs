@@ -1605,11 +1605,26 @@ impl Dom {
             let rctx = style::ResolveCtx {
                 parent_content_w: parent_font, // `%` de font-size = % do font do PAI
                 node_font_size: parent_font,   // `em` de font-size = × font do PAI
-                root_font_size: crate::layout::DEFAULT_FONT_SIZE,
+                root_font_size: crate::style::root_font_size(),
                 viewport_w: vw,
                 viewport_h: vh,
             };
             css.font_size = d.resolve(&rctx).filter(|v| *v > 0.0).map(style::Dimension::Px);
+        }
+        // A fonte do `<html>` é a BASE DO `rem` para a árvore inteira — o idioma
+        // `html { font-size: 62.5% }` faz `1rem` valer 10px, e sem esta linha
+        // ficava nos 16px de default e todo o `rem` da página saía 60% grande
+        // demais. Escrito aqui porque a cascade corre de cima para baixo: quando
+        // um descendente resolve o seu `rem`, a raiz já passou por aqui.
+        if matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "html") {
+            // Sem declaração no root, a base VOLTA aos 16px. É o que impede o
+            // valor de um documento de sobreviver ao seguinte: o estado é por
+            // thread (como o estilo por tag) e um `html { font-size: 10px }` de
+            // uma página ficaria a valer na próxima que não declarasse nada.
+            style::set_root_font_size(match css.font_size {
+                Some(style::Dimension::Px(v)) => v,
+                _ => crate::layout::DEFAULT_FONT_SIZE,
+            });
         }
 
         // ── HERANÇA (CSS inherited properties): color/font/text-align/etc. que NÃO

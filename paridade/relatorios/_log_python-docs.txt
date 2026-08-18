@@ -1,3 +1,11 @@
+[1/4] a combinar paridade/python-docs.html + paridade/python-docs.css -> scripts/parity/pagina.combinada.html
+      html=71906B css=36291B
+[2/4] lado Chrome
+chrome: 1660 elementos, 0 falhas de extração, viewport 1280x800, scroll 0,0
+[3/4] lado RTS (leva minutos — 9 chamadas de fronteira por elemento)
+      1661 linhas
+[4/4] comparação (tolerância 1px)
+
 PARIDADE DE LAYOUT — RTS x Chrome
 medido em 2026-08-18T23:33:35.406Z, tolerância 1px
   chrome: scripts/parity/out-python-docs/chrome.jsonl  [1280,800]

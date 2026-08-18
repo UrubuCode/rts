@@ -18,8 +18,17 @@ use rts_dom::layout::{self, DisplayItem};
 struct Medidor;
 
 impl layout::TextMeasurer for Medidor {
+    /// A largura por carácter também é REGULÁVEL (`RTS_TW`), e pelo mesmo
+    /// motivo que a altura de linha: é a outra entrada do instrumento. Variá-la
+    /// responde a pergunta que separa as duas explicações possíveis para a nossa
+    /// página ser mais alta — medimos o texto largo de mais (e portanto
+    /// quebramos linhas a mais) ou produzimos altura a mais por linha.
     fn text_width(&self, text: &str, size: f32, _mono: bool, _bold: bool) -> f32 {
-        text.chars().count() as f32 * size * 0.5
+        static F: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+        let f = *F.get_or_init(|| {
+            std::env::var("RTS_TW").ok().and_then(|v| v.parse().ok()).unwrap_or(0.5)
+        });
+        text.chars().count() as f32 * size * f
     }
     /// A constante da altura de linha é REGULÁVEL (`RTS_LH`) por uma razão de
     /// método: ela é do INSTRUMENTO e não do motor, e comparar a nossa altura

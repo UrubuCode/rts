@@ -1,3 +1,11 @@
+[1/4] a combinar paridade/hn.html + paridade/hn.css -> scripts/parity/pagina.combinada.html
+      html=35080B css=7416B
+[2/4] lado Chrome
+chrome: 818 elementos, 0 falhas de extração, viewport 1280x800, scroll 0,0
+[3/4] lado RTS (leva minutos — 9 chamadas de fronteira por elemento)
+      815 linhas
+[4/4] comparação (tolerância 1px)
+
 PARIDADE DE LAYOUT — RTS x Chrome
 medido em 2026-08-18T23:33:32.865Z, tolerância 1px
   chrome: scripts/parity/out-hn/chrome.jsonl  [1280,800]

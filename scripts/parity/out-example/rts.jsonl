@@ -1,0 +1,14 @@
+{"__meta":1,"lado":"rts","ficheiro":"scripts/parity/pagina.combinada.html","bytes":575,"nos":21,"viewport":[1280,800]}
+{"p":"html[1]","tag":"html","x":0,"y":0,"w":1280,"h":395,"display":"block","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"p":"html[1]/head[1]","tag":"head","x":0,"y":0,"w":0,"h":0,"display":"inline","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"p":"html[1]/head[1]/title[1]","tag":"title","x":0,"y":0,"w":0,"h":0,"display":"inline","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"p":"html[1]/head[1]/link[1]","tag":"link","x":0,"y":0,"w":0,"h":0,"display":"inline","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"p":"html[1]/head[1]/meta[1]","tag":"meta","x":0,"y":0,"w":0,"h":0,"display":"inline","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"p":"html[1]/head[1]/style[1]","tag":"style","x":0,"y":0,"w":0,"h":0,"display":"inline","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"p":"html[1]/body[1]","tag":"body","x":256,"y":120,"w":768,"h":155,"display":"block","position":"static","color":"rgb(0, 0, 0)","background-color":"rgb(238, 238, 238)","font-size":"16px"}
+{"p":"html[1]/body[1]/div[1]","tag":"div","x":256,"y":120,"w":768,"h":155,"display":"block","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"p":"html[1]/body[1]/div[1]/h1[1]","tag":"h1","x":256,"y":141,"w":768,"h":27,"display":"block","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"24px"}
+{"p":"html[1]/body[1]/div[1]/p[1]","tag":"p","x":256,"y":189,"w":768,"h":36,"display":"block","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"p":"html[1]/body[1]/div[1]/p[2]","tag":"p","x":256,"y":241,"w":768,"h":18,"display":"block","position":"static","color":"rgb(0, 0, 0)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"p":"html[1]/body[1]/div[1]/p[2]/a[1]","tag":"a","x":256,"y":241,"w":80,"h":18,"display":"inline","position":"static","color":"rgb(51, 68, 136)","background-color":"rgba(0, 0, 0, 0)","font-size":"16px"}
+{"__fim":1,"emitidos":12}
