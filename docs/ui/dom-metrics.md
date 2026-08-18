@@ -301,3 +301,55 @@ gap left, and it is what the next work attacks.
 `querySelectorAll` being 2× slower is a separate, smaller gap: we walk the tree
 in document order and filter by target key, while Chrome starts from the
 `.class` bucket when the selector's key allows it.
+
+---
+
+## Incremental layout, and the scoreboard after it (2026-08-18)
+
+The reference above said the gap was one thing: Chrome relayouts the subtree
+that changed, we relayouted the document. `layout_block_reusing` closes it for
+the normal vertical flow — a `Fragment` holds what a subtree produced (items,
+per-node rects, hit order, scroll regions, size) and reusing it is emitting
+those items shifted by the difference in position. The key is the measurement
+key without the position, because position is exactly what gets corrected.
+
+Per frame of a text mutation on a 3005-element page: **1000 subtrees reused, 4
+recalculated**, 5 `layout_block` calls and 1 text measurement — against 15 015
+and 11 000 at the start of the campaign.
+
+### Where we stand now
+
+3005-element page, same machine:
+
+| operation | Chrome | rts-dom (start → now) | remaining gap |
+|---|---|---|---|
+| text on a leaf + layout | 0.369 ms | 6.63 → **0.724 ms** | 2.0× |
+| class on a leaf + layout | 0.0053 ms | 6.67 → **0.187 ms** | 35× |
+| inert class toggle + frame | — | 6.67 → **0.030 ms** | — |
+| idle frame | 0.00045 ms | 6.97 → **0.000 ms** (cached) | par |
+| full relayout, no cache | 8.5 ms | 6.97 → 0.168 ms | we win |
+| `querySelectorAll` | 0.097 ms | 0.399 → 0.213 ms | 2.2× |
+| cold layout | — | 26.7 → 15.8 ms | — |
+| append 2000, layout every 100 | 32.5 ms | 67.6 → ~17 ms | we win |
+
+Bootstrap cover page: parse 17.8 → 8.9 ms, cold layout 23.1 → 11.6 ms, text
+mutation 0.375 → 0.050 ms, class 0.096 → 0.017 ms, hover 1.618 → 0.083 ms,
+memory 9.59 → 2.0 MiB.
+
+### What still separates us from Chrome, measured
+
+**Class mutation is 35× slower and the cause is structural, not incremental.**
+We reuse the *computation* of each untouched subtree but still rebuild the flat
+`DisplayList` every frame — 15 000 items copied so the backend can consume one
+contiguous list. Chrome keeps a retained tree and repaints the damaged part. A
+retained display list (a list of `Rc<Fragment>` instead of items) is the next
+structural step; `Rc<str>` on text items was the first half of it, and took the
+text mutation from 1.31 to 0.724 ms.
+
+**`querySelectorAll` is 2.2× slower**, unchanged in nature since the first
+measurement: we walk in document order filtering by target key; Chrome starts
+from the class bucket when the selector allows.
+
+**And the caveat from the first comparison still holds**: where we win, we are
+doing less work — character-count text metrics against real shaping, no subpixel
+positioning, no accessibility tree, a much smaller CSS surface.
