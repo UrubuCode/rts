@@ -253,3 +253,51 @@ walks the parent's subtree per removed node), and the `HashSet` inherited from
 - **12.4% of Bootstrap's rules are dropped at parse** — pseudo-elements and
   compound `:not()` lead the list.
 - **Removing a node leaves its index entries** (the audit reports it as a leak).
+
+---
+
+## The reference: Chrome on the same pages (2026-08-18)
+
+The goal is a DOM fast enough to stand next to a real browser, so the only
+honest way to know where we are is to run the same operations in one. Chrome on
+the same machine, same two files opened over `file://`, timing with
+`performance.now()` over batches (a single mutation is below that clock's ~0.1 ms
+resolution, so each number is a batch of 300–2000 divided by the count).
+
+Synthetic page, 3005 elements:
+
+| operation | Chrome | rts-dom | ratio |
+|---|---|---|---|
+| class toggle on a leaf + layout | 0.0053 ms | 2.9 ms → **0.133 ms** after the early-out | 25× |
+| text change on a leaf + layout | 0.369 ms | 2.9 ms | 8× |
+| idle frame | 0.00045 ms | 0.000 ms (cached) | par |
+| `querySelectorAll('.btn, div, a[href]')` | 0.097 ms | 0.207 ms | 2.1× |
+| append 2000 nodes, layout every 100 | 32.5 ms | 30.2 ms | **we win** |
+| full forced relayout (padding on root) | 8.5 ms | 2.6 ms | **we win** |
+
+Bootstrap cover page (68 elements, 232 KB of CSS):
+
+| operation | Chrome | rts-dom |
+|---|---|---|
+| parse + DOM interactive | 21.9 ms | 8.9 ms |
+| class toggle + layout | 0.0006 ms | 0.038 ms |
+| text change + layout | 0.0010 ms | 0.160 ms |
+| `querySelectorAll` | 0.0028 ms | 0.009 ms |
+
+### How to read this, honestly
+
+**Where we "win" we are doing less work.** Our text measurement multiplies a
+character count; Chrome shapes real fonts with kerning and ligatures, does
+subpixel positioning, builds an accessibility tree, and handles a CSS surface
+several times larger. A full relayout being 3× faster than Chrome's is a
+statement about scope, not about quality.
+
+**Where we lose, the comparison is fair, and it is the same cause twice.**
+Chrome is 25× faster on a class toggle and 8× on a text change because it
+relayouts *the subtree that changed*. We relayout the document: `layout_document`
+walks the whole tree every time the revision moves. That is the one structural
+gap left, and it is what the next work attacks.
+
+`querySelectorAll` being 2× slower is a separate, smaller gap: we walk the tree
+in document order and filter by target key, while Chrome starts from the
+`.class` bucket when the selector's key allows it.
