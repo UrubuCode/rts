@@ -177,6 +177,7 @@ dom_metrics! {
     }
     "layout" {
         documents: "layout_document";
+        display_cache_hits: "…reusado do cache de display list";
         block_calls: "layout_block";
         inline_runs: "linhas inline montadas";
         measure_calls: "measure_block (pré-passo)";

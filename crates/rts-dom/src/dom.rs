@@ -306,6 +306,12 @@ pub struct Dom {
     /// Buffer, offset dos pixels, w, h)`. Setado pelo browser via `setImage` depois
     /// de baixar+decodificar; o layout emite `DisplayItem::Image`. DERIVADO, fora do Eq.
     image_pixels: HashMap<NodeIdx, (u64, u32, u32, u32)>,
+    /// A ÚLTIMA `DisplayList` calculada, com a chave que a validou — o layout
+    /// inteiro reusado enquanto nada que o afete mudar (ver
+    /// [`crate::layout::layout_cached`]). Um só slot: o padrão é reperguntar
+    /// pelo MESMO estado (uma consulta de geometria atrás da outra, um frame
+    /// atrás do outro), não alternar entre viewports.
+    display_cache: std::cell::RefCell<Option<(DisplayKey, std::rc::Rc<crate::layout::DisplayList>)>>,
     /// Qual `<input>` tem o FOCO (recebe as teclas). `None` = nenhum. Setado por
     /// `focus_input` (o loop TS chama após um clique dentro da caixa de um input).
     /// DERIVADO, fora do `PartialEq`.
@@ -364,6 +370,7 @@ impl Dom {
             input_values: HashMap::new(),
             image_pixels: HashMap::new(),
             focused_input: None,
+            display_cache: std::cell::RefCell::new(None),
         }
     }
 
@@ -620,6 +627,23 @@ impl Dom {
     fn memo_entries(&self) -> usize {
         self.computed_memo.borrow().iter().filter(|s| s.is_some()).count()
             + self.base_memo.borrow().iter().filter(|s| s.is_some()).count()
+    }
+
+    pub(crate) fn display_cache_get(
+        &self,
+        key: DisplayKey,
+    ) -> Option<std::rc::Rc<crate::layout::DisplayList>> {
+        let cache = self.display_cache.borrow();
+        let (k, list) = cache.as_ref()?;
+        (*k == key).then(|| std::rc::Rc::clone(list))
+    }
+
+    pub(crate) fn display_cache_put(
+        &self,
+        key: DisplayKey,
+        list: &std::rc::Rc<crate::layout::DisplayList>,
+    ) {
+        *self.display_cache.borrow_mut() = Some((key, std::rc::Rc::clone(list)));
     }
 
     pub(crate) fn layout_epoch(&self, idx: NodeIdx) -> u64 {
@@ -3030,6 +3054,11 @@ fn memo_put(
     }
     memo[idx] = Some(std::rc::Rc::clone(value));
 }
+
+/// A chave do cache de layout: `(revisão de render, viewport w/h em bits,
+/// medidor)`. Ver [`crate::layout::layout_cached`] para por que cada parte
+/// entra.
+pub(crate) type DisplayKey = (u64, u32, u32, u64);
 
 /// A CHAVE-ALVO de um seletor: o que o último compound exige do nó que ele casa.
 /// Um filtro barato antes do matcher completo (que navega a árvore) — a mesma

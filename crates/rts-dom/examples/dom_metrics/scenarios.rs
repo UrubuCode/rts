@@ -141,6 +141,32 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     }));
     drop(dom);
 
+    // 3b. FRAME PARADO COM CACHE — o caminho que um app real percorre: nada
+    //     mudou, então o layout inteiro é reusado. A diferença para o cenário
+    //     acima é o preço de NÃO ter o cache, e é ele que diz quanto um
+    //     `getBoundingClientRect` custava no caminho headless.
+    let dom = parse_html_to_dom(html);
+    let _ = rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh));
+    runs.push(run("frame parado (cache)", "frame", iters, m, || {
+        std::hint::black_box(rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh)));
+    }));
+    drop(dom);
+
+    // 3c. MUTAÇÃO + frame com cache — o cache é invalidado por revisão, então
+    //     aqui ele NÃO ajuda: é o custo real de um frame que muda algo.
+    let mut dom = parse_html_to_dom(html);
+    let _ = rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh));
+    let leaf0 = deepest_element(&dom);
+    let mut t0 = 0u32;
+    runs.push(run("mutação + frame (cache)", "frame", iters, m, || {
+        t0 += 1;
+        if let Some(t) = leaf0 {
+            dom.set_text(t, &format!("t {t0}"));
+        }
+        std::hint::black_box(rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh)));
+    }));
+    drop(dom);
+
     // 4. TEXTO de uma folha + relayout — o contador, o relógio, o campo que
     //    digita. Mede o que a invalidação PRESERVA.
     let mut dom = parse_html_to_dom(html);

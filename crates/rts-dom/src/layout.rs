@@ -190,6 +190,20 @@ pub trait TextMeasurer {
     /// Altura de UMA linha em `size` (line-height). Aproximação aceitável: `size *
     /// fator`; o backend pode dar o valor exato da fonte.
     fn line_height(&self, size: f32) -> f32;
+
+    /// IDENTIDADE deste medidor: dois medidores com a mesma identidade têm de
+    /// dar a mesma largura para o mesmo texto.
+    ///
+    /// Entra na chave de todo cache de layout, porque a mesma árvore no mesmo
+    /// viewport se dispõe diferente com outra fonte. Era o ENDEREÇO do `dyn`
+    /// que servia de identidade — e um medidor construído na pilha por frame
+    /// (o do egui é) pode mudar de endereço sem mudar de comportamento, ou
+    /// reusar o endereço de outro que mudou: as duas falhas em direções
+    /// opostas. O default `0` serve a um medidor sem estado; um backend cujo
+    /// resultado dependa de fonte/escala DEVE derivar disto o que muda.
+    fn identity(&self) -> u64 {
+        0
+    }
 }
 
 /// Medidor APROXIMADO, sem backend — para teste e para o caminho headless puro
@@ -241,7 +255,7 @@ fn measure_block(
     shrink_to_fit: bool,
     ctx: &LayoutCtx,
 ) -> (f32, f32) {
-    let measurer = std::ptr::from_ref(ctx.measurer) as *const () as usize as u64;
+    let measurer = ctx.measurer.identity();
     let key = LayoutMeasureKey {
         tree: dom.cache_identity(),
         node_epoch: dom.layout_epoch(id),
@@ -277,6 +291,38 @@ fn measure_block(
     );
     dom.layout_measure_put(key, size);
     size
+}
+
+/// O layout de um `Dom`, REUSADO enquanto nada que o afete mudar.
+///
+/// Um browser não recalcula layout quando nada mudou, e o caminho headless
+/// (`rts:dom` a partir do TS) chamava [`layout_document`] por consulta de
+/// geometria — uma passada completa por `getBoundingClientRect`. O `rts-egui`
+/// já tinha um cache assim, por frame, dentro dele: dois caches para a mesma
+/// pergunta, e só um dos consumidores servido.
+///
+/// A chave é `(revisão de render, viewport, medidor)`. A revisão cobre árvore,
+/// estilo e animação (todo mutador a incrementa); o viewport porque o layout
+/// depende dele; e o MEDIDOR porque a mesma árvore no mesmo viewport se dispõe
+/// diferente com uma fonte diferente — é o mesmo componente que já entra nas
+/// chaves dos caches de medição.
+///
+/// Devolve `Rc` e não valor: uma `DisplayList` de página grande são 15 000
+/// itens e milhares de `String`, e clonar isso por consulta desfaria o ganho.
+pub fn layout_cached(dom: &Dom, ctx: &LayoutCtx) -> std::rc::Rc<DisplayList> {
+    let key = (
+        dom.render_revision(),
+        ctx.viewport_w.to_bits(),
+        ctx.viewport_h.to_bits(),
+        ctx.measurer.identity(),
+    );
+    if let Some(hit) = dom.display_cache_get(key) {
+        crate::bump!(display_cache_hits);
+        return hit;
+    }
+    let fresh = std::rc::Rc::new(layout_document(dom, ctx));
+    dom.display_cache_put(key, &fresh);
+    fresh
 }
 
 /// Calcula o layout de um `Dom` inteiro e devolve a [`DisplayList`]. Ponto de
@@ -1138,7 +1184,7 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         font_size: font.to_bits(),
         viewport_w: ctx.viewport_w.to_bits(),
         viewport_h: ctx.viewport_h.to_bits(),
-        measurer: std::ptr::from_ref(ctx.measurer) as *const () as usize as u64,
+        measurer: ctx.measurer.identity(),
     };
     crate::bump!(intrinsic_calls);
     if let Some(hit) = dom.intrinsic_width_get(key) {
@@ -3430,6 +3476,28 @@ fn collect_text(dom: &Dom, id: NodeIdx) -> String {
 mod tests {
     use super::*;
     use crate::dom::parse_html_to_dom;
+
+    /// O cache de layout devolve a MESMA lista enquanto nada muda, e uma NOVA
+    /// depois de qualquer mutação. Sem a segunda metade, "o frame parado custa
+    /// zero" seria só outra forma de dizer que a página parou de atualizar.
+    #[test]
+    fn cache_de_layout_reusa_e_invalida() {
+        let mut dom = parse_html_to_dom("<div id='a'><p>um</p></div>");
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let first = layout_cached(&dom, &ctx);
+        let again = layout_cached(&dom, &ctx);
+        assert!(std::rc::Rc::ptr_eq(&first, &again), "nada mudou: a lista é a mesma");
+
+        let alvo = dom.query("#a").unwrap();
+        dom.set_text(alvo, "outro");
+        let after = layout_cached(&dom, &ctx);
+        assert!(!std::rc::Rc::ptr_eq(&first, &after), "o texto mudou: lista nova");
+
+        // Viewport diferente também é outro layout.
+        let narrow = LayoutCtx { viewport_w: 300.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let small = layout_cached(&dom, &narrow);
+        assert!(!std::rc::Rc::ptr_eq(&after, &small));
+    }
 
     /// Registra `<div>` como bloco vertical (os testes precisam que a tag tenha
     /// layout de bloco para entrar no caminho `layout_block` dos filhos).

@@ -59,6 +59,15 @@ impl<'a> EguiMeasurer<'a> {
 }
 
 impl<'a> TextMeasurer for EguiMeasurer<'a> {
+    /// O `Context` do egui identifica as fontes; o `pixels_per_point` identifica
+    /// a escala, e mudar o zoom MUDA a largura do texto. Este medidor é
+    /// construído na pilha a cada frame, então o endereço dele não serve — ver a
+    /// nota em `TextMeasurer::identity`.
+    fn identity(&self) -> u64 {
+        let context = self.ctx as *const egui::Context as usize as u64;
+        context ^ ((self.ctx.pixels_per_point().to_bits() as u64) << 32)
+    }
+
     fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32 {
         let context_key = self.ctx as *const egui::Context as usize;
         let font_key = (context_key, size.to_bits(), mono, bold);
@@ -107,19 +116,10 @@ impl<'a> TextMeasurer for EguiMeasurer<'a> {
 }
 
 
-thread_local! {
-    /// Cache da DisplayList BASE (pré-barra/pré-offset) por DOM handle: chave =
-    /// (render_revision do Dom, viewport_w/h em bits). A barra de scroll e os
-    /// offsets são aplicados por-frame SOBRE a lista cacheada (mutações baratas);
-    /// só a mudança real de DOM/estilo/viewport re-roda o layout.
-    static LAYOUT_CACHE: std::cell::RefCell<std::collections::HashMap<u64, (u64, u32, u32, layout::DisplayList)>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
-    /// Cache equivalente para o caminho sem scroll, que recebe `&Dom` diretamente
-    /// em vez de um handle. A identidade da árvore evita reutilizar uma lista de
-    /// outro DOM quando a alocação de memória for reaproveitada.
-    static DIRECT_LAYOUT_CACHE: std::cell::RefCell<std::collections::HashMap<u64, (u64, u32, u32, layout::DisplayList)>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
-}
+// Os dois caches de DisplayList que viviam aqui foram para o `rts-dom`
+// (`layout::layout_cached`): eram a mesma pergunta — "o layout mudou?" — feita
+// duas vezes neste crate, e nenhuma das duas servia o caminho HEADLESS, que
+// chamava `layout_document` por consulta de geometria.
 
 /// Renderiza um `Dom` inteiro: reutiliza ou calcula o layout (rts-dom) e PINTA a display list.
 ///
@@ -138,24 +138,7 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
     let viewport_h = ui.ctx().screen_rect().height().max(1.0);
     let measurer = EguiMeasurer { ctx: ui.ctx() };
     let ctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
-    let key = dom.cache_identity();
-    let rev = dom.render_revision();
-    let list = DIRECT_LAYOUT_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some((c_rev, c_w, c_h, cached)) = cache.get(&key) {
-            if *c_rev == rev && *c_w == viewport_w.to_bits() && *c_h == viewport_h.to_bits() {
-                return cached.clone();
-            }
-        }
-        let fresh = layout::layout_document(dom, &ctx);
-        if cache.len() >= 64 && !cache.contains_key(&key) {
-            if let Some(old_key) = cache.keys().next().copied() {
-                cache.remove(&old_key);
-            }
-        }
-        cache.insert(key, (rev, viewport_w.to_bits(), viewport_h.to_bits(), fresh.clone()));
-        fresh
-    });
+    let list = layout::layout_cached(dom, &ctx);
     paint_list(ui, &list, 0.0);
     // reserva a altura total ocupada (p/ o egui ao redor dimensionar).
     ui.allocate_space(egui::vec2(ui.available_width(), list.content_height));
@@ -185,19 +168,10 @@ pub(crate) fn render_dom_scrolled(
     // muda. Era a "travada" ao clicar: re-layout completo por frame.
     let measurer = EguiMeasurer { ctx: ui.ctx() };
     let lctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
-    let rev = rts_dom::store::with_dom(h, |d| d.render_revision()).unwrap_or(0);
-    let mut list = LAYOUT_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some((c_rev, c_w, c_h, cached)) = cache.get(&h) {
-            if *c_rev == rev && *c_w == viewport_w.to_bits() && *c_h == viewport_h.to_bits() {
-                return cached.clone(); // clone da lista pronta ≪ re-layout
-            }
-        }
-        let fresh = rts_dom::store::with_dom(h, |d| layout::layout_document(d, &lctx))
-            .unwrap_or_default();
-        cache.insert(h, (rev, viewport_w.to_bits(), viewport_h.to_bits(), fresh.clone()));
-        fresh
-    });
+    // A barra e o offset são aplicados SOBRE a lista, então esta cópia é
+    // necessária — mas ela agora parte de uma lista cacheada pelo próprio DOM.
+    let mut list = rts_dom::store::with_dom(h, |d| (*layout::layout_cached(d, &lctx)).clone())
+        .unwrap_or_default();
     let content_h = list.content_height;
 
     // OFFSET de scroll: estado por-handle no egui (input é do backend). Acumula a roda
