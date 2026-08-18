@@ -282,10 +282,10 @@ pub struct Dom {
     /// Cache derivado de medições de bloco feitas em listas descartáveis durante
     /// flex/grid/inline-block/out-of-flow. É limpo em qualquer mutação visual para
     /// não reutilizar tamanho sob estilo ou conteúdo stale.
-    layout_measure_cache: std::cell::RefCell<HashMap<LayoutMeasureKey, (f32, f32)>>,
+    layout_measure_cache: std::cell::RefCell<crate::fasthash::FastMap<LayoutMeasureKey, (f32, f32)>>,
     /// Cache derivado de largura intrínseca (max-content), usada pelos pré-passos
     /// de shrink-to-fit/flex/grid. A chave inclui o contexto tipográfico completo.
-    intrinsic_width_cache: std::cell::RefCell<HashMap<IntrinsicWidthKey, f32>>,
+    intrinsic_width_cache: std::cell::RefCell<crate::fasthash::FastMap<IntrinsicWidthKey, f32>>,
     /// Epoch local de geometria. Filhos e ancestrais são incrementados quando uma
     /// mutação pode alterar seu tamanho; irmãos independentes mantêm o valor.
     layout_epochs: Vec<u64>,
@@ -362,8 +362,8 @@ impl Dom {
             base_memo: std::cell::RefCell::new(Vec::new()),
             base_memo_revision: std::cell::Cell::new(u64::MAX),
             base_memo_viewport: std::cell::Cell::new((0, 0)),
-            layout_measure_cache: std::cell::RefCell::new(HashMap::new()),
-            intrinsic_width_cache: std::cell::RefCell::new(HashMap::new()),
+            layout_measure_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
+            intrinsic_width_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
             layout_epochs: vec![0],
             viewport: std::cell::Cell::new((1280.0, 800.0)),
             memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),

@@ -140,7 +140,7 @@ pub struct DisplayList {
     /// layout: cada bloco registra seu retângulo (margin EXCLUÍDA — border-box, como
     /// o `getBoundingClientRect` do browser); elementos inline recebem a união dos
     /// fragmentos de linha; nós de texto não entram.
-    pub node_rects: std::collections::HashMap<NodeIdx, Rect>,
+    pub node_rects: crate::fasthash::FastMap<NodeIdx, Rect>,
     /// Containers roláveis internos (divs com `overflow`) — o backend gerencia o
     /// offset de cada região e recorta. Vazio quando a página não tem scroll interno.
     pub scroll_regions: Vec<ScrollRegion>,
@@ -401,7 +401,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
 fn containing_block_rect(
     dom: &Dom,
     id: NodeIdx,
-    flow_rects: &std::collections::HashMap<NodeIdx, Rect>,
+    flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
 ) -> Option<Rect> {
     let mut cur = dom.node(id).parent;
     while let Some(p) = cur {
@@ -439,7 +439,7 @@ fn layout_out_of_flow(
     dom: &Dom,
     id: NodeIdx,
     ctx: &LayoutCtx,
-    flow_rects: &std::collections::HashMap<NodeIdx, Rect>,
+    flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
     list: &mut DisplayList,
 ) {
     let css = dom.computed_style_idx(id).unwrap_or_default();
@@ -2903,7 +2903,11 @@ fn layout_inline_flow(
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
     let lines = wrap_runs(&runs, wrap_w, font_size, mono, ctx.measurer);
     let mut cy = y;
-    for line in &lines {
+    // CONSUMINDO as linhas: o texto de cada segmento vai direto para o
+    // `DisplayItem`, em vez de ser clonado. Eram milhares de `String` alocadas
+    // por passada de layout, uma por segmento, para copiar algo que ninguém mais
+    // usaria depois.
+    for line in lines {
         // largura total da linha (texto no SEU peso + widgets) p/ text-align.
         let line_w: f32 = line
             .iter()
@@ -2926,6 +2930,7 @@ fn layout_inline_flow(
         };
         // pinta cada pedaço NA SUA COR e PESO, avançando o x.
         for seg in line {
+            let seg: Segment = seg;
             if let Some(w_idx) = seg.widget {
                 // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
                 // campo de texto via layout_input com o avail da linha).
@@ -2952,7 +2957,7 @@ fn layout_inline_flow(
             list.items.push(DisplayItem::Text {
                 x: seg_x,
                 y: cy,
-                text: seg.text.clone(),
+                text: seg.text,
                 color: seg.color,
                 size: font_size,
                 mono,
