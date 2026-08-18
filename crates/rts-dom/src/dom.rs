@@ -1137,16 +1137,24 @@ impl Dom {
         let parent_css_for_vars = self
             .element_parent_idx(idx)
             .and_then(|p| self.base_style_idx(p));
-        let own_customs: Vec<(String, String)> = if self.stylesheet.is_empty() {
-            inline.custom.clone()
+        // As regras que casam este nó, casadas UMA vez e usadas nos DOIS passes
+        // (custom properties e declarações). Antes cada passe refazia o
+        // matching completo — e o matching navega a árvore.
+        let matched = if self.stylesheet.is_empty() {
+            style::MatchedRules::default()
         } else {
-            let mut v = self.stylesheet.custom_for_node(
+            self.stylesheet.matched_for_node(
                 self.viewport.get().0,
                 &tag,
                 node_id.as_deref(),
                 &class_refs,
                 |sel| self.matches_complex(idx, sel),
-            );
+            )
+        };
+        let own_customs: Vec<(String, String)> = if self.stylesheet.is_empty() {
+            inline.custom.clone()
+        } else {
+            let mut v = self.stylesheet.custom_from(&matched);
             v.extend(inline.custom.iter().cloned());
             v
         };
@@ -1183,14 +1191,7 @@ impl Dom {
         let author = if self.stylesheet.is_empty() {
             style::DeclBlock::default()
         } else {
-            self.stylesheet.computed_for_node(
-                self.viewport.get().0,
-                &tag,
-                node_id.as_deref(),
-                &class_refs,
-                Some(vars_ref),
-                |sel| self.matches_complex(idx, sel),
-            )
+            self.stylesheet.declarations_from(&matched, Some(vars_ref))
         };
         let override_node = self.style_overrides.get(&idx);
 
@@ -1842,10 +1843,11 @@ impl Dom {
             return Vec::new();
         }
         let Some(root_idx) = self.resolve(root) else { return Vec::new() };
+        let keys: Vec<TargetKey> = selectors.iter().map(TargetKey::of).collect();
         let mut out = Vec::new();
         // só os DESCENDENTES (o próprio nó não casa a si mesmo no querySelector).
         for &child in &self.nodes[root_idx].children {
-            self.query_all_into(child, &selectors, &mut out);
+            self.query_all_into(child, &selectors, &keys, &mut out);
         }
         out
     }
@@ -2216,8 +2218,15 @@ impl Dom {
             return Vec::new();
         }
         crate::bump!(query_calls);
+        // CHAVE-ALVO por seletor (a tag/classe/id do último compound, que é o
+        // que o seletor casa). O teste completo NAVEGA a árvore para os
+        // combinadores; comparar a chave primeiro descarta a maioria dos nós com
+        // uma comparação de string. É a mesma ideia do `RuleIndex` da cascade,
+        // que a consulta não usava: 5007 nós × 14 seletores eram 70 090 chamadas
+        // ao matcher completo numa página de 3000 elementos.
+        let keys: Vec<TargetKey> = selectors.iter().map(TargetKey::of).collect();
         let mut out = Vec::new();
-        self.query_all_into(self.root, &selectors, &mut out);
+        self.query_all_into(self.root, &selectors, &keys, &mut out);
         out
     }
 
@@ -2225,14 +2234,24 @@ impl Dom {
         &self,
         idx: NodeIdx,
         selectors: &[crate::style::ComplexSelector],
+        keys: &[TargetKey],
         out: &mut Vec<NodeId>,
     ) {
         crate::bump!(query_nodes_visited);
-        if idx != self.root && selectors.iter().any(|sel| self.matches_complex(idx, sel)) {
-            out.push(self.make_id(idx));
+        if idx != self.root {
+            if let NodeKind::Element { tag } = &self.nodes[idx].kind {
+                let id = self.nodes[idx].attr("id");
+                let class_attr = self.nodes[idx].attr("class");
+                let hit = selectors.iter().zip(keys).any(|(sel, key)| {
+                    key.can_match(tag, id, class_attr) && self.matches_complex(idx, sel)
+                });
+                if hit {
+                    out.push(self.make_id(idx));
+                }
+            }
         }
         for &child in &self.nodes[idx].children {
-            self.query_all_into(child, selectors, out);
+            self.query_all_into(child, selectors, keys, out);
         }
     }
 
@@ -2974,6 +2993,57 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
         }
     }
     attrs
+}
+
+/// A CHAVE-ALVO de um seletor: o que o último compound exige do nó que ele casa.
+/// Um filtro barato antes do matcher completo (que navega a árvore) — a mesma
+/// ideia do `RuleIndex` da cascade, aplicada às consultas.
+///
+/// Só uma chave por seletor, e a mais seletiva disponível: `#id` descarta quase
+/// tudo, `.classe` descarta muito, a tag descarta o resto. `Any` (universal,
+/// `[attr]`, pseudo) não descarta nada e cai direto no matcher — é o caso em que
+/// o filtro não ajuda, e ele não pode ATRAPALHAR respondendo "não" por engano.
+enum TargetKey {
+    Id(String),
+    Class(String),
+    Tag(String),
+    Any,
+}
+
+impl TargetKey {
+    fn of(sel: &crate::style::ComplexSelector) -> TargetKey {
+        use crate::style::SimpleSelector as S;
+        let Some(last) = sel.compounds.last() else { return TargetKey::Any };
+        for p in &last.parts {
+            if let S::Id(v) = p {
+                return TargetKey::Id(v.clone());
+            }
+        }
+        for p in &last.parts {
+            if let S::Class(v) = p {
+                return TargetKey::Class(v.clone());
+            }
+        }
+        for p in &last.parts {
+            if let S::Tag(v) = p {
+                return TargetKey::Tag(v.clone());
+            }
+        }
+        TargetKey::Any
+    }
+
+    /// `false` só quando o nó NÃO pode casar — um falso negativo aqui perderia
+    /// um resultado, então cada braço espelha exatamente o que o matcher exige.
+    fn can_match(&self, tag: &str, id: Option<&str>, class_attr: Option<&str>) -> bool {
+        match self {
+            TargetKey::Any => true,
+            TargetKey::Tag(t) => t == tag,
+            TargetKey::Id(want) => id == Some(want.as_str()),
+            TargetKey::Class(want) => class_attr
+                .map(|c| c.split_whitespace().any(|x| x == want))
+                .unwrap_or(false),
+        }
+    }
 }
 
 /// Parseia HTML para uma árvore retida. Reusa o tokenizador de `html.rs`; a

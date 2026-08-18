@@ -201,6 +201,20 @@ pub struct Stylesheet {
     position_sensitive: std::cell::RefCell<Option<bool>>,
 }
 
+/// As regras que casaram um nó, ordenadas pela cascade. Opaco de propósito: o
+/// que quem chama precisa é passá-lo aos dois passes, não ler o conteúdo.
+#[derive(Debug, Default)]
+pub struct MatchedRules {
+    /// `(especificidade, ordem, índice da regra)`, crescente.
+    rules: Vec<(u32, u32, usize)>,
+}
+
+impl MatchedRules {
+    pub fn is_empty(&self) -> bool {
+        self.rules.is_empty()
+    }
+}
+
 /// Até onde uma mudança de `:hover` pode mexer no estilo desta folha.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HoverReach {
@@ -452,36 +466,67 @@ impl Stylesheet {
     /// casa (decidido pelo `matches` fornecido — o `Dom` passa um que navega a
     /// árvore p/ os combinadores). Retorna um [`DeclBlock`] (normal + important
     /// separados). Dentro de cada camada, ordem de (especificidade, order) crescente.
-    pub fn computed_for_node(
+    /// As regras que casam um nó, JÁ ORDENADAS pela cascade (especificidade,
+    /// depois ordem de documento).
+    ///
+    /// Existe porque o matching acontecia DUAS vezes por nó: uma no passe das
+    /// custom properties (que precisa vir antes, para resolver `var()`) e outra
+    /// no das declarações — sobre o mesmo conjunto candidato e com a mesma
+    /// resposta. E `matches` não é barato: NAVEGA a árvore para os
+    /// combinadores. Numa página Bootstrap são 149 candidatas por nó, e metade
+    /// do trabalho era repetição exata.
+    pub fn matched_for_node(
         &self,
         viewport_w: f32,
         node_tag: &str,
         node_id: Option<&str>,
         node_classes: &[&str],
-        vars: Option<&std::collections::HashMap<String, String>>,
         matches: impl Fn(&ComplexSelector) -> bool,
-    ) -> DeclBlock {
-        // FAST PATH: só as regras cuja chave-alvo o nó pode satisfazer (índice), em
-        // vez de TODAS as regras. O `matches` completo (navega a árvore) ainda decide.
+    ) -> MatchedRules {
+        // FAST PATH: só as regras cuja chave-alvo o nó pode satisfazer (índice),
+        // em vez de TODAS. O `matches` completo ainda decide.
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
         crate::bump!(rules_considered, cand.len());
         let index = self.index.borrow();
-        let mut matched: Vec<(u32, u32, &Rule)> = cand
+        let mut rules: Vec<(u32, u32, usize)> = cand
             .iter()
             .filter_map(|&i| {
                 let r = &self.rules[i];
-                (r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
-                    && matches(&r.selector))
-                    .then(|| (index.specificity(i), r.order, r))
+                (r.media.map(|m| m.matches(viewport_w)).unwrap_or(true) && matches(&r.selector))
+                    .then(|| (index.specificity(i), r.order, i))
             })
             .collect();
-        crate::bump!(rules_matched, matched.len());
-        matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        crate::bump!(rules_matched, rules.len());
+        rules.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        MatchedRules { rules }
+    }
+
+    /// PASS A do `var()` por elemento (#1779): as declarações de CUSTOM
+    /// PROPERTIES (`--x: v`) das regras que casaram, na ordem da cascade (a
+    /// última vence por nome, no consumidor).
+    pub fn custom_from(&self, matched: &MatchedRules) -> Vec<(String, String)> {
+        if !self.has_custom_rules() {
+            return Vec::new();
+        }
+        matched
+            .rules
+            .iter()
+            .flat_map(|(_, _, i)| self.rules[*i].decls.custom.iter().cloned())
+            .collect()
+    }
+
+    /// PASS B: as declarações normais e `!important` das regras que casaram, com
+    /// as pendentes (`prop: …var(--x)…`) resolvidas na POSIÇÃO da regra contra
+    /// as custom props do elemento.
+    pub fn declarations_from(
+        &self,
+        matched: &MatchedRules,
+        vars: Option<&std::collections::HashMap<String, String>>,
+    ) -> DeclBlock {
         let mut out = DeclBlock::default();
-        for (_, _, r) in &matched {
+        for (_, _, i) in &matched.rules {
+            let r = &self.rules[*i];
             out.normal.merge_over(&r.decls.normal);
-            // declarações PENDENTES (`prop: …var(--x)…`) resolvem AQUI, na posição
-            // da regra na cascade, contra as custom props do ELEMENTO (#1779).
             if let Some(v) = vars {
                 for (prop, raw, important) in &r.decls.pending {
                     if !important {
@@ -490,7 +535,8 @@ impl Stylesheet {
                 }
             }
         }
-        for (_, _, r) in &matched {
+        for (_, _, i) in &matched.rules {
+            let r = &self.rules[*i];
             out.important.merge_over(&r.decls.important);
             if let Some(v) = vars {
                 for (prop, raw, important) in &r.decls.pending {
@@ -503,38 +549,6 @@ impl Stylesheet {
         out
     }
 
-    /// PASS A do var() por elemento (#1779): coleta as declarações de CUSTOM
-    /// PROPERTIES (`--x: v`) das regras que casam, na ordem da cascade
-    /// (especificidade + ordem — a última vence por nome no consumidor).
-    pub fn custom_for_node(
-        &self,
-        viewport_w: f32,
-        node_tag: &str,
-        node_id: Option<&str>,
-        node_classes: &[&str],
-        matches: impl Fn(&ComplexSelector) -> bool,
-    ) -> Vec<(String, String)> {
-        if !self.has_custom_rules() {
-            return Vec::new();
-        }
-        let cand = self.candidate_indices(node_tag, node_id, node_classes);
-        crate::bump!(rules_considered, cand.len());
-        let index = self.index.borrow();
-        let mut matched: Vec<(u32, u32, &Rule)> = cand
-            .iter()
-            .filter_map(|&i| {
-                let r = &self.rules[i];
-                (!r.decls.custom.is_empty()
-                    && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
-                    && matches(&r.selector))
-                    .then(|| (index.specificity(i), r.order, r))
-            })
-            .collect();
-        crate::bump!(rules_matched, matched.len());
-        matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
-        matched.iter().flat_map(|(_, _, r)| r.decls.custom.iter().cloned()).collect()
-    }
-
     /// Conveniência: computa o estilo para um elemento dado SÓ tag/id/classes (sem
     /// árvore). Casa apenas seletores de UM compound (sem combinadores nem pseudo/
     /// atributo dependentes de posição — esses retornam false aqui). Usado em testes
@@ -544,11 +558,12 @@ impl Stylesheet {
         let no_pseudo = |_: &PseudoClass| false;
         // viewport de referência 1280 (helper sem árvore/viewport — testes);
         // sem vars (pendentes com var() não resolvem aqui).
-        self.computed_for_node(1280.0, tag, id, classes, None, |sel| {
+        let matched = self.matched_for_node(1280.0, tag, id, classes, |sel| {
             // só seletores de 1 compound casam sem a árvore.
             sel.compounds.len() == 1
                 && compound_matches(&sel.compounds[0], tag, id, classes, &no_attr, &no_pseudo)
-        })
+        });
+        self.declarations_from(&matched, None)
     }
 }
 

@@ -538,10 +538,11 @@ fn at_rules_nao_corrompem_o_parse() {
         Some(Dimension::Px(40.0))
     );
     // …e NÃO aplicam quando não casa (viewport 800 < 1200).
-    let no_match = sheet.computed_for_node(800.0, "h1", None, &[], None, |sel| {
+    let matched = sheet.matched_for_node(800.0, "h1", None, &[], |sel| {
         sel.compounds.len() == 1
             && compound_matches(&sel.compounds[0], "h1", None, &[], &|_| None, &|_| false)
     });
+    let no_match = sheet.declarations_from(&matched, None);
     assert_eq!(no_match.normal.font_size, None);
     assert_eq!(no_match.normal.color, Some(0xFF0000FF), "a regra fora do @media segue");
     // feature desconhecida (prefers-*) nunca casa.

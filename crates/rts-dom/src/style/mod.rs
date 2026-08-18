@@ -59,7 +59,7 @@ pub use selector::{
     compound_matches, compound_matches_borrowed, parse_selector, parse_selector_list, AttrOp, Combinator,
     ComplexSelector, CompoundSelector, PseudoClass, Selector, SimpleSelector,
 };
-pub use stylesheet::{parse_rules, DeclBlock, HoverReach, MediaQuery, Rule, Stylesheet};
+pub use stylesheet::{parse_rules, DeclBlock, HoverReach, MatchedRules, MediaQuery, Rule, Stylesheet};
 pub use values::{
     clamp_size, AlignItems, BorderStyle, CalcLen, Dimension, DisplayKind, Edges, FlexDirection, FloatSide, GridTrack,
     JustifyContent, LineHeight, Position, ResolveCtx, Rgba, Side, TextAlign, TextTransform,
