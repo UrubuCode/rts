@@ -183,6 +183,24 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     }));
     drop(dom);
 
+    // 3f. CLASSE QUE SÓ MUDA COR + frame — o toggle mais comum de um app
+    //     (`.active`, `.selected`, `:hover` traduzido para classe): muda o que
+    //     se PINTA sem mudar o que se MEDE. É o caso que a costura de container
+    //     existe para servir, e o que um browser resolve em microssegundos.
+    let mut dom = parse_html_to_dom(html);
+    dom.add_stylesheet(".rts-realce{color:#ff0000}");
+    let _ = rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh));
+    let leaf3 = deepest_element(&dom);
+    let mut flip3 = false;
+    runs.push(run("classe de cor + frame", "frame", iters, m, || {
+        flip3 = !flip3;
+        if let Some(t) = leaf3 {
+            dom.set_attr(t, "class", if flip3 { "rts-realce" } else { "" });
+        }
+        std::hint::black_box(rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh)));
+    }));
+    drop(dom);
+
     // 3e. CLASSE QUE CASA + frame com cache — o `classList.toggle` que de fato
     //     muda estilo, pelo caminho que um app percorre (o layout é PEDIDO, não
     //     forçado). É o número comparável ao do browser; o cenário `classe +

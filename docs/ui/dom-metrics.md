@@ -409,3 +409,47 @@ instead of a display list rebuilt from it.
 
 In absolute terms 0.8 ms is under 5% of a 60 fps frame on a page of 3000
 elements, so this is a margin question, not a viability one.
+
+---
+
+## The floor, found by two failed attempts (2026-08-18)
+
+After the incremental layout, the remaining gap on a class toggle (150× Chrome)
+looked like it had two possible causes. Both were built, measured and reverted.
+
+**Attempt 1 — retained display list.** `SharedChunk` holding `Rc<Fragment>` plus
+an offset, an iterator interleaving own and shared items, the backend adding the
+offset while painting instead of copying. Text mutation 0.724 → 0.809 ms, class
+0.187 → 0.171 ms — inside the machine's noise — and the cold layout got *worse*,
+because every miss now flattens the fragment it just built.
+
+**Attempt 2 — container patching.** Track which direct children are dirty
+(marked while the invalidation already walks the ancestor chain), keep per-child
+item spans in the parent's fragment, and on a miss rebuild only the dirty child
+and splice its items into the previous drawing. It worked — the counters showed
+containers being patched instead of walked — and the timing was **identical**:
+0.689 ms with patching against 0.676 ms with it disabled by an env switch, on
+the same build.
+
+Both failed for the same reason, and that reason is the finding:
+
+> **The cost is proportional to the number of ITEMS the page produces, not to
+> the layout work avoided.** A page of 3005 elements emits ~30 000 display items;
+> whether we re-walk the children, copy fragments, or splice a previous vector,
+> we still materialize that list every frame. Skipping the layout of a thousand
+> untouched subtrees was worth 9× (that is the incremental layout, and it stayed).
+> Skipping the *copy* is worth nothing while the output is a flat list rebuilt
+> per frame.
+
+What would actually move it is the consumer accepting a hierarchy instead of a
+list — the backend walking a tree of fragments and painting from it, with no
+flat `DisplayList` in the middle. That is a change to the contract between
+`rts-dom` and every renderer, not an optimization inside the layout, and it is
+where the next attempt should start. Attempt 1 went in that direction but kept
+materializing at every point that mutates items (CSS `transform`, the scroll
+`BeginClip`, the tests), which is why it paid the cost twice.
+
+Both attempts are reverted; what stays is this section, the scenarios that
+measure the cases (`classe de cor + frame`, `classe que casa + frame`), and the
+number that bounds the next attempt: **0.17 ms is the floor for any frame that
+rebuilds this page's list**, measured with every subtree reused.
