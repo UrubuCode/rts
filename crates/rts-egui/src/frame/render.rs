@@ -317,11 +317,14 @@ fn process_scroll_regions(
     sb: &rts_dom::scrollbar::ScrollbarStyle,
     page_dy: f32,
 ) {
-    if list.scroll_regions.is_empty() {
+    // As regiões roláveis podem ter vindo de uma subárvore REUSADA: a lista
+    // guarda as próprias, e a `geometry()` junta as das subárvores.
+    let geometria = list.geometry();
+    if geometria.scroll_regions.is_empty() {
         return;
     }
     let base = ui.max_rect().min;
-    let regions = list.scroll_regions.clone();
+    let regions = geometria.scroll_regions.clone();
     for region in &regions {
         let max_x = (region.content_w - region.visible.w).max(0.0);
         let max_y = (region.content_h - region.visible.h).max(0.0);

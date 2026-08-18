@@ -160,6 +160,47 @@ pub struct DisplayList {
     /// irmãos na ordem documental e elementos fora do fluxo por `z-index` crescente.
     /// O último nó que contém o ponto é o que está visualmente no topo.
     pub hit_order: Vec<NodeIdx>,
+    /// A geometria completa, montada sob demanda a partir da árvore. Não entra
+    /// no `PartialEq` nem no `Clone` lógico: é derivada.
+    geometry_cache: std::cell::RefCell<Option<std::rc::Rc<Geometry>>>,
+}
+
+/// A geometria de uma passada de layout, já com as subárvores reusadas somadas.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Geometry {
+    pub rects: crate::fasthash::FastMap<NodeIdx, Rect>,
+    pub hit_order: Vec<NodeIdx>,
+    pub scroll_regions: Vec<ScrollRegion>,
+}
+
+/// Acumula a geometria de um fragmento e das subárvores dele, deslocada.
+fn collect_geometry(fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
+    let moved = dx != 0.0 || dy != 0.0;
+    for (idx, rect) in &fragment.rects {
+        let mut rect = *rect;
+        if moved {
+            rect.x += dx;
+            rect.y += dy;
+        }
+        out.rects.insert(*idx, rect);
+    }
+    let mut next = 0usize;
+    for child in &fragment.children {
+        while next < child.hit_at && next < fragment.hit_order.len() {
+            out.hit_order.push(fragment.hit_order[next]);
+            next += 1;
+        }
+        collect_geometry(&child.fragment, dx + child.dx, dy + child.dy, out);
+    }
+    out.hit_order.extend_from_slice(&fragment.hit_order[next.min(fragment.hit_order.len())..]);
+    for region in &fragment.scroll_regions {
+        let mut region = *region;
+        if moved {
+            region.visible.x += dx;
+            region.visible.y += dy;
+        }
+        out.scroll_regions.push(region);
+    }
 }
 
 impl DisplayList {
@@ -202,6 +243,47 @@ impl DisplayList {
             + self.children.iter().map(|c| c.fragment.total_items()).sum::<usize>()
     }
 
+    /// A geometria COMPLETA desta lista: os retângulos próprios mais os das
+    /// subárvores reusadas, já deslocados. Construída na primeira consulta e
+    /// guardada — o layout mesmo só a pede quando há elemento fora do fluxo.
+    pub fn geometry(&self) -> std::rc::Rc<Geometry> {
+        if let Some(g) = self.geometry_cache.borrow().as_ref() {
+            return std::rc::Rc::clone(g);
+        }
+        let g = std::rc::Rc::new(self.geometry_now());
+        *self.geometry_cache.borrow_mut() = Some(std::rc::Rc::clone(&g));
+        g
+    }
+
+    /// A geometria SEM cachear — para uso DURANTE a montagem da lista, quando
+    /// ainda vão entrar itens (a passada de fora do fluxo). Cachear ali deixaria
+    /// o hit-test lendo uma geometria anterior aos `position:absolute`, que foi
+    /// exatamente o que um teste de `z-index` acusou.
+    pub fn geometry_now(&self) -> Geometry {
+        let mut g = Geometry {
+            rects: self.node_rects.clone(),
+            hit_order: Vec::with_capacity(self.hit_order.len()),
+            scroll_regions: self.scroll_regions.clone(),
+        };
+        // Intercala a ordem de hit-test pelo ponto de entrada de cada subárvore:
+        // a ordem É o z-order, e concatenar inverteria quem está por cima.
+        let mut next = 0usize;
+        for child in &self.children {
+            while next < child.hit_at && next < self.hit_order.len() {
+                g.hit_order.push(self.hit_order[next]);
+                next += 1;
+            }
+            collect_geometry(&child.fragment, child.dx, child.dy, &mut g);
+        }
+        g.hit_order.extend_from_slice(&self.hit_order[next.min(self.hit_order.len())..]);
+        g
+    }
+
+    /// O retângulo de um nó, se ele foi desenhado.
+    pub fn rect_of(&self, node: NodeIdx) -> Option<Rect> {
+        self.geometry().rects.get(&node).copied()
+    }
+
     /// HIT-TEST: o nó sob o ponto `(x, y)` em COORDENADAS DE CONTEÚDO (o backend
     /// converte tela→conteúdo somando o offset de scroll antes de chamar). Quando a
     /// lista foi produzida por `layout_document`, a ordem de pintura respeita
@@ -209,15 +291,16 @@ impl DisplayList {
     /// ponto é o elemento visualmente no topo. Listas antigas sem `hit_order` usam o
     /// fallback por menor área para manter compatibilidade.
     pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeIdx> {
-        if !self.hit_order.is_empty() {
-            return self.hit_order.iter().rev().copied().find(|&idx| {
-                self.node_rects.get(&idx).is_some_and(|r| {
+        let g = self.geometry();
+        if !g.hit_order.is_empty() {
+            return g.hit_order.iter().rev().copied().find(|&idx| {
+                g.rects.get(&idx).is_some_and(|r| {
                     x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
                 })
             });
         }
         let mut best: Option<(NodeIdx, f32)> = None;
-        for (&idx, r) in &self.node_rects {
+        for (&idx, r) in &g.rects {
             if x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h {
                 let area = r.w * r.h;
                 if best.map(|(_, a)| area < a).unwrap_or(true) {
@@ -429,7 +512,9 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // O rect do containing block de cada abs é lido do `node_rects` JÁ preenchido
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
     // empréstimo mutável de `list`.
-    let flow_rects = list.node_rects.clone();
+    // A geometria COMPLETA (com as subárvores reusadas): o containing block de
+    // um `absolute` pode ser um ancestral cujo retângulo veio de um fragmento.
+    let flow_rects = list.geometry_now().rects;
     crate::bump!(out_of_flow, out_of_flow.len());
     for id in &out_of_flow {
         layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut list);
@@ -704,7 +789,7 @@ fn find_body_bg(dom: &Dom, idx: NodeIdx) -> Option<u32> {
 /// Roda o layout inteiro (O(n)); para várias consultas no mesmo frame, reuse a
 /// `DisplayList` de `layout_document` e leia `node_rects` direto.
 pub fn bounding_rect(dom: &Dom, node: NodeIdx, ctx: &LayoutCtx) -> Option<Rect> {
-    layout_document(dom, ctx).node_rects.get(&node).copied()
+    layout_document(dom, ctx).rect_of(node)
 }
 
 /// Faz o layout de UM nó-bloco a partir de `(x, y)`, com `avail_w` de largura
@@ -1183,17 +1268,54 @@ fn fragment_key(
     avail_h: Option<f32>,
     ctx: &LayoutCtx,
 ) -> crate::dom::FragmentKey {
-    crate::dom::FragmentKey {
-        tree: dom.cache_identity(),
-        node_epoch: dom.layout_epoch(id),
-        style_epoch: crate::style::props::style_epoch(),
-        anim_epoch: dom.anim_epoch(),
-        node: id,
-        avail_w: avail_w.to_bits(),
-        avail_h: avail_h.map(f32::to_bits),
-        viewport_w: ctx.viewport_w.to_bits(),
-        viewport_h: ctx.viewport_h.to_bits(),
-        measurer: ctx.measurer.identity(),
+    KeyBase::new(dom, avail_w, avail_h, ctx).key(dom, id)
+}
+
+/// A parte da chave de fragmento que NÃO varia entre os filhos de um container:
+/// identidade da árvore, epochs globais, viewport, medidor e as constraints.
+///
+/// Montar a chave inteira por filho relia um `thread_local` (o epoch de estilo)
+/// e refazia as conversões mil vezes por container — o laço do fluxo vertical
+/// pergunta o mesmo a cada iteração e só o nó muda.
+#[derive(Clone, Copy)]
+struct KeyBase {
+    tree: u64,
+    style_epoch: u64,
+    anim_epoch: u64,
+    avail_w: u32,
+    avail_h: Option<u32>,
+    viewport_w: u32,
+    viewport_h: u32,
+    measurer: u64,
+}
+
+impl KeyBase {
+    fn new(dom: &Dom, avail_w: f32, avail_h: Option<f32>, ctx: &LayoutCtx) -> KeyBase {
+        KeyBase {
+            tree: dom.cache_identity(),
+            style_epoch: crate::style::props::style_epoch(),
+            anim_epoch: dom.anim_epoch(),
+            avail_w: avail_w.to_bits(),
+            avail_h: avail_h.map(f32::to_bits),
+            viewport_w: ctx.viewport_w.to_bits(),
+            viewport_h: ctx.viewport_h.to_bits(),
+            measurer: ctx.measurer.identity(),
+        }
+    }
+
+    fn key(&self, dom: &Dom, id: NodeIdx) -> crate::dom::FragmentKey {
+        crate::dom::FragmentKey {
+            tree: self.tree,
+            node_epoch: dom.layout_epoch(id),
+            style_epoch: self.style_epoch,
+            anim_epoch: self.anim_epoch,
+            node: id,
+            avail_w: self.avail_w,
+            avail_h: self.avail_h,
+            viewport_w: self.viewport_w,
+            viewport_h: self.viewport_h,
+            measurer: self.measurer,
+        }
     }
 }
 
@@ -1266,6 +1388,14 @@ fn layout_block_reusing(
 pub struct ChildRef {
     /// Posição em `items` ANTES da qual esta subárvore é pintada.
     pub at: usize,
+    /// Posição em `hit_order` antes da qual a ordem de hit-test dela entra.
+    ///
+    /// Separada do `at` porque as duas sequências crescem por motivos
+    /// diferentes: nem todo item de pintura registra um nó, e nem todo nó
+    /// registrado pinta um item. Montar a ordem de hit-test com os próprios
+    /// primeiro e os das subárvores depois inverte o z-order — foi o que o teste
+    /// de `z-index` acusou.
+    pub hit_at: usize,
     pub fragment: std::rc::Rc<Fragment>,
     pub dx: f32,
     pub dy: f32,
@@ -1328,28 +1458,16 @@ impl Fragment {
         // os 48 de um item, numa quantidade menor.
         list.children.push(ChildRef {
             at: list.items.len(),
+            hit_at: list.hit_order.len(),
             fragment: std::rc::Rc::clone(self),
             dx,
             dy,
         });
-        let moved = dx != 0.0 || dy != 0.0;
-        for (idx, rect) in &self.rects {
-            let mut rect = *rect;
-            if moved {
-                rect.x += dx;
-                rect.y += dy;
-            }
-            list.node_rects.insert(*idx, rect);
-        }
-        list.hit_order.extend_from_slice(&self.hit_order);
-        for region in &self.scroll_regions {
-            let mut region = *region;
-            if moved {
-                region.visible.x += dx;
-                region.visible.y += dy;
-            }
-            list.scroll_regions.push(region);
-        }
+        // A GEOMETRIA da subárvore (retângulos, ordem de hit-test, regiões
+        // roláveis) também fica na referência: materializá-la aqui era metade do
+        // custo de um frame parado — três inserções em mapa por fragmento, mil
+        // fragmentos. Quem precisa dela chama `geometry()`, que percorre a
+        // árvore uma vez e guarda o resultado.
     }
 }
 
@@ -2113,6 +2231,9 @@ fn layout_children_vertical(
     list: &mut DisplayList,
 ) -> f32 {
     let mut child_y = content_y;
+    // A base da chave de fragmento é a mesma para todos os filhos deste
+    // container — só o nó e o epoch dele mudam.
+    let key_base = KeyBase::new(dom, content_w, avail_h, ctx);
     // MARGIN-COLLAPSE (versão simples, fiel ao caso comum): margins verticais de
     // blocos ADJACENTES colapsam para o MAIOR, não somam (regra do CSS). Como o
     // `outer_h` de cada bloco já inclui seu margin nos dois lados, ao empilhar dois
@@ -2180,7 +2301,7 @@ fn layout_children_vertical(
         // `block::lookup` e a margem resolvida por filho: mil vezes por frame
         // numa lista, para redescobrir o que não mudou.
         if matches!(dom.node(child).kind, NodeKind::Element { .. }) {
-            let key = fragment_key(dom, child, content_w, avail_h, ctx);
+            let key = key_base.key(dom, child);
             if let Some(fragment) = dom.fragment_get(key) {
                 crate::bump!(fragment_hits);
                 flush_inline!(child_y);
@@ -3987,8 +4108,8 @@ mod tests {
                 (cacheado.content_height - recalculado.content_height).abs() < TOL,
                 "altura divergente no passo {passo}"
             );
-            let mut a: Vec<_> = cacheado.node_rects.iter().map(|(i, r)| (*i, *r)).collect();
-            let mut b: Vec<_> = recalculado.node_rects.iter().map(|(i, r)| (*i, *r)).collect();
+            let mut a: Vec<_> = cacheado.geometry().rects.iter().map(|(i, r)| (*i, *r)).collect();
+            let mut b: Vec<_> = recalculado.geometry().rects.iter().map(|(i, r)| (*i, *r)).collect();
             a.sort_by_key(|(idx, _)| *idx);
             b.sort_by_key(|(idx, _)| *idx);
             assert_eq!(a.len(), b.len(), "nº de retângulos diverge no passo {passo}");
@@ -4069,9 +4190,9 @@ mod tests {
 
         let first = layout_document(&dom, &ctx);
         let _warm = layout_document(&dom, &ctx);
-        let before = first.node_rects[&card_idx].w;
+        let before = first.geometry().rects[&card_idx].w;
         dom.set_style_property(card, "width", "200px");
-        let after = layout_document(&dom, &ctx).node_rects[&card_idx].w;
+        let after = layout_document(&dom, &ctx).geometry().rects[&card_idx].w;
 
         assert!((before - 100.0).abs() < 0.1);
         assert!((after - 200.0).abs() < 0.1);
@@ -4087,10 +4208,10 @@ mod tests {
         let text_idx = dom.resolve(text).unwrap();
         let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
 
-        let before = layout_document(&dom, &ctx).node_rects[&text_idx].w;
+        let before = layout_document(&dom, &ctx).geometry().rects[&text_idx].w;
         let _warm = layout_document(&dom, &ctx);
         dom.set_text(text, "uma linha de texto bem mais comprida");
-        let after = layout_document(&dom, &ctx).node_rects[&text_idx].w;
+        let after = layout_document(&dom, &ctx).geometry().rects[&text_idx].w;
 
         assert!(after > before, "a largura intrínseca deve acompanhar o novo texto");
     }
@@ -4110,11 +4231,11 @@ mod tests {
         let filho = dom.query("#filho").unwrap();
         let pai_idx = dom.resolve(pai).unwrap();
         let filho_idx = dom.resolve(filho).unwrap();
-        let fr = list.node_rects[&filho_idx];
+        let fr = list.geometry().rects[&filho_idx];
         let hit = list.hit_test(fr.x + fr.w / 2.0, fr.y + fr.h / 2.0);
         assert_eq!(hit, Some(filho_idx));
         // canto do pai (dentro do padding, fora do filho).
-        let pr = list.node_rects[&pai_idx];
+        let pr = list.geometry().rects[&pai_idx];
         let hit2 = list.hit_test(pr.x + 5.0, pr.y + 5.0);
         assert_eq!(hit2, Some(pai_idx));
         // fora de tudo.
@@ -4128,7 +4249,8 @@ mod tests {
         let list = layout_document(&dom, &ctx);
         let span = dom.query("#s").unwrap();
         let span_idx = dom.resolve(span).unwrap();
-        let rect = list.node_rects.get(&span_idx).expect("inline deveria ter rect");
+        let geo = list.geometry();
+        let rect = geo.rects.get(&span_idx).expect("inline deveria ter rect");
         assert!(rect.w > 0.0);
         assert!(rect.h > 0.0);
     }
@@ -4416,7 +4538,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let r = |sel: &str| list.node_rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let r = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let logo = r("#logo");
         assert!((logo.w - 272.0).abs() < 1.0 && (logo.h - 92.0).abs() < 1.0, "logo: {}x{}", logo.w, logo.h);
         let ico = r("#ico");
@@ -4434,7 +4556,7 @@ mod tests {
         let list = layout_document(&dom, &ctx);
         let rect = |sel: &str| {
             let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-            list.node_rects[&idx]
+            list.geometry().rects[&idx]
         };
         let a = rect("#a"); let b = rect("#b"); let c = rect("#c");
         assert!((a.w - 200.0).abs() < 1.0, "col px: {}", a.w);
@@ -4454,7 +4576,7 @@ mod tests {
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#logo").unwrap()).unwrap();
-        let r = list.node_rects[&idx];
+        let r = list.geometry().rects[&idx];
         assert!((r.y - 74.0).abs() < 2.0, "y centralizado: {} (esperado 74=(240-92)/2)", r.y);
         assert!((r.h - 92.0).abs() < 2.0, "altura preservada: {}", r.h);
     }
@@ -4472,8 +4594,8 @@ mod tests {
         let list = layout_document(&dom, &ctx);
         let c = dom.query("#c").unwrap();
         let idx = dom.resolve(c).unwrap();
-        assert!((list.node_rects[&idx].h - 240.0).abs() < 2.0,
-            "calc height: {} (esperado 240 = 800-560)", list.node_rects[&idx].h);
+        assert!((list.geometry().rects[&idx].h - 240.0).abs() < 2.0,
+            "calc height: {} (esperado 240 = 800-560)", list.geometry().rects[&idx].h);
     }
 
     #[test]
@@ -4490,7 +4612,7 @@ mod tests {
         let list = layout_document(&dom, &ctx);
         let alvo = dom.query("#alvo").unwrap();
         let idx = dom.resolve(alvo).unwrap();
-        let r = list.node_rects[&idx];
+        let r = list.geometry().rects[&idx];
         assert!((r.h - 740.0).abs() < 2.0, "altura do filho 100%: {} (esperado 740)", r.h);
         assert!((r.y - 60.0).abs() < 2.0, "y do filho: {}", r.y);
     }
