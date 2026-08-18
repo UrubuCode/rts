@@ -4473,6 +4473,14 @@ name = "rts-dom"
 version = "0.1.0"
 
 [[package]]
+name = "rts-dom-bridge"
+version = "0.1.0"
+dependencies = [
+ "rts-core",
+ "rts-dom",
+]
+
+[[package]]
 name = "rts-egui"
 version = "0.1.0"
 dependencies = [
@@ -4499,6 +4507,7 @@ dependencies = [
  "rts-codegen",
  "rts-core",
  "rts-cranelift",
+ "rts-dom-bridge",
  "rts-node",
  "rts-physics",
  "rts-std",

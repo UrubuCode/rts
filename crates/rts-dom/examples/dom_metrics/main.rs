@@ -37,6 +37,9 @@ struct Options {
     json_out: Option<String>,
     baseline: Option<String>,
     tolerance: f64,
+    /// `--explique`: por que a página desenha o que desenha — quais elementos
+    /// receberam geometria e quais não, e o motivo.
+    explicar: bool,
 }
 
 fn parse_args() -> Options {
@@ -50,6 +53,7 @@ fn parse_args() -> Options {
         json_out: None,
         baseline: None,
         tolerance: 5.0,
+        explicar: false,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -65,6 +69,7 @@ fn parse_args() -> Options {
             "--json" => o.json_out = it.next().cloned(),
             "--baseline" => o.baseline = it.next().cloned(),
             "--tolerance" => o.tolerance = it.next().and_then(|v| v.parse().ok()).unwrap_or(o.tolerance),
+            "--explique" => o.explicar = true,
             other => o.files.push(other.to_string()),
         }
     }
@@ -166,6 +171,10 @@ fn bench_file(path: &str, o: &Options, baseline: Option<&str>) -> Option<String>
     match scenarios::verificar_equivalencia(&html, o.vw, o.vh, &m) {
         Ok(itens) => println!("    equivalência do reuso: OK ({itens} itens conferidos)"),
         Err(divergencia) => println!("    ⚠ EQUIVALÊNCIA QUEBRADA: {divergencia}"),
+    }
+
+    if o.explicar {
+        scenarios::explicar_pagina(&html, o.vw, o.vh, &m);
     }
 
     let runs = scenarios::page(&html, o.vw, o.vh, o.iters, &m);

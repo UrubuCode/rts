@@ -1,0 +1,17 @@
+[package]
+name = "rts-dom-bridge"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+# A ponte entre o `rts-dom` (a árvore, o layout, o estilo — que não conhece
+# motor nenhum) e a superfície de host do `rts-core` (namespaces, coerção).
+#
+# CRATE PRÓPRIO e não um módulo do `rts-ui`, porque o DOM headless é o ponto:
+# parsear, consultar e mutar HTML sem abrir janela é o que o `rts:dom` oferece,
+# e amarrá-lo à feature `ui` faria um build sem tela perder o DOM junto com a
+# janela. O `rts-ui` continua sendo a ponte da UI; esta é a do documento.
+
+[dependencies]
+rts-core = { path = "../rts-core" }
+rts-dom = { path = "../rts-dom" }

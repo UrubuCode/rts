@@ -408,6 +408,12 @@ fn run_region(
         let _timing = rts_cranelift::probe::Phase::start("install-physics");
         rts_physics::install(&mut context);
     }
+    {
+        // `rts:dom` vem ANTES da UI e sem feature: o documento é headless por
+        // natureza, e um build sem tela continua parseando e consultando HTML.
+        let _timing = rts_cranelift::probe::Phase::start("install-dom");
+        rts_dom_bridge::install(&mut context);
+    }
     #[cfg(feature = "ui")]
     rts_ui::install(&mut context);
     // The modules a program may import. Registered by the HOST rather than by

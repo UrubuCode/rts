@@ -83,6 +83,15 @@ pub enum DisplayItem {
     /// `rect` (escalando). Decodificação/download acontecem ANTES (no browser .ts,
     /// via fetchBytes+imgdec); o rts-dom só carrega o handle+dims — segue wasm-safe.
     Image { rect: Rect, pixels_handle: u64, pixels_off: u32, img_w: u32, img_h: u32 },
+    /// PIXELS que o próprio documento carrega (um `<canvas>` que o programa
+    /// pintou), RGBA8, `w*h*4` bytes.
+    ///
+    /// Variante separada da `Image` porque a fonte é outra: aquela aponta para
+    /// um `Buffer` de fora por handle — o `<img>` que o mini-browser baixou e
+    /// decodificou — e esta CARREGA os bytes, porque quem pintou foi o programa
+    /// e o desenho não tem outro dono. Um `Rc` para que passar a lista adiante
+    /// não copie a imagem.
+    Pixels { rect: Rect, data: std::rc::Rc<Vec<u8>>, w: u32, h: u32 },
     /// Texto numa posição (canto superior-esquerdo). `mono` escolhe a família
     /// monoespaçada. `letter_spacing` = espaço extra entre glifos (px). `decoration`
     /// = linha decorativa (0=nenhuma, 1=underline, 2=line-through, 3=overline). O
@@ -873,6 +882,15 @@ fn layout_block(
             }
             // `<img>` com pixels decodificados: emite a imagem no rect (tamanho do CSS
             // width/height, senão o natural da imagem). Void — sem filhos.
+            // `<canvas>`: elemento REPLACED cujo conteúdo é uma superfície de
+            // pixels. A caixa vem dos atributos `width`/`height` (ou do CSS), e
+            // o desenho aparece quando o programa pinta — antes disso a caixa
+            // existe e fica vazia, que é o que o browser também faz.
+            if tag == "canvas" {
+                if let Some(r) = layout_canvas(dom, id, &css, x, y, avail_w, ctx, list) {
+                    return r;
+                }
+            }
             if tag == "img" {
                 if let Some(img) = layout_image(dom, id, &css, x, y, avail_w, ctx, list) {
                     return img;
@@ -1035,12 +1053,22 @@ fn layout_block(
     let ov_x = css.overflow_x.unwrap_or(crate::scrollbar::Overflow::Visible);
     let ov_y = css.overflow_y.unwrap_or(crate::scrollbar::Overflow::Visible);
     let scrolls_x = ov_x.scrollable() || ov_x == crate::scrollbar::Overflow::Hidden;
-    let children_w = if scrolls_x {
+    // A inflação vale para o eixo do FLUXO HORIZONTAL, que é onde a compressão
+    // aconteceria (o flex encolhe os itens até caberem). Nos demais layouts ela
+    // vira base de PORCENTAGEM dos filhos, e aí está errada: `width:100%` dentro
+    // de um container que rola é 100% da CAIXA, não do conteúdo transbordado.
+    //
+    // Medido na página real do WhatsApp Web, que aninha vários containers com
+    // `overflow-y:auto`: cada nível multiplicava a largura do seguinte, e o
+    // conteúdo terminava em x = 2300 numa janela de 1100 — a tela abria vazia
+    // com tudo desenhado fora dela.
+    let scroll_children_w = if scrolls_x {
         // largura que o conteúdo QUER (sem comprimir) — pode exceder content_w.
         intrinsic_content_width(dom, id, font_size, ctx).max(content_w)
     } else {
         content_w
     };
+    let children_w = content_w;
 
     // `height` EXPLÍCITO resolve ANTES dos filhos (não depende deles): eles o
     // recebem como containing-block height (base do `height:%` deles), e o flex
@@ -1090,7 +1118,7 @@ fn layout_block(
         }
         // horizontal (flex-row sem wrap): lado a lado, encolhe pra caber, não quebra.
         d if d == crate::block::DISPLAY_HORIZONTAL => {
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, false, None, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, scroll_children_w, avail_children, &css, font_size, false, None, ctx, list)
         }
         // GRID REAL: track-sizing (px/fr/auto/%) + auto-placement row-by-row +
         // alinhamento de célula (align-items/justify-items). Só quando é
@@ -1100,7 +1128,7 @@ fn layout_block(
         }
         // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
         d if d == crate::block::DISPLAY_WRAP => {
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, true, None, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, scroll_children_w, avail_children, &css, font_size, true, None, ctx, list)
         }
         // vertical (block): empilha.
         _ => layout_children_vertical(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list),
@@ -1216,7 +1244,7 @@ fn layout_block(
             list.scroll_regions.push(ScrollRegion {
                 node_idx: id,
                 visible: content_rect,
-                content_w: children_w.max(content_w),
+                content_w: scroll_children_w.max(content_w),
                 content_h: content_h_natural,
                 overflow_x: ov_x,
                 overflow_y: ov_y,
@@ -1681,6 +1709,7 @@ fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) {
         | DisplayItem::GradientRect { rect, .. }
         | DisplayItem::Border { rect, .. }
         | DisplayItem::Image { rect, .. }
+        | DisplayItem::Pixels { rect, .. }
         | DisplayItem::BeginClip { rect, .. } => shift(rect),
         DisplayItem::Text { x, y, .. } => {
             *x += dx;
@@ -1720,7 +1749,8 @@ fn apply_transform_to_item(
         | DisplayItem::Border { rect, .. }
         | DisplayItem::GradientRect { rect, .. }
         | DisplayItem::Shadow { rect, .. }
-        | DisplayItem::Image { rect, .. } => {
+        | DisplayItem::Image { rect, .. }
+        | DisplayItem::Pixels { rect, .. } => {
             let (nx, ny) = xf(rect.x, rect.y);
             rect.x = nx;
             rect.y = ny;
@@ -1893,6 +1923,13 @@ fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             // intrínseco) → precisa de layout_block p/ emitir o DisplayItem::Image,
             // mesmo sem CSS de caixa.
             if tag == "img" && dom.image_of(id).is_some() {
+                return true;
+            }
+            // `<canvas>` é REPLACED como o `<img>`: a caixa vem dos atributos
+            // `width`/`height` e o conteúdo são pixels. Sem esta linha ele cai no
+            // fluxo inline, onde não há quem emita a superfície — e um canvas
+            // pintado não aparecia na tela, com o resto da página intacto.
+            if tag == "canvas" {
                 return true;
             }
             // `<svg>` é replaced: layout_svg_placeholder reserva a caixa (logo/
@@ -2109,6 +2146,57 @@ fn layout_image(
         img_w: iw,
         img_h: ih,
     });
+    Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
+}
+
+/// Layout de um `<canvas>`: a caixa dos atributos `width`/`height` (o padrão do
+/// HTML é 300×150) ou do CSS, e o `DisplayItem::Pixels` quando há desenho.
+///
+/// Sem pixels a caixa é reservada e nada é pintado — um canvas em branco é um
+/// canvas em branco, não um buraco no layout. É essa reserva que faz o resto da
+/// página se dispor no lugar certo antes de o programa desenhar.
+fn layout_canvas(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> Option<(f32, f32)> {
+    let font = font_px(css, DEFAULT_FONT_SIZE);
+    let resolve = ResolveCtx {
+        parent_content_w: avail_w,
+        node_font_size: font,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let attr_px = |name: &str| -> Option<f32> {
+        dom.node(id)
+            .attr(name)
+            .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f32>().ok())
+            .filter(|v| *v >= 0.0)
+    };
+    // 300×150 é o default do HTML para um canvas sem dimensões.
+    let w = css.width.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("width")).unwrap_or(300.0);
+    let h = css.height.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("height")).unwrap_or(150.0);
+    let m = &css.margin;
+    let margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
+    let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
+    let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
+    let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
+    let rect = Rect::new(x + margin_left, y + margin_top, w, h);
+    record_node_rect(list, id, rect);
+    if let Some(color) = css.bg {
+        list.items.push(DisplayItem::SolidRect { rect, color, radius: 0.0 });
+    }
+    if let Some((data, pw, ph)) = dom.pixel_data_of(id) {
+        if pw > 0 && ph > 0 {
+            list.items.push(DisplayItem::Pixels { rect, data, w: pw, h: ph });
+        }
+    }
     Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
 }
 
@@ -2488,7 +2576,9 @@ fn layout_children_vertical(
             .unwrap_or(crate::style::FloatSide::None);
         let (child_block, child_inline_block) = match &dom.node(child).kind {
             NodeKind::Element { tag } => {
-                let replaced = (tag == "img" && dom.image_of(child).is_some()) || tag == "svg";
+                let replaced = (tag == "img" && dom.image_of(child).is_some())
+                    || tag == "svg"
+                    || tag == "canvas";
                 let effective = child_css.as_ref().and_then(|c| c.effective_display());
                 let explicit_block = effective
                     .map(|d| d != crate::style::DisplayKind::Inline)
@@ -4142,6 +4232,40 @@ mod tests {
             // deslocamento, o teste falha e o braço é escrito.
             _ => a == b,
         }
+    }
+
+    /// Dentro de um container que ROLA, `width:%` de um filho é a porcentagem da
+    /// CAIXA — não do conteúdo transbordado.
+    ///
+    /// O layout de um scroll container usa a largura NATURAL do conteúdo para
+    /// dispor os filhos (senão o flex os comprimiria e nada transbordaria), e
+    /// essa largura estava servindo também de base para as porcentagens. Numa
+    /// página que aninha vários `overflow:auto` — o WhatsApp Web é uma —, cada
+    /// nível multiplicava o seguinte, e o conteúdo terminava desenhado fora da
+    /// janela: a tela abria vazia com tudo pintado à direita dela.
+    #[test]
+    fn porcentagem_dentro_de_scroll_e_da_caixa() {
+        let dom = parse_html_to_dom(
+            "<div style='overflow-y:auto; padding-left:40px; padding-right:40px'>               <div id='meio' style='width:100%'>                 <div style='width:3000px'>conteudo bem mais largo que a caixa</div>               </div>             </div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let lista = layout_document(&dom, &ctx);
+        let meio = dom.resolve(dom.query("#meio").unwrap()).unwrap();
+        let rect = lista.geometry().rects[&meio];
+        assert!(
+            (rect.w - 920.0).abs() < 1.0,
+            "100% da caixa (1000 - 80 de padding) e não do conteúdo: {rect:?}"
+        );
+        // E o conteúdo largo continua transbordando — o container rola, não corta.
+        let geo = lista.geometry();
+        let largo = dom
+            .node(meio)
+            .children
+            .iter()
+            .copied()
+            .find(|c| matches!(dom.node(*c).kind, NodeKind::Element { .. }))
+            .expect("o filho largo");
+        assert!(geo.rects[&largo].w > 2900.0, "o filho largo mantém a largura dele");
     }
 
     /// SEQUÊNCIA LONGA de mutações sorteadas: o reuso tem de bater com o cálculo
