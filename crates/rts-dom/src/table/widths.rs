@@ -73,28 +73,15 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
     }
 }
 
-/// Um `width` que conta para a largura INTRÍNSECA — ou seja, um comprimento
-/// ABSOLUTO. Uma percentagem responde `None`, e é a correção que faz a diferença
-/// entre uma tabela certa e uma tabela de 1280px de largura.
-///
-/// O motivo é que a percentagem é contra a largura da COLUNA, que é o que este
-/// cálculo está a decidir: perguntá-la agora é circular. O `ResolveCtx` da
-/// medição intrínseca põe `parent_content_w = viewport`, portanto resolver
-/// `width:100%` aqui devolvia 1280 e essa célula passava a exigir um mínimo de
-/// 1280 — medido na Wikipédia, onde punha a caixa da infobox a transbordar o
-/// artigo inteiro. O CSS diz o mesmo: uma percentagem indefinida contribui como
-/// `auto` para o tamanho intrínseco.
+/// O `width` desta caixa quando ele conta para uma medição intrínseca — um
+/// comprimento absoluto. A percentagem responde `None` e o porquê está em
+/// [`crate::style::dimensao_absoluta`], que é onde a regra vive desde que o
+/// mesmo defeito apareceu uma segunda vez, no dimensionamento do flex.
 fn largura_absoluta(
     d: Option<crate::style::Dimension>,
     resolve: &ResolveCtx,
 ) -> Option<f32> {
-    match d? {
-        crate::style::Dimension::Percent(_) => None,
-        // `calc()` com componente percentual tem o mesmo problema; sem ela é um
-        // comprimento absoluto como qualquer outro.
-        crate::style::Dimension::Calc(c) if c.pct != 0.0 => None,
-        outra => outra.resolve(resolve),
-    }
+    crate::style::dimensao_absoluta(d?, resolve)
 }
 
 /// O atributo HTML `width` de uma célula/coluna (`<td width="120">`, ainda vivo

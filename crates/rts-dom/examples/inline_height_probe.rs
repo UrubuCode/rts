@@ -144,6 +144,50 @@ fn main() {
         }
         println!("porque os <a> contam como caixa: {porque:?}");
     }
+    {
+        println!("INPUTS:");
+        for id in dom.query_all("input") {
+            let Some(idx) = dom.resolve(id) else { continue };
+            let tipo = dom.node(idx).attr("type").unwrap_or("(sem type)").to_string();
+            let css = dom.computed_style_idx(idx).unwrap_or_default();
+            match geo.rects.get(&idx) {
+                Some(r) => println!(
+                    "  type={tipo:<10} caixa={:.0}x{:.0} em ({:.0},{:.0}) | font={:?} height={:?}",
+                    r.w, r.h, r.x, r.y, css.font_size, css.height
+                ),
+                None => println!("  type={tipo:<10} SEM CAIXA"),
+            }
+        }
+    }
+    // CADEIA de ancestrais do input mais alto: quem lhe dá o containing block.
+    {
+        let mut pior: Option<(rts_dom::NodeIdx, f32)> = None;
+        for id in dom.query_all("input") {
+            let Some(idx) = dom.resolve(id) else { continue };
+            let Some(r) = geo.rects.get(&idx) else { continue };
+            if pior.map(|(_, h)| r.h > h).unwrap_or(true) {
+                pior = Some((idx, r.h));
+            }
+        }
+        if let Some((alvo, _)) = pior {
+            println!("CADEIA do <input> mais alto (do próprio para a raiz):");
+            let mut cur = Some(alvo);
+            while let Some(idx) = cur {
+                let css = dom.computed_style_idx(idx).unwrap_or_default();
+                let nome = match &dom.node(idx).kind {
+                    rts_dom::NodeKind::Element { tag } => tag.clone(),
+                    _ => "(texto)".to_string(),
+                };
+                let r = geo.rects.get(&idx);
+                println!(
+                    "  <{nome}> caixa={} | css height={:?} position={:?} display={:?} overflow_y={:?}",
+                    r.map(|r| format!("{:.0}x{:.0}", r.w, r.h)).unwrap_or_else(|| "-".into()),
+                    css.height, css.position, css.display, css.overflow_y
+                );
+                cur = dom.node(idx).parent;
+            }
+        }
+    }
     println!("altura somada por tag (n, total):");
         for (t, (n, h)) in &soma_por_tag {
             println!("  <{t}> {n} elementos, {:.0}px somados", h);

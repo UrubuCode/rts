@@ -318,6 +318,25 @@ impl Edges {
     pub fn resolve_h(&self, ctx: &ResolveCtx) -> f32 {
         self.left.resolve(ctx).unwrap_or(0.0) + self.right.resolve(ctx).unwrap_or(0.0)
     }
+    /// O eixo horizontal para uma medição INTRÍNSECA: como [`resolve_h`], mas
+    /// um lado em PERCENTAGEM conta zero.
+    ///
+    /// A percentagem de um padding/margem é contra a largura do containing
+    /// block, e uma medição intrínseca corre precisamente quando essa largura
+    /// ainda não está decidida — perguntá-la ali é circular, e o `ResolveCtx`
+    /// da medição responde com a VIEWPORT, que é a resposta errada por uma
+    /// ordem de grandeza. O CSS diz o mesmo: uma percentagem indefinida conta
+    /// como zero para o tamanho intrínseco.
+    ///
+    /// [`resolve_h`]: Edges::resolve_h
+    pub fn resolve_h_intrinseco(&self, ctx: &ResolveCtx) -> f32 {
+        let um = |s: &Side| match s {
+            Side::Len(d) => dimensao_absoluta(*d, ctx).unwrap_or(0.0),
+            _ => 0.0,
+        };
+        um(&self.left) + um(&self.right)
+    }
+
     /// Valor vertical efetivo (top+bottom) resolvido com o contexto.
     pub fn resolve_v(&self, ctx: &ResolveCtx) -> f32 {
         self.top.resolve(ctx).unwrap_or(0.0) + self.bottom.resolve(ctx).unwrap_or(0.0)
@@ -754,6 +773,25 @@ pub struct ResolveCtx {
     pub viewport_w: f32,
     /// Altura da viewport (janela) em pontos — base de `vh`.
     pub viewport_h: f32,
+}
+
+/// Um comprimento que conta para uma medição INTRÍNSECA — ou seja, um que não
+/// depende de uma largura que ainda está por decidir.
+///
+/// Uma percentagem (e um `calc()` com componente percentual) responde `None`:
+/// é contra o containing block, e o tamanho intrínseco é justamente o que se
+/// está a usar para o decidir. Devolver um número ali é circular, e o número que
+/// sairia seria contra a VIEWPORT — 50% de 1280 dentro de uma caixa de 220.
+///
+/// Foi medido duas vezes com o mesmo desenlace: uma célula de tabela a exigir
+/// 1280px de largura mínima, e um item flex a ocupar a linha inteira e a
+/// empurrar o irmão para a linha seguinte.
+pub fn dimensao_absoluta(d: Dimension, ctx: &ResolveCtx) -> Option<f32> {
+    match d {
+        Dimension::Percent(_) => None,
+        Dimension::Calc(c) if c.pct != 0.0 => None,
+        outra => outra.resolve(ctx),
+    }
 }
 
 /// Uma expressão `calc()` LINEAR já reduzida à combinação das 6 bases de

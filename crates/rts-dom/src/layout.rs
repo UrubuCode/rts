@@ -617,6 +617,16 @@ fn containing_block_rect(
             if let Some(r) = flow_rects.get(&p) {
                 return Some(*r);
             }
+            // Um ancestral posicionado SEM caixa (não foi layoutado) não serve de
+            // containing block, e continuar a subir escolhe um contentor que o
+            // browser nunca escolheria — foi assim que um elemento de um ramo
+            // escondido se ancorou num contentor com a altura do documento.
+            //
+            // Devolver `None` faz o chamador cair na viewport, que é o
+            // containing block inicial. É uma aproximação, e a alternativa
+            // (reconstruir a caixa do ancestral) não tem caso desde que o ramo
+            // escondido deixou de ser layoutado.
+            return None;
         }
         cur = dom.node(p).parent;
     }
@@ -627,12 +637,35 @@ fn containing_block_rect(
 /// out-of-flow (os filhos dele pertencem ao layout dele; abs-dentro-de-abs = v2).
 fn collect_out_of_flow(dom: &Dom, id: NodeIdx, out: &mut Vec<NodeIdx>) {
     for &child in &dom.node(id).children {
+        // `display:none` num ANCESTRAL remove a subárvore inteira do layout, e o
+        // fora de fluxo não é exceção: um `position:absolute` dentro de um ramo
+        // escondido não gera caixa nenhuma no browser.
+        //
+        // Sem isto ele era medido e pintado, e — por o pai escondido não ter
+        // caixa — a procura do containing block saltava-o e ia parar a um
+        // ancestral posicionado muito acima: na Wikipédia, um
+        // `<input type=checkbox height:100%>` de um menu escondido resolvia
+        // contra um contentor com a altura do DOCUMENTO e vinha com 96 665px.
+        if e_display_none(dom, child) {
+            continue;
+        }
         if is_out_of_flow(dom, child) {
             out.push(child);
         } else {
             collect_out_of_flow(dom, child, out);
         }
     }
+}
+
+/// `true` se este nó declara `display:none` — a pergunta que tira uma subárvore
+/// inteira do layout. Só o próprio nó: quem varre a árvore de cima para baixo já
+/// não desce nele, e é isso que a torna hereditária na prática.
+fn e_display_none(dom: &Dom, id: NodeIdx) -> bool {
+    matches!(&dom.node(id).kind, NodeKind::Element { .. })
+        && dom
+            .computed_style_idx(id)
+            .and_then(|c| c.effective_display())
+            == Some(crate::style::DisplayKind::None)
 }
 
 /// Layouta UM nó fora do fluxo contra o viewport: mede shrink-to-fit e posiciona
@@ -905,7 +938,7 @@ pub(crate) fn layout_block(
             }
             let css = dom.computed_style_idx(id).unwrap_or_default();
             // `display:none` — não renderiza nem ocupa espaço (some da árvore visual).
-            if css.effective_display() == Some(crate::style::DisplayKind::None) {
+            if e_display_none(dom, id) {
                 return (0.0, 0.0);
             }
             // `<input>`/`<textarea>` editável (mini-browser): void, sem filhos — o
@@ -927,7 +960,7 @@ pub(crate) fn layout_block(
                 if matches!(itype.as_str(), "submit" | "button" | "reset") {
                     return layout_button(dom, id, &css, x, y, ctx, list);
                 }
-                return layout_input(dom, id, &css, x, y, avail_w, forced_outer_w, ctx, list);
+                return layout_input(dom, id, &css, x, y, avail_w, avail_h, forced_outer_w, ctx, list);
             }
             // `<img>` com pixels decodificados: emite a imagem no rect (tamanho do CSS
             // width/height, senão o natural da imagem). Void — sem filhos.
@@ -1287,8 +1320,10 @@ pub(crate) fn layout_block(
             });
             at += 1;
         }
-        // FUNDO: gradiente (se houver) OU cor sólida.
-        if let Some(g) = css.gradient {
+        // FUNDO: gradiente (se houver) OU cor sólida — a menos que uma MÁSCARA
+        // dê a forma da caixa (ver `deve_suprimir_fundo`).
+        let fundo = !deve_suprimir_fundo(&css);
+        if let Some(g) = css.gradient.filter(|_| fundo) {
             insert_item(list, at, filhos_antes_da_caixa, DisplayItem::GradientRect {
                 rect: box_rect,
                 c0: apply_opacity(g.c0, op),
@@ -1297,7 +1332,7 @@ pub(crate) fn layout_block(
                 radius,
             });
             at += 1;
-        } else if let Some(color) = css.bg {
+        } else if let Some(color) = css.bg.filter(|_| fundo) {
             let color = apply_opacity(color, op);
             insert_item(list, at, filhos_antes_da_caixa, DisplayItem::SolidRect { rect: box_rect, color, radius });
             at += 1;
@@ -2081,12 +2116,24 @@ pub(crate) fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ct
                 viewport_w: ctx.viewport_w,
                 viewport_h: ctx.viewport_h,
             };
-            let frame = css.margin.resolve_h(&resolve)
+            // O frame conta em `resolve_h_intrinseco`: uma percentagem de padding
+            // ou margem é contra a largura do containing block, que é o que esta
+            // medição existe para ajudar a decidir.
+            let frame = css.margin.resolve_h_intrinseco(&resolve)
                 + 2.0 * css.border_width.unwrap_or(0.0)
-                + css.padding.resolve_h(&resolve);
-            // width fixo: a caixa tem essa largura.
-            if let Some(w) = css.width.and_then(|d| d.resolve(&resolve)) {
-                return if border_box { w + css.margin.resolve_h(&resolve) } else { w + frame };
+                + css.padding.resolve_h_intrinseco(&resolve);
+            // `width` fixo: a caixa tem essa largura. Um `width` em PERCENTAGEM
+            // não é fixo — contribui como `auto`, e o conteúdo decide. Sem esta
+            // distinção, um `width:50%` respondia metade da VIEWPORT: um item
+            // flex com um filho assim ocupava a linha toda e empurrava o irmão
+            // para a linha de baixo, que é a origem dos 120px de desvio do `<h1>`
+            // da Wikipédia.
+            if let Some(w) = crate::style::dimensao_absoluta(css.width.unwrap_or(crate::style::Dimension::Auto), &resolve) {
+                return if border_box {
+                    w + css.margin.resolve_h_intrinseco(&resolve)
+                } else {
+                    w + frame
+                };
             }
             // senão: a intrínseca do conteúdo + frame.
             intrinsic_content_width(dom, id, f, ctx) + frame
@@ -2173,6 +2220,24 @@ fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
         }
         _ => false,
     }
+}
+
+/// `true` quando o fundo do elemento NÃO deve ser pintado por a forma dele vir de
+/// uma `mask-image` que não sabemos carregar.
+///
+/// Em CSS a máscara RECORTA o fundo: `background-color` mais `mask-image` é o modo
+/// canónico de desenhar um ícone monocromático (o MediaWiki fá-lo em
+/// `.cdx-button__icon`, e a Wikipédia traz 24 deles). Pintar o fundo sem a máscara
+/// não é uma aproximação da forma — é o retângulo inteiro, um bloco cinzento onde
+/// o browser mostra um glifo. Não pintar nada erra por omissão, que é o erro
+/// menor, e é a mesma regra do CLAUDE.md sobre superfícies que não fazem o que o
+/// nome diz: a ausência falha à vista, o oco engana.
+///
+/// SUBSTITUTO TEMPORÁRIO. Quando carregarmos e aplicarmos máscaras a sério, o
+/// fundo volta a ser pintado e passa a ser recortado pela máscara — esta função
+/// desaparece em vez de mudar de resposta.
+fn deve_suprimir_fundo(css: &ComputedStyle) -> bool {
+    css.mask_image.is_some()
 }
 
 /// Código de decoração de texto p/ o `DisplayItem::Text` a partir do estilo:
@@ -2454,17 +2519,27 @@ fn layout_button(
     (w + 6.0, h + 4.0) // margenzinha UA entre botões
 }
 
-fn layout_input(
+/// O lado do quadrado de um `checkbox`/`radio` sem tamanho declarado. 13px é o
+/// intrínseco que os browsers dão a estes controlos; não sai de fonte nenhuma,
+/// por isso é uma constante e não uma medida.
+const CAIXA_DE_MARCA: f32 = 13.0;
+
+/// A caixa de um `<input>` de texto/marca: `(outer_w, outer_h)` e o frame com
+/// que ela foi construída.
+///
+/// Existe porque a medida estava em DOIS sítios: o `layout_input`, que pinta, e
+/// o `inline_widget_size`, que reserva o espaço na linha. O segundo dizia
+/// espelhar o primeiro e não espelhava — um `checkbox` reservava 190x26 (um
+/// campo de texto) e pintava outra coisa. Uma pergunta, uma resposta.
+fn medida_do_input(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,
-    x: f32,
-    y: f32,
     avail_w: f32,
+    avail_h: Option<f32>,
     forced_outer_w: Option<f32>,
     ctx: &LayoutCtx,
-    list: &mut DisplayList,
-) -> (f32, f32) {
+) -> MedidaDoInput {
     let font = font_px(css, DEFAULT_FONT_SIZE);
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
@@ -2473,41 +2548,118 @@ fn layout_input(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    // Box model do input. Padding default do browser (~2px 4px) quando o autor não
-    // declara; borda 1px cinza default. margem respeita o CSS.
     let m = &css.margin;
     let p = &css.padding;
     let margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
     let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
-    let pad_left = p.left.resolve(&resolve).unwrap_or(4.0).max(0.0);
-    let pad_right = p.right.resolve(&resolve).unwrap_or(4.0).max(0.0);
-    let pad_top = p.top.resolve(&resolve).unwrap_or(3.0).max(0.0);
-    let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(3.0).max(0.0);
-    let border = css.border_width.unwrap_or(1.0).max(0.0);
+    // CHECKBOX e RADIO são REPLACED: a caixa é um quadradinho de tamanho
+    // intrínseco, não um campo de texto. E não levam o padding/borda com que a
+    // UA veste um campo — no browser são 13x13 e mais nada, por isso os defaults
+    // do frame são ZERO para eles (o CSS do autor continua a mandar).
+    let quadrado = matches!(
+        dom.node(id).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(),
+        Some("checkbox") | Some("radio")
+    );
+    let (pad_ua_h, pad_ua_v, borda_ua) = if quadrado { (0.0, 0.0, 0.0) } else { (4.0, 3.0, 1.0) };
+    let pad_left = p.left.resolve(&resolve).unwrap_or(pad_ua_h).max(0.0);
+    let pad_right = p.right.resolve(&resolve).unwrap_or(pad_ua_h).max(0.0);
+    let pad_top = p.top.resolve(&resolve).unwrap_or(pad_ua_v).max(0.0);
+    let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(pad_ua_v).max(0.0);
+    let border = css.border_width.unwrap_or(borda_ua).max(0.0);
     let padding_h = pad_left + pad_right;
     let frame = margin_left + margin_right + 2.0 * border + padding_h;
-
-    // Largura do CONTENT: `width` do CSS; senão o main-size imposto pelo flex; senão
-    // um default de campo (~180px de content). Nunca excede o disponível.
     let border_box = css.border_box.unwrap_or(false);
     let content_w = if let Some(fw) = forced_outer_w {
         (fw - frame).max(0.0)
     } else if let Some(w) = css.width.and_then(|d| d.resolve(&resolve)) {
         if border_box { (w - (padding_h + 2.0 * border)).max(0.0) } else { w }
+    } else if quadrado {
+        CAIXA_DE_MARCA
     } else {
         180.0_f32.min((avail_w - frame).max(0.0))
     };
-
-    // Altura do CONTENT: `height` do CSS; senão uma linha de texto (line-height).
-    let line_h = ctx.measurer.line_height(font);
-    let content_h = css
-        .height
-        .and_then(|d| d.resolve(&resolve))
+    // `resolve_height` e não `resolve`: uma percentagem no eixo VERTICAL mede-se
+    // contra a altura do containing block. Com o `resolve` genérico media-se
+    // contra a LARGURA — os `<input type=checkbox>` do "checkbox hack" da
+    // Wikipédia declaram `height:100%` e vinham com a largura da viewport de
+    // altura, oito deles, o pior rácio de erro da página inteira.
+    let content_h = resolve_height(css.height, avail_h, &resolve)
         .map(|h| if border_box { (h - (pad_top + pad_bottom + 2.0 * border)).max(0.0) } else { h })
-        .unwrap_or(line_h);
+        .unwrap_or(if quadrado { CAIXA_DE_MARCA } else { ctx.measurer.line_height(font) });
+    MedidaDoInput {
+        content_w,
+        content_h,
+        pad_left,
+        pad_top,
+        padding_v: pad_top + pad_bottom,
+        padding_h,
+        border,
+        margin_left,
+        margin_top,
+        margin_h: margin_left + margin_right,
+        margin_v: margin_top + margin_bottom,
+        font,
+    }
+}
 
+/// O que `medida_do_input` responde: a caixa e o frame com que foi construída.
+struct MedidaDoInput {
+    content_w: f32,
+    content_h: f32,
+    pad_left: f32,
+    pad_top: f32,
+    padding_v: f32,
+    padding_h: f32,
+    border: f32,
+    margin_left: f32,
+    margin_top: f32,
+    margin_h: f32,
+    margin_v: f32,
+    font: f32,
+}
+
+impl MedidaDoInput {
+    /// A caixa EXTERNA (com margens) — o que o fluxo reserva para o widget.
+    fn outer(&self) -> (f32, f32) {
+        (
+            self.content_w + self.padding_h + 2.0 * self.border + self.margin_h,
+            self.content_h + self.padding_v + 2.0 * self.border + self.margin_v,
+        )
+    }
+}
+
+fn layout_input(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    // Altura do containing block, para `height: %`. `None` = pai com altura auto,
+    // e aí a percentagem vale `auto` — a mesma regra do `layout_block`.
+    avail_h: Option<f32>,
+    forced_outer_w: Option<f32>,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> (f32, f32) {
+    let med = medida_do_input(dom, id, css, avail_w, avail_h, forced_outer_w, ctx);
+    let MedidaDoInput { content_w, content_h, pad_left, pad_top, padding_v, padding_h,
+        border, margin_left, margin_top, margin_h, margin_v, font } = med;
+    let pad_bottom = padding_v - pad_top;
+    let margin_right = margin_h - margin_left;
+    let margin_bottom = margin_v - margin_top;
+    let line_h = ctx.measurer.line_height(font);
+    let _ = (pad_bottom, margin_right, margin_bottom, line_h);
+    let resolve = ResolveCtx {
+        parent_content_w: avail_w,
+        node_font_size: font,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let _ = &resolve;
     let box_rect = Rect::new(
         x + margin_left,
         y + margin_top,
@@ -4331,7 +4483,11 @@ fn layout_inline_flow(
                         if matches!(itype.as_str(), "submit" | "button" | "reset") {
                             layout_button(dom, a_idx, &wcss, seg_x, cy, ctx, list);
                         } else {
-                            layout_input(dom, a_idx, &wcss, seg_x, cy, seg.ww, None, ctx, list);
+                            // `None` de altura disponível: uma caixa atómica numa
+                            // linha não tem containing block de altura definida, e
+                            // é isso que faz `height:%` valer `auto` — como no
+                            // browser.
+                            layout_input(dom, a_idx, &wcss, seg_x, cy, seg.ww, None, None, ctx, list);
                         }
                     }
                     AtomicKind::Replaced => {
@@ -4356,19 +4512,28 @@ fn layout_inline_flow(
                     }
                     AtomicKind::Marker | AtomicKind::Break => {}
                 }
-                // O marker não tem largura: a sua caixa é a POSIÇÃO na linha com a
-                // altura da linha, que é o que o browser devolve para um `<source>`.
-                let fragment = match kind {
-                    // Vazio ou quebra: largura zero, mas a MESMA caixa vertical
-                    // que um pedaço de texto teria nesta linha.
+                // A CAIXA DO PRÓPRIO: a de uma caixa atómica é o seu tamanho; a
+                // de um vazio/quebra é a fatia de linha que ele ocupa.
+                let propria = match kind {
                     AtomicKind::Marker | AtomicKind::Break => {
                         Rect::new(seg_x, cy + meia, 0.0, conteudo)
                     }
                     _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
                 };
+                crate::inline_box::union_rect(list, a_idx, propria);
+                // A CAIXA DOS ANCESTRAIS inline: a largura que esta caixa ocupa na
+                // linha, com a altura da FONTE — um `<a>` à volta de uma imagem de
+                // 528px de altura mede 17px no browser, não 528. É a mesma regra
+                // que já vale para o texto, aplicada ao que não é texto.
+                let na_linha = Rect::new(seg_x, cy + meia, seg.ww, conteudo);
                 for &owner in &seg.owners {
-                    crate::inline_box::union_rect(list, owner, fragment);
+                    crate::inline_box::union_rect(list, owner, na_linha);
                 }
+                // A CAIXA DOS ANCESTRAIS inline: a largura que esta caixa ocupa na
+                // linha, com a altura da FONTE — um `<a>` à volta de uma imagem de
+                // 528px de altura mede 17px no browser, não 528. É a mesma regra
+                // que já vale para o texto, aplicada ao que não é texto.
+
                 seg_x += seg.ww;
                 continue;
             }
@@ -4565,9 +4730,12 @@ fn collect_runs(
                     if itype == "hidden" {
                         return;
                     }
-                    let (ww, wh) = inline_widget_size(dom, id, &itype, ctx);
-                    let mut owners = inherited_owners.to_vec();
-                    owners.push(id);
+                    let (ww, wh) = inline_widget_size(dom, id, &itype, avail_w, ctx);
+                    // Os ANCESTRAIS inline não engolem a caixa deste widget: no
+                    // browser a caixa de um inline tem a largura do que ele
+                    // contém e a altura da FONTE. Quem recebe `ww × wh` é só o
+                    // próprio elemento, na emissão.
+                    let owners = inherited_owners.to_vec();
                     crate::bump!(inline_runs);
                     out.push(InlineRun {
                         text: String::new(),
@@ -4608,8 +4776,9 @@ fn collect_runs(
                 if let Some((ww, wh)) =
                     crate::inline_box::replaced_inline_size(dom, id, &rcss, avail_w, ctx)
                 {
-                    let mut owners = inherited_owners.to_vec();
-                    owners.push(id);
+                    // Como no widget: a caixa do replaced é dele; os ancestrais
+                    // inline recebem só a linha que ele ocupa.
+                    let owners = inherited_owners.to_vec();
                     crate::bump!(inline_runs);
                     out.push(InlineRun {
                         text: String::new(),
@@ -4693,7 +4862,13 @@ fn collect_runs(
 
 /// Tamanho OUTER de um widget inline (`<input>`): o MESMO cálculo que a emissão
 /// usa (layout_button / layout_input), para o wrap reservar a largura exata.
-fn inline_widget_size(dom: &Dom, id: NodeIdx, itype: &str, ctx: &LayoutCtx) -> (f32, f32) {
+fn inline_widget_size(
+    dom: &Dom,
+    id: NodeIdx,
+    itype: &str,
+    avail_w: f32,
+    ctx: &LayoutCtx,
+) -> (f32, f32) {
     let css = dom.computed_style_idx(id).unwrap_or_default();
     if matches!(itype, "submit" | "button" | "reset") {
         let font = font_px(&css, DEFAULT_FONT_SIZE - 3.0);
@@ -4702,10 +4877,14 @@ fn inline_widget_size(dom: &Dom, id: NodeIdx, itype: &str, ctx: &LayoutCtx) -> (
         let lh = ctx.measurer.line_height(font);
         return (tw + 24.0 + 6.0, lh + 10.0 + 4.0); // espelha layout_button
     }
-    // campo de texto: content default 180 + frame aproximado (padding 4+4, borda 1+1).
-    let font = font_px(&css, DEFAULT_FONT_SIZE);
-    let lh = ctx.measurer.line_height(font);
-    (190.0, lh + 8.0)
+    // Campo de texto ou marca: a MESMA medida que a emissão vai usar, pedida à
+    // mesma função. Estava aqui uma cópia com números à mão (190 x lh+8) que
+    // dizia espelhar o `layout_input` e não espelhava — um `checkbox` reservava
+    // um campo de texto e pintava um quadrado.
+    //
+    // `None` de altura disponível: uma caixa numa linha não tem containing block
+    // de altura definida, logo `height:%` vale `auto`, como no browser.
+    medida_do_input(dom, id, &css, avail_w, None, None, ctx).outer()
 }
 
 /// Um segmento de texto colorido/pesado posicionado numa linha (após o wrap).
@@ -5660,6 +5839,105 @@ mod tests {
         // zero (caixa própria a começar na margem do bloco).
         assert_eq!(r.h, fonte, "altura da fonte, logo continua inline: {r:?}");
         assert!(r.x > 0.0, "flui depois do texto que o antecede: {r:?}");
+    }
+
+    /// Um `<a>` à volta de uma imagem grande NÃO fica do tamanho dela: no browser
+    /// a caixa de um inline tem a LARGURA do que ele contém e a ALTURA DA FONTE.
+    ///
+    /// Medido na Wikipédia antes de o corpus mudar: um `<a>` com uma imagem de
+    /// 600x528 responde `600x17` no Chrome, com o topo a 254px do topo da
+    /// imagem — que é a meia-entrelinha da linha que a imagem tornou alta.
+    /// Nós dávamos-lhe os 528, e era o maior erro de altura da página inteira.
+    #[test]
+    fn inline_a_volta_de_uma_imagem_mantem_a_altura_da_fonte() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
+        let dom = parse_html_to_dom(
+            "<div><span id='s'><a id='a'><img id='i' width='300' height='200'></a></span></div>",
+        );
+        let list = layout_document(&dom, &ctx);
+        let geo = list.geometry();
+        let caixa = |sel: &str| {
+            let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
+            *geo.rects.get(&idx).unwrap_or_else(|| panic!("{sel} sem caixa"))
+        };
+        let (img, a, span) = (caixa("#i"), caixa("#a"), caixa("#s"));
+        assert_eq!((img.w, img.h), (300.0, 200.0), "a imagem tem a sua caixa");
+        assert_eq!(a.h, fonte, "o <a> mede a fonte, não a imagem: {a:?}");
+        assert_eq!(a.w, 300.0, "mas ocupa a largura dela na linha: {a:?}");
+        assert_eq!((span.w, span.h), (a.w, a.h), "e o <span> à volta, o mesmo");
+        // e fica centrado na linha que a imagem tornou alta.
+        assert_eq!(a.y, (200.0 - fonte) / 2.0, "meia-entrelinha: {a:?}");
+    }
+
+
+    /// Um `checkbox`/`radio` é um quadradinho de 13x13, não um campo de texto de
+    /// 190x26 — e a medida que o fluxo RESERVA na linha é a mesma que a emissão
+    /// pinta, porque agora as duas perguntam à mesma função.
+    #[test]
+    fn checkbox_e_um_quadrado_e_nao_um_campo_de_texto() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let caixa = |html: &str| {
+            let dom = parse_html_to_dom(html);
+            let list = layout_document(&dom, &ctx);
+            let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
+            *list.geometry().rects.get(&idx).expect("o input devia ter caixa")
+        };
+        let c = caixa("<div>a <input id='x' type='checkbox'> b</div>");
+        assert_eq!((c.w, c.h), (13.0, 13.0), "quadrado intrínseco: {c:?}");
+        let r = caixa("<div>a <input id='x' type='radio'> b</div>");
+        assert_eq!((r.w, r.h), (13.0, 13.0), "o radio idem: {r:?}");
+        // o campo de texto continua a ser um campo de texto.
+        let t = caixa("<div>a <input id='x' type='text'> b</div>");
+        assert!(t.w > 100.0, "campo de texto mantém a largura de campo: {t:?}");
+    }
+
+    /// `height: %` num `<input>` mede-se contra a ALTURA do containing block, não
+    /// contra a largura. A Wikipédia usa o "checkbox hack" — oito
+    /// `<input type=checkbox>` com `height:100%` — e cada um vinha com a largura
+    /// da viewport de altura: o pior rácio de erro da página inteira.
+    #[test]
+    fn altura_percentual_de_input_mede_se_no_eixo_vertical() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let dom = parse_html_to_dom(
+            "<div style='height:400px'><input id='x' type='checkbox' style='height:100%'></div>",
+        );
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
+        let r = *list.geometry().rects.get(&idx).expect("sem caixa");
+        assert_eq!(r.h, 400.0, "100% da ALTURA do pai, não da largura: {r:?}");
+    }
+
+
+    /// `display:none` num ANCESTRAL remove a subárvore inteira do layout — e um
+    /// `position:absolute` lá dentro não é exceção.
+    ///
+    /// Era o pior número da página: um `<input type=checkbox; height:100%>` de um
+    /// menu escondido da Wikipédia continuava a ser medido, e como o pai
+    /// escondido não tem caixa, a procura do containing block saltava-o e
+    /// ancorava-o num contentor com a altura do DOCUMENTO — 96 665px de altura
+    /// para um controlo invisível.
+    #[test]
+    fn absolute_dentro_de_display_none_nao_tem_caixa() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let dom = parse_html_to_dom(
+            "<div style='position:relative;height:400px'>               <div style='display:none;position:relative'>                 <i id='x' style='position:absolute;height:100%'>a</i>               </div>             </div>",
+        );
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
+        assert!(
+            list.geometry().rects.get(&idx).is_none(),
+            "um absoluto num ramo escondido não gera caixa: {:?}",
+            list.geometry().rects.get(&idx)
+        );
+        // e o que NÃO está escondido continua a ser posicionado.
+        let dom = parse_html_to_dom(
+            "<div style='position:relative;height:400px'>               <i id='y' style='position:absolute;height:100%'>a</i>             </div>",
+        );
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#y").unwrap()).unwrap();
+        let r = *list.geometry().rects.get(&idx).expect("este devia ter caixa");
+        assert_eq!(r.h, 400.0, "100% da altura do containing block: {r:?}");
     }
 
     #[test]
@@ -6745,5 +7023,49 @@ mod tests {
         }
     }
 
+    /// Um elemento com `background-color` E `mask-image` não emite fundo.
+    ///
+    /// É o ícone monocromático do MediaWiki (`.cdx-button__icon`: cor de fundo
+    /// mais uma máscara que lhe dá a forma). Sem carregar a máscara, pintar o
+    /// fundo dá o retângulo inteiro — os blocos cinzentos que apareciam no lugar
+    /// do ☰ e da lupa na Wikipédia. O `-webkit-mask-image` conta igual: a folha
+    /// real declara os dois lado a lado.
+    #[test]
+    fn elemento_com_mask_image_nao_pinta_fundo() {
+        for prop in ["mask-image", "-webkit-mask-image"] {
+            let html = format!(
+                "<div style='background-color:#404244;{prop}:url(icone.svg);width:20px;height:20px'></div>"
+            );
+            let dom = parse_html_to_dom(&html);
+            let m = ApproxMeasurer;
+            let ctx = LayoutCtx { viewport_w: 400.0, viewport_h: 300.0, measurer: &m };
+            let lista = layout_document(&dom, &ctx);
+            for item in lista.materialized() {
+                if let DisplayItem::SolidRect { color, .. } = item {
+                    assert_ne!(
+                        color, 0x404244FF,
+                        "com `{prop}` o fundo não é pintado — sem a máscara seria um bloco"
+                    );
+                }
+            }
+        }
+    }
+
+    /// O mesmo fundo, SEM máscara declarada, continua a pintar — a supressão é
+    /// da máscara, não uma exceção nova para a cor.
+    #[test]
+    fn elemento_sem_mask_image_pinta_o_fundo() {
+        let dom = parse_html_to_dom(
+            "<div style='background-color:#404244;width:20px;height:20px'></div>",
+        );
+        let m = ApproxMeasurer;
+        let ctx = LayoutCtx { viewport_w: 400.0, viewport_h: 300.0, measurer: &m };
+        let lista = layout_document(&dom, &ctx);
+        let pintou = lista
+            .materialized()
+            .iter()
+            .any(|i| matches!(i, DisplayItem::SolidRect { color, .. } if *color == 0x404244FF));
+        assert!(pintou, "sem máscara, o fundo declarado é pintado");
+    }
 }
 

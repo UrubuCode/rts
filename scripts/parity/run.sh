@@ -12,7 +12,13 @@ cd "$(dirname "$0")/../.."
 
 HTML=${HTML:-pagina.html}
 CSS=${CSS:-pagina.css}
-OUT=scripts/parity/out
+# O diretório de saída é PARAMETRIZÁVEL, e não é conveniência: duas medições
+# sobre páginas diferentes escreviam por cima uma da outra, e um agente ficou a
+# comparar o nosso lado de uma página com o lado Chrome de outra sem ter como
+# saber. Um corpus por página, e cada um sobrevive ao seguinte.
+#
+#   OUT=scripts/parity/out-bootstrap HTML=... CSS=... bash scripts/parity/run.sh
+OUT=${OUT:-scripts/parity/out}
 COMBINADA=scripts/parity/pagina.combinada.html
 TOL=${TOL:-1}
 TOP=${TOP:-20}

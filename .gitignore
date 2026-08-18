@@ -109,3 +109,5 @@ wa-raw.bin
 # perfil e saídas do harness de paridade (regeneráveis, e o perfil do Chrome
 # tem ficheiros que o git nem consegue ler)
 scripts/parity/out/
+# PNGs de captura da janela: artefactos de diagnóstico, nunca entrada de nada.
+scripts/captura/out/

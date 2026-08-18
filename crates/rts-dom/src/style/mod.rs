@@ -85,7 +85,7 @@ pub use stylesheet::{parse_rules, DeclBlock, HoverReach, MatchedRules, MediaQuer
 pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
 pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak};
 pub use values::{
-    clamp_size, AlignItems, BorderStyle, CalcLen, Dimension, DisplayKind, Edges, FlexDirection, FloatSide, GridTrack,
+    clamp_size, dimensao_absoluta, AlignItems, BorderStyle, CalcLen, Dimension, DisplayKind, Edges, FlexDirection, FloatSide, GridTrack,
     JustifyContent, LineHeight, Position, ResolveCtx, Rgba, Side, TextAlign, TextTransform,
     WhiteSpace, DIM_BASE_EM, DIM_BASE_PERCENT, DIM_BASE_PX, DIM_BASE_REM, DIM_BASE_VH,
     DIM_BASE_VW, DIM_RANGE,

@@ -1,0 +1,125 @@
+PARIDADE DE LAYOUT — RTS x Chrome
+medido em 2026-08-18T23:00:00.833Z, tolerância 1px
+  chrome: scripts/parity/out/chrome.jsonl  [1280,800]
+  rts:    scripts/parity/out/rts.jsonl  [1280,800]
+
+── INTEGRIDADE DA ENTRADA ──
+  chrome: 818 elementos lidos  — sem problemas
+  rts: 813 elementos lidos  — sem problemas
+
+── ÁRVORE ──
+  11 de 1620 caminhos existem nos dois lados (0.68%)
+  807 só no Chrome, 802 só no RTS
+  tags que faltam do nosso lado (top 10):
+       243  <span>
+       229  <a>
+       159  <td>
+        98  <tr>
+        31  <center>
+        30  <div>
+         4  <tbody>
+         3  <table>
+         3  <br>
+         2  <img>
+  tags a mais do nosso lado (top 10):
+       243  <span>
+       229  <a>
+       159  <td>
+        98  <tr>
+        31  <center>
+        30  <div>
+         3  <table>
+         3  <br>
+         2  <img>
+         1  <b>
+
+── GEOMETRIA (só os caminhos comuns) ──
+  7 de 11 casam dentro de 1px (63.64%)
+  e 7 de 1620 do total da união (0.43%) — o segundo é o que NÃO desconta a árvore divergente
+  erro máximo por elemento: mediana 0.00px, p90 212.33px, p99 278.39px, máx 278.39px
+    x: mediana 0.00  p90 8.00  máx 102.80  (3 fora de tolerância)
+    y: mediana 0.00  p90 8.00  máx 8.00  (3 fora de tolerância)
+    w: mediana 0.00  p90 16.00  máx 278.39  (3 fora de tolerância)
+    h: mediana 0.00  p90 196.33  máx 212.33  (4 fora de tolerância)
+
+── OS 20 PIORES DESVIOS ──
+     278.39px  html[1]/body[1]/center[1]/table[1]
+             chrome  x=102.80 y=8.00 w=1074.39 h=1201.33  display=table position=static
+             rts     x=0.00 y=0.00 w=796.00 h=1005.00
+     212.33px  html[1]
+             chrome  x=0.00 y=0.00 w=1280.00 h=1217.33  display=block position=static
+             rts     x=0.00 y=0.00 w=1280.00 h=1005.00
+     196.33px  html[1]/body[1]
+             chrome  x=8.00 y=8.00 w=1264.00 h=1201.33  display=block position=static
+             rts     x=0.00 y=0.00 w=1280.00 h=1005.00
+     196.33px  html[1]/body[1]/center[1]
+             chrome  x=8.00 y=8.00 w=1264.00 h=1201.33  display=block position=static
+             rts     x=0.00 y=0.00 w=1280.00 h=1005.00
+       0.00px  html[1]/head[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=none position=static
+             rts     x=0.00 y=0.00 w=0.00 h=0.00
+       0.00px  html[1]/head[1]/meta[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=none position=static
+             rts     x=0.00 y=0.00 w=0.00 h=0.00
+       0.00px  html[1]/head[1]/meta[2]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=none position=static
+             rts     x=0.00 y=0.00 w=0.00 h=0.00
+       0.00px  html[1]/head[1]/link[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=none position=static
+             rts     x=0.00 y=0.00 w=0.00 h=0.00
+       0.00px  html[1]/head[1]/link[2]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=none position=static
+             rts     x=0.00 y=0.00 w=0.00 h=0.00
+       0.00px  html[1]/head[1]/link[3]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=none position=static
+             rts     x=0.00 y=0.00 w=0.00 h=0.00
+       0.00px  html[1]/head[1]/title[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=none position=static
+             rts     x=0.00 y=0.00 w=0.00 h=0.00
+
+── O QUE AGRUPA OS DESVIOS ──
+  0 dos 4 não têm caixa NENHUMA do nosso lado (w=h=0 onde o Chrome dá área); 4 têm caixa no sítio errado
+  os sem caixa, por display do Chrome (top 6):
+  os com caixa errada, erro máximo: mediana 212.33px, p90 278.39px
+
+  dos 20 piores, por display do Chrome:
+         7  display:none
+         3  display:block
+         1  display:table
+  dos 20 piores, por tag:
+         3  <link>
+         2  <meta>
+         1  <table>
+         1  <html>
+         1  <body>
+         1  <center>
+         1  <head>
+         1  <title>
+  dos 4 que falham a 1px, por display do Chrome (top 10):
+         3  display:block
+         1  display:table
+  dos 4 que falham, por position do Chrome:
+         4  position:static
+  dos 4 que falham, por tag (top 10):
+         1  <html>
+         1  <body>
+         1  <center>
+         1  <table>
+
+── PROPRIEDADES COMPUTADAS (só os caminhos comuns) ──
+  'não reportado' = o rts-dom devolveu "" — valor não cascateado, que é
+  outra pergunta que 'valor errado' e por isso não entra no denominador.
+  display                 4 iguais / 11 comparáveis (36.36%)   0 não reportados
+      html[1]/head[1]  chrome=none  rts=inline
+      html[1]/head[1]/meta[1]  chrome=none  rts=inline
+      html[1]/head[1]/meta[2]  chrome=none  rts=inline
+      html[1]/head[1]/link[1]  chrome=none  rts=inline
+      html[1]/head[1]/link[2]  chrome=none  rts=inline
+  position               11 iguais / 11 comparáveis (100.00%)   0 não reportados
+  color                  11 iguais / 11 comparáveis (100.00%)   0 não reportados
+  background-color       10 iguais / 11 comparáveis (90.91%)   0 não reportados
+      html[1]/body[1]/center[1]/table[1]  chrome=rgb(246, 246, 239)  rts=rgba(0, 0, 0, 0)
+  font-size               8 iguais / 11 comparáveis (72.73%)   0 não reportados
+      html[1]/body[1]  chrome=13.3333px  rts=13.333333px
+      html[1]/body[1]/center[1]  chrome=13.3333px  rts=13.333333px
+      html[1]/body[1]/center[1]/table[1]  chrome=16px  rts=13.333333px
