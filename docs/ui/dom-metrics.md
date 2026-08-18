@@ -328,7 +328,8 @@ and 11 000 at the start of the campaign.
 | inert class toggle + frame | — | 6.67 → **0.030 ms** | — |
 | idle frame | 0.00045 ms | 6.97 → **0.000 ms** (cached) | par |
 | full relayout, no cache | 8.5 ms | 6.97 → 0.168 ms | we win |
-| `querySelectorAll` | 0.097 ms | 0.399 → 0.213 ms | 2.2× |
+| `querySelectorAll('.card')` | 0.0105 ms | — → **0.009 ms** | we win |
+| `querySelectorAll` (tag + attr in the list) | 0.097 ms | 0.399 → 0.212 ms | 2.2× |
 | cold layout | — | 26.7 → 15.8 ms | — |
 | append 2000, layout every 100 | 32.5 ms | 67.6 → ~17 ms | we win |
 
@@ -346,9 +347,13 @@ retained display list (a list of `Rc<Fragment>` instead of items) is the next
 structural step; `Rc<str>` on text items was the first half of it, and took the
 text mutation from 1.31 to 0.724 ms.
 
-**`querySelectorAll` is 2.2× slower**, unchanged in nature since the first
-measurement: we walk in document order filtering by target key; Chrome starts
-from the class bucket when the selector allows.
+**`querySelectorAll` by class now beats Chrome**: 0.009 ms against 0.0105 ms for
+`.card` over 1000 matches, after the query started from the `.class` index
+instead of walking the tree. What made the index usable was numbering the tree
+in document order (revalidated by revision), because the index keeps arena
+order and the API promises document order. A list that mixes in a tag or an
+attribute selector (`.btn, div, a[href]`) still walks — 0.212 ms against
+Chrome's 0.097 ms — because for those the walk is the only complete answer.
 
 **And the caveat from the first comparison still holds**: where we win, we are
 doing less work — character-count text metrics against real shaping, no subpixel
