@@ -1263,6 +1263,27 @@ pub(crate) fn layout_block(
     // a altura REAL do conteúdo (antes de `height` explícito a cortar) — p/ o scroll-Y.
     let content_h_natural = content_h;
 
+    // CAIXA INLINE: um elemento cujo display USADO é `inline` mas que tem caixa
+    // (fundo, padding, borda) NÃO tira a altura do fluxo dos filhos — tira-a da
+    // FONTE, como qualquer inline. É a mesma regra da content area que o fluxo
+    // inline já aplica, e faltava aqui: um `<a>` com padding num parágrafo de
+    // `line-height:1.6` respondia 22,4 (a altura da LINHA) onde o browser
+    // responde 16, e são milhares deles numa página real.
+    //
+    // Só quando o autor não declara `display` nem `height`: um `display:inline-block`
+    // de facto é um contentor de blocos e a altura dele vem mesmo do conteúdo.
+    // `used.is_none()`: um papel USADO (célula, linha, item de lista, tabela) já
+    // não é uma caixa inline — foi o `<td>` que o mostrou, porque tem padding da
+    // UA e por isso passava no teste de "inline com caixa".
+    let caixa_inline = used.is_none()
+        && css.effective_display().is_none()
+        && css.height.is_none()
+        && is_inline_block(dom, id);
+    let content_h = if caixa_inline {
+        crate::inline_box::altura_do_conteudo(font_size, ctx.measurer)
+    } else {
+        content_h
+    };
     // `height` explícito SOBRESCREVE a altura do conteúdo (a caixa tem essa altura,
     // mesmo que o conteúdo seja menor) — já resolvido antes dos filhos.
     let content_h = explicit_content_h.unwrap_or(content_h);

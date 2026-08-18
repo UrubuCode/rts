@@ -765,6 +765,23 @@ pub fn define_style(tag: &str, slot: i64, val: i64) {
     bump_style_epoch();
 }
 
+/// Regista o `font-size` default de uma TAG em px FRACIONÁRIOS.
+///
+/// Existe ao lado do [`define_style`] por um motivo medido: o slot opaco carrega
+/// um `i64`, e a fonte que o browser dá aos controlos de formulário é
+/// **13,3333px** — truncá-la para 13 põe o valor computado a 0,33px do Chrome em
+/// todo `<input>` da página. O slot continua a ser a via da camada TS (invariante
+/// 4); isto é a via da UA-stylesheet interna, que é Rust e não precisa de
+/// atravessar a fronteira ABI.
+pub fn define_style_font_px(tag: &str, px: f32) {
+    STYLES.with(|m| {
+        let mut m = m.borrow_mut();
+        let entry = m.entry(tag.to_ascii_lowercase()).or_default();
+        entry.font_size = Some(Dimension::Px(px));
+    });
+    bump_style_epoch();
+}
+
 /// Consulta o `ComputedStyle` registrado de uma TAG. `None` ⇒ sem estilo de tag.
 pub fn lookup_style(tag: &str) -> Option<ComputedStyle> {
     STYLES.with(|m| m.borrow().get(tag).cloned())

@@ -820,12 +820,18 @@ fn pct_intrinseco_ligado() -> bool {
 /// empurrar o irmão para a linha seguinte.
 pub fn dimensao_absoluta(d: Dimension, ctx: &ResolveCtx) -> Option<f32> {
     // INTERRUPTOR DE MEDIÇÃO: `RTS_PCT_INTRINSECO=1` repõe o comportamento
-    // anterior (a percentagem resolvida contra a viewport). Existe para se poder
-    // medir esta regra ISOLADAMENTE sobre a página real, ligando e desligando na
-    // mesma árvore — sem ele a única forma de a atribuir seria comparar duas
-    // medições separadas por outras mudanças, que é como um número deixa de
-    // dizer o que se pensa que diz. É temporário e sai quando a medição estiver
-    // feita.
+    // anterior (a percentagem resolvida contra a viewport) e `=width` mede a
+    // variante que aplica a regra só ao `width`.
+    //
+    // Existe para esta regra poder ser medida ISOLADAMENTE sobre a página real,
+    // ligada e desligada na MESMA árvore. Sem ele, atribuí-la exigiria comparar
+    // duas medições separadas por outras mudanças — que é como um número deixa
+    // de dizer o que se pensa que diz, e foi o que aconteceu quando ela entrou.
+    //
+    // Fica enquanto o eixo VERTICAL estiver em aberto: a medição mostrou que
+    // esta regra melhora o horizontal e piora o vertical por acumulação, e quem
+    // atacar a altura vai querer voltar a separar as duas coisas. Sai quando
+    // isso estiver fechado. A leitura do ambiente é uma vez só.
     if pct_intrinseco_ligado() {
         return d.resolve(ctx);
     }

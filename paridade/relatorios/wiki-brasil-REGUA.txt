@@ -1,14 +1,11 @@
 PARIDADE DE LAYOUT — RTS x Chrome
-medido em 2026-08-18T23:19:46.202Z, tolerância 1px
+medido em 2026-08-18T23:30:35.994Z, tolerância 1px
   chrome: scripts/parity/out/chrome.jsonl  [1280,800]
   rts:    scripts/parity/out/rts.jsonl  [1280,800]
 
 ── INTEGRIDADE DA ENTRADA ──
   chrome: 16814 elementos lidos  — sem problemas
-  rts: 16813 elementos lidos
-    ! __fim anuncia 16813 mas foram lidos 17091
-    ! 1 linhas não fizeram parse
-    ! 278 caminhos REPETIDOS (a regra de caminho não é única — o casamento é ambíguo)
+  rts: 16813 elementos lidos  — sem problemas
 
 ── ÁRVORE ──
   16813 de 16814 caminhos existem nos dois lados (99.99%)
@@ -19,11 +16,11 @@ medido em 2026-08-18T23:19:46.202Z, tolerância 1px
 ── GEOMETRIA (só os caminhos comuns) ──
   2099 de 16813 casam dentro de 1px (12.48%)
   e 2099 de 16814 do total da união (12.48%) — o segundo é o que NÃO desconta a árvore divergente
-  erro máximo por elemento: mediana 13332.18px, p90 22885.71px, p99 61835.17px, máx 159154.00px
-    x: mediana 19.63  p90 365.61  máx 1157.00  (10834 fora de tolerância)
-    y: mediana 13301.86  p90 22883.71  máx 96779.11  (14687 fora de tolerância)
-    w: mediana 4.44  p90 58.81  máx 159154.00  (11739 fora de tolerância)
-    h: mediana 1.00  p90 16.01  máx 96665.11  (7775 fora de tolerância)
+  erro máximo por elemento: mediana 13332.18px, p90 23470.74px, p99 61835.17px, máx 159154.00px
+    x: mediana 19.25  p90 366.16  máx 1157.00  (10832 fora de tolerância)
+    y: mediana 13301.86  p90 23449.55  máx 96779.11  (14687 fora de tolerância)
+    w: mediana 4.44  p90 59.65  máx 159154.00  (11738 fora de tolerância)
+    h: mediana 1.00  p90 16.01  máx 96665.11  (7736 fora de tolerância)
 
 ── OS 20 PIORES DESVIOS ──
   159154.00px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[5]/section[2]/div[2]/div[1]/div[1]/div[1]
@@ -88,11 +85,11 @@ medido em 2026-08-18T23:19:46.202Z, tolerância 1px
              rts     x=0.00 y=0.00 w=0.00 h=0.00
 
 ── O QUE AGRUPA OS DESVIOS ──
-  777 dos 14714 não têm caixa NENHUMA do nosso lado (w=h=0 onde o Chrome dá área); 13937 têm caixa no sítio errado
+  772 dos 14714 não têm caixa NENHUMA do nosso lado (w=h=0 onde o Chrome dá área); 13942 têm caixa no sítio errado
   os sem caixa, por display do Chrome (top 6):
-       751  display:inline
+       746  display:inline
         26  display:block
-  os com caixa errada, erro máximo: mediana 15810.89px, p90 22128.58px
+  os com caixa errada, erro máximo: mediana 15810.89px, p90 22149.77px
 
   dos 20 piores, por display do Chrome:
         17  display:inline

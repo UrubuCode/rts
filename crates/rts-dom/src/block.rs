@@ -244,4 +244,13 @@ pub fn install_ua_defaults() {
     // tag < classe/id do autor; a UA é a camada mais fraca da cascade).
     crate::style::define_style("a", crate::style::SLOT_COLOR, 0x0000EEFF);
     crate::style::define_style("a", crate::style::SLOT_TEXT_DECORATION, 1);
+    // Os CONTROLOS DE FORMULÁRIO não herdam a fonte do documento: a folha do
+    // browser dá-lhes uma fonte própria (`font: 400 13.3333px Arial` no Chrome),
+    // e é por isso que um `<input>` dentro de um corpo de 16px sai mais pequeno.
+    // Medido na página real: são os ÚNICOS 8 elementos de 16 354 em que o nosso
+    // `font-size` diverge do Chrome — nós dávamos 16 (herdado) onde ele dá
+    // 13,3333. Uma regra de autor vence isto, como qualquer default de UA.
+    for tag in ["input", "button", "select", "textarea"] {
+        crate::style::define_style_font_px(tag, 13.3333);
+    }
 }
