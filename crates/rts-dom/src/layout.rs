@@ -90,7 +90,11 @@ pub enum DisplayItem {
     Text {
         x: f32,
         y: f32,
-        text: String,
+        /// `Rc<str>` e não `String`: um item de texto é CLONADO toda vez que um
+        /// fragmento de layout é reusado, e clonar a string por item era o custo
+        /// dominante do reuso. Compartilhar o buffer torna o clone um
+        /// incremento. O backend só lê.
+        text: std::rc::Rc<str>,
         color: u32,
         size: f32,
         mono: bool,
@@ -759,7 +763,7 @@ fn layout_block(
             list.items.push(DisplayItem::Text {
                 x,
                 y,
-                text: t.clone(),
+                text: t.as_str().into(),
                 color: 0x000000FF,
                 size,
                 mono: false,
@@ -1702,7 +1706,7 @@ fn layout_button(
     list.items.push(DisplayItem::Text {
         x: x + pad_h,
         y: y + pad_v,
-        text: label,
+        text: label.into(),
         color: fg,
         size: font,
         mono: false,
@@ -1804,7 +1808,7 @@ fn layout_input(
         list.items.push(DisplayItem::Text {
             x: text_x,
             y: text_y,
-            text: shown.clone(),
+            text: shown.as_str().into(),
             color: tcolor,
             size: font,
             mono: false,
@@ -2463,7 +2467,7 @@ fn layout_children_horizontal(
                 list.items.push(DisplayItem::Text {
                     x,
                     y: item_y,
-                    text,
+                    text: text.into(),
                     color,
                     size: font_size,
                     mono: false,
@@ -2838,7 +2842,7 @@ fn layout_children_column(
             list.items.push(DisplayItem::Text {
                 x: content_x,
                 y,
-                text,
+                text: text.into(),
                 color: css.color.unwrap_or(0x000000FF),
                 size: font_size,
                 mono: false,
@@ -3101,7 +3105,7 @@ fn layout_inline_flow(
             list.items.push(DisplayItem::Text {
                 x: seg_x,
                 y: cy,
-                text: seg.text,
+                text: seg.text.into(),
                 color: seg.color,
                 size: font_size,
                 mono,
@@ -4128,7 +4132,7 @@ mod tests {
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
         let texts: Vec<(String, f32)> = list.items.iter().filter_map(|it| match it {
-            DisplayItem::Text { text, x, .. } => Some((text.clone(), *x)),
+            DisplayItem::Text { text, x, .. } => Some((text.to_string(), *x)),
             _ => None,
         }).collect();
         // "x" (1 char, ~8px = 16×0.5) centrado em 400 → x ≈ (400-8)/2 = 196.
@@ -4258,7 +4262,9 @@ mod tests {
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
         let segs: Vec<(String, u32, u8)> = list.items.iter().filter_map(|it| match it {
-            DisplayItem::Text { text, color, decoration, .. } => Some((text.clone(), *color, *decoration)),
+            DisplayItem::Text { text, color, decoration, .. } => {
+                Some((text.to_string(), *color, *decoration))
+            }
             _ => None,
         }).collect();
         let link = segs.iter().find(|(t, ..)| t.contains("link")).expect("run do link");
@@ -4277,7 +4283,7 @@ mod tests {
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
         let texts: Vec<(String, f32)> = list.items.iter().filter_map(|it| match it {
-            DisplayItem::Text { text, y, .. } => Some((text.clone(), *y)),
+            DisplayItem::Text { text, y, .. } => Some((text.to_string(), *y)),
             _ => None,
         }).collect();
         // uppercase aplicado.
@@ -4757,7 +4763,7 @@ mod tests {
             .iter()
             .filter_map(|it| match it {
                 DisplayItem::Text { text, x, y, color, .. } => {
-                    Some((text.clone(), *x, *y, *color))
+                    Some((text.to_string(), *x, *y, *color))
                 }
                 _ => None,
             })
