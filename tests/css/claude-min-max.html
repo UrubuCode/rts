@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: `min-width` ganha de `max-width` que ganha de `width` — a ordem de
+     aperto do CSS, que não é a ordem em que estão escritos. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  div { height: 30px; margin-bottom: 5px; background: #fcc; }
+  #limitado-por-max { width: 800px; max-width: 300px; }
+  #limitado-por-min { width: 50px; min-width: 200px; }
+  #min-vence-max { width: 100px; min-width: 400px; max-width: 200px; }
+  #dentro-dos-limites { width: 250px; min-width: 100px; max-width: 500px; }
+  #max-altura { width: 100px; height: 300px; max-height: 60px; }
+  #min-altura { width: 100px; height: 10px; min-height: 90px; }
+</style></head>
+<body>
+  <div id="limitado-por-max"></div>
+  <div id="limitado-por-min"></div>
+  <div id="min-vence-max"></div>
+  <div id="dentro-dos-limites"></div>
+  <div id="max-altura"></div>
+  <div id="min-altura"></div>
+</body>
+</html>

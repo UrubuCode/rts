@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Fixa: as quatro formas do shorthand `padding` (1, 2, 3, 4 valores) e que
+     `border-width` sem `border-style` não ocupa espaço nenhum.
+     Altura explícita e sem texto de propósito: a métrica da fonte é outra
+     pergunta, e misturá-la aqui faria um desvio de padding parecer de fonte. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  div { width: 200px; height: 20px; background: #eee; margin-bottom: 5px; }
+  #um { padding: 10px; }
+  #dois { padding: 10px 20px; }
+  #tres { padding: 5px 10px 15px; }
+  #quatro { padding: 1px 2px 3px 4px; }
+  #borda-sem-estilo { border-width: 10px; border-color: red; }
+  #borda-com-estilo { border: 10px solid red; }
+</style></head>
+<body>
+  <div id="um"></div>
+  <div id="dois"></div>
+  <div id="tres"></div>
+  <div id="quatro"></div>
+  <div id="borda-sem-estilo"></div>
+  <div id="borda-com-estilo"></div>
+</body>
+</html>

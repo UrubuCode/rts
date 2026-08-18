@@ -1,0 +1,110 @@
+{
+ "elementos": {
+  "borda-caixa": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(204, 255, 204)",
+    "box-sizing": "border-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "normal",
+    "opacity": "1",
+    "overflow": "visible",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    90,
+    300,
+    40
+   ]
+  },
+  "conteudo-caixa": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(255, 204, 204)",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "normal",
+    "opacity": "1",
+    "overflow": "visible",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    0,
+    340,
+    80
+   ]
+  },
+  "percentual-borda": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(204, 204, 255)",
+    "box-sizing": "border-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "normal",
+    "opacity": "1",
+    "overflow": "visible",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    140,
+    640,
+    40
+   ]
+  }
+ },
+ "fixture": "claude-box-sizing.html",
+ "medido_em": "2026-08-18",
+ "regua": "Chrome via chrome-devtools-mcp",
+ "viewport": [
+  1280,
+  800
+ ]
+}

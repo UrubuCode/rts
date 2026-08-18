@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<!-- Fixa: `flex-direction: column` empilha, e nesse eixo é `height` que é o
+     tamanho principal — a largura passa a esticar (stretch no eixo cruzado). -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #caixa { display: flex; flex-direction: column; width: 300px; height: 400px; background: #eee; }
+  #a { height: 50px; background: #fcc; }
+  #b { height: 80px; width: 100px; background: #cfc; }
+  #c { height: 30px; background: #ccf; }
+</style></head>
+<body>
+  <div id="caixa"><div id="a"></div><div id="b"></div><div id="c"></div></div>
+</body>
+</html>

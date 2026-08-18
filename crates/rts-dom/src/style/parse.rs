@@ -56,14 +56,44 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
         match prop.as_str() {
             "color" => css.color = parse_color(val),
             "background-color" => css.bg = parse_color(val),
-            "background" | "background-image" => {
-                // pode ser um GRADIENTE ou uma cor sólida (ou url, ignorada).
-                if let Some(g) = crate::style::effects::LinearGradient::parse(val) {
-                    css.gradient = Some(g);
-                } else if let Some(c) = parse_color(val) {
+            // SHORTHAND `background` — cor + imagem/gradiente + position/size/
+            // repeat, em qualquer ordem (ver `style::background`, que também lista
+            // o que ficou de fora). Antes daqui só a forma "o valor INTEIRO é uma
+            // cor ou um gradiente" era lida, então `background: #fff url(x)
+            // no-repeat` — a forma da folha real — não pintava fundo nenhum.
+            "background" => {
+                let bg = crate::style::background::parse_background(val);
+                if let Some(c) = bg.color {
                     css.bg = Some(c);
                 }
+                if let Some(g) = bg.gradient {
+                    css.gradient = Some(g);
+                }
+                if let Some(i) = bg.image {
+                    css.bg_image = Some(i);
+                }
+                if let Some(p) = bg.position {
+                    css.bg_position = Some(p);
+                }
+                if let Some(s) = bg.size {
+                    css.bg_size = Some(s);
+                }
+                if let Some(r) = bg.repeat {
+                    css.bg_repeat = Some(r);
+                }
             }
+            "background-image" => {
+                // Um gradiente É a imagem de fundo e o motor pinta-o; uma `url()`
+                // fica guardada crua (não é buscada — ver `style::background`).
+                if let Some(g) = crate::style::effects::LinearGradient::parse(val) {
+                    css.gradient = Some(g);
+                } else {
+                    css.bg_image = Some(val.trim().to_string());
+                }
+            }
+            "background-repeat" => css.bg_repeat = crate::style::BgRepeat::parse(val),
+            "background-position" => css.bg_position = crate::style::BgPosition::parse(val),
+            "background-size" => css.bg_size = crate::style::BgSize::parse(val),
             "box-shadow" => css.box_shadow = crate::style::effects::BoxShadow::parse(val),
             "grid-template-columns" => {
                 css.grid_columns = parse_grid_columns(val);
@@ -80,10 +110,22 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "justify-items" => {
                 css.grid_justify_items = crate::style::AlignItems::parse(val);
             }
+            "grid-template-areas" => {
+                css.grid_template_areas =
+                    crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
+            }
+            "grid-area" => {
+                css.grid_area = crate::style::grid_areas::parse_grid_area_name(val);
+            }
             "grid" | "grid-template" => {
-                // shorthand `grid-template: rows / columns` (forma comum
-                // `"areas" rows / cols` não modelada — v1 pega rows/cols).
-                if let Some((rows, cols)) = val.split_once('/') {
+                // shorthand `grid-template: [áreas] rows / columns`. As linhas de
+                // área vêm INTERCALADAS com os tamanhos das linhas, então tirá-las
+                // primeiro é o que deixa o resto na forma `rows / cols` que o mesmo
+                // código já lia — em vez de um segundo parser para a forma com áreas.
+                css.grid_template_areas =
+                    crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
+                let tracks = crate::style::grid_areas::strip_quoted(val);
+                if let Some((rows, cols)) = tracks.split_once('/') {
                     css.grid_template_rows =
                         crate::style::GridTrack::parse_list(rows).map(std::sync::Arc::new);
                     css.grid_template_columns =
@@ -172,6 +214,24 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
                 css.margin.top = s;
                 css.margin.bottom = s;
             }
+            // LTR: start=left, end=right (o mesmo corte do `padding-inline-*` —
+            // `direction:rtl` é aceite mas o layout não inverte; ver `style::text`).
+            "margin-inline-start" | "margin-inline-end" => {
+                let s = parse_side(val, true);
+                if prop.as_str() == "margin-inline-start" {
+                    css.margin.left = s;
+                } else {
+                    css.margin.right = s;
+                }
+            }
+            "margin-block-start" | "margin-block-end" => {
+                let s = parse_side(val, true);
+                if prop.as_str() == "margin-block-start" {
+                    css.margin.top = s;
+                } else {
+                    css.margin.bottom = s;
+                }
+            }
             // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
             // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
             "border" => apply_border_shorthand(css, val),
@@ -179,6 +239,29 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "border-style" => css.border_style = BorderStyle::parse(val),
             "border-color" => css.border_color = parse_color(val),
             "border-radius" => css.corner_radius = parse_len(val),
+            // ── Bordas POR LADO: `border-top: 1px solid #ccc` e as 12 longhands.
+            // Uma barra separadora é quase sempre um lado só; pintá-la com a borda
+            // uniforme daria uma moldura fechada (ver `style::borders`).
+            "border-top" | "border-right" | "border-bottom" | "border-left" => {
+                if let Some(side) = crate::style::SideName::parse(&prop["border-".len()..]) {
+                    crate::style::borders::apply_side_shorthand(css, side, val);
+                }
+            }
+            _ if crate::style::borders::is_longhand(&prop) => {
+                crate::style::borders::apply_longhand(css, &prop, val)
+            }
+            // `outline`: uma borda que não ocupa espaço (fora do box model).
+            "outline" => crate::style::borders::apply_outline_shorthand(css, val),
+            "outline-width" => css.outline_width = crate::style::borders::parse_width_token(val),
+            "outline-style" => {
+                css.outline_style = if val.trim().eq_ignore_ascii_case("auto") {
+                    Some(BorderStyle::Solid)
+                } else {
+                    BorderStyle::parse(val)
+                }
+            }
+            "outline-color" => css.outline_color = parse_color(val),
+            "outline-offset" => css.outline_offset = parse_signed_px(val),
             "width" => css.width = parse_dimension(val),
             // `box-sizing: border-box | content-box` — border-box faz o `width`
             // incluir padding+border (3 cards de 32% cabem). Default content-box.
@@ -231,6 +314,48 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "right" => css.inset_right = parse_inset(val),
             "bottom" => css.inset_bottom = parse_inset(val),
             "left" => css.inset_left = parse_inset(val),
+            // ── Texto / listas / fluxo (ver `style::text` p/ o que cada uma faz) ──
+            "vertical-align" => css.vertical_align = crate::style::VerticalAlign::parse(val),
+            "clear" => css.clear = crate::style::Clear::parse(val),
+            "word-break" => css.word_break = crate::style::WordBreak::parse(val),
+            // `word-wrap` é o nome legado de `overflow-wrap` (MDN: alias).
+            "overflow-wrap" | "word-wrap" => {
+                css.overflow_wrap = crate::style::OverflowWrap::parse(val)
+            }
+            "direction" => css.direction = crate::style::Direction::parse(val),
+            // `text-indent` aceita negativo (o truque de esconder texto atrás da
+            // margem, comum em logos com fundo).
+            "text-indent" => css.text_indent = parse_dimension_signed(val),
+            "list-style-type" => css.list_style_type = crate::style::ListStyleType::parse(val),
+            "list-style-image" => css.list_style_image = Some(val.trim().to_string()),
+            // `list-style: <type> || <position> || <image>` — os três em qualquer
+            // ordem. `position` (inside/outside) é aceite e descartado: sem
+            // marcador desenhado não há onde o pôr.
+            "list-style" => {
+                for tok in val.split_whitespace() {
+                    if tok.to_ascii_lowercase().starts_with("url(") {
+                        css.list_style_image = Some(tok.to_string());
+                    } else if let Some(t) = crate::style::ListStyleType::parse(tok) {
+                        css.list_style_type = Some(t);
+                    }
+                }
+            }
+            // `cursor` — guardado cru; quem o usa é o backend de janela.
+            "cursor" => css.cursor = Some(val.trim().to_ascii_lowercase()),
+            // `flex-flow: <direction> || <wrap>` (MDN) — só expande.
+            "flex-flow" => {
+                for tok in val.split_whitespace() {
+                    if let Some(d) = FlexDirection::parse(tok) {
+                        css.flex_direction = Some(d);
+                    } else if tok.eq_ignore_ascii_case("wrap")
+                        || tok.eq_ignore_ascii_case("wrap-reverse")
+                    {
+                        css.flex_wrap = Some(true);
+                    } else if tok.eq_ignore_ascii_case("nowrap") {
+                        css.flex_wrap = Some(false);
+                    }
+                }
+            }
             "transition" => css.transition = crate::anim::TransitionSpec::parse(val),
             "animation" => css.animation = crate::anim::AnimationSpec::parse(val),
             // Uma propriedade que nenhum braço reconhece é CSS que a página
@@ -490,6 +615,56 @@ fn parse_edges(val: &str, allow_auto: bool) -> Edges {
         [t, h, b] => Edges { top: *t, right: *h, bottom: *b, left: *h },
         [t, r, b, l] => Edges { top: *t, right: *r, bottom: *b, left: *l },
         _ => Edges::default(), // 0 ou >4: ignora (robustez).
+    }
+}
+
+/// [`split_top_ws`] para os módulos de shorthand (`background`), que precisam da
+/// mesma regra de "espaço de topo" para não partir um `url(a b.png)`.
+pub(crate) fn split_top_ws_pub(v: &str) -> Vec<String> {
+    split_top_ws(v)
+}
+
+/// [`parse_len`] (comprimento absoluto em pontos) para os módulos de shorthand.
+pub(crate) fn parse_len_pub(v: &str) -> Option<f32> {
+    parse_len(v)
+}
+
+/// Separa por um SEPARADOR de topo (fora de parênteses) — a vírgula que separa
+/// camadas de `background`, a barra que separa `position / size`. A versão que
+/// ignora os parênteses é obrigatória: a vírgula de `rgba(0,0,0,.5)` e a barra de
+/// `url(a/b.png)` não separam nada.
+pub(crate) fn split_top(v: &str, sep: char) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    for c in v.chars() {
+        match c {
+            '(' => {
+                depth += 1;
+                cur.push(c);
+            }
+            ')' => {
+                depth -= 1;
+                cur.push(c);
+            }
+            c if c == sep && depth == 0 => out.push(std::mem::take(&mut cur).trim().to_string()),
+            _ => cur.push(c),
+        }
+    }
+    let last = cur.trim().to_string();
+    if !last.is_empty() {
+        out.push(last);
+    }
+    out
+}
+
+/// Um comprimento em pontos que PODE ser negativo (`outline-offset`, que afunda o
+/// anel para dentro da caixa). `parse_len` recusa negativos por servir larguras.
+fn parse_signed_px(v: &str) -> Option<f32> {
+    let t = v.trim();
+    match t.strip_prefix('-') {
+        Some(rest) => parse_len(rest).map(|x| -x),
+        None => parse_len(t),
     }
 }
 

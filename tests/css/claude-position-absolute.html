@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `absolute` sai do fluxo e mede-se contra o ANTEPASSADO POSICIONADO
+     mais próximo — não contra o pai. Um motor que use sempre o pai acerta o
+     primeiro caso e erra o segundo. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #ancora { position: relative; width: 400px; height: 300px; margin: 50px; background: #eee; }
+  #meio { width: 200px; height: 200px; margin: 20px; background: #ddd; }
+  #canto { position: absolute; top: 10px; right: 10px; width: 60px; height: 30px; background: #fcc; }
+  #esticado { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #cfc; }
+  #fora-do-fluxo { position: absolute; top: 5px; left: 5px; width: 500px; height: 500px; background: #ccf; }
+  #irmao-normal { width: 90px; height: 25px; background: #ffc; }
+</style></head>
+<body>
+  <div id="ancora">
+    <div id="meio"><div id="canto"></div></div>
+    <div id="irmao-normal"></div>
+  </div>
+  <div id="raiz-abs" style="position: relative; width: 200px; height: 100px; background: #efe;">
+    <div id="esticado"></div>
+  </div>
+</body>
+</html>

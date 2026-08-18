@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: `opacity` e `visibility: hidden` NÃO tiram a caixa do fluxo — o rect
+     fica igual e o irmão seguinte não sobe. É a diferença com `display: none`,
+     e um motor que trate hidden como none desloca a página toda. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  div { width: 100px; height: 40px; background: #fcc; }
+  #opaco { opacity: 1; }
+  #meio-transparente { opacity: 0.5; }
+  #invisivel-opacity { opacity: 0; }
+  #escondido { visibility: hidden; }
+  #visivel-dentro-de-escondido { visibility: visible; height: 20px; background: #cfc; }
+  #depois { background: #ccf; }
+</style></head>
+<body>
+  <div id="opaco"></div>
+  <div id="meio-transparente"></div>
+  <div id="invisivel-opacity"></div>
+  <div id="escondido"><div id="visivel-dentro-de-escondido"></div></div>
+  <div id="depois"></div>
+</body>
+</html>

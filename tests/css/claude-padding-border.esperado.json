@@ -1,0 +1,209 @@
+{
+ "elementos": {
+  "borda-com-estilo": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(238, 238, 238)",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "normal",
+    "opacity": "1",
+    "overflow": "visible",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    189,
+    220,
+    40
+   ]
+  },
+  "borda-sem-estilo": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(238, 238, 238)",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "normal",
+    "opacity": "1",
+    "overflow": "visible",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    164,
+    200,
+    20
+   ]
+  },
+  "dois": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(238, 238, 238)",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "normal",
+    "opacity": "1",
+    "overflow": "visible",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    45,
+    240,
+    40
+   ]
+  },
+  "quatro": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(238, 238, 238)",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "normal",
+    "opacity": "1",
+    "overflow": "visible",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    135,
+    206,
+    24
+   ]
+  },
+  "tres": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(238, 238, 238)",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "normal",
+    "opacity": "1",
+    "overflow": "visible",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    90,
+    220,
+    40
+   ]
+  },
+  "um": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(238, 238, 238)",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "normal",
+    "opacity": "1",
+    "overflow": "visible",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    0,
+    220,
+    40
+   ]
+  }
+ },
+ "fixture": "claude-padding-border.html",
+ "medido_em": "2026-08-18",
+ "regua": "Chrome via chrome-devtools-mcp",
+ "viewport": [
+  1280,
+  800
+ ]
+}

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: `em` é do font-size do PAI e compõe-se em cascata; `rem` é sempre da
+     raiz e não; `%` comporta-se como `em`. A composição do `em` é o que um
+     motor com uma base única acerta uma vez e erra no neto. -->
+<html>
+<head><style>
+  html { font-size: 16px; }
+  body { margin: 0; font-size: 20px; }
+  #px { font-size: 32px; }
+  #em { font-size: 2em; }
+  #em-neto { font-size: 0.5em; }
+  #rem { font-size: 2rem; }
+  #rem-neto { font-size: 0.5rem; }
+  #percento { font-size: 150%; }
+</style></head>
+<body>
+  <div id="px">a</div>
+  <div id="em"><div id="em-neto">a</div></div>
+  <div id="rem"><div id="rem-neto">a</div></div>
+  <div id="percento">a</div>
+</body>
+</html>

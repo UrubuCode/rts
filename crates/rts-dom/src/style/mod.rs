@@ -29,25 +29,36 @@
 //!   nunca casa nome CSS na fronteira ABI; o TS mapeia nome→índice). Base do
 //!   `defineStyle` (F1).
 
+pub mod background;
+pub mod borders;
 pub mod color;
 pub mod effects;
 pub mod fmt;
+pub mod grid_areas;
 pub mod lerp;
 pub mod parse;
 pub mod props;
 pub mod ruleindex;
 pub mod selector;
 pub mod stylesheet;
+pub mod text;
 pub mod values;
 pub(crate) mod vars;
 
+#[cfg(test)]
+mod selector_tests;
+#[cfg(test)]
+mod tmp_measure;
 #[cfg(test)]
 mod tests;
 
 // A API pública é a MESMA da antiga `style.rs` monolítica — os consumidores
 // (`dom.rs`, `layout.rs`, `abi.rs`, `scrollbar.rs`, `anim.rs`, rts-egui) seguem
 // usando `crate::style::X` sem mudança.
+pub use background::{BgPosition, BgRepeat, BgSize};
+pub use borders::{SideBorder, SideName};
 pub use color::parse_color;
+pub use grid_areas::{GridArea, GridAreas};
 pub use lerp::{lerp_color, lerp_dimension, lerp_f32};
 pub use parse::{is_mono_family, parse_inline, parse_inline_block};
 pub use props::{
@@ -60,6 +71,7 @@ pub use selector::{
     ComplexSelector, CompoundSelector, PseudoClass, Selector, SimpleSelector,
 };
 pub use stylesheet::{parse_rules, DeclBlock, HoverReach, MatchedRules, MediaQuery, Rule, Stylesheet};
+pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak};
 pub use values::{
     clamp_size, AlignItems, BorderStyle, CalcLen, Dimension, DisplayKind, Edges, FlexDirection, FloatSide, GridTrack,
     JustifyContent, LineHeight, Position, ResolveCtx, Rgba, Side, TextAlign, TextTransform,

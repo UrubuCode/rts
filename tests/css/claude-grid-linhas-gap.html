@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- Fixa: `grid-template-rows`, a quebra automática para a linha seguinte
+     quando os itens passam do número de colunas, e o `gap` entrando entre as
+     pistas — e NÃO nas bordas do contentor. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #grelha { display: grid; width: 400px;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: 50px 80px;
+            gap: 10px 20px; background: #eee; }
+  #grelha > div { background: #fcc; }
+</style></head>
+<body>
+  <div id="grelha">
+    <div id="i1"></div><div id="i2"></div><div id="i3"></div>
+    <div id="i4"></div><div id="i5"></div><div id="i6"></div>
+  </div>
+</body>
+</html>

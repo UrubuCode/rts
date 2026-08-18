@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- Fixa: margin, padding e border somam-se à caixa em `content-box` (o
+     padrão), e NÃO em `border-box`. Uma só coisa em jogo: o box model. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #pai { width: 400px; background: #eee; }
+  #conteudo { width: 200px; height: 50px; padding: 10px; border: 5px solid #000; margin: 20px; background: #cfc; }
+  #borda-caixa { box-sizing: border-box; width: 200px; height: 50px; padding: 10px; border: 5px solid #000; margin: 20px; background: #ccf; }
+  #sem-nada { width: 100px; height: 30px; background: #fcc; }
+</style></head>
+<body>
+  <div id="pai">
+    <div id="conteudo">a</div>
+    <div id="borda-caixa">b</div>
+    <div id="sem-nada">c</div>
+  </div>
+</body>
+</html>

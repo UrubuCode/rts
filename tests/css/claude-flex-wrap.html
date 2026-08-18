@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!-- Fixa: `flex-wrap: wrap` quebra para a linha seguinte quando a soma dos
+     tamanhos principais passa do contentor, e a linha nova começa abaixo da
+     mais alta da anterior. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #caixa { display: flex; flex-wrap: wrap; width: 300px; background: #eee; }
+  #a { width: 120px; height: 40px; background: #fcc; }
+  #b { width: 120px; height: 60px; background: #cfc; }
+  #c { width: 120px; height: 30px; background: #ccf; }
+  #d { width: 120px; height: 20px; background: #ffc; }
+</style></head>
+<body>
+  <div id="caixa"><div id="a"></div><div id="b"></div><div id="c"></div><div id="d"></div></div>
+</body>
+</html>

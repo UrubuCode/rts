@@ -18,8 +18,9 @@ pub enum SimpleSelector {
     /// `[attr]` / `[attr=v]` / `[attr^=v]` / `[attr$=v]` / `[attr*=v]` / `[attr~=v]`
     /// / `[attr|=v]`. Especificidade 10 (como classe).
     Attr { name: String, op: AttrOp, value: String },
-    /// Pseudo-classe ESTRUTURAL (`:first-child`/`:last-child`/`:only-child`/
-    /// `:empty`/`:root`/`:nth-child(...)`). Sem estado (sem `:hover`). Especif. 10.
+    /// Pseudo-classe (`:first-child`, `:hover`, `:not(...)`, `:lang(x)`, …). A
+    /// especificidade NÃO é fixa em 10: `:not`/`:is` tomam a do argumento e
+    /// `:where` vale zero — por isso delega em [`PseudoClass::specificity`].
     Pseudo(PseudoClass),
 }
 
@@ -67,6 +68,123 @@ pub enum PseudoClass {
     /// do backend (hit-test do mouse) via `Dom::set_hovered`; headless casa
     /// nunca (hovered = nenhum). Especificidade 10 (classe), como no browser.
     Hover,
+    /// `:focus` — ESTADO VIVO: o elemento com o foco de teclado. O DOM só tem UM
+    /// foco vivo, o `focused_input` que o loop de input seta ao clicar dentro da
+    /// caixa de um campo; então `:focus` casa esse nó e mais nenhum.
+    ///
+    /// NÃO propaga aos ancestrais (ao contrário de `:hover`): quem faz isso é
+    /// `:focus-within`, que é outra pseudo e não está implementada.
+    Focus,
+    /// `:active` — o elemento entre o mousedown e o mouseup sobre ele. NUNCA casa:
+    /// o DOM não guarda esse estado (`set_hovered` é o único estado de ponteiro
+    /// que o backend entrega). Casar sempre seria pior que casar nunca — deixaria
+    /// o estilo de "botão premido" colado em todo botão da página.
+    Active,
+    /// `:visited` — NUNCA casa: não há histórico de navegação. É também o que o
+    /// browser faz na prática por privacidade (só um punhado de propriedades de
+    /// cor é aplicável a `:visited`), portanto "nunca" é o desvio menor.
+    Visited,
+    /// `:link` — um hiperligação AINDA não visitada. Como `:visited` nunca casa,
+    /// isto é simplesmente "é um `<a>`/`<area>` com `href`".
+    Link,
+    /// `:read-write` — editável pelo utilizador: `input`/`textarea` sem `readonly`
+    /// nem `disabled`, ou qualquer elemento com `contenteditable` diferente de
+    /// `"false"`.
+    ReadWrite,
+    /// `:read-only` — o COMPLEMENTO de `:read-write` (spec: todo elemento que não
+    /// é editável, incluindo um `<p>` qualquer — não só campos de formulário).
+    /// Seguimos a spec e não a intuição: uma folha real usa `:read-only` para
+    /// desenhar o campo bloqueado, e restringir a formulários casaria menos do
+    /// que o browser casa, o que se paga na cascade e não aqui.
+    ReadOnly,
+    /// `:lang(x)` — o idioma do elemento é `x` ou um seu subtipo (`en` casa
+    /// `en-US`). O idioma vem do atributo `lang` do próprio nó ou do ancestral
+    /// mais próximo que o tenha. NÃO consultamos `<meta http-equiv>` nem o
+    /// cabeçalho Content-Language: nenhum dos dois chega ao DOM.
+    Lang(String),
+    /// `:not(a, b)` — casa se NENHUM dos seletores do argumento casa o elemento.
+    /// Especificidade = a do argumento MAIS específico (o `:not` em si vale 0).
+    Not(Vec<ComplexSelector>),
+    /// `:is(a, b)` (e o alias antigo `:matches()`) — casa se ALGUM casa.
+    /// Especificidade = a do argumento mais específico.
+    Is(Vec<ComplexSelector>),
+    /// `:where(a, b)` — casa igual ao `:is`, mas contribui ZERO para a
+    /// especificidade. É a única diferença entre os dois, e é o ponto todo dele:
+    /// `:where(.a) .b` perde para `.c .b`, enquanto `:is(.a) .b` ganha.
+    Where(Vec<ComplexSelector>),
+}
+
+impl PseudoClass {
+    /// A especificidade desta pseudo-classe. 10 (peso de classe) para quase
+    /// todas; as funcionais tomam a do argumento, e `:where` vale zero.
+    fn specificity(&self) -> u32 {
+        match self {
+            PseudoClass::Where(_) => 0,
+            PseudoClass::Not(list) | PseudoClass::Is(list) => {
+                list.iter().map(ComplexSelector::specificity).max().unwrap_or(0)
+            }
+            _ => 10,
+        }
+    }
+
+    /// Os seletores do argumento, quando é uma pseudo funcional. Fatia vazia para
+    /// as restantes — é por aqui que o índice de regras e o stylesheet varrem o
+    /// que está DENTRO de um `:is()`/`:not()`, em vez de o ignorarem.
+    pub fn sub_selectors(&self) -> &[ComplexSelector] {
+        match self {
+            PseudoClass::Not(l) | PseudoClass::Is(l) | PseudoClass::Where(l) => l,
+            _ => &[],
+        }
+    }
+}
+
+/// Visita todo [`SimpleSelector`] de `sel`, incluindo os que estão DENTRO de
+/// `:not()`/`:is()`/`:where()`, em profundidade.
+///
+/// Existe porque as varreduras derivadas (classes citadas, "usa atributo?",
+/// "depende da posição?") são perguntas sobre o que a regra PODE observar, e um
+/// simples aninhado é observado na mesma. Ignorá-lo fazia `.a:is(.b)` não
+/// invalidar quando `b` mudava — uma falha longe da causa.
+pub fn visit_simples<'a>(sel: &'a ComplexSelector, f: &mut impl FnMut(&'a SimpleSelector)) {
+    for compound in &sel.compounds {
+        for part in &compound.parts {
+            f(part);
+            if let SimpleSelector::Pseudo(pc) = part {
+                for sub in pc.sub_selectors() {
+                    visit_simples(sub, f);
+                }
+            }
+        }
+    }
+}
+
+/// `true` se este compound contém `:hover`, inclusive dentro de uma pseudo
+/// funcional (`.a:is(:hover)`). O alcance da invalidação de hover pergunta isto
+/// por compound, e um `:hover` aninhado invalida tanto como um solto.
+pub fn compound_has_hover(compound: &CompoundSelector) -> bool {
+    compound.parts.iter().any(|part| match part {
+        SimpleSelector::Pseudo(PseudoClass::Hover) => true,
+        SimpleSelector::Pseudo(pc) => pc
+            .sub_selectors()
+            .iter()
+            .any(|s| s.compounds.iter().any(compound_has_hover)),
+        _ => false,
+    })
+}
+
+/// Visita `sel` e todos os seletores aninhados nas pseudo funcionais. Usado por
+/// quem precisa dos COMBINADORES (e não só dos simples).
+pub fn visit_selectors<'a>(sel: &'a ComplexSelector, f: &mut impl FnMut(&'a ComplexSelector)) {
+    f(sel);
+    for compound in &sel.compounds {
+        for part in &compound.parts {
+            if let SimpleSelector::Pseudo(pc) = part {
+                for sub in pc.sub_selectors() {
+                    visit_selectors(sub, f);
+                }
+            }
+        }
+    }
 }
 
 /// O combinador ENTRE dois compounds numa cadeia (`A > B`): a relação de B com A.
@@ -114,14 +232,19 @@ impl SimpleSelector {
                     s.capacity()
                 }
                 SimpleSelector::Attr { name, value, .. } => name.capacity() + value.capacity(),
-                SimpleSelector::Universal | SimpleSelector::Pseudo(_) => 0,
+                SimpleSelector::Pseudo(pc) => match pc {
+                    PseudoClass::Lang(s) => s.capacity(),
+                    _ => pc.sub_selectors().iter().map(ComplexSelector::estimated_bytes).sum(),
+                },
+                SimpleSelector::Universal => 0,
             }
     }
 
     fn specificity(&self) -> u32 {
         match self {
             SimpleSelector::Id(_) => 100,
-            SimpleSelector::Class(_) | SimpleSelector::Attr { .. } | SimpleSelector::Pseudo(_) => 10,
+            SimpleSelector::Class(_) | SimpleSelector::Attr { .. } => 10,
+            SimpleSelector::Pseudo(pc) => pc.specificity(),
             SimpleSelector::Tag(_) => 1,
             SimpleSelector::Universal => 0,
         }
@@ -354,7 +477,14 @@ fn parse_attr_selector(s: &str) -> Option<(SimpleSelector, &str)> {
 }
 
 /// Parseia `:pseudo` ou `:pseudo(args)` a partir de `:...`. Pseudo desconhecida
-/// (ex: `:hover` — com estado) → `None` (a regra inteira é descartada).
+/// → `None` (a regra inteira é descartada).
+///
+/// PSEUDO-ELEMENTOS (`::before`, `::after`, `::marker`) caem aqui e são
+/// recusados de propósito: gerá-los exige criar caixas que não existem na
+/// árvore, o que é trabalho do layout e não do seletor. Recusar descarta a
+/// regra — que é o certo enquanto não há caixa: aceitar o seletor e aplicar as
+/// declarações ao elemento REAL pintaria o `content` do `::after` dentro do
+/// próprio elemento, e um erro visível é pior que uma regra ausente.
 fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
     let after_colon = &s[1..];
     // `:nth-child(...)` — captura o argumento entre parênteses.
@@ -363,6 +493,47 @@ fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
         let arg = &rest[..close];
         let (a, b) = parse_nth(arg)?;
         return Some((SimpleSelector::Pseudo(PseudoClass::NthChild(a, b)), &rest[close + 1..]));
+    }
+    // As FUNCIONAIS de lista de seletores. O argumento pode conter parênteses
+    // (`:not(:nth-child(2))`), por isso o fecho é procurado por equilíbrio e não
+    // pelo primeiro `)`.
+    for (nome, funcional) in [
+        ("not", Funcional::Not),
+        ("is", Funcional::Is),
+        // `:matches()` é o nome antigo de `:is()` — folhas reais ainda o trazem.
+        ("matches", Funcional::Is),
+        ("where", Funcional::Where),
+    ] {
+        let Some(rest) = strip_func_name(after_colon, nome) else { continue };
+        let (arg, after) = take_balanced_paren(rest)?;
+        let partes = split_top_level_commas(arg);
+        let mut lista = Vec::with_capacity(partes.len());
+        for parte in partes {
+            match ComplexSelector::parse(parte.trim()) {
+                Some(sel) => lista.push(sel),
+                // Selectors L4: `:is()`/`:where()` são FORGIVING (um argumento
+                // inválido é só descartado, os outros continuam a valer);
+                // `:not()` não é — um argumento inválido invalida o seletor
+                // inteiro. Distinção da spec, e é o que separa uma folha que
+                // usa uma pseudo que não temos de uma folha mal escrita.
+                None if funcional == Funcional::Not => return None,
+                None => {}
+            }
+        }
+        let pc = match funcional {
+            Funcional::Not => PseudoClass::Not(lista),
+            Funcional::Is => PseudoClass::Is(lista),
+            Funcional::Where => PseudoClass::Where(lista),
+        };
+        return Some((SimpleSelector::Pseudo(pc), after));
+    }
+    if let Some(rest) = strip_func_name(after_colon, "lang") {
+        let (arg, after) = take_balanced_paren(rest)?;
+        let lang = arg.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase();
+        if lang.is_empty() {
+            return None;
+        }
+        return Some((SimpleSelector::Pseudo(PseudoClass::Lang(lang)), after));
     }
     let (ident, rest) = take_ident(after_colon);
     let pc = match ident {
@@ -376,9 +547,59 @@ fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
         "enabled" => PseudoClass::Enabled,
         "required" => PseudoClass::Required,
         "hover" => PseudoClass::Hover,
-        _ => return None, // :focus/:not()/etc não suportados
+        "focus" => PseudoClass::Focus,
+        "active" => PseudoClass::Active,
+        "visited" => PseudoClass::Visited,
+        "link" => PseudoClass::Link,
+        "read-only" => PseudoClass::ReadOnly,
+        "read-write" => PseudoClass::ReadWrite,
+        // Ainda por fazer: `:focus-within`, `:focus-visible`, `:target`,
+        // `:nth-of-type` e a família de tipo. Recusar descarta a regra.
+        _ => return None,
     };
     Some((SimpleSelector::Pseudo(pc), rest))
+}
+
+/// Qual das funcionais de lista de seletores está a ser parseada.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Funcional {
+    Not,
+    Is,
+    Where,
+}
+
+/// `Some(resto-a-partir-do-`(`)` se `s` começa por `nome(` (nome case-insensitive,
+/// como todo identificador de pseudo em CSS).
+fn strip_func_name<'a>(s: &'a str, nome: &str) -> Option<&'a str> {
+    let n = nome.len();
+    if s.len() > n && s[..n].eq_ignore_ascii_case(nome) && s.as_bytes()[n] == b'(' {
+        Some(&s[n..])
+    } else {
+        None
+    }
+}
+
+/// Dado `s` a começar em `(`, devolve (conteúdo sem os parênteses, resto após o
+/// `)` que fecha). Conta profundidade porque o argumento de `:not()` pode conter
+/// outra funcional; `find(')')` cortaria em `:not(:nth-child(2))` no sítio errado.
+fn take_balanced_paren(s: &str) -> Option<(&str, &str)> {
+    let mut depth = 0i32;
+    let mut in_quote: Option<char> = None;
+    for (i, c) in s.char_indices() {
+        match c {
+            '"' | '\'' if in_quote.is_none() => in_quote = Some(c),
+            q if Some(q) == in_quote => in_quote = None,
+            '(' if in_quote.is_none() => depth += 1,
+            ')' if in_quote.is_none() => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((&s[1..i], &s[i + 1..]));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Parseia o argumento de `:nth-child()`: `odd`/`even`/`N`/`an+b`/`an-b`/`an`/`n`.

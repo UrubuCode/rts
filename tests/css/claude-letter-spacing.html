@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- Fixa: `letter-spacing` acrescenta o valor DEPOIS de cada carácter — n
+     caracteres somam n espaçamentos, não n-1, e isso mede-se na largura de um
+     `inline-block` que encolhe ao conteúdo. -->
+<html>
+<head><style>
+  body { margin: 0; font: 16px/20px monospace; }
+  span { display: inline-block; background: #eee; }
+  #zero { letter-spacing: 0; }
+  #dois { letter-spacing: 2px; }
+  #dez { letter-spacing: 10px; }
+  #negativo { letter-spacing: -1px; }
+</style></head>
+<body>
+  <div><span id="zero">abcde</span></div>
+  <div><span id="dois">abcde</span></div>
+  <div><span id="dez">abcde</span></div>
+  <div><span id="negativo">abcde</span></div>
+</body>
+</html>

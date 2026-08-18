@@ -357,20 +357,24 @@ impl Stylesheet {
             return cached;
         }
         let mut reach = HoverReach::None;
+        // Os seletores aninhados (`:is(...)`) entram na varredura: um `:hover`
+        // dentro de um deles muda estilo na mesma, e ignorá-lo dava
+        // `HoverReach::None` — o mouse deixava de invalidar o que devia.
+        let mut todos: Vec<&super::ComplexSelector> = Vec::new();
         for r in &self.rules {
-            let n = r.selector.compounds.len();
-            for (i, c) in r.selector.compounds.iter().enumerate() {
-                let has_hover = c.parts.iter().any(|p| {
-                    matches!(p, super::SimpleSelector::Pseudo(super::PseudoClass::Hover))
-                });
-                if !has_hover {
+            super::selector::visit_selectors(&r.selector, &mut |s| todos.push(s));
+        }
+        for sel in todos {
+            let n = sel.compounds.len();
+            for (i, c) in sel.compounds.iter().enumerate() {
+                if !super::selector::compound_has_hover(c) {
                     continue;
                 }
                 // O `:hover` no ÚLTIMO compound afeta só quem casa (`.btn:hover`).
                 // Antes do último, o alcance depende do combinador que o segue:
                 // descendente/filho desce na subárvore, irmão sai dela — e sair
                 // dela é o caso que a invalidação por subárvore NÃO cobre.
-                let next = if i + 1 < n { r.selector.combinators.get(i) } else { None };
+                let next = if i + 1 < n { sel.combinators.get(i) } else { None };
                 reach = reach.max(match next {
                     None => HoverReach::SelfOnly,
                     Some(super::Combinator::Descendant | super::Combinator::Child) => {
@@ -400,22 +404,24 @@ impl Stylesheet {
         }
         use super::{Combinator, PseudoClass as P, SimpleSelector as S};
         let answer = self.rules.iter().any(|r| {
-            r.selector.combinators.iter().any(|c| {
-                matches!(c, Combinator::NextSibling | Combinator::SubsequentSibling)
-            }) || r.selector.compounds.iter().any(|c| {
-                c.parts.iter().any(|p| {
-                    matches!(
-                        p,
-                        S::Pseudo(
-                            P::FirstChild
-                                | P::LastChild
-                                | P::OnlyChild
-                                | P::Empty
-                                | P::NthChild(_, _)
-                        )
+            // Varre também o que está dentro de `:is()`/`:not()`: `:not(:first-child)`
+            // depende da posição exatamente como `:first-child`.
+            let mut sensivel = false;
+            super::selector::visit_selectors(&r.selector, &mut |s| {
+                sensivel |= s
+                    .combinators
+                    .iter()
+                    .any(|c| matches!(c, Combinator::NextSibling | Combinator::SubsequentSibling));
+            });
+            super::selector::visit_simples(&r.selector, &mut |p| {
+                sensivel |= matches!(
+                    p,
+                    S::Pseudo(
+                        P::FirstChild | P::LastChild | P::OnlyChild | P::Empty | P::NthChild(_, _)
                     )
-                })
-            })
+                );
+            });
+            sensivel
         });
         *self.position_sensitive.borrow_mut() = Some(answer);
         answer
@@ -428,13 +434,13 @@ impl Stylesheet {
     pub fn hover_compounds(&self) -> Vec<&super::CompoundSelector> {
         let mut out = Vec::new();
         for r in &self.rules {
-            for c in &r.selector.compounds {
-                if c.parts.iter().any(|p| {
-                    matches!(p, super::SimpleSelector::Pseudo(super::PseudoClass::Hover))
-                }) {
-                    out.push(c);
+            super::selector::visit_selectors(&r.selector, &mut |sel| {
+                for c in &sel.compounds {
+                    if super::selector::compound_has_hover(c) {
+                        out.push(c);
+                    }
                 }
-            }
+            });
         }
         out
     }

@@ -1240,13 +1240,9 @@ fn layout_block(
             insert_item(list, at, DisplayItem::SolidRect { rect: box_rect, color, radius });
             at += 1;
         }
-        // A borda só pinta se tem largura E um `border-style` VISÍVEL. O default
-        // CSS de border-style é `none` → sem `border-style` declarado, NÃO pinta
-        // (fiel ao Chrome: `border-width:2px` sozinho dá borda invisível).
-        let style_visible = css.border_style.map(|s| s.is_visible()).unwrap_or(false);
-        if border > 0.0 && style_visible {
-            let color = apply_opacity(css.border_color.unwrap_or(0x808080FF), op);
-            insert_item(list, at, DisplayItem::Border { rect: box_rect, width: border, color, radius });
+        for item in border_items(&css, box_rect, radius, op) {
+            insert_item(list, at, item);
+            at += 1;
         }
     }
 
@@ -1262,12 +1258,14 @@ fn layout_block(
         // BeginClip no índice onde os FILHOS começam (logo após os itens de caixa que
         // foram inseridos em `box_index`); EndClip no fim. Quantos itens de caixa:
         // fundo (se bg) + borda (se visível).
-        let style_visible = css.border_style.map(|s| s.is_visible()).unwrap_or(false);
         let box_items = if css.has_box() {
-            // MESMA contagem da emissão acima: sombra + (gradiente OU bg) + borda.
+            // MESMA contagem da emissão acima: sombra + (gradiente OU bg) + as
+            // barras de borda/outline. Estas últimas vêm de `border_items`, a mesma
+            // função que as emitiu — contar por outra regra é o que dessincroniza
+            // o índice do clip quando uma borda por lado entra em jogo.
             css.box_shadow.is_some() as usize
                 + (css.gradient.is_some() || css.bg.is_some()) as usize
-                + (border > 0.0 && style_visible) as usize
+                + border_items(&css, box_rect, css.corner_radius.unwrap_or(0.0), 1.0).len()
         } else {
             0
         };
@@ -3204,10 +3202,17 @@ fn layout_children_grid(
     // Sem grid-template-columns explícito → 1 coluna 1fr (o container-do-logo do
     // google: single-column grid). Com N colunas do grid_columns legado (repeat) →
     // N trilhas 1fr.
+    let areas = css.grid_template_areas.clone();
     let col_tracks: Vec<crate::style::GridTrack> = match &css.grid_template_columns {
         Some(t) => (**t).clone(),
+        // Sem trilhas declaradas mas COM áreas, é a matriz que diz quantas colunas
+        // existem — cair no default de 1 coluna empilharia lado e conteúdo, que é
+        // exatamente o sintoma que as áreas existem para resolver.
         None => {
-            let n = css.grid_columns.unwrap_or(1).max(1) as usize;
+            let n = match &areas {
+                Some(a) => a.cols,
+                None => css.grid_columns.unwrap_or(1).max(1) as usize,
+            };
             vec![crate::style::GridTrack::Fr(1.0); n]
         }
     };
@@ -3233,7 +3238,16 @@ fn layout_children_grid(
     if children.is_empty() {
         return 0.0;
     }
-    let nrows = children.len().div_ceil(ncols);
+    let cells = place_grid_items(dom, &children, areas.as_deref(), ncols);
+    // Uma linha DECLARADA pela matriz existe mesmo sem item nela (ela ainda empurra
+    // as linhas seguintes pelo gap), daí o max com `areas.rows`.
+    let nrows = cells
+        .iter()
+        .map(|c| c.r1)
+        .max()
+        .unwrap_or(1)
+        .max(areas.as_ref().map(|a| a.rows).unwrap_or(0))
+        .max(1);
 
     // ── LINHAS: altura de cada linha ─────────────────────────────────────────────
     // grid-template-rows explícito (px/%/fr/auto), senão grid-auto-rows, senão a
@@ -3245,13 +3259,18 @@ fn layout_children_grid(
         .map(|t| (**t).clone())
         .unwrap_or_default();
     // mede a altura de conteúdo de cada linha (o item mais alto medido em shrink).
+    // Um item que ATRAVESSA linhas reparte a sua altura IGUALMENTE pelas linhas do
+    // span. O algoritmo da spec (§12.5) distribui pela contribuição de cada trilha;
+    // a repartição igual foi escolhida por não precisar de uma segunda medição e por
+    // errar sempre para MAIS espaço, nunca para item cortado.
     let mut content_row_h = vec![0.0f32; nrows];
-    for (i, &child) in children.iter().enumerate() {
-        let r = i / ncols;
-        let ci = i % ncols;
-        let cw = col_sizes[ci.min(col_sizes.len() - 1)];
-        let (_, h) = measure_block(dom, child, cw, container_content_h, None, None, true, ctx);
-        content_row_h[r] = content_row_h[r].max(h);
+    for cell in &cells {
+        let cw = span_size(&col_sizes, cell.c0, cell.c1, col_gap);
+        let (_, h) = measure_block(dom, cell.child, cw, container_content_h, None, None, true, ctx);
+        let each = h / cell.rows() as f32;
+        for r in cell.r0..cell.r1.min(nrows) {
+            content_row_h[r] = content_row_h[r].max(each);
+        }
     }
     let auto_row = css.grid_auto_rows;
     let has_explicit_row_track = |r: usize| {
@@ -3296,13 +3315,12 @@ fn layout_children_grid(
     for r in 0..nrows {
         row_y[r + 1] = row_y[r] + row_sizes[r] + row_gap;
     }
-    for (i, &child) in children.iter().enumerate() {
-        let r = i / ncols;
-        let c = i % ncols;
-        let cell_x = col_x[c];
-        let cell_y = row_y[r];
-        let cell_w = col_sizes[c.min(col_sizes.len() - 1)];
-        let cell_h = row_sizes[r];
+    for cell in &cells {
+        let child = cell.child;
+        let cell_x = col_x[cell.c0];
+        let cell_y = row_y[cell.r0];
+        let cell_w = span_size(&col_sizes, cell.c0, cell.c1, col_gap);
+        let cell_h = span_size(&row_sizes, cell.r0, cell.r1.min(nrows), row_gap);
         // mede o tamanho natural do item (shrink) p/ o alinhamento não-stretch.
         let stretch_x = justify == crate::style::AlignItems::Stretch;
         let stretch_y = align == crate::style::AlignItems::Stretch;
@@ -3319,6 +3337,98 @@ fn layout_children_grid(
     // altura total = soma das linhas + gaps.
     let total_h: f32 = row_sizes.iter().sum::<f32>() + (nrows.saturating_sub(1)) as f32 * row_gap;
     total_h.max(0.0)
+}
+
+/// Onde UM item do grid vive: a célula inicial e o span, em índices de trilha com
+/// o fim exclusivo. É o resultado da colocação — nomeada ou automática — e o único
+/// que o resto do layout de grid consome, o que é o que permite às duas colocações
+/// coexistirem sem um segundo caminho de posicionamento.
+struct GridCell {
+    child: NodeIdx,
+    r0: usize,
+    c0: usize,
+    r1: usize,
+    c1: usize,
+}
+
+impl GridCell {
+    fn rows(&self) -> usize {
+        (self.r1 - self.r0).max(1)
+    }
+}
+
+/// Coloca os filhos: quem tem `grid-area: <nome>` presente na matriz do container
+/// vai para o retângulo daquele nome; o resto preenche a próxima célula LIVRE em
+/// row-major.
+///
+/// Os nomeados são colocados ANTES (spec §8.5 passo 1) por uma razão concreta e não
+/// por fidelidade: se os automáticos fossem primeiro, um item nomeado para a coluna
+/// da direita encontraria a célula já ocupada e ou sobrepunha ou empurrava — que é o
+/// empilhamento que as áreas existem para evitar.
+fn place_grid_items(
+    dom: &Dom,
+    children: &[NodeIdx],
+    areas: Option<&crate::style::GridAreas>,
+    ncols: usize,
+) -> Vec<GridCell> {
+    let mut cells: Vec<GridCell> = Vec::with_capacity(children.len());
+    // ocupação row-major, crescida sob demanda (o nº de linhas não é conhecido antes
+    // de saber quantos itens sobram para a colocação automática).
+    let mut taken: Vec<bool> = Vec::new();
+    let mut mark = |taken: &mut Vec<bool>, r0: usize, c0: usize, r1: usize, c1: usize| {
+        let need = r1 * ncols;
+        if taken.len() < need {
+            taken.resize(need, false);
+        }
+        for r in r0..r1 {
+            for c in c0..c1.min(ncols) {
+                taken[r * ncols + c] = true;
+            }
+        }
+    };
+
+    let mut auto: Vec<NodeIdx> = Vec::new();
+    for &child in children {
+        let name = dom
+            .computed_style_idx(child)
+            .and_then(|s| s.grid_area.clone());
+        match name.and_then(|n| areas.and_then(|a| a.area(&n))) {
+            Some(a) => {
+                mark(&mut taken, a.r0, a.c0, a.r1, a.c1);
+                cells.push(GridCell { child, r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1.min(ncols) });
+            }
+            None => auto.push(child),
+        }
+    }
+
+    // As linhas declaradas pela matriz contam como existentes mesmo sem item: um
+    // automático não deve cair numa célula vazia RESERVADA (o `.` da matriz) antes
+    // das linhas implícitas... mas cair nela é o comportamento da spec, então só as
+    // células realmente ocupadas bloqueiam.
+    let mut cursor = 0usize;
+    for &child in &auto {
+        while taken.get(cursor).copied().unwrap_or(false) {
+            cursor += 1;
+        }
+        let (r, c) = (cursor / ncols, cursor % ncols);
+        mark(&mut taken, r, c, r + 1, c + 1);
+        cells.push(GridCell { child, r0: r, c0: c, r1: r + 1, c1: c + 1 });
+        cursor += 1;
+    }
+    cells
+}
+
+/// Soma os tamanhos das trilhas `start..end` mais os gaps entre elas — o tamanho de
+/// uma célula, que para span 1 é a trilha e para span N inclui os gaps que o span
+/// atravessa (um span de 2 colunas cobre o gap do meio, não o perde).
+fn span_size(sizes: &[f32], start: usize, end: usize, gap: f32) -> f32 {
+    if sizes.is_empty() {
+        return 0.0;
+    }
+    let end = end.max(start + 1).min(sizes.len());
+    let start = start.min(sizes.len() - 1);
+    let n = end.saturating_sub(start);
+    sizes[start..end].iter().sum::<f32>() + (n.saturating_sub(1)) as f32 * gap
 }
 
 /// Resolve os tamanhos px de uma lista de trilhas dado o tamanho do container no
@@ -4959,6 +5069,74 @@ mod tests {
         assert!((b.w - 140.0).abs() < 1.0, "col 1fr: {}", b.w); // (620-200)/3
         assert!((c.w - 280.0).abs() < 1.0, "col 2fr: {}", c.w); // 2×140
         assert!((b.x - 200.0).abs() < 1.0 && (c.x - 340.0).abs() < 1.0, "posições");
+    }
+
+    #[test]
+    fn area_nomeada_poe_sidebar_e_conteudo_lado_a_lado() {
+        // Sem áreas nomeadas os dois filhos caem na colocação automática de um grid
+        // de 1 coluna e EMPILHAM — que é o que punha o artigo da Wikipédia fora da
+        // viewport. Com a matriz, o `lado` fica na coluna 0 e o `conteudo` na 1, na
+        // MESMA linha.
+        let dom = parse_html_to_dom(
+            "<div style=\"display:grid;width:600px;grid-template-columns:200px 1fr;\
+             grid-template-areas:'lado conteudo'\">\
+             <div id=b style='grid-area:conteudo'>conteudo</div>\
+             <div id=a style='grid-area:lado'>lado</div></div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rect = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let a = rect("#a");
+        let b = rect("#b");
+        assert!((a.y - b.y).abs() < 1.0, "mesma linha: a.y={} b.y={}", a.y, b.y);
+        assert!(b.x > a.x, "conteudo à direita do lado: a.x={} b.x={}", a.x, b.x);
+        // a ordem do DOM tem o conteúdo PRIMEIRO — a matriz é que manda, não ela.
+        assert!((a.x - 0.0).abs() < 1.0 && (a.w - 200.0).abs() < 1.0, "lado: x={} w={}", a.x, a.w);
+        assert!((b.x - 200.0).abs() < 1.0 && (b.w - 400.0).abs() < 1.0, "conteudo: x={} w={}", b.x, b.w);
+    }
+
+    #[test]
+    fn area_que_atravessa_colunas_cobre_o_gap() {
+        // 'topo topo' / 'lado conteudo': o topo ocupa as DUAS colunas, e o span
+        // inclui o gap do meio (senão o cabeçalho ficaria 24px mais estreito que a
+        // linha que ele encima).
+        let dom = parse_html_to_dom(
+            "<div style=\"display:grid;width:624px;column-gap:24px;\
+             grid-template-columns:200px 400px;\
+             grid-template-areas:'topo topo' 'lado conteudo'\">\
+             <div id=t style='grid-area:topo'>t</div>\
+             <div id=l style='grid-area:lado'>l</div>\
+             <div id=c style='grid-area:conteudo'>c</div></div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rect = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let t = rect("#t");
+        let l = rect("#l");
+        let c = rect("#c");
+        assert!((t.w - 624.0).abs() < 1.0, "topo cobre as 2 colunas + gap: {}", t.w);
+        assert!(l.y > t.y, "lado abaixo do topo: t.y={} l.y={}", t.y, l.y);
+        assert!((l.y - c.y).abs() < 1.0, "lado e conteudo na mesma linha");
+        assert!((c.x - 224.0).abs() < 1.0, "conteudo após 200px + 24 de gap: {}", c.x);
+    }
+
+    #[test]
+    fn filho_sem_grid_area_continua_na_colocacao_automatica() {
+        // Um item nomeado NÃO desliga o auto-placement dos outros: o sem nome cai na
+        // primeira célula livre, que é a linha implícita abaixo da área ocupada.
+        let dom = parse_html_to_dom(
+            "<div style=\"display:grid;width:400px;grid-template-columns:1fr 1fr;\
+             grid-template-areas:'x x'\">\
+             <div id=n style='grid-area:x'>n</div><div id=s>s</div></div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rect = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let n = rect("#n");
+        let s = rect("#s");
+        assert!((n.w - 400.0).abs() < 1.0, "nomeado ocupa as 2 colunas: {}", n.w);
+        assert!(s.y > n.y, "sem nome vai para a linha seguinte: n.y={} s.y={}", n.y, s.y);
+        assert!((s.x - 0.0).abs() < 1.0, "e para a 1ª coluna livre: {}", s.x);
     }
 
     #[test]

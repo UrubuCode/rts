@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: `text-align` alinha o CONTEÚDO EM LINHA dentro da caixa (e herda),
+     não a caixa dentro do pai — um bloco filho não se move com ele. -->
+<html>
+<head><style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div.caixa { width: 400px; height: 40px; background: #eee; margin-bottom: 5px; }
+  #esquerda { text-align: left; }
+  #centro { text-align: center; }
+  #direita { text-align: right; }
+  #herdado-pai { text-align: right; width: 400px; background: #ddd; }
+  #bloco-filho { width: 100px; height: 20px; background: #fcc; }
+  span { background: #cfc; }
+</style></head>
+<body>
+  <div class="caixa" id="esquerda"><span id="se">abc</span></div>
+  <div class="caixa" id="centro"><span id="sc">abc</span></div>
+  <div class="caixa" id="direita"><span id="sd">abc</span></div>
+  <div id="herdado-pai"><div id="bloco-filho"></div><span id="sh">abc</span></div>
+</body>
+</html>

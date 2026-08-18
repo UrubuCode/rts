@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!-- Fixa: `position: relative` desloca a PINTURA sem tirar do fluxo — o irmão
+     seguinte fica onde estaria se não houvesse deslocamento. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  div { width: 100px; height: 40px; }
+  #estatico { background: #fcc; }
+  #relativo { position: relative; top: 15px; left: 30px; background: #cfc; }
+  #seguinte { background: #ccf; }
+</style></head>
+<body>
+  <div id="estatico"></div>
+  <div id="relativo"></div>
+  <div id="seguinte"></div>
+</body>
+</html>

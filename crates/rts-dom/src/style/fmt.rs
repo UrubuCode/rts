@@ -154,10 +154,106 @@ impl ComputedStyle {
             "flex-basis" => self.flex_basis.map(fmt_dim).unwrap_or_default(),
             "order" => self.order.map(|v| format!("{v}")).unwrap_or_default(),
             "gap" | "column-gap" => self.gap.map(fmt_dim).unwrap_or_default(),
+            "grid-area" => self.grid_area.clone().unwrap_or_default(),
+            // O browser reporta a matriz re-serializada linha a linha entre aspas.
+            // Aqui ela é reportada a partir do RETÂNGULO de cada nome (a matriz crua
+            // não é guardada), o que reconstrói o valor para as áreas retangulares —
+            // que são as únicas legais na spec.
+            "grid-template-areas" => match &self.grid_template_areas {
+                None => String::new(),
+                Some(a) => (0..a.rows)
+                    .map(|r| {
+                        let cells: Vec<String> = (0..a.cols)
+                            .map(|c| a.name_at(r, c).unwrap_or(".").to_string())
+                            .collect();
+                        format!("\"{}\"", cells.join(" "))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            },
             "row-gap" => self.row_gap.map(fmt_dim).unwrap_or_default(),
+            // ── Fundo (as camadas do shorthand) ───────────────────────────────
+            "background-repeat" => self.bg_repeat.map(|r| r.css().to_string()).unwrap_or_default(),
+            "background-position" => self
+                .bg_position
+                .map(|p| format!("{} {}", fmt_dim(p.x), fmt_dim(p.y)))
+                .unwrap_or_default(),
+            "background-size" => match self.bg_size {
+                None => String::new(),
+                Some(crate::style::BgSize::Auto) => "auto".into(),
+                Some(crate::style::BgSize::Cover) => "cover".into(),
+                Some(crate::style::BgSize::Contain) => "contain".into(),
+                Some(crate::style::BgSize::Len(w, h)) => {
+                    format!("{} {}", fmt_dim(w), fmt_dim(h))
+                }
+            },
+            // ── Bordas por lado: reportam o EFETIVO (com o fallback da uniforme),
+            // que é o que o browser reporta — `border: 1px solid red` faz o
+            // `border-top-color` responder `rgb(255, 0, 0)`, não vazio.
+            "border-top-width" | "border-right-width" | "border-bottom-width"
+            | "border-left-width" => fmt_px(side_of(self, &n).width),
+            "border-top-style" | "border-right-style" | "border-bottom-style"
+            | "border-left-style" => {
+                format!("{:?}", side_of(self, &n).style).to_ascii_lowercase()
+            }
+            "border-top-color" | "border-right-color" | "border-bottom-color"
+            | "border-left-color" => fmt_color(side_of(self, &n).color),
+            "outline-width" => self.outline_width.map(fmt_px).unwrap_or_default(),
+            "outline-style" => self
+                .outline_style
+                .map(|s| format!("{s:?}").to_ascii_lowercase())
+                .unwrap_or_default(),
+            "outline-color" => self.outline_color.map(fmt_color).unwrap_or_default(),
+            "outline-offset" => self.outline_offset.map(fmt_px).unwrap_or_default(),
+            // ── Texto / listas / fluxo ────────────────────────────────────────
+            "vertical-align" => {
+                self.vertical_align.map(|v| v.css().to_string()).unwrap_or_default()
+            }
+            "clear" => self.clear.map(|c| c.css().to_string()).unwrap_or_default(),
+            "word-break" => self.word_break.map(|w| w.css().to_string()).unwrap_or_default(),
+            "overflow-wrap" | "word-wrap" => {
+                self.overflow_wrap.map(|w| w.css().to_string()).unwrap_or_default()
+            }
+            "direction" => self.direction.map(|d| d.css().to_string()).unwrap_or_default(),
+            "text-indent" => self.text_indent.map(fmt_dim).unwrap_or_default(),
+            "list-style-type" => {
+                self.list_style_type.map(|t| t.css().to_string()).unwrap_or_default()
+            }
+            "list-style-image" => self.list_style_image.clone().unwrap_or_default(),
+            "cursor" => self.cursor.clone().unwrap_or_default(),
+            "flex-flow" => match (self.flex_direction, self.flex_wrap) {
+                (None, None) => String::new(),
+                (d, w) => format!(
+                    "{} {}",
+                    match d {
+                        Some(x) => match x {
+                            crate::style::FlexDirection::Row => "row",
+                            crate::style::FlexDirection::RowReverse => "row-reverse",
+                            crate::style::FlexDirection::Column => "column",
+                            crate::style::FlexDirection::ColumnReverse => "column-reverse",
+                        },
+                        None => "row",
+                    },
+                    if w == Some(true) { "wrap" } else { "nowrap" }
+                ),
+            },
             _ => String::new(),
         }
     }
+}
+
+/// A borda EFETIVA do lado nomeado por uma longhand (`border-top-width` → o lado
+/// top), já com o fallback para a borda uniforme. O nome chega inteiro porque é
+/// o que o `match` do `get_property` tem em mão.
+fn side_of(css: &ComputedStyle, prop: &str) -> crate::style::SideBorder {
+    let sides = crate::style::borders::resolved_sides(css);
+    let idx = match prop.split('-').nth(1) {
+        Some("right") => 1,
+        Some("bottom") => 2,
+        Some("left") => 3,
+        _ => 0,
+    };
+    sides[idx]
 }
 
 /// Um lado de margin/padding → string CSS: comprimento cru (`fmt_dim` — px sai

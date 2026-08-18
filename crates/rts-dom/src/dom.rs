@@ -2813,7 +2813,61 @@ impl Dom {
                 Some(hovered) => self.is_ancestor(idx, hovered),
                 None => false,
             },
+            // `:focus` NÃO propaga aos ancestrais (isso é `:focus-within`), por
+            // isso a comparação é de igualdade e não `is_ancestor` como no hover.
+            P::Focus => self.focused_input == Some(idx),
+            // Sem estado de botão premido nem histórico no DOM — ver os
+            // comentários das variantes em `style::selector`.
+            P::Active | P::Visited => false,
+            P::Link => {
+                let is_anchor = matches!(&self.nodes[idx].kind,
+                    NodeKind::Element { tag } if matches!(tag.as_str(), "a" | "area"));
+                is_anchor && self.nodes[idx].attr("href").is_some()
+            }
+            P::ReadWrite => self.is_read_write(idx),
+            P::ReadOnly => !self.is_read_write(idx),
+            // O idioma herda-se: o `lang` do ancestral mais próximo é o do nó.
+            P::Lang(want) => match self.nearest_lang(idx) {
+                // `en` casa `en-US` mas não `english` — é a mesma regra do
+                // operador `[lang|=en]`, e é por isso que é escrita igual.
+                Some(have) => {
+                    let have = have.to_ascii_lowercase();
+                    have == *want || have.starts_with(&format!("{want}-"))
+                }
+                None => false,
+            },
+            // `:not(a, b)` casa quando NENHUM casa; `:is`/`:where` quando ALGUM.
+            // O argumento é um seletor COMPLEXO, logo volta a `matches_complex` —
+            // o `:not(div > p)` precisa de navegar a árvore como qualquer outro.
+            P::Not(list) => !list.iter().any(|s| self.matches_complex(idx, s)),
+            P::Is(list) | P::Where(list) => list.iter().any(|s| self.matches_complex(idx, s)),
         }
+    }
+
+    /// `true` se o utilizador pode editar o conteúdo deste nó — a definição de
+    /// `:read-write` (e o complemento da de `:read-only`).
+    fn is_read_write(&self, idx: NodeIdx) -> bool {
+        if let Some(ce) = self.nodes[idx].attr("contenteditable") {
+            // `contenteditable=""` vale `true` (atributo booleano do HTML).
+            return !ce.eq_ignore_ascii_case("false");
+        }
+        let editavel_por_tag = matches!(&self.nodes[idx].kind,
+            NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "textarea"));
+        editavel_por_tag
+            && self.nodes[idx].attr("readonly").is_none()
+            && self.nodes[idx].attr("disabled").is_none()
+    }
+
+    /// O valor de `lang` do nó ou do ancestral mais próximo que o tenha.
+    fn nearest_lang(&self, idx: NodeIdx) -> Option<&str> {
+        let mut cur = Some(idx);
+        while let Some(n) = cur {
+            if let Some(lang) = self.nodes[n].attr("lang") {
+                return Some(lang);
+            }
+            cur = self.parent_element_idx(n);
+        }
+        None
     }
 
     /// Os irmãos-ELEMENTO de `idx` (incluindo ele), em ordem.

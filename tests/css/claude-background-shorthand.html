@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!-- Fixa: o shorthand `background` põe a cor E REPÕE as sub-propriedades que
+     não nomeia — por isso um `background: red` depois de um
+     `background-repeat: no-repeat` devolve o repeat ao padrão. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #so-cor { background: #ff0000; }
+  #reposto { background-repeat: no-repeat; background: #00ff00; }
+  #cor-depois-de-longa { background-color: #0000ff; background: #ffff00; }
+  #longa-depois-de-curta { background: #ff00ff; background-color: #00ffff; }
+</style></head>
+<body>
+  <div id="so-cor">a</div><div id="reposto">a</div>
+  <div id="cor-depois-de-longa">a</div><div id="longa-depois-de-curta">a</div>
+</body>
+</html>

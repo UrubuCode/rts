@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- Fixa: um `float` sai do fluxo normal mas o texto contorna-o; `clear` empurra
+     o elemento para baixo do float. E o pai só de floats colapsa para altura 0 —
+     é o efeito que surpreende quem não conhece a regra. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #pai-so-floats { background: #eee; }
+  #esq { float: left; width: 100px; height: 60px; background: #fcc; }
+  #dir { float: right; width: 80px; height: 40px; background: #cfc; }
+  #ao-lado { height: 20px; background: #ccf; }
+  #limpo { clear: both; height: 25px; background: #ffc; }
+</style></head>
+<body>
+  <div id="pai-so-floats"><div id="esq"></div><div id="dir"></div></div>
+  <div id="ao-lado"></div>
+  <div id="limpo"></div>
+</body>
+</html>
