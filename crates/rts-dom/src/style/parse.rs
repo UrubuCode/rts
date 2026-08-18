@@ -24,6 +24,7 @@ pub fn parse_inline(style: &str) -> ComputedStyle {
 /// separando as camadas normal/important (MDN estágio 1). Ignora
 /// propriedades/valores desconhecidos sem panicar (robustez de parser real).
 pub fn parse_inline_block(style: &str) -> DeclBlock {
+    let _phase = crate::metrics::phases::scope("parse-decls");
     let mut block = DeclBlock::default();
     for decl in style.split(';') {
         let mut it = decl.splitn(2, ':');

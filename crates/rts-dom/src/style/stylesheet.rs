@@ -127,7 +127,16 @@ fn parse_media_len(v: &str) -> Option<f32> {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Rule {
     pub selector: Selector,
-    pub decls: DeclBlock,
+    /// As declarações, COMPARTILHADAS: `Rc` e não valor.
+    ///
+    /// Um `DeclBlock` tem 2120 bytes (dois `ComputedStyle` inteiros, medido por
+    /// `metrics::footprint::type_sizes`), e `a, b, .c { … }` vira uma regra POR
+    /// SELETOR — que clonava os 2 KB a cada uma. Com o `Rc`, os seletores de uma
+    /// mesma regra dividem um bloco, o `Vec<Rule>` realoca movendo 8 bytes em
+    /// vez de 2120, e o retorno recursivo do parse de `@media` para de carregar
+    /// megabytes. Medido: a emissão de regras era 29% do `parse-css`, que era
+    /// 86% do custo de ABRIR uma página Bootstrap.
+    pub decls: std::rc::Rc<DeclBlock>,
     /// Posição da regra no fonte (0-based) — desempate da cascade.
     pub order: u32,
     /// A condição `@media` que ENVOLVE a regra (None = sempre aplica). Avaliada
@@ -395,11 +404,22 @@ impl Stylesheet {
     /// RSS do processo.
     pub fn estimated_bytes(&self) -> usize {
         let mut total = self.rules.capacity() * std::mem::size_of::<Rule>();
+        // Os blocos de declarações são COMPARTILHADOS entre os seletores de uma
+        // mesma regra (`a, b { … }`), então contá-los por regra contaria o mesmo
+        // bloco várias vezes — e uma estimativa que infla é tão inútil quanto uma
+        // que subestima. Distintos por PONTEIRO.
+        let mut seen: Vec<*const DeclBlock> = Vec::new();
         for r in &self.rules {
             total += r.selector.estimated_bytes();
+            let ptr = std::rc::Rc::as_ptr(&r.decls);
+            if seen.contains(&ptr) {
+                continue;
+            }
+            seen.push(ptr);
             // Um DeclBlock carrega dois ComputedStyle inteiros (normal +
             // important) mais as listas de pendentes/custom, que são as que têm
             // String de verdade.
+            total += std::mem::size_of::<DeclBlock>();
             total += r.decls.custom.iter().map(|(k, v)| k.capacity() + v.capacity()).sum::<usize>();
             total += r
                 .decls
@@ -439,6 +459,7 @@ impl Stylesheet {
     /// Acha cada `@keyframes nome { ... }`, parseia os stops e guarda; devolve o CSS
     /// SEM os blocos de keyframes (p/ o parser de regras não tropeçar neles).
     fn extract_keyframes(&mut self, css: &str) -> String {
+        let _phase = crate::metrics::phases::scope("css-keyframes+strip");
         let css = strip_css_comments(css);
         let mut out = String::new();
         let mut rest = css.as_str();
@@ -572,7 +593,11 @@ impl Stylesheet {
 /// regras malformadas (sem `{`/`}`, seletor desconhecido) são puladas sem panicar;
 /// `a, b { ... }` vira uma regra por seletor (mesmas declarações).
 pub fn parse_rules(css: &str) -> Vec<Rule> {
-    let css = strip_css_comments(css);
+    let _phase = crate::metrics::phases::scope("css-parse-rules");
+    let css = {
+        let _strip = crate::metrics::phases::scope("css-strip-comments");
+        strip_css_comments(css)
+    };
     let mut rules = Vec::new();
     let bytes = css.as_bytes();
     let mut i = 0usize;
@@ -646,9 +671,16 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         };
         let decls = parse_inline_block(body); // reusa o parser de declarações (normal+important).
         // `a, b, .c { }` → uma regra por seletor (lista separada por vírgula).
+        let _emit = crate::metrics::phases::scope("css-rule-emit");
+        let decls = std::rc::Rc::new(decls);
         for sel_str in selectors_raw.split(',') {
             if let Some(selector) = ComplexSelector::parse(sel_str) {
-                rules.push(Rule { selector, decls: decls.clone(), order: 0, media: None });
+                rules.push(Rule {
+                    selector,
+                    decls: std::rc::Rc::clone(&decls),
+                    order: 0,
+                    media: None,
+                });
             } else if !sel_str.trim().is_empty() {
                 // Um seletor que o parser recusa é uma regra que a página tem e o
                 // motor NÃO aplica — a diferença mais comum entre "parece o
