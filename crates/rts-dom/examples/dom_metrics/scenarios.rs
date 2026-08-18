@@ -515,7 +515,7 @@ pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
                 text.chars().take(24).collect::<String>()
             ),
             D::BeginClip { rect, .. } => format!("clip ({:.0},{:.0}) {:.0}x{:.0}", rect.x + dx, rect.y + dy, rect.w, rect.h),
-            D::EndClip => "fim-clip".to_string(),
+            D::EndClip { .. } => "fim-clip".to_string(),
             outro => format!("{outro:?}").chars().take(40).collect(),
         };
         println!("        {n:>3}. {descricao}");
@@ -622,7 +622,7 @@ fn item_equivalente(a: &rts_dom::layout::DisplayItem, b: &rts_dom::layout::Displ
         (D::BeginClip { rect: ra, node: na, .. }, D::BeginClip { rect: rb, node: nb, .. }) => {
             rects(ra, rb) && na == nb
         }
-        (D::EndClip, D::EndClip) => true,
+        (D::EndClip { .. }, D::EndClip { .. }) => true,
         _ => false,
     }
 }

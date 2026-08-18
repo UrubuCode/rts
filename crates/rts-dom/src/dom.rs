@@ -3248,6 +3248,21 @@ fn closes_open_p(tag: &str) -> bool {
 /// de tabela). IMPORTANTE: o chamador só aplica isto ao TOPO da pilha, em loop —
 /// nunca fechamos "através" de um container (um `<li>` novo NÃO fecha o `<li>`
 /// de um `<ul>` ancestral: se o topo é `ul`, nada casa e nada fecha).
+/// As tags que o `<head>` aceita. Qualquer outra ABRE o `<body>` — é a regra
+/// de omissão de tags do HTML, e não uma tolerância a HTML malformado: uma
+/// página real pode não escrever `<body>` nenhum e o browser insere um.
+///
+/// Sem isto o `web.whatsapp.com` — que omite as três — punha os `<div>` do app
+/// dentro do `<head>`, e cada regra `body { … }` da folha dele (a que dá
+/// `height: 100%` e a cor do texto) não casava com elemento nenhum.
+fn allowed_in_head(tag: &str) -> bool {
+    matches!(
+        tag,
+        "base" | "basefont" | "bgsound" | "link" | "meta" | "noscript" | "script" | "style"
+            | "template" | "title"
+    )
+}
+
 fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
     let same_kind = match new_tag {
         // um <li> novo termina o <li> corrente (viram irmãos, não aninhados).
@@ -3545,6 +3560,7 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                         crate::bump!(tags_implicitly_closed);
                         open.pop();
                     }
+                    open_implicit_body(&mut dom, &mut open, &name);
                     let parent = open.last().unwrap().0;
                     let attrs = parse_attrs(&attrs_raw);
                     let id = dom.push(NodeKind::Element { tag: name.clone() }, attrs, parent);
@@ -3589,6 +3605,25 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
         }
     }
     dom
+}
+
+/// Fecha o `<head>` e abre um `<body>` quando a tag que vem a seguir não pode
+/// viver no head — a inserção implícita que a spec do HTML manda fazer.
+///
+/// Só actua dentro de um `<head>` ainda aberto: uma página que escreve as três
+/// tags passa por aqui sem efeito, e uma que não escreve nenhuma ganha o
+/// `<body>` no primeiro elemento de fluxo. O que NÃO faz é inserir `<html>` ou
+/// `<head>` ausentes — a árvore continua a aceitar um documento sem eles, e
+/// nenhuma regra CSS depende desses dois da forma que depende do `body`.
+fn open_implicit_body(dom: &mut Dom, open: &mut Vec<(NodeIdx, String)>, new_tag: &str) {
+    if new_tag == "body" || allowed_in_head(new_tag) {
+        return;
+    }
+    let Some(pos) = open.iter().rposition(|(_, n)| n == "head") else { return };
+    open.truncate(pos);
+    let parent = open.last().unwrap().0;
+    let body = dom.push(NodeKind::Element { tag: "body".to_owned() }, Vec::new(), parent);
+    open.push((body, "body".to_owned()));
 }
 
 #[cfg(test)]

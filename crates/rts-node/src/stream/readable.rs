@@ -147,9 +147,17 @@ fn apply_encoding(this: u64, chunk: u64) -> u64 {
         return chunk;
     }
     let Some(name) = entry::text_of(encoding) else { return chunk };
+    // O nome tem de ser uma codificação RECONHECIDA. O `null` guardado em
+    // `readableEncoding` tem mais de uma representação no runtime e a
+    // comparação acima só reconhece uma delas — o que sobrava caía aqui, não
+    // casava com codificação nenhuma, e o `unwrap_or("utf8")` decodificava o
+    // chunk à mesma. O `'data'` entregava então uma STRING onde o Node entrega
+    // um `Buffer`, com os bytes já colapsados: um NBSP (`0xC2 0xA0`) virava um
+    // caractere, e um programa que conta BYTES — o `Transfer-Encoding: chunked`
+    // conta — perdia o alinhamento no primeiro caractere não-ASCII.
+    let Some(canonical) = entry::canonical_encoding(&name) else { return chunk };
     let Some(bytes) = entry::with_runtime(|context| entry::bytes_of(context, chunk)) else { return chunk };
-    let text = entry::decode_bytes(&bytes, entry::canonical_encoding(&name).unwrap_or("utf8"));
-    key(&text)
+    key(&entry::decode_bytes(&bytes, canonical))
 }
 
 /// `readable.push(chunk, encoding?)` — see the module doc for the flowing
@@ -179,6 +187,20 @@ extern "C" fn push(_e: u64, this: u64, chunk: u64, _encoding: u64, _c: u64, _d: 
     // chunk straight over costs one settle instead of a store and a shift.
     if super::flowing::deliver_to_waiter(this, chunk) {
         return entry::boolean_value(true);
+    }
+    // Um stream a FLUIR com backlog escoa o backlog primeiro, e só depois recebe
+    // o chunk novo — a ordem é a do fio.
+    //
+    // Sem isto o backlog era uma armadilha permanente: bastava um chunk cair no
+    // buffer (uma pausa momentânea, um `write` que devolveu `false`) para
+    // `readableLength` nunca mais voltar a zero, e a condição de entrega direta
+    // nunca mais ser verdadeira — todos os chunks seguintes iam para o buffer e
+    // nenhum saía. Uma página de 590 KB chegava cortada em 11 KB, num ponto que
+    // variava a cada corrida, que é a assinatura deste defeito e não da rede.
+    if get_value(this, "readableFlowing") == entry::boolean_value(true)
+        && get_num(this, "readableLength") > 0.0
+    {
+        drain_all(this);
     }
     let flowing = get_value(this, "readableFlowing") == entry::boolean_value(true);
     let buffered = get_num(this, "readableLength");

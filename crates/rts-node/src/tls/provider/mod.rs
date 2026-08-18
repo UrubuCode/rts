@@ -20,7 +20,7 @@
 //! | protocol | TLS 1.3 only | TLS 1.2 (even ECDHE) |
 //! | AEAD | AES-128-GCM, ChaCha20-Poly1305 | AES-256-GCM |
 //! | key exchange | X25519 (preferred), P-256 (ECDHE fallback) | P-384 |
-//! | verify (peer certs, handshake sigs) | ECDSA P-256, Ed25519, RSA PKCS#1v1.5 | RSA-PSS, P-384, Ed448 |
+//! | verify (peer certs, handshake sigs) | ECDSA P-256/P-384, Ed25519, RSA PKCS#1v1.5 | RSA-PSS, Ed448 |
 //! | sign (our own `SecureContext` key) | ECDSA P-256, Ed25519 | RSA |
 //!
 //! This is the "modern suite set" the task names, cut down further by what a
@@ -85,13 +85,15 @@ static CHACHA20_POLY1305_SHA256: Tls13CipherSuite = Tls13CipherSuite {
 };
 
 static VERIFY_ECDSA_P256: verify::EcdsaP256Sha256 = verify::EcdsaP256Sha256;
+static VERIFY_ECDSA_P384: verify::EcdsaP384Sha384 = verify::EcdsaP384Sha384;
 static VERIFY_ED25519: verify::Ed25519 = verify::Ed25519;
 static VERIFY_RSA_PKCS1: verify::RsaPkcs1Sha256 = verify::RsaPkcs1Sha256;
 
-static ALL_VERIFY_ALGS: &[&dyn SignatureVerificationAlgorithm] = &[&VERIFY_ECDSA_P256, &VERIFY_ED25519, &VERIFY_RSA_PKCS1];
+static ALL_VERIFY_ALGS: &[&dyn SignatureVerificationAlgorithm] = &[&VERIFY_ECDSA_P256, &VERIFY_ECDSA_P384, &VERIFY_ED25519, &VERIFY_RSA_PKCS1];
 
 static SCHEME_MAPPING: &[(SignatureScheme, &[&dyn SignatureVerificationAlgorithm])] = &[
     (SignatureScheme::ECDSA_NISTP256_SHA256, &[&VERIFY_ECDSA_P256]),
+    (SignatureScheme::ECDSA_NISTP384_SHA384, &[&VERIFY_ECDSA_P384]),
     (SignatureScheme::ED25519, &[&VERIFY_ED25519]),
     (SignatureScheme::RSA_PKCS1_SHA256, &[&VERIFY_RSA_PKCS1]),
 ];

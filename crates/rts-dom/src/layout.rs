@@ -116,9 +116,32 @@ pub enum DisplayItem {
     /// `(offset_x, offset_y)` (o quanto a região rolou). O backend aplica o clip
     /// (egui: `painter.with_clip_rect`) e soma o offset. `node` liga ao `ScrollRegion`
     /// (o backend injeta o offset aqui antes de pintar). Empilha — pode aninhar.
-    BeginClip { rect: Rect, node: NodeIdx, offset_x: f32, offset_y: f32 },
+    BeginClip {
+        rect: Rect,
+        node: NodeIdx,
+        offset_x: f32,
+        offset_y: f32,
+        /// Quantos fragmentos-filhos JÁ existiam na lista quando este clip foi
+        /// aberto. Os de índice menor foram desenhados antes de o clip existir e
+        /// portanto estão FORA dele, por muito que o `at` deles diga o
+        /// contrário: inserir o marcador empurra o `at` de quem vinha depois, e
+        /// o que era "antes do primeiro item" passa a cair dentro do clip.
+        filhos_antes: usize,
+    },
     /// Fecha o clip mais recente, restaurando o anterior.
-    EndClip,
+    /// Fecha o clip aberto pelo `BeginClip` correspondente.
+    ///
+    /// Carrega QUANTOS fragmentos-filhos existiam quando foi emitido, e sem esse
+    /// número o clip vaza. A saída é uma ÁRVORE: um filho entra por um índice
+    /// (`ChildRef::at`, "antes do item nesta posição"), e vários filhos podem
+    /// partilhar o mesmo índice — o do `EndClip` inclusive. Os que já existiam
+    /// estão DENTRO do clip; os que os irmãos seguintes acrescentam no mesmo
+    /// índice estão FORA, e o percurso não tinha como distinguir uns dos outros.
+    ///
+    /// O sintoma era uma página inteira em branco: a folha do MediaWiki tem a
+    /// regra de acessibilidade `width:1px;height:1px;overflow:hidden`, e 30 325
+    /// dos 30 528 itens da Wikipédia acabavam recortados a esse pixel.
+    EndClip { filhos_dentro: usize },
 }
 
 /// Um CONTAINER ROLÁVEL interno (uma `<div>` com `overflow:auto/scroll` e tamanho
@@ -154,6 +177,12 @@ pub struct DisplayList {
     /// fragmentos que já existiam. Quem pinta anda a árvore ([`iter`]); quem
     /// precisa mutar ou comparar achata ([`materialize`]).
     pub children: Vec<ChildRef>,
+    /// A cor do CANVAS — o fundo do `<body>`/`<html>` propagado, e BRANCO
+    /// quando nenhum dos dois define um. Vive aqui e não como item da lista
+    /// porque é a cor de LIMPEZA do backend; sem ela o que aparecia por trás de
+    /// uma página era a cor padrão dele (quase preta), e uma página real cujo
+    /// estilo mora num `<link>` externo saía texto preto sobre preto.
+    pub canvas_background: u32,
     /// Altura total ocupada pelo conteúdo (para o backend dimensionar o scroll).
     pub content_height: f32,
     /// Geometria por NÓ (border-box, em coordenadas de conteúdo) — a base do
@@ -482,14 +511,17 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // desses dois elementos "vaza" para o VIEWPORT inteiro, não só a caixa deles.
     // Pintamos PRIMEIRO (atrás de tudo) um retângulo do tamanho do viewport com a cor
     // do body. (Reserva uma altura generosa; o egui faz clip na sua área.)
-    if let Some(bg) = body_background(dom) {
-        let h = ctx.viewport_h.max(4000.0); // cobre bem além do conteúdo
-        list.items.push(DisplayItem::SolidRect {
-            rect: Rect::new(0.0, 0.0, ctx.viewport_w, h),
-            color: bg,
-            radius: 0.0,
-        });
-    }
+    //
+    // E BRANCO quando nenhum dos dois define fundo: é o que um browser pinta no
+    // canvas de uma página sem `background`. Sem isto o que aparecia era a cor
+    // de limpeza do backend (quase preta), e uma página real cujo estilo mora
+    // num `<link>` externo ficava texto preto sobre preto — o sintoma parecia
+    // "a cascata falhou" quando a cascata estava certa e o canvas é que não
+    // tinha dono.
+    // Vai no CAMPO e não como item da lista: quem pinta o canvas é o backend
+    // (é a cor de limpeza dele), e um item a mais deslocaria todos os índices
+    // que os testes de layout usam para nomear o que estão a verificar.
+    list.canvas_background = body_background(dom).unwrap_or(0xFFFF_FFFF);
     let mut cursor_y = 0.0f32;
     let root = dom.node(dom.root);
     for &child in &root.children {
@@ -1236,9 +1268,23 @@ fn layout_block(
         insert_item(
             list,
             children_start,
-            DisplayItem::BeginClip { rect: content_rect, node: id, offset_x: 0.0, offset_y: 0.0 },
+            DisplayItem::BeginClip {
+                rect: content_rect,
+                node: id,
+                offset_x: 0.0,
+                offset_y: 0.0,
+                filhos_antes: list.children.len(),
+            },
         );
-        list.items.push(DisplayItem::EndClip);
+        list.items.push(DisplayItem::EndClip { filhos_dentro: list.children.len() });
+        if std::env::var_os("RTS_CLIP_DEBUG").is_some() && content_w <= 2.0 {
+            let filhos: Vec<(usize, f32)> = list.children.iter().map(|c| (c.at, c.dy)).collect();
+            eprintln!(
+                "[clip] no={id:?} box_index={box_index} children_start={children_start} end_at={} children={:?}",
+                list.items.len() - 1,
+                &filhos[filhos.len().saturating_sub(6)..]
+            );
+        }
         // só registra como rolável (com barra) se de fato rola (auto/scroll), não hidden.
         if ov_x.scrollable() || ov_y.scrollable() {
             list.scroll_regions.push(ScrollRegion {
@@ -1265,10 +1311,36 @@ fn layout_block(
             let (sin, cos) = tf.rot_deg.to_radians().sin_cos();
             // Um transform MUTA itens, e um item de subárvore reusada é
             // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo
-            // que aponta para ele. Achata primeiro; é raro e local.
-            list.materialize();
-            for it in list.items[box_index..].iter_mut() {
-                apply_transform_to_item(it, cx, cy, tx, ty, tf.sx, tf.sy, sin, cos);
+            // que aponta para ele.
+            //
+            // Um TRANSLATE puro não precisa de achatar nada: a subárvore é
+            // desenhada com um deslocamento que já existe no `ChildRef`, e somar
+            // ao `dx`/`dy` dele é a mesma conta sem tocar no que é partilhado.
+            //
+            // Achatar aqui era um defeito com alcance muito além do elemento:
+            // `materialize` reescreve `items` INTEIRO, e todos os índices que os
+            // ancestrais reservaram para as caixas deles passam a apontar para
+            // outro item. Um `position:absolute` com `transform:translateY(-50%)`
+            // — uma regra de ícone, na folha do MediaWiki — punha a página
+            // inteira da Wikipédia a zero: 16 813 elementos sem geometria porque
+            // uma regra de 40 bytes casou com um `<span>`.
+            let so_translate = tf.sx == 1.0 && tf.sy == 1.0 && tf.rot_deg == 0.0;
+            if so_translate {
+                for it in list.items[box_index..].iter_mut() {
+                    translate_item(it, tx, ty);
+                }
+                for child in list.children.iter_mut().filter(|c| c.at >= box_index) {
+                    child.dx += tx;
+                    child.dy += ty;
+                }
+            } else {
+                // Escala e rotação continuam a exigir os itens em mãos. Vale a
+                // mesma ressalva de índices — por isso só quando não há
+                // subárvore por referência para achatar.
+                list.materialize();
+                for it in list.items[box_index..].iter_mut() {
+                    apply_transform_to_item(it, cx, cy, tx, ty, tf.sx, tf.sy, sin, cos);
+                }
             }
         }
     }
@@ -1679,7 +1751,25 @@ fn walk_items(
 ) {
     let mut next_child = 0usize;
     for (i, item) in items.iter().enumerate() {
-        while next_child < children.len() && children[next_child].at <= i {
+        // Um `EndClip` só deixa passar à frente dele os filhos que JÁ existiam
+        // quando foi emitido — ver a doc da variante. Para todo o resto o empate
+        // no índice resolve-se a favor do filho, que é o que põe uma subárvore
+        // reusada no meio dos itens próprios.
+        // Um `BeginClip` empurra à sua FRENTE os filhos que já existiam antes
+        // dele: o `at` deles foi deslocado pela inserção do marcador, e sem isto
+        // o conteúdo inteiro da página cai dentro de um clip que não é dele.
+        if let DisplayItem::BeginClip { filhos_antes, .. } = item {
+            while next_child < *filhos_antes && next_child < children.len() {
+                let c = &children[next_child];
+                walk_items(&c.fragment.items, &c.fragment.children, dx + c.dx, dy + c.dy, f);
+                next_child += 1;
+            }
+        }
+        let teto = match item {
+            DisplayItem::EndClip { filhos_dentro } => *filhos_dentro,
+            _ => children.len(),
+        };
+        while next_child < teto.min(children.len()) && children[next_child].at <= i {
             let c = &children[next_child];
             walk_items(&c.fragment.items, &c.fragment.children, dx + c.dx, dy + c.dy, f);
             next_child += 1;
@@ -1715,7 +1805,7 @@ fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) {
             *x += dx;
             *y += dy;
         }
-        DisplayItem::EndClip => {}
+        DisplayItem::EndClip { .. } => {}
     }
 }
 
@@ -1770,7 +1860,7 @@ fn apply_transform_to_item(
             rect.w *= sx;
             rect.h *= sy;
         }
-        DisplayItem::EndClip => {}
+        DisplayItem::EndClip { .. } => {}
     }
 }
 
@@ -4226,7 +4316,7 @@ mod tests {
                     && (la - lb).abs() < TOL
                     && dea == deb
             }
-            (D::EndClip, D::EndClip) => true,
+            (D::EndClip { .. }, D::EndClip { .. }) => true,
             // As demais variantes não aparecem neste corpus; comparar por
             // igualdade estrita aqui é o certo — se um dia aparecerem com
             // deslocamento, o teste falha e o braço é escrito.

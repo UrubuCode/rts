@@ -122,9 +122,25 @@ fn error_value(message: &str, code: &str) -> u64 {
 /// [`fs::watch::pump`](crate::fs::watch) for why a listener that calls back
 /// into this module (writes on `'connection'`, say) must not deadlock on a
 /// lock this function still holds.
+thread_local! {
+    /// Já estamos a entregar eventos NESTA thread?
+    ///
+    /// O `pump` é reentrante por construção: entregar um `'data'` chama um
+    /// listener, o listener escreve (é o que o `node:tls` faz para responder), e
+    /// o `write` chama `pump` outra vez. O interno drenava a fila que o externo
+    /// ainda estava a processar, e os chunks chegavam ao programa FORA DE ORDEM
+    /// — numa página de 590 KB isso lê-se como bytes perdidos a meio, num ponto
+    /// que muda a cada corrida, porque o que muda é o entrelaçamento.
+    static ENTREGANDO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 pub(super) fn pump() {
+    if ENTREGANDO.with(|f| f.replace(true)) {
+        return;
+    }
     pump_sockets();
     pump_servers();
+    ENTREGANDO.with(|f| f.set(false));
 }
 
 fn pump_sockets() {

@@ -139,6 +139,47 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
     let measurer = EguiMeasurer { ctx: ui.ctx() };
     let ctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
     let list = layout::layout_cached(dom, &ctx);
+    // DUMP DO RENDER (`RTS_DOM_PAINT=1`): o que o backend receberia neste frame.
+    //
+    // Existe porque "a página está branca" tem causas que a tela não distingue:
+    // sem geometria, fora da viewport, coberta, ou — o caso real — um frame tão
+    // caro que quase nunca termina. Isto responde a pergunta em números.
+    if std::env::var_os("RTS_DOM_PAINT").is_some() {
+        let (mut itens, mut clips, mut vazios, mut profundidade, mut sobra) = (0usize, 0usize, 0usize, 0i32, 0i32);
+        list.walk(|item, _, _| {
+            itens += 1;
+            match item {
+                layout::DisplayItem::BeginClip { rect, .. } => {
+                    clips += 1;
+                    profundidade += 1;
+                    sobra = sobra.max(profundidade);
+                    if rect.w <= 0.0 || rect.h <= 0.0 {
+                        vazios += 1;
+                    }
+                }
+                layout::DisplayItem::EndClip { .. } => profundidade -= 1,
+                _ => {}
+            }
+        });
+        eprintln!(
+            "[paint] itens={itens} clips={clips} (vazios={vazios}, aninhamento máx={sobra}, desequilíbrio={profundidade}) content_h={} canvas=#{:08X} viewport={:?}",
+            list.content_height,
+            list.canvas_background,
+            ui.max_rect()
+        );
+    }
+    // O CANVAS primeiro: é a cor que o `<body>`/`<html>` propaga, e branco
+    // quando a página não define nenhuma — o que um browser pinta. Sem isto
+    // ficava a cor de limpeza do backend (quase preta) por trás, e uma página
+    // cujo estilo mora num `<link>` externo saía preto sobre preto.
+    let canvas = if std::env::var_os("RTS_DOM_CANVAS_DEBUG").is_some() { 0xFF0000FF } else { list.canvas_background };
+    if canvas != 0 {
+        let rect = egui::Rect::from_min_size(
+            ui.max_rect().min,
+            egui::vec2(viewport_w, viewport_h.max(list.content_height)),
+        );
+        ui.painter().rect_filled(rect, 0.0, rgba_to_color32(canvas));
+    }
     paint_list(ui, &list, 0.0);
     // reserva a altura total ocupada (p/ o egui ao redor dimensionar).
     ui.allocate_space(egui::vec2(ui.available_width(), list.content_height));
@@ -226,28 +267,21 @@ pub(crate) fn render_dom_scrolled(
     // o egui gerencia seu offset (input), injeta no BeginClip e emite as barras dela.
     // O `base_origin` desloca o page-scroll p/ casar com o paint (que usa -offset).
     process_scroll_regions(ui, h, &mut list, sb, -offset);
-    // CANVAS da página: o browser propaga o background do <body>/<html> para a
-    // viewport INTEIRA (não só até content_height) — sem isto, a área além do
-    // conteúdo aparecia no cinza-escuro padrão do egui (o "caixotão preto" do
-    // google sem CSS). Default: BRANCO (o canvas do browser).
+    // CANVAS da página: a cor vem do `rts-dom` (`DisplayList::canvas_background`),
+    // que já resolve a propagação do `<body>`/`<html>` e o branco por omissão.
+    // Perguntar aqui de novo era a MESMA regra escrita duas vezes, e as duas
+    // discordavam: esta procurava um `<body>` que uma página sem a tag não tem.
     {
-        let canvas = rts_dom::store::with_dom(h, |d| {
-            d.query("body")
-                .or_else(|| d.query("html"))
-                .and_then(|b| d.computed_style(b))
-                .and_then(|c| c.bg)
-                .unwrap_or(0xFFFFFFFF)
-        })
-        .unwrap_or(0xFFFFFFFF);
-        let [r, g, bl, a] = canvas.to_be_bytes();
-        ui.painter().rect_filled(
-            ui.max_rect(),
-            0.0,
-            egui::Color32::from_rgba_unmultiplied(r, g, bl, a),
-        );
+        let [r, g, bl, a] = list.canvas_background.to_be_bytes();
+        ui.painter().rect_filled(ui.max_rect(), 0.0, egui::Color32::from_rgba_unmultiplied(r, g, bl, a));
     }
     // pinta tudo transladado por -offset (o conteúdo sobe; a barra, somando offset na
     // emissão, fica parada na tela). Recorta na área visível.
+    if std::env::var_os("RTS_DOM_PAINT").is_some() {
+        let mut n = 0usize;
+        list.walk(|_, _, _| n += 1);
+        eprintln!("[paint] itens={n} content_h={content_h} offset={offset} max_rect={:?}", ui.max_rect());
+    }
     let clip = ui.max_rect();
     let old_clip = ui.clip_rect();
     ui.set_clip_rect(clip);
@@ -433,6 +467,17 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
     // `walk` anda a ÁRVORE de fragmentos: os itens de uma subárvore reusada
     // chegam aqui sem nunca terem sido copiados, com o deslocamento a somar — e
     // somar uma origem já era o que este laço fazia.
+    // CULLING: a área realmente visível. Um item inteiramente fora dela não é
+    // pintado — o egui pagaria a construção do galley de cada texto, e uma
+    // página real tem duas ordens de grandeza mais texto do que cabe na tela.
+    //
+    // Sem isto a Wikipédia mandava 30 093 textos por frame para pintar os ~52
+    // que se veem, e o frame demorava tanto que a janela ficava BRANCA: não é
+    // que não pintasse, é que quase nunca chegava ao fim. Redimensionar, que
+    // repinta a cada evento, ficava impraticável pela mesma razão.
+    let visivel = ui.clip_rect().intersect(ui.max_rect());
+    let diagnostico = std::env::var_os("RTS_DOM_PAINT").is_some();
+    let (mut vistos, mut cortados) = (0usize, 0usize);
     let mut idx = 0usize;
     list.walk(|item, dx, dy| {
         idx += 1;
@@ -443,6 +488,26 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
             .unwrap_or_else(|| (base.clone(), egui::Vec2::ZERO));
         // origem da página + translação da região + deslocamento do fragmento
         let origin = base_origin + extra + egui::vec2(dx, dy);
+        // O que está fora da tela não é pintado — menos o `BeginClip`/`EndClip`,
+        // que são ESTADO da pilha e têm de continuar a casar (saltar um abre um
+        // clip que nunca fecha, e aí desaparece o que vinha depois).
+        if let Some(caixa) = caixa_do_item(item, origin) {
+            if !caixa.intersects(visivel) {
+                cortados += 1;
+                return;
+            }
+            vistos += 1;
+            if diagnostico && vistos <= 16 {
+                let tipo = match item {
+                    DisplayItem::Text { text, color, .. } =>
+                        format!("txt cor=#{color:08X} {:?}", text.chars().take(18).collect::<String>()),
+                    DisplayItem::SolidRect { color, .. } => format!("rect cor=#{color:08X}"),
+                    DisplayItem::Border { color, .. } => format!("borda cor=#{color:08X}"),
+                    _ => "?".to_owned(),
+                };
+                eprintln!("  [{vistos}] {tipo} caixa={caixa:?} clip_painter={:?}", painter.clip_rect());
+            }
+        }
         match item {
             DisplayItem::SolidRect { rect, color, radius } => {
                 let r = egui::Rect::from_min_size(
@@ -604,11 +669,32 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                 let new_extra = extra + egui::vec2(-*offset_x, -*offset_y);
                 stack.push((clipped, new_extra));
             }
-            DisplayItem::EndClip => {
+            DisplayItem::EndClip { .. } => {
                 stack.pop();
             }
         }
     });
+    if diagnostico {
+        eprintln!("[paint] pintados={vistos} cortados={cortados} visivel={visivel:?} base_origin={base_origin:?}");
+    }
+}
+
+/// O retângulo que um item ocupa na tela, ou `None` quando ele não é pintura
+/// (os marcadores de clip) — nesses o culling não se aplica.
+fn caixa_do_item(item: &DisplayItem, origin: egui::Pos2) -> Option<egui::Rect> {
+    let de = |x: f32, y: f32, w: f32, h: f32| {
+        Some(egui::Rect::from_min_size(origin + egui::vec2(x, y), egui::vec2(w.max(1.0), h.max(1.0))))
+    };
+    match item {
+        DisplayItem::SolidRect { rect, .. }
+        | DisplayItem::Border { rect, .. } => de(rect.x, rect.y, rect.w, rect.h),
+        DisplayItem::Text { x, y, size, text, .. } => {
+            // largura estimada por cima: o culling só precisa de não cortar o que
+            // é visível, e medir cada texto aqui pagaria o custo que ele evita.
+            de(*x, *y, text.chars().count() as f32 * *size, *size * 2.0)
+        }
+        _ => None,
+    }
 }
 
 /// Pinta um GRADIENTE LINEAR de 2 cores num retângulo, como mesh de 4 vértices. A cor
