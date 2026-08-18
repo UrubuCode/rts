@@ -111,3 +111,8 @@ wa-raw.bin
 scripts/parity/out/
 # PNGs de captura da janela: artefactos de diagnóstico, nunca entrada de nada.
 scripts/captura/out/
+
+# saídas de medição (regeneráveis)
+scripts/parity/out*/
+scripts/parity/pagina.combinada.html
+paridade/
