@@ -80,10 +80,77 @@ macro_rules! css_props {
             pub grid_justify_items: Option<crate::style::AlignItems>,
         }
 
+        /// UMA declaração CSS resolvida — o par (propriedade, valor) que uma
+        /// regra guarda. Variante por campo, gerada da mesma tabela: aplicar a
+        /// lista sobre um `ComputedStyle` dá exatamente o que o `merge_over`
+        /// daria com a struct inteira, e é isso que permite guardar as regras
+        /// esparsas sem uma segunda definição do que é uma propriedade.
+        ///
+        /// Nomes de variante em snake_case (iguais aos campos) de propósito: a
+        /// macro não tem como converter para CamelCase, e um nome que não casa
+        /// com o campo seria a porta para os dois divergirem.
+        #[allow(non_camel_case_types)]
+        #[derive(Clone, Debug, PartialEq)]
+        pub enum Decl {
+            $( $ofield(Option<$oty>), )*
+            $( $efield(Edges), )*
+            grid_template_columns(Option<std::sync::Arc<Vec<crate::style::GridTrack>>>),
+            grid_template_rows(Option<std::sync::Arc<Vec<crate::style::GridTrack>>>),
+            grid_auto_rows(Option<crate::style::GridTrack>),
+            grid_justify_items(Option<crate::style::AlignItems>),
+            custom_props(Option<std::sync::Arc<std::collections::HashMap<String, String>>>),
+        }
+
+        impl Decl {
+            /// Aplica esta declaração sobre um estilo — a precedência é de quem
+            /// chama (aplicar depois vence), como no `merge_over`.
+            pub fn apply(&self, target: &mut ComputedStyle) {
+                match self {
+                    $( Decl::$ofield(v) => target.$ofield = v.clone(), )*
+                    $( Decl::$efield(v) => target.$efield.merge_over(v), )*
+                    Decl::grid_template_columns(v) => target.grid_template_columns = v.clone(),
+                    Decl::grid_template_rows(v) => target.grid_template_rows = v.clone(),
+                    Decl::grid_auto_rows(v) => target.grid_auto_rows = *v,
+                    Decl::grid_justify_items(v) => target.grid_justify_items = *v,
+                    Decl::custom_props(v) => target.custom_props = v.clone(),
+                }
+            }
+        }
+
         impl ComputedStyle {
             /// Sobrepõe as propriedades `Some` de `other` sobre `self` (precedência
             /// CSS: `other` vence onde está setado; `None` mantém `self`). Edges
             /// mesclam POR LADO (longhand vence shorthand). Gerado da tabela.
+            /// As declarações NÃO-VAZIAS deste bloco, como lista esparsa.
+            ///
+            /// É como uma REGRA guarda o que declara. Um `ComputedStyle` tem
+            /// 1000 bytes (`metrics::footprint::type_sizes`) e uma regra CSS
+            /// declara 2,1 propriedades em média — guardar a struct inteira por
+            /// regra é o que fazia o stylesheet do Bootstrap ocupar 5,9 MiB.
+            /// Gerado da mesma tabela que gera a struct: uma propriedade nova
+            /// entra aqui sozinha.
+            pub fn to_decls(&self) -> Vec<Decl> {
+                let mut out = Vec::new();
+                $( if self.$ofield.is_some() { out.push(Decl::$ofield(self.$ofield.clone())); } )*
+                $( if self.$efield.any_set() { out.push(Decl::$efield(self.$efield)); } )*
+                if self.grid_template_columns.is_some() {
+                    out.push(Decl::grid_template_columns(self.grid_template_columns.clone()));
+                }
+                if self.grid_template_rows.is_some() {
+                    out.push(Decl::grid_template_rows(self.grid_template_rows.clone()));
+                }
+                if self.grid_auto_rows.is_some() {
+                    out.push(Decl::grid_auto_rows(self.grid_auto_rows));
+                }
+                if self.grid_justify_items.is_some() {
+                    out.push(Decl::grid_justify_items(self.grid_justify_items));
+                }
+                if self.custom_props.is_some() {
+                    out.push(Decl::custom_props(self.custom_props.clone()));
+                }
+                out
+            }
+
             pub fn merge_over(&mut self, other: &ComputedStyle) {
                 $( if other.$ofield.is_some() { self.$ofield = other.$ofield.clone(); } )*
                 $( self.$efield.merge_over(&other.$efield); )*

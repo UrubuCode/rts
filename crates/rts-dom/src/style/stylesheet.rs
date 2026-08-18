@@ -136,7 +136,7 @@ pub struct Rule {
     /// vez de 2120, e o retorno recursivo do parse de `@media` para de carregar
     /// megabytes. Medido: a emissão de regras era 29% do `parse-css`, que era
     /// 86% do custo de ABRIR uma página Bootstrap.
-    pub decls: std::rc::Rc<DeclBlock>,
+    pub decls: std::rc::Rc<RuleDecls>,
     /// Posição da regra no fonte (0-based) — desempate da cascade.
     pub order: u32,
     /// A condição `@media` que ENVOLVE a regra (None = sempre aplica). Avaliada
@@ -163,6 +163,57 @@ pub struct DeclBlock {
     /// (contra as custom props computadas dele): `(prop, valor-cru, important)`.
     /// Resolvidas na posição da regra em [`Stylesheet::computed_for_node`].
     pub pending: Vec<(String, String, bool)>,
+}
+
+/// O que uma REGRA guarda: o mesmo conteúdo de um [`DeclBlock`], mas com as
+/// duas camadas em LISTA ESPARSA.
+///
+/// Um `ComputedStyle` tem 1000 bytes e uma regra CSS declara 2,1 propriedades em
+/// média — guardar duas structs inteiras por regra fazia o stylesheet do
+/// Bootstrap ocupar 5,9 MiB, e o parse zerar 2 KB por regra. O `DeclBlock` segue
+/// existindo para o `style=""` INLINE, onde a struct é o formato natural (é
+/// lida uma vez, por elemento, e a cascade a consome direto).
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct RuleDecls {
+    pub normal: Box<[super::props::Decl]>,
+    pub important: Box<[super::props::Decl]>,
+    pub custom: Vec<(String, String)>,
+    pub pending: Vec<(String, String, bool)>,
+}
+
+impl RuleDecls {
+    /// Converte o bloco recém-parseado na forma esparsa. A conversão acontece
+    /// UMA vez, no parse; a cascade só aplica.
+    pub fn from_block(block: DeclBlock) -> RuleDecls {
+        RuleDecls {
+            normal: block.normal.to_decls().into_boxed_slice(),
+            important: block.important.to_decls().into_boxed_slice(),
+            custom: block.custom,
+            pending: block.pending,
+        }
+    }
+
+    /// Aplica as declarações normais sobre um estilo (mesma precedência do
+    /// `merge_over`: quem aplica depois vence).
+    pub fn apply_normal(&self, target: &mut ComputedStyle) {
+        for d in &self.normal {
+            d.apply(target);
+        }
+    }
+
+    pub fn apply_important(&self, target: &mut ComputedStyle) {
+        for d in &self.important {
+            d.apply(target);
+        }
+    }
+
+    /// Bytes ESTIMADOS deste bloco (para `metrics::footprint`).
+    pub fn estimated_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + (self.normal.len() + self.important.len()) * std::mem::size_of::<super::props::Decl>()
+            + self.custom.iter().map(|(k, v)| k.capacity() + v.capacity()).sum::<usize>()
+            + self.pending.iter().map(|(k, v, _)| k.capacity() + v.capacity()).sum::<usize>()
+    }
 }
 
 impl DeclBlock {
@@ -408,7 +459,7 @@ impl Stylesheet {
         // mesma regra (`a, b { … }`), então contá-los por regra contaria o mesmo
         // bloco várias vezes — e uma estimativa que infla é tão inútil quanto uma
         // que subestima. Distintos por PONTEIRO.
-        let mut seen: Vec<*const DeclBlock> = Vec::new();
+        let mut seen: Vec<*const RuleDecls> = Vec::new();
         for r in &self.rules {
             total += r.selector.estimated_bytes();
             let ptr = std::rc::Rc::as_ptr(&r.decls);
@@ -419,14 +470,7 @@ impl Stylesheet {
             // Um DeclBlock carrega dois ComputedStyle inteiros (normal +
             // important) mais as listas de pendentes/custom, que são as que têm
             // String de verdade.
-            total += std::mem::size_of::<DeclBlock>();
-            total += r.decls.custom.iter().map(|(k, v)| k.capacity() + v.capacity()).sum::<usize>();
-            total += r
-                .decls
-                .pending
-                .iter()
-                .map(|(k, v, _)| k.capacity() + v.capacity())
-                .sum::<usize>();
+            total += r.decls.estimated_bytes();
         }
         total += self.keyframes.len()
             * (std::mem::size_of::<crate::anim::Keyframes>() + std::mem::size_of::<String>());
@@ -547,7 +591,7 @@ impl Stylesheet {
         let mut out = DeclBlock::default();
         for (_, _, i) in &matched.rules {
             let r = &self.rules[*i];
-            out.normal.merge_over(&r.decls.normal);
+            r.decls.apply_normal(&mut out.normal);
             if let Some(v) = vars {
                 for (prop, raw, important) in &r.decls.pending {
                     if !important {
@@ -558,7 +602,7 @@ impl Stylesheet {
         }
         for (_, _, i) in &matched.rules {
             let r = &self.rules[*i];
-            out.important.merge_over(&r.decls.important);
+            r.decls.apply_important(&mut out.important);
             if let Some(v) = vars {
                 for (prop, raw, important) in &r.decls.pending {
                     if *important {
@@ -672,7 +716,7 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         let decls = parse_inline_block(body); // reusa o parser de declarações (normal+important).
         // `a, b, .c { }` → uma regra por seletor (lista separada por vírgula).
         let _emit = crate::metrics::phases::scope("css-rule-emit");
-        let decls = std::rc::Rc::new(decls);
+        let decls = std::rc::Rc::new(RuleDecls::from_block(decls));
         for sel_str in selectors_raw.split(',') {
             if let Some(selector) = ComplexSelector::parse(sel_str) {
                 rules.push(Rule {
