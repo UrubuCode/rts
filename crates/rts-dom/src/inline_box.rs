@@ -137,6 +137,29 @@ pub(crate) fn altura_da_linha(css: &ComputedStyle, font_size: f32, m: &dyn TextM
     css.line_height.map(|l| l.resolve(font_size, normal)).unwrap_or(normal)
 }
 
+/// Este estilo cria uma caixa que precisa de LAYOUT DE BLOCO?
+///
+/// Não é a mesma pergunta que `ComputedStyle::has_box`, e a diferença é o que
+/// tirava 5 262 dos 5 263 `<a>` da Wikipédia do fluxo inline: `has_box` responde
+/// "há algo para pintar por este caminho" e por isso conta o `border-radius` e o
+/// `outline`. Nenhum dos dois CRIA caixa — um raio sem fundo nem borda não pinta
+/// nada, e o outline não ocupa espaço por definição. Um elemento inline que só
+/// os declara continua a ser texto a fluir, e é isso que o browser faz.
+///
+/// O que blockifica é o que ocupa espaço ou pinta uma superfície: fundo,
+/// gradiente, sombra, padding, margem, borda, largura ou altura.
+pub(crate) fn cria_caixa_de_bloco(css: &ComputedStyle) -> bool {
+    css.bg.is_some()
+        || css.gradient.is_some()
+        || css.box_shadow.is_some()
+        || css.padding.any_set()
+        || css.margin.any_set()
+        || css.border_width.is_some()
+        || css.border_widths.any_set()
+        || css.width.is_some()
+        || css.height.is_some()
+}
+
 /// A altura da CAIXA de um elemento inline — que NÃO é a altura da linha.
 ///
 /// A distinção é a do CSS entre a caixa de linha e a caixa do inline: o

@@ -222,6 +222,54 @@ pub fn resolved_sides(css: &ComputedStyle) -> [SideBorder; 4] {
     ]
 }
 
+/// Repõe os campos POR LADO — o que o shorthand `border` tem de fazer antes de
+/// escrever os seus três valores.
+///
+/// `border-left: 20px solid; border: 6px solid` dá 6px nos quatro lados, porque
+/// o shorthand curto escreve as DOZE longhands e não só as três uniformes. Sem
+/// esta limpeza, o lado declarado antes sobrevivia e a caixa saía 14px mais
+/// larga do que no Chrome (medido em `claude-border-lados`).
+///
+/// ⚠️ CORTE: a reposição vale dentro do MESMO bloco de declarações, que é onde a
+/// ordem é conhecida. Entre regras diferentes, a cascade mescla campo a campo e
+/// um `border-left` de uma regra menos específica sobrevive a um `border` de uma
+/// mais específica. Distingui-los exige guardar "declarado como inicial" em vez
+/// de `None` em toda a struct — a mesma dívida que o shorthand `background` tem,
+/// e pela mesma razão.
+pub fn clear_sides(css: &mut ComputedStyle) {
+    css.border_widths = super::values::Edges::default();
+    css.border_top_style = None;
+    css.border_right_style = None;
+    css.border_bottom_style = None;
+    css.border_left_style = None;
+    css.border_top_color = None;
+    css.border_right_color = None;
+    css.border_bottom_color = None;
+    css.border_left_color = None;
+}
+
+/// As larguras USADAS das quatro bordas, na ordem (top, right, bottom, left) —
+/// o que o BOX MODEL soma à caixa.
+///
+/// Não é o mesmo que a largura declarada, e a diferença é uma regra da spec:
+/// **`border-style: none` faz a largura usada ser ZERO**, por mais que o autor
+/// declare `border-right-width: 30px`. Sem isto, um lado que não pinta ocupava
+/// espaço na mesma — medido no corpus (`claude-border-lados`), é a diferença
+/// entre a caixa de 200px que o Chrome dá e uma de 230px.
+///
+/// É a mesma função que decide a PINTURA ([`SideBorder::paints`]), e de
+/// propósito: uma borda que ocupa espaço mas não pinta, ou o contrário, é a
+/// forma mais barata de o layout e o render discordarem sobre a mesma caixa.
+pub fn used_widths(css: &ComputedStyle) -> [f32; 4] {
+    let s = resolved_sides(css);
+    [
+        if s[0].paints() { s[0].width } else { 0.0 },
+        if s[1].paints() { s[1].width } else { 0.0 },
+        if s[2].paints() { s[2].width } else { 0.0 },
+        if s[3].paints() { s[3].width } else { 0.0 },
+    ]
+}
+
 /// `true` se algum lado foi declarado à parte — o gatilho para o paint sair do
 /// caminho uniforme (um `DisplayItem::Border`) e emitir uma barra por lado.
 pub fn has_per_side(css: &ComputedStyle) -> bool {

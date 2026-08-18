@@ -56,7 +56,19 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             block.pending.push((prop.clone(), val.to_string(), important));
             continue;
         }
+        // `inherit` — vale para QUALQUER propriedade e não se parece com nenhum
+        // valor: guarda-se o NOME, e a passada de herança copia o campo do pai
+        // (ver `style::inherit_kw`). Antes disto, a declaração era descartada em
+        // silêncio, o que deixava vencer uma regra menos específica.
         let css = if important { &mut block.important } else { &mut block.normal };
+        if val.eq_ignore_ascii_case("inherit") {
+            let mut nomes = css.inherit_props.as_deref().cloned().unwrap_or_default();
+            if !nomes.contains(&prop) {
+                nomes.push(prop.clone());
+            }
+            css.inherit_props = Some(std::sync::Arc::new(nomes));
+            continue;
+        }
         match prop.as_str() {
             "color" => css.color = parse_color(val),
             "background-color" => css.bg = parse_color(val),
@@ -481,6 +493,9 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
 /// vier, a borda não aparece — o render checa `is_visible`), width=medium(3),
 /// color=currentColor (aqui deixamos `border_color` como veio / herdado).
 fn apply_border_shorthand(css: &mut ComputedStyle, val: &str) {
+    // O curto escreve as DOZE longhands, não só as três uniformes: um lado
+    // declarado antes dele é reposto (ver `borders::clear_sides`).
+    crate::style::borders::clear_sides(css);
     for tok in val.split_whitespace() {
         if let Some(style) = BorderStyle::parse(tok) {
             css.border_style = Some(style);

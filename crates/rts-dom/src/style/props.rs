@@ -60,6 +60,11 @@ macro_rules! css_props {
             /// BUILT-IN da macro (herança/merge próprios; não anima).
             pub custom_props:
                 Option<std::sync::Arc<std::collections::HashMap<String, String>>>,
+            /// As propriedades declaradas com o keyword `inherit` neste nó — só
+            /// os NOMES; o valor vem do pai na passada de herança (ver
+            /// `style::inherit_kw`). `Arc` porque a lista é quase sempre vazia ou
+            /// minúscula e é clonada com o estilo.
+            pub inherit_props: Option<std::sync::Arc<Vec<String>>>,
             /// GRID: as trilhas de COLUNA (`grid-template-columns`) parseadas —
             /// px/fr/auto/%. `None` = não é grid explícito. Campo built-in (Vec não
             /// cabe na macro simples); herança N/A (grid não herda). O layout roda
@@ -105,6 +110,7 @@ macro_rules! css_props {
             grid_template_areas(Option<std::sync::Arc<crate::style::GridAreas>>),
             grid_justify_items(Option<crate::style::AlignItems>),
             custom_props(Option<std::sync::Arc<std::collections::HashMap<String, String>>>),
+            inherit_props(Option<std::sync::Arc<Vec<String>>>),
         }
 
         impl Decl {
@@ -120,6 +126,7 @@ macro_rules! css_props {
                     Decl::grid_template_areas(v) => target.grid_template_areas = v.clone(),
                     Decl::grid_justify_items(v) => target.grid_justify_items = *v,
                     Decl::custom_props(v) => target.custom_props = v.clone(),
+                    Decl::inherit_props(v) => target.inherit_props = v.clone(),
                 }
             }
         }
@@ -158,6 +165,9 @@ macro_rules! css_props {
                 if self.custom_props.is_some() {
                     out.push(Decl::custom_props(self.custom_props.clone()));
                 }
+                if self.inherit_props.is_some() {
+                    out.push(Decl::inherit_props(self.inherit_props.clone()));
+                }
                 out
             }
 
@@ -181,6 +191,24 @@ macro_rules! css_props {
                 if other.grid_justify_items.is_some() {
                     self.grid_justify_items = other.grid_justify_items;
                 }
+                // `inherit`: as listas SOMAM-SE. Duas regras podem pedir
+                // `inherit` em propriedades diferentes, e a de maior precedência
+                // não anula o pedido da outra — anular seria trocar "esta regra
+                // não fala de X" por "esta regra desliga o X da outra".
+                if let Some(deles) = &other.inherit_props {
+                    self.inherit_props = Some(match self.inherit_props.take() {
+                        None => deles.clone(),
+                        Some(meus) => {
+                            let mut v = (*meus).clone();
+                            for n in deles.iter() {
+                                if !v.contains(n) {
+                                    v.push(n.clone());
+                                }
+                            }
+                            std::sync::Arc::new(v)
+                        }
+                    });
+                }
                 // custom props: as de `other` vencem POR NOME (união CoW).
                 if let Some(theirs) = &other.custom_props {
                     self.custom_props = Some(match self.custom_props.take() {
@@ -203,6 +231,9 @@ macro_rules! css_props {
             /// vive SÓ lá.
             pub fn inherit_from(&mut self, parent: &ComputedStyle) {
                 $( $( css_props!(@inherit $of, $ofield, self, parent); )* )*
+                // `inherit` EXPLÍCITO: depois da herança por omissão, porque é
+                // uma declaração e vence o que o nó não declarou.
+                self.apply_inherit_keyword(parent);
                 // custom props SEMPRE herdam (spec): sem declaração própria o
                 // filho compartilha o Arc do pai (O(1)); com declaração própria,
                 // as do pai preenchem por baixo (o filho vence por nome).

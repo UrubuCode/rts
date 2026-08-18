@@ -477,8 +477,10 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
     // repinta a cada evento, ficava impraticável pela mesma razão.
     let visivel = ui.clip_rect().intersect(ui.max_rect());
     let diagnostico = std::env::var_os("RTS_DOM_PAINT").is_some();
-    // Quantos itens pintados listar. Fixo em 16 não respondia "quem tapou o
-    // resto": o item que cobre a tela é pintado DEPOIS, logo nunca aparecia na
+    // Quantos itens pintados listar. Um limite FIXO de 16 não respondia à
+    // pergunta que a tela branca faz — "quem tapou o resto?" —, porque quem tapa
+    // é pintado DEPOIS: a Wikipédia saía em branco por causa do item 56, um
+    // `<input>` de fundo branco opaco do tamanho da página, e ele nunca chegava à
     // amostra. `RTS_DOM_PAINT_N=0` lista todos.
     let limite_diag = std::env::var("RTS_DOM_PAINT_N")
         .ok()

@@ -80,3 +80,35 @@ fn letter_spacing_negativo_e_gap_de_dois_valores() {
     assert_eq!(css.get_property("letter-spacing"), "-1px");
     assert_eq!(css.get_property("gap"), "10px 20px");
 }
+
+
+#[test]
+fn keyword_inherit_copia_o_valor_do_pai() {
+    // `background-color: inherit` num filho de um pai verde dá verde — e o fundo
+    // NÃO é uma propriedade herdada, que é o que torna o keyword necessário.
+    // Medido em `tests/css/claude-heranca`.
+    let dom = crate::parse_html_to_dom(
+        "<style>#avo{background-color:#00ff00;color:#ff0000}\
+         #pede{background-color:inherit}#pede2{color:inherit}</style>\
+         <div id='avo'><div id='pede'>a</div><div id='pede2'>b</div></div>",
+    );
+    let pede = dom.query("#pede").unwrap();
+    assert_eq!(dom.computed_property(pede, "background-color"), "rgb(0, 255, 0)");
+    // e numa propriedade que JÁ herda, o keyword continua a dar o valor do pai
+    // (o caso que parece redundante mas não é: vence uma regra que a declarou).
+    let pede2 = dom.query("#pede2").unwrap();
+    assert_eq!(dom.computed_property(pede2, "color"), "rgb(255, 0, 0)");
+}
+
+#[test]
+fn inherit_vence_uma_declaracao_propria_de_menor_precedencia() {
+    // O caso que fazia isto valer a pena na folha real: `a { color: azul }` e
+    // depois `.nav a { color: inherit }`. Descartar o `inherit` deixava o azul
+    // ganhar; o browser dá a cor do pai.
+    let dom = crate::parse_html_to_dom(
+        "<style>a{color:#0000ff}.nav a{color:inherit}#topo{color:#ff0000}</style>\
+         <div id='topo' class='nav'><a id='l'>x</a></div>",
+    );
+    let l = dom.query("#l").unwrap();
+    assert_eq!(dom.computed_property(l, "color"), "rgb(255, 0, 0)");
+}

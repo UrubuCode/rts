@@ -1021,14 +1021,23 @@ pub(crate) fn layout_block(
     let pad_right = p.right.resolve(&resolve).unwrap_or(0.0).max(0.0);
     let pad_top = p.top.resolve(&resolve).unwrap_or(0.0).max(0.0);
     let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(0.0).max(0.0);
-    let border = css.border_width.unwrap_or(0.0);
+    // BORDA POR LADO: as larguras USADAS (um lado com `border-style: none` vale
+    // zero, por mais que declare largura — ver `style::borders::used_widths`).
+    // Era um ESCALAR `css.border_width` aplicado aos quatro lados, e isso não é
+    // uma simplificação: `border-bottom: 5px` alargava a caixa nos quatro lados
+    // ou em nenhum. Medido no corpus, era o maior desvio de uma fixture só —
+    // `claude-border-lados`, 15 de 82.
+    let [border_top, border_right, border_bottom, border_left] =
+        crate::style::borders::used_widths(&css);
     // Atalhos para o eixo (horizontal = left+right): a maioria do box model usa o
     // total por eixo. (`margin_h`/`padding_h` = soma do eixo horizontal.)
+    let border_h = border_left + border_right;
+    let border_v = border_top + border_bottom;
     let margin_h = margin_left + margin_right;
     let padding_h = pad_left + pad_right;
     // `frame` horizontal = o que cerca o content no eixo X (margin+border+padding
-    // dos DOIS lados). border conta 2× (left+right); padding/margin já são a soma.
-    let frame = margin_h + 2.0 * border + padding_h;
+    // dos DOIS lados); cada termo já é a soma do seu eixo.
+    let frame = margin_h + border_h + padding_h;
     let font_for_content = font_px(&css, DEFAULT_FONT_SIZE);
     let border_box = css.border_box.unwrap_or(false);
     // O PAPEL da caixa (item de lista, parte de tabela) — decidido já aqui e não
@@ -1049,7 +1058,7 @@ pub(crate) fn layout_block(
             // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
             // então o content é `width - (padding_h + 2*border)`. Em content-box
             // (default), o `width` JÁ é o content.
-            Some(w) if border_box => (w - (padding_h + 2.0 * border)).max(0.0),
+            Some(w) if border_box => (w - (padding_h + border_h)).max(0.0),
             Some(w) => w,
             // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
             // senão (fluxo block normal) → ocupa a largura disponível.
@@ -1062,10 +1071,10 @@ pub(crate) fn layout_block(
         // sobre a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao
         // content quando border-box; em content-box já são do content.
         let mnw = css.min_width.and_then(|d| d.resolve(&resolve)).map(|v| {
-            if border_box { (v - (padding_h + 2.0 * border)).max(0.0) } else { v }
+            if border_box { (v - (padding_h + border_h)).max(0.0) } else { v }
         });
         let mxw = css.max_width.and_then(|d| d.resolve(&resolve)).map(|v| {
-            if border_box { (v - (padding_h + 2.0 * border)).max(0.0) } else { v }
+            if border_box { (v - (padding_h + border_h)).max(0.0) } else { v }
         });
         crate::style::clamp_size(base, mnw, mxw)
     };
@@ -1077,7 +1086,7 @@ pub(crate) fn layout_block(
     // ocupa avail_w e não há espaço a distribuir).
     let has_width = css.width.is_some() || css.max_width.is_some();
     if has_width {
-        let box_outer = content_w + padding_h + 2.0 * border; // sem a margin
+        let box_outer = content_w + padding_h + border_h; // sem a margin
         let free = (avail_w - box_outer).max(0.0);
         match (m.left.is_auto(), m.right.is_auto()) {
             (true, true) => {
@@ -1092,8 +1101,8 @@ pub(crate) fn layout_block(
 
     // Posição do content-box (canto sup-esq): deslocado pelo lado ESQUERDO/TOPO
     // (margin+border+padding daquele lado), não a soma do eixo.
-    let content_x = x + margin_left + border + pad_left;
-    let content_y = y + margin_top + border + pad_top;
+    let content_x = x + margin_left + border_left + pad_left;
+    let content_y = y + margin_top + border_top + pad_top;
 
     // Z-ORDER: o fundo/borda da caixa precisam ficar ATRÁS dos filhos. Como a
     // display list é pintada em ordem, reservamos AGORA o índice onde a caixa será
@@ -1142,7 +1151,7 @@ pub(crate) fn layout_block(
     // `height` EXPLÍCITO resolve ANTES dos filhos (não depende deles): eles o
     // recebem como containing-block height (base do `height:%` deles), e o flex
     // COLUMN o usa como referência do eixo principal (justify/margin-auto).
-    let frame_v = pad_top + pad_bottom + 2.0 * border;
+    let frame_v = pad_top + pad_bottom + border_v;
     let explicit_content_h = resolve_height(css.height, avail_h, &resolve)
         .map(|h| if border_box { (h - frame_v).max(0.0) } else { h })
         // `aspect-ratio`: sem height explícito, a altura vem da largura / razão. Só
@@ -1241,8 +1250,8 @@ pub(crate) fn layout_block(
     let box_rect = Rect::new(
         x + margin_left,
         y + margin_top,
-        content_w + padding_h + 2.0 * border,
-        content_h + pad_top + pad_bottom + 2.0 * border,
+        content_w + padding_h + border_h,
+        content_h + pad_top + pad_bottom + border_v,
     );
     // Registra a geometria deste nó (base do getBoundingClientRect/offsetWidth).
     record_node_rect(list, id, box_rect);
@@ -1408,8 +1417,8 @@ pub(crate) fn layout_block(
     // Tamanho EXTERNO da caixa (outer = content + padding + border + margin) — cada
     // componente já é a SOMA do seu eixo (padding_h = left+right; margin_h idem;
     // border conta 2× pelos dois lados). Não multiplicar margin/padding por 2.
-    let outer_w = content_w + padding_h + 2.0 * border + margin_h;
-    let outer_h = content_h + pad_top + pad_bottom + 2.0 * border + margin_top + margin_bottom;
+    let outer_w = content_w + padding_h + border_h + margin_h;
+    let outer_h = content_h + pad_top + pad_bottom + border_v + margin_top + margin_bottom;
     (outer_w, outer_h)
 }
 
@@ -2123,7 +2132,13 @@ fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
                 // layout_block p/ pintar essa caixa e respeitar o padding — senão o
                 // botão fica sem fundo/borda. (`has_box` cobre bg/pad/margin/border/
                 // radius/width; +height.)
-                || css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false)
+                // Uma tag inline só vira bloco quando o estilo CRIA caixa — ver
+                // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`.
+                // Uma tag inline só vira bloco quando o estilo CRIA caixa — ver
+                // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`.
+                // Uma tag inline só vira bloco quando o estilo CRIA caixa — ver
+                // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`.
+                || css.as_ref().map(|c| crate::inline_box::cria_caixa_de_bloco(c)).unwrap_or(false)
         }
         _ => false,
     }
@@ -2154,7 +2169,7 @@ fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
                 return false;
             }
             // é inline-com-box (tem caixa mas é tag inline) → inline-block.
-            css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false)
+            css.as_ref().map(|c| crate::inline_box::cria_caixa_de_bloco(c)).unwrap_or(false)
         }
         _ => false,
     }
@@ -2503,7 +2518,18 @@ fn layout_input(
 
     // Fundo: o `background` do CSS, senão branco (campo de texto clássico).
     let radius = css.corner_radius.unwrap_or(0.0);
-    let bg = css.bg.unwrap_or(0xFFFFFFFF);
+    // A OPACIDADE também vale aqui. Este era o único sítio que emite caixa sem
+    // passar por `apply_opacity`, e o preço foi uma página inteira em branco: a
+    // Wikipédia usa o "checkbox hack" — `<input type=checkbox>` com
+    // `opacity: 0`, dimensionado à altura da página, para abrir menus sem
+    // JavaScript. Oito deles, com fundo branco opaco e borda cinzenta, pintados
+    // depois de tudo o resto. O layout estava certo, a lista de pintura estava
+    // certa, e o que se via era o fundo de um controlo invisível.
+    //
+    // `unwrap_or(0xFFFFFFFF)` é o fundo que a UA dá a um campo de texto, e um
+    // campo com `opacity: 0` não o pinta.
+    let opacidade = css.opacity.unwrap_or(1.0);
+    let bg = apply_opacity(css.bg.unwrap_or(0xFFFFFFFF), opacidade);
     list.items.push(DisplayItem::SolidRect { rect: box_rect, color: bg, radius });
     // Borda: sempre desenha (o input tem contorno por padrão). Cor do CSS ou cinza.
     // Se o campo tem foco, realça a borda (azul), como o browser.
@@ -2513,6 +2539,7 @@ fn layout_input(
     } else {
         css.border_color.unwrap_or(0x9AA0A6FF)
     };
+    let border_color = apply_opacity(border_color, opacidade);
     let bw = if border > 0.0 { border } else { 1.0 };
     list.items.push(DisplayItem::Border { rect: box_rect, width: bw, color: border_color, radius });
 
@@ -5593,6 +5620,33 @@ mod tests {
         assert_eq!(r.y, (3.0 * DEFAULT_FONT_SIZE - fonte) / 2.0, "centrado na linha: {r:?}");
     }
 
+
+    #[test]
+    fn tmp_a() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        for html in [
+            "<div style='line-height:1.625'>t <a id='x'>link</a> f</div>",
+            "<div style='line-height:1.625'><a id='x'>link</a></div>",
+            "<div style='line-height:1.625'><a id='x' style='color:#06c'>link</a> f</div>",
+            "<li style='line-height:1.625'><a id='x'>link</a></li>",
+            "<div style='line-height:1.625'><a id='x' style='padding:2px'>link</a></div>",
+            "<div style='line-height:1.625'><a id='x'><img width='20' height='15'></a></div>",
+        ] {
+            let dom = parse_html_to_dom(html);
+            let list = layout_document(&dom, &ctx);
+            let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
+            eprintln!("DIAG {:<66} -> {:?}", html, list.geometry().rects.get(&idx));
+        }
+    }
+
+    #[test]
+    fn tmp_bordas() {
+        let dom = parse_html_to_dom("<div id='d' style='border-width:2'>z</div>");
+        let idx = dom.resolve(dom.query("#d").unwrap()).unwrap();
+        let css = dom.computed_style_idx(idx).unwrap_or_default();
+        eprintln!("DIAG border_width={:?} used_widths={:?}", css.border_width,
+            crate::style::borders::used_widths(&css));
+    }
     #[test]
     fn hit_test_respeita_z_index_em_elementos_sobrepostos() {
         let dom = parse_html_to_dom(
@@ -5693,8 +5747,15 @@ mod tests {
     fn box_model_content_box_offset_do_texto() {
         // content-box: o texto começa deslocado por margin+border+padding.
         // padding=14, border=2, margin=6 → offset = 22. (MDN: outer = m+b+p+content)
+        //
+        // O `border-style: solid` é indispensável e não é decoração do teste:
+        // `border-width` SOZINHO não cria borda nenhuma, porque o estilo por
+        // omissão é `none` e uma borda que não pinta também não ocupa espaço.
+        // Sem ele o offset certo passa a ser 20 (só margem e padding) — foi o
+        // que este teste passou a acusar quando as bordas por lado começaram a
+        // respeitar o estilo, e a premissa errada era a do teste.
         let list = layout(
-            "<div style='background:#111111; padding:14; border-width:2; margin:6'>z</div>",
+            "<div style='background:#111111; padding:14; border-width:2; border-style:solid; margin:6'>z</div>",
             600.0,
         );
         let txt = all_texts(&list).first().map(|(_, x, y, _)| (*x, *y)).expect("texto");
@@ -6639,6 +6700,30 @@ mod tests {
                 }
                 DisplayItem::Text { text, color, .. } if text.contains("invisível") => {
                     assert_eq!(color & 0xFF, 0, "o texto de um elemento oculto não é pintado");
+                }
+                _ => {}
+            }
+        }
+    }
+
+
+    /// Um `<input>` com `opacity: 0` não pinta fundo nem borda.
+    ///
+    /// Vale uma página inteira: a Wikipédia usa o "checkbox hack" — um
+    /// `<input type=checkbox>` invisível, dimensionado à altura do documento,
+    /// para abrir menus sem JavaScript. Com o fundo branco da UA pintado opaco
+    /// por cima de tudo, o que se via era uma janela EM BRANCO, com o layout e a
+    /// lista de pintura inteiramente corretos.
+    #[test]
+    fn input_com_opacidade_zero_nao_pinta_fundo_nem_borda() {
+        let dom = parse_html_to_dom("<input id='oculto' style='opacity:0;width:200px;height:100px'>");
+        let m = ApproxMeasurer;
+        let ctx = LayoutCtx { viewport_w: 400.0, viewport_h: 300.0, measurer: &m };
+        let lista = layout_document(&dom, &ctx);
+        for item in lista.materialized() {
+            match item {
+                DisplayItem::SolidRect { color, .. } | DisplayItem::Border { color, .. } => {
+                    assert_eq!(color & 0xFF, 0, "um input invisível não pinta (cor #{color:08X})");
                 }
                 _ => {}
             }

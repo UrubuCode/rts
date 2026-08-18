@@ -24,6 +24,37 @@ impl layout::TextMeasurer for Medidor {
     }
 }
 
+
+/// Percorre a árvore como o extrator de paridade, emitindo `caminho	rect`.
+///
+/// O caminho é `html[1]/body[1]/div[3]/…`, com o índice a contar irmãos DA MESMA
+/// TAG — a mesma regra do `claude-parity-rts.ts` e do lado Chrome. Sem essa
+/// igualdade os dois ficheiros não casam elemento a elemento, e a comparação
+/// mede a diferença dos percursos em vez da do layout.
+fn dump_caminhos(
+    dom: &rts_dom::Dom,
+    geo: &rts_dom::layout::Geometry,
+    idx: rts_dom::NodeIdx,
+    caminho: String,
+    out: &mut String,
+) {
+    use rts_dom::NodeKind;
+    if let Some(r) = geo.rects.get(&idx) {
+        out.push_str(&format!("{caminho}	{:.2}	{:.2}	{:.2}	{:.2}
+", r.x, r.y, r.w, r.h));
+    } else {
+        out.push_str(&format!("{caminho}	-	-	-	-
+"));
+    }
+    let mut contas: std::collections::BTreeMap<String, usize> = Default::default();
+    for &f in &dom.node(idx).children {
+        let NodeKind::Element { tag } = &dom.node(f).kind else { continue };
+        let n = contas.entry(tag.clone()).or_insert(0);
+        *n += 1;
+        dump_caminhos(dom, geo, f, format!("{caminho}/{tag}[{n}]"), out);
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let html = std::fs::read_to_string(&args[1]).expect("html");
@@ -76,7 +107,44 @@ fn main() {
                 e.1 += r.h;
             }
         }
-        println!("altura somada por tag (n, total):");
+        {
+        let mut com_caixa = 0usize;
+        let mut sem_caixa = 0usize;
+        for id in dom.query_all("a") {
+            let Some(idx) = dom.resolve(id) else { continue };
+            let css = dom.computed_style_idx(idx).unwrap_or_default();
+            if css.has_box() || css.height.is_some() {
+                com_caixa += 1;
+            } else {
+                sem_caixa += 1;
+            }
+        }
+        println!("<a> com caixa (has_box): {com_caixa}, sem: {sem_caixa}");
+        let mut porque: std::collections::BTreeMap<&str, usize> = Default::default();
+        for id in dom.query_all("a") {
+            let Some(idx) = dom.resolve(id) else { continue };
+            let css = dom.computed_style_idx(idx).unwrap_or_default();
+            for (nome, ativo) in [
+                ("bg", css.bg.is_some()),
+                ("gradient", css.gradient.is_some()),
+                ("box_shadow", css.box_shadow.is_some()),
+                ("padding", css.padding.any_set()),
+                ("margin", css.margin.any_set()),
+                ("border_width", css.border_width.is_some()),
+                ("border_widths", css.border_widths.any_set()),
+                ("outline", css.outline_width.is_some()),
+                ("radius", css.corner_radius.is_some()),
+                ("width", css.width.is_some()),
+                ("height", css.height.is_some()),
+            ] {
+                if ativo {
+                    *porque.entry(nome).or_insert(0) += 1;
+                }
+            }
+        }
+        println!("porque os <a> contam como caixa: {porque:?}");
+    }
+    println!("altura somada por tag (n, total):");
         for (t, (n, h)) in &soma_por_tag {
             println!("  <{t}> {n} elementos, {:.0}px somados", h);
         }
@@ -88,6 +156,23 @@ fn main() {
         .filter_map(|idx| geo.rects.get(&idx).map(|r| (r.h, *r)))
         .collect();
     paragrafos.sort_by(|a, b| b.0.total_cmp(&a.0));
+
+    // Um despejo `caminho	rect` para comparar com o lado Chrome sem passar pelo
+    // harness de paridade, que é do team-lead e não pode ter duas mãos a mexer-lhe.
+    if let Ok(destino) = std::env::var("DUMP") {
+        let raiz = dom.node(dom.root).children.iter().copied().find(|&f| {
+            matches!(&dom.node(f).kind, rts_dom::NodeKind::Element { tag } if tag == "html")
+        });
+        match raiz {
+            Some(raiz) => {
+                let mut out = String::new();
+                dump_caminhos(&dom, &geo, raiz, "html[1]".to_string(), &mut out);
+                std::fs::write(&destino, out).expect("dump");
+                eprintln!("dump escrito em {destino}");
+            }
+            None => eprintln!("nao achei o <html> na raiz"),
+        }
+    }
 
     println!("\nos 10 <p> mais altos — linhas emitidas contra linhas necessárias:");
     for (_, r) in paragrafos.iter().take(10) {

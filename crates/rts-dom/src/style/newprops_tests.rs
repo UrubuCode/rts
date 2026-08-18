@@ -448,3 +448,43 @@ fn line_height_normal_bate_com_as_alturas_do_chrome() {
 }
 
 
+
+#[test]
+fn borda_por_lado_entra_na_geometria_da_caixa() {
+    // Os números são do Chrome, via `tests/css/claude-border-lados`: um <div> de
+    // 200x20 (content-box) com uma borda de UM lado cresce SÓ desse lado.
+    // Antes, a largura da borda era um escalar aplicado aos quatro lados, e uma
+    // `border-bottom: 5px` alargava a caixa nos quatro ou em nenhum.
+    let caixa = |decl: &str| -> Rect {
+        let html = format!("<div style='width:200px;height:20px;background:#eeeeee;{decl}'>x</div>");
+        first_solid(&layout(&html, 1280.0)).expect("a caixa pinta um fundo").0
+    };
+    assert_eq!(caixa("border-top:10px solid #000").h, 30.0);
+    assert_eq!(caixa("border-top:10px solid #000").w, 200.0);
+    assert_eq!(caixa("border-right:15px solid #000").w, 215.0);
+    assert_eq!(caixa("border-bottom:5px solid #000").h, 25.0);
+    assert_eq!(caixa("border-left:25px solid #000").w, 225.0);
+    // quatro lados diferentes: 200+2+4 de largura, 20+1+3 de altura.
+    let quatro = caixa(
+        "border-top:1px solid #000;border-right:2px solid #000;\
+         border-bottom:3px solid #000;border-left:4px solid #000",
+    );
+    assert_eq!((quatro.w, quatro.h), (206.0, 24.0));
+}
+
+#[test]
+fn lado_sem_estilo_nao_ocupa_espaco() {
+    // Regra da spec que o corpus mede: `border-style: none` faz a largura USADA
+    // ser zero, por mais que o autor declare 30px. É a mesma regra que já decidia
+    // a PINTURA — o layout e o render tinham de concordar sobre a mesma caixa.
+    let caixa = |decl: &str| -> Rect {
+        let html = format!("<div style='width:200px;height:20px;background:#eeeeee;{decl}'>x</div>");
+        first_solid(&layout(&html, 1280.0)).expect("a caixa pinta um fundo").0
+    };
+    let r = caixa("border-top:10px solid #000;border-right-width:30px");
+    assert_eq!((r.w, r.h), (200.0, 30.0), "o lado sem estilo não ocupa nada");
+    // e o shorthand curto DEPOIS de um lado sobrepõe-no (ordem da cascade),
+    // enquanto o lado depois do curto vence só naquele lado.
+    assert_eq!(caixa("border:6px solid #000;border-left:20px solid #000").w, 226.0);
+    assert_eq!(caixa("border-left:20px solid #000;border:6px solid #000").w, 212.0);
+}
