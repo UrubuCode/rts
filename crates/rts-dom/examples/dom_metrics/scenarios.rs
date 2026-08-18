@@ -344,6 +344,128 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     runs
 }
 
+/// POR QUE a página desenha o que desenha: quais elementos receberam geometria,
+/// quais não, e o que os que não receberam têm em comum.
+///
+/// Uma página que abre em branco não diz onde falhou — o layout não reclama,
+/// ele só não emite. Esta visão é o que transforma "ficou branco" numa lista de
+/// causas: `display:none`, fora do fluxo, tamanho zero, ou tag que o motor pula.
+pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
+    use std::collections::BTreeMap;
+    let dom = parse_html_to_dom(html);
+    let lista = rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh));
+    let geo = lista.geometry();
+
+    let mut com_caixa = 0usize;
+    let mut sem_caixa = 0usize;
+    let mut zerados = 0usize;
+    let mut por_motivo: BTreeMap<String, usize> = BTreeMap::new();
+    let mut exemplos: Vec<String> = Vec::new();
+
+    for idx in 0..dom.nodes.len() {
+        let rts_dom::NodeKind::Element { tag } = &dom.node(idx).kind else { continue };
+        let css = dom.computed_style_idx(idx);
+        let display = css.as_ref().and_then(|c| c.effective_display());
+        match geo.rects.get(&idx) {
+            Some(r) if r.w > 0.5 && r.h > 0.5 => com_caixa += 1,
+            Some(_) => {
+                zerados += 1;
+                *por_motivo.entry(format!("caixa 0×0 ({tag}, display {display:?})")).or_default() += 1;
+            }
+            None => {
+                sem_caixa += 1;
+                let motivo = match display {
+                    Some(rts_dom::style::DisplayKind::None) => "display:none".to_string(),
+                    _ => {
+                        let pos = css.as_ref().and_then(|c| c.position);
+                        match pos {
+                            Some(p) if p.out_of_flow() => format!("fora do fluxo ({p:?})"),
+                            _ => format!("sem geometria ({tag}, display {display:?})"),
+                        }
+                    }
+                };
+                if exemplos.len() < 8 && motivo.starts_with("sem geometria") {
+                    exemplos.push(format!("{tag}#{idx} — {motivo}"));
+                }
+                *por_motivo.entry(motivo).or_default() += 1;
+            }
+        }
+    }
+
+    println!("    por que a página desenha o que desenha");
+    println!("      elementos com caixa visível        {com_caixa}");
+    println!("      elementos com caixa 0×0            {zerados}");
+    println!("      elementos SEM geometria            {sem_caixa}");
+    let mut motivos: Vec<(&String, &usize)> = por_motivo.iter().collect();
+    motivos.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+    for (motivo, n) in motivos.into_iter().take(8) {
+        println!("        {n:>5}× {motivo}");
+    }
+    for e in exemplos {
+        println!("        · {e}");
+    }
+
+    // O que de fato vai para a tela: uma página pode ter caixas e ainda assim
+    // abrir em branco se tudo o que ela emite for da cor do fundo.
+    use rts_dom::layout::DisplayItem as D;
+    let mut retangulos = 0usize;
+    let mut bordas = 0usize;
+    let mut textos: Vec<String> = Vec::new();
+    let mut cores: std::collections::BTreeMap<u32, usize> = Default::default();
+    lista.walk(|item, _, _| match item {
+        D::SolidRect { color, rect, .. } => {
+            retangulos += 1;
+            if rect.w > 1.0 && rect.h > 1.0 {
+                *cores.entry(*color).or_default() += 1;
+            }
+        }
+        D::Border { .. } => bordas += 1,
+        D::Text { text, x, y, .. } => {
+            if textos.len() < 10 && !text.trim().is_empty() {
+                textos.push(format!("({x:.0},{y:.0}) {:?}", text.chars().take(40).collect::<String>()));
+            }
+        }
+        _ => {}
+    });
+    println!("      itens pintados: {retangulos} retângulos, {bordas} bordas, {} textos", textos.len());
+    // ORDEM de pintura: um fundo que venha DEPOIS do texto apaga o texto.
+    println!("      ordem (primeiros 22):");
+    let mut n = 0usize;
+    lista.walk(|item, dx, dy| {
+        if n >= 22 {
+            return;
+        }
+        n += 1;
+        let descricao = match item {
+            D::SolidRect { rect, color, .. } => format!(
+                "rect ({:.0},{:.0}) {:.0}x{:.0} #{color:08X}",
+                rect.x + dx, rect.y + dy, rect.w, rect.h
+            ),
+            D::Border { rect, color, .. } => {
+                format!("borda ({:.0},{:.0}) #{color:08X}", rect.x + dx, rect.y + dy)
+            }
+            D::Text { x, y, text, color, .. } => format!(
+                "texto ({:.0},{:.0}) #{color:08X} {:?}",
+                x + dx,
+                y + dy,
+                text.chars().take(24).collect::<String>()
+            ),
+            D::BeginClip { rect, .. } => format!("clip ({:.0},{:.0}) {:.0}x{:.0}", rect.x + dx, rect.y + dy, rect.w, rect.h),
+            D::EndClip => "fim-clip".to_string(),
+            outro => format!("{outro:?}").chars().take(40).collect(),
+        };
+        println!("        {n:>3}. {descricao}");
+    });
+    let mut cores: Vec<(u32, usize)> = cores.into_iter().collect();
+    cores.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    for (cor, n) in cores.into_iter().take(5) {
+        println!("        {n:>4}× cor #{cor:08X}");
+    }
+    for t in textos {
+        println!("        texto {t}");
+    }
+}
+
 /// Confere, numa página REAL, que o layout com reuso de fragmentos é o mesmo
 /// que o layout calculado do zero — depois de uma sequência de mutações que
 /// exercita os caminhos de invalidação.
