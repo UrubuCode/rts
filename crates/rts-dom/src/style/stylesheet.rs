@@ -196,6 +196,9 @@ pub struct Stylesheet {
     /// varredura de todas as regras, e a pergunta é feita a cada movimento do
     /// mouse. Invalidado junto com o índice, em `append_css`.
     hover_reach: std::cell::RefCell<Option<HoverReach>>,
+    /// Cache de [`position_sensitive`](Stylesheet::position_sensitive), pelo
+    /// mesmo motivo do `hover_reach` — a pergunta é por mutação de árvore.
+    position_sensitive: std::cell::RefCell<Option<bool>>,
 }
 
 /// Até onde uma mudança de `:hover` pode mexer no estilo desta folha.
@@ -230,6 +233,7 @@ impl Stylesheet {
             index: std::cell::RefCell::new(super::ruleindex::RuleIndex::default()),
             candidate_scratch: std::cell::RefCell::new(Vec::new()),
             hover_reach: std::cell::RefCell::new(None),
+            position_sensitive: std::cell::RefCell::new(None),
         }
     }
 
@@ -301,6 +305,43 @@ impl Stylesheet {
         }
         *self.hover_reach.borrow_mut() = Some(reach);
         reach
+    }
+
+    /// `true` quando o estilo de um nó pode depender da POSIÇÃO dele entre os
+    /// irmãos — `:first-child`, `:last-child`, `:only-child`, `:nth-child()`,
+    /// `:empty`, ou um combinador de irmão (`+`, `~`).
+    ///
+    /// É a guarda da invalidação por subárvore na INSERÇÃO e na REMOÇÃO: sem
+    /// nenhuma dessas formas, acrescentar um `<li>` não muda o estilo de nenhum
+    /// outro nó, e invalidar a página (o que se fazia) é jogar fora o memo de
+    /// todos os nós a cada `appendChild`. Com alguma delas, os irmãos mudam de
+    /// verdade e o global é o que responde certo. Derivado das regras e
+    /// cacheado — a pergunta é feita a cada mutação de árvore.
+    pub fn position_sensitive(&self) -> bool {
+        if let Some(cached) = *self.position_sensitive.borrow() {
+            return cached;
+        }
+        use super::{Combinator, PseudoClass as P, SimpleSelector as S};
+        let answer = self.rules.iter().any(|r| {
+            r.selector.combinators.iter().any(|c| {
+                matches!(c, Combinator::NextSibling | Combinator::SubsequentSibling)
+            }) || r.selector.compounds.iter().any(|c| {
+                c.parts.iter().any(|p| {
+                    matches!(
+                        p,
+                        S::Pseudo(
+                            P::FirstChild
+                                | P::LastChild
+                                | P::OnlyChild
+                                | P::Empty
+                                | P::NthChild(_, _)
+                        )
+                    )
+                })
+            })
+        });
+        *self.position_sensitive.borrow_mut() = Some(answer);
+        answer
     }
 
     /// Os COMPOUNDS que contêm `:hover`, um por regra que o usa. É contra estes
@@ -376,8 +417,9 @@ impl Stylesheet {
             crate::bump!(css_rules);
             self.rules.push(Rule { order: base + i as u32, ..rule });
         }
-        // As regras mudaram: o alcance de `:hover` derivado delas não vale mais.
+        // As regras mudaram: o que foi derivado delas não vale mais.
         *self.hover_reach.borrow_mut() = None;
+        *self.position_sensitive.borrow_mut() = None;
     }
 
     /// Acha cada `@keyframes nome { ... }`, parseia os stops e guarda; devolve o CSS

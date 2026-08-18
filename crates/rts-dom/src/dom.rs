@@ -546,6 +546,72 @@ impl Dom {
         }
     }
 
+    /// Invalidação de uma mudança de ESTRUTURA (inserir, mover, remover).
+    ///
+    /// Um `appendChild` chamava o `touch()` global: o memo de estilo de TODOS os
+    /// nós ia fora, e o próximo layout re-cascadeava a página. Montar uma lista
+    /// de 4000 itens lendo o layout de vez em quando custava 82 120 cascades
+    /// completas — quadrático, medido.
+    ///
+    /// Sem seletor sensível a POSIÇÃO no stylesheet, inserir um nó não muda o
+    /// estilo de nenhum outro: basta invalidar a subárvore que entrou/saiu e os
+    /// ancestrais (que podem mudar de tamanho), que é o que `touch_subtrees`
+    /// faz. Com `:nth-child`/`:first-child`/`:empty`/`+`/`~`, os irmãos mudam
+    /// de verdade e o global é a resposta certa — a guarda está em
+    /// [`Stylesheet::position_sensitive`](crate::style::Stylesheet::position_sensitive).
+    /// `moved` é o nó que entrou/saiu (a subárvore dele é o que muda de estilo);
+    /// `former_parent` é o pai anterior, quando houve um, para os epochs de
+    /// layout dele subirem também.
+    ///
+    /// Escrito sem `HashSet`, ao contrário do `touch_subtrees`: com UMA raiz não
+    /// há sobreposição a deduplicar numa árvore acíclica, e a alocação por
+    /// chamada aparece — um `append` × 4000 são 4000 chamadas destas. A primeira
+    /// versão reusava `touch_subtrees(pai)` e ficou 118× MAIS LENTA na remoção:
+    /// varrer a subárvore do PAI por nó removido é quadrático, e é o pai que tem
+    /// 2000 filhos, não o nó que saiu.
+    fn touch_structural(&mut self, moved: NodeIdx, former_parent: Option<NodeIdx>) {
+        if self.stylesheet.position_sensitive() {
+            self.touch();
+            return;
+        }
+        self.revision = self.revision.wrapping_add(1);
+        crate::bump!(touch_subtree_calls);
+        // CONSTRUÇÃO PURA (montar a árvore antes de ler qualquer estilo): não há
+        // memo nem cache preenchido, então não há o que invalidar — nem os
+        // epochs, que só existem para invalidar CHAVES já guardadas. Sem este
+        // atalho, um `append` × 4000 pagava a varredura e dois `borrow_mut` por
+        // nó, e ficava 40% mais lento do que o `touch()` global que substituiu.
+        if self.computed_memo.borrow().is_empty()
+            && self.base_memo.borrow().is_empty()
+            && self.layout_measure_cache.borrow().is_empty()
+            && self.intrinsic_width_cache.borrow().is_empty()
+        {
+            return;
+        }
+        let mut computed = self.computed_memo.borrow_mut();
+        let mut base = self.base_memo.borrow_mut();
+        let mut stack = vec![moved];
+        let mut visited = 0u64;
+        while let Some(node) = stack.pop() {
+            visited += 1;
+            computed.remove(&node);
+            base.remove(&node);
+            self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
+            stack.extend(self.nodes[node].children.iter().copied());
+        }
+        crate::bump!(touch_subtree_nodes, visited);
+        drop(computed);
+        drop(base);
+        // Ancestrais: só o EPOCH — o estilo deles não mudou, o tamanho pode ter.
+        for start in [self.nodes[moved].parent, former_parent].into_iter().flatten() {
+            let mut cur = Some(start);
+            while let Some(node) = cur {
+                self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
+                cur = self.nodes[node].parent;
+            }
+        }
+    }
+
     pub(crate) fn layout_epoch(&self, idx: NodeIdx) -> u64 {
         self.layout_epochs[idx]
     }
@@ -2416,7 +2482,6 @@ impl Dom {
     /// filho de `parent`, anexa ao fim (semântica do DOM). Move `child` do pai
     /// antigo; ignora ids inválidos/ciclos.
     pub fn insert_before(&mut self, parent: NodeId, child: NodeId, reference: Option<NodeId>) {
-        self.touch();
         let (Some(parent), Some(child)) = (self.resolve(parent), self.resolve(child)) else {
             return;
         };
@@ -2429,20 +2494,24 @@ impl Dom {
         if ref_idx == Some(child) {
             // já garante o parent (caso o nó fosse solto) e mantém a ordem.
             if self.nodes[child].parent != Some(parent) {
+                let old_parent = self.nodes[child].parent;
                 self.detach(child);
                 self.nodes[child].parent = Some(parent);
                 self.nodes[parent].children.push(child);
+                self.touch_structural(child, old_parent);
             }
             return;
         }
         // captura a posição da referência ANTES do detach (o detach pode mexer na
         // lista de filhos do pai se o child já era irmão da referência).
+        let old_parent = self.nodes[child].parent;
         self.detach(child);
         self.nodes[child].parent = Some(parent);
         let pos = ref_idx
             .and_then(|r| self.nodes[parent].children.iter().position(|&c| c == r))
             .unwrap_or(self.nodes[parent].children.len());
         self.nodes[parent].children.insert(pos, child);
+        self.touch_structural(child, old_parent);
     }
 
     /// `node.nodeType` — código numérico do DOM: Element=1, Text=3, Comment=8,
@@ -2473,7 +2542,6 @@ impl Dom {
     /// Move `child` para o fim dos filhos de `parent` (`parent.appendChild`).
     /// Remove `child` do pai antigo, se tiver. Ignora ids inválidos ou ciclos.
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) {
-        self.touch();
         let (Some(parent), Some(child)) = (self.resolve(parent), self.resolve(child)) else {
             return;
         };
@@ -2483,19 +2551,29 @@ impl Dom {
         if self.is_ancestor(child, parent) {
             return; // evita criar ciclo (child seria ancestral de parent)
         }
+        // O pai ANTIGO também muda (perdeu um filho) — capturado antes do detach.
+        let old_parent = self.nodes[child].parent;
         self.detach(child);
         self.nodes[child].parent = Some(parent);
         self.nodes[parent].children.push(child);
+        self.touch_structural(child, old_parent);
     }
 
     /// Desliga um nó do pai (`element.remove`). O nó continua na arena (lixo).
     pub fn remove_node(&mut self, id: NodeId) {
-        self.touch();
-        if let Some(idx) = self.resolve(id) {
-            if idx != self.root {
-                self.detach(idx);
-            }
+        let Some(idx) = self.resolve(id) else { return };
+        if idx == self.root {
+            return;
         }
+        // A subárvore que sai já não é alcançável depois do detach, então o
+        // ANTIGO PAI é quem carrega a invalidação (o `touch_subtrees` desce por
+        // ele e sobe pelos ancestrais).
+        // ANTES do detach: a raiz da invalidação é o nó que SAI (a subárvore
+        // dele), e os ancestrais precisam estar alcançáveis para os epochs
+        // subirem — depois do detach o nó já não tem pai.
+        let parent = self.nodes[idx].parent;
+        self.touch_structural(idx, parent);
+        self.detach(idx);
     }
 
     /// Aloca um nó sem pai (usado por create_element / set_text). Índice cru.
