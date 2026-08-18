@@ -52,6 +52,28 @@ pub(crate) struct LayoutMeasureKey {
     pub(crate) measurer: u64,
 }
 
+/// A chave de um FRAGMENTO de layout: o desenho de uma subárvore posta com
+/// certas constraints.
+///
+/// É a `LayoutMeasureKey` sem a posição — porque a posição é justamente o que se
+/// corrige ao reusar (o desenho é o mesmo, deslocado). Os campos são os mesmos
+/// pela mesma razão: cada um protege uma dependência do resultado. `node_epoch`
+/// cobre mudanças na subárvore, `style_epoch` as globais de estilo, o viewport e
+/// o medidor cobrem o resto do ambiente.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct FragmentKey {
+    pub(crate) tree: u64,
+    pub(crate) node_epoch: u64,
+    pub(crate) style_epoch: u64,
+    pub(crate) anim_epoch: u64,
+    pub(crate) node: NodeIdx,
+    pub(crate) avail_w: u32,
+    pub(crate) avail_h: Option<u32>,
+    pub(crate) viewport_w: u32,
+    pub(crate) viewport_h: u32,
+    pub(crate) measurer: u64,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct IntrinsicWidthKey {
     pub(crate) tree: u64,
@@ -259,7 +281,12 @@ pub struct Dom {
     /// uma CÓPIA deles. Num relayout de 3000 elementos isso eram ~12 MB de
     /// memcpy por frame com 100% de acerto de cache — o cache funcionando e
     /// custando. Com `Rc`, um hit é um incremento de contador.
-    computed_memo: std::cell::RefCell<HashMap<NodeIdx, std::rc::Rc<crate::style::ComputedStyle>>>,
+    /// Indexado pelo índice da arena, e não um `HashMap`: a arena é DENSA, e
+    /// o layout pede o estilo ~2,4 vezes por nó por passada — eram 12 000
+    /// lookups com SipHash por frame numa página de 3000 elementos, para
+    /// responder o que um índice de vetor responde sem hash nenhum. `None` =
+    /// não memoizado; o vetor cresce sob demanda até `nodes.len()`.
+    computed_memo: std::cell::RefCell<Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>>,
     /// O epoch de animação em que o `computed_memo` foi preenchido. Mutações locais
     /// de conteúdo não invalidam esse cache; animações continuam invalidando o estilo
     /// final interpolado.
@@ -270,17 +297,17 @@ pub struct Dom {
     /// `advance` consulta por nó a cada frame. Invalida por epoch global de estilo,
     /// viewport ou dirty bit local — então frames de animação que só bumpam
     /// `anim_epoch` o REUSAM, tornando o `advance` barato.
-    base_memo: std::cell::RefCell<HashMap<NodeIdx, std::rc::Rc<crate::style::ComputedStyle>>>,
+    base_memo: std::cell::RefCell<Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>>,
     /// A revisão estrutural em que o `base_memo` foi preenchido.
     base_memo_revision: std::cell::Cell<u64>,
     base_memo_viewport: std::cell::Cell<(u32, u32)>,
     /// Cache derivado de medições de bloco feitas em listas descartáveis durante
     /// flex/grid/inline-block/out-of-flow. É limpo em qualquer mutação visual para
     /// não reutilizar tamanho sob estilo ou conteúdo stale.
-    layout_measure_cache: std::cell::RefCell<HashMap<LayoutMeasureKey, (f32, f32)>>,
+    layout_measure_cache: std::cell::RefCell<crate::fasthash::FastMap<LayoutMeasureKey, (f32, f32)>>,
     /// Cache derivado de largura intrínseca (max-content), usada pelos pré-passos
     /// de shrink-to-fit/flex/grid. A chave inclui o contexto tipográfico completo.
-    intrinsic_width_cache: std::cell::RefCell<HashMap<IntrinsicWidthKey, f32>>,
+    intrinsic_width_cache: std::cell::RefCell<crate::fasthash::FastMap<IntrinsicWidthKey, f32>>,
     /// Epoch local de geometria. Filhos e ancestrais são incrementados quando uma
     /// mutação pode alterar seu tamanho; irmãos independentes mantêm o valor.
     layout_epochs: Vec<u64>,
@@ -301,6 +328,43 @@ pub struct Dom {
     /// Buffer, offset dos pixels, w, h)`. Setado pelo browser via `setImage` depois
     /// de baixar+decodificar; o layout emite `DisplayItem::Image`. DERIVADO, fora do Eq.
     image_pixels: HashMap<NodeIdx, (u64, u32, u32, u32)>,
+    /// A posição de cada nó em ORDEM DOCUMENTAL (pré-ordem), numerada sob
+    /// demanda e reusada enquanto a árvore não muda. É o que permite responder
+    /// uma consulta a partir dos ÍNDICES `#id`/`.classe` — que dão os candidatos
+    /// em ordem de arena — sem perder a ordem que o `querySelectorAll` promete.
+    /// `u64` = a revisão em que foi numerada.
+    doc_order: std::cell::RefCell<(u64, Vec<u32>)>,
+    /// Por ANCESTRAL, quais filhos DIRETOS têm sujeira abaixo — anotado durante
+    /// a subida que a invalidação já faz. É o que permite refazer só o ramo que
+    /// mudou em vez de percorrer o container inteiro.
+    dirty_children: std::cell::RefCell<crate::fasthash::FastMap<NodeIdx, Vec<NodeIdx>>>,
+    /// Os nós que foram ALVO DIRETO de uma invalidação. O desenho deles não pode
+    /// ser aproveitado do anterior; o dos ancestrais pode.
+    dirty_self: std::cell::RefCell<std::collections::HashSet<NodeIdx>>,
+    /// O ÚLTIMO fragmento de cada nó, com a chave que o validava — a pergunta
+    /// "o que este nó desenhou da última vez?", que o cache por chave não responde.
+    last_fragment: std::cell::RefCell<
+        crate::fasthash::FastMap<NodeIdx, (FragmentKey, std::rc::Rc<crate::layout::Fragment>)>,
+    >,
+    /// FRAGMENTOS de layout por subárvore — o desenho de um bloco com certas
+    /// constraints, guardado em coordenadas relativas à origem em que foi posto.
+    /// É o que torna o layout INCREMENTAL: mudar uma folha invalida o epoch dela
+    /// e dos ancestrais, e todo irmão intacto reusa o fragmento em vez de
+    /// recalcular cascade, medição de texto e box model.
+    fragment_cache: std::cell::RefCell<crate::fasthash::FastMap<FragmentKey, std::rc::Rc<crate::layout::Fragment>>>,
+    /// A ÚLTIMA `DisplayList` calculada, com a chave que a validou — o layout
+    /// inteiro reusado enquanto nada que o afete mudar (ver
+    /// [`crate::layout::layout_cached`]). Um só slot: o padrão é reperguntar
+    /// pelo MESMO estado (uma consulta de geometria atrás da outra, um frame
+    /// atrás do outro), não alternar entre viewports.
+    display_cache: std::cell::RefCell<Option<(DisplayKey, std::rc::Rc<crate::layout::DisplayList>)>>,
+    /// Algum `style=""` inline desta árvore menciona `position`.
+    ///
+    /// Junto com [`Stylesheet::has_out_of_flow`](crate::style::Stylesheet::has_out_of_flow),
+    /// responde "esta página PODE ter elemento fora do fluxo?" — e quando a
+    /// resposta é não, a passada que procura por eles (uma varredura da árvore
+    /// inteira pedindo o estilo computado de cada nó) não precisa acontecer.
+    inline_position: std::cell::Cell<bool>,
     /// Qual `<input>` tem o FOCO (recebe as teclas). `None` = nenhum. Setado por
     /// `focus_input` (o loop TS chama após um clique dentro da caixa de um input).
     /// DERIVADO, fora do `PartialEq`.
@@ -345,20 +409,27 @@ impl Dom {
             anim_start: HashMap::new(),
             revision: 0,
             anim_epoch: 0,
-            computed_memo: std::cell::RefCell::new(HashMap::new()),
+            computed_memo: std::cell::RefCell::new(Vec::new()),
             memo_revision: std::cell::Cell::new(0),
             memo_style_epoch: std::cell::Cell::new(crate::style::props::style_epoch()),
-            base_memo: std::cell::RefCell::new(HashMap::new()),
+            base_memo: std::cell::RefCell::new(Vec::new()),
             base_memo_revision: std::cell::Cell::new(u64::MAX),
             base_memo_viewport: std::cell::Cell::new((0, 0)),
-            layout_measure_cache: std::cell::RefCell::new(HashMap::new()),
-            intrinsic_width_cache: std::cell::RefCell::new(HashMap::new()),
+            layout_measure_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
+            intrinsic_width_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
             layout_epochs: vec![0],
             viewport: std::cell::Cell::new((1280.0, 800.0)),
             memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),
             input_values: HashMap::new(),
             image_pixels: HashMap::new(),
             focused_input: None,
+            inline_position: std::cell::Cell::new(false),
+            display_cache: std::cell::RefCell::new(None),
+            fragment_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
+            dirty_children: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
+            dirty_self: std::cell::RefCell::new(std::collections::HashSet::new()),
+            last_fragment: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
+            doc_order: std::cell::RefCell::new((u64::MAX, Vec::new())),
         }
     }
 
@@ -462,21 +533,50 @@ impl Dom {
     fn touch(&mut self) {
         self.revision = self.revision.wrapping_add(1);
         crate::bump!(touch_global);
-        crate::bump!(
-            memo_cleared_entries,
-            self.computed_memo.borrow().len() + self.base_memo.borrow().len()
-        );
+        crate::bump!(memo_cleared_entries, self.memo_entries());
         self.computed_memo.borrow_mut().clear();
         self.base_memo.borrow_mut().clear();
+        // Os FRAGMENTOS são chaveados por epoch de nó, e o `touch()` global é
+        // exatamente o caso em que não se sabe QUAIS nós mudaram (stylesheet
+        // novo, mutação sem alvo). Esvaziar é o fallback seguro; as invalidações
+        // com alvo bumpam epoch e preservam o resto do cache.
+        self.fragment_cache.borrow_mut().clear();
+        self.last_fragment.borrow_mut().clear();
+        // Sem alvo não há "quais filhos": marcar todos seria o mesmo que não
+        // marcar nenhum.
+        self.dirty_children.borrow_mut().clear();
+        self.dirty_self.borrow_mut().clear();
         self.layout_measure_cache.borrow_mut().clear();
         self.intrinsic_width_cache.borrow_mut().clear();
     }
 
     /// Marca uma mudança que altera pixels/geometria, mas não o estilo computado.
     /// O cache de cascade pode continuar válido para o próximo layout.
-    fn touch_render_only(&mut self) {
+    /// Mudança que altera PIXELS/geometria mas não o estilo computado — trocar
+    /// o texto de um elemento é o caso.
+    ///
+    /// `node` é obrigatório porque o reuso de fragmentos exige saber ONDE a
+    /// geometria mudou: sem bumpar o epoch da subárvore (e dos ancestrais, que
+    /// podem mudar de tamanho), um fragmento com o texto ANTIGO continuaria
+    /// casando a chave. Foi assim que o teste de equivalência pegou este caminho
+    /// na primeira mutação.
+    fn touch_render_only(&mut self, node: NodeIdx) {
         self.revision = self.revision.wrapping_add(1);
         crate::bump!(touch_render_only);
+        let mut stack = vec![node];
+        while let Some(n) = stack.pop() {
+            self.layout_epochs[n] = self.layout_epochs[n].wrapping_add(1);
+            stack.extend(self.nodes[n].children.iter().copied());
+        }
+        self.mark_self_dirty(node);
+        let mut filho = node;
+        let mut ancestor = self.nodes[node].parent;
+        while let Some(n) = ancestor {
+            self.layout_epochs[n] = self.layout_epochs[n].wrapping_add(1);
+            self.mark_dirty_child(n, filho);
+            filho = n;
+            ancestor = self.nodes[n].parent;
+        }
         self.layout_measure_cache.borrow_mut().clear();
         self.intrinsic_width_cache.borrow_mut().clear();
     }
@@ -497,13 +597,19 @@ impl Dom {
         let mut computed = self.computed_memo.borrow_mut();
         let mut base = self.base_memo.borrow_mut();
         for &node in &affected {
-            computed.remove(&node);
-            base.remove(&node);
+            memo_forget(&mut computed, node);
+            memo_forget(&mut base, node);
             self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
         }
+        // Sobe anotando por onde passou: cada ancestral fica sabendo qual filho
+        // dele tem sujeira abaixo.
+        self.mark_self_dirty(idx);
+        let mut filho = idx;
         let mut ancestor = self.nodes[idx].parent;
         while let Some(node) = ancestor {
             self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
+            self.mark_dirty_child(node, filho);
+            filho = node;
             ancestor = self.nodes[node].parent;
         }
     }
@@ -527,9 +633,13 @@ impl Dom {
         }
         let mut ancestors = HashSet::new();
         for root in roots {
+            self.mark_self_dirty(root);
+            let mut filho = root;
             let mut ancestor = self.nodes[root].parent;
             while let Some(node) = ancestor {
                 ancestors.insert(node);
+                self.mark_dirty_child(node, filho);
+                filho = node;
                 ancestor = self.nodes[node].parent;
             }
         }
@@ -537,8 +647,8 @@ impl Dom {
         let mut computed = self.computed_memo.borrow_mut();
         let mut base = self.base_memo.borrow_mut();
         for node in affected {
-            computed.remove(&node);
-            base.remove(&node);
+            memo_forget(&mut computed, node);
+            memo_forget(&mut base, node);
             self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
         }
         for node in ancestors {
@@ -581,6 +691,10 @@ impl Dom {
         // epochs, que só existem para invalidar CHAVES já guardadas. Sem este
         // atalho, um `append` × 4000 pagava a varredura e dois `borrow_mut` por
         // nó, e ficava 40% mais lento do que o `touch()` global que substituiu.
+        // O(1): um vetor de memo VAZIO é "nunca houve layout", que é o caso da
+        // construção pura. Contar os slots preenchidos é O(n) e estava sendo
+        // pago POR MUTAÇÃO — foi o que deixou a remoção de 2000 nós 2,8× mais
+        // lenta assim que o layout passou a preencher os memos.
         if self.computed_memo.borrow().is_empty()
             && self.base_memo.borrow().is_empty()
             && self.layout_measure_cache.borrow().is_empty()
@@ -594,21 +708,164 @@ impl Dom {
         let mut visited = 0u64;
         while let Some(node) = stack.pop() {
             visited += 1;
-            computed.remove(&node);
-            base.remove(&node);
+            memo_forget(&mut computed, node);
+            memo_forget(&mut base, node);
             self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
             stack.extend(self.nodes[node].children.iter().copied());
         }
         crate::bump!(touch_subtree_nodes, visited);
+        // Sem a feature `metrics` o `bump!` some e a contagem fica sem leitor.
+        let _ = visited;
         drop(computed);
         drop(base);
         // Ancestrais: só o EPOCH — o estilo deles não mudou, o tamanho pode ter.
+        self.mark_self_dirty(moved);
         for start in [self.nodes[moved].parent, former_parent].into_iter().flatten() {
+            let mut filho = moved;
             let mut cur = Some(start);
             while let Some(node) = cur {
                 self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
+                self.mark_dirty_child(node, filho);
+                filho = node;
                 cur = self.nodes[node].parent;
             }
+        }
+    }
+
+    /// Quantos nós têm estilo memoizado (as duas camadas somadas). É a contagem
+    /// que o `HashMap` dava de graça e um vetor esparso não dá — usada só por
+    /// métricas e pelo atalho da construção pura, ambos fora do caminho quente
+    /// de um layout.
+    fn memo_entries(&self) -> usize {
+        self.computed_memo.borrow().iter().filter(|s| s.is_some()).count()
+            + self.base_memo.borrow().iter().filter(|s| s.is_some()).count()
+    }
+
+    /// A posição de `idx` em ordem documental, renumerando se a árvore mudou.
+    /// O(n) na primeira consulta depois de uma mutação, O(1) nas seguintes.
+    fn document_positions(&self) -> std::cell::Ref<'_, (u64, Vec<u32>)> {
+        if self.doc_order.borrow().0 != self.revision {
+            let mut order = vec![u32::MAX; self.nodes.len()];
+            let mut next = 0u32;
+            let mut stack = vec![self.root];
+            while let Some(node) = stack.pop() {
+                order[node] = next;
+                next += 1;
+                // pilha: empilha ao contrário para visitar os filhos na ordem.
+                stack.extend(self.nodes[node].children.iter().rev().copied());
+            }
+            *self.doc_order.borrow_mut() = (self.revision, order);
+        }
+        self.doc_order.borrow()
+    }
+
+    fn mark_dirty_child(&self, pai: NodeIdx, filho: NodeIdx) {
+        let mut map = self.dirty_children.borrow_mut();
+        let entry = map.entry(pai).or_default();
+        // Lista curta: o caso que interessa é um ou dois filhos sujos. Acima de
+        // um punhado, refazer o container sai mais barato do que comparar.
+        if entry.len() < 8 && !entry.contains(&filho) {
+            entry.push(filho);
+        } else if entry.len() >= 8 {
+            entry.push(filho); // marca "muitos"; o consumidor olha o tamanho
+        }
+    }
+
+    fn mark_self_dirty(&self, node: NodeIdx) {
+        self.dirty_self.borrow_mut().insert(node);
+    }
+
+    pub(crate) fn dirty_children_of(&self, pai: NodeIdx) -> Option<Vec<NodeIdx>> {
+        let map = self.dirty_children.borrow();
+        let list = map.get(&pai)?;
+        (list.len() <= 8).then(|| list.clone())
+    }
+
+    pub(crate) fn is_self_dirty(&self, node: NodeIdx) -> bool {
+        self.dirty_self.borrow().contains(&node)
+    }
+
+    /// Esquece as marcas — por passada de layout, que é quem as consome.
+    pub(crate) fn clear_dirty(&self) {
+        self.dirty_children.borrow_mut().clear();
+        self.dirty_self.borrow_mut().clear();
+    }
+
+    pub(crate) fn last_fragment_of(
+        &self,
+        node: NodeIdx,
+    ) -> Option<(FragmentKey, std::rc::Rc<crate::layout::Fragment>)> {
+        self.last_fragment.borrow().get(&node).cloned()
+    }
+
+    pub(crate) fn fragment_get(
+        &self,
+        key: FragmentKey,
+    ) -> Option<std::rc::Rc<crate::layout::Fragment>> {
+        self.fragment_cache.borrow().get(&key).cloned()
+    }
+
+    pub(crate) fn fragment_put(
+        &self,
+        key: FragmentKey,
+        fragment: std::rc::Rc<crate::layout::Fragment>,
+    ) {
+        self.last_fragment.borrow_mut().insert(key.node, (key, std::rc::Rc::clone(&fragment)));
+        let mut cache = self.fragment_cache.borrow_mut();
+        // Teto igual ao dos outros caches de layout: uma página que rola muito
+        // acumula fragmentos de nós que já saíram de cena, e o epoch na chave
+        // impede que um stale seja SERVIDO, não que ele ocupe memória.
+        if cache.len() >= 4096 && !cache.contains_key(&key) {
+            if let Some(old) = cache.keys().next().copied() {
+                cache.remove(&old);
+            }
+        }
+        cache.insert(key, fragment);
+    }
+
+    /// Esquece todos os fragmentos. Existe para o TESTE de equivalência poder
+    /// recalcular do zero e comparar com o que o reuso devolveu: sem isso, o
+    /// teste compararia o cache consigo mesmo, que é o mesmo que não testar.
+    pub fn clear_fragment_cache(&self) {
+        self.fragment_cache.borrow_mut().clear();
+        self.last_fragment.borrow_mut().clear();
+    }
+
+    /// Quantos fragmentos estão guardados (métricas e teste).
+    pub(crate) fn fragment_count(&self) -> usize {
+        self.fragment_cache.borrow().len()
+    }
+
+    pub(crate) fn display_cache_get(
+        &self,
+        key: DisplayKey,
+    ) -> Option<std::rc::Rc<crate::layout::DisplayList>> {
+        let cache = self.display_cache.borrow();
+        let (k, list) = cache.as_ref()?;
+        (*k == key).then(|| std::rc::Rc::clone(list))
+    }
+
+    pub(crate) fn display_cache_put(
+        &self,
+        key: DisplayKey,
+        list: &std::rc::Rc<crate::layout::DisplayList>,
+    ) {
+        *self.display_cache.borrow_mut() = Some((key, std::rc::Rc::clone(list)));
+    }
+
+    /// `true` se esta árvore PODE ter algum elemento fora do fluxo. Falso
+    /// negativo é impossível: qualquer `position` inline liga a flag e qualquer
+    /// regra com `absolute`/`fixed` (ou uma pendente com `var()`) liga a do
+    /// stylesheet.
+    pub(crate) fn may_have_out_of_flow(&self) -> bool {
+        self.inline_position.get() || self.stylesheet.has_out_of_flow()
+    }
+
+    /// Anota que um `style=""` menciona `position` — chamado no parse e em toda
+    /// escrita de atributo.
+    fn note_inline_position(&self, value: &str) {
+        if value.contains("position") {
+            self.inline_position.set(true);
         }
     }
 
@@ -662,7 +919,7 @@ impl Dom {
     /// dos campos, pela mesma razão do [`derived_node_state`](Self::derived_node_state).
     pub(crate) fn derived_cache_sizes(&self) -> (usize, usize) {
         (
-            self.computed_memo.borrow().len() + self.base_memo.borrow().len(),
+            self.memo_entries(),
             self.layout_measure_cache.borrow().len() + self.intrinsic_width_cache.borrow().len(),
         )
     }
@@ -721,6 +978,12 @@ impl Dom {
     /// mudam — inclui o epoch GLOBAL de estilo por-tag (`defineStyle`/`defineBlock`,
     /// que vivem fora do `Dom`). É a chave de cache de layout do backend e da ABI:
     /// mesma revisão + mesmo viewport ⇒ a DisplayList anterior ainda vale.
+    /// O epoch de ANIMAÇÃO — entra nas chaves de cache de layout, porque um
+    /// frame de interpolação muda o estilo sem mudar a estrutura.
+    pub(crate) fn anim_epoch(&self) -> u64 {
+        self.anim_epoch
+    }
+
     pub fn render_revision(&self) -> u64 {
         self.revision
             .wrapping_add(self.anim_epoch)
@@ -759,12 +1022,12 @@ impl Dom {
             self.base_memo_viewport.set(vp_key);
         }
         crate::bump!(base_calls);
-        if let Some(hit) = self.base_memo.borrow().get(&idx) {
+        if let Some(Some(hit)) = self.base_memo.borrow().get(idx) {
             crate::bump!(base_memo_hits);
             return Some(std::rc::Rc::clone(hit));
         }
         let computed = std::rc::Rc::new(self.computed_style_idx_inner(idx)?);
-        self.base_memo.borrow_mut().insert(idx, std::rc::Rc::clone(&computed));
+        memo_put(&mut self.base_memo.borrow_mut(), idx, self.nodes.len(), &computed);
         Some(computed)
     }
 
@@ -886,6 +1149,9 @@ impl Dom {
 
     /// Aloca um nó (com seus atributos) como filho de `parent`; devolve o índice.
     fn push(&mut self, kind: NodeKind, attrs: Vec<Attr>, parent: NodeIdx) -> NodeIdx {
+        if let Some(style) = attrs.iter().find(|a| a.name == "style") {
+            self.note_inline_position(&style.value);
+        }
         let id = self.nodes.len();
         self.nodes.push(Node {
             kind,
@@ -1013,7 +1279,7 @@ impl Dom {
         if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
             return;
         }
-        self.touch_render_only();
+        self.touch_render_only(idx);
         // Descarta os filhos atuais (arena não compacta; vira lixo inacessível —
         // ok para o uso atual, a árvore é reconstruída a cada `html()`). Zera o
         // `parent` de cada um para `is_attached`/query não os acharem.
@@ -1070,7 +1336,7 @@ impl Dom {
             self.memo_viewport.set(vp_key);
         }
         crate::bump!(computed_calls);
-        if let Some(hit) = self.computed_memo.borrow().get(&idx) {
+        if let Some(Some(hit)) = self.computed_memo.borrow().get(idx) {
             crate::bump!(computed_memo_hits);
             return Some(std::rc::Rc::clone(hit));
         }
@@ -1092,7 +1358,7 @@ impl Dom {
                 std::rc::Rc::new(c)
             }
         };
-        self.computed_memo.borrow_mut().insert(idx, std::rc::Rc::clone(&computed));
+        memo_put(&mut self.computed_memo.borrow_mut(), idx, self.nodes.len(), &computed);
         Some(computed)
     }
 
@@ -2225,9 +2491,67 @@ impl Dom {
         // que a consulta não usava: 5007 nós × 14 seletores eram 70 090 chamadas
         // ao matcher completo numa página de 3000 elementos.
         let keys: Vec<TargetKey> = selectors.iter().map(TargetKey::of).collect();
+        // Quando TODA chave é `#id` ou `.classe`, os índices dão os candidatos
+        // direto e a árvore inteira não precisa ser andada — é o que o browser
+        // faz. A ordem sai da numeração documental, porque os índices guardam
+        // ordem de ARENA e `querySelectorAll` promete ordem de documento
+        // (`appendChild` reordena a segunda sem mexer na primeira).
+        // Um seletor que é SÓ a chave (`.card`, `#topo`) já está inteiramente
+        // respondido pelo índice: o candidato tem a classe/id por construção, e
+        // chamar o matcher para reconfirmar é refazer a pergunta que o bucket
+        // respondeu. Com combinador, pseudo ou compound, o matcher decide.
+        let exatos = selectors.iter().all(|sel| {
+            sel.compounds.len() == 1
+                && sel.compounds[0].parts.len() == 1
+                && matches!(
+                    sel.compounds[0].parts[0],
+                    crate::style::SimpleSelector::Class(_) | crate::style::SimpleSelector::Id(_)
+                )
+        });
+        if let Some(candidatos) = self.candidatos_por_indice(&keys) {
+            crate::bump!(query_index_hits);
+            let positions = self.document_positions();
+            // A numeração documental já responde "está na árvore?": um nó
+            // inalcançável nunca foi visitado e ficou com `u32::MAX`. É O(1),
+            // contra o `is_attached`, que sobe até a raiz por candidato — e são
+            // mil candidatos numa consulta de página grande.
+            let mut casaram: Vec<NodeIdx> = candidatos
+                .into_iter()
+                .filter(|&idx| {
+                    crate::bump!(query_nodes_visited);
+                    positions.1.get(idx).copied().unwrap_or(u32::MAX) != u32::MAX
+                        && (exatos || selectors.iter().any(|sel| self.matches_complex(idx, sel)))
+                })
+                .collect();
+            casaram.sort_unstable_by_key(|&idx| positions.1[idx]);
+            drop(positions);
+            return casaram.into_iter().map(|idx| self.make_id(idx)).collect();
+        }
         let mut out = Vec::new();
         self.query_all_into(self.root, &selectors, &keys, &mut out);
         out
+    }
+
+    /// Os candidatos de uma lista de seletores a partir dos índices, ou `None`
+    /// quando algum seletor não tem chave indexada (tag, universal, atributo) —
+    /// nesse caso a varredura em pré-ordem é a única resposta completa.
+    fn candidatos_por_indice(&self, keys: &[TargetKey]) -> Option<Vec<NodeIdx>> {
+        let mut out: Vec<NodeIdx> = Vec::new();
+        for key in keys {
+            let bucket = match key {
+                TargetKey::Id(v) => self.id_index.get(v),
+                TargetKey::Class(v) => self.class_index.get(v),
+                TargetKey::Tag(_) | TargetKey::Any => return None,
+            };
+            if let Some(bucket) = bucket {
+                out.extend_from_slice(bucket);
+            }
+        }
+        // Um nó pode entrar por dois seletores da lista (`.a, .b` num nó com as
+        // duas): o `querySelectorAll` devolve cada nó UMA vez.
+        out.sort_unstable();
+        out.dedup();
+        Some(out)
     }
 
     fn query_all_into(
@@ -2359,6 +2683,31 @@ impl Dom {
         })
     }
 
+    /// `true` se trocar o `class` deste nó para `novo` não pode mudar estilo
+    /// nenhum: toda classe que ENTRA ou SAI está fora do conjunto de classes
+    /// citadas pelo stylesheet.
+    ///
+    /// Só as que MUDAM: as que ficam não afetam nada por definição, e uma delas
+    /// citada não torna a troca relevante.
+    fn class_change_is_inert(&self, idx: NodeIdx, novo: &str) -> bool {
+        let antigo = self.nodes[idx].attr("class").unwrap_or_default();
+        let mudou = antigo
+            .split_whitespace()
+            .filter(|c| !novo.split_whitespace().any(|n| n == *c))
+            .chain(
+                novo.split_whitespace()
+                    .filter(|c| !antigo.split_whitespace().any(|a| a == *c)),
+            );
+        let mut alguma = false;
+        for c in mudou {
+            alguma = true;
+            if self.stylesheet.mentions_class(c) {
+                return false;
+            }
+        }
+        alguma
+    }
+
     /// Resolve uma pseudo-classe contra o nó (posição entre irmãos / atributo de estado).
     fn pseudo_matches(&self, idx: NodeIdx, pc: &crate::style::PseudoClass) -> bool {
         use crate::style::PseudoClass as P;
@@ -2451,6 +2800,9 @@ impl Dom {
         crate::bump!(set_attr);
         let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
+        if name_lc == "style" {
+            self.note_inline_position(value);
+        }
         if self.nodes[idx]
             .attrs
             .iter()
@@ -2460,14 +2812,28 @@ impl Dom {
             return;
         }
         let affects_index = matches!(name_lc.as_str(), "id" | "class");
-        let affects_parent_selectors =
-            affects_index || self.stylesheet.has_attribute_selectors();
-        let dirty_root = if affects_parent_selectors {
-            self.nodes[idx].parent.unwrap_or(idx)
-        } else {
-            idx
-        };
-        self.touch_subtree(dirty_root);
+        // DESCARTE PRECOCE (o que um browser chama de invalidation set): trocar
+        // uma classe que NENHUMA regra cita não muda o estilo de nó nenhum, e
+        // invalidar por ela é refazer a cascade e o layout da página inteira
+        // por nada. É o caso mais comum de app — `el.classList.toggle('x')` —
+        // e o Chrome o resolve em 5 µs onde nós gastávamos 2,9 ms numa página
+        // de 3000 elementos.
+        //
+        // A guarda: só vale para `class`, e cai fora se houver seletor de
+        // ATRIBUTO no stylesheet (um `[class*=…]` reage a qualquer classe).
+        let style_unaffected = name_lc == "class"
+            && !self.stylesheet.has_attribute_selectors()
+            && self.class_change_is_inert(idx, value);
+        if !style_unaffected {
+            let affects_parent_selectors =
+                affects_index || self.stylesheet.has_attribute_selectors();
+            let dirty_root = if affects_parent_selectors {
+                self.nodes[idx].parent.unwrap_or(idx)
+            } else {
+                idx
+            };
+            self.touch_subtree(dirty_root);
+        }
         if affects_index {
             self.deindex_node(idx);
         }
@@ -2995,6 +3361,37 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
     attrs
 }
 
+/// Esquece o estilo memoizado de um nó. O vetor é esparso por índice, então
+/// "esquecer" é apagar o slot — e um índice além do fim já não tem nada.
+fn memo_forget(
+    memo: &mut Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>,
+    idx: NodeIdx,
+) {
+    if let Some(slot) = memo.get_mut(idx) {
+        *slot = None;
+    }
+}
+
+/// Guarda o estilo memoizado, crescendo o vetor até caber o índice. `capacity`
+/// é o tamanho da arena: crescer até ele de uma vez evita um `resize` por nó na
+/// primeira passada.
+fn memo_put(
+    memo: &mut Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>,
+    idx: NodeIdx,
+    capacity: usize,
+    value: &std::rc::Rc<crate::style::ComputedStyle>,
+) {
+    if idx >= memo.len() {
+        memo.resize(capacity.max(idx + 1), None);
+    }
+    memo[idx] = Some(std::rc::Rc::clone(value));
+}
+
+/// A chave do cache de layout: `(revisão de render, viewport w/h em bits,
+/// medidor)`. Ver [`crate::layout::layout_cached`] para por que cada parte
+/// entra.
+pub(crate) type DisplayKey = (u64, u32, u32, u64);
+
 /// A CHAVE-ALVO de um seletor: o que o último compound exige do nó que ele casa.
 /// Um filtro barato antes do matcher completo (que navega a árvore) — a mesma
 /// ideia do `RuleIndex` da cascade, aplicada às consultas.
@@ -3147,6 +3544,14 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
 mod tests {
     use super::*;
 
+    /// `true` se o nó tem estilo memoizado — o memo é um vetor esparso por
+    /// índice da arena, então "tem entrada" é "o slot existe e está cheio".
+    fn memoizado(dom: &Dom, idx: NodeIdx) -> bool {
+        dom.computed_memo.borrow().get(idx).map(Option::is_some).unwrap_or(false)
+    }
+
+    use super::*;
+
     /// Helper: nome de tag de um nó Element por índice cru (panica se não for
     /// elemento) — só para deixar os asserts curtos.
     fn tag(dom: &Dom, idx: NodeIdx) -> &str {
@@ -3263,14 +3668,14 @@ mod tests {
         // Preenche os dois memos antes da mutação.
         let _ = dom.computed_style(a);
         let _ = dom.computed_style(b);
-        assert!(dom.computed_memo.borrow().contains_key(&a_idx));
-        assert!(dom.computed_memo.borrow().contains_key(&b_idx));
+        assert!(memoizado(&dom, a_idx));
+        assert!(memoizado(&dom, b_idx));
 
         let before_noop = dom.render_revision();
         dom.set_attr(a, "data-state", "on");
         assert_ne!(dom.render_revision(), before_noop);
-        assert!(!dom.computed_memo.borrow().contains_key(&a_idx));
-        assert!(dom.computed_memo.borrow().contains_key(&b_idx));
+        assert!(!memoizado(&dom, a_idx));
+        assert!(memoizado(&dom, b_idx));
 
         // Repetir o mesmo setAttribute é um no-op e não cria nova invalidação.
         let before_repeat = dom.render_revision();
@@ -3333,18 +3738,18 @@ mod tests {
 
         assert!(dom.advance(0.0));
         let base_revision = dom.base_memo_revision.get();
-        let base_before = dom.base_memo.borrow().get(&node_idx).cloned();
+        let base_before = dom.base_memo.borrow().get(node_idx).cloned().flatten();
         assert!(base_before.is_some());
         let _ = dom.computed_style(node);
-        assert!(dom.computed_memo.borrow().contains_key(&node_idx));
+        assert!(memoizado(&dom, node_idx));
 
         assert!(dom.advance(50.0));
         assert_eq!(dom.base_memo_revision.get(), base_revision);
-        assert_eq!(dom.base_memo.borrow().get(&node_idx), base_before.as_ref());
+        assert_eq!(dom.base_memo.borrow().get(node_idx).cloned().flatten(), base_before);
         // O epoch de animação muda, portanto o memo interpolado é recalculado sob
         // demanda; o alvo-base continua sendo o mesmo objeto lógico.
         let _ = dom.computed_style(node);
-        assert!(dom.computed_memo.borrow().contains_key(&node_idx));
+        assert!(memoizado(&dom, node_idx));
     }
 
     #[test]
@@ -4617,6 +5022,49 @@ mod tests {
         // conteúdo real chegou: o h1 do template.
         let h1 = dom.query("h1").unwrap();
         assert_eq!(dom.text_content(h1).unwrap(), "Cover your page.");
+    }
+
+    /// A consulta por índice devolve em ordem DOCUMENTAL, não em ordem de
+    /// arena — e as duas divergem assim que um `appendChild` reordena. É a
+    /// armadilha que o comentário do `query_idx` sempre alertou, e agora que os
+    /// índices respondem de verdade, é ela que precisa de teste.
+    #[test]
+    fn consulta_por_indice_respeita_a_ordem_documental() {
+        let mut dom = parse_html_to_dom(
+            "<div id='host'><p class='x' id='a'>a</p><p class='x' id='b'>b</p></div>",
+        );
+        let host = dom.query("#host").unwrap();
+        let a = dom.query("#a").unwrap();
+        // move o PRIMEIRO para o fim: ordem de arena continua a,b; a documental
+        // vira b,a.
+        dom.append_child(host, a);
+        let ids: Vec<String> = dom
+            .query_all(".x")
+            .into_iter()
+            .map(|n| dom.get_attr(n, "id").unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(ids, vec!["b", "a"], "ordem documental depois do reparent");
+
+        // Um nó REMOVIDO não pode aparecer, mesmo com a entrada de índice viva
+        // (o índice é superconjunto por design — ver a auditoria).
+        let b = dom.query("#b").unwrap();
+        dom.remove_node(b);
+        let ids: Vec<String> = dom
+            .query_all(".x")
+            .into_iter()
+            .map(|n| dom.get_attr(n, "id").unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(ids, vec!["a"], "o removido não entra");
+
+        // E um nó com DUAS classes da lista entra uma vez só.
+        let mut dom2 = parse_html_to_dom("<p class='x y' id='u'></p><p class='y' id='v'></p>");
+        let ids: Vec<String> = dom2
+            .query_all(".x, .y")
+            .into_iter()
+            .map(|n| dom2.get_attr(n, "id").unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(ids, vec!["u", "v"], "sem duplicata e em ordem");
+        let _ = &mut dom2;
     }
 
     /// O ALCANCE de `:hover` decide o que a mudança de hover invalida, e os

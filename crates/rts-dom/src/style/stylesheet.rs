@@ -259,6 +259,8 @@ pub struct Stylesheet {
     /// Cache de [`position_sensitive`](Stylesheet::position_sensitive), pelo
     /// mesmo motivo do `hover_reach` — a pergunta é por mutação de árvore.
     position_sensitive: std::cell::RefCell<Option<bool>>,
+    /// Cache de [`has_out_of_flow`](Stylesheet::has_out_of_flow).
+    out_of_flow: std::cell::RefCell<Option<bool>>,
 }
 
 /// As regras que casaram um nó, ordenadas pela cascade. Opaco de propósito: o
@@ -308,6 +310,7 @@ impl Stylesheet {
             candidate_scratch: std::cell::RefCell::new(Vec::new()),
             hover_reach: std::cell::RefCell::new(None),
             position_sensitive: std::cell::RefCell::new(None),
+            out_of_flow: std::cell::RefCell::new(None),
         }
     }
 
@@ -436,6 +439,40 @@ impl Stylesheet {
         out
     }
 
+    /// `true` se alguma regra pode tirar um elemento do fluxo
+    /// (`position: absolute` ou `fixed`).
+    ///
+    /// Derivado das regras e cacheado: sem nenhuma delas — e sem `style=""`
+    /// inline com `position` —, a passada de fora do fluxo não tem o que achar,
+    /// e ela percorre a ÁRVORE INTEIRA pedindo o estilo computado de cada nó.
+    /// Era 78% de um frame de mutação numa página de 3000 elementos que não tem
+    /// um único posicionado.
+    pub fn has_out_of_flow(&self) -> bool {
+        if let Some(cached) = *self.out_of_flow.borrow() {
+            return cached;
+        }
+        use super::props::Decl;
+        let fora = |d: &Decl| {
+            matches!(d, Decl::position(Some(super::Position::Absolute | super::Position::Fixed)))
+        };
+        let answer = self.rules.iter().any(|r| {
+            r.decls.normal.iter().any(fora)
+                || r.decls.important.iter().any(fora)
+                // uma pendente com var() pode virar qualquer coisa: conta como
+                // possível, que é o lado seguro.
+                || r.decls.pending.iter().any(|(prop, _, _)| prop == "position")
+        });
+        *self.out_of_flow.borrow_mut() = Some(answer);
+        answer
+    }
+
+    /// `true` se alguma regra CITA esta classe. Ver
+    /// [`RuleIndex::mentions_class`](super::ruleindex::RuleIndex::mentions_class).
+    pub fn mentions_class(&self, class: &str) -> bool {
+        self.ensure_rule_index();
+        self.index.borrow().mentions_class(class)
+    }
+
     /// `true` quando alguma regra depende da presença/valor de um atributo.
     pub fn has_attribute_selectors(&self) -> bool {
         self.ensure_rule_index();
@@ -498,6 +535,7 @@ impl Stylesheet {
         // As regras mudaram: o que foi derivado delas não vale mais.
         *self.hover_reach.borrow_mut() = None;
         *self.position_sensitive.borrow_mut() = None;
+        *self.out_of_flow.borrow_mut() = None;
     }
 
     /// Acha cada `@keyframes nome { ... }`, parseia os stops e guarda; devolve o CSS

@@ -20,6 +20,10 @@
 //! (`Document`/`Element`) é TS. Depende só de `rts-engine`.
 
 mod dom;
+/// Hasher rápido para as chaves INTERNAS (índices de nó, chaves de cache de
+/// layout): nenhuma delas vem de fora do processo, e o SipHash da `std` cobra
+/// uma resistência que não se usa. Ver as ressalvas no módulo.
+pub mod fasthash;
 mod html;
 /// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
 /// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer

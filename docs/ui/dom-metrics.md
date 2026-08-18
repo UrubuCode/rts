@@ -253,3 +253,306 @@ walks the parent's subtree per removed node), and the `HashSet` inherited from
 - **12.4% of Bootstrap's rules are dropped at parse** — pseudo-elements and
   compound `:not()` lead the list.
 - **Removing a node leaves its index entries** (the audit reports it as a leak).
+
+---
+
+## The reference: Chrome on the same pages (2026-08-18)
+
+The goal is a DOM fast enough to stand next to a real browser, so the only
+honest way to know where we are is to run the same operations in one. Chrome on
+the same machine, same two files opened over `file://`, timing with
+`performance.now()` over batches (a single mutation is below that clock's ~0.1 ms
+resolution, so each number is a batch of 300–2000 divided by the count).
+
+Synthetic page, 3005 elements:
+
+| operation | Chrome | rts-dom | ratio |
+|---|---|---|---|
+| class toggle on a leaf + layout | 0.0053 ms | 2.9 ms → **0.133 ms** after the early-out | 25× |
+| text change on a leaf + layout | 0.369 ms | 2.9 ms | 8× |
+| idle frame | 0.00045 ms | 0.000 ms (cached) | par |
+| `querySelectorAll('.btn, div, a[href]')` | 0.097 ms | 0.207 ms | 2.1× |
+| append 2000 nodes, layout every 100 | 32.5 ms | 30.2 ms | **we win** |
+| full forced relayout (padding on root) | 8.5 ms | 2.6 ms | **we win** |
+
+Bootstrap cover page (68 elements, 232 KB of CSS):
+
+| operation | Chrome | rts-dom |
+|---|---|---|
+| parse + DOM interactive | 21.9 ms | 8.9 ms |
+| class toggle + layout | 0.0006 ms | 0.038 ms |
+| text change + layout | 0.0010 ms | 0.160 ms |
+| `querySelectorAll` | 0.0028 ms | 0.009 ms |
+
+### How to read this, honestly
+
+**Where we "win" we are doing less work.** Our text measurement multiplies a
+character count; Chrome shapes real fonts with kerning and ligatures, does
+subpixel positioning, builds an accessibility tree, and handles a CSS surface
+several times larger. A full relayout being 3× faster than Chrome's is a
+statement about scope, not about quality.
+
+**Where we lose, the comparison is fair, and it is the same cause twice.**
+Chrome is 25× faster on a class toggle and 8× on a text change because it
+relayouts *the subtree that changed*. We relayout the document: `layout_document`
+walks the whole tree every time the revision moves. That is the one structural
+gap left, and it is what the next work attacks.
+
+`querySelectorAll` being 2× slower is a separate, smaller gap: we walk the tree
+in document order and filter by target key, while Chrome starts from the
+`.class` bucket when the selector's key allows it.
+
+---
+
+## Incremental layout, and the scoreboard after it (2026-08-18)
+
+The reference above said the gap was one thing: Chrome relayouts the subtree
+that changed, we relayouted the document. `layout_block_reusing` closes it for
+the normal vertical flow — a `Fragment` holds what a subtree produced (items,
+per-node rects, hit order, scroll regions, size) and reusing it is emitting
+those items shifted by the difference in position. The key is the measurement
+key without the position, because position is exactly what gets corrected.
+
+Per frame of a text mutation on a 3005-element page: **1000 subtrees reused, 4
+recalculated**, 5 `layout_block` calls and 1 text measurement — against 15 015
+and 11 000 at the start of the campaign.
+
+### Where we stand now
+
+3005-element page, same machine:
+
+| operation | Chrome | rts-dom (start → now) | remaining gap |
+|---|---|---|---|
+| text on a leaf + layout | 0.369 ms | 6.63 → **0.724 ms** | 2.0× |
+| class on a leaf + layout | 0.0053 ms | 6.67 → **0.187 ms** | 35× |
+| inert class toggle + frame | — | 6.67 → **0.030 ms** | — |
+| idle frame | 0.00045 ms | 6.97 → **0.000 ms** (cached) | par |
+| full relayout, no cache | 8.5 ms | 6.97 → 0.168 ms | we win |
+| `querySelectorAll('.card')` | 0.0105 ms | — → **0.009 ms** | we win |
+| `querySelectorAll` (tag + attr in the list) | 0.097 ms | 0.399 → 0.212 ms | 2.2× |
+| cold layout | — | 26.7 → 15.8 ms | — |
+| append 2000, layout every 100 | 32.5 ms | 67.6 → ~17 ms | we win |
+
+Bootstrap cover page: parse 17.8 → 8.9 ms, cold layout 23.1 → 11.6 ms, text
+mutation 0.375 → 0.050 ms, class 0.096 → 0.017 ms, hover 1.618 → 0.083 ms,
+memory 9.59 → 2.0 MiB.
+
+### What still separates us from Chrome, measured
+
+**Class mutation is 35× slower, and the obvious explanation was WRONG.**
+
+We reuse the computation of each untouched subtree but still rebuild the flat
+`DisplayList` every frame — 30 000 items copied per frame on the synthetic page.
+That looked like the remaining cost, so it was built: a `SharedChunk` holding
+`Rc<Fragment>` plus an offset, an iterator that interleaves own items and shared
+ones, and a backend that adds the offset while painting instead of copying.
+
+**It did not get faster.** Text mutation 0.724 → 0.809 ms, class 0.187 → 0.171 ms
+— inside the machine's noise — and the *cold* layout got worse (15.8 → 16.9 ms),
+because every cache miss now has to flatten the fragment it just built. The work
+was reverted; what stayed is this paragraph.
+
+So the copy was not the bottleneck. The remaining cost is in producing a
+fragment the first time and in the per-frame walk itself, not in moving the
+items around. Whatever closes the last 35× is not "stop copying" — that
+hypothesis is dead, and the next attempt should start by measuring where a
+missed fragment actually spends its time.
+
+**`querySelectorAll` by class now beats Chrome**: 0.009 ms against 0.0105 ms for
+`.card` over 1000 matches, after the query started from the `.class` index
+instead of walking the tree. What made the index usable was numbering the tree
+in document order (revalidated by revision), because the index keeps arena
+order and the API promises document order. A list that mixes in a tag or an
+attribute selector (`.btn, div, a[href]`) still walks — 0.212 ms against
+Chrome's 0.097 ms — because for those the walk is the only complete answer.
+
+**And the caveat from the first comparison still holds**: where we win, we are
+doing less work — character-count text metrics against real shaping, no subpixel
+positioning, no accessibility tree, a much smaller CSS surface.
+
+---
+
+## Final scoreboard of this campaign (2026-08-18)
+
+3005-element synthetic page, Chrome on the same machine, `--iters 30`:
+
+| operation | Chrome | rts-dom (campaign start → now) | gap |
+|---|---|---|---|
+| text on a leaf + frame | 0.369 ms | 6.63 → **0.619 ms** | 1.7× |
+| **class that matches a rule + frame** | 0.0053 ms | 6.67 → **0.797 ms** | 150× |
+| class that matches nothing + frame | — | 6.67 → **0.022 ms** | — |
+| idle frame | 0.00045 ms | 6.97 → **0.000 ms** | par |
+| full relayout | 8.5 ms | 6.97 → 0.175 ms | we win |
+| `querySelectorAll('.card')` | 0.0105 ms | → **0.010 ms** | par |
+| `querySelectorAll` (tag + attr) | 0.097 ms | 0.399 → 0.222 ms | 2.3× |
+| append 2000, layout every 100 | 32.5 ms | 67.6 → **11.7 ms** | we win |
+| cold layout | — | 26.7 → 16.3 ms | — |
+
+Bootstrap cover page: parse 17.8 → 9.6 ms · cold layout 23.1 → 13.3 ms · text
+0.375 → 0.047 ms · class 0.096 → 0.017 ms · hover 1.618 → 0.089 ms · memory
+9.59 → 2.0 MiB.
+
+### The one number that is still 150×, and what it would take
+
+A class change that actually matches a rule invalidates the node and its
+ancestors, so the container is rebuilt — and rebuilding a container means
+WALKING its thousand children, even though 999 of them hit the fragment cache
+and cost only an emit. Chrome does not walk: it keeps a retained layout tree
+with positions and reflows the path that changed.
+
+That is the architecture difference, and it is the honest name for the remaining
+gap. Everything cheaper than it has been done: the fragment cache removes the
+recomputation, the fast path removes the reclassification, the display cache
+removes the whole frame when nothing moved. What is left is not an optimization,
+it is a different data structure — a layout tree that survives between frames
+instead of a display list rebuilt from it.
+
+In absolute terms 0.8 ms is under 5% of a 60 fps frame on a page of 3000
+elements, so this is a margin question, not a viability one.
+
+---
+
+## The floor, found by two failed attempts (2026-08-18)
+
+After the incremental layout, the remaining gap on a class toggle (150× Chrome)
+looked like it had two possible causes. Both were built, measured and reverted.
+
+**Attempt 1 — retained display list.** `SharedChunk` holding `Rc<Fragment>` plus
+an offset, an iterator interleaving own and shared items, the backend adding the
+offset while painting instead of copying. Text mutation 0.724 → 0.809 ms, class
+0.187 → 0.171 ms — inside the machine's noise — and the cold layout got *worse*,
+because every miss now flattens the fragment it just built.
+
+**Attempt 2 — container patching.** Track which direct children are dirty
+(marked while the invalidation already walks the ancestor chain), keep per-child
+item spans in the parent's fragment, and on a miss rebuild only the dirty child
+and splice its items into the previous drawing. It worked — the counters showed
+containers being patched instead of walked — and the timing was **identical**:
+0.689 ms with patching against 0.676 ms with it disabled by an env switch, on
+the same build.
+
+Both failed for the same reason, and that reason is the finding:
+
+> **The cost is proportional to the number of ITEMS the page produces, not to
+> the layout work avoided.** A page of 3005 elements emits ~30 000 display items;
+> whether we re-walk the children, copy fragments, or splice a previous vector,
+> we still materialize that list every frame. Skipping the layout of a thousand
+> untouched subtrees was worth 9× (that is the incremental layout, and it stayed).
+> Skipping the *copy* is worth nothing while the output is a flat list rebuilt
+> per frame.
+
+What would actually move it is the consumer accepting a hierarchy instead of a
+list — the backend walking a tree of fragments and painting from it, with no
+flat `DisplayList` in the middle. That is a change to the contract between
+`rts-dom` and every renderer, not an optimization inside the layout, and it is
+where the next attempt should start. Attempt 1 went in that direction but kept
+materializing at every point that mutates items (CSS `transform`, the scroll
+`BeginClip`, the tests), which is why it paid the cost twice.
+
+Both attempts were reverted, and then the third one — the actual hierarchy —
+worked.
+
+## The hierarchy, and the third attempt (2026-08-18)
+
+`Fragment` now keeps the subtrees it reused **by reference** (`ChildRef` with an
+entry point and an offset), and so does `DisplayList`. Nothing on the common
+path copies an item any more: `walk` traverses the tree yielding
+`(item, dx, dy)`, and the backend — which already added an origin — adds one
+more offset. Mutating (`transform`, the scroll `BeginClip`) or comparing (the
+tests) calls `materialize`, which is rare and local.
+
+The difference from attempt 1 is one line of design: there, a fragment FLATTENED
+its grandchildren when built, so every miss paid the copy the optimization
+existed to avoid. Here the tree is a tree all the way down.
+
+| scenario (3005 elements) | flat list | tree | Chrome |
+|---|---|---|---|
+| text + relayout | 0.616 ms | **0.463–0.474 ms** | 0.369 ms |
+| colour-only class + frame | 0.700 ms | **0.481–0.516 ms** | 0.0053 ms |
+| idle relayout | 0.171 ms | **0.138 ms** | — |
+| append 2000, layout every 100 | ~17 ms | **10.7 ms** | 32.5 ms |
+
+Text mutation is now **1.25× Chrome**, from 18× at the start of the campaign.
+
+---
+
+## Where the campaign ended (2026-08-18)
+
+3005-element page, medians of five runs, Chrome on the same machine:
+
+| operation | Chrome | rts-dom (start → end) | |
+|---|---|---|---|
+| **text on a leaf + frame** | 0.369 ms | 6.63 → **0.258 ms** | **we pass Chrome** |
+| colour-only class + frame | 0.0053 ms | 6.67 → 0.271 ms | 51× |
+| inert class + frame | — | 6.67 → 0.020 ms | — |
+| idle frame | 0.00045 ms | 6.97 → 0.000 ms | par |
+| full relayout | 8.5 ms | 6.97 → 0.195 ms | we win |
+| `querySelectorAll('.card')` | 0.0105 ms | → 0.010 ms | par |
+| append 2000, layout every 100 | 32.5 ms | 67.6 → 10.2 ms | we win |
+| cold layout | — | 26.7 → 16.3 ms | — |
+
+Bootstrap cover page: parse 17.8 → 9.4 ms · cold layout 23.1 → 13.1 ms · text
+0.375 → 0.042 ms · class 0.096 → 0.016 ms · hover 1.618 → 0.100 ms · memory
+9.59 → 2.0 MiB.
+
+### The last gap, and why it is a different problem
+
+A colour-only class change is still 51× Chrome, and it is no longer about
+layout: we already skip the layout of every untouched subtree, and we no longer
+copy items or geometry. What remains is that we rebuild the container's drawing
+*at all* — because our invalidation is per NODE and Chrome's is per PROPERTY. It
+knows `color` cannot move a box, so it never reflows: it repaints.
+
+Paint-only invalidation is the next frontier, and it is a different kind of
+change — comparing old and new computed style to classify what actually changed,
+and having a drawing that can be repainted without being rebuilt.
+
+In absolute terms, 0.27 ms on a 3000-element page is 1.6% of a 60 fps frame.
+
+---
+
+## Final scoreboard (2026-08-18)
+
+3005-element synthetic page, Chrome on the same machine, four runs:
+
+| operation | Chrome | rts-dom (start → end) | |
+|---|---|---|---|
+| **text on a leaf + frame** | 0.369 ms | 6.63 → **0.157 ms** | **2.3× faster than Chrome** |
+| colour-only class + frame | 0.0053 ms | 6.67 → 0.170 ms | 32× |
+| inert class + frame | — | 6.67 → 0.013 ms | — |
+| idle frame | 0.00045 ms | 6.97 → 0.000 ms | par |
+| full relayout | 8.5 ms | 6.97 → 0.121 ms | we win |
+| `querySelectorAll('.card')` | 0.0105 ms | → 0.010 ms | par |
+| append 2000, layout every 100 | 32.5 ms | 67.6 → ~10 ms | we win |
+
+Bootstrap cover: parse 17.8 → 9.2 ms · cold layout 23.1 → 11.9 ms · text 0.375 →
+0.042 ms · class 0.096 → 0.017 ms · hover 1.618 → 0.098 ms · memory 9.59 → 2.0 MiB.
+
+**WhatsApp Web, the real page** (captured from Chrome with its CSS inlined:
+1.25 MB of HTML, 298 elements, 24 levels deep, 6.8 MiB of parsed stylesheet):
+parse 38 ms, cold layout 51 ms, idle frame 0.004 ms, text mutation 0.15 ms,
+`querySelectorAll` 0.078 ms. Chrome on the same page: DOM interactive 106 ms,
+text mutation 0.0062 ms.
+
+### What the last two changes were, and what they cost to find
+
+The **container patch** replaces one subtree reference inside the parent's
+drawing instead of rebuilding the parent. It was built once before, over the
+flat list, and reverted — copying 3000 items to swap one stretch cost exactly
+what it saved. Over the tree it is a pointer swap, and the fragment's big
+vectors became `Rc` so the patched container shares everything unchanged.
+
+The **out-of-flow guard** came from the phases: 78% of a mutation frame was in
+no phase at all — it was the pass that looks for `position:absolute`, walking
+the whole tree asking for each node's computed style, on a page with none.
+
+### What is left, and why it is a different problem
+
+A colour-only class change is 32× Chrome. Our invalidation is per NODE; Chrome's
+is per PROPERTY — it knows `color` cannot move a box and never reflows, it
+repaints. The infrastructure for that (a `paint` flag on the property table, a
+`differs_in_layout` derived from it) was written and then REMOVED from this
+branch: without a repaint path that skips layout entirely it had no consumer,
+and unused machinery is worse than none. It is the next frontier, named.
+
+In absolute terms 0.17 ms on a 3000-element page is 1% of a 60 fps frame.

@@ -90,7 +90,11 @@ pub enum DisplayItem {
     Text {
         x: f32,
         y: f32,
-        text: String,
+        /// `Rc<str>` e não `String`: um item de texto é CLONADO toda vez que um
+        /// fragmento de layout é reusado, e clonar a string por item era o custo
+        /// dominante do reuso. Compartilhar o buffer torna o clone um
+        /// incremento. O backend só lê.
+        text: std::rc::Rc<str>,
         color: u32,
         size: f32,
         mono: bool,
@@ -133,6 +137,14 @@ pub struct ScrollRegion {
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct DisplayList {
     pub items: Vec<DisplayItem>,
+    /// Subárvores emitidas por REFERÊNCIA, com a posição no meio dos itens
+    /// próprios e o deslocamento a aplicar.
+    ///
+    /// É o que torna a saída uma ÁRVORE em vez de uma lista: um frame que mexe
+    /// numa folha não reconstrói os 30 000 itens da página, aponta para os
+    /// fragmentos que já existiam. Quem pinta anda a árvore ([`iter`]); quem
+    /// precisa mutar ou comparar achata ([`materialize`]).
+    pub children: Vec<ChildRef>,
     /// Altura total ocupada pelo conteúdo (para o backend dimensionar o scroll).
     pub content_height: f32,
     /// Geometria por NÓ (border-box, em coordenadas de conteúdo) — a base do
@@ -140,7 +152,7 @@ pub struct DisplayList {
     /// layout: cada bloco registra seu retângulo (margin EXCLUÍDA — border-box, como
     /// o `getBoundingClientRect` do browser); elementos inline recebem a união dos
     /// fragmentos de linha; nós de texto não entram.
-    pub node_rects: std::collections::HashMap<NodeIdx, Rect>,
+    pub node_rects: crate::fasthash::FastMap<NodeIdx, Rect>,
     /// Containers roláveis internos (divs com `overflow`) — o backend gerencia o
     /// offset de cada região e recorta. Vazio quando a página não tem scroll interno.
     pub scroll_regions: Vec<ScrollRegion>,
@@ -148,9 +160,130 @@ pub struct DisplayList {
     /// irmãos na ordem documental e elementos fora do fluxo por `z-index` crescente.
     /// O último nó que contém o ponto é o que está visualmente no topo.
     pub hit_order: Vec<NodeIdx>,
+    /// A geometria completa, montada sob demanda a partir da árvore. Não entra
+    /// no `PartialEq` nem no `Clone` lógico: é derivada.
+    geometry_cache: std::cell::RefCell<Option<std::rc::Rc<Geometry>>>,
+}
+
+/// A geometria de uma passada de layout, já com as subárvores reusadas somadas.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Geometry {
+    pub rects: crate::fasthash::FastMap<NodeIdx, Rect>,
+    pub hit_order: Vec<NodeIdx>,
+    pub scroll_regions: Vec<ScrollRegion>,
+}
+
+/// Acumula a geometria de um fragmento e das subárvores dele, deslocada.
+fn collect_geometry(fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
+    let moved = dx != 0.0 || dy != 0.0;
+    for (idx, rect) in fragment.rects.iter() {
+        let mut rect = *rect;
+        if moved {
+            rect.x += dx;
+            rect.y += dy;
+        }
+        out.rects.insert(*idx, rect);
+    }
+    let mut next = 0usize;
+    for child in &fragment.children {
+        while next < child.hit_at && next < fragment.hit_order.len() {
+            out.hit_order.push(fragment.hit_order[next]);
+            next += 1;
+        }
+        collect_geometry(&child.fragment, dx + child.dx, dy + child.dy, out);
+    }
+    out.hit_order.extend_from_slice(&fragment.hit_order[next.min(fragment.hit_order.len())..]);
+    for region in fragment.scroll_regions.iter() {
+        let mut region = *region;
+        if moved {
+            region.visible.x += dx;
+            region.visible.y += dy;
+        }
+        out.scroll_regions.push(region);
+    }
 }
 
 impl DisplayList {
+    /// Todos os itens a pintar, em z-order, cada um com o deslocamento a somar.
+    ///
+    /// Anda a ÁRVORE de fragmentos: um item de uma subárvore reusada sai daqui
+    /// sem nunca ter sido copiado. Quem pinta já somava uma origem, então somar
+    /// mais um deslocamento é grátis — foi o que permitiu a saída deixar de ser
+    /// uma lista plana refeita por frame.
+    pub fn walk(&self, mut f: impl FnMut(&DisplayItem, f32, f32)) {
+        walk_items(&self.items, &self.children, 0.0, 0.0, &mut f);
+    }
+
+    /// A lista PLANA. Para quem precisa MUTAR itens (o `transform` do CSS, o
+    /// offset de scroll no `BeginClip`) ou comparar duas listas.
+    pub fn materialized(&self) -> Vec<DisplayItem> {
+        let mut out = Vec::with_capacity(self.total_items());
+        self.walk(|item, dx, dy| {
+            let mut item = item.clone();
+            if dx != 0.0 || dy != 0.0 {
+                translate_item(&mut item, dx, dy);
+            }
+            out.push(item);
+        });
+        out
+    }
+
+    /// Achata esta lista em itens próprios, esquecendo a árvore.
+    pub fn materialize(&mut self) {
+        if self.children.is_empty() {
+            return;
+        }
+        self.items = self.materialized();
+        self.children.clear();
+    }
+
+    /// Quantos itens esta lista pinta ao todo.
+    pub fn total_items(&self) -> usize {
+        self.items.len()
+            + self.children.iter().map(|c| c.fragment.total_items()).sum::<usize>()
+    }
+
+    /// A geometria COMPLETA desta lista: os retângulos próprios mais os das
+    /// subárvores reusadas, já deslocados. Construída na primeira consulta e
+    /// guardada — o layout mesmo só a pede quando há elemento fora do fluxo.
+    pub fn geometry(&self) -> std::rc::Rc<Geometry> {
+        if let Some(g) = self.geometry_cache.borrow().as_ref() {
+            return std::rc::Rc::clone(g);
+        }
+        let g = std::rc::Rc::new(self.geometry_now());
+        *self.geometry_cache.borrow_mut() = Some(std::rc::Rc::clone(&g));
+        g
+    }
+
+    /// A geometria SEM cachear — para uso DURANTE a montagem da lista, quando
+    /// ainda vão entrar itens (a passada de fora do fluxo). Cachear ali deixaria
+    /// o hit-test lendo uma geometria anterior aos `position:absolute`, que foi
+    /// exatamente o que um teste de `z-index` acusou.
+    pub fn geometry_now(&self) -> Geometry {
+        let mut g = Geometry {
+            rects: self.node_rects.clone(),
+            hit_order: Vec::with_capacity(self.hit_order.len()),
+            scroll_regions: self.scroll_regions.clone(),
+        };
+        // Intercala a ordem de hit-test pelo ponto de entrada de cada subárvore:
+        // a ordem É o z-order, e concatenar inverteria quem está por cima.
+        let mut next = 0usize;
+        for child in &self.children {
+            while next < child.hit_at && next < self.hit_order.len() {
+                g.hit_order.push(self.hit_order[next]);
+                next += 1;
+            }
+            collect_geometry(&child.fragment, child.dx, child.dy, &mut g);
+        }
+        g.hit_order.extend_from_slice(&self.hit_order[next.min(self.hit_order.len())..]);
+        g
+    }
+
+    /// O retângulo de um nó, se ele foi desenhado.
+    pub fn rect_of(&self, node: NodeIdx) -> Option<Rect> {
+        self.geometry().rects.get(&node).copied()
+    }
+
     /// HIT-TEST: o nó sob o ponto `(x, y)` em COORDENADAS DE CONTEÚDO (o backend
     /// converte tela→conteúdo somando o offset de scroll antes de chamar). Quando a
     /// lista foi produzida por `layout_document`, a ordem de pintura respeita
@@ -158,15 +291,16 @@ impl DisplayList {
     /// ponto é o elemento visualmente no topo. Listas antigas sem `hit_order` usam o
     /// fallback por menor área para manter compatibilidade.
     pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeIdx> {
-        if !self.hit_order.is_empty() {
-            return self.hit_order.iter().rev().copied().find(|&idx| {
-                self.node_rects.get(&idx).is_some_and(|r| {
+        let g = self.geometry();
+        if !g.hit_order.is_empty() {
+            return g.hit_order.iter().rev().copied().find(|&idx| {
+                g.rects.get(&idx).is_some_and(|r| {
                     x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
                 })
             });
         }
         let mut best: Option<(NodeIdx, f32)> = None;
-        for (&idx, r) in &self.node_rects {
+        for (&idx, r) in &g.rects {
             if x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h {
                 let area = r.w * r.h;
                 if best.map(|(_, a)| area < a).unwrap_or(true) {
@@ -190,6 +324,20 @@ pub trait TextMeasurer {
     /// Altura de UMA linha em `size` (line-height). Aproximação aceitável: `size *
     /// fator`; o backend pode dar o valor exato da fonte.
     fn line_height(&self, size: f32) -> f32;
+
+    /// IDENTIDADE deste medidor: dois medidores com a mesma identidade têm de
+    /// dar a mesma largura para o mesmo texto.
+    ///
+    /// Entra na chave de todo cache de layout, porque a mesma árvore no mesmo
+    /// viewport se dispõe diferente com outra fonte. Era o ENDEREÇO do `dyn`
+    /// que servia de identidade — e um medidor construído na pilha por frame
+    /// (o do egui é) pode mudar de endereço sem mudar de comportamento, ou
+    /// reusar o endereço de outro que mudou: as duas falhas em direções
+    /// opostas. O default `0` serve a um medidor sem estado; um backend cujo
+    /// resultado dependa de fonte/escala DEVE derivar disto o que muda.
+    fn identity(&self) -> u64 {
+        0
+    }
 }
 
 /// Medidor APROXIMADO, sem backend — para teste e para o caminho headless puro
@@ -241,7 +389,7 @@ fn measure_block(
     shrink_to_fit: bool,
     ctx: &LayoutCtx,
 ) -> (f32, f32) {
-    let measurer = std::ptr::from_ref(ctx.measurer) as *const () as usize as u64;
+    let measurer = ctx.measurer.identity();
     let key = LayoutMeasureKey {
         tree: dom.cache_identity(),
         node_epoch: dom.layout_epoch(id),
@@ -277,6 +425,38 @@ fn measure_block(
     );
     dom.layout_measure_put(key, size);
     size
+}
+
+/// O layout de um `Dom`, REUSADO enquanto nada que o afete mudar.
+///
+/// Um browser não recalcula layout quando nada mudou, e o caminho headless
+/// (`rts:dom` a partir do TS) chamava [`layout_document`] por consulta de
+/// geometria — uma passada completa por `getBoundingClientRect`. O `rts-egui`
+/// já tinha um cache assim, por frame, dentro dele: dois caches para a mesma
+/// pergunta, e só um dos consumidores servido.
+///
+/// A chave é `(revisão de render, viewport, medidor)`. A revisão cobre árvore,
+/// estilo e animação (todo mutador a incrementa); o viewport porque o layout
+/// depende dele; e o MEDIDOR porque a mesma árvore no mesmo viewport se dispõe
+/// diferente com uma fonte diferente — é o mesmo componente que já entra nas
+/// chaves dos caches de medição.
+///
+/// Devolve `Rc` e não valor: uma `DisplayList` de página grande são 15 000
+/// itens e milhares de `String`, e clonar isso por consulta desfaria o ganho.
+pub fn layout_cached(dom: &Dom, ctx: &LayoutCtx) -> std::rc::Rc<DisplayList> {
+    let key = (
+        dom.render_revision(),
+        ctx.viewport_w.to_bits(),
+        ctx.viewport_h.to_bits(),
+        ctx.measurer.identity(),
+    );
+    if let Some(hit) = dom.display_cache_get(key) {
+        crate::bump!(display_cache_hits);
+        return hit;
+    }
+    let fresh = std::rc::Rc::new(layout_document(dom, ctx));
+    dom.display_cache_put(key, &fresh);
+    fresh
 }
 
 /// Calcula o layout de um `Dom` inteiro e devolve a [`DisplayList`]. Ponto de
@@ -322,7 +502,12 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // containing block é sempre a viewport (o de `absolute` — ancestral positioned
     // — e o "fica fixo ao rolar" do `fixed` são a v2).
     let mut out_of_flow = Vec::new();
-    collect_out_of_flow(dom, dom.root, &mut out_of_flow);
+    // Só varre se a página PODE ter algum: a varredura pede o estilo computado
+    // de cada nó da árvore, e era 78% de um frame de mutação numa página que não
+    // tem um único posicionado.
+    if dom.may_have_out_of_flow() {
+        collect_out_of_flow(dom, dom.root, &mut out_of_flow);
+    }
     // Z-INDEX: ordena por z-index (menor pinta primeiro = fica atrás). Sort ESTÁVEL:
     // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
     // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
@@ -332,7 +517,9 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // O rect do containing block de cada abs é lido do `node_rects` JÁ preenchido
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
     // empréstimo mutável de `list`.
-    let flow_rects = list.node_rects.clone();
+    // A geometria COMPLETA (com as subárvores reusadas): o containing block de
+    // um `absolute` pode ser um ancestral cujo retângulo veio de um fragmento.
+    let flow_rects = list.geometry_now().rects;
     crate::bump!(out_of_flow, out_of_flow.len());
     for id in &out_of_flow {
         layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut list);
@@ -342,7 +529,11 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // crescente de z-index (o último pintado fica no topo).
     // A ordem de pintura já foi registrada durante as inserções de retângulos:
     // fluxo normal durante a descida e out-of-flow na ordem de z-index acima.
-    crate::bump!(display_items, list.items.len());
+    crate::bump!(display_items, list.total_items());
+    // As marcas de sujeira são POR PASSADA: quem as consome é este layout, e
+    // acumulá-las entre frames faria a lista de filhos sujos de um container
+    // crescer até o teto — e aí a costura desistiria sempre.
+    dom.clear_dirty();
     crate::bump!(node_rects, list.node_rects.len());
     crate::bump!(scroll_regions, list.scroll_regions.len());
     list
@@ -355,7 +546,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
 fn containing_block_rect(
     dom: &Dom,
     id: NodeIdx,
-    flow_rects: &std::collections::HashMap<NodeIdx, Rect>,
+    flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
 ) -> Option<Rect> {
     let mut cur = dom.node(id).parent;
     while let Some(p) = cur {
@@ -393,7 +584,7 @@ fn layout_out_of_flow(
     dom: &Dom,
     id: NodeIdx,
     ctx: &LayoutCtx,
-    flow_rects: &std::collections::HashMap<NodeIdx, Rect>,
+    flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
     list: &mut DisplayList,
 ) {
     let css = dom.computed_style_idx(id).unwrap_or_default();
@@ -607,7 +798,7 @@ fn find_body_bg(dom: &Dom, idx: NodeIdx) -> Option<u32> {
 /// Roda o layout inteiro (O(n)); para várias consultas no mesmo frame, reuse a
 /// `DisplayList` de `layout_document` e leia `node_rects` direto.
 pub fn bounding_rect(dom: &Dom, node: NodeIdx, ctx: &LayoutCtx) -> Option<Rect> {
-    layout_document(dom, ctx).node_rects.get(&node).copied()
+    layout_document(dom, ctx).rect_of(node)
 }
 
 /// Faz o layout de UM nó-bloco a partir de `(x, y)`, com `avail_w` de largura
@@ -713,7 +904,7 @@ fn layout_block(
             list.items.push(DisplayItem::Text {
                 x,
                 y,
-                text: t.clone(),
+                text: t.as_str().into(),
                 color: 0x000000FF,
                 size,
                 mono: false,
@@ -955,7 +1146,7 @@ fn layout_block(
         let mut at = box_index;
         // SOMBRA primeiro (atrás de tudo): box-shadow.
         if let Some(sh) = css.box_shadow {
-            list.items.insert(at, DisplayItem::Shadow {
+            insert_item(list, at, DisplayItem::Shadow {
                 rect: box_rect,
                 dx: sh.dx,
                 dy: sh.dy,
@@ -968,7 +1159,7 @@ fn layout_block(
         }
         // FUNDO: gradiente (se houver) OU cor sólida.
         if let Some(g) = css.gradient {
-            list.items.insert(at, DisplayItem::GradientRect {
+            insert_item(list, at, DisplayItem::GradientRect {
                 rect: box_rect,
                 c0: apply_opacity(g.c0, op),
                 c1: apply_opacity(g.c1, op),
@@ -978,7 +1169,7 @@ fn layout_block(
             at += 1;
         } else if let Some(color) = css.bg {
             let color = apply_opacity(color, op);
-            list.items.insert(at, DisplayItem::SolidRect { rect: box_rect, color, radius });
+            insert_item(list, at, DisplayItem::SolidRect { rect: box_rect, color, radius });
             at += 1;
         }
         // A borda só pinta se tem largura E um `border-style` VISÍVEL. O default
@@ -987,7 +1178,7 @@ fn layout_block(
         let style_visible = css.border_style.map(|s| s.is_visible()).unwrap_or(false);
         if border > 0.0 && style_visible {
             let color = apply_opacity(css.border_color.unwrap_or(0x808080FF), op);
-            list.items.insert(at, DisplayItem::Border { rect: box_rect, width: border, color, radius });
+            insert_item(list, at, DisplayItem::Border { rect: box_rect, width: border, color, radius });
         }
     }
 
@@ -1014,7 +1205,8 @@ fn layout_block(
         };
         let children_start = box_index + box_items;
         // offset 0 aqui; o backend injeta o offset rolado por região antes de pintar.
-        list.items.insert(
+        insert_item(
+            list,
             children_start,
             DisplayItem::BeginClip { rect: content_rect, node: id, offset_x: 0.0, offset_y: 0.0 },
         );
@@ -1043,6 +1235,10 @@ fn layout_block(
             let tx = tf.tx + tf.tx_pct * box_rect.w;
             let ty = tf.ty + tf.ty_pct * box_rect.h;
             let (sin, cos) = tf.rot_deg.to_radians().sin_cos();
+            // Um transform MUTA itens, e um item de subárvore reusada é
+            // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo
+            // que aponta para ele. Achata primeiro; é raro e local.
+            list.materialize();
             for it in list.items[box_index..].iter_mut() {
                 apply_transform_to_item(it, cx, cy, tx, ty, tf.sx, tf.sy, sin, cos);
             }
@@ -1055,6 +1251,443 @@ fn layout_block(
     let outer_w = content_w + padding_h + 2.0 * border + margin_h;
     let outer_h = content_h + pad_top + pad_bottom + 2.0 * border + margin_top + margin_bottom;
     (outer_w, outer_h)
+}
+
+/// Põe um filho-bloco do fluxo normal, REUSANDO o desenho dele quando nada que
+/// o afete mudou.
+///
+/// É o layout incremental: `layout_epochs[nó]` sobe quando a subárvore muda (e
+/// nos ancestrais dela), então um irmão intacto casa a chave e só precisa ser
+/// deslocado. Numa lista de mil cartões em que um texto mudou, 999 cartões são
+/// uma cópia de itens em vez de cascade + medição de texto + box model.
+///
+/// Só o fluxo VERTICAL normal entra aqui — sem `forced_outer_*` (flex) e sem
+/// `shrink_to_fit`. Os outros caminhos dependem de negociação com os irmãos, e
+/// um fragmento que ignorasse isso responderia errado.
+#[allow(clippy::too_many_arguments)]
+/// A chave do fragmento de um nó com certas constraints. Extraída porque o laço
+/// do fluxo vertical CONSULTA o cache antes de classificar o filho: um fragmento
+/// só existe para bloco-normal, então encontrá-lo já responde o que a
+/// classificação responderia — e a classificação custa estilo computado,
+/// `block::lookup` e a margem resolvida, mil vezes por frame.
+fn fragment_key(
+    dom: &Dom,
+    id: NodeIdx,
+    avail_w: f32,
+    avail_h: Option<f32>,
+    ctx: &LayoutCtx,
+) -> crate::dom::FragmentKey {
+    KeyBase::new(dom, avail_w, avail_h, ctx).key(dom, id)
+}
+
+/// A parte da chave de fragmento que NÃO varia entre os filhos de um container:
+/// identidade da árvore, epochs globais, viewport, medidor e as constraints.
+///
+/// Montar a chave inteira por filho relia um `thread_local` (o epoch de estilo)
+/// e refazia as conversões mil vezes por container — o laço do fluxo vertical
+/// pergunta o mesmo a cada iteração e só o nó muda.
+#[derive(Clone, Copy)]
+struct KeyBase {
+    tree: u64,
+    style_epoch: u64,
+    anim_epoch: u64,
+    avail_w: u32,
+    avail_h: Option<u32>,
+    viewport_w: u32,
+    viewport_h: u32,
+    measurer: u64,
+}
+
+impl KeyBase {
+    fn new(dom: &Dom, avail_w: f32, avail_h: Option<f32>, ctx: &LayoutCtx) -> KeyBase {
+        KeyBase {
+            tree: dom.cache_identity(),
+            style_epoch: crate::style::props::style_epoch(),
+            anim_epoch: dom.anim_epoch(),
+            avail_w: avail_w.to_bits(),
+            avail_h: avail_h.map(f32::to_bits),
+            viewport_w: ctx.viewport_w.to_bits(),
+            viewport_h: ctx.viewport_h.to_bits(),
+            measurer: ctx.measurer.identity(),
+        }
+    }
+
+    fn key(&self, dom: &Dom, id: NodeIdx) -> crate::dom::FragmentKey {
+        crate::dom::FragmentKey {
+            tree: self.tree,
+            node_epoch: dom.layout_epoch(id),
+            style_epoch: self.style_epoch,
+            anim_epoch: self.anim_epoch,
+            node: id,
+            avail_w: self.avail_w,
+            avail_h: self.avail_h,
+            viewport_w: self.viewport_w,
+            viewport_h: self.viewport_h,
+            measurer: self.measurer,
+        }
+    }
+}
+
+/// Insere um item numa posição, corrigindo o ponto de entrada das SUBÁRVORES.
+///
+/// O box model emite os filhos primeiro e insere o fundo e a borda atrás deles;
+/// as subárvores reusadas guardam o índice antes do qual entram, e sem esta
+/// correção elas passariam a ser pintadas na frente do próprio fundo. Foi o que
+/// um teste de altura percentual acusou, ao ver os retângulos na ordem trocada.
+fn insert_item(list: &mut DisplayList, at: usize, item: DisplayItem) {
+    list.items.insert(at, item);
+    for child in &mut list.children {
+        if child.at >= at {
+            child.at += 1;
+        }
+    }
+}
+
+/// Reconstrói o fragmento de um container trocando SÓ as subárvores sujas.
+///
+/// Devolve `None` — e o chamador refaz tudo — quando alguma premissa não vale:
+/// o próprio nó foi alvo da invalidação (o estilo DELE pode ter mudado); não há
+/// desenho anterior ou ele não tinha subárvores; a sujeira não tem alvo ou está
+/// espalhada demais; a lista de filhos mudou; ou a subárvore refeita mudou de
+/// ALTURA ou de margem, e aí tudo abaixo dela desloca.
+fn costurar(
+    dom: &Dom,
+    id: NodeIdx,
+    key: crate::dom::FragmentKey,
+    ctx: &LayoutCtx,
+) -> Option<std::rc::Rc<Fragment>> {
+    if dom.is_self_dirty(id) {
+        return None;
+    }
+    let (antiga, anterior) = dom.last_fragment_of(id)?;
+    // Só o epoch do nó pode diferir: viewport, constraints, estilo global e
+    // animação mudam o desenho inteiro, não uma parte dele.
+    if (antiga.tree, antiga.avail_w, antiga.avail_h, antiga.viewport_w, antiga.viewport_h)
+        != (key.tree, key.avail_w, key.avail_h, key.viewport_w, key.viewport_h)
+        || (antiga.style_epoch, antiga.anim_epoch, antiga.measurer)
+            != (key.style_epoch, key.anim_epoch, key.measurer)
+    {
+        return None;
+    }
+    if anterior.children.is_empty() {
+        return None;
+    }
+    let sujos = dom.dirty_children_of(id)?;
+    // A SEQUÊNCIA de filhos precisa ser a mesma, não só o tamanho: inserção,
+    // remoção e reordenação mudam quem desenha o quê, e trocar uma referência
+    // não daria conta. Comparar índice a índice é uma passada de leitura.
+    if !mesma_sequencia_de_filhos(dom, id, &anterior.children) {
+        return None;
+    }
+    let _phase = crate::metrics::phases::scope("fragment-patch");
+
+    let mut children = anterior.children.clone();
+    let mut trocou = false;
+    for child in &mut children {
+        if !sujos.contains(&child.node) {
+            continue;
+        }
+        let mut own = DisplayList::default();
+        // Onde o filho FOI POSTO: a origem em que o fragmento dele foi calculado
+        // mais o deslocamento com que entrou aqui. Somar à origem do PAI daria
+        // uma posição sem sentido — foi o que o teste de equivalência mostrou,
+        // com o texto reaparecendo em (0,16) em vez de (12, 67.4).
+        let origem = (child.fragment.origin.0 + child.dx, child.fragment.origin.1 + child.dy);
+        let margem = child.margin_top;
+        let ((_, altura), nova_margem) = layout_block_reusing(
+            dom,
+            child.node,
+            origem.0,
+            origem.1,
+            child.avail_w,
+            child.avail_h,
+            || margem,
+            ctx,
+            &mut own,
+        );
+        if (altura - child.height).abs() > 0.001 || (nova_margem - child.margin_top).abs() > 0.001 {
+            return None;
+        }
+        // O `layout_block_reusing` emitiu numa lista própria; o que interessa é a
+        // referência que ele acabou de registrar para este nó.
+        let novo = own.children.first()?.fragment.clone();
+        child.fragment = novo;
+        trocou = true;
+    }
+    if !trocou {
+        return None;
+    }
+    let fragment = std::rc::Rc::new(Fragment {
+        node: id,
+        // Compartilha o que NÃO mudou — só a lista de subárvores é nova.
+        items: std::rc::Rc::clone(&anterior.items),
+        children,
+        rects: std::rc::Rc::clone(&anterior.rects),
+        hit_order: std::rc::Rc::clone(&anterior.hit_order),
+        scroll_regions: anterior.scroll_regions.clone(),
+        origin: anterior.origin,
+        size: anterior.size,
+        margin_top: anterior.margin_top,
+    });
+    dom.fragment_put(key, std::rc::Rc::clone(&fragment));
+    Some(fragment)
+}
+
+/// `true` se os filhos-elemento do nó são exatamente os que o desenho anterior
+/// referencia, na mesma ordem. Uma passada de leitura; o que não é barato é o
+/// layout deles.
+fn mesma_sequencia_de_filhos(dom: &Dom, id: NodeIdx, children: &[ChildRef]) -> bool {
+    let mut esperados = children.iter().map(|c| c.node);
+    let mut atuais = dom
+        .node(id)
+        .children
+        .iter()
+        .copied()
+        .filter(|&c| matches!(dom.node(c).kind, NodeKind::Element { .. }));
+    loop {
+        match (esperados.next(), atuais.next()) {
+            (None, None) => return true,
+            (Some(a), Some(b)) if a == b => continue,
+            _ => return false,
+        }
+    }
+}
+
+fn emit_fragment(
+    fragment: &std::rc::Rc<Fragment>,
+    list: &mut DisplayList,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    avail_h: Option<f32>,
+) {
+    let _phase = crate::metrics::phases::scope("fragment-emit");
+    fragment.emit_at(list, x, y, avail_w, avail_h);
+}
+
+fn layout_block_reusing(
+    dom: &Dom,
+    id: NodeIdx,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    avail_h: Option<f32>,
+    margem_de_topo: impl FnOnce() -> f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> ((f32, f32), f32) {
+    let key = fragment_key(dom, id, avail_w, avail_h, ctx);
+    if let Some(fragment) = dom.fragment_get(key) {
+        crate::bump!(fragment_hits);
+        emit_fragment(&fragment, list, x, y, avail_w, avail_h);
+        return (fragment.size, fragment.margin_top);
+    }
+    // COSTURA: trocar no desenho anterior só a subárvore que ficou suja. Agora
+    // que a saída é uma ÁRVORE, costurar é substituir uma REFERÊNCIA num vetor
+    // de mil entradas de 48 bytes — a primeira versão disto (revertida) copiava
+    // 3000 itens com String e por isso não ganhava nada.
+    if let Some(fragment) = costurar(dom, id, key, ctx) {
+        crate::bump!(fragment_patches);
+        emit_fragment(&fragment, list, x, y, avail_w, avail_h);
+        return (fragment.size, fragment.margin_top);
+    }
+    crate::bump!(fragment_misses);
+    let _phase = crate::metrics::phases::scope("fragment-build");
+    // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
+    // e a única forma de saber isso é não misturá-los com os dos irmãos.
+    let mut own = DisplayList::default();
+    let size = layout_block(dom, id, x, y, avail_w, avail_h, None, None, false, ctx, &mut own);
+    let fragment = std::rc::Rc::new(Fragment {
+        node: id,
+        rects: std::rc::Rc::new(own.node_rects.iter().map(|(idx, rect)| (*idx, *rect)).collect()),
+        hit_order: std::rc::Rc::new(std::mem::take(&mut own.hit_order)),
+        scroll_regions: std::mem::take(&mut own.scroll_regions),
+        items: std::rc::Rc::new(std::mem::take(&mut own.items)),
+        children: std::mem::take(&mut own.children),
+        origin: (x, y),
+        size,
+        margin_top: margem_de_topo(),
+    });
+    dom.fragment_put(key, std::rc::Rc::clone(&fragment));
+    fragment.emit_at(list, x, y, avail_w, avail_h);
+    (fragment.size, fragment.margin_top)
+}
+
+/// Uma subárvore emitida por referência dentro de uma lista ou de outro
+/// fragmento.
+#[derive(Clone, Debug)]
+pub struct ChildRef {
+    /// O nó que esta subárvore desenha — a costura precisa saber quem é.
+    pub node: NodeIdx,
+    /// Altura externa que ele ocupou e a margem de topo resolvida: se qualquer
+    /// uma mudar ao refazê-lo, tudo abaixo desloca e a costura não serve.
+    pub height: f32,
+    pub margin_top: f32,
+    /// As CONSTRAINTS com que ele foi layoutado — as do CONTEÚDO do pai, não as
+    /// do pai. Refazer um filho com a largura do container em vez da do conteúdo
+    /// dá uma caixa larga demais pela soma do padding e da margem.
+    pub avail_w: f32,
+    pub avail_h: Option<f32>,
+    /// Posição em `items` ANTES da qual esta subárvore é pintada.
+    pub at: usize,
+    /// Posição em `hit_order` antes da qual a ordem de hit-test dela entra.
+    ///
+    /// Separada do `at` porque as duas sequências crescem por motivos
+    /// diferentes: nem todo item de pintura registra um nó, e nem todo nó
+    /// registrado pinta um item. Montar a ordem de hit-test com os próprios
+    /// primeiro e os das subárvores depois inverte o z-order — foi o que o teste
+    /// de `z-index` acusou.
+    pub hit_at: usize,
+    pub fragment: std::rc::Rc<Fragment>,
+    pub dx: f32,
+    pub dy: f32,
+}
+
+impl PartialEq for ChildRef {
+    /// Compara CONTEÚDO — duas listas equivalentes podem ter chegado ao mesmo
+    /// desenho por caminhos diferentes.
+    fn eq(&self, other: &Self) -> bool {
+        self.at == other.at
+            && self.dx == other.dx
+            && self.dy == other.dy
+            && self.fragment.items == other.fragment.items
+            && self.fragment.children == other.fragment.children
+    }
+}
+
+/// O DESENHO de uma subárvore posta com certas constraints, guardado para ser
+/// reusado numa posição diferente.
+///
+/// Coordenadas ABSOLUTAS, como saíram do layout: a origem em que foi calculado
+/// fica registrada em `origin`, e reusar é somar a diferença. Guardar já
+/// relativo daria na mesma e custaria uma passada extra na hora de gravar — o
+/// caso comum é justamente reusar na MESMA posição (nada acima dele mudou de
+/// altura), e aí a soma é zero e nem se percorre.
+#[derive(Clone, Debug, Default)]
+pub struct Fragment {
+    /// O nó que este fragmento desenha.
+    pub node: NodeIdx,
+    /// Itens de pintura PRÓPRIOS desta subárvore.
+    ///
+    /// Os três vetores grandes são `Rc`: quando um container é COSTURADO, só a
+    /// lista de subárvores muda, e clonar retângulos e ordem de hit-test de um
+    /// container de mil filhos custaria mais do que a costura economiza.
+    pub items: std::rc::Rc<Vec<DisplayItem>>,
+    /// As subárvores que ela reusou, por referência — o desenho é uma árvore.
+    pub children: Vec<ChildRef>,
+    /// Geometria por nó (o que alimenta `getBoundingClientRect`).
+    pub rects: std::rc::Rc<Vec<(NodeIdx, Rect)>>,
+    /// Ordem de pintura para o hit-test (ancestral antes de descendente).
+    pub hit_order: std::rc::Rc<Vec<NodeIdx>>,
+    /// Regiões roláveis internas descobertas dentro da subárvore.
+    pub scroll_regions: Vec<ScrollRegion>,
+    /// Onde este fragmento foi calculado.
+    pub origin: (f32, f32),
+    /// Tamanho externo devolvido pelo `layout_block` (o que o chamador usa para
+    /// avançar o cursor).
+    pub size: (f32, f32),
+    /// A MARGEM DE TOPO resolvida deste bloco, para o colapso com o irmão
+    /// anterior.
+    ///
+    /// Guardada junto porque o laço a calculava ANTES de descobrir que o
+    /// fragmento servia: resolver a margem pede o estilo computado, o
+    /// `font-size` do contexto e um `ResolveCtx` — por filho, mil vezes por
+    /// frame, para um valor que não muda enquanto o epoch do nó não muda.
+    pub margin_top: f32,
+}
+
+impl Fragment {
+    /// Emite este fragmento numa `DisplayList`, deslocado para `(x, y)`.
+    pub fn emit_at(
+        self: &std::rc::Rc<Self>,
+        list: &mut DisplayList,
+        x: f32,
+        y: f32,
+        avail_w: f32,
+        avail_h: Option<f32>,
+    ) {
+        let (dx, dy) = (x - self.origin.0, y - self.origin.1);
+        // APONTA, não copia: os itens desta subárvore já existem e não mudaram.
+        // Os RETÂNGULOS abaixo continuam sendo materializados, porque a consulta
+        // de geometria é por nó e precisa do valor pronto — são 16 bytes contra
+        // os 48 de um item, numa quantidade menor.
+        list.children.push(ChildRef {
+            node: self.node,
+            height: self.size.1,
+            margin_top: self.margin_top,
+            avail_w,
+            avail_h,
+            at: list.items.len(),
+            hit_at: list.hit_order.len(),
+            fragment: std::rc::Rc::clone(self),
+            dx,
+            dy,
+        });
+        // A GEOMETRIA da subárvore (retângulos, ordem de hit-test, regiões
+        // roláveis) também fica na referência: materializá-la aqui era metade do
+        // custo de um frame parado — três inserções em mapa por fragmento, mil
+        // fragmentos. Quem precisa dela chama `geometry()`, que percorre a
+        // árvore uma vez e guarda o resultado.
+    }
+}
+
+impl Fragment {
+    /// Quantos itens este fragmento pinta, contando as subárvores que ele reusa.
+    pub fn total_items(&self) -> usize {
+        self.items.len()
+            + self.children.iter().map(|c| c.fragment.total_items()).sum::<usize>()
+    }
+}
+
+/// Percorre itens próprios e subárvores na ordem de pintura, acumulando o
+/// deslocamento. Recursivo pela mesma razão que a estrutura é uma árvore: um
+/// fragmento pode ter reusado outro.
+fn walk_items(
+    items: &[DisplayItem],
+    children: &[ChildRef],
+    dx: f32,
+    dy: f32,
+    f: &mut impl FnMut(&DisplayItem, f32, f32),
+) {
+    let mut next_child = 0usize;
+    for (i, item) in items.iter().enumerate() {
+        while next_child < children.len() && children[next_child].at <= i {
+            let c = &children[next_child];
+            walk_items(&c.fragment.items, &c.fragment.children, dx + c.dx, dy + c.dy, f);
+            next_child += 1;
+        }
+        f(item, dx, dy);
+    }
+    for c in &children[next_child..] {
+        walk_items(&c.fragment.items, &c.fragment.children, dx + c.dx, dy + c.dy, f);
+    }
+}
+
+/// DESLOCA um item de pintura por `(dx, dy)`.
+///
+/// É a operação que torna um fragmento de layout REUSÁVEL: o desenho de uma
+/// subárvore cujo conteúdo e constraints não mudaram é o mesmo desenho, na
+/// posição nova. Tudo o que um item carrega é geometria absoluta em coordenadas
+/// de conteúdo, então deslocar é somar — exceto o que é tamanho (`radius`,
+/// `blur`, `size` do texto), que não se move.
+fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) {
+    let shift = |r: &mut Rect| {
+        r.x += dx;
+        r.y += dy;
+    };
+    match it {
+        DisplayItem::SolidRect { rect, .. }
+        | DisplayItem::Shadow { rect, .. }
+        | DisplayItem::GradientRect { rect, .. }
+        | DisplayItem::Border { rect, .. }
+        | DisplayItem::Image { rect, .. }
+        | DisplayItem::BeginClip { rect, .. } => shift(rect),
+        DisplayItem::Text { x, y, .. } => {
+            *x += dx;
+            *y += dy;
+        }
+        DisplayItem::EndClip => {}
+    }
 }
 
 /// Aplica um transform (translate `tx,ty` + escala `sx,sy` + rotação `sin,cos`) em
@@ -1138,7 +1771,7 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         font_size: font.to_bits(),
         viewport_w: ctx.viewport_w.to_bits(),
         viewport_h: ctx.viewport_h.to_bits(),
-        measurer: std::ptr::from_ref(ctx.measurer) as *const () as usize as u64,
+        measurer: ctx.measurer.identity(),
     };
     crate::bump!(intrinsic_calls);
     if let Some(hit) = dom.intrinsic_width_get(key) {
@@ -1514,7 +2147,7 @@ fn layout_button(
     list.items.push(DisplayItem::Text {
         x: x + pad_h,
         y: y + pad_v,
-        text: label,
+        text: label.into(),
         color: fg,
         size: font,
         mono: false,
@@ -1616,7 +2249,7 @@ fn layout_input(
         list.items.push(DisplayItem::Text {
             x: text_x,
             y: text_y,
-            text: shown.clone(),
+            text: shown.as_str().into(),
             color: tcolor,
             size: font,
             mono: false,
@@ -1758,6 +2391,9 @@ fn layout_children_vertical(
     list: &mut DisplayList,
 ) -> f32 {
     let mut child_y = content_y;
+    // A base da chave de fragmento é a mesma para todos os filhos deste
+    // container — só o nó e o epoch dele mudam.
+    let key_base = KeyBase::new(dom, content_w, avail_h, ctx);
     // MARGIN-COLLAPSE (versão simples, fiel ao caso comum): margins verticais de
     // blocos ADJACENTES colapsam para o MAIOR, não somam (regra do CSS). Como o
     // `outer_h` de cada bloco já inclui seu margin nos dois lados, ao empilhar dois
@@ -1818,6 +2454,25 @@ fn layout_children_vertical(
         };
     }
     for &child in &dom.node(id).children {
+        // CAMINHO RÁPIDO: se existe fragmento para este filho com estas
+        // constraints, ele já foi classificado como BLOCO NORMAL quando foi
+        // criado — é o único caminho que produz fragmento. Encontrá-lo responde
+        // a classificação inteira, que custaria estilo computado,
+        // `block::lookup` e a margem resolvida por filho: mil vezes por frame
+        // numa lista, para redescobrir o que não mudou.
+        if matches!(dom.node(child).kind, NodeKind::Element { .. }) {
+            let key = key_base.key(dom, child);
+            if let Some(fragment) = dom.fragment_get(key) {
+                crate::bump!(fragment_hits);
+                flush_inline!(child_y);
+                close_floats!(child_y);
+                child_y -= prev_margin.min(fragment.margin_top);
+                emit_fragment(&fragment, list, content_x, child_y, content_w, avail_h);
+                child_y += fragment.size.1;
+                prev_margin = fragment.margin_top;
+                continue;
+            }
+        }
         let child_css = match &dom.node(child).kind {
             NodeKind::Element { .. } => Some(dom.computed_style_idx(child).unwrap_or_default()),
             _ => None,
@@ -1905,7 +2560,9 @@ fn layout_children_vertical(
                     .unwrap_or(0.0);
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
                 child_y -= prev_margin.min(m);
-                let (_, h) = layout_block(dom, child, content_x, child_y, content_w, avail_h, None, None, false, ctx, list);
+                let ((_, h), _) = layout_block_reusing(
+                    dom, child, content_x, child_y, content_w, avail_h, || m, ctx, list,
+                );
                 child_y += h;
                 prev_margin = m;
             }
@@ -2273,7 +2930,7 @@ fn layout_children_horizontal(
                 list.items.push(DisplayItem::Text {
                     x,
                     y: item_y,
-                    text,
+                    text: text.into(),
                     color,
                     size: font_size,
                     mono: false,
@@ -2648,7 +3305,7 @@ fn layout_children_column(
             list.items.push(DisplayItem::Text {
                 x: content_x,
                 y,
-                text,
+                text: text.into(),
                 color: css.color.unwrap_or(0x000000FF),
                 size: font_size,
                 mono: false,
@@ -2829,6 +3486,7 @@ fn layout_inline_flow(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
+    let _phase = crate::metrics::phases::scope("layout-inline");
     // coleta os RUNS (cada pedaço de texto com a SUA cor/bold herdada do span que
     // o contém) de TODOS os nós do grupo, em ordem de documento.
     let mut runs = Vec::new();
@@ -2856,7 +3514,11 @@ fn layout_inline_flow(
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
     let lines = wrap_runs(&runs, wrap_w, font_size, mono, ctx.measurer);
     let mut cy = y;
-    for line in &lines {
+    // CONSUMINDO as linhas: o texto de cada segmento vai direto para o
+    // `DisplayItem`, em vez de ser clonado. Eram milhares de `String` alocadas
+    // por passada de layout, uma por segmento, para copiar algo que ninguém mais
+    // usaria depois.
+    for line in lines {
         // largura total da linha (texto no SEU peso + widgets) p/ text-align.
         let line_w: f32 = line
             .iter()
@@ -2879,6 +3541,7 @@ fn layout_inline_flow(
         };
         // pinta cada pedaço NA SUA COR e PESO, avançando o x.
         for seg in line {
+            let seg: Segment = seg;
             if let Some(w_idx) = seg.widget {
                 // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
                 // campo de texto via layout_input com o avail da linha).
@@ -2905,7 +3568,7 @@ fn layout_inline_flow(
             list.items.push(DisplayItem::Text {
                 x: seg_x,
                 y: cy,
-                text: seg.text.clone(),
+                text: seg.text.into(),
                 color: seg.color,
                 size: font_size,
                 mono,
@@ -3000,6 +3663,7 @@ fn collect_runs(
     parent_css: &ComputedStyle,
     ctx: &LayoutCtx,
 ) -> Vec<InlineRun> {
+    let _phase = crate::metrics::phases::scope("collect-runs");
     let mut runs = Vec::new();
     walk(
         dom,
@@ -3140,6 +3804,66 @@ struct Segment {
 /// ORIGINAL tinha whitespace ali (colapsado p/ 1) — inclusive ATRAVÉS de runs
 /// (`<a>Bootstrap</a>, by` NÃO ganha espaço antes da vírgula; antes toda palavra
 /// ganhava espaço e a pontuação descolava).
+/// Colapsa o whitespace de um run como o fluxo inline faz: sequências viram um
+/// espaço só, o do fim some (o separador seguinte o recria) e o do início só
+/// entra quando havia palavra antes na linha. É a normalização que o scanner
+/// palavra-a-palavra produz implicitamente — o fast path precisa dela explícita
+/// para que os dois caminhos gerem o MESMO texto.
+fn collapse_ws(text: &str, leading_space: bool) -> std::borrow::Cow<'_, str> {
+    // O caso comum é o texto JÁ normalizado (uma palavra, ou palavras separadas
+    // por um espaço só, sem borda) — devolver emprestado evita uma alocação por
+    // run, e um relayout de página grande são milhares deles.
+    let needs_work = leading_space && text.starts_with(char::is_whitespace)
+        || text.starts_with(char::is_whitespace)
+        || text.ends_with(char::is_whitespace)
+        || text.contains("  ")
+        || text.chars().any(|c| c.is_whitespace() && c != ' ');
+    if !needs_work {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    if leading_space && text.starts_with(char::is_whitespace) {
+        out.push(' ');
+    }
+    let mut first = true;
+    for word in text.split_whitespace() {
+        if !first {
+            out.push(' ');
+        }
+        out.push_str(word);
+        first = false;
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// Acrescenta texto à linha, juntando ao último segmento quando o estilo é o
+/// mesmo (é o que evita um segmento por palavra na hora de pintar).
+fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32) {
+    if let Some(last) = cur.last_mut() {
+        if last.widget.is_none()
+            && last.color == run.color
+            && last.bold == run.bold
+            && last.deco == run.deco
+            && last.owners == run.owners
+        {
+            last.text.push_str(text);
+            last.text_width += width;
+            return;
+        }
+    }
+    cur.push(Segment {
+        text: text.to_string(),
+        text_width: width,
+        color: run.color,
+        bold: run.bold,
+        deco: run.deco,
+        owners: run.owners.clone(),
+        widget: None,
+        ww: 0.0,
+        wh: 0.0,
+    });
+}
+
 fn wrap_runs(
     runs: &[InlineRun],
     max_w: f32,
@@ -3147,7 +3871,14 @@ fn wrap_runs(
     mono: bool,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
-    let space_w = m.text_width(" ", font_size, mono, false);
+    let _phase = crate::metrics::phases::scope("wrap-runs");
+    // A largura do espaço só interessa ao caminho palavra-a-palavra. Medida
+    // sempre, era metade de todas as medições de texto de um relayout — uma por
+    // chamada, mesmo quando o fast path respondia sozinho.
+    let mut space_w_memo: Option<f32> = None;
+    let mut space_w = |m: &dyn TextMeasurer| -> f32 {
+        *space_w_memo.get_or_insert_with(|| m.text_width(" ", font_size, mono, false))
+    };
     let mut lines: Vec<Vec<Segment>> = Vec::new();
     let mut cur: Vec<Segment> = Vec::new();
     let mut cur_w = 0.0f32;
@@ -3159,7 +3890,7 @@ fn wrap_runs(
         // WIDGET: uma "palavra" inquebrável de run.ww pontos, segmento próprio.
         if let Some(w_idx) = run.widget {
             let with_space = pending_space && !at_line_start;
-            let need = if with_space { space_w + run.ww } else { run.ww };
+            let need = if with_space { space_w(m) + run.ww } else { run.ww };
             if !at_line_start && cur_w + need > max_w {
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
@@ -3176,10 +3907,42 @@ fn wrap_runs(
                 ww: run.ww,
                 wh: run.wh,
             });
-            cur_w += if pending_space && !at_line_start { space_w + run.ww } else { run.ww };
+            cur_w += if pending_space && !at_line_start { space_w(m) + run.ww } else { run.ww };
             at_line_start = false;
             pending_space = false;
             continue;
+        }
+        // FAST PATH: o run INTEIRO cabe na linha corrente.
+        //
+        // O scanner abaixo mede palavra por palavra — e medir texto é a única
+        // coisa que o layout pede ao backend, que com uma fonte real faz shaping
+        // em vez de multiplicar um contador de caracteres. Medido no medidor
+        // barato: `wrap-runs` era 38% de um relayout de página grande, com 11 000
+        // `text_width` por frame. Quando o run cabe (o caso comum: quase todo
+        // texto de página não quebra), uma medição responde por todas.
+        //
+        // Medir a string inteira também é o que um browser faz, então a largura
+        // resultante é MAIS fiel e não menos: soma de palavras ignora o que a
+        // fonte faz nas junções.
+        if run.widget.is_none() {
+            let leading = pending_space && !at_line_start;
+            let normalized = collapse_ws(&run.text, leading);
+            if normalized.is_empty() {
+                // só whitespace: vira separador pendente e não abre segmento.
+                if run.text.chars().any(char::is_whitespace) {
+                    pending_space = true;
+                }
+                continue;
+            }
+            let w = m.text_width(&normalized, font_size, mono, run.bold);
+            if at_line_start || cur_w + w <= max_w {
+                let trailing_space = run.text.ends_with(char::is_whitespace);
+                push_segment(&mut cur, run, &normalized, w);
+                cur_w += w;
+                at_line_start = false;
+                pending_space = trailing_space;
+                continue;
+            }
         }
         // scanner ws/palavra preservando a fronteira original.
         let mut rest = run.text.as_str();
@@ -3195,7 +3958,7 @@ fn wrap_runs(
 
             let ww = m.text_width(word, font_size, mono, run.bold);
             let with_space = pending_space && !at_line_start;
-            let need = if with_space { space_w + ww } else { ww };
+            let need = if with_space { space_w(m) + ww } else { ww };
             if !at_line_start && cur_w + need > max_w {
                 // não cabe: fecha a linha.
                 lines.push(std::mem::take(&mut cur));
@@ -3203,8 +3966,12 @@ fn wrap_runs(
                 at_line_start = true;
             }
             let sep = pending_space && !at_line_start;
-            let piece_w = if sep { space_w + ww } else { ww };
-            let piece = if sep { format!(" {word}") } else { word.to_string() };
+            let piece_w = if sep { space_w(m) + ww } else { ww };
+            let mut piece = String::with_capacity(word.len() + usize::from(sep));
+            if sep {
+                piece.push(' ');
+            }
+            piece.push_str(word);
             // junta no último segmento se mesma cor E peso (e não-widget), senão novo.
             if let Some(last) = cur.last_mut() {
                 if last.widget.is_none()
@@ -3301,6 +4068,7 @@ fn wrap_text(text: &str, max_w: f32, font_size: f32, mono: bool, m: &dyn TextMea
 
 /// Concatena o texto de todos os descendentes de `id` (ordem de documento).
 fn collect_text(dom: &Dom, id: NodeIdx) -> String {
+    let _phase = crate::metrics::phases::scope("collect-text");
     let mut out = String::new();
     collect_into(dom, id, &mut out);
     return out;
@@ -3324,6 +4092,234 @@ fn collect_text(dom: &Dom, id: NodeIdx) -> String {
 mod tests {
     use super::*;
     use crate::dom::parse_html_to_dom;
+
+    /// Tolerância da comparação reuso × cálculo.
+    ///
+    /// Reusar um fragmento numa posição nova é somar um deslocamento às
+    /// coordenadas, e somar não dá bit a bit o mesmo que calcular a posição do
+    /// zero: `67.4` calculado vira `67.399994` deslocado. É a mesma aritmética
+    /// que qualquer motor de layout com reuso tem, a diferença é da ordem de
+    /// 1e-5 pontos — invisível em tela e irrelevante para hit-test. O que o
+    /// teste NÃO tolera é diferença de conteúdo, de contagem ou de ordem.
+    const TOL: f32 = 0.01;
+
+    fn rects_equivalentes(a: &Rect, b: &Rect) -> bool {
+        (a.x - b.x).abs() < TOL
+            && (a.y - b.y).abs() < TOL
+            && (a.w - b.w).abs() < TOL
+            && (a.h - b.h).abs() < TOL
+    }
+
+    /// Dois itens de pintura iguais a menos da tolerância acima. Texto, cor e
+    /// tipo têm de bater EXATAMENTE: só a geometria admite o erro do
+    /// deslocamento.
+    fn itens_equivalentes(a: &DisplayItem, b: &DisplayItem) -> bool {
+        use DisplayItem as D;
+        match (a, b) {
+            (D::SolidRect { rect: ra, color: ca, radius: da }, D::SolidRect { rect: rb, color: cb, radius: db }) => {
+                rects_equivalentes(ra, rb) && ca == cb && (da - db).abs() < TOL
+            }
+            (D::Border { rect: ra, width: wa, color: ca, radius: da }, D::Border { rect: rb, width: wb, color: cb, radius: db }) => {
+                rects_equivalentes(ra, rb) && (wa - wb).abs() < TOL && ca == cb && (da - db).abs() < TOL
+            }
+            (
+                D::Text { x: xa, y: ya, text: ta, color: ca, size: sa, mono: ma, bold: ba, letter_spacing: la, decoration: dea },
+                D::Text { x: xb, y: yb, text: tb, color: cb, size: sb, mono: mb, bold: bb, letter_spacing: lb, decoration: deb },
+            ) => {
+                (xa - xb).abs() < TOL
+                    && (ya - yb).abs() < TOL
+                    && ta == tb
+                    && ca == cb
+                    && (sa - sb).abs() < TOL
+                    && ma == mb
+                    && ba == bb
+                    && (la - lb).abs() < TOL
+                    && dea == deb
+            }
+            (D::EndClip, D::EndClip) => true,
+            // As demais variantes não aparecem neste corpus; comparar por
+            // igualdade estrita aqui é o certo — se um dia aparecerem com
+            // deslocamento, o teste falha e o braço é escrito.
+            _ => a == b,
+        }
+    }
+
+    /// SEQUÊNCIA LONGA de mutações sorteadas: o reuso tem de bater com o cálculo
+    /// do zero em todas elas.
+    ///
+    /// O teste dirigido acima cobre os caminhos que eu sabia listar; este cobre
+    /// as COMBINAÇÕES, que é onde um cache erra — invalidar A e depois B, mexer
+    /// num nó recém-inserido, remover o que acabou de mudar. O gerador é um LCG
+    /// com semente fixa: a sequência é sempre a mesma, então uma falha é
+    /// reproduzível e o teste nunca fica intermitente.
+    #[test]
+    fn sequencia_longa_de_mutacoes_mantem_a_equivalencia() {
+        let mut dom = parse_html_to_dom(
+            "<style>.a{padding:4px}.b{margin:2px}.t{font-size:14px}</style>             <main id='root'>               <div class='a'><p class='t'>um</p><p>dois</p></div>               <div class='b'><span>tres</span> quatro <b>cinco</b></div>               <ul id='l'><li>x</li><li>y</li></ul>             </main>",
+        );
+        let ctx = LayoutCtx { viewport_w: 500.0, viewport_h: 400.0, measurer: &ApproxMeasurer };
+        let raiz = dom.query("#root").unwrap();
+        let lista = dom.query("#l").unwrap();
+        let mut semente = 0x2545_F491_4F6C_DD1Du64;
+        let mut sorteia = move |n: u64| {
+            semente = semente.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (semente >> 33) % n
+        };
+        let mut vivos: Vec<crate::dom::NodeId> = dom.query_all("p, li, span, b");
+
+        for passo in 0..120 {
+            match sorteia(5) {
+                0 => {
+                    if !vivos.is_empty() {
+                        let alvo = vivos[sorteia(vivos.len() as u64) as usize];
+                        dom.set_text(alvo, &format!("t{passo}"));
+                    }
+                }
+                1 => {
+                    if !vivos.is_empty() {
+                        let alvo = vivos[sorteia(vivos.len() as u64) as usize];
+                        let classe = ["a", "b", "t", "sem-regra"][sorteia(4) as usize];
+                        dom.set_attr(alvo, "class", classe);
+                    }
+                }
+                2 => {
+                    let novo = dom.create_element(if passo % 2 == 0 { "li" } else { "p" });
+                    let txt = dom.create_text_node(&format!("novo {passo}"));
+                    dom.append_child(novo, txt);
+                    let pai = if passo % 3 == 0 { lista } else { raiz };
+                    dom.append_child(pai, novo);
+                    vivos.push(novo);
+                }
+                3 => {
+                    if vivos.len() > 3 {
+                        let i = sorteia(vivos.len() as u64) as usize;
+                        let alvo = vivos.remove(i);
+                        dom.remove_node(alvo);
+                    }
+                }
+                _ => {
+                    if vivos.len() > 2 {
+                        // move um nó para o fim da lista (reordena irmãos)
+                        let alvo = vivos[sorteia(vivos.len() as u64) as usize];
+                        dom.append_child(lista, alvo);
+                    }
+                }
+            }
+
+            let reusado = layout_cached(&dom, &ctx);
+            dom.clear_fragment_cache();
+            let zero = layout_document(&dom, &ctx);
+            assert_eq!(
+                reusado.materialized().len(),
+                zero.materialized().len(),
+                "passo {passo}: nº de itens diverge"
+            );
+            for (i, (a, b)) in reusado.materialized().iter().zip(&zero.materialized()).enumerate() {
+                assert!(
+                    itens_equivalentes(a, b),
+                    "passo {passo}, item {i}:
+  reuso: {a:?}
+  zero:  {b:?}"
+                );
+            }
+        }
+    }
+
+    /// O caminho CACHEADO e o cálculo do zero produzem a mesma coisa, depois de
+    /// cada mutação de uma sequência que passa por texto, atributo, classe,
+    /// inserção e remoção.
+    ///
+    /// É o guarda de qualquer reuso de geometria: um cache que devolve a lista
+    /// errada tem exatamente a mesma cara de um cache rápido, e o único jeito de
+    /// distinguir os dois é recalcular e comparar. Vale hoje (o reuso é
+    /// tudo-ou-nada) e continua valendo quando o reuso for por subárvore.
+    #[test]
+    fn o_layout_reusado_e_igual_ao_recalculado() {
+        let mut dom = parse_html_to_dom(
+            "<style>.card{padding:8px;margin:4px}.t{font-size:18px}.hi{color:#ff0000}</style>             <main id='root'>               <div class='card'><h3 class='t'>Um titulo</h3><p>texto de exemplo aqui</p></div>               <div class='card'><h3 class='t'>Outro</h3><p>mais texto <b>em negrito</b> junto</p></div>               <ul id='lista'><li>a</li><li>b</li><li>c</li></ul>             </main>",
+        );
+        let ctx = LayoutCtx { viewport_w: 640.0, viewport_h: 480.0, measurer: &ApproxMeasurer };
+        let alvo = dom.query("p").unwrap();
+        let card = dom.query(".card").unwrap();
+        let lista = dom.query("#lista").unwrap();
+
+        let mut passo = 0;
+        let conferir = |dom: &Dom, passo: &mut i32| {
+            let cacheado = layout_cached(dom, &ctx);
+            // Do ZERO: sem os fragmentos, nada é reusado e o resultado é o que o
+            // layout produz quando calcula tudo. Comparar o reuso com ele mesmo
+            // seria o mesmo que não comparar.
+            dom.clear_fragment_cache();
+            let recalculado = layout_document(dom, &ctx);
+            assert_eq!(
+                cacheado.materialized().len(),
+                recalculado.materialized().len(),
+                "quantidade de itens diverge no passo {passo}"
+            );
+            for (i, (a, b)) in cacheado.materialized().iter().zip(&recalculado.materialized()).enumerate() {
+                assert!(
+                    itens_equivalentes(a, b),
+                    "item {i} diverge no passo {passo}:
+  reuso: {a:?}
+  cálculo: {b:?}"
+                );
+            }
+            assert!(
+                (cacheado.content_height - recalculado.content_height).abs() < TOL,
+                "altura divergente no passo {passo}"
+            );
+            let mut a: Vec<_> = cacheado.geometry().rects.iter().map(|(i, r)| (*i, *r)).collect();
+            let mut b: Vec<_> = recalculado.geometry().rects.iter().map(|(i, r)| (*i, *r)).collect();
+            a.sort_by_key(|(idx, _)| *idx);
+            b.sort_by_key(|(idx, _)| *idx);
+            assert_eq!(a.len(), b.len(), "nº de retângulos diverge no passo {passo}");
+            for ((ia, ra), (ib, rb)) in a.iter().zip(&b) {
+                assert_eq!(ia, ib, "nós diferentes no passo {passo}");
+                assert!(rects_equivalentes(ra, rb), "rect de {ia} diverge no passo {passo}");
+            }
+            *passo += 1;
+        };
+
+        conferir(&dom, &mut passo);
+        dom.set_text(alvo, "outro texto bem mais longo do que o anterior era");
+        conferir(&dom, &mut passo);
+        dom.set_attr(alvo, "class", "hi");
+        conferir(&dom, &mut passo);
+        dom.set_attr(alvo, "class", "classe-que-ninguem-cita");
+        conferir(&dom, &mut passo);
+        let novo = dom.create_element("li");
+        let txt = dom.create_text_node("d");
+        dom.append_child(novo, txt);
+        dom.append_child(lista, novo);
+        conferir(&dom, &mut passo);
+        dom.remove_node(card);
+        conferir(&dom, &mut passo);
+        dom.set_inner_html(lista, "<li>x</li><li>y</li>");
+        conferir(&dom, &mut passo);
+        assert_eq!(passo, 7, "todos os passos foram conferidos");
+    }
+
+    /// O cache de layout devolve a MESMA lista enquanto nada muda, e uma NOVA
+    /// depois de qualquer mutação. Sem a segunda metade, "o frame parado custa
+    /// zero" seria só outra forma de dizer que a página parou de atualizar.
+    #[test]
+    fn cache_de_layout_reusa_e_invalida() {
+        let mut dom = parse_html_to_dom("<div id='a'><p>um</p></div>");
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let first = layout_cached(&dom, &ctx);
+        let again = layout_cached(&dom, &ctx);
+        assert!(std::rc::Rc::ptr_eq(&first, &again), "nada mudou: a lista é a mesma");
+
+        let alvo = dom.query("#a").unwrap();
+        dom.set_text(alvo, "outro");
+        let after = layout_cached(&dom, &ctx);
+        assert!(!std::rc::Rc::ptr_eq(&first, &after), "o texto mudou: lista nova");
+
+        // Viewport diferente também é outro layout.
+        let narrow = LayoutCtx { viewport_w: 300.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let small = layout_cached(&dom, &narrow);
+        assert!(!std::rc::Rc::ptr_eq(&after, &small));
+    }
 
     /// Registra `<div>` como bloco vertical (os testes precisam que a tag tenha
     /// layout de bloco para entrar no caminho `layout_block` dos filhos).
@@ -3354,9 +4350,9 @@ mod tests {
 
         let first = layout_document(&dom, &ctx);
         let _warm = layout_document(&dom, &ctx);
-        let before = first.node_rects[&card_idx].w;
+        let before = first.geometry().rects[&card_idx].w;
         dom.set_style_property(card, "width", "200px");
-        let after = layout_document(&dom, &ctx).node_rects[&card_idx].w;
+        let after = layout_document(&dom, &ctx).geometry().rects[&card_idx].w;
 
         assert!((before - 100.0).abs() < 0.1);
         assert!((after - 200.0).abs() < 0.1);
@@ -3372,10 +4368,10 @@ mod tests {
         let text_idx = dom.resolve(text).unwrap();
         let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
 
-        let before = layout_document(&dom, &ctx).node_rects[&text_idx].w;
+        let before = layout_document(&dom, &ctx).geometry().rects[&text_idx].w;
         let _warm = layout_document(&dom, &ctx);
         dom.set_text(text, "uma linha de texto bem mais comprida");
-        let after = layout_document(&dom, &ctx).node_rects[&text_idx].w;
+        let after = layout_document(&dom, &ctx).geometry().rects[&text_idx].w;
 
         assert!(after > before, "a largura intrínseca deve acompanhar o novo texto");
     }
@@ -3395,11 +4391,11 @@ mod tests {
         let filho = dom.query("#filho").unwrap();
         let pai_idx = dom.resolve(pai).unwrap();
         let filho_idx = dom.resolve(filho).unwrap();
-        let fr = list.node_rects[&filho_idx];
+        let fr = list.geometry().rects[&filho_idx];
         let hit = list.hit_test(fr.x + fr.w / 2.0, fr.y + fr.h / 2.0);
         assert_eq!(hit, Some(filho_idx));
         // canto do pai (dentro do padding, fora do filho).
-        let pr = list.node_rects[&pai_idx];
+        let pr = list.geometry().rects[&pai_idx];
         let hit2 = list.hit_test(pr.x + 5.0, pr.y + 5.0);
         assert_eq!(hit2, Some(pai_idx));
         // fora de tudo.
@@ -3413,7 +4409,8 @@ mod tests {
         let list = layout_document(&dom, &ctx);
         let span = dom.query("#s").unwrap();
         let span_idx = dom.resolve(span).unwrap();
-        let rect = list.node_rects.get(&span_idx).expect("inline deveria ter rect");
+        let geo = list.geometry();
+        let rect = geo.rects.get(&span_idx).expect("inline deveria ter rect");
         assert!(rect.w > 0.0);
         assert!(rect.h > 0.0);
     }
@@ -3483,8 +4480,8 @@ mod tests {
     fn fundo_vem_antes_do_texto_filho_no_zorder() {
         // O SolidRect (fundo) deve estar ANTES do Text na lista (pinta atrás).
         let list = layout("<div style='background:#222222; padding:8'>oi</div>", 600.0);
-        let i_rect = list.items.iter().position(|it| matches!(it, DisplayItem::SolidRect { .. }));
-        let i_text = list.items.iter().position(|it| matches!(it, DisplayItem::Text { .. }));
+        let i_rect = list.materialized().iter().position(|it| matches!(it, DisplayItem::SolidRect { .. }));
+        let i_text = list.materialized().iter().position(|it| matches!(it, DisplayItem::Text { .. }));
         assert!(i_rect < i_text, "fundo (idx {i_rect:?}) deve vir antes do texto (idx {i_text:?})");
     }
 
@@ -3594,7 +4591,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+        let rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(*rect),
             _ => None,
         }).collect();
@@ -3623,7 +4620,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+        let rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(*rect),
             _ => None,
         }).collect();
@@ -3679,8 +4676,8 @@ mod tests {
         let dom = parse_html_to_dom("<style>#c{text-align:center;width:400px}#r{text-align:right;width:400px}</style><div id=\"c\">x</div><div id=\"r\">y</div>");
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let texts: Vec<(String, f32)> = list.items.iter().filter_map(|it| match it {
-            DisplayItem::Text { text, x, .. } => Some((text.clone(), *x)),
+        let texts: Vec<(String, f32)> = list.materialized().iter().filter_map(|it| match it {
+            DisplayItem::Text { text, x, .. } => Some((text.to_string(), *x)),
             _ => None,
         }).collect();
         // "x" (1 char, ~8px = 16×0.5) centrado em 400 → x ≈ (400-8)/2 = 196.
@@ -3701,7 +4698,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let r = |sel: &str| list.node_rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let r = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let logo = r("#logo");
         assert!((logo.w - 272.0).abs() < 1.0 && (logo.h - 92.0).abs() < 1.0, "logo: {}x{}", logo.w, logo.h);
         let ico = r("#ico");
@@ -3719,7 +4716,7 @@ mod tests {
         let list = layout_document(&dom, &ctx);
         let rect = |sel: &str| {
             let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-            list.node_rects[&idx]
+            list.geometry().rects[&idx]
         };
         let a = rect("#a"); let b = rect("#b"); let c = rect("#c");
         assert!((a.w - 200.0).abs() < 1.0, "col px: {}", a.w);
@@ -3739,7 +4736,7 @@ mod tests {
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#logo").unwrap()).unwrap();
-        let r = list.node_rects[&idx];
+        let r = list.geometry().rects[&idx];
         assert!((r.y - 74.0).abs() < 2.0, "y centralizado: {} (esperado 74=(240-92)/2)", r.y);
         assert!((r.h - 92.0).abs() < 2.0, "altura preservada: {}", r.h);
     }
@@ -3757,8 +4754,8 @@ mod tests {
         let list = layout_document(&dom, &ctx);
         let c = dom.query("#c").unwrap();
         let idx = dom.resolve(c).unwrap();
-        assert!((list.node_rects[&idx].h - 240.0).abs() < 2.0,
-            "calc height: {} (esperado 240 = 800-560)", list.node_rects[&idx].h);
+        assert!((list.geometry().rects[&idx].h - 240.0).abs() < 2.0,
+            "calc height: {} (esperado 240 = 800-560)", list.geometry().rects[&idx].h);
     }
 
     #[test]
@@ -3775,7 +4772,7 @@ mod tests {
         let list = layout_document(&dom, &ctx);
         let alvo = dom.query("#alvo").unwrap();
         let idx = dom.resolve(alvo).unwrap();
-        let r = list.node_rects[&idx];
+        let r = list.geometry().rects[&idx];
         assert!((r.h - 740.0).abs() < 2.0, "altura do filho 100%: {} (esperado 740)", r.h);
         assert!((r.y - 60.0).abs() < 2.0, "y do filho: {}", r.y);
     }
@@ -3793,7 +4790,7 @@ mod tests {
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
         // o span azul: canto direito da caixa (x=100, w=400 → 500) menos a largura.
-        let sp = list.items.iter().find_map(|it| match it {
+        let sp = list.materialized().iter().find_map(|it| match it {
             DisplayItem::SolidRect { rect, color, .. } if *color == 0x0000FFFF => Some(*rect),
             _ => None,
         }).expect("span absolute");
@@ -3809,8 +4806,10 @@ mod tests {
         let dom = parse_html_to_dom("<p>antes <a href=x>link</a> depois</p>");
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let segs: Vec<(String, u32, u8)> = list.items.iter().filter_map(|it| match it {
-            DisplayItem::Text { text, color, decoration, .. } => Some((text.clone(), *color, *decoration)),
+        let segs: Vec<(String, u32, u8)> = list.materialized().iter().filter_map(|it| match it {
+            DisplayItem::Text { text, color, decoration, .. } => {
+                Some((text.to_string(), *color, *decoration))
+            }
             _ => None,
         }).collect();
         let link = segs.iter().find(|(t, ..)| t.contains("link")).expect("run do link");
@@ -3828,8 +4827,8 @@ mod tests {
         let dom = parse_html_to_dom("<style>div{line-height:3;text-transform:uppercase}</style><div>oi</div><div>tchau</div>");
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let texts: Vec<(String, f32)> = list.items.iter().filter_map(|it| match it {
-            DisplayItem::Text { text, y, .. } => Some((text.clone(), *y)),
+        let texts: Vec<(String, f32)> = list.materialized().iter().filter_map(|it| match it {
+            DisplayItem::Text { text, y, .. } => Some((text.to_string(), *y)),
             _ => None,
         }).collect();
         // uppercase aplicado.
@@ -3858,7 +4857,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 900.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+        let rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(*rect),
             _ => None,
         }).collect();
@@ -3867,7 +4866,7 @@ mod tests {
         assert!(rects[0].x < rects[1].x && rects[1].x < rects[2].x, "lado a lado: {rects:?}");
         assert!(rects.iter().all(|r| r.y == rects[0].y), "mesma linha: {rects:?}");
         // display:none → o texto "invisível" NÃO está na lista.
-        let has_invisivel = list.items.iter().any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
+        let has_invisivel = list.materialized().iter().any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
         assert!(!has_invisivel, "display:none não renderiza o conteúdo");
     }
 
@@ -3881,7 +4880,7 @@ mod tests {
         let dom = parse_html_to_dom("<p>um</p><p>dois</p>");
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let texts: Vec<(f32, f32)> = list.items.iter().filter_map(|it| match it {
+        let texts: Vec<(f32, f32)> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::Text { x, y, .. } => Some((*x, *y)),
             _ => None,
         }).collect();
@@ -3951,7 +4950,7 @@ mod tests {
         let dom = parse_html_to_dom(&html);
         let ctx = LayoutCtx { viewport_w: vw, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let mut rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+        let mut rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(*rect),
             _ => None,
         }).collect();
@@ -4097,7 +5096,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let ys: Vec<f32> = list.items.iter().filter_map(|it| match it {
+        let ys: Vec<f32> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(rect.y),
             _ => None,
         }).collect();
@@ -4115,7 +5114,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<(f32, f32)> = list.items.iter().filter_map(|it| match it {
+        let rects: Vec<(f32, f32)> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some((rect.x, rect.y)),
             _ => None,
         }).collect();
@@ -4169,7 +5168,9 @@ mod tests {
     /// Coleta todos os SolidRect da lista, em ordem (container primeiro, filhos
     /// depois — o fundo do container é inserido ATRÁS dos filhos).
     fn all_rects(list: &DisplayList) -> Vec<Rect> {
-        list.items
+        // PLANA: os itens de uma subárvore reusada não estão no buffer próprio,
+        // e um teste que lesse só ele veria a página pela metade.
+        list.materialized()
             .iter()
             .filter_map(|it| match it {
                 DisplayItem::SolidRect { rect, .. } => Some(*rect),
@@ -4309,7 +5310,7 @@ mod tests {
             .iter()
             .filter_map(|it| match it {
                 DisplayItem::Text { text, x, y, color, .. } => {
-                    Some((text.clone(), *x, *y, *color))
+                    Some((text.to_string(), *x, *y, *color))
                 }
                 _ => None,
             })

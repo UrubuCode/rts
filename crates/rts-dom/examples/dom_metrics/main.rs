@@ -158,6 +158,16 @@ fn bench_file(path: &str, o: &Options, baseline: Option<&str>) -> Option<String>
     println!("    tamanhos: {}", sizes.join(" · "));
     drop(probe);
 
+    // EQUIVALÊNCIA em página REAL: o reuso de fragmentos é o mecanismo mais
+    // fácil de deixar sutilmente errado, e o teste unitário roda numa árvore de
+    // dez nós. Aqui a mesma pergunta é feita sobre a página inteira que acabou
+    // de ser medida: o que o reuso devolve tem de ser o que o cálculo do zero
+    // devolveria.
+    match scenarios::verificar_equivalencia(&html, o.vw, o.vh, &m) {
+        Ok(itens) => println!("    equivalência do reuso: OK ({itens} itens conferidos)"),
+        Err(divergencia) => println!("    ⚠ EQUIVALÊNCIA QUEBRADA: {divergencia}"),
+    }
+
     let runs = scenarios::page(&html, o.vw, o.vh, o.iters, &m);
     for r in &runs {
         r.print();
