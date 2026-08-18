@@ -427,6 +427,70 @@ pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
         }
         _ => {}
     });
+    // Os elementos com caixa, na ordem da árvore: é aqui que se vê um container
+    // sair para o lado quando devia ficar por cima.
+    println!("      caixas (as 14 primeiras, em ordem de documento):");
+    let mut mostradas = 0usize;
+    for idx in 0..dom.nodes.len() {
+        if mostradas >= 14 {
+            break;
+        }
+        let rts_dom::NodeKind::Element { tag } = &dom.node(idx).kind else { continue };
+        let Some(r) = geo.rects.get(&idx) else { continue };
+        if r.w < 1.0 || r.h < 1.0 {
+            continue;
+        }
+        let css = dom.computed_style_idx(idx);
+        let display = css.as_ref().and_then(|c| c.effective_display());
+        let position = css.as_ref().and_then(|c| c.position);
+        let largura = css.as_ref().and_then(|c| c.width);
+        mostradas += 1;
+        println!(
+            "        {tag:<8} ({:>6.0},{:>5.0}) {:>5.0}x{:<5.0} display {display:?} position {position:?} width {largura:?}",
+            r.x, r.y, r.w, r.h
+        );
+    }
+    // O primeiro elemento MAIS LARGO que a viewport, com a cadeia até a raiz: um
+    // estouro nasce em um nó e é herdado pelos filhos, e a cadeia mostra em qual
+    // deles a conta virou.
+    if let Some(culpado) = (0..dom.nodes.len()).find(|&idx| {
+        matches!(dom.node(idx).kind, rts_dom::NodeKind::Element { .. })
+            && geo.rects.get(&idx).map(|r| r.w > vw + 1.0).unwrap_or(false)
+    }) {
+        println!("      primeiro estouro de largura (viewport {vw:.0}):");
+        let mut cadeia = vec![culpado];
+        let mut cur = dom.node(culpado).parent;
+        while let Some(p) = cur {
+            cadeia.push(p);
+            cur = dom.node(p).parent;
+        }
+        cadeia.reverse();
+        // O HTML do trecho, para reproduzir o caso fora da página inteira.
+        if let Some(&pai) = cadeia.iter().rev().nth(1) {
+            let id_pai = dom.id_of_idx(pai);
+            if let Some(fonte) = dom.outer_html(id_pai) {
+                println!("      trecho (pai do estouro, 600 chars):");
+                println!("        {}", fonte.chars().take(600).collect::<String>());
+            }
+        }
+        for idx in cadeia {
+            let tag = match &dom.node(idx).kind {
+                rts_dom::NodeKind::Element { tag } => tag.clone(),
+                _ => "#doc".to_string(),
+            };
+            let css = dom.computed_style_idx(idx);
+            let w = geo.rects.get(&idx).map(|r| r.w).unwrap_or(-1.0);
+
+            println!(
+                "        {tag:<8} largura {w:>7.0}  display {:?} dir {:?} align {:?} width {:?} shrink {:?}",
+                css.as_ref().and_then(|c| c.effective_display()),
+                css.as_ref().and_then(|c| c.flex_direction),
+                css.as_ref().and_then(|c| c.align_items),
+                css.as_ref().and_then(|c| c.width),
+                css.as_ref().and_then(|c| c.flex_shrink),
+            );
+        }
+    }
     println!("      itens pintados: {retangulos} retângulos, {bordas} bordas, {} textos", textos.len());
     // ORDEM de pintura: um fundo que venha DEPOIS do texto apaga o texto.
     println!("      ordem (primeiros 22):");

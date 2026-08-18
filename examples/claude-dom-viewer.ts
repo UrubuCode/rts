@@ -17,7 +17,7 @@ import {
 } from "rts:egui";
 import { readFileSync } from "node:fs";
 
-const PAGINA = "examples/claude-ai-site.html";
+const PAGINA = "C:/Users/Marcos/AppData/Local/Temp/claude/E--rts/d593fce5-3573-494d-aca3-b8987bf358c6/scratchpad/whatsapp.html";
 
 const fonte = readFileSync(PAGINA, "utf8");
 console.log("página:", PAGINA, "|", fonte.length, "bytes");

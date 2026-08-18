@@ -1035,12 +1035,22 @@ fn layout_block(
     let ov_x = css.overflow_x.unwrap_or(crate::scrollbar::Overflow::Visible);
     let ov_y = css.overflow_y.unwrap_or(crate::scrollbar::Overflow::Visible);
     let scrolls_x = ov_x.scrollable() || ov_x == crate::scrollbar::Overflow::Hidden;
-    let children_w = if scrolls_x {
+    // A inflação vale para o eixo do FLUXO HORIZONTAL, que é onde a compressão
+    // aconteceria (o flex encolhe os itens até caberem). Nos demais layouts ela
+    // vira base de PORCENTAGEM dos filhos, e aí está errada: `width:100%` dentro
+    // de um container que rola é 100% da CAIXA, não do conteúdo transbordado.
+    //
+    // Medido na página real do WhatsApp Web, que aninha vários containers com
+    // `overflow-y:auto`: cada nível multiplicava a largura do seguinte, e o
+    // conteúdo terminava em x = 2300 numa janela de 1100 — a tela abria vazia
+    // com tudo desenhado fora dela.
+    let scroll_children_w = if scrolls_x {
         // largura que o conteúdo QUER (sem comprimir) — pode exceder content_w.
         intrinsic_content_width(dom, id, font_size, ctx).max(content_w)
     } else {
         content_w
     };
+    let children_w = content_w;
 
     // `height` EXPLÍCITO resolve ANTES dos filhos (não depende deles): eles o
     // recebem como containing-block height (base do `height:%` deles), e o flex
@@ -1090,7 +1100,7 @@ fn layout_block(
         }
         // horizontal (flex-row sem wrap): lado a lado, encolhe pra caber, não quebra.
         d if d == crate::block::DISPLAY_HORIZONTAL => {
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, false, None, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, scroll_children_w, avail_children, &css, font_size, false, None, ctx, list)
         }
         // GRID REAL: track-sizing (px/fr/auto/%) + auto-placement row-by-row +
         // alinhamento de célula (align-items/justify-items). Só quando é
@@ -1100,7 +1110,7 @@ fn layout_block(
         }
         // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
         d if d == crate::block::DISPLAY_WRAP => {
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, true, None, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, scroll_children_w, avail_children, &css, font_size, true, None, ctx, list)
         }
         // vertical (block): empilha.
         _ => layout_children_vertical(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list),
@@ -1216,7 +1226,7 @@ fn layout_block(
             list.scroll_regions.push(ScrollRegion {
                 node_idx: id,
                 visible: content_rect,
-                content_w: children_w.max(content_w),
+                content_w: scroll_children_w.max(content_w),
                 content_h: content_h_natural,
                 overflow_x: ov_x,
                 overflow_y: ov_y,
@@ -4142,6 +4152,40 @@ mod tests {
             // deslocamento, o teste falha e o braço é escrito.
             _ => a == b,
         }
+    }
+
+    /// Dentro de um container que ROLA, `width:%` de um filho é a porcentagem da
+    /// CAIXA — não do conteúdo transbordado.
+    ///
+    /// O layout de um scroll container usa a largura NATURAL do conteúdo para
+    /// dispor os filhos (senão o flex os comprimiria e nada transbordaria), e
+    /// essa largura estava servindo também de base para as porcentagens. Numa
+    /// página que aninha vários `overflow:auto` — o WhatsApp Web é uma —, cada
+    /// nível multiplicava o seguinte, e o conteúdo terminava desenhado fora da
+    /// janela: a tela abria vazia com tudo pintado à direita dela.
+    #[test]
+    fn porcentagem_dentro_de_scroll_e_da_caixa() {
+        let dom = parse_html_to_dom(
+            "<div style='overflow-y:auto; padding-left:40px; padding-right:40px'>               <div id='meio' style='width:100%'>                 <div style='width:3000px'>conteudo bem mais largo que a caixa</div>               </div>             </div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let lista = layout_document(&dom, &ctx);
+        let meio = dom.resolve(dom.query("#meio").unwrap()).unwrap();
+        let rect = lista.geometry().rects[&meio];
+        assert!(
+            (rect.w - 920.0).abs() < 1.0,
+            "100% da caixa (1000 - 80 de padding) e não do conteúdo: {rect:?}"
+        );
+        // E o conteúdo largo continua transbordando — o container rola, não corta.
+        let geo = lista.geometry();
+        let largo = dom
+            .node(meio)
+            .children
+            .iter()
+            .copied()
+            .find(|c| matches!(dom.node(*c).kind, NodeKind::Element { .. }))
+            .expect("o filho largo");
+        assert!(geo.rects[&largo].w > 2900.0, "o filho largo mantém a largura dele");
     }
 
     /// SEQUÊNCIA LONGA de mutações sorteadas: o reuso tem de bater com o cálculo
