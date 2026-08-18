@@ -21,8 +21,16 @@ impl layout::TextMeasurer for Medidor {
     fn text_width(&self, text: &str, size: f32, _mono: bool, _bold: bool) -> f32 {
         text.chars().count() as f32 * size * 0.5
     }
+    /// A constante da altura de linha é REGULÁVEL (`RTS_LH`) por uma razão de
+    /// método: ela é do INSTRUMENTO e não do motor, e comparar a nossa altura
+    /// com a do Chrome sem a poder variar é comparar o motor mais um número
+    /// escolhido aqui. Variá-la separa "o motor produz altura a mais" de "esta
+    /// sonda mede linhas altas de mais".
     fn line_height(&self, size: f32) -> f32 {
-        size * 1.3
+        static F: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+        size * *F.get_or_init(|| {
+            std::env::var("RTS_LH").ok().and_then(|v| v.parse().ok()).unwrap_or(1.3)
+        })
     }
 }
 

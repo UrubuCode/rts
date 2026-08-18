@@ -112,3 +112,61 @@ fn inherit_vence_uma_declaracao_propria_de_menor_precedencia() {
     let l = dom.query("#l").unwrap();
     assert_eq!(dom.computed_property(l, "color"), "rgb(255, 0, 0)");
 }
+
+#[test]
+fn controlos_de_formulario_tem_a_fonte_da_ua_e_nao_a_herdada() {
+    // Medido na página real: dos 16 354 elementos com font-size dos dois lados,
+    // os ÚNICOS 8 em que divergíamos do Chrome eram `<input>` — ele dá 13,3333px
+    // (a fonte que a folha do browser reserva aos controlos) e nós dávamos os
+    // 16px herdados do corpo. Os controlos não herdam a fonte do documento.
+    let dom = crate::parse_html_to_dom(
+        "<style>body{font-size:16px}</style><body><input id='i'><button id='b'>x</button>\
+         <textarea id='t'></textarea><div id='d'>x</div></body>",
+    );
+    for id in ["#i", "#b", "#t"] {
+        let n = dom.query(id).unwrap();
+        assert_eq!(dom.computed_property(n, "font-size"), "13.3333px", "fonte de {id}");
+    }
+    // e um elemento normal continua a herdar os 16px do corpo.
+    let d = dom.query("#d").unwrap();
+    assert_eq!(dom.computed_property(d, "font-size"), "16px");
+}
+
+#[test]
+fn regra_de_autor_vence_a_fonte_de_ua_do_controlo() {
+    // A UA é a camada mais fraca da cascade: quem declara, manda.
+    let dom = crate::parse_html_to_dom(
+        "<style>input{font-size:20px}</style><body><input id='i'></body>",
+    );
+    let i = dom.query("#i").unwrap();
+    assert_eq!(dom.computed_property(i, "font-size"), "20px");
+}
+
+#[test]
+fn font_size_relativo_resolve_contra_a_base_certa() {
+    // As três bases que uma unidade relativa de `font-size` pode ter, e que são a
+    // origem clássica do erro: `em`/`%` contam do PAI (não do próprio elemento,
+    // senão a definição seria circular) e `rem` conta do `<html>`.
+    let dom = crate::parse_html_to_dom(
+        "<style>#pai{font-size:16px}#em{font-size:0.8333em}#pct{font-size:150%}\
+         #neto{font-size:0.5em}</style>\
+         <div id='pai'><div id='em'>a</div><div id='pct'>b</div>\
+         <div id='meio' style='font-size:20px'><div id='neto'>c</div></div></div>",
+    );
+    let ler = |sel: &str| dom.computed_property(dom.query(sel).unwrap(), "font-size");
+    assert_eq!(ler("#em"), "13.3328px"); // 0.8333 × 16 do PAI
+    assert_eq!(ler("#pct"), "24px"); // 150% × 16 do PAI
+    assert_eq!(ler("#neto"), "10px"); // 0.5 × 20 do pai imediato, não dos 16 do avô
+}
+
+#[test]
+fn rem_conta_do_html_e_nao_do_pai() {
+    // `rem` é a unidade que existe PARA não depender do pai: dentro de um pai de
+    // 20px, `2rem` continua a valer 2 × a fonte do `<html>`.
+    let dom = crate::parse_html_to_dom(
+        "<style>html{font-size:10px}#pai{font-size:20px}#filho{font-size:2rem}</style>\
+         <html><body><div id='pai'><div id='filho'>x</div></div></body></html>",
+    );
+    let filho = dom.query("#filho").unwrap();
+    assert_eq!(dom.computed_property(filho, "font-size"), "20px");
+}
