@@ -127,7 +127,16 @@ fn parse_media_len(v: &str) -> Option<f32> {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Rule {
     pub selector: Selector,
-    pub decls: DeclBlock,
+    /// As declarações, COMPARTILHADAS: `Rc` e não valor.
+    ///
+    /// Um `DeclBlock` tem 2120 bytes (dois `ComputedStyle` inteiros, medido por
+    /// `metrics::footprint::type_sizes`), e `a, b, .c { … }` vira uma regra POR
+    /// SELETOR — que clonava os 2 KB a cada uma. Com o `Rc`, os seletores de uma
+    /// mesma regra dividem um bloco, o `Vec<Rule>` realoca movendo 8 bytes em
+    /// vez de 2120, e o retorno recursivo do parse de `@media` para de carregar
+    /// megabytes. Medido: a emissão de regras era 29% do `parse-css`, que era
+    /// 86% do custo de ABRIR uma página Bootstrap.
+    pub decls: std::rc::Rc<RuleDecls>,
     /// Posição da regra no fonte (0-based) — desempate da cascade.
     pub order: u32,
     /// A condição `@media` que ENVOLVE a regra (None = sempre aplica). Avaliada
@@ -154,6 +163,57 @@ pub struct DeclBlock {
     /// (contra as custom props computadas dele): `(prop, valor-cru, important)`.
     /// Resolvidas na posição da regra em [`Stylesheet::computed_for_node`].
     pub pending: Vec<(String, String, bool)>,
+}
+
+/// O que uma REGRA guarda: o mesmo conteúdo de um [`DeclBlock`], mas com as
+/// duas camadas em LISTA ESPARSA.
+///
+/// Um `ComputedStyle` tem 1000 bytes e uma regra CSS declara 2,1 propriedades em
+/// média — guardar duas structs inteiras por regra fazia o stylesheet do
+/// Bootstrap ocupar 5,9 MiB, e o parse zerar 2 KB por regra. O `DeclBlock` segue
+/// existindo para o `style=""` INLINE, onde a struct é o formato natural (é
+/// lida uma vez, por elemento, e a cascade a consome direto).
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct RuleDecls {
+    pub normal: Box<[super::props::Decl]>,
+    pub important: Box<[super::props::Decl]>,
+    pub custom: Vec<(String, String)>,
+    pub pending: Vec<(String, String, bool)>,
+}
+
+impl RuleDecls {
+    /// Converte o bloco recém-parseado na forma esparsa. A conversão acontece
+    /// UMA vez, no parse; a cascade só aplica.
+    pub fn from_block(block: DeclBlock) -> RuleDecls {
+        RuleDecls {
+            normal: block.normal.to_decls().into_boxed_slice(),
+            important: block.important.to_decls().into_boxed_slice(),
+            custom: block.custom,
+            pending: block.pending,
+        }
+    }
+
+    /// Aplica as declarações normais sobre um estilo (mesma precedência do
+    /// `merge_over`: quem aplica depois vence).
+    pub fn apply_normal(&self, target: &mut ComputedStyle) {
+        for d in &self.normal {
+            d.apply(target);
+        }
+    }
+
+    pub fn apply_important(&self, target: &mut ComputedStyle) {
+        for d in &self.important {
+            d.apply(target);
+        }
+    }
+
+    /// Bytes ESTIMADOS deste bloco (para `metrics::footprint`).
+    pub fn estimated_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + (self.normal.len() + self.important.len()) * std::mem::size_of::<super::props::Decl>()
+            + self.custom.iter().map(|(k, v)| k.capacity() + v.capacity()).sum::<usize>()
+            + self.pending.iter().map(|(k, v, _)| k.capacity() + v.capacity()).sum::<usize>()
+    }
 }
 
 impl DeclBlock {
@@ -199,6 +259,20 @@ pub struct Stylesheet {
     /// Cache de [`position_sensitive`](Stylesheet::position_sensitive), pelo
     /// mesmo motivo do `hover_reach` — a pergunta é por mutação de árvore.
     position_sensitive: std::cell::RefCell<Option<bool>>,
+}
+
+/// As regras que casaram um nó, ordenadas pela cascade. Opaco de propósito: o
+/// que quem chama precisa é passá-lo aos dois passes, não ler o conteúdo.
+#[derive(Debug, Default)]
+pub struct MatchedRules {
+    /// `(especificidade, ordem, índice da regra)`, crescente.
+    rules: Vec<(u32, u32, usize)>,
+}
+
+impl MatchedRules {
+    pub fn is_empty(&self) -> bool {
+        self.rules.is_empty()
+    }
 }
 
 /// Até onde uma mudança de `:hover` pode mexer no estilo desta folha.
@@ -381,18 +455,22 @@ impl Stylesheet {
     /// RSS do processo.
     pub fn estimated_bytes(&self) -> usize {
         let mut total = self.rules.capacity() * std::mem::size_of::<Rule>();
+        // Os blocos de declarações são COMPARTILHADOS entre os seletores de uma
+        // mesma regra (`a, b { … }`), então contá-los por regra contaria o mesmo
+        // bloco várias vezes — e uma estimativa que infla é tão inútil quanto uma
+        // que subestima. Distintos por PONTEIRO.
+        let mut seen: Vec<*const RuleDecls> = Vec::new();
         for r in &self.rules {
             total += r.selector.estimated_bytes();
+            let ptr = std::rc::Rc::as_ptr(&r.decls);
+            if seen.contains(&ptr) {
+                continue;
+            }
+            seen.push(ptr);
             // Um DeclBlock carrega dois ComputedStyle inteiros (normal +
             // important) mais as listas de pendentes/custom, que são as que têm
             // String de verdade.
-            total += r.decls.custom.iter().map(|(k, v)| k.capacity() + v.capacity()).sum::<usize>();
-            total += r
-                .decls
-                .pending
-                .iter()
-                .map(|(k, v, _)| k.capacity() + v.capacity())
-                .sum::<usize>();
+            total += r.decls.estimated_bytes();
         }
         total += self.keyframes.len()
             * (std::mem::size_of::<crate::anim::Keyframes>() + std::mem::size_of::<String>());
@@ -425,6 +503,7 @@ impl Stylesheet {
     /// Acha cada `@keyframes nome { ... }`, parseia os stops e guarda; devolve o CSS
     /// SEM os blocos de keyframes (p/ o parser de regras não tropeçar neles).
     fn extract_keyframes(&mut self, css: &str) -> String {
+        let _phase = crate::metrics::phases::scope("css-keyframes+strip");
         let css = strip_css_comments(css);
         let mut out = String::new();
         let mut rest = css.as_str();
@@ -452,36 +531,67 @@ impl Stylesheet {
     /// casa (decidido pelo `matches` fornecido — o `Dom` passa um que navega a
     /// árvore p/ os combinadores). Retorna um [`DeclBlock`] (normal + important
     /// separados). Dentro de cada camada, ordem de (especificidade, order) crescente.
-    pub fn computed_for_node(
+    /// As regras que casam um nó, JÁ ORDENADAS pela cascade (especificidade,
+    /// depois ordem de documento).
+    ///
+    /// Existe porque o matching acontecia DUAS vezes por nó: uma no passe das
+    /// custom properties (que precisa vir antes, para resolver `var()`) e outra
+    /// no das declarações — sobre o mesmo conjunto candidato e com a mesma
+    /// resposta. E `matches` não é barato: NAVEGA a árvore para os
+    /// combinadores. Numa página Bootstrap são 149 candidatas por nó, e metade
+    /// do trabalho era repetição exata.
+    pub fn matched_for_node(
         &self,
         viewport_w: f32,
         node_tag: &str,
         node_id: Option<&str>,
         node_classes: &[&str],
-        vars: Option<&std::collections::HashMap<String, String>>,
         matches: impl Fn(&ComplexSelector) -> bool,
-    ) -> DeclBlock {
-        // FAST PATH: só as regras cuja chave-alvo o nó pode satisfazer (índice), em
-        // vez de TODAS as regras. O `matches` completo (navega a árvore) ainda decide.
+    ) -> MatchedRules {
+        // FAST PATH: só as regras cuja chave-alvo o nó pode satisfazer (índice),
+        // em vez de TODAS. O `matches` completo ainda decide.
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
         crate::bump!(rules_considered, cand.len());
         let index = self.index.borrow();
-        let mut matched: Vec<(u32, u32, &Rule)> = cand
+        let mut rules: Vec<(u32, u32, usize)> = cand
             .iter()
             .filter_map(|&i| {
                 let r = &self.rules[i];
-                (r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
-                    && matches(&r.selector))
-                    .then(|| (index.specificity(i), r.order, r))
+                (r.media.map(|m| m.matches(viewport_w)).unwrap_or(true) && matches(&r.selector))
+                    .then(|| (index.specificity(i), r.order, i))
             })
             .collect();
-        crate::bump!(rules_matched, matched.len());
-        matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        crate::bump!(rules_matched, rules.len());
+        rules.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        MatchedRules { rules }
+    }
+
+    /// PASS A do `var()` por elemento (#1779): as declarações de CUSTOM
+    /// PROPERTIES (`--x: v`) das regras que casaram, na ordem da cascade (a
+    /// última vence por nome, no consumidor).
+    pub fn custom_from(&self, matched: &MatchedRules) -> Vec<(String, String)> {
+        if !self.has_custom_rules() {
+            return Vec::new();
+        }
+        matched
+            .rules
+            .iter()
+            .flat_map(|(_, _, i)| self.rules[*i].decls.custom.iter().cloned())
+            .collect()
+    }
+
+    /// PASS B: as declarações normais e `!important` das regras que casaram, com
+    /// as pendentes (`prop: …var(--x)…`) resolvidas na POSIÇÃO da regra contra
+    /// as custom props do elemento.
+    pub fn declarations_from(
+        &self,
+        matched: &MatchedRules,
+        vars: Option<&std::collections::HashMap<String, String>>,
+    ) -> DeclBlock {
         let mut out = DeclBlock::default();
-        for (_, _, r) in &matched {
-            out.normal.merge_over(&r.decls.normal);
-            // declarações PENDENTES (`prop: …var(--x)…`) resolvem AQUI, na posição
-            // da regra na cascade, contra as custom props do ELEMENTO (#1779).
+        for (_, _, i) in &matched.rules {
+            let r = &self.rules[*i];
+            r.decls.apply_normal(&mut out.normal);
             if let Some(v) = vars {
                 for (prop, raw, important) in &r.decls.pending {
                     if !important {
@@ -490,8 +600,9 @@ impl Stylesheet {
                 }
             }
         }
-        for (_, _, r) in &matched {
-            out.important.merge_over(&r.decls.important);
+        for (_, _, i) in &matched.rules {
+            let r = &self.rules[*i];
+            r.decls.apply_important(&mut out.important);
             if let Some(v) = vars {
                 for (prop, raw, important) in &r.decls.pending {
                     if *important {
@@ -503,38 +614,6 @@ impl Stylesheet {
         out
     }
 
-    /// PASS A do var() por elemento (#1779): coleta as declarações de CUSTOM
-    /// PROPERTIES (`--x: v`) das regras que casam, na ordem da cascade
-    /// (especificidade + ordem — a última vence por nome no consumidor).
-    pub fn custom_for_node(
-        &self,
-        viewport_w: f32,
-        node_tag: &str,
-        node_id: Option<&str>,
-        node_classes: &[&str],
-        matches: impl Fn(&ComplexSelector) -> bool,
-    ) -> Vec<(String, String)> {
-        if !self.has_custom_rules() {
-            return Vec::new();
-        }
-        let cand = self.candidate_indices(node_tag, node_id, node_classes);
-        crate::bump!(rules_considered, cand.len());
-        let index = self.index.borrow();
-        let mut matched: Vec<(u32, u32, &Rule)> = cand
-            .iter()
-            .filter_map(|&i| {
-                let r = &self.rules[i];
-                (!r.decls.custom.is_empty()
-                    && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
-                    && matches(&r.selector))
-                    .then(|| (index.specificity(i), r.order, r))
-            })
-            .collect();
-        crate::bump!(rules_matched, matched.len());
-        matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
-        matched.iter().flat_map(|(_, _, r)| r.decls.custom.iter().cloned()).collect()
-    }
-
     /// Conveniência: computa o estilo para um elemento dado SÓ tag/id/classes (sem
     /// árvore). Casa apenas seletores de UM compound (sem combinadores nem pseudo/
     /// atributo dependentes de posição — esses retornam false aqui). Usado em testes
@@ -544,11 +623,12 @@ impl Stylesheet {
         let no_pseudo = |_: &PseudoClass| false;
         // viewport de referência 1280 (helper sem árvore/viewport — testes);
         // sem vars (pendentes com var() não resolvem aqui).
-        self.computed_for_node(1280.0, tag, id, classes, None, |sel| {
+        let matched = self.matched_for_node(1280.0, tag, id, classes, |sel| {
             // só seletores de 1 compound casam sem a árvore.
             sel.compounds.len() == 1
                 && compound_matches(&sel.compounds[0], tag, id, classes, &no_attr, &no_pseudo)
-        })
+        });
+        self.declarations_from(&matched, None)
     }
 }
 
@@ -557,7 +637,11 @@ impl Stylesheet {
 /// regras malformadas (sem `{`/`}`, seletor desconhecido) são puladas sem panicar;
 /// `a, b { ... }` vira uma regra por seletor (mesmas declarações).
 pub fn parse_rules(css: &str) -> Vec<Rule> {
-    let css = strip_css_comments(css);
+    let _phase = crate::metrics::phases::scope("css-parse-rules");
+    let css = {
+        let _strip = crate::metrics::phases::scope("css-strip-comments");
+        strip_css_comments(css)
+    };
     let mut rules = Vec::new();
     let bytes = css.as_bytes();
     let mut i = 0usize;
@@ -631,9 +715,16 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         };
         let decls = parse_inline_block(body); // reusa o parser de declarações (normal+important).
         // `a, b, .c { }` → uma regra por seletor (lista separada por vírgula).
+        let _emit = crate::metrics::phases::scope("css-rule-emit");
+        let decls = std::rc::Rc::new(RuleDecls::from_block(decls));
         for sel_str in selectors_raw.split(',') {
             if let Some(selector) = ComplexSelector::parse(sel_str) {
-                rules.push(Rule { selector, decls: decls.clone(), order: 0, media: None });
+                rules.push(Rule {
+                    selector,
+                    decls: std::rc::Rc::clone(&decls),
+                    order: 0,
+                    media: None,
+                });
             } else if !sel_str.trim().is_empty() {
                 // Um seletor que o parser recusa é uma regra que a página tem e o
                 // motor NÃO aplica — a diferença mais comum entre "parece o

@@ -218,6 +218,7 @@ impl ComplexSelector {
 
     /// Parseia um seletor completo (compostos + combinadores). `None` se inválido.
     pub(crate) fn parse(s: &str) -> Option<ComplexSelector> {
+        let _phase = crate::metrics::phases::scope("parse-selector");
         let s = s.trim();
         if s.is_empty() {
             return None;
