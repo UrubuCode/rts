@@ -21,6 +21,7 @@ gets wrong — so the system has four parts, not one.
 | part | answers | cost when off |
 |---|---|---|
 | `counters` | how many times each operation happened | nothing — `bump!` expands to nothing |
+| `footprint` | how much memory the tree holds, and in which area | always available (it is a scan) |
 | `phases` | how long each named phase took, across crates | nothing — `scope()` is an empty struct |
 | `samples` | *which* cases were behind a counter (which selectors were dropped, which properties are missing) | nothing — the `format!` never runs |
 | `audit` | whether the tree is consistent with itself | always available (it is a scan, not instrumentation) |
@@ -186,3 +187,69 @@ where `text_width` hits a font atlas instead of multiplying a character count;
 the 55 000 calls per idle frame are a *count*, and their cost under the real
 measurer is unmeasured. Nothing here has been optimized yet: these are the
 falsifiers, recorded before any change.
+
+---
+
+## What the measurement paid for — the optimizations it justified (2026-08-18)
+
+Three changes, each with its falsifier recorded above, each measured per
+scenario against the previous binary. Numbers on this machine vary ±20% between
+runs of the *same* build (measured: 36.7 / 39.2 / 39.2 ms for one scenario), so
+the claims below lean on counters where the time difference is smaller than that.
+
+### 1. The style memo returns `Rc`
+
+`footprint::type_sizes()` said `ComputedStyle` is **1000 B** and `Rule` is
+**2120 B**. `computed_style_idx` returned it by value, so every memo *hit* copied
+1 KB — 12 016 hits per frame on an idle relayout of the 3005-element page, about
+12 MB of memcpy per frame with a 100% cache hit rate. The cache was working and
+costing.
+
+Both memos now hold `Rc<ComputedStyle>`, and without animation the computed
+value *is* the base, sharing one `Rc` instead of materializing a second copy.
+`computed_style` (the public API) still returns a value: callers from outside
+want their own data and call once.
+
+Cold layout −23% to −41%, idle relayout −22% to −35%, text/class mutations
+−20% to −35%. The one number that went up (idle relayout on the 182-node page,
+0.075 → 0.091 ms) is `unwrap_or_default()` allocating an `Rc` where a stack
+default used to do — stated rather than hidden in the net.
+
+### 2. Hover invalidates the set that can change
+
+`set_hovered` scanned every rule to ask "is there a `:hover`?" (2643 of them)
+and then called the global `touch()`. `Stylesheet::hover_reach()` now answers
+that once, cached, and classifies the reach: `None`, `SelfOnly`, `Subtree`
+(`.card:hover .title`) or `Siblings` (`.a:hover + .b` — the one case that
+escapes the subtree, and the declared fallback to the global). The dirty roots
+are the nodes on the `hovered→root` chain that *could* match a `:hover` compound
+— without that filter the `<body>` joins the chain and its subtree is the page,
+which is where we started.
+
+**Hover on the Bootstrap page: 1.618 → 0.146 ms per frame (11×.)**
+
+### 3. Insertion and removal invalidate the subtree that moved
+
+Same shape, different guard: `Stylesheet::position_sensitive()` —
+`:first-child`, `:nth-child()`, `:empty`, `+`, `~`. Without any of them,
+appending a node changes no other node's style.
+
+**Building 2000 elements while reading layout: 21 060 → 2 003 full cascades**
+(one per element created; the quadratic is gone), removal −34%.
+
+Two mistakes the harness caught before the commit, both recorded in the commit
+message: reusing `touch_subtrees(parent)` on removal was **118× slower** (it
+walks the parent's subtree per removed node), and the `HashSet` inherited from
+`touch_subtrees` cost an allocation per call.
+
+### Still open, measured and not yet done
+
+- **`parse-css` is 86% of opening a Bootstrap page** (19 ms of 22), and the
+  parsed sheet is 9.22 MiB for 232 KB of CSS — each `Rule` carries a `DeclBlock`
+  with two whole `ComputedStyle`.
+- **`candidate_indices` runs twice per element per cascade** (`custom_for_node`
+  and `computed_for_node`).
+- **`query_all` ignores the `#id`/`.class` indices** it maintains.
+- **12.4% of Bootstrap's rules are dropped at parse** — pseudo-elements and
+  compound `:not()` lead the list.
+- **Removing a node leaves its index entries** (the audit reports it as a leak).
