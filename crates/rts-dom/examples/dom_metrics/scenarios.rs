@@ -246,6 +246,17 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     runs.push(run("querySelectorAll", "consulta", iters, m, || {
         std::hint::black_box(dom.query_all(".btn, div, a[href]"));
     }));
+    // A consulta por CLASSE é a que um app faz o tempo todo, e a única forma
+    // que os índices podem servir — a de cima tem `div` (tag) e cai na varredura.
+    let classe = (0..dom.nodes.len())
+        .find_map(|i| {
+            dom.node(i).attr("class").and_then(|c| c.split_whitespace().next().map(str::to_string))
+        })
+        .unwrap_or_else(|| "nao-existe".into());
+    let sel_classe = format!(".{classe}");
+    runs.push(run("querySelectorAll .classe", "consulta", iters, m, || {
+        std::hint::black_box(dom.query_all(&sel_classe));
+    }));
     let first_id = (0..dom.nodes.len())
         .find_map(|i| dom.node(i).attr("id").map(str::to_string))
         .unwrap_or_else(|| "nao-existe".into());

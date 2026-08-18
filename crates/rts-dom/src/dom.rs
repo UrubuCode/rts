@@ -328,6 +328,12 @@ pub struct Dom {
     /// Buffer, offset dos pixels, w, h)`. Setado pelo browser via `setImage` depois
     /// de baixar+decodificar; o layout emite `DisplayItem::Image`. DERIVADO, fora do Eq.
     image_pixels: HashMap<NodeIdx, (u64, u32, u32, u32)>,
+    /// A posição de cada nó em ORDEM DOCUMENTAL (pré-ordem), numerada sob
+    /// demanda e reusada enquanto a árvore não muda. É o que permite responder
+    /// uma consulta a partir dos ÍNDICES `#id`/`.classe` — que dão os candidatos
+    /// em ordem de arena — sem perder a ordem que o `querySelectorAll` promete.
+    /// `u64` = a revisão em que foi numerada.
+    doc_order: std::cell::RefCell<(u64, Vec<u32>)>,
     /// FRAGMENTOS de layout por subárvore — o desenho de um bloco com certas
     /// constraints, guardado em coordenadas relativas à origem em que foi posto.
     /// É o que torna o layout INCREMENTAL: mudar uma folha invalida o epoch dela
@@ -400,6 +406,7 @@ impl Dom {
             focused_input: None,
             display_cache: std::cell::RefCell::new(None),
             fragment_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
+            doc_order: std::cell::RefCell::new((u64::MAX, Vec::new())),
         }
     }
 
@@ -686,6 +693,24 @@ impl Dom {
     fn memo_entries(&self) -> usize {
         self.computed_memo.borrow().iter().filter(|s| s.is_some()).count()
             + self.base_memo.borrow().iter().filter(|s| s.is_some()).count()
+    }
+
+    /// A posição de `idx` em ordem documental, renumerando se a árvore mudou.
+    /// O(n) na primeira consulta depois de uma mutação, O(1) nas seguintes.
+    fn document_positions(&self) -> std::cell::Ref<'_, (u64, Vec<u32>)> {
+        if self.doc_order.borrow().0 != self.revision {
+            let mut order = vec![u32::MAX; self.nodes.len()];
+            let mut next = 0u32;
+            let mut stack = vec![self.root];
+            while let Some(node) = stack.pop() {
+                order[node] = next;
+                next += 1;
+                // pilha: empilha ao contrário para visitar os filhos na ordem.
+                stack.extend(self.nodes[node].children.iter().rev().copied());
+            }
+            *self.doc_order.borrow_mut() = (self.revision, order);
+        }
+        self.doc_order.borrow()
     }
 
     pub(crate) fn fragment_get(
@@ -2360,9 +2385,67 @@ impl Dom {
         // que a consulta não usava: 5007 nós × 14 seletores eram 70 090 chamadas
         // ao matcher completo numa página de 3000 elementos.
         let keys: Vec<TargetKey> = selectors.iter().map(TargetKey::of).collect();
+        // Quando TODA chave é `#id` ou `.classe`, os índices dão os candidatos
+        // direto e a árvore inteira não precisa ser andada — é o que o browser
+        // faz. A ordem sai da numeração documental, porque os índices guardam
+        // ordem de ARENA e `querySelectorAll` promete ordem de documento
+        // (`appendChild` reordena a segunda sem mexer na primeira).
+        // Um seletor que é SÓ a chave (`.card`, `#topo`) já está inteiramente
+        // respondido pelo índice: o candidato tem a classe/id por construção, e
+        // chamar o matcher para reconfirmar é refazer a pergunta que o bucket
+        // respondeu. Com combinador, pseudo ou compound, o matcher decide.
+        let exatos = selectors.iter().all(|sel| {
+            sel.compounds.len() == 1
+                && sel.compounds[0].parts.len() == 1
+                && matches!(
+                    sel.compounds[0].parts[0],
+                    crate::style::SimpleSelector::Class(_) | crate::style::SimpleSelector::Id(_)
+                )
+        });
+        if let Some(candidatos) = self.candidatos_por_indice(&keys) {
+            crate::bump!(query_index_hits);
+            let positions = self.document_positions();
+            // A numeração documental já responde "está na árvore?": um nó
+            // inalcançável nunca foi visitado e ficou com `u32::MAX`. É O(1),
+            // contra o `is_attached`, que sobe até a raiz por candidato — e são
+            // mil candidatos numa consulta de página grande.
+            let mut casaram: Vec<NodeIdx> = candidatos
+                .into_iter()
+                .filter(|&idx| {
+                    crate::bump!(query_nodes_visited);
+                    positions.1.get(idx).copied().unwrap_or(u32::MAX) != u32::MAX
+                        && (exatos || selectors.iter().any(|sel| self.matches_complex(idx, sel)))
+                })
+                .collect();
+            casaram.sort_unstable_by_key(|&idx| positions.1[idx]);
+            drop(positions);
+            return casaram.into_iter().map(|idx| self.make_id(idx)).collect();
+        }
         let mut out = Vec::new();
         self.query_all_into(self.root, &selectors, &keys, &mut out);
         out
+    }
+
+    /// Os candidatos de uma lista de seletores a partir dos índices, ou `None`
+    /// quando algum seletor não tem chave indexada (tag, universal, atributo) —
+    /// nesse caso a varredura em pré-ordem é a única resposta completa.
+    fn candidatos_por_indice(&self, keys: &[TargetKey]) -> Option<Vec<NodeIdx>> {
+        let mut out: Vec<NodeIdx> = Vec::new();
+        for key in keys {
+            let bucket = match key {
+                TargetKey::Id(v) => self.id_index.get(v),
+                TargetKey::Class(v) => self.class_index.get(v),
+                TargetKey::Tag(_) | TargetKey::Any => return None,
+            };
+            if let Some(bucket) = bucket {
+                out.extend_from_slice(bucket);
+            }
+        }
+        // Um nó pode entrar por dois seletores da lista (`.a, .b` num nó com as
+        // duas): o `querySelectorAll` devolve cada nó UMA vez.
+        out.sort_unstable();
+        out.dedup();
+        Some(out)
     }
 
     fn query_all_into(
@@ -4830,6 +4913,49 @@ mod tests {
         // conteúdo real chegou: o h1 do template.
         let h1 = dom.query("h1").unwrap();
         assert_eq!(dom.text_content(h1).unwrap(), "Cover your page.");
+    }
+
+    /// A consulta por índice devolve em ordem DOCUMENTAL, não em ordem de
+    /// arena — e as duas divergem assim que um `appendChild` reordena. É a
+    /// armadilha que o comentário do `query_idx` sempre alertou, e agora que os
+    /// índices respondem de verdade, é ela que precisa de teste.
+    #[test]
+    fn consulta_por_indice_respeita_a_ordem_documental() {
+        let mut dom = parse_html_to_dom(
+            "<div id='host'><p class='x' id='a'>a</p><p class='x' id='b'>b</p></div>",
+        );
+        let host = dom.query("#host").unwrap();
+        let a = dom.query("#a").unwrap();
+        // move o PRIMEIRO para o fim: ordem de arena continua a,b; a documental
+        // vira b,a.
+        dom.append_child(host, a);
+        let ids: Vec<String> = dom
+            .query_all(".x")
+            .into_iter()
+            .map(|n| dom.get_attr(n, "id").unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(ids, vec!["b", "a"], "ordem documental depois do reparent");
+
+        // Um nó REMOVIDO não pode aparecer, mesmo com a entrada de índice viva
+        // (o índice é superconjunto por design — ver a auditoria).
+        let b = dom.query("#b").unwrap();
+        dom.remove_node(b);
+        let ids: Vec<String> = dom
+            .query_all(".x")
+            .into_iter()
+            .map(|n| dom.get_attr(n, "id").unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(ids, vec!["a"], "o removido não entra");
+
+        // E um nó com DUAS classes da lista entra uma vez só.
+        let mut dom2 = parse_html_to_dom("<p class='x y' id='u'></p><p class='y' id='v'></p>");
+        let ids: Vec<String> = dom2
+            .query_all(".x, .y")
+            .into_iter()
+            .map(|n| dom2.get_attr(n, "id").unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(ids, vec!["u", "v"], "sem duplicata e em ordem");
+        let _ = &mut dom2;
     }
 
     /// O ALCANCE de `:hover` decide o que a mudança de hover invalida, e os
