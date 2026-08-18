@@ -3085,7 +3085,7 @@ fn collect_runs(
                 let color = css.as_ref().and_then(|c| c.color).unwrap_or(inherited_color);
                 let tt = css.as_ref().and_then(|c| c.text_transform).or(inherited_tt);
                 let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(inherited_bold);
-                let deco = match css.as_ref().map(decoration_code) {
+                let deco = match css.as_deref().map(decoration_code) {
                     Some(d) if d != 0 => d,
                     _ => inherited_deco,
                 };

@@ -166,6 +166,13 @@ impl DeclBlock {
     }
 }
 
+/// `size_of::<Rule>()` — exposto porque `Rule` é privado do módulo e o número
+/// dele é o que explica a pegada de um stylesheet grande (cada regra carrega um
+/// `DeclBlock`, que carrega dois `ComputedStyle` inteiros).
+pub fn rule_size() -> usize {
+    std::mem::size_of::<Rule>()
+}
+
 /// Um stylesheet de autor (o conteúdo de um `<style>`), já parseado em regras
 /// ordenadas. Egui-free como o resto. É anexado ao `Dom` e consultado na cascade
 /// de `computed_style`.
@@ -245,6 +252,31 @@ impl Stylesheet {
     /// cascade quando a página não tem `<style>`).
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
+    }
+
+    /// Bytes ESTIMADOS deste stylesheet: as regras com seus seletores e blocos
+    /// de declarações, mais os keyframes. Estimativa por estrutura (sem
+    /// alocador instrumentado), como todo o [`crate::metrics::footprint`] —
+    /// serve para comparar páginas e ver a área crescer, não para casar com o
+    /// RSS do processo.
+    pub fn estimated_bytes(&self) -> usize {
+        let mut total = self.rules.capacity() * std::mem::size_of::<Rule>();
+        for r in &self.rules {
+            total += r.selector.estimated_bytes();
+            // Um DeclBlock carrega dois ComputedStyle inteiros (normal +
+            // important) mais as listas de pendentes/custom, que são as que têm
+            // String de verdade.
+            total += r.decls.custom.iter().map(|(k, v)| k.capacity() + v.capacity()).sum::<usize>();
+            total += r
+                .decls
+                .pending
+                .iter()
+                .map(|(k, v, _)| k.capacity() + v.capacity())
+                .sum::<usize>();
+        }
+        total += self.keyframes.len()
+            * (std::mem::size_of::<crate::anim::Keyframes>() + std::mem::size_of::<String>());
+        total
     }
 
     /// Os `@keyframes` de um nome, se existir.

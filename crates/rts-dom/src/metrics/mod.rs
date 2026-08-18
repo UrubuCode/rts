@@ -6,6 +6,7 @@
 //! | [`phases`] | QUANTO TEMPO cada fase nomeada levou — inclusive fases de fora deste crate (render, loop, script) |
 //! | [`samples`] | QUAIS foram os casos — os nomes por trás de um contador (quais seletores caíram, quais propriedades faltam) |
 //! | [`audit`] | se a árvore está CONSISTENTE consigo mesma: índices, elos de parentesco, ids duplicados |
+//! | [`footprint`] | QUANTA MEMÓRIA a árvore ocupa, e em qual área — o consumo que nem contador nem relógio vê |
 //!
 //! ## Por que as três e não só um cronômetro
 //!
@@ -29,10 +30,12 @@
 
 pub mod audit;
 pub mod counters;
+pub mod footprint;
 pub mod phases;
 pub mod samples;
 
 pub use audit::{audit, AuditReport, Finding};
+pub use footprint::{footprint, Footprint};
 pub use counters::{snapshot, DomMetrics};
 pub use phases::{phase_snapshot, PhaseStats, Phases};
 pub use samples::Samples;

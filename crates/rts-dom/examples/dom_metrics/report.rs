@@ -6,7 +6,7 @@
 //! tabela sozinha nunca responde, porque ninguém lembra o número da semana
 //! passada.
 
-use rts_dom::metrics::{AuditReport, DomMetrics, Phases, Samples};
+use rts_dom::metrics::{AuditReport, DomMetrics, Footprint, Phases, Samples};
 use std::time::Duration;
 
 /// Uma execução medida: N amostras de tempo mais o que aconteceu por dentro.
@@ -28,6 +28,9 @@ pub struct Run {
     /// A árvore ao FIM do cenário. `None` quando o cenário não deixa uma (o
     /// `parse` descarta cada árvore que cria).
     pub audit: Option<AuditReport>,
+    /// A PEGADA ao fim do cenário, quando há árvore. Comparada com a do início,
+    /// é o que mostra o estado derivado crescendo sem a árvore crescer.
+    pub footprint: Option<(Footprint, Footprint)>,
 }
 
 /// Estatísticas de tempo de uma execução, em milissegundos.
@@ -90,6 +93,18 @@ impl Run {
             );
         }
         self.print_ratios();
+        if let Some((antes, depois)) = &self.footprint {
+            println!("  memória (fim do cenário)");
+            print!("{}", depois.report());
+            let (a, d) = (antes.total(), depois.total());
+            if d != a {
+                println!(
+                    "      Δ desde o início do cenário: {:+.1} KiB ({:+.1}%)",
+                    (d as f64 - a as f64) / 1024.0,
+                    (d as f64 - a as f64) * 100.0 / a.max(1) as f64
+                );
+            }
+        }
         if let Some(a) = &self.audit {
             if a.bugs() > 0 || a.leaks() > 0 || a.page_issues() > 0 {
                 println!("  consistência ao FIM do cenário");

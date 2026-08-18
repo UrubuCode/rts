@@ -254,7 +254,12 @@ pub struct Dom {
     /// (todas as regras × seletores) rodava várias vezes POR NÓ num único layout
     /// (pré-pass de medição + pintura + intrínsecas). Invalidado quando a revisão
     /// muda. `RefCell` porque `computed_style_idx` é `&self` (chamado do layout).
-    computed_memo: std::cell::RefCell<HashMap<NodeIdx, crate::style::ComputedStyle>>,
+    /// O valor é `Rc` e não `ComputedStyle`: um `ComputedStyle` tem 1000 bytes
+    /// (medido por `metrics::footprint::type_sizes`), e um hit de memo devolvia
+    /// uma CÓPIA deles. Num relayout de 3000 elementos isso eram ~12 MB de
+    /// memcpy por frame com 100% de acerto de cache — o cache funcionando e
+    /// custando. Com `Rc`, um hit é um incremento de contador.
+    computed_memo: std::cell::RefCell<HashMap<NodeIdx, std::rc::Rc<crate::style::ComputedStyle>>>,
     /// O epoch de animação em que o `computed_memo` foi preenchido. Mutações locais
     /// de conteúdo não invalidam esse cache; animações continuam invalidando o estilo
     /// final interpolado.
@@ -265,7 +270,7 @@ pub struct Dom {
     /// `advance` consulta por nó a cada frame. Invalida por epoch global de estilo,
     /// viewport ou dirty bit local — então frames de animação que só bumpam
     /// `anim_epoch` o REUSAM, tornando o `advance` barato.
-    base_memo: std::cell::RefCell<HashMap<NodeIdx, crate::style::ComputedStyle>>,
+    base_memo: std::cell::RefCell<HashMap<NodeIdx, std::rc::Rc<crate::style::ComputedStyle>>>,
     /// A revisão estrutural em que o `base_memo` foi preenchido.
     base_memo_revision: std::cell::Cell<u64>,
     base_memo_viewport: std::cell::Cell<(u32, u32)>,
@@ -586,6 +591,36 @@ impl Dom {
         self.layout_epochs.len()
     }
 
+    /// `(entradas nos memos de estilo, entradas nos caches de layout)` — o
+    /// estado DERIVADO que cresce sem a árvore crescer. Enumerado aqui, ao lado
+    /// dos campos, pela mesma razão do [`derived_node_state`](Self::derived_node_state).
+    pub(crate) fn derived_cache_sizes(&self) -> (usize, usize) {
+        (
+            self.computed_memo.borrow().len() + self.base_memo.borrow().len(),
+            self.layout_measure_cache.borrow().len() + self.intrinsic_width_cache.borrow().len(),
+        )
+    }
+
+    /// Bytes estimados dos caches de layout: chave + valor por entrada, vezes a
+    /// CAPACIDADE do mapa (um `HashMap` reserva além do que usa, e ignorar isso
+    /// subestima justamente a área que enche).
+    pub(crate) fn layout_cache_bytes(&self) -> usize {
+        let measure = self.layout_measure_cache.borrow();
+        let intrinsic = self.intrinsic_width_cache.borrow();
+        measure.capacity()
+            * (std::mem::size_of::<LayoutMeasureKey>() + std::mem::size_of::<(f32, f32)>())
+            + intrinsic.capacity()
+                * (std::mem::size_of::<IntrinsicWidthKey>() + std::mem::size_of::<f32>())
+    }
+
+    /// Bytes estimados do stylesheet de autor mais o CSS bruto guardado para os
+    /// pseudo-elementos de scrollbar. Numa página com o Bootstrap inteiro num
+    /// `<style>`, esta é a maior área do `Dom` — e ela não some quando a árvore
+    /// muda, o que é o motivo de estar separada da árvore no relatório.
+    pub(crate) fn stylesheet_bytes(&self) -> usize {
+        self.raw_css.capacity() + self.stylesheet.estimated_bytes()
+    }
+
     pub(crate) fn layout_measure_get(&self, key: LayoutMeasureKey) -> Option<(f32, f32)> {
         self.layout_measure_cache.borrow().get(&key).copied()
     }
@@ -648,7 +683,7 @@ impl Dom {
     /// O `advance` consulta isto a cada frame; entre frames de animação (revisão
     /// estrutural estável) é um hit de cache — a cascade não re-roda. `None` p/
     /// não-elemento.
-    fn base_style_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
+    fn base_style_idx(&self, idx: NodeIdx) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {
         let style_epoch = crate::style::props::style_epoch();
         let (vw, vh) = self.viewport.get();
         let vp_key = (vw.to_bits(), vh.to_bits());
@@ -660,10 +695,10 @@ impl Dom {
         crate::bump!(base_calls);
         if let Some(hit) = self.base_memo.borrow().get(&idx) {
             crate::bump!(base_memo_hits);
-            return Some(hit.clone());
+            return Some(std::rc::Rc::clone(hit));
         }
-        let computed = self.computed_style_idx_inner(idx)?;
-        self.base_memo.borrow_mut().insert(idx, computed.clone());
+        let computed = std::rc::Rc::new(self.computed_style_idx_inner(idx)?);
+        self.base_memo.borrow_mut().insert(idx, std::rc::Rc::clone(&computed));
         Some(computed)
     }
 
@@ -931,7 +966,10 @@ impl Dom {
     /// resolve ou não é elemento. (A herança de color/font-size é aplicada por quem
     /// desce a árvore; aqui só o estilo PRÓPRIO do nó.)
     pub fn computed_style(&self, id: NodeId) -> Option<crate::style::ComputedStyle> {
-        self.computed_style_idx(self.resolve(id)?)
+        // A API pública devolve VALOR: quem chama de fora (a ABI, o `getComputedStyle`)
+        // quer um dado próprio, e é uma chamada por vez — o `Rc` existe para o
+        // caminho interno do layout, que pede o mesmo estilo dezenas de vezes.
+        self.computed_style_idx(self.resolve(id)?).map(|rc| (*rc).clone())
     }
 
     /// Igual a [`computed_style`](Dom::computed_style), mas por `NodeIdx` cru — o
@@ -943,7 +981,11 @@ impl Dom {
     ///   autor < `style=""` inline < override por-nó (`setStyleBatch`).
     /// - **Important**, por cima de tudo, na mesma ordem de origem: `<style>`
     ///   important < inline important < override (tratado como mais forte).
-    pub fn computed_style_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
+    /// Devolve um `Rc`: ver a nota no campo `computed_memo` — o valor tem 1 KB e
+    /// o layout o pede várias vezes por nó. Quem precisa MUTAR faz
+    /// `(*rc).clone()`, o que é exatamente o ponto (a cópia passa a ser
+    /// explícita e rara em vez de implícita e por acesso).
+    pub fn computed_style_idx(&self, idx: NodeIdx) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {
         // MEMO por revisão: dentro de um mesmo estado da árvore, a cascade de um nó
         // é determinística — e o layout a consulta várias vezes por nó (medição +
         // pintura). Um clone do ComputedStyle é muito mais barato que re-rodar
@@ -964,18 +1006,27 @@ impl Dom {
         crate::bump!(computed_calls);
         if let Some(hit) = self.computed_memo.borrow().get(&idx) {
             crate::bump!(computed_memo_hits);
-            return Some(hit.clone());
+            return Some(std::rc::Rc::clone(hit));
         }
         // O estilo COM animação = a BASE (cascade sem anim, memoizada por revisão
         // estrutural via `base_style_idx`) + a camada de `anim_override` por cima. Não
         // re-roda a cascade a cada frame de animação: só clona a base cacheada e
         // sobrepõe o override interpolado — o que torna o RELAYOUT durante animação
         // barato (era o gargalo restante depois de acelerar o `advance`).
-        let mut computed = self.base_style_idx(idx)?;
-        if let Some(anim) = self.anim_override.get(&idx) {
-            computed.merge_over(anim);
-        }
-        self.computed_memo.borrow_mut().insert(idx, computed.clone());
+        let base = self.base_style_idx(idx)?;
+        // SEM animação, o computado É a base: compartilha o mesmo `Rc` em vez de
+        // materializar uma segunda cópia de 1 KB por nó. Só quem anima paga a
+        // cópia, que é quando ela é de fato necessária (o override interpolado
+        // muda a cada frame).
+        let computed = match self.anim_override.get(&idx) {
+            None => base,
+            Some(anim) => {
+                let mut c = (*base).clone();
+                c.merge_over(anim);
+                std::rc::Rc::new(c)
+            }
+        };
+        self.computed_memo.borrow_mut().insert(idx, std::rc::Rc::clone(&computed));
         Some(computed)
     }
 
@@ -1422,7 +1473,7 @@ impl Dom {
                         }
                     }
                 }
-                self.prev_computed.insert(idx, target.clone());
+                self.prev_computed.insert(idx, (*target).clone());
                 continue; // animation tem prioridade sobre transition neste nó
             } else {
                 self.anim_start.remove(&idx);
@@ -1444,7 +1495,7 @@ impl Dom {
                     );
                 }
             }
-            self.prev_computed.insert(idx, target.clone());
+            self.prev_computed.insert(idx, (*target).clone());
 
             if let Some(active) = self.active_transitions.get(&idx).cloned() {
                 let interp = active.current(&target, now_ms);

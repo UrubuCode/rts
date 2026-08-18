@@ -105,6 +105,19 @@ pub struct ComplexSelector {
 }
 
 impl SimpleSelector {
+    /// Bytes ESTIMADOS das strings deste simples — a parte do seletor que
+    /// realmente aloca. Usado por [`crate::metrics::footprint`].
+    pub fn estimated_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + match self {
+                SimpleSelector::Tag(s) | SimpleSelector::Class(s) | SimpleSelector::Id(s) => {
+                    s.capacity()
+                }
+                SimpleSelector::Attr { name, value, .. } => name.capacity() + value.capacity(),
+                SimpleSelector::Universal | SimpleSelector::Pseudo(_) => 0,
+            }
+    }
+
     fn specificity(&self) -> u32 {
         match self {
             SimpleSelector::Id(_) => 100,
@@ -188,6 +201,21 @@ pub(crate) fn split_top_level_commas(s: &str) -> Vec<&str> {
 }
 
 impl ComplexSelector {
+    /// Bytes ESTIMADOS deste seletor completo (todos os compounds e suas
+    /// strings). Ver [`crate::metrics::footprint`].
+    pub fn estimated_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.combinators.capacity() * std::mem::size_of::<Combinator>()
+            + self
+                .compounds
+                .iter()
+                .map(|c| {
+                    std::mem::size_of::<CompoundSelector>()
+                        + c.parts.iter().map(SimpleSelector::estimated_bytes).sum::<usize>()
+                })
+                .sum::<usize>()
+    }
+
     /// Parseia um seletor completo (compostos + combinadores). `None` se inválido.
     pub(crate) fn parse(s: &str) -> Option<ComplexSelector> {
         let s = s.trim();

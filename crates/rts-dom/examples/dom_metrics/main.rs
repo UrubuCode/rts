@@ -150,6 +150,12 @@ fn bench_file(path: &str, o: &Options, baseline: Option<&str>) -> Option<String>
     println!("\n═══ {path}");
     println!("    {} bytes de HTML · viewport {}×{}", html.len(), o.vw as u32, o.vh as u32);
     print!("{}", audit.report());
+    print!("{}", metrics::footprint(&probe).report());
+    // O tamanho dos TIPOS é sobre o código, não sobre a página — e é o que
+    // explica os outros números (um clone de 1 KB tem a mesma cara de um de 8 B).
+    let sizes: Vec<String> =
+        metrics::footprint::type_sizes().iter().map(|(n, b)| format!("{n} {b} B")).collect();
+    println!("    tamanhos: {}", sizes.join(" · "));
     drop(probe);
 
     let runs = scenarios::page(&html, o.vw, o.vh, o.iters, &m);

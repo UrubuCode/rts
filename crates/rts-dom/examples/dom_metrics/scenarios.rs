@@ -81,6 +81,7 @@ pub fn run<F: FnMut()>(
         notes: metrics::samples::snapshot(),
         text_measures: m.take(),
         audit: None,
+        footprint: None,
     }
 }
 
@@ -146,6 +147,9 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     let _ = rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh));
     let leaf = deepest_element(&dom);
     let mut tick = 0u32;
+    // A pegada ANTES do cenário: o Δ contra a do fim é o que mostra o estado
+    // derivado crescendo sem a árvore crescer.
+    let antes = metrics::footprint(&dom);
     let mut r = run("texto + relayout", "frame", iters, m, || {
         tick += 1;
         if let Some(t) = leaf {
@@ -154,6 +158,7 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
         std::hint::black_box(rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh)));
     });
     r.audit = Some(metrics::audit(&dom));
+    r.footprint = Some((antes, metrics::footprint(&dom)));
     runs.push(r);
     drop(dom);
 
@@ -165,6 +170,9 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     let _ = rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh));
     let leaf = deepest_element(&dom);
     let mut flip = false;
+    // A pegada ANTES do cenário: o Δ contra a do fim é o que mostra o estado
+    // derivado crescendo sem a árvore crescer.
+    let antes = metrics::footprint(&dom);
     let mut r = run("classe + relayout", "frame", iters, m, || {
         flip = !flip;
         if let Some(t) = leaf {
@@ -173,6 +181,7 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
         std::hint::black_box(rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh)));
     });
     r.audit = Some(metrics::audit(&dom));
+    r.footprint = Some((antes, metrics::footprint(&dom)));
     runs.push(r);
     drop(dom);
 
@@ -224,6 +233,9 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     let _ = rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh));
     let host = biggest_container(&dom);
     let mut i = 0u32;
+    // A pegada ANTES do cenário: o Δ contra a do fim é o que mostra o estado
+    // derivado crescendo sem a árvore crescer.
+    let antes = metrics::footprint(&dom);
     let mut r = run("innerHTML + relayout", "frame", iters, m, || {
         i += 1;
         if let Some(h) = host {
@@ -232,6 +244,7 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
         std::hint::black_box(rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh)));
     });
     r.audit = Some(metrics::audit(&dom));
+    r.footprint = Some((antes, metrics::footprint(&dom)));
     runs.push(r);
 
     runs
@@ -246,6 +259,9 @@ pub fn build(n: u32, vw: f32, vh: f32, m: &CountingMeasurer) -> Vec<Run> {
 
     let mut dom = parse_html_to_dom(host_html);
     let host = dom.query("#host").expect("host");
+    // A pegada ANTES do cenário: o Δ contra a do fim é o que mostra o estado
+    // derivado crescendo sem a árvore crescer.
+    let antes = metrics::footprint(&dom);
     let mut r = run("append × N", "árvore", 1, m, || {
         for i in 0..n {
             let li = dom.create_element("li");
@@ -256,6 +272,7 @@ pub fn build(n: u32, vw: f32, vh: f32, m: &CountingMeasurer) -> Vec<Run> {
         }
     });
     r.audit = Some(metrics::audit(&dom));
+    r.footprint = Some((antes, metrics::footprint(&dom)));
     runs.push(r);
 
     // O MESMO trabalho, lendo o layout a cada 100 inserções — o padrão real de
@@ -264,6 +281,9 @@ pub fn build(n: u32, vw: f32, vh: f32, m: &CountingMeasurer) -> Vec<Run> {
     // proporcional à primeira, a invalidação é quadrática.
     let mut dom = parse_html_to_dom(host_html);
     let host = dom.query("#host").expect("host");
+    // A pegada ANTES do cenário: o Δ contra a do fim é o que mostra o estado
+    // derivado crescendo sem a árvore crescer.
+    let antes = metrics::footprint(&dom);
     let mut r = run("append + layout /100", "árvore", 1, m, || {
         for i in 0..n {
             let li = dom.create_element("li");
@@ -277,6 +297,7 @@ pub fn build(n: u32, vw: f32, vh: f32, m: &CountingMeasurer) -> Vec<Run> {
         }
     });
     r.audit = Some(metrics::audit(&dom));
+    r.footprint = Some((antes, metrics::footprint(&dom)));
     runs.push(r);
 
     // REMOÇÃO em massa — o inverso, e o cenário que revela o estado derivado
@@ -293,12 +314,16 @@ pub fn build(n: u32, vw: f32, vh: f32, m: &CountingMeasurer) -> Vec<Run> {
         criados.push(li);
     }
     let mut it = criados.into_iter();
+    // A pegada ANTES do cenário: o Δ contra a do fim é o que mostra o estado
+    // derivado crescendo sem a árvore crescer.
+    let antes = metrics::footprint(&dom);
     let mut r = run("remove × N", "árvore", 1, m, || {
         for id in it.by_ref() {
             dom.remove_node(id);
         }
     });
     r.audit = Some(metrics::audit(&dom));
+    r.footprint = Some((antes, metrics::footprint(&dom)));
     runs.push(r);
 
     runs
