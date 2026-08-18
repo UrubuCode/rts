@@ -157,9 +157,14 @@ fn flush_outgoing(id: u64) {
         let Some(entry) = table.get_mut(&id) else { return (0, Vec::new()) };
         (entry.underlying, entry.driver.outgoing())
     });
-    if bytes.is_empty() || underlying == 0 {
+    if underlying == 0 {
         return;
     }
+    // Escreve MESMO SEM ciphertext a enviar: é a chamada ao `write` do
+    // `net.Socket` que faz o `node:net` entregar o que já chegou (ver a secção
+    // "WHEN" no topo). Sair cedo aqui deixava um `TLSSocket` sem tráfego de
+    // saída sem nada que bombeasse a camada de baixo, e o handshake parava
+    // depois do ClientHello — um laço de espera sobre o TLSSocket não avançava.
     let absent = entry::undefined_value();
     let write_fn = entry::with_runtime(|context| entry::get_member(context, underlying, "write"));
     if write_fn != absent {

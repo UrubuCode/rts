@@ -207,7 +207,7 @@ pub(super) extern "C" fn connect(_e: u64, this: u64, a: u64, b: u64, c: u64, _d:
     let id = registry::next_id();
     entry::with_runtime(|context| super::common::set_num(context, this, "__socketId", id as f64));
     registry::with_sockets(|table| {
-        table.insert(id, SocketEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), stream: None, closed: false });
+        table.insert(id, SocketEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), stream: None, pending: Vec::new(), closed: false });
     });
     entry::with_runtime(|context| super::common::set_bool(context, this, "connecting", true));
     std::thread::spawn(move || {
@@ -293,7 +293,7 @@ pub(super) fn adopt(stream: TcpStream, remote: String) -> u64 {
         instance
     });
     registry::with_sockets(|table| {
-        table.insert(id, SocketEntry { owner: std::thread::current().id(), instance, queue: Default::default(), stream: Some(stream), closed: false });
+        table.insert(id, SocketEntry { owner: std::thread::current().id(), instance, queue: Default::default(), stream: Some(stream), pending: Vec::new(), closed: false });
     });
     if let Some(reader) = reader {
         spawn_reader(id, reader);

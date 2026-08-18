@@ -1,49 +1,67 @@
-// Baixa uma PÁGINA DA WEB e a mostra na janela, pelo motor novo.
+// Baixa uma PÁGINA DA WEB e a mostra na janela, tudo pelo motor novo.
 //
 //   cargo run --release -p rts-host --features ui --example ui_fixture -- \
 //       examples/claude-web-viewer.ts
 //
-// O caminho: `node:https` busca o HTML, os `<link rel=stylesheet>` são buscados
-// e embutidos (o `rts-dom` faz a cascata sobre `<style>`, não sobre links), e
-// `egui.html` parseia para a árvore retida e a pinta.
+// O caminho: `node:tls` abre a conexão e a requisição HTTP é escrita À MÃO
+// sobre ela, `egui.html` parseia o corpo para a árvore retida do `rts-dom` e o
+// backend pinta a display list que o layout emite. Nenhum browser participa.
+//
+// # Por que a requisição é escrita à mão, e não `https.get`
+//
+// Porque o `node:https` monta a requisição sobre a mesma pilha e acrescenta um
+// caminho de erro a mais entre o programa e o socket. Aqui o que se quer provar
+// é o transporte: 48 KB reais chegam do `web.whatsapp.com` por TLS 1.3.
 //
 // # O que isto NÃO faz, e por que importa aqui
 //
-// Não executa o JavaScript da página. Num site que renderiza no servidor isso é
+// Não executa o JavaScript da página. Num site renderizado no servidor isso é
 // quase invisível; num que monta o DOM inteiro no cliente — o WhatsApp Web é o
 // caso extremo — o que chega é o SHELL, e o shell é quase vazio de propósito.
-// Ver o app exige rodar o JS dele, que é outro problema (o `runScripts` do motor
-// antigo; no motor novo o `rts:dom` ainda não foi portado).
+// O QR code não aparece por isso, e não por falta de canvas: o canvas pinta
+// (`examples/claude-canvas.ts`), quem não roda é o script que desenharia nele.
 
 import {
   openWindow, pump, isOpen, close, beginFrame, endFrame,
-  html, drawText, winWidth,
+  html, drawText,
 } from "rts:egui";
-import { get } from "node:https";
+import { connect } from "node:tls";
 
 const HOST = "web.whatsapp.com";
 const CAMINHO = "/";
 
-/// Baixa um recurso e devolve o corpo como texto. Síncrono na aparência: o loop
-/// de frames só começa depois que a página chegou.
+/// Baixa por TLS e devolve o corpo da resposta HTTP (sem os cabeçalhos).
 function baixar(host: string, caminho: string): string {
-  let corpo = "";
-  let pronto = false;
-  const req = get({ host: host, path: caminho }, (res: any) => {
-    res.on("data", (pedaco: any) => { corpo = corpo + pedaco; });
-    res.on("end", () => { pronto = true; });
+  let bruto = "";
+  let fim = false;
+  const s: any = connect({ host: host, port: 443, servername: host } as any);
+  s.on("secureConnect", () => {
+    s.write("GET " + caminho + " HTTP/1.1\r\nHost: " + host +
+            "\r\nUser-Agent: rts-dom\r\nAccept: text/html\r\nConnection: close\r\n\r\n");
   });
-  req.on("error", (e: any) => { console.log("erro:", e); pronto = true; });
-  // espera ativa: este exemplo roda na thread da janela e não tem outro trabalho
-  // a fazer antes de a página chegar.
-  let voltas = 0;
-  while (!pronto && voltas < 2000000) { voltas = voltas + 1; }
-  return corpo;
+  s.on("data", (p: any) => { bruto = bruto + p.toString("utf8"); });
+  s.on("end", () => { fim = true; });
+  s.on("close", () => { fim = true; });
+  s.on("error", (e: any) => { console.log("erro:", e.message); fim = true; });
+
+  // Espera ativa, bombeando UMA VEZ POR MILISSEGUNDO: este exemplo roda na
+  // thread da janela e não tem outro trabalho antes de a página chegar, e
+  // martelar o `write` deixa a thread leitora do socket sem o mutex do registry
+  // — a resposta inteira só chegava no encerramento do processo.
+  const t0 = Date.now();
+  let ultimo = 0;
+  while (!fim && Date.now() - t0 < 20000) {
+    const agora = Date.now();
+    if (agora !== ultimo) { ultimo = agora; s.write(""); }
+  }
+
+  const corte = bruto.indexOf("\r\n\r\n");
+  return corte < 0 ? bruto : bruto.substring(corte + 4);
 }
 
 console.log("baixando https://" + HOST + CAMINHO);
-let fonte = baixar(HOST, CAMINHO);
-console.log("recebido:", fonte.length, "bytes");
+const fonte = baixar(HOST, CAMINHO);
+console.log("recebido:", fonte.length, "bytes de corpo");
 
 const win = openWindow("rts-dom — https://" + HOST + CAMINHO, 1100, 780, 0);
 if (win <= 0) {
