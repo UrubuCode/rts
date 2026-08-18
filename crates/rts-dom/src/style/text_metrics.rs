@@ -1,4 +1,5 @@
-//! A altura de UMA linha quando o CSS não a fixa — o `line-height: normal`.
+//! As MÉTRICAS DE TEXTO aproximadas: a altura de uma linha quando o CSS não a
+//! fixa (`line-height: normal`) e o avanço de um carácter.
 //!
 //! Vive no `style/` porque é uma decisão de ESTILO (o valor inicial de uma
 //! propriedade), e não do medidor: o medidor é quem sabe da fonte, mas o número
@@ -37,11 +38,44 @@
 //!
 //! O valor anterior era `size * 1.3`, que dava 20,8 para 16px onde o Chrome dá
 //! 18: sozinho, era 43 dos 249 desvios do corpus de fixtures.
+//!
+//! ## O avanço de um carácter
+//!
+//! Mesma disciplina, mesma fonte de verdade. O corpus tem nove elementos cujo
+//! texto é conhecido e cuja largura o Chrome mediu, em três fixtures
+//! independentes: `abc` a 16px dá 26,39 e `abcde` dá 43,98 — **0,5498 × o
+//! font-size por carácter**, e não os 0,6 que usávamos. São 0,08px de erro por
+//! carácter, o que numa palavra de 20 caracteres já é 1,6px e chega para uma
+//! linha quebrar no sítio errado.
+//!
+//! O avanço PROPORCIONAL fica nos 0,5 herdados: a fonte proporcional do Chrome
+//! não tem avanço único (cada glifo tem o seu), portanto não há um número para
+//! calibrar — só uma média, e a média certa depende do texto. É a aproximação
+//! que o `ApproxMeasurer` assume no nome.
 
 /// A altura de uma linha de texto de `size` pontos quando o CSS não declara
 /// `line-height` (ou declara `normal`). Ver a calibração no topo do módulo.
 pub fn normal_line_height(size: f32) -> f32 {
     (size * NORMAL_RATIO).ceil()
+}
+
+/// O avanço de UM carácter monoespaçado, em frações do font-size. Medido no
+/// Chrome (ver o topo do módulo): nove amostras, três fixtures, todas a 0,5498.
+pub const MONO_ADVANCE: f32 = 0.5498;
+
+/// O avanço MÉDIO de um carácter proporcional. Aproximação sem calibração
+/// possível — ver o topo do módulo.
+pub const PROP_ADVANCE: f32 = 0.5;
+
+/// A largura que o `letter-spacing` acrescenta a um texto de `n` caracteres.
+///
+/// **`n` espaçamentos e não `n - 1`**: o CSS acrescenta o espaço DEPOIS de cada
+/// carácter, incluindo o último, e é por isso que uma caixa que encolhe ao
+/// conteúdo fica com um espaçamento a mais do que a intuição sugere. Medido:
+/// `abcde` a 16px mono com `letter-spacing: 10px` dá 93,98 no Chrome, que é
+/// 43,98 + 5 × 10 — cinco espaçamentos para cinco caracteres.
+pub fn spacing_width(n_chars: usize, letter_spacing: f32) -> f32 {
+    n_chars as f32 * letter_spacing
 }
 
 /// A razão altura-da-linha / font-size do `normal`. Aproximação da fonte padrão

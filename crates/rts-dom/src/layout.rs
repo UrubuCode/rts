@@ -388,7 +388,13 @@ pub struct ApproxMeasurer;
 
 impl TextMeasurer for ApproxMeasurer {
     fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32 {
-        let mut per = if mono { 0.6 } else { 0.5 };
+        // Os avanços vivem em `style::text_metrics`, com a medição contra o
+        // Chrome que os calibrou — o mono era 0.6 e o Chrome mede 0.5498.
+        let mut per = if mono {
+            crate::style::MONO_ADVANCE
+        } else {
+            crate::style::PROP_ADVANCE
+        };
         if bold {
             per *= 1.06; // bold ~6% mais largo.
         }
@@ -406,7 +412,7 @@ impl TextMeasurer for ApproxMeasurer {
         // `row_height` da fonte real. Este valor serve o layout headless, onde a
         // alternativa era não ter resposta nenhuma.
         //
-        // A constante e a medição que a calibrou vivem em `style::line_metrics`,
+        // A constante e a medição que a calibrou vivem em `style::text_metrics`,
         // porque `normal` é o valor INICIAL de uma propriedade CSS e não uma
         // preferência do medidor — e porque lá está o arredondamento para cima
         // que faz 20px dar 23 e 30px dar 34, os inteiros que o Chrome reporta
@@ -2057,7 +2063,15 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         // o peso importa p/ a largura natural: medir regular mas o wrap/paint usar bold
         // (mais largo) faz o conteúdo não caber na largura natural → quebra indevida.
         let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(false);
-        let width = ctx.measurer.text_width(&own_text, font, mono, bold);
+        // `letter-spacing` entra na LARGURA e não só na pintura: o medidor não o
+        // recebe (a assinatura do trait é partilhada com o backend do egui), por
+        // isso soma-se aqui — n espaçamentos para n caracteres, ver
+        // `style::text_metrics::spacing_width`. Sem isto, uma caixa que encolhe
+        // ao conteúdo ficava com a largura do texto SEM espaçamento e o texto
+        // transbordava dela.
+        let ls = css.as_ref().and_then(|c| c.letter_spacing).unwrap_or(0.0);
+        let width = ctx.measurer.text_width(&own_text, font, mono, bold)
+            + crate::style::spacing_width(own_text.chars().count(), ls);
         dom.intrinsic_width_put(key, width);
         return width;
     }

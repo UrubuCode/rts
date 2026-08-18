@@ -186,3 +186,37 @@ fn a_base_do_rem_nao_sobrevive_ao_documento() {
     );
     assert_eq!(sem.computed_property(sem.query("#a").unwrap(), "font-size"), "32px");
 }
+
+#[test]
+fn letter_spacing_entra_na_largura_que_encolhe() {
+    // Medido no Chrome (`claude-letter-spacing`): `abcde` a 16px mono com
+    // `letter-spacing: 10px` mede 93,98 = 43,98 + 5 × 10 — CINCO espaçamentos
+    // para cinco caracteres, porque o CSS acrescenta o espaço depois de cada um,
+    // incluindo o último. O espaçamento só era aplicado ao PINTAR, portanto uma
+    // caixa que encolhe ao conteúdo saía com a largura do texto sem ele e o
+    // texto transbordava.
+    let largura = |decl: &str| -> f32 {
+        let html = format!("<div><div id='s' style='float:left;{decl}'>abcde</div></div>");
+        let dom = crate::parse_html_to_dom(&html);
+        let ctx = crate::layout::LayoutCtx {
+            viewport_w: 1280.0, viewport_h: 800.0, measurer: &crate::layout::ApproxMeasurer };
+        let list = crate::layout::layout_document(&dom, &ctx);
+        list.rect_of(dom.resolve(dom.query("#s").unwrap()).unwrap()).unwrap().w
+    };
+    let base = largura("");
+    assert_eq!(largura("letter-spacing:10px"), base + 50.0);
+    // negativo aperta, e o `normal` (= 0) não mexe.
+    assert_eq!(largura("letter-spacing:-1px"), base - 5.0);
+    assert_eq!(largura("letter-spacing:normal"), base);
+}
+
+#[test]
+fn avanco_monoespacado_bate_com_o_chrome() {
+    // Nove amostras do corpus, três fixtures: `abc` a 16px mono mede 26,39 e
+    // `abcde` mede 43,98 — 0,5498 × font-size por carácter. Usávamos 0,6, que
+    // são 0,08px de erro por carácter (1,6px numa palavra de 20).
+    use crate::layout::{ApproxMeasurer, TextMeasurer};
+    let m = ApproxMeasurer;
+    assert!((m.text_width("abc", 16.0, true, false) - 26.39).abs() < 0.02);
+    assert!((m.text_width("abcde", 16.0, true, false) - 43.98).abs() < 0.02);
+}
