@@ -3482,6 +3482,60 @@ mod tests {
     use super::*;
     use crate::dom::parse_html_to_dom;
 
+    /// O caminho CACHEADO e o cálculo do zero produzem a mesma coisa, depois de
+    /// cada mutação de uma sequência que passa por texto, atributo, classe,
+    /// inserção e remoção.
+    ///
+    /// É o guarda de qualquer reuso de geometria: um cache que devolve a lista
+    /// errada tem exatamente a mesma cara de um cache rápido, e o único jeito de
+    /// distinguir os dois é recalcular e comparar. Vale hoje (o reuso é
+    /// tudo-ou-nada) e continua valendo quando o reuso for por subárvore.
+    #[test]
+    fn o_layout_reusado_e_igual_ao_recalculado() {
+        let mut dom = parse_html_to_dom(
+            "<style>.card{padding:8px;margin:4px}.t{font-size:18px}.hi{color:#ff0000}</style>             <main id='root'>               <div class='card'><h3 class='t'>Um titulo</h3><p>texto de exemplo aqui</p></div>               <div class='card'><h3 class='t'>Outro</h3><p>mais texto <b>em negrito</b> junto</p></div>               <ul id='lista'><li>a</li><li>b</li><li>c</li></ul>             </main>",
+        );
+        let ctx = LayoutCtx { viewport_w: 640.0, viewport_h: 480.0, measurer: &ApproxMeasurer };
+        let alvo = dom.query("p").unwrap();
+        let card = dom.query(".card").unwrap();
+        let lista = dom.query("#lista").unwrap();
+
+        let mut passo = 0;
+        let mut conferir = |dom: &Dom, passo: &mut i32| {
+            let cacheado = layout_cached(dom, &ctx);
+            let recalculado = layout_document(dom, &ctx);
+            assert_eq!(cacheado.items, recalculado.items, "itens divergem no passo {passo}");
+            assert_eq!(
+                cacheado.content_height, recalculado.content_height,
+                "altura divergente no passo {passo}"
+            );
+            let mut a: Vec<_> = cacheado.node_rects.iter().collect();
+            let mut b: Vec<_> = recalculado.node_rects.iter().collect();
+            a.sort_by_key(|(idx, _)| **idx);
+            b.sort_by_key(|(idx, _)| **idx);
+            assert_eq!(a, b, "retângulos divergem no passo {passo}");
+            *passo += 1;
+        };
+
+        conferir(&dom, &mut passo);
+        dom.set_text(alvo, "outro texto bem mais longo do que o anterior era");
+        conferir(&dom, &mut passo);
+        dom.set_attr(alvo, "class", "hi");
+        conferir(&dom, &mut passo);
+        dom.set_attr(alvo, "class", "classe-que-ninguem-cita");
+        conferir(&dom, &mut passo);
+        let novo = dom.create_element("li");
+        let txt = dom.create_text_node("d");
+        dom.append_child(novo, txt);
+        dom.append_child(lista, novo);
+        conferir(&dom, &mut passo);
+        dom.remove_node(card);
+        conferir(&dom, &mut passo);
+        dom.set_inner_html(lista, "<li>x</li><li>y</li>");
+        conferir(&dom, &mut passo);
+        assert_eq!(passo, 7, "todos os passos foram conferidos");
+    }
+
     /// O cache de layout devolve a MESMA lista enquanto nada muda, e uma NOVA
     /// depois de qualquer mutação. Sem a segunda metade, "o frame parado custa
     /// zero" seria só outra forma de dizer que a página parou de atualizar.
