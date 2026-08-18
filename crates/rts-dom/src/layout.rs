@@ -3681,6 +3681,87 @@ mod tests {
         }
     }
 
+    /// SEQUÊNCIA LONGA de mutações sorteadas: o reuso tem de bater com o cálculo
+    /// do zero em todas elas.
+    ///
+    /// O teste dirigido acima cobre os caminhos que eu sabia listar; este cobre
+    /// as COMBINAÇÕES, que é onde um cache erra — invalidar A e depois B, mexer
+    /// num nó recém-inserido, remover o que acabou de mudar. O gerador é um LCG
+    /// com semente fixa: a sequência é sempre a mesma, então uma falha é
+    /// reproduzível e o teste nunca fica intermitente.
+    #[test]
+    fn sequencia_longa_de_mutacoes_mantem_a_equivalencia() {
+        let mut dom = parse_html_to_dom(
+            "<style>.a{padding:4px}.b{margin:2px}.t{font-size:14px}</style>             <main id='root'>               <div class='a'><p class='t'>um</p><p>dois</p></div>               <div class='b'><span>tres</span> quatro <b>cinco</b></div>               <ul id='l'><li>x</li><li>y</li></ul>             </main>",
+        );
+        let ctx = LayoutCtx { viewport_w: 500.0, viewport_h: 400.0, measurer: &ApproxMeasurer };
+        let raiz = dom.query("#root").unwrap();
+        let lista = dom.query("#l").unwrap();
+        let mut semente = 0x2545_F491_4F6C_DD1Du64;
+        let mut sorteia = move |n: u64| {
+            semente = semente.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (semente >> 33) % n
+        };
+        let mut vivos: Vec<crate::dom::NodeId> = dom.query_all("p, li, span, b");
+
+        for passo in 0..120 {
+            match sorteia(5) {
+                0 => {
+                    if !vivos.is_empty() {
+                        let alvo = vivos[sorteia(vivos.len() as u64) as usize];
+                        dom.set_text(alvo, &format!("t{passo}"));
+                    }
+                }
+                1 => {
+                    if !vivos.is_empty() {
+                        let alvo = vivos[sorteia(vivos.len() as u64) as usize];
+                        let classe = ["a", "b", "t", "sem-regra"][sorteia(4) as usize];
+                        dom.set_attr(alvo, "class", classe);
+                    }
+                }
+                2 => {
+                    let novo = dom.create_element(if passo % 2 == 0 { "li" } else { "p" });
+                    let txt = dom.create_text_node(&format!("novo {passo}"));
+                    dom.append_child(novo, txt);
+                    let pai = if passo % 3 == 0 { lista } else { raiz };
+                    dom.append_child(pai, novo);
+                    vivos.push(novo);
+                }
+                3 => {
+                    if vivos.len() > 3 {
+                        let i = sorteia(vivos.len() as u64) as usize;
+                        let alvo = vivos.remove(i);
+                        dom.remove_node(alvo);
+                    }
+                }
+                _ => {
+                    if vivos.len() > 2 {
+                        // move um nó para o fim da lista (reordena irmãos)
+                        let alvo = vivos[sorteia(vivos.len() as u64) as usize];
+                        dom.append_child(lista, alvo);
+                    }
+                }
+            }
+
+            let reusado = layout_cached(&dom, &ctx);
+            dom.clear_fragment_cache();
+            let zero = layout_document(&dom, &ctx);
+            assert_eq!(
+                reusado.items.len(),
+                zero.items.len(),
+                "passo {passo}: nº de itens diverge"
+            );
+            for (i, (a, b)) in reusado.items.iter().zip(&zero.items).enumerate() {
+                assert!(
+                    itens_equivalentes(a, b),
+                    "passo {passo}, item {i}:
+  reuso: {a:?}
+  zero:  {b:?}"
+                );
+            }
+        }
+    }
+
     /// O caminho CACHEADO e o cálculo do zero produzem a mesma coisa, depois de
     /// cada mutação de uma sequência que passa por texto, atributo, classe,
     /// inserção e remoção.
@@ -3700,7 +3781,7 @@ mod tests {
         let lista = dom.query("#lista").unwrap();
 
         let mut passo = 0;
-        let mut conferir = |dom: &Dom, passo: &mut i32| {
+        let conferir = |dom: &Dom, passo: &mut i32| {
             let cacheado = layout_cached(dom, &ctx);
             // Do ZERO: sem os fragmentos, nada é reusado e o resultado é o que o
             // layout produz quando calcula tudo. Comparar o reuso com ele mesmo
