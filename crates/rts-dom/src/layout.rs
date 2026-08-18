@@ -5639,14 +5639,29 @@ mod tests {
         }
     }
 
+    /// `border-radius` sozinho NÃO tira um elemento do fluxo inline: um raio sem
+    /// fundo nem borda não pinta nada e não cria caixa. O `has_box` conta-o
+    /// porque responde a outra pergunta ("há algo a pintar por este caminho").
+    ///
+    /// Não é um caso de laboratório: 5 262 dos 5 263 `<a>` da Wikipédia eram
+    /// blockificados só por isto, e por isso nenhuma correção do fluxo inline
+    /// lhes tocava — eles nunca lá chegavam.
     #[test]
-    fn tmp_bordas() {
-        let dom = parse_html_to_dom("<div id='d' style='border-width:2'>z</div>");
-        let idx = dom.resolve(dom.query("#d").unwrap()).unwrap();
-        let css = dom.computed_style_idx(idx).unwrap_or_default();
-        eprintln!("DIAG border_width={:?} used_widths={:?}", css.border_width,
-            crate::style::borders::used_widths(&css));
+    fn radius_sozinho_nao_tira_o_elemento_do_fluxo_inline() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
+        let dom = parse_html_to_dom(
+            "<div style='line-height:2'>t <a id='x' style='border-radius:2px'>link</a> f</div>",
+        );
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
+        let r = *list.geometry().rects.get(&idx).expect("o <a> devia ter caixa");
+        // Se tivesse sido blockificado, a altura seria a da LINHA (32) e o x seria
+        // zero (caixa própria a começar na margem do bloco).
+        assert_eq!(r.h, fonte, "altura da fonte, logo continua inline: {r:?}");
+        assert!(r.x > 0.0, "flui depois do texto que o antecede: {r:?}");
     }
+
     #[test]
     fn hit_test_respeita_z_index_em_elementos_sobrepostos() {
         let dom = parse_html_to_dom(

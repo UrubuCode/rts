@@ -480,6 +480,20 @@ css_props! {
         /// `getComputedStyle` o reportar. O motor de CSS não busca imagens (quem
         /// carrega bitmap é o `<img>`, pelo DOM), então isto não pinta.
         [] bg_image: String;
+        /// `mask-image` / `-webkit-mask-image` — o VALOR CRU da url. Não
+        /// carregamos máscaras: o que este campo faz hoje é dizer "esta caixa TEM
+        /// forma dada por uma máscara que não temos", e o layout responde não
+        /// pintando o fundo dela (ver `deve_suprimir_fundo`).
+        ///
+        /// É um SUBSTITUTO TEMPORÁRIO, não a semântica final. Em CSS a máscara
+        /// recorta o fundo: quando soubermos carregar e aplicar uma, o fundo volta
+        /// a ser pintado e passa a ser recortado por ela — e este campo deixa de
+        /// ser um booleano disfarçado para ser a imagem que de facto recorta.
+        /// Suprimir é o mais próximo da verdade enquanto isso não existe: um ícone
+        /// do MediaWiki (`.cdx-button__icon`, `background-color` + `mask-image`)
+        /// sem a máscara não é um glifo, é um quadrado cheio que o browser nunca
+        /// mostra — e foi assim que a Wikipédia ganhou blocos cinzentos.
+        [] mask_image: String;
         /// `background-repeat`. Aceite e serializado (sem imagem pintada, não há
         /// o que repetir ainda).
         [] bg_repeat: crate::style::BgRepeat;

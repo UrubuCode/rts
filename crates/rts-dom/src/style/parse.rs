@@ -107,6 +107,13 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
                     css.bg_image = Some(val.trim().to_string());
                 }
             }
+            // A máscara é RECONHECIDA, não interpretada: guardamos a url crua só
+            // para saber que a forma da caixa vem de fora. O prefixo `-webkit-` é
+            // o que a folha real traz ao lado da propriedade padrão (a Wikipédia
+            // declara as duas), e ignorá-lo deixava metade das páginas de fora.
+            "mask-image" | "-webkit-mask-image" => {
+                css.mask_image = Some(val.trim().to_string())
+            }
             "background-repeat" => css.bg_repeat = crate::style::BgRepeat::parse(val),
             "background-position" => css.bg_position = crate::style::BgPosition::parse(val),
             "background-size" => css.bg_size = crate::style::BgSize::parse(val),
