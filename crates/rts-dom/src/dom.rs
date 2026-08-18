@@ -456,6 +456,11 @@ impl Dom {
     /// podem atravessar a árvore.
     fn touch(&mut self) {
         self.revision = self.revision.wrapping_add(1);
+        crate::bump!(touch_global);
+        crate::bump!(
+            memo_cleared_entries,
+            self.computed_memo.borrow().len() + self.base_memo.borrow().len()
+        );
         self.computed_memo.borrow_mut().clear();
         self.base_memo.borrow_mut().clear();
         self.layout_measure_cache.borrow_mut().clear();
@@ -466,6 +471,7 @@ impl Dom {
     /// O cache de cascade pode continuar válido para o próximo layout.
     fn touch_render_only(&mut self) {
         self.revision = self.revision.wrapping_add(1);
+        crate::bump!(touch_render_only);
         self.layout_measure_cache.borrow_mut().clear();
         self.intrinsic_width_cache.borrow_mut().clear();
     }
@@ -474,6 +480,7 @@ impl Dom {
     /// e overrides locais porque a mudança pode afetar propriedades herdadas.
     fn touch_subtree(&mut self, idx: NodeIdx) {
         self.revision = self.revision.wrapping_add(1);
+        crate::bump!(touch_subtree_calls);
         let mut affected = HashSet::new();
         let mut stack = vec![idx];
         while let Some(node) = stack.pop() {
@@ -481,6 +488,7 @@ impl Dom {
                 stack.extend(self.nodes[node].children.iter().copied());
             }
         }
+        crate::bump!(touch_subtree_nodes, affected.len());
         let mut computed = self.computed_memo.borrow_mut();
         let mut base = self.base_memo.borrow_mut();
         for &node in &affected {
@@ -503,6 +511,7 @@ impl Dom {
         I: IntoIterator<Item = NodeIdx>,
     {
         self.revision = self.revision.wrapping_add(1);
+        crate::bump!(touch_subtree_calls);
         let roots: Vec<NodeIdx> = roots.into_iter().collect();
         let mut affected = HashSet::new();
         let mut stack = roots.clone();
@@ -519,6 +528,7 @@ impl Dom {
                 ancestor = self.nodes[node].parent;
             }
         }
+        crate::bump!(touch_subtree_nodes, affected.len());
         let mut computed = self.computed_memo.borrow_mut();
         let mut base = self.base_memo.borrow_mut();
         for node in affected {
@@ -535,6 +545,47 @@ impl Dom {
         self.layout_epochs[idx]
     }
 
+    /// Os dois índices de consulta, para a AUDITORIA (`metrics::audit`) poder
+    /// confrontá-los com a árvore. Só de leitura, e `pub(crate)`: um índice que
+    /// saísse do crate viraria uma segunda fonte de verdade sobre quem tem qual
+    /// classe.
+    pub(crate) fn debug_indices(
+        &self,
+    ) -> (&HashMap<String, Vec<NodeIdx>>, &HashMap<String, Vec<NodeIdx>>) {
+        (&self.id_index, &self.class_index)
+    }
+
+    /// Todo estado DERIVADO indexado por nó, como `(nome do mapa, índice)`. A
+    /// auditoria só precisa saber que existe uma entrada para um nó — não o que
+    /// há nela — e enumerar os mapas AQUI (uma vez, ao lado dos campos) é o que
+    /// impede que um mapa novo passe a vazar sem ninguém notar: quem esquecer de
+    /// acrescentá-lo aqui não ganha auditoria, mas quem o remover não deixa a
+    /// auditoria mentindo sobre um campo que já não existe.
+    pub(crate) fn derived_node_state(&self) -> Vec<(&'static str, NodeIdx)> {
+        let mut out = Vec::new();
+        let mut push = |label: &'static str, it: &mut dyn Iterator<Item = NodeIdx>| {
+            for idx in it {
+                out.push((label, idx));
+            }
+        };
+        push("style_overrides", &mut self.style_overrides.keys().copied());
+        push("listeners", &mut self.listeners.keys().copied());
+        push("listener_cbs", &mut self.listener_cbs.keys().map(|(idx, _)| *idx));
+        push("input_values", &mut self.input_values.keys().copied());
+        push("image_pixels", &mut self.image_pixels.keys().copied());
+        push("active_transitions", &mut self.active_transitions.keys().copied());
+        push("anim_override", &mut self.anim_override.keys().copied());
+        push("prev_computed", &mut self.prev_computed.keys().copied());
+        push("focused_input", &mut self.focused_input.into_iter());
+        out
+    }
+
+    /// O tamanho da tabela de epochs de layout — deve andar junto com a arena, e
+    /// a auditoria compara os dois.
+    pub(crate) fn layout_epoch_len(&self) -> usize {
+        self.layout_epochs.len()
+    }
+
     pub(crate) fn layout_measure_get(&self, key: LayoutMeasureKey) -> Option<(f32, f32)> {
         self.layout_measure_cache.borrow().get(&key).copied()
     }
@@ -542,6 +593,7 @@ impl Dom {
     pub(crate) fn layout_measure_put(&self, key: LayoutMeasureKey, value: (f32, f32)) {
         let mut cache = self.layout_measure_cache.borrow_mut();
         if cache.len() >= 4096 && !cache.contains_key(&key) {
+            crate::bump!(measure_cache_evictions);
             if let Some(old_key) = cache.keys().next().copied() {
                 cache.remove(&old_key);
             }
@@ -556,6 +608,7 @@ impl Dom {
     pub(crate) fn intrinsic_width_put(&self, key: IntrinsicWidthKey, value: f32) {
         let mut cache = self.intrinsic_width_cache.borrow_mut();
         if cache.len() >= 4096 && !cache.contains_key(&key) {
+            crate::bump!(intrinsic_cache_evictions);
             if let Some(old_key) = cache.keys().next().copied() {
                 cache.remove(&old_key);
             }
@@ -586,6 +639,7 @@ impl Dom {
     /// `touch()`, para o `base_memo` sobreviver ao frame.
     fn touch_anim(&mut self) {
         self.anim_epoch = self.anim_epoch.wrapping_add(1);
+        crate::bump!(touch_anim);
         self.layout_measure_cache.borrow_mut().clear();
         self.intrinsic_width_cache.borrow_mut().clear();
     }
@@ -603,7 +657,9 @@ impl Dom {
             self.base_memo_revision.set(style_epoch);
             self.base_memo_viewport.set(vp_key);
         }
+        crate::bump!(base_calls);
         if let Some(hit) = self.base_memo.borrow().get(&idx) {
+            crate::bump!(base_memo_hits);
             return Some(hit.clone());
         }
         let computed = self.computed_style_idx_inner(idx)?;
@@ -615,6 +671,9 @@ impl Dom {
     /// (chamado pelo parser ao encontrar um `RawElement` de `style`). Vários
     /// `<style>` acumulam, com as regras posteriores desempatando por cima.
     pub fn add_stylesheet(&mut self, css: &str) {
+        let _phase = crate::metrics::phases::scope("parse-css");
+        crate::bump!(stylesheets_added);
+        crate::bump!(css_bytes, css.len());
         self.touch();
         self.stylesheet.append_css(css);
         // guarda o bruto p/ os pseudo-elementos ::-webkit-scrollbar* (#1744).
@@ -654,6 +713,14 @@ impl Dom {
         if id.generation == self.generation && idx < self.nodes.len() {
             Some(idx)
         } else {
+            // Distinguir os dois é o que separa "id de uma árvore ANTERIOR"
+            // (uso-após-troca, quase sempre um bug do chamador) de "índice fora
+            // da arena" (id corrompido ou forjado na travessia da ABI).
+            if id.generation != self.generation {
+                crate::bump!(resolve_stale);
+            } else {
+                crate::bump!(resolve_out_of_range);
+            }
             None
         }
     }
@@ -665,6 +732,7 @@ impl Dom {
 
     /// Registra um nó nos índices a partir de seus atributos `id`/`class`.
     fn deindex_node(&mut self, id: NodeIdx) {
+        crate::bump!(index_removes);
         let old_id = self.nodes[id].attr("id").map(str::to_owned);
         let old_classes: Vec<String> = self.nodes[id]
             .attr("class")
@@ -707,9 +775,11 @@ impl Dom {
             .unwrap_or_default();
         if let Some(k) = id_attr {
             self.id_index.entry(k).or_default().push(id);
+            crate::bump!(index_inserts);
         }
         for c in classes {
             self.class_index.entry(c).or_default().push(id);
+            crate::bump!(index_inserts);
         }
     }
 
@@ -725,6 +795,8 @@ impl Dom {
         self.layout_epochs.push(0);
         self.index_node(id);
         self.nodes[parent].children.push(id);
+        crate::bump!(nodes_created);
+        crate::bump!(tree_links);
         id
     }
 
@@ -758,6 +830,7 @@ impl Dom {
     /// Núcleo do `query` em índices crus (interno). O `query` público embrulha o
     /// resultado no `NodeId` versionado.
     fn query_idx(&self, sel: &str) -> Option<NodeIdx> {
+        crate::bump!(query_calls);
         let selectors = crate::style::parse_selector_list(sel);
         if selectors.is_empty() {
             return None;
@@ -834,6 +907,7 @@ impl Dom {
     /// Substitui TODO o conteúdo de um elemento por um único nó de texto (o
     /// equivalente a `element.textContent = txt`). Não faz nada num nó de texto.
     pub fn set_text(&mut self, id: NodeId, text: &str) {
+        crate::bump!(set_text);
         let Some(idx) = self.resolve(id) else { return };
         if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
             return;
@@ -887,7 +961,9 @@ impl Dom {
             self.memo_style_epoch.set(style_epoch);
             self.memo_viewport.set(vp_key);
         }
+        crate::bump!(computed_calls);
         if let Some(hit) = self.computed_memo.borrow().get(&idx) {
+            crate::bump!(computed_memo_hits);
             return Some(hit.clone());
         }
         // O estilo COM animação = a BASE (cascade sem anim, memoizada por revisão
@@ -912,6 +988,8 @@ impl Dom {
             NodeKind::Element { tag } => tag.as_str(),
             _ => return None,
         };
+        crate::bump!(cascade_runs);
+        let _phase = crate::metrics::phases::scope("cascade");
         // id/classes só são materializados quando há regras de autor para testar.
         // Em páginas sem `<style>`, o layout ainda computa cada nó, mas não precisa
         // alocar strings que nunca serão consultadas pelo RuleIndex.
@@ -960,6 +1038,7 @@ impl Dom {
             match (parent_vars, own_customs.is_empty()) {
                 (p, true) => p, // só herda: compartilha o Arc (O(1))
                 (p, false) => {
+                    crate::bump!(custom_maps_built);
                     let mut m = p.map(|a| (*a).clone()).unwrap_or_default();
                     // o valor de uma custom pode conter var() de OUTRA — a
                     // substituição recursiva do consumidor resolve; guarda cru.
@@ -1051,6 +1130,7 @@ impl Dom {
         // foram declaradas neste nó descem do PAI-elemento. É o que faz o texto pegar
         // a cor do body sem cada elemento redeclarar (sem isto, texto fica preto).
         if let Some(parent_css) = &parent_css {
+            crate::bump!(inherit_steps);
             css.inherit_from(parent_css);
         }
 
@@ -1124,6 +1204,7 @@ impl Dom {
     /// (O handler real é guardado no lado TS, indexado por (nó, tipo).) Idempotente:
     /// não duplica o mesmo tipo. O tipo é CASE-SENSITIVE (spec DOM: `click`≠`CLICK`).
     pub fn add_event_listener(&mut self, id: NodeId, event_type: &str) {
+        crate::bump!(listeners_added);
         let Some(idx) = self.resolve(id) else { return };
         let types = self.listeners.entry(idx).or_default();
         let t = event_type.to_string();
@@ -1150,6 +1231,7 @@ impl Dom {
     /// `element.removeEventListener(type)`: para de escutar `type` neste nó.
     /// (Remove também os callbacks registrados do tipo.)
     pub fn remove_event_listener(&mut self, id: NodeId, event_type: &str) {
+        crate::bump!(listeners_removed);
         let Some(idx) = self.resolve(id) else { return };
         if let Some(types) = self.listeners.get_mut(&idx) {
             types.retain(|x| x != event_type);
@@ -1169,12 +1251,14 @@ impl Dom {
     /// que escuta, enfileira `(nó, tipo)` para o loop TS via `poll_event`. Devolve
     /// quantos listeners foram enfileirados. Tipo CASE-SENSITIVE.
     pub fn dispatch_event(&mut self, target: NodeId, event_type: &str, bubbles: bool) -> i64 {
+        crate::bump!(dispatches);
         let mut count = 0;
         let mut cur = Some(target);
         let mut first = true;
         while let Some(node) = cur {
             let Some(idx) = self.resolve(node) else { break };
             if self.listeners.get(&idx).map(|v| v.iter().any(|x| x == event_type)).unwrap_or(false) {
+                crate::bump!(dispatch_targets);
                 self.event_queue.push_back((idx, event_type.to_string()));
                 count += 1;
             }
@@ -1227,6 +1311,7 @@ impl Dom {
         // Mantém o contrato do polling também (contadores/fila do modelo #1760):
         // um app antigo que só usa pumpEvents continua vendo o evento.
         self.dispatch_event(target, event_type, bubbles);
+        crate::bump!(callbacks_collected, self.last_dispatch.len());
         self.last_dispatch.len() as i64
     }
 
@@ -1293,6 +1378,8 @@ impl Dom {
     /// Devolve `true` se há QUALQUER animação ativa (o backend deve continuar
     /// repintando — pedir o próximo frame).
     pub fn advance(&mut self, now_ms: f32) -> bool {
+        crate::bump!(anim_frames);
+        let _phase = crate::metrics::phases::scope("animate");
         // todos os elementos da árvore (a animação só vale p/ elementos).
         let mut elements = Vec::new();
         self.collect_all_element_idxs(self.root, &mut elements);
@@ -1350,6 +1437,7 @@ impl Dom {
                         .get(&idx)
                         .cloned()
                         .unwrap_or_else(|| prev_style.clone());
+                    crate::bump!(transitions_started);
                     self.active_transitions.insert(
                         idx,
                         crate::anim::ActiveTransition { from, start_ms: now_ms, spec },
@@ -1402,6 +1490,7 @@ impl Dom {
     /// val)` é interpretado pelo `apply_slot` do `ComputedStyle` (nunca casa string
     /// CSS aqui). Ignora id que não resolve.
     pub fn set_node_style_slot(&mut self, id: NodeId, slot: i64, val: i64) {
+        crate::bump!(style_overrides_set);
         let Some(idx) = self.resolve(id) else { return };
         self.touch_subtree(idx);
         self.style_overrides.entry(idx).or_default().apply_slot(slot, val);
@@ -1413,6 +1502,7 @@ impl Dom {
     /// slot1, val1, …]` (o jeito que o buffer GC chega da ABI). Triplas com id
     /// inválido são ignoradas (robustez).
     pub fn apply_style_batch(&mut self, triples: &[i64]) {
+        crate::bump!(style_overrides_set, triples.len() / 3);
         let mut updates = Vec::with_capacity(triples.len() / 3);
         for t in triples.chunks_exact(3) {
             if let Some(node) = NodeId::from_abi(t[0]) {
@@ -1612,6 +1702,7 @@ impl Dom {
     /// `getElementsByTagName(tag)`: todos os descendentes da árvore com a tag.
     /// (`"*"` casa qualquer elemento.) Reusa o matcher de `query_all`.
     pub fn get_elements_by_tag_name(&self, tag: &str) -> Vec<NodeId> {
+        crate::bump!(tag_scans);
         let tag = tag.trim();
         if tag == "*" {
             // todos os elementos em ordem de documento.
@@ -1687,6 +1778,7 @@ impl Dom {
     /// filhos); `deep=true` clona a subárvore inteira. O clone é SOLTO (sem pai) —
     /// anexe-o com appendChild/insertBefore. Devolve o `NodeId` do clone.
     pub fn clone_node(&mut self, id: NodeId, deep: bool) -> Option<NodeId> {
+        crate::bump!(clones);
         let idx = self.resolve(id)?;
         let new_idx = self.clone_subtree(idx, deep);
         Some(self.make_id(new_idx))
@@ -1863,6 +1955,7 @@ impl Dom {
     /// `element.removeAttribute(name)`: remove o atributo (no-op se ausente).
     /// Limpa os índices id/class para o nó (a busca revalida, mas evita stale).
     pub fn remove_attr(&mut self, id: NodeId, name: &str) {
+        crate::bump!(remove_attr);
         let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
         let Some(old_value) = self.nodes[idx]
@@ -1971,6 +2064,7 @@ impl Dom {
         if selectors.is_empty() {
             return Vec::new();
         }
+        crate::bump!(query_calls);
         let mut out = Vec::new();
         self.query_all_into(self.root, &selectors, &mut out);
         out
@@ -1982,6 +2076,7 @@ impl Dom {
         selectors: &[crate::style::ComplexSelector],
         out: &mut Vec<NodeId>,
     ) {
+        crate::bump!(query_nodes_visited);
         if idx != self.root && selectors.iter().any(|sel| self.matches_complex(idx, sel)) {
             out.push(self.make_id(idx));
         }
@@ -2004,6 +2099,7 @@ impl Dom {
     /// combinadores. O ÚLTIMO compound casa `idx`; os anteriores casam ancestrais/
     /// irmãos conforme o combinador (matching da direita p/ a esquerda).
     fn matches_complex(&self, idx: NodeIdx, sel: &crate::style::ComplexSelector) -> bool {
+        crate::bump!(selector_matches);
         let n = sel.compounds.len();
         if !self.compound_matches_idx(idx, &sel.compounds[n - 1]) {
             return false;
@@ -2158,6 +2254,7 @@ impl Dom {
     /// Define/atualiza um atributo (`element.setAttribute`). Cria se não existir.
     /// Reindexa `id`/`class` para que mudanças de valor não deixem candidatos stale.
     pub fn set_attr(&mut self, id: NodeId, name: &str, value: &str) {
+        crate::bump!(set_attr);
         let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
         if self.nodes[idx]
@@ -2297,12 +2394,14 @@ impl Dom {
         let id = self.nodes.len();
         self.nodes.push(Node { kind, attrs: Vec::new(), parent: None, children: Vec::new() });
         self.layout_epochs.push(0);
+        crate::bump!(nodes_created);
         id
     }
 
     /// Remove `idx` da lista de filhos do seu pai atual (se houver).
     fn detach(&mut self, idx: NodeIdx) {
         if let Some(p) = self.nodes[idx].parent.take() {
+            crate::bump!(nodes_detached);
             self.nodes[p].children.retain(|&c| c != idx);
         }
     }
@@ -2400,6 +2499,8 @@ impl Dom {
     /// parseados são COPIADOS para esta arena (re-parentados sob `id`), atualizando
     /// os índices id/class. Não faz nada num nó que não é elemento ou não resolve.
     pub fn set_inner_html(&mut self, id: NodeId, html: &str) {
+        crate::bump!(inner_html_sets);
+        let _phase = crate::metrics::phases::scope("set-inner-html");
         self.touch();
         let Some(idx) = self.resolve(id) else { return };
         if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
@@ -2676,10 +2777,13 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
         };
         // No HTML, um atributo duplicado é ignorado depois da primeira ocorrência.
         if !attrs.iter().any(|a: &Attr| a.name == name) {
+            crate::bump!(attrs_parsed);
             attrs.push(Attr {
                 name,
                 value: crate::html::decode_entities(&value),
             });
+        } else {
+            crate::bump!(attrs_duplicated);
         }
     }
     attrs
@@ -2703,7 +2807,9 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
     // vez — em Rust, como DADOS (tabela em block.rs), rodando só quando há DOM. NÃO é
     // mais um prelude `.ts` (isso quebrava todo programa: o `ua.ts` chamava `dom.*`
     // no top-level e `dom` é unbound sem `import "rts:dom"`). Idempotente.
+    let _phase = crate::metrics::phases::scope("load-html");
     crate::block::install_ua_defaults();
+    crate::bump!(html_bytes, html.len());
     let mut dom = Dom::new();
     // Pilha de (índice cru aberto, nome da tag). Começa na raiz Document.
     let mut open: Vec<(NodeIdx, String)> = vec![(dom.root, String::new())];
@@ -2715,7 +2821,11 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                     // Pop até encontrar a tag de nome igual (tolerante).
                     if let Some(pos) = open.iter().rposition(|(_, n)| *n == name) {
                         // Fecha esse nível e quaisquer filhos mal-fechados acima.
+                        crate::bump!(tags_unclosed_at_eof, open.len().saturating_sub(pos + 1));
                         open.truncate(pos);
+                    } else {
+                        crate::bump!(tags_orphan_close);
+                        crate::note!("tag-de-fechamento-orfa", format!("</{name}>"));
                     }
                     // `</x>` órfão (sem abertura): ignora, não mexe na pilha.
                 } else {
@@ -2727,12 +2837,15 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                     // um container (ver `implicitly_closes`). O guard `> 1`
                     // preserva a raiz `#document`.
                     while open.len() > 1 && implicitly_closes(&name, &open.last().unwrap().1) {
+                        crate::bump!(tags_implicitly_closed);
                         open.pop();
                     }
                     let parent = open.last().unwrap().0;
                     let attrs = parse_attrs(&attrs_raw);
                     let id = dom.push(NodeKind::Element { tag: name.clone() }, attrs, parent);
-                    if !is_void(&name) {
+                    if is_void(&name) {
+                        crate::bump!(tags_void);
+                    } else {
                         open.push((id, name));
                     }
                 }

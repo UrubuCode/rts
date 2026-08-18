@@ -44,6 +44,7 @@ fn is_raw_text_tag(tag: &str) -> bool {
 
 /// Tokeniza o HTML char a char. Ao ver `<`, lê até `>`; senão acumula texto.
 pub(crate) fn tokenize(html: &str) -> Vec<Token> {
+    let _phase = crate::metrics::phases::scope("tokenize-html");
     let mut tokens = Vec::new();
     let bytes = html.as_bytes();
     let mut i = 0usize;
@@ -65,6 +66,7 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
                     Some(end) => (&rest[..end], 4 + end + 3), // `<!--` + corpo + `-->`
                     None => (rest, html.len() - i),            // sem fechar: vai até o fim
                 };
+                crate::bump!(comments_parsed);
                 tokens.push(Token::Comment(content.to_string()));
                 i += advance;
                 continue;
@@ -129,9 +131,15 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
                         Some(end) => (&html[i..i + end], end + close_tag.len()),
                         None => (&html[i..], html.len() - i), // sem fechar: até o fim.
                     };
+                    crate::bump!(raw_elements);
                     tokens.push(Token::RawElement { tag: name, attrs: attrs_raw, content: content.to_string() });
                     i += advance;
                     continue;
+                }
+                if close {
+                    crate::bump!(tags_close);
+                } else {
+                    crate::bump!(tags_open);
                 }
                 tokens.push(Token::Tag { name, attrs_raw, close });
             }
@@ -145,6 +153,7 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
     if !text.is_empty() {
         tokens.push(Token::Text(decode_entities(&text)));
     }
+    crate::bump!(html_tokens, tokens.len());
     tokens
 }
 
@@ -175,11 +184,14 @@ pub(crate) fn decode_entities(s: &str) -> String {
             Some(rel) => {
                 let body = &s[i + 1..i + 1 + rel];
                 if let Some(ch) = decode_one_entity(body) {
+                    crate::bump!(entities_decoded);
                     out.push(ch);
                     i += 1 + rel + 1; // pula `&body;`
                     continue;
                 }
                 // Desconhecida: deixa o `&` literal e segue.
+                crate::bump!(entities_unknown);
+                crate::note!("entidade-desconhecida", format!("&{};", &s[i + 1..i + 1 + rel]));
                 out.push('&');
                 i += 1;
             }

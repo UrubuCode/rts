@@ -256,7 +256,9 @@ fn measure_block(
         viewport_h: ctx.viewport_h.to_bits(),
         measurer,
     };
+    crate::bump!(measure_calls);
     if let Some(size) = dom.layout_measure_get(key) {
+        crate::bump!(measure_hits);
         return size;
     }
     let mut scratch = DisplayList::default();
@@ -281,6 +283,8 @@ fn measure_block(
 /// entrada do motor: percorre os filhos de `#document` como blocos empilhados na
 /// largura do viewport, resolvendo box model e emitindo os itens de pintura.
 pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
+    crate::bump!(documents);
+    let _phase = crate::metrics::phases::scope("layout");
     // informa o viewport à CASCADE (base de vw/vh no font-size fluido/calc; o
     // memo de estilo do Dom invalida sozinho se mudou).
     dom.set_viewport(ctx.viewport_w, ctx.viewport_h);
@@ -329,6 +333,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
     // empréstimo mutável de `list`.
     let flow_rects = list.node_rects.clone();
+    crate::bump!(out_of_flow, out_of_flow.len());
     for id in &out_of_flow {
         layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut list);
     }
@@ -337,6 +342,9 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // crescente de z-index (o último pintado fica no topo).
     // A ordem de pintura já foi registrada durante as inserções de retângulos:
     // fluxo normal durante a descida e out-of-flow na ordem de z-index acima.
+    crate::bump!(display_items, list.items.len());
+    crate::bump!(node_rects, list.node_rects.len());
+    crate::bump!(scroll_regions, list.scroll_regions.len());
     list
 }
 
@@ -634,6 +642,7 @@ fn layout_block(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> (f32, f32) {
+    crate::bump!(block_calls);
     // Nós não-elemento no nível de bloco (texto solto, comentário): trata o texto
     // como uma linha; comentário não pinta.
     let css = match &dom.node(id).kind {
@@ -1131,7 +1140,9 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         viewport_h: ctx.viewport_h.to_bits(),
         measurer: std::ptr::from_ref(ctx.measurer) as *const () as usize as u64,
     };
+    crate::bump!(intrinsic_calls);
     if let Some(hit) = dom.intrinsic_width_get(key) {
+        crate::bump!(intrinsic_hits);
         return hit;
     }
 
@@ -3020,6 +3031,7 @@ fn collect_runs(
                     Some(tt) => tt.apply(t),
                     None => t.clone(),
                 };
+                crate::bump!(inline_runs);
                 out.push(InlineRun {
                     text,
                     color: inherited_color,
@@ -3054,7 +3066,8 @@ fn collect_runs(
                     let (ww, wh) = inline_widget_size(dom, id, &itype, ctx);
                     let mut owners = inherited_owners.to_vec();
                     owners.push(id);
-                    out.push(InlineRun {
+                    crate::bump!(inline_runs);
+                out.push(InlineRun {
                         text: String::new(),
                         color: inherited_color,
                         bold: false,

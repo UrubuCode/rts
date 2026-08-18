@@ -45,6 +45,12 @@ pub mod layout;
 /// Egui-free; o tick por frame é dirigido pelo loop de render.
 pub mod anim;
 
+/// MÉTRICAS de instrumentação (feature `metrics`): contadores por operação do
+/// parse, da cascade, do layout e da invalidação. Desligada, os `bump!` somem —
+/// o crate compila exatamente como antes. É o que responde "onde o trabalho
+/// acontece" antes de qualquer otimização (skill `perf-claim`).
+pub mod metrics;
+
 /// Estilo da SCROLLBAR via CSS (#1744): `scrollbar-width`/`scrollbar-color` (padrão)
 /// + `::-webkit-scrollbar*` (WebKit). Produz um `ScrollbarStyle` neutro que o backend
 /// (egui) lê e aplica — o motor não conhece o egui.

@@ -22,3 +22,8 @@ license.workspace = true
 # Sem ela sobram a árvore, o parser, o estilo e o LAYOUT — que é a maior parte
 # deste crate e não conhece motor nenhum.
 [features]
+# `metrics`: liga os contadores de `src/metrics.rs` (cascade/layout/invalidação).
+# Desligada por padrão porque instrumentação em caminho quente distorce o tempo —
+# um número de relógio medido COM ela não é comparável a um sem. Ligue para
+# responder ONDE o trabalho acontece; desligue para medir QUANTO ele custa.
+metrics = []

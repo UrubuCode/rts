@@ -262,6 +262,7 @@ impl Stylesheet {
         // 2) as regras normais do resto.
         let base = self.rules.len() as u32;
         for (i, rule) in parse_rules(&css_without_kf).into_iter().enumerate() {
+            crate::bump!(css_rules);
             self.rules.push(Rule { order: base + i as u32, ..rule });
         }
     }
@@ -283,6 +284,7 @@ impl Stylesheet {
             let Some(body_end) = find_matching_brace(&rest[body_start..]) else { break };
             let body = &rest[body_start..body_start + body_end];
             if !name.is_empty() {
+                crate::bump!(css_keyframes);
                 self.keyframes.insert(name, parse_keyframe_body(body));
             }
             rest = &rest[body_start + body_end + 1..];
@@ -307,6 +309,7 @@ impl Stylesheet {
         // FAST PATH: só as regras cuja chave-alvo o nó pode satisfazer (índice), em
         // vez de TODAS as regras. O `matches` completo (navega a árvore) ainda decide.
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
+        crate::bump!(rules_considered, cand.len());
         let index = self.index.borrow();
         let mut matched: Vec<(u32, u32, &Rule)> = cand
             .iter()
@@ -317,6 +320,7 @@ impl Stylesheet {
                     .then(|| (index.specificity(i), r.order, r))
             })
             .collect();
+        crate::bump!(rules_matched, matched.len());
         matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
         let mut out = DeclBlock::default();
         for (_, _, r) in &matched {
@@ -359,6 +363,7 @@ impl Stylesheet {
             return Vec::new();
         }
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
+        crate::bump!(rules_considered, cand.len());
         let index = self.index.borrow();
         let mut matched: Vec<(u32, u32, &Rule)> = cand
             .iter()
@@ -370,6 +375,7 @@ impl Stylesheet {
                     .then(|| (index.specificity(i), r.order, r))
             })
             .collect();
+        crate::bump!(rules_matched, matched.len());
         matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
         matched.iter().flat_map(|(_, _, r)| r.decls.custom.iter().cloned()).collect()
     }
@@ -427,6 +433,7 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
                             if let Some(cond) = header.strip_prefix("@media") {
                                 let outer = MediaQuery::parse(cond.trim());
                                 for mut rule in parse_rules(inner_css) {
+                                    crate::bump!(css_media_rules);
                                     // aninhamento @media-em-@media: AND das queries.
                                     rule.media = Some(match rule.media {
                                         Some(inner) => inner.and(outer),
@@ -472,6 +479,13 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         for sel_str in selectors_raw.split(',') {
             if let Some(selector) = ComplexSelector::parse(sel_str) {
                 rules.push(Rule { selector, decls: decls.clone(), order: 0, media: None });
+            } else if !sel_str.trim().is_empty() {
+                // Um seletor que o parser recusa é uma regra que a página tem e o
+                // motor NÃO aplica — a diferença mais comum entre "parece o
+                // Chrome" e "não parece", e invisível sem contá-la.
+                crate::bump!(css_rules_dropped);
+                crate::bump!(selector_parse_failures);
+                crate::note!("seletor-recusado", sel_str.trim().to_string());
             }
         }
         i = next;
