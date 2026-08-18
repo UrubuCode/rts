@@ -1103,6 +1103,148 @@ fn layout_block(
     (outer_w, outer_h)
 }
 
+/// Põe um filho-bloco do fluxo normal, REUSANDO o desenho dele quando nada que
+/// o afete mudou.
+///
+/// É o layout incremental: `layout_epochs[nó]` sobe quando a subárvore muda (e
+/// nos ancestrais dela), então um irmão intacto casa a chave e só precisa ser
+/// deslocado. Numa lista de mil cartões em que um texto mudou, 999 cartões são
+/// uma cópia de itens em vez de cascade + medição de texto + box model.
+///
+/// Só o fluxo VERTICAL normal entra aqui — sem `forced_outer_*` (flex) e sem
+/// `shrink_to_fit`. Os outros caminhos dependem de negociação com os irmãos, e
+/// um fragmento que ignorasse isso responderia errado.
+#[allow(clippy::too_many_arguments)]
+fn layout_block_reusing(
+    dom: &Dom,
+    id: NodeIdx,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    avail_h: Option<f32>,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> (f32, f32) {
+    let key = crate::dom::FragmentKey {
+        tree: dom.cache_identity(),
+        node_epoch: dom.layout_epoch(id),
+        style_epoch: crate::style::props::style_epoch(),
+        anim_epoch: dom.anim_epoch(),
+        node: id,
+        avail_w: avail_w.to_bits(),
+        avail_h: avail_h.map(f32::to_bits),
+        viewport_w: ctx.viewport_w.to_bits(),
+        viewport_h: ctx.viewport_h.to_bits(),
+        measurer: ctx.measurer.identity(),
+    };
+    if let Some(fragment) = dom.fragment_get(key) {
+        crate::bump!(fragment_hits);
+        fragment.emit_at(list, x, y);
+        return fragment.size;
+    }
+    crate::bump!(fragment_misses);
+    // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
+    // e a única forma de saber isso é não misturá-los com os dos irmãos.
+    let mut own = DisplayList::default();
+    let size = layout_block(dom, id, x, y, avail_w, avail_h, None, None, false, ctx, &mut own);
+    let fragment = std::rc::Rc::new(Fragment {
+        rects: own.node_rects.iter().map(|(idx, rect)| (*idx, *rect)).collect(),
+        hit_order: std::mem::take(&mut own.hit_order),
+        scroll_regions: std::mem::take(&mut own.scroll_regions),
+        items: std::mem::take(&mut own.items),
+        origin: (x, y),
+        size,
+    });
+    dom.fragment_put(key, std::rc::Rc::clone(&fragment));
+    fragment.emit_at(list, x, y);
+    size
+}
+
+/// O DESENHO de uma subárvore posta com certas constraints, guardado para ser
+/// reusado numa posição diferente.
+///
+/// Coordenadas ABSOLUTAS, como saíram do layout: a origem em que foi calculado
+/// fica registrada em `origin`, e reusar é somar a diferença. Guardar já
+/// relativo daria na mesma e custaria uma passada extra na hora de gravar — o
+/// caso comum é justamente reusar na MESMA posição (nada acima dele mudou de
+/// altura), e aí a soma é zero e nem se percorre.
+#[derive(Clone, Debug, Default)]
+pub struct Fragment {
+    /// Itens de pintura da subárvore, na ordem em que foram emitidos.
+    pub items: Vec<DisplayItem>,
+    /// Geometria por nó (o que alimenta `getBoundingClientRect`).
+    pub rects: Vec<(NodeIdx, Rect)>,
+    /// Ordem de pintura para o hit-test (ancestral antes de descendente).
+    pub hit_order: Vec<NodeIdx>,
+    /// Regiões roláveis internas descobertas dentro da subárvore.
+    pub scroll_regions: Vec<ScrollRegion>,
+    /// Onde este fragmento foi calculado.
+    pub origin: (f32, f32),
+    /// Tamanho externo devolvido pelo `layout_block` (o que o chamador usa para
+    /// avançar o cursor).
+    pub size: (f32, f32),
+}
+
+impl Fragment {
+    /// Emite este fragmento numa `DisplayList`, deslocado para `(x, y)`.
+    pub fn emit_at(&self, list: &mut DisplayList, x: f32, y: f32) {
+        let (dx, dy) = (x - self.origin.0, y - self.origin.1);
+        let moved = dx != 0.0 || dy != 0.0;
+        list.items.reserve(self.items.len());
+        for item in &self.items {
+            let mut item = item.clone();
+            if moved {
+                translate_item(&mut item, dx, dy);
+            }
+            list.items.push(item);
+        }
+        for (idx, rect) in &self.rects {
+            let mut rect = *rect;
+            if moved {
+                rect.x += dx;
+                rect.y += dy;
+            }
+            list.node_rects.insert(*idx, rect);
+        }
+        list.hit_order.extend_from_slice(&self.hit_order);
+        for region in &self.scroll_regions {
+            let mut region = *region;
+            if moved {
+                region.visible.x += dx;
+                region.visible.y += dy;
+            }
+            list.scroll_regions.push(region);
+        }
+    }
+}
+
+/// DESLOCA um item de pintura por `(dx, dy)`.
+///
+/// É a operação que torna um fragmento de layout REUSÁVEL: o desenho de uma
+/// subárvore cujo conteúdo e constraints não mudaram é o mesmo desenho, na
+/// posição nova. Tudo o que um item carrega é geometria absoluta em coordenadas
+/// de conteúdo, então deslocar é somar — exceto o que é tamanho (`radius`,
+/// `blur`, `size` do texto), que não se move.
+fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) {
+    let shift = |r: &mut Rect| {
+        r.x += dx;
+        r.y += dy;
+    };
+    match it {
+        DisplayItem::SolidRect { rect, .. }
+        | DisplayItem::Shadow { rect, .. }
+        | DisplayItem::GradientRect { rect, .. }
+        | DisplayItem::Border { rect, .. }
+        | DisplayItem::Image { rect, .. }
+        | DisplayItem::BeginClip { rect, .. } => shift(rect),
+        DisplayItem::Text { x, y, .. } => {
+            *x += dx;
+            *y += dy;
+        }
+        DisplayItem::EndClip => {}
+    }
+}
+
 /// Aplica um transform (translate `tx,ty` + escala `sx,sy` + rotação `sin,cos`) em
 /// torno do centro `(cx,cy)` a um DisplayItem, mutando suas coords. Rects escalam de
 /// tamanho; a rotação move o canto (aproximação: rotaciona a posição, não o próprio
@@ -1951,7 +2093,9 @@ fn layout_children_vertical(
                     .unwrap_or(0.0);
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
                 child_y -= prev_margin.min(m);
-                let (_, h) = layout_block(dom, child, content_x, child_y, content_w, avail_h, None, None, false, ctx, list);
+                let (_, h) = layout_block_reusing(
+                    dom, child, content_x, child_y, content_w, avail_h, ctx, list,
+                );
                 child_y += h;
                 prev_margin = m;
             }
@@ -3482,6 +3626,57 @@ mod tests {
     use super::*;
     use crate::dom::parse_html_to_dom;
 
+    /// Tolerância da comparação reuso × cálculo.
+    ///
+    /// Reusar um fragmento numa posição nova é somar um deslocamento às
+    /// coordenadas, e somar não dá bit a bit o mesmo que calcular a posição do
+    /// zero: `67.4` calculado vira `67.399994` deslocado. É a mesma aritmética
+    /// que qualquer motor de layout com reuso tem, a diferença é da ordem de
+    /// 1e-5 pontos — invisível em tela e irrelevante para hit-test. O que o
+    /// teste NÃO tolera é diferença de conteúdo, de contagem ou de ordem.
+    const TOL: f32 = 0.01;
+
+    fn rects_equivalentes(a: &Rect, b: &Rect) -> bool {
+        (a.x - b.x).abs() < TOL
+            && (a.y - b.y).abs() < TOL
+            && (a.w - b.w).abs() < TOL
+            && (a.h - b.h).abs() < TOL
+    }
+
+    /// Dois itens de pintura iguais a menos da tolerância acima. Texto, cor e
+    /// tipo têm de bater EXATAMENTE: só a geometria admite o erro do
+    /// deslocamento.
+    fn itens_equivalentes(a: &DisplayItem, b: &DisplayItem) -> bool {
+        use DisplayItem as D;
+        match (a, b) {
+            (D::SolidRect { rect: ra, color: ca, radius: da }, D::SolidRect { rect: rb, color: cb, radius: db }) => {
+                rects_equivalentes(ra, rb) && ca == cb && (da - db).abs() < TOL
+            }
+            (D::Border { rect: ra, width: wa, color: ca, radius: da }, D::Border { rect: rb, width: wb, color: cb, radius: db }) => {
+                rects_equivalentes(ra, rb) && (wa - wb).abs() < TOL && ca == cb && (da - db).abs() < TOL
+            }
+            (
+                D::Text { x: xa, y: ya, text: ta, color: ca, size: sa, mono: ma, bold: ba, letter_spacing: la, decoration: dea },
+                D::Text { x: xb, y: yb, text: tb, color: cb, size: sb, mono: mb, bold: bb, letter_spacing: lb, decoration: deb },
+            ) => {
+                (xa - xb).abs() < TOL
+                    && (ya - yb).abs() < TOL
+                    && ta == tb
+                    && ca == cb
+                    && (sa - sb).abs() < TOL
+                    && ma == mb
+                    && ba == bb
+                    && (la - lb).abs() < TOL
+                    && dea == deb
+            }
+            (D::EndClip, D::EndClip) => true,
+            // As demais variantes não aparecem neste corpus; comparar por
+            // igualdade estrita aqui é o certo — se um dia aparecerem com
+            // deslocamento, o teste falha e o braço é escrito.
+            _ => a == b,
+        }
+    }
+
     /// O caminho CACHEADO e o cálculo do zero produzem a mesma coisa, depois de
     /// cada mutação de uma sequência que passa por texto, atributo, classe,
     /// inserção e remoção.
@@ -3503,17 +3698,37 @@ mod tests {
         let mut passo = 0;
         let mut conferir = |dom: &Dom, passo: &mut i32| {
             let cacheado = layout_cached(dom, &ctx);
+            // Do ZERO: sem os fragmentos, nada é reusado e o resultado é o que o
+            // layout produz quando calcula tudo. Comparar o reuso com ele mesmo
+            // seria o mesmo que não comparar.
+            dom.clear_fragment_cache();
             let recalculado = layout_document(dom, &ctx);
-            assert_eq!(cacheado.items, recalculado.items, "itens divergem no passo {passo}");
             assert_eq!(
-                cacheado.content_height, recalculado.content_height,
+                cacheado.items.len(),
+                recalculado.items.len(),
+                "quantidade de itens diverge no passo {passo}"
+            );
+            for (i, (a, b)) in cacheado.items.iter().zip(&recalculado.items).enumerate() {
+                assert!(
+                    itens_equivalentes(a, b),
+                    "item {i} diverge no passo {passo}:
+  reuso: {a:?}
+  cálculo: {b:?}"
+                );
+            }
+            assert!(
+                (cacheado.content_height - recalculado.content_height).abs() < TOL,
                 "altura divergente no passo {passo}"
             );
-            let mut a: Vec<_> = cacheado.node_rects.iter().collect();
-            let mut b: Vec<_> = recalculado.node_rects.iter().collect();
-            a.sort_by_key(|(idx, _)| **idx);
-            b.sort_by_key(|(idx, _)| **idx);
-            assert_eq!(a, b, "retângulos divergem no passo {passo}");
+            let mut a: Vec<_> = cacheado.node_rects.iter().map(|(i, r)| (*i, *r)).collect();
+            let mut b: Vec<_> = recalculado.node_rects.iter().map(|(i, r)| (*i, *r)).collect();
+            a.sort_by_key(|(idx, _)| *idx);
+            b.sort_by_key(|(idx, _)| *idx);
+            assert_eq!(a.len(), b.len(), "nº de retângulos diverge no passo {passo}");
+            for ((ia, ra), (ib, rb)) in a.iter().zip(&b) {
+                assert_eq!(ia, ib, "nós diferentes no passo {passo}");
+                assert!(rects_equivalentes(ra, rb), "rect de {ia} diverge no passo {passo}");
+            }
             *passo += 1;
         };
 

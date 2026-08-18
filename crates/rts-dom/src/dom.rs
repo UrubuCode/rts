@@ -52,6 +52,28 @@ pub(crate) struct LayoutMeasureKey {
     pub(crate) measurer: u64,
 }
 
+/// A chave de um FRAGMENTO de layout: o desenho de uma subárvore posta com
+/// certas constraints.
+///
+/// É a `LayoutMeasureKey` sem a posição — porque a posição é justamente o que se
+/// corrige ao reusar (o desenho é o mesmo, deslocado). Os campos são os mesmos
+/// pela mesma razão: cada um protege uma dependência do resultado. `node_epoch`
+/// cobre mudanças na subárvore, `style_epoch` as globais de estilo, o viewport e
+/// o medidor cobrem o resto do ambiente.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct FragmentKey {
+    pub(crate) tree: u64,
+    pub(crate) node_epoch: u64,
+    pub(crate) style_epoch: u64,
+    pub(crate) anim_epoch: u64,
+    pub(crate) node: NodeIdx,
+    pub(crate) avail_w: u32,
+    pub(crate) avail_h: Option<u32>,
+    pub(crate) viewport_w: u32,
+    pub(crate) viewport_h: u32,
+    pub(crate) measurer: u64,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct IntrinsicWidthKey {
     pub(crate) tree: u64,
@@ -306,6 +328,12 @@ pub struct Dom {
     /// Buffer, offset dos pixels, w, h)`. Setado pelo browser via `setImage` depois
     /// de baixar+decodificar; o layout emite `DisplayItem::Image`. DERIVADO, fora do Eq.
     image_pixels: HashMap<NodeIdx, (u64, u32, u32, u32)>,
+    /// FRAGMENTOS de layout por subárvore — o desenho de um bloco com certas
+    /// constraints, guardado em coordenadas relativas à origem em que foi posto.
+    /// É o que torna o layout INCREMENTAL: mudar uma folha invalida o epoch dela
+    /// e dos ancestrais, e todo irmão intacto reusa o fragmento em vez de
+    /// recalcular cascade, medição de texto e box model.
+    fragment_cache: std::cell::RefCell<crate::fasthash::FastMap<FragmentKey, std::rc::Rc<crate::layout::Fragment>>>,
     /// A ÚLTIMA `DisplayList` calculada, com a chave que a validou — o layout
     /// inteiro reusado enquanto nada que o afete mudar (ver
     /// [`crate::layout::layout_cached`]). Um só slot: o padrão é reperguntar
@@ -371,6 +399,7 @@ impl Dom {
             image_pixels: HashMap::new(),
             focused_input: None,
             display_cache: std::cell::RefCell::new(None),
+            fragment_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
         }
     }
 
@@ -477,15 +506,38 @@ impl Dom {
         crate::bump!(memo_cleared_entries, self.memo_entries());
         self.computed_memo.borrow_mut().clear();
         self.base_memo.borrow_mut().clear();
+        // Os FRAGMENTOS são chaveados por epoch de nó, e o `touch()` global é
+        // exatamente o caso em que não se sabe QUAIS nós mudaram (stylesheet
+        // novo, mutação sem alvo). Esvaziar é o fallback seguro; as invalidações
+        // com alvo bumpam epoch e preservam o resto do cache.
+        self.fragment_cache.borrow_mut().clear();
         self.layout_measure_cache.borrow_mut().clear();
         self.intrinsic_width_cache.borrow_mut().clear();
     }
 
     /// Marca uma mudança que altera pixels/geometria, mas não o estilo computado.
     /// O cache de cascade pode continuar válido para o próximo layout.
-    fn touch_render_only(&mut self) {
+    /// Mudança que altera PIXELS/geometria mas não o estilo computado — trocar
+    /// o texto de um elemento é o caso.
+    ///
+    /// `node` é obrigatório porque o reuso de fragmentos exige saber ONDE a
+    /// geometria mudou: sem bumpar o epoch da subárvore (e dos ancestrais, que
+    /// podem mudar de tamanho), um fragmento com o texto ANTIGO continuaria
+    /// casando a chave. Foi assim que o teste de equivalência pegou este caminho
+    /// na primeira mutação.
+    fn touch_render_only(&mut self, node: NodeIdx) {
         self.revision = self.revision.wrapping_add(1);
         crate::bump!(touch_render_only);
+        let mut stack = vec![node];
+        while let Some(n) = stack.pop() {
+            self.layout_epochs[n] = self.layout_epochs[n].wrapping_add(1);
+            stack.extend(self.nodes[n].children.iter().copied());
+        }
+        let mut ancestor = self.nodes[node].parent;
+        while let Some(n) = ancestor {
+            self.layout_epochs[n] = self.layout_epochs[n].wrapping_add(1);
+            ancestor = self.nodes[n].parent;
+        }
         self.layout_measure_cache.borrow_mut().clear();
         self.intrinsic_width_cache.borrow_mut().clear();
     }
@@ -590,7 +642,12 @@ impl Dom {
         // epochs, que só existem para invalidar CHAVES já guardadas. Sem este
         // atalho, um `append` × 4000 pagava a varredura e dois `borrow_mut` por
         // nó, e ficava 40% mais lento do que o `touch()` global que substituiu.
-        if self.memo_entries() == 0
+        // O(1): um vetor de memo VAZIO é "nunca houve layout", que é o caso da
+        // construção pura. Contar os slots preenchidos é O(n) e estava sendo
+        // pago POR MUTAÇÃO — foi o que deixou a remoção de 2000 nós 2,8× mais
+        // lenta assim que o layout passou a preencher os memos.
+        if self.computed_memo.borrow().is_empty()
+            && self.base_memo.borrow().is_empty()
             && self.layout_measure_cache.borrow().is_empty()
             && self.intrinsic_width_cache.borrow().is_empty()
         {
@@ -608,6 +665,8 @@ impl Dom {
             stack.extend(self.nodes[node].children.iter().copied());
         }
         crate::bump!(touch_subtree_nodes, visited);
+        // Sem a feature `metrics` o `bump!` some e a contagem fica sem leitor.
+        let _ = visited;
         drop(computed);
         drop(base);
         // Ancestrais: só o EPOCH — o estilo deles não mudou, o tamanho pode ter.
@@ -627,6 +686,42 @@ impl Dom {
     fn memo_entries(&self) -> usize {
         self.computed_memo.borrow().iter().filter(|s| s.is_some()).count()
             + self.base_memo.borrow().iter().filter(|s| s.is_some()).count()
+    }
+
+    pub(crate) fn fragment_get(
+        &self,
+        key: FragmentKey,
+    ) -> Option<std::rc::Rc<crate::layout::Fragment>> {
+        self.fragment_cache.borrow().get(&key).cloned()
+    }
+
+    pub(crate) fn fragment_put(
+        &self,
+        key: FragmentKey,
+        fragment: std::rc::Rc<crate::layout::Fragment>,
+    ) {
+        let mut cache = self.fragment_cache.borrow_mut();
+        // Teto igual ao dos outros caches de layout: uma página que rola muito
+        // acumula fragmentos de nós que já saíram de cena, e o epoch na chave
+        // impede que um stale seja SERVIDO, não que ele ocupe memória.
+        if cache.len() >= 4096 && !cache.contains_key(&key) {
+            if let Some(old) = cache.keys().next().copied() {
+                cache.remove(&old);
+            }
+        }
+        cache.insert(key, fragment);
+    }
+
+    /// Esquece todos os fragmentos. Existe para o TESTE de equivalência poder
+    /// recalcular do zero e comparar com o que o reuso devolveu: sem isso, o
+    /// teste compararia o cache consigo mesmo, que é o mesmo que não testar.
+    pub fn clear_fragment_cache(&self) {
+        self.fragment_cache.borrow_mut().clear();
+    }
+
+    /// Quantos fragmentos estão guardados (métricas e teste).
+    pub(crate) fn fragment_count(&self) -> usize {
+        self.fragment_cache.borrow().len()
     }
 
     pub(crate) fn display_cache_get(
@@ -755,6 +850,12 @@ impl Dom {
     /// mudam — inclui o epoch GLOBAL de estilo por-tag (`defineStyle`/`defineBlock`,
     /// que vivem fora do `Dom`). É a chave de cache de layout do backend e da ABI:
     /// mesma revisão + mesmo viewport ⇒ a DisplayList anterior ainda vale.
+    /// O epoch de ANIMAÇÃO — entra nas chaves de cache de layout, porque um
+    /// frame de interpolação muda o estilo sem mudar a estrutura.
+    pub(crate) fn anim_epoch(&self) -> u64 {
+        self.anim_epoch
+    }
+
     pub fn render_revision(&self) -> u64 {
         self.revision
             .wrapping_add(self.anim_epoch)
@@ -1047,7 +1148,7 @@ impl Dom {
         if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
             return;
         }
-        self.touch_render_only();
+        self.touch_render_only(idx);
         // Descarta os filhos atuais (arena não compacta; vira lixo inacessível —
         // ok para o uso atual, a árvore é reconstruída a cada `html()`). Zera o
         // `parent` de cada um para `is_attached`/query não os acharem.
