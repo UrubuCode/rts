@@ -477,6 +477,14 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
     // repinta a cada evento, ficava impraticável pela mesma razão.
     let visivel = ui.clip_rect().intersect(ui.max_rect());
     let diagnostico = std::env::var_os("RTS_DOM_PAINT").is_some();
+    // Quantos itens pintados listar. Fixo em 16 não respondia "quem tapou o
+    // resto": o item que cobre a tela é pintado DEPOIS, logo nunca aparecia na
+    // amostra. `RTS_DOM_PAINT_N=0` lista todos.
+    let limite_diag = std::env::var("RTS_DOM_PAINT_N")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .map(|n| if n == 0 { usize::MAX } else { n })
+        .unwrap_or(16);
     let (mut vistos, mut cortados) = (0usize, 0usize);
     let mut idx = 0usize;
     list.walk(|item, dx, dy| {
@@ -497,7 +505,7 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                 return;
             }
             vistos += 1;
-            if diagnostico && vistos <= 16 {
+            if diagnostico && vistos <= limite_diag {
                 let tipo = match item {
                     DisplayItem::Text { text, color, .. } =>
                         format!("txt cor=#{color:08X} {:?}", text.chars().take(18).collect::<String>()),
@@ -514,7 +522,17 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                     origin + egui::vec2(rect.x, rect.y),
                     egui::vec2(rect.w, rect.h),
                 );
-                painter.rect_filled(r, egui::CornerRadius::same(*radius as u8), rgba_to_color32(*color));
+                // RECORTA ao visível quando não há canto arredondado. Uma página
+                // real tem retângulos de dezenas de milhares de pontos (o fundo
+                // de um `<div>` que envolve o documento inteiro), e mandá-los
+                // assim ao tesselador desperdiça o trabalho todo fora do ecrã —
+                // e a precisão de um `f32` a 77 000 pontos já não é a de um a
+                // 780. Com raio não se recorta: cortar um canto arredondado
+                // mudava o desenho.
+                let r = if *radius <= 0.0 { r.intersect(visivel) } else { r };
+                if r.is_positive() {
+                    painter.rect_filled(r, egui::CornerRadius::same(*radius as u8), rgba_to_color32(*color));
+                }
             }
             DisplayItem::Border { rect, width, color, radius } => {
                 let r = egui::Rect::from_min_size(

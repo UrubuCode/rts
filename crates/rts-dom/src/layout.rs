@@ -4272,6 +4272,11 @@ fn layout_inline_flow(
             .filter(|s| matches!(s.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced | AtomicKind::Block | AtomicKind::Break))))
             .map(|s| s.wh)
             .fold(lh, f32::max);
+        // A CAIXA de cada inline desta linha: a content area da fonte, centrada na
+        // linha pela meia-entrelinha. A linha continua a avançar `line_h` — quem
+        // decide o espaçamento é o `line-height`, quem decide a caixa é a fonte.
+        let conteudo = crate::inline_box::altura_do_conteudo(font_size, ctx.measurer);
+        let meia = crate::inline_box::meia_entrelinha(line_h, conteudo);
         let free = (content_w - line_w).max(0.0);
         let mut seg_x = match parent_css.text_align {
             Some(crate::style::TextAlign::Right) => x + free,
@@ -4327,7 +4332,11 @@ fn layout_inline_flow(
                 // O marker não tem largura: a sua caixa é a POSIÇÃO na linha com a
                 // altura da linha, que é o que o browser devolve para um `<source>`.
                 let fragment = match kind {
-                    AtomicKind::Marker | AtomicKind::Break => Rect::new(seg_x, cy, 0.0, line_h),
+                    // Vazio ou quebra: largura zero, mas a MESMA caixa vertical
+                    // que um pedaço de texto teria nesta linha.
+                    AtomicKind::Marker | AtomicKind::Break => {
+                        Rect::new(seg_x, cy + meia, 0.0, conteudo)
+                    }
                     _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
                 };
                 for &owner in &seg.owners {
@@ -4340,7 +4349,7 @@ fn layout_inline_flow(
             let w = seg.text_width + ls * seg.text.chars().count() as f32;
             list.items.push(DisplayItem::Text {
                 x: seg_x,
-                y: cy,
+                y: cy + meia,
                 text: seg.text.into(),
                 color: seg.color,
                 size: font_size,
@@ -4349,7 +4358,7 @@ fn layout_inline_flow(
                 letter_spacing: ls,
                 decoration: seg.deco,
             });
-            let text_fragment = Rect::new(seg_x, cy, w.max(0.0), line_h);
+            let text_fragment = Rect::new(seg_x, cy + meia, w.max(0.0), conteudo);
             for &owner in &seg.owners {
                 crate::inline_box::union_rect(list, owner, text_fragment);
             }
@@ -5560,6 +5569,28 @@ mod tests {
         let r = *list.geometry().rects.get(&idx).expect("o <br> devia ter caixa");
         assert_eq!(r.w, 0.0);
         assert!(r.h > 0.0, "altura de linha: {r:?}");
+    }
+
+    /// A caixa de um elemento inline é a CONTENT AREA DA FONTE, não a caixa de
+    /// linha: com `line-height: 3`, o `<a>` continua a ter a altura da fonte e
+    /// fica CENTRADO na linha pela meia-entrelinha. O `line-height` decide o
+    /// espaçamento (onde a linha seguinte começa), não o tamanho do inline.
+    ///
+    /// Dar-lhe a altura da linha somava ~8px por elemento numa página com
+    /// `line-height: 26px` — 3 032 `<a>` na Wikipédia, ~24 500px de excesso.
+    #[test]
+    fn caixa_do_inline_e_a_altura_da_fonte_nao_a_da_linha() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
+        let dom = parse_html_to_dom(
+            "<div style='line-height:3'>antes <a id='l'>link</a> depois</div>",
+        );
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
+        let r = *list.geometry().rects.get(&idx).expect("o <a> devia ter caixa");
+        assert_eq!(r.h, fonte, "a altura da FONTE, não os 48 da linha");
+        // meia-entrelinha: (48 − 18) / 2 = 15 acima.
+        assert_eq!(r.y, (3.0 * DEFAULT_FONT_SIZE - fonte) / 2.0, "centrado na linha: {r:?}");
     }
 
     #[test]

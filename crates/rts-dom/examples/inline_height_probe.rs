@@ -61,7 +61,26 @@ fn main() {
         println!("y do ultimo texto: {y:.0}");
     }
 
+    // Excesso de altura por TAG, para comparar com o que o Chrome dá: só as
+    // caixas de elementos inline interessam aqui.
     let geo = list.geometry();
+    {
+        let mut soma_por_tag: std::collections::BTreeMap<String, (usize, f32)> =
+            Default::default();
+        for tag in ["a", "span", "i", "b", "sup", "cite", "small"] {
+            for id in dom.query_all(tag) {
+                let Some(idx) = dom.resolve(id) else { continue };
+                let Some(r) = geo.rects.get(&idx) else { continue };
+                let e = soma_por_tag.entry(tag.to_string()).or_insert((0, 0.0));
+                e.0 += 1;
+                e.1 += r.h;
+            }
+        }
+        println!("altura somada por tag (n, total):");
+        for (t, (n, h)) in &soma_por_tag {
+            println!("  <{t}> {n} elementos, {:.0}px somados", h);
+        }
+    }
     let mut paragrafos: Vec<(f32, rts_dom::layout::Rect)> = dom
         .query_all("p")
         .iter()

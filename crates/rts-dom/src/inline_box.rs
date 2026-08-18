@@ -137,6 +137,34 @@ pub(crate) fn altura_da_linha(css: &ComputedStyle, font_size: f32, m: &dyn TextM
     css.line_height.map(|l| l.resolve(font_size, normal)).unwrap_or(normal)
 }
 
+/// A altura da CAIXA de um elemento inline — que NÃO é a altura da linha.
+///
+/// A distinção é a do CSS entre a caixa de linha e a caixa do inline: o
+/// `getBoundingClientRect` de um `<a>` devolve a *content area* — ascent +
+/// descent da fonte —, e o `line-height` decide só onde a linha SEGUINTE começa.
+/// Com `line-height: 26px` e uma fonte de 16px são ~8px de diferença por
+/// elemento, e a Wikipédia tem 3 032 `<a>`: dar a altura da linha em vez desta
+/// somava ~24 500px à página.
+///
+/// A content area é pedida ao medidor como o `normal` dele, que é o valor que
+/// sai das métricas da fonte: um backend com fonte real responde ascent+descent,
+/// e o medidor aproximado responde a sua constante calibrada. Não há aqui um
+/// segundo número — é o mesmo `line_height` que responde por `normal`.
+pub(crate) fn altura_do_conteudo(font_size: f32, m: &dyn TextMeasurer) -> f32 {
+    m.line_height(font_size)
+}
+
+/// Meia-entrelinha: o espaço que sobra da caixa de linha depois da content area
+/// é repartido IGUALMENTE acima e abaixo (CSS 2.1 §10.8, "half-leading"). É o
+/// que põe o texto no meio da linha quando o `line-height` é maior do que a
+/// fonte — e o que faz a caixa do inline começar abaixo do topo da linha.
+///
+/// Pode ser NEGATIVA (`line-height` menor que a fonte): aí a content area
+/// transborda a linha, que é o que o browser também faz.
+pub(crate) fn meia_entrelinha(altura_da_linha: f32, conteudo: f32) -> f32 {
+    (altura_da_linha - conteudo) / 2.0
+}
+
 /// Une um fragmento de linha ao retângulo acumulado de um elemento inline.
 ///
 /// É a definição da spec para `getBoundingClientRect` de um inline: a bounding
