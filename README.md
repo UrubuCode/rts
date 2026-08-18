@@ -73,16 +73,16 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `070dc7a`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `665d377`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 69 ms | 59 ms | 54 ms | 71 ms | **53 ms** | **1.29×** | **1.11×** |
-| Monte Carlo π 10M (same xorshift algorithm) | 481 ms | 890 ms | 869 ms | 1.46 s | **1.46 s** | **0.33×** | **0.61×** |
-| Monte Carlo π 10M (JS `Math.random`) | 127 ms | 270 ms | 222 ms | 1.45 s | **1.45 s** | **0.09×** | **0.19×** |
-| π Machin f64 (RTS only) | — | — | — | 29 ms | **18 ms** | — | — |
+| Hello/startup | 69 ms | 61 ms | 61 ms | 75 ms | **52 ms** | **1.32×** | **1.17×** |
+| Monte Carlo π 10M (same xorshift algorithm) | 466 ms | 789 ms | 769 ms | 1.50 s | **1.45 s** | **0.32×** | **0.55×** |
+| Monte Carlo π 10M (JS `Math.random`) | 119 ms | 270 ms | 216 ms | 1.49 s | **1.44 s** | **0.08×** | **0.19×** |
+| π Machin f64 (RTS only) | — | — | — | 29 ms | **17 ms** | — | — |
 
-_Updated: 2026-08-17 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-08-18 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 
