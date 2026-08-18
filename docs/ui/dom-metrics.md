@@ -473,3 +473,38 @@ existed to avoid. Here the tree is a tree all the way down.
 | append 2000, layout every 100 | ~17 ms | **10.7 ms** | 32.5 ms |
 
 Text mutation is now **1.25× Chrome**, from 18× at the start of the campaign.
+
+---
+
+## Where the campaign ended (2026-08-18)
+
+3005-element page, medians of five runs, Chrome on the same machine:
+
+| operation | Chrome | rts-dom (start → end) | |
+|---|---|---|---|
+| **text on a leaf + frame** | 0.369 ms | 6.63 → **0.258 ms** | **we pass Chrome** |
+| colour-only class + frame | 0.0053 ms | 6.67 → 0.271 ms | 51× |
+| inert class + frame | — | 6.67 → 0.020 ms | — |
+| idle frame | 0.00045 ms | 6.97 → 0.000 ms | par |
+| full relayout | 8.5 ms | 6.97 → 0.195 ms | we win |
+| `querySelectorAll('.card')` | 0.0105 ms | → 0.010 ms | par |
+| append 2000, layout every 100 | 32.5 ms | 67.6 → 10.2 ms | we win |
+| cold layout | — | 26.7 → 16.3 ms | — |
+
+Bootstrap cover page: parse 17.8 → 9.4 ms · cold layout 23.1 → 13.1 ms · text
+0.375 → 0.042 ms · class 0.096 → 0.016 ms · hover 1.618 → 0.100 ms · memory
+9.59 → 2.0 MiB.
+
+### The last gap, and why it is a different problem
+
+A colour-only class change is still 51× Chrome, and it is no longer about
+layout: we already skip the layout of every untouched subtree, and we no longer
+copy items or geometry. What remains is that we rebuild the container's drawing
+*at all* — because our invalidation is per NODE and Chrome's is per PROPERTY. It
+knows `color` cannot move a box, so it never reflows: it repaints.
+
+Paint-only invalidation is the next frontier, and it is a different kind of
+change — comparing old and new computed style to classify what actually changed,
+and having a drawing that can be repainted without being rebuilt.
+
+In absolute terms, 0.27 ms on a 3000-element page is 1.6% of a 60 fps frame.
