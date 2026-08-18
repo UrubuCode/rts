@@ -406,21 +406,38 @@ pub fn verificar_equivalencia(
 
 /// Igualdade de item com tolerância só na GEOMETRIA — texto, cor e tipo têm de
 /// bater exatamente.
+///
+/// TODAS as variantes com retângulo entram: a primeira versão só tratava texto,
+/// fundo e borda, e o resto caía em igualdade ESTRITA — o que acusou uma
+/// divergência falsa num `BeginClip` de página real (17.599998 contra
+/// 17.599976, dois centésimos de milésimo de pixel). Um verificador que dá
+/// alarme falso é pior que nenhum: ensina a ignorá-lo.
 fn item_equivalente(a: &rts_dom::layout::DisplayItem, b: &rts_dom::layout::DisplayItem, tol: f32) -> bool {
     use rts_dom::layout::DisplayItem as D;
+    let perto = |x: f32, y: f32| (x - y).abs() < tol;
+    let rects = |ra: &rts_dom::layout::Rect, rb: &rts_dom::layout::Rect| {
+        perto(ra.x, rb.x) && perto(ra.y, rb.y) && perto(ra.w, rb.w) && perto(ra.h, rb.h)
+    };
     match (a, b) {
         (D::Text { x: xa, y: ya, text: ta, color: ca, .. }, D::Text { x: xb, y: yb, text: tb, color: cb, .. }) => {
-            (xa - xb).abs() < tol && (ya - yb).abs() < tol && ta == tb && ca == cb
+            perto(*xa, *xb) && perto(*ya, *yb) && ta == tb && ca == cb
         }
         (D::SolidRect { rect: ra, color: ca, .. }, D::SolidRect { rect: rb, color: cb, .. })
-        | (D::Border { rect: ra, color: ca, .. }, D::Border { rect: rb, color: cb, .. }) => {
-            (ra.x - rb.x).abs() < tol
-                && (ra.y - rb.y).abs() < tol
-                && (ra.w - rb.w).abs() < tol
-                && (ra.h - rb.h).abs() < tol
-                && ca == cb
+        | (D::Border { rect: ra, color: ca, .. }, D::Border { rect: rb, color: cb, .. })
+        | (D::Shadow { rect: ra, color: ca, .. }, D::Shadow { rect: rb, color: cb, .. }) => {
+            rects(ra, rb) && ca == cb
         }
-        _ => a == b,
+        (D::GradientRect { rect: ra, c0: a0, c1: a1, .. }, D::GradientRect { rect: rb, c0: b0, c1: b1, .. }) => {
+            rects(ra, rb) && a0 == b0 && a1 == b1
+        }
+        (D::Image { rect: ra, pixels_handle: ha, .. }, D::Image { rect: rb, pixels_handle: hb, .. }) => {
+            rects(ra, rb) && ha == hb
+        }
+        (D::BeginClip { rect: ra, node: na, .. }, D::BeginClip { rect: rb, node: nb, .. }) => {
+            rects(ra, rb) && na == nb
+        }
+        (D::EndClip, D::EndClip) => true,
+        _ => false,
     }
 }
 
