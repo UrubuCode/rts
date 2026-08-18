@@ -259,7 +259,12 @@ pub struct Dom {
     /// uma CÓPIA deles. Num relayout de 3000 elementos isso eram ~12 MB de
     /// memcpy por frame com 100% de acerto de cache — o cache funcionando e
     /// custando. Com `Rc`, um hit é um incremento de contador.
-    computed_memo: std::cell::RefCell<HashMap<NodeIdx, std::rc::Rc<crate::style::ComputedStyle>>>,
+    /// Indexado pelo índice da arena, e não um `HashMap`: a arena é DENSA, e
+    /// o layout pede o estilo ~2,4 vezes por nó por passada — eram 12 000
+    /// lookups com SipHash por frame numa página de 3000 elementos, para
+    /// responder o que um índice de vetor responde sem hash nenhum. `None` =
+    /// não memoizado; o vetor cresce sob demanda até `nodes.len()`.
+    computed_memo: std::cell::RefCell<Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>>,
     /// O epoch de animação em que o `computed_memo` foi preenchido. Mutações locais
     /// de conteúdo não invalidam esse cache; animações continuam invalidando o estilo
     /// final interpolado.
@@ -270,7 +275,7 @@ pub struct Dom {
     /// `advance` consulta por nó a cada frame. Invalida por epoch global de estilo,
     /// viewport ou dirty bit local — então frames de animação que só bumpam
     /// `anim_epoch` o REUSAM, tornando o `advance` barato.
-    base_memo: std::cell::RefCell<HashMap<NodeIdx, std::rc::Rc<crate::style::ComputedStyle>>>,
+    base_memo: std::cell::RefCell<Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>>,
     /// A revisão estrutural em que o `base_memo` foi preenchido.
     base_memo_revision: std::cell::Cell<u64>,
     base_memo_viewport: std::cell::Cell<(u32, u32)>,
@@ -345,10 +350,10 @@ impl Dom {
             anim_start: HashMap::new(),
             revision: 0,
             anim_epoch: 0,
-            computed_memo: std::cell::RefCell::new(HashMap::new()),
+            computed_memo: std::cell::RefCell::new(Vec::new()),
             memo_revision: std::cell::Cell::new(0),
             memo_style_epoch: std::cell::Cell::new(crate::style::props::style_epoch()),
-            base_memo: std::cell::RefCell::new(HashMap::new()),
+            base_memo: std::cell::RefCell::new(Vec::new()),
             base_memo_revision: std::cell::Cell::new(u64::MAX),
             base_memo_viewport: std::cell::Cell::new((0, 0)),
             layout_measure_cache: std::cell::RefCell::new(HashMap::new()),
@@ -462,10 +467,7 @@ impl Dom {
     fn touch(&mut self) {
         self.revision = self.revision.wrapping_add(1);
         crate::bump!(touch_global);
-        crate::bump!(
-            memo_cleared_entries,
-            self.computed_memo.borrow().len() + self.base_memo.borrow().len()
-        );
+        crate::bump!(memo_cleared_entries, self.memo_entries());
         self.computed_memo.borrow_mut().clear();
         self.base_memo.borrow_mut().clear();
         self.layout_measure_cache.borrow_mut().clear();
@@ -497,8 +499,8 @@ impl Dom {
         let mut computed = self.computed_memo.borrow_mut();
         let mut base = self.base_memo.borrow_mut();
         for &node in &affected {
-            computed.remove(&node);
-            base.remove(&node);
+            memo_forget(&mut computed, node);
+            memo_forget(&mut base, node);
             self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
         }
         let mut ancestor = self.nodes[idx].parent;
@@ -537,8 +539,8 @@ impl Dom {
         let mut computed = self.computed_memo.borrow_mut();
         let mut base = self.base_memo.borrow_mut();
         for node in affected {
-            computed.remove(&node);
-            base.remove(&node);
+            memo_forget(&mut computed, node);
+            memo_forget(&mut base, node);
             self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
         }
         for node in ancestors {
@@ -581,8 +583,7 @@ impl Dom {
         // epochs, que só existem para invalidar CHAVES já guardadas. Sem este
         // atalho, um `append` × 4000 pagava a varredura e dois `borrow_mut` por
         // nó, e ficava 40% mais lento do que o `touch()` global que substituiu.
-        if self.computed_memo.borrow().is_empty()
-            && self.base_memo.borrow().is_empty()
+        if self.memo_entries() == 0
             && self.layout_measure_cache.borrow().is_empty()
             && self.intrinsic_width_cache.borrow().is_empty()
         {
@@ -594,8 +595,8 @@ impl Dom {
         let mut visited = 0u64;
         while let Some(node) = stack.pop() {
             visited += 1;
-            computed.remove(&node);
-            base.remove(&node);
+            memo_forget(&mut computed, node);
+            memo_forget(&mut base, node);
             self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
             stack.extend(self.nodes[node].children.iter().copied());
         }
@@ -610,6 +611,15 @@ impl Dom {
                 cur = self.nodes[node].parent;
             }
         }
+    }
+
+    /// Quantos nós têm estilo memoizado (as duas camadas somadas). É a contagem
+    /// que o `HashMap` dava de graça e um vetor esparso não dá — usada só por
+    /// métricas e pelo atalho da construção pura, ambos fora do caminho quente
+    /// de um layout.
+    fn memo_entries(&self) -> usize {
+        self.computed_memo.borrow().iter().filter(|s| s.is_some()).count()
+            + self.base_memo.borrow().iter().filter(|s| s.is_some()).count()
     }
 
     pub(crate) fn layout_epoch(&self, idx: NodeIdx) -> u64 {
@@ -662,7 +672,7 @@ impl Dom {
     /// dos campos, pela mesma razão do [`derived_node_state`](Self::derived_node_state).
     pub(crate) fn derived_cache_sizes(&self) -> (usize, usize) {
         (
-            self.computed_memo.borrow().len() + self.base_memo.borrow().len(),
+            self.memo_entries(),
             self.layout_measure_cache.borrow().len() + self.intrinsic_width_cache.borrow().len(),
         )
     }
@@ -759,12 +769,12 @@ impl Dom {
             self.base_memo_viewport.set(vp_key);
         }
         crate::bump!(base_calls);
-        if let Some(hit) = self.base_memo.borrow().get(&idx) {
+        if let Some(Some(hit)) = self.base_memo.borrow().get(idx) {
             crate::bump!(base_memo_hits);
             return Some(std::rc::Rc::clone(hit));
         }
         let computed = std::rc::Rc::new(self.computed_style_idx_inner(idx)?);
-        self.base_memo.borrow_mut().insert(idx, std::rc::Rc::clone(&computed));
+        memo_put(&mut self.base_memo.borrow_mut(), idx, self.nodes.len(), &computed);
         Some(computed)
     }
 
@@ -1070,7 +1080,7 @@ impl Dom {
             self.memo_viewport.set(vp_key);
         }
         crate::bump!(computed_calls);
-        if let Some(hit) = self.computed_memo.borrow().get(&idx) {
+        if let Some(Some(hit)) = self.computed_memo.borrow().get(idx) {
             crate::bump!(computed_memo_hits);
             return Some(std::rc::Rc::clone(hit));
         }
@@ -1092,7 +1102,7 @@ impl Dom {
                 std::rc::Rc::new(c)
             }
         };
-        self.computed_memo.borrow_mut().insert(idx, std::rc::Rc::clone(&computed));
+        memo_put(&mut self.computed_memo.borrow_mut(), idx, self.nodes.len(), &computed);
         Some(computed)
     }
 
@@ -2995,6 +3005,32 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
     attrs
 }
 
+/// Esquece o estilo memoizado de um nó. O vetor é esparso por índice, então
+/// "esquecer" é apagar o slot — e um índice além do fim já não tem nada.
+fn memo_forget(
+    memo: &mut Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>,
+    idx: NodeIdx,
+) {
+    if let Some(slot) = memo.get_mut(idx) {
+        *slot = None;
+    }
+}
+
+/// Guarda o estilo memoizado, crescendo o vetor até caber o índice. `capacity`
+/// é o tamanho da arena: crescer até ele de uma vez evita um `resize` por nó na
+/// primeira passada.
+fn memo_put(
+    memo: &mut Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>,
+    idx: NodeIdx,
+    capacity: usize,
+    value: &std::rc::Rc<crate::style::ComputedStyle>,
+) {
+    if idx >= memo.len() {
+        memo.resize(capacity.max(idx + 1), None);
+    }
+    memo[idx] = Some(std::rc::Rc::clone(value));
+}
+
 /// A CHAVE-ALVO de um seletor: o que o último compound exige do nó que ele casa.
 /// Um filtro barato antes do matcher completo (que navega a árvore) — a mesma
 /// ideia do `RuleIndex` da cascade, aplicada às consultas.
@@ -3147,6 +3183,14 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
 mod tests {
     use super::*;
 
+    /// `true` se o nó tem estilo memoizado — o memo é um vetor esparso por
+    /// índice da arena, então "tem entrada" é "o slot existe e está cheio".
+    fn memoizado(dom: &Dom, idx: NodeIdx) -> bool {
+        dom.computed_memo.borrow().get(idx).map(Option::is_some).unwrap_or(false)
+    }
+
+    use super::*;
+
     /// Helper: nome de tag de um nó Element por índice cru (panica se não for
     /// elemento) — só para deixar os asserts curtos.
     fn tag(dom: &Dom, idx: NodeIdx) -> &str {
@@ -3263,14 +3307,14 @@ mod tests {
         // Preenche os dois memos antes da mutação.
         let _ = dom.computed_style(a);
         let _ = dom.computed_style(b);
-        assert!(dom.computed_memo.borrow().contains_key(&a_idx));
-        assert!(dom.computed_memo.borrow().contains_key(&b_idx));
+        assert!(memoizado(&dom, a_idx));
+        assert!(memoizado(&dom, b_idx));
 
         let before_noop = dom.render_revision();
         dom.set_attr(a, "data-state", "on");
         assert_ne!(dom.render_revision(), before_noop);
-        assert!(!dom.computed_memo.borrow().contains_key(&a_idx));
-        assert!(dom.computed_memo.borrow().contains_key(&b_idx));
+        assert!(!memoizado(&dom, a_idx));
+        assert!(memoizado(&dom, b_idx));
 
         // Repetir o mesmo setAttribute é um no-op e não cria nova invalidação.
         let before_repeat = dom.render_revision();
@@ -3333,18 +3377,18 @@ mod tests {
 
         assert!(dom.advance(0.0));
         let base_revision = dom.base_memo_revision.get();
-        let base_before = dom.base_memo.borrow().get(&node_idx).cloned();
+        let base_before = dom.base_memo.borrow().get(node_idx).cloned().flatten();
         assert!(base_before.is_some());
         let _ = dom.computed_style(node);
-        assert!(dom.computed_memo.borrow().contains_key(&node_idx));
+        assert!(memoizado(&dom, node_idx));
 
         assert!(dom.advance(50.0));
         assert_eq!(dom.base_memo_revision.get(), base_revision);
-        assert_eq!(dom.base_memo.borrow().get(&node_idx), base_before.as_ref());
+        assert_eq!(dom.base_memo.borrow().get(node_idx).cloned().flatten(), base_before);
         // O epoch de animação muda, portanto o memo interpolado é recalculado sob
         // demanda; o alvo-base continua sendo o mesmo objeto lógico.
         let _ = dom.computed_style(node);
-        assert!(dom.computed_memo.borrow().contains_key(&node_idx));
+        assert!(memoizado(&dom, node_idx));
     }
 
     #[test]
