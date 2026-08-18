@@ -1372,19 +1372,53 @@ impl Dom {
     /// quando o hovered realmente MUDA **e** o stylesheet tem alguma regra
     /// `:hover` — mover o mouse numa página sem :hover custa zero.
     pub fn set_hovered(&mut self, idx: Option<NodeIdx>) {
-        if self.hovered.get() == idx {
+        let previous = self.hovered.get();
+        if previous == idx {
             return;
         }
         self.hovered.set(idx);
-        let has_hover_rule = self.stylesheet.rules.iter().any(|r| {
-            r.selector.compounds.iter().any(|c| {
-                c.parts
-                    .iter()
-                    .any(|p| matches!(p, crate::style::SimpleSelector::Pseudo(crate::style::PseudoClass::Hover)))
-            })
-        });
-        if has_hover_rule {
+        // O ALCANCE de `:hover` é derivado das regras UMA vez (cacheado no
+        // stylesheet). Antes, cada movimento do mouse varria todas as regras
+        // para responder "há alguma :hover?" — 2643 delas numa página Bootstrap,
+        // por frame, antes mesmo de decidir o que invalidar.
+        let reach = self.stylesheet.hover_reach();
+        if reach == crate::style::HoverReach::None {
+            return;
+        }
+        // `:hover` casa o nó sob o cursor E seus ancestrais (`pseudo_matches`),
+        // então a mudança é a diferença entre as duas CADEIAS. Invalidar a
+        // página inteira era o que se fazia; a cadeia é o conjunto de nós cujo
+        // estilo pode ter mudado, e ela tem a profundidade da árvore, não o
+        // tamanho dela.
+        if reach == crate::style::HoverReach::Siblings {
+            // `.a:hover + .b` alcança FORA da subárvore de quem casa, e uma
+            // invalidação por subárvore não a cobre. Fallback declarado — pagar
+            // o global aqui é o preço de não responder errado.
             self.touch();
+            return;
+        }
+        // Da cadeia, só entram os nós que PODERIAM casar uma regra de hover. O
+        // `<body>` é ancestral de tudo e não casa `.btn:hover`; deixá-lo entrar
+        // faria a subárvore suja ser a página, que é de onde se estava partindo.
+        let hover_compounds = self.stylesheet.hover_compounds();
+        let mut roots: Vec<NodeIdx> = Vec::new();
+        for start in [previous, idx].into_iter().flatten() {
+            let mut cur = Some(start);
+            while let Some(node) = cur {
+                if node != self.root
+                    && !roots.contains(&node)
+                    && self.could_match_hover(node, &hover_compounds)
+                {
+                    roots.push(node);
+                }
+                cur = self.nodes[node].parent;
+            }
+        }
+        if !roots.is_empty() {
+            // Subárvore e não só o nó: uma propriedade HERDADA declarada num
+            // `:hover` (o caso comum é `color`) desce para os filhos, que não
+            // casam regra nenhuma e mudam mesmo assim.
+            self.touch_subtrees(roots);
         }
     }
 
@@ -2214,6 +2248,30 @@ impl Dom {
         let attr = |name: &str| self.nodes[idx].attr(name);
         let pseudo = |pc: &crate::style::PseudoClass| self.pseudo_matches(idx, pc);
         crate::style::compound_matches_borrowed(compound, tag, id, class_attr, &attr, &pseudo)
+    }
+
+    /// `true` se o nó casaria algum compound com `:hover` SE estivesse sob o
+    /// cursor — o `:hover` é respondido como verdadeiro e o resto do compound
+    /// (tag, classe, id, atributo, outras pseudo) é testado de verdade. É a
+    /// pergunta do invalidation set: "o hover pode mudar o estilo DESTE nó?".
+    fn could_match_hover(
+        &self,
+        idx: NodeIdx,
+        compounds: &[&crate::style::CompoundSelector],
+    ) -> bool {
+        let tag = match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => tag.as_str(),
+            _ => return false,
+        };
+        let id = self.nodes[idx].attr("id");
+        let class_attr = self.nodes[idx].attr("class");
+        let attr = |name: &str| self.nodes[idx].attr(name);
+        let pseudo = |pc: &crate::style::PseudoClass| {
+            matches!(pc, crate::style::PseudoClass::Hover) || self.pseudo_matches(idx, pc)
+        };
+        compounds.iter().any(|c| {
+            crate::style::compound_matches_borrowed(c, tag, id, class_attr, &attr, &pseudo)
+        })
     }
 
     /// Resolve uma pseudo-classe contra o nó (posição entre irmãos / atributo de estado).
@@ -4411,5 +4469,68 @@ mod tests {
         // conteúdo real chegou: o h1 do template.
         let h1 = dom.query("h1").unwrap();
         assert_eq!(dom.text_content(h1).unwrap(), "Cover your page.");
+    }
+
+    /// O ALCANCE de `:hover` decide o que a mudança de hover invalida, e os
+    /// quatro casos exigem coisas diferentes — trocar um pelo outro ou invalida
+    /// demais (a página inteira, o que era o comportamento) ou de menos (um
+    /// irmão que fica com estilo velho).
+    #[test]
+    fn alcance_de_hover_por_forma_do_seletor() {
+        use crate::style::HoverReach;
+        let caso = |css: &str| {
+            let mut sheet = crate::style::Stylesheet::new();
+            sheet.append_css(css);
+            sheet.hover_reach()
+        };
+        assert_eq!(caso(".btn { color: red }"), HoverReach::None);
+        assert_eq!(caso(".btn:hover { color: red }"), HoverReach::SelfOnly);
+        assert_eq!(caso(".card:hover .title { color: red }"), HoverReach::Subtree);
+        assert_eq!(caso(".a:hover + .b { color: red }"), HoverReach::Siblings);
+    }
+
+    /// Passar o mouse não pode invalidar o estilo de um ramo que o `:hover` não
+    /// alcança. É o teste do INVALIDATION SET: sem ele a implementação correta e
+    /// a que re-cascadeia a página inteira são indistinguíveis por asserção.
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn hover_recascadeia_a_cadeia_e_nao_a_pagina() {
+        let filhos: String = (0..50).map(|i| format!("<p class=\"linha\">l{i}</p>")).collect();
+        let mut dom = parse_html_to_dom(&format!(
+            "<style>.btn:hover {{ color: red }}</style>             <div id=\"lado\">{filhos}</div><a class=\"btn\" id=\"alvo\">x</a>"
+        ));
+        // Preenche os memos de todos os nós.
+        for idx in 0..dom.nodes.len() {
+            let _ = dom.computed_style_idx(idx);
+        }
+        let alvo = dom.resolve(dom.query("#alvo").unwrap()).unwrap();
+        crate::metrics::counters::reset();
+        dom.set_hovered(Some(alvo));
+        for idx in 0..dom.nodes.len() {
+            let _ = dom.computed_style_idx(idx);
+        }
+        let cascades = crate::metrics::snapshot().cascade_runs;
+        assert!(
+            cascades < 10,
+            "hover re-cascadeou {cascades} nós; a cadeia do alvo tem 2 e a página tem 50+"
+        );
+    }
+
+    /// O caso que obriga o fallback: `.a:hover + .b` muda um nó FORA da subárvore
+    /// de quem casa, e uma invalidação por subárvore o deixaria com estilo velho.
+    #[test]
+    fn hover_com_irmao_invalida_o_irmao() {
+        let mut dom = parse_html_to_dom(
+            "<style>.a:hover + .b { color: #ff0000 }</style>             <div><span class=\"a\">a</span><span class=\"b\">b</span></div>",
+        );
+        let b = dom.resolve(dom.query(".b").unwrap()).unwrap();
+        assert_eq!(dom.computed_style_idx(b).unwrap().color, None);
+        let a = dom.resolve(dom.query(".a").unwrap()).unwrap();
+        dom.set_hovered(Some(a));
+        assert_eq!(
+            dom.computed_style_idx(b).unwrap().color,
+            Some(0xFF0000FF),
+            "o irmão precisa reagir ao hover do anterior"
+        );
     }
 }

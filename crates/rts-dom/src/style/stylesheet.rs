@@ -192,6 +192,25 @@ pub struct Stylesheet {
     /// índices candidatos para cada elemento. O stylesheet já usa RefCell para o
     /// índice lazy e a cascade é chamada de forma síncrona pelo DOM.
     candidate_scratch: std::cell::RefCell<Vec<usize>>,
+    /// Cache de [`hover_reach`](Stylesheet::hover_reach) — a resposta é uma
+    /// varredura de todas as regras, e a pergunta é feita a cada movimento do
+    /// mouse. Invalidado junto com o índice, em `append_css`.
+    hover_reach: std::cell::RefCell<Option<HoverReach>>,
+}
+
+/// Até onde uma mudança de `:hover` pode mexer no estilo desta folha.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HoverReach {
+    /// Nenhuma regra usa `:hover` — mover o mouse não muda estilo nenhum.
+    None,
+    /// Só o elemento que casa (`.btn:hover`). A subárvore dele ainda entra, por
+    /// causa das propriedades HERDADAS (`color` num `:hover` desce aos filhos).
+    SelfOnly,
+    /// `.card:hover .title` — desce pela subárvore do que casa.
+    Subtree,
+    /// `.a:hover + .b` — sai da subárvore. A invalidação por subárvore não
+    /// cobre isto, então este caso cai no fallback global, declarado.
+    Siblings,
 }
 
 // PartialEq manual (Keyframes tem f32, não derivamos Eq; o diff de árvore só compara
@@ -210,6 +229,7 @@ impl Stylesheet {
             keyframes: std::collections::HashMap::new(),
             index: std::cell::RefCell::new(super::ruleindex::RuleIndex::default()),
             candidate_scratch: std::cell::RefCell::new(Vec::new()),
+            hover_reach: std::cell::RefCell::new(None),
         }
     }
 
@@ -240,6 +260,65 @@ impl Stylesheet {
     fn has_custom_rules(&self) -> bool {
         self.ensure_rule_index();
         self.index.borrow().has_custom_rules()
+    }
+
+    /// As regras que contêm `:hover`, e se alguma delas ALCANÇA outros nós além
+    /// do que casa o compound com `:hover`.
+    ///
+    /// É o que transforma "mover o mouse invalida a página" em "mover o mouse
+    /// invalida os nós que podem mudar": sem esta separação, `set_hovered` só
+    /// tinha a opção grossa. Derivado das regras e recalculado quando elas
+    /// mudam, porque a alternativa era varrer 2643 regras a cada frame de mouse
+    /// — o que o `set_hovered` fazia.
+    pub fn hover_reach(&self) -> HoverReach {
+        self.ensure_rule_index();
+        if let Some(cached) = *self.hover_reach.borrow() {
+            return cached;
+        }
+        let mut reach = HoverReach::None;
+        for r in &self.rules {
+            let n = r.selector.compounds.len();
+            for (i, c) in r.selector.compounds.iter().enumerate() {
+                let has_hover = c.parts.iter().any(|p| {
+                    matches!(p, super::SimpleSelector::Pseudo(super::PseudoClass::Hover))
+                });
+                if !has_hover {
+                    continue;
+                }
+                // O `:hover` no ÚLTIMO compound afeta só quem casa (`.btn:hover`).
+                // Antes do último, o alcance depende do combinador que o segue:
+                // descendente/filho desce na subárvore, irmão sai dela — e sair
+                // dela é o caso que a invalidação por subárvore NÃO cobre.
+                let next = if i + 1 < n { r.selector.combinators.get(i) } else { None };
+                reach = reach.max(match next {
+                    None => HoverReach::SelfOnly,
+                    Some(super::Combinator::Descendant | super::Combinator::Child) => {
+                        HoverReach::Subtree
+                    }
+                    Some(_) => HoverReach::Siblings,
+                });
+            }
+        }
+        *self.hover_reach.borrow_mut() = Some(reach);
+        reach
+    }
+
+    /// Os COMPOUNDS que contêm `:hover`, um por regra que o usa. É contra estes
+    /// que se pergunta "este nó poderia casar uma regra de hover?", e a resposta
+    /// é o que separa o `<body>` (ancestral de tudo, casa nada) do `.btn` — sem
+    /// essa pergunta, invalidar a cadeia de ancestrais é invalidar a página.
+    pub fn hover_compounds(&self) -> Vec<&super::CompoundSelector> {
+        let mut out = Vec::new();
+        for r in &self.rules {
+            for c in &r.selector.compounds {
+                if c.parts.iter().any(|p| {
+                    matches!(p, super::SimpleSelector::Pseudo(super::PseudoClass::Hover))
+                }) {
+                    out.push(c);
+                }
+            }
+        }
+        out
     }
 
     /// `true` quando alguma regra depende da presença/valor de um atributo.
@@ -297,6 +376,8 @@ impl Stylesheet {
             crate::bump!(css_rules);
             self.rules.push(Rule { order: base + i as u32, ..rule });
         }
+        // As regras mudaram: o alcance de `:hover` derivado delas não vale mais.
+        *self.hover_reach.borrow_mut() = None;
     }
 
     /// Acha cada `@keyframes nome { ... }`, parseia os stops e guarda; devolve o CSS
