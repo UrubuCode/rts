@@ -369,3 +369,43 @@ Chrome's 0.097 ms — because for those the walk is the only complete answer.
 **And the caveat from the first comparison still holds**: where we win, we are
 doing less work — character-count text metrics against real shaping, no subpixel
 positioning, no accessibility tree, a much smaller CSS surface.
+
+---
+
+## Final scoreboard of this campaign (2026-08-18)
+
+3005-element synthetic page, Chrome on the same machine, `--iters 30`:
+
+| operation | Chrome | rts-dom (campaign start → now) | gap |
+|---|---|---|---|
+| text on a leaf + frame | 0.369 ms | 6.63 → **0.619 ms** | 1.7× |
+| **class that matches a rule + frame** | 0.0053 ms | 6.67 → **0.797 ms** | 150× |
+| class that matches nothing + frame | — | 6.67 → **0.022 ms** | — |
+| idle frame | 0.00045 ms | 6.97 → **0.000 ms** | par |
+| full relayout | 8.5 ms | 6.97 → 0.175 ms | we win |
+| `querySelectorAll('.card')` | 0.0105 ms | → **0.010 ms** | par |
+| `querySelectorAll` (tag + attr) | 0.097 ms | 0.399 → 0.222 ms | 2.3× |
+| append 2000, layout every 100 | 32.5 ms | 67.6 → **11.7 ms** | we win |
+| cold layout | — | 26.7 → 16.3 ms | — |
+
+Bootstrap cover page: parse 17.8 → 9.6 ms · cold layout 23.1 → 13.3 ms · text
+0.375 → 0.047 ms · class 0.096 → 0.017 ms · hover 1.618 → 0.089 ms · memory
+9.59 → 2.0 MiB.
+
+### The one number that is still 150×, and what it would take
+
+A class change that actually matches a rule invalidates the node and its
+ancestors, so the container is rebuilt — and rebuilding a container means
+WALKING its thousand children, even though 999 of them hit the fragment cache
+and cost only an emit. Chrome does not walk: it keeps a retained layout tree
+with positions and reflows the path that changed.
+
+That is the architecture difference, and it is the honest name for the remaining
+gap. Everything cheaper than it has been done: the fragment cache removes the
+recomputation, the fast path removes the reclassification, the display cache
+removes the whole frame when nothing moved. What is left is not an optimization,
+it is a different data structure — a layout tree that survives between frames
+instead of a display list rebuilt from it.
+
+In absolute terms 0.8 ms is under 5% of a 60 fps frame on a page of 3000
+elements, so this is a margin question, not a viability one.

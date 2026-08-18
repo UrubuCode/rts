@@ -183,6 +183,29 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     }));
     drop(dom);
 
+    // 3e. CLASSE QUE CASA + frame com cache — o `classList.toggle` que de fato
+    //     muda estilo, pelo caminho que um app percorre (o layout é PEDIDO, não
+    //     forçado). É o número comparável ao do browser; o cenário `classe +
+    //     relayout` abaixo força o layout completo e mede outra coisa.
+    let mut dom = parse_html_to_dom(html);
+    let _ = rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh));
+    let leaf2 = deepest_element(&dom);
+    // uma classe que o stylesheet da página realmente cita
+    let citada = (0..dom.nodes.len())
+        .filter_map(|i| dom.node(i).attr("class").map(str::to_string))
+        .flat_map(|c| c.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+        .find(|c| dom.stylesheet().mentions_class(c))
+        .unwrap_or_default();
+    let mut flip2 = false;
+    runs.push(run("classe que casa + frame", "frame", iters, m, || {
+        flip2 = !flip2;
+        if let Some(t) = leaf2 {
+            dom.set_attr(t, "class", if flip2 { &citada } else { "" });
+        }
+        std::hint::black_box(rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh)));
+    }));
+    drop(dom);
+
     // 4. TEXTO de uma folha + relayout — o contador, o relógio, o campo que
     //    digita. Mede o que a invalidação PRESERVA.
     let mut dom = parse_html_to_dom(html);
