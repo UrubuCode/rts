@@ -26,7 +26,7 @@ use super::lerp::AnimValue;
 use super::values::{
     AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
     JustifyContent, LineHeight, Position, Rgba, Side, TextAlign, TextDecoration, TextTransform,
-    WhiteSpace,
+    Visibility, WhiteSpace,
 };
 
 /// Declara a tabela de propriedades e gera a struct + os 4 mecanismos da cascade.
@@ -258,6 +258,11 @@ css_props! {
         /// ALPHA das cores próprias do elemento (bg/borda/texto) — cobre o caso comum
         /// (fade de card/botão/overlay) sem grupos de compositing. Animável (fades).
         [anim] opacity: f32;
+        /// `visibility` — HERDADA, e é o que a distingue de `display:none`: o
+        /// elemento continua no fluxo e continua a ocupar espaço, apenas não é
+        /// pintado, e os descendentes herdam isso a menos que declarem
+        /// `visible`. `None` = visível.
+        [inh] visibility: Visibility;
         /// `box-shadow` (a 1ª sombra da lista) — pintada atrás da caixa como um
         /// `DisplayItem::Shadow` (blur real no backend). `None` = sem sombra.
         [] box_shadow: BoxShadow;

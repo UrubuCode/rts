@@ -68,6 +68,31 @@ impl LineHeight {
 /// exposto em getComputedStyle, mas o LAYOUT inline atual é linha-única (não quebra
 /// texto), então `normal` vs `nowrap` são equivalentes hoje; `pre` preserva o texto
 /// cru (o `collect_text` já não colapsa). Efeito pleno chega com inline-flow rico
+/// `visibility` — se o elemento é PINTADO. Diferente de `display:none` num
+/// ponto que decide layouts inteiros: o elemento continua a ocupar o espaço
+/// dele, só não se vê.
+///
+/// É a forma como uma página real esconde um menu que abre ao clicar (o
+/// MediaWiki fá-lo com `visibility:hidden;opacity:0;height:0`), e sem a
+/// suportar o menu aparecia aberto por cima do artigo.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Visibility {
+    Visible,
+    Hidden,
+}
+
+impl Visibility {
+    pub fn parse(v: &str) -> Option<Visibility> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "visible" => Visibility::Visible,
+            // `collapse` só difere de `hidden` em tabelas, que este motor ainda
+            // não trata como tais — tratá-lo como `hidden` é a aproximação certa.
+            "hidden" | "collapse" => Visibility::Hidden,
+            _ => return None,
+        })
+    }
+}
+
 /// (corte de fase, documentado em layout.rs).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WhiteSpace {

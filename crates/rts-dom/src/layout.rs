@@ -1200,7 +1200,15 @@ fn layout_block(
         let radius = css.corner_radius.unwrap_or(0.0);
         // `opacity` do elemento: multiplica o ALPHA das cores próprias (fundo/borda).
         // Cobre o caso comum (card/botão/overlay com fade) sem grupo de compositing.
-        let op = css.opacity.unwrap_or(1.0);
+        // `visibility:hidden` zera o alpha de tudo o que ESTE elemento pinta. Não
+        // salta o layout: o elemento continua a ocupar o espaço dele, que é
+        // exatamente o que o distingue de `display:none` — e como a propriedade
+        // é herdada, os descendentes chegam aqui já com ela.
+        let op = if css.visibility == Some(crate::style::values::Visibility::Hidden) {
+            0.0
+        } else {
+            css.opacity.unwrap_or(1.0)
+        };
         // Insere na ordem: primeiro o fundo, depois a borda por cima dele (ambos
         // atrás dos filhos). `insert` desloca os filhos para a frente.
         let mut at = box_index;
@@ -2084,6 +2092,20 @@ fn decoration_code(css: &ComputedStyle) -> u8 {
 }
 
 /// Multiplica o ALPHA de uma cor `0xRRGGBBAA` por `opacity` ∈ [0,1] (o RGB fica
+/// A cor com que um elemento pinta, dado o seu `visibility`.
+///
+/// `visibility:hidden` não salta o layout — o elemento ocupa o espaço na mesma —,
+/// só não é pintado. Zerar o alpha é como isso se exprime numa display list que
+/// não tem grupos de compositing, e a propriedade ser HERDADA faz o resto: os
+/// descendentes chegam ao seu próprio layout já com ela posta.
+fn cor_visivel(css: &crate::style::ComputedStyle, cor: u32) -> u32 {
+    if css.visibility == Some(crate::style::values::Visibility::Hidden) {
+        cor & 0xFFFF_FF00
+    } else {
+        cor
+    }
+}
+
 /// intacto; só o canal alpha escala). `opacity >= 1` devolve a cor inalterada.
 fn apply_opacity(color: u32, opacity: f32) -> u32 {
     if opacity >= 1.0 {
@@ -3106,7 +3128,7 @@ fn layout_children_horizontal(
             let item_y = line_y + off_cross;
             if it.is_text {
                 let text = collect_text(dom, it.node);
-                let color = css.color.unwrap_or(0x000000FF);
+                let color = cor_visivel(&css, css.color.unwrap_or(0x000000FF));
                 list.items.push(DisplayItem::Text {
                     x,
                     y: item_y,
@@ -3486,7 +3508,7 @@ fn layout_children_column(
                 x: content_x,
                 y,
                 text: text.into(),
-                color: css.color.unwrap_or(0x000000FF),
+                color: cor_visivel(&css, css.color.unwrap_or(0x000000FF)),
                 size: font_size,
                 mono: false,
                 bold: css.bold.unwrap_or(false),
@@ -3849,7 +3871,7 @@ fn collect_runs(
         dom,
         ctx,
         id,
-        parent_css.color.unwrap_or(0x000000FF),
+        cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF)),
         decoration_code(parent_css),
         parent_css.text_transform,
         parent_css.bold.unwrap_or(false),
@@ -5588,4 +5610,35 @@ mod tests {
         let r = all_rects(&list);
         assert_eq!(r[0].h, 600.0, "{r:?}");
     }
+    /// `visibility:hidden` esconde SEM tirar do fluxo — é o que o distingue de
+    /// `display:none`, e a distinção decide layouts reais: o MediaWiki esconde
+    /// os menus que abrem ao clique assim, e sem ela o menu aparecia por cima
+    /// do artigo.
+    #[test]
+    fn visibility_hidden_ocupa_espaco_e_nao_pinta() {
+        let dom = parse_html_to_dom(
+            "<style>.oculto{visibility:hidden}</style>             <div class='oculto' style='height:50px;background:#ff0000'>invisível</div>             <div style='height:20px'>depois</div>",
+        );
+        let m = ApproxMeasurer;
+        let ctx = LayoutCtx { viewport_w: 400.0, viewport_h: 300.0, measurer: &m };
+        let lista = layout_document(&dom, &ctx);
+        let itens = lista.materialized();
+        // o segundo bloco começa DEPOIS dos 50px do primeiro: o espaço ficou.
+        let segundo = dom.query_all("div")[1];
+        let y = lista.rect_of(dom.resolve(segundo).unwrap()).map(|r| r.y).unwrap_or(0.0);
+        assert!(y >= 50.0, "o elemento oculto tem de ocupar o espaço dele (y={y})");
+        // e nada do que ele pinta tem alpha.
+        for item in &itens {
+            match item {
+                DisplayItem::SolidRect { color, .. } if (color >> 8) == 0xFF0000 => {
+                    assert_eq!(color & 0xFF, 0, "o fundo de um elemento oculto não é pintado");
+                }
+                DisplayItem::Text { text, color, .. } if text.contains("invisível") => {
+                    assert_eq!(color & 0xFF, 0, "o texto de um elemento oculto não é pintado");
+                }
+                _ => {}
+            }
+        }
+    }
+
 }

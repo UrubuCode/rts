@@ -10,7 +10,8 @@ use super::props::ComputedStyle;
 use super::stylesheet::DeclBlock;
 use super::values::{
     AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
-    JustifyContent, LineHeight, Position, Side, TextAlign, TextTransform, WhiteSpace,
+    JustifyContent, LineHeight, Position, Side, TextAlign, TextTransform, Visibility,
+    WhiteSpace,
 };
 
 /// Parseia um `style="prop: valor; ..."` para um [`ComputedStyle`] (só a camada
@@ -106,6 +107,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "text-align" => css.text_align = TextAlign::parse(val),
             "line-height" => css.line_height = LineHeight::parse(val),
             "white-space" => css.white_space = WhiteSpace::parse(val),
+            "visibility" => css.visibility = Visibility::parse(val),
             "text-transform" => css.text_transform = TextTransform::parse(val),
             "letter-spacing" => {
                 // `normal` = 0; senão um comprimento (px/em/rem — resolve p/ px cedo

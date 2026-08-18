@@ -98,3 +98,10 @@ DRAIN_MOTOR.md
 # uma vez por ser criado no diretório de trabalho em vez de num temporário.
 __fs_promises_import_tmp/
 base.json
+
+# páginas reais baixadas pelos exemplos (grandes, e regeneráveis)
+pagina.html
+pagina.css
+wa*.html
+wa*.css
+wa-raw.bin
