@@ -2,13 +2,47 @@
 //! (`getComputedStyle(el).prop`): cor → `rgb(r, g, b)` / `rgba(...)`, comprimento
 //! → `Npx`, enums → keyword. Validado contra o Chrome real (ver `fmt_color`).
 
+use super::fmt_values::{
+    display_css, fmt_align, fmt_color, fmt_dim, fmt_justify, fmt_px, fmt_tracks,
+    overflow_css, side_css, side_of,
+};
 use super::props::ComputedStyle;
 use super::values::{
-    AlignItems, Dimension, DisplayKind, JustifyContent, LineHeight, Rgba, TextAlign,
-    TextTransform, WhiteSpace,
+    Dimension, LineHeight, TextAlign, TextTransform, WhiteSpace,
 };
 
 impl ComputedStyle {
+    /// O font-size deste elemento em px, ou o default de 16px quando a cascade
+    /// não o fixou. Serve os valores computados que se resolvem CONTRA a fonte
+    /// (hoje o `line-height` multiplicador). Só a forma absoluta conta: a
+    /// cascade resolve `em`/`%`/`rem` para `Px` cedo, e uma forma relativa que
+    /// chegue aqui não tem contra o que resolver.
+    /// Os dois eixos de `overflow` como o computed os reporta, com a regra que
+    /// só o computed tem: **um eixo `visible` ao lado de um eixo que não é
+    /// `visible` computa para `auto`**. É da spec (`overflow` §3) e não é
+    /// cosmética — `overflow-x: hidden` sozinho torna o eixo Y rolável, que é
+    /// exatamente o que uma faixa horizontal recortada precisa. Medido no
+    /// corpus: `overflow-x: hidden` responde `hidden auto` no Chrome, e nós
+    /// respondíamos `hidden visible`.
+    fn overflow_pair(&self) -> (&'static str, &'static str) {
+        use crate::scrollbar::Overflow::Visible;
+        let x = self.overflow_x.unwrap_or(Visible);
+        let y = self.overflow_y.unwrap_or(Visible);
+        let (x, y) = match (x == Visible, y == Visible) {
+            (true, false) => (crate::scrollbar::Overflow::Auto, y),
+            (false, true) => (x, crate::scrollbar::Overflow::Auto),
+            _ => (x, y),
+        };
+        (overflow_css(x), overflow_css(y))
+    }
+
+    fn font_size_px(&self) -> f32 {
+        match self.font_size {
+            Some(Dimension::Px(v)) => v,
+            _ => 16.0,
+        }
+    }
+
     /// Valor COMPUTADO de uma propriedade CSS por NOME, serializado no formato que o
     /// browser reporta (`getComputedStyle(el).prop`): cor → `rgb(r, g, b)` /
     /// `rgba(r, g, b, a)`; comprimento → `Npx`; enums → o keyword. `""` se a
@@ -52,10 +86,14 @@ impl ComputedStyle {
                 None => String::new(),
             },
             "line-height" => match self.line_height {
-                // o browser reporta line-height computado em px (resolve o multiplicador
-                // contra o font-size); aqui sem o font-size do nó, reportamos o cru.
+                // O browser reporta o line-height RESOLVIDO em px — `line-height:
+                // 2` num elemento de 16px responde `32px`, e o mesmo `2` herdado
+                // por um filho de 32px responde `64px`. O font-size do nó está
+                // aqui (a cascade resolve-o para Px cedo), portanto a nota antiga
+                // "sem o font-size do nó, reportamos o cru" já não valia: era ela
+                // que fazia o computed responder `2`.
                 Some(LineHeight::Px(p)) => fmt_px(p),
-                Some(LineHeight::Mult(m)) => format!("{m}"),
+                Some(LineHeight::Mult(m)) => fmt_px(m * self.font_size_px()),
                 // O browser reporta `normal` tal e qual (é o único valor de
                 // line-height que o computed NÃO resolve para px).
                 Some(LineHeight::Normal) => "normal".into(),
@@ -107,7 +145,7 @@ impl ComputedStyle {
             "right" => self.inset_right.map(fmt_dim).unwrap_or_default(),
             "bottom" => self.inset_bottom.map(fmt_dim).unwrap_or_default(),
             "left" => self.inset_left.map(fmt_dim).unwrap_or_default(),
-            "display" => self.display.map(fmt_display).unwrap_or_default(),
+            "display" => self.display.map(|d| display_css(d).to_string()).unwrap_or_default(),
             "box-sizing" => match self.border_box {
                 Some(true) => "border-box".into(),
                 Some(false) => "content-box".into(),
@@ -156,7 +194,47 @@ impl ComputedStyle {
             "flex-shrink" => self.flex_shrink.map(|v| format!("{v}")).unwrap_or_default(),
             "flex-basis" => self.flex_basis.map(fmt_dim).unwrap_or_default(),
             "order" => self.order.map(|v| format!("{v}")).unwrap_or_default(),
-            "gap" | "column-gap" => self.gap.map(fmt_dim).unwrap_or_default(),
+            // `gap` (shorthand) imprime `<row> <column>`, e um valor só quando
+            // os dois coincidem — era só o de coluna, o que perdia metade do
+            // valor de `gap: 10px 20px`.
+            "gap" => match (self.row_gap, self.gap) {
+                (None, None) => String::new(),
+                (r, c) => {
+                    let (rs, cs) = (
+                        r.map(fmt_dim).unwrap_or_else(|| "normal".into()),
+                        c.map(fmt_dim).unwrap_or_else(|| "normal".into()),
+                    );
+                    if rs == cs { rs } else { format!("{rs} {cs}") }
+                }
+            },
+            "column-gap" => self.gap.map(fmt_dim).unwrap_or_default(),
+            "visibility" => match self.visibility {
+                Some(crate::style::values::Visibility::Hidden) => "hidden".into(),
+                Some(crate::style::values::Visibility::Visible) => "visible".into(),
+                None => String::new(),
+            },
+            "flex-direction" => self
+                .flex_direction
+                .map(|d| match d {
+                    crate::style::FlexDirection::Row => "row",
+                    crate::style::FlexDirection::RowReverse => "row-reverse",
+                    crate::style::FlexDirection::Column => "column",
+                    crate::style::FlexDirection::ColumnReverse => "column-reverse",
+                })
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            "flex-wrap" => match self.flex_wrap {
+                Some(true) => "wrap".into(),
+                Some(false) => "nowrap".into(),
+                None => String::new(),
+            },
+            // As trilhas de grid: o browser reporta os tamanhos JÁ RESOLVIDOS em
+            // px (`repeat(3, 1fr)` num container de 450px sai `150px 150px
+            // 150px`). Aqui saem na forma DECLARADA, porque o computed não tem o
+            // container à mão — a resolução é do layout. É um desvio conhecido
+            // contra o Chrome, e fica escrito em vez de responder vazio.
+            "grid-template-columns" => fmt_tracks(self.grid_template_columns.as_deref()),
+            "grid-template-rows" => fmt_tracks(self.grid_template_rows.as_deref()),
             "grid-area" => self.grid_area.clone().unwrap_or_default(),
             // O browser reporta a matriz re-serializada linha a linha entre aspas.
             // Aqui ela é reportada a partir do RETÂNGULO de cada nome (a matriz crua
@@ -175,6 +253,25 @@ impl ComputedStyle {
                     .join(" "),
             },
             "row-gap" => self.row_gap.map(fmt_dim).unwrap_or_default(),
+            // `overflow` (shorthand): um keyword quando os dois eixos coincidem,
+            // dois — `hidden auto`, eixo X primeiro — quando não. Não existia
+            // braço nenhum: a propriedade que a página mais declara dos três
+            // respondia vazio enquanto `overflow-x` respondia certo.
+            "overflow" => match (self.overflow_x, self.overflow_y) {
+                (None, None) => String::new(),
+                _ => {
+                    let (x, y) = self.overflow_pair();
+                    if x == y { x.to_string() } else { format!("{x} {y}") }
+                }
+            },
+            "overflow-x" => match self.overflow_x {
+                None if self.overflow_y.is_none() => String::new(),
+                _ => self.overflow_pair().0.to_string(),
+            },
+            "overflow-y" => match self.overflow_y {
+                None if self.overflow_x.is_none() => String::new(),
+                _ => self.overflow_pair().1.to_string(),
+            },
             // ── Fundo (as camadas do shorthand) ───────────────────────────────
             "background-repeat" => self.bg_repeat.map(|r| r.css().to_string()).unwrap_or_default(),
             "background-position" => self
@@ -259,138 +356,3 @@ impl ComputedStyle {
     }
 }
 
-/// A borda EFETIVA do lado nomeado por uma longhand (`border-top-width` → o lado
-/// top), já com o fallback para a borda uniforme. O nome chega inteiro porque é
-/// o que o `match` do `get_property` tem em mão.
-fn side_of(css: &ComputedStyle, prop: &str) -> crate::style::SideBorder {
-    let sides = crate::style::borders::resolved_sides(css);
-    let idx = match prop.split('-').nth(1) {
-        Some("right") => 1,
-        Some("bottom") => 2,
-        Some("left") => 3,
-        _ => 0,
-    };
-    sides[idx]
-}
-
-/// Um lado de margin/padding → string CSS: comprimento cru (`fmt_dim` — px sai
-/// `Npx` como antes; relativo sai `Nrem` etc, corte documentado), `auto`, ou `""`.
-fn side_css(s: crate::style::Side) -> String {
-    match s {
-        crate::style::Side::Len(d) => fmt_dim(d),
-        crate::style::Side::Auto => "auto".into(),
-        crate::style::Side::Unset => String::new(),
-    }
-}
-
-/// Serializa uma cor `0xRRGGBBAA` no formato do browser: `rgb(r, g, b)` se opaco
-/// (alpha 255), senão `rgba(r, g, b, a)` com alpha 0-1 (até 2 casas, sem zeros à
-/// direita). É o que o `getComputedStyle().color` reporta.
-pub(crate) fn fmt_color(c: Rgba) -> String {
-    let r = (c >> 24) & 0xFF;
-    let g = (c >> 16) & 0xFF;
-    let b = (c >> 8) & 0xFF;
-    let a = c & 0xFF;
-    if a == 0xFF {
-        format!("rgb({r}, {g}, {b})")
-    } else {
-        // alpha 0-1 = a/255, arredondado a 2 casas — é o que o Chrome real reporta
-        // (VALIDADO no browser: #0000ff80 → "rgba(0, 0, 255, 0.5)", não 0.501961; a
-        // verificação adversarial sugeriu precisão cheia mas a medição desempatou).
-        let af = (a as f32 / 255.0 * 100.0).round() / 100.0;
-        let mut s = format!("{af}");
-        if s.contains('.') {
-            while s.ends_with('0') {
-                s.pop();
-            }
-            if s.ends_with('.') {
-                s.pop();
-            }
-        }
-        format!("rgba({r}, {g}, {b}, {s})")
-    }
-}
-
-/// Comprimento em pontos → `Npx` (sem casas se inteiro: `14px`, não `14.0px`).
-pub(crate) fn fmt_px(v: f32) -> String {
-    if v.fract() == 0.0 {
-        format!("{}px", v as i64)
-    } else {
-        format!("{v}px")
-    }
-}
-
-/// Uma `Dimension` computada → string CSS (px/%/auto…).
-pub(crate) fn fmt_dim(d: Dimension) -> String {
-    match d {
-        Dimension::Px(v) => fmt_px(v),
-        Dimension::Percent(p) => format!("{p}%"),
-        Dimension::Em(v) => format!("{v}em"),
-        Dimension::Rem(v) => format!("{v}rem"),
-        Dimension::Vw(v) => format!("{v}vw"),
-        Dimension::Vh(v) => format!("{v}vh"),
-        Dimension::Auto => "auto".into(),
-        // calc: reconstrói a forma canônica com os termos não-zero.
-        Dimension::Calc(c) => {
-            let mut parts: Vec<String> = Vec::new();
-            for (v, u) in [
-                (c.px, "px"), (c.pct, "%"), (c.em, "em"),
-                (c.rem, "rem"), (c.vw, "vw"), (c.vh, "vh"),
-            ] {
-                if v != 0.0 {
-                    parts.push(format!("{v}{u}"));
-                }
-            }
-            if parts.is_empty() {
-                "0px".into()
-            } else {
-                format!("calc({})", parts.join(" + "))
-            }
-        }
-    }
-}
-
-fn fmt_justify(j: JustifyContent) -> String {
-    match j {
-        JustifyContent::FlexStart => "flex-start",
-        JustifyContent::FlexEnd => "flex-end",
-        JustifyContent::Center => "center",
-        JustifyContent::SpaceBetween => "space-between",
-        JustifyContent::SpaceAround => "space-around",
-        JustifyContent::SpaceEvenly => "space-evenly",
-    }
-    .into()
-}
-
-fn fmt_align(a: AlignItems) -> String {
-    match a {
-        AlignItems::Stretch => "stretch",
-        AlignItems::FlexStart => "flex-start",
-        AlignItems::FlexEnd => "flex-end",
-        AlignItems::Center => "center",
-    }
-    .into()
-}
-
-/// `DisplayKind` → keyword CSS VÁLIDO para `getComputedStyle('display')`. NB:
-/// `FlexWrap` é só um estado interno (flex + flex-wrap) — para a propriedade
-/// `display` o keyword é `flex` (flex-wrap é uma propriedade separada). Não usar
-/// `{:?}` (geraria `flexwrap`, inválido).
-fn fmt_display(d: DisplayKind) -> String {
-    match d {
-        DisplayKind::Block => "block",
-        DisplayKind::Flex | DisplayKind::FlexWrap => "flex",
-        DisplayKind::Inline => "inline",
-        DisplayKind::Grid => "grid",
-        // As caixas de tabela e o `list-item` respondem o keyword que lhes deu
-        // origem: `getComputedStyle` devolve o `display` USADO, e um `<li>` que
-        // gera marcador é `list-item`, não `block`.
-        DisplayKind::ListItem => "list-item",
-        DisplayKind::Table => "table",
-        DisplayKind::TableRow => "table-row",
-        DisplayKind::TableCell => "table-cell",
-        DisplayKind::TableRowGroup => "table-row-group",
-        DisplayKind::None => "none",
-    }
-    .into()
-}

@@ -27,9 +27,22 @@ fn layout(html: &str, vw: f32) -> DisplayList {
     layout_document(&dom, &ctx)
 }
 
+/// A lista PLANA, em coordenadas absolutas.
+///
+/// `list.items` traz só os itens do nível de topo: o que um filho de bloco pinta
+/// vive no FRAGMENTO dele. E desde que o parser cria `<html>`/`<body>`
+/// implícitos — como qualquer browser — nem o elemento escrito no fonte é filho
+/// direto do `#document`, portanto `items` responde vazio e o assert acusava
+/// "não pintou" numa página que pinta. As três tags são precisas: sem `<body>`
+/// na árvore, uma regra `body{…}` não casava com elemento nenhum e TODA a
+/// propriedade herdada declarada aí desaparecia em silêncio.
+fn itens(list: &DisplayList) -> Vec<DisplayItem> {
+    list.materialized()
+}
+
 /// A cor do primeiro `SolidRect` pintado (o fundo da 1ª caixa).
 fn first_solid(list: &DisplayList) -> Option<(Rect, u32)> {
-    list.items.iter().find_map(|it| match it {
+    itens(list).iter().find_map(|it| match it {
         DisplayItem::SolidRect { rect, color, .. } => Some((*rect, *color)),
         _ => None,
     })
@@ -95,8 +108,8 @@ fn border_bottom_pinta_uma_barra_e_nao_uma_moldura() {
     // a espessura declarada. Uma moldura (o item Border) seria o comportamento
     // errado — quatro lados onde a página pediu um.
     let list = layout("<div style='border-bottom:2px solid #cccccc;height:40px'>x</div>", 600.0);
-    let bars: Vec<(Rect, u32)> = list
-        .items
+    let planos = itens(&list);
+    let bars: Vec<(Rect, u32)> = planos
         .iter()
         .filter_map(|it| match it {
             DisplayItem::SolidRect { rect, color, .. } if *color == 0xCCCCCCFF => {
@@ -105,10 +118,10 @@ fn border_bottom_pinta_uma_barra_e_nao_uma_moldura() {
             _ => None,
         })
         .collect();
-    assert_eq!(bars.len(), 1, "uma barra só: {:?}", list.items);
+    assert_eq!(bars.len(), 1, "uma barra só: {planos:?}");
     assert_eq!(bars[0].0.h, 2.0);
     assert_eq!(bars[0].0.w, 600.0);
-    assert!(!list.items.iter().any(|it| matches!(it, DisplayItem::Border { .. })));
+    assert!(!planos.iter().any(|it| matches!(it, DisplayItem::Border { .. })));
 }
 
 #[test]
@@ -138,8 +151,7 @@ fn outline_pinta_por_fora_e_nao_ocupa_espaco() {
     // o anel sai maior do que ela.
     let list = layout("<div style='background:#111111;outline:2px solid #00ff00'>x</div>", 600.0);
     let (box_rect, _) = first_solid(&list).unwrap();
-    let ring = list
-        .items
+    let ring = itens(&list)
         .iter()
         .find_map(|it| match it {
             DisplayItem::Border { rect, color, .. } if *color == 0x00FF00FF => Some(*rect),
@@ -163,8 +175,9 @@ fn clear_desce_abaixo_do_float() {
 <em style='clear:both;width:80px;height:20px;background:#0000ff'>c</em></div>",
         600.0,
     );
+    let planos = itens(&list);
     let y_de = |c: u32| {
-        list.items
+        planos
             .iter()
             .find_map(|it| match it {
                 DisplayItem::SolidRect { rect, color, .. } if *color == c => Some(*rect),
@@ -191,8 +204,9 @@ fn vertical_align_bottom_desce_a_caixa_na_linha() {
         "<div><em style='width:50px;height:60px;background:#ff0000'>a</em><em style='width:50px;height:20px;background:#0000ff;vertical-align:bottom'>b</em></div>",
         600.0,
     );
+    let planos = itens(&list);
     let get = |c: u32| {
-        list.items
+        planos
             .iter()
             .find_map(|it| match it {
                 DisplayItem::SolidRect { rect, color, .. } if *color == c => Some(*rect),
@@ -240,7 +254,7 @@ fn text_indent_recua_a_primeira_linha() {
     let sem = layout("<div>abc</div>", 600.0);
     let com = layout("<div style='text-indent:20px'>abc</div>", 600.0);
     let x_texto = |l: &DisplayList| {
-        l.items.iter().find_map(|it| match it {
+        itens(l).iter().find_map(|it| match it {
             DisplayItem::Text { x, .. } => Some(*x),
             _ => None,
         })
@@ -312,7 +326,7 @@ fn line_height_sem_unidade_chega_ao_layout() {
     let texto = "palavra ".repeat(40);
     let ys = |decl: &str| -> Vec<f32> {
         let list = layout(&format!("<p style='{decl}'>{texto}</p>"), 400.0);
-        list.items
+        itens(&list)
             .iter()
             .filter_map(|it| match it {
                 DisplayItem::Text { y, .. } => Some(*y),
@@ -347,8 +361,7 @@ fn line_height_normal_e_o_mesmo_que_nao_declarar() {
     let texto = "palavra ".repeat(40);
     let delta = |decl: &str| -> f32 {
         let list = layout(&format!("<p style='{decl}'>{texto}</p>"), 400.0);
-        let ys: Vec<f32> = list
-            .items
+        let ys: Vec<f32> = itens(&list)
             .iter()
             .filter_map(|it| match it {
                 DisplayItem::Text { y, .. } => Some(*y),
@@ -370,4 +383,68 @@ fn line_height_negativo_e_recusado() {
     assert_eq!(parse_inline("line-height: -1.5").line_height, None);
     assert_eq!(parse_inline("line-height: -10px").line_height, None);
 }
+
+
+#[test]
+fn propriedade_herdada_declarada_no_body_chega_aos_descendentes() {
+    // A tipografia da folha real vive no `body` (a Wikipédia declara-a lá), então
+    // a herança a partir dele é o caminho que sustenta a página inteira: cor,
+    // família, tamanho e line-height chegam todos por aqui.
+    let css = |html: &str| {
+        let dom = crate::parse_html_to_dom(html);
+        let idx = dom.resolve(dom.query("p").unwrap()).unwrap();
+        dom.computed_style_idx(idx).unwrap_or_default()
+    };
+    let por_regra = css("<style>body{line-height:1.6;color:#ff0000}</style><body><p>x</p></body>");
+    assert_eq!(por_regra.line_height, Some(crate::style::LineHeight::Mult(1.6)));
+    assert_eq!(por_regra.color, Some(0xFF0000FF));
+    // e pelo `style=""` do próprio body, que é outro caminho até ao mesmo campo.
+    let por_inline = css("<html><body style='line-height:1.6'><p>x</p></body></html>");
+    assert_eq!(por_inline.line_height, Some(crate::style::LineHeight::Mult(1.6)));
+    // um ancestral qualquer serve — o `body` não tem nada de especial na cascade.
+    let por_div = css("<style>div{line-height:1.6}</style><div><p>x</p></div>");
+    assert_eq!(por_div.line_height, Some(crate::style::LineHeight::Mult(1.6)));
+}
+
+#[test]
+fn body_implicito_faz_a_regra_do_body_chegar_a_um_fragmento_sem_as_tres_tags() {
+    // O caso que o teste acima NÃO cobre, porque escreve `<body>`: um fragmento
+    // que não escreve NENHUMA das três tags. É o que qualquer teste escreve, o
+    // que um `innerHTML` recebe, e o que grande parte da web serve.
+    //
+    // O parser cria `<html>` e `<body>` implícitos, como qualquer browser. Sem
+    // eles a regra `body{…}` não casava com elemento nenhum e toda a
+    // propriedade HERDADA declarada aí sumia em silêncio: a herança funcionava,
+    // o ancestral é que não existia. Na Wikipédia isso valia 20,8px de altura
+    // de linha onde o Chrome computa 26.
+    let dom = crate::parse_html_to_dom(
+        "<style>body{color:#ff0000;line-height:1.6}</style><div><p>x</p></div>",
+    );
+    // as duas tags existem mesmo, e não só por efeito na cascade.
+    assert!(dom.query("html").is_some(), "o <html> implícito tem de estar na árvore");
+    assert!(dom.query("body").is_some(), "o <body> implícito tem de estar na árvore");
+    // e o descendente HERDA o que foi declarado nelas.
+    let p = dom.resolve(dom.query("p").unwrap()).unwrap();
+    let css = dom.computed_style_idx(p).unwrap_or_default();
+    assert_eq!(css.color, Some(0xFF0000FF), "a cor declarada em body{{}} herda");
+    assert_eq!(css.line_height, Some(crate::style::LineHeight::Mult(1.6)));
+}
+
+#[test]
+fn line_height_normal_bate_com_as_alturas_do_chrome() {
+    // Os números são do corpus `tests/css/*.esperado.json`, medidos no Chrome
+    // real: a altura de uma caixa de uma linha, por tamanho de fonte, quando
+    // `line-height` é `normal`. Cinco tamanhos batem exatamente.
+    use crate::style::normal_line_height as lh;
+    assert_eq!(lh(8.0), 9.0);
+    assert_eq!(lh(16.0), 18.0); // o caso dominante: 37 das 62 amostras
+    assert_eq!(lh(20.0), 23.0); // sem o arredondamento para cima sairia 22,5
+    assert_eq!(lh(24.0), 27.0);
+    assert_eq!(lh(30.0), 34.0); // idem: 33,75
+    // 32px é o único que erra, por 1px e com uma amostra só — dentro da
+    // tolerância do comparador. Fixado para a divergência ser visível se alguém
+    // recalibrar a constante.
+    assert_eq!(lh(32.0), 36.0);
+}
+
 

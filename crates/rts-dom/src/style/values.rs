@@ -370,9 +370,24 @@ pub enum DisplayKind {
     Flex,
     /// `display:flex` + `flex-wrap:wrap` — fluem lado a lado E quebram linha.
     FlexWrap,
-    /// `display:inline`/`inline-block` — flui inline (no nível de bloco, trata como
-    /// wrap: itens lado a lado que quebram). É o default de tags custom no browser.
+    /// `display:inline` — flui inline (no nível de bloco, trata como wrap: itens
+    /// lado a lado que quebram). É o default de tags custom no browser.
     Inline,
+    /// `display:inline-block` — flui na linha como o `inline`, mas é uma caixa
+    /// ATÓMICA: tem largura, altura, padding e margem verticais próprios.
+    ///
+    /// Variante separada do [`Inline`](DisplayKind::Inline) por causa da
+    /// SERIALIZAÇÃO: `getComputedStyle(el).display` tem de responder o keyword
+    /// usado, e com os dois colapsados no mesmo valor respondia `inline` a um
+    /// `inline-block` — 8 desvios no corpus de fixtures, todos com esta forma.
+    /// O fluxo trata as duas quase sempre igual, o que foi a razão de terem
+    /// vivido juntas; a diferença que as separa não é de fluxo, é de nome, e um
+    /// valor que não sabe dizer o próprio nome é o que a serialização expõe.
+    ///
+    /// ATENÇÃO a quem consome: comparar `display != Inline` para responder "é de
+    /// bloco?" passa a estar ERRADO — um `InlineBlock` também não é de bloco.
+    /// Use `is_inline_level`.
+    InlineBlock,
     /// `display:grid` — grade de N colunas (N vem de `grid_columns`, de
     /// `grid-template-columns`). Tratado como WRAP com largura de item = 1/N do
     /// container (grid 2-D real fica p/ depois; cobre os cards/planos em grade).
@@ -400,6 +415,11 @@ pub enum DisplayKind {
     /// `display:table-cell` — `<td>`/`<th>`. Recebe a largura da coluna e a
     /// altura da linha; por dentro é um bloco normal.
     TableCell,
+    /// `display:table-caption` — `<caption>`, e o `<figcaption>` de uma
+    /// miniatura da Wikipédia (que declara `figure{display:table}`). Um bloco à
+    /// largura da tabela, FORA da grade: não tem coluna, e por isso não entra no
+    /// algoritmo de repartição.
+    TableCaption,
     /// `display:none` — não renderiza (nem ocupa espaço).
     None,
 }
@@ -421,11 +441,26 @@ impl DisplayKind {
             | DisplayKind::Table
             | DisplayKind::TableRowGroup
             | DisplayKind::TableRow
-            | DisplayKind::TableCell => 0,
-            DisplayKind::FlexWrap | DisplayKind::Inline | DisplayKind::Grid => 1, // wrap
+            | DisplayKind::TableCell
+            | DisplayKind::TableCaption => 0,
+            DisplayKind::FlexWrap
+            | DisplayKind::Inline
+            | DisplayKind::InlineBlock
+            | DisplayKind::Grid => 1, // wrap
             DisplayKind::Flex => 2,                            // horizontal (lado a lado)
             DisplayKind::None => -1,
         }
+    }
+
+    /// `true` para os valores de NÍVEL INLINE — os que fluem numa linha em vez
+    /// de empilhar.
+    ///
+    /// Existe para que ninguém volte a escrever `display != Inline` a querer
+    /// dizer "é de bloco?": era verdade enquanto `inline-block` não tinha
+    /// variante própria, e passou a ser falso no instante em que passou a ter.
+    /// Uma pergunta com nome não se desatualiza quando se acrescenta um valor.
+    pub fn is_inline_level(self) -> bool {
+        matches!(self, DisplayKind::Inline | DisplayKind::InlineBlock)
     }
 
     /// `true` para os quatro valores INTERNOS da tabela (`table`, `table-row`,
@@ -438,6 +473,7 @@ impl DisplayKind {
                 | DisplayKind::TableRowGroup
                 | DisplayKind::TableRow
                 | DisplayKind::TableCell
+                | DisplayKind::TableCaption
         )
     }
 }
@@ -504,9 +540,25 @@ pub enum GridTrack {
     Fixed(Dimension),
     /// `1fr`, `2fr` — fração do espaço livre (após px/auto). O nº é o peso.
     Fr(f32),
-    /// `auto`/`min-content`/`max-content` — dimensiona pelo conteúdo (v1: trata
-    /// como o maior conteúdo dos itens da trilha; sem distinção min/max).
+    /// `auto`/`min-content`/`max-content` — dimensiona pelo CONTEÚDO dos itens
+    /// da trilha (sem distinção entre min e max: a diferença entre os três é o
+    /// que fazem com o espaço que SOBRA, e isso decide-se na repartição).
     Auto,
+    /// `minmax(<len>, <len>)` — uma trilha que parte do mínimo e CRESCE até ao
+    /// máximo com o espaço que sobrar.
+    ///
+    /// Existe porque tratá-la como o seu MÁXIMO — que era a aproximação v1 — não
+    /// é uma aproximação, é a resposta errada sempre que há outra trilha ao lado:
+    /// a trilha come o máximo, não sobra nada para as outras, e a grade
+    /// transborda. Medido na Wikipédia, cujo `<main>` é
+    /// `minmax(0,59.25rem) min-content`: dávamos 948px (59.25rem) à coluna de
+    /// conteúdo onde o Chrome dá 752, e a barra lateral saía fora da janela.
+    /// Foram 196px de erro herdados por tudo o que está dentro do artigo,
+    /// incluindo 46 das 49 tabelas da página.
+    ///
+    /// `minmax(x, 1fr)` e `minmax(x, min-content)` NÃO passam por aqui: o máximo
+    /// deles já é uma trilha flexível ou intrínseca, e o parse devolve essa.
+    Bounded { min: Dimension, max: Dimension },
 }
 
 impl GridTrack {
@@ -521,18 +573,27 @@ impl GridTrack {
         if let Some(n) = low.strip_suffix("fr") {
             return n.trim().parse::<f32>().ok().map(GridTrack::Fr);
         }
-        // minmax(min, max) → usa o max (a trilha cresce até ele).
+        // `minmax(min, max)`. Quando o MÁXIMO é `fr` ou intrínseco, a trilha É
+        // essa — um `minmax(0,1fr)` é uma trilha `1fr` cujo mínimo é zero, e o
+        // mínimo zero é o que ela já faria. Só quando os dois lados são
+        // comprimentos é que o par importa, e aí a trilha é limitada.
         if let Some(inner) = low.strip_prefix("minmax(").and_then(|s| s.strip_suffix(')')) {
             let parts: Vec<&str> = inner.splitn(2, ',').collect();
             if parts.len() == 2 {
-                return GridTrack::parse_one(parts[1]);
+                let max = GridTrack::parse_one(parts[1])?;
+                return Some(match (GridTrack::parse_one(parts[0]), max) {
+                    (Some(GridTrack::Fixed(mn)), GridTrack::Fixed(mx)) => {
+                        GridTrack::Bounded { min: mn, max: mx }
+                    }
+                    (_, outro) => outro,
+                });
             }
         }
         // fit-content(x) → x fixo (aproximação).
         if let Some(inner) = low.strip_prefix("fit-content(").and_then(|s| s.strip_suffix(')')) {
             return GridTrack::parse_one(inner);
         }
-        super::parse::parse_dimension_pub(v).map(GridTrack::Fixed)
+        super::lengths::parse_dimension_pub(v).map(GridTrack::Fixed)
     }
 
     /// Parseia uma LISTA de trilhas (`grid-template-columns`), expandindo

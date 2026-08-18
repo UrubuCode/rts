@@ -31,11 +31,16 @@
 
 pub mod background;
 pub mod borders;
+pub mod calc;
 pub mod color;
 pub mod effects;
 pub mod fmt;
+pub mod fmt_values;
 pub mod grid_areas;
+pub mod initial;
+pub mod lengths;
 pub mod lerp;
+pub mod line_metrics;
 pub mod parse;
 pub mod props;
 pub mod ruleindex;
@@ -47,6 +52,8 @@ pub mod text;
 pub mod values;
 pub(crate) mod vars;
 
+#[cfg(test)]
+mod computed_tests;
 #[cfg(test)]
 mod newprops_tests;
 #[cfg(test)]
@@ -61,6 +68,7 @@ pub use background::{BgPosition, BgRepeat, BgSize};
 pub use borders::{SideBorder, SideName};
 pub use color::parse_color;
 pub use grid_areas::{GridArea, GridAreas};
+pub use line_metrics::normal_line_height;
 pub use lerp::{lerp_color, lerp_dimension, lerp_f32};
 pub use parse::{is_mono_family, parse_inline, parse_inline_block};
 pub use props::{

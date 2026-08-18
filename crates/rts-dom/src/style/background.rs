@@ -116,7 +116,7 @@ impl BgPosition {
                     }
                 }
                 other => {
-                    let d = super::parse::parse_dimension_pub(other)?;
+                    let d = super::lengths::parse_dimension_pub(other)?;
                     if x.is_none() {
                         x = Some(d);
                     } else {
@@ -159,10 +159,10 @@ impl BgSize {
         }
         let toks: Vec<&str> = t.split_whitespace().collect();
         match toks.as_slice() {
-            [w] => Some(BgSize::Len(super::parse::parse_dimension_pub(w)?, Dimension::Auto)),
+            [w] => Some(BgSize::Len(super::lengths::parse_dimension_pub(w)?, Dimension::Auto)),
             [w, h] => Some(BgSize::Len(
-                super::parse::parse_dimension_pub(w)?,
-                super::parse::parse_dimension_pub(h)?,
+                super::lengths::parse_dimension_pub(w)?,
+                super::lengths::parse_dimension_pub(h)?,
             )),
             _ => None,
         }
@@ -192,7 +192,7 @@ pub fn parse_background(val: &str) -> BackgroundShorthand {
     let mut out = BackgroundShorthand::default();
     // Só a primeira camada (ver o corte no topo). A vírgula de TOPO separa
     // camadas; as de dentro de `rgb(...)`/`linear-gradient(...)` não contam.
-    let layer = super::parse::split_top(val, ',').into_iter().next().unwrap_or_default();
+    let layer = super::lengths::split_top(val, ',').into_iter().next().unwrap_or_default();
     // Um gradiente ocupa o token inteiro (tem espaços dentro dos parênteses) —
     // testá-lo primeiro evita que o tokenizador o parta.
     if let Some(g) = super::effects::LinearGradient::parse(&layer) {
@@ -200,7 +200,7 @@ pub fn parse_background(val: &str) -> BackgroundShorthand {
     }
     // `position / size`: parte no `/` de TOPO (o `/` dentro de `url(...)` é
     // caminho, não separador).
-    let slash = super::parse::split_top(&layer, '/');
+    let slash = super::lengths::split_top(&layer, '/');
     let (before, size_part) = match slash.as_slice() {
         [a, b] => (a.clone(), Some(b.clone())),
         _ => (layer.clone(), None),
@@ -209,7 +209,7 @@ pub fn parse_background(val: &str) -> BackgroundShorthand {
         out.size = BgSize::parse(&s);
     }
     // Tokens do lado esquerdo, com os parênteses preservados.
-    let toks = super::parse::split_top_ws_pub(&before);
+    let toks = super::lengths::split_top_ws_pub(&before);
     let mut pos_toks: Vec<String> = Vec::new();
     for t in toks {
         let low = t.to_ascii_lowercase();

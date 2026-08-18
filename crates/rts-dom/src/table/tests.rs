@@ -9,7 +9,7 @@
 use crate::layout::{layout_document, ApproxMeasurer, DisplayItem, LayoutCtx, Rect};
 use crate::parse_html_to_dom;
 
-fn geometria(html: &str, largura: f32) -> (crate::Dom, crate::layout::DisplayList) {
+pub(crate) fn geometria(html: &str, largura: f32) -> (crate::Dom, crate::layout::DisplayList) {
     let dom = parse_html_to_dom(html);
     let ctx = LayoutCtx { viewport_w: largura, viewport_h: 600.0, measurer: &ApproxMeasurer };
     let list = layout_document(&dom, &ctx);
@@ -17,7 +17,7 @@ fn geometria(html: &str, largura: f32) -> (crate::Dom, crate::layout::DisplayLis
 }
 
 /// O rect do n-ésimo elemento que casa com o seletor.
-fn rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, n: usize) -> Rect {
+pub(crate) fn rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, n: usize) -> Rect {
     let ids = dom.query_all(sel);
     let id = ids.get(n).unwrap_or_else(|| panic!("sem {sel}[{n}]"));
     let idx = dom.resolve(*id).expect("nó vivo");
@@ -29,7 +29,7 @@ fn rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, n: usize
 }
 
 /// Os textos emitidos na display list, na ordem de pintura.
-fn textos(list: &crate::layout::DisplayList) -> Vec<String> {
+pub(crate) fn textos(list: &crate::layout::DisplayList) -> Vec<String> {
     list.materialized()
         .iter()
         .filter_map(|i| match i {
@@ -162,78 +162,11 @@ fn tbody_nao_cria_uma_grade_separada() {
     assert!(tbody.h >= a.h + c.h - 0.5, "o grupo abrange as duas linhas: {}", tbody.h);
 }
 
-// ── ITEM DE LISTA ───────────────────────────────────────────────────────────
-
 /// Um `<ol>` numera 1., 2., 3. — e os números são pintados à ESQUERDA do texto.
-#[test]
-fn ol_numera_os_itens_a_partir_de_um() {
-    let (dom, list) = geometria("<ol><li>um</li><li>dois</li><li>três</li></ol>", 800.0);
-    let t = textos(&list);
-    for esperado in ["1.", "2.", "3."] {
-        assert!(t.iter().any(|s| s == esperado), "faltou o marcador {esperado} em {t:?}");
-    }
-    // O marcador do primeiro item fica à esquerda do content-box dele.
-    let li = rect(&dom, &list, "li", 0);
-    let x_marcador = list
-        .materialized()
-        .iter()
-        .find_map(|i| match i {
-            DisplayItem::Text { x, text, .. } if &**text == "1." => Some(*x),
-            _ => None,
-        })
-        .expect("marcador 1.");
-    assert!(x_marcador < li.x, "marcador em {x_marcador}, item em {}", li.x);
-}
-
 /// `<ol start>` começa onde o atributo manda, e continua daí.
-#[test]
-fn ol_com_start_comeca_no_numero_pedido() {
-    let (_, list) = geometria("<ol start=\"5\"><li>a</li><li>b</li></ol>", 800.0);
-    let t = textos(&list);
-    assert!(t.iter().any(|s| s == "5."), "{t:?}");
-    assert!(t.iter().any(|s| s == "6."), "{t:?}");
-}
-
-/// `list-style: none` não gera marcador nenhum — o caso mais comum numa página
 /// real, onde `<ul>` é o markup de um menu.
-#[test]
-fn list_style_none_nao_gera_marcador() {
-    let (_, list) = geometria(
-        "<ul style=\"list-style:none\"><li>a</li><li>b</li></ul>",
-        800.0,
-    );
-    // Nenhum bullet: os únicos rects sólidos possíveis viriam de fundos, que
-    // este markup não tem.
-    let bullets = list
-        .materialized()
-        .iter()
-        .filter(|i| matches!(i, DisplayItem::SolidRect { .. }))
-        .count();
-    assert_eq!(bullets, 0, "list-style:none desenhou {bullets} marcadores");
-}
-
 /// Um `<ul>` normal desenha um bullet por item, e o bullet cai dentro do recuo
 /// que a UA-stylesheet reserva — nunca por cima do texto.
-#[test]
-fn ul_desenha_um_bullet_por_item_dentro_do_recuo() {
-    let (dom, list) = geometria("<ul><li>a</li><li>b</li></ul>", 800.0);
-    let bullets: Vec<Rect> = list
-        .materialized()
-        .iter()
-        .filter_map(|i| match i {
-            DisplayItem::SolidRect { rect, .. } => Some(*rect),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(bullets.len(), 2, "esperados 2 bullets, vieram {}", bullets.len());
-    let ul = rect(&dom, &list, "ul", 0);
-    let li = rect(&dom, &list, "li", 0);
-    for b in &bullets {
-        assert!(b.x + b.w <= li.x + 0.5, "bullet invade o texto: {} vs {}", b.x + b.w, li.x);
-        assert!(b.x >= ul.x - 0.5, "bullet fora da caixa da lista");
-    }
-}
-
 /// O recuo default de 40px do `<ul>` é da UA e cede a um `padding-left` do autor
 /// — é o que faz um menu com `padding-left:0` alinhar com o resto da página.
 #[test]
@@ -243,19 +176,6 @@ fn o_padding_left_do_autor_anula_o_recuo_da_ua() {
     let (dom2, list2) = geometria("<ul style=\"padding-left:0\"><li>a</li></ul>", 800.0);
     let sem = rect(&dom2, &list2, "li", 0).x;
     assert!((com_ua - sem - 40.0).abs() < 0.5, "recuo da UA = {}", com_ua - sem);
-}
-
-/// Um `<li>` que o autor virou `display:flex` deixa de ser item de lista: não
-/// ganha marcador e não conta para a numeração dos irmãos.
-#[test]
-fn li_com_display_trocado_nao_e_mais_item_de_lista() {
-    let (_, list) = geometria(
-        "<ol><li style=\"display:flex\">a</li><li>b</li></ol>",
-        800.0,
-    );
-    let t = textos(&list);
-    assert!(!t.iter().any(|s| s == "2."), "o `flex` não devia contar: {t:?}");
-    assert!(t.iter().any(|s| s == "1."), "o item que sobrou é o 1: {t:?}");
 }
 
 /// Uma célula cujo conteúdo declara `width:100%` NÃO exige a largura da viewport
@@ -356,36 +276,8 @@ fn table_layout_fixed_ignora_o_conteudo_das_linhas_seguintes() {
     assert!(auto_c1 > fixo_c1 + 1.0, "auto={auto_c1} fixo={fixo_c1}");
 }
 
-/// `list-style-position: inside` põe o marcador DENTRO da caixa de conteúdo, e
 /// `outside` (o default) fora dela — sem que a caixa do item mude em nenhum dos
 /// dois, que é o que o browser faz.
-#[test]
-fn list_style_position_muda_o_lado_do_marcador_e_nao_a_caixa() {
-    let (d1, l1) = geometria("<ul><li>a</li></ul>", 800.0);
-    let (d2, l2) = geometria(
-        "<ul style=\"list-style-position:inside\"><li>a</li></ul>",
-        800.0,
-    );
-    let bullet = |l: &crate::layout::DisplayList| {
-        l.materialized()
-            .iter()
-            .find_map(|i| match i {
-                DisplayItem::SolidRect { rect, .. } => Some(*rect),
-                _ => None,
-            })
-            .expect("bullet")
-    };
-    let fora = bullet(&l1);
-    let dentro = bullet(&l2);
-    let li_fora = rect(&d1, &l1, "li", 0);
-    let li_dentro = rect(&d2, &l2, "li", 0);
-
-    assert!(fora.x + fora.w <= li_fora.x + 0.5, "outside devia ficar fora do conteúdo");
-    assert!(dentro.x >= li_dentro.x - 0.5, "inside devia ficar dentro do conteúdo");
-    // A caixa do item é a MESMA nos dois: o marcador nunca ocupa espaço de fluxo.
-    assert!((li_fora.w - li_dentro.w).abs() < 0.5, "a caixa mudou: {} vs {}", li_fora.w, li_dentro.w);
-}
-
 /// As quatro respondem ao `getComputedStyle`, que é o que o harness de paridade
 /// compara contra o Chrome. Uma propriedade que o layout usa e o `fmt` não
 /// serializa aparece vazia ao lado do valor do Chrome — já nos parou uma vez.
@@ -432,15 +324,141 @@ fn a_infobox_da_wikipedia_da_caixa_a_todas_as_celulas() {
     assert_eq!(celulas.len(), 2, "as duas células do table aninhado");
 }
 
+/// Células sem `table-row` por pai ficam LADO A LADO, numa linha anónima — não
+/// empilhadas à largura toda.
+///
+/// É a forma que a Wikipédia escreve para pôr a bandeira ao lado das armas
+/// (`<div style="display:table">` com dois `display:table-cell` diretos), e sem
+/// a linha anónima do CSS §17.2.1 as duas caixas caem uma debaixo da outra com a
+/// largura inteira — que foi o que este teste apanhou antes de existir.
 #[test]
-fn dbg_anon() {
+fn celulas_sem_linha_ganham_uma_linha_anonima_e_ficam_lado_a_lado() {
     let html = r##"<div style="display:table; width:400px; border-spacing:0">
         <div style="display:table-cell">bandeira</div>
         <div style="display:table-cell">armas</div>
       </div>"##;
     let (dom, list) = geometria(html, 1280.0);
     let g = list.geometry_now();
-    for (i, id) in dom.query_all("div[style*=table-cell]").into_iter().enumerate() {
-        println!("SEL cel[{i}] {:?}", g.rects.get(&dom.resolve(id).unwrap()));
-    }
+    let cel: Vec<_> = dom
+        .query_all("div[style*=table-cell]")
+        .into_iter()
+        .map(|id| *g.rects.get(&dom.resolve(id).unwrap()).expect("caixa"))
+        .collect();
+    assert_eq!(cel.len(), 2);
+    assert!((cel[0].y - cel[1].y).abs() < 0.5, "empilharam: y={} e {}", cel[0].y, cel[1].y);
+    assert!((cel[1].x - (cel[0].x + cel[0].w)).abs() < 0.5, "não ficaram encostadas");
+    assert!((cel[0].w + cel[1].w - 400.0).abs() < 0.5, "juntas deviam dar a tabela");
+}
+
+/// Uma célula solta ANTES de um `<tr>` não se junta a ele: são duas linhas, e
+/// só células CONSECUTIVAS partilham a linha anónima.
+#[test]
+fn a_linha_anonima_fecha_quando_aparece_uma_linha_de_verdade() {
+    let html = r##"<div style="display:table; width:400px; border-spacing:0">
+        <div style="display:table-cell">solta</div>
+        <div style="display:table-row"><div style="display:table-cell">na linha</div></div>
+      </div>"##;
+    let (dom, list) = geometria(html, 1280.0);
+    let g = list.geometry_now();
+    let cel: Vec<_> = dom
+        .query_all("div[style*=table-cell]")
+        .into_iter()
+        .map(|id| *g.rects.get(&dom.resolve(id).unwrap()).expect("caixa"))
+        .collect();
+    assert_eq!(cel.len(), 2);
+    assert!(cel[1].y >= cel[0].y + cel[0].h - 0.5, "deviam ser duas linhas");
+}
+
+/// A MINIATURA da Wikipédia: `figure { display: table }` com uma imagem e um
+/// `figcaption { display: table-caption }`. A figura tem de ganhar a largura da
+/// imagem, e a legenda tem de ganhar caixa.
+///
+/// Pinado porque a medição sobre a página real mostrou as três figuras com 0px
+/// de largura e as 24 legendas sem caixa nenhuma — duas causas numa só forma:
+/// sem célula anónima a tabela não tem coluna, a soma das colunas é zero, e o
+/// shrink-to-fit dá-lhe zero.
+#[test]
+fn figure_como_tabela_ganha_a_largura_do_conteudo_e_a_legenda_ganha_caixa() {
+    let html = r##"<div style="width:700px">
+      <figure style="display:table">
+        <div style="width:250px;height:180px">imagem</div>
+        <figcaption style="display:table-caption">Bandeira do Brasil</figcaption>
+      </figure></div>"##;
+    let (dom, list) = geometria(html, 1280.0);
+    let fig = rect(&dom, &list, "figure", 0);
+    let cap = rect(&dom, &list, "figcaption", 0);
+    assert!(fig.w > 200.0, "a figura encolheu para {}", fig.w);
+    assert!(fig.w < 300.0, "a figura ocupou o pai todo: {}", fig.w);
+    assert!(cap.w > 1.0 && cap.h > 1.0, "a legenda saiu sem caixa: {cap:?}");
+}
+
+/// Uma legenda fica FORA da grade: não é uma coluna, e por isso não reparte
+/// largura com as células nem entra na contagem de colunas.
+#[test]
+fn a_legenda_nao_vira_uma_coluna_da_tabela() {
+    let html = r##"<table style="width:300px;border-spacing:0">
+        <caption>uma legenda bastante comprida</caption>
+        <tr><td style="width:100px">a</td><td style="width:200px">b</td></tr>
+      </table>"##;
+    let (dom, list) = geometria(html, 800.0);
+    let a = rect(&dom, &list, "td", 0);
+    let b = rect(&dom, &list, "td", 1);
+    let cap = rect(&dom, &list, "caption", 0);
+    assert!((a.w - 100.0).abs() < 0.5, "a legenda mexeu na coluna 1: {}", a.w);
+    assert!((b.w - 200.0).abs() < 0.5, "a legenda mexeu na coluna 2: {}", b.w);
+    assert!(cap.y + cap.h <= a.y + 0.5, "a legenda devia ficar ACIMA da grade");
+}
+
+// ── GRADE: a largura que as tabelas herdavam errada ─────────────────────────
+
+/// A grade do `<main>` da Wikipédia: `minmax(0,59.25rem) min-content`, num
+/// container de 972px com 24px de vão.
+///
+/// O Chrome dá 752px à coluna de conteúdo — o que sobra depois da barra lateral
+/// — e não os 948px (59.25rem) do máximo da trilha. Tratar `minmax` como o seu
+/// máximo dava-nos 948, a barra lateral saía fora da janela, e os 196px de erro
+/// eram herdados por tudo o que está dentro do artigo: 46 das 49 tabelas da
+/// página tinham a largura errada por causa desta linha.
+#[test]
+fn minmax_nao_come_o_maximo_quando_ha_outra_trilha_ao_lado() {
+    let html = r##"<div style="display:grid; width:972px; gap:24px;
+                     grid-template-columns:minmax(0,59.25rem) min-content">
+        <div id="conteudo">artigo</div>
+        <div id="lado" style="width:196px">indice</div>
+      </div>"##;
+    let (dom, list) = geometria(html, 1280.0);
+    let conteudo = rect(&dom, &list, "#conteudo", 0);
+    let lado = rect(&dom, &list, "#lado", 0);
+    assert!((conteudo.w - 752.0).abs() < 1.0, "coluna de conteúdo = {}", conteudo.w);
+    assert!((lado.w - 196.0).abs() < 1.0, "barra lateral = {}", lado.w);
+    // E a barra lateral fica DENTRO da grade, não empurrada para fora.
+    assert!((lado.x - (conteudo.x + conteudo.w + 24.0)).abs() < 1.0, "lado em x={}", lado.x);
+}
+
+/// Uma trilha limitada SOZINHA continua a poder chegar ao seu máximo — o que
+/// muda é ela ceder quando há outra ao lado, não ela deixar de crescer.
+#[test]
+fn minmax_sozinho_cresce_ate_ao_maximo() {
+    let html = r##"<div style="display:grid; width:1000px;
+                     grid-template-columns:minmax(0,300px)">
+        <div id="so">x</div></div>"##;
+    let (dom, list) = geometria(html, 1280.0);
+    assert!((rect(&dom, &list, "#so", 0).w - 300.0).abs() < 1.0);
+}
+
+/// Uma trilha `auto` é dimensionada pelo CONTEÚDO antes de o espaço livre ser
+/// repartido — e não com zero, que era o que a fazia desaparecer ao lado de uma
+/// trilha fixa.
+#[test]
+fn trilha_auto_e_dimensionada_pelo_conteudo() {
+    let html = r##"<div style="display:grid; width:600px; gap:0;
+                     grid-template-columns:auto 200px">
+        <div id="a"><div style="width:150px">a</div></div>
+        <div id="b">b</div></div>"##;
+    let (dom, list) = geometria(html, 1280.0);
+    let a = rect(&dom, &list, "#a", 0);
+    let b = rect(&dom, &list, "#b", 0);
+    // `a` fica com o que sobra (é a única trilha esticável): 600 - 200.
+    assert!((a.w - 400.0).abs() < 1.0, "trilha auto = {}", a.w);
+    assert!((b.x - 400.0).abs() < 1.0, "a segunda coluna começa em {}", b.x);
 }

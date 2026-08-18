@@ -1637,7 +1637,18 @@ impl Dom {
     /// de uma propriedade CSS por nome, no formato do browser. `""` se não definida
     /// ou o nó não é elemento. (#1759)
     pub fn computed_property(&self, id: NodeId, name: &str) -> String {
-        self.computed_style(id).map(|c| c.get_property(name)).unwrap_or_default()
+        // `computed_value` e não `get_property`: o computed NUNCA responde vazio
+        // — o que ninguém declarou vale o INICIAL (`float: none`, `color:
+        // rgb(0, 0, 0)`). O `get_property` cru continua a servir o
+        // `el.style.x`, que TEM de responder vazio fora do `style=""`. A tag vai
+        // junto porque o inicial de `display` é o da UA-stylesheet dela.
+        let tag = self.resolve(id).and_then(|idx| match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => Some(tag.clone()),
+            _ => None,
+        });
+        self.computed_style(id)
+            .map(|c| c.computed_value(name, tag.as_deref()))
+            .unwrap_or_default()
     }
 
     /// `el.style.<name>` (getPropertyValue) — o valor INLINE da propriedade (só o
@@ -3266,7 +3277,7 @@ impl Dom {
         }
         // Parseia a nova subárvore numa árvore temporária e copia os filhos do
         // #document dela para baixo de `idx`.
-        let sub = parse_html_to_dom(html);
+        let sub = parse_fragmento(html);
         let sub_root_children: Vec<NodeIdx> = sub.nodes[sub.root].children.clone();
         for sub_child in sub_root_children {
             self.copy_subtree_into(&sub, sub_child, idx);
@@ -3662,6 +3673,21 @@ impl TargetKey {
 ///   descartado, como no caminho immediate-mode, para a árvore não encher de
 ///   nós de espaço irrelevantes).
 pub fn parse_html_to_dom(html: &str) -> Dom {
+    parse_com_estrutura(html, true)
+}
+
+/// O mesmo parser, sem inventar `<html>`/`<body>`.
+///
+/// É o que o `innerHTML` precisa: o conteúdo entra DENTRO de um elemento que já
+/// existe, e a estrutura do documento já foi decidida quando a página foi
+/// parseada. Sem esta distinção, `el.innerHTML = "<p>x</p>"` punha um
+/// `<html><body>` inteiro dentro do `el` — o que o browser nunca faz, e o que
+/// nenhum programa que leia a árvore a seguir espera.
+pub fn parse_fragmento(html: &str) -> Dom {
+    parse_com_estrutura(html, false)
+}
+
+fn parse_com_estrutura(html: &str, estrutura: bool) -> Dom {
     // Instala a UA-stylesheet (defaults de display/margem das tags HTML) na primeira
     // vez — em Rust, como DADOS (tabela em block.rs), rodando só quando há DOM. NÃO é
     // mais um prelude `.ts` (isso quebrava todo programa: o `ua.ts` chamava `dom.*`
@@ -3699,7 +3725,9 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                         crate::bump!(tags_implicitly_closed);
                         open.pop();
                     }
-                    open_implicit_body(&mut dom, &mut open, &name);
+                    if estrutura {
+                        open_implicit_body(&mut dom, &mut open, &name);
+                    }
                     let parent = open.last().unwrap().0;
                     let attrs = parse_attrs(&attrs_raw);
                     let id = dom.push(NodeKind::Element { tag: name.clone() }, attrs, parent);
@@ -3755,11 +3783,37 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
 /// `<head>` ausentes — a árvore continua a aceitar um documento sem eles, e
 /// nenhuma regra CSS depende desses dois da forma que depende do `body`.
 fn open_implicit_body(dom: &mut Dom, open: &mut Vec<(NodeIdx, String)>, new_tag: &str) {
-    if new_tag == "body" || allowed_in_head(new_tag) {
+    // As três tags da estrutura nunca abrem uma estrutura implícita: são elas.
+    // Sem `html` nesta lista, um documento que traga o que quer que seja antes
+    // do `<html>` — um `<style>` injetado, um comentário — fazia nascer um
+    // `<html>` implícito e o `<html>` REAL ficava dentro dele. A árvore ainda
+    // parecia razoável num `dump`, mas todo o caminho de elemento
+    // (`html[1]/body[1]/…`) ganhava um nível, e uma comparação contra o browser
+    // deixava de encontrar os mesmos nós: de 16 813 caminhos comuns passaram a
+    // ser 2.
+    if matches!(new_tag, "html" | "head" | "body") || allowed_in_head(new_tag) {
         return;
     }
-    let Some(pos) = open.iter().rposition(|(_, n)| n == "head") else { return };
-    open.truncate(pos);
+    // Já estamos DENTRO de um `<body>`? Então não há nada a abrir.
+    if open.iter().any(|(_, n)| n == "body") {
+        return;
+    }
+    // Um `<head>` aberto fecha-se aqui: a primeira tag de fluxo termina-o.
+    if let Some(pos) = open.iter().rposition(|(_, n)| n == "head") {
+        open.truncate(pos);
+    }
+    // E o `<html>`, se também não existir. Sem isto um fragmento sem NENHUMA das
+    // três tags — `<style>body{…}</style><p>x</p>`, que é o que qualquer teste
+    // escreve e o que um `innerHTML` recebe — deixava o `<p>` solto no
+    // `#document`, e as regras `html{…}`/`body{…}` não casavam com elemento
+    // nenhum. Toda a propriedade HERDADA declarada aí (a cor, a fonte, o
+    // `line-height`) desaparecia em silêncio: a herança funcionava, o ancestral
+    // é que não existia.
+    if !open.iter().any(|(_, n)| n == "html") {
+        let raiz = open.last().unwrap().0;
+        let html = dom.push(NodeKind::Element { tag: "html".to_owned() }, Vec::new(), raiz);
+        open.push((html, "html".to_owned()));
+    }
     let parent = open.last().unwrap().0;
     let body = dom.push(NodeKind::Element { tag: "body".to_owned() }, Vec::new(), parent);
     open.push((body, "body".to_owned()));
@@ -3792,6 +3846,28 @@ mod tests {
         dom.resolve(id).expect("NodeId deveria resolver nesta árvore")
     }
 
+    /// Helper: o `<body>` IMPLÍCITO da árvore.
+    ///
+    /// O parser cria `<html>` e `<body>` quando o fonte não os escreve, que é o
+    /// que qualquer browser faz. Não fazê-lo era um defeito real: sem `<body>`
+    /// na árvore, uma regra `body{…}` não casava com elemento nenhum e TODA a
+    /// propriedade herdada declarada aí — cor, fonte, `line-height`,
+    /// alinhamento — desaparecia em silêncio. A herança funcionava; o ancestral
+    /// é que não existia.
+    ///
+    /// Os testes abaixo continuam a pinar o mesmo que pinavam; só a NAVEGAÇÃO
+    /// mudou, porque o que era filho do `#document` é hoje neto dele.
+    fn body_idx(dom: &Dom) -> NodeIdx {
+        let html = dom.node(dom.root).children[0];
+        dom.node(html).children[0]
+    }
+
+    /// Helper: os filhos de topo do FLUXO — hoje filhos do `<body>` implícito,
+    /// onde antes eram filhos do `#document`. Ver [`body_idx`].
+    fn topo(dom: &Dom) -> &Vec<NodeIdx> {
+        &dom.node(body_idx(dom)).children
+    }
+
     #[test]
     fn query_por_tag_id_classe() {
         let dom = parse_html_to_dom(
@@ -3821,7 +3897,8 @@ mod tests {
         let i = dom.query("i").unwrap();
         // parentNode
         assert_eq!(dom.parent_of(a), Some(div));
-        assert_eq!(dom.parent_of(div).map(|p| idx(&dom, p)), Some(dom.root)); // pai do div = #document
+        // Pai do div = o `<body>` implícito (era o `#document`); ver `body_idx`.
+        assert_eq!(dom.parent_of(div).map(|p| idx(&dom, p)), Some(body_idx(&dom)));
         // first/lastChild do div
         assert_eq!(dom.first_child(div), Some(a));
         assert_eq!(dom.last_child(div), Some(i));
@@ -4383,9 +4460,13 @@ mod tests {
 
     #[test]
     fn seletor_root_em_fragmento() {
-        // :root num fragmento com VÁRIOS top-level → casa 0 (não há <html> único).
+        // :root casa o `<html>`, e um fragmento passou a TER um: o parser cria
+        // `<html>`/`<body>` implícitos como qualquer browser. A expectativa muda
+        // aqui porque a estrutura de topo é ela própria o que este teste pina —
+        // e a ausência dessas tags apagava, em silêncio, toda a propriedade
+        // HERDADA declarada em `body{…}`.
         let dom = parse_html_to_dom("<div id=\"a\">x</div><div id=\"b\">y</div>");
-        assert_eq!(dom.query_all(":root").len(), 0);
+        assert_eq!(dom.query_all(":root").len(), 1);
         // com UM só top-level, :root casa esse 1.
         let dom2 = parse_html_to_dom("<html><body>x</body></html>");
         assert_eq!(dom2.query_all(":root").len(), 1);
@@ -4492,7 +4573,8 @@ mod tests {
         assert_eq!(dom.get_elements_by_tag_name("span").len(), 2);
         assert_eq!(dom.get_elements_by_name("f").len(), 2); // os 2 spans
         // '*' = todos os elementos.
-        assert_eq!(dom.get_elements_by_tag_name("*").len(), 4); // div,p,span,span
+        // `*` conta também o `<html>` e o `<body>` implícitos, como no browser.
+        assert_eq!(dom.get_elements_by_tag_name("*").len(), 6); // html,body,div,p,span,span
     }
 
     #[test]
@@ -4542,8 +4624,9 @@ mod tests {
     fn matcher_universal_e_multi_classe() {
         // BUG (verificação adversarial): "*" não casava; multi-classe não tokenizava.
         let dom = parse_html_to_dom("<div class=\"a b\"><p class=\"a\">x</p></div>");
-        // "*" casa todos os elementos (div + p).
-        assert_eq!(dom.query_all("*").len(), 2);
+        // "*" casa todos os elementos — incluindo o `<html>`/`<body>` que o
+        // parser cria como qualquer browser (ver `body_idx`).
+        assert_eq!(dom.query_all("*").len(), 4);
         // multi-classe = AND: só o div tem 'a' E 'b'.
         assert_eq!(dom.get_elements_by_class_name("a b").len(), 1);
         assert_eq!(dom.get_elements_by_class_name("a").len(), 2); // div e p têm 'a'
@@ -4612,7 +4695,12 @@ mod tests {
         assert_eq!(dom.computed_property(a, "background-color"), "rgba(0, 0, 255, 0.5)");
         assert_eq!(dom.computed_property(a, "font-size"), "18px");
         assert_eq!(dom.computed_property(a, "padding-top"), "10px");
-        assert_eq!(dom.computed_property(a, "margin-top"), ""); // não definido
+        // NÃO declarado responde o valor USADO, não vazio: `getComputedStyle` de
+        // um browser devolve sempre um valor computado, e para uma margem que
+        // ninguém declarou esse valor é `0px`. O vazio que aqui se esperava era
+        // a nossa resposta antiga, e um programa que compare com o browser via
+        // a diferença.
+        assert_eq!(dom.computed_property(a, "margin-top"), "0px");
     }
 
     #[test]
@@ -4869,7 +4957,7 @@ mod tests {
         // tentar pôr o div (ancestral) dentro do span deve ser ignorado.
         dom.append_child(span, div);
         let (di, si) = (idx(&dom, div), idx(&dom, span));
-        assert_eq!(dom.node(di).parent, Some(dom.root)); // intacto
+        assert_eq!(dom.node(di).parent, Some(body_idx(&dom))); // intacto sob o <body>
         assert!(dom.node(si).children.contains(&di) == false);
     }
 
@@ -4903,7 +4991,7 @@ mod tests {
         let dom = parse_html_to_dom(
             "<div class='card' id=\"alvo\"><a href='https://x'>l</a></div>",
         );
-        let div = dom.node(dom.root).children[0];
+        let div = topo(&dom)[0];
         assert_eq!(dom.node(div).attr("class"), Some("card"));
         assert_eq!(dom.node(div).attr("id"), Some("alvo"));
         assert_eq!(dom.node(div).attr("naoexiste"), None);
@@ -4916,7 +5004,7 @@ mod tests {
     fn atributos_variantes_aspas_e_booleano() {
         // aspas duplas, simples, sem aspas, e atributo sem valor.
         let dom = parse_html_to_dom("<input type=text value='oi' disabled checked=\"x\">");
-        let inp = dom.node(dom.root).children[0];
+        let inp = topo(&dom)[0];
         assert_eq!(dom.node(inp).attr("type"), Some("text"));   // sem aspas
         assert_eq!(dom.node(inp).attr("value"), Some("oi"));    // aspas simples
         assert_eq!(dom.node(inp).attr("disabled"), Some(""));   // booleano
@@ -4928,17 +5016,24 @@ mod tests {
     #[test]
     fn valor_de_atributo_decodifica_entidades() {
         let dom = parse_html_to_dom("<a title='Tom &amp; Jerry'>x</a>");
-        let a = dom.node(dom.root).children[0];
+        let a = topo(&dom)[0];
         assert_eq!(dom.node(a).attr("title"), Some("Tom & Jerry"));
     }
 
     #[test]
     fn dump_mostra_atributos() {
         let dom = parse_html_to_dom("<div class='card' id='x'>oi</div>");
+        // O dump mostra as três tags que o browser cria — `html`, `body` e o
+        // elemento escrito. A expectativa muda porque a ESTRUTURA de topo é o
+        // que este teste imprime; sem `<body>` na árvore uma regra `body{…}`
+        // não casava com elemento nenhum e toda a propriedade herdada
+        // declarada aí desaparecia em silêncio.
         let esperado = "\
 #document
-  <div class=\"card\" id=\"x\">
-    \"oi\"
+  <html>
+    <body>
+      <div class=\"card\" id=\"x\">
+        \"oi\"
 ";
         assert_eq!(dom.dump(), esperado);
     }
@@ -4946,8 +5041,8 @@ mod tests {
     #[test]
     fn arvore_simples_heading_e_paragrafo() {
         let dom = parse_html_to_dom("<h1>Titulo</h1><p>Corpo</p>");
-        // Document tem 2 filhos de topo: h1 e p.
-        let top = &dom.node(dom.root).children;
+        // 2 filhos de topo do fluxo: h1 e p — hoje sob o `<body>` implícito.
+        let top = topo(&dom);
         assert_eq!(top.len(), 2);
         assert_eq!(tag(&dom, top[0]), "h1");
         assert_eq!(tag(&dom, top[1]), "p");
@@ -4961,7 +5056,7 @@ mod tests {
     fn inline_aninhado_vira_subarvore() {
         // <b> com <i> dentro precisa virar b → i → texto (aninhamento real).
         let dom = parse_html_to_dom("<p>a <b>forte <i>e it</i></b> z</p>");
-        let p = dom.node(dom.root).children[0];
+        let p = topo(&dom)[0];
         assert_eq!(tag(&dom, p), "p");
         let pk = &dom.node(p).children;
         // p: "a ", <b>, " z"
@@ -4981,10 +5076,10 @@ mod tests {
     #[test]
     fn cada_no_conhece_o_pai() {
         let dom = parse_html_to_dom("<p><b>x</b></p>");
-        let p = dom.node(dom.root).children[0];
+        let p = topo(&dom)[0];
         let b = dom.node(p).children[0];
         let x = dom.node(b).children[0];
-        assert_eq!(dom.node(p).parent, Some(dom.root));
+        assert_eq!(dom.node(p).parent, Some(body_idx(&dom)));
         assert_eq!(dom.node(b).parent, Some(p));
         assert_eq!(dom.node(x).parent, Some(b));
     }
@@ -4993,7 +5088,7 @@ mod tests {
     fn tag_desconhecida_e_preservada_como_no() {
         // No caminho de fila <span> some; na árvore ele PERSISTE como elemento.
         let dom = parse_html_to_dom("<p>oi <span>spn</span> tchau</p>");
-        let p = dom.node(dom.root).children[0];
+        let p = topo(&dom)[0];
         let pk = &dom.node(p).children;
         assert_eq!(pk.len(), 3);
         assert_eq!(tag(&dom, pk[1]), "span");
@@ -5003,7 +5098,7 @@ mod tests {
     #[test]
     fn entidades_decodificadas() {
         let dom = parse_html_to_dom("<p>a &lt; b &amp; c &gt; d</p>");
-        let p = dom.node(dom.root).children[0];
+        let p = topo(&dom)[0];
         let txt = dom.node(dom.node(p).children[0]).kind.clone();
         assert_eq!(txt, NodeKind::Text("a < b & c > d".into()));
     }
@@ -5012,7 +5107,7 @@ mod tests {
     fn fechamento_orfao_nao_quebra() {
         // </div> sem abertura é ignorado; texto ao redor preservado.
         let dom = parse_html_to_dom("</div><p>ok</p>");
-        let top = &dom.node(dom.root).children;
+        let top = topo(&dom);
         assert_eq!(top.len(), 1);
         assert_eq!(tag(&dom, top[0]), "p");
     }
@@ -5021,7 +5116,7 @@ mod tests {
     fn void_tag_nao_empilha() {
         // <br> não tem fechamento; o <p> seguinte deve ser irmão, não filho.
         let dom = parse_html_to_dom("<br><p>depois</p>");
-        let top = &dom.node(dom.root).children;
+        let top = topo(&dom);
         assert_eq!(top.len(), 2);
         assert_eq!(tag(&dom, top[0]), "br");
         assert_eq!(tag(&dom, top[1]), "p");
@@ -5031,14 +5126,18 @@ mod tests {
     #[test]
     fn dump_legivel_para_inspecao() {
         let dom = parse_html_to_dom("<h1>Oi</h1><p>antes <b>forte</b></p>");
+        // `<html>`/`<body>` implícitos, como em qualquer browser — ver
+        // `body_idx` para o defeito que a sua ausência causava.
         let esperado = "\
 #document
-  <h1>
-    \"Oi\"
-  <p>
-    \"antes \"
-    <b>
-      \"forte\"
+  <html>
+    <body>
+      <h1>
+        \"Oi\"
+      <p>
+        \"antes \"
+        <b>
+          \"forte\"
 ";
         assert_eq!(dom.dump(), esperado);
     }
@@ -5094,8 +5193,8 @@ mod tests {
         // source/track são filhos do video (não empilham nem engolem irmãos)…
         assert_eq!(dom.parent_of(source), Some(video));
         assert_eq!(dom.parent_of(track), Some(video));
-        // …e p é IRMÃO do video (filho do #document), não descendente.
-        assert_eq!(dom.parent_of(p).map(|x| idx(&dom, x)), Some(dom.root));
+        // …e p é IRMÃO do video (filho do `<body>` implícito), não descendente.
+        assert_eq!(dom.parent_of(p).map(|x| idx(&dom, x)), Some(body_idx(&dom)));
         assert_eq!(dom.next_sibling(video), Some(p));
     }
 
@@ -5144,7 +5243,7 @@ mod tests {
         let dom2 = parse_html_to_dom("<p>texto<div>x</div>");
         let p = dom2.query("p").unwrap();
         let div = dom2.query("div").unwrap();
-        assert_eq!(dom2.parent_of(div).map(|x| idx(&dom2, x)), Some(dom2.root));
+        assert_eq!(dom2.parent_of(div).map(|x| idx(&dom2, x)), Some(body_idx(&dom2)));
         assert_eq!(dom2.next_sibling(p), Some(div));
         assert_eq!(dom2.text_content(p).unwrap(), "texto"); // o "x" NÃO entrou no p
     }

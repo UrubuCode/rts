@@ -24,7 +24,9 @@
 mod widths;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+#[cfg(test)]
+mod tests_listas;
 
 use crate::layout::{DisplayItem, DisplayList, LayoutCtx, Rect};
 use crate::style::{ComputedStyle, DisplayKind};
@@ -153,8 +155,19 @@ fn collect(dom: &Dom, table: NodeIdx) -> Grid {
     }
 
     for &child in &dom.node(table).children {
+        // Um filho que não é elemento (o whitespace entre `<tr>`) não é nada. É
+        // preciso perguntá-lo ANTES do display: `display_of` responde `None`
+        // tanto para o whitespace como para um `<figcaption>` sem default de UA,
+        // e tratar os dois como "nada" era o que apagava o segundo.
+        if !matches!(dom.node(child).kind, crate::NodeKind::Element { .. }) {
+            continue;
+        }
         match display_of(dom, child) {
             Some(DisplayKind::TableCell) => soltas.push(child),
+            Some(DisplayKind::TableCaption) => {
+                fechar_anonima!();
+                g.outros.push(child);
+            }
             Some(DisplayKind::TableRow) => {
                 fechar_anonima!();
                 add_row(dom, Some(child), &celulas_de(dom, child), &mut g, &mut ocupado);
@@ -168,6 +181,9 @@ fn collect(dom: &Dom, table: NodeIdx) -> Grid {
                 // que dá a caixa ao `<tbody>`.
                 let mut soltas_g: Vec<NodeIdx> = Vec::new();
                 for &r in &dom.node(child).children {
+                    if !matches!(dom.node(r).kind, crate::NodeKind::Element { .. }) {
+                        continue;
+                    }
                     match display_of(dom, r) {
                         Some(DisplayKind::TableCell) => soltas_g.push(r),
                         Some(DisplayKind::TableRow) => {
@@ -186,12 +202,22 @@ fn collect(dom: &Dom, table: NodeIdx) -> Grid {
                 g.groups.push((child, inicio, g.rows.len() - inicio));
             }
             Some(DisplayKind::None) => {}
-            // Texto solto entre `<tr>` (o whitespace do markup) não é nada.
-            None => {}
+            // QUALQUER outro filho — um `<div>` solto, a `<a><img></a>` de uma
+            // miniatura — é envolvido numa CÉLULA anónima (§17.2.1), e não
+            // empilhado por cima da grade como se fosse uma legenda.
+            //
+            // É o que dá largura a `figure { display: table }`, o padrão das
+            // miniaturas da Wikipédia: sem célula anónima a tabela não tinha
+            // coluna nenhuma, a soma das colunas era zero, e o *shrink-to-fit*
+            // dava-lhe 0px de largura. Foram 3 tabelas a desaparecer da página e
+            // as 24 `<figcaption>` com elas.
+            //
+            // O nó da célula anónima é o PRÓPRIO filho: uma célula anónima não
+            // é um elemento, não tem estilo e não pinta nada, portanto inventar
+            // um nó para ela só acrescentaria uma caixa que o documento não tem.
             _ => {
                 if !crate::layout::is_out_of_flow(dom, child) {
-                    fechar_anonima!();
-                    g.outros.push(child);
+                    soltas.push(child);
                 }
             }
         }
@@ -396,6 +422,8 @@ pub(crate) fn layout_table(
         // Reserva o índice ANTES das células: o fundo do `<tr>` pinta-se atrás
         // delas, como qualquer caixa pinta atrás dos filhos.
         let idx_fundo = list.items.len();
+        // A fronteira das subárvores que já existem — ver `layout::insert_item`.
+        let filhos_antes = list.children.len();
         if let Some(n) = row.node {
             crate::layout::reserve_node_order(list, n);
         }
@@ -417,7 +445,7 @@ pub(crate) fn layout_table(
         if let Some(n) = row.node {
             let rect = Rect::new(content_x, y, content_w, alturas[ri]);
             crate::layout::record_node_rect(list, n, rect);
-            pinta_caixa(dom, n, rect, idx_fundo, list);
+            pinta_caixa(dom, n, rect, idx_fundo, filhos_antes, list);
         }
         y += alturas[ri] + ts.spacing_v;
     }
@@ -434,7 +462,7 @@ pub(crate) fn layout_table(
         let base = row_y[inicio + n - 1] + alturas[inicio + n - 1];
         let rect = Rect::new(content_x, topo, content_w, base - topo);
         crate::layout::record_node_rect(list, node, rect);
-        pinta_caixa(dom, node, rect, list.items.len(), list);
+        pinta_caixa(dom, node, rect, list.items.len(), list.children.len(), list);
     }
     y - content_y
 }
@@ -443,7 +471,14 @@ pub(crate) fn layout_table(
 /// grupo de linhas), inserindo os itens em `at` para ficarem ATRÁS do que já lá
 /// está. Sem isto, um `<tr>` com `background` não pintava nada: a linha nunca é
 /// um bloco, e era o `layout_block` que fazia esta parte para todos os outros.
-fn pinta_caixa(dom: &Dom, id: NodeIdx, rect: Rect, at: usize, list: &mut DisplayList) {
+fn pinta_caixa(
+    dom: &Dom,
+    id: NodeIdx,
+    rect: Rect,
+    at: usize,
+    filhos_antes: usize,
+    list: &mut DisplayList,
+) {
     let Some(css) = dom.computed_style_idx(id) else { return };
     if !css.has_box() {
         return;
@@ -455,6 +490,6 @@ fn pinta_caixa(dom: &Dom, id: NodeIdx, rect: Rect, at: usize, list: &mut Display
     }
     em.extend(crate::layout::border_items(&css, rect, radius, 1.0));
     for (i, item) in em.into_iter().enumerate() {
-        crate::layout::insert_item(list, at + i, item);
+        crate::layout::insert_item(list, at + i, filhos_antes, item);
     }
 }

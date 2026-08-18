@@ -395,7 +395,23 @@ impl TextMeasurer for ApproxMeasurer {
         text.chars().count() as f32 * size * per
     }
     fn line_height(&self, size: f32) -> f32 {
-        size * 1.3
+        // 1.125 e não 1.3, e o número é uma APROXIMAÇÃO calibrada, não uma lei:
+        // `line-height: normal` sai das métricas da fonte (ascent + descent +
+        // line gap) e este medidor não tem fonte nenhuma. 1.125 é o que o Chrome
+        // computa para a fonte padrão a 16px (18px), medido pelo corpus de
+        // fixtures — o 1.3 anterior dava 20.8 e aparecia como o desvio mais
+        // repetido do corpus, 43 vezes.
+        //
+        // Um backend COM métricas não usa isto: o `rts-egui` responde
+        // `row_height` da fonte real. Este valor serve o layout headless, onde a
+        // alternativa era não ter resposta nenhuma.
+        //
+        // A constante e a medição que a calibrou vivem em `style::line_metrics`,
+        // porque `normal` é o valor INICIAL de uma propriedade CSS e não uma
+        // preferência do medidor — e porque lá está o arredondamento para cima
+        // que faz 20px dar 23 e 30px dar 34, os inteiros que o Chrome reporta
+        // (sem ele saíam 22,5 e 33,75).
+        crate::style::normal_line_height(size)
     }
 }
 
@@ -1084,6 +1100,10 @@ pub(crate) fn layout_block(
     // inserida (antes de qualquer filho), descemos nos filhos (que dão append no
     // fim), e só DEPOIS — conhecendo a altura — inserimos o fundo nesse índice.
     let box_index = list.items.len();
+    // Quantas subárvores já existiam ANTES desta caixa começar. Só as que
+    // vierem a seguir é que são empurradas quando o fundo for inserido — ver
+    // [`insert_item`].
+    let filhos_antes_da_caixa = list.children.len();
     // Reserva a posição do pai antes dos filhos; a geometria final é preenchida
     // depois que a altura natural do conteúdo for conhecida.
     reserve_node_order(list, id);
@@ -1247,7 +1267,7 @@ pub(crate) fn layout_block(
         let mut at = box_index;
         // SOMBRA primeiro (atrás de tudo): box-shadow.
         if let Some(sh) = css.box_shadow {
-            insert_item(list, at, DisplayItem::Shadow {
+            insert_item(list, at, filhos_antes_da_caixa, DisplayItem::Shadow {
                 rect: box_rect,
                 dx: sh.dx,
                 dy: sh.dy,
@@ -1260,7 +1280,7 @@ pub(crate) fn layout_block(
         }
         // FUNDO: gradiente (se houver) OU cor sólida.
         if let Some(g) = css.gradient {
-            insert_item(list, at, DisplayItem::GradientRect {
+            insert_item(list, at, filhos_antes_da_caixa, DisplayItem::GradientRect {
                 rect: box_rect,
                 c0: apply_opacity(g.c0, op),
                 c1: apply_opacity(g.c1, op),
@@ -1270,11 +1290,11 @@ pub(crate) fn layout_block(
             at += 1;
         } else if let Some(color) = css.bg {
             let color = apply_opacity(color, op);
-            insert_item(list, at, DisplayItem::SolidRect { rect: box_rect, color, radius });
+            insert_item(list, at, filhos_antes_da_caixa, DisplayItem::SolidRect { rect: box_rect, color, radius });
             at += 1;
         }
         for item in border_items(&css, box_rect, radius, op) {
-            insert_item(list, at, item);
+            insert_item(list, at, filhos_antes_da_caixa, item);
             at += 1;
         }
     }
@@ -1307,6 +1327,7 @@ pub(crate) fn layout_block(
         insert_item(
             list,
             children_start,
+            filhos_antes_da_caixa,
             DisplayItem::BeginClip {
                 rect: content_rect,
                 node: id,
@@ -1473,9 +1494,28 @@ impl KeyBase {
 /// as subárvores reusadas guardam o índice antes do qual entram, e sem esta
 /// correção elas passariam a ser pintadas na frente do próprio fundo. Foi o que
 /// um teste de altura percentual acusou, ao ver os retângulos na ordem trocada.
-pub(crate) fn insert_item(list: &mut DisplayList, at: usize, item: DisplayItem) {
+/// Insere um item em `at` e corrige o `at` das subárvores que ficam depois dele.
+///
+/// `filhos_antes` é quantas subárvores já existiam quando `at` foi RESERVADO, e
+/// é o que distingue "esta subárvore é minha, empurra-a" de "esta subárvore já
+/// cá estava, não lhe toques". Sem essa fronteira, um `at >= at` sozinho não
+/// consegue separar os dois casos quando os índices coincidem — e coincidem
+/// exatamente no caso que interessa: um `position:fixed`, pintado no fim do
+/// documento, reserva o índice 0 da lista de topo, que é também o `at` do
+/// fragmento onde vive a página inteira. O fixed empurrava a página para
+/// depois de si e ficava ATRÁS dela; numa página real é o dropdown a
+/// desaparecer por trás do conteúdo.
+///
+/// É a mesma distinção que o `BeginClip { filhos_antes }` já fazia, e pela mesma
+/// razão: o índice sozinho não carrega a ordem de criação.
+pub(crate) fn insert_item(
+    list: &mut DisplayList,
+    at: usize,
+    filhos_antes: usize,
+    item: DisplayItem,
+) {
     list.items.insert(at, item);
-    for child in &mut list.children {
+    for child in list.children.iter_mut().skip(filhos_antes) {
         if child.at >= at {
             child.at += 1;
         }
@@ -2675,6 +2715,36 @@ fn whitespace_is_inline_separator(dom: &Dom, parent: NodeIdx, child: NodeIdx) ->
 // as macros de estado (close_floats!/flush_inline!) resetam as variáveis a cada
 // fechamento — a ÚLTIMA atribuição (no flush final) é estruturalmente morta, o
 // que dispara unused_assignments sem haver bug.
+/// As duas margens adjacentes colapsadas numa só, pela regra do CSS 2.1 §8.3.1.
+///
+/// Não é `max(a, b)`: essa é a regra apenas quando as DUAS são positivas.
+/// - as duas ≥ 0 → a maior;
+/// - as duas < 0 → a mais negativa (a que puxa mais);
+/// - uma de cada sinal → a SOMA, e é por isso que uma margem negativa cancela
+///   uma positiva em vez de ser ignorada por ela.
+fn colapso_de_margens(a: f32, b: f32) -> f32 {
+    if a >= 0.0 && b >= 0.0 {
+        a.max(b)
+    } else if a < 0.0 && b < 0.0 {
+        a.min(b)
+    } else {
+        a + b
+    }
+}
+
+/// Quanto é que a soma das duas margens excede a colapsada — o que há a
+/// descontar ao cursor, já que cada bloco traz a sua margem dentro da altura.
+///
+/// A forma antiga era `min(a, b)`, que dá o mesmo resultado enquanto as duas
+/// forem positivas e o resultado ERRADO assim que uma é negativa: com `a = 0` e
+/// `b = -10px` descontava −10, ou seja SOMAVA 10 ao cursor, e a margem negativa
+/// que devia puxar o bloco para cima empurrava-o para baixo. É o `margin-top`
+/// negativo dos gutters `.row` do Bootstrap, e a razão de um teste que o pinava
+/// ter começado a falhar.
+fn excesso_de_margens(a: f32, b: f32) -> f32 {
+    a + b - colapso_de_margens(a, b)
+}
+
 #[allow(unused_assignments)]
 fn layout_children_vertical(
     dom: &Dom,
@@ -2692,12 +2762,12 @@ fn layout_children_vertical(
     // A base da chave de fragmento é a mesma para todos os filhos deste
     // container — só o nó e o epoch dele mudam.
     let key_base = KeyBase::new(dom, content_w, avail_h, ctx);
-    // MARGIN-COLLAPSE (versão simples, fiel ao caso comum): margins verticais de
-    // blocos ADJACENTES colapsam para o MAIOR, não somam (regra do CSS). Como o
-    // `outer_h` de cada bloco já inclui seu margin nos dois lados, ao empilhar dois
-    // blocos a soma conta `margin_bottom_anterior + margin_top_atual`; subtraímos o
-    // overlap = min(dos dois) para virar max(dos dois). `prev_margin` rastreia o
-    // margin do último bloco posto.
+    // MARGIN-COLLAPSE: as margens verticais de blocos ADJACENTES colapsam numa
+    // só, não somam. Como o `outer_h` de cada bloco já inclui a sua margem dos
+    // dois lados, ao empilhar dois blocos a soma conta
+    // `margin_bottom_anterior + margin_top_atual`; subtrai-se o excesso para
+    // ficar a colapsada ([`colapso_de_margens`]). `prev_margin` guarda a margem
+    // do último bloco posto.
     let mut prev_margin = 0.0f32;
     // ── FLOAT LINE (v1): floats CONSECUTIVOS dividem a mesma linha — left encosta
     // à esquerda, right à direita (o header brand+nav do Bootstrap). Um irmão
@@ -2764,7 +2834,7 @@ fn layout_children_vertical(
                 crate::bump!(fragment_hits);
                 flush_inline!(child_y);
                 close_floats!(child_y);
-                child_y -= prev_margin.min(fragment.margin_top);
+                child_y -= excesso_de_margens(prev_margin, fragment.margin_top);
                 emit_fragment(&fragment, list, content_x, child_y, content_w, avail_h);
                 child_y += fragment.size.1;
                 prev_margin = fragment.margin_top;
@@ -2832,7 +2902,7 @@ fn layout_children_vertical(
                 let side = child_float;
                 let top = *float_top.get_or_insert(child_y);
                 let w = child_outer_width(dom, child, content_w, font_size, ctx);
-                let h = child_outer_height(dom, child, content_w, avail_h, font_size, ctx);
+                let h = child_outer_height(dom, child, content_w, avail_h, css, font_size, ctx);
                 let x = if side == crate::style::FloatSide::Left {
                     let x = float_left_x;
                     float_left_x += w;
@@ -2869,7 +2939,7 @@ fn layout_children_vertical(
                     })
                     .unwrap_or(0.0);
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
-                child_y -= prev_margin.min(m);
+                child_y -= excesso_de_margens(prev_margin, m);
                 let ((_, h), _) = layout_block_reusing(
                     dom, child, content_x, child_y, content_w, avail_h, || m, ctx, list,
                 );
@@ -3192,14 +3262,22 @@ fn layout_children_horizontal(
         if is_out_of_flow(dom, child) {
             continue;
         }
-        if !is_block_level(dom, child) {
+        // BLOCKIFICAÇÃO: um filho de flex é um item de nível BLOCO, mesmo sendo
+        // um `<span>` (a spec blockifica os itens de flex; o Chrome reporta
+        // `display:block` neles). Só um NÓ DE TEXTO é item anónimo.
+        //
+        // A condição era `!is_block_level`, e por isso um `<span>` filho de flex
+        // caía no ramo de texto: era achatado para uma string, pintado com o
+        // estilo do CONTAINER, e não registava caixa nenhuma — 345 dos 351
+        // elementos `display:block` sem caixa da Wikipédia eram exatamente isto.
+        if matches!(dom.node(child).kind, NodeKind::Text(_)) {
             // texto solto: largura medida; vazio é ignorado. Não cresce nem encolhe.
             let text = collect_text(dom, child);
             if text.trim().is_empty() {
                 continue;
             }
             let w = ctx.measurer.text_width(&text, font_size, false, false);
-            let h = ctx.measurer.line_height(font_size);
+            let h = crate::inline_box::altura_da_linha(css, font_size, ctx.measurer);
             items.push(FlexItem {
                 node: child,
                 base: w,
@@ -3216,7 +3294,7 @@ fn layout_children_horizontal(
         }
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let base = flex_base_outer(dom, child, content_w, font_size, ctx);
-        let h = child_outer_height(dom, child, content_w, container_content_h, font_size, ctx);
+        let h = child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx);
         items.push(FlexItem {
             node: child,
             base,
@@ -3426,8 +3504,11 @@ fn layout_children_grid(
             vec![crate::style::GridTrack::Fr(1.0); n]
         }
     };
-    let col_sizes = resolve_tracks(&col_tracks, content_w, col_gap, &resolve);
-    let ncols = col_sizes.len().max(1);
+    // O número de colunas vem da LISTA de trilhas e não dos tamanhos: os
+    // tamanhos ainda não estão decididos, porque uma trilha intrínseca precisa de
+    // saber que itens lhe calham — e para isso é preciso ter colocado os itens.
+    // A ordem é: quantas colunas → colocar os itens → medir → dimensionar.
+    let ncols = col_tracks.len().max(1);
 
     // ── ITENS: os filhos renderizáveis (auto-placement row-by-row) ───────────────
     let mut children: Vec<NodeIdx> = Vec::new();
@@ -3449,6 +3530,27 @@ fn layout_children_grid(
         return 0.0;
     }
     let cells = place_grid_items(dom, &children, areas.as_deref(), ncols);
+
+    // A largura INTRÍNSECA por coluna — só medida quando alguma trilha é
+    // intrínseca, porque medir custa uma travessia por item e a esmagadora
+    // maioria das grades é só `fr` e px.
+    let precisa_medir = col_tracks.iter().any(|t| matches!(t, crate::style::GridTrack::Auto));
+    let conteudo: Option<Vec<f32>> = precisa_medir.then(|| {
+        let mut w = vec![0.0f32; ncols];
+        for c in &cells {
+            // Um item que ATRAVESSA colunas não dita nenhuma delas sozinho: a
+            // repartição do que ele pede pelas colunas que ocupa é a mesma
+            // pergunta da tabela com `colspan`, e aqui não vale a complicação —
+            // o que uma grade real tem em trilha intrínseca é a barra lateral,
+            // que ocupa uma coluna só.
+            if c.c1 - c.c0 != 1 || c.c0 >= ncols {
+                continue;
+            }
+            w[c.c0] = w[c.c0].max(intrinsic_outer_width(dom, c.child, font_size, ctx));
+        }
+        w
+    });
+    let col_sizes = resolve_tracks(&col_tracks, content_w, col_gap, conteudo.as_deref(), &resolve);
     // Uma linha DECLARADA pela matriz existe mesmo sem item nela (ela ainda empurra
     // as linhas seguintes pelo gap), daí o max com `areas.rows`.
     let nrows = cells
@@ -3640,53 +3742,98 @@ fn span_size(sizes: &[f32], start: usize, end: usize, gap: f32) -> f32 {
     let n = end.saturating_sub(start);
     sizes[start..end].iter().sum::<f32>() + (n.saturating_sub(1)) as f32 * gap
 }
-
-/// Resolve os tamanhos px de uma lista de trilhas dado o tamanho do container no
-/// eixo e o gap: px/%/auto resolvem direto; o espaço livre restante é dividido
-/// pelas trilhas `fr` na proporção dos pesos (css-grid track sizing simplificado).
+/// A LARGURA (ou altura) de cada trilha de uma grade.
+///
+/// A ordem das três passadas é a regra, e não um detalhe de implementação: uma
+/// trilha intrínseca (`auto`/`min-content`) é dimensionada pelo CONTEÚDO antes
+/// de qualquer espaço livre ser repartido, porque o espaço livre só existe
+/// depois de se saber o que o conteúdo pede. Inverter as duas é o que fazia a
+/// grade do `<main>` da Wikipédia dar 948px à coluna de conteúdo e empurrar a
+/// barra lateral para fora da janela.
+///
+/// `conteudo[i]` é a largura intrínseca dos itens da trilha `i` — `None` quando
+/// quem chama não a mediu (nenhuma trilha intrínseca na lista, e aí ela não é
+/// precisa).
 fn resolve_tracks(
     tracks: &[crate::style::GridTrack],
     container: f32,
     gap: f32,
+    conteudo: Option<&[f32]>,
     ctx: &ResolveCtx,
 ) -> Vec<f32> {
+    use crate::style::GridTrack as T;
     let n = tracks.len().max(1);
     let total_gap = (n.saturating_sub(1)) as f32 * gap;
-    // 1ª passada: resolve px/%/auto; soma o consumido e os pesos fr.
+    let dim = |d: &crate::style::Dimension| -> f32 {
+        match d {
+            // % de trilha resolve contra o container (largura p/ colunas).
+            crate::style::Dimension::Percent(p) => container * p / 100.0,
+            other => other.resolve(ctx).unwrap_or(0.0),
+        }
+        .max(0.0)
+    };
+
+    // 1ª passada: a BASE de cada trilha — o que ela pede antes de haver sobra.
     let mut sizes = vec![0.0f32; tracks.len()];
-    let mut used = 0.0f32;
     let mut sum_fr = 0.0f32;
     for (i, t) in tracks.iter().enumerate() {
-        match t {
-            crate::style::GridTrack::Fixed(d) => {
-                // % de trilha resolve contra o container (largura p/ colunas).
-                let v = match d {
-                    crate::style::Dimension::Percent(p) => container * p / 100.0,
-                    other => other.resolve(ctx).unwrap_or(0.0),
-                };
-                sizes[i] = v.max(0.0);
-                used += sizes[i];
+        sizes[i] = match t {
+            T::Fixed(d) => dim(d),
+            T::Bounded { min, .. } => dim(min),
+            T::Auto => conteudo.and_then(|c| c.get(i)).copied().unwrap_or(0.0).max(0.0),
+            T::Fr(f) => {
+                sum_fr += f.max(0.0);
+                0.0
             }
-            crate::style::GridTrack::Fr(f) => sum_fr += f.max(0.0),
-            crate::style::GridTrack::Auto => {} // auto: 0 na v1 (conteúdo dita a linha, não a coluna)
-        }
+        };
     }
-    // 2ª passada: distribui o espaço livre pelas trilhas fr.
-    let free = (container - used - total_gap).max(0.0);
+    let free = (container - sizes.iter().sum::<f32>() - total_gap).max(0.0);
+
+    // 2ª passada: o espaço livre. `fr` come-o todo quando existe — é o que a
+    // unidade significa —, e nesse caso uma trilha limitada ou intrínseca fica
+    // pela sua base.
     if sum_fr > 0.0 {
         for (i, t) in tracks.iter().enumerate() {
-            if let crate::style::GridTrack::Fr(f) = t {
+            if let T::Fr(f) = t {
                 sizes[i] = free * f.max(0.0) / sum_fr;
             }
         }
-    } else {
-        // sem fr: uma trilha `auto` sozinha ocupa o espaço livre (single-column).
-        let autos: Vec<usize> = tracks.iter().enumerate()
-            .filter(|(_, t)| matches!(t, crate::style::GridTrack::Auto))
-            .map(|(i, _)| i).collect();
-        if !autos.is_empty() {
-            let each = free / autos.len() as f32;
-            for i in autos { sizes[i] = each; }
+        return sizes;
+    }
+
+    // 3ª passada, sem `fr`: primeiro as trilhas LIMITADAS crescem até ao seu
+    // máximo (é o que `minmax` pede), e só o que sobrar depois disso é que
+    // estica as intrínsecas — `align-content: stretch`, o default.
+    let mut sobra = free;
+    let limitadas: Vec<usize> = tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| matches!(t, T::Bounded { .. }))
+        .map(|(i, _)| i)
+        .collect();
+    if !limitadas.is_empty() && sobra > 0.0 {
+        // Reparte por igual e não em proporção: a proporção seria contra as
+        // bases, que num `minmax(0, x)` são todas zero.
+        let quota = sobra / limitadas.len() as f32;
+        for i in limitadas {
+            if let T::Bounded { max, .. } = &tracks[i] {
+                let teto = dim(max);
+                let novo = (sizes[i] + quota).min(teto);
+                sobra -= novo - sizes[i];
+                sizes[i] = novo;
+            }
+        }
+    }
+    let autos: Vec<usize> = tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| matches!(t, T::Auto))
+        .map(|(i, _)| i)
+        .collect();
+    if !autos.is_empty() && sobra > 0.0 {
+        let cada = sobra / autos.len() as f32;
+        for i in autos {
+            sizes[i] += cada;
         }
     }
     sizes
@@ -3756,14 +3903,15 @@ fn layout_children_column(
         if is_out_of_flow(dom, child) {
             continue;
         }
-        if !is_block_level(dom, child) {
+        // Blockificação, como no eixo horizontal — ver o comentário lá.
+        if matches!(dom.node(child).kind, NodeKind::Text(_)) {
             let text = collect_text(dom, child);
             if text.trim().is_empty() {
                 continue;
             }
             items.push(ColItem {
                 node: child,
-                h: ctx.measurer.line_height(font_size),
+                h: crate::inline_box::altura_da_linha(css, font_size, ctx.measurer),
                 is_text: true,
                 mt_auto: false,
                 mb_auto: false,
@@ -3771,7 +3919,7 @@ fn layout_children_column(
             });
             continue;
         }
-        let h = child_outer_height(dom, child, content_w, container_content_h, font_size, ctx);
+        let h = child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx);
         let (mt_auto, mb_auto, grow) = dom
             .computed_style_idx(child)
             .map(|c| (c.margin.top.is_auto(), c.margin.bottom.is_auto(), c.flex_grow.unwrap_or(0.0)))
@@ -3924,16 +4072,23 @@ fn child_outer_height(
     id: NodeIdx,
     container_w: f32,
     container_h: Option<f32>,
+    parent_css: &ComputedStyle,
     parent_font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
     match &dom.node(id).kind {
-        NodeKind::Element { .. } if is_block_level(dom, id) => {
+        // Como no eixo horizontal: qualquer elemento renderável mede-se pela sua
+        // caixa real, porque um inline blockificado (item de flex) tem uma.
+        NodeKind::Element { tag } if !is_non_rendered_tag(tag) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
             let (_, outer_h) = measure_block(dom, id, container_w, container_h, None, None, true, ctx);
             outer_h
         }
-        NodeKind::Text(_) => ctx.measurer.line_height(parent_font),
+        // A MESMA altura que o fluxo dará a esta linha — medir com o default do
+        // medidor enquanto o pai declara `line-height` fazia a medida do
+        // cross-axis discordar da pintura, que é o erro que este comentário
+        // acima diz que a verificação adversarial já apanhou uma vez.
+        NodeKind::Text(_) => crate::inline_box::altura_da_linha(parent_css, parent_font, ctx.measurer),
         _ => 0.0,
     }
 }
@@ -3943,7 +4098,11 @@ fn child_outer_height(
 /// do conteúdo (+ frame); texto solto: a largura do texto.
 fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, ctx: &LayoutCtx) -> f32 {
     match &dom.node(id).kind {
-        NodeKind::Element { .. } if is_block_level(dom, id) => {
+        // QUALQUER elemento renderável, e não só os de nível bloco: um `<span>`
+        // BLOCKIFICADO (item de flex, float) tem largura natural como qualquer
+        // outra caixa. Com o guard antigo caía no `_ => 0.0` e era medido como
+        // tendo largura ZERO — a caixa existia e não tinha tamanho.
+        NodeKind::Element { tag } if !is_non_rendered_tag(tag) => {
             let css = dom.computed_style_idx(id).unwrap_or_default();
             let font = font_px(&css, parent_font);
             let resolve = ResolveCtx {
@@ -4052,7 +4211,7 @@ fn layout_inline_flow(
     // a altura do bloco — o oposto de "acrescenta geometria, não muda a pintura".
     if runs
         .iter()
-        .all(|r| r.text.trim().is_empty() && !matches!(r.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced | AtomicKind::Block))))
+        .all(|r| r.text.trim().is_empty() && !matches!(r.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced | AtomicKind::Block | AtomicKind::Break))))
     {
         return y;
     }
@@ -4066,8 +4225,7 @@ fn layout_inline_flow(
     // esse valor sai das MÉTRICAS DA FONTE e não de uma constante: sem isto, o
     // elemento sem declaração e o que declara `normal` — a spec diz que são o
     // mesmo valor — davam alturas diferentes.
-    let normal = ctx.measurer.line_height(font_size);
-    let lh = parent_css.line_height.map(|l| l.resolve(font_size, normal)).unwrap_or(normal);
+    let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
     let nowrap = matches!(
         parent_css.white_space,
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
@@ -4111,7 +4269,7 @@ fn layout_inline_flow(
         // altura da linha: o texto (lh) ou o widget mais alto nela.
         let line_h = line
             .iter()
-            .filter(|s| matches!(s.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced | AtomicKind::Block))))
+            .filter(|s| matches!(s.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced | AtomicKind::Block | AtomicKind::Break))))
             .map(|s| s.wh)
             .fold(lh, f32::max);
         let free = (content_w - line_w).max(0.0);
@@ -4164,12 +4322,12 @@ fn layout_inline_flow(
                             list,
                         );
                     }
-                    AtomicKind::Marker => {}
+                    AtomicKind::Marker | AtomicKind::Break => {}
                 }
                 // O marker não tem largura: a sua caixa é a POSIÇÃO na linha com a
                 // altura da linha, que é o que o browser devolve para um `<source>`.
                 let fragment = match kind {
-                    AtomicKind::Marker => Rect::new(seg_x, cy, 0.0, line_h),
+                    AtomicKind::Marker | AtomicKind::Break => Rect::new(seg_x, cy, 0.0, line_h),
                     _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
                 };
                 for &owner in &seg.owners {
@@ -4387,6 +4545,26 @@ fn collect_runs(
                     });
                     return;
                 }
+                // `<br>`: uma QUEBRA no meio do fluxo. Não é texto nem caixa — é o
+                // fim da linha corrente, e o browser dá-lhe na mesma posição e
+                // altura de linha. Sem isto as duas linhas que ele separa saíam
+                // como uma só, e tudo o que vinha abaixo subia uma linha.
+                if tag == "br" {
+                    let mut owners = inherited_owners.to_vec();
+                    owners.push(id);
+                    crate::bump!(inline_runs);
+                    out.push(InlineRun {
+                        text: String::new(),
+                        color: inherited_color,
+                        bold: false,
+                        deco: 0,
+                        owners,
+                        atomic: Some((id, AtomicKind::Break)),
+                        ww: 0.0,
+                        wh: 0.0,
+                    });
+                    return;
+                }
                 // REPLACED inline (`<img>` dentro de um `<a>`, `<video>`, …): não é
                 // texto e não tem filhos que o descrevam, por isso não produzia run
                 // nenhum e ficava sem caixa. Flui como palavra inquebrável.
@@ -4601,6 +4779,25 @@ fn wrap_runs(
     for run in runs {
         // WIDGET: uma "palavra" inquebrável de run.ww pontos, segmento próprio.
         if let Some((a_idx, kind)) = run.atomic {
+            // BREAK: entra na linha (para receber a sua caixa) e FECHA-A.
+            if kind == AtomicKind::Break {
+                cur.push(Segment {
+                    text: String::new(),
+                    text_width: 0.0,
+                    color: run.color,
+                    bold: false,
+                    deco: 0,
+                    owners: run.owners.clone(),
+                    atomic: Some((a_idx, AtomicKind::Break)),
+                    ww: 0.0,
+                    wh: 0.0,
+                });
+                lines.push(std::mem::take(&mut cur));
+                cur_w = 0.0;
+                at_line_start = true;
+                pending_space = false;
+                continue;
+            }
             // MARKER: largura zero, não quebra a linha, não consome o espaço
             // pendente — só marca uma posição para quem lhe quiser a caixa.
             if kind == AtomicKind::Marker {
@@ -5284,6 +5481,87 @@ mod tests {
     }
 
 
+    /// O `line-height` declarado vale em QUALQUER contexto, não só no fluxo
+    /// inline: o mesmo parágrafo dentro de um `display:flex` respondia a altura
+    /// do medidor (16×1.125) e ignorava a folha, porque o caminho de flex media
+    /// o texto solto perguntando direto ao medidor. Uma linha de 16px com
+    /// `line-height:2` tem 32px de altura, esteja onde estiver.
+    #[test]
+    fn line_height_declarado_vale_tambem_dentro_de_flex() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let altura = |html: &str| {
+            let dom = parse_html_to_dom(html);
+            let list = layout_document(&dom, &ctx);
+            let idx = dom.resolve(dom.query("#alvo").unwrap()).unwrap();
+            list.geometry().rects.get(&idx).expect("o alvo devia ter caixa").h
+        };
+        let sem = altura("<div id='alvo' style='display:flex'>uma linha</div>");
+        let com = altura("<div id='alvo' style='display:flex; line-height:2'>uma linha</div>");
+        assert_eq!(sem, ApproxMeasurer.line_height(DEFAULT_FONT_SIZE));
+        assert_eq!(com, 32.0, "16 × 2 = 32, e não a altura do medidor");
+    }
+
+    /// Um `<span>` filho de um `display:flex` é um item de flex, e um item de
+    /// flex é BLOCKIFICADO pela spec — tem caixa própria, com a sua posição e o
+    /// seu tamanho. O Chrome reporta `display:block` nele.
+    ///
+    /// Antes era achatado para uma string e pintado com o estilo do CONTAINER:
+    /// não registava caixa (eram 345 dos 351 elementos `display:block` sem caixa
+    /// da Wikipédia) e perdia a sua própria cor pelo caminho.
+    #[test]
+    fn span_filho_de_flex_tem_caixa_propria() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let dom = parse_html_to_dom(
+            "<div style='display:flex'><span id='a'>um</span><span id='b'>dois</span></div>",
+        );
+        let list = layout_document(&dom, &ctx);
+        let geo = list.geometry();
+        let caixa = |sel: &str| {
+            let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
+            *geo.rects.get(&idx).unwrap_or_else(|| panic!("{sel} devia ter caixa"))
+        };
+        let (a, b) = (caixa("#a"), caixa("#b"));
+        assert!(a.w > 0.0 && a.h > 0.0, "o primeiro tem tamanho: {a:?}");
+        assert!(b.x >= a.x + a.w, "o segundo à direita do primeiro: {a:?} {b:?}");
+    }
+
+    /// A cor de um `<span>` filho de flex é a DELE, não a do container — o mesmo
+    /// achatamento que lhe tirava a caixa pintava o texto com o estilo do pai.
+    #[test]
+    fn span_filho_de_flex_pinta_com_a_sua_propria_cor() {
+        let list = layout(
+            "<div style='display:flex; color:#0000ff'><span style='color:#ff0000'>vermelho</span></div>",
+            600.0,
+        );
+        let texts = all_texts(&list);
+        assert_eq!(texts.len(), 1, "{texts:?}");
+        assert_eq!(texts[0].3, 0xFF0000FF, "a cor do span, não a do container");
+    }
+
+
+    /// `<br>` fecha a linha: o texto depois dele começa uma linha nova, e o
+    /// próprio `<br>` tem posição e altura de linha com largura zero — é o que o
+    /// browser reporta. Antes não quebrava nada: as duas linhas saíam como uma.
+    #[test]
+    fn br_quebra_a_linha_e_tem_a_sua_caixa() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let dom = parse_html_to_dom("<div>antes<br id='b'>depois</div>");
+        let list = layout_document(&dom, &ctx);
+        let mut ys: Vec<f32> = Vec::new();
+        list.walk(|it, _dx, dy| {
+            if let DisplayItem::Text { y, .. } = it {
+                ys.push(y + dy);
+            }
+        });
+        ys.sort_by(f32::total_cmp);
+        ys.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+        assert_eq!(ys.len(), 2, "duas linhas, não uma: {ys:?}");
+        let idx = dom.resolve(dom.query("#b").unwrap()).unwrap();
+        let r = *list.geometry().rects.get(&idx).expect("o <br> devia ter caixa");
+        assert_eq!(r.w, 0.0);
+        assert!(r.h > 0.0, "altura de linha: {r:?}");
+    }
+
     #[test]
     fn hit_test_respeita_z_index_em_elementos_sobrepostos() {
         let dom = parse_html_to_dom(
@@ -5296,14 +5574,34 @@ mod tests {
     }
 
     /// Primeiro `SolidRect` da lista (o fundo da 1ª caixa) — atalho de assert.
+    ///
+    /// PLANA (`materialized`), como o `all_rects`: desde que a saída passou a ser
+    /// uma árvore de fragmentos, o fundo de um filho de bloco vive no fragmento
+    /// dele e não no buffer próprio da lista. Ler `list.items` direto respondia
+    /// "não há SolidRect nenhum" numa página que pinta — o erro não estava no
+    /// motor, estava na navegação.
     fn first_rect(list: &DisplayList) -> Rect {
-        list.items
+        list.materialized()
             .iter()
             .find_map(|it| match it {
                 DisplayItem::SolidRect { rect, .. } => Some(*rect),
                 _ => None,
             })
             .expect("esperava ao menos um SolidRect")
+    }
+
+    /// Todos os itens de TEXTO, na ordem de pintura: `(texto, x, y, cor)`.
+    /// Mesma razão do `first_rect` para não ler `list.items`.
+    fn all_texts(list: &DisplayList) -> Vec<(String, f32, f32, u32)> {
+        list.materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text { text, x, y, color, .. } => {
+                    Some((text.to_string(), *x, *y, *color))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -5329,20 +5627,26 @@ mod tests {
 
     #[test]
     fn blocos_empilham_vertical() {
-        // dois <div> com altura de 1 linha (~26 = 20×1.3) empilham: o 2º começa
-        // abaixo do 1º. Sem box (sem bg) — só checa o Y das linhas de texto.
+        // dois <div> com altura de 1 linha empilham: o 2º começa abaixo do 1º.
+        // Sem box (sem bg) — só checa o Y das linhas de texto.
+        //
+        // Lido pela ÁRVORE (`walk`) e não por `list.items`: um filho de bloco é
+        // emitido como FRAGMENTO, e os itens dele vivem no fragmento. Ler
+        // `items` direto respondia zero textos e o teste falhava a dizer que os
+        // blocos não pintavam, quando o que não pintava era a leitura.
         let list = layout("<div>um</div><div>dois</div>", 600.0);
-        let texts: Vec<f32> = list
-            .items
-            .iter()
-            .filter_map(|it| match it {
-                DisplayItem::Text { y, .. } => Some(*y),
-                _ => None,
-            })
-            .collect();
+        let mut texts: Vec<f32> = Vec::new();
+        list.walk(|it, _dx, dy| {
+            if let DisplayItem::Text { y, .. } = it {
+                texts.push(y + dy);
+            }
+        });
+        texts.sort_by(f32::total_cmp);
         assert_eq!(texts.len(), 2);
         assert_eq!(texts[0], 0.0); // primeiro no topo
-        assert!(texts[1] >= 20.8, "segundo bloco abaixo do primeiro (y={})", texts[1]); // 16×1.3
+        // uma linha do medidor aproximado: 16 × 1.125.
+        let uma_linha = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
+        assert!(texts[1] >= uma_linha, "segundo bloco abaixo do primeiro (y={})", texts[1]);
     }
 
     #[test]
@@ -5362,14 +5666,7 @@ mod tests {
             "<div style='background:#111111; padding:14; border-width:2; margin:6'>z</div>",
             600.0,
         );
-        let txt = list
-            .items
-            .iter()
-            .find_map(|it| match it {
-                DisplayItem::Text { x, y, .. } => Some((*x, *y)),
-                _ => None,
-            })
-            .expect("texto");
+        let txt = all_texts(&list).first().map(|(_, x, y, _)| (*x, *y)).expect("texto");
         assert_eq!(txt.0, 22.0); // x = margin(6)+border(2)+padding(14)
         assert_eq!(txt.1, 22.0); // y idem
         // a caixa (fundo) NÃO inclui a margin: começa em (6,6).
@@ -5388,14 +5685,7 @@ mod tests {
              <div style='background:#333;width:30%'>c</div>",
             900.0,
         );
-        let rects: Vec<Rect> = list
-            .items
-            .iter()
-            .filter_map(|it| match it {
-                DisplayItem::SolidRect { rect, .. } => Some(*rect),
-                _ => None,
-            })
-            .collect();
+        let rects: Vec<Rect> = all_rects(&list);
         assert_eq!(rects.len(), 3);
         assert!(rects.iter().all(|r| r.x == 0.0)); // mesmo x (vertical)
         assert!(rects.iter().all(|r| (r.w - 270.0).abs() < 0.01)); // 30% de 900
@@ -5424,14 +5714,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 900.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list
-            .items
-            .iter()
-            .filter_map(|it| match it {
-                DisplayItem::SolidRect { rect, .. } => Some(*rect),
-                _ => None,
-            })
-            .collect();
+        let rects: Vec<Rect> = all_rects(&list);
         assert_eq!(rects.len(), 3);
         // mesmo Y (lado a lado, não empilhado).
         assert!(rects.iter().all(|r| r.y == rects[0].y), "todos no mesmo topo: {rects:?}");
@@ -6084,14 +6367,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 200.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list
-            .items
-            .iter()
-            .filter_map(|it| match it {
-                DisplayItem::SolidRect { rect, .. } => Some(*rect),
-                _ => None,
-            })
-            .collect();
+        let rects: Vec<Rect> = all_rects(&list);
         assert_eq!(rects.len(), 4);
         // shrink-to-fit: nenhum badge ocupa a largura toda (200) — cada um é estreito.
         assert!(rects.iter().all(|r| r.w < 150.0), "badges estreitos (conteúdo): {rects:?}");
@@ -6201,14 +6477,7 @@ mod tests {
         // padding: 1rem = 16px (root 16, o default de browser) — o `p-3` do
         // Bootstrap; margem NEGATIVA puxa (os gutters `.row` usam margin -12px).
         let list = layout("<div style='background:#111; padding:1rem'>x</div>", 600.0);
-        let tx = list
-            .items
-            .iter()
-            .find_map(|it| match it {
-                DisplayItem::Text { x, y, .. } => Some((*x, *y)),
-                _ => None,
-            })
-            .unwrap();
+        let tx = all_texts(&list).first().map(|(_, x, y, _)| (*x, *y)).unwrap();
         assert_eq!(tx, (16.0, 16.0), "texto após o padding de 1rem = 16px");
         // margem negativa: o segundo bloco com margin-top:-10 SOBE sobre o primeiro.
         let l2 = layout(
@@ -6242,16 +6511,7 @@ mod tests {
             "<p style='color:#ffffff'>Cover template for <a style='color:#ff0000'>Bootstrap</a>, by <a style='color:#00ff00'>mdo</a>.</p>",
             600.0,
         );
-        let texts: Vec<(String, f32, f32, u32)> = list
-            .items
-            .iter()
-            .filter_map(|it| match it {
-                DisplayItem::Text { text, x, y, color, .. } => {
-                    Some((text.to_string(), *x, *y, *color))
-                }
-                _ => None,
-            })
-            .collect();
+        let texts: Vec<(String, f32, f32, u32)> = all_texts(&list);
         // TODOS os segmentos na MESMA linha (y igual).
         let y0 = texts[0].2;
         assert!(texts.iter().all(|(_, _, y, _)| *y == y0), "uma linha so: {texts:?}");
@@ -6305,9 +6565,21 @@ mod tests {
 
     #[test]
     fn viewport_e_o_containing_block_da_raiz() {
-        // `height:100%` num filho direto do document resolve contra a viewport_h
-        // (600 no helper) — o `h-100` do html/body de páginas reais.
-        let list = layout("<div style='height:100%; background:#111'>x</div>", 600.0);
+        // `height:100%` no elemento RAIZ resolve contra a viewport_h (600 no
+        // helper) — o `h-100` do html/body de páginas reais.
+        //
+        // Declarado em `html, body` e não num `<div>` de topo: o parser cria
+        // `<html>`/`<body>` implícitos, como qualquer browser, e um `<div>` já
+        // não é filho direto do documento — a percentagem dele resolve contra o
+        // pai, de altura automática, que é o que o Chrome também faz. É por isto
+        // mesmo que as páginas reais escrevem `html, body { height: 100% }` (a
+        // Wikipédia escreve-o): a corrente de percentagens tem de partir da
+        // raiz. O que o teste pina — a viewport é o containing block da raiz —
+        // continua provado, e agora pelo caminho real.
+        let list = layout(
+            "<style>html,body{height:100%}</style><div style='height:100%;background:#111'>x</div>",
+            600.0,
+        );
         let r = all_rects(&list);
         assert_eq!(r[0].h, 600.0, "{r:?}");
     }
@@ -6343,3 +6615,4 @@ mod tests {
     }
 
 }
+

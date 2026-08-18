@@ -187,6 +187,7 @@ pub fn ua_display(tag: &str) -> Option<crate::style::DisplayKind> {
         "thead" | "tbody" | "tfoot" => D::TableRowGroup,
         "tr" => D::TableRow,
         "td" | "th" => D::TableCell,
+        "caption" => D::TableCaption,
         // `<col>`/`<colgroup>` carregam largura de coluna e não geram caixa.
         "col" | "colgroup" => D::None,
         _ => return None,

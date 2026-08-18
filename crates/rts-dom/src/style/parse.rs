@@ -6,6 +6,10 @@
 //! Ignora propriedade/valor desconhecido sem panicar (robustez de parser real).
 
 use super::color::parse_color;
+use super::lengths::{
+    parse_dimension, parse_dimension_signed, parse_edges, parse_gap_pair, parse_inset, parse_len,
+    parse_px, parse_side, parse_signed_px, split_top_ws,
+};
 use super::props::ComputedStyle;
 use super::stylesheet::DeclBlock;
 use super::values::{
@@ -155,10 +159,13 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
                 // `normal` = 0; senão um comprimento (px/em/rem — resolve p/ px cedo
                 // seria ideal, mas letter-spacing quase sempre vem em px/em pequenos;
                 // usa parse_len que cobre px). `normal`/inválido → None.
+                // `normal` = 0. NEGATIVO é legal e usa-se para apertar títulos
+                // (`letter-spacing: -1px`); o `parse_len` recusa-o por servir
+                // larguras, daí o caminho com sinal.
                 css.letter_spacing = if val.trim().eq_ignore_ascii_case("normal") {
                     Some(0.0)
                 } else {
-                    parse_len(val)
+                    parse_signed_px(val)
                 };
             }
             "text-decoration" | "text-decoration-line" => {
@@ -398,64 +405,8 @@ fn split_important(val: &str) -> (&str, bool) {
     (v, false)
 }
 
-/// `font-size` em px (aceita "18px" ou "18"). Ignora unidades não-px por ora
-/// (em/%/rem chegam na fase de unidades). Só valores > 0.
-fn parse_px(v: &str) -> Option<f32> {
-    let v = v.trim();
-    let num = v.strip_suffix("px").unwrap_or(v);
-    num.trim().parse::<f32>().ok().filter(|n| *n > 0.0)
-}
 
-/// `width` como [`Dimension`], cobrindo as unidades de comprimento usuais:
-/// `auto`; `60%` → Percent; `1.5em` → Em; `2rem` → Rem; `50vw`/`80vh` → Vw/Vh;
-/// `280`/`280px` → Px. Unidades relativas resolvem TARDE no render (risco 5).
-/// Número inválido / unidade desconhecida → `None`. Ordem do match importa: testa
-/// sufixos de 3/2 letras (`rem`) ANTES dos de 1 (`%`) e do px implícito.
-/// Público p/ o parse de trilhas de grid (`GridTrack::parse_one`).
-pub(crate) fn parse_dimension_pub(v: &str) -> Option<Dimension> {
-    parse_dimension(v)
-}
 
-pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
-    let v = v.trim();
-    if v.eq_ignore_ascii_case("auto") {
-        return Some(Dimension::Auto);
-    }
-    // `calc(...)` — expressão linear reduzida no parse (resolve tarde).
-    let low_full = v.to_ascii_lowercase();
-    if let Some(inner) = low_full.strip_prefix("calc(").and_then(|r| r.strip_suffix(')')) {
-        return parse_calc(inner).map(Dimension::Calc);
-    }
-    // (sufixo, construtor, clamp_max) — `%`/`vw`/`vh` em 0..=100; resto sem teto.
-    let num = |s: &str| s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0);
-    let low = v.to_ascii_lowercase();
-    // sufixos de 2+ letras primeiro (rem antes de em; px por último implícito).
-    if let Some(n) = low.strip_suffix("rem").and_then(num) {
-        return Some(Dimension::Rem(n));
-    }
-    if let Some(n) = low.strip_suffix("em").and_then(num) {
-        return Some(Dimension::Em(n));
-    }
-    if let Some(n) = low.strip_suffix("vw").and_then(num) {
-        return Some(Dimension::Vw(n.clamp(0.0, 100.0)));
-    }
-    if let Some(n) = low.strip_suffix("vh").and_then(num) {
-        return Some(Dimension::Vh(n.clamp(0.0, 100.0)));
-    }
-    if let Some(n) = low.strip_suffix('%').and_then(num) {
-        return Some(Dimension::Percent(n.clamp(0.0, 100.0)));
-    }
-    // `pt` (pontos de impressão) e `pc` (paica) — absolutos, comuns em páginas
-    // legadas (o rodapé do google usa `font-size:10pt`). 1pt = 4/3 px; 1pc = 16px.
-    if let Some(n) = low.strip_suffix("pt").and_then(num) {
-        return Some(Dimension::Px(n * 4.0 / 3.0));
-    }
-    if let Some(n) = low.strip_suffix("pc").and_then(num) {
-        return Some(Dimension::Px(n * 16.0));
-    }
-    // px explícito ou número puro.
-    num(low.strip_suffix("px").unwrap_or(&low)).map(Dimension::Px)
-}
 
 /// Parseia `display: block|flex|inline|inline-block|none` para [`DisplayKind`].
 /// Extrai o Nº DE COLUNAS de `grid-template-columns`: de `repeat(N, ...)` pega N; de
@@ -493,7 +444,13 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
     match v.trim().to_ascii_lowercase().as_str() {
         "block" | "flow-root" => Some(DisplayKind::Block),
         "flex" | "inline-flex" => Some(DisplayKind::Flex),
-        "inline" | "inline-block" => Some(DisplayKind::Inline),
+        "inline" => Some(DisplayKind::Inline),
+        // `inline-block` tem variante PRÓPRIA desde que ela existe: colapsá-la em
+        // `Inline` fazia o computed responder `inline` onde o browser responde
+        // `inline-block` (8 desvios do corpus). Para o LAYOUT continua a valer o
+        // mesmo código — `DisplayKind::to_display_code` mapeia as duas no mesmo —,
+        // portanto isto corrige a resposta sem mudar a disposição.
+        "inline-block" => Some(DisplayKind::InlineBlock),
         "grid" | "inline-grid" => Some(DisplayKind::Grid),
         "none" => Some(DisplayKind::None),
         // `list-item` — o `<li>`. Bloco MAIS um marcador; ver `crate::listitem`.
@@ -508,14 +465,12 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
         }
         "table-row" => Some(DisplayKind::TableRow),
         "table-cell" => Some(DisplayKind::TableCell),
+        "table-caption" => Some(DisplayKind::TableCaption),
         // `table-column`/`table-column-group` (`<col>`/`<colgroup>`) NÃO geram
         // caixa nenhuma no CSS — só carregam largura para as colunas. Devolver
         // `None` aqui os faria cair no default da tag (bloco) e pintar uma caixa
         // vazia que o Chrome não tem; `None` (o display) é o que os apaga.
         "table-column" | "table-column-group" => Some(DisplayKind::None),
-        // `table-caption` é um bloco que fica FORA da grade, acima da tabela —
-        // tratá-lo como bloco normal é onde ele já cai, e é quase onde o Chrome
-        // o põe.
         _ => None,
     }
 }
@@ -556,18 +511,6 @@ fn parse_border_width_token(tok: &str) -> Option<f32> {
     }
 }
 
-/// Um offset de posicionamento (`top`/`left`/…): como [`parse_dimension`], MAS
-/// aceita valores NEGATIVOS em px (deslocar para fora é comum em badges/tooltips);
-/// as unidades relativas continuam ≥ 0 via parse_dimension.
-fn parse_inset(v: &str) -> Option<Dimension> {
-    let t = v.trim();
-    // negativo: só a forma px/número (o parse_dimension rejeita <0).
-    if t.starts_with('-') {
-        let num = t.strip_suffix("px").unwrap_or(t);
-        return num.trim().parse::<f32>().ok().map(Dimension::Px);
-    }
-    parse_dimension(t)
-}
 
 /// Aplica o shorthand `flex: none | auto | <grow> [<shrink>] [<basis>]`.
 /// Mapeamentos da spec: `none` = 0 0 auto; `auto` = 1 1 auto; UM número =
@@ -614,299 +557,15 @@ fn apply_flex_shorthand(css: &mut ComputedStyle, val: &str) {
     }
 }
 
-/// Parseia o shorthand `gap: <row-gap> <column-gap>` → `(row_gap, column_gap)`.
-/// 1 valor = ambos iguais; 2 valores = row primeiro (ordem CSS). Reusa parse_dimension.
-fn parse_gap_pair(val: &str) -> (Option<Dimension>, Option<Dimension>) {
-    let parts: Vec<&str> = val.split_whitespace().collect();
-    match parts.as_slice() {
-        [a] => {
-            let d = parse_dimension(a);
-            (d, d)
-        }
-        [r, c] => (parse_dimension(r), parse_dimension(c)),
-        _ => (None, None),
-    }
-}
 
-/// Parseia o shorthand de margin/padding (1/2/3/4 valores) para [`Edges`], com o
-/// mapeamento exato do CSS:
-/// - 1: todos os lados
-/// - 2: `top/bottom` | `left/right` (vertical | horizontal)
-/// - 3: `top` | `left/right` | `bottom`
-/// - 4: `top` | `right` | `bottom` | `left` (horário)
-/// `allow_auto` habilita o keyword `auto` (margin). Tokens inválidos → Unset.
-fn parse_edges(val: &str, allow_auto: bool) -> Edges {
-    // Separa os lados respeitando PARÊNTESES — um `calc(0.25rem * 4)` (todo o
-    // espaçamento do Tailwind v4) tem espaços INTERNOS que o `split_whitespace` cru
-    // quebraria em 3 tokens inválidos, zerando o padding/margin da página inteira.
-    let toks: Vec<Side> = split_top_ws(val)
-        .iter()
-        .map(|t| parse_side(t, allow_auto))
-        .collect();
-    match toks.as_slice() {
-        [a] => Edges::all(*a),
-        [v, h] => Edges { top: *v, right: *h, bottom: *v, left: *h },
-        [t, h, b] => Edges { top: *t, right: *h, bottom: *b, left: *h },
-        [t, r, b, l] => Edges { top: *t, right: *r, bottom: *b, left: *l },
-        _ => Edges::default(), // 0 ou >4: ignora (robustez).
-    }
-}
 
-/// [`split_top_ws`] para os módulos de shorthand (`background`), que precisam da
-/// mesma regra de "espaço de topo" para não partir um `url(a b.png)`.
-pub(crate) fn split_top_ws_pub(v: &str) -> Vec<String> {
-    split_top_ws(v)
-}
 
-/// [`parse_len`] (comprimento absoluto em pontos) para os módulos de shorthand.
-pub(crate) fn parse_len_pub(v: &str) -> Option<f32> {
-    parse_len(v)
-}
 
-/// Separa por um SEPARADOR de topo (fora de parênteses) — a vírgula que separa
-/// camadas de `background`, a barra que separa `position / size`. A versão que
-/// ignora os parênteses é obrigatória: a vírgula de `rgba(0,0,0,.5)` e a barra de
-/// `url(a/b.png)` não separam nada.
-pub(crate) fn split_top(v: &str, sep: char) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut depth = 0i32;
-    let mut cur = String::new();
-    for c in v.chars() {
-        match c {
-            '(' => {
-                depth += 1;
-                cur.push(c);
-            }
-            ')' => {
-                depth -= 1;
-                cur.push(c);
-            }
-            c if c == sep && depth == 0 => out.push(std::mem::take(&mut cur).trim().to_string()),
-            _ => cur.push(c),
-        }
-    }
-    let last = cur.trim().to_string();
-    if !last.is_empty() {
-        out.push(last);
-    }
-    out
-}
 
-/// Um comprimento em pontos que PODE ser negativo (`outline-offset`, que afunda o
-/// anel para dentro da caixa). `parse_len` recusa negativos por servir larguras.
-fn parse_signed_px(v: &str) -> Option<f32> {
-    let t = v.trim();
-    match t.strip_prefix('-') {
-        Some(rest) => parse_len(rest).map(|x| -x),
-        None => parse_len(t),
-    }
-}
 
-/// Separa uma lista de valores por ESPAÇO de TOPO (fora de parênteses), para o
-/// shorthand de edges não quebrar `calc(a * b)` (espaços internos). Vazio → [].
-fn split_top_ws(v: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut depth = 0i32;
-    let mut cur = String::new();
-    for c in v.chars() {
-        match c {
-            '(' => {
-                depth += 1;
-                cur.push(c);
-            }
-            ')' => {
-                depth -= 1;
-                cur.push(c);
-            }
-            c if c.is_whitespace() && depth == 0 => {
-                if !cur.is_empty() {
-                    out.push(std::mem::take(&mut cur));
-                }
-            }
-            _ => cur.push(c),
-        }
-    }
-    if !cur.is_empty() {
-        out.push(cur);
-    }
-    out
-}
 
-/// Parseia UM lado de margin/padding: um COMPRIMENTO em qualquer unidade
-/// (px/%/em/rem/vw/vh — resolve tarde, como width), `auto` (se `allow_auto`), ou
-/// `Unset` se inválido. NEGATIVO permitido (margem negativa é o gutter `.row` do
-/// Bootstrap; padding negativo é clampado ≥ 0 no consumo do layout).
-fn parse_side(tok: &str, allow_auto: bool) -> Side {
-    let t = tok.trim();
-    if allow_auto && t.eq_ignore_ascii_case("auto") {
-        return Side::Auto;
-    }
-    match parse_dimension_signed(t) {
-        // `auto` já foi tratado acima (só margin); um Auto aqui é inválido
-        // (padding: auto não existe) — vira Unset, nunca `Len(Auto)`.
-        Some(Dimension::Auto) | None => Side::Unset,
-        Some(d) => Side::Len(d),
-    }
-}
 
-// ── calc() — expressão LINEAR de comprimentos, reduzida no parse ────────────────
-// `calc(1.375rem + 1.5vw)` / `calc(100% - 2rem)` / `calc(2 * (1rem + 4px))`.
-// Gramática (recursive descent): expr := term (('+'|'-') term)* ;
-// term := atom (('*'|'/') atom)* ; atom := comprimento | número | '(' expr ')'.
-// Multiplicação/divisão só com ESCALAR de um dos lados (regra da spec). O
-// resultado é um [`CalcLen`] (combinação das 6 bases) que resolve TARDE.
 
-/// Um valor intermediário do parser de calc: comprimento (combinação linear) ou
-/// número puro (escalar de multiplicação).
-enum CalcVal {
-    Len(crate::style::CalcLen),
-    Num(f32),
-}
-
-/// Parseia o MIOLO de um `calc(...)` (sem o `calc(` e `)`), ou `None` se inválido.
-fn parse_calc(inner: &str) -> Option<crate::style::CalcLen> {
-    let toks: Vec<char> = inner.chars().collect();
-    let mut pos = 0usize;
-    let v = calc_expr(&toks, &mut pos)?;
-    // sobrou lixo → inválido.
-    while pos < toks.len() {
-        if !toks[pos].is_whitespace() {
-            return None;
-        }
-        pos += 1;
-    }
-    match v {
-        CalcVal::Len(l) => Some(l),
-        CalcVal::Num(_) => None, // calc(2) não é um comprimento
-    }
-}
-
-fn calc_ws(t: &[char], p: &mut usize) {
-    while *p < t.len() && t[*p].is_whitespace() {
-        *p += 1;
-    }
-}
-
-fn calc_expr(t: &[char], p: &mut usize) -> Option<CalcVal> {
-    let mut acc = calc_term(t, p)?;
-    loop {
-        calc_ws(t, p);
-        let op = match t.get(*p) {
-            Some('+') => 1.0f32,
-            Some('-') => -1.0f32,
-            _ => return Some(acc),
-        };
-        *p += 1;
-        let rhs = calc_term(t, p)?;
-        acc = match (acc, rhs) {
-            (CalcVal::Len(a), CalcVal::Len(b)) => CalcVal::Len(a.add(b.scale(op))),
-            (CalcVal::Num(a), CalcVal::Num(b)) => CalcVal::Num(a + op * b),
-            _ => return None, // comprimento ± número é inválido na spec
-        };
-    }
-}
-
-fn calc_term(t: &[char], p: &mut usize) -> Option<CalcVal> {
-    let mut acc = calc_atom(t, p)?;
-    loop {
-        calc_ws(t, p);
-        let mul = match t.get(*p) {
-            Some('*') => true,
-            Some('/') => false,
-            _ => return Some(acc),
-        };
-        *p += 1;
-        let rhs = calc_atom(t, p)?;
-        acc = match (acc, rhs, mul) {
-            (CalcVal::Len(a), CalcVal::Num(k), true) => CalcVal::Len(a.scale(k)),
-            (CalcVal::Num(k), CalcVal::Len(a), true) => CalcVal::Len(a.scale(k)),
-            (CalcVal::Num(a), CalcVal::Num(b), true) => CalcVal::Num(a * b),
-            (CalcVal::Len(a), CalcVal::Num(k), false) if k != 0.0 => CalcVal::Len(a.scale(1.0 / k)),
-            (CalcVal::Num(a), CalcVal::Num(b), false) if b != 0.0 => CalcVal::Num(a / b),
-            _ => return None, // len*len, num/len, divisão por zero: inválidos
-        };
-    }
-}
-
-fn calc_atom(t: &[char], p: &mut usize) -> Option<CalcVal> {
-    calc_ws(t, p);
-    if t.get(*p) == Some(&'(') {
-        *p += 1;
-        let v = calc_expr(t, p)?;
-        calc_ws(t, p);
-        if t.get(*p) != Some(&')') {
-            return None;
-        }
-        *p += 1;
-        return Some(v);
-    }
-    // número (com sinal) + unidade opcional.
-    let start = *p;
-    if matches!(t.get(*p), Some('-') | Some('+')) {
-        *p += 1;
-    }
-    while matches!(t.get(*p), Some(c) if c.is_ascii_digit() || *c == '.') {
-        *p += 1;
-    }
-    if *p == start {
-        return None;
-    }
-    let num: f32 = t[start..*p].iter().collect::<String>().parse().ok()?;
-    // unidade (letras/%).
-    let ustart = *p;
-    while matches!(t.get(*p), Some(c) if c.is_ascii_alphabetic() || *c == '%') {
-        *p += 1;
-    }
-    let unit: String = t[ustart..*p].iter().collect::<String>().to_ascii_lowercase();
-    use crate::style::CalcLen;
-    Some(match unit.as_str() {
-        "" => CalcVal::Num(num),
-        "px" => CalcVal::Len(CalcLen { px: num, ..Default::default() }),
-        "%" => CalcVal::Len(CalcLen { pct: num, ..Default::default() }),
-        "em" => CalcVal::Len(CalcLen { em: num, ..Default::default() }),
-        "rem" => CalcVal::Len(CalcLen { rem: num, ..Default::default() }),
-        "vw" => CalcVal::Len(CalcLen { vw: num, ..Default::default() }),
-        "vh" => CalcVal::Len(CalcLen { vh: num, ..Default::default() }),
-        _ => return None, // unidade desconhecida (ch/vmin/…): calc inválido
-    })
-}
-
-/// Como [`parse_dimension`], mas aceita valores NEGATIVOS (margens/offsets). O
-/// `%`/`vw`/`vh` não são clampados a 0..=100 aqui (o sinal importa).
-fn parse_dimension_signed(v: &str) -> Option<Dimension> {
-    let v = v.trim();
-    let (neg, abs) = match v.strip_prefix('-') {
-        Some(rest) => (true, rest.trim()),
-        None => (false, v),
-    };
-    let d = parse_dimension(abs)?;
-    if !neg {
-        return Some(d);
-    }
-    Some(match d {
-        Dimension::Auto => Dimension::Auto,
-        Dimension::Px(x) => Dimension::Px(-x),
-        Dimension::Percent(x) => Dimension::Percent(-x),
-        Dimension::Em(x) => Dimension::Em(-x),
-        Dimension::Rem(x) => Dimension::Rem(-x),
-        Dimension::Vw(x) => Dimension::Vw(-x),
-        Dimension::Vh(x) => Dimension::Vh(-x),
-        Dimension::Calc(c) => Dimension::Calc(c.scale(-1.0)),
-    })
-}
-
-/// Um comprimento de TEXTO/BORDA (`font-size`/`border-width`/`border-radius`, que
-/// são `f32` px no modelo): aceita `px`/número E `rem` (× o root FIXO de 16px —
-/// igual ao browser sem `html{font-size}` custom; o Bootstrap define TODA a
-/// tipografia em rem). ⚠️ CORTE documentado: `em`/`%` de font-size dependem do
-/// font do PAI (só a cascade sabe) — ficam de fora até o campo virar `Dimension`.
-fn parse_len(v: &str) -> Option<f32> {
-    let low = v.trim().to_ascii_lowercase();
-    if let Some(n) = low.strip_suffix("rem") {
-        return n.trim().parse::<f32>().ok().filter(|x| *x > 0.0).map(|x| x * 16.0);
-    }
-    parse_px(&low)
-}
 
 /// `font-weight`: `bold`/`bolder` ou peso numérico ≥ 600 → negrito.
 fn is_bold(v: &str) -> bool {

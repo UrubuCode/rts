@@ -58,6 +58,9 @@ mod listitem;
 /// ele — a largura vem da COLUNA — e por isso é uma passada própria.
 mod table;
 
+#[cfg(test)]
+mod flowtests;
+
 /// Motor de ANIMAÇÃO (#1776): interpolação de [`style::ComputedStyle`] no tempo +
 /// curvas de easing. Núcleo comum de `transition` (2 pontos) e `@keyframes` (N).
 /// Egui-free; o tick por frame é dirigido pelo loop de render.

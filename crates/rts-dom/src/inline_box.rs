@@ -14,7 +14,7 @@
 //! pintura é decidida, e este trabalho acrescenta geometria sem tocar na pintura.
 
 use crate::dom::{Dom, NodeIdx};
-use crate::layout::{DisplayList, LayoutCtx, Rect};
+use crate::layout::{DisplayList, LayoutCtx, Rect, TextMeasurer};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 /// O que é uma caixa ATÓMICA no fluxo inline — flui como uma palavra
@@ -34,6 +34,10 @@ pub(crate) enum AtomicKind {
     Replaced,
     /// Um elemento inline vazio: posição e altura de linha, largura zero.
     Marker,
+    /// Um `<br>`: fecha a linha corrente. Tem caixa (posição e altura de linha,
+    /// largura zero) como o `Marker`, e além disso QUEBRA — que é o que o
+    /// distingue dele e a razão de não ser o mesmo caso.
+    Break,
     /// Um inline com CAIXA (`<span style=background>`, `<a>` com padding): tem
     /// fundo e borda próprios, logo precisa de `layout_block` para os pintar,
     /// mas continua a ser conteúdo de linha e não deve parti-la.
@@ -116,6 +120,21 @@ pub(crate) fn replaced_inline_size(
         w = max_w;
     }
     Some((w.max(0.0), h.max(0.0)))
+}
+
+/// A ALTURA DE UMA LINHA de texto sob este estilo.
+///
+/// Existe como função porque a resposta estava em dois estados no motor: o fluxo
+/// inline lia `line-height` do CSS, e os caminhos de flex/wrap que recebem texto
+/// solto perguntavam direto ao medidor. O mesmo `<p>` respondia 26px ou 20,8px
+/// conforme o `display` do pai, e um `line-height` declarado desaparecia sem
+/// aviso no segundo caso. Uma pergunta, uma resposta.
+///
+/// O medidor é quem responde por `normal` e pela ausência de declaração, porque
+/// esse valor sai das MÉTRICAS DA FONTE e não de uma constante.
+pub(crate) fn altura_da_linha(css: &ComputedStyle, font_size: f32, m: &dyn TextMeasurer) -> f32 {
+    let normal = m.line_height(font_size);
+    css.line_height.map(|l| l.resolve(font_size, normal)).unwrap_or(normal)
 }
 
 /// Une um fragmento de linha ao retângulo acumulado de um elemento inline.

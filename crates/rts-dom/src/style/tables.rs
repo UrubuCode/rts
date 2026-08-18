@@ -97,9 +97,9 @@ impl BorderSpacing {
     /// `border-spacing: <len>` (os dois eixos) ou `<len> <len>` (h e depois v).
     pub fn parse(v: &str) -> Option<BorderSpacing> {
         let mut it = v.split_whitespace();
-        let h = crate::style::parse::parse_dimension(it.next()?)?;
+        let h = crate::style::lengths::parse_dimension(it.next()?)?;
         let v = match it.next() {
-            Some(s) => crate::style::parse::parse_dimension(s)?,
+            Some(s) => crate::style::lengths::parse_dimension(s)?,
             None => h,
         };
         Some(BorderSpacing { h, v })

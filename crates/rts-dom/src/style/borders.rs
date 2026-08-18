@@ -142,7 +142,7 @@ pub fn parse_width_token(tok: &str) -> Option<f32> {
         "thin" => Some(1.0),
         "medium" => Some(3.0),
         "thick" => Some(5.0),
-        _ => super::parse::parse_len_pub(tok),
+        _ => super::lengths::parse_len_pub(tok),
     }
 }
 
