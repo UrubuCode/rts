@@ -40,6 +40,7 @@
 //!   main vertical, justify no Y). `flex-grow`/`shrink`/`basis` também fora.
 
 use crate::dom::{Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeIdx, NodeKind};
+use crate::inline_box::AtomicKind;
 use crate::style::{ComputedStyle, ResolveCtx};
 
 /// Um retângulo em coordenadas de conteúdo (a origem é o canto da área de render;
@@ -417,7 +418,7 @@ pub struct LayoutCtx<'a> {
 /// e do estilo vigente, mas não da posição absoluta; por isso o cache não guarda uma
 /// DisplayList e a chamada final continua responsável por pintar tudo no z-order certo.
 #[allow(clippy::too_many_arguments)]
-fn measure_block(
+pub(crate) fn measure_block(
     dom: &Dom,
     id: NodeIdx,
     avail_w: f32,
@@ -679,7 +680,7 @@ fn resolve_inset(d: Option<crate::style::Dimension>, axis: f32, ctx: &ResolveCtx
 
 /// `true` se o nó SAI do fluxo (`position: absolute/fixed`) — não ocupa espaço
 /// entre os irmãos; pintado na passada out-of-flow de [`layout_document`].
-fn is_out_of_flow(dom: &Dom, id: NodeIdx) -> bool {
+pub(crate) fn is_out_of_flow(dom: &Dom, id: NodeIdx) -> bool {
     matches!(&dom.node(id).kind, NodeKind::Element { .. })
         && dom
             .computed_style_idx(id)
@@ -848,7 +849,7 @@ pub fn bounding_rect(dom: &Dom, node: NodeIdx, ctx: &LayoutCtx) -> Option<Rect> 
 /// padding/border/margin) — o pai usa a altura (empilhamento vertical) ou a
 /// largura (horizontal) para posicionar o irmão seguinte. Texto solto e nós inline
 /// são desenhados como linhas dentro do content-box.
-fn layout_block(
+pub(crate) fn layout_block(
     dom: &Dom,
     id: NodeIdx,
     x: f32,
@@ -993,6 +994,14 @@ fn layout_block(
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0) + mv_top;
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0) + mv_bottom;
     let pad_left = p.left.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    // RECUO DA LISTA (UA-stylesheet): `<ul>`/`<ol>` trazem `padding-inline-start:
+    // 40px` em todo o browser, e é esse recuo que aloja o marcador do `<li>`.
+    // Entra como PADDING e não como uma variável à parte porque é o que ele é:
+    // assim conta na caixa de borda, no `content_x` e na largura disponível dos
+    // filhos sem que nenhum desses três sítios precise de saber que existem
+    // listas. Um `padding-left` do autor anula-o — é a camada mais fraca da
+    // cascade, e o `list-style:none;padding-left:0` de um menu tem de vencer.
+    let pad_left = pad_left + ua_list_indent(dom, id, p);
     let pad_right = p.right.resolve(&resolve).unwrap_or(0.0).max(0.0);
     let pad_top = p.top.resolve(&resolve).unwrap_or(0.0).max(0.0);
     let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(0.0).max(0.0);
@@ -1006,6 +1015,14 @@ fn layout_block(
     let frame = margin_h + 2.0 * border + padding_h;
     let font_for_content = font_px(&css, DEFAULT_FONT_SIZE);
     let border_box = css.border_box.unwrap_or(false);
+    // O PAPEL da caixa (item de lista, parte de tabela) — decidido já aqui e não
+    // junto do eixo dos filhos porque a `<table>` muda a resolução da SUA PRÓPRIA
+    // largura, três linhas abaixo.
+    let used = used_display(dom, id);
+    // Uma `<table>` sem `width` é SHRINK-TO-FIT: encolhe ao conteúdo em vez de
+    // ocupar o pai. É a diferença mais visível entre uma tabela e um `<div>`, e
+    // sem ela cada tabela da página nasce com a largura da coluna inteira.
+    let shrink_to_fit = shrink_to_fit || used == Some(crate::style::DisplayKind::Table);
     let content_w = if let Some(fw) = forced_outer_w {
         // main size do FLEX (grow/shrink já resolvidos): outer imposto → content =
         // outer - frame (o frame já soma margem+borda+padding dos dois lados).
@@ -1155,6 +1172,14 @@ fn layout_block(
         // GRID REAL: track-sizing (px/fr/auto/%) + auto-placement row-by-row +
         // alinhamento de célula (align-items/justify-items). Só quando é
         // `display:grid` de fato; senão o wrap horizontal (inline-block flow).
+        // TABELA: a grade inteira é construída antes de posicionar o que quer que
+        // seja (a largura de uma célula vem da COLUNA, não dela). Fica antes do
+        // grid porque uma `<table>` que o autor não tocou tem eixo vertical e
+        // cairia no empilhamento de blocos, descendo por `<tr>` como se fossem
+        // `<div>` — que é exatamente o que a página real mostrava.
+        _ if used == Some(crate::style::DisplayKind::Table) => {
+            crate::table::layout_table(dom, id, content_x, content_y, children_w, &css, font_size, ctx, list)
+        }
         _ if css.effective_display() == Some(crate::style::DisplayKind::Grid) => {
             layout_children_grid(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list)
         }
@@ -1165,6 +1190,14 @@ fn layout_block(
         // vertical (block): empilha.
         _ => layout_children_vertical(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list),
     };
+    // MARCADOR do item de lista. Emitido DEPOIS dos filhos e com o content-box já
+    // conhecido, e não desloca coisa nenhuma: `list-style-position: outside` (o
+    // default, e o único que este motor desenha) põe o marcador FORA da caixa de
+    // conteúdo, dentro do recuo que o `<ul>` já reservou.
+    if used == Some(crate::style::DisplayKind::ListItem) {
+        crate::listitem::emit_marker(dom, id, &css, content_x, content_y, font_size, ctx, list);
+    }
+
     // a altura REAL do conteúdo (antes de `height` explícito a cortar) — p/ o scroll-Y.
     let content_h_natural = content_h;
 
@@ -1440,7 +1473,7 @@ impl KeyBase {
 /// as subárvores reusadas guardam o índice antes do qual entram, e sem esta
 /// correção elas passariam a ser pintadas na frente do próprio fundo. Foi o que
 /// um teste de altura percentual acusou, ao ver os retângulos na ordem trocada.
-fn insert_item(list: &mut DisplayList, at: usize, item: DisplayItem) {
+pub(crate) fn insert_item(list: &mut DisplayList, at: usize, item: DisplayItem) {
     list.items.insert(at, item);
     for child in &mut list.children {
         if child.at >= at {
@@ -1924,6 +1957,15 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         return width;
     }
 
+    // TABELA: a largura que o conteúdo quer é a SOMA das colunas, e nenhuma das
+    // duas regras abaixo a dá — o MAX (bloco) devolveria a linha mais larga e a
+    // SOMA (flex) somaria linhas inteiras. Quem sabe é o algoritmo de colunas.
+    if used_display(dom, id) == Some(crate::style::DisplayKind::Table) {
+        let width = crate::table::max_content_width(dom, id, font, ctx);
+        dom.intrinsic_width_put(key, width);
+        return width;
+    }
+
     // o EIXO em que os filhos se dispõem decide SOMA vs MAX.
     let display = css_display(dom, id);
     let is_row = display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
@@ -1971,7 +2013,7 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
 
 /// A largura OUTER intrínseca de UM filho (max-content): seu `width` fixo (+ frame),
 /// senão a intrínseca do seu conteúdo (+ frame). Texto → largura do texto.
-fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutCtx) -> f32 {
+pub(crate) fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutCtx) -> f32 {
     match &dom.node(id).kind {
         NodeKind::Element { .. } => {
             // metadata (head/style/script) não conta.
@@ -2475,7 +2517,7 @@ fn layout_input(
 /// (o CSS já virou stylesheet no parse; JS não executamos). Permite carregar um HTML
 /// COMPLETO e pintar só o conteúdo visível (`<body>`). `<html>`/`<body>` SÃO
 /// renderáveis (transparentes — fluxo block normal dos filhos).
-fn is_non_rendered_tag(tag: &str) -> bool {
+pub(crate) fn is_non_rendered_tag(tag: &str) -> bool {
     matches!(tag, "head" | "title" | "meta" | "link" | "base" | "style" | "script")
 }
 
@@ -2501,10 +2543,43 @@ fn css_display(dom: &Dom, id: NodeIdx) -> i64 {
     }
 }
 
+/// O `display` USADO de um nó: o do CSS de autor, senão o default da UA para a
+/// tag ([`crate::block::ua_display`]), senão `None` — e `None` aqui significa
+/// "o fluxo de bloco genérico decide", não "sem display".
+///
+/// Existe ao lado de [`css_display`] e não em vez dele porque as duas respondem
+/// a perguntas diferentes: aquela dá o EIXO em que os filhos empilham (um `i64`
+/// que o TS também escreve), esta dá o PAPEL da caixa. Um `<tr>` tem eixo
+/// vertical e papel de linha de tabela, e só a segunda pergunta o distingue de
+/// um `<div>`.
+/// O recuo default que uma caixa de lista (`<ul>`/`<ol>`) dá aos seus itens, ou
+/// 0 quando o autor declarou o seu próprio `padding-left`.
+fn ua_list_indent(dom: &Dom, id: NodeIdx, p: &crate::style::Edges) -> f32 {
+    if p.left != crate::style::Side::Unset {
+        return 0.0;
+    }
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } if crate::block::is_list_container(tag) => {
+            crate::block::UA_LIST_INDENT
+        }
+        _ => 0.0,
+    }
+}
+
+pub(crate) fn used_display(dom: &Dom, id: NodeIdx) -> Option<crate::style::DisplayKind> {
+    let NodeKind::Element { tag } = &dom.node(id).kind else { return None };
+    if let Some(css) = dom.computed_style_idx(id) {
+        if let Some(k) = css.effective_display() {
+            return Some(k);
+        }
+    }
+    crate::block::ua_display(tag)
+}
+
 /// O `font-size` COMPUTADO em pontos: a CASCADE já resolveu a forma para `Px`
 /// (dom.rs — base de em/% é o pai; rem/vw/vh contra root/viewport), então aqui é
 /// só extrair; `fallback` cobre o não-declarado (herda) e formas não-resolvidas.
-fn font_px(css: &ComputedStyle, fallback: f32) -> f32 {
+pub(crate) fn font_px(css: &ComputedStyle, fallback: f32) -> f32 {
     match css.font_size {
         Some(crate::style::Dimension::Px(v)) => v,
         _ => fallback,
@@ -2906,7 +2981,7 @@ fn layout_inline_block_line(
 ///
 /// O `outline` sai por último (por cima) e por FORA do border-box, inflado pelo
 /// `outline-offset` — é o que o distingue da borda: não ocupa espaço nenhum.
-fn border_items(css: &ComputedStyle, box_rect: Rect, radius: f32, op: f32) -> Vec<DisplayItem> {
+pub(crate) fn border_items(css: &ComputedStyle, box_rect: Rect, radius: f32, op: f32) -> Vec<DisplayItem> {
     let mut out = Vec::new();
     let sides = crate::style::borders::resolved_sides(css);
     if crate::style::borders::has_per_side(css) {
@@ -3903,9 +3978,15 @@ fn layout_inline_flow(
     // o contém) de TODOS os nós do grupo, em ordem de documento.
     let mut runs = Vec::new();
     for &id in group {
-        runs.extend(collect_runs(dom, id, parent_css, ctx));
+        runs.extend(collect_runs(dom, id, parent_css, content_w, ctx));
     }
-    if runs.iter().all(|r| r.text.trim().is_empty() && r.widget.is_none()) {
+    // Um MARKER (elemento inline vazio) não conta como conteúdo: um `<span></span>`
+    // sozinho num bloco não cria linha nenhuma no browser, e criá-la aqui mudaria
+    // a altura do bloco — o oposto de "acrescenta geometria, não muda a pintura".
+    if runs
+        .iter()
+        .all(|r| r.text.trim().is_empty() && !matches!(r.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced))))
+    {
         return y;
     }
     let mono = parent_css
@@ -3953,7 +4034,7 @@ fn layout_inline_flow(
         // largura total da linha (texto no SEU peso + widgets) p/ text-align.
         let line_w: f32 = line
             .iter()
-            .map(|seg| match seg.widget {
+            .map(|seg| match seg.atomic {
                 Some(_) => seg.ww,
                 None => seg.text_width,
             })
@@ -3961,7 +4042,7 @@ fn layout_inline_flow(
         // altura da linha: o texto (lh) ou o widget mais alto nela.
         let line_h = line
             .iter()
-            .filter(|s| s.widget.is_some())
+            .filter(|s| matches!(s.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced))))
             .map(|s| s.wh)
             .fold(lh, f32::max);
         let free = (content_w - line_w).max(0.0);
@@ -3977,23 +4058,43 @@ fn layout_inline_flow(
         // pinta cada pedaço NA SUA COR e PESO, avançando o x.
         for seg in line {
             let seg: Segment = seg;
-            if let Some(w_idx) = seg.widget {
-                // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
-                // campo de texto via layout_input com o avail da linha).
-                let wcss = dom.computed_style_idx(w_idx).unwrap_or_default();
-                let itype = dom
-                    .node(w_idx)
-                    .attr("type")
-                    .map(|t| t.to_ascii_lowercase())
-                    .unwrap_or_default();
-                if matches!(itype.as_str(), "submit" | "button" | "reset") {
-                    layout_button(dom, w_idx, &wcss, seg_x, cy, ctx, list);
-                } else {
-                    layout_input(dom, w_idx, &wcss, seg_x, cy, seg.ww, None, ctx, list);
+            if let Some((a_idx, kind)) = seg.atomic {
+                match kind {
+                    AtomicKind::Widget => {
+                        // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
+                        // campo de texto via layout_input com o avail da linha).
+                        let wcss = dom.computed_style_idx(a_idx).unwrap_or_default();
+                        let itype = dom
+                            .node(a_idx)
+                            .attr("type")
+                            .map(|t| t.to_ascii_lowercase())
+                            .unwrap_or_default();
+                        if matches!(itype.as_str(), "submit" | "button" | "reset") {
+                            layout_button(dom, a_idx, &wcss, seg_x, cy, ctx, list);
+                        } else {
+                            layout_input(dom, a_idx, &wcss, seg_x, cy, seg.ww, None, ctx, list);
+                        }
+                    }
+                    AtomicKind::Replaced => {
+                        // REPLACED inline (um `<img>` no meio do texto): a caixa é o
+                        // tamanho já medido. Só se pinta quando há pixels — e aí é
+                        // `layout_image` que o faz, o mesmo caminho do fluxo de bloco,
+                        // em vez de um segundo emissor de imagem só para o inline.
+                        if dom.image_of(a_idx).is_some() {
+                            let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
+                            layout_image(dom, a_idx, &icss, seg_x, cy, seg.ww.max(1.0), ctx, list);
+                        }
+                    }
+                    AtomicKind::Marker => {}
                 }
-                let widget_fragment = Rect::new(seg_x, cy, seg.ww, seg.wh);
+                // O marker não tem largura: a sua caixa é a POSIÇÃO na linha com a
+                // altura da linha, que é o que o browser devolve para um `<source>`.
+                let fragment = match kind {
+                    AtomicKind::Marker => Rect::new(seg_x, cy, 0.0, line_h),
+                    _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
+                };
                 for &owner in &seg.owners {
-                    union_inline_rect(list, owner, widget_fragment);
+                    crate::inline_box::union_rect(list, owner, fragment);
                 }
                 seg_x += seg.ww;
                 continue;
@@ -4013,7 +4114,7 @@ fn layout_inline_flow(
             });
             let text_fragment = Rect::new(seg_x, cy, w.max(0.0), line_h);
             for &owner in &seg.owners {
-                union_inline_rect(list, owner, text_fragment);
+                crate::inline_box::union_rect(list, owner, text_fragment);
             }
             seg_x += w;
         }
@@ -4023,9 +4124,11 @@ fn layout_inline_flow(
 }
 
 /// Um pedaço de texto inline com seu estilo resolvido (cor/peso herdados do span pai).
-/// `widget: Some(idx)` = um WIDGET inline (input botão/texto) em vez de texto — flui
-/// como uma "palavra" inquebrável de `ww × wh` pontos (item 8 do handoff #1793;
-/// os botões 'Pesquisa Google' do google legado vivem em span>span>input).
+/// `atomic: Some((idx, kind))` = uma CAIXA em vez de texto — um widget de
+/// formulário, um replaced element (`<img>`), ou o marcador de um inline vazio.
+/// As duas primeiras fluem como uma "palavra" inquebrável de `ww × wh` pontos
+/// (item 8 do handoff #1793; os botões 'Pesquisa Google' do google legado vivem
+/// em span>span>input); o marcador não ocupa nada.
 struct InlineRun {
     text: String,
     color: u32,
@@ -4035,7 +4138,7 @@ struct InlineRun {
     deco: u8,
     /// Elementos inline ancestrais deste run. Cada um recebe a união dos fragmentos.
     owners: Vec<NodeIdx>,
-    widget: Option<NodeIdx>,
+    atomic: Option<(NodeIdx, AtomicKind)>,
     ww: f32,
     wh: f32,
 }
@@ -4056,7 +4159,7 @@ fn is_inline_text_container(dom: &Dom, id: NodeIdx) -> bool {
 
 /// Reserva uma posição de pintura antes de layoutar os descendentes. Um retângulo
 /// placeholder fica invisível para o hit-test até ser preenchido por `record_node_rect`.
-fn reserve_node_order(list: &mut DisplayList, idx: NodeIdx) {
+pub(crate) fn reserve_node_order(list: &mut DisplayList, idx: NodeIdx) {
     if !list.node_rects.contains_key(&idx) {
         list.node_rects.insert(idx, Rect::new(0.0, 0.0, 0.0, 0.0));
         list.hit_order.push(idx);
@@ -4065,24 +4168,8 @@ fn reserve_node_order(list: &mut DisplayList, idx: NodeIdx) {
 
 /// Registra uma caixa e sua geometria. Se o nó já foi reservado como ancestral,
 /// apenas substitui o placeholder sem duplicar a ordem de hit-test.
-fn record_node_rect(list: &mut DisplayList, idx: NodeIdx, rect: Rect) {
+pub(crate) fn record_node_rect(list: &mut DisplayList, idx: NodeIdx, rect: Rect) {
     if list.node_rects.insert(idx, rect).is_none() {
-        list.hit_order.push(idx);
-    }
-}
-
-/// Une um fragmento de linha ao retângulo acumulado do elemento inline.
-fn union_inline_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
-    if let Some(old) = list.node_rects.get_mut(&idx) {
-        let right = old.x + old.w;
-        let bottom = old.y + old.h;
-        let new_right = fragment.x + fragment.w;
-        let new_bottom = fragment.y + fragment.h;
-        let x = old.x.min(fragment.x);
-        let y = old.y.min(fragment.y);
-        *old = Rect::new(x, y, right.max(new_right) - x, bottom.max(new_bottom) - y);
-    } else {
-        list.node_rects.insert(idx, fragment);
         list.hit_order.push(idx);
     }
 }
@@ -4096,6 +4183,7 @@ fn collect_runs(
     dom: &Dom,
     id: NodeIdx,
     parent_css: &ComputedStyle,
+    avail_w: f32,
     ctx: &LayoutCtx,
 ) -> Vec<InlineRun> {
     let _phase = crate::metrics::phases::scope("collect-runs");
@@ -4103,6 +4191,7 @@ fn collect_runs(
     walk(
         dom,
         ctx,
+        avail_w,
         id,
         cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF)),
         decoration_code(parent_css),
@@ -4116,6 +4205,7 @@ fn collect_runs(
     fn walk(
         dom: &Dom,
         ctx: &LayoutCtx,
+        avail_w: f32,
         id: NodeIdx,
         inherited_color: u32,
         inherited_deco: u8,
@@ -4137,7 +4227,7 @@ fn collect_runs(
                     bold: inherited_bold,
                     deco: inherited_deco,
                     owners: inherited_owners.to_vec(),
-                    widget: None,
+                    atomic: None,
                     ww: 0.0,
                     wh: 0.0,
                 });
@@ -4166,13 +4256,35 @@ fn collect_runs(
                     let mut owners = inherited_owners.to_vec();
                     owners.push(id);
                     crate::bump!(inline_runs);
-                out.push(InlineRun {
+                    out.push(InlineRun {
                         text: String::new(),
                         color: inherited_color,
                         bold: false,
                         deco: 0,
                         owners,
-                        widget: Some(id),
+                        atomic: Some((id, AtomicKind::Widget)),
+                        ww,
+                        wh,
+                    });
+                    return;
+                }
+                // REPLACED inline (`<img>` dentro de um `<a>`, `<video>`, …): não é
+                // texto e não tem filhos que o descrevam, por isso não produzia run
+                // nenhum e ficava sem caixa. Flui como palavra inquebrável.
+                let rcss = dom.computed_style_idx(id).unwrap_or_default();
+                if let Some((ww, wh)) =
+                    crate::inline_box::replaced_inline_size(dom, id, &rcss, avail_w, ctx)
+                {
+                    let mut owners = inherited_owners.to_vec();
+                    owners.push(id);
+                    crate::bump!(inline_runs);
+                    out.push(InlineRun {
+                        text: String::new(),
+                        color: inherited_color,
+                        bold: false,
+                        deco: 0,
+                        owners,
+                        atomic: Some((id, AtomicKind::Replaced)),
                         ww,
                         wh,
                     });
@@ -4189,11 +4301,29 @@ fn collect_runs(
                     _ => inherited_deco,
                 };
                 let mut owners = inherited_owners.to_vec();
-                if is_inline_text_container(dom, id) {
+                let is_container = is_inline_text_container(dom, id);
+                if is_container {
                     owners.push(id);
                 }
+                let before = out.len();
                 for &c in &dom.node(id).children {
-                    walk(dom, ctx, c, color, deco, tt, bold, &owners, out);
+                    walk(dom, ctx, avail_w, c, color, deco, tt, bold, &owners, out);
+                }
+                // Um inline VAZIO (`<source>`, `<br>`, `<span></span>`) não gerou run
+                // e ficaria sem caixa. O marker dá-lhe a posição na linha sem lhe dar
+                // largura nem altura próprias — que é a caixa que o browser reporta.
+                if is_container && out.len() == before {
+                    crate::bump!(inline_runs);
+                    out.push(InlineRun {
+                        text: String::new(),
+                        color: inherited_color,
+                        bold: false,
+                        deco: 0,
+                        owners,
+                        atomic: Some((id, AtomicKind::Marker)),
+                        ww: 0.0,
+                        wh: 0.0,
+                    });
                 }
             }
             _ => {}
@@ -4219,7 +4349,8 @@ fn inline_widget_size(dom: &Dom, id: NodeIdx, itype: &str, ctx: &LayoutCtx) -> (
 }
 
 /// Um segmento de texto colorido/pesado posicionado numa linha (após o wrap).
-/// `widget: Some(idx)` = um widget inline de `ww × wh` (pintado pela emissão).
+/// `atomic: Some((idx, kind))` = uma caixa de `ww × wh` (pintada pela emissão),
+/// ou um marcador de largura zero que só existe para receber a sua geometria.
 struct Segment {
     text: String,
     text_width: f32,
@@ -4227,7 +4358,7 @@ struct Segment {
     bold: bool,
     deco: u8,
     owners: Vec<NodeIdx>,
-    widget: Option<NodeIdx>,
+    atomic: Option<(NodeIdx, AtomicKind)>,
     ww: f32,
     wh: f32,
 }
@@ -4275,7 +4406,7 @@ fn collapse_ws(text: &str, leading_space: bool) -> std::borrow::Cow<'_, str> {
 /// mesmo (é o que evita um segmento por palavra na hora de pintar).
 fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32) {
     if let Some(last) = cur.last_mut() {
-        if last.widget.is_none()
+        if last.atomic.is_none()
             && last.color == run.color
             && last.bold == run.bold
             && last.deco == run.deco
@@ -4293,7 +4424,7 @@ fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32)
         bold: run.bold,
         deco: run.deco,
         owners: run.owners.clone(),
-        widget: None,
+        atomic: None,
         ww: 0.0,
         wh: 0.0,
     });
@@ -4323,7 +4454,23 @@ fn wrap_runs(
 
     for run in runs {
         // WIDGET: uma "palavra" inquebrável de run.ww pontos, segmento próprio.
-        if let Some(w_idx) = run.widget {
+        if let Some((a_idx, kind)) = run.atomic {
+            // MARKER: largura zero, não quebra a linha, não consome o espaço
+            // pendente — só marca uma posição para quem lhe quiser a caixa.
+            if kind == AtomicKind::Marker {
+                cur.push(Segment {
+                    text: String::new(),
+                    text_width: 0.0,
+                    color: run.color,
+                    bold: false,
+                    deco: 0,
+                    owners: run.owners.clone(),
+                    atomic: Some((a_idx, AtomicKind::Marker)),
+                    ww: 0.0,
+                    wh: 0.0,
+                });
+                continue;
+            }
             let with_space = pending_space && !at_line_start;
             let need = if with_space { space_w(m) + run.ww } else { run.ww };
             if !at_line_start && cur_w + need > max_w {
@@ -4338,7 +4485,7 @@ fn wrap_runs(
                 bold: false,
                 deco: 0,
                 owners: run.owners.clone(),
-                widget: Some(w_idx),
+                atomic: Some((a_idx, kind)),
                 ww: run.ww,
                 wh: run.wh,
             });
@@ -4359,7 +4506,7 @@ fn wrap_runs(
         // Medir a string inteira também é o que um browser faz, então a largura
         // resultante é MAIS fiel e não menos: soma de palavras ignora o que a
         // fonte faz nas junções.
-        if run.widget.is_none() {
+        if run.atomic.is_none() {
             let leading = pending_space && !at_line_start;
             let normalized = collapse_ws(&run.text, leading);
             if normalized.is_empty() {
@@ -4370,7 +4517,14 @@ fn wrap_runs(
                 continue;
             }
             let w = m.text_width(&normalized, font_size, mono, run.bold);
-            if at_line_start || cur_w + w <= max_w {
+            // `at_line_start ||` estava aqui e fazia um run que NÃO CABE passar
+            // inteiro quando era o primeiro da linha — um parágrafo cujo texto
+            // vem num único nó (o caso comum de uma página real) nunca quebrava,
+            // saía numa linha de milhares de pontos e levava consigo a caixa de
+            // todos os inlines dentro dele. O scanner palavra-a-palavra abaixo já
+            // trata o início de linha corretamente (não quebra ANTES da primeira
+            // palavra), por isso a condição certa é só "cabe".
+            if cur_w + w <= max_w {
                 let trailing_space = run.text.ends_with(char::is_whitespace);
                 push_segment(&mut cur, run, &normalized, w);
                 cur_w += w;
@@ -4409,7 +4563,7 @@ fn wrap_runs(
             piece.push_str(word);
             // junta no último segmento se mesma cor E peso (e não-widget), senão novo.
             if let Some(last) = cur.last_mut() {
-                if last.widget.is_none()
+                if last.atomic.is_none()
                     && last.color == run.color
                     && last.bold == run.bold
                     && last.deco == run.deco
@@ -4425,7 +4579,7 @@ fn wrap_runs(
                         bold: run.bold,
                         deco: run.deco,
                         owners: run.owners.clone(),
-                        widget: None,
+                        atomic: None,
                         ww: 0.0,
                         wh: 0.0,
                     });
@@ -4438,7 +4592,7 @@ fn wrap_runs(
                     bold: run.bold,
                     deco: run.deco,
                     owners: run.owners.clone(),
-                    widget: None,
+                    atomic: None,
                     ww: 0.0,
                     wh: 0.0,
                 });
@@ -4459,7 +4613,7 @@ fn wrap_runs(
             bold: false,
             deco: 0,
             owners: Vec::new(),
-            widget: None,
+            atomic: None,
             ww: 0.0,
             wh: 0.0,
         }]);
@@ -4883,6 +5037,80 @@ mod tests {
         assert!(rect.w > 0.0);
         assert!(rect.h > 0.0);
     }
+
+    /// Um `<a>` dentro de um parágrafo ocupa a sua fatia da linha: começa DEPOIS
+    /// do texto que o antecede e é mais estreito do que o parágrafo inteiro.
+    /// Sem isto respondia `0,0,0,0` — inexistente para hit-test e para medição.
+    #[test]
+    fn link_no_meio_do_paragrafo_tem_caixa_na_sua_fatia_da_linha() {
+        let dom = parse_html_to_dom("<p>antes <a id='l'>link</a> depois</p>");
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
+        let r = *list.geometry().rects.get(&idx).expect("o <a> devia ter caixa");
+        assert!(r.x > 0.0, "começa depois do texto que o antecede: x={}", r.x);
+        assert!(r.w > 0.0 && r.w < 800.0, "largura da sua fatia, não a do <p>: w={}", r.w);
+        assert!(r.h > 0.0);
+    }
+
+    /// Um `<a>` que quebra em duas linhas tem UMA caixa que contém as duas — é a
+    /// definição da spec (bounding box dos fragmentos), e é o que
+    /// `getBoundingClientRect` devolve no browser.
+    #[test]
+    fn link_partido_em_duas_linhas_tem_caixa_que_contem_as_duas() {
+        let texto = "palavra ".repeat(40);
+        let dom = parse_html_to_dom(&format!("<p><a id='l'>{texto}</a></p>"));
+        let ctx = LayoutCtx { viewport_w: 200.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
+        let r = *list.geometry().rects.get(&idx).expect("o <a> devia ter caixa");
+        // várias linhas: a altura é a soma delas, muito acima de uma linha só.
+        let uma_linha = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
+        assert!(r.h > uma_linha * 2.0, "devia abranger várias linhas: h={}", r.h);
+        // e a união é larga como a coluna, não como o último fragmento.
+        assert!(r.w > 100.0, "a união abrange a largura da coluna: w={}", r.w);
+    }
+
+    /// Um `<img>` inline é um REPLACED element: tem caixa própria com a largura e
+    /// a altura dos atributos, mesmo sem pixels descodificados (é o caso de uma
+    /// página real medida sem rede). Antes não gerava run nenhum e ficava a zero.
+    #[test]
+    fn img_inline_tem_caixa_propria_dos_atributos() {
+        let dom = parse_html_to_dom("<p>antes <img id='i' width='40' height='30'> depois</p>");
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#i").unwrap()).unwrap();
+        let r = *list.geometry().rects.get(&idx).expect("o <img> devia ter caixa");
+        assert_eq!((r.w, r.h), (40.0, 30.0));
+        assert!(r.x > 0.0, "está depois do texto que o antecede: x={}", r.x);
+    }
+
+    /// Um inline VAZIO (`<source>` dentro de um `<picture>`) tem no browser
+    /// largura zero mas posição e altura reais — não é `0,0,0,0`.
+    #[test]
+    fn inline_vazio_tem_posicao_e_altura_sem_largura() {
+        let dom = parse_html_to_dom(
+            "<p>antes <picture><source id='s'><img width='40' height='30'></picture></p>",
+        );
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#s").unwrap()).unwrap();
+        let r = *list.geometry().rects.get(&idx).expect("o <source> devia ter caixa");
+        assert_eq!(r.w, 0.0, "um inline vazio não tem largura");
+        assert!(r.x > 0.0 && r.h > 0.0, "mas tem posição e altura de linha: {r:?}");
+    }
+
+    /// Um inline vazio SOZINHO num bloco não inventa uma linha: o bloco continua
+    /// com a mesma altura. É o corte que separa "acrescentar geometria" de
+    /// "mudar o layout".
+    #[test]
+    fn inline_vazio_sozinho_nao_cria_linha() {
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let com = layout_document(&parse_html_to_dom("<div><span></span></div>"), &ctx);
+        let sem = layout_document(&parse_html_to_dom("<div></div>"), &ctx);
+        assert_eq!(com.content_height, sem.content_height);
+    }
+
 
     #[test]
     fn hit_test_respeita_z_index_em_elementos_sobrepostos() {

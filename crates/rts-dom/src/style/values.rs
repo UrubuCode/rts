@@ -337,6 +337,29 @@ pub enum DisplayKind {
     /// `grid-template-columns`). Tratado como WRAP com largura de item = 1/N do
     /// container (grid 2-D real fica p/ depois; cobre os cards/planos em grade).
     Grid,
+    /// `display:list-item` — é o `<li>`. Uma caixa de BLOCO que, além dos filhos,
+    /// gera um MARCADOR (o ponto, o número). O empilhamento é o do bloco: o que
+    /// a distingue é o marcador, não o fluxo — por isso é uma variante e não um
+    /// `bool` à parte no `ComputedStyle`. A alternativa (um `bool marker`) foi
+    /// rejeitada porque `display` é UM valor no CSS: `display:flex` num `<li>`
+    /// tira o marcador, e dois campos independentes representariam o estado
+    /// impossível "flex e list-item ao mesmo tempo".
+    ListItem,
+    /// `display:table` — a caixa da tabela: reparte a largura em COLUNAS e
+    /// empilha linhas. O algoritmo vive em [`crate::table`].
+    Table,
+    /// `display:table-row-group` / `table-header-group` / `table-footer-group` —
+    /// `<tbody>`/`<thead>`/`<tfoot>`. Os três são o MESMO layout (uma sequência
+    /// de linhas); o que os distingue no CSS é a ORDEM de pintura, que só se
+    /// nota quando o `<tfoot>` vem antes do `<tbody>` no markup. Um valor só,
+    /// portanto — três variantes que se comportam igual seriam três nomes para
+    /// uma decisão.
+    TableRowGroup,
+    /// `display:table-row` — `<tr>`. A altura é a da célula mais alta.
+    TableRow,
+    /// `display:table-cell` — `<td>`/`<th>`. Recebe a largura da coluna e a
+    /// altura da linha; por dentro é um bloco normal.
+    TableCell,
     /// `display:none` — não renderiza (nem ocupa espaço).
     None,
 }
@@ -344,13 +367,38 @@ pub enum DisplayKind {
 impl DisplayKind {
     /// Converte para o código de display do layout (0=vertical/block, 1=wrap,
     /// 2=horizontal/flex, -1=none). Casa com `crate::block::DISPLAY_*`.
+    ///
+    /// Os valores de tabela e o `list-item` respondem 0 (bloco): esse código é o
+    /// EIXO em que os filhos empilham, e o dos três é o vertical. Quem os trata
+    /// de verdade é o despacho de [`crate::layout`], que pergunta pela variante
+    /// e não pelo código — codificar a tabela aqui exigiria um quinto código que
+    /// o `block.rs` (a UA-stylesheet, dirigida por inteiros do TS) teria de
+    /// conhecer, e a tabela não é uma escolha da folha de estilo do usuário.
     pub fn to_display_code(self) -> i64 {
         match self {
-            DisplayKind::Block => 0,
+            DisplayKind::Block
+            | DisplayKind::ListItem
+            | DisplayKind::Table
+            | DisplayKind::TableRowGroup
+            | DisplayKind::TableRow
+            | DisplayKind::TableCell => 0,
             DisplayKind::FlexWrap | DisplayKind::Inline | DisplayKind::Grid => 1, // wrap
             DisplayKind::Flex => 2,                            // horizontal (lado a lado)
             DisplayKind::None => -1,
         }
+    }
+
+    /// `true` para os quatro valores INTERNOS da tabela (`table`, `table-row`,
+    /// `table-cell`, os grupos de linha). Quem pergunta é o fluxo de bloco, para
+    /// não descer num `<tr>` como se fosse um `<div>`.
+    pub fn is_table_part(self) -> bool {
+        matches!(
+            self,
+            DisplayKind::Table
+                | DisplayKind::TableRowGroup
+                | DisplayKind::TableRow
+                | DisplayKind::TableCell
+        )
     }
 }
 

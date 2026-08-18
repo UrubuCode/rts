@@ -365,6 +365,14 @@ fn fmt_display(d: DisplayKind) -> String {
         DisplayKind::Flex | DisplayKind::FlexWrap => "flex",
         DisplayKind::Inline => "inline",
         DisplayKind::Grid => "grid",
+        // As caixas de tabela e o `list-item` respondem o keyword que lhes deu
+        // origem: `getComputedStyle` devolve o `display` USADO, e um `<li>` que
+        // gera marcador é `list-item`, não `block`.
+        DisplayKind::ListItem => "list-item",
+        DisplayKind::Table => "table",
+        DisplayKind::TableRow => "table-row",
+        DisplayKind::TableCell => "table-cell",
+        DisplayKind::TableRowGroup => "table-row-group",
         DisplayKind::None => "none",
     }
     .into()

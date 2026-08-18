@@ -482,7 +482,27 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
         "inline" | "inline-block" => Some(DisplayKind::Inline),
         "grid" | "inline-grid" => Some(DisplayKind::Grid),
         "none" => Some(DisplayKind::None),
-        _ => None, // table/etc — não suportado nesta fase.
+        // `list-item` — o `<li>`. Bloco MAIS um marcador; ver `crate::listitem`.
+        "list-item" => Some(DisplayKind::ListItem),
+        // Os valores de TABELA. `inline-table` cai em `Table` porque a diferença
+        // é só como a caixa participa do fluxo do PAI (inline vs bloco), e por
+        // dentro é a mesma repartição de colunas; tratá-lo como caixa inline é
+        // um refino, não um algoritmo à parte.
+        "table" | "inline-table" => Some(DisplayKind::Table),
+        "table-row-group" | "table-header-group" | "table-footer-group" => {
+            Some(DisplayKind::TableRowGroup)
+        }
+        "table-row" => Some(DisplayKind::TableRow),
+        "table-cell" => Some(DisplayKind::TableCell),
+        // `table-column`/`table-column-group` (`<col>`/`<colgroup>`) NÃO geram
+        // caixa nenhuma no CSS — só carregam largura para as colunas. Devolver
+        // `None` aqui os faria cair no default da tag (bloco) e pintar uma caixa
+        // vazia que o Chrome não tem; `None` (o display) é o que os apaga.
+        "table-column" | "table-column-group" => Some(DisplayKind::None),
+        // `table-caption` é um bloco que fica FORA da grade, acima da tabela —
+        // tratá-lo como bloco normal é onde ele já cai, e é quase onde o Chrome
+        // o põe.
+        _ => None,
     }
 }
 

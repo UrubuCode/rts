@@ -25,6 +25,7 @@ mod dom;
 /// uma resistência que não se usa. Ver as ressalvas no módulo.
 pub mod fasthash;
 mod html;
+mod inline_box;
 /// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
 /// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
 /// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
@@ -43,6 +44,16 @@ pub mod store;
 /// só pinta a display-list. Medição de texto via trait `TextMeasurer` (o backend
 /// implementa; reimplementar largura de glifo aqui é a armadilha do roadmap).
 pub mod layout;
+
+/// `display: list-item` — o MARCADOR de um `<li>` (ponto, círculo, quadrado,
+/// número). Separado do `layout.rs` porque a numeração é uma pergunta que
+/// atravessa irmãos e atributos HTML (`start`, `value`), não box model.
+mod listitem;
+
+/// LAYOUT DE TABELA (`display: table` e os seus quatro papéis internos). É o
+/// único modo deste motor em que a caixa de um filho não se decide olhando para
+/// ele — a largura vem da COLUNA — e por isso é uma passada própria.
+mod table;
 
 /// Motor de ANIMAÇÃO (#1776): interpolação de [`style::ComputedStyle`] no tempo +
 /// curvas de easing. Núcleo comum de `transition` (2 pontos) e `@keyframes` (N).
