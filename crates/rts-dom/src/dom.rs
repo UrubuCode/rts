@@ -2393,6 +2393,31 @@ impl Dom {
         })
     }
 
+    /// `true` se trocar o `class` deste nó para `novo` não pode mudar estilo
+    /// nenhum: toda classe que ENTRA ou SAI está fora do conjunto de classes
+    /// citadas pelo stylesheet.
+    ///
+    /// Só as que MUDAM: as que ficam não afetam nada por definição, e uma delas
+    /// citada não torna a troca relevante.
+    fn class_change_is_inert(&self, idx: NodeIdx, novo: &str) -> bool {
+        let antigo = self.nodes[idx].attr("class").unwrap_or_default();
+        let mudou = antigo
+            .split_whitespace()
+            .filter(|c| !novo.split_whitespace().any(|n| n == *c))
+            .chain(
+                novo.split_whitespace()
+                    .filter(|c| !antigo.split_whitespace().any(|a| a == *c)),
+            );
+        let mut alguma = false;
+        for c in mudou {
+            alguma = true;
+            if self.stylesheet.mentions_class(c) {
+                return false;
+            }
+        }
+        alguma
+    }
+
     /// Resolve uma pseudo-classe contra o nó (posição entre irmãos / atributo de estado).
     fn pseudo_matches(&self, idx: NodeIdx, pc: &crate::style::PseudoClass) -> bool {
         use crate::style::PseudoClass as P;
@@ -2494,14 +2519,28 @@ impl Dom {
             return;
         }
         let affects_index = matches!(name_lc.as_str(), "id" | "class");
-        let affects_parent_selectors =
-            affects_index || self.stylesheet.has_attribute_selectors();
-        let dirty_root = if affects_parent_selectors {
-            self.nodes[idx].parent.unwrap_or(idx)
-        } else {
-            idx
-        };
-        self.touch_subtree(dirty_root);
+        // DESCARTE PRECOCE (o que um browser chama de invalidation set): trocar
+        // uma classe que NENHUMA regra cita não muda o estilo de nó nenhum, e
+        // invalidar por ela é refazer a cascade e o layout da página inteira
+        // por nada. É o caso mais comum de app — `el.classList.toggle('x')` —
+        // e o Chrome o resolve em 5 µs onde nós gastávamos 2,9 ms numa página
+        // de 3000 elementos.
+        //
+        // A guarda: só vale para `class`, e cai fora se houver seletor de
+        // ATRIBUTO no stylesheet (um `[class*=…]` reage a qualquer classe).
+        let style_unaffected = name_lc == "class"
+            && !self.stylesheet.has_attribute_selectors()
+            && self.class_change_is_inert(idx, value);
+        if !style_unaffected {
+            let affects_parent_selectors =
+                affects_index || self.stylesheet.has_attribute_selectors();
+            let dirty_root = if affects_parent_selectors {
+                self.nodes[idx].parent.unwrap_or(idx)
+            } else {
+                idx
+            };
+            self.touch_subtree(dirty_root);
+        }
         if affects_index {
             self.deindex_node(idx);
         }

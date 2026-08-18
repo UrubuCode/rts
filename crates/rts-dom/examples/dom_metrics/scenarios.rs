@@ -167,6 +167,22 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     }));
     drop(dom);
 
+    // 3d. CLASSE INERTE + frame com cache — `classList.toggle('x')` com uma
+    //     classe que nenhuma regra cita. Um browser resolve isto em microssegundos
+    //     porque não invalida nada; é o cenário que mede se nós também.
+    let mut dom = parse_html_to_dom(html);
+    let _ = rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh));
+    let leaf1 = deepest_element(&dom);
+    let mut flip0 = false;
+    runs.push(run("classe inerte + frame", "frame", iters, m, || {
+        flip0 = !flip0;
+        if let Some(t) = leaf1 {
+            dom.set_attr(t, "class", if flip0 { "rts-classe-inexistente" } else { "" });
+        }
+        std::hint::black_box(rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh)));
+    }));
+    drop(dom);
+
     // 4. TEXTO de uma folha + relayout — o contador, o relógio, o campo que
     //    digita. Mede o que a invalidação PRESERVA.
     let mut dom = parse_html_to_dom(html);

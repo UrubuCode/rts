@@ -44,6 +44,14 @@ pub struct RuleIndex {
     /// Há seletores cuja correspondência depende de atributos ou pseudo-classes
     /// representadas por atributos (`:checked`, `:disabled`, etc.).
     has_attribute_selectors: bool,
+    /// TODAS as classes citadas em QUALQUER compound de qualquer regra — não só
+    /// as que servem de chave-alvo. Uma classe fora deste conjunto não pode
+    /// mudar o estilo de nó nenhum, e trocá-la não precisa invalidar nada. É a
+    /// versão mínima do "invalidation set" que os browsers mantêm.
+    ///
+    /// TODAS e não só as chaves: em `.a.b { }` a chave é `.a`, mas trocar `b`
+    /// muda o resultado do mesmo jeito.
+    mentioned_classes: std::collections::HashSet<String>,
 }
 
 /// A âncora do compound-alvo (último compound) de um seletor. Id > Class > Tag; se
@@ -83,6 +91,17 @@ impl RuleIndex {
                 Key::Universal => idx.universal.push(i),
             }
         }
+        for rule in rules {
+            for compound in &rule.selector.compounds {
+                for part in &compound.parts {
+                    if let SimpleSelector::Class(c) = part {
+                        if !idx.mentioned_classes.contains(c) {
+                            idx.mentioned_classes.insert(c.clone());
+                        }
+                    }
+                }
+            }
+        }
         idx.specificity = rules.iter().map(|r| r.selector.specificity()).collect();
         idx.covered = rules.len();
         idx.has_custom_rules = rules.iter().any(|r| !r.decls.custom.is_empty());
@@ -110,6 +129,11 @@ impl RuleIndex {
 
     pub fn has_custom_rules(&self) -> bool {
         self.has_custom_rules
+    }
+
+    /// `true` se alguma regra CITA esta classe (em qualquer posição).
+    pub fn mentions_class(&self, class: &str) -> bool {
+        self.mentioned_classes.contains(class)
     }
 
     pub fn has_attribute_selectors(&self) -> bool {

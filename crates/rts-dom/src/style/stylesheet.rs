@@ -436,6 +436,13 @@ impl Stylesheet {
         out
     }
 
+    /// `true` se alguma regra CITA esta classe. Ver
+    /// [`RuleIndex::mentions_class`](super::ruleindex::RuleIndex::mentions_class).
+    pub fn mentions_class(&self, class: &str) -> bool {
+        self.ensure_rule_index();
+        self.index.borrow().mentions_class(class)
+    }
+
     /// `true` quando alguma regra depende da presença/valor de um atributo.
     pub fn has_attribute_selectors(&self) -> bool {
         self.ensure_rule_index();
