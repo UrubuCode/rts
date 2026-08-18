@@ -1119,17 +1119,19 @@ fn layout_block(
 /// `shrink_to_fit`. Os outros caminhos dependem de negociação com os irmãos, e
 /// um fragmento que ignorasse isso responderia errado.
 #[allow(clippy::too_many_arguments)]
-fn layout_block_reusing(
+/// A chave do fragmento de um nó com certas constraints. Extraída porque o laço
+/// do fluxo vertical CONSULTA o cache antes de classificar o filho: um fragmento
+/// só existe para bloco-normal, então encontrá-lo já responde o que a
+/// classificação responderia — e a classificação custa estilo computado,
+/// `block::lookup` e a margem resolvida, mil vezes por frame.
+fn fragment_key(
     dom: &Dom,
     id: NodeIdx,
-    x: f32,
-    y: f32,
     avail_w: f32,
     avail_h: Option<f32>,
     ctx: &LayoutCtx,
-    list: &mut DisplayList,
-) -> (f32, f32) {
-    let key = crate::dom::FragmentKey {
+) -> crate::dom::FragmentKey {
+    crate::dom::FragmentKey {
         tree: dom.cache_identity(),
         node_epoch: dom.layout_epoch(id),
         style_epoch: crate::style::props::style_epoch(),
@@ -1140,13 +1142,33 @@ fn layout_block_reusing(
         viewport_w: ctx.viewport_w.to_bits(),
         viewport_h: ctx.viewport_h.to_bits(),
         measurer: ctx.measurer.identity(),
-    };
+    }
+}
+
+fn emit_fragment(fragment: &Fragment, list: &mut DisplayList, x: f32, y: f32) {
+    let _phase = crate::metrics::phases::scope("fragment-emit");
+    fragment.emit_at(list, x, y);
+}
+
+fn layout_block_reusing(
+    dom: &Dom,
+    id: NodeIdx,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    avail_h: Option<f32>,
+    margem_de_topo: impl FnOnce() -> f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> ((f32, f32), f32) {
+    let key = fragment_key(dom, id, avail_w, avail_h, ctx);
     if let Some(fragment) = dom.fragment_get(key) {
         crate::bump!(fragment_hits);
-        fragment.emit_at(list, x, y);
-        return fragment.size;
+        emit_fragment(&fragment, list, x, y);
+        return (fragment.size, fragment.margin_top);
     }
     crate::bump!(fragment_misses);
+    let _phase = crate::metrics::phases::scope("fragment-build");
     // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
     // e a única forma de saber isso é não misturá-los com os dos irmãos.
     let mut own = DisplayList::default();
@@ -1158,10 +1180,11 @@ fn layout_block_reusing(
         items: std::mem::take(&mut own.items),
         origin: (x, y),
         size,
+        margin_top: margem_de_topo(),
     });
     dom.fragment_put(key, std::rc::Rc::clone(&fragment));
     fragment.emit_at(list, x, y);
-    size
+    (fragment.size, fragment.margin_top)
 }
 
 /// O DESENHO de uma subárvore posta com certas constraints, guardado para ser
@@ -1187,6 +1210,14 @@ pub struct Fragment {
     /// Tamanho externo devolvido pelo `layout_block` (o que o chamador usa para
     /// avançar o cursor).
     pub size: (f32, f32),
+    /// A MARGEM DE TOPO resolvida deste bloco, para o colapso com o irmão
+    /// anterior.
+    ///
+    /// Guardada junto porque o laço a calculava ANTES de descobrir que o
+    /// fragmento servia: resolver a margem pede o estilo computado, o
+    /// `font-size` do contexto e um `ResolveCtx` — por filho, mil vezes por
+    /// frame, para um valor que não muda enquanto o epoch do nó não muda.
+    pub margin_top: f32,
 }
 
 impl Fragment {
@@ -2010,6 +2041,25 @@ fn layout_children_vertical(
         };
     }
     for &child in &dom.node(id).children {
+        // CAMINHO RÁPIDO: se existe fragmento para este filho com estas
+        // constraints, ele já foi classificado como BLOCO NORMAL quando foi
+        // criado — é o único caminho que produz fragmento. Encontrá-lo responde
+        // a classificação inteira, que custaria estilo computado,
+        // `block::lookup` e a margem resolvida por filho: mil vezes por frame
+        // numa lista, para redescobrir o que não mudou.
+        if matches!(dom.node(child).kind, NodeKind::Element { .. }) {
+            let key = fragment_key(dom, child, content_w, avail_h, ctx);
+            if let Some(fragment) = dom.fragment_get(key) {
+                crate::bump!(fragment_hits);
+                flush_inline!(child_y);
+                close_floats!(child_y);
+                child_y -= prev_margin.min(fragment.margin_top);
+                emit_fragment(&fragment, list, content_x, child_y);
+                child_y += fragment.size.1;
+                prev_margin = fragment.margin_top;
+                continue;
+            }
+        }
         let child_css = match &dom.node(child).kind {
             NodeKind::Element { .. } => Some(dom.computed_style_idx(child).unwrap_or_default()),
             _ => None,
@@ -2097,8 +2147,8 @@ fn layout_children_vertical(
                     .unwrap_or(0.0);
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
                 child_y -= prev_margin.min(m);
-                let (_, h) = layout_block_reusing(
-                    dom, child, content_x, child_y, content_w, avail_h, ctx, list,
+                let ((_, h), _) = layout_block_reusing(
+                    dom, child, content_x, child_y, content_w, avail_h, || m, ctx, list,
                 );
                 child_y += h;
                 prev_margin = m;
