@@ -339,13 +339,24 @@ memory 9.59 → 2.0 MiB.
 
 ### What still separates us from Chrome, measured
 
-**Class mutation is 35× slower and the cause is structural, not incremental.**
-We reuse the *computation* of each untouched subtree but still rebuild the flat
-`DisplayList` every frame — 15 000 items copied so the backend can consume one
-contiguous list. Chrome keeps a retained tree and repaints the damaged part. A
-retained display list (a list of `Rc<Fragment>` instead of items) is the next
-structural step; `Rc<str>` on text items was the first half of it, and took the
-text mutation from 1.31 to 0.724 ms.
+**Class mutation is 35× slower, and the obvious explanation was WRONG.**
+
+We reuse the computation of each untouched subtree but still rebuild the flat
+`DisplayList` every frame — 30 000 items copied per frame on the synthetic page.
+That looked like the remaining cost, so it was built: a `SharedChunk` holding
+`Rc<Fragment>` plus an offset, an iterator that interleaves own items and shared
+ones, and a backend that adds the offset while painting instead of copying.
+
+**It did not get faster.** Text mutation 0.724 → 0.809 ms, class 0.187 → 0.171 ms
+— inside the machine's noise — and the *cold* layout got worse (15.8 → 16.9 ms),
+because every cache miss now has to flatten the fragment it just built. The work
+was reverted; what stayed is this paragraph.
+
+So the copy was not the bottleneck. The remaining cost is in producing a
+fragment the first time and in the per-frame walk itself, not in moving the
+items around. Whatever closes the last 35× is not "stop copying" — that
+hypothesis is dead, and the next attempt should start by measuring where a
+missed fragment actually spends its time.
 
 **`querySelectorAll` by class now beats Chrome**: 0.009 ms against 0.0105 ms for
 `.card` over 1000 matches, after the query started from the `.class` index
