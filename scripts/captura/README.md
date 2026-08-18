@@ -41,6 +41,41 @@ chegou a ser desenhada.
 a um relatório é o uso — "a página aparece" deixa de ser uma afirmação e passa a
 ser uma imagem.
 
+## Um antes/depois
+
+`-Exe` aponta para outro `ui_fixture.exe`. É o que permite fotografar um motor
+que não é o de agora — construa o commit antigo num worktree, com um `--target-dir`
+próprio, e fotografe os dois com o mesmo programa `.ts` e a mesma página em disco,
+de modo que a ÚNICA coisa que muda entre as duas imagens seja o motor:
+
+```bash
+git worktree add ../rts-antes <commit>
+cd ../rts-antes && cargo build --release -p rts-host --features ui \
+  --example ui_fixture --target-dir ../rts-antes/target
+cd -
+powershell -File scripts/captura/janela.ps1 -Programa examples/x.ts `
+  -Saida antes.png -Exe ../rts-antes/target/release/examples/ui_fixture.exe
+```
+
+Um antes/depois assim é uma MEDIÇÃO, não uma ilustração: as duas capturas
+respondem à mesma pergunta com o mesmo input. Uma captura antiga guardada de
+memória não serve para isso — nada garante que a página em disco era a mesma.
+
+## As imagens em `out/`, e de onde veio cada uma
+
+`out/` está no `.gitignore` — o que segue é o que uma sessão produz, e a
+PROVENIÊNCIA de cada imagem faz parte do que ela vale. Uma captura do script e uma
+captura tirada à mão não são a mesma prova: a do script correu um binário
+identificado sobre uma entrada conhecida e esperou o assentamento; a manual valia
+no momento em que foi tirada e não se repete.
+
+| ficheiro | motor | como foi tirada |
+|---|---|---|
+| `wikipedia-01-antes-branco.png` | `c54cf6e3`, construído num worktree | pelo script, com `-Exe` |
+| `wikipedia-01b-com-quadrados.png` | o de 2026-08-18 a meio da sessão | À MÃO, em PowerShell escrito na altura |
+| `wikipedia-02-depois.png` | o da árvore de trabalho | pelo script |
+| `minima.png` | o da árvore de trabalho | pelo script (`janela.sh`) |
+
 ## Detalhes que importam
 
 - **`PrintWindow` com `PW_RENDERFULLCONTENT`.** É a flag que fotografa uma janela

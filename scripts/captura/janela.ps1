@@ -25,12 +25,17 @@ param(
   # Segundos a esperar pela janela e pelo assentamento.
   [int]$Espera = 60,
   # Variáveis de ambiente para o processo, `NOME=valor` (ex.: RTS_DOM_PAINT=1).
-  [string[]]$Ambiente = @()
+  [string[]]$Ambiente = @(),
+  # Um `ui_fixture.exe` ALTERNATIVO. O default é o da árvore; passe outro para
+  # fotografar um motor que não é o de agora — um binário de outro commit,
+  # construído num worktree, é como se faz um ANTES/DEPOIS em que a única coisa
+  # que muda é o motor (o programa `.ts` e a página em disco são os mesmos).
+  [string]$Exe = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $raiz = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$exe  = Join-Path $raiz 'target/release/examples/ui_fixture.exe'
+$exe  = if ($Exe) { $Exe } else { Join-Path $raiz 'target/release/examples/ui_fixture.exe' }
 
 if (-not (Test-Path $exe)) {
   Write-Error "falta $exe — construa com: cargo build --release -p rts-host --features ui --example ui_fixture"

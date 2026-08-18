@@ -330,6 +330,13 @@ impl Edges {
     ///
     /// [`resolve_h`]: Edges::resolve_h
     pub fn resolve_h_intrinseco(&self, ctx: &ResolveCtx) -> f32 {
+        // `RTS_PCT_INTRINSECO=width` mede a variante CONSERVADORA: a regra vale
+        // para o `width` e o padding/margem em percentagem continuam a resolver
+        // como antes. É a alternativa que ficou escrita ao entregar a mudança, e
+        // só se decide entre as duas com o número de cada uma.
+        if modo_pct() == ModoPct::SoWidth {
+            return self.resolve_h(ctx);
+        }
         let um = |s: &Side| match s {
             Side::Len(d) => dimensao_absoluta(*d, ctx).unwrap_or(0.0),
             _ => 0.0,
@@ -775,6 +782,31 @@ pub struct ResolveCtx {
     pub viewport_h: f32,
 }
 
+/// `true` quando o interruptor de medição repõe o comportamento antigo. Lido
+/// uma vez: isto corre por caixa medida.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ModoPct {
+    /// A regra inteira: nem `width` nem padding/margem em percentagem contam.
+    Completa,
+    /// Só o `width`. O padding/margem em percentagem resolvem como antes.
+    SoWidth,
+    /// Nada: o comportamento anterior à mudança.
+    Desligada,
+}
+
+fn modo_pct() -> ModoPct {
+    static MODO: std::sync::OnceLock<ModoPct> = std::sync::OnceLock::new();
+    *MODO.get_or_init(|| match std::env::var("RTS_PCT_INTRINSECO").as_deref() {
+        Ok("1") => ModoPct::Desligada,
+        Ok("width") => ModoPct::SoWidth,
+        _ => ModoPct::Completa,
+    })
+}
+
+fn pct_intrinseco_ligado() -> bool {
+    modo_pct() == ModoPct::Desligada
+}
+
 /// Um comprimento que conta para uma medição INTRÍNSECA — ou seja, um que não
 /// depende de uma largura que ainda está por decidir.
 ///
@@ -787,6 +819,16 @@ pub struct ResolveCtx {
 /// 1280px de largura mínima, e um item flex a ocupar a linha inteira e a
 /// empurrar o irmão para a linha seguinte.
 pub fn dimensao_absoluta(d: Dimension, ctx: &ResolveCtx) -> Option<f32> {
+    // INTERRUPTOR DE MEDIÇÃO: `RTS_PCT_INTRINSECO=1` repõe o comportamento
+    // anterior (a percentagem resolvida contra a viewport). Existe para se poder
+    // medir esta regra ISOLADAMENTE sobre a página real, ligando e desligando na
+    // mesma árvore — sem ele a única forma de a atribuir seria comparar duas
+    // medições separadas por outras mudanças, que é como um número deixa de
+    // dizer o que se pensa que diz. É temporário e sai quando a medição estiver
+    // feita.
+    if pct_intrinseco_ligado() {
+        return d.resolve(ctx);
+    }
     match d {
         Dimension::Percent(_) => None,
         Dimension::Calc(c) if c.pct != 0.0 => None,

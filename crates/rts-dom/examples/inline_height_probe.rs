@@ -11,18 +11,11 @@
 //!
 //!   cargo run -q -p rts-dom --example inline_height_probe -- scripts/parity/pagina.combinada.html
 
+// O medidor é o `ApproxMeasurer` do crate, e não uma cópia local: era uma
+// cópia com `size * 1.3` que respondia 15% a mais em cada linha, e todas as
+// alturas medidas por este exemplo saíam infladas — o instrumento a mentir
+// sobre o motor.
 use rts_dom::layout::{self, DisplayItem};
-
-struct Medidor;
-
-impl layout::TextMeasurer for Medidor {
-    fn text_width(&self, text: &str, size: f32, _mono: bool, _bold: bool) -> f32 {
-        text.chars().count() as f32 * size * 0.5
-    }
-    fn line_height(&self, size: f32) -> f32 {
-        size * 1.3
-    }
-}
 
 
 /// Percorre a árvore como o extrator de paridade, emitindo `caminho	rect`.
@@ -39,11 +32,22 @@ fn dump_caminhos(
     out: &mut String,
 ) {
     use rts_dom::NodeKind;
+    // A FONTE computada vai no despejo ao lado da caixa: sem ela, uma diferença
+    // de altura não se distingue de uma diferença de tamanho de letra.
+    let fonte = dom
+        .computed_style_idx(idx)
+        .and_then(|c| match c.font_size {
+            Some(rts_dom::style::Dimension::Px(v)) => Some(v),
+            _ => None,
+        })
+        .unwrap_or(-1.0);
     if let Some(r) = geo.rects.get(&idx) {
-        out.push_str(&format!("{caminho}	{:.2}	{:.2}	{:.2}	{:.2}
-", r.x, r.y, r.w, r.h));
+        out.push_str(&format!(
+            "{caminho}	{:.2}	{:.2}	{:.2}	{:.2}	{fonte:.2}
+", r.x, r.y, r.w, r.h
+        ));
     } else {
-        out.push_str(&format!("{caminho}	-	-	-	-
+        out.push_str(&format!("{caminho}	-	-	-	-	{fonte:.2}
 "));
     }
     let mut contas: std::collections::BTreeMap<String, usize> = Default::default();
@@ -59,8 +63,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let html = std::fs::read_to_string(&args[1]).expect("html");
     let dom = rts_dom::parse_html_to_dom(&html);
-    let medidor = Medidor;
-    let ctx = layout::LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &medidor };
+    let ctx = layout::LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &layout::ApproxMeasurer };
     let list = layout::layout_document(&dom, &ctx);
     println!("altura do documento: {:.0}", list.content_height);
 
