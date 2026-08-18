@@ -292,6 +292,84 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     runs
 }
 
+/// Confere, numa página REAL, que o layout com reuso de fragmentos é o mesmo
+/// que o layout calculado do zero — depois de uma sequência de mutações que
+/// exercita os caminhos de invalidação.
+///
+/// Devolve quantos itens foram conferidos, ou a primeira divergência. A
+/// tolerância é a mesma do teste unitário e pela mesma razão: reusar deslocando
+/// é somar, e somar não dá bit a bit o mesmo que calcular do zero.
+pub fn verificar_equivalencia(
+    html: &str,
+    vw: f32,
+    vh: f32,
+    m: &CountingMeasurer,
+) -> Result<usize, String> {
+    const TOL: f32 = 0.05;
+    let mut dom = parse_html_to_dom(html);
+    let alvo = deepest_element(&dom);
+    let mut conferidos = 0usize;
+    for passo in 0..4 {
+        match passo {
+            1 => {
+                if let Some(t) = alvo {
+                    dom.set_text(t, "texto trocado pelo verificador");
+                }
+            }
+            2 => {
+                if let Some(t) = alvo {
+                    dom.set_attr(t, "class", "verificador-classe");
+                }
+            }
+            3 => {
+                if let Some(t) = alvo {
+                    dom.remove_node(t);
+                }
+            }
+            _ => {}
+        }
+        let reusado = rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh));
+        dom.clear_fragment_cache();
+        let zero = rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh));
+        if reusado.items.len() != zero.items.len() {
+            return Err(format!(
+                "passo {passo}: {} itens com reuso, {} sem",
+                reusado.items.len(),
+                zero.items.len()
+            ));
+        }
+        for (i, (a, b)) in reusado.items.iter().zip(&zero.items).enumerate() {
+            if !item_equivalente(a, b, TOL) {
+                return Err(format!("passo {passo}, item {i}:
+      reuso: {a:?}
+      zero:  {b:?}"));
+            }
+            conferidos += 1;
+        }
+    }
+    Ok(conferidos)
+}
+
+/// Igualdade de item com tolerância só na GEOMETRIA — texto, cor e tipo têm de
+/// bater exatamente.
+fn item_equivalente(a: &rts_dom::layout::DisplayItem, b: &rts_dom::layout::DisplayItem, tol: f32) -> bool {
+    use rts_dom::layout::DisplayItem as D;
+    match (a, b) {
+        (D::Text { x: xa, y: ya, text: ta, color: ca, .. }, D::Text { x: xb, y: yb, text: tb, color: cb, .. }) => {
+            (xa - xb).abs() < tol && (ya - yb).abs() < tol && ta == tb && ca == cb
+        }
+        (D::SolidRect { rect: ra, color: ca, .. }, D::SolidRect { rect: rb, color: cb, .. })
+        | (D::Border { rect: ra, color: ca, .. }, D::Border { rect: rb, color: cb, .. }) => {
+            (ra.x - rb.x).abs() < tol
+                && (ra.y - rb.y).abs() < tol
+                && (ra.w - rb.w).abs() < tol
+                && (ra.h - rb.h).abs() < tol
+                && ca == cb
+        }
+        _ => a == b,
+    }
+}
+
 /// CONSTRUÇÃO programática — `createElement` + `appendChild` × N, o caminho de
 /// qualquer script que monta uma lista. Independe de arquivo: é sobre a
 /// estrutura, não sobre uma página.
