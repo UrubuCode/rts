@@ -24,6 +24,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("horizontalBegin", horizontal_begin),
     ("horizontalEnd", horizontal_end),
     ("html", html),
+    ("render", render),
     ("drawImage", draw_image),
 ];
 
@@ -176,13 +177,18 @@ extern "C" fn horizontal_end(_e: u64, _t: u64, win: u64, _a: u64, _b: u64, _c: u
     value::nothing()
 }
 
-/// `html(win, source)` — parseia e desenha, com a árvore retida na janela.
+/// `render(win, doc)` — desenha um DOCUMENTO do `rts:dom` (por handle).
 ///
-/// O caminho por handle de DOM (`render(win, dom)`) NÃO está aqui: ele lê o
-/// store do `rts-dom`, que é alcançado pelo namespace `rts:dom` — e esse ainda
-/// não existe no motor novo. Registrá-lo agora daria uma função que sempre
-/// desenha nada, que é o modo de falhar que `rts-std` já recusou uma vez ao
-/// não registrar um `rts:egui` de fachada.
+/// A diferença para o `html(win, fonte)` é de quem é a árvore: aquele parseia a
+/// string e guarda a árvore DENTRO da janela; este pinta uma árvore que o
+/// programa criou e mutou pelo `rts:dom`. As duas terminam no mesmo lugar — o
+/// layout do `rts-dom` e a display list que o backend pinta.
+extern "C" fn render(_e: u64, _t: u64, win: u64, doc: u64, _b: u64, _c: u64) -> u64 {
+    rts_egui::render(handle(win), handle(doc));
+    value::nothing()
+}
+
+/// `html(win, source)` — parseia e desenha, com a árvore retida na janela.
 extern "C" fn html(_e: u64, _t: u64, win: u64, source: u64, _b: u64, _c: u64) -> u64 {
     rts_egui::html(handle(win), &text(source));
     value::nothing()

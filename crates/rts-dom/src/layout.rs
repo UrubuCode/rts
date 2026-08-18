@@ -83,6 +83,15 @@ pub enum DisplayItem {
     /// `rect` (escalando). Decodificação/download acontecem ANTES (no browser .ts,
     /// via fetchBytes+imgdec); o rts-dom só carrega o handle+dims — segue wasm-safe.
     Image { rect: Rect, pixels_handle: u64, pixels_off: u32, img_w: u32, img_h: u32 },
+    /// PIXELS que o próprio documento carrega (um `<canvas>` que o programa
+    /// pintou), RGBA8, `w*h*4` bytes.
+    ///
+    /// Variante separada da `Image` porque a fonte é outra: aquela aponta para
+    /// um `Buffer` de fora por handle — o `<img>` que o mini-browser baixou e
+    /// decodificou — e esta CARREGA os bytes, porque quem pintou foi o programa
+    /// e o desenho não tem outro dono. Um `Rc` para que passar a lista adiante
+    /// não copie a imagem.
+    Pixels { rect: Rect, data: std::rc::Rc<Vec<u8>>, w: u32, h: u32 },
     /// Texto numa posição (canto superior-esquerdo). `mono` escolhe a família
     /// monoespaçada. `letter_spacing` = espaço extra entre glifos (px). `decoration`
     /// = linha decorativa (0=nenhuma, 1=underline, 2=line-through, 3=overline). O
@@ -873,6 +882,15 @@ fn layout_block(
             }
             // `<img>` com pixels decodificados: emite a imagem no rect (tamanho do CSS
             // width/height, senão o natural da imagem). Void — sem filhos.
+            // `<canvas>`: elemento REPLACED cujo conteúdo é uma superfície de
+            // pixels. A caixa vem dos atributos `width`/`height` (ou do CSS), e
+            // o desenho aparece quando o programa pinta — antes disso a caixa
+            // existe e fica vazia, que é o que o browser também faz.
+            if tag == "canvas" {
+                if let Some(r) = layout_canvas(dom, id, &css, x, y, avail_w, ctx, list) {
+                    return r;
+                }
+            }
             if tag == "img" {
                 if let Some(img) = layout_image(dom, id, &css, x, y, avail_w, ctx, list) {
                     return img;
@@ -1691,6 +1709,7 @@ fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) {
         | DisplayItem::GradientRect { rect, .. }
         | DisplayItem::Border { rect, .. }
         | DisplayItem::Image { rect, .. }
+        | DisplayItem::Pixels { rect, .. }
         | DisplayItem::BeginClip { rect, .. } => shift(rect),
         DisplayItem::Text { x, y, .. } => {
             *x += dx;
@@ -1730,7 +1749,8 @@ fn apply_transform_to_item(
         | DisplayItem::Border { rect, .. }
         | DisplayItem::GradientRect { rect, .. }
         | DisplayItem::Shadow { rect, .. }
-        | DisplayItem::Image { rect, .. } => {
+        | DisplayItem::Image { rect, .. }
+        | DisplayItem::Pixels { rect, .. } => {
             let (nx, ny) = xf(rect.x, rect.y);
             rect.x = nx;
             rect.y = ny;
@@ -1903,6 +1923,13 @@ fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             // intrínseco) → precisa de layout_block p/ emitir o DisplayItem::Image,
             // mesmo sem CSS de caixa.
             if tag == "img" && dom.image_of(id).is_some() {
+                return true;
+            }
+            // `<canvas>` é REPLACED como o `<img>`: a caixa vem dos atributos
+            // `width`/`height` e o conteúdo são pixels. Sem esta linha ele cai no
+            // fluxo inline, onde não há quem emita a superfície — e um canvas
+            // pintado não aparecia na tela, com o resto da página intacto.
+            if tag == "canvas" {
                 return true;
             }
             // `<svg>` é replaced: layout_svg_placeholder reserva a caixa (logo/
@@ -2119,6 +2146,57 @@ fn layout_image(
         img_w: iw,
         img_h: ih,
     });
+    Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
+}
+
+/// Layout de um `<canvas>`: a caixa dos atributos `width`/`height` (o padrão do
+/// HTML é 300×150) ou do CSS, e o `DisplayItem::Pixels` quando há desenho.
+///
+/// Sem pixels a caixa é reservada e nada é pintado — um canvas em branco é um
+/// canvas em branco, não um buraco no layout. É essa reserva que faz o resto da
+/// página se dispor no lugar certo antes de o programa desenhar.
+fn layout_canvas(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> Option<(f32, f32)> {
+    let font = font_px(css, DEFAULT_FONT_SIZE);
+    let resolve = ResolveCtx {
+        parent_content_w: avail_w,
+        node_font_size: font,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let attr_px = |name: &str| -> Option<f32> {
+        dom.node(id)
+            .attr(name)
+            .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f32>().ok())
+            .filter(|v| *v >= 0.0)
+    };
+    // 300×150 é o default do HTML para um canvas sem dimensões.
+    let w = css.width.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("width")).unwrap_or(300.0);
+    let h = css.height.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("height")).unwrap_or(150.0);
+    let m = &css.margin;
+    let margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
+    let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
+    let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
+    let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
+    let rect = Rect::new(x + margin_left, y + margin_top, w, h);
+    record_node_rect(list, id, rect);
+    if let Some(color) = css.bg {
+        list.items.push(DisplayItem::SolidRect { rect, color, radius: 0.0 });
+    }
+    if let Some((data, pw, ph)) = dom.pixel_data_of(id) {
+        if pw > 0 && ph > 0 {
+            list.items.push(DisplayItem::Pixels { rect, data, w: pw, h: ph });
+        }
+    }
     Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
 }
 
@@ -2498,7 +2576,9 @@ fn layout_children_vertical(
             .unwrap_or(crate::style::FloatSide::None);
         let (child_block, child_inline_block) = match &dom.node(child).kind {
             NodeKind::Element { tag } => {
-                let replaced = (tag == "img" && dom.image_of(child).is_some()) || tag == "svg";
+                let replaced = (tag == "img" && dom.image_of(child).is_some())
+                    || tag == "svg"
+                    || tag == "canvas";
                 let effective = child_css.as_ref().and_then(|c| c.effective_display());
                 let explicit_block = effective
                     .map(|d| d != crate::style::DisplayKind::Inline)

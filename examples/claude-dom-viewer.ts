@@ -13,7 +13,7 @@
 
 import {
   openWindow, pump, isOpen, close, beginFrame, endFrame,
-  html, drawText, winWidth, winHeight,
+  html, drawText, winWidth, winHeight, snapshot,
 } from "rts:egui";
 import { readFileSync } from "node:fs";
 
@@ -36,6 +36,13 @@ if (win <= 0) {
     drawText(win, "rts-dom · " + winWidth(win) + "x" + winHeight(win) + " · frame " + frames, 0);
     endFrame(win);
     frames = frames + 1;
+    // Um PNG do que a janela está mostrando, para poder ser olhado fora dela.
+    // No frame 30 (não no 1) porque o egui leva alguns frames para assentar
+    // fontes e tamanho de janela.
+    if (frames === 30) {
+      snapshot(win, "target/render-dom.png");
+      console.log("snapshot salvo em target/render-dom.png");
+    }
   }
   close(win);
   console.log("fechou depois de", frames, "frames");

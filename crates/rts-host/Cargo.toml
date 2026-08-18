@@ -41,6 +41,10 @@ rts-physics = { path = "../rts-physics", optional = true }
 # DISPONIBILIDADE — não existe em wasm nem num build headless — e um alvo sem
 # ela não deve carregar wgpu/winit no grafo para descobrir isso.
 rts-ui = { path = "../rts-ui", optional = true }
+# O `rts:dom` — a árvore de documento alcançável do TypeScript. NÃO é opcional
+# como a UI: um DOM headless não precisa de tela, e é justamente sem tela que
+# ele se distingue de um Node com jsdom.
+rts-dom-bridge = { path = "../rts-dom-bridge" }
 
 [features]
 # `ui` E PADRAO. A razao de ela ter ficado de fora morreu com o crate que a

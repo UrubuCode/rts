@@ -567,6 +567,31 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                     );
                 }
             }
+            DisplayItem::Pixels { rect, data, w, h } => {
+                // Os bytes vêm DENTRO da lista (um `<canvas>` que o programa
+                // pintou), então não há handle a resolver — sobe direto como
+                // textura efêmera. O nome da textura inclui o índice do item
+                // para que dois canvas no mesmo frame não disputem a mesma.
+                let ci = egui::ColorImage::from_rgba_unmultiplied(
+                    [*w as usize, *h as usize],
+                    data,
+                );
+                let tex = painter.ctx().load_texture(
+                    format!("__rts_canvas_{idx}"),
+                    ci,
+                    egui::TextureOptions::LINEAR,
+                );
+                let r = egui::Rect::from_min_size(
+                    origin + egui::vec2(rect.x, rect.y),
+                    egui::vec2(rect.w, rect.h),
+                );
+                painter.image(
+                    tex.id(),
+                    r,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+            }
             DisplayItem::BeginClip { rect, offset_x, offset_y, .. } => {
                 // o RECT do container é FIXO (não rola) — posiciona com `origin` (que
                 // já inclui o extra do pai, mas não o desta região). Os FILHOS dentro

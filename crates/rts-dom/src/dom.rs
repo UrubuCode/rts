@@ -328,6 +328,9 @@ pub struct Dom {
     /// Buffer, offset dos pixels, w, h)`. Setado pelo browser via `setImage` depois
     /// de baixar+decodificar; o layout emite `DisplayItem::Image`. DERIVADO, fora do Eq.
     image_pixels: HashMap<NodeIdx, (u64, u32, u32, u32)>,
+    /// Pixels que o PRÓPRIO documento guarda (o `<canvas>` que um programa
+    /// pintou). Distinto do `image_pixels`, que aponta para um buffer de fora.
+    own_pixels: HashMap<NodeIdx, (std::rc::Rc<Vec<u8>>, u32, u32)>,
     /// A posição de cada nó em ORDEM DOCUMENTAL (pré-ordem), numerada sob
     /// demanda e reusada enquanto a árvore não muda. É o que permite responder
     /// uma consulta a partir dos ÍNDICES `#id`/`.classe` — que dão os candidatos
@@ -422,6 +425,7 @@ impl Dom {
             memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),
             input_values: HashMap::new(),
             image_pixels: HashMap::new(),
+            own_pixels: HashMap::new(),
             focused_input: None,
             inline_position: std::cell::Cell::new(false),
             display_cache: std::cell::RefCell::new(None),
@@ -484,6 +488,30 @@ impl Dom {
 
     /// Associa a um `<img>` os pixels RGBA já decodificados (handle do Buffer +
     /// offset + w + h). O browser chama após baixar+decodificar. Bumpa a revisão.
+    /// Os PIXELS de um nó, guardados no PRÓPRIO documento.
+    ///
+    /// Existe ao lado do [`set_image`](Dom::set_image) — que aponta para um
+    /// buffer de FORA por handle — porque um `<canvas>` desenhado pelo programa
+    /// não tem dono externo: quem pintou foi o próprio programa, e o desenho
+    /// precisa sobreviver à chamada que o produziu. É a mesma razão de o texto
+    /// de um nó ser copiado para dentro da árvore em vez de referenciado.
+    ///
+    /// RGBA8, `w * h * 4` bytes. Um buffer CURTO é recusado: lido como imagem,
+    /// ele é uma leitura fora dos limites dentro do backend.
+    pub fn set_pixel_data(&mut self, id: NodeId, bytes: Vec<u8>, w: u32, h: u32) {
+        let Some(idx) = self.resolve(id) else { return };
+        if bytes.len() < (w as usize) * (h as usize) * 4 {
+            return;
+        }
+        self.own_pixels.insert(idx, (std::rc::Rc::new(bytes), w, h));
+        self.touch_render_only(idx);
+    }
+
+    /// Os pixels próprios de um nó, se ele tem.
+    pub fn pixel_data_of(&self, idx: NodeIdx) -> Option<(std::rc::Rc<Vec<u8>>, u32, u32)> {
+        self.own_pixels.get(&idx).map(|(b, w, h)| (std::rc::Rc::clone(b), *w, *h))
+    }
+
     pub fn set_image(&mut self, id: NodeId, handle: u64, off: u32, w: u32, h: u32) {
         if let Some(idx) = self.resolve(id) {
             self.image_pixels.insert(idx, (handle, off, w, h));
@@ -1056,6 +1084,29 @@ impl Dom {
     /// O stylesheet de autor acumulado (regras dos `<style>`). Exposto p/ inspeção/teste.
     pub fn stylesheet(&self) -> &crate::style::Stylesheet {
         &self.stylesheet
+    }
+
+    /// `getBoundingClientRect(el)[componente]` — 0=x, 1=y, 2=largura, 3=altura.
+    ///
+    /// Faz o layout com o medidor APROXIMADO: sem janela não há fonte real, e
+    /// devolver zero seria pior do que a aproximação que o layout headless já
+    /// usa em todo o resto. Quem tem janela lê a geometria exata da
+    /// `DisplayList` do backend.
+    pub fn bounding_component(&self, id: NodeId, which: i64) -> f32 {
+        let Some(idx) = self.resolve(id) else { return 0.0 };
+        let (vw, vh) = self.viewport.get();
+        let ctx = crate::layout::LayoutCtx {
+            viewport_w: vw,
+            viewport_h: vh,
+            measurer: &crate::layout::ApproxMeasurer,
+        };
+        let Some(rect) = crate::layout::bounding_rect(self, idx, &ctx) else { return 0.0 };
+        match which {
+            0 => rect.x,
+            1 => rect.y,
+            2 => rect.w,
+            _ => rect.h,
+        }
     }
 
     /// A geração desta árvore (para o render/ABI compor `NodeId` versionados).

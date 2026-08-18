@@ -3,6 +3,7 @@ members = [
     ".",
     "crates/rts-linker",
     "crates/rts-dom",
+    "crates/rts-dom-bridge",
     "crates/rts-input",
     "crates/rts-render",
     "crates/rts-egui",
