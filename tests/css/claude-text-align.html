@@ -2,7 +2,10 @@
 <!-- Fixa: `text-align` alinha o CONTEÚDO EM LINHA dentro da caixa (e herda),
      não a caixa dentro do pai — um bloco filho não se move com ele. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="esquerda,centro,direita,herdado-pai">
+<meta name="fixar-estilo" content="text-align">
+<style>
   body { margin: 0; font: 16px/20px monospace; }
   div.caixa { width: 400px; height: 40px; background: #eee; margin-bottom: 5px; }
   #esquerda { text-align: left; }

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Fixa o `clear` sozinho, com um float de cada lado, para o desvio dizer QUAL
+     dos três valores falha: `left` só desce abaixo do float esquerdo, `right`
+     só do direito, `both` de qualquer um. Um motor que trate os três como
+     `both` passa dois destes e falha o resto. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="fesq,fdir,limpa-esquerda,limpa-direita,limpa-ambos,nao-limpa">
+<meta name="fixar-estilo" content="clear,float">
+<style>
+  body { margin: 0; }
+  #fesq { float: left; width: 100px; height: 80px; background: #fcc; }
+  #fdir { float: right; width: 100px; height: 40px; background: #cfc; }
+  #nao-limpa { clear: none; height: 15px; background: #ddd; }
+  #limpa-direita { clear: right; height: 15px; background: #ccf; }
+  #limpa-esquerda { clear: left; height: 15px; background: #ffc; }
+  #limpa-ambos { clear: both; height: 15px; background: #cff; }
+</style></head>
+<body>
+  <div id="fesq"></div><div id="fdir"></div>
+  <div id="nao-limpa"></div>
+  <div id="limpa-direita"></div>
+  <div id="limpa-esquerda"></div>
+  <div id="limpa-ambos"></div>
+</body>
+</html>

@@ -3,7 +3,10 @@
      caracteres somam n espaçamentos, não n-1, e isso mede-se na largura de um
      `inline-block` que encolhe ao conteúdo. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="zero,dois,dez,negativo">
+<meta name="fixar-estilo" content="letter-spacing">
+<style>
   body { margin: 0; font: 16px/20px monospace; }
   span { display: inline-block; background: #eee; }
   #zero { letter-spacing: 0; }

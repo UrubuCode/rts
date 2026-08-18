@@ -2783,15 +2783,7 @@ impl Dom {
             P::LastChild => self.element_siblings(idx).last() == Some(&idx),
             P::OnlyChild => self.element_siblings(idx).len() == 1,
             P::NthChild(a, b) => match self.element_index_among_siblings(idx) {
-                Some(zero_based) => {
-                    let n = zero_based as i32 + 1; // 1-based
-                    if *a == 0 {
-                        n == *b
-                    } else {
-                        let k = (n - b) / a;
-                        k >= 0 && a * k + b == n
-                    }
-                }
+                Some(zero_based) => nth_casa(*a, *b, zero_based as i32 + 1),
                 None => false,
             },
             // estado → presença de atributo (DOM headless, sem UI viva).
@@ -2815,7 +2807,24 @@ impl Dom {
             },
             // `:focus` NÃO propaga aos ancestrais (isso é `:focus-within`), por
             // isso a comparação é de igualdade e não `is_ancestor` como no hover.
-            P::Focus => self.focused_input == Some(idx),
+            // `:focus-visible` casa o mesmo que `:focus` — ver a variante.
+            P::Focus | P::FocusVisible => self.focused_input == Some(idx),
+            // `:focus-within` propaga para os ancestrais, como o `:hover`.
+            P::FocusWithin => match self.focused_input {
+                Some(f) => self.is_ancestor(idx, f),
+                None => false,
+            },
+            // A família `-of-type` conta só os irmãos da MESMA tag.
+            P::FirstOfType => self.type_siblings(idx).first() == Some(&idx),
+            P::LastOfType => self.type_siblings(idx).last() == Some(&idx),
+            P::OnlyOfType => self.type_siblings(idx).len() == 1,
+            P::NthOfType(a, b) => {
+                let irmaos = self.type_siblings(idx);
+                match irmaos.iter().position(|&s| s == idx) {
+                    Some(zero_based) => nth_casa(*a, *b, zero_based as i32 + 1),
+                    None => false,
+                }
+            }
             // Sem estado de botão premido nem histórico no DOM — ver os
             // comentários das variantes em `style::selector`.
             P::Active | P::Visited => false,
@@ -2856,6 +2865,20 @@ impl Dom {
         editavel_por_tag
             && self.nodes[idx].attr("readonly").is_none()
             && self.nodes[idx].attr("disabled").is_none()
+    }
+
+    /// Os irmãos-elemento com a MESMA tag de `idx` (incluindo ele), em ordem —
+    /// o universo que a família `-of-type` conta.
+    fn type_siblings(&self, idx: NodeIdx) -> Vec<NodeIdx> {
+        let NodeKind::Element { tag } = &self.nodes[idx].kind else { return Vec::new() };
+        let alvo = tag.as_str();
+        let Some(parent) = self.nodes[idx].parent else { return vec![idx] };
+        self.nodes[parent]
+            .children
+            .iter()
+            .copied()
+            .filter(|&c| matches!(&self.nodes[c].kind, NodeKind::Element { tag } if tag == alvo))
+            .collect()
     }
 
     /// O valor de `lang` do nó ou do ancestral mais próximo que o tenha.
@@ -3520,6 +3543,17 @@ pub(crate) type DisplayKey = (u64, u32, u32, u64);
 /// tudo, `.classe` descarta muito, a tag descarta o resto. `Any` (universal,
 /// `[attr]`, pseudo) não descarta nada e cai direto no matcher — é o caso em que
 /// o filtro não ajuda, e ele não pode ATRAPALHAR respondendo "não" por engano.
+/// `true` se a posição `n` (1-based) satisfaz `an+b` para algum `k >= 0` — a
+/// aritmética partilhada por `:nth-child` e `:nth-of-type`, que só diferem no
+/// conjunto de irmãos que numeram.
+fn nth_casa(a: i32, b: i32, n: i32) -> bool {
+    if a == 0 {
+        return n == b;
+    }
+    let k = (n - b) / a;
+    k >= 0 && a * k + b == n
+}
+
 enum TargetKey {
     Id(String),
     Class(String),

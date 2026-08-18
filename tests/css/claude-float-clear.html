@@ -3,7 +3,10 @@
      o elemento para baixo do float. E o pai só de floats colapsa para altura 0 —
      é o efeito que surpreende quem não conhece a regra. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="esq,dir,limpo">
+<meta name="fixar-estilo" content="float,clear">
+<style>
   body { margin: 0; }
   #pai-so-floats { background: #eee; }
   #esq { float: left; width: 100px; height: 60px; background: #fcc; }

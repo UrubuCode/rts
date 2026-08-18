@@ -2,7 +2,10 @@
 <!-- Fixa: `fixed` mede-se contra o VIEWPORT (1280x800 aqui), ignorando
      antepassados posicionados — a diferença que o distingue de `absolute`. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="ancora,preso,preso-baixo">
+<meta name="fixar-estilo" content="position">
+<style>
   html, body { margin: 0; }
   #ancora { position: relative; margin: 100px; width: 300px; height: 200px; background: #eee; }
   #preso { position: fixed; top: 0; right: 0; width: 120px; height: 40px; background: #fcc; }

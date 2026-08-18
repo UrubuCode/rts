@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa os combinadores de irmão: `+` casa só o irmão IMEDIATAMENTE seguinte,
+     `~` casa todos os seguintes. A diferença lê-se em quantos elementos ficam
+     vermelhos — um motor que trate `+` como `~` pinta um a mais. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="alvo,logo-a-seguir,mais-a-frente,ainda-mais,antes,filho-de-outro-pai">
+<meta name="fixar-estilo" content="color,background-color">
+<style>
+  body { margin: 0; color: #000000; }
+  .fonte + div { color: #ff0000; }
+  .fonte ~ div { background-color: #00ff00; }
+</style></head>
+<body>
+  <div id="antes">a</div>
+  <div id="alvo" class="fonte">a</div>
+  <div id="logo-a-seguir">a</div>
+  <div id="mais-a-frente">a</div>
+  <div id="ainda-mais">a</div>
+  <section><div id="filho-de-outro-pai">a</div></section>
+</body>
+</html>

@@ -417,7 +417,15 @@ impl Stylesheet {
                 sensivel |= matches!(
                     p,
                     S::Pseudo(
-                        P::FirstChild | P::LastChild | P::OnlyChild | P::Empty | P::NthChild(_, _)
+                        P::FirstChild
+                            | P::LastChild
+                            | P::OnlyChild
+                            | P::Empty
+                            | P::NthChild(_, _)
+                            | P::FirstOfType
+                            | P::LastOfType
+                            | P::OnlyOfType
+                            | P::NthOfType(_, _)
                     )
                 );
             });
@@ -761,7 +769,11 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         // `a, b, .c { }` → uma regra por seletor (lista separada por vírgula).
         let _emit = crate::metrics::phases::scope("css-rule-emit");
         let decls = std::rc::Rc::new(RuleDecls::from_block(decls));
-        for sel_str in selectors_raw.split(',') {
+        // A vírgula que separa a LISTA é a de topo. `split(',')` cru cortava
+        // dentro de `:is(.a, .b)` e de `[data-x="a,b"]`, produzindo dois pedaços
+        // que não parseiam — a regra desaparecia e a contagem de recusadas
+        // culpava o seletor, não o corte.
+        for sel_str in super::selector::split_top_level_commas(selectors_raw) {
             if let Some(selector) = ComplexSelector::parse(sel_str) {
                 rules.push(Rule {
                     selector,

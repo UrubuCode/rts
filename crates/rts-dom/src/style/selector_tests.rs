@@ -92,9 +92,24 @@ fn where_perde_a_cascade_para_uma_classe_simples() {
 #[test]
 fn is_toma_a_especificidade_do_argumento_mais_especifico() {
     // Spec: o peso de `:is()` é o do argumento MAIS específico, mesmo que seja
-    // outro que case. Um `#id` dentro dele vale 100.
-    assert_eq!(peso(":is(#x, p)"), 100);
-    assert_eq!(peso(":not(#x, p)"), 100);
+    // outro que case. Um `#id` dentro dele pesa como um id.
+    assert_eq!(peso(":is(#x, p)"), peso("#x"));
+    assert_eq!(peso(":not(#x, p)"), peso("#x"));
+}
+
+#[test]
+fn componentes_da_especificidade_nao_se_convertem_uns_nos_outros() {
+    // A especificidade é uma TRIPLA (ids, classes, tags) e não um número: dez
+    // tags nunca valem uma classe, nem onze classes um id. Com a soma plana de
+    // 100/10/1 que aqui estava, os dois casos abaixo invertiam-se — e a regra
+    // vencedora aparecia longe da causa.
+    let dez_tags = "a b c d e f g h i j";
+    assert!(peso(dez_tags) < peso(".x"));
+    let onze_classes = ".a .b .c .d .e .f .g .h .i .j .k";
+    assert!(peso(onze_classes) < peso("#x"));
+    // e dentro de cada componente a contagem continua a mandar.
+    assert!(peso(".a .b") > peso(".a"));
+    assert!(peso("#a .b") > peso("#a"));
 }
 
 #[test]
@@ -174,6 +189,102 @@ fn especificidade_das_pseudo_de_estado_e_de_classe() {
     assert_eq!(peso("a:focus"), peso("a.x"));
     assert_eq!(peso("a:link"), peso("a.x"));
     assert_eq!(peso("p:lang(en)"), peso("p.x"));
+}
+
+/// A cor computada de `sel` na árvore de `html` — passa pela CASCADE, e portanto
+/// pelo `RuleIndex`, ao contrário de [`conta`], que passa pelo `TargetKey` do
+/// `querySelectorAll`. São dois caminhos distintos e um seletor pode estar certo
+/// num e ser ignorado no outro.
+fn cor(html: &str, sel: &str) -> Option<u32> {
+    let dom = parse_html_to_dom(html);
+    let n = dom.query(sel).expect("o nó do teste tem de existir");
+    dom.computed_style(n).unwrap().color
+}
+
+#[test]
+fn combinador_de_irmao_estiliza_pela_cascade() {
+    // `~` e `+` já casavam no `querySelectorAll`; o que este teste fixa é que a
+    // regra CHEGA ao nó pela cascade — isto é, que o índice indexa a regra pela
+    // chave do compound-ALVO (`.b`) e não pela do primeiro (`.a`). Indexá-la
+    // pelo primeiro faria o nó `.b` nunca a ver como candidata.
+    let html = "<style>.a ~ .b { color:#ff0000 } .a + .c { color:#00ff00 }</style>\
+                <p class='a'>a</p><p class='c'>c</p><p class='b'>b</p>";
+    assert_eq!(cor(html, ".b"), Some(0xFF0000FF));
+    assert_eq!(cor(html, ".c"), Some(0x00FF00FF));
+    // e o adjacente NÃO alcança o que está duas casas à frente.
+    let html2 = "<style>.a + .b { color:#ff0000 }</style>\
+                 <p class='a'>a</p><p>meio</p><p class='b'>b</p>";
+    assert_eq!(cor(html2, ".b"), None);
+}
+
+#[test]
+fn seletor_de_atributo_estiliza_pela_cascade() {
+    // Alvo SEM âncora de tag/classe/id: cai no bucket universal do índice, que é
+    // testado para todo nó. Se caísse noutro bucket, a regra desaparecia.
+    let html = "<style>[data-estado=\"aberto\"] { color:#ff0000 }</style>\
+                <div id='x' data-estado='aberto'>x</div>";
+    assert_eq!(cor(html, "#x"), Some(0xFF0000FF));
+    // com âncora de tag, o mesmo resultado por outro bucket.
+    let html2 = "<style>a[href^=\"https\"] { color:#00ff00 }</style>\
+                 <a id='y' href='https://x.org'>y</a>";
+    assert_eq!(cor(html2, "#y"), Some(0x00FF00FF));
+    // `~=` é palavra da lista, não substring: `rel='a b'` casa `b`, não `bc`.
+    // Em `<p>` e não em `<a>`: o link já traz cor da folha do agente, e um
+    // `Some(azul)` por defeito não distinguiria "casou" de "não casou".
+    let html3 = "<style>[rel~=\"b\"] { color:#0000ff }</style><p id='z' rel='a b'>z</p>";
+    assert_eq!(cor(html3, "#z"), Some(0x0000FFFF));
+    let html4 = "<style>[rel~=\"b\"] { color:#0000ff }</style><p id='z' rel='a bc'>z</p>";
+    assert_eq!(cor(html4, "#z"), None);
+    // `|=` é o igual-ou-prefixo-com-hífen do idioma.
+    let html5 = "<style>[lang|=\"en\"] { color:#0000ff }</style><p id='w' lang='en-US'>w</p>";
+    assert_eq!(cor(html5, "#w"), Some(0x0000FFFF));
+}
+
+#[test]
+fn funcional_no_alvo_cai_no_bucket_universal_e_continua_a_casar() {
+    // `:is()`/`:not()` no compound-alvo não dão âncora de tag/classe/id ao
+    // índice. A regra tem de ir para o bucket universal — se fosse ignorada,
+    // o teste unitário de `query_all` passava na mesma e só a página real caía.
+    let html = "<style>:is(.a, .b) { color:#ff0000 }</style><p id='x' class='b'>x</p>";
+    assert_eq!(cor(html, "#x"), Some(0xFF0000FF));
+    let html2 = "<style>p:not(.a) { color:#00ff00 }</style><p id='y'>y</p>";
+    assert_eq!(cor(html2, "#y"), Some(0x00FF00FF));
+}
+
+#[test]
+fn of_type_conta_so_os_irmaos_da_mesma_tag() {
+    let html = "<div><span>a</span><a>1</a><span>b</span><a>2</a></div>";
+    // entre irmãos de tags misturadas, `:first-child` não apanha o primeiro <a>.
+    assert_eq!(conta(html, "a:first-child"), 0);
+    assert_eq!(conta(html, "a:first-of-type"), 1);
+    assert_eq!(conta(html, "a:last-of-type"), 1);
+    assert_eq!(conta(html, "a:nth-of-type(2)"), 1);
+    // `:only-of-type` é o único da sua tag — mesmo com outros irmãos ao lado.
+    let html2 = "<div><span>x</span><a>só</a></div>";
+    assert_eq!(conta(html2, "a:only-of-type"), 1);
+    assert_eq!(conta(html2, "a:only-child"), 0);
+}
+
+#[test]
+fn identificador_nao_ascii_nao_parte_o_seletor() {
+    // A folha da Wikipédia traz `.page-Wikipédia_…`; cortar no acento descartava
+    // a regra inteira e o estilo sumia sem erro nenhum.
+    let html = "<div class='topo animangá'>x</div>";
+    assert_eq!(conta(html, ".animangá"), 1);
+    assert_eq!(conta(html, ".topo.animangá"), 1);
+    assert_eq!(conta(html, "#Página_principal"), 0);
+    assert!(parse_selector("body.page-Wikipédia_Página_principal h1").is_some());
+}
+
+#[test]
+fn focus_within_propaga_ao_ancestral_e_focus_nao() {
+    let mut dom = parse_html_to_dom("<div class='caixa'><input id='a'></div>");
+    let a = dom.query("#a").unwrap();
+    dom.focus_input(Some(dom.resolve(a).unwrap()));
+    assert_eq!(dom.query_all(".caixa:focus").len(), 0);
+    assert_eq!(dom.query_all(".caixa:focus-within").len(), 1);
+    // `:focus-visible` acompanha o `:focus` (não há distinção teclado/rato).
+    assert_eq!(dom.query_all("input:focus-visible").len(), 1);
 }
 
 #[test]

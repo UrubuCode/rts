@@ -3,7 +3,10 @@
      line-height, white-space) e quais não (background-color, border, padding,
      display) — e que `inherit` explícito força a segunda lista a herdar. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="avo,pai,neto,pede-fundo">
+<meta name="fixar-estilo" content="color,font-size,text-align,background-color">
+<style>
   body { margin: 0; }
   #avo { color: #ff0000; font-size: 24px; text-align: center;
          background-color: #00ff00; padding: 20px; }

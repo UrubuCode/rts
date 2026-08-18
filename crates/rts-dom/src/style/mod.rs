@@ -46,9 +46,9 @@ pub mod values;
 pub(crate) mod vars;
 
 #[cfg(test)]
-mod selector_tests;
+mod newprops_tests;
 #[cfg(test)]
-mod tmp_measure;
+mod selector_tests;
 #[cfg(test)]
 mod tests;
 

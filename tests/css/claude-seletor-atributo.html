@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Fixa os seletores de atributo: presença `[d]`, igualdade exata `[d=v]`,
+     prefixo `^=`, sufixo `$=`, subcadeia `*=` e a lista de palavras `~=`.
+     `[d=ab]` NÃO pode casar `abc`, que é o erro que um motor com `contains`
+     por baixo comete. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="presenca,exato,quase-exato,prefixo,sufixo,dentro,palavra,palavra-colada,sem-atributo">
+<meta name="fixar-estilo" content="color">
+<style>
+  body { margin: 0; color: #000000; }
+  [d] { color: #111111; }
+  [d="ab"] { color: #ff0000; }
+  [e^="pre"] { color: #00ff00; }
+  [f$="fim"] { color: #0000ff; }
+  [g*="meio"] { color: #ffff00; }
+  [h~="dois"] { color: #ff00ff; }
+</style></head>
+<body>
+  <div id="presenca" d="qualquer">a</div>
+  <div id="exato" d="ab">a</div>
+  <div id="quase-exato" d="abc">a</div>
+  <div id="prefixo" e="prefacio">a</div>
+  <div id="sufixo" f="do-fim">a</div>
+  <div id="dentro" g="tem-meio-aqui">a</div>
+  <div id="palavra" h="um dois tres">a</div>
+  <div id="palavra-colada" h="umdoistres">a</div>
+  <div id="sem-atributo">a</div>
+</body>
+</html>

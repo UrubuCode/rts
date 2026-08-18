@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa a diferença que é toda a razão de `:where` existir: `:is()` tem a
+     especificidade do argumento MAIS FORTE, `:where()` tem especificidade ZERO.
+     As duas regras vermelhas são iguais em tudo menos nisso, e a `div` verde
+     está escrita DEPOIS das duas — por isso o `:is` sobrevive-lhe (0,1,0 contra
+     0,0,1) e o `:where` não (0,0,0). Um motor que implemente `:where` como um
+     sinónimo de `:is` pinta os dois de vermelho.
+     A terceira linha fixa a outra metade: `:is(p, #nao-existe)` casou pelo `p`
+     mas conta pelo `#nao-existe` (1,0,0) e ganha a uma classe. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="pelo-is,pelo-where,is-conta-pelo-mais-forte">
+<meta name="fixar-estilo" content="color">
+<style>
+  body { margin: 0; }
+  :is(.marca-is) { color: #ff0000; }
+  :where(.marca-where) { color: #ff0000; }
+  div { color: #00ff00; }
+  :is(p, #nao-existe) { color: #ffff00; }
+  .forte-mas-so-classe { color: #00ffff; }
+</style></head>
+<body>
+  <div id="pelo-is" class="marca-is">a</div>
+  <div id="pelo-where" class="marca-where">a</div>
+  <p id="is-conta-pelo-mais-forte" class="forte-mas-so-classe">a</p>
+</body>
+</html>

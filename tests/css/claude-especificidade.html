@@ -2,7 +2,10 @@
 <!-- Fixa: a ordem da cascata — id > classe > tag, mais classes ganham a menos,
      e entre iguais ganha a ÚLTIMA escrita. Cada elemento isola um par. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="ident,uma-duas,ordem-igual,tag-mais-classe">
+<meta name="fixar-estilo" content="color">
+<style>
   body { margin: 0; }
   div { color: #000000; }
   .classe { color: #ff0000; }
@@ -16,7 +19,7 @@
 </style></head>
 <body>
   <div id="ident" class="classe">a</div>
-  <div class="uma duas">a</div>
+  <div class="uma duas" id="uma-duas">a</div>
   <div class="primeira segunda" id="ordem-igual">a</div>
   <div class="tag-e-classe so-classe-depois" id="tag-mais-classe">a</div>
 </body>

@@ -3,7 +3,10 @@
      quando não existe, e a variável HERDA — por isso um filho redefine para si
      e para a sua subárvore sem tocar no tio. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="usa-raiz,dentro-do-redefine,irmao-do-redefine,sem-variavel,fallback-encadeado">
+<meta name="fixar-estilo" content="color">
+<style>
   :root { --cor: #ff0000; --largura: 200px; }
   body { margin: 0; }
   #usa-raiz { color: var(--cor); width: var(--largura); height: 20px; }

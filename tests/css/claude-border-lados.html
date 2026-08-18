@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<!-- Fixa: `border-top/right/bottom/left` como longhands independentes — cada
+     lado com a sua largura, e um lado sem `style` a não ocupar nada. É o que
+     distingue quatro somas separadas de uma só multiplicada por quatro. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="so-topo,so-direita,quatro-diferentes,um-lado-sem-estilo">
+<meta name="fixar-estilo" content="box-sizing">
+<style>
+  body { margin: 0; }
+  div { width: 200px; height: 20px; margin-bottom: 8px; background: #eee; }
+  #so-topo { border-top: 10px solid #000; }
+  #so-direita { border-right: 15px solid #000; }
+  #so-baixo { border-bottom: 5px solid #000; }
+  #so-esquerda { border-left: 25px solid #000; }
+  #quatro-diferentes { border-top: 1px solid #000; border-right: 2px solid #000;
+                       border-bottom: 3px solid #000; border-left: 4px solid #000; }
+  #um-lado-sem-estilo { border-top: 10px solid #000; border-right-width: 30px; }
+  #curta-e-depois-um-lado { border: 6px solid #000; border-left: 20px solid #000; }
+  #um-lado-e-depois-curta { border-left: 20px solid #000; border: 6px solid #000; }
+</style></head>
+<body>
+  <div id="so-topo"></div>
+  <div id="so-direita"></div>
+  <div id="so-baixo"></div>
+  <div id="so-esquerda"></div>
+  <div id="quatro-diferentes"></div>
+  <div id="um-lado-sem-estilo"></div>
+  <div id="curta-e-depois-um-lado"></div>
+  <div id="um-lado-e-depois-curta"></div>
+</body>
+</html>

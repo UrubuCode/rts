@@ -1,7 +1,8 @@
 # O CSS que este motor tem, e o que lhe falta
 
-Auditoria do motor de estilo do `rts-dom` contra o que a MDN documenta como CSS
-suportado nos browsers. Diz três coisas, por esta ordem: **o que existe** (e se
+Auditoria do motor de estilo do `rts-dom` contra o CSS que um browser real
+implementa — medido contra a lista canónica do Blink (§1.8) e verificado contra
+a MDN por área (§2). Diz três coisas, por esta ordem: **o que existe** (e se
 existe a sério ou só no parser), **o que falta** por área, e **por que ordem
 vale a pena preencher** — com a ordem saída de uma medição sobre folhas reais,
 não de gosto.
@@ -13,15 +14,28 @@ sobre a arquitetura do crate; a única pergunta aqui é *cobertura*.
 
 ## Proveniência dos números
 
-**Tudo o que segue foi medido em 2026-08-18, ~17:20, sobre a árvore de trabalho
-no commit `58897bbe` da branch `fix/net-tls-download`, com modificações não
-commitadas em `crates/rts-dom/src/style/`.**
+**Tudo o que segue foi medido em 2026-08-18, na branch `fix/net-tls-download`,
+sobre a árvore de trabalho — não sobre um commit limpo. As duas primeiras
+medições foram tiradas com o `HEAD` em `58897bbe` mais alterações por commitar
+em `crates/rts-dom/src/style/`; a terceira com o `HEAD` já em `0bcbb0ef`
+("feat(dom): grid por áreas nomeadas, e o primeiro corte do trabalho paralelo em
+CSS"), outra vez com alterações por commitar em `style/` e em `layout.rs`.**
 
-Isto tem de ser lido com o aviso: **três agentes estavam a editar
-`crates/rts-dom/src/style/` no momento da medição** (propriedades, seletores e
-`grid-template-areas`). O inventário abaixo é um *instantâneo* e envelhece
-depressa na direção do "temos mais do que isto". A forma de o refazer não
-envelhece:
+**Foi medido TRÊS VEZES em seis minutos e deu diferente das três — e é por isso
+que a hora está aqui.** Dois a três agentes estavam a implementar propriedades
+(shorthand `background`, `border-*` por lado, `vertical-align`, `clear`, listas)
+e seletores (`~`, `+`, `[attr]`, `:is`/`:where`) **enquanto isto era levantado**:
+
+| medição | `HEAD` | nomes reconhecidos pelo parser | de 125 propriedades padrão usadas | ocorrências cobertas |
+|---|---|---:|---:|---|
+| 17:21 | `58897bbe`+wt | 83 | 65 | 1 264 / 1 624 (77%) |
+| 17:24 | `58897bbe`+wt | 111 | 85 | 1 454 / 1 624 (89%) |
+| 17:27 | `0bcbb0ef`+wt | 111 | 85 | 1 454 / 1 624 (89%) |
+
+O documento está escrito contra a **primeira**; a §1.7 diz o que as seguintes
+mudaram, quais áreas estão **em obra**, e o que nenhuma delas prova ainda. Um
+instantâneo destes envelhece na direção do "temos mais do que isto"; a forma de
+o refazer não envelhece:
 
 ```bash
 python scripts/css_coverage.py pagina.css
@@ -189,9 +203,128 @@ Em `pagina.css`: **77 blocos `@media`** (55 `screen`, 27 `max-width`, 22
 `min-width`, 9 `prefers-color-scheme`, 6 `print`, 1 `prefers-reduced-motion`) e
 **76 blocos `@supports`**.
 
+### 1.7 ÁREAS EM OBRA — o que aterrou DURANTE esta auditoria
+
+**Estas áreas estavam a ser implementadas em 2026-08-18, entre as 17:21 e as
+17:27, por agentes a trabalhar em paralelo com esta auditoria**: shorthand
+`background` e `background-size`/`-position`/`-repeat`; `border-*` por lado;
+`vertical-align`; `clear`; listas (`list-style*`); e, do lado dos seletores,
+`~`, `+`, `[attr]`, `:is`/`:where`. Se algo neste documento parecer errado por
+defeito, começa por aqui — é o sítio onde ele foi escrito a apontar para um
+alvo em movimento.
+
+
+Entre as duas medições, o parser passou a reconhecer mais 28 nomes:
+
+```
+background-position background-repeat background-size border-bottom border-left
+border-right border-top clear cursor direction flex-flow list-style
+list-style-image list-style-type margin-block-end margin-block-start
+margin-inline-end margin-inline-start outline outline-color outline-offset
+outline-style outline-width overflow-wrap text-indent vertical-align word-break
+word-wrap
+```
+
+Isto retira do buraco os itens 1, 2 e boa parte do 4 da ordem recomendada da §3
+— **desde que sejam consumidos**. Foi verificado por contagem de referências em
+`layout.rs`, no mesmo instante, e o resultado é misto:
+
+| aterrou | referências em `layout.rs` (17:24 → 17:27) |
+|---|---|
+| `clear` (7), `cursor` (7), `direction` (8) | **sim — consumido** |
+| `vertical_align`, `text_indent`, `outline_width` | 0 → **1**: a ser ligado neste momento |
+| `border_widths` (e `border_colors`/`border_styles`, que ainda nem existem em `props.rs`) | **0 → 0** — a família por lado parseia e não pinta |
+| `bg_size`, `bg_position`, `bg_repeat`, `list_style_type`, `word_break`, `overflow_wrap` | **0 → 0** |
+
+**Não é um veredicto, é um instantâneo de trabalho em curso**: os agentes podem
+estar a ligar o layout a seguir, e a contagem de amanhã dirá outra coisa. O que
+o registo serve é a distinção que esta auditoria existe para fazer — um nome no
+`parse.rs` não é uma propriedade suportada, e a §1.3 (`font-style`) mostra que
+esse estado intermédio consegue ficar parado durante muito tempo se ninguém o
+medir.
+
+---
+
+## 1.8 A régua canónica: a lista de propriedades do Blink
+
+A pergunta "quais são *todas* as propriedades do CSS" não se responde bem a
+partir da MDN, que é prosa por página. Responde-se a partir da lista que um
+browser real usa para gerar o seu próprio código:
+`third_party/blink/renderer/core/css/css_properties.json5`.
+
+**Como isto foi usado, e os limites que não são negociáveis:** a árvore do
+Chromium é **local**, externa a este repositório, e nada dela entra aqui — nem
+código, nem tabelas copiadas. O que atravessa são **nomes de propriedades CSS**,
+que são a norma pública do W3C e não código de ninguém, e contagens feitas por
+nós. O script `scripts/css_blink_gap.py` recebe o caminho por argumento ou pela
+variável `BLINK_CSS_JSON5` e **falha com uma mensagem clara quando o ficheiro
+não existe**: nenhum caminho daquela árvore é dependência de nada que este
+repositório precise de correr.
+
+**Medição de 2026-08-18 17:41**, sobre o `css_properties.json5` local
+(360 854 bytes):
+
+| | |
+|---|---:|
+| objetos no bloco `data:` | **797** |
+| … que são propriedades (não descritores de at-rule) | 764 |
+| … sem `alias_for` (nomes distintos, não sinónimos) | 645 |
+| … sem `runtime_flag` (não experimentais) | 556 |
+| … e não prefixadas (`-webkit-*` fora) | **484** |
+| **destas, o nosso parser reconhece** | **110 (22%)** |
+
+E o contraste que dá sentido aos 22%:
+
+| | |
+|---|---:|
+| propriedades do Blink que `pagina.css` usa | **122 de 484** |
+| … que o nosso parser reconhece | **84 (69%)** |
+| … em falta | 38 |
+
+**Ler as duas tabelas juntas é o ponto.** Temos 22% do CSS que um browser
+implementa e 69% do CSS que uma página real escreve — e 89% das *ocorrências*
+(§3). A distância entre 22% e 69% é a cauda: `offset-path`, `scroll-timeline`,
+`ruby-align`, `math-depth` e mais umas centenas que existem e quase nunca são
+escritas. **Perseguir os 22% seria trabalho medido pela régua errada**; o
+denominador que decide prioridades é o das 122, não o das 484.
+
+**Uma divergência a registar em vez de esconder:** o número que me foi passado
+para este ficheiro foi 1212 entradas; a minha contagem dá 797 objetos de topo em
+`data:` e 915 linhas `name:` no ficheiro inteiro (as restantes 118 são de
+objetos **aninhados** — `logical_property_group: { name: "size" }` e afins).
+Não consigo reproduzir 1212 a partir desta cópia. A minha contagem está descrita
+e refaz-se com o script; se 1212 vier de outra revisão ou de outra forma de
+contar, é essa que precisa de dizer qual é.
+
+**E um erro meu, registado porque a forma de o apanhar é o que interessa:** a
+primeira versão do extrator partia as entradas por indentação e engolia-as
+umas dentro das outras, dando 682 propriedades. O sintoma foi `width`,
+`height` e `margin-top` aparecerem na lista "nomes nossos que não existem no
+Blink" — absurdo visível. É por isso que o script **imprime essa lista**: é
+uma verificação da entrada, não da saída, e um extrator silenciosamente
+truncado é exatamente o tipo de número que o `CLAUDE.md` proíbe.
+
+### 1.9 O que o Blink diz sobre o CUSTO (e não sobre o desenho)
+
+O `core/layout/` e o `core/css/` do Chromium servem aqui para uma coisa só:
+**dimensionar** buracos. Nada foi lido para copiar; o que segue são tamanhos,
+e um tamanho é um argumento sobre preço.
+
+| o buraco | o que existe do lado do Blink | leitura |
+|---|---|---|
+| formatação inline (`vertical-align`, `inline-block` a sério, `text-overflow`, quebra) | `core/layout/inline/` — 64 `.cc`, **~37 700 linhas** | é o maior subsistema de layout de todos. O nosso "inline e inline-block são o mesmo modo wrap" não é um atalho pequeno |
+| `float` / `clear` | `core/layout/exclusions/` — **~2 060 linhas**, mais `floats_utils`, `positioned_float` | um float não é "irmãos que partilham a linha": é um **espaço de exclusão** que o fluxo consulta. O nosso modelo é outro, e o `clear` por cima dele é honesto mas não é o do CSS |
+| tabelas | `core/layout/table/` — 17 `.cc`; só o algoritmo são **1 735 linhas**, e o colapso de bordas mais **635** | confirma "algoritmo próprio". O colapso de bordas ser um ficheiro à parte é o detalhe que uma estimativa à mão esquece |
+| `:has()` | `core/css/check_pseudo_has_*` — **~5 630 linhas** de contexto de argumento, cache e filtro de rejeição rápida | não é mais uma pseudo-classe: é um seletor que olha para BAIXO, e por isso precisa de invalidação e de cache próprios. Custo desproporcionado ao uso (10 ocorrências em `pagina.css`) |
+| `::before`/`::after` | `core/dom/pseudo_element.*` — um `PseudoElement` **é uma subclasse de `Element`** | é a resposta à pergunta da §4.1: o Blink resolve-o fazendo do pseudo-elemento um NÓ verdadeiro, com pai, fora da lista de filhos. Não é código que se copie — é a decisão de arquitetura, e valida que a alternativa "caixa anexa ao nó" é a que nada faz assim |
+
 ---
 
 ## 2. O gap contra a MDN, por área
+
+Escrito contra a medição das 17:21. **28 dos nomes listados aqui como ausentes
+passaram a ser reconhecidos pelo parser às 17:24** — a §1.7 diz quais, e quais
+desses ainda não são lidos pelo layout.
 
 Marcado **[A]** o que a MDN documenta como amplamente suportado e de uso
 corrente (Baseline), **[N]** o que é de nicho ou recente.
@@ -311,6 +444,11 @@ extrapolação para "o CSS da web" é minha, não da medição, e a forma de a t
 múltiplos, somando as contagens.
 
 ### A ordem recomendada
+
+Os itens 1, 2 e 4 **entraram no parser durante a auditoria** (§1.7). Continuam
+aqui, e a razão é a que a §1.7 dá: dos três, só o `clear` é lido pelo layout no
+instante em que isto foi medido. A ordem abaixo é por benefício e mantém-se
+válida para *acabar* cada um — não para os começar do zero.
 
 1. **`clear`** (37 ocorrências; barato — §4.2). O `float` sem `clear` não é
    meio suporte, é suporte que produz o layout errado com confiança.

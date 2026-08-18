@@ -2684,6 +2684,16 @@ fn layout_children_vertical(
             .as_ref()
             .and_then(|c| c.float_side)
             .unwrap_or(crate::style::FloatSide::None);
+        // `clear` — o par do `float`: este filho começa ABAIXO dos floats
+        // correntes. Fica ANTES do dispatch por tipo de caixa porque vale para
+        // qualquer um deles: o caminho de bloco já fechava a linha de floats
+        // sempre, mas um inline-block ou um texto com `clear` não fechava nada e
+        // acabava por cima do float. Os três valores agem como `both` (ver
+        // `style::text::Clear` para porquê).
+        if child_css.as_ref().and_then(|c| c.clear).map(|c| c.clears()).unwrap_or(false) {
+            flush_inline!(child_y);
+            close_floats!(child_y);
+        }
         let (child_block, child_inline_block) = match &dom.node(child).kind {
             NodeKind::Element { tag } => {
                 let replaced = (tag == "img" && dom.image_of(child).is_some())
@@ -2854,15 +2864,105 @@ fn layout_inline_block_line(
             Some(crate::style::TextAlign::Right) => content_x + free,
             _ => content_x,
         };
-        let mut line_h = 0.0f32;
+        // `line_h` tem de ser conhecida ANTES de posicionar, porque é contra ela
+        // que o `vertical-align` alinha — daí a passada de altura separada.
+        let line_h = items.iter().fold(0.0f32, |acc, &(_, _, h)| acc.max(h));
         for &(child, w, h) in items {
-            layout_block(dom, child, x, cy, content_w, avail_h, None, None, true, ctx, list);
+            // `vertical-align`: a caixa desce dentro da altura da linha. O default
+            // (`baseline`, e o não-declarado) mantém o topo, que é o que este
+            // motor sempre fez — ver o corte em `style::text::VerticalAlign`.
+            let dy = match dom.computed_style_idx(child).and_then(|c| c.vertical_align) {
+                Some(crate::style::VerticalAlign::Middle) => (line_h - h) / 2.0,
+                Some(crate::style::VerticalAlign::Bottom) => line_h - h,
+                _ => 0.0,
+            };
+            layout_block(dom, child, x, cy + dy, content_w, avail_h, None, None, true, ctx, list);
             x += w;
-            line_h = line_h.max(h);
         }
         cy += line_h;
     }
     cy
+}
+
+/// Os itens de BORDA de uma caixa: a moldura uniforme, as barras por lado, e o
+/// `outline`. Uma função só porque a lista é emitida num sítio e CONTADA noutro
+/// (o índice onde o clip de scroll começa) — duas regras para a mesma lista foi o
+/// que já dessincronizou o clip antes.
+///
+/// Duas formas, e a escolha é por fidelidade:
+/// - Sem nada declarado por lado, sai UM `DisplayItem::Border` — o caminho que já
+///   existia, e o único que respeita o `border-radius` (o backend desenha a
+///   moldura arredondada).
+/// - Com um lado declarado (`border-bottom: 1px solid #ccc`, o separador de 17
+///   ocorrências na folha da Wikipédia), sai uma BARRA por lado visível, como
+///   `SolidRect`. Emitir a moldura uniforme neste caso desenharia os quatro lados
+///   onde a página pediu um: errado de forma mais visível do que ignorar.
+///
+/// ⚠️ CORTE declarado: a largura por lado NÃO entra na geometria da caixa — o box
+/// model do motor tem um `border` escalar, usado em ~15 sítios (content_w,
+/// content_x, outer_h, measure, flex basis…). Uma `border-bottom: 1px` pinta a
+/// barra mas não empurra o conteúdo 1px para cima. Trocar o escalar por quatro
+/// valores é uma mudança de box model, não desta propriedade.
+///
+/// O `outline` sai por último (por cima) e por FORA do border-box, inflado pelo
+/// `outline-offset` — é o que o distingue da borda: não ocupa espaço nenhum.
+fn border_items(css: &ComputedStyle, box_rect: Rect, radius: f32, op: f32) -> Vec<DisplayItem> {
+    let mut out = Vec::new();
+    let sides = crate::style::borders::resolved_sides(css);
+    if crate::style::borders::has_per_side(css) {
+        let (x, y, w, h) = (box_rect.x, box_rect.y, box_rect.w, box_rect.h);
+        // top, right, bottom, left — a ordem de `resolved_sides`. Cada barra ocupa
+        // a aresta INTEIRA; os cantos ficam sobrepostos em vez de mitrados, que é
+        // invisível enquanto as cores dos lados adjacentes coincidem e é o que um
+        // separador (um lado só) precisa.
+        let bars = [
+            (Rect::new(x, y, w, sides[0].width), sides[0]),
+            (Rect::new(x + w - sides[1].width, y, sides[1].width, h), sides[1]),
+            (Rect::new(x, y + h - sides[2].width, w, sides[2].width), sides[2]),
+            (Rect::new(x, y, sides[3].width, h), sides[3]),
+        ];
+        for (rect, side) in bars {
+            if side.paints() {
+                out.push(DisplayItem::SolidRect {
+                    rect,
+                    color: apply_opacity(side.color, op),
+                    radius: 0.0,
+                });
+            }
+        }
+    } else {
+        // A borda uniforme só pinta se tem largura E um `border-style` VISÍVEL. O
+        // default CSS de border-style é `none` → sem `border-style` declarado, NÃO
+        // pinta (fiel ao Chrome: `border-width:2px` sozinho dá borda invisível).
+        if sides[0].paints() {
+            out.push(DisplayItem::Border {
+                rect: box_rect,
+                width: sides[0].width,
+                color: apply_opacity(sides[0].color, op),
+                radius,
+            });
+        }
+    }
+    let ow = css.outline_width.unwrap_or(0.0);
+    let visible = css.outline_style.map(|s| s.is_visible()).unwrap_or(false);
+    if ow > 0.0 && visible {
+        let off = css.outline_offset.unwrap_or(0.0) + ow / 2.0;
+        out.push(DisplayItem::Border {
+            rect: Rect::new(
+                box_rect.x - off,
+                box_rect.y - off,
+                box_rect.w + 2.0 * off,
+                box_rect.h + 2.0 * off,
+            ),
+            width: ow,
+            // `outline-color` ausente = `currentColor` (a cor do texto).
+            color: apply_opacity(css.outline_color.or(css.color).unwrap_or(0x000000FF), op),
+            // O outline é sempre RETANGULAR aqui (o Chrome moderno segue o
+            // border-radius) — ver `style::borders`.
+            radius: 0.0,
+        });
+    }
+    out
 }
 
 /// O `float` computado de um nó-elemento (None p/ não-elemento/sem estilo).
@@ -3825,6 +3925,25 @@ fn layout_inline_flow(
     let wrap_w = if nowrap { f32::INFINITY } else { content_w };
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
     let lines = wrap_runs(&runs, wrap_w, font_size, mono, ctx.measurer);
+    // `text-indent`: recuo da PRIMEIRA linha (MDN). ⚠️ CORTE: recua o início da
+    // linha mas NÃO encurta a largura de quebra dela — a quebra já foi calculada
+    // acima, e refazê-la só para a primeira linha exigia partir o `wrap_runs` em
+    // duas passadas. O erro fica no ponto de quebra da 1ª linha; o recuo, que é o
+    // efeito que a página pede, está certo. Negativo é aceite (o truque de
+    // esconder texto atrás da margem).
+    let indent = parent_css
+        .text_indent
+        .and_then(|d| {
+            d.resolve_signed(&ResolveCtx {
+                parent_content_w: content_w,
+                node_font_size: font_size,
+                root_font_size: DEFAULT_FONT_SIZE,
+                viewport_w: ctx.viewport_w,
+                viewport_h: ctx.viewport_h,
+            })
+        })
+        .unwrap_or(0.0);
+    let mut first_line = true;
     let mut cy = y;
     // CONSUMINDO as linhas: o texto de cada segmento vai direto para o
     // `DisplayItem`, em vez de ser clonado. Eram milhares de `String` alocadas
@@ -3851,6 +3970,10 @@ fn layout_inline_flow(
             Some(crate::style::TextAlign::Center) => x + free / 2.0,
             _ => x, // left/justify
         };
+        if first_line {
+            seg_x += indent;
+            first_line = false;
+        }
         // pinta cada pedaço NA SUA COR e PESO, avançando o x.
         for seg in line {
             let seg: Segment = seg;

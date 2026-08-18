@@ -314,8 +314,17 @@ css_props! {
         /// `letter-spacing` — espaço EXTRA entre caracteres (px), somado à largura de
         /// cada glifo. Herdável. `None`/0 = normal. Afeta medição E pintura.
         [inh] letter_spacing: f32;
-        /// `text-decoration[-line]` — sublinhado/tachado/sobrelinha. Herdável (a linha
-        /// desce até o texto filho). `None` = sem decoração.
+        /// `text-decoration[-line]` — sublinhado/tachado/sobrelinha. `None` = sem
+        /// decoração.
+        ///
+        /// ⚠️ Marcada `inh`, e a spec diz que NÃO é herdada (confirmado na tabela
+        /// de propriedades do Blink, `inherited: false`). É deliberado: a spec
+        /// PROPAGA a decoração da caixa aos descendentes in-flow na PINTURA, e
+        /// este motor não tem essa passada — a herança é o substituto que produz o
+        /// mesmo resultado no caso comum (`<a><span>texto</span></a>` sublinhado).
+        /// A diferença aparece onde a spec pára a propagação (um descendente
+        /// float/inline-block não devia herdar a linha do pai) e onde a cor da
+        /// linha devia ser a do ancestral que a declarou, não a do filho.
         [inh] text_decoration: TextDecoration;
         /// `font-family` — a 1ª família da lista (só guardamos o nome; o backend
         /// escolhe a fonte real). `None` = default. `mono` derivado se a família é
@@ -522,6 +531,9 @@ impl ComputedStyle {
             || self.margin.any_set()
             || self.border_width.is_some()
             || self.border_widths.any_set()
+            // o outline não ocupa espaço, mas é PINTADO pelo mesmo caminho da
+            // caixa — sem isto, um elemento que só declara outline não chega lá.
+            || self.outline_width.is_some()
             || self.corner_radius.is_some()
             || self.width.is_some()
     }

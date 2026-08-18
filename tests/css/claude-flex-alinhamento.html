@@ -2,7 +2,10 @@
 <!-- Fixa: `justify-content` no eixo principal e `align-items` no cruzado.
      Três contentores idênticos com um valor cada, para o desvio dizer QUAL. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="centro,fim,entre,volta">
+<meta name="fixar-estilo" content="justify-content,align-items">
+<style>
   body { margin: 0; }
   div.caixa { display: flex; width: 400px; height: 100px; background: #eee; margin-bottom: 10px; }
   div.caixa > div { width: 60px; height: 30px; background: #fcc; }

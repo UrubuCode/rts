@@ -3,7 +3,10 @@
      continua a dizer o tamanho todo; o que muda é o recorte na pintura e o
      valor computado. Um motor que encolhe o filho para caber está errado. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="visivel,escondido,automatico,so-x">
+<meta name="fixar-estilo" content="overflow">
+<style>
   body { margin: 0; }
   div.caixa { width: 200px; height: 100px; margin-bottom: 10px; background: #eee; }
   div.caixa > div { width: 300px; height: 200px; background: #fcc; }

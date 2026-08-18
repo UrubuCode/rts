@@ -3,7 +3,10 @@
      font-size); com unidade herda o valor já resolvido. É a distinção que
      decide a altura de uma caixa de texto num filho de fonte diferente. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="fator,fator-filho,fixo,fixo-filho,normal,percentual">
+<meta name="fixar-estilo" content="line-height,font-size">
+<style>
   body { margin: 0; font: 16px/1.5 monospace; }
   #fator { line-height: 2; font-size: 16px; }
   #fator-filho { font-size: 32px; }

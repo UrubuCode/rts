@@ -3,7 +3,10 @@
      quando os itens passam do número de colunas, e o `gap` entrando entre as
      pistas — e NÃO nas bordas do contentor. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="grelha">
+<meta name="fixar-estilo" content="grid-template-rows,gap">
+<style>
   body { margin: 0; }
   #grelha { display: grid; width: 400px;
             grid-template-columns: repeat(3, 1fr);

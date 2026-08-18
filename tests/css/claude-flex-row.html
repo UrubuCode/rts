@@ -2,7 +2,10 @@
 <!-- Fixa: `flex-direction: row` põe os filhos lado a lado na ordem, e a altura
      do contentor vem do filho mais alto (align-items: stretch é o padrão). -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="caixa">
+<meta name="fixar-estilo" content="display,flex-direction">
+<style>
   body { margin: 0; }
   #caixa { display: flex; width: 600px; background: #eee; }
   #a { width: 100px; height: 40px; background: #fcc; }

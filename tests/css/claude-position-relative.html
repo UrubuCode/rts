@@ -2,7 +2,10 @@
 <!-- Fixa: `position: relative` desloca a PINTURA sem tirar do fluxo — o irmão
      seguinte fica onde estaria se não houvesse deslocamento. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="relativo">
+<meta name="fixar-estilo" content="position">
+<style>
   body { margin: 0; }
   div { width: 100px; height: 40px; }
   #estatico { background: #fcc; }

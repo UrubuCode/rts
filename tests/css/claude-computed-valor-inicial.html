@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!-- Fixa, sozinha, o gap que de outro modo apareceria em todas as fixtures:
+     o `getComputedStyle` do browser responde o valor INICIAL de uma
+     propriedade que ninguém declarou (`display: block`, `color: rgb(0,0,0)`,
+     `overflow: visible`), enquanto o nosso `computedProperty` responde `""`.
+     É UM facto do motor, e está pinado aqui uma vez para os outros ficheiros
+     poderem medir o que é deles. -->
+<html>
+<head>
+<meta name="fixar-estilo" content="display,color,background-color,overflow,visibility,opacity,position,box-sizing,float,clear,text-align,white-space,z-index">
+<style>
+  body { margin: 0; }
+  #nada-declarado { width: 100px; height: 20px; }
+</style></head>
+<body>
+  <div id="nada-declarado"></div>
+</body>
+</html>

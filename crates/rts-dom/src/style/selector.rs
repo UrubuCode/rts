@@ -1,5 +1,7 @@
 //! SELETORES CSS: simples, compostos (`p.card#x`), combinadores (`div > p`,
-//! `+`, `~`), atributo (`[a=v]` e operadores) e pseudo-classes ESTRUTURAIS.
+//! `+`, `~`), atributo (`[a=v]` e operadores) e pseudo-classes — estruturais
+//! (`:first-child`, `:nth-of-type`), de estado (`:hover`, `:focus`, `:link`) e
+//! funcionais (`:not()`, `:is()`, `:where()`, `:lang()`).
 //! O matching que precisa da ÁRVORE (combinadores/pseudo por posição) vive no
 //! `Dom` (`matches_complex`); aqui fica o parse + o match puro de um compound.
 
@@ -53,6 +55,14 @@ pub enum PseudoClass {
     Root,
     /// `:nth-child(an+b)` — guarda (a, b). `odd`=2n+1, `even`=2n.
     NthChild(i32, i32),
+    // A família `-of-type` conta só os irmãos com a MESMA tag. É a diferença
+    // toda em relação às de cima: `a:only-of-type` casa o único `<a>` entre
+    // irmãos de tags variadas, onde `:only-child` não casaria nenhum.
+    FirstOfType,
+    LastOfType,
+    OnlyOfType,
+    /// `:nth-of-type(an+b)` — mesmo (a, b) do `:nth-child`, contado por tag.
+    NthOfType(i32, i32),
     // Pseudo-classes de "estado" que num DOM viram presença de ATRIBUTO (não há UI
     // viva headless): mapeiam direto para o atributo correspondente.
     /// `:checked` — `checked`/`selected` presente.
@@ -75,6 +85,18 @@ pub enum PseudoClass {
     /// NÃO propaga aos ancestrais (ao contrário de `:hover`): quem faz isso é
     /// `:focus-within`, que é outra pseudo e não está implementada.
     Focus,
+    /// `:focus-within` — o elemento focado OU um ancestral dele. É a versão do
+    /// `:focus` que propaga, como o `:hover` propaga.
+    FocusWithin,
+    /// `:focus-visible` — o browser mostra o anel de foco quando o foco veio do
+    /// teclado, e esconde-o quando veio do rato. Aqui não há essa distinção (o
+    /// backend entrega um só `focus_input`), então casa o MESMO que `:focus`.
+    ///
+    /// Aproximar em vez de nunca casar é a escolha deliberada: a regra existe
+    /// quase sempre para desenhar o anel de foco, e não casar nunca tira o
+    /// indicador de foco à navegação por teclado — perder o indicador é pior do
+    /// que mostrá-lo também depois de um clique.
+    FocusVisible,
     /// `:active` — o elemento entre o mousedown e o mouseup sobre ele. NUNCA casa:
     /// o DOM não guarda esse estado (`set_hovered` é o único estado de ponteiro
     /// que o backend entrega). Casar sempre seria pior que casar nunca — deixaria
@@ -114,16 +136,45 @@ pub enum PseudoClass {
     Where(Vec<ComplexSelector>),
 }
 
+/// A especificidade é uma TRIPLA (ids, classes, tags), não um número — e é
+/// guardada num `u32` com um byte por componente, `0xII_CC_TT`. A ordem
+/// numérica do `u32` é então exatamente a ordem lexicográfica da tripla, que é o
+/// que a cascade quer, e nenhum consumidor precisa de saber disto: a
+/// especificidade continua a ser uma chave opaca de ordenação.
+///
+/// A alternativa que estava aqui — somar 100/10/1 num só número — está errada e
+/// a spec diz porquê: os componentes NÃO se convertem uns nos outros. Com a soma
+/// plana, dez tags (10) empatavam com uma classe e onze classes (110) venciam um
+/// id. Um seletor que casa com o peso errado é pior do que um que não casa,
+/// porque a regra vencedora aparece longe da causa. É também o que o Blink faz
+/// (`CSSSelector::Specificity`, máscaras `0xff0000`/`0x00ff00`/`0x0000ff`).
+const ESPEC_ID: u32 = 0x01_00_00;
+const ESPEC_CLASSE: u32 = 0x00_01_00;
+const ESPEC_TAG: u32 = 0x00_00_01;
+
+/// Soma duas especificidades COMPONENTE A COMPONENTE, saturando cada byte em
+/// 255. Saturar em vez de deixar transbordar: um transbordo levaria uma classe a
+/// mais para o campo dos ids, invertendo a cascade justamente no seletor mais
+/// carregado. 255 de um componente é inalcançável em folhas reais, portanto o
+/// erro que a saturação introduz é um empate entre dois seletores absurdos.
+fn soma_especificidade(a: u32, b: u32) -> u32 {
+    let comp = |desloc: u32| {
+        let s = ((a >> desloc) & 0xFF) + ((b >> desloc) & 0xFF);
+        s.min(0xFF) << desloc
+    };
+    comp(16) | comp(8) | comp(0)
+}
+
 impl PseudoClass {
-    /// A especificidade desta pseudo-classe. 10 (peso de classe) para quase
-    /// todas; as funcionais tomam a do argumento, e `:where` vale zero.
+    /// A especificidade desta pseudo-classe: peso de classe para quase todas; as
+    /// funcionais tomam a do argumento mais específico, e `:where` vale zero.
     fn specificity(&self) -> u32 {
         match self {
             PseudoClass::Where(_) => 0,
             PseudoClass::Not(list) | PseudoClass::Is(list) => {
                 list.iter().map(ComplexSelector::specificity).max().unwrap_or(0)
             }
-            _ => 10,
+            _ => ESPEC_CLASSE,
         }
     }
 
@@ -242,10 +293,10 @@ impl SimpleSelector {
 
     fn specificity(&self) -> u32 {
         match self {
-            SimpleSelector::Id(_) => 100,
-            SimpleSelector::Class(_) | SimpleSelector::Attr { .. } => 10,
+            SimpleSelector::Id(_) => ESPEC_ID,
+            SimpleSelector::Class(_) | SimpleSelector::Attr { .. } => ESPEC_CLASSE,
             SimpleSelector::Pseudo(pc) => pc.specificity(),
-            SimpleSelector::Tag(_) => 1,
+            SimpleSelector::Tag(_) => ESPEC_TAG,
             SimpleSelector::Universal => 0,
         }
     }
@@ -388,14 +439,14 @@ impl ComplexSelector {
         Some(ComplexSelector { compounds, combinators })
     }
 
-    /// Peso da cascade: soma das especificidades de todos os simples de todos os
-    /// compounds (id=100, classe/attr/pseudo=10, tag=1, universal=0).
+    /// Peso da cascade: a tripla (ids, classes, tags) empacotada — ver
+    /// [`ESPEC_ID`]. Opaca para quem chama; só se compara.
     pub fn specificity(&self) -> u32 {
         self.compounds
             .iter()
             .flat_map(|c| c.parts.iter())
             .map(SimpleSelector::specificity)
-            .sum()
+            .fold(0, soma_especificidade)
     }
 }
 
@@ -427,9 +478,14 @@ fn parse_compound(s: &str) -> Option<(CompoundSelector, &str)> {
 
 /// Pega o identificador CSS do início de `s` (letra/dígito/`-`/`_`), devolve
 /// (ident, resto).
+/// Não-ASCII é aceite: a spec (CSS Syntax §4.2) trata todo ponto de código
+/// acima de U+0080 como caracter de identificador, e a folha da Wikipédia usa-os
+/// (`.page-Wikipédia_Página_principal`, `.animangá`). Cortar no `é` partia o
+/// seletor em dois e descartava a regra — a falha aparecia como estilo em falta
+/// numa página inteira, longe daqui.
 fn take_ident(s: &str) -> (&str, &str) {
     let end = s
-        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_' || c as u32 >= 0x80))
         .unwrap_or(s.len());
     (&s[..end], &s[end..])
 }
@@ -487,12 +543,13 @@ fn parse_attr_selector(s: &str) -> Option<(SimpleSelector, &str)> {
 /// próprio elemento, e um erro visível é pior que uma regra ausente.
 fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
     let after_colon = &s[1..];
-    // `:nth-child(...)` — captura o argumento entre parênteses.
-    if let Some(rest) = after_colon.strip_prefix("nth-child(") {
+    // `:nth-child(...)`/`:nth-of-type(...)` — captura o argumento entre parênteses.
+    for (nome, por_tipo) in [("nth-child(", false), ("nth-of-type(", true)] {
+        let Some(rest) = after_colon.strip_prefix(nome) else { continue };
         let close = rest.find(')')?;
-        let arg = &rest[..close];
-        let (a, b) = parse_nth(arg)?;
-        return Some((SimpleSelector::Pseudo(PseudoClass::NthChild(a, b)), &rest[close + 1..]));
+        let (a, b) = parse_nth(&rest[..close])?;
+        let pc = if por_tipo { PseudoClass::NthOfType(a, b) } else { PseudoClass::NthChild(a, b) };
+        return Some((SimpleSelector::Pseudo(pc), &rest[close + 1..]));
     }
     // As FUNCIONAIS de lista de seletores. O argumento pode conter parênteses
     // (`:not(:nth-child(2))`), por isso o fecho é procurado por equilíbrio e não
@@ -547,14 +604,21 @@ fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
         "enabled" => PseudoClass::Enabled,
         "required" => PseudoClass::Required,
         "hover" => PseudoClass::Hover,
+        "first-of-type" => PseudoClass::FirstOfType,
+        "last-of-type" => PseudoClass::LastOfType,
+        "only-of-type" => PseudoClass::OnlyOfType,
         "focus" => PseudoClass::Focus,
+        "focus-within" => PseudoClass::FocusWithin,
+        "focus-visible" => PseudoClass::FocusVisible,
         "active" => PseudoClass::Active,
         "visited" => PseudoClass::Visited,
         "link" => PseudoClass::Link,
         "read-only" => PseudoClass::ReadOnly,
         "read-write" => PseudoClass::ReadWrite,
-        // Ainda por fazer: `:focus-within`, `:focus-visible`, `:target`,
-        // `:nth-of-type` e a família de tipo. Recusar descarta a regra.
+        // Ainda por fazer: `:target` (não há fragmento de URL no DOM) e `:has()`
+        // (relacional — casa um ancestral pelo que está ABAIXO dele, o que o
+        // matcher da direita-para-a-esquerda não faz e a invalidação não sabe
+        // seguir). Recusar descarta a regra.
         _ => return None,
     };
     Some((SimpleSelector::Pseudo(pc), rest))

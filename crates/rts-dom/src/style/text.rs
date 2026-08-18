@@ -95,6 +95,13 @@ impl Clear {
             "left" => Clear::Left,
             "right" => Clear::Right,
             "both" => Clear::Both,
+            // As formas LÓGICAS: em modo horizontal LTR, `inline-start` é a
+            // esquerda e `inline-end` a direita. Aceitá-las custa duas linhas e
+            // evita que a declaração caia no balde de "propriedade ignorada" —
+            // e como os três valores agem como `both` aqui, o mapeamento LTR não
+            // muda resultado nenhum hoje.
+            "inline-start" => Clear::Left,
+            "inline-end" => Clear::Right,
             _ => return None,
         })
     }
@@ -125,6 +132,9 @@ pub enum WordBreak {
     KeepAll,
     /// Legado, equivalente a `overflow-wrap: break-word` (MDN).
     BreakWord,
+    /// `auto-phrase` — quebra por análise de frase (CJK). Aceite para não ser
+    /// descartada; a quebra deste motor é por espaço, então não muda nada.
+    AutoPhrase,
 }
 
 impl WordBreak {
@@ -134,6 +144,7 @@ impl WordBreak {
             "break-all" => WordBreak::BreakAll,
             "keep-all" => WordBreak::KeepAll,
             "break-word" => WordBreak::BreakWord,
+            "auto-phrase" => WordBreak::AutoPhrase,
             _ => return None,
         })
     }
@@ -144,6 +155,7 @@ impl WordBreak {
             WordBreak::BreakAll => "break-all",
             WordBreak::KeepAll => "keep-all",
             WordBreak::BreakWord => "break-word",
+            WordBreak::AutoPhrase => "auto-phrase",
         }
     }
 }

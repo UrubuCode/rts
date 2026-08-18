@@ -4,7 +4,10 @@
      não se lê num rect, por isso esta fixture vive na parte de estilo do
      esperado e não na geometria. -->
 <html>
-<head><style>
+<head>
+<meta name="fixar-estilo-em" content="fundo,meio,topo,negativo,estatico-com-z">
+<meta name="fixar-estilo" content="z-index,position">
+<style>
   body { margin: 0; }
   div { position: absolute; top: 0; left: 0; width: 100px; height: 100px; }
   #fundo { z-index: 1; background: #fcc; }
