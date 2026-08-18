@@ -2829,6 +2829,7 @@ fn layout_inline_flow(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
+    let _phase = crate::metrics::phases::scope("layout-inline");
     // coleta os RUNS (cada pedaço de texto com a SUA cor/bold herdada do span que
     // o contém) de TODOS os nós do grupo, em ordem de documento.
     let mut runs = Vec::new();
@@ -3000,6 +3001,7 @@ fn collect_runs(
     parent_css: &ComputedStyle,
     ctx: &LayoutCtx,
 ) -> Vec<InlineRun> {
+    let _phase = crate::metrics::phases::scope("collect-runs");
     let mut runs = Vec::new();
     walk(
         dom,
@@ -3140,6 +3142,66 @@ struct Segment {
 /// ORIGINAL tinha whitespace ali (colapsado p/ 1) — inclusive ATRAVÉS de runs
 /// (`<a>Bootstrap</a>, by` NÃO ganha espaço antes da vírgula; antes toda palavra
 /// ganhava espaço e a pontuação descolava).
+/// Colapsa o whitespace de um run como o fluxo inline faz: sequências viram um
+/// espaço só, o do fim some (o separador seguinte o recria) e o do início só
+/// entra quando havia palavra antes na linha. É a normalização que o scanner
+/// palavra-a-palavra produz implicitamente — o fast path precisa dela explícita
+/// para que os dois caminhos gerem o MESMO texto.
+fn collapse_ws(text: &str, leading_space: bool) -> std::borrow::Cow<'_, str> {
+    // O caso comum é o texto JÁ normalizado (uma palavra, ou palavras separadas
+    // por um espaço só, sem borda) — devolver emprestado evita uma alocação por
+    // run, e um relayout de página grande são milhares deles.
+    let needs_work = leading_space && text.starts_with(char::is_whitespace)
+        || text.starts_with(char::is_whitespace)
+        || text.ends_with(char::is_whitespace)
+        || text.contains("  ")
+        || text.chars().any(|c| c.is_whitespace() && c != ' ');
+    if !needs_work {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    if leading_space && text.starts_with(char::is_whitespace) {
+        out.push(' ');
+    }
+    let mut first = true;
+    for word in text.split_whitespace() {
+        if !first {
+            out.push(' ');
+        }
+        out.push_str(word);
+        first = false;
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// Acrescenta texto à linha, juntando ao último segmento quando o estilo é o
+/// mesmo (é o que evita um segmento por palavra na hora de pintar).
+fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32) {
+    if let Some(last) = cur.last_mut() {
+        if last.widget.is_none()
+            && last.color == run.color
+            && last.bold == run.bold
+            && last.deco == run.deco
+            && last.owners == run.owners
+        {
+            last.text.push_str(text);
+            last.text_width += width;
+            return;
+        }
+    }
+    cur.push(Segment {
+        text: text.to_string(),
+        text_width: width,
+        color: run.color,
+        bold: run.bold,
+        deco: run.deco,
+        owners: run.owners.clone(),
+        widget: None,
+        ww: 0.0,
+        wh: 0.0,
+    });
+}
+
 fn wrap_runs(
     runs: &[InlineRun],
     max_w: f32,
@@ -3147,7 +3209,14 @@ fn wrap_runs(
     mono: bool,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
-    let space_w = m.text_width(" ", font_size, mono, false);
+    let _phase = crate::metrics::phases::scope("wrap-runs");
+    // A largura do espaço só interessa ao caminho palavra-a-palavra. Medida
+    // sempre, era metade de todas as medições de texto de um relayout — uma por
+    // chamada, mesmo quando o fast path respondia sozinho.
+    let mut space_w_memo: Option<f32> = None;
+    let mut space_w = |m: &dyn TextMeasurer| -> f32 {
+        *space_w_memo.get_or_insert_with(|| m.text_width(" ", font_size, mono, false))
+    };
     let mut lines: Vec<Vec<Segment>> = Vec::new();
     let mut cur: Vec<Segment> = Vec::new();
     let mut cur_w = 0.0f32;
@@ -3159,7 +3228,7 @@ fn wrap_runs(
         // WIDGET: uma "palavra" inquebrável de run.ww pontos, segmento próprio.
         if let Some(w_idx) = run.widget {
             let with_space = pending_space && !at_line_start;
-            let need = if with_space { space_w + run.ww } else { run.ww };
+            let need = if with_space { space_w(m) + run.ww } else { run.ww };
             if !at_line_start && cur_w + need > max_w {
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
@@ -3176,10 +3245,42 @@ fn wrap_runs(
                 ww: run.ww,
                 wh: run.wh,
             });
-            cur_w += if pending_space && !at_line_start { space_w + run.ww } else { run.ww };
+            cur_w += if pending_space && !at_line_start { space_w(m) + run.ww } else { run.ww };
             at_line_start = false;
             pending_space = false;
             continue;
+        }
+        // FAST PATH: o run INTEIRO cabe na linha corrente.
+        //
+        // O scanner abaixo mede palavra por palavra — e medir texto é a única
+        // coisa que o layout pede ao backend, que com uma fonte real faz shaping
+        // em vez de multiplicar um contador de caracteres. Medido no medidor
+        // barato: `wrap-runs` era 38% de um relayout de página grande, com 11 000
+        // `text_width` por frame. Quando o run cabe (o caso comum: quase todo
+        // texto de página não quebra), uma medição responde por todas.
+        //
+        // Medir a string inteira também é o que um browser faz, então a largura
+        // resultante é MAIS fiel e não menos: soma de palavras ignora o que a
+        // fonte faz nas junções.
+        if run.widget.is_none() {
+            let leading = pending_space && !at_line_start;
+            let normalized = collapse_ws(&run.text, leading);
+            if normalized.is_empty() {
+                // só whitespace: vira separador pendente e não abre segmento.
+                if run.text.chars().any(char::is_whitespace) {
+                    pending_space = true;
+                }
+                continue;
+            }
+            let w = m.text_width(&normalized, font_size, mono, run.bold);
+            if at_line_start || cur_w + w <= max_w {
+                let trailing_space = run.text.ends_with(char::is_whitespace);
+                push_segment(&mut cur, run, &normalized, w);
+                cur_w += w;
+                at_line_start = false;
+                pending_space = trailing_space;
+                continue;
+            }
         }
         // scanner ws/palavra preservando a fronteira original.
         let mut rest = run.text.as_str();
@@ -3195,7 +3296,7 @@ fn wrap_runs(
 
             let ww = m.text_width(word, font_size, mono, run.bold);
             let with_space = pending_space && !at_line_start;
-            let need = if with_space { space_w + ww } else { ww };
+            let need = if with_space { space_w(m) + ww } else { ww };
             if !at_line_start && cur_w + need > max_w {
                 // não cabe: fecha a linha.
                 lines.push(std::mem::take(&mut cur));
@@ -3203,8 +3304,12 @@ fn wrap_runs(
                 at_line_start = true;
             }
             let sep = pending_space && !at_line_start;
-            let piece_w = if sep { space_w + ww } else { ww };
-            let piece = if sep { format!(" {word}") } else { word.to_string() };
+            let piece_w = if sep { space_w(m) + ww } else { ww };
+            let mut piece = String::with_capacity(word.len() + usize::from(sep));
+            if sep {
+                piece.push(' ');
+            }
+            piece.push_str(word);
             // junta no último segmento se mesma cor E peso (e não-widget), senão novo.
             if let Some(last) = cur.last_mut() {
                 if last.widget.is_none()
@@ -3301,6 +3406,7 @@ fn wrap_text(text: &str, max_w: f32, font_size: f32, mono: bool, m: &dyn TextMea
 
 /// Concatena o texto de todos os descendentes de `id` (ordem de documento).
 fn collect_text(dom: &Dom, id: NodeIdx) -> String {
+    let _phase = crate::metrics::phases::scope("collect-text");
     let mut out = String::new();
     collect_into(dom, id, &mut out);
     return out;
