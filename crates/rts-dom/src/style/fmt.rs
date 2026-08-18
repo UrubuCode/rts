@@ -56,6 +56,9 @@ impl ComputedStyle {
                 // contra o font-size); aqui sem o font-size do nó, reportamos o cru.
                 Some(LineHeight::Px(p)) => fmt_px(p),
                 Some(LineHeight::Mult(m)) => format!("{m}"),
+                // O browser reporta `normal` tal e qual (é o único valor de
+                // line-height que o computed NÃO resolve para px).
+                Some(LineHeight::Normal) => "normal".into(),
                 None => String::new(),
             },
             "white-space" => match self.white_space {
@@ -220,6 +223,20 @@ impl ComputedStyle {
                 self.list_style_type.map(|t| t.css().to_string()).unwrap_or_default()
             }
             "list-style-image" => self.list_style_image.clone().unwrap_or_default(),
+            "list-style-position" => {
+                self.list_style_position.map(|p| p.css().to_string()).unwrap_or_default()
+            }
+            // ── Tabela ────────────────────────────────────────────────────────
+            "border-collapse" => {
+                self.border_collapse.map(|c| c.css().to_string()).unwrap_or_default()
+            }
+            // O Chrome responde os DOIS eixos sempre (`2px 2px`), mesmo quando a
+            // folha declarou um só — é o valor computado, não o declarado.
+            "border-spacing" => self
+                .border_spacing
+                .map(|s| format!("{} {}", fmt_dim(s.h), fmt_dim(s.v)))
+                .unwrap_or_default(),
+            "table-layout" => self.table_layout.map(|t| t.css().to_string()).unwrap_or_default(),
             "cursor" => self.cursor.clone().unwrap_or_default(),
             "flex-flow" => match (self.flex_direction, self.flex_wrap) {
                 (None, None) => String::new(),

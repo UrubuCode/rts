@@ -1413,6 +1413,57 @@ impl Dom {
         Some(computed)
     }
 
+    /// A CAIXA GERADA de um pseudo-elemento deste nó, ou `None` quando a
+    /// cascata não manda gerar nenhuma.
+    ///
+    /// `None` cobre os quatro casos em que não há caixa, e são todos da spec:
+    /// nenhuma regra `::before`/`::after` casa; nenhuma delas declara `content`;
+    /// o `content` vencedor é `none`/`normal`; ou o pseudo tem `display:none`.
+    ///
+    /// O estilo é o do elemento originante HERDADO e depois sobreposto pelas
+    /// declarações do pseudo — herdar do elemento e não da raiz é o que faz um
+    /// `::before` sem `color` sair da cor do texto à volta, como no browser.
+    pub fn pseudo_box(
+        &self,
+        idx: NodeIdx,
+        pe: crate::style::PseudoElement,
+    ) -> Option<crate::pseudo::PseudoBox> {
+        if !self.stylesheet.has_generated_content() {
+            return None;
+        }
+        let NodeKind::Element { tag } = &self.nodes[idx].kind else { return None };
+        let classes: Vec<&str> = self.nodes[idx]
+            .attr("class")
+            .map(|c| c.split_whitespace().collect())
+            .unwrap_or_default();
+        let (matched, content) = self.stylesheet.matched_for_pseudo(
+            self.viewport.get().0,
+            tag,
+            self.nodes[idx].attr("id"),
+            &classes,
+            pe,
+            |sel| self.matches_complex(idx, sel),
+        );
+        let content = content?;
+        let texto = crate::pseudo::texto_de(&content, &|nome: &str| {
+            self.nodes[idx].attr(nome).map(str::to_string)
+        })?;
+        let decls = self.stylesheet.declarations_from(&matched, None);
+        // Herda do originante e só depois aplica o que o pseudo declara — a
+        // ordem inversa perderia a herança para qualquer propriedade que o
+        // pseudo não declare.
+        let mut css = crate::style::ComputedStyle::default();
+        if let Some(pai) = self.computed_style_idx(idx) {
+            css.inherit_from(&pai);
+        }
+        css.merge_over(&decls.normal);
+        css.merge_over(&decls.important);
+        if css.effective_display() == Some(crate::style::DisplayKind::None) {
+            return None;
+        }
+        Some(crate::pseudo::PseudoBox { texto, css })
+    }
+
     /// Núcleo da cascade — computa o ALVO-BASE de um nó (SEM a camada de animação; o
     /// override interpolado é sobreposto por quem consome, em `computed_style_idx`).
     /// Chamado via `base_style_idx` (memoizado por revisão estrutural).

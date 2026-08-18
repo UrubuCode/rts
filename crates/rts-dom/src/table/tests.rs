@@ -276,3 +276,171 @@ fn width_percentual_dentro_da_celula_nao_vira_minimo_de_viewport() {
     assert!(t.w <= 301.0, "a tabela saiu com {}", t.w);
     assert!(a.w <= 301.0, "a célula saiu com {} — o `100%` virou 1280", a.w);
 }
+
+// ── AS QUATRO PROPRIEDADES ──────────────────────────────────────────────────
+// Cada teste aqui falharia sem a propriedade que nomeia: o que se verifica é o
+// EFEITO no layout, não que a folha de estilo parseou.
+
+/// `border-collapse: collapse` anula o vão entre células — e é a diferença que
+/// decide se uma tabela casa com o Chrome dentro de 1px ou não: 2px por coluna
+/// acumulam ao longo da linha, portanto uma tabela `collapse` medida como
+/// `separate` conta como errada em TODAS as suas células.
+#[test]
+fn border_collapse_muda_a_posicao_das_celulas_e_nao_so_a_borda() {
+    let corpo = r#"<tr><td style="width:100px">a</td><td style="width:100px">b</td></tr>"#;
+    let sep = format!(r#"<table style="width:220px;border-collapse:separate;border-spacing:10px">{corpo}</table>"#);
+    let col = format!(r#"<table style="width:220px;border-collapse:collapse">{corpo}</table>"#);
+
+    let (d1, l1) = geometria(&sep, 800.0);
+    let (d2, l2) = geometria(&col, 800.0);
+    let a_sep = rect(&d1, &l1, "td", 0);
+    let b_sep = rect(&d1, &l1, "td", 1);
+    let a_col = rect(&d2, &l2, "td", 0);
+    let b_col = rect(&d2, &l2, "td", 1);
+
+    // `separate` com 10px: recuo de 10 antes da primeira, 10 entre as duas.
+    assert!((b_sep.x - (a_sep.x + a_sep.w) - 10.0).abs() < 0.5, "vão separate = {}", b_sep.x - a_sep.x - a_sep.w);
+    // `collapse`: as colunas encostam, e a primeira encosta à borda da tabela.
+    assert!((b_col.x - (a_col.x + a_col.w)).abs() < 0.5, "vão collapse = {}", b_col.x - a_col.x - a_col.w);
+    assert!(a_col.x < a_sep.x, "collapse devia começar mais à esquerda");
+}
+
+/// O `border-spacing` do CSS vence o atributo `cellspacing` do HTML — a
+/// precedência do browser, e a razão de os dois coexistirem: o atributo é
+/// apresentação que o HTML define, o CSS é quem manda quando fala.
+#[test]
+fn o_border_spacing_do_css_vence_o_atributo_cellspacing() {
+    let html = r#"<table cellspacing="0" style="width:300px;border-spacing:12px">
+        <tr><td style="width:100px">a</td><td style="width:100px">b</td></tr>
+    </table>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let a = rect(&dom, &list, "td", 0);
+    let b = rect(&dom, &list, "td", 1);
+    assert!((b.x - (a.x + a.w) - 12.0).abs() < 0.5, "o atributo ganhou: vão = {}", b.x - a.x - a.w);
+}
+
+/// `border-spacing` aceita dois comprimentos, e o segundo é o VERTICAL: as
+/// linhas afastam-se sem que as colunas se mexam.
+#[test]
+fn border_spacing_de_dois_valores_afasta_as_linhas_sem_mexer_nas_colunas() {
+    let html = r#"<table style="width:220px;border-spacing:0px 20px">
+        <tr><td style="width:100px">a</td><td style="width:100px">b</td></tr>
+        <tr><td>c</td><td>d</td></tr>
+    </table>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let a = rect(&dom, &list, "td", 0);
+    let b = rect(&dom, &list, "td", 1);
+    let c = rect(&dom, &list, "td", 2);
+    assert!((b.x - (a.x + a.w)).abs() < 0.5, "o vão horizontal devia ser 0");
+    assert!((c.y - (a.y + a.h) - 20.0).abs() < 0.5, "vão vertical = {}", c.y - a.y - a.h);
+}
+
+/// `table-layout: fixed` decide as colunas pela PRIMEIRA linha e ignora o
+/// conteúdo das seguintes — é o algoritmo que existe para não medir nada.
+#[test]
+fn table_layout_fixed_ignora_o_conteudo_das_linhas_seguintes() {
+    let corpo = r#"
+        <tr><td style="width:50px">a</td><td>b</td></tr>
+        <tr><td>uma frase muito comprida que num layout auto alargaria esta coluna toda</td><td>x</td></tr>"#;
+    let auto = format!(r#"<table style="width:300px;border-spacing:0">{corpo}</table>"#);
+    let fixo = format!(r#"<table style="width:300px;border-spacing:0;table-layout:fixed">{corpo}</table>"#);
+
+    let (d1, l1) = geometria(&auto, 800.0);
+    let (d2, l2) = geometria(&fixo, 800.0);
+    let auto_c1 = rect(&d1, &l1, "td", 0).w;
+    let fixo_c1 = rect(&d2, &l2, "td", 0).w;
+
+    // No fixo a primeira coluna fica com os 50px pedidos, custe o que custar.
+    assert!((fixo_c1 - 50.0).abs() < 0.5, "fixed deu {fixo_c1} à coluna de 50px");
+    // No auto a frase da segunda linha alarga-a — é a diferença entre os dois.
+    assert!(auto_c1 > fixo_c1 + 1.0, "auto={auto_c1} fixo={fixo_c1}");
+}
+
+/// `list-style-position: inside` põe o marcador DENTRO da caixa de conteúdo, e
+/// `outside` (o default) fora dela — sem que a caixa do item mude em nenhum dos
+/// dois, que é o que o browser faz.
+#[test]
+fn list_style_position_muda_o_lado_do_marcador_e_nao_a_caixa() {
+    let (d1, l1) = geometria("<ul><li>a</li></ul>", 800.0);
+    let (d2, l2) = geometria(
+        "<ul style=\"list-style-position:inside\"><li>a</li></ul>",
+        800.0,
+    );
+    let bullet = |l: &crate::layout::DisplayList| {
+        l.materialized()
+            .iter()
+            .find_map(|i| match i {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("bullet")
+    };
+    let fora = bullet(&l1);
+    let dentro = bullet(&l2);
+    let li_fora = rect(&d1, &l1, "li", 0);
+    let li_dentro = rect(&d2, &l2, "li", 0);
+
+    assert!(fora.x + fora.w <= li_fora.x + 0.5, "outside devia ficar fora do conteúdo");
+    assert!(dentro.x >= li_dentro.x - 0.5, "inside devia ficar dentro do conteúdo");
+    // A caixa do item é a MESMA nos dois: o marcador nunca ocupa espaço de fluxo.
+    assert!((li_fora.w - li_dentro.w).abs() < 0.5, "a caixa mudou: {} vs {}", li_fora.w, li_dentro.w);
+}
+
+/// As quatro respondem ao `getComputedStyle`, que é o que o harness de paridade
+/// compara contra o Chrome. Uma propriedade que o layout usa e o `fmt` não
+/// serializa aparece vazia ao lado do valor do Chrome — já nos parou uma vez.
+#[test]
+fn as_propriedades_novas_respondem_ao_computed_style() {
+    let css = crate::style::parse_inline(
+        "border-collapse:collapse;border-spacing:2px 4px;table-layout:fixed;list-style-position:inside",
+    );
+    assert_eq!(css.get_property("border-collapse"), "collapse");
+    assert_eq!(css.get_property("border-spacing"), "2px 4px");
+    assert_eq!(css.get_property("table-layout"), "fixed");
+    assert_eq!(css.get_property("list-style-position"), "inside");
+}
+
+/// A infobox da Wikipédia — o caso real que motivou este módulo, reduzido ao
+/// que tem de particular: `<tbody>`, `colspan=2` em todas as linhas, e um
+/// `display:table` do AUTOR aninhado dentro de uma célula.
+///
+/// Pinado porque a primeira medição sobre a página real mostrou estas células
+/// sem caixa nenhuma, e valia a pena que o caso deixasse de depender de uma
+/// corrida de duas horas para se saber se funciona.
+#[test]
+fn a_infobox_da_wikipedia_da_caixa_a_todas_as_celulas() {
+    let html = r##"<div style="width:750px"><table class="infobox"><tbody>
+      <tr><th colspan="2">Republica Federativa do Brasil</th></tr>
+      <tr><td colspan="2"><div style="display:table; width:100%;">
+        <div style="display:table-cell;"><div>bandeira</div></div>
+        <div style="display:table-cell;"><div>armas</div></div>
+      </div></td></tr>
+    </tbody></table></div>"##;
+    let (dom, list) = geometria(html, 1280.0);
+    // Nenhuma das quatro caixas de célula pode sair 0x0 — era o sintoma.
+    for sel in ["th", "td"] {
+        let r = rect(&dom, &list, sel, 0);
+        assert!(r.w > 1.0 && r.h > 1.0, "<{sel}> saiu {r:?}");
+    }
+    // As duas linhas EMPILHAM (não ficam ambas no mesmo y, que é o que acontece
+    // quando um `<tr>` cai no fluxo inline em vez do algoritmo de tabela).
+    let l0 = rect(&dom, &list, "tr", 0);
+    let l1 = rect(&dom, &list, "tr", 1);
+    assert!(l1.y >= l0.y + l0.h - 0.5, "as linhas não empilharam: {} e {}", l0.y, l1.y);
+    // E o `display:table` do autor, aninhado numa célula, também reparte.
+    let celulas = dom.query_all("div[style*=table-cell]");
+    assert_eq!(celulas.len(), 2, "as duas células do table aninhado");
+}
+
+#[test]
+fn dbg_anon() {
+    let html = r##"<div style="display:table; width:400px; border-spacing:0">
+        <div style="display:table-cell">bandeira</div>
+        <div style="display:table-cell">armas</div>
+      </div>"##;
+    let (dom, list) = geometria(html, 1280.0);
+    let g = list.geometry_now();
+    for (i, id) in dom.query_all("div[style*=table-cell]").into_iter().enumerate() {
+        println!("SEL cel[{i}] {:?}", g.rects.get(&dom.resolve(id).unwrap()));
+    }
+}

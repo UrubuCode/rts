@@ -271,6 +271,24 @@ pub struct ComplexSelector {
     /// Os combinadores ENTRE os compounds: `combinators[i]` liga `compounds[i]` a
     /// `compounds[i+1]`. Tamanho = `compounds.len() - 1`.
     pub combinators: Vec<Combinator>,
+    /// O PSEUDO-ELEMENTO no fim do seletor (`p::before`), se há.
+    ///
+    /// Fica fora dos compounds de propósito: um pseudo-elemento não é mais um
+    /// teste sobre o elemento — os compounds continuam a casar o elemento
+    /// ORIGINANTE (o `<p>`), e isto diz que as declarações não vão para ele mas
+    /// para uma caixa gerada. É também o que mantém o índice de regras a
+    /// funcionar sem uma linha de mudança: a chave continua a sair do compound
+    /// alvo.
+    pub pseudo_element: Option<PseudoElement>,
+}
+
+/// Os pseudo-elementos que geram caixa aqui.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PseudoElement {
+    /// `::before` — caixa gerada ANTES do conteúdo do elemento.
+    Before,
+    /// `::after` — caixa gerada DEPOIS do conteúdo.
+    After,
 }
 
 impl SimpleSelector {
@@ -346,6 +364,13 @@ pub fn parse_selector_list(s: &str) -> Vec<ComplexSelector> {
     split_top_level_commas(s)
         .into_iter()
         .filter_map(|part| ComplexSelector::parse(part.trim()))
+        // Um seletor com PSEUDO-ELEMENTO casa uma caixa gerada, e o
+        // `querySelector` não devolve caixas geradas — no browser
+        // `document.querySelector("p::before")` é sempre `null`. Descartá-lo
+        // aqui, e não no matcher, é o que mantém a cascata a funcionar: a
+        // cascata usa o mesmo matcher e PRECISA de casar estes seletores contra
+        // o elemento originante.
+        .filter(|sel| sel.pseudo_element.is_none())
         .collect()
 }
 
@@ -401,9 +426,29 @@ impl ComplexSelector {
         let mut combinators = Vec::new();
         let mut rest = s;
         let mut pending_combinator: Option<Combinator> = None;
+        let mut pseudo_element = None;
         loop {
             rest = rest.trim_start();
             if rest.is_empty() {
+                break;
+            }
+            // Um pseudo-elemento termina o seletor (Selectors L4 §3.3: nada pode
+            // segui-lo a não ser outra pseudo-classe, que não suportamos aí).
+            // Sobrar texto depois dele é inválido → descarta a regra.
+            if let Some((pe, after)) = strip_pseudo_element(rest) {
+                if !after.trim().is_empty() {
+                    return None;
+                }
+                // `::before` sozinho é válido e vale `*::before` — o tipo
+                // implícito da spec. Recusá-lo perdia a regra que uma folha
+                // escreve para dar `box-sizing` a tudo, pseudos incluídos.
+                if compounds.is_empty() {
+                    compounds.push(CompoundSelector { parts: vec![SimpleSelector::Universal] });
+                }
+                // `None` = é um `::` que não geramos (`::marker`, `::selection`).
+                // A regra é descartada em vez de perder o pseudo-elemento: sem
+                // ele, `p::marker { color:red }` pintaria o próprio `<p>`.
+                pseudo_element = Some(pe?);
                 break;
             }
             // combinador explícito (>, +, ~) antes do próximo compound?
@@ -436,17 +481,21 @@ impl ComplexSelector {
         if compounds.is_empty() || pending_combinator.is_some() {
             return None;
         }
-        Some(ComplexSelector { compounds, combinators })
+        Some(ComplexSelector { compounds, combinators, pseudo_element })
     }
 
     /// Peso da cascade: a tripla (ids, classes, tags) empacotada — ver
     /// [`ESPEC_ID`]. Opaca para quem chama; só se compara.
     pub fn specificity(&self) -> u32 {
+        // O pseudo-elemento pesa como uma TAG, não como uma classe (Selectors
+        // L4 §17: conta para o componente C). É o que faz `p::before` vencer
+        // `::before` e perder para `.x::before`.
+        let base = if self.pseudo_element.is_some() { ESPEC_TAG } else { 0 };
         self.compounds
             .iter()
             .flat_map(|c| c.parts.iter())
             .map(SimpleSelector::specificity)
-            .fold(0, soma_especificidade)
+            .fold(base, soma_especificidade)
     }
 }
 
@@ -461,6 +510,11 @@ fn parse_compound(s: &str) -> Option<(CompoundSelector, &str)> {
         }
         let c = rest.chars().next().unwrap();
         if c.is_whitespace() || c == '>' || c == '+' || c == '~' {
+            break;
+        }
+        // O pseudo-elemento não é um simples deste compound — ele encerra o
+        // seletor e quem o consome é o `ComplexSelector::parse`.
+        if strip_pseudo_element(rest).is_some() {
             break;
         }
         let (simple, after) = SimpleSelector::parse_one(rest)?;
@@ -622,6 +676,38 @@ fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
         _ => return None,
     };
     Some((SimpleSelector::Pseudo(pc), rest))
+}
+
+/// Reconhece um PSEUDO-ELEMENTO no início de `s`.
+///
+/// Devolve `None` quando `s` não começa por um; `Some((None, resto))` quando é
+/// um pseudo-elemento que não sabemos gerar — os dois casos são diferentes e a
+/// diferença é a que interessa: o segundo tem de DESCARTAR a regra, porque
+/// aplicá-la ao elemento originante pintaria nele o que era para uma caixa
+/// gerada.
+///
+/// Aceita as duas grafias: `::before` (CSS3, a atual) e `:before` (CSS2, ainda
+/// muito usada, e sem ambiguidade porque não existe pseudo-CLASSE com este nome).
+fn strip_pseudo_element(s: &str) -> Option<(Option<PseudoElement>, &str)> {
+    let corpo = s.strip_prefix("::").or_else(|| {
+        let apos = s.strip_prefix(':')?;
+        let (nome, _) = take_ident(apos);
+        // Só a grafia de um colon dos DOIS que a CSS2 tinha; qualquer outro `:`
+        // é pseudo-classe e não nos diz respeito aqui.
+        (nome.eq_ignore_ascii_case("before") || nome.eq_ignore_ascii_case("after")).then_some(apos)
+    })?;
+    let (nome, resto) = take_ident(corpo);
+    let pe = if nome.eq_ignore_ascii_case("before") {
+        Some(PseudoElement::Before)
+    } else if nome.eq_ignore_ascii_case("after") {
+        Some(PseudoElement::After)
+    } else {
+        // `::marker`, `::selection`, `::placeholder`, `::first-line`… Cada um
+        // precisa de maquinaria própria (uma caixa de marcador, um intervalo de
+        // seleção, uma primeira linha) e nenhum é conteúdo gerado por `content`.
+        None
+    };
+    Some((pe, resto))
 }
 
 /// Qual das funcionais de lista de seletores está a ser parseada.

@@ -492,6 +492,18 @@ css_props! {
         [inh] text_indent: Dimension;
         /// `list-style-type` — herdável.
         [inh] list_style_type: crate::style::ListStyleType;
+        /// `list-style-position` — o marcador fica FORA da caixa de conteúdo
+        /// (`outside`, o default) ou como primeira coisa da linha. Herdável.
+        [inh] list_style_position: crate::style::ListStylePosition;
+        /// `border-collapse` — se as bordas das células adjacentes se fundem.
+        /// HERDÁVEL (spec): declara-se na `<table>` e vale para dentro.
+        [inh] border_collapse: crate::style::BorderCollapse;
+        /// `border-spacing` — o vão entre células de uma tabela `separate`.
+        /// Herdável, pela mesma razão.
+        [inh] border_spacing: crate::style::BorderSpacing;
+        /// `table-layout` — larguras pelo conteúdo (`auto`) ou pela primeira
+        /// linha (`fixed`). NÃO herda: é da caixa da tabela.
+        [] table_layout: crate::style::TableLayout;
         /// `list-style-image` — a url do marcador. Guardada crua (o motor não
         /// desenha marcador; ver `style::text::ListStyleType`).
         [inh] list_style_image: String;

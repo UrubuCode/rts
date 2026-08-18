@@ -110,6 +110,36 @@ fn largura_de_atributo(dom: &Dom, id: NodeIdx) -> Option<f32> {
     v.trim_end_matches("px").parse::<f32>().ok().filter(|w| *w > 0.0)
 }
 
+/// A largura que uma célula DECLARA — pelo CSS ou pelo atributo `width` — ou
+/// `None` quando não declara nenhuma.
+///
+/// É a pergunta do `table-layout: fixed`, e é diferente da que [`cell_min_max`]
+/// responde: aquela devolve sempre um número (medindo o conteúdo quando não há
+/// declaração), e usar esse número como se fosse declarado faz o algoritmo fixo
+/// tratar TODAS as colunas como fixas — nenhuma sobra para repartir o resto, e
+/// as larguras acabam escaladas em vez de respeitadas. Foi o que um teste
+/// apanhou: uma coluna de 50px a sair com 258px.
+pub(crate) fn largura_declarada(
+    dom: &Dom,
+    id: NodeIdx,
+    parent_font: f32,
+    ctx: &LayoutCtx,
+) -> Option<f32> {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let font = crate::layout::font_px(&css, parent_font);
+    let resolve = ResolveCtx {
+        parent_content_w: ctx.viewport_w,
+        node_font_size: font,
+        root_font_size: crate::layout::DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let frame = css.padding.resolve_h(&resolve) + 2.0 * css.border_width.unwrap_or(0.0);
+    largura_absoluta(css.width, &resolve)
+        .map(|w| if css.border_box.unwrap_or(false) { w } else { w + frame })
+        .or_else(|| largura_de_atributo(dom, id))
+}
+
 /// A largura MÍNIMA do conteúdo de um nó: o ponto em que quebrar mais linhas já
 /// não estreita nada — a PALAVRA mais larga.
 ///

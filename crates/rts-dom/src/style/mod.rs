@@ -41,6 +41,8 @@ pub mod props;
 pub mod ruleindex;
 pub mod selector;
 pub mod stylesheet;
+/// As propriedades de TABELA e a posição do marcador de lista — ver o módulo.
+pub mod tables;
 pub mod text;
 pub mod values;
 pub(crate) mod vars;
@@ -68,9 +70,10 @@ pub use props::{
 };
 pub use selector::{
     compound_matches, compound_matches_borrowed, parse_selector, parse_selector_list, AttrOp, Combinator,
-    ComplexSelector, CompoundSelector, PseudoClass, Selector, SimpleSelector,
+    ComplexSelector, CompoundSelector, PseudoClass, PseudoElement, Selector, SimpleSelector,
 };
 pub use stylesheet::{parse_rules, DeclBlock, HoverReach, MatchedRules, MediaQuery, Rule, Stylesheet};
+pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
 pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak};
 pub use values::{
     clamp_size, AlignItems, BorderStyle, CalcLen, Dimension, DisplayKind, Edges, FlexDirection, FloatSide, GridTrack,

@@ -41,6 +41,9 @@ pub struct RuleIndex {
     /// stale e é reconstruído.
     covered: usize,
     has_custom_rules: bool,
+    /// Alguma regra tem `::before`/`::after`. Sem nenhuma, o layout não precisa
+    /// sequer de perguntar por conteúdo gerado.
+    has_pseudo_elements: bool,
     /// Há seletores cuja correspondência depende de atributos ou pseudo-classes
     /// representadas por atributos (`:checked`, `:disabled`, etc.).
     has_attribute_selectors: bool,
@@ -106,6 +109,7 @@ impl RuleIndex {
         idx.specificity = rules.iter().map(|r| r.selector.specificity()).collect();
         idx.covered = rules.len();
         idx.has_custom_rules = rules.iter().any(|r| !r.decls.custom.is_empty());
+        idx.has_pseudo_elements = rules.iter().any(|r| r.selector.pseudo_element.is_some());
         idx.has_attribute_selectors = rules.iter().any(|rule| {
             let mut usa = false;
             super::selector::visit_simples(&rule.selector, &mut |part| {
@@ -141,6 +145,10 @@ impl RuleIndex {
 
     pub fn has_custom_rules(&self) -> bool {
         self.has_custom_rules
+    }
+
+    pub fn has_pseudo_elements(&self) -> bool {
+        self.has_pseudo_elements
     }
 
     /// `true` se alguma regra CITA esta classe (em qualquer posição).

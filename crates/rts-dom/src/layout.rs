@@ -2615,6 +2615,31 @@ fn resolve_height(
     }
 }
 
+/// `true` se este filho tem TEXTO (ou um inline puro) por vizinho — isto é, se
+/// está dentro de uma linha em vez de estar sozinho entre blocos.
+///
+/// Serve para decidir se um inline-block flui na linha ou abre corrida própria.
+/// A pergunta é a mesma que o whitespace faz, com um vizinho a mais: o texto
+/// pode estar antes OU depois, e um `<span>` com fundo no fim de um parágrafo
+/// pertence à linha do texto que o antecede.
+fn em_contexto_inline(dom: &Dom, parent: NodeIdx, child: NodeIdx) -> bool {
+    let irmaos = &dom.node(parent).children;
+    let Some(pos) = irmaos.iter().position(|&c| c == child) else {
+        return false;
+    };
+    let e_inline = |idx: NodeIdx| match &dom.node(idx).kind {
+        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Element { tag } => {
+            !is_non_rendered_tag(tag)
+                && !is_out_of_flow(dom, idx)
+                && !is_block_level(dom, idx)
+                && !is_inline_block(dom, idx)
+        }
+        _ => false,
+    };
+    irmaos[..pos].iter().rev().any(|&c| e_inline(c)) || irmaos[pos + 1..].iter().any(|&c| e_inline(c))
+}
+
 /// Retorna se um whitespace entre irmãos deve participar do contexto inline. O
 /// parser preserva o nó de texto por fidelidade ao DOM, mas whitespace entre dois
 /// blocos/floats não cria uma linha visual; whitespace adjacente a texto/inline sim.
@@ -2719,7 +2744,7 @@ fn layout_children_vertical(
             if !inline_group.is_empty() {
                 close_floats!($y);
                 $y = layout_inline_flow(
-                    dom, &inline_group, content_x, $y, content_w, css, font_size, ctx, list,
+                    dom, id, &inline_group, content_x, $y, content_w, css, font_size, ctx, list,
                 );
                 inline_group.clear();
                 prev_margin = 0.0; // texto quebra a sequência de margin-collapse
@@ -2856,13 +2881,23 @@ fn layout_children_vertical(
             // LADO, quebrando quando enche). Os botões 'Pesquisa Google'/'Estou
             // com sorte' do google são 2 inline-block irmãos que compartilham a
             // linha. Um texto/inline entre eles fecha a corrida (flush_inline).
+            // Um inline-block RODEADO DE TEXTO é conteúdo de linha, não uma
+            // corrida própria: entra no grupo inline e o `wrap_runs` trata-o como
+            // palavra inquebrável. A corrida (`ib_run`) fica para o que ela
+            // existe — inline-blocks IRMÃOS sem texto à volta, os botões do
+            // google. Sem esta distinção um `<span>` com fundo no meio de um
+            // parágrafo fechava o fluxo e abria linha nova.
+            NodeKind::Element { .. } if child_inline_block && em_contexto_inline(dom, id, child) => {
+                flush_ib!(child_y);
+                inline_group.push(child);
+            }
             NodeKind::Element { .. } if child_inline_block => {
                 // descarrega só o TEXTO inline pendente (não o ib_run — este b
                 // continua a acumular os inline-blocks IRMÃOS na mesma corrida).
                 if !inline_group.is_empty() {
                     close_floats!(child_y);
                     child_y = layout_inline_flow(
-                        dom, &inline_group, content_x, child_y, content_w, css, font_size, ctx, list,
+                        dom, id, &inline_group, content_x, child_y, content_w, css, font_size, ctx, list,
                     );
                     inline_group.clear();
                 }
@@ -3953,7 +3988,7 @@ fn layout_inline_line(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    layout_inline_flow(dom, &[id], x, y, content_w, parent_css, font_size, ctx, list)
+    layout_inline_flow(dom, id, &[id], x, y, content_w, parent_css, font_size, ctx, list)
 }
 
 /// O FLUXO INLINE RICO (P4): um GRUPO de irmãos inline consecutivos (nós de texto
@@ -3964,6 +3999,9 @@ fn layout_inline_line(
 /// em 5 linhas).
 fn layout_inline_flow(
     dom: &Dom,
+    // O elemento DONO deste fluxo — de quem são as caixas geradas
+    // (`::before`/`::after`) que envolvem o grupo. Ver `pseudo_run`.
+    dono: NodeIdx,
     group: &[NodeIdx],
     x: f32,
     y: f32,
@@ -3977,15 +4015,44 @@ fn layout_inline_flow(
     // coleta os RUNS (cada pedaço de texto com a SUA cor/bold herdada do span que
     // o contém) de TODOS os nós do grupo, em ordem de documento.
     let mut runs = Vec::new();
+    // A caixa gerada do DONO envolve todo o conteúdo dele — e só existe como run
+    // aqui quando este grupo É todo o conteúdo. Com filhos de bloco pelo meio, o
+    // conteúdo do dono parte-se em vários grupos e a caixa gerada teria de virar
+    // um bloco anónimo, que é maquinaria de árvore de caixas que este layout não
+    // tem; nesse caso não se gera nada, que é o estado anterior, em vez de a pôr
+    // num pedaço arbitrário do conteúdo.
+    // "este grupo é TODO o conteúdo do dono?" — contado sobre os filhos que
+    // geram conteúdo. Os nós de texto só com espaços não contam: um HTML
+    // indentado põe um antes e outro depois de cada elemento, e compará-los
+    // fazia um `<div>` com o `<span>` numa linha indentada parecer conteúdo
+    // partido, e perdia a caixa gerada em quase toda a página real.
+    let filhos_com_conteudo = dom
+        .node(dono)
+        .children
+        .iter()
+        .filter(|&&c| !matches!(&dom.node(c).kind, NodeKind::Text(t) if t.trim().is_empty()))
+        .count();
+    let dono_inteiro = group
+        .iter()
+        .filter(|&&c| !matches!(&dom.node(c).kind, NodeKind::Text(t) if t.trim().is_empty()))
+        .count()
+        == filhos_com_conteudo;
+    let cor_base = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
+    if dono_inteiro {
+        runs.extend(pseudo_run(dom, dono, crate::style::PseudoElement::Before, cor_base));
+    }
     for &id in group {
         runs.extend(collect_runs(dom, id, parent_css, content_w, ctx));
+    }
+    if dono_inteiro {
+        runs.extend(pseudo_run(dom, dono, crate::style::PseudoElement::After, cor_base));
     }
     // Um MARKER (elemento inline vazio) não conta como conteúdo: um `<span></span>`
     // sozinho num bloco não cria linha nenhuma no browser, e criá-la aqui mudaria
     // a altura do bloco — o oposto de "acrescenta geometria, não muda a pintura".
     if runs
         .iter()
-        .all(|r| r.text.trim().is_empty() && !matches!(r.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced))))
+        .all(|r| r.text.trim().is_empty() && !matches!(r.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced | AtomicKind::Block))))
     {
         return y;
     }
@@ -3994,11 +4061,13 @@ fn layout_inline_flow(
         .as_deref()
         .map(crate::style::is_mono_family)
         .unwrap_or(false);
-    // line-height: do CSS (multiplicador ou px), senão o default do measurer — #1749.
-    let lh = parent_css
-        .line_height
-        .map(|l| l.resolve(font_size))
-        .unwrap_or_else(|| ctx.measurer.line_height(font_size));
+    // line-height: do CSS (multiplicador ou px), senão o default do measurer —
+    // #1749. O medidor é também quem responde por `line-height: normal`, porque
+    // esse valor sai das MÉTRICAS DA FONTE e não de uma constante: sem isto, o
+    // elemento sem declaração e o que declara `normal` — a spec diz que são o
+    // mesmo valor — davam alturas diferentes.
+    let normal = ctx.measurer.line_height(font_size);
+    let lh = parent_css.line_height.map(|l| l.resolve(font_size, normal)).unwrap_or(normal);
     let nowrap = matches!(
         parent_css.white_space,
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
@@ -4042,7 +4111,7 @@ fn layout_inline_flow(
         // altura da linha: o texto (lh) ou o widget mais alto nela.
         let line_h = line
             .iter()
-            .filter(|s| matches!(s.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced))))
+            .filter(|s| matches!(s.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced | AtomicKind::Block))))
             .map(|s| s.wh)
             .fold(lh, f32::max);
         let free = (content_w - line_w).max(0.0);
@@ -4084,6 +4153,16 @@ fn layout_inline_flow(
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
                             layout_image(dom, a_idx, &icss, seg_x, cy, seg.ww.max(1.0), ctx, list);
                         }
+                    }
+                    AtomicKind::Block => {
+                        // Um inline-block PINTA-SE como bloco (fundo, borda,
+                        // padding) mas na posição que a linha lhe deu. É o mesmo
+                        // `layout_block` da corrida de inline-blocks irmãos —
+                        // não um segundo emissor — só que o x/y vem do fluxo.
+                        layout_block(
+                            dom, a_idx, seg_x, cy, seg.ww.max(1.0), None, None, None, true, ctx,
+                            list,
+                        );
                     }
                     AtomicKind::Marker => {}
                 }
@@ -4141,6 +4220,46 @@ struct InlineRun {
     atomic: Option<(NodeIdx, AtomicKind)>,
     ww: f32,
     wh: f32,
+}
+
+/// O run de texto de uma caixa gerada (`::before`/`::after`) de `id`, ou vazio
+/// se a cascata não manda gerar nenhuma.
+///
+/// Entregar conteúdo gerado como um `InlineRun` é o que faz esta funcionalidade
+/// caber sem reescrever o fluxo: um run é "texto com um estilo, pertencente a
+/// estes elementos inline", e é exatamente o que um `::before` de texto é. Em
+/// particular ele quebra linha, herda e é medido pelo mesmo caminho do resto —
+/// nada disto precisou de um segundo caminho.
+///
+/// `owners` recebe o elemento ORIGINANTE: no browser a caixa gerada está DENTRO
+/// da caixa do elemento e um clique nela atinge o elemento. Como o pseudo não
+/// tem `NodeIdx`, é a única resposta possível — e é a certa.
+///
+/// CORTE DECLARADO: só o texto e as propriedades que um run carrega (cor, peso,
+/// decoração) chegam à pintura. `background`, `padding`, `border` e `width` do
+/// pseudo são ignorados, e `display:block`/`inline-block`/`position:absolute`
+/// nele são tratados como o inline que a maioria é. Medido na folha da
+/// Wikipédia: 88 das 100 regras com pseudo-elemento são inline por omissão.
+fn pseudo_run(
+    dom: &Dom,
+    id: NodeIdx,
+    pe: crate::style::PseudoElement,
+    // A cor já resolvida do contexto — a caixa gerada herda-a quando não
+    // declara `color`.
+    cor_herdada: u32,
+) -> Option<InlineRun> {
+    let caixa = dom.pseudo_box(id, pe)?;
+    crate::bump!(inline_runs);
+    Some(InlineRun {
+        text: caixa.texto,
+        color: cor_visivel(&caixa.css, caixa.css.color.unwrap_or(cor_herdada)),
+        bold: caixa.css.bold.unwrap_or(false),
+        deco: decoration_code(&caixa.css),
+        owners: vec![id],
+        atomic: None,
+        ww: 0.0,
+        wh: 0.0,
+    })
 }
 
 /// Um elemento inline de texto não cria caixa própria no fluxo, mas ainda assim
@@ -4290,6 +4409,27 @@ fn collect_runs(
                     });
                     return;
                 }
+                // INLINE COM CAIXA: mede-se como bloco shrink-to-fit e entra na
+                // linha como palavra inquebrável. Antes fechava o fluxo inline e
+                // abria linha própria — um `<p>texto <span com fundo>x</span>
+                // texto</p>` saía em TRÊS linhas em vez de uma, e numa página
+                // real isso multiplicava a altura do documento por ~2,7.
+                if is_inline_block(dom, id) {
+                    let (bw, bh) = measure_block(dom, id, avail_w, None, None, None, true, ctx);
+                    let mut owners = inherited_owners.to_vec();
+                    crate::bump!(inline_runs);
+                    out.push(InlineRun {
+                        text: String::new(),
+                        color: inherited_color,
+                        bold: false,
+                        deco: 0,
+                        owners: std::mem::take(&mut owners),
+                        atomic: Some((id, AtomicKind::Block)),
+                        ww: bw,
+                        wh: bh,
+                    });
+                    return;
+                }
                 // a cor/text-transform/peso/decoração DESTE inline (se declarar)
                 // vence p/ os filhos (o <a> sublinha só o próprio texto).
                 let css = dom.computed_style_idx(id);
@@ -4305,10 +4445,16 @@ fn collect_runs(
                 if is_container {
                     owners.push(id);
                 }
+                // As caixas geradas de um elemento INLINE (`a::after`) entram
+                // aqui, à volta do conteúdo próprio dele. O dono de um fluxo
+                // inteiro é tratado em `layout_inline_flow`, que é onde ele se
+                // sabe dono; os dois casos não se sobrepõem.
                 let before = out.len();
+                out.extend(pseudo_run(dom, id, crate::style::PseudoElement::Before, color));
                 for &c in &dom.node(id).children {
                     walk(dom, ctx, avail_w, c, color, deco, tt, bold, &owners, out);
                 }
+                out.extend(pseudo_run(dom, id, crate::style::PseudoElement::After, color));
                 // Um inline VAZIO (`<source>`, `<br>`, `<span></span>`) não gerou run
                 // e ficaria sem caixa. O marker dá-lhe a posição na linha sem lhe dar
                 // largura nem altura próprias — que é a caixa que o browser reporta.
@@ -5109,6 +5255,32 @@ mod tests {
         let com = layout_document(&parse_html_to_dom("<div><span></span></div>"), &ctx);
         let sem = layout_document(&parse_html_to_dom("<div></div>"), &ctx);
         assert_eq!(com.content_height, sem.content_height);
+    }
+
+
+
+    /// Um inline com CAIXA (fundo/padding) no meio de um parágrafo continua na
+    /// linha: o parágrafo tem a altura de uma linha, não de três. Era o que
+    /// multiplicava a altura de uma página real — cada `<span>` com fundo
+    /// fechava o fluxo inline e abria linha nova.
+    #[test]
+    fn inline_com_caixa_nao_parte_a_linha() {
+        let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let linhas = |html: &str| {
+            let dom = parse_html_to_dom(html);
+            let list = layout_document(&dom, &ctx);
+            let mut ys: Vec<f32> = Vec::new();
+            list.walk(|it, _dx, dy| {
+                if let DisplayItem::Text { y, .. } = it {
+                    ys.push(y + dy);
+                }
+            });
+            ys.sort_by(f32::total_cmp);
+            ys.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+            ys.len()
+        };
+        assert_eq!(linhas("<p>antes <span>simples</span> depois</p>"), 1);
+        assert_eq!(linhas("<p>antes <span style='background:#eee'>com caixa</span> depois</p>"), 1);
     }
 
 

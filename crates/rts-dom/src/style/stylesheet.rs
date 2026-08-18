@@ -142,6 +142,13 @@ pub struct Rule {
     /// A condição `@media` que ENVOLVE a regra (None = sempre aplica). Avaliada
     /// contra o viewport na cascade ([`Stylesheet::computed_for_node`]).
     pub media: Option<MediaQuery>,
+    /// O `content` declarado, quando esta regra tem pseudo-elemento.
+    ///
+    /// Fora do `decls` porque `content` não é uma propriedade do
+    /// `ComputedStyle` — ver [`crate::pseudo::Content`]. `Rc` pela mesma razão
+    /// que as declarações o são: `a::before, b::before { content:"x" }` é uma
+    /// regra por seletor e as duas partilham o valor.
+    pub content: Option<std::rc::Rc<crate::pseudo::Content>>,
 }
 
 /// Um bloco de declarações separado nas DUAS camadas de importância da cascade
@@ -609,13 +616,71 @@ impl Stylesheet {
             .iter()
             .filter_map(|&i| {
                 let r = &self.rules[i];
-                (r.media.map(|m| m.matches(viewport_w)).unwrap_or(true) && matches(&r.selector))
-                    .then(|| (index.specificity(i), r.order, i))
+                // Uma regra com pseudo-elemento NÃO estiliza o elemento: os
+                // compounds casam-no, mas as declarações são da caixa gerada.
+                // Sem esta linha, `p::before { color:red }` pintava o próprio
+                // `<p>` de vermelho — e o `::before` foi durante muito tempo
+                // recusado no parse justamente para evitar isso.
+                (r.selector.pseudo_element.is_none()
+                    && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
+                    && matches(&r.selector))
+                .then(|| (index.specificity(i), r.order, i))
             })
             .collect();
         crate::bump!(rules_matched, rules.len());
         rules.sort_by_key(|(specificity, order, _)| (*specificity, *order));
         MatchedRules { rules }
+    }
+
+    /// As regras de um PSEUDO-ELEMENTO de um nó, ordenadas pela cascade, e o
+    /// `content` vencedor.
+    ///
+    /// É a imagem no espelho de [`matched_for_node`](Self::matched_for_node): os
+    /// mesmos candidatos e o mesmo matcher (os compounds casam o elemento
+    /// originante), invertido só o filtro do pseudo-elemento. Reaproveitar o
+    /// índice é o que mantém isto barato — e é também o que responde a "o
+    /// seletor novo entra no `ruleindex`?": entra pela mesma chave de sempre,
+    /// porque `p::before` continua a ter `p` como compound alvo.
+    ///
+    /// `content` segue a cascade como qualquer declaração: vence o da regra
+    /// mais específica que o declara. Uma regra que só declare `color` não
+    /// apaga o `content` de outra — é o caso maioritário na folha da Wikipédia,
+    /// onde 53 das 100 regras com pseudo-elemento não declaram `content`.
+    pub fn matched_for_pseudo(
+        &self,
+        viewport_w: f32,
+        node_tag: &str,
+        node_id: Option<&str>,
+        node_classes: &[&str],
+        pe: super::PseudoElement,
+        matches: impl Fn(&ComplexSelector) -> bool,
+    ) -> (MatchedRules, Option<std::rc::Rc<crate::pseudo::Content>>) {
+        let cand = self.candidate_indices(node_tag, node_id, node_classes);
+        let index = self.index.borrow();
+        let mut rules: Vec<(u32, u32, usize)> = cand
+            .iter()
+            .filter_map(|&i| {
+                let r = &self.rules[i];
+                (r.selector.pseudo_element == Some(pe)
+                    && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
+                    && matches(&r.selector))
+                .then(|| (index.specificity(i), r.order, i))
+            })
+            .collect();
+        rules.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        let content = rules
+            .iter()
+            .rev()
+            .find_map(|(_, _, i)| self.rules[*i].content.clone());
+        (MatchedRules { rules }, content)
+    }
+
+    /// `true` se alguma regra desta folha gera conteúdo. É a guarda que impede
+    /// o layout de perguntar por caixas geradas numa página que não tem
+    /// nenhuma: a pergunta é por elemento e a resposta seria sempre "não".
+    pub fn has_generated_content(&self) -> bool {
+        self.ensure_rule_index();
+        self.index.borrow().has_pseudo_elements()
     }
 
     /// PASS A do `var()` por elemento (#1779): as declarações de CUSTOM
@@ -769,17 +834,29 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         // `a, b, .c { }` → uma regra por seletor (lista separada por vírgula).
         let _emit = crate::metrics::phases::scope("css-rule-emit");
         let decls = std::rc::Rc::new(RuleDecls::from_block(decls));
+        // `content` é lido do corpo CRU, e não do bloco já parseado, porque não
+        // é uma propriedade do `ComputedStyle` — o parser de declarações
+        // descarta-a. Só se procura quando algum seletor da regra tem
+        // pseudo-elemento: numa folha real são umas dezenas de regras em
+        // milhares, e varrer o corpo de todas custaria em cada página.
+        let content = std::cell::OnceCell::new();
         // A vírgula que separa a LISTA é a de topo. `split(',')` cru cortava
         // dentro de `:is(.a, .b)` e de `[data-x="a,b"]`, produzindo dois pedaços
         // que não parseiam — a regra desaparecia e a contagem de recusadas
         // culpava o seletor, não o corte.
         for sel_str in super::selector::split_top_level_commas(selectors_raw) {
             if let Some(selector) = ComplexSelector::parse(sel_str) {
+                let content = selector.pseudo_element.and_then(|_| {
+                    content
+                        .get_or_init(|| content_do_corpo(body).map(std::rc::Rc::new))
+                        .clone()
+                });
                 rules.push(Rule {
                     selector,
                     decls: std::rc::Rc::clone(&decls),
                     order: 0,
                     media: None,
+                    content,
                 });
             } else if !sel_str.trim().is_empty() {
                 // Um seletor que o parser recusa é uma regra que a página tem e o
@@ -816,6 +893,50 @@ fn find_matching_brace(s: &str) -> Option<usize> {
 
 /// Parseia o corpo de um `@keyframes`: `0% { ... } 50% { ... } to { ... }` → stops
 /// ordenados por offset. `from`=0%, `to`=100%. Cada stop reusa o parser de declarações.
+/// Acha a declaração `content` no corpo CRU de uma regra e parseia-a.
+///
+/// Percorre por `;` de topo em vez de usar uma expressão sobre o texto todo
+/// porque o valor pode conter `;` dentro de aspas (`content: ";"`), e porque
+/// `font-content`/`--content` não são a propriedade procurada — o nome tem de
+/// casar inteiro.
+fn content_do_corpo(body: &str) -> Option<crate::pseudo::Content> {
+    let mut achado = None;
+    for decl in split_top_level_semicolons(body) {
+        let Some((nome, valor)) = decl.split_once(':') else { continue };
+        if !nome.trim().eq_ignore_ascii_case("content") {
+            continue;
+        }
+        // A ÚLTIMA declaração do bloco vence, como em qualquer bloco CSS; uma
+        // que não saibamos parsear não apaga a anterior que sabíamos.
+        if let Some(c) = crate::pseudo::parse_content(valor.trim_end_matches("!important").trim()) {
+            achado = Some(c);
+        }
+    }
+    achado
+}
+
+/// Divide um corpo de declarações nos `;` de topo (fora de aspas e parênteses).
+fn split_top_level_semicolons(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let (mut par, mut inicio) = (0i32, 0usize);
+    let mut aspa: Option<char> = None;
+    for (i, c) in s.char_indices() {
+        match c {
+            '"' | '\'' if aspa.is_none() => aspa = Some(c),
+            q if Some(q) == aspa => aspa = None,
+            '(' if aspa.is_none() => par += 1,
+            ')' if aspa.is_none() => par -= 1,
+            ';' if aspa.is_none() && par == 0 => {
+                out.push(&s[inicio..i]);
+                inicio = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&s[inicio..]);
+    out
+}
+
 fn parse_keyframe_body(body: &str) -> crate::anim::Keyframes {
     let mut stops = Vec::new();
     let mut rest = body;

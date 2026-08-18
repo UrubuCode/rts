@@ -34,6 +34,10 @@ pub(crate) enum AtomicKind {
     Replaced,
     /// Um elemento inline vazio: posição e altura de linha, largura zero.
     Marker,
+    /// Um inline com CAIXA (`<span style=background>`, `<a>` com padding): tem
+    /// fundo e borda próprios, logo precisa de `layout_block` para os pintar,
+    /// mas continua a ser conteúdo de linha e não deve parti-la.
+    Block,
 }
 
 /// Tamanho de um replaced element inline, ou `None` se a tag não é replaced.

@@ -327,16 +327,30 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             // margem, comum em logos com fundo).
             "text-indent" => css.text_indent = parse_dimension_signed(val),
             "list-style-type" => css.list_style_type = crate::style::ListStyleType::parse(val),
+            "list-style-position" => {
+                css.list_style_position = crate::style::ListStylePosition::parse(val)
+            }
+            // ── Tabela ────────────────────────────────────────────────────────
+            "border-collapse" => css.border_collapse = crate::style::BorderCollapse::parse(val),
+            "border-spacing" => css.border_spacing = crate::style::BorderSpacing::parse(val),
+            "table-layout" => css.table_layout = crate::style::TableLayout::parse(val),
             "list-style-image" => css.list_style_image = Some(val.trim().to_string()),
             // `list-style: <type> || <position> || <image>` — os três em qualquer
-            // ordem. `position` (inside/outside) é aceite e descartado: sem
-            // marcador desenhado não há onde o pôr.
+            // ordem, e agora os três GUARDADOS: a posição deixou de ser descartada
+            // quando o marcador passou a ser desenhado.
+            //
+            // A ordem dos ramos importa: `none` é um valor válido de `type` E o
+            // ficheiro não tem como saber a qual dos dois o autor se referia, por
+            // isso o `type` é tentado ANTES da posição — `outside`/`inside` não
+            // são valores de `type`, portanto não há ambiguidade no outro sentido.
             "list-style" => {
                 for tok in val.split_whitespace() {
                     if tok.to_ascii_lowercase().starts_with("url(") {
                         css.list_style_image = Some(tok.to_string());
                     } else if let Some(t) = crate::style::ListStyleType::parse(tok) {
                         css.list_style_type = Some(t);
+                    } else if let Some(p) = crate::style::ListStylePosition::parse(tok) {
+                        css.list_style_position = Some(p);
                     }
                 }
             }
@@ -402,7 +416,7 @@ pub(crate) fn parse_dimension_pub(v: &str) -> Option<Dimension> {
     parse_dimension(v)
 }
 
-fn parse_dimension(v: &str) -> Option<Dimension> {
+pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     let v = v.trim();
     if v.eq_ignore_ascii_case("auto") {
         return Some(Dimension::Auto);

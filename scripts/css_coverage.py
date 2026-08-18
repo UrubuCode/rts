@@ -10,6 +10,11 @@ WHY IT READS parse.rs AND NOT A HAND LIST: a hand list is a second source of
 supported names is derived from the match arms of `apply_decl`, which is the
 only place a CSS name becomes a field.
 
+IT IS A LOWER BOUND. Some names are matched by a PREDICATE and not by a literal
+(`_ if borders::is_longhand(&prop)` covers the twelve `border-<side>-<width|
+style|color>` longhands), and a literal scan cannot see those. The count is
+"names spelled out in the dispatch", never "names the parser accepts".
+
 WHAT IT DOES NOT SAY: recognising a name is not implementing it. A property may
 parse and never be read by `layout.rs` (`font-style` is the standing example).
 This script measures the PARSER's surface only; the layout side is audited by

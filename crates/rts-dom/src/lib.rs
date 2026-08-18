@@ -26,6 +26,9 @@ mod dom;
 pub mod fasthash;
 mod html;
 mod inline_box;
+/// CONTEÚDO GERADO (`::before`/`::after`): resolução da caixa que a cascata manda
+/// existir, sem que ela entre na árvore de nós.
+pub mod pseudo;
 /// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
 /// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
 /// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.

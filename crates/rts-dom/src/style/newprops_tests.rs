@@ -299,3 +299,75 @@ fn valores_logicos_e_recentes_das_keywords_sao_aceites() {
     assert_eq!(parse_inline("clear: inline-start").get_property("clear"), "left");
     assert_eq!(parse_inline("word-break: auto-phrase").get_property("word-break"), "auto-phrase");
 }
+
+#[test]
+fn line_height_sem_unidade_chega_ao_layout() {
+    // A cascade responde `1.625` e a linha tem de sair a 26px (1.625 × 16), que é
+    // o que o Chrome computa nos <p> da Wikipédia. Sem isto a linha cai no default
+    // do medidor (20,8) e o parágrafo inteiro fica com o espaçamento errado.
+    crate::block::define(
+        "p",
+        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+    );
+    let texto = "palavra ".repeat(40);
+    let ys = |decl: &str| -> Vec<f32> {
+        let list = layout(&format!("<p style='{decl}'>{texto}</p>"), 400.0);
+        list.items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text { y, .. } => Some(*y),
+                _ => None,
+            })
+            .collect()
+    };
+    let com = ys("line-height:1.625");
+    assert!(com.len() > 2, "o texto tem de quebrar em várias linhas: {com:?}");
+    assert_eq!(com[1] - com[0], 26.0);
+    // `em` é relativo ao font-size do próprio elemento: mesmo número que o
+    // multiplicador. Era ignorado por completo antes (caía em 20,8).
+    let em = ys("line-height:1.625em");
+    assert_eq!(em[1] - em[0], 26.0);
+    // `%` também é do font-size do elemento, não do container.
+    let pct = ys("line-height:162.5%");
+    assert_eq!(pct[1] - pct[0], 26.0);
+    // e a forma absoluta continua absoluta.
+    let px = ys("line-height:26px");
+    assert_eq!(px[1] - px[0], 26.0);
+}
+
+#[test]
+fn line_height_normal_e_o_mesmo_que_nao_declarar() {
+    // A spec diz que `normal` é o valor INICIAL — declarar ou omitir tem de dar a
+    // mesma linha. Dava 1,2×font declarado contra 1,3×font (o medidor) omitido:
+    // a mesma propriedade com duas alturas conforme fosse escrita.
+    crate::block::define(
+        "p",
+        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+    );
+    let texto = "palavra ".repeat(40);
+    let delta = |decl: &str| -> f32 {
+        let list = layout(&format!("<p style='{decl}'>{texto}</p>"), 400.0);
+        let ys: Vec<f32> = list
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text { y, .. } => Some(*y),
+                _ => None,
+            })
+            .collect();
+        ys[1] - ys[0]
+    };
+    assert_eq!(delta("line-height:normal"), delta(""));
+    // e o computed reporta `normal`, que é o único valor de line-height que o
+    // browser não resolve para px.
+    assert_eq!(parse_inline("line-height: normal").get_property("line-height"), "normal");
+}
+
+#[test]
+fn line_height_negativo_e_recusado() {
+    // A spec proíbe negativo; recusar deixa a declaração cair (o que o browser
+    // faz) em vez de encolher a linha para trás.
+    assert_eq!(parse_inline("line-height: -1.5").line_height, None);
+    assert_eq!(parse_inline("line-height: -10px").line_height, None);
+}
+

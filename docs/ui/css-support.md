@@ -31,6 +31,18 @@ e seletores (`~`, `+`, `[attr]`, `:is`/`:where`) **enquanto isto era levantado**
 | 17:21 | `58897bbe`+wt | 83 | 65 | 1 264 / 1 624 (77%) |
 | 17:24 | `58897bbe`+wt | 111 | 85 | 1 454 / 1 624 (89%) |
 | 17:27 | `0bcbb0ef`+wt | 111 | 85 | 1 454 / 1 624 (89%) |
+| 18:04 | `ffa33d73`+wt | 111 | 85 | 1 454 / 1 624 (89%) |
+
+**A contagem de nomes é um LIMITE INFERIOR desde as 18:04**, e parou de se
+mover por isso: as doze longhands `border-<lado>-<width\|style\|color>` passaram
+a ser aceites por um **predicado** (`_ if borders::is_longhand(&prop)`) e não
+por um literal, e um scanner de literais não as vê. O script diz-no; o número a
+seguir é "nomes escritos por extenso no dispatch", nunca "nomes que o parser
+aceita".
+
+**E o número que manda é outro**: a §1.10 mede COMPORTAMENTO contra o Chrome,
+e é a única das medições deste documento que responde "está certo?" em vez de
+"existe?".
 
 O documento está escrito contra a **primeira**; a §1.7 diz o que as seguintes
 mudaram, quais áreas estão **em obra**, e o que nenhuma delas prova ainda. Um
@@ -242,6 +254,101 @@ o registo serve é a distinção que esta auditoria existe para fazer — um nom
 `parse.rs` não é uma propriedade suportada, e a §1.3 (`font-style`) mostra que
 esse estado intermédio consegue ficar parado durante muito tempo se ninguém o
 medir.
+
+---
+
+## 1.10 A MEDIÇÃO QUE MANDA: o corpus de fixtures contra o Chrome
+
+Tudo acima conta *nomes*. Isto conta *comportamento*, e por isso vale mais.
+
+**2026-08-18 18:02, `HEAD ffa33d73`: 7 das 42 fixtures passam a 1px de
+tolerância — 249 desvios em 35 ficheiros.** Produzido por
+`bash scripts/css_fixtures.sh`, régua = Chrome 1280x800
+(`tests/css/README.md` descreve o corpus e o procedimento de medição).
+
+**Entrada verificada:** 42 `.html` e 42 `.esperado.json` na pasta — nenhuma
+fixture entra na conta sem esperado, nenhuma sai dela por não correr.
+
+**Contra que binário, e é a ressalva que muda a leitura:** o
+`target/release/examples/run_fixture.exe` é de **17:53**; o commit `ffa33d73`
+("caixas para inline, listas e tabelas — 9 315 elementos deixam de ser
+invisíveis ao layout") é de **18:01**. **O binário é oito minutos mais VELHO do
+que o `HEAD` e não contém esse commit.** Este 7/42 mede o estado em `b252fc0d`
+mais o que estava por commitar às 17:53 — não o `HEAD`. Reconstruir e voltar a
+correr é o que o atualiza; até lá, é isto que o número diz e não mais.
+
+### As 249 falhas por mecanismo
+
+| desvios | mecanismo |
+|---:|---|
+| **68** | **`line-height` inicial** — uma linha de texto mede 20.8 onde o Chrome diz 18 (o nosso inicial é um fator fixo ~1.3; o Chrome usa a métrica da fonte). 43 desvios diretos de altura + 25 de `y` acumulado |
+| 62 | **valor inicial não resolvido** — `computedProperty` de uma propriedade não declarada responde `""` onde o browser responde `block`/`visible`/`static`/`none` |
+| 105 | geometria, causas várias (abaixo) |
+| 14 | outros valores de estilo |
+
+**O `line-height` inicial é, sozinho, cinco fixturas.** Estas falham *só* por
+ele e passariam com esse número corrigido:
+`background-shorthand` (7/7 desvios), `especificidade` (7/7),
+`seletor-atributo` (17/17), `var-fallback` (7/7), `where-vs-is` (5/5) — e
+explica ainda 13 de 15 em `cor-e-fundo` e 11 de 14 em `seletor-irmaos`. As
+fixtures de seletores acertam **todas** as cores; falham na altura da caixa.
+É a correção de maior alavanca do corpus, e é um número, não um mecanismo.
+
+### Os desvios geométricos, por ficheiro (o que o Chrome diz → o que nós dizemos)
+
+| fixture | desvios | o desvio concreto |
+|---|---:|---|
+| `list-style-type` | 18 | o `<li>` começa em `x=0` e mede 1280; o Chrome dá `x=40` e 1240 — falta `padding-inline-start: 40px` no `<ul>` da folha de UA |
+| `border-lados` | 15 | as bordas por lado **não somam à caixa**: `border-top: 10px` dá `h=20` onde o Chrome diz 30; os quatro lados diferentes dão 200x20 contra 206x24 |
+| `font-size-unidades` | 11 | `150%` computa 26 onde o Chrome diz 34 (`#percento.h`), `em` dá 26 contra 23 — a base da percentagem/`em` não é a do pai |
+| `text-align` | 7 | a nossa largura de 3 caracteres monospace é 28.8 e o Chrome diz 26.39: **avanço de glifo 0.6em contra 0.55em**, ~9% largo em todo o texto |
+| `letter-spacing` | 6 | não entra na medição: `letter-spacing: 10px` mede 48 onde o Chrome diz 93.98 |
+| `margin-collapse` | 6 | margens verticais adjacentes **somam** em vez de colapsar (+10 em cada par), e a do primeiro filho não atravessa um pai transparente: `#pai-transparente` mede 60 onde o Chrome diz 20 |
+| `white-space` | 6 | `nowrap`/`pre` não mudam a quebra — as caixas medem 20 onde o Chrome dá 40 |
+| `display-basico` | 5 | **`display:inline` aceita `width`/`height`**: 300x300 onde o Chrome dá 26.39x19, e `inline-block` computa como `inline` |
+| `vertical-align` | 5 | ausente: os `inline-block` de alturas diferentes ficam em `y=0` onde o Chrome os espalha entre 7.25 e 19.91 |
+| `clear` | 4 | `clear:right` desce abaixo do float ESQUERDO (`y=95` contra 40); `clear:none` também desce (`y=80` contra 0) — os três valores comportam-se como um só |
+| `position-absolute` | 4 | `top:0;left:0;right:0;bottom:0` dá **0x0** onde o Chrome estica para 200x100 |
+| `heranca` | 4 | `h=31.2` contra 27 (o mesmo fator de linha, noutra base) |
+| `grid-areas` | 3 | os itens da linha do meio ficam com `h=0` e o rodapé sobe para `y=60` em vez de `y=360` |
+| `float-clear` | 3 | o float **não sai do fluxo**: o pai só de floats mede 60 e devia medir 0 |
+| `padding-border` | 3 | uma borda **sem `border-style`** ocupa espaço na mesma: 220x40 onde o Chrome diz 200x20 |
+| `position-relative` | 2 | `top`/`left` num relativo não deslocam (`x=0` contra 30) |
+| `box-model` | 2 | `#pai` em `y=0` contra 20 e `h=220` contra 200 — margem do filho a escapar |
+| `largura-auto` | 1 | 44 contra 42.2 (o mesmo avanço de glifo) |
+
+### Uma atribuição da tabela anterior que está ERRADA
+
+O `tests/css/README.md` diz que `display: none` "continua a ocupar 255px de
+fluxo". **Não ocupa.** Sondei o caso isolado com o mesmo binário:
+
+```
+a       0,0    1280x30      (div de 30px)
+oculto  0,0    0x0          (display:none, height:500px)
+b       0,30   1280x25      (a seguir — não deslocado)
+```
+
+`display:none` dá caixa 0x0 e não desloca nada, que é o correto. Os 255px de
+desvio em `#depois-do-none` vêm do **irmão anterior**: o `display:inline` que
+aceita `height: 300px`. Fica registado porque uma atribuição errada custa mais
+do que um buraco desconhecido — manda um agente arranjar o que já funciona.
+
+### O excesso de altura da Wikipédia: os candidatos que este corpus reproduz
+
+A página real mede 130 577px contra 69 930px do Chrome (+86,7%). Três
+mecanismos deste corpus inflacionam altura, e são os sítios por onde procurar:
+
+1. **`line-height` inicial**: +15,6% em **cada** linha de texto. Numa página
+   que é quase toda texto, é o multiplicador de base.
+2. **Colapso de margens ausente**: `#pai-transparente` mede 60 onde o Chrome
+   diz 20 — **três vezes**. Cada par `<p>`/`<h2>` adjacente da Wikipédia soma
+   duas margens onde o browser conta uma.
+3. **Float dentro do fluxo**: um contentor só de floats mede 60 onde o Chrome
+   diz 0.
+
+Nenhum dos três chega sozinho a +86,7%, e os três juntos são compostos, não
+somados — não afirmo que expliquem o número. Afirmam-se como as três hipóteses
+que já estão reproduzidas em vinte linhas, que era o pedido.
 
 ---
 

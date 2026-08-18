@@ -35,17 +35,31 @@ fn main() {
 
     // Os itens de texto, ordenados por y, para se poderem contar as linhas
     // distintas dentro de um retângulo.
-    let textos: Vec<(f32, f32, f32, usize)> = list
-        .items
-        .iter()
-        .filter_map(|it| match it {
+    // Pela ÁRVORE (`walk`) e não por `list.items`: desde a saída em árvore, os
+    // itens de uma subárvore reusada vivem no fragmento dela. Ler `items` direto
+    // dá 63 itens para a Wikipédia inteira e a conclusão errada de que a página
+    // não pinta.
+    let mut textos: Vec<(f32, f32, f32, usize)> = Vec::new();
+    let mut por_tipo = std::collections::BTreeMap::new();
+    list.walk(|it, dx, dy| {
+        let nome = match it {
             DisplayItem::Text { x, y, text, size, .. } => {
-                Some((*x, *y, *size, text.chars().count()))
+                textos.push((x + dx, y + dy, *size, text.chars().count()));
+                "Text"
             }
-            _ => None,
-        })
-        .collect();
+            DisplayItem::SolidRect { .. } => "SolidRect",
+            DisplayItem::Border { .. } => "Border",
+            DisplayItem::Image { .. } => "Image",
+            _ => "outro",
+        };
+        *por_tipo.entry(nome).or_insert(0usize) += 1;
+    });
+    textos.sort_by(|a, b| a.1.total_cmp(&b.1));
     println!("itens de texto: {}", textos.len());
+    println!("itens por tipo: {por_tipo:?}");
+    if let Some((_, y, _, _)) = textos.last() {
+        println!("y do ultimo texto: {y:.0}");
+    }
 
     let geo = list.geometry();
     let mut paragrafos: Vec<(f32, rts_dom::layout::Rect)> = dom

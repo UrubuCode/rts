@@ -39,10 +39,10 @@ const BULLET_EM: f32 = 0.35;
 
 /// Emite o marcador de um `display:list-item` na display list.
 ///
-/// `content_x`/`content_y` são o canto superior-esquerdo do CONTENT-BOX do item —
-/// o marcador de um `list-style-position: outside` (o default, e o único que este
-/// motor desenha hoje) fica à ESQUERDA dele, fora da caixa de conteúdo, e por
-/// isso não desloca nada: nenhuma medida de largura muda por haver marcador.
+/// `content_x`/`content_y` são o canto superior-esquerdo do CONTENT-BOX do item.
+/// De que lado do `content_x` o marcador cai decide-o o `list-style-position`;
+/// em nenhum dos dois casos ele desloca coisa nenhuma — nenhuma medida de
+/// largura muda por haver marcador, que é o que o browser também faz.
 ///
 /// Não emite nada quando `list-style-type: none` — que é o caso mais comum numa
 /// página real, onde `<ul>` é o markup de um menu.
@@ -69,15 +69,34 @@ pub(crate) fn emit_marker(
     }
     let color = css.color.unwrap_or(0x0000_00FF);
     let line_h = ctx.measurer.line_height(font_size);
+    // `list-style-position` decide de que LADO de `content_x` o marcador cai.
+    //
+    // `outside` (o default) põe-no fora da caixa de conteúdo, dentro do recuo que
+    // o `<ul>` reservou. `inside` põe-no DENTRO, como primeira coisa da linha.
+    //
+    // Em nenhum dos dois a GEOMETRIA do item muda, e no `inside` isso é a parte
+    // que interessa: o browser trata o marcador como uma caixa inline no início
+    // da primeira linha, portanto a caixa do `<li>` é a mesma que teria sem
+    // marcador nenhum. O que ainda não fazemos é EMPURRAR essa primeira linha
+    // para a direita — o marcador é pintado no início dela e pode sobrepor-se à
+    // primeira palavra. É um refino do fluxo inline, não deste ficheiro:
+    // empurrar a linha daqui exigiria mexer na largura do item, e isso sim
+    // partiria a geometria que hoje está certa.
+    let dentro = css.list_style_position == Some(crate::style::ListStylePosition::Inside);
+    // A borda direita do marcador: à esquerda do texto quando `outside`, no
+    // próprio início do conteúdo quando `inside`.
+    let borda_direita = if dentro {
+        content_x + largura_marcador(kind, dom, id, font_size, ctx)
+    } else {
+        content_x - font_size * MARKER_GAP_EM
+    };
 
     match kind {
         ListStyleType::Disc | ListStyleType::Circle | ListStyleType::Square => {
             let d = font_size * BULLET_EM;
-            // O bullet fica com a borda DIREITA a `MARKER_GAP_EM` do texto e
-            // centrado na primeira linha (é onde o browser o alinha: à linha de
-            // base do primeiro texto, não ao topo da caixa).
-            let right = content_x - font_size * MARKER_GAP_EM;
-            let rect = Rect::new(right - d, content_y + (line_h - d) / 2.0, d, d);
+            // O bullet fica centrado na primeira linha — é onde o browser o
+            // alinha (à linha de base do primeiro texto, não ao topo da caixa).
+            let rect = Rect::new(borda_direita - d, content_y + (line_h - d) / 2.0, d, d);
             match kind {
                 // `circle` é o ÚNICO vazado: um anel. Espessura 1px é o que o
                 // Chrome desenha em qualquer tamanho de fonte usual.
@@ -102,7 +121,7 @@ pub(crate) fn emit_marker(
             let text = format!("{}.", counter_text(kind, n));
             let w = ctx.measurer.text_width(&text, font_size, false, false);
             list.items.push(DisplayItem::Text {
-                x: content_x - font_size * MARKER_GAP_EM - w,
+                x: borda_direita - w,
                 y: content_y,
                 text: text.into(),
                 color,
@@ -112,6 +131,26 @@ pub(crate) fn emit_marker(
                 letter_spacing: 0.0,
                 decoration: 0,
             });
+        }
+    }
+}
+
+/// A largura que o marcador ocupa — o que o `inside` precisa de saber para o
+/// pôr no início do conteúdo em vez de o alinhar pela direita.
+fn largura_marcador(
+    kind: ListStyleType,
+    dom: &Dom,
+    id: NodeIdx,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
+    match kind {
+        ListStyleType::Disc | ListStyleType::Circle | ListStyleType::Square => {
+            font_size * BULLET_EM
+        }
+        _ => {
+            let t = format!("{}.", counter_text(kind, ordinal(dom, id)));
+            ctx.measurer.text_width(&t, font_size, false, false)
         }
     }
 }

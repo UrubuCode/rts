@@ -8,7 +8,7 @@
 //! exatamente onde este motor podia errar sem se notar.
 
 use crate::dom::parse_html_to_dom;
-use crate::style::{parse_selector, PseudoClass, SimpleSelector};
+use crate::style::{parse_selector, PseudoClass, PseudoElement, SimpleSelector};
 
 /// Quantos nós da árvore de `html` casam `sel`.
 fn conta(html: &str, sel: &str) -> usize {
@@ -162,16 +162,32 @@ fn focus_casa_so_o_campo_focado_e_nao_o_ancestral() {
 }
 
 #[test]
-fn pseudo_elemento_descarta_a_regra_em_vez_de_a_aplicar_ao_elemento() {
-    // `::before`/`::after` ainda não geram caixa. A regra é RECUSADA — o erro a
-    // evitar é pintá-la no próprio elemento, que seria visível e errado.
-    assert!(parse_selector("p::before").is_none());
-    assert!(parse_selector("p::after").is_none());
+fn pseudo_elemento_e_parseado_mas_nunca_estiliza_o_elemento() {
+    // `::before`/`::after` agora PARSEIAM e geram caixa (ver `crate::pseudo`),
+    // mas o que nunca pode acontecer continua igual: as declarações são da
+    // caixa gerada e não do elemento originante.
+    let sel = parse_selector("p::before").unwrap();
+    assert_eq!(sel.pseudo_element, Some(PseudoElement::Before));
+    assert_eq!(parse_selector("p:after").unwrap().pseudo_element, Some(PseudoElement::After));
+    // Um pseudo-elemento que não geramos continua a DESCARTAR a regra — deixá-la
+    // sem o `::marker` aplicá-la-ia ao `<p>`.
+    assert!(parse_selector("p::marker").is_none());
+    // Nada pode seguir um pseudo-elemento.
+    assert!(parse_selector("p::before span").is_none());
     let dom = parse_html_to_dom(
         "<style>p::before { color:#ff0000 } p { color:#0000ff }</style><p>x</p>",
     );
     let p = dom.query("p").unwrap();
     assert_eq!(dom.computed_style(p).unwrap().color, Some(0x0000FFFF));
+}
+
+#[test]
+fn pseudo_elemento_pesa_como_uma_tag() {
+    // Selectors L4 §17: conta para o componente das tags. `p::before` vence
+    // `::before` e perde para `.x::before`.
+    assert!(peso("p::before") > peso("::before"));
+    assert!(peso(".x::before") > peso("p::before"));
+    assert_eq!(peso("p::before"), peso("p span"));
 }
 
 #[test]

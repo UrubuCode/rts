@@ -39,9 +39,16 @@ struct Cell {
     rowspan: usize,
 }
 
-/// Uma linha (`<tr>`), com as suas células e o grupo a que pertence.
+/// Uma linha, com as suas células.
+///
+/// `node` é `None` para uma linha ANÓNIMA — a que o CSS gera à volta de células
+/// que não têm um `table-row` por pai (§17.2.1). Não é um caso de canto: é o que
+/// a Wikipédia escreve com dois `<div style="display:table-cell">` dentro de um
+/// `<div style="display:table">`, e sem a linha anónima essas células empilham
+/// à largura toda em vez de ficarem lado a lado. Uma linha anónima não recebe
+/// caixa registada nem pinta nada, porque não existe elemento a que pertença.
 struct Row {
-    node: NodeIdx,
+    node: Option<NodeIdx>,
     cells: Vec<Cell>,
 }
 
@@ -57,38 +64,60 @@ struct Grid {
     cols: usize,
 }
 
-/// Os parâmetros de tabela que o CSS ainda não nos dá.
+/// Os parâmetros da tabela, já resolvidos em pontos: os três valores que
+/// decidem a grade antes de qualquer célula ser medida.
 ///
-/// **Este struct é o ponto único a ligar quando `border-collapse`,
-/// `border-spacing` e `table-layout` existirem no `ComputedStyle`.** Hoje vêm
-/// dos atributos HTML equivalentes, que a Wikipédia e qualquer página anterior a
-/// 2010 ainda escrevem, e dos defaults do Chrome. Espalhar estes três valores
-/// pelo algoritmo seria a alternativa, e transformaria uma troca de quatro
-/// linhas numa caça.
+/// Duas fontes, e a precedência é a do browser: **o CSS vence o atributo HTML**.
+/// Os atributos (`cellspacing`, `border`) não são legado a tolerar — são
+/// apresentação que o HTML define e que o browser honra quando não há CSS a
+/// dizer o contrário, e páginas reais (a Wikipédia inteira) ainda os escrevem.
 struct TableStyle {
     /// Vão horizontal e vertical entre células. Zero quando as bordas fundem.
     spacing_h: f32,
     spacing_v: f32,
-    /// `table-layout: fixed`. **Hoje é sempre `false`**, e está dito em vez de
-    /// escondido: a propriedade não existe no `ComputedStyle`, portanto o ramo
-    /// fixo de [`widths::resolve_fixo`] não é alcançável por nenhuma página. O
-    /// algoritmo está escrito e testado à parte porque a alternativa — deixá-lo
-    /// para quando a propriedade chegar — significaria descobrir só então que a
-    /// forma da função não servia.
+    /// `table-layout: fixed` — as larguras vêm da primeira linha e nenhuma
+    /// célula é medida.
     fixed: bool,
 }
 
 impl TableStyle {
-    fn of(dom: &Dom, id: NodeIdx) -> TableStyle {
-        // `cellspacing` é o atributo que corresponde a `border-spacing`; sem ele,
-        // 2px, que é o valor da folha de estilo de todo o browser.
-        let spacing = dom
-            .node(id)
-            .attr("cellspacing")
-            .and_then(|v| v.trim().trim_end_matches("px").parse::<f32>().ok())
-            .unwrap_or(2.0)
-            .max(0.0);
-        TableStyle { spacing_h: spacing, spacing_v: spacing, fixed: false }
+    fn of(dom: &Dom, id: NodeIdx, css: &ComputedStyle, font: f32, ctx: &LayoutCtx) -> TableStyle {
+        let resolve = crate::style::ResolveCtx {
+            parent_content_w: ctx.viewport_w,
+            node_font_size: font,
+            root_font_size: crate::layout::DEFAULT_FONT_SIZE,
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        // `border-collapse: collapse` ANULA o vão — não o reduz, anula-o. É por
+        // isso que a pergunta vem primeiro: com bordas fundidas não há
+        // `border-spacing` nenhum a resolver, e resolvê-lo para o deitar fora
+        // deixaria o leitor à espera de que ele contasse para alguma coisa.
+        if css.border_collapse == Some(crate::style::BorderCollapse::Collapse) {
+            return TableStyle { spacing_h: 0.0, spacing_v: 0.0, fixed: Self::fixo(css) };
+        }
+        let (h, v) = match css.border_spacing {
+            Some(s) => (
+                s.h.resolve(&resolve).unwrap_or(0.0).max(0.0),
+                s.v.resolve(&resolve).unwrap_or(0.0).max(0.0),
+            ),
+            // Sem CSS: o atributo `cellspacing`, e sem ele os 2px da folha de
+            // estilo do browser para uma tabela `separate`.
+            None => {
+                let a = dom
+                    .node(id)
+                    .attr("cellspacing")
+                    .and_then(|v| v.trim().trim_end_matches("px").parse::<f32>().ok())
+                    .unwrap_or(2.0)
+                    .max(0.0);
+                (a, a)
+            }
+        };
+        TableStyle { spacing_h: h, spacing_v: v, fixed: Self::fixo(css) }
+    }
+
+    fn fixo(css: &ComputedStyle) -> bool {
+        css.table_layout == Some(crate::style::TableLayout::Fixed)
     }
 }
 
@@ -109,17 +138,50 @@ fn collect(dom: &Dom, table: NodeIdx) -> Grid {
     // depois, que é o modo mais visível de uma tabela estar errada.
     let mut ocupado: Vec<usize> = Vec::new();
 
+    // Células que apareceram sem `table-row` por pai e ainda esperam pela linha
+    // ANÓNIMA que as vai conter. Só células CONSECUTIVAS entram na mesma linha:
+    // é o que a spec manda, e é o que faz `célula, linha, célula` dar três
+    // linhas em vez de duas células na mesma.
+    let mut soltas: Vec<NodeIdx> = Vec::new();
+    macro_rules! fechar_anonima {
+        () => {
+            if !soltas.is_empty() {
+                add_row(dom, None, &soltas, &mut g, &mut ocupado);
+                soltas.clear();
+            }
+        };
+    }
+
     for &child in &dom.node(table).children {
         match display_of(dom, child) {
+            Some(DisplayKind::TableCell) => soltas.push(child),
             Some(DisplayKind::TableRow) => {
-                add_row(dom, child, &mut g, &mut ocupado);
+                fechar_anonima!();
+                add_row(dom, Some(child), &celulas_de(dom, child), &mut g, &mut ocupado);
             }
             Some(DisplayKind::TableRowGroup) => {
+                fechar_anonima!();
                 let inicio = g.rows.len();
+                // O grupo também pode trazer células soltas — mesma regra, e o
+                // mesmo motivo de a resolver aqui dentro em vez de achatar a
+                // árvore antes: achatar perderia a fronteira do grupo, que é o
+                // que dá a caixa ao `<tbody>`.
+                let mut soltas_g: Vec<NodeIdx> = Vec::new();
                 for &r in &dom.node(child).children {
-                    if display_of(dom, r) == Some(DisplayKind::TableRow) {
-                        add_row(dom, r, &mut g, &mut ocupado);
+                    match display_of(dom, r) {
+                        Some(DisplayKind::TableCell) => soltas_g.push(r),
+                        Some(DisplayKind::TableRow) => {
+                            if !soltas_g.is_empty() {
+                                add_row(dom, None, &soltas_g, &mut g, &mut ocupado);
+                                soltas_g.clear();
+                            }
+                            add_row(dom, Some(r), &celulas_de(dom, r), &mut g, &mut ocupado);
+                        }
+                        _ => {}
                     }
+                }
+                if !soltas_g.is_empty() {
+                    add_row(dom, None, &soltas_g, &mut g, &mut ocupado);
                 }
                 g.groups.push((child, inicio, g.rows.len() - inicio));
             }
@@ -128,25 +190,33 @@ fn collect(dom: &Dom, table: NodeIdx) -> Grid {
             None => {}
             _ => {
                 if !crate::layout::is_out_of_flow(dom, child) {
+                    fechar_anonima!();
                     g.outros.push(child);
                 }
             }
         }
     }
+    fechar_anonima!();
     g
 }
 
-fn add_row(dom: &Dom, row: NodeIdx, g: &mut Grid, ocupado: &mut Vec<usize>) {
+/// Acrescenta uma linha à grade a partir das CÉLULAS dela. Recebe as células e
+/// não o nó da linha porque uma linha anónima não tem nó — e porque o que a
+/// grade precisa de saber de uma linha são as suas células.
+fn add_row(
+    dom: &Dom,
+    node: Option<NodeIdx>,
+    celulas: &[NodeIdx],
+    g: &mut Grid,
+    ocupado: &mut Vec<usize>,
+) {
     // Consome uma linha de cada `rowspan` pendente antes de colocar as células.
     for o in ocupado.iter_mut() {
         *o = o.saturating_sub(1);
     }
     let mut cells = Vec::new();
     let mut col = 0usize;
-    for &c in &dom.node(row).children {
-        if display_of(dom, c) != Some(DisplayKind::TableCell) {
-            continue;
-        }
+    for &c in celulas {
         while ocupado.get(col).copied().unwrap_or(0) > 0 {
             col += 1;
         }
@@ -162,7 +232,17 @@ fn add_row(dom: &Dom, row: NodeIdx, g: &mut Grid, ocupado: &mut Vec<usize>) {
         col += colspan;
     }
     g.cols = g.cols.max(col);
-    g.rows.push(Row { node: row, cells });
+    g.rows.push(Row { node, cells });
+}
+
+/// As células FILHAS de um nó, na ordem do documento.
+fn celulas_de(dom: &Dom, pai: NodeIdx) -> Vec<NodeIdx> {
+    dom.node(pai)
+        .children
+        .iter()
+        .copied()
+        .filter(|&c| display_of(dom, c) == Some(DisplayKind::TableCell))
+        .collect()
 }
 
 /// `colspan`/`rowspan`: pelo menos 1, e com teto. O teto não é decoração — um
@@ -185,7 +265,8 @@ pub(crate) fn max_content_width(dom: &Dom, table: NodeIdx, font: f32, ctx: &Layo
     if g.cols == 0 {
         return 0.0;
     }
-    let ts = TableStyle::of(dom, table);
+    let css = dom.computed_style_idx(table).unwrap_or_default();
+    let ts = TableStyle::of(dom, table, &css, font, ctx);
     let cols = medir_colunas(dom, &g, font, ctx, ts.spacing_h);
     cols.iter().map(|c| c.max).sum::<f32>() + (g.cols + 1) as f32 * ts.spacing_h
 }
@@ -215,13 +296,13 @@ pub(crate) fn layout_table(
     content_x: f32,
     content_y: f32,
     content_w: f32,
-    _css: &ComputedStyle,
+    css: &ComputedStyle,
     font_size: f32,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
     let g = collect(dom, id);
-    let ts = TableStyle::of(dom, id);
+    let ts = TableStyle::of(dom, id, css, font_size, ctx);
     let mut y = content_y;
 
     // `<caption>` e outros blocos avulsos: empilham acima da grade, à largura da
@@ -244,11 +325,14 @@ pub(crate) fn layout_table(
     let disponivel = (content_w - vaos).max(0.0);
     let larguras = if ts.fixed {
         let mut declaradas = vec![None; g.cols];
+        // Só a PRIMEIRA linha, e só o que ela DECLARA: uma coluna sem largura
+        // declarada fica a `None` para receber a sua fatia do que sobra. Medir o
+        // conteúdo aqui desfaria o algoritmo — o `fixed` existe exatamente para
+        // não medir nada.
         if let Some(primeira) = g.rows.first() {
             for c in &primeira.cells {
-                let mm = widths::cell_min_max(dom, c.node, font_size, ctx);
                 if c.colspan == 1 && c.col < g.cols {
-                    declaradas[c.col] = Some(mm.max);
+                    declaradas[c.col] = widths::largura_declarada(dom, c.node, font_size, ctx);
                 }
             }
         }
@@ -312,7 +396,9 @@ pub(crate) fn layout_table(
         // Reserva o índice ANTES das células: o fundo do `<tr>` pinta-se atrás
         // delas, como qualquer caixa pinta atrás dos filhos.
         let idx_fundo = list.items.len();
-        crate::layout::reserve_node_order(list, row.node);
+        if let Some(n) = row.node {
+            crate::layout::reserve_node_order(list, n);
+        }
         for c in &row.cells {
             if c.col >= g.cols {
                 continue;
@@ -325,9 +411,14 @@ pub(crate) fn layout_table(
                 dom, c.node, col_x[c.col], y, w, Some(h), Some(w), Some(h), false, ctx, list,
             );
         }
-        let rect = Rect::new(content_x, y, content_w, alturas[ri]);
-        crate::layout::record_node_rect(list, row.node, rect);
-        pinta_caixa(dom, row.node, rect, idx_fundo, list);
+        // Uma linha ANÓNIMA não tem nó: não há caixa a registar nem fundo a
+        // pintar, e forçar um dos dois inventaria geometria para um elemento
+        // que não existe no documento.
+        if let Some(n) = row.node {
+            let rect = Rect::new(content_x, y, content_w, alturas[ri]);
+            crate::layout::record_node_rect(list, n, rect);
+            pinta_caixa(dom, n, rect, idx_fundo, list);
+        }
         y += alturas[ri] + ts.spacing_v;
     }
 
