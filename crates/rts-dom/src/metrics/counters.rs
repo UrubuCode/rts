@@ -180,6 +180,7 @@ dom_metrics! {
         display_cache_hits: "…reusado do cache de display list";
         fragment_hits: "subárvores REUSADAS (layout incremental)";
         fragment_misses: "subárvores recalculadas";
+        fragment_patches: "containers COSTURADOS (troca de referência)";
         block_calls: "layout_block";
         inline_runs: "linhas inline montadas";
         measure_calls: "measure_block (pré-passo)";

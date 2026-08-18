@@ -334,6 +334,18 @@ pub struct Dom {
     /// em ordem de arena — sem perder a ordem que o `querySelectorAll` promete.
     /// `u64` = a revisão em que foi numerada.
     doc_order: std::cell::RefCell<(u64, Vec<u32>)>,
+    /// Por ANCESTRAL, quais filhos DIRETOS têm sujeira abaixo — anotado durante
+    /// a subida que a invalidação já faz. É o que permite refazer só o ramo que
+    /// mudou em vez de percorrer o container inteiro.
+    dirty_children: std::cell::RefCell<crate::fasthash::FastMap<NodeIdx, Vec<NodeIdx>>>,
+    /// Os nós que foram ALVO DIRETO de uma invalidação. O desenho deles não pode
+    /// ser aproveitado do anterior; o dos ancestrais pode.
+    dirty_self: std::cell::RefCell<std::collections::HashSet<NodeIdx>>,
+    /// O ÚLTIMO fragmento de cada nó, com a chave que o validava — a pergunta
+    /// "o que este nó desenhou da última vez?", que o cache por chave não responde.
+    last_fragment: std::cell::RefCell<
+        crate::fasthash::FastMap<NodeIdx, (FragmentKey, std::rc::Rc<crate::layout::Fragment>)>,
+    >,
     /// FRAGMENTOS de layout por subárvore — o desenho de um bloco com certas
     /// constraints, guardado em coordenadas relativas à origem em que foi posto.
     /// É o que torna o layout INCREMENTAL: mudar uma folha invalida o epoch dela
@@ -346,6 +358,13 @@ pub struct Dom {
     /// pelo MESMO estado (uma consulta de geometria atrás da outra, um frame
     /// atrás do outro), não alternar entre viewports.
     display_cache: std::cell::RefCell<Option<(DisplayKey, std::rc::Rc<crate::layout::DisplayList>)>>,
+    /// Algum `style=""` inline desta árvore menciona `position`.
+    ///
+    /// Junto com [`Stylesheet::has_out_of_flow`](crate::style::Stylesheet::has_out_of_flow),
+    /// responde "esta página PODE ter elemento fora do fluxo?" — e quando a
+    /// resposta é não, a passada que procura por eles (uma varredura da árvore
+    /// inteira pedindo o estilo computado de cada nó) não precisa acontecer.
+    inline_position: std::cell::Cell<bool>,
     /// Qual `<input>` tem o FOCO (recebe as teclas). `None` = nenhum. Setado por
     /// `focus_input` (o loop TS chama após um clique dentro da caixa de um input).
     /// DERIVADO, fora do `PartialEq`.
@@ -404,8 +423,12 @@ impl Dom {
             input_values: HashMap::new(),
             image_pixels: HashMap::new(),
             focused_input: None,
+            inline_position: std::cell::Cell::new(false),
             display_cache: std::cell::RefCell::new(None),
             fragment_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
+            dirty_children: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
+            dirty_self: std::cell::RefCell::new(std::collections::HashSet::new()),
+            last_fragment: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
             doc_order: std::cell::RefCell::new((u64::MAX, Vec::new())),
         }
     }
@@ -518,6 +541,11 @@ impl Dom {
         // novo, mutação sem alvo). Esvaziar é o fallback seguro; as invalidações
         // com alvo bumpam epoch e preservam o resto do cache.
         self.fragment_cache.borrow_mut().clear();
+        self.last_fragment.borrow_mut().clear();
+        // Sem alvo não há "quais filhos": marcar todos seria o mesmo que não
+        // marcar nenhum.
+        self.dirty_children.borrow_mut().clear();
+        self.dirty_self.borrow_mut().clear();
         self.layout_measure_cache.borrow_mut().clear();
         self.intrinsic_width_cache.borrow_mut().clear();
     }
@@ -540,9 +568,13 @@ impl Dom {
             self.layout_epochs[n] = self.layout_epochs[n].wrapping_add(1);
             stack.extend(self.nodes[n].children.iter().copied());
         }
+        self.mark_self_dirty(node);
+        let mut filho = node;
         let mut ancestor = self.nodes[node].parent;
         while let Some(n) = ancestor {
             self.layout_epochs[n] = self.layout_epochs[n].wrapping_add(1);
+            self.mark_dirty_child(n, filho);
+            filho = n;
             ancestor = self.nodes[n].parent;
         }
         self.layout_measure_cache.borrow_mut().clear();
@@ -569,9 +601,15 @@ impl Dom {
             memo_forget(&mut base, node);
             self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
         }
+        // Sobe anotando por onde passou: cada ancestral fica sabendo qual filho
+        // dele tem sujeira abaixo.
+        self.mark_self_dirty(idx);
+        let mut filho = idx;
         let mut ancestor = self.nodes[idx].parent;
         while let Some(node) = ancestor {
             self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
+            self.mark_dirty_child(node, filho);
+            filho = node;
             ancestor = self.nodes[node].parent;
         }
     }
@@ -595,9 +633,13 @@ impl Dom {
         }
         let mut ancestors = HashSet::new();
         for root in roots {
+            self.mark_self_dirty(root);
+            let mut filho = root;
             let mut ancestor = self.nodes[root].parent;
             while let Some(node) = ancestor {
                 ancestors.insert(node);
+                self.mark_dirty_child(node, filho);
+                filho = node;
                 ancestor = self.nodes[node].parent;
             }
         }
@@ -677,10 +719,14 @@ impl Dom {
         drop(computed);
         drop(base);
         // Ancestrais: só o EPOCH — o estilo deles não mudou, o tamanho pode ter.
+        self.mark_self_dirty(moved);
         for start in [self.nodes[moved].parent, former_parent].into_iter().flatten() {
+            let mut filho = moved;
             let mut cur = Some(start);
             while let Some(node) = cur {
                 self.layout_epochs[node] = self.layout_epochs[node].wrapping_add(1);
+                self.mark_dirty_child(node, filho);
+                filho = node;
                 cur = self.nodes[node].parent;
             }
         }
@@ -713,6 +759,45 @@ impl Dom {
         self.doc_order.borrow()
     }
 
+    fn mark_dirty_child(&self, pai: NodeIdx, filho: NodeIdx) {
+        let mut map = self.dirty_children.borrow_mut();
+        let entry = map.entry(pai).or_default();
+        // Lista curta: o caso que interessa é um ou dois filhos sujos. Acima de
+        // um punhado, refazer o container sai mais barato do que comparar.
+        if entry.len() < 8 && !entry.contains(&filho) {
+            entry.push(filho);
+        } else if entry.len() >= 8 {
+            entry.push(filho); // marca "muitos"; o consumidor olha o tamanho
+        }
+    }
+
+    fn mark_self_dirty(&self, node: NodeIdx) {
+        self.dirty_self.borrow_mut().insert(node);
+    }
+
+    pub(crate) fn dirty_children_of(&self, pai: NodeIdx) -> Option<Vec<NodeIdx>> {
+        let map = self.dirty_children.borrow();
+        let list = map.get(&pai)?;
+        (list.len() <= 8).then(|| list.clone())
+    }
+
+    pub(crate) fn is_self_dirty(&self, node: NodeIdx) -> bool {
+        self.dirty_self.borrow().contains(&node)
+    }
+
+    /// Esquece as marcas — por passada de layout, que é quem as consome.
+    pub(crate) fn clear_dirty(&self) {
+        self.dirty_children.borrow_mut().clear();
+        self.dirty_self.borrow_mut().clear();
+    }
+
+    pub(crate) fn last_fragment_of(
+        &self,
+        node: NodeIdx,
+    ) -> Option<(FragmentKey, std::rc::Rc<crate::layout::Fragment>)> {
+        self.last_fragment.borrow().get(&node).cloned()
+    }
+
     pub(crate) fn fragment_get(
         &self,
         key: FragmentKey,
@@ -725,6 +810,7 @@ impl Dom {
         key: FragmentKey,
         fragment: std::rc::Rc<crate::layout::Fragment>,
     ) {
+        self.last_fragment.borrow_mut().insert(key.node, (key, std::rc::Rc::clone(&fragment)));
         let mut cache = self.fragment_cache.borrow_mut();
         // Teto igual ao dos outros caches de layout: uma página que rola muito
         // acumula fragmentos de nós que já saíram de cena, e o epoch na chave
@@ -742,6 +828,7 @@ impl Dom {
     /// teste compararia o cache consigo mesmo, que é o mesmo que não testar.
     pub fn clear_fragment_cache(&self) {
         self.fragment_cache.borrow_mut().clear();
+        self.last_fragment.borrow_mut().clear();
     }
 
     /// Quantos fragmentos estão guardados (métricas e teste).
@@ -764,6 +851,22 @@ impl Dom {
         list: &std::rc::Rc<crate::layout::DisplayList>,
     ) {
         *self.display_cache.borrow_mut() = Some((key, std::rc::Rc::clone(list)));
+    }
+
+    /// `true` se esta árvore PODE ter algum elemento fora do fluxo. Falso
+    /// negativo é impossível: qualquer `position` inline liga a flag e qualquer
+    /// regra com `absolute`/`fixed` (ou uma pendente com `var()`) liga a do
+    /// stylesheet.
+    pub(crate) fn may_have_out_of_flow(&self) -> bool {
+        self.inline_position.get() || self.stylesheet.has_out_of_flow()
+    }
+
+    /// Anota que um `style=""` menciona `position` — chamado no parse e em toda
+    /// escrita de atributo.
+    fn note_inline_position(&self, value: &str) {
+        if value.contains("position") {
+            self.inline_position.set(true);
+        }
     }
 
     pub(crate) fn layout_epoch(&self, idx: NodeIdx) -> u64 {
@@ -1046,6 +1149,9 @@ impl Dom {
 
     /// Aloca um nó (com seus atributos) como filho de `parent`; devolve o índice.
     fn push(&mut self, kind: NodeKind, attrs: Vec<Attr>, parent: NodeIdx) -> NodeIdx {
+        if let Some(style) = attrs.iter().find(|a| a.name == "style") {
+            self.note_inline_position(&style.value);
+        }
         let id = self.nodes.len();
         self.nodes.push(Node {
             kind,
@@ -2694,6 +2800,9 @@ impl Dom {
         crate::bump!(set_attr);
         let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
+        if name_lc == "style" {
+            self.note_inline_position(value);
+        }
         if self.nodes[idx]
             .attrs
             .iter()

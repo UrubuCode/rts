@@ -176,7 +176,7 @@ pub struct Geometry {
 /// Acumula a geometria de um fragmento e das subárvores dele, deslocada.
 fn collect_geometry(fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
     let moved = dx != 0.0 || dy != 0.0;
-    for (idx, rect) in &fragment.rects {
+    for (idx, rect) in fragment.rects.iter() {
         let mut rect = *rect;
         if moved {
             rect.x += dx;
@@ -193,7 +193,7 @@ fn collect_geometry(fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
         collect_geometry(&child.fragment, dx + child.dx, dy + child.dy, out);
     }
     out.hit_order.extend_from_slice(&fragment.hit_order[next.min(fragment.hit_order.len())..]);
-    for region in &fragment.scroll_regions {
+    for region in fragment.scroll_regions.iter() {
         let mut region = *region;
         if moved {
             region.visible.x += dx;
@@ -502,7 +502,12 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // containing block é sempre a viewport (o de `absolute` — ancestral positioned
     // — e o "fica fixo ao rolar" do `fixed` são a v2).
     let mut out_of_flow = Vec::new();
-    collect_out_of_flow(dom, dom.root, &mut out_of_flow);
+    // Só varre se a página PODE ter algum: a varredura pede o estilo computado
+    // de cada nó da árvore, e era 78% de um frame de mutação numa página que não
+    // tem um único posicionado.
+    if dom.may_have_out_of_flow() {
+        collect_out_of_flow(dom, dom.root, &mut out_of_flow);
+    }
     // Z-INDEX: ordena por z-index (menor pinta primeiro = fica atrás). Sort ESTÁVEL:
     // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
     // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
@@ -525,6 +530,10 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // A ordem de pintura já foi registrada durante as inserções de retângulos:
     // fluxo normal durante a descida e out-of-flow na ordem de z-index acima.
     crate::bump!(display_items, list.total_items());
+    // As marcas de sujeira são POR PASSADA: quem as consome é este layout, e
+    // acumulá-las entre frames faria a lista de filhos sujos de um container
+    // crescer até o teto — e aí a costura desistiria sempre.
+    dom.clear_dirty();
     crate::bump!(node_rects, list.node_rects.len());
     crate::bump!(scroll_regions, list.scroll_regions.len());
     list
@@ -1334,14 +1343,126 @@ fn insert_item(list: &mut DisplayList, at: usize, item: DisplayItem) {
     }
 }
 
+/// Reconstrói o fragmento de um container trocando SÓ as subárvores sujas.
+///
+/// Devolve `None` — e o chamador refaz tudo — quando alguma premissa não vale:
+/// o próprio nó foi alvo da invalidação (o estilo DELE pode ter mudado); não há
+/// desenho anterior ou ele não tinha subárvores; a sujeira não tem alvo ou está
+/// espalhada demais; a lista de filhos mudou; ou a subárvore refeita mudou de
+/// ALTURA ou de margem, e aí tudo abaixo dela desloca.
+fn costurar(
+    dom: &Dom,
+    id: NodeIdx,
+    key: crate::dom::FragmentKey,
+    ctx: &LayoutCtx,
+) -> Option<std::rc::Rc<Fragment>> {
+    if dom.is_self_dirty(id) {
+        return None;
+    }
+    let (antiga, anterior) = dom.last_fragment_of(id)?;
+    // Só o epoch do nó pode diferir: viewport, constraints, estilo global e
+    // animação mudam o desenho inteiro, não uma parte dele.
+    if (antiga.tree, antiga.avail_w, antiga.avail_h, antiga.viewport_w, antiga.viewport_h)
+        != (key.tree, key.avail_w, key.avail_h, key.viewport_w, key.viewport_h)
+        || (antiga.style_epoch, antiga.anim_epoch, antiga.measurer)
+            != (key.style_epoch, key.anim_epoch, key.measurer)
+    {
+        return None;
+    }
+    if anterior.children.is_empty() {
+        return None;
+    }
+    let sujos = dom.dirty_children_of(id)?;
+    // A SEQUÊNCIA de filhos precisa ser a mesma, não só o tamanho: inserção,
+    // remoção e reordenação mudam quem desenha o quê, e trocar uma referência
+    // não daria conta. Comparar índice a índice é uma passada de leitura.
+    if !mesma_sequencia_de_filhos(dom, id, &anterior.children) {
+        return None;
+    }
+    let _phase = crate::metrics::phases::scope("fragment-patch");
+
+    let mut children = anterior.children.clone();
+    let mut trocou = false;
+    for child in &mut children {
+        if !sujos.contains(&child.node) {
+            continue;
+        }
+        let mut own = DisplayList::default();
+        // Onde o filho FOI POSTO: a origem em que o fragmento dele foi calculado
+        // mais o deslocamento com que entrou aqui. Somar à origem do PAI daria
+        // uma posição sem sentido — foi o que o teste de equivalência mostrou,
+        // com o texto reaparecendo em (0,16) em vez de (12, 67.4).
+        let origem = (child.fragment.origin.0 + child.dx, child.fragment.origin.1 + child.dy);
+        let margem = child.margin_top;
+        let ((_, altura), nova_margem) = layout_block_reusing(
+            dom,
+            child.node,
+            origem.0,
+            origem.1,
+            child.avail_w,
+            child.avail_h,
+            || margem,
+            ctx,
+            &mut own,
+        );
+        if (altura - child.height).abs() > 0.001 || (nova_margem - child.margin_top).abs() > 0.001 {
+            return None;
+        }
+        // O `layout_block_reusing` emitiu numa lista própria; o que interessa é a
+        // referência que ele acabou de registrar para este nó.
+        let novo = own.children.first()?.fragment.clone();
+        child.fragment = novo;
+        trocou = true;
+    }
+    if !trocou {
+        return None;
+    }
+    let fragment = std::rc::Rc::new(Fragment {
+        node: id,
+        // Compartilha o que NÃO mudou — só a lista de subárvores é nova.
+        items: std::rc::Rc::clone(&anterior.items),
+        children,
+        rects: std::rc::Rc::clone(&anterior.rects),
+        hit_order: std::rc::Rc::clone(&anterior.hit_order),
+        scroll_regions: anterior.scroll_regions.clone(),
+        origin: anterior.origin,
+        size: anterior.size,
+        margin_top: anterior.margin_top,
+    });
+    dom.fragment_put(key, std::rc::Rc::clone(&fragment));
+    Some(fragment)
+}
+
+/// `true` se os filhos-elemento do nó são exatamente os que o desenho anterior
+/// referencia, na mesma ordem. Uma passada de leitura; o que não é barato é o
+/// layout deles.
+fn mesma_sequencia_de_filhos(dom: &Dom, id: NodeIdx, children: &[ChildRef]) -> bool {
+    let mut esperados = children.iter().map(|c| c.node);
+    let mut atuais = dom
+        .node(id)
+        .children
+        .iter()
+        .copied()
+        .filter(|&c| matches!(dom.node(c).kind, NodeKind::Element { .. }));
+    loop {
+        match (esperados.next(), atuais.next()) {
+            (None, None) => return true,
+            (Some(a), Some(b)) if a == b => continue,
+            _ => return false,
+        }
+    }
+}
+
 fn emit_fragment(
     fragment: &std::rc::Rc<Fragment>,
     list: &mut DisplayList,
     x: f32,
     y: f32,
+    avail_w: f32,
+    avail_h: Option<f32>,
 ) {
     let _phase = crate::metrics::phases::scope("fragment-emit");
-    fragment.emit_at(list, x, y);
+    fragment.emit_at(list, x, y, avail_w, avail_h);
 }
 
 fn layout_block_reusing(
@@ -1358,7 +1479,16 @@ fn layout_block_reusing(
     let key = fragment_key(dom, id, avail_w, avail_h, ctx);
     if let Some(fragment) = dom.fragment_get(key) {
         crate::bump!(fragment_hits);
-        emit_fragment(&fragment, list, x, y);
+        emit_fragment(&fragment, list, x, y, avail_w, avail_h);
+        return (fragment.size, fragment.margin_top);
+    }
+    // COSTURA: trocar no desenho anterior só a subárvore que ficou suja. Agora
+    // que a saída é uma ÁRVORE, costurar é substituir uma REFERÊNCIA num vetor
+    // de mil entradas de 48 bytes — a primeira versão disto (revertida) copiava
+    // 3000 itens com String e por isso não ganhava nada.
+    if let Some(fragment) = costurar(dom, id, key, ctx) {
+        crate::bump!(fragment_patches);
+        emit_fragment(&fragment, list, x, y, avail_w, avail_h);
         return (fragment.size, fragment.margin_top);
     }
     crate::bump!(fragment_misses);
@@ -1368,17 +1498,18 @@ fn layout_block_reusing(
     let mut own = DisplayList::default();
     let size = layout_block(dom, id, x, y, avail_w, avail_h, None, None, false, ctx, &mut own);
     let fragment = std::rc::Rc::new(Fragment {
-        rects: own.node_rects.iter().map(|(idx, rect)| (*idx, *rect)).collect(),
-        hit_order: std::mem::take(&mut own.hit_order),
+        node: id,
+        rects: std::rc::Rc::new(own.node_rects.iter().map(|(idx, rect)| (*idx, *rect)).collect()),
+        hit_order: std::rc::Rc::new(std::mem::take(&mut own.hit_order)),
         scroll_regions: std::mem::take(&mut own.scroll_regions),
-        items: std::mem::take(&mut own.items),
+        items: std::rc::Rc::new(std::mem::take(&mut own.items)),
         children: std::mem::take(&mut own.children),
         origin: (x, y),
         size,
         margin_top: margem_de_topo(),
     });
     dom.fragment_put(key, std::rc::Rc::clone(&fragment));
-    fragment.emit_at(list, x, y);
+    fragment.emit_at(list, x, y, avail_w, avail_h);
     (fragment.size, fragment.margin_top)
 }
 
@@ -1386,6 +1517,17 @@ fn layout_block_reusing(
 /// fragmento.
 #[derive(Clone, Debug)]
 pub struct ChildRef {
+    /// O nó que esta subárvore desenha — a costura precisa saber quem é.
+    pub node: NodeIdx,
+    /// Altura externa que ele ocupou e a margem de topo resolvida: se qualquer
+    /// uma mudar ao refazê-lo, tudo abaixo desloca e a costura não serve.
+    pub height: f32,
+    pub margin_top: f32,
+    /// As CONSTRAINTS com que ele foi layoutado — as do CONTEÚDO do pai, não as
+    /// do pai. Refazer um filho com a largura do container em vez da do conteúdo
+    /// dá uma caixa larga demais pela soma do padding e da margem.
+    pub avail_w: f32,
+    pub avail_h: Option<f32>,
     /// Posição em `items` ANTES da qual esta subárvore é pintada.
     pub at: usize,
     /// Posição em `hit_order` antes da qual a ordem de hit-test dela entra.
@@ -1423,14 +1565,20 @@ impl PartialEq for ChildRef {
 /// altura), e aí a soma é zero e nem se percorre.
 #[derive(Clone, Debug, Default)]
 pub struct Fragment {
+    /// O nó que este fragmento desenha.
+    pub node: NodeIdx,
     /// Itens de pintura PRÓPRIOS desta subárvore.
-    pub items: Vec<DisplayItem>,
+    ///
+    /// Os três vetores grandes são `Rc`: quando um container é COSTURADO, só a
+    /// lista de subárvores muda, e clonar retângulos e ordem de hit-test de um
+    /// container de mil filhos custaria mais do que a costura economiza.
+    pub items: std::rc::Rc<Vec<DisplayItem>>,
     /// As subárvores que ela reusou, por referência — o desenho é uma árvore.
     pub children: Vec<ChildRef>,
     /// Geometria por nó (o que alimenta `getBoundingClientRect`).
-    pub rects: Vec<(NodeIdx, Rect)>,
+    pub rects: std::rc::Rc<Vec<(NodeIdx, Rect)>>,
     /// Ordem de pintura para o hit-test (ancestral antes de descendente).
-    pub hit_order: Vec<NodeIdx>,
+    pub hit_order: std::rc::Rc<Vec<NodeIdx>>,
     /// Regiões roláveis internas descobertas dentro da subárvore.
     pub scroll_regions: Vec<ScrollRegion>,
     /// Onde este fragmento foi calculado.
@@ -1450,13 +1598,25 @@ pub struct Fragment {
 
 impl Fragment {
     /// Emite este fragmento numa `DisplayList`, deslocado para `(x, y)`.
-    pub fn emit_at(self: &std::rc::Rc<Self>, list: &mut DisplayList, x: f32, y: f32) {
+    pub fn emit_at(
+        self: &std::rc::Rc<Self>,
+        list: &mut DisplayList,
+        x: f32,
+        y: f32,
+        avail_w: f32,
+        avail_h: Option<f32>,
+    ) {
         let (dx, dy) = (x - self.origin.0, y - self.origin.1);
         // APONTA, não copia: os itens desta subárvore já existem e não mudaram.
         // Os RETÂNGULOS abaixo continuam sendo materializados, porque a consulta
         // de geometria é por nó e precisa do valor pronto — são 16 bytes contra
         // os 48 de um item, numa quantidade menor.
         list.children.push(ChildRef {
+            node: self.node,
+            height: self.size.1,
+            margin_top: self.margin_top,
+            avail_w,
+            avail_h,
             at: list.items.len(),
             hit_at: list.hit_order.len(),
             fragment: std::rc::Rc::clone(self),
@@ -2307,7 +2467,7 @@ fn layout_children_vertical(
                 flush_inline!(child_y);
                 close_floats!(child_y);
                 child_y -= prev_margin.min(fragment.margin_top);
-                emit_fragment(&fragment, list, content_x, child_y);
+                emit_fragment(&fragment, list, content_x, child_y, content_w, avail_h);
                 child_y += fragment.size.1;
                 prev_margin = fragment.margin_top;
                 continue;
