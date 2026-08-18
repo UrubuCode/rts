@@ -61,6 +61,14 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
     }
     MinMax {
         min: min_content(dom, id, font, ctx) + frame,
+        // O MÁXIMO vem da medição intrínseca que o resto do motor já usa, em vez
+        // de uma segunda escrita da mesma travessia. Herda dela uma limitação
+        // conhecida: um DESCENDENTE com `width:%` resolve contra a viewport e
+        // devolve um máximo inflado, o que enviesa a repartição da folga a favor
+        // dessa coluna. Não enviesa o MÍNIMO (ver `largura_absoluta`), que é o
+        // que decide se a tabela transborda, e corrigi-lo em
+        // `intrinsic_outer_width` mudaria o shrink-to-fit de flex e inline-block
+        // na página inteira — uma mudança que precisa da sua própria medição.
         max: crate::layout::intrinsic_outer_width(dom, id, parent_font, ctx),
     }
 }

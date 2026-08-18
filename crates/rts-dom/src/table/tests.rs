@@ -258,19 +258,21 @@ fn li_com_display_trocado_nao_e_mais_item_de_lista() {
     assert!(t.iter().any(|s| s == "1."), "o item que sobrou é o 1: {t:?}");
 }
 
+/// Uma célula cujo conteúdo declara `width:100%` NÃO exige a largura da viewport
+/// como mínimo: a percentagem é contra a coluna, que é o que se está a decidir.
+///
+/// Pinado porque foi medido a acontecer na Wikipédia — a infobox saía com 1280px
+/// de largura dentro de um artigo de 750, e a causa estava a três saltos do
+/// sintoma: o `ResolveCtx` da medição intrínseca põe a viewport como largura do
+/// pai, e `100%` disso é a janela toda.
 #[test]
-fn depurar_w() {
-    let html = r#"<div style="width:400px"><table class="ib" style="width:317px">
-      <tbody>
-        <tr><th colspan="2">Cabeçalho muito longo que passa da largura toda da tabela</th></tr>
-        <tr><td>a</td><td>bbbb</td></tr>
-      </tbody></table></div>"#;
+fn width_percentual_dentro_da_celula_nao_vira_minimo_de_viewport() {
+    let html = r#"<table cellspacing="0" style="width:300px">
+        <tr><td><div style="width:100%">a</div></td><td>b</td></tr>
+    </table>"#;
     let (dom, list) = geometria(html, 1280.0);
-    for sel in ["table", "tbody", "tr", "th", "td"] {
-        for (i, id) in dom.query_all(sel).into_iter().enumerate() {
-            let idx = dom.resolve(id).unwrap();
-            let r = list.geometry_now().rects.get(&idx).copied();
-            println!("{sel}[{i}] {:?}", r);
-        }
-    }
+    let t = rect(&dom, &list, "table", 0);
+    let a = rect(&dom, &list, "td", 0);
+    assert!(t.w <= 301.0, "a tabela saiu com {}", t.w);
+    assert!(a.w <= 301.0, "a célula saiu com {} — o `100%` virou 1280", a.w);
 }
