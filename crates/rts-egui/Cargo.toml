@@ -115,3 +115,9 @@ glow-backend = ["dep:egui_glow", "dep:glow", "dep:glutin", "dep:glutin-winit", "
 gpu-dx12 = ["wgpu/dx12"]
 gpu-metal = ["wgpu/metal"]
 gpu-vulkan = ["wgpu/vulkan"]
+# Repassa a instrumentação do rts-dom: com ela, as fases `render-dom` e `paint`
+# deste crate entram na MESMA conta que `layout`, `cascade` e `load-html`. Sem
+# ela os `scope()` daqui somem junto com os de lá — a fatia do frame só existe
+# se todas as fatias forem medidas pelo mesmo registro (ver
+# `rts_dom::metrics::phases`).
+metrics = ["rts-dom/metrics"]

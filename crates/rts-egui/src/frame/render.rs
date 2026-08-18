@@ -129,6 +129,10 @@ thread_local! {
 /// na altura total do conteúdo (para o layout do egui ao redor — scroll, etc —
 /// saber o tamanho ocupado).
 pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
+    // FASE: o frame de render de um DOM, do ponto de vista do backend. O layout
+    // tem fase própria (dentro do rts-dom) e o `paint` é o que sobra — é assim
+    // que "o frame está lento" vira "o layout é 80% dele" ou "não é".
+    let _phase = rts_dom::metrics::phases::scope("render-dom");
     let avail = ui.available_size();
     let viewport_w = avail.x.max(1.0);
     let viewport_h = ui.ctx().screen_rect().height().max(1.0);
@@ -170,6 +174,7 @@ pub(crate) fn render_dom_scrolled(
     scroll_y: bool,
     force: bool,
 ) {
+    let _phase = rts_dom::metrics::phases::scope("render-dom");
     let avail = ui.available_size();
     let viewport_w = avail.x.max(1.0);
     let viewport_h = avail.y.max(1.0);
@@ -436,6 +441,7 @@ fn process_scroll_regions(
 /// absolutas (conteúdo + origem do `ui`). A ordem da lista É o z-order (o que vem
 /// depois pinta por cima). Reserva o espaço da altura total para o `ui` pai.
 fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
+    let _phase = rts_dom::metrics::phases::scope("paint");
     // origem do conteúdo + a translação de scroll da PÁGINA (offset_y negativo sobe).
     let base_origin = ui.max_rect().min + egui::vec2(0.0, offset_y);
     // PILHA para o scroll container interno (#1744): cada BeginClip empilha (painter

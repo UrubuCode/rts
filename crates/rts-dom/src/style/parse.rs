@@ -31,12 +31,14 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             (Some(p), Some(v)) => (p.trim().to_ascii_lowercase(), v.trim()),
             _ => continue,
         };
+        crate::bump!(css_declarations);
         // Destaca o sufixo `!important` (case-insensitive) do valor; a camada de
         // destino depende dele.
         let (val, important) = split_important(val_raw);
         // CUSTOM PROPERTY (`--nome: valor`): guarda o valor CRU no bloco — a
         // cascade por elemento resolve (#1779). Importância ignorada (v1).
         if prop.starts_with("--") {
+            crate::bump!(css_custom_declarations);
             block.custom.push((prop.clone(), val.to_string()));
             continue;
         }
@@ -44,6 +46,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
         // cascade resolve POR ELEMENTO (contra as custom props dele) na posição
         // desta regra.
         if val.contains("var(") {
+            crate::bump!(css_var_refs);
             block.pending.push((prop.clone(), val.to_string(), important));
             continue;
         }
@@ -227,7 +230,13 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "left" => css.inset_left = parse_inset(val),
             "transition" => css.transition = crate::anim::TransitionSpec::parse(val),
             "animation" => css.animation = crate::anim::AnimationSpec::parse(val),
-            _ => {}
+            // Uma propriedade que nenhum braço reconhece é CSS que a página
+            // escreveu e o motor ignora em silêncio. Contá-la é o que transforma
+            // "o layout não bate com o Chrome" numa lista de nomes a implementar.
+            _ => {
+                crate::bump!(css_declarations_unknown);
+                crate::note!("propriedade-ignorada", prop.clone());
+            }
         }
     }
     block

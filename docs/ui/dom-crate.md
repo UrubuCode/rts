@@ -86,3 +86,11 @@ crates/rts-egui/       only the RENDER (frame/render.rs reads rts_dom::Dom)
   of the web-engine roadmap, invariant 5 — `.ts` lib via prelude).
 - `getText(node) → Handle` (text read) — prerequisite for the facade.
 ```
+
+## Measuring it
+
+`docs/ui/dom-metrics.md` — the counters/phases/samples/audit system in
+`src/metrics/` and the `dom_metrics` harness, plus the first measurement over
+real pages (2026-08-17). Read it before optimizing anything here, and after any
+change to the invalidation: the audit is what separates "got faster" from
+"stopped doing the work".

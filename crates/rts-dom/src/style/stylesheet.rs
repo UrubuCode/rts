@@ -166,6 +166,13 @@ impl DeclBlock {
     }
 }
 
+/// `size_of::<Rule>()` — exposto porque `Rule` é privado do módulo e o número
+/// dele é o que explica a pegada de um stylesheet grande (cada regra carrega um
+/// `DeclBlock`, que carrega dois `ComputedStyle` inteiros).
+pub fn rule_size() -> usize {
+    std::mem::size_of::<Rule>()
+}
+
 /// Um stylesheet de autor (o conteúdo de um `<style>`), já parseado em regras
 /// ordenadas. Egui-free como o resto. É anexado ao `Dom` e consultado na cascade
 /// de `computed_style`.
@@ -185,6 +192,28 @@ pub struct Stylesheet {
     /// índices candidatos para cada elemento. O stylesheet já usa RefCell para o
     /// índice lazy e a cascade é chamada de forma síncrona pelo DOM.
     candidate_scratch: std::cell::RefCell<Vec<usize>>,
+    /// Cache de [`hover_reach`](Stylesheet::hover_reach) — a resposta é uma
+    /// varredura de todas as regras, e a pergunta é feita a cada movimento do
+    /// mouse. Invalidado junto com o índice, em `append_css`.
+    hover_reach: std::cell::RefCell<Option<HoverReach>>,
+    /// Cache de [`position_sensitive`](Stylesheet::position_sensitive), pelo
+    /// mesmo motivo do `hover_reach` — a pergunta é por mutação de árvore.
+    position_sensitive: std::cell::RefCell<Option<bool>>,
+}
+
+/// Até onde uma mudança de `:hover` pode mexer no estilo desta folha.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HoverReach {
+    /// Nenhuma regra usa `:hover` — mover o mouse não muda estilo nenhum.
+    None,
+    /// Só o elemento que casa (`.btn:hover`). A subárvore dele ainda entra, por
+    /// causa das propriedades HERDADAS (`color` num `:hover` desce aos filhos).
+    SelfOnly,
+    /// `.card:hover .title` — desce pela subárvore do que casa.
+    Subtree,
+    /// `.a:hover + .b` — sai da subárvore. A invalidação por subárvore não
+    /// cobre isto, então este caso cai no fallback global, declarado.
+    Siblings,
 }
 
 // PartialEq manual (Keyframes tem f32, não derivamos Eq; o diff de árvore só compara
@@ -203,6 +232,8 @@ impl Stylesheet {
             keyframes: std::collections::HashMap::new(),
             index: std::cell::RefCell::new(super::ruleindex::RuleIndex::default()),
             candidate_scratch: std::cell::RefCell::new(Vec::new()),
+            hover_reach: std::cell::RefCell::new(None),
+            position_sensitive: std::cell::RefCell::new(None),
         }
     }
 
@@ -235,6 +266,102 @@ impl Stylesheet {
         self.index.borrow().has_custom_rules()
     }
 
+    /// As regras que contêm `:hover`, e se alguma delas ALCANÇA outros nós além
+    /// do que casa o compound com `:hover`.
+    ///
+    /// É o que transforma "mover o mouse invalida a página" em "mover o mouse
+    /// invalida os nós que podem mudar": sem esta separação, `set_hovered` só
+    /// tinha a opção grossa. Derivado das regras e recalculado quando elas
+    /// mudam, porque a alternativa era varrer 2643 regras a cada frame de mouse
+    /// — o que o `set_hovered` fazia.
+    pub fn hover_reach(&self) -> HoverReach {
+        self.ensure_rule_index();
+        if let Some(cached) = *self.hover_reach.borrow() {
+            return cached;
+        }
+        let mut reach = HoverReach::None;
+        for r in &self.rules {
+            let n = r.selector.compounds.len();
+            for (i, c) in r.selector.compounds.iter().enumerate() {
+                let has_hover = c.parts.iter().any(|p| {
+                    matches!(p, super::SimpleSelector::Pseudo(super::PseudoClass::Hover))
+                });
+                if !has_hover {
+                    continue;
+                }
+                // O `:hover` no ÚLTIMO compound afeta só quem casa (`.btn:hover`).
+                // Antes do último, o alcance depende do combinador que o segue:
+                // descendente/filho desce na subárvore, irmão sai dela — e sair
+                // dela é o caso que a invalidação por subárvore NÃO cobre.
+                let next = if i + 1 < n { r.selector.combinators.get(i) } else { None };
+                reach = reach.max(match next {
+                    None => HoverReach::SelfOnly,
+                    Some(super::Combinator::Descendant | super::Combinator::Child) => {
+                        HoverReach::Subtree
+                    }
+                    Some(_) => HoverReach::Siblings,
+                });
+            }
+        }
+        *self.hover_reach.borrow_mut() = Some(reach);
+        reach
+    }
+
+    /// `true` quando o estilo de um nó pode depender da POSIÇÃO dele entre os
+    /// irmãos — `:first-child`, `:last-child`, `:only-child`, `:nth-child()`,
+    /// `:empty`, ou um combinador de irmão (`+`, `~`).
+    ///
+    /// É a guarda da invalidação por subárvore na INSERÇÃO e na REMOÇÃO: sem
+    /// nenhuma dessas formas, acrescentar um `<li>` não muda o estilo de nenhum
+    /// outro nó, e invalidar a página (o que se fazia) é jogar fora o memo de
+    /// todos os nós a cada `appendChild`. Com alguma delas, os irmãos mudam de
+    /// verdade e o global é o que responde certo. Derivado das regras e
+    /// cacheado — a pergunta é feita a cada mutação de árvore.
+    pub fn position_sensitive(&self) -> bool {
+        if let Some(cached) = *self.position_sensitive.borrow() {
+            return cached;
+        }
+        use super::{Combinator, PseudoClass as P, SimpleSelector as S};
+        let answer = self.rules.iter().any(|r| {
+            r.selector.combinators.iter().any(|c| {
+                matches!(c, Combinator::NextSibling | Combinator::SubsequentSibling)
+            }) || r.selector.compounds.iter().any(|c| {
+                c.parts.iter().any(|p| {
+                    matches!(
+                        p,
+                        S::Pseudo(
+                            P::FirstChild
+                                | P::LastChild
+                                | P::OnlyChild
+                                | P::Empty
+                                | P::NthChild(_, _)
+                        )
+                    )
+                })
+            })
+        });
+        *self.position_sensitive.borrow_mut() = Some(answer);
+        answer
+    }
+
+    /// Os COMPOUNDS que contêm `:hover`, um por regra que o usa. É contra estes
+    /// que se pergunta "este nó poderia casar uma regra de hover?", e a resposta
+    /// é o que separa o `<body>` (ancestral de tudo, casa nada) do `.btn` — sem
+    /// essa pergunta, invalidar a cadeia de ancestrais é invalidar a página.
+    pub fn hover_compounds(&self) -> Vec<&super::CompoundSelector> {
+        let mut out = Vec::new();
+        for r in &self.rules {
+            for c in &r.selector.compounds {
+                if c.parts.iter().any(|p| {
+                    matches!(p, super::SimpleSelector::Pseudo(super::PseudoClass::Hover))
+                }) {
+                    out.push(c);
+                }
+            }
+        }
+        out
+    }
+
     /// `true` quando alguma regra depende da presença/valor de um atributo.
     pub fn has_attribute_selectors(&self) -> bool {
         self.ensure_rule_index();
@@ -245,6 +372,31 @@ impl Stylesheet {
     /// cascade quando a página não tem `<style>`).
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
+    }
+
+    /// Bytes ESTIMADOS deste stylesheet: as regras com seus seletores e blocos
+    /// de declarações, mais os keyframes. Estimativa por estrutura (sem
+    /// alocador instrumentado), como todo o [`crate::metrics::footprint`] —
+    /// serve para comparar páginas e ver a área crescer, não para casar com o
+    /// RSS do processo.
+    pub fn estimated_bytes(&self) -> usize {
+        let mut total = self.rules.capacity() * std::mem::size_of::<Rule>();
+        for r in &self.rules {
+            total += r.selector.estimated_bytes();
+            // Um DeclBlock carrega dois ComputedStyle inteiros (normal +
+            // important) mais as listas de pendentes/custom, que são as que têm
+            // String de verdade.
+            total += r.decls.custom.iter().map(|(k, v)| k.capacity() + v.capacity()).sum::<usize>();
+            total += r
+                .decls
+                .pending
+                .iter()
+                .map(|(k, v, _)| k.capacity() + v.capacity())
+                .sum::<usize>();
+        }
+        total += self.keyframes.len()
+            * (std::mem::size_of::<crate::anim::Keyframes>() + std::mem::size_of::<String>());
+        total
     }
 
     /// Os `@keyframes` de um nome, se existir.
@@ -262,8 +414,12 @@ impl Stylesheet {
         // 2) as regras normais do resto.
         let base = self.rules.len() as u32;
         for (i, rule) in parse_rules(&css_without_kf).into_iter().enumerate() {
+            crate::bump!(css_rules);
             self.rules.push(Rule { order: base + i as u32, ..rule });
         }
+        // As regras mudaram: o que foi derivado delas não vale mais.
+        *self.hover_reach.borrow_mut() = None;
+        *self.position_sensitive.borrow_mut() = None;
     }
 
     /// Acha cada `@keyframes nome { ... }`, parseia os stops e guarda; devolve o CSS
@@ -283,6 +439,7 @@ impl Stylesheet {
             let Some(body_end) = find_matching_brace(&rest[body_start..]) else { break };
             let body = &rest[body_start..body_start + body_end];
             if !name.is_empty() {
+                crate::bump!(css_keyframes);
                 self.keyframes.insert(name, parse_keyframe_body(body));
             }
             rest = &rest[body_start + body_end + 1..];
@@ -307,6 +464,7 @@ impl Stylesheet {
         // FAST PATH: só as regras cuja chave-alvo o nó pode satisfazer (índice), em
         // vez de TODAS as regras. O `matches` completo (navega a árvore) ainda decide.
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
+        crate::bump!(rules_considered, cand.len());
         let index = self.index.borrow();
         let mut matched: Vec<(u32, u32, &Rule)> = cand
             .iter()
@@ -317,6 +475,7 @@ impl Stylesheet {
                     .then(|| (index.specificity(i), r.order, r))
             })
             .collect();
+        crate::bump!(rules_matched, matched.len());
         matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
         let mut out = DeclBlock::default();
         for (_, _, r) in &matched {
@@ -359,6 +518,7 @@ impl Stylesheet {
             return Vec::new();
         }
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
+        crate::bump!(rules_considered, cand.len());
         let index = self.index.borrow();
         let mut matched: Vec<(u32, u32, &Rule)> = cand
             .iter()
@@ -370,6 +530,7 @@ impl Stylesheet {
                     .then(|| (index.specificity(i), r.order, r))
             })
             .collect();
+        crate::bump!(rules_matched, matched.len());
         matched.sort_by_key(|(specificity, order, _)| (*specificity, *order));
         matched.iter().flat_map(|(_, _, r)| r.decls.custom.iter().cloned()).collect()
     }
@@ -427,6 +588,7 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
                             if let Some(cond) = header.strip_prefix("@media") {
                                 let outer = MediaQuery::parse(cond.trim());
                                 for mut rule in parse_rules(inner_css) {
+                                    crate::bump!(css_media_rules);
                                     // aninhamento @media-em-@media: AND das queries.
                                     rule.media = Some(match rule.media {
                                         Some(inner) => inner.and(outer),
@@ -472,6 +634,13 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         for sel_str in selectors_raw.split(',') {
             if let Some(selector) = ComplexSelector::parse(sel_str) {
                 rules.push(Rule { selector, decls: decls.clone(), order: 0, media: None });
+            } else if !sel_str.trim().is_empty() {
+                // Um seletor que o parser recusa é uma regra que a página tem e o
+                // motor NÃO aplica — a diferença mais comum entre "parece o
+                // Chrome" e "não parece", e invisível sem contá-la.
+                crate::bump!(css_rules_dropped);
+                crate::bump!(selector_parse_failures);
+                crate::note!("seletor-recusado", sel_str.trim().to_string());
             }
         }
         i = next;
