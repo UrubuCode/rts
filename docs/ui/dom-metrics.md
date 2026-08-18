@@ -449,7 +449,27 @@ where the next attempt should start. Attempt 1 went in that direction but kept
 materializing at every point that mutates items (CSS `transform`, the scroll
 `BeginClip`, the tests), which is why it paid the cost twice.
 
-Both attempts are reverted; what stays is this section, the scenarios that
-measure the cases (`classe de cor + frame`, `classe que casa + frame`), and the
-number that bounds the next attempt: **0.17 ms is the floor for any frame that
-rebuilds this page's list**, measured with every subtree reused.
+Both attempts were reverted, and then the third one — the actual hierarchy —
+worked.
+
+## The hierarchy, and the third attempt (2026-08-18)
+
+`Fragment` now keeps the subtrees it reused **by reference** (`ChildRef` with an
+entry point and an offset), and so does `DisplayList`. Nothing on the common
+path copies an item any more: `walk` traverses the tree yielding
+`(item, dx, dy)`, and the backend — which already added an origin — adds one
+more offset. Mutating (`transform`, the scroll `BeginClip`) or comparing (the
+tests) calls `materialize`, which is rare and local.
+
+The difference from attempt 1 is one line of design: there, a fragment FLATTENED
+its grandchildren when built, so every miss paid the copy the optimization
+existed to avoid. Here the tree is a tree all the way down.
+
+| scenario (3005 elements) | flat list | tree | Chrome |
+|---|---|---|---|
+| text + relayout | 0.616 ms | **0.463–0.474 ms** | 0.369 ms |
+| colour-only class + frame | 0.700 ms | **0.481–0.516 ms** | 0.0053 ms |
+| idle relayout | 0.171 ms | **0.138 ms** | — |
+| append 2000, layout every 100 | ~17 ms | **10.7 ms** | 32.5 ms |
+
+Text mutation is now **1.25× Chrome**, from 18× at the start of the campaign.
