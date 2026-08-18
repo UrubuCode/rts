@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `grid-template-areas` — o nome põe o item na região e um nome que
+     abrange duas células faz o item ocupar as duas. É o mecanismo que um motor
+     sem posicionamento explícito falha em silêncio, empilhando tudo em (1,1). -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #pagina { display: grid; width: 600px; height: 400px;
+            grid-template-columns: 150px 1fr;
+            grid-template-rows: 60px 1fr 40px;
+            grid-template-areas: "cabec cabec" "lado  corpo" "rodape rodape";
+            background: #eee; }
+  #cabecalho { grid-area: cabec; background: #fcc; }
+  #lateral { grid-area: lado; background: #cfc; }
+  #corpo { grid-area: corpo; background: #ccf; }
+  #rodape { grid-area: rodape; background: #ffc; }
+</style></head>
+<body>
+  <div id="pagina">
+    <div id="cabecalho"></div><div id="lateral"></div>
+    <div id="corpo"></div><div id="rodape"></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: margens verticais ADJACENTES colapsam na maior, e a margem do
+     primeiro filho ATRAVESSA um pai sem borda/padding. Duas regras que o
+     motor pode acertar uma e falhar a outra. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #irmao-a { height: 20px; margin-bottom: 30px; background: #fcc; }
+  #irmao-b { height: 20px; margin-top: 10px; background: #cfc; }
+  #pai-transparente { background: #eef; }
+  #filho-com-margem { height: 20px; margin-top: 40px; background: #ccf; }
+  #pai-com-borda { border: 1px solid #000; background: #efe; }
+  #filho-barrado { height: 20px; margin-top: 40px; background: #ffc; }
+</style></head>
+<body>
+  <div id="irmao-a"></div>
+  <div id="irmao-b"></div>
+  <div id="pai-transparente"><div id="filho-com-margem"></div></div>
+  <div id="pai-com-borda"><div id="filho-barrado"></div></div>
+</body>
+</html>

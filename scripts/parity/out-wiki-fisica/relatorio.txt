@@ -1,0 +1,150 @@
+PARIDADE DE LAYOUT — RTS x Chrome
+medido em 2026-08-18T23:35:07.913Z, tolerância 1px
+  chrome: scripts/parity/out-wiki-fisica/chrome.jsonl  [1280,800]
+  rts:    scripts/parity/out-wiki-fisica/rts.jsonl  [1280,800]
+
+── INTEGRIDADE DA ENTRADA ──
+  chrome: 9093 elementos lidos  — sem problemas
+  rts: 9092 elementos lidos  — sem problemas
+
+── ÁRVORE ──
+  9092 de 9093 caminhos existem nos dois lados (99.99%)
+  1 só no Chrome, 0 só no RTS
+  tags que faltam do nosso lado (top 10):
+         1  <style>
+
+── GEOMETRIA (só os caminhos comuns) ──
+  1203 de 9092 casam dentro de 1px (13.23%)
+  e 1203 de 9093 do total da união (13.23%) — o segundo é o que NÃO desconta a árvore divergente
+  erro máximo por elemento: mediana 8690.96px, p90 17421.40px, p99 41689.17px, máx 64727.27px
+    x: mediana 30.39  p90 386.70  máx 1157.00  (6230 fora de tolerância)
+    y: mediana 8660.63  p90 17395.73  máx 64727.27  (7865 fora de tolerância)
+    w: mediana 4.85  p90 114.00  máx 1280.00  (6608 fora de tolerância)
+    h: mediana 2.01  p90 19.80  máx 64613.27  (4564 fora de tolerância)
+
+── OS 20 PIORES DESVIOS ──
+   64727.27px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[1]/div[1]/div[1]/nav[1]/div[2]/div[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=block position=absolute
+             rts     x=-1.00 y=64727.27 w=109.00 h=32.00
+   64613.27px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[1]/div[1]/div[1]/nav[1]/div[2]/input[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=block position=absolute
+             rts     x=0.00 y=114.00 w=1280.00 h=64613.27
+   59150.29px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[167]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=893.28 y=59150.29 w=28.80 h=17.00
+   58933.93px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[163]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=914.88 y=58933.93 w=28.80 h=17.00
+   58232.32px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[147]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=972.48 y=58232.32 w=28.80 h=17.00
+   58160.68px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[146]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=612.48 y=58160.68 w=28.80 h=17.00
+   57894.65px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[140]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=965.28 y=57894.65 w=28.80 h=17.00
+   57723.65px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[135]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=374.88 y=57723.65 w=28.80 h=17.00
+   57652.02px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[134]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=684.48 y=57652.02 w=28.80 h=17.00
+   57532.14px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[132]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=612.48 y=57532.14 w=28.80 h=17.00
+   57124.27px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[125]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=914.88 y=57124.27 w=28.80 h=17.00
+   56522.02px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[113]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=986.88 y=56522.02 w=28.80 h=17.00
+   56473.78px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[112]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=317.28 y=56473.78 w=28.80 h=17.00
+   56307.10px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[110]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=893.28 y=56307.10 w=28.80 h=17.00
+   56235.46px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[109]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=518.88 y=56235.46 w=28.80 h=17.00
+   55611.25px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[98]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=835.68 y=55611.25 w=28.80 h=17.00
+   55538.17px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[96]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=734.88 y=55538.17 w=28.80 h=17.00
+   55105.46px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[88]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=562.08 y=55105.46 w=28.80 h=17.00
+   54671.32px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[79]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=439.68 y=54671.32 w=28.80 h=17.00
+   53874.66px  html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/div[3]/div[3]/div[1]/section[10]/div[2]/div[1]/ol[1]/li[62]/span[2]/span[2]/a[1]
+             chrome  x=0.00 y=0.00 w=0.00 h=0.00  display=inline position=static
+             rts     x=684.48 y=53874.66 w=28.80 h=17.00
+
+── O QUE AGRUPA OS DESVIOS ──
+  263 dos 7889 não têm caixa NENHUMA do nosso lado (w=h=0 onde o Chrome dá área); 7626 têm caixa no sítio errado
+  os sem caixa, por display do Chrome (top 6):
+       263  display:inline
+  os com caixa errada, erro máximo: mediana 11336.67px, p90 17312.85px
+
+  dos 20 piores, por display do Chrome:
+        18  display:inline
+         2  display:block
+  dos 20 piores, por tag:
+        18  <a>
+         1  <div>
+         1  <input>
+  dos 7889 que falham a 1px, por display do Chrome (top 10):
+      5926  display:inline
+       846  display:block
+       559  display:list-item
+       312  display:flex
+        72  display:table-cell
+        49  display:table-row
+        37  display:table
+        33  display:flow-root
+        28  display:table-caption
+        10  display:inline-flex
+  dos 7889 que falham, por position do Chrome:
+      7785  position:static
+        78  position:relative
+        24  position:absolute
+         2  position:sticky
+  dos 7889 que falham, por tag (top 10):
+      2847  <a>
+      2374  <span>
+       985  <li>
+       377  <sup>
+       283  <div>
+       204  <cite>
+       197  <i>
+       109  <ul>
+       101  <p>
+        54  <img>
+
+── PROPRIEDADES COMPUTADAS (só os caminhos comuns) ──
+  'não reportado' = o rts-dom devolveu "" — valor não cascateado, que é
+  outra pergunta que 'valor errado' e por isso não entra no denominador.
+  display              8509 iguais / 9092 comparáveis (93.59%)   0 não reportados
+      html[1]/head[1]  chrome=none  rts=inline
+      html[1]/head[1]/meta[1]  chrome=none  rts=inline
+      html[1]/head[1]/title[1]  chrome=none  rts=inline
+      html[1]/head[1]/script[1]  chrome=none  rts=inline
+      html[1]/head[1]/script[2]  chrome=none  rts=inline
+  position             9092 iguais / 9092 comparáveis (100.00%)   0 não reportados
+  color                9082 iguais / 9092 comparáveis (99.89%)   0 não reportados
+      html[1]/body[1]/div[2]/header[1]/div[1]/nav[1]/div[1]/input[1]  chrome=rgb(0, 0, 0)  rts=rgb(32, 33, 34)
+      html[1]/body[1]/div[2]/header[1]/div[2]/div[1]/div[1]/div[1]/form[1]/div[1]/input[1]  chrome=rgb(0, 0, 0)  rts=rgb(32, 33, 34)
+      html[1]/body[1]/div[2]/header[1]/div[2]/nav[1]/div[1]/nav[1]/div[1]/input[1]  chrome=rgb(0, 0, 0)  rts=rgb(32, 33, 34)
+      html[1]/body[1]/div[2]/header[1]/div[2]/nav[1]/div[2]/input[1]  chrome=rgb(0, 0, 0)  rts=rgb(32, 33, 34)
+      html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/header[1]/nav[1]/div[1]/input[1]  chrome=rgb(0, 0, 0)  rts=rgb(32, 33, 34)
+  background-color     9092 iguais / 9092 comparáveis (100.00%)   0 não reportados
+  font-size            9033 iguais / 9092 comparáveis (99.35%)   0 não reportados
+      html[1]/body[1]/div[2]/header[1]/div[1]/nav[1]/div[1]/input[1]  chrome=13.3333px  rts=16px
+      html[1]/body[1]/div[2]/header[1]/div[2]/div[1]/div[1]/div[1]/form[1]/div[1]/input[1]  chrome=13.3333px  rts=14px
+      html[1]/body[1]/div[2]/header[1]/div[2]/nav[1]/div[1]/nav[1]/div[1]/input[1]  chrome=13.3333px  rts=16px
+      html[1]/body[1]/div[2]/header[1]/div[2]/nav[1]/div[2]/input[1]  chrome=13.3333px  rts=16px
+      html[1]/body[1]/div[3]/div[1]/div[3]/main[1]/header[1]/nav[1]/div[1]/input[1]  chrome=13.3333px  rts=16px

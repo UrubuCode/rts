@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `normal` colapsa espaços e quebra; `nowrap` colapsa e NÃO quebra;
+     `pre` preserva tudo e não quebra. A altura da caixa é a leitura: uma linha
+     ou várias. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="normal,sem-quebra,pre,pre-wrap">
+<meta name="fixar-estilo" content="white-space">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 150px; background: #eee; margin-bottom: 5px; }
+  #normal { white-space: normal; }
+  #sem-quebra { white-space: nowrap; }
+  #pre { white-space: pre; }
+  #pre-wrap { white-space: pre-wrap; }
+</style></head>
+<body>
+  <div id="normal">um dois tres quatro cinco seis</div>
+  <div id="sem-quebra">um dois tres quatro cinco seis</div>
+  <div id="pre">um dois tres
+quatro cinco seis</div>
+  <div id="pre-wrap">um dois tres quatro cinco seis</div>
+</body>
+</html>

@@ -49,6 +49,10 @@ pub(super) struct SocketEntry {
     /// socket through this; the reader thread never touches it, it owns its
     /// own `try_clone()`.
     pub(super) stream: Option<TcpStream>,
+    /// O que foi escrito ENQUANTO o socket ainda conectava. O Node enfileira
+    /// nesse intervalo em vez de errar; sem isto, o primeiro `write` de um
+    /// cliente que acabou de chamar `connect` emitia `'error'`.
+    pub(super) pending: Vec<u8>,
     pub(super) closed: bool,
 }
 
@@ -118,9 +122,25 @@ fn error_value(message: &str, code: &str) -> u64 {
 /// [`fs::watch::pump`](crate::fs::watch) for why a listener that calls back
 /// into this module (writes on `'connection'`, say) must not deadlock on a
 /// lock this function still holds.
+thread_local! {
+    /// Já estamos a entregar eventos NESTA thread?
+    ///
+    /// O `pump` é reentrante por construção: entregar um `'data'` chama um
+    /// listener, o listener escreve (é o que o `node:tls` faz para responder), e
+    /// o `write` chama `pump` outra vez. O interno drenava a fila que o externo
+    /// ainda estava a processar, e os chunks chegavam ao programa FORA DE ORDEM
+    /// — numa página de 590 KB isso lê-se como bytes perdidos a meio, num ponto
+    /// que muda a cada corrida, porque o que muda é o entrelaçamento.
+    static ENTREGANDO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 pub(super) fn pump() {
+    if ENTREGANDO.with(|f| f.replace(true)) {
+        return;
+    }
     pump_sockets();
     pump_servers();
+    ENTREGANDO.with(|f| f.set(false));
 }
 
 fn pump_sockets() {
@@ -137,6 +157,15 @@ fn pump_sockets() {
         for event in events {
             match event {
                 SocketEvent::Connected { local, remote } => {
+                    // Descarrega o que foi escrito ENQUANTO conectava, na ordem.
+                    let pendente = with_sockets(|table| {
+                        table.get_mut(&id).map(|e| std::mem::take(&mut e.pending))
+                    });
+                    if let Some(bytes) = pendente {
+                        if !bytes.is_empty() {
+                            let _ = write_now(id, &bytes);
+                        }
+                    }
                     entry::with_runtime(|context| {
                         let local_v = entry::make_string(context, &local);
                         let remote_v = entry::make_string(context, &remote);
@@ -158,7 +187,13 @@ fn pump_sockets() {
                     if push_fn == absent {
                         continue;
                     }
-                    let chunk = entry::with_runtime(|context| entry::make_bytes(context, &bytes));
+                    // BUFFER e não `Uint8Array`: é o que o Node entrega num
+                    // `'data'`, e a diferença aparece no `toString()` — o do
+                    // Uint8Array responde "72,84,84,80,…" (os bytes como lista)
+                    // onde o do Buffer decodifica o texto. Um programa que
+                    // concatena `chunk.toString()` recebia a página inteira em
+                    // números.
+                    let chunk = entry::with_runtime(|context| entry::make_buffer(context, &bytes));
                     entry::call(push_fn, instance, chunk, absent, absent, absent);
                 }
                 SocketEvent::End => {
@@ -236,7 +271,16 @@ pub(super) fn write_now(id: u64, bytes: &[u8]) -> std::io::Result<()> {
             return Err(std::io::Error::other("socket closed"));
         };
         let Some(stream) = entry.stream.as_mut() else {
-            return Err(std::io::Error::other("socket not connected"));
+            // AINDA CONECTANDO: o Node enfileira e envia quando o socket abre —
+            // ele não erra. Errar aqui quebrava todo `http.get`: o cliente
+            // escreve um buffer VAZIO em laço para bombear este módulo enquanto
+            // espera a conexão, e o primeiro desses writes emitia um `'error'`
+            // que o próprio cliente lia como "conexão recusada".
+            if entry.closed {
+                return Err(std::io::Error::other("socket closed"));
+            }
+            entry.pending.extend_from_slice(bytes);
+            return Ok(());
         };
         stream.write_all(bytes)
     })

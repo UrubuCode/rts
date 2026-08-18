@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!-- Fixa: `flex-direction: row` põe os filhos lado a lado na ordem, e a altura
+     do contentor vem do filho mais alto (align-items: stretch é o padrão). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="caixa">
+<meta name="fixar-estilo" content="display,flex-direction">
+<style>
+  body { margin: 0; }
+  #caixa { display: flex; width: 600px; background: #eee; }
+  #a { width: 100px; height: 40px; background: #fcc; }
+  #b { width: 150px; height: 60px; background: #cfc; }
+  #c { width: 80px; background: #ccf; }
+</style></head>
+<body>
+  <div id="caixa"><div id="a"></div><div id="b"></div><div id="c"></div></div>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: `justify-content` no eixo principal e `align-items` no cruzado.
+     Três contentores idênticos com um valor cada, para o desvio dizer QUAL. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="centro,fim,entre,volta">
+<meta name="fixar-estilo" content="justify-content,align-items">
+<style>
+  body { margin: 0; }
+  div.caixa { display: flex; width: 400px; height: 100px; background: #eee; margin-bottom: 10px; }
+  div.caixa > div { width: 60px; height: 30px; background: #fcc; }
+  #centro { justify-content: center; align-items: center; }
+  #fim { justify-content: flex-end; align-items: flex-end; }
+  #entre { justify-content: space-between; align-items: flex-start; }
+  #volta { justify-content: space-around; align-items: center; }
+</style></head>
+<body>
+  <div class="caixa" id="centro"><div id="c1"></div><div id="c2"></div></div>
+  <div class="caixa" id="fim"><div id="f1"></div><div id="f2"></div></div>
+  <div class="caixa" id="entre"><div id="e1"></div><div id="e2"></div></div>
+  <div class="caixa" id="volta"><div id="v1"></div><div id="v2"></div></div>
+</body>
+</html>

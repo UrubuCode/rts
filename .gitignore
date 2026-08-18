@@ -98,3 +98,21 @@ DRAIN_MOTOR.md
 # uma vez por ser criado no diretório de trabalho em vez de num temporário.
 __fs_promises_import_tmp/
 base.json
+
+# páginas reais baixadas pelos exemplos (grandes, e regeneráveis)
+pagina.html
+pagina.css
+wa*.html
+wa*.css
+wa-raw.bin
+
+# perfil e saídas do harness de paridade (regeneráveis, e o perfil do Chrome
+# tem ficheiros que o git nem consegue ler)
+scripts/parity/out/
+# PNGs de captura da janela: artefactos de diagnóstico, nunca entrada de nada.
+scripts/captura/out/
+
+# saídas de medição (regeneráveis)
+scripts/parity/out*/
+scripts/parity/pagina.combinada.html
+paridade/

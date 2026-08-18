@@ -1,0 +1,160 @@
+//! O valor COMPUTADO de uma propriedade que ninguém declarou — o que o
+//! `getComputedStyle` responde quando o nosso modelo tem `None`.
+//!
+//! ## Porque é um método à parte, e não o `get_property`
+//!
+//! O `get_property` serve DOIS consumidores com semânticas opostas:
+//!
+//! - `getComputedStyle(el).x` — **nunca** devolve vazio. Uma propriedade que
+//!   ninguém declarou responde o valor INICIAL (`display: block`, `float: none`,
+//!   `color: rgb(0, 0, 0)`), porque o computed é o estado final da cascade e todo
+//!   elemento tem um.
+//! - `el.style.x` — devolve `""` para o que não está no `style=""` daquele
+//!   elemento. É a declaração inline e mais nada.
+//!
+//! Fazer o `get_property` cair no inicial resolveria o primeiro e ESTRAGARIA o
+//! segundo: `el.style.color` passaria a responder preto em todo elemento que
+//! nunca declarou cor nenhuma. Por isso o fallback vive em
+//! [`ComputedStyle::computed_value`], que só o caminho do computed chama.
+//!
+//! ## De onde vêm as strings
+//!
+//! Do Chrome, medidas — não da spec lida por nós. `tests/css/`
+//! `claude-computed-valor-inicial.esperado.json` tem um `<div>` que não declara
+//! nada e o `getComputedStyle` inteiro dele; esta tabela é essa medição
+//! transcrita. É a diferença entre "o inicial de `text-align` é `start`" (o que
+//! o browser respondeu) e "é `left`" (o que quem lê a spec à pressa escreve).
+//!
+//! Antes disto, **~140 dos 176 desvios de propriedade do corpus eram o mesmo
+//! desvio**: `esperado 'none' → obtido ''`.
+
+use super::props::ComputedStyle;
+
+/// O valor inicial de `name` no formato do browser, ou `None` se a propriedade
+/// não tem um inicial fixo — hoje só `display`, que depende da TAG (um `<div>`
+/// responde `block` e um `<span>` `inline`) e por isso é resolvido pelo
+/// chamador, que é quem tem o elemento na mão.
+pub fn initial(name: &str) -> Option<&'static str> {
+    Some(match name {
+        // Cor e fundo. O `rgba(0, 0, 0, 0)` do fundo é `transparent` na forma
+        // que o Chrome imprime — não a palavra.
+        "color" => "rgb(0, 0, 0)",
+        "background-color" | "background" => "rgba(0, 0, 0, 0)",
+        "background-image" => "none",
+        "background-repeat" => "repeat",
+        "background-position" => "0% 0%",
+        "background-size" => "auto",
+        // Tipografia.
+        "font-size" => "16px",
+        "font-weight" => "400",
+        "font-style" => "normal",
+        "line-height" => "normal",
+        "letter-spacing" => "normal",
+        "text-align" => "start",
+        "text-transform" => "none",
+        "text-decoration" | "text-decoration-line" => "none",
+        "text-indent" => "0px",
+        "white-space" => "normal",
+        "word-break" => "normal",
+        "overflow-wrap" | "word-wrap" => "normal",
+        "direction" => "ltr",
+        "list-style-type" => "disc",
+        "list-style-image" => "none",
+        "cursor" => "auto",
+        "vertical-align" => "baseline",
+        // Box model.
+        "padding-top" | "padding-right" | "padding-bottom" | "padding-left"
+        | "padding-inline-start" | "padding-inline-end" => "0px",
+        "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => "0px",
+        "border-width" | "border-top-width" | "border-right-width" | "border-bottom-width"
+        | "border-left-width" => "0px",
+        "border-style" | "border-top-style" | "border-right-style" | "border-bottom-style"
+        | "border-left-style" => "none",
+        "border-color" | "border-top-color" | "border-right-color" | "border-bottom-color"
+        | "border-left-color" => "rgb(0, 0, 0)",
+        "border-radius" => "0px",
+        "outline-width" => "0px",
+        "outline-style" => "none",
+        "outline-color" => "rgb(0, 0, 0)",
+        "outline-offset" => "0px",
+        "box-sizing" => "content-box",
+        "width" | "height" => "auto",
+        // `min-width`/`min-height` respondem `auto` e os `max-` respondem `none`:
+        // não são simétricos, e é assim que o browser os reporta.
+        "min-width" | "min-height" => "auto",
+        "max-width" | "max-height" => "none",
+        "aspect-ratio" => "auto",
+        // Fluxo e posicionamento.
+        "float" => "none",
+        "clear" => "none",
+        "position" => "static",
+        "top" | "right" | "bottom" | "left" => "auto",
+        "z-index" => "auto",
+        "overflow" | "overflow-x" | "overflow-y" => "visible",
+        "visibility" => "visible",
+        "opacity" => "1",
+        // Flex e grid. `normal` (e não `flex-start`/`stretch`) é o inicial que o
+        // Chrome reporta para o alinhamento — a palavra muda de significado
+        // conforme o contexto, e é por isso que ele a mantém em vez de resolver.
+        "display" => return None,
+        "flex-direction" => "row",
+        "flex-wrap" => "nowrap",
+        "flex-flow" => "row nowrap",
+        "flex-grow" | "order" => "0",
+        "flex-shrink" => "1",
+        "flex-basis" => "auto",
+        "justify-content" | "align-items" => "normal",
+        "align-self" => "auto",
+        "gap" | "column-gap" | "row-gap" => "normal",
+        "grid-template-columns" | "grid-template-rows" | "grid-template-areas" => "none",
+        "grid-area" => "auto",
+        // Efeitos.
+        "box-shadow" => "none",
+        "transform" => "none",
+        "font-family" => return None, // depende da fonte do sistema; não inventamos uma
+        _ => return None,
+    })
+}
+
+impl ComputedStyle {
+    /// O valor de `name` como o `getComputedStyle` o responde: o declarado, ou o
+    /// INICIAL quando ninguém declarou. `tag` é a do elemento e serve ao único
+    /// caso que depende dela — `display`, cujo inicial vem da UA-stylesheet
+    /// (`<div>` → `block`, `<span>` → `inline`, `<li>` → `list-item`).
+    ///
+    /// Passar `None` em `tag` é legítimo (um estilo solto, sem elemento): aí o
+    /// `display` responde vazio em vez de adivinhar um default de tag que não
+    /// existe.
+    pub fn computed_value(&self, name: &str, tag: Option<&str>) -> String {
+        let direto = self.get_property(name);
+        if !direto.is_empty() {
+            return direto;
+        }
+        if name == "display" {
+            // A UA-stylesheet é a dona desta resposta e já existe — duplicar
+            // aqui uma segunda tabela de tags seria a duplicação que o resto
+            // deste módulo evita.
+            let Some(tag) = tag else { return String::new() };
+            // Duas perguntas, nesta ordem, e ambas à UA-stylesheet que já existe:
+            // as caixas de tabela e o `<li>` têm keyword próprio; o resto das
+            // tags registadas é uma caixa de BLOCO.
+            if let Some(d) = crate::block::ua_display(tag) {
+                return super::fmt_values::display_css(d).to_string();
+            }
+            return match crate::block::lookup(tag).map(|d| d.display) {
+                // `display` interno 1 é o nosso fluxo-de-linha DENTRO de uma
+                // caixa de bloco (é como o `<p>` está registado) — para o CSS
+                // continua a ser `block`: o que muda é como os filhos fluem, não
+                // o que a caixa é.
+                Some(0) | Some(1) => "block".to_string(),
+                Some(2) => "flex".to_string(),
+                Some(3) => "grid".to_string(),
+                Some(_) => "block".to_string(),
+                // Tag não registada: `inline`, que é o que o browser dá a uma
+                // tag que não conhece (um `<foo>` é inline).
+                None => "inline".to_string(),
+            };
+        }
+        initial(name).unwrap_or_default().to_string()
+    }
+}

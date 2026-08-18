@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Fixa: `var()` resolve a variável do escopo mais próximo, cai no fallback
+     quando não existe, e a variável HERDA — por isso um filho redefine para si
+     e para a sua subárvore sem tocar no tio. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="usa-raiz,dentro-do-redefine,irmao-do-redefine,sem-variavel,fallback-encadeado">
+<meta name="fixar-estilo" content="color">
+<style>
+  :root { --cor: #ff0000; --largura: 200px; }
+  body { margin: 0; }
+  #usa-raiz { color: var(--cor); width: var(--largura); height: 20px; }
+  #redefine { --cor: #0000ff; }
+  #dentro-do-redefine { color: var(--cor); }
+  #irmao-do-redefine { color: var(--cor); }
+  #sem-variavel { color: var(--nao-existe, #00ff00); width: var(--tambem-nao, 123px); height: 20px; }
+  #fallback-encadeado { color: var(--nao-existe, var(--cor)); }
+</style></head>
+<body>
+  <div id="usa-raiz">a</div>
+  <div id="redefine"><div id="dentro-do-redefine">a</div></div>
+  <div id="irmao-do-redefine">a</div>
+  <div id="sem-variavel">a</div>
+  <div id="fallback-encadeado">a</div>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- Fixa: quais propriedades HERDAM sem se pedir (color, font-size, text-align,
+     line-height, white-space) e quais não (background-color, border, padding,
+     display) — e que `inherit` explícito força a segunda lista a herdar. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="avo,pai,neto,pede-fundo">
+<meta name="fixar-estilo" content="color,font-size,text-align,background-color">
+<style>
+  body { margin: 0; }
+  #avo { color: #ff0000; font-size: 24px; text-align: center;
+         background-color: #00ff00; padding: 20px; }
+  #pai { }
+  #neto { }
+  #pede-fundo { background-color: inherit; }
+</style></head>
+<body>
+  <div id="avo"><div id="pai"><div id="neto">a</div></div><div id="pede-fundo">a</div></div>
+</body>
+</html>

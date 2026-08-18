@@ -166,6 +166,50 @@ const UA_TABLE: &[UaEntry] = &[
     UaEntry { tag: "samp", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: FLAG_MONO },
 ];
 
+/// O `display` default da UA para as tags cujo valor NÃO cabe no código inteiro
+/// da [`UA_TABLE`] — `list-item` e os quatro de tabela.
+///
+/// Vive à parte e não como uma coluna nova da tabela por uma razão de forma: o
+/// `display` daquela tabela é um `i64` que o TS também escreve (`defineBlock`), e
+/// é o EIXO de empilhamento; `table-row` não é um eixo, é um papel dentro de um
+/// algoritmo. Alargar o inteiro obrigaria o TS a conhecer códigos que ele nunca
+/// escolhe. A alternativa rejeitada foi hardcodar estes nomes dentro do
+/// `layout.rs` — o motor não nomeia tags HTML, a UA-stylesheet sim, e este
+/// ficheiro É a UA-stylesheet.
+///
+/// Uma regra de AUTOR vence sempre: quem chama só consulta isto quando o CSS
+/// computado não declarou `display`.
+pub fn ua_display(tag: &str) -> Option<crate::style::DisplayKind> {
+    use crate::style::DisplayKind as D;
+    Some(match tag {
+        "li" => D::ListItem,
+        "table" => D::Table,
+        "thead" | "tbody" | "tfoot" => D::TableRowGroup,
+        "tr" => D::TableRow,
+        "td" | "th" => D::TableCell,
+        "caption" => D::TableCaption,
+        // `<col>`/`<colgroup>` carregam largura de coluna e não geram caixa.
+        "col" | "colgroup" => D::None,
+        _ => return None,
+    })
+}
+
+/// O RECUO default da UA para as listas: `<ul>`/`<ol>` têm
+/// `padding-inline-start: 40px` na folha de todo browser, e é o que põe o texto
+/// do `<li>` 40px à direita da caixa da lista (o marcador vive nesse recuo).
+///
+/// Devolvido como função em vez de virar um `SLOT_PADDING` na UA-stylesheet
+/// porque aquele slot é o padding dos QUATRO lados, e aplicá-lo daria 40px em
+/// cima e em baixo também. Quem chama respeita a precedência: um
+/// `padding-left` do autor (`list-style:none;padding-left:0` de um menu) anula
+/// este default, como na cascade real.
+pub const UA_LIST_INDENT: f32 = 40.0;
+
+/// `true` se a tag é uma das duas caixas de lista que recebem [`UA_LIST_INDENT`].
+pub fn is_list_container(tag: &str) -> bool {
+    matches!(tag, "ul" | "ol" | "menu" | "dir")
+}
+
 thread_local! {
     /// Flag de "UA já instalada nesta thread" (idempotência sem custo por-parse).
     static UA_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -200,4 +244,13 @@ pub fn install_ua_defaults() {
     // tag < classe/id do autor; a UA é a camada mais fraca da cascade).
     crate::style::define_style("a", crate::style::SLOT_COLOR, 0x0000EEFF);
     crate::style::define_style("a", crate::style::SLOT_TEXT_DECORATION, 1);
+    // Os CONTROLOS DE FORMULÁRIO não herdam a fonte do documento: a folha do
+    // browser dá-lhes uma fonte própria (`font: 400 13.3333px Arial` no Chrome),
+    // e é por isso que um `<input>` dentro de um corpo de 16px sai mais pequeno.
+    // Medido na página real: são os ÚNICOS 8 elementos de 16 354 em que o nosso
+    // `font-size` diverge do Chrome — nós dávamos 16 (herdado) onde ele dá
+    // 13,3333. Uma regra de autor vence isto, como qualquer default de UA.
+    for tag in ["input", "button", "select", "textarea"] {
+        crate::style::define_style_font_px(tag, 13.3333);
+    }
 }

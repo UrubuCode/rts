@@ -26,7 +26,7 @@ use super::lerp::AnimValue;
 use super::values::{
     AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
     JustifyContent, LineHeight, Position, Rgba, Side, TextAlign, TextDecoration, TextTransform,
-    WhiteSpace,
+    Visibility, WhiteSpace,
 };
 
 /// Declara a tabela de propriedades e gera a struct + os 4 mecanismos da cascade.
@@ -60,6 +60,11 @@ macro_rules! css_props {
             /// BUILT-IN da macro (herança/merge próprios; não anima).
             pub custom_props:
                 Option<std::sync::Arc<std::collections::HashMap<String, String>>>,
+            /// As propriedades declaradas com o keyword `inherit` neste nó — só
+            /// os NOMES; o valor vem do pai na passada de herança (ver
+            /// `style::inherit_kw`). `Arc` porque a lista é quase sempre vazia ou
+            /// minúscula e é clonada com o estilo.
+            pub inherit_props: Option<std::sync::Arc<Vec<String>>>,
             /// GRID: as trilhas de COLUNA (`grid-template-columns`) parseadas —
             /// px/fr/auto/%. `None` = não é grid explícito. Campo built-in (Vec não
             /// cabe na macro simples); herança N/A (grid não herda). O layout roda
@@ -74,6 +79,11 @@ macro_rules! css_props {
             /// aplicada a toda linha não coberta por `grid-template-rows`. `None` =
             /// auto (altura do conteúdo).
             pub grid_auto_rows: Option<crate::style::GridTrack>,
+            /// GRID: `grid-template-areas` já reduzido a (nome → retângulo) + o
+            /// tamanho da grade. Campo built-in pelo mesmo motivo das trilhas: o
+            /// valor não é escalar e não cabe na macro. `None` = sem áreas
+            /// nomeadas, e então todo filho entra na colocação automática.
+            pub grid_template_areas: Option<std::sync::Arc<crate::style::GridAreas>>,
             /// GRID: `justify-items` — alinhamento HORIZONTAL do item na célula
             /// (start/center/end/stretch). `None` = stretch. Reusa AlignItems como
             /// vocabulário (start=FlexStart etc.).
@@ -97,8 +107,10 @@ macro_rules! css_props {
             grid_template_columns(Option<std::sync::Arc<Vec<crate::style::GridTrack>>>),
             grid_template_rows(Option<std::sync::Arc<Vec<crate::style::GridTrack>>>),
             grid_auto_rows(Option<crate::style::GridTrack>),
+            grid_template_areas(Option<std::sync::Arc<crate::style::GridAreas>>),
             grid_justify_items(Option<crate::style::AlignItems>),
             custom_props(Option<std::sync::Arc<std::collections::HashMap<String, String>>>),
+            inherit_props(Option<std::sync::Arc<Vec<String>>>),
         }
 
         impl Decl {
@@ -111,8 +123,10 @@ macro_rules! css_props {
                     Decl::grid_template_columns(v) => target.grid_template_columns = v.clone(),
                     Decl::grid_template_rows(v) => target.grid_template_rows = v.clone(),
                     Decl::grid_auto_rows(v) => target.grid_auto_rows = *v,
+                    Decl::grid_template_areas(v) => target.grid_template_areas = v.clone(),
                     Decl::grid_justify_items(v) => target.grid_justify_items = *v,
                     Decl::custom_props(v) => target.custom_props = v.clone(),
+                    Decl::inherit_props(v) => target.inherit_props = v.clone(),
                 }
             }
         }
@@ -142,11 +156,17 @@ macro_rules! css_props {
                 if self.grid_auto_rows.is_some() {
                     out.push(Decl::grid_auto_rows(self.grid_auto_rows));
                 }
+                if self.grid_template_areas.is_some() {
+                    out.push(Decl::grid_template_areas(self.grid_template_areas.clone()));
+                }
                 if self.grid_justify_items.is_some() {
                     out.push(Decl::grid_justify_items(self.grid_justify_items));
                 }
                 if self.custom_props.is_some() {
                     out.push(Decl::custom_props(self.custom_props.clone()));
+                }
+                if self.inherit_props.is_some() {
+                    out.push(Decl::inherit_props(self.inherit_props.clone()));
                 }
                 out
             }
@@ -165,8 +185,29 @@ macro_rules! css_props {
                 if other.grid_auto_rows.is_some() {
                     self.grid_auto_rows = other.grid_auto_rows;
                 }
+                if other.grid_template_areas.is_some() {
+                    self.grid_template_areas = other.grid_template_areas.clone();
+                }
                 if other.grid_justify_items.is_some() {
                     self.grid_justify_items = other.grid_justify_items;
+                }
+                // `inherit`: as listas SOMAM-SE. Duas regras podem pedir
+                // `inherit` em propriedades diferentes, e a de maior precedência
+                // não anula o pedido da outra — anular seria trocar "esta regra
+                // não fala de X" por "esta regra desliga o X da outra".
+                if let Some(deles) = &other.inherit_props {
+                    self.inherit_props = Some(match self.inherit_props.take() {
+                        None => deles.clone(),
+                        Some(meus) => {
+                            let mut v = (*meus).clone();
+                            for n in deles.iter() {
+                                if !v.contains(n) {
+                                    v.push(n.clone());
+                                }
+                            }
+                            std::sync::Arc::new(v)
+                        }
+                    });
                 }
                 // custom props: as de `other` vencem POR NOME (união CoW).
                 if let Some(theirs) = &other.custom_props {
@@ -190,6 +231,9 @@ macro_rules! css_props {
             /// vive SÓ lá.
             pub fn inherit_from(&mut self, parent: &ComputedStyle) {
                 $( $( css_props!(@inherit $of, $ofield, self, parent); )* )*
+                // `inherit` EXPLÍCITO: depois da herança por omissão, porque é
+                // uma declaração e vence o que o nó não declarou.
+                self.apply_inherit_keyword(parent);
                 // custom props SEMPRE herdam (spec): sem declaração própria o
                 // filho compartilha o Arc do pai (O(1)); com declaração própria,
                 // as do pai preenchem por baixo (o filho vence por nome).
@@ -258,6 +302,11 @@ css_props! {
         /// ALPHA das cores próprias do elemento (bg/borda/texto) — cobre o caso comum
         /// (fade de card/botão/overlay) sem grupos de compositing. Animável (fades).
         [anim] opacity: f32;
+        /// `visibility` — HERDADA, e é o que a distingue de `display:none`: o
+        /// elemento continua no fluxo e continua a ocupar espaço, apenas não é
+        /// pintado, e os descendentes herdam isso a menos que declarem
+        /// `visible`. `None` = visível.
+        [inh] visibility: Visibility;
         /// `box-shadow` (a 1ª sombra da lista) — pintada atrás da caixa como um
         /// `DisplayItem::Shadow` (blur real no backend). `None` = sem sombra.
         [] box_shadow: BoxShadow;
@@ -296,8 +345,17 @@ css_props! {
         /// `letter-spacing` — espaço EXTRA entre caracteres (px), somado à largura de
         /// cada glifo. Herdável. `None`/0 = normal. Afeta medição E pintura.
         [inh] letter_spacing: f32;
-        /// `text-decoration[-line]` — sublinhado/tachado/sobrelinha. Herdável (a linha
-        /// desce até o texto filho). `None` = sem decoração.
+        /// `text-decoration[-line]` — sublinhado/tachado/sobrelinha. `None` = sem
+        /// decoração.
+        ///
+        /// ⚠️ Marcada `inh`, e a spec diz que NÃO é herdada (confirmado na tabela
+        /// de propriedades do Blink, `inherited: false`). É deliberado: a spec
+        /// PROPAGA a decoração da caixa aos descendentes in-flow na PINTURA, e
+        /// este motor não tem essa passada — a herança é o substituto que produz o
+        /// mesmo resultado no caso comum (`<a><span>texto</span></a>` sublinhado).
+        /// A diferença aparece onde a spec pára a propagação (um descendente
+        /// float/inline-block não devia herdar a linha do pai) e onde a cor da
+        /// linha devia ser a do ancestral que a declarou, não a do filho.
         [inh] text_decoration: TextDecoration;
         /// `font-family` — a 1ª família da lista (só guardamos o nome; o backend
         /// escolhe a fonte real). `None` = default. `mono` derivado se a família é
@@ -352,6 +410,12 @@ css_props! {
         /// layout dá a cada filho largura = (container - gaps) / N. `None`/1 = coluna
         /// única. Extraído de `repeat(N, ...)` ou da contagem de trilhas explícitas.
         [] grid_columns: i32;
+        /// `grid-area: <nome>` — o NOME da área nomeada em que este item vive. Só a
+        /// forma de nome único (a numérica `r / c / r / c` não é aceita — ver
+        /// `style::grid_areas::parse_grid_area_name`). `None` = colocação
+        /// automática. É o item que aponta para o container: quem casa nome com
+        /// retângulo é o `grid_template_areas` do PAI.
+        [] grid_area: String;
         /// `flex-grow` — fração do espaço LIVRE do container que este item
         /// recebe (o `.col` do Bootstrap é `flex: 1 0 0%`). `None` = 0.
         [] flex_grow: f32;
@@ -411,6 +475,88 @@ css_props! {
         /// para o scroll interno; a página usa o resolvido em `scrollbar::resolve`.
         [] overflow_x: crate::scrollbar::Overflow;
         [] overflow_y: crate::scrollbar::Overflow;
+        // ── Fundo: as camadas do shorthand `background` (ver `style::background`) ──
+        /// `background-image: url(...)` — o VALOR CRU da url, guardado para o
+        /// `getComputedStyle` o reportar. O motor de CSS não busca imagens (quem
+        /// carrega bitmap é o `<img>`, pelo DOM), então isto não pinta.
+        [] bg_image: String;
+        /// `mask-image` / `-webkit-mask-image` — o VALOR CRU da url. Não
+        /// carregamos máscaras: o que este campo faz hoje é dizer "esta caixa TEM
+        /// forma dada por uma máscara que não temos", e o layout responde não
+        /// pintando o fundo dela (ver `deve_suprimir_fundo`).
+        ///
+        /// É um SUBSTITUTO TEMPORÁRIO, não a semântica final. Em CSS a máscara
+        /// recorta o fundo: quando soubermos carregar e aplicar uma, o fundo volta
+        /// a ser pintado e passa a ser recortado por ela — e este campo deixa de
+        /// ser um booleano disfarçado para ser a imagem que de facto recorta.
+        /// Suprimir é o mais próximo da verdade enquanto isso não existe: um ícone
+        /// do MediaWiki (`.cdx-button__icon`, `background-color` + `mask-image`)
+        /// sem a máscara não é um glifo, é um quadrado cheio que o browser nunca
+        /// mostra — e foi assim que a Wikipédia ganhou blocos cinzentos.
+        [] mask_image: String;
+        /// `background-repeat`. Aceite e serializado (sem imagem pintada, não há
+        /// o que repetir ainda).
+        [] bg_repeat: crate::style::BgRepeat;
+        /// `background-position` nos dois eixos (keywords viram %, como no browser).
+        [] bg_position: crate::style::BgPosition;
+        /// `background-size` (`cover`/`contain`/`auto`/par de comprimentos).
+        [] bg_size: crate::style::BgSize;
+        // ── Bordas POR LADO (ver `style::borders`) ────────────────────────────────
+        /// `border-top-style` — o estilo SÓ deste lado. `None` = cai na borda
+        /// uniforme (`border_style`), que é o fallback de `borders::resolved_sides`.
+        [] border_top_style: BorderStyle;
+        [] border_right_style: BorderStyle;
+        [] border_bottom_style: BorderStyle;
+        [] border_left_style: BorderStyle;
+        /// `border-top-color` — a cor só deste lado (fallback: `border_color`).
+        [anim] border_top_color: Rgba;
+        [anim] border_right_color: Rgba;
+        [anim] border_bottom_color: Rgba;
+        [anim] border_left_color: Rgba;
+        // ── outline: uma borda que NÃO ocupa espaço (fora do box model) ───────────
+        /// `outline-width` em pontos. `None` = sem outline declarado.
+        [] outline_width: f32;
+        /// `outline-style` — o default do CSS é `none` (não desenha).
+        [] outline_style: BorderStyle;
+        /// `outline-color`. `None` = usa a cor do texto (currentColor).
+        [] outline_color: Rgba;
+        /// `outline-offset` — afasta o anel da caixa (pode ser negativo).
+        [] outline_offset: f32;
+        // ── Texto/listas/fluxo (ver `style::text`) ────────────────────────────────
+        /// `vertical-align` — consumido na linha de inline-blocks.
+        [] vertical_align: crate::style::VerticalAlign;
+        /// `clear` — desce abaixo dos floats correntes (o par do `float`).
+        [] clear: crate::style::Clear;
+        /// `word-break` — herdável.
+        [inh] word_break: crate::style::WordBreak;
+        /// `overflow-wrap` — herdável.
+        [inh] overflow_wrap: crate::style::OverflowWrap;
+        /// `direction` — herdável (aceite e serializada; o layout é sempre LTR).
+        [inh] direction: crate::style::Direction;
+        /// `text-indent` — recuo da PRIMEIRA linha do bloco. Herdável (spec).
+        [inh] text_indent: Dimension;
+        /// `list-style-type` — herdável.
+        [inh] list_style_type: crate::style::ListStyleType;
+        /// `list-style-position` — o marcador fica FORA da caixa de conteúdo
+        /// (`outside`, o default) ou como primeira coisa da linha. Herdável.
+        [inh] list_style_position: crate::style::ListStylePosition;
+        /// `border-collapse` — se as bordas das células adjacentes se fundem.
+        /// HERDÁVEL (spec): declara-se na `<table>` e vale para dentro.
+        [inh] border_collapse: crate::style::BorderCollapse;
+        /// `border-spacing` — o vão entre células de uma tabela `separate`.
+        /// Herdável, pela mesma razão.
+        [inh] border_spacing: crate::style::BorderSpacing;
+        /// `table-layout` — larguras pelo conteúdo (`auto`) ou pela primeira
+        /// linha (`fixed`). NÃO herda: é da caixa da tabela.
+        [] table_layout: crate::style::TableLayout;
+        /// `list-style-image` — a url do marcador. Guardada crua (o motor não
+        /// desenha marcador; ver `style::text::ListStyleType`).
+        [inh] list_style_image: String;
+        /// `cursor` — o keyword CRU (`pointer`, `default`, `text`, …). Herdável.
+        /// Guardado como string porque a lista da spec tem ~35 valores e nenhum
+        /// deles é interpretado aqui: o ponteiro é do backend de janela, e um enum
+        /// só serviria para rejeitar valores que o backend saberia usar.
+        [inh] cursor: String;
     }
     edges {
         // ── Box model (F2) — pontos (f32), por lado. ─────────────────────────────
@@ -421,6 +567,12 @@ css_props! {
         /// Espaço EXTERNO ao redor da caixa, POR LADO (`Edges`). `auto`
         /// (centralização) é marcado em `Edges` via o sentinela `Side::Auto`.
         [anim] margin;
+        /// Largura da borda POR LADO (`border-top-width` e os shorthands por
+        /// lado). Reusa [`Edges`] pelo merge lado a lado que a cascade exige —
+        /// `border-width: 1px` seguido de `border-bottom-width: 0` tem de manter os
+        /// outros três. Um lado `Unset` cai na borda uniforme (`border_width`) em
+        /// `borders::resolved_sides`.
+        [anim] border_widths;
     }
 }
 
@@ -435,6 +587,10 @@ impl ComputedStyle {
             || self.padding.any_set()
             || self.margin.any_set()
             || self.border_width.is_some()
+            || self.border_widths.any_set()
+            // o outline não ocupa espaço, mas é PINTADO pelo mesmo caminho da
+            // caixa — sem isto, um elemento que só declara outline não chega lá.
+            || self.outline_width.is_some()
             || self.corner_radius.is_some()
             || self.width.is_some()
     }
@@ -605,6 +761,23 @@ pub fn define_style(tag: &str, slot: i64, val: i64) {
         let mut m = m.borrow_mut();
         let entry = m.entry(tag.to_ascii_lowercase()).or_default();
         entry.apply_slot(slot, val);
+    });
+    bump_style_epoch();
+}
+
+/// Regista o `font-size` default de uma TAG em px FRACIONÁRIOS.
+///
+/// Existe ao lado do [`define_style`] por um motivo medido: o slot opaco carrega
+/// um `i64`, e a fonte que o browser dá aos controlos de formulário é
+/// **13,3333px** — truncá-la para 13 põe o valor computado a 0,33px do Chrome em
+/// todo `<input>` da página. O slot continua a ser a via da camada TS (invariante
+/// 4); isto é a via da UA-stylesheet interna, que é Rust e não precisa de
+/// atravessar a fronteira ABI.
+pub fn define_style_font_px(tag: &str, px: f32) {
+    STYLES.with(|m| {
+        let mut m = m.borrow_mut();
+        let entry = m.entry(tag.to_ascii_lowercase()).or_default();
+        entry.font_size = Some(Dimension::Px(px));
     });
     bump_style_epoch();
 }

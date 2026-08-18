@@ -425,7 +425,12 @@ fn a_template_keeps_raw_and_cooked() {
             assert_eq!(parts.len(), 2);
             assert_eq!(expressions.len(), 1);
             assert_eq!(parts[0].raw, "a");
-            assert_eq!(parts[0].cooked.as_deref(), Some("a"));
+            // `Text` guarda UNIDADES UTF-16, não uma `String`: um template
+            // pode conter metade de um par surrogado, e uma `String` de Rust não
+            // representa isso. `as_rust` é a conversão que falha nesse caso — é
+            // por isso que devolve `Option`, e por isso que o teste passa por
+            // ela em vez de tratar o `Text` como texto de Rust.
+            assert_eq!(parts[0].cooked.as_ref().and_then(|t| t.as_rust()).as_deref(), Some("a"));
         }
         other => panic!("{other:?}"),
     }

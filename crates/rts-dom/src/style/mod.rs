@@ -29,39 +29,65 @@
 //!   nunca casa nome CSS na fronteira ABI; o TS mapeia nome→índice). Base do
 //!   `defineStyle` (F1).
 
+pub mod background;
+pub mod borders;
+pub mod calc;
 pub mod color;
 pub mod effects;
 pub mod fmt;
+pub mod fmt_values;
+pub mod grid_areas;
+pub mod inherit_kw;
+pub mod initial;
+pub mod lengths;
 pub mod lerp;
+pub mod text_metrics;
 pub mod parse;
 pub mod props;
+pub mod root_font;
 pub mod ruleindex;
 pub mod selector;
 pub mod stylesheet;
+/// As propriedades de TABELA e a posição do marcador de lista — ver o módulo.
+pub mod tables;
+pub mod text;
 pub mod values;
 pub(crate) mod vars;
 
+#[cfg(test)]
+mod computed_tests;
+#[cfg(test)]
+mod newprops_tests;
+#[cfg(test)]
+mod selector_tests;
 #[cfg(test)]
 mod tests;
 
 // A API pública é a MESMA da antiga `style.rs` monolítica — os consumidores
 // (`dom.rs`, `layout.rs`, `abi.rs`, `scrollbar.rs`, `anim.rs`, rts-egui) seguem
 // usando `crate::style::X` sem mudança.
+pub use background::{BgPosition, BgRepeat, BgSize};
+pub use borders::{SideBorder, SideName};
 pub use color::parse_color;
+pub use grid_areas::{GridArea, GridAreas};
+pub use text_metrics::{normal_line_height, spacing_width, MONO_ADVANCE, PROP_ADVANCE};
 pub use lerp::{lerp_color, lerp_dimension, lerp_f32};
 pub use parse::{is_mono_family, parse_inline, parse_inline_block};
+pub use root_font::{root_font_size, set_root_font_size};
 pub use props::{
-    define_style, lookup_style, ComputedStyle, SLOT_BG, SLOT_BORDER_COLOR, SLOT_BORDER_WIDTH,
+    define_style, define_style_font_px, lookup_style, ComputedStyle, SLOT_BG, SLOT_BORDER_COLOR, SLOT_BORDER_WIDTH,
     SLOT_COLOR, SLOT_CORNER_RADIUS, SLOT_FONT_SIZE, SLOT_MARGIN, SLOT_MARGIN_V, SLOT_PADDING,
     SLOT_TEXT_ALIGN, SLOT_TEXT_DECORATION, SLOT_WIDTH,
 };
 pub use selector::{
     compound_matches, compound_matches_borrowed, parse_selector, parse_selector_list, AttrOp, Combinator,
-    ComplexSelector, CompoundSelector, PseudoClass, Selector, SimpleSelector,
+    ComplexSelector, CompoundSelector, PseudoClass, PseudoElement, Selector, SimpleSelector,
 };
 pub use stylesheet::{parse_rules, DeclBlock, HoverReach, MatchedRules, MediaQuery, Rule, Stylesheet};
+pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
+pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak};
 pub use values::{
-    clamp_size, AlignItems, BorderStyle, CalcLen, Dimension, DisplayKind, Edges, FlexDirection, FloatSide, GridTrack,
+    clamp_size, dimensao_absoluta, AlignItems, BorderStyle, CalcLen, Dimension, DisplayKind, Edges, FlexDirection, FloatSide, GridTrack,
     JustifyContent, LineHeight, Position, ResolveCtx, Rgba, Side, TextAlign, TextTransform,
     WhiteSpace, DIM_BASE_EM, DIM_BASE_PERCENT, DIM_BASE_PX, DIM_BASE_REM, DIM_BASE_VH,
     DIM_BASE_VW, DIM_RANGE,

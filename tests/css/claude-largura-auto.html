@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- Fixa: `width: auto` num bloco enche o contentor (e as margens saem de
+     dentro); num `inline-block` encolhe ao conteúdo. Mesma palavra, duas
+     regras — e `margin: auto` a centrar. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #contentor { width: 500px; background: #eee; }
+  #bloco-auto { width: auto; height: 30px; margin: 0 40px; background: #fcc; }
+  #centrado { width: 200px; height: 30px; margin: 0 auto; background: #cfc; }
+  #encolhe { display: inline-block; width: auto; height: 30px; padding: 0 10px; background: #ccf; }
+</style></head>
+<body>
+  <div id="contentor">
+    <div id="bloco-auto"></div>
+    <div id="centrado"></div>
+    <span id="encolhe">abc</span>
+  </div>
+</body>
+</html>

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `line-height` sem unidade herda o FATOR (recalcula em cada
+     font-size); com unidade herda o valor já resolvido. É a distinção que
+     decide a altura de uma caixa de texto num filho de fonte diferente. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="fator,fator-filho,fixo,fixo-filho,normal,percentual">
+<meta name="fixar-estilo" content="line-height,font-size">
+<style>
+  body { margin: 0; font: 16px/1.5 monospace; }
+  #fator { line-height: 2; font-size: 16px; }
+  #fator-filho { font-size: 32px; }
+  #fixo { line-height: 32px; font-size: 16px; }
+  #fixo-filho { font-size: 32px; }
+  #normal { line-height: normal; font-size: 20px; }
+  #percentual { line-height: 200%; font-size: 16px; }
+</style></head>
+<body>
+  <div id="fator">a<div id="fator-filho">b</div></div>
+  <div id="fixo">a<div id="fixo-filho">b</div></div>
+  <div id="normal">a</div>
+  <div id="percentual">a</div>
+</body>
+</html>

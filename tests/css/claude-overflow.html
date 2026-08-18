@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `overflow` NÃO muda a caixa do filho que transborda — o rect dele
+     continua a dizer o tamanho todo; o que muda é o recorte na pintura e o
+     valor computado. Um motor que encolhe o filho para caber está errado. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="visivel,escondido,automatico,so-x">
+<meta name="fixar-estilo" content="overflow">
+<style>
+  body { margin: 0; }
+  div.caixa { width: 200px; height: 100px; margin-bottom: 10px; background: #eee; }
+  div.caixa > div { width: 300px; height: 200px; background: #fcc; }
+  #visivel { overflow: visible; }
+  #escondido { overflow: hidden; }
+  #automatico { overflow: auto; }
+  #so-x { overflow-x: hidden; overflow-y: visible; }
+</style></head>
+<body>
+  <div class="caixa" id="visivel"><div id="tv"></div></div>
+  <div class="caixa" id="escondido"><div id="te"></div></div>
+  <div class="caixa" id="automatico"><div id="ta"></div></div>
+  <div class="caixa" id="so-x"><div id="tx"></div></div>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: `!important` ganha de qualquer especificidade maior, e entre dois
+     `!important` volta a valer a especificidade. O segundo caso é o que se
+     esquece de implementar. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="forte,important-tambem,largura">
+<meta name="fixar-estilo" content="color">
+<style>
+  body { margin: 0; }
+  #forte { color: #0000ff; }
+  .fraca-mas-important { color: #ff0000 !important; }
+  #important-tambem { color: #00ff00 !important; }
+  .important-fraca { color: #ffff00 !important; }
+  div { width: 100px !important; width: 500px; height: 20px; }
+</style></head>
+<body>
+  <div id="forte" class="fraca-mas-important">a</div>
+  <div id="important-tambem" class="important-fraca">a</div>
+  <div id="largura">a</div>
+</body>
+</html>

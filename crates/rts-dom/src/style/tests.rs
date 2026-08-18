@@ -585,3 +585,27 @@ fn mecanismos_gerados_da_tabela() {
     assert_eq!(mid.bg, Some(0x800000FF));
     assert_eq!(mid.display, Some(DisplayKind::Flex)); // discreto: já no destino
 }
+
+#[test]
+fn inline_block_serializa_com_o_proprio_nome() {
+    // `getComputedStyle(el).display` devolve o keyword USADO. Enquanto
+    // `inline-block` partilhou a variante com `inline`, respondia `inline` — 8
+    // desvios no corpus de fixtures, todos com esta forma.
+    let mut c = ComputedStyle::default();
+    c.display = Some(DisplayKind::InlineBlock);
+    assert_eq!(c.get_property("display"), "inline-block");
+    c.display = Some(DisplayKind::Inline);
+    assert_eq!(c.get_property("display"), "inline");
+}
+
+#[test]
+fn inline_block_e_de_nivel_inline_e_nao_de_bloco() {
+    // A armadilha que a variante nova cria: quem perguntava "é de bloco?" com
+    // `display != Inline` passa a errar. `is_inline_level` é a pergunta que não
+    // se desatualiza.
+    assert!(DisplayKind::InlineBlock.is_inline_level());
+    assert!(DisplayKind::Inline.is_inline_level());
+    assert!(!DisplayKind::Block.is_inline_level());
+    // e continua a empilhar os filhos no mesmo eixo do `inline` (wrap).
+    assert_eq!(DisplayKind::InlineBlock.to_display_code(), DisplayKind::Inline.to_display_code());
+}

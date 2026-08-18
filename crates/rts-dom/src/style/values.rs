@@ -27,10 +27,20 @@ impl TextAlign {
     }
 }
 
-/// `line-height` — ou um MULTIPLICADOR do font-size (número sem unidade), ou um
-/// comprimento absoluto em pontos. `normal` é representado como `Mult(1.2)`.
+/// `line-height` — `normal`, um MULTIPLICADOR do font-size (número sem unidade),
+/// ou um comprimento absoluto em pontos.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum LineHeight {
+    /// `normal` — o valor INICIAL do CSS, e **não uma constante**: no browser sai
+    /// das métricas da fonte (o Chrome dá ~1,125× na fonte default, não 1,2).
+    /// Por isso é uma variante própria em vez de um `Mult` fixo: quem resolve
+    /// passa o valor do MEDIDOR, que é o único que fala com a fonte.
+    ///
+    /// Era `Mult(1.2)`, e isso era um BUG mensurável: um elemento sem declaração
+    /// nenhuma usava o default do medidor (1,3 × font no `ApproxMeasurer`) e um
+    /// com `line-height: normal` — que a spec diz ser o mesmo valor — usava 1,2.
+    /// A mesma propriedade dava duas alturas conforme fosse escrita ou omitida.
+    Normal,
     /// número sem unidade (`1.5`) → 1.5 × font-size do elemento.
     Mult(f32),
     /// comprimento absoluto em pontos (`24px`).
@@ -38,9 +48,12 @@ pub enum LineHeight {
 }
 
 impl LineHeight {
-    /// Resolve para a altura da linha em pontos, dado o font-size do elemento.
-    pub fn resolve(self, font_size: f32) -> f32 {
+    /// Resolve para a altura da linha em pontos. `font_size` é o do elemento e
+    /// `normal` é a altura que o MEDIDOR dá para esse font-size — o valor que a
+    /// fonte determina, e que só o backend conhece.
+    pub fn resolve(self, font_size: f32, normal: f32) -> f32 {
         match self {
+            LineHeight::Normal => normal,
             LineHeight::Mult(m) => m * font_size,
             LineHeight::Px(p) => p,
         }
@@ -49,18 +62,45 @@ impl LineHeight {
     pub fn parse(v: &str) -> Option<LineHeight> {
         let v = v.trim();
         if v.eq_ignore_ascii_case("normal") {
-            return Some(LineHeight::Mult(1.2));
+            return Some(LineHeight::Normal);
         }
-        // `%` → multiplicador (150% = 1.5×).
+        // Negativo é inválido na spec (a linha não pode ter altura negativa) —
+        // recusar deixa a declaração cair, que é o que o browser faz, em vez de
+        // encolher a linha para trás.
+        let num = |s: &str| s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0);
+        // `%` → multiplicador (150% = 1.5×). O % de line-height é do FONT-SIZE do
+        // próprio elemento, e não do container — por isso vira multiplicador.
         if let Some(p) = v.strip_suffix('%') {
-            return p.trim().parse::<f32>().ok().map(|n| LineHeight::Mult(n / 100.0));
+            return num(p).map(|n| LineHeight::Mult(n / 100.0));
+        }
+        let low = v.to_ascii_lowercase();
+        // `rem` ANTES de `em` (o sufixo curto casaria dentro do longo). `rem` é
+        // relativo ao root, que é fixo em 16px aqui — logo, absoluto.
+        if let Some(p) = low.strip_suffix("rem") {
+            return num(p).map(|n| LineHeight::Px(n * 16.0));
+        }
+        // `em` é relativo ao font-size do PRÓPRIO elemento, que é o mesmo número
+        // que `Mult` dá NESTE elemento. Antes daqui, `1.6em` não era reconhecido
+        // de todo e a linha caía no default do medidor.
+        //
+        // ⚠️ CORTE, e é o caso que quase toda a gente erra: os dois divergem na
+        // HERANÇA. `line-height: 1.6` herda o NÚMERO (cada filho multiplica o seu
+        // próprio font-size), enquanto `1.6em` herda o COMPRIMENTO já calculado
+        // no pai (todos os filhos recebem os mesmos px, mesmo com font-size
+        // diferente). Aqui os dois herdam como número, então um filho com
+        // font-size menor recebe uma linha menor onde o Chrome lhe daria a do
+        // pai. Corrigi-lo exige resolver o `em` para px na CASCADE, onde o
+        // font-size do elemento já é conhecido (é onde `font-size` em `em`/`%` já
+        // é resolvido, em `dom.rs`) — fica para quem tocar nessa passada.
+        if let Some(p) = low.strip_suffix("em") {
+            return num(p).map(LineHeight::Mult);
         }
         // `px` → absoluto.
-        if let Some(p) = v.strip_suffix("px") {
-            return p.trim().parse::<f32>().ok().map(LineHeight::Px);
+        if let Some(p) = low.strip_suffix("px") {
+            return num(p).map(LineHeight::Px);
         }
         // número puro → multiplicador.
-        v.parse::<f32>().ok().map(LineHeight::Mult)
+        num(&low).map(LineHeight::Mult)
     }
 }
 
@@ -68,6 +108,31 @@ impl LineHeight {
 /// exposto em getComputedStyle, mas o LAYOUT inline atual é linha-única (não quebra
 /// texto), então `normal` vs `nowrap` são equivalentes hoje; `pre` preserva o texto
 /// cru (o `collect_text` já não colapsa). Efeito pleno chega com inline-flow rico
+/// `visibility` — se o elemento é PINTADO. Diferente de `display:none` num
+/// ponto que decide layouts inteiros: o elemento continua a ocupar o espaço
+/// dele, só não se vê.
+///
+/// É a forma como uma página real esconde um menu que abre ao clicar (o
+/// MediaWiki fá-lo com `visibility:hidden;opacity:0;height:0`), e sem a
+/// suportar o menu aparecia aberto por cima do artigo.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Visibility {
+    Visible,
+    Hidden,
+}
+
+impl Visibility {
+    pub fn parse(v: &str) -> Option<Visibility> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "visible" => Visibility::Visible,
+            // `collapse` só difere de `hidden` em tabelas, que este motor ainda
+            // não trata como tais — tratá-lo como `hidden` é a aproximação certa.
+            "hidden" | "collapse" => Visibility::Hidden,
+            _ => return None,
+        })
+    }
+}
+
 /// (corte de fase, documentado em layout.rs).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WhiteSpace {
@@ -253,6 +318,32 @@ impl Edges {
     pub fn resolve_h(&self, ctx: &ResolveCtx) -> f32 {
         self.left.resolve(ctx).unwrap_or(0.0) + self.right.resolve(ctx).unwrap_or(0.0)
     }
+    /// O eixo horizontal para uma medição INTRÍNSECA: como [`resolve_h`], mas
+    /// um lado em PERCENTAGEM conta zero.
+    ///
+    /// A percentagem de um padding/margem é contra a largura do containing
+    /// block, e uma medição intrínseca corre precisamente quando essa largura
+    /// ainda não está decidida — perguntá-la ali é circular, e o `ResolveCtx`
+    /// da medição responde com a VIEWPORT, que é a resposta errada por uma
+    /// ordem de grandeza. O CSS diz o mesmo: uma percentagem indefinida conta
+    /// como zero para o tamanho intrínseco.
+    ///
+    /// [`resolve_h`]: Edges::resolve_h
+    pub fn resolve_h_intrinseco(&self, ctx: &ResolveCtx) -> f32 {
+        // `RTS_PCT_INTRINSECO=width` mede a variante CONSERVADORA: a regra vale
+        // para o `width` e o padding/margem em percentagem continuam a resolver
+        // como antes. É a alternativa que ficou escrita ao entregar a mudança, e
+        // só se decide entre as duas com o número de cada uma.
+        if modo_pct() == ModoPct::SoWidth {
+            return self.resolve_h(ctx);
+        }
+        let um = |s: &Side| match s {
+            Side::Len(d) => dimensao_absoluta(*d, ctx).unwrap_or(0.0),
+            _ => 0.0,
+        };
+        um(&self.left) + um(&self.right)
+    }
+
     /// Valor vertical efetivo (top+bottom) resolvido com o contexto.
     pub fn resolve_v(&self, ctx: &ResolveCtx) -> f32 {
         self.top.resolve(ctx).unwrap_or(0.0) + self.bottom.resolve(ctx).unwrap_or(0.0)
@@ -305,13 +396,56 @@ pub enum DisplayKind {
     Flex,
     /// `display:flex` + `flex-wrap:wrap` — fluem lado a lado E quebram linha.
     FlexWrap,
-    /// `display:inline`/`inline-block` — flui inline (no nível de bloco, trata como
-    /// wrap: itens lado a lado que quebram). É o default de tags custom no browser.
+    /// `display:inline` — flui inline (no nível de bloco, trata como wrap: itens
+    /// lado a lado que quebram). É o default de tags custom no browser.
     Inline,
+    /// `display:inline-block` — flui na linha como o `inline`, mas é uma caixa
+    /// ATÓMICA: tem largura, altura, padding e margem verticais próprios.
+    ///
+    /// Variante separada do [`Inline`](DisplayKind::Inline) por causa da
+    /// SERIALIZAÇÃO: `getComputedStyle(el).display` tem de responder o keyword
+    /// usado, e com os dois colapsados no mesmo valor respondia `inline` a um
+    /// `inline-block` — 8 desvios no corpus de fixtures, todos com esta forma.
+    /// O fluxo trata as duas quase sempre igual, o que foi a razão de terem
+    /// vivido juntas; a diferença que as separa não é de fluxo, é de nome, e um
+    /// valor que não sabe dizer o próprio nome é o que a serialização expõe.
+    ///
+    /// ATENÇÃO a quem consome: comparar `display != Inline` para responder "é de
+    /// bloco?" passa a estar ERRADO — um `InlineBlock` também não é de bloco.
+    /// Use `is_inline_level`.
+    InlineBlock,
     /// `display:grid` — grade de N colunas (N vem de `grid_columns`, de
     /// `grid-template-columns`). Tratado como WRAP com largura de item = 1/N do
     /// container (grid 2-D real fica p/ depois; cobre os cards/planos em grade).
     Grid,
+    /// `display:list-item` — é o `<li>`. Uma caixa de BLOCO que, além dos filhos,
+    /// gera um MARCADOR (o ponto, o número). O empilhamento é o do bloco: o que
+    /// a distingue é o marcador, não o fluxo — por isso é uma variante e não um
+    /// `bool` à parte no `ComputedStyle`. A alternativa (um `bool marker`) foi
+    /// rejeitada porque `display` é UM valor no CSS: `display:flex` num `<li>`
+    /// tira o marcador, e dois campos independentes representariam o estado
+    /// impossível "flex e list-item ao mesmo tempo".
+    ListItem,
+    /// `display:table` — a caixa da tabela: reparte a largura em COLUNAS e
+    /// empilha linhas. O algoritmo vive em [`crate::table`].
+    Table,
+    /// `display:table-row-group` / `table-header-group` / `table-footer-group` —
+    /// `<tbody>`/`<thead>`/`<tfoot>`. Os três são o MESMO layout (uma sequência
+    /// de linhas); o que os distingue no CSS é a ORDEM de pintura, que só se
+    /// nota quando o `<tfoot>` vem antes do `<tbody>` no markup. Um valor só,
+    /// portanto — três variantes que se comportam igual seriam três nomes para
+    /// uma decisão.
+    TableRowGroup,
+    /// `display:table-row` — `<tr>`. A altura é a da célula mais alta.
+    TableRow,
+    /// `display:table-cell` — `<td>`/`<th>`. Recebe a largura da coluna e a
+    /// altura da linha; por dentro é um bloco normal.
+    TableCell,
+    /// `display:table-caption` — `<caption>`, e o `<figcaption>` de uma
+    /// miniatura da Wikipédia (que declara `figure{display:table}`). Um bloco à
+    /// largura da tabela, FORA da grade: não tem coluna, e por isso não entra no
+    /// algoritmo de repartição.
+    TableCaption,
     /// `display:none` — não renderiza (nem ocupa espaço).
     None,
 }
@@ -319,13 +453,54 @@ pub enum DisplayKind {
 impl DisplayKind {
     /// Converte para o código de display do layout (0=vertical/block, 1=wrap,
     /// 2=horizontal/flex, -1=none). Casa com `crate::block::DISPLAY_*`.
+    ///
+    /// Os valores de tabela e o `list-item` respondem 0 (bloco): esse código é o
+    /// EIXO em que os filhos empilham, e o dos três é o vertical. Quem os trata
+    /// de verdade é o despacho de [`crate::layout`], que pergunta pela variante
+    /// e não pelo código — codificar a tabela aqui exigiria um quinto código que
+    /// o `block.rs` (a UA-stylesheet, dirigida por inteiros do TS) teria de
+    /// conhecer, e a tabela não é uma escolha da folha de estilo do usuário.
     pub fn to_display_code(self) -> i64 {
         match self {
-            DisplayKind::Block => 0,
-            DisplayKind::FlexWrap | DisplayKind::Inline | DisplayKind::Grid => 1, // wrap
+            DisplayKind::Block
+            | DisplayKind::ListItem
+            | DisplayKind::Table
+            | DisplayKind::TableRowGroup
+            | DisplayKind::TableRow
+            | DisplayKind::TableCell
+            | DisplayKind::TableCaption => 0,
+            DisplayKind::FlexWrap
+            | DisplayKind::Inline
+            | DisplayKind::InlineBlock
+            | DisplayKind::Grid => 1, // wrap
             DisplayKind::Flex => 2,                            // horizontal (lado a lado)
             DisplayKind::None => -1,
         }
+    }
+
+    /// `true` para os valores de NÍVEL INLINE — os que fluem numa linha em vez
+    /// de empilhar.
+    ///
+    /// Existe para que ninguém volte a escrever `display != Inline` a querer
+    /// dizer "é de bloco?": era verdade enquanto `inline-block` não tinha
+    /// variante própria, e passou a ser falso no instante em que passou a ter.
+    /// Uma pergunta com nome não se desatualiza quando se acrescenta um valor.
+    pub fn is_inline_level(self) -> bool {
+        matches!(self, DisplayKind::Inline | DisplayKind::InlineBlock)
+    }
+
+    /// `true` para os quatro valores INTERNOS da tabela (`table`, `table-row`,
+    /// `table-cell`, os grupos de linha). Quem pergunta é o fluxo de bloco, para
+    /// não descer num `<tr>` como se fosse um `<div>`.
+    pub fn is_table_part(self) -> bool {
+        matches!(
+            self,
+            DisplayKind::Table
+                | DisplayKind::TableRowGroup
+                | DisplayKind::TableRow
+                | DisplayKind::TableCell
+                | DisplayKind::TableCaption
+        )
     }
 }
 
@@ -391,9 +566,25 @@ pub enum GridTrack {
     Fixed(Dimension),
     /// `1fr`, `2fr` — fração do espaço livre (após px/auto). O nº é o peso.
     Fr(f32),
-    /// `auto`/`min-content`/`max-content` — dimensiona pelo conteúdo (v1: trata
-    /// como o maior conteúdo dos itens da trilha; sem distinção min/max).
+    /// `auto`/`min-content`/`max-content` — dimensiona pelo CONTEÚDO dos itens
+    /// da trilha (sem distinção entre min e max: a diferença entre os três é o
+    /// que fazem com o espaço que SOBRA, e isso decide-se na repartição).
     Auto,
+    /// `minmax(<len>, <len>)` — uma trilha que parte do mínimo e CRESCE até ao
+    /// máximo com o espaço que sobrar.
+    ///
+    /// Existe porque tratá-la como o seu MÁXIMO — que era a aproximação v1 — não
+    /// é uma aproximação, é a resposta errada sempre que há outra trilha ao lado:
+    /// a trilha come o máximo, não sobra nada para as outras, e a grade
+    /// transborda. Medido na Wikipédia, cujo `<main>` é
+    /// `minmax(0,59.25rem) min-content`: dávamos 948px (59.25rem) à coluna de
+    /// conteúdo onde o Chrome dá 752, e a barra lateral saía fora da janela.
+    /// Foram 196px de erro herdados por tudo o que está dentro do artigo,
+    /// incluindo 46 das 49 tabelas da página.
+    ///
+    /// `minmax(x, 1fr)` e `minmax(x, min-content)` NÃO passam por aqui: o máximo
+    /// deles já é uma trilha flexível ou intrínseca, e o parse devolve essa.
+    Bounded { min: Dimension, max: Dimension },
 }
 
 impl GridTrack {
@@ -408,18 +599,27 @@ impl GridTrack {
         if let Some(n) = low.strip_suffix("fr") {
             return n.trim().parse::<f32>().ok().map(GridTrack::Fr);
         }
-        // minmax(min, max) → usa o max (a trilha cresce até ele).
+        // `minmax(min, max)`. Quando o MÁXIMO é `fr` ou intrínseco, a trilha É
+        // essa — um `minmax(0,1fr)` é uma trilha `1fr` cujo mínimo é zero, e o
+        // mínimo zero é o que ela já faria. Só quando os dois lados são
+        // comprimentos é que o par importa, e aí a trilha é limitada.
         if let Some(inner) = low.strip_prefix("minmax(").and_then(|s| s.strip_suffix(')')) {
             let parts: Vec<&str> = inner.splitn(2, ',').collect();
             if parts.len() == 2 {
-                return GridTrack::parse_one(parts[1]);
+                let max = GridTrack::parse_one(parts[1])?;
+                return Some(match (GridTrack::parse_one(parts[0]), max) {
+                    (Some(GridTrack::Fixed(mn)), GridTrack::Fixed(mx)) => {
+                        GridTrack::Bounded { min: mn, max: mx }
+                    }
+                    (_, outro) => outro,
+                });
             }
         }
         // fit-content(x) → x fixo (aproximação).
         if let Some(inner) = low.strip_prefix("fit-content(").and_then(|s| s.strip_suffix(')')) {
             return GridTrack::parse_one(inner);
         }
-        super::parse::parse_dimension_pub(v).map(GridTrack::Fixed)
+        super::lengths::parse_dimension_pub(v).map(GridTrack::Fixed)
     }
 
     /// Parseia uma LISTA de trilhas (`grid-template-columns`), expandindo
@@ -580,6 +780,66 @@ pub struct ResolveCtx {
     pub viewport_w: f32,
     /// Altura da viewport (janela) em pontos — base de `vh`.
     pub viewport_h: f32,
+}
+
+/// `true` quando o interruptor de medição repõe o comportamento antigo. Lido
+/// uma vez: isto corre por caixa medida.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ModoPct {
+    /// A regra inteira: nem `width` nem padding/margem em percentagem contam.
+    Completa,
+    /// Só o `width`. O padding/margem em percentagem resolvem como antes.
+    SoWidth,
+    /// Nada: o comportamento anterior à mudança.
+    Desligada,
+}
+
+fn modo_pct() -> ModoPct {
+    static MODO: std::sync::OnceLock<ModoPct> = std::sync::OnceLock::new();
+    *MODO.get_or_init(|| match std::env::var("RTS_PCT_INTRINSECO").as_deref() {
+        Ok("1") => ModoPct::Desligada,
+        Ok("width") => ModoPct::SoWidth,
+        _ => ModoPct::Completa,
+    })
+}
+
+fn pct_intrinseco_ligado() -> bool {
+    modo_pct() == ModoPct::Desligada
+}
+
+/// Um comprimento que conta para uma medição INTRÍNSECA — ou seja, um que não
+/// depende de uma largura que ainda está por decidir.
+///
+/// Uma percentagem (e um `calc()` com componente percentual) responde `None`:
+/// é contra o containing block, e o tamanho intrínseco é justamente o que se
+/// está a usar para o decidir. Devolver um número ali é circular, e o número que
+/// sairia seria contra a VIEWPORT — 50% de 1280 dentro de uma caixa de 220.
+///
+/// Foi medido duas vezes com o mesmo desenlace: uma célula de tabela a exigir
+/// 1280px de largura mínima, e um item flex a ocupar a linha inteira e a
+/// empurrar o irmão para a linha seguinte.
+pub fn dimensao_absoluta(d: Dimension, ctx: &ResolveCtx) -> Option<f32> {
+    // INTERRUPTOR DE MEDIÇÃO: `RTS_PCT_INTRINSECO=1` repõe o comportamento
+    // anterior (a percentagem resolvida contra a viewport) e `=width` mede a
+    // variante que aplica a regra só ao `width`.
+    //
+    // Existe para esta regra poder ser medida ISOLADAMENTE sobre a página real,
+    // ligada e desligada na MESMA árvore. Sem ele, atribuí-la exigiria comparar
+    // duas medições separadas por outras mudanças — que é como um número deixa
+    // de dizer o que se pensa que diz, e foi o que aconteceu quando ela entrou.
+    //
+    // Fica enquanto o eixo VERTICAL estiver em aberto: a medição mostrou que
+    // esta regra melhora o horizontal e piora o vertical por acumulação, e quem
+    // atacar a altura vai querer voltar a separar as duas coisas. Sai quando
+    // isso estiver fechado. A leitura do ambiente é uma vez só.
+    if pct_intrinseco_ligado() {
+        return d.resolve(ctx);
+    }
+    match d {
+        Dimension::Percent(_) => None,
+        Dimension::Calc(c) if c.pct != 0.0 => None,
+        outra => outra.resolve(ctx),
+    }
 }
 
 /// Uma expressão `calc()` LINEAR já reduzida à combinação das 6 bases de

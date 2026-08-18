@@ -157,9 +157,14 @@ fn flush_outgoing(id: u64) {
         let Some(entry) = table.get_mut(&id) else { return (0, Vec::new()) };
         (entry.underlying, entry.driver.outgoing())
     });
-    if bytes.is_empty() || underlying == 0 {
+    if underlying == 0 {
         return;
     }
+    // Escreve MESMO SEM ciphertext a enviar: é a chamada ao `write` do
+    // `net.Socket` que faz o `node:net` entregar o que já chegou (ver a secção
+    // "WHEN" no topo). Sair cedo aqui deixava um `TLSSocket` sem tráfego de
+    // saída sem nada que bombeasse a camada de baixo, e o handshake parava
+    // depois do ClientHello — um laço de espera sobre o TLSSocket não avançava.
     let absent = entry::undefined_value();
     let write_fn = entry::with_runtime(|context| entry::get_member(context, underlying, "write"));
     if write_fn != absent {
@@ -192,15 +197,15 @@ pub(super) extern "C" fn on_data(_e: u64, this: u64, chunk: u64, _b: u64, _c: u6
     let Some(id) = peer_id(this) else { return absent };
     let bytes = entry::with_runtime(|context| entry::bytes_of(context, chunk)).unwrap_or_default();
 
-    let (fed_plaintext, just_connected, closed, tls_instance) = registry::with_entries(|table| {
+    let (fed_plaintext, just_connected, failure, tls_instance) = registry::with_entries(|table| {
         let Some(entry) = table.get_mut(&id) else {
-            return (Vec::new(), false, false, 0);
+            return (Vec::new(), false, None, 0);
         };
         let fed = entry.driver.feed(&bytes);
         if fed.just_connected {
             entry.handshake_done = true;
         }
-        (fed.plaintext, fed.just_connected, fed.closed, entry.tls_instance)
+        (fed.plaintext, fed.just_connected, fed.error, entry.tls_instance)
     });
     if tls_instance == 0 {
         return absent;
@@ -214,12 +219,27 @@ pub(super) extern "C" fn on_data(_e: u64, this: u64, chunk: u64, _b: u64, _c: u6
     if !fed_plaintext.is_empty() {
         let push_fn = entry::with_runtime(|context| entry::get_member(context, tls_instance, "push"));
         if push_fn != absent {
-            let data = entry::with_runtime(|context| entry::make_bytes(context, &fed_plaintext));
+            // BUFFER, como o `node:net` do lado de baixo: um `Uint8Array`
+            // responde ao `toString("latin1")` como se fosse UTF-8, e um
+            // programa que conta bytes (o `Transfer-Encoding: chunked` conta)
+            // vê os índices deslocarem-se no primeiro caractere não-ASCII.
+            let data = entry::with_runtime(|context| entry::make_buffer(context, &fed_plaintext));
             entry::call(push_fn, tls_instance, data, absent, absent, absent);
         }
     }
-    if closed {
-        super::common::emit(tls_instance, "error", absent, absent, absent);
+    if let Some(message) = failure {
+        // A CAUSA, e não um `undefined`: é a única mensagem que um programa
+        // recebe quando o TLS recusa, e sem ela um certificado inválido e um
+        // registo corrompido são o mesmo "erro" para quem depura.
+        let error = entry::with_runtime(|context| {
+            let object = entry::make_object(context);
+            let text = entry::make_string(context, &message);
+            let code = entry::make_string(context, "ERR_TLS_ERROR");
+            entry::put_member(context, object, "message", text);
+            entry::put_member(context, object, "code", code);
+            object
+        });
+        super::common::emit(tls_instance, "error", error, absent, absent);
     }
     absent
 }

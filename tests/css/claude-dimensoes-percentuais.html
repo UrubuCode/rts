@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!-- Fixa: `width: %` é do bloco contentor, `height: %` só resolve se o pai
+     tiver altura definida (senão é `auto`) — a assimetria que mais confunde. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #pai-com-altura { width: 800px; height: 400px; background: #eee; }
+  #metade { width: 50%; height: 25%; background: #fcc; }
+  #quarto { width: 25%; height: 10%; background: #cfc; }
+  #pai-sem-altura { width: 600px; background: #ddd; }
+  #altura-sem-base { width: 50%; height: 50%; background: #ccf; }
+  #filho-do-sem-base { height: 30px; background: #ffc; }
+</style></head>
+<body>
+  <div id="pai-com-altura"><div id="metade"></div><div id="quarto"></div></div>
+  <div id="pai-sem-altura"><div id="altura-sem-base"><div id="filho-do-sem-base"></div></div></div>
+</body>
+</html>

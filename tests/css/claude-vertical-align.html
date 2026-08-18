@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Fixa: `vertical-align` alinha caixas em linha DENTRO da linha — `baseline`
+     (o padrão), `top`, `middle`, `bottom`, `text-top`. A leitura é o `y` de
+     cada `inline-block` de altura diferente na mesma linha; um motor que os
+     ponha todos no mesmo `y` está a ignorar a propriedade. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="base,topo,meio,fundo,texto-topo,super,sub">
+<meta name="fixar-estilo" content="display">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #linha { width: 600px; height: 100px; background: #eee; font-size: 20px; }
+  #linha span { display: inline-block; width: 40px; background: #fcc; }
+  #base { height: 20px; vertical-align: baseline; }
+  #topo { height: 30px; vertical-align: top; }
+  #meio { height: 40px; vertical-align: middle; }
+  #fundo { height: 50px; vertical-align: bottom; }
+  #texto-topo { height: 25px; vertical-align: text-top; }
+  #super { height: 20px; vertical-align: super; }
+  #sub { height: 20px; vertical-align: sub; }
+</style></head>
+<body>
+  <div id="linha"><span id="base"></span><span id="topo"></span><span id="meio"></span><span id="fundo"></span><span id="texto-topo"></span><span id="super"></span><span id="sub"></span></div>
+</body>
+</html>

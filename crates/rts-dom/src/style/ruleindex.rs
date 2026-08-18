@@ -41,6 +41,9 @@ pub struct RuleIndex {
     /// stale e é reconstruído.
     covered: usize,
     has_custom_rules: bool,
+    /// Alguma regra tem `::before`/`::after`. Sem nenhuma, o layout não precisa
+    /// sequer de perguntar por conteúdo gerado.
+    has_pseudo_elements: bool,
     /// Há seletores cuja correspondência depende de atributos ou pseudo-classes
     /// representadas por atributos (`:checked`, `:disabled`, etc.).
     has_attribute_selectors: bool,
@@ -91,33 +94,46 @@ impl RuleIndex {
                 Key::Universal => idx.universal.push(i),
             }
         }
+        // A varredura entra nas pseudo funcionais: a classe de `:is(.b)` é tão
+        // observada pela regra como a de `.b` solto, e deixá-la de fora fazia a
+        // troca de `b` passar por inerte.
         for rule in rules {
-            for compound in &rule.selector.compounds {
-                for part in &compound.parts {
-                    if let SimpleSelector::Class(c) = part {
-                        if !idx.mentioned_classes.contains(c) {
-                            idx.mentioned_classes.insert(c.clone());
-                        }
+            super::selector::visit_simples(&rule.selector, &mut |part| {
+                if let SimpleSelector::Class(c) = part {
+                    if !idx.mentioned_classes.contains(c) {
+                        idx.mentioned_classes.insert(c.clone());
                     }
                 }
-            }
+            });
         }
         idx.specificity = rules.iter().map(|r| r.selector.specificity()).collect();
         idx.covered = rules.len();
         idx.has_custom_rules = rules.iter().any(|r| !r.decls.custom.is_empty());
+        idx.has_pseudo_elements = rules.iter().any(|r| r.selector.pseudo_element.is_some());
         idx.has_attribute_selectors = rules.iter().any(|rule| {
-            rule.selector.compounds.iter().any(|compound| {
-                compound.parts.iter().any(|part| matches!(
+            let mut usa = false;
+            super::selector::visit_simples(&rule.selector, &mut |part| {
+                use super::selector::PseudoClass as P;
+                // Também as pseudo que LEEM um atributo sem o nomear: `:link` lê
+                // `href`, `:read-only`/`:read-write` leem `readonly`/
+                // `contenteditable`, `:lang` lê `lang`. Sem elas, um
+                // `setAttribute` desses não invalidava o estilo.
+                usa |= matches!(
                     part,
                     SimpleSelector::Attr { .. }
                         | SimpleSelector::Pseudo(
-                            super::selector::PseudoClass::Checked
-                                | super::selector::PseudoClass::Disabled
-                                | super::selector::PseudoClass::Enabled
-                                | super::selector::PseudoClass::Required
+                            P::Checked
+                                | P::Disabled
+                                | P::Enabled
+                                | P::Required
+                                | P::Link
+                                | P::ReadOnly
+                                | P::ReadWrite
+                                | P::Lang(_)
                         )
-                ))
-            })
+                );
+            });
+            usa
         });
         idx
     }
@@ -129,6 +145,10 @@ impl RuleIndex {
 
     pub fn has_custom_rules(&self) -> bool {
         self.has_custom_rules
+    }
+
+    pub fn has_pseudo_elements(&self) -> bool {
+        self.has_pseudo_elements
     }
 
     /// `true` se alguma regra CITA esta classe (em qualquer posição).

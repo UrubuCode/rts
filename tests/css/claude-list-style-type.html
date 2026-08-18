@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Fixa: `list-style-type` — o valor computado de cada variante, e que `none`
+     não muda a caixa do `<li>` (o marcador vive fora dela). Fixa também o
+     recuo por omissão que a folha de estilo do agente dá ao `<ul>`/`<ol>`: é
+     um `padding-inline-start` de 40px, e um motor sem folha de UA põe as
+     listas coladas à margem. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="pontos,circulos,quadrados,numeros,letras,romanos,sem-marcador">
+<meta name="fixar-estilo" content="display">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #pontos { list-style-type: disc; }
+  #circulos { list-style-type: circle; }
+  #quadrados { list-style-type: square; }
+  #numeros { list-style-type: decimal; }
+  #letras { list-style-type: lower-alpha; }
+  #romanos { list-style-type: upper-roman; }
+  #sem-marcador { list-style-type: none; }
+</style></head>
+<body>
+  <ul id="pontos"><li id="p1">a</li><li id="p2">b</li></ul>
+  <ul id="circulos"><li id="c1">a</li></ul>
+  <ul id="quadrados"><li id="q1">a</li></ul>
+  <ol id="numeros"><li id="n1">a</li><li id="n2">b</li></ol>
+  <ol id="letras"><li id="l1">a</li></ol>
+  <ol id="romanos"><li id="r1">a</li></ol>
+  <ul id="sem-marcador"><li id="s1">a</li></ul>
+</body>
+</html>

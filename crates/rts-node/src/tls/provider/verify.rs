@@ -16,8 +16,8 @@
 //! does not cover, but the module doc names the crate-wide caveat once
 //! rather than nowhere.
 //!
-//! P-384 and RSA-PSS verification are not implemented — see `mod.rs`'s "Not
-//! implemented, by name".
+//! RSA-PSS verification is not implemented — see `mod.rs`'s "Not implemented,
+//! by name". P-384 É verificado ([`EcdsaP384Sha384`]).
 
 use p256::ecdsa::signature::Verifier;
 use rsa::pkcs1::DecodeRsaPublicKey;
@@ -52,6 +52,32 @@ impl SignatureVerificationAlgorithm for EcdsaP256Sha256 {
 
     fn signature_alg_id(&self) -> AlgorithmIdentifier {
         alg_id::ECDSA_SHA256
+    }
+}
+
+/// ECDSA sobre a curva P-384 com SHA-384.
+///
+/// Não é exotismo: é o que uma boa parte da web serve hoje, e sem isto o
+/// handshake morria com `UnsupportedSignatureAlgorithmContext` no certificado
+/// — a `pt.wikipedia.org` é um exemplo. O `p384` já era dependência deste
+/// crate (§6, para ECDH), por isso não entra crate nova para o suportar.
+#[derive(Debug)]
+pub(crate) struct EcdsaP384Sha384;
+
+impl SignatureVerificationAlgorithm for EcdsaP384Sha384 {
+    fn verify_signature(&self, public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<(), InvalidSignature> {
+        use p384::ecdsa::signature::Verifier as _;
+        let key = p384::ecdsa::VerifyingKey::from_sec1_bytes(public_key).map_err(|_| InvalidSignature)?;
+        let sig = p384::ecdsa::Signature::from_der(signature).map_err(|_| InvalidSignature)?;
+        key.verify(message, &sig).map_err(|_| InvalidSignature)
+    }
+
+    fn public_key_alg_id(&self) -> AlgorithmIdentifier {
+        alg_id::ECDSA_P384
+    }
+
+    fn signature_alg_id(&self) -> AlgorithmIdentifier {
+        alg_id::ECDSA_SHA384
     }
 }
 

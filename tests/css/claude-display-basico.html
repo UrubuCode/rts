@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: `block` ocupa a linha, `inline` não aceita width/height, `inline-block`
+     aceita e fica na linha, `none` sai do fluxo (caixa 0x0 e não desloca nada). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="bloco,em-linha,em-linha-bloco,invisivel">
+<meta name="fixar-estilo" content="display">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #bloco { display: block; width: 100px; height: 30px; background: #fcc; }
+  #em-linha { display: inline; width: 300px; height: 300px; background: #cfc; }
+  #em-linha-bloco { display: inline-block; width: 120px; height: 40px; background: #ccf; }
+  #invisivel { display: none; width: 500px; height: 500px; }
+  #depois-do-none { width: 80px; height: 25px; background: #ffc; }
+</style></head>
+<body>
+  <div id="bloco"></div>
+  <span id="em-linha">abc</span><span id="em-linha-bloco"></span>
+  <div id="invisivel"></div>
+  <div id="depois-do-none"></div>
+</body>
+</html>

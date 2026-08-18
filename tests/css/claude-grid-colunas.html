@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: `grid-template-columns` em px, fr e repeat() — a fr reparte o que
+     sobra depois das pistas fixas, que é a regra que separa grid de flex. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="fixas,fracoes,mistas,repetidas">
+<meta name="fixar-estilo" content="display,grid-template-columns">
+<style>
+  body { margin: 0; }
+  div.grelha { display: grid; width: 600px; margin-bottom: 10px; background: #eee; }
+  div.grelha > div { height: 40px; background: #fcc; }
+  #fixas { grid-template-columns: 100px 200px 150px; }
+  #fracoes { grid-template-columns: 1fr 2fr 1fr; }
+  #mistas { grid-template-columns: 100px 1fr 50px; }
+  #repetidas { grid-template-columns: repeat(4, 1fr); }
+</style></head>
+<body>
+  <div class="grelha" id="fixas"><div id="fa"></div><div id="fb"></div><div id="fc"></div></div>
+  <div class="grelha" id="fracoes"><div id="ra"></div><div id="rb"></div><div id="rc"></div></div>
+  <div class="grelha" id="mistas"><div id="ma"></div><div id="mb"></div><div id="mc"></div></div>
+  <div class="grelha" id="repetidas"><div id="pa"></div><div id="pb"></div><div id="pc"></div><div id="pd"></div></div>
+</body>
+</html>

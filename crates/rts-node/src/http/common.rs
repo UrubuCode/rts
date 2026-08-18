@@ -18,6 +18,17 @@ pub(super) fn get_value(this: u64, name: &str) -> u64 {
     entry::get_indexed(this, key(name))
 }
 
+/// O mesmo, mas DENTRO de um contexto já emprestado.
+///
+/// `get_value` monta a chave com `key`, que abre o contexto por conta própria —
+/// e abrir o contexto dentro de um `with_runtime` é um `borrow_mut` reentrante
+/// num `RefCell`, que num quadro `extern "C"` não desenrola: o processo morre
+/// com `RefCell already borrowed`. Era o que acontecia em TODO `http.get`, no
+/// primeiro cabeçalho que o cliente semeava.
+pub(super) fn get_value_in(context: &mut entry::Context, this: u64, name: &str) -> u64 {
+    entry::get_member(context, this, name)
+}
+
 pub(super) fn get_text(this: u64, name: &str) -> Option<String> {
     entry::text_of(get_value(this, name))
 }

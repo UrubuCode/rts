@@ -27,7 +27,12 @@ pub(super) struct Fed {
     pub(super) plaintext: Vec<u8>,
     /// `true` once, the call the handshake completes on.
     pub(super) just_connected: bool,
-    pub(super) closed: bool,
+    /// What rustls refused, when it refused something — the message and not a
+    /// bool. `process_new_packets().is_err()` used to be the whole answer, and
+    /// the `'error'` a program received carried `undefined`: a bad certificate,
+    /// an unsupported version and a corrupt record were one indistinguishable
+    /// "sem detalhe" at the only place anyone would read them.
+    pub(super) error: Option<String>,
 }
 
 impl Driver {
@@ -45,27 +50,49 @@ impl Driver {
     pub(super) fn feed(&mut self, ciphertext: &[u8]) -> Fed {
         let was_handshaking = self.is_handshaking();
         let mut cursor = Cursor::new(ciphertext);
-        let closed = match &mut self.side {
-            Side::Client(c) => {
-                while matches!(c.read_tls(&mut cursor), Ok(n) if n > 0) {}
-                c.process_new_packets().is_err()
-            }
-            Side::Server(s) => {
-                while matches!(s.read_tls(&mut cursor), Ok(n) if n > 0) {}
-                s.process_new_packets().is_err()
-            }
-        };
+        // ALTERNAR `read_tls` e `process_new_packets` até o cursor esvaziar, em
+        // vez de ler o que couber e seguir em frente.
+        //
+        // O `read_tls` do rustls copia para um buffer interno LIMITADO e
+        // responde `Ok(0)` quando ele está cheio — é preciso processar o que já
+        // lá está para abrir espaço. O laço anterior parava nesse `Ok(0)` e
+        // DESCARTAVA o resto do cursor, o que parte a sequência de registos: o
+        // AEAD do TLS é sequencial, e o registo seguinte falhava com "cannot
+        // decrypt peer's message". Uma resposta grande morria por volta dos
+        // 31 KB, que é o tamanho do buffer e não uma propriedade da rede.
+        //
+        // O plaintext é drenado a cada volta pela mesma razão: o buffer de
+        // leitura enche e passa a recusar dados novos.
+        let mut error = None;
         let mut plaintext = Vec::new();
-        match &mut self.side {
-            Side::Client(c) => {
-                let _ = c.reader().read_to_end(&mut plaintext);
+        loop {
+            let lidos = match &mut self.side {
+                Side::Client(c) => c.read_tls(&mut cursor),
+                Side::Server(s) => s.read_tls(&mut cursor),
+            };
+            let progrediu = matches!(lidos, Ok(n) if n > 0);
+            let falhou = match &mut self.side {
+                Side::Client(c) => c.process_new_packets().err().map(|e| e.to_string()),
+                Side::Server(s) => s.process_new_packets().err().map(|e| e.to_string()),
+            };
+            match &mut self.side {
+                Side::Client(c) => {
+                    let _ = c.reader().read_to_end(&mut plaintext);
+                }
+                Side::Server(s) => {
+                    let _ = s.reader().read_to_end(&mut plaintext);
+                }
             }
-            Side::Server(s) => {
-                let _ = s.reader().read_to_end(&mut plaintext);
+            if falhou.is_some() {
+                error = falhou;
+                break;
+            }
+            if !progrediu {
+                break;
             }
         }
         let just_connected = was_handshaking && !self.is_handshaking();
-        Fed { plaintext, just_connected, closed }
+        Fed { plaintext, just_connected, error }
     }
 
     /// Queues plaintext to send; call [`Driver::outgoing`] to get the bytes

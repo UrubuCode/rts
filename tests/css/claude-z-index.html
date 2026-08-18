@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: o valor COMPUTADO de `z-index` — inteiro num elemento posicionado,
+     `auto` num estático (onde a declaração não se aplica). A ordem de pintura
+     não se lê num rect, por isso esta fixture vive na parte de estilo do
+     esperado e não na geometria. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="fundo,meio,topo,negativo,estatico-com-z">
+<meta name="fixar-estilo" content="z-index,position">
+<style>
+  body { margin: 0; }
+  div { position: absolute; top: 0; left: 0; width: 100px; height: 100px; }
+  #fundo { z-index: 1; background: #fcc; }
+  #meio { z-index: 5; background: #cfc; }
+  #topo { z-index: 10; background: #ccf; }
+  #negativo { z-index: -1; background: #ffc; }
+  #estatico-com-z { position: static; z-index: 99; background: #eee; }
+</style></head>
+<body>
+  <div id="fundo"></div><div id="meio"></div><div id="topo"></div>
+  <div id="negativo"></div><div id="estatico-com-z"></div>
+</body>
+</html>

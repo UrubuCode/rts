@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: `flex-grow` reparte o espaço SOBRANTE em proporção, `flex-shrink`
+     reparte o EXCESSO, e `flex-basis` é o ponto de partida dos dois — não a
+     `width`. Três números que um motor acerta separadamente e erra juntos. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  div.linha { display: flex; width: 600px; margin-bottom: 10px; background: #eee; }
+  div.linha > div { height: 30px; }
+  #g1 { flex: 1 0 0; background: #fcc; }
+  #g2 { flex: 2 0 0; background: #cfc; }
+  #g3 { flex: 3 0 0; background: #ccf; }
+  #s1 { flex: 0 1 400px; background: #fcc; }
+  #s2 { flex: 0 1 400px; background: #cfc; }
+  #b1 { flex: 0 0 200px; width: 50px; background: #fcc; }
+  #b2 { flex: 1 1 auto; width: 100px; background: #cfc; }
+</style></head>
+<body>
+  <div class="linha"><div id="g1"></div><div id="g2"></div><div id="g3"></div></div>
+  <div class="linha"><div id="s1"></div><div id="s2"></div></div>
+  <div class="linha"><div id="b1"></div><div id="b2"></div></div>
+</body>
+</html>

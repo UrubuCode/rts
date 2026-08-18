@@ -90,7 +90,7 @@ extern "C" fn set_header(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d:
     let Some(name_text) = entry::text_of(name) else { return this };
     entry::with_runtime(|context| {
         let lower = lower_key(context, &name_text);
-        let headers = get_value(this, "__headers__");
+        let headers = get_value_in(context, this, "__headers__");
         let existed = entry::get_member(context, headers, &lower) != entry::undefined_in(context);
         entry::put_member(context, headers, &lower, value);
         if !existed {
@@ -118,7 +118,7 @@ pub(super) fn set_header_pub(this: u64, name: u64, value: u64) -> u64 {
 }
 
 fn get_array_of(context: &mut Context, this: u64, name: &str) -> Vec<u64> {
-    let value = get_value(this, name);
+    let value = get_value_in(context, this, name);
     let mut out = Vec::new();
     let mut i = 0.0;
     loop {
@@ -137,7 +137,7 @@ extern "C" fn get_header(_e: u64, this: u64, name: u64, _b: u64, _c: u64, _d: u6
     let Some(name_text) = entry::text_of(name) else { return entry::undefined_value() };
     entry::with_runtime(|context| {
         let lower = lower_key(context, &name_text);
-        let headers = get_value(this, "__headers__");
+        let headers = get_value_in(context, this, "__headers__");
         entry::get_member(context, headers, &lower)
     })
 }
@@ -154,7 +154,7 @@ extern "C" fn has_header(_e: u64, this: u64, name: u64, _b: u64, _c: u64, _d: u6
     let Some(name_text) = entry::text_of(name) else { return entry::boolean_value(false) };
     entry::with_runtime(|context| {
         let lower = lower_key(context, &name_text);
-        let headers = get_value(this, "__headers__");
+        let headers = get_value_in(context, this, "__headers__");
         entry::boolean_value(entry::get_member(context, headers, &lower) != entry::undefined_in(context))
     })
 }
@@ -163,7 +163,7 @@ extern "C" fn remove_header(_e: u64, this: u64, name: u64, _b: u64, _c: u64, _d:
     let Some(name_text) = entry::text_of(name) else { return entry::undefined_value() };
     entry::with_runtime(|context| {
         let lower = lower_key(context, &name_text);
-        let headers = get_value(this, "__headers__");
+        let headers = get_value_in(context, this, "__headers__");
         let absent = entry::undefined_in(context);
         entry::put_member(context, headers, &lower, absent);
         let mut order = get_array_of(context, this, "__headerOrder__");
