@@ -508,3 +508,51 @@ change — comparing old and new computed style to classify what actually change
 and having a drawing that can be repainted without being rebuilt.
 
 In absolute terms, 0.27 ms on a 3000-element page is 1.6% of a 60 fps frame.
+
+---
+
+## Final scoreboard (2026-08-18)
+
+3005-element synthetic page, Chrome on the same machine, four runs:
+
+| operation | Chrome | rts-dom (start → end) | |
+|---|---|---|---|
+| **text on a leaf + frame** | 0.369 ms | 6.63 → **0.157 ms** | **2.3× faster than Chrome** |
+| colour-only class + frame | 0.0053 ms | 6.67 → 0.170 ms | 32× |
+| inert class + frame | — | 6.67 → 0.013 ms | — |
+| idle frame | 0.00045 ms | 6.97 → 0.000 ms | par |
+| full relayout | 8.5 ms | 6.97 → 0.121 ms | we win |
+| `querySelectorAll('.card')` | 0.0105 ms | → 0.010 ms | par |
+| append 2000, layout every 100 | 32.5 ms | 67.6 → ~10 ms | we win |
+
+Bootstrap cover: parse 17.8 → 9.2 ms · cold layout 23.1 → 11.9 ms · text 0.375 →
+0.042 ms · class 0.096 → 0.017 ms · hover 1.618 → 0.098 ms · memory 9.59 → 2.0 MiB.
+
+**WhatsApp Web, the real page** (captured from Chrome with its CSS inlined:
+1.25 MB of HTML, 298 elements, 24 levels deep, 6.8 MiB of parsed stylesheet):
+parse 38 ms, cold layout 51 ms, idle frame 0.004 ms, text mutation 0.15 ms,
+`querySelectorAll` 0.078 ms. Chrome on the same page: DOM interactive 106 ms,
+text mutation 0.0062 ms.
+
+### What the last two changes were, and what they cost to find
+
+The **container patch** replaces one subtree reference inside the parent's
+drawing instead of rebuilding the parent. It was built once before, over the
+flat list, and reverted — copying 3000 items to swap one stretch cost exactly
+what it saved. Over the tree it is a pointer swap, and the fragment's big
+vectors became `Rc` so the patched container shares everything unchanged.
+
+The **out-of-flow guard** came from the phases: 78% of a mutation frame was in
+no phase at all — it was the pass that looks for `position:absolute`, walking
+the whole tree asking for each node's computed style, on a page with none.
+
+### What is left, and why it is a different problem
+
+A colour-only class change is 32× Chrome. Our invalidation is per NODE; Chrome's
+is per PROPERTY — it knows `color` cannot move a box and never reflows, it
+repaints. The infrastructure for that (a `paint` flag on the property table, a
+`differs_in_layout` derived from it) was written and then REMOVED from this
+branch: without a repaint path that skips layout entirely it had no consumer,
+and unused machinery is worse than none. It is the next frontier, named.
+
+In absolute terms 0.17 ms on a 3000-element page is 1% of a 60 fps frame.
