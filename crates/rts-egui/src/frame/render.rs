@@ -397,6 +397,10 @@ fn process_scroll_regions(
         ui.ctx().memory_mut(|m| m.data.insert_temp(oid, off));
 
         // injeta o offset no BeginClip desta região (acha pelo node).
+        // Mutar um item exige a lista PLANA: um `BeginClip` pode estar dentro de
+        // uma subárvore compartilhada, e escrever nele afetaria todos os nós que
+        // a reusam.
+        list.materialize();
         for it in list.items.iter_mut() {
             if let layout::DisplayItem::BeginClip { node, offset_x, offset_y, .. } = it {
                 if *node == region.node_idx {
@@ -423,12 +427,19 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
     // painter do topo e a SOMA dos offsets extra (a região rolada). Base = ui.
     let base = ui.painter().clone();
     let mut stack: Vec<(egui::Painter, egui::Vec2)> = Vec::new();
-    for (idx, item) in list.items.iter().enumerate() {
+    // `walk` anda a ÁRVORE de fragmentos: os itens de uma subárvore reusada
+    // chegam aqui sem nunca terem sido copiados, com o deslocamento a somar — e
+    // somar uma origem já era o que este laço fazia.
+    let mut idx = 0usize;
+    list.walk(|item, dx, dy| {
+        idx += 1;
+        let idx = idx - 1;
         let (painter, extra) = stack
             .last()
             .map(|(p, o)| (p.clone(), *o))
             .unwrap_or_else(|| (base.clone(), egui::Vec2::ZERO));
-        let origin = base_origin + extra; // origem da página + translação da região
+        // origem da página + translação da região + deslocamento do fragmento
+        let origin = base_origin + extra + egui::vec2(dx, dy);
         match item {
             DisplayItem::SolidRect { rect, color, radius } => {
                 let r = egui::Rect::from_min_size(
@@ -569,7 +580,7 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                 stack.pop();
             }
         }
-    }
+    });
 }
 
 /// Pinta um GRADIENTE LINEAR de 2 cores num retângulo, como mesh de 4 vértices. A cor

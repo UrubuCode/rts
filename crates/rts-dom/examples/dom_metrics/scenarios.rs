@@ -380,17 +380,19 @@ pub fn verificar_equivalencia(
             }
             _ => {}
         }
-        let reusado = rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh));
+        // PLANAS: com a saída em ÁRVORE, os itens de uma subárvore reusada não
+        // estão no buffer próprio — comparar `items` compararia o que sobrou.
+        let reusado = rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh)).materialized();
         dom.clear_fragment_cache();
-        let zero = rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh));
-        if reusado.items.len() != zero.items.len() {
+        let zero = rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh)).materialized();
+        if reusado.len() != zero.len() {
             return Err(format!(
                 "passo {passo}: {} itens com reuso, {} sem",
-                reusado.items.len(),
-                zero.items.len()
+                reusado.len(),
+                zero.len()
             ));
         }
-        for (i, (a, b)) in reusado.items.iter().zip(&zero.items).enumerate() {
+        for (i, (a, b)) in reusado.iter().zip(&zero).enumerate() {
             if !item_equivalente(a, b, TOL) {
                 return Err(format!("passo {passo}, item {i}:
       reuso: {a:?}

@@ -137,6 +137,14 @@ pub struct ScrollRegion {
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct DisplayList {
     pub items: Vec<DisplayItem>,
+    /// Subárvores emitidas por REFERÊNCIA, com a posição no meio dos itens
+    /// próprios e o deslocamento a aplicar.
+    ///
+    /// É o que torna a saída uma ÁRVORE em vez de uma lista: um frame que mexe
+    /// numa folha não reconstrói os 30 000 itens da página, aponta para os
+    /// fragmentos que já existiam. Quem pinta anda a árvore ([`iter`]); quem
+    /// precisa mutar ou comparar achata ([`materialize`]).
+    pub children: Vec<ChildRef>,
     /// Altura total ocupada pelo conteúdo (para o backend dimensionar o scroll).
     pub content_height: f32,
     /// Geometria por NÓ (border-box, em coordenadas de conteúdo) — a base do
@@ -155,6 +163,45 @@ pub struct DisplayList {
 }
 
 impl DisplayList {
+    /// Todos os itens a pintar, em z-order, cada um com o deslocamento a somar.
+    ///
+    /// Anda a ÁRVORE de fragmentos: um item de uma subárvore reusada sai daqui
+    /// sem nunca ter sido copiado. Quem pinta já somava uma origem, então somar
+    /// mais um deslocamento é grátis — foi o que permitiu a saída deixar de ser
+    /// uma lista plana refeita por frame.
+    pub fn walk(&self, mut f: impl FnMut(&DisplayItem, f32, f32)) {
+        walk_items(&self.items, &self.children, 0.0, 0.0, &mut f);
+    }
+
+    /// A lista PLANA. Para quem precisa MUTAR itens (o `transform` do CSS, o
+    /// offset de scroll no `BeginClip`) ou comparar duas listas.
+    pub fn materialized(&self) -> Vec<DisplayItem> {
+        let mut out = Vec::with_capacity(self.total_items());
+        self.walk(|item, dx, dy| {
+            let mut item = item.clone();
+            if dx != 0.0 || dy != 0.0 {
+                translate_item(&mut item, dx, dy);
+            }
+            out.push(item);
+        });
+        out
+    }
+
+    /// Achata esta lista em itens próprios, esquecendo a árvore.
+    pub fn materialize(&mut self) {
+        if self.children.is_empty() {
+            return;
+        }
+        self.items = self.materialized();
+        self.children.clear();
+    }
+
+    /// Quantos itens esta lista pinta ao todo.
+    pub fn total_items(&self) -> usize {
+        self.items.len()
+            + self.children.iter().map(|c| c.fragment.total_items()).sum::<usize>()
+    }
+
     /// HIT-TEST: o nó sob o ponto `(x, y)` em COORDENADAS DE CONTEÚDO (o backend
     /// converte tela→conteúdo somando o offset de scroll antes de chamar). Quando a
     /// lista foi produzida por `layout_document`, a ordem de pintura respeita
@@ -392,7 +439,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // crescente de z-index (o último pintado fica no topo).
     // A ordem de pintura já foi registrada durante as inserções de retângulos:
     // fluxo normal durante a descida e out-of-flow na ordem de z-index acima.
-    crate::bump!(display_items, list.items.len());
+    crate::bump!(display_items, list.total_items());
     crate::bump!(node_rects, list.node_rects.len());
     crate::bump!(scroll_regions, list.scroll_regions.len());
     list
@@ -1005,7 +1052,7 @@ fn layout_block(
         let mut at = box_index;
         // SOMBRA primeiro (atrás de tudo): box-shadow.
         if let Some(sh) = css.box_shadow {
-            list.items.insert(at, DisplayItem::Shadow {
+            insert_item(list, at, DisplayItem::Shadow {
                 rect: box_rect,
                 dx: sh.dx,
                 dy: sh.dy,
@@ -1018,7 +1065,7 @@ fn layout_block(
         }
         // FUNDO: gradiente (se houver) OU cor sólida.
         if let Some(g) = css.gradient {
-            list.items.insert(at, DisplayItem::GradientRect {
+            insert_item(list, at, DisplayItem::GradientRect {
                 rect: box_rect,
                 c0: apply_opacity(g.c0, op),
                 c1: apply_opacity(g.c1, op),
@@ -1028,7 +1075,7 @@ fn layout_block(
             at += 1;
         } else if let Some(color) = css.bg {
             let color = apply_opacity(color, op);
-            list.items.insert(at, DisplayItem::SolidRect { rect: box_rect, color, radius });
+            insert_item(list, at, DisplayItem::SolidRect { rect: box_rect, color, radius });
             at += 1;
         }
         // A borda só pinta se tem largura E um `border-style` VISÍVEL. O default
@@ -1037,7 +1084,7 @@ fn layout_block(
         let style_visible = css.border_style.map(|s| s.is_visible()).unwrap_or(false);
         if border > 0.0 && style_visible {
             let color = apply_opacity(css.border_color.unwrap_or(0x808080FF), op);
-            list.items.insert(at, DisplayItem::Border { rect: box_rect, width: border, color, radius });
+            insert_item(list, at, DisplayItem::Border { rect: box_rect, width: border, color, radius });
         }
     }
 
@@ -1064,7 +1111,8 @@ fn layout_block(
         };
         let children_start = box_index + box_items;
         // offset 0 aqui; o backend injeta o offset rolado por região antes de pintar.
-        list.items.insert(
+        insert_item(
+            list,
             children_start,
             DisplayItem::BeginClip { rect: content_rect, node: id, offset_x: 0.0, offset_y: 0.0 },
         );
@@ -1093,6 +1141,10 @@ fn layout_block(
             let tx = tf.tx + tf.tx_pct * box_rect.w;
             let ty = tf.ty + tf.ty_pct * box_rect.h;
             let (sin, cos) = tf.rot_deg.to_radians().sin_cos();
+            // Um transform MUTA itens, e um item de subárvore reusada é
+            // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo
+            // que aponta para ele. Achata primeiro; é raro e local.
+            list.materialize();
             for it in list.items[box_index..].iter_mut() {
                 apply_transform_to_item(it, cx, cy, tx, ty, tf.sx, tf.sy, sin, cos);
             }
@@ -1145,7 +1197,27 @@ fn fragment_key(
     }
 }
 
-fn emit_fragment(fragment: &Fragment, list: &mut DisplayList, x: f32, y: f32) {
+/// Insere um item numa posição, corrigindo o ponto de entrada das SUBÁRVORES.
+///
+/// O box model emite os filhos primeiro e insere o fundo e a borda atrás deles;
+/// as subárvores reusadas guardam o índice antes do qual entram, e sem esta
+/// correção elas passariam a ser pintadas na frente do próprio fundo. Foi o que
+/// um teste de altura percentual acusou, ao ver os retângulos na ordem trocada.
+fn insert_item(list: &mut DisplayList, at: usize, item: DisplayItem) {
+    list.items.insert(at, item);
+    for child in &mut list.children {
+        if child.at >= at {
+            child.at += 1;
+        }
+    }
+}
+
+fn emit_fragment(
+    fragment: &std::rc::Rc<Fragment>,
+    list: &mut DisplayList,
+    x: f32,
+    y: f32,
+) {
     let _phase = crate::metrics::phases::scope("fragment-emit");
     fragment.emit_at(list, x, y);
 }
@@ -1178,6 +1250,7 @@ fn layout_block_reusing(
         hit_order: std::mem::take(&mut own.hit_order),
         scroll_regions: std::mem::take(&mut own.scroll_regions),
         items: std::mem::take(&mut own.items),
+        children: std::mem::take(&mut own.children),
         origin: (x, y),
         size,
         margin_top: margem_de_topo(),
@@ -1185,6 +1258,29 @@ fn layout_block_reusing(
     dom.fragment_put(key, std::rc::Rc::clone(&fragment));
     fragment.emit_at(list, x, y);
     (fragment.size, fragment.margin_top)
+}
+
+/// Uma subárvore emitida por referência dentro de uma lista ou de outro
+/// fragmento.
+#[derive(Clone, Debug)]
+pub struct ChildRef {
+    /// Posição em `items` ANTES da qual esta subárvore é pintada.
+    pub at: usize,
+    pub fragment: std::rc::Rc<Fragment>,
+    pub dx: f32,
+    pub dy: f32,
+}
+
+impl PartialEq for ChildRef {
+    /// Compara CONTEÚDO — duas listas equivalentes podem ter chegado ao mesmo
+    /// desenho por caminhos diferentes.
+    fn eq(&self, other: &Self) -> bool {
+        self.at == other.at
+            && self.dx == other.dx
+            && self.dy == other.dy
+            && self.fragment.items == other.fragment.items
+            && self.fragment.children == other.fragment.children
+    }
 }
 
 /// O DESENHO de uma subárvore posta com certas constraints, guardado para ser
@@ -1197,8 +1293,10 @@ fn layout_block_reusing(
 /// altura), e aí a soma é zero e nem se percorre.
 #[derive(Clone, Debug, Default)]
 pub struct Fragment {
-    /// Itens de pintura da subárvore, na ordem em que foram emitidos.
+    /// Itens de pintura PRÓPRIOS desta subárvore.
     pub items: Vec<DisplayItem>,
+    /// As subárvores que ela reusou, por referência — o desenho é uma árvore.
+    pub children: Vec<ChildRef>,
     /// Geometria por nó (o que alimenta `getBoundingClientRect`).
     pub rects: Vec<(NodeIdx, Rect)>,
     /// Ordem de pintura para o hit-test (ancestral antes de descendente).
@@ -1222,17 +1320,19 @@ pub struct Fragment {
 
 impl Fragment {
     /// Emite este fragmento numa `DisplayList`, deslocado para `(x, y)`.
-    pub fn emit_at(&self, list: &mut DisplayList, x: f32, y: f32) {
+    pub fn emit_at(self: &std::rc::Rc<Self>, list: &mut DisplayList, x: f32, y: f32) {
         let (dx, dy) = (x - self.origin.0, y - self.origin.1);
+        // APONTA, não copia: os itens desta subárvore já existem e não mudaram.
+        // Os RETÂNGULOS abaixo continuam sendo materializados, porque a consulta
+        // de geometria é por nó e precisa do valor pronto — são 16 bytes contra
+        // os 48 de um item, numa quantidade menor.
+        list.children.push(ChildRef {
+            at: list.items.len(),
+            fragment: std::rc::Rc::clone(self),
+            dx,
+            dy,
+        });
         let moved = dx != 0.0 || dy != 0.0;
-        list.items.reserve(self.items.len());
-        for item in &self.items {
-            let mut item = item.clone();
-            if moved {
-                translate_item(&mut item, dx, dy);
-            }
-            list.items.push(item);
-        }
         for (idx, rect) in &self.rects {
             let mut rect = *rect;
             if moved {
@@ -1250,6 +1350,38 @@ impl Fragment {
             }
             list.scroll_regions.push(region);
         }
+    }
+}
+
+impl Fragment {
+    /// Quantos itens este fragmento pinta, contando as subárvores que ele reusa.
+    pub fn total_items(&self) -> usize {
+        self.items.len()
+            + self.children.iter().map(|c| c.fragment.total_items()).sum::<usize>()
+    }
+}
+
+/// Percorre itens próprios e subárvores na ordem de pintura, acumulando o
+/// deslocamento. Recursivo pela mesma razão que a estrutura é uma árvore: um
+/// fragmento pode ter reusado outro.
+fn walk_items(
+    items: &[DisplayItem],
+    children: &[ChildRef],
+    dx: f32,
+    dy: f32,
+    f: &mut impl FnMut(&DisplayItem, f32, f32),
+) {
+    let mut next_child = 0usize;
+    for (i, item) in items.iter().enumerate() {
+        while next_child < children.len() && children[next_child].at <= i {
+            let c = &children[next_child];
+            walk_items(&c.fragment.items, &c.fragment.children, dx + c.dx, dy + c.dy, f);
+            next_child += 1;
+        }
+        f(item, dx, dy);
+    }
+    for c in &children[next_child..] {
+        walk_items(&c.fragment.items, &c.fragment.children, dx + c.dx, dy + c.dy, f);
     }
 }
 
@@ -3797,11 +3929,11 @@ mod tests {
             dom.clear_fragment_cache();
             let zero = layout_document(&dom, &ctx);
             assert_eq!(
-                reusado.items.len(),
-                zero.items.len(),
+                reusado.materialized().len(),
+                zero.materialized().len(),
                 "passo {passo}: nº de itens diverge"
             );
-            for (i, (a, b)) in reusado.items.iter().zip(&zero.items).enumerate() {
+            for (i, (a, b)) in reusado.materialized().iter().zip(&zero.materialized()).enumerate() {
                 assert!(
                     itens_equivalentes(a, b),
                     "passo {passo}, item {i}:
@@ -3839,11 +3971,11 @@ mod tests {
             dom.clear_fragment_cache();
             let recalculado = layout_document(dom, &ctx);
             assert_eq!(
-                cacheado.items.len(),
-                recalculado.items.len(),
+                cacheado.materialized().len(),
+                recalculado.materialized().len(),
                 "quantidade de itens diverge no passo {passo}"
             );
-            for (i, (a, b)) in cacheado.items.iter().zip(&recalculado.items).enumerate() {
+            for (i, (a, b)) in cacheado.materialized().iter().zip(&recalculado.materialized()).enumerate() {
                 assert!(
                     itens_equivalentes(a, b),
                     "item {i} diverge no passo {passo}:
@@ -4066,8 +4198,8 @@ mod tests {
     fn fundo_vem_antes_do_texto_filho_no_zorder() {
         // O SolidRect (fundo) deve estar ANTES do Text na lista (pinta atrás).
         let list = layout("<div style='background:#222222; padding:8'>oi</div>", 600.0);
-        let i_rect = list.items.iter().position(|it| matches!(it, DisplayItem::SolidRect { .. }));
-        let i_text = list.items.iter().position(|it| matches!(it, DisplayItem::Text { .. }));
+        let i_rect = list.materialized().iter().position(|it| matches!(it, DisplayItem::SolidRect { .. }));
+        let i_text = list.materialized().iter().position(|it| matches!(it, DisplayItem::Text { .. }));
         assert!(i_rect < i_text, "fundo (idx {i_rect:?}) deve vir antes do texto (idx {i_text:?})");
     }
 
@@ -4177,7 +4309,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+        let rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(*rect),
             _ => None,
         }).collect();
@@ -4206,7 +4338,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+        let rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(*rect),
             _ => None,
         }).collect();
@@ -4262,7 +4394,7 @@ mod tests {
         let dom = parse_html_to_dom("<style>#c{text-align:center;width:400px}#r{text-align:right;width:400px}</style><div id=\"c\">x</div><div id=\"r\">y</div>");
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let texts: Vec<(String, f32)> = list.items.iter().filter_map(|it| match it {
+        let texts: Vec<(String, f32)> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::Text { text, x, .. } => Some((text.to_string(), *x)),
             _ => None,
         }).collect();
@@ -4376,7 +4508,7 @@ mod tests {
         let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
         // o span azul: canto direito da caixa (x=100, w=400 → 500) menos a largura.
-        let sp = list.items.iter().find_map(|it| match it {
+        let sp = list.materialized().iter().find_map(|it| match it {
             DisplayItem::SolidRect { rect, color, .. } if *color == 0x0000FFFF => Some(*rect),
             _ => None,
         }).expect("span absolute");
@@ -4392,7 +4524,7 @@ mod tests {
         let dom = parse_html_to_dom("<p>antes <a href=x>link</a> depois</p>");
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let segs: Vec<(String, u32, u8)> = list.items.iter().filter_map(|it| match it {
+        let segs: Vec<(String, u32, u8)> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::Text { text, color, decoration, .. } => {
                 Some((text.to_string(), *color, *decoration))
             }
@@ -4413,7 +4545,7 @@ mod tests {
         let dom = parse_html_to_dom("<style>div{line-height:3;text-transform:uppercase}</style><div>oi</div><div>tchau</div>");
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let texts: Vec<(String, f32)> = list.items.iter().filter_map(|it| match it {
+        let texts: Vec<(String, f32)> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::Text { text, y, .. } => Some((text.to_string(), *y)),
             _ => None,
         }).collect();
@@ -4443,7 +4575,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 900.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+        let rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(*rect),
             _ => None,
         }).collect();
@@ -4452,7 +4584,7 @@ mod tests {
         assert!(rects[0].x < rects[1].x && rects[1].x < rects[2].x, "lado a lado: {rects:?}");
         assert!(rects.iter().all(|r| r.y == rects[0].y), "mesma linha: {rects:?}");
         // display:none → o texto "invisível" NÃO está na lista.
-        let has_invisivel = list.items.iter().any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
+        let has_invisivel = list.materialized().iter().any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
         assert!(!has_invisivel, "display:none não renderiza o conteúdo");
     }
 
@@ -4466,7 +4598,7 @@ mod tests {
         let dom = parse_html_to_dom("<p>um</p><p>dois</p>");
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let texts: Vec<(f32, f32)> = list.items.iter().filter_map(|it| match it {
+        let texts: Vec<(f32, f32)> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::Text { x, y, .. } => Some((*x, *y)),
             _ => None,
         }).collect();
@@ -4536,7 +4668,7 @@ mod tests {
         let dom = parse_html_to_dom(&html);
         let ctx = LayoutCtx { viewport_w: vw, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let mut rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+        let mut rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(*rect),
             _ => None,
         }).collect();
@@ -4682,7 +4814,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let ys: Vec<f32> = list.items.iter().filter_map(|it| match it {
+        let ys: Vec<f32> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some(rect.y),
             _ => None,
         }).collect();
@@ -4700,7 +4832,7 @@ mod tests {
         );
         let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<(f32, f32)> = list.items.iter().filter_map(|it| match it {
+        let rects: Vec<(f32, f32)> = list.materialized().iter().filter_map(|it| match it {
             DisplayItem::SolidRect { rect, .. } => Some((rect.x, rect.y)),
             _ => None,
         }).collect();
@@ -4754,7 +4886,9 @@ mod tests {
     /// Coleta todos os SolidRect da lista, em ordem (container primeiro, filhos
     /// depois — o fundo do container é inserido ATRÁS dos filhos).
     fn all_rects(list: &DisplayList) -> Vec<Rect> {
-        list.items
+        // PLANA: os itens de uma subárvore reusada não estão no buffer próprio,
+        // e um teste que lesse só ele veria a página pela metade.
+        list.materialized()
             .iter()
             .filter_map(|it| match it {
                 DisplayItem::SolidRect { rect, .. } => Some(*rect),
