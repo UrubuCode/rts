@@ -100,7 +100,11 @@ $Benches = @(
   # programa. Estava em falta: a 2026-08-20 o `monte_carlo_pi` levava 929 ms
   # onde o mesmo algoritmo com locais levava 134, e nada aqui media essa
   # diferenca.
-  @{ id = "property_access";      rts = "bench\property_access.ts";          js = "";                                     jsRunners = @() }
+  # Corre tambem sob os outros: a primeira leitura deste bench foi comparada so'
+  # contra o Node e concluiu que nao havia nada a ganhar, o que era falso por
+  # escolha de denominador — contra o Bun ha' ~28%. Um bench cuja conclusao
+  # depende de qual referencia se escolhe tem de correr contra as duas.
+  @{ id = "property_access";      rts = "bench\property_access.ts";          js = "bench\property_access.ts";             jsRunners = @("bun","node","deno") }
 )
 
 # -------------------------------------------------------------------

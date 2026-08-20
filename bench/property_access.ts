@@ -47,30 +47,49 @@
 // a guarda, quanto e' o inline cache, e quanto e' o encaixotar e desencaixotar
 // do valor. Sao tres coisas e este bench mede a soma.
 //
-// # A terceira coisa, e e' a que decide se vale a pena mexer nisto
+// # A terceira coisa, e ela precisa das DUAS referencias e nao de uma
 //
-// O mesmo arquivo sob o Node (v20), mesma maquina, mesmo dia:
+// Mesma maquina, mesmo dia, mesmo arquivo:
 //
-//                   RTS      Node
-//   local          14,2      50,3
-//   capturada      49,4      79,2
-//   propriedade    51,0      52,6
-//   duas hops      50,5      52,5
+//                   RTS       Bun      Node
+//   local          13,8      29,6      50,4
+//   capturada      49,0      40,1      80,2
+//   propriedade    50,7      39,7      52,4
+//   duas hops      50,5      39,0      52,5
 //
-// **O acesso a propriedade daqui ja' empata com o do V8.** Os 3,4x que a
-// primeira leitura mostra sao reais e sao inteiramente do lado do NUMERADOR: o
-// caminho local aqui e' 3,5x mais rapido que o do Node, que e' o que os tipos
-// estaticos compram. Em valor absoluto as duas engines pagam o mesmo por uma
-// propriedade.
+// Contra o **Bun** (JavaScriptCore), que e' a referencia rapida das duas:
 //
-// Isso e' um resultado negativo e esta escrito porque e' util: quem olhar para
-// os 3,4x e concluir que o acesso a propriedade daqui e' lento vai construir
-// contra uma premissa que esta linha ja' refutou. O que os 3,4x dizem e' que
-// SAIR do caminho local custa caro, nao que o outro caminho seja mau.
+//   local          RTS 2,1x MAIS RAPIDO
+//   propriedade    RTS 1,28x mais lento
+//   capturada      RTS 1,22x mais lento
 //
-// A conclusao pratica: mais programa a caber no caminho local vale mais do que
-// tornar o caminho da propriedade mais rapido, porque o segundo ja' esta ao
-// nivel da referencia e o primeiro ja' esta a bate-la.
+// Ou seja: o caminho local aqui bate a melhor referencia por mais do dobro, e o
+// caminho da propriedade fica ~28% atras dela. As duas coisas sao verdade ao
+// mesmo tempo e nenhuma das duas se ve olhando so' para os 3,4x internos.
+//
+// **Este paragrafo dizia "ja' empata com o V8" e essa versao media contra a
+// referencia errada.** Contra o Node o acesso a propriedade daqui de facto
+// empata (50,7 contra 52,4) — e o Node e' o mais lento dos tres em todas as
+// quatro linhas, entao empatar com ele nao diz nada sobre estar bom. A
+// conclusao que a versao anterior tirou disso — que nao havia nada a ganhar
+// aqui — era falsa por escolha de denominador, que e' precisamente a forma de
+// erro que o piso de honestidade deste repositorio descreve.
+//
+// O que continua verdade depois da correcao: os 3,4x internos sao dominados
+// pelo NUMERADOR ser rapido, nao pelo denominador ser mau. Sair do caminho
+// local custa 3,7x aqui contra 1,34x no Bun, e e' por o caminho local aqui ser
+// muito melhor, nao por o outro ser muito pior.
+//
+// A conclusao pratica, agora com o sinal certo: ha' ~28% a ganhar no acesso a
+// propriedade contra a melhor referencia, e ha' 2,1x ja' ganhos no caminho
+// local. Por unidade de trabalho, mover programa para o caminho local rende
+// mais — mas os 28% sao reais e nao sao zero, que era o que a versao anterior
+// afirmava.
+//
+// O que estas linhas NAO dizem: nada sobre acesso POLIMORFICO. As quatro veem
+// uma unica forma de objeto do principio ao fim, que e' o caso que um inline
+// cache resolve melhor. Um sitio que ve tres formas e' outra pergunta e nao
+// tem instrumento nenhum aqui.
 
 const N: number = 3000000;
 
