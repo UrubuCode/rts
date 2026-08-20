@@ -95,6 +95,12 @@ $Benches = @(
   @{ id = "objbench_noalloc";     rts = "bench\objbench_noalloc.ts";         js = "";                                     jsRunners = @() }
   @{ id = "field_access";         rts = "bench\field_access.ts";             js = "";                                     jsRunners = @() }
   @{ id = "string_index";         rts = "bench\string_index.ts";             js = "";                                     jsRunners = @() }
+  # `property_access` mede o MESMO laco com o estado em quatro sitios, entao a
+  # diferenca entre duas das suas linhas e' o custo de um sitio e nao de um
+  # programa. Estava em falta: a 2026-08-20 o `monte_carlo_pi` levava 929 ms
+  # onde o mesmo algoritmo com locais levava 134, e nada aqui media essa
+  # diferenca.
+  @{ id = "property_access";      rts = "bench\property_access.ts";          js = "";                                     jsRunners = @() }
 )
 
 # -------------------------------------------------------------------
