@@ -20,7 +20,11 @@
 pub mod builder;
 pub mod consts;
 pub mod entity;
-mod fold;
+// `pub(crate)` rather than private because the verifier asks it the same
+// question the builder does. Two copies of "can this divisor trap" is the shape
+// rule 7 warns about: the builder would refuse one program and the verifier a
+// slightly different one, and the difference would be a trap in shipped code.
+pub(crate) mod fold;
 pub mod func;
 pub mod funcs;
 pub mod inst;

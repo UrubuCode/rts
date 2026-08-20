@@ -83,6 +83,21 @@ pub enum LowerError {
         inst: InstId,
     },
 
+    /// A remainder was reached in a domain that does not admit one.
+    ///
+    /// The builder refuses this and so does the verifier — rule 7, both — and
+    /// lowering refuses it a third time because it is the layer with nothing
+    /// to emit: IEEE remainder is a library call, and the inexact identity that
+    /// would avoid one is exactly the approximation
+    /// [`crate::ir::inst::NumOp::Rem`] documents as the reason the float domain
+    /// does not have it. Reaching here means the program was not verified.
+    RemainderNotInDomain {
+        /// The instruction.
+        inst: InstId,
+        /// What its operands were proven to be.
+        found: Repr,
+    },
+
     /// A block was reached with no terminator.
     ///
     /// The verifier rejects this too. Lowering checks it again because it cannot

@@ -39,6 +39,26 @@ pub enum CmpOp {
 }
 
 /// Arithmetic over operands whose representation is proven.
+///
+/// # Why [`NumOp::Rem`] is here and a logarithm is not
+///
+/// [`FloatOp`] below admits only what the hardware does in one instruction, and
+/// that principle was never written down for a two-operand op — this enum's
+/// doc said nothing about it, so the question was open rather than settled.
+/// Settling it: the rule is about the DOMAIN the operation is emitted in, not
+/// about the operator's name.
+///
+/// `Rem` over integers is `srem`, one instruction on every target here, so it
+/// meets the same bar `Add` does. `Rem` over floats is not: IEEE remainder is
+/// `fmod`, a library call on every target, and the identity
+/// `a - trunc(a / b) * b` that would avoid it is **not** exact — once `a / b`
+/// passes 2^53 the truncation loses the low bits and the answer differs from
+/// what the language requires. So the float domain does not get it, and
+/// [`super::builder::FuncBuilder::arith`] refuses it there by name rather than
+/// emitting something that is right for the inputs a test happens to use.
+///
+/// That asymmetry is the point: an operator is admitted per domain, because
+/// what it costs and whether it is exact are both answered by the domain.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NumOp {
     /// Addition.
@@ -49,6 +69,9 @@ pub enum NumOp {
     Mul,
     /// Division.
     Div,
+    /// Remainder, truncated toward zero. **Integer domain only** — see the
+    /// enum's documentation for why the float domain does not admit it.
+    Rem,
 }
 
 /// One-operand floating-point operations.

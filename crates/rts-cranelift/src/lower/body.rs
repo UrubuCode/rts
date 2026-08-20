@@ -184,6 +184,11 @@ impl<'a> Body<'a> {
                     NumOp::Sub => builder.ins().isub(x, y),
                     NumOp::Mul => builder.ins().imul(x, y),
                     NumOp::Div => builder.ins().sdiv(x, y),
+                    // Total here only because the divisor was settled at
+                    // construction — `fold::divisor_cannot_trap`. `srem` traps
+                    // on `0` and on `INT_MIN % -1`, and nothing at this point
+                    // can still see which value the divisor holds.
+                    NumOp::Rem => builder.ins().srem(x, y),
                 }
             }
 
@@ -194,6 +199,12 @@ impl<'a> Body<'a> {
                     NumOp::Sub => builder.ins().fsub(x, y),
                     NumOp::Mul => builder.ins().fmul(x, y),
                     NumOp::Div => builder.ins().fdiv(x, y),
+                    NumOp::Rem => {
+                        return Err(LowerError::RemainderNotInDomain {
+                            inst: id,
+                            found: self.func.repr_of(*a),
+                        });
+                    }
                 }
             }
 

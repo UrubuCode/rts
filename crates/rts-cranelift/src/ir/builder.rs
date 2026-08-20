@@ -50,6 +50,27 @@ pub enum BuildError {
         /// What it received.
         found: Repr,
     },
+    /// A remainder was asked for where the machine cannot answer it totally.
+    ///
+    /// Two shapes reach here, and they are one rule seen from two sides —
+    /// [`crate::ir::inst::NumOp::Rem`] is admitted per domain:
+    ///
+    /// - the float domain, where IEEE remainder is a library call and the
+    ///   identity that would avoid one is inexact past 2^53;
+    /// - the integer domain with a divisor that could be `0` or `-1`, either of
+    ///   which makes `srem` trap where the language requires a value.
+    ///
+    /// Refused rather than approximated, because both alternatives produce a
+    /// program that is right for the inputs a test uses and wrong later.
+    UnsafeRemainder {
+        /// What the operands were proven to be.
+        found: Repr,
+        /// Whether the domain admits a remainder at all.
+        ///
+        /// `false` names the first shape above and `true` the second, so a
+        /// reader of the error does not have to infer which from `found`.
+        domain_admits: bool,
+    },
     /// A branch argument would have to narrow to reach its target.
     ///
     /// Narrowing can fail, so it is only reachable through a guard.
@@ -235,8 +256,26 @@ impl<'a> FuncBuilder<'a> {
             return Ok(unchanged);
         }
         if repr.is_integer() {
+            // Rule 12: unproven behaviour fails safely. `srem` is partial, and
+            // the partiality is invisible in the representation — only the
+            // divisor's value settles it, so the check is here where the value
+            // is still reachable rather than in the verifier, which sees the
+            // same instruction with the same representations for a divisor that
+            // traps and one that cannot.
+            if op == NumOp::Rem && !super::fold::divisor_cannot_trap(&self.func, b) {
+                return Err(BuildError::UnsafeRemainder {
+                    found: repr,
+                    domain_admits: true,
+                });
+            }
             Ok(self.emit(Inst::IntArith(op, a, b), repr))
         } else if repr.is_float() {
+            if op == NumOp::Rem {
+                return Err(BuildError::UnsafeRemainder {
+                    found: repr,
+                    domain_admits: false,
+                });
+            }
             Ok(self.emit(Inst::FloatArith(op, a, b), repr))
         } else {
             Err(BuildError::WrongDomain {

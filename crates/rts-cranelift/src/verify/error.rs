@@ -85,6 +85,24 @@ pub enum VerifyError {
         found: Repr,
     },
 
+    /// A remainder cannot be answered totally as written.
+    ///
+    /// The float domain never admits one — IEEE remainder is a library call and
+    /// the identity avoiding it is inexact past 2^53. The integer domain admits
+    /// it only for a divisor settled to be neither `0` nor `-1`, because `srem`
+    /// traps on both where the language requires a value.
+    ///
+    /// [`crate::ir::builder::BuildError::UnsafeRemainder`] refuses the same
+    /// program where it is written. This exists for the representation that did
+    /// not come from the builder — rule 7 wants both, and a trap is exactly the
+    /// failure the honesty floor refuses to ship as a pass.
+    UnsafeRemainder {
+        /// The instruction.
+        inst: InstId,
+        /// What its operands were proven to be.
+        found: Repr,
+    },
+
     /// A branch condition is not a proven boolean.
     ConditionNotBool {
         /// Where the branch is.

@@ -101,6 +101,53 @@ fn is_f64_one(func: &Function, value: ValueId) -> bool {
     )
 }
 
+/// Whether an integer remainder's divisor cannot make the instruction trap.
+///
+/// # Why the builder has to ask
+///
+/// `srem` is not total. It traps on a zero divisor, and it traps on
+/// `INT_MIN % -1` because the quotient of that pair is not representable. Both
+/// are *machine* facts with no counterpart in the language above: `x % 0` is
+/// `NaN` there, and no value of `x` makes `x % -1` anything but `0`. So an
+/// integer remainder whose divisor is not settled here would turn a program
+/// that must answer a number into one that stops the process — which the
+/// honesty floor names specifically, and which no verifier downstream could
+/// catch because the trapping value only exists at run time.
+///
+/// # What counts as settled, and why it is only this
+///
+/// A divisor that is a constant, and is neither `0` nor `-1`. That is the whole
+/// of what this module can decide: rule 11's neighbour, that a fact is spent
+/// only where it was established. Proving a *variable* non-zero needs a range,
+/// which needs a fixed point over the block graph — a pass, which the header of
+/// this module says does not live here.
+///
+/// The consequence is deliberate and is the safe direction: a remainder by a
+/// divisor this cannot settle is REFUSED at construction rather than emitted
+/// and hoped about. The client's answer to a refusal is to keep the generic
+/// form, which is rule 5 above — what cannot be proven becomes generic, visibly.
+pub(crate) fn divisor_cannot_trap(func: &Function, divisor: ValueId) -> bool {
+    let Some(&Inst::Const(id)) = defining_inst(func, divisor) else {
+        return false;
+    };
+    let Some(ConstDecl::Scalar { repr, bits }) = func.constant(id) else {
+        return false;
+    };
+    if !repr.is_integer() {
+        return false;
+    }
+    // Compared as the signed value the instruction will see, so that `-1` is
+    // recognised whatever width the representation is. `bits` holds the pattern;
+    // an `I32` `-1` and an `I64` `-1` are different patterns for one number.
+    let signed = match repr {
+        Repr::I8 => bits.0 as u8 as i8 as i64,
+        Repr::I16 => bits.0 as u16 as i16 as i64,
+        Repr::I32 => bits.0 as u32 as i32 as i64,
+        _ => bits.0 as i64,
+    };
+    signed != 0 && signed != -1
+}
+
 /// What a value was widened FROM, when it was widened at all.
 ///
 /// A query and not a fold: it emits nothing and decides nothing. It exists

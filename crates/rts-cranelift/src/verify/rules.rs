@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::error::VerifyError;
+use crate::ir::inst::NumOp;
 use crate::ir::{BlockCall, BlockId, Function, Inst, InstId, Terminator, ValueId};
 use crate::repr::Repr;
 use crate::types::TypeRegistry;
@@ -679,11 +680,29 @@ pub(super) fn check_instructions(
                 continue;
             };
             match &data.inst {
-                Inst::IntArith(_, a, b) => {
+                Inst::IntArith(op, a, b) => {
                     check_proven_pair(func, inst_id, *a, *b, Domain::Integer, errors);
+                    // `srem` is partial where every other integer instruction
+                    // here is total, and the partiality is in the divisor's
+                    // VALUE rather than in its representation — so this is the
+                    // one arithmetic check that reads a constant.
+                    if *op == NumOp::Rem
+                        && !crate::ir::fold::divisor_cannot_trap(func, *b)
+                    {
+                        errors.push(VerifyError::UnsafeRemainder {
+                            inst: inst_id,
+                            found: func.repr_of(*a),
+                        });
+                    }
                 }
-                Inst::FloatArith(_, a, b) => {
+                Inst::FloatArith(op, a, b) => {
                     check_proven_pair(func, inst_id, *a, *b, Domain::Float, errors);
+                    if *op == NumOp::Rem {
+                        errors.push(VerifyError::UnsafeRemainder {
+                            inst: inst_id,
+                            found: func.repr_of(*a),
+                        });
+                    }
                 }
                 Inst::Bitwise(_, a, b) => {
                     check_proven_pair(func, inst_id, *a, *b, Domain::Integer, errors);
