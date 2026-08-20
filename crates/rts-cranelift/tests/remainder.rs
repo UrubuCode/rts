@@ -151,17 +151,35 @@ fn a_float_remainder_by_a_power_of_two_is_instructions_and_not_a_call() {
         0,
         "the whole point: `% 2^k` stops being a call into the runtime"
     );
-    for (opcode, why) in [
-        ("fdiv", "the quotient, exact because the divisor is a power of two"),
-        ("trunc", "toward zero, which is what the language's remainder means"),
-        ("fmul", "back to the multiple of the divisor below the dividend"),
-        ("fsub", "the remainder itself"),
+    for (opcode, times, why) in [
+        (
+            "fmul",
+            2,
+            "the quotient and the multiple back. The quotient is a MULTIPLY by \
+             `1 / d`, not a divide: for a power of two the two are the same \
+             number exactly, and `fdiv` costs roughly three times as much \
+             latency in the middle of a chain a loop carries",
+        ),
+        (
+            "fdiv",
+            0,
+            "and so there is no division left. Cranelift does not perform this \
+             reduction itself — measured 2026-08-20, doing it here took the \
+             remainder loop from 74.9 ms to 52.1 ms",
+        ),
+        (
+            "trunc",
+            1,
+            "toward zero, which is what the language's remainder means",
+        ),
+        ("fsub", 1, "the remainder itself"),
         (
             "fcopysign",
+            1,
             "the sign of a ZERO result, which the algebra loses: `-8 % 4` is `-0`",
         ),
     ] {
-        assert_eq!(count(&lowered, opcode), 1, "{opcode}: {why}");
+        assert_eq!(count(&lowered, opcode), times, "{opcode}: {why}");
     }
 }
 
@@ -200,6 +218,34 @@ fn a_negative_power_of_two_divisor_is_admitted_because_the_sign_is_the_dividends
     let lowered = float_remainder_by(-4.0).expect("the divisor's sign does not affect exactness");
     assert_eq!(count(&lowered, "call"), 0);
     assert_eq!(count(&lowered, "trunc"), 1);
+}
+
+#[test]
+fn a_divisor_whose_reciprocal_is_subnormal_is_refused() {
+    // `2^1023` is a power of two, is finite, and is at least one — it passes
+    // every part of the test except the last. Its reciprocal is subnormal, and
+    // the sequence multiplies by that reciprocal, so admitting it would put a
+    // subnormal operand in the middle of the hot path: exactly representable,
+    // and on many processors the point at which the fast path is abandoned.
+    //
+    // Refusing it costs a call on a divisor no program writes, and keeps the
+    // claim "this sequence is faster than the call" true for every divisor the
+    // sequence is used on.
+    let huge = 2.0f64.powi(1023);
+    assert!(huge.is_finite(), "the fixture itself has to be a real divisor");
+    assert!(
+        !(1.0 / huge).is_normal(),
+        "and its reciprocal has to be the subnormal this test is about"
+    );
+    assert!(matches!(
+        float_remainder_by(huge),
+        Err(BuildError::UnsafeRemainder { .. })
+    ));
+
+    // One exponent down is admitted, which is what says the boundary is where
+    // the reciprocal stops being normal rather than somewhere arbitrary.
+    let admitted = float_remainder_by(2.0f64.powi(1022)).expect("its reciprocal is normal");
+    assert_eq!(count(&admitted, "call"), 0);
 }
 
 #[test]

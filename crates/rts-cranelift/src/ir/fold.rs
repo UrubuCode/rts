@@ -180,21 +180,59 @@ pub(crate) fn divisor_cannot_trap(func: &Function, divisor: ValueId) -> bool {
 /// is a fact about the emitted code rather than about the divisor, so it lives
 /// there and not here.
 pub(crate) fn divisor_is_power_of_two(func: &Function, divisor: ValueId) -> bool {
-    let Some(&Inst::Const(id)) = defining_inst(func, divisor) else {
-        return false;
+    power_of_two_reciprocal(func, divisor).is_some()
+}
+
+/// `1 / d` for a divisor the sequence can take, and `None` for one it cannot.
+///
+/// The predicate above and the number lowering multiplies by are ONE question
+/// asked twice, so they are one function. Rule 3's shape: a second place that
+/// decided which divisors qualify would eventually decide it differently, and
+/// the disagreement would be a wrong answer rather than a refusal — lowering
+/// would emit the sequence for a divisor the builder never checked.
+///
+/// # Why lowering wants the reciprocal rather than the divisor
+///
+/// It emits `x * (1 / d)` where the algebra says `x / d`. For a power of two
+/// the two are the same number exactly — both are adjustments of an exponent,
+/// and neither rounds — and `fmul` costs roughly a third of `fdiv` in latency,
+/// in the middle of a chain a loop carries.
+///
+/// The extra condition that buys is that `1 / d` must be an ordinary double.
+/// The one divisor admitted by every other test and refused by this is
+/// `2^1023`, whose reciprocal is subnormal: exactly representable, but a
+/// subnormal operand is where a processor can leave its fast path entirely,
+/// which would make the sequence slower than the call it replaced.
+pub(crate) fn power_of_two_reciprocal(func: &Function, divisor: ValueId) -> Option<f64> {
+    let &Inst::Const(id) = defining_inst(func, divisor)? else {
+        return None;
     };
-    let Some(ConstDecl::Scalar {
+    let ConstDecl::Scalar {
         repr: Repr::F64,
         bits,
-    }) = func.constant(id)
+    } = func.constant(id)?
     else {
-        return false;
+        return None;
     };
-    let value = f64::from_bits(bits.0).abs();
-    // `is_power_of_two` on the FLOAT, not on a cast: the mantissa must be zero
-    // and the value finite. `f64::EXP` arithmetic would say the same thing in a
-    // way a reader has to verify, so this asks the two questions directly.
-    value.is_finite() && value >= 1.0 && value.to_bits() & ((1u64 << 52) - 1) == 0
+    let value = f64::from_bits(bits.0);
+    let magnitude = value.abs();
+    // Asked of the FLOAT and not of a cast: the mantissa must be zero and the
+    // value finite. Arithmetic on the exponent field would say the same thing
+    // in a way a reader has to verify, so this asks the two questions directly.
+    //
+    // `>= 1.0` is load-bearing rather than tidy: below one, `x / d` can
+    // OVERFLOW, and the sequence would then answer infinity where the true
+    // remainder is zero.
+    let power_of_two = magnitude.is_finite()
+        && magnitude >= 1.0
+        && magnitude.to_bits() & ((1u64 << 52) - 1) == 0;
+    // The DIVISOR's sign is kept, not the magnitude's: `x * (1 / d)` has to be
+    // the same number as `x / d`, and the sign of the quotient is part of that.
+    // It cancels in the sequence's final multiply, which is why the language's
+    // "sign of the dividend" rule survives either way — but getting it wrong
+    // here would put a sign error inside `trunc`, where it does not cancel.
+    let reciprocal = 1.0 / value;
+    (power_of_two && reciprocal.is_normal()).then_some(reciprocal)
 }
 
 /// What a value was widened FROM, when it was widened at all.

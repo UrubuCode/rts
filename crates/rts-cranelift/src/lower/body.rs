@@ -230,7 +230,17 @@ impl<'a> Body<'a> {
                                 found: self.func.repr_of(*a),
                             });
                         }
-                        let q = builder.ins().fdiv(x, y);
+                        // `x * (1/d)` and not `x / d`. Exact for the same
+                        // reason the whole sequence is — the reciprocal of a
+                        // power of two is a power of two, so both are exponent
+                        // adjustments and neither rounds — and `fdiv` costs
+                        // roughly three times an `fmul` in latency on every
+                        // target here, in the middle of a chain the loop
+                        // carries. `divisor_is_power_of_two` refuses a divisor
+                        // whose reciprocal is not normal, which is what makes
+                        // reading it out here safe.
+                        let reciprocal = self.reciprocal_of(builder, *b);
+                        let q = builder.ins().fmul(x, reciprocal);
                         let t = builder.ins().trunc(q);
                         let p = builder.ins().fmul(t, y);
                         let r = builder.ins().fsub(x, p);
@@ -1232,6 +1242,24 @@ impl<'a> Body<'a> {
 
     pub(super) fn repr(&self, id: ValueId) -> Repr {
         self.func.repr_of(id)
+    }
+
+    /// `1 / d` as a materialised constant, for a divisor already settled.
+    ///
+    /// The number comes from [`crate::ir::fold::power_of_two_reciprocal`],
+    /// which is the same function that decided the divisor qualifies — asking
+    /// somewhere else would be a second answer to the question that makes the
+    /// sequence correct.
+    ///
+    /// # Panics
+    ///
+    /// If the divisor is not one that function admits. Not a defensive check:
+    /// reaching here means the builder, the verifier and lowering's own guard
+    /// all admitted it, so a mismatch is this crate disagreeing with itself.
+    fn reciprocal_of(&self, builder: &mut FunctionBuilder, divisor: ValueId) -> Value {
+        let reciprocal = crate::ir::fold::power_of_two_reciprocal(self.func, divisor)
+            .expect("the divisor was settled to be a power of two with a normal reciprocal");
+        builder.ins().f64const(reciprocal)
     }
 }
 
