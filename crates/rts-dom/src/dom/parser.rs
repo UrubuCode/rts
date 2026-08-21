@@ -83,7 +83,7 @@ fn closes_open_p(tag: &str) -> bool {
 /// Sem isto o `web.whatsapp.com` — que omite as três — punha os `<div>` do app
 /// dentro do `<head>`, e cada regra `body { … }` da folha dele (a que dá
 /// `height: 100%` e a cor do texto) não casava com elemento nenhum.
-pub(in crate::dom) fn allowed_in_head(tag: &str) -> bool {
+fn allowed_in_head(tag: &str) -> bool {
     matches!(
         tag,
         "base"
@@ -99,7 +99,7 @@ pub(in crate::dom) fn allowed_in_head(tag: &str) -> bool {
     )
 }
 
-pub(in crate::dom) fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
+fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
     let same_kind = match new_tag {
         // um <li> novo termina o <li> corrente (viram irmãos, não aninhados).
         "li" => open_tag == "li",
@@ -130,7 +130,7 @@ pub(in crate::dom) fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
 /// em pares `Attr`. Tolerante: aceita aspas simples/duplas ou sem aspas, e
 /// atributo sem valor (`checked` → value vazio). Nomes em minúsculas; valores
 /// com entidades decodificadas. Não é conforme à spec — cobre o uso comum.
-pub(in crate::dom) fn parse_attrs(raw: &str) -> Vec<Attr> {
+fn parse_attrs(raw: &str) -> Vec<Attr> {
     let mut attrs = Vec::new();
     let bytes = raw.as_bytes();
     let mut i = 0usize;
