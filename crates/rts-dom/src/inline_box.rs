@@ -1003,6 +1003,56 @@ mod tests {
         assert!(filho.w > 0.0, "o filho perdeu a caixa: {filho:?}");
     }
 
+    /// Um `display:inline-block` FLUI na linha, ao lado do texto.
+    ///
+    /// Media-se no Chrome a caixa ao lado da palavra; aqui ela descia para a
+    /// linha seguinte, encostada à esquerda. A causa era uma cópia local da
+    /// pergunta "é de bloco?" escrita como "não é inline?" — e o `inline-block`
+    /// é o valor que as duas leituras separam.
+    #[test]
+    fn inline_block_flui_na_linha_do_texto_em_vez_de_descer() {
+        let (dom, list) = geometria(
+            "<div style='width:600px'>abc <span style='display:inline-block;             width:20px;height:10px'></span></div>",
+            800.0,
+        );
+        let s = rect(&dom, &list, "span", 0);
+        assert!(s.x > 10.0, "o inline-block foi para o início da linha: {s:?}");
+        assert_eq!(s.y, 0.0, "e desceu de linha: {s:?}");
+    }
+
+    /// Dois inline-blocks SEM texto à volta continuam lado a lado — a corrida de
+    /// irmãos, que é o caso dos botões, não regride.
+    #[test]
+    fn dois_inline_blocks_irmaos_ficam_lado_a_lado() {
+        let ib = "display:inline-block;width:20px;height:10px";
+        let (dom, list) = geometria(
+            &format!("<div style='width:600px'><span style='{ib}'></span>                      <span style='{ib}'></span></div>"),
+            800.0,
+        );
+        let a = rect(&dom, &list, "span", 0);
+        let b = rect(&dom, &list, "span", 1);
+        assert_eq!(a.y, b.y, "empilharam: a={a:?} b={b:?}");
+        assert!(b.x > a.x, "e não avançaram: a={a:?} b={b:?}");
+    }
+
+    /// Um `display:inline-block` declarado vence a TAG.
+    ///
+    /// `.mw-list-item{display:inline-block}` sobre um `<li>` batia no
+    /// `block::lookup("li")` e voltava ao caminho de bloco: os itens do menu
+    /// empilhados, cada um com a largura do contentor. São 27 dos 55
+    /// inline-blocks da página da Wikipédia.
+    #[test]
+    fn inline_block_declarado_vence_a_tag_de_bloco() {
+        let (dom, list) = geometria(
+            "<ul style='width:600px'><li style='display:inline-block'>abc</li>             <li style='display:inline-block'>def</li></ul>",
+            800.0,
+        );
+        let a = rect(&dom, &list, "li", 0);
+        let b = rect(&dom, &list, "li", 1);
+        assert_eq!(a.y, b.y, "os itens empilharam: a={a:?} b={b:?}");
+        assert!(a.w < 100.0, "e tomaram a largura do contentor: {a:?}");
+    }
+
     /// Um `<img>` que não declara dimensão nenhuma e não tem pixels continua sem
     /// caixa. O par com os testes acima é o que prova que a caixa vem do que se
     /// DECLARA, e não de o elemento ser um `<img>`.
@@ -1291,6 +1341,7 @@ mod inline_declarado_e_dono {
         );
     }
 }
+
 
 
 

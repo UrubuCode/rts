@@ -3808,8 +3808,26 @@ fn layout_children_vertical(
                     || tag == "svg"
                     || tag == "canvas";
                 let effective = child_css.as_ref().and_then(|c| c.effective_display());
+                // "é de bloco?" e NÃO "não é inline?" — e o `InlineBlock` é o
+                // valor que as duas leituras separam. Por `d != Inline` um
+                // `display:inline-block` contava como bloco: o elemento saía do
+                // fluxo da linha, empilhava-se em vez de fluir e tomava a largura
+                // do contentor. Um `<span style="display:inline-block">` entre
+                // duas palavras descia para a linha seguinte, e a caixa que o
+                // browser põe ao lado do texto ficava sozinha numa linha só.
+                //
+                // Esta é a QUINTA aparição da mesma pergunta mal posta, e as
+                // outras quatro estão em `is_block_level`, `is_inline_block` e
+                // duas decisões de fluxo. A causa é esta cópia: o laço reescreve
+                // à mão o que `is_inline_block` já responde, em vez de lhe
+                // perguntar. Substituir a cópia pela chamada é a correção de
+                // fundo e muda mais do que o inline-block — fica para um lote
+                // próprio, medido à parte, para que o efeito seja atribuível.
                 let explicit_block = effective
-                    .map(|d| d != crate::style::DisplayKind::Inline)
+                    .map(|d| {
+                        d != crate::style::DisplayKind::Inline
+                            && d != crate::style::DisplayKind::InlineBlock
+                    })
                     .unwrap_or(false);
                 // `display:inline` DECLARADO vence a tag e a UA-stylesheet: um
                 // `<h3 style="display:inline">` — a forma dos cabeçalhos
@@ -3838,7 +3856,14 @@ fn layout_children_vertical(
                             .unwrap_or(false)
                 };
                 let inline_block =
-                    if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
+                    // Um `display:inline-block` DECLARADO responde antes da TAG:
+                    // `.mw-list-item{display:inline-block}` sobre um `<li>` batia
+                    // no `block::lookup("li")` e voltava ao caminho de bloco, com
+                    // os itens do menu empilhados e cada um com a largura do
+                    // contentor. São 27 dos 55 inline-blocks desta página.
+                    if effective == Some(crate::style::DisplayKind::InlineBlock) {
+                        true
+                    } else if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
                         !explicit_block
                     } else if crate::block::lookup(tag).is_some() || explicit_block {
                         false
@@ -9958,4 +9983,5 @@ mod tests {
         assert!(pintou, "sem máscara, o fundo declarado é pintado");
     }
 }
+
 
