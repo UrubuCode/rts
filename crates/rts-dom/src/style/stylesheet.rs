@@ -28,7 +28,7 @@
 
 use super::parse::parse_inline_block;
 use super::props::ComputedStyle;
-use super::selector::{compound_matches, ComplexSelector, PseudoClass, Selector};
+use super::selector::{ComplexSelector, PseudoClass, Selector, compound_matches};
 
 /// A condição de um bloco `@media`, avaliada contra o VIEWPORT (fase 2 — antes
 /// o bloco inteiro era pulado). V1 honesta: só `min-width`/`max-width` (px, e
@@ -55,11 +55,15 @@ impl MediaQuery {
         let mut q = MediaQuery::default();
         for term in first.split(" and ") {
             let t = term.trim().to_ascii_lowercase();
-            if t.is_empty() || t == "screen" || t == "all" || t == "only screen" || t == "only all" {
+            if t.is_empty() || t == "screen" || t == "all" || t == "only screen" || t == "only all"
+            {
                 continue; // keywords neutros
             }
             // `(feature: valor)`
-            let inner = t.strip_prefix('(').and_then(|s| s.strip_suffix(')')).unwrap_or(&t);
+            let inner = t
+                .strip_prefix('(')
+                .and_then(|s| s.strip_suffix(')'))
+                .unwrap_or(&t);
             let Some((feat, val)) = inner.split_once(':') else {
                 q.always_false = true; // `not`, `print`, feature sem valor…
                 continue;
@@ -149,6 +153,14 @@ pub struct Rule {
     /// que as declarações o são: `a::before, b::before { content:"x" }` é uma
     /// regra por seletor e as duas partilham o valor.
     pub content: Option<std::rc::Rc<crate::pseudo::Content>>,
+    /// `counter-reset`/`counter-increment` declarados, quando os há.
+    ///
+    /// Fora do `decls` pela razão do `content` — não são propriedades do
+    /// `ComputedStyle` — mas ao contrário dele são lidas de QUALQUER regra e não
+    /// só das de pseudo-elemento: na folha da Wikipédia o `counter-increment`
+    /// que numera os retrolinks está num `::before`, e o que numera as
+    /// referências está num `<li>` comum.
+    pub counters: Option<std::rc::Rc<crate::counters::Ops>>,
 }
 
 /// Um bloco de declarações separado nas DUAS camadas de importância da cascade
@@ -218,8 +230,16 @@ impl RuleDecls {
     pub fn estimated_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
             + (self.normal.len() + self.important.len()) * std::mem::size_of::<super::props::Decl>()
-            + self.custom.iter().map(|(k, v)| k.capacity() + v.capacity()).sum::<usize>()
-            + self.pending.iter().map(|(k, v, _)| k.capacity() + v.capacity()).sum::<usize>()
+            + self
+                .custom
+                .iter()
+                .map(|(k, v)| k.capacity() + v.capacity())
+                .sum::<usize>()
+            + self
+                .pending
+                .iter()
+                .map(|(k, v, _)| k.capacity() + v.capacity())
+                .sum::<usize>()
     }
 }
 
@@ -341,7 +361,9 @@ impl Stylesheet {
     ) -> std::cell::RefMut<'_, Vec<usize>> {
         self.ensure_rule_index();
         let mut scratch = self.candidate_scratch.borrow_mut();
-        self.index.borrow().candidates_into(tag, id, classes, &mut scratch);
+        self.index
+            .borrow()
+            .candidates_into(tag, id, classes, &mut scratch);
         scratch
     }
 
@@ -381,7 +403,11 @@ impl Stylesheet {
                 // Antes do último, o alcance depende do combinador que o segue:
                 // descendente/filho desce na subárvore, irmão sai dela — e sair
                 // dela é o caso que a invalidação por subárvore NÃO cobre.
-                let next = if i + 1 < n { sel.combinators.get(i) } else { None };
+                let next = if i + 1 < n {
+                    sel.combinators.get(i)
+                } else {
+                    None
+                };
                 reach = reach.max(match next {
                     None => HoverReach::SelfOnly,
                     Some(super::Combinator::Descendant | super::Combinator::Child) => {
@@ -474,7 +500,10 @@ impl Stylesheet {
         }
         use super::props::Decl;
         let fora = |d: &Decl| {
-            matches!(d, Decl::position(Some(super::Position::Absolute | super::Position::Fixed)))
+            matches!(
+                d,
+                Decl::position(Some(super::Position::Absolute | super::Position::Fixed))
+            )
         };
         let answer = self.rules.iter().any(|r| {
             r.decls.normal.iter().any(fora)
@@ -551,7 +580,10 @@ impl Stylesheet {
         let base = self.rules.len() as u32;
         for (i, rule) in parse_rules(&css_without_kf).into_iter().enumerate() {
             crate::bump!(css_rules);
-            self.rules.push(Rule { order: base + i as u32, ..rule });
+            self.rules.push(Rule {
+                order: base + i as u32,
+                ..rule
+            });
         }
         // As regras mudaram: o que foi derivado delas não vale mais.
         *self.hover_reach.borrow_mut() = None;
@@ -574,7 +606,9 @@ impl Stylesheet {
             let name = after[..brace].trim().to_string();
             // acha o `}` que fecha o bloco (contando aninhamento, pois cada stop tem `{}`).
             let body_start = at + "@keyframes".len() + brace + 1;
-            let Some(body_end) = find_matching_brace(&rest[body_start..]) else { break };
+            let Some(body_end) = find_matching_brace(&rest[body_start..]) else {
+                break;
+            };
             let body = &rest[body_start..body_start + body_end];
             if !name.is_empty() {
                 crate::bump!(css_keyframes);
@@ -675,6 +709,36 @@ impl Stylesheet {
         (MatchedRules { rules }, content)
     }
 
+    /// As operações de contador VENCEDORAS entre as regras que casaram.
+    ///
+    /// Vence a última na ordem da cascata que declara alguma — como qualquer
+    /// declaração, e ao contrário do que a intuição de "contador" sugere: dois
+    /// `counter-increment` que casem o mesmo elemento não somam, o mais
+    /// específico substitui o outro.
+    ///
+    /// Serve tanto o elemento (via [`matched_for_node`](Self::matched_for_node))
+    /// como o pseudo (via [`matched_for_pseudo`](Self::matched_for_pseudo)) — é
+    /// a mesma pergunta sobre o mesmo conjunto, e ter duas funções para ela era
+    /// o segundo mecanismo que este trabalho existe para não criar.
+    pub fn counters_from(
+        &self,
+        matched: &MatchedRules,
+    ) -> Option<std::rc::Rc<crate::counters::Ops>> {
+        matched
+            .rules
+            .iter()
+            .rev()
+            .find_map(|(_, _, i)| self.rules[*i].counters.clone())
+    }
+
+    /// `true` se alguma regra desta folha declara contadores.
+    ///
+    /// A guarda que faz a passagem documental custar ZERO numa página sem
+    /// contadores — que é o caso de três das quatro folhas do corpus.
+    pub fn has_counters(&self) -> bool {
+        self.rules.iter().any(|r| r.counters.is_some())
+    }
+
     /// `true` se alguma regra desta folha gera conteúdo. É a guarda que impede
     /// o layout de perguntar por caixas geradas numa página que não tem
     /// nenhuma: a pergunta é por elemento e a resposta seria sempre "não".
@@ -771,7 +835,10 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         // (`@supports`/`@font-face`/…) são pulados com chaves casadas;
         // `@import`/`@charset` (sem corpo) pulam até o `;`. `@keyframes` nunca
         // chega aqui (extraído antes em append_css).
-        let ws = css[i..].find(|c: char| !c.is_whitespace()).map(|r| i + r).unwrap_or(css.len());
+        let ws = css[i..]
+            .find(|c: char| !c.is_whitespace())
+            .map(|r| i + r)
+            .unwrap_or(css.len());
         if css[ws..].starts_with('@') {
             let brace_rel = css[ws..].find('{');
             let semi_rel = css[ws..].find(';');
@@ -822,7 +889,9 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
             continue;
         }
         // Acha o `{` que abre o bloco de declarações.
-        let Some(brace) = css[i..].find('{').map(|r| i + r) else { break };
+        let Some(brace) = css[i..].find('{').map(|r| i + r) else {
+            break;
+        };
         let selectors_raw = css[i..brace].trim();
         // Acha o `}` que fecha; sem fechar, vai até o fim (tolerante).
         let close = css[brace + 1..].find('}').map(|r| brace + 1 + r);
@@ -840,6 +909,13 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         // pseudo-elemento: numa folha real são umas dezenas de regras em
         // milhares, e varrer o corpo de todas custaria em cada página.
         let content = std::cell::OnceCell::new();
+        // Os contadores são lidos de TODA regra e não só das de pseudo-elemento
+        // (o `counter-increment` que numera as referências está num `<li>`), mas
+        // o `parse_ops` sai num `contains("counter-")` antes de dividir o corpo,
+        // que é o mesmo corte barato que o `content` obtém pela guarda do
+        // pseudo. `Rc` porque `a, b { counter-increment:x }` é uma regra por
+        // seletor e as duas partilham o valor.
+        let counters = crate::counters::parse_ops(body).map(std::rc::Rc::new);
         // A vírgula que separa a LISTA é a de topo. `split(',')` cru cortava
         // dentro de `:is(.a, .b)` e de `[data-x="a,b"]`, produzindo dois pedaços
         // que não parseiam — a regra desaparecia e a contagem de recusadas
@@ -857,6 +933,7 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
                     order: 0,
                     media: None,
                     content,
+                    counters: counters.clone(),
                 });
             } else if !sel_str.trim().is_empty() {
                 // Um seletor que o parser recusa é uma regra que a página tem e o
@@ -902,7 +979,9 @@ fn find_matching_brace(s: &str) -> Option<usize> {
 fn content_do_corpo(body: &str) -> Option<crate::pseudo::Content> {
     let mut achado = None;
     for decl in split_top_level_semicolons(body) {
-        let Some((nome, valor)) = decl.split_once(':') else { continue };
+        let Some((nome, valor)) = decl.split_once(':') else {
+            continue;
+        };
         if !nome.trim().eq_ignore_ascii_case("content") {
             continue;
         }
@@ -916,7 +995,7 @@ fn content_do_corpo(body: &str) -> Option<crate::pseudo::Content> {
 }
 
 /// Divide um corpo de declarações nos `;` de topo (fora de aspas e parênteses).
-fn split_top_level_semicolons(s: &str) -> Vec<&str> {
+pub(crate) fn split_top_level_semicolons(s: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let (mut par, mut inicio) = (0i32, 0usize);
     let mut aspa: Option<char> = None;
@@ -943,7 +1022,9 @@ fn parse_keyframe_body(body: &str) -> crate::anim::Keyframes {
     loop {
         let Some(brace) = rest.find('{') else { break };
         let selector = rest[..brace].trim();
-        let Some(close_rel) = find_matching_brace(&rest[brace + 1..]) else { break };
+        let Some(close_rel) = find_matching_brace(&rest[brace + 1..]) else {
+            break;
+        };
         let decl_body = &rest[brace + 1..brace + 1 + close_rel];
         let decls = parse_inline_block(decl_body);
         // o seletor de stop pode ser uma lista: `0%, 50%`.
@@ -956,7 +1037,11 @@ fn parse_keyframe_body(body: &str) -> crate::anim::Keyframes {
         }
         rest = &rest[brace + 1 + close_rel + 1..];
     }
-    stops.sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap_or(std::cmp::Ordering::Equal));
+    stops.sort_by(|a, b| {
+        a.offset
+            .partial_cmp(&b.offset)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     crate::anim::Keyframes { stops }
 }
 
@@ -969,7 +1054,11 @@ fn parse_keyframe_offset(s: &str) -> Option<f32> {
     if s.eq_ignore_ascii_case("to") {
         return Some(1.0);
     }
-    s.strip_suffix('%')?.trim().parse::<f32>().ok().map(|p| (p / 100.0).clamp(0.0, 1.0))
+    s.strip_suffix('%')?
+        .trim()
+        .parse::<f32>()
+        .ok()
+        .map(|p| (p / 100.0).clamp(0.0, 1.0))
 }
 
 /// Resolve uma declaração PENDENTE (`prop: …var()…`) contra as custom props do
@@ -1003,3 +1092,10 @@ fn strip_css_comments(css: &str) -> String {
     out.push_str(rest);
     out
 }
+
+// Testes da herança e da resolução de `var()` por elemento. Num ficheiro à
+// parte (via `#[path]`) e não num `mod` de `style/mod.rs`: este ficheiro já
+// está no seu teto de linhas e `mod.rs` está a ser editado noutra frente.
+#[cfg(test)]
+#[path = "vars_cascade_tests.rs"]
+mod vars_cascade_tests;

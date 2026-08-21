@@ -89,7 +89,10 @@ impl Default for BorderSpacing {
     fn default() -> Self {
         // 2px é o valor da folha de estilo do browser para uma tabela
         // `separate` — não é zero, e é a diferença que se vê ao lado do Chrome.
-        BorderSpacing { h: Dimension::Px(2.0), v: Dimension::Px(2.0) }
+        BorderSpacing {
+            h: Dimension::Px(2.0),
+            v: Dimension::Px(2.0),
+        }
     }
 }
 

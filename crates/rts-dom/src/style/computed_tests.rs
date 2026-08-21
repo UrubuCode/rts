@@ -20,7 +20,10 @@ fn computed_devolve_o_valor_inicial_e_o_style_inline_nao() {
     let a = dom.query("#a").unwrap();
     assert_eq!(dom.computed_property(a, "color"), "rgb(255, 0, 0)");
     assert_eq!(dom.computed_property(a, "float"), "none");
-    assert_eq!(dom.computed_property(a, "background-color"), "rgba(0, 0, 0, 0)");
+    assert_eq!(
+        dom.computed_property(a, "background-color"),
+        "rgba(0, 0, 0, 0)"
+    );
     assert_eq!(dom.computed_property(a, "margin-top"), "0px");
     assert_eq!(dom.computed_property(a, "box-sizing"), "content-box");
     assert_eq!(dom.computed_property(a, "text-align"), "start");
@@ -81,7 +84,6 @@ fn letter_spacing_negativo_e_gap_de_dois_valores() {
     assert_eq!(css.get_property("gap"), "10px 20px");
 }
 
-
 #[test]
 fn keyword_inherit_copia_o_valor_do_pai() {
     // `background-color: inherit` num filho de um pai verde dá verde — e o fundo
@@ -93,7 +95,10 @@ fn keyword_inherit_copia_o_valor_do_pai() {
          <div id='avo'><div id='pede'>a</div><div id='pede2'>b</div></div>",
     );
     let pede = dom.query("#pede").unwrap();
-    assert_eq!(dom.computed_property(pede, "background-color"), "rgb(0, 255, 0)");
+    assert_eq!(
+        dom.computed_property(pede, "background-color"),
+        "rgb(0, 255, 0)"
+    );
     // e numa propriedade que JÁ herda, o keyword continua a dar o valor do pai
     // (o caso que parece redundante mas não é: vence uma regra que a declarou).
     let pede2 = dom.query("#pede2").unwrap();
@@ -125,7 +130,11 @@ fn controlos_de_formulario_tem_a_fonte_da_ua_e_nao_a_herdada() {
     );
     for id in ["#i", "#b", "#t"] {
         let n = dom.query(id).unwrap();
-        assert_eq!(dom.computed_property(n, "font-size"), "13.3333px", "fonte de {id}");
+        assert_eq!(
+            dom.computed_property(n, "font-size"),
+            "13.3333px",
+            "fonte de {id}"
+        );
     }
     // e um elemento normal continua a herdar os 16px do corpo.
     let d = dom.query("#d").unwrap();
@@ -135,9 +144,8 @@ fn controlos_de_formulario_tem_a_fonte_da_ua_e_nao_a_herdada() {
 #[test]
 fn regra_de_autor_vence_a_fonte_de_ua_do_controlo() {
     // A UA é a camada mais fraca da cascade: quem declara, manda.
-    let dom = crate::parse_html_to_dom(
-        "<style>input{font-size:20px}</style><body><input id='i'></body>",
-    );
+    let dom =
+        crate::parse_html_to_dom("<style>input{font-size:20px}</style><body><input id='i'></body>");
     let i = dom.query("#i").unwrap();
     assert_eq!(dom.computed_property(i, "font-size"), "20px");
 }
@@ -180,11 +188,17 @@ fn a_base_do_rem_nao_sobrevive_ao_documento() {
     let com = crate::parse_html_to_dom(
         "<style>html{font-size:10px}#a{font-size:2rem}</style><html><body><div id='a'>x</div></body></html>",
     );
-    assert_eq!(com.computed_property(com.query("#a").unwrap(), "font-size"), "20px");
+    assert_eq!(
+        com.computed_property(com.query("#a").unwrap(), "font-size"),
+        "20px"
+    );
     let sem = crate::parse_html_to_dom(
         "<style>#a{font-size:2rem}</style><html><body><div id='a'>x</div></body></html>",
     );
-    assert_eq!(sem.computed_property(sem.query("#a").unwrap(), "font-size"), "32px");
+    assert_eq!(
+        sem.computed_property(sem.query("#a").unwrap(), "font-size"),
+        "32px"
+    );
 }
 
 #[test]
@@ -199,9 +213,14 @@ fn letter_spacing_entra_na_largura_que_encolhe() {
         let html = format!("<div><div id='s' style='float:left;{decl}'>abcde</div></div>");
         let dom = crate::parse_html_to_dom(&html);
         let ctx = crate::layout::LayoutCtx {
-            viewport_w: 1280.0, viewport_h: 800.0, measurer: &crate::layout::ApproxMeasurer };
+            viewport_w: 1280.0,
+            viewport_h: 800.0,
+            measurer: &crate::layout::ApproxMeasurer,
+        };
         let list = crate::layout::layout_document(&dom, &ctx);
-        list.rect_of(dom.resolve(dom.query("#s").unwrap()).unwrap()).unwrap().w
+        list.rect_of(dom.resolve(dom.query("#s").unwrap()).unwrap())
+            .unwrap()
+            .w
     };
     let base = largura("");
     assert_eq!(largura("letter-spacing:10px"), base + 50.0);
@@ -217,6 +236,6 @@ fn avanco_monoespacado_bate_com_o_chrome() {
     // são 0,08px de erro por carácter (1,6px numa palavra de 20).
     use crate::layout::{ApproxMeasurer, TextMeasurer};
     let m = ApproxMeasurer;
-    assert!((m.text_width("abc", 16.0, true, false) - 26.39).abs() < 0.02);
-    assert!((m.text_width("abcde", 16.0, true, false) - 43.98).abs() < 0.02);
+    assert!((m.text_width("abc", 16.0, true, false, false) - 26.39).abs() < 0.02);
+    assert!((m.text_width("abcde", 16.0, true, false, false) - 43.98).abs() < 0.02);
 }

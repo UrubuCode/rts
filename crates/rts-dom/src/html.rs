@@ -20,7 +20,11 @@ pub(crate) enum Token {
     /// crua após o nome (`class='x' id='y'`), vazia em tags de fechamento; a
     /// etapa sintática (`dom.rs`) a parseia em pares. Mantemos cru aqui para o
     /// tokenizador continuar só-léxico.
-    Tag { name: String, attrs_raw: String, close: bool },
+    Tag {
+        name: String,
+        attrs_raw: String,
+        close: bool,
+    },
     /// Texto entre tags, já com entidades decodificadas.
     Text(String),
     /// Comentário `<!-- ... -->`. Conteúdo CRU entre os delimitadores (sem
@@ -33,7 +37,11 @@ pub(crate) enum Token {
     /// parser de árvore decide o que fazer (CSS → stylesheet; script → ignorado).
     /// `attrs` preserva os atributos da tag de abertura (`<script src=…>`,
     /// `<style media=…>`) — necessários para resolver `<script src>`/`<link>`.
-    RawElement { tag: String, attrs: String, content: String },
+    RawElement {
+        tag: String,
+        attrs: String,
+        content: String,
+    },
 }
 
 /// Tags cujo conteúdo é TEXTO CRU (não-HTML): `<style>` (CSS) e `<script>` (JS).
@@ -64,7 +72,7 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
                 let rest = &html[body_start..];
                 let (content, advance) = match rest.find("-->") {
                     Some(end) => (&rest[..end], 4 + end + 3), // `<!--` + corpo + `-->`
-                    None => (rest, html.len() - i),            // sem fechar: vai até o fim
+                    None => (rest, html.len() - i),           // sem fechar: vai até o fim
                 };
                 crate::bump!(comments_parsed);
                 tokens.push(Token::Comment(content.to_string()));
@@ -132,7 +140,11 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
                         None => (&html[i..], html.len() - i), // sem fechar: até o fim.
                     };
                     crate::bump!(raw_elements);
-                    tokens.push(Token::RawElement { tag: name, attrs: attrs_raw, content: content.to_string() });
+                    tokens.push(Token::RawElement {
+                        tag: name,
+                        attrs: attrs_raw,
+                        content: content.to_string(),
+                    });
                     i += advance;
                     continue;
                 }
@@ -141,7 +153,11 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
                 } else {
                     crate::bump!(tags_open);
                 }
-                tokens.push(Token::Tag { name, attrs_raw, close });
+                tokens.push(Token::Tag {
+                    name,
+                    attrs_raw,
+                    close,
+                });
             }
         } else {
             // Acumula char de texto (respeitando UTF-8: copia o char inteiro).
@@ -191,7 +207,10 @@ pub(crate) fn decode_entities(s: &str) -> String {
                 }
                 // Desconhecida: deixa o `&` literal e segue.
                 crate::bump!(entities_unknown);
-                crate::note!("entidade-desconhecida", format!("&{};", &s[i + 1..i + 1 + rel]));
+                crate::note!(
+                    "entidade-desconhecida",
+                    format!("&{};", &s[i + 1..i + 1 + rel])
+                );
                 out.push('&');
                 i += 1;
             }
@@ -300,9 +319,15 @@ mod tests {
     #[test]
     fn entidades_nomeadas() {
         assert_eq!(decode_entities("a &lt; b &gt; c &amp; d"), "a < b > c & d");
-        assert_eq!(decode_entities("&quot;aspas&quot; &apos;simples&apos;"), "\"aspas\" 'simples'");
+        assert_eq!(
+            decode_entities("&quot;aspas&quot; &apos;simples&apos;"),
+            "\"aspas\" 'simples'"
+        );
         assert_eq!(decode_entities("x&nbsp;y"), "x\u{00A0}y");
-        assert_eq!(decode_entities("&copy; 2026 &mdash; ok&hellip;"), "\u{00A9} 2026 \u{2014} ok\u{2026}");
+        assert_eq!(
+            decode_entities("&copy; 2026 &mdash; ok&hellip;"),
+            "\u{00A9} 2026 \u{2014} ok\u{2026}"
+        );
     }
 
     #[test]
@@ -350,7 +375,11 @@ mod tests {
         // (necessário para resolver <script src>/<link>). O `content` é o miolo cru.
         let toks = tokenize(r#"<script src="./a.js" defer>code()</script>"#);
         match &toks[0] {
-            Token::RawElement { tag, attrs, content } => {
+            Token::RawElement {
+                tag,
+                attrs,
+                content,
+            } => {
                 assert_eq!(tag, "script");
                 assert_eq!(attrs, r#"src="./a.js" defer"#);
                 assert_eq!(content, "code()");
@@ -390,7 +419,11 @@ mod tests {
         // como texto. O scan rastreia aspas simples e duplas.
         let toks = tokenize(r#"<div title="a>b">x</div>"#);
         match &toks[0] {
-            Token::Tag { name, attrs_raw, close } => {
+            Token::Tag {
+                name,
+                attrs_raw,
+                close,
+            } => {
                 assert_eq!(name, "div");
                 assert!(!close);
                 assert_eq!(attrs_raw, r#"title="a>b""#);

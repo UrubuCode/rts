@@ -19,7 +19,13 @@ CSS=${CSS:-pagina.css}
 #
 #   OUT=scripts/parity/out-bootstrap HTML=... CSS=... bash scripts/parity/run.sh
 OUT=${OUT:-scripts/parity/out}
-COMBINADA=scripts/parity/pagina.combinada.html
+# A combinada segue o OUT, e isto é a MESMA armadilha que o `OUT` veio resolver,
+# apanhada uma segunda vez no mesmo ficheiro: o diretório de saída era
+# parametrizável e o ficheiro de ENTRADA não, portanto medir uma segunda página
+# reescrevia a combinada da primeira em silêncio. A corrida seguinte da primeira
+# página lia a segunda e reportava 420 elementos onde havia 16 813 — um
+# denominador colapsado com cara de medição.
+COMBINADA=${COMBINADA:-$OUT/pagina.combinada.html}
 TOL=${TOL:-1}
 TOP=${TOP:-20}
 

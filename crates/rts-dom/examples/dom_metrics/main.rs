@@ -59,7 +59,10 @@ fn parse_args() -> Options {
     while let Some(a) = it.next() {
         match a.as_str() {
             "--viewport" => {
-                if let Some((w, h)) = it.next().and_then(|v| v.split_once('x').map(|(a, b)| (a.to_string(), b.to_string()))) {
+                if let Some((w, h)) = it.next().and_then(|v| {
+                    v.split_once('x')
+                        .map(|(a, b)| (a.to_string(), b.to_string()))
+                }) {
                     o.vw = w.parse().unwrap_or(o.vw);
                     o.vh = h.parse().unwrap_or(o.vh);
                 }
@@ -68,7 +71,12 @@ fn parse_args() -> Options {
             "--build" => o.build_n = it.next().and_then(|v| v.parse().ok()).unwrap_or(o.build_n),
             "--json" => o.json_out = it.next().cloned(),
             "--baseline" => o.baseline = it.next().cloned(),
-            "--tolerance" => o.tolerance = it.next().and_then(|v| v.parse().ok()).unwrap_or(o.tolerance),
+            "--tolerance" => {
+                o.tolerance = it
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(o.tolerance)
+            }
             "--explique" => o.explicar = true,
             other => o.files.push(other.to_string()),
         }
@@ -97,13 +105,16 @@ fn main() {
         );
     }
 
-    let baseline = o.baseline.as_ref().and_then(|p| match std::fs::read_to_string(p) {
-        Ok(text) => Some(text),
-        Err(e) => {
-            eprintln!("!! baseline {p}: {e}");
-            None
-        }
-    });
+    let baseline = o
+        .baseline
+        .as_ref()
+        .and_then(|p| match std::fs::read_to_string(p) {
+            Ok(text) => Some(text),
+            Err(e) => {
+                eprintln!("!! baseline {p}: {e}");
+                None
+            }
+        });
 
     let mut json_blocks: Vec<String> = Vec::new();
     for f in &o.files {
@@ -131,11 +142,17 @@ fn main() {
 /// Um grupo (arquivo ou `build`) como um objeto JSON com seus cenários dentro.
 fn json_group(name: &str, runs: &[Run]) -> String {
     let inner: Vec<String> = runs.iter().map(|r| indent(&r.to_json())).collect();
-    format!("  {{\n    \"group\": \"{name}\",\n    \"runs\": [\n{}\n    ]\n  }}", inner.join(",\n"))
+    format!(
+        "  {{\n    \"group\": \"{name}\",\n    \"runs\": [\n{}\n    ]\n  }}",
+        inner.join(",\n")
+    )
 }
 
 fn indent(s: &str) -> String {
-    s.lines().map(|l| format!("      {l}")).collect::<Vec<_>>().join("\n")
+    s.lines()
+        .map(|l| format!("      {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn bench_file(path: &str, o: &Options, baseline: Option<&str>) -> Option<String> {
@@ -153,13 +170,20 @@ fn bench_file(path: &str, o: &Options, baseline: Option<&str>) -> Option<String>
     let probe = parse_html_to_dom(&html);
     let audit = metrics::audit(&probe);
     println!("\n═══ {path}");
-    println!("    {} bytes de HTML · viewport {}×{}", html.len(), o.vw as u32, o.vh as u32);
+    println!(
+        "    {} bytes de HTML · viewport {}×{}",
+        html.len(),
+        o.vw as u32,
+        o.vh as u32
+    );
     print!("{}", audit.report());
     print!("{}", metrics::footprint(&probe).report());
     // O tamanho dos TIPOS é sobre o código, não sobre a página — e é o que
     // explica os outros números (um clone de 1 KB tem a mesma cara de um de 8 B).
-    let sizes: Vec<String> =
-        metrics::footprint::type_sizes().iter().map(|(n, b)| format!("{n} {b} B")).collect();
+    let sizes: Vec<String> = metrics::footprint::type_sizes()
+        .iter()
+        .map(|(n, b)| format!("{n} {b} B"))
+        .collect();
     println!("    tamanhos: {}", sizes.join(" · "));
     drop(probe);
 
@@ -239,8 +263,11 @@ fn read_int(text: &str, key: &str) -> Option<usize> {
     let at = text.find(key)?;
     let rest = &text[at + key.len()..];
     let colon = rest.find(':')?;
-    let digits: String =
-        rest[colon + 1..].trim_start().chars().take_while(char::is_ascii_digit).collect();
+    let digits: String = rest[colon + 1..]
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
     digits.parse().ok()
 }
 
@@ -251,6 +278,9 @@ fn find_block<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
     let start = text.find(marker)?;
     let rest = &text[start..];
     let key = marker.split(':').next().unwrap_or(marker);
-    let end = rest[marker.len()..].find(key).map(|e| e + marker.len()).unwrap_or(rest.len());
+    let end = rest[marker.len()..]
+        .find(key)
+        .map(|e| e + marker.len())
+        .unwrap_or(rest.len());
     Some(&rest[..end])
 }

@@ -34,10 +34,10 @@ pub mod footprint;
 pub mod phases;
 pub mod samples;
 
-pub use audit::{audit, AuditReport, Finding};
-pub use footprint::{footprint, Footprint};
-pub use counters::{snapshot, DomMetrics};
-pub use phases::{phase_snapshot, PhaseStats, Phases};
+pub use audit::{AuditReport, Finding, audit};
+pub use counters::{DomMetrics, snapshot};
+pub use footprint::{Footprint, footprint};
+pub use phases::{PhaseStats, Phases, phase_snapshot};
 pub use samples::Samples;
 
 /// Zera contadores, fases E amostras desta thread. A auditoria não tem estado a

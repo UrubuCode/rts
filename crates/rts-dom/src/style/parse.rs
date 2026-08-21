@@ -14,8 +14,7 @@ use super::props::ComputedStyle;
 use super::stylesheet::DeclBlock;
 use super::values::{
     AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
-    JustifyContent, LineHeight, Position, Side, TextAlign, TextTransform, Visibility,
-    WhiteSpace,
+    JustifyContent, LineHeight, Position, Side, TextAlign, TextTransform, Visibility, WhiteSpace,
 };
 
 /// Parseia um `style="prop: valor; ..."` para um [`ComputedStyle`] (só a camada
@@ -34,7 +33,25 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
     for decl in style.split(';') {
         let mut it = decl.splitn(2, ':');
         let (prop, val_raw) = match (it.next(), it.next()) {
-            (Some(p), Some(v)) => (p.trim().to_ascii_lowercase(), v.trim()),
+            // ASSIMETRIA DELIBERADA: o nome de uma propriedade normal é
+            // case-insensitive (`COLOR` = `color`) — é para isso que a
+            // minusculação existe — mas o nome de uma CUSTOM PROPERTY é
+            // case-SENSITIVE por spec (CSS Variables §2), logo `--A` e `--a`
+            // são duas variáveis. Minusculá-lo em bloco gravava `--Mhs7de` como
+            // `--mhs7de`, e o `var(--Mhs7de)` — que vive no VALOR, e o valor
+            // nunca é minusculado — não encontrava nada: a declaração inteira
+            // caía. No `google.css` são 80 dos 91 nomes, incluindo o
+            // `body{font-size:var(--Mhs7de)}` de que todo o documento herda.
+            // Não uniformizar isto de volta.
+            (Some(p), Some(v)) => {
+                let p = p.trim();
+                let p = if p.starts_with("--") {
+                    p.to_string()
+                } else {
+                    p.to_ascii_lowercase()
+                };
+                (p, v.trim())
+            }
             _ => continue,
         };
         crate::bump!(css_declarations);
@@ -53,14 +70,20 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
         // desta regra.
         if val.contains("var(") {
             crate::bump!(css_var_refs);
-            block.pending.push((prop.clone(), val.to_string(), important));
+            block
+                .pending
+                .push((prop.clone(), val.to_string(), important));
             continue;
         }
         // `inherit` — vale para QUALQUER propriedade e não se parece com nenhum
         // valor: guarda-se o NOME, e a passada de herança copia o campo do pai
         // (ver `style::inherit_kw`). Antes disto, a declaração era descartada em
         // silêncio, o que deixava vencer uma regra menos específica.
-        let css = if important { &mut block.important } else { &mut block.normal };
+        let css = if important {
+            &mut block.important
+        } else {
+            &mut block.normal
+        };
         if val.eq_ignore_ascii_case("inherit") {
             let mut nomes = css.inherit_props.as_deref().cloned().unwrap_or_default();
             if !nomes.contains(&prop) {
@@ -69,375 +92,434 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             css.inherit_props = Some(std::sync::Arc::new(nomes));
             continue;
         }
-        match prop.as_str() {
-            "color" => css.color = parse_color(val),
-            "background-color" => css.bg = parse_color(val),
-            // SHORTHAND `background` — cor + imagem/gradiente + position/size/
-            // repeat, em qualquer ordem (ver `style::background`, que também lista
-            // o que ficou de fora). Antes daqui só a forma "o valor INTEIRO é uma
-            // cor ou um gradiente" era lida, então `background: #fff url(x)
-            // no-repeat` — a forma da folha real — não pintava fundo nenhum.
-            "background" => {
-                let bg = crate::style::background::parse_background(val);
-                if let Some(c) = bg.color {
-                    css.bg = Some(c);
+        // ÚLTIMA TENTATIVA: tirar o prefixo de fornecedor e repetir.
+        //
+        // 16 nomes do corpus são `-webkit-box-shadow`, `-o-object-fit`,
+        // `-moz-column-gap`, `-ms-transform` e companhia — o mesmo nome com um
+        // prefixo, o mesmo valor, e a versão nua já implementada. Um braço
+        // literal por cada seria dezasseis linhas a repetir dezasseis decisões
+        // já tomadas.
+        //
+        // É a ÚLTIMA e não a primeira de propósito, e é isso que a torna segura.
+        // Tudo o que trata o prefixado de maneira própria já correu na primeira
+        // chamada: `vocab` e `painting` cortam o prefixo eles mesmos, e
+        // `inert::is_inert` também — é lá que estão as duas sintaxes ANTIGAS de
+        // flexbox (`-webkit-box-flex`, `-ms-flex-pack`), que NÃO são aliases e
+        // que uma tentativa cega traduziria para os campos errados em silêncio.
+        // Chegar aqui já é prova de que nenhum caminho reclamou o nome.
+        //
+        // Só uma vez: `strip_prefix` não recorre, portanto não há ciclo.
+        if !aplica_declaracao(css, prop.as_str(), val) {
+            let nu = prop
+                .strip_prefix("-webkit-")
+                .or_else(|| prop.strip_prefix("-moz-"))
+                .or_else(|| prop.strip_prefix("-ms-"))
+                .or_else(|| prop.strip_prefix("-o-"));
+            match nu {
+                // A MESMA função, com o nome sem prefixo — e não uma segunda
+                // lista de aliases. Toda a cadeia (`vocab`, `painting`,
+                // `timing`, `radius`, `grid_lines`, `logical`, `inert`) está lá
+                // dentro, portanto o nome nu é resolvido exatamente como se a
+                // folha o tivesse escrito assim.
+                Some(n) if aplica_declaracao(css, n, val) => {}
+                _ => {
+                    crate::bump!(css_declarations_unknown);
+                    crate::note!("propriedade-ignorada", prop.clone());
                 }
-                if let Some(g) = bg.gradient {
-                    css.gradient = Some(g);
-                }
-                if let Some(i) = bg.image {
-                    css.bg_image = Some(i);
-                }
-                if let Some(p) = bg.position {
-                    css.bg_position = Some(p);
-                }
-                if let Some(s) = bg.size {
-                    css.bg_size = Some(s);
-                }
-                if let Some(r) = bg.repeat {
-                    css.bg_repeat = Some(r);
-                }
-            }
-            "background-image" => {
-                // Um gradiente É a imagem de fundo e o motor pinta-o; uma `url()`
-                // fica guardada crua (não é buscada — ver `style::background`).
-                if let Some(g) = crate::style::effects::LinearGradient::parse(val) {
-                    css.gradient = Some(g);
-                } else {
-                    css.bg_image = Some(val.trim().to_string());
-                }
-            }
-            // A máscara é RECONHECIDA, não interpretada: guardamos a url crua só
-            // para saber que a forma da caixa vem de fora. O prefixo `-webkit-` é
-            // o que a folha real traz ao lado da propriedade padrão (a Wikipédia
-            // declara as duas), e ignorá-lo deixava metade das páginas de fora.
-            "mask-image" | "-webkit-mask-image" => {
-                css.mask_image = Some(val.trim().to_string())
-            }
-            "background-repeat" => css.bg_repeat = crate::style::BgRepeat::parse(val),
-            "background-position" => css.bg_position = crate::style::BgPosition::parse(val),
-            "background-size" => css.bg_size = crate::style::BgSize::parse(val),
-            "box-shadow" => css.box_shadow = crate::style::effects::BoxShadow::parse(val),
-            "grid-template-columns" => {
-                css.grid_columns = parse_grid_columns(val);
-                css.grid_template_columns =
-                    crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new);
-            }
-            "grid-template-rows" => {
-                css.grid_template_rows =
-                    crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new);
-            }
-            "grid-auto-rows" => {
-                css.grid_auto_rows = crate::style::GridTrack::parse_one(val);
-            }
-            "justify-items" => {
-                css.grid_justify_items = crate::style::AlignItems::parse(val);
-            }
-            "grid-template-areas" => {
-                css.grid_template_areas =
-                    crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
-            }
-            "grid-area" => {
-                css.grid_area = crate::style::grid_areas::parse_grid_area_name(val);
-            }
-            "grid" | "grid-template" => {
-                // shorthand `grid-template: [áreas] rows / columns`. As linhas de
-                // área vêm INTERCALADAS com os tamanhos das linhas, então tirá-las
-                // primeiro é o que deixa o resto na forma `rows / cols` que o mesmo
-                // código já lia — em vez de um segundo parser para a forma com áreas.
-                css.grid_template_areas =
-                    crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
-                let tracks = crate::style::grid_areas::strip_quoted(val);
-                if let Some((rows, cols)) = tracks.split_once('/') {
-                    css.grid_template_rows =
-                        crate::style::GridTrack::parse_list(rows).map(std::sync::Arc::new);
-                    css.grid_template_columns =
-                        crate::style::GridTrack::parse_list(cols).map(std::sync::Arc::new);
-                    css.grid_columns = parse_grid_columns(cols);
-                }
-            }
-            "transform" => css.transform = crate::style::effects::Transform::parse(val),
-            "aspect-ratio" => css.aspect_ratio = parse_aspect_ratio(val),
-            "opacity" => {
-                // `opacity: <0..1>` (clampa fora do intervalo, como o browser).
-                css.opacity = val.trim().parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
-            }
-            "font-size" => css.font_size = parse_dimension(val),
-            "font-weight" => css.bold = Some(is_bold(val)),
-            "font-style" => {
-                css.italic =
-                    Some(val.eq_ignore_ascii_case("italic") || val.eq_ignore_ascii_case("oblique"))
-            }
-            // ── Texto/fonte (#1749) ────────────────────────────────────────────────
-            "text-align" => css.text_align = TextAlign::parse(val),
-            "line-height" => css.line_height = LineHeight::parse(val),
-            "white-space" => css.white_space = WhiteSpace::parse(val),
-            "visibility" => css.visibility = Visibility::parse(val),
-            "text-transform" => css.text_transform = TextTransform::parse(val),
-            "letter-spacing" => {
-                // `normal` = 0; senão um comprimento (px/em/rem — resolve p/ px cedo
-                // seria ideal, mas letter-spacing quase sempre vem em px/em pequenos;
-                // usa parse_len que cobre px). `normal`/inválido → None.
-                // `normal` = 0. NEGATIVO é legal e usa-se para apertar títulos
-                // (`letter-spacing: -1px`); o `parse_len` recusa-o por servir
-                // larguras, daí o caminho com sinal.
-                css.letter_spacing = if val.trim().eq_ignore_ascii_case("normal") {
-                    Some(0.0)
-                } else {
-                    parse_signed_px(val)
-                };
-            }
-            "text-decoration" | "text-decoration-line" => {
-                css.text_decoration = crate::style::values::TextDecoration::parse(val);
-                // O SHORTHAND também traz a cor (`underline dotted red`), e o
-                // parser da linha já ignora os tokens que não são de linha — por
-                // isso a cor não tem onde ser lida a não ser aqui. `-line` não
-                // aceita cor, mas nenhum valor de linha parseia como cor, então
-                // partilhar o braço não engana nenhum dos dois.
-                if prop != "text-decoration-line" {
-                    if let Some(c) = val.split_whitespace().find_map(parse_color) {
-                        css.text_decoration_color = Some(c);
-                    }
-                }
-            }
-            "font-family" => css.font_family = parse_font_family(val),
-            "font" => apply_font_shorthand(css, val),
-            // ── overflow (#1744): scroll container interno. `overflow` define os dois
-            // eixos; `-x`/`-y` cada um. Reusa o enum do módulo scrollbar.
-            "overflow" => {
-                let o = crate::scrollbar::Overflow::parse_str(val);
-                css.overflow_x = o;
-                css.overflow_y = o;
-            }
-            "overflow-x" => css.overflow_x = crate::scrollbar::Overflow::parse_str(val),
-            "overflow-y" => css.overflow_y = crate::scrollbar::Overflow::parse_str(val),
-            // ── Box model: shorthand 1/2/3/4 valores + longhands por lado. ─────────
-            "padding" => css.padding = parse_edges(val, false),
-            "padding-top" => css.padding.top = parse_side(val, false),
-            "padding-right" => css.padding.right = parse_side(val, false),
-            "padding-bottom" => css.padding.bottom = parse_side(val, false),
-            "padding-left" => css.padding.left = parse_side(val, false),
-            // Props LÓGICAS (Tailwind v4 usa `px-N`→padding-inline, `py-N`→padding-block
-            // em TUDO): inline = left+right, block = top+bottom (modo horizontal LTR).
-            "padding-inline" => {
-                let s = parse_side(val, false);
-                css.padding.left = s;
-                css.padding.right = s;
-            }
-            "padding-block" => {
-                let s = parse_side(val, false);
-                css.padding.top = s;
-                css.padding.bottom = s;
-            }
-            "padding-inline-start" | "padding-inline-end" => {
-                // LTR: start=left, end=right. Sem distinguir aqui, aplica no lado certo.
-                let s = parse_side(val, false);
-                if prop.as_str() == "padding-inline-start" { css.padding.left = s; } else { css.padding.right = s; }
-            }
-            // margin aceita `auto` (centralização); padding não.
-            "margin" => css.margin = parse_edges(val, true),
-            "margin-top" => css.margin.top = parse_side(val, true),
-            "margin-right" => css.margin.right = parse_side(val, true),
-            "margin-bottom" => css.margin.bottom = parse_side(val, true),
-            "margin-left" => css.margin.left = parse_side(val, true),
-            "margin-inline" => {
-                let s = parse_side(val, true);
-                css.margin.left = s;
-                css.margin.right = s;
-            }
-            "margin-block" => {
-                let s = parse_side(val, true);
-                css.margin.top = s;
-                css.margin.bottom = s;
-            }
-            // LTR: start=left, end=right (o mesmo corte do `padding-inline-*` —
-            // `direction:rtl` é aceite mas o layout não inverte; ver `style::text`).
-            "margin-inline-start" | "margin-inline-end" => {
-                let s = parse_side(val, true);
-                if prop.as_str() == "margin-inline-start" {
-                    css.margin.left = s;
-                } else {
-                    css.margin.right = s;
-                }
-            }
-            "margin-block-start" | "margin-block-end" => {
-                let s = parse_side(val, true);
-                if prop.as_str() == "margin-block-start" {
-                    css.margin.top = s;
-                } else {
-                    css.margin.bottom = s;
-                }
-            }
-            // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
-            // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
-            "border" => apply_border_shorthand(css, val),
-            "border-width" => crate::style::borders::apply_width_shorthand(css, val),
-            "border-style" => crate::style::borders::apply_style_shorthand(css, val),
-            "border-color" => crate::style::borders::apply_color_shorthand(css, val),
-            // O campo UNICO continua a responder o que sempre respondeu (quem o
-            // le nao pode mudar de resposta por causa dos cantos); os quatro
-            // cantos sao escritos por cima, sem lhe tocar. Ver `style::radius`.
-            "border-radius" => {
-                css.corner_radius = parse_len(val);
-                crate::style::radius::apply_shorthand(css, val);
-            }
-            // ── Bordas POR LADO: `border-top: 1px solid #ccc` e as 12 longhands.
-            // Uma barra separadora é quase sempre um lado só; pintá-la com a borda
-            // uniforme daria uma moldura fechada (ver `style::borders`).
-            "border-top" | "border-right" | "border-bottom" | "border-left" => {
-                if let Some(side) = crate::style::SideName::parse(&prop["border-".len()..]) {
-                    crate::style::borders::apply_side_shorthand(css, side, val);
-                }
-            }
-            _ if crate::style::borders::is_longhand(&prop) => {
-                crate::style::borders::apply_longhand(css, &prop, val)
-            }
-            // `outline`: uma borda que não ocupa espaço (fora do box model).
-            "outline" => crate::style::borders::apply_outline_shorthand(css, val),
-            "outline-width" => css.outline_width = crate::style::borders::parse_width_token(val),
-            "outline-style" => {
-                css.outline_style = if val.trim().eq_ignore_ascii_case("auto") {
-                    Some(BorderStyle::Solid)
-                } else {
-                    BorderStyle::parse(val)
-                }
-            }
-            "outline-color" => css.outline_color = parse_color(val),
-            "outline-offset" => css.outline_offset = parse_signed_px(val),
-            "width" => css.width = parse_dimension(val),
-            // `box-sizing: border-box | content-box` — border-box faz o `width`
-            // incluir padding+border (3 cards de 32% cabem). Default content-box.
-            "box-sizing" => css.border_box = Some(val.eq_ignore_ascii_case("border-box")),
-            // `display` — o eixo/fluxo dos filhos, do CSS (não mais só do defineBlock).
-            "display" => css.display = parse_display(val),
-            // `flex-wrap` — combina com display:flex para promover a FlexWrap.
-            "flex-wrap" => css.flex_wrap = Some(val.eq_ignore_ascii_case("wrap")),
-            // ── Flexbox: alinhamento + gap + direção ──────────────────────────────
-            "justify-content" => css.justify = JustifyContent::parse(val),
-            "align-items" => css.align_items = AlignItems::parse(val),
-            "align-self" => {
-                // `auto` = herda o align-items do container (campo fica None).
-                css.align_self = if val.eq_ignore_ascii_case("auto") {
-                    None
-                } else {
-                    AlignItems::parse(val)
-                }
-            }
-            "order" => css.order = val.trim().parse::<i32>().ok(),
-            "flex-grow" => css.flex_grow = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
-            "flex-shrink" => {
-                css.flex_shrink = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0)
-            }
-            "flex-basis" => css.flex_basis = parse_dimension(val),
-            // shorthand `flex`: none | auto | <grow> [<shrink>] [<basis>] — o
-            // `.col` do Bootstrap é `flex: 1 0 0%`.
-            "flex" => apply_flex_shorthand(css, val),
-            "flex-direction" => css.flex_direction = FlexDirection::parse(val),
-            "column-gap" => css.gap = parse_dimension(val),
-            "row-gap" => css.row_gap = parse_dimension(val),
-            // `gap: <row> <col>` (1 valor = ambos; 2 = row col).
-            "gap" => {
-                let (rg, cg) = parse_gap_pair(val);
-                css.row_gap = rg;
-                css.gap = cg;
-            }
-            "height" => css.height = parse_dimension(val),
-            "min-width" => css.min_width = parse_dimension(val),
-            "max-width" => css.max_width = parse_dimension(val),
-            "min-height" => css.min_height = parse_dimension(val),
-            "max-height" => css.max_height = parse_dimension(val),
-            // `position` + offsets (top/right/bottom/left). Os offsets aceitam
-            // negativos (deslocam para fora) — parse_dimension rejeita <0, então
-            // px negativo entra por parse direto.
-            "float" => css.float_side = FloatSide::parse(val),
-            "position" => css.position = Position::parse(val),
-            "z-index" => css.z_index = val.trim().parse::<i32>().ok(),
-            "top" => css.inset_top = parse_inset(val),
-            "right" => css.inset_right = parse_inset(val),
-            "bottom" => css.inset_bottom = parse_inset(val),
-            "left" => css.inset_left = parse_inset(val),
-            // ── Texto / listas / fluxo (ver `style::text` p/ o que cada uma faz) ──
-            "vertical-align" => css.vertical_align = crate::style::VerticalAlign::parse(val),
-            "clear" => css.clear = crate::style::Clear::parse(val),
-            "word-break" => css.word_break = crate::style::WordBreak::parse(val),
-            // `word-wrap` é o nome legado de `overflow-wrap` (MDN: alias).
-            "overflow-wrap" | "word-wrap" => {
-                css.overflow_wrap = crate::style::OverflowWrap::parse(val)
-            }
-            "direction" => css.direction = crate::style::Direction::parse(val),
-            // `text-indent` aceita negativo (o truque de esconder texto atrás da
-            // margem, comum em logos com fundo).
-            "text-indent" => css.text_indent = parse_dimension_signed(val),
-            "list-style-type" => css.list_style_type = crate::style::ListStyleType::parse(val),
-            "list-style-position" => {
-                css.list_style_position = crate::style::ListStylePosition::parse(val)
-            }
-            // ── Tabela ────────────────────────────────────────────────────────
-            "border-collapse" => css.border_collapse = crate::style::BorderCollapse::parse(val),
-            "border-spacing" => css.border_spacing = crate::style::BorderSpacing::parse(val),
-            "table-layout" => css.table_layout = crate::style::TableLayout::parse(val),
-            "list-style-image" => css.list_style_image = Some(val.trim().to_string()),
-            // `list-style: <type> || <position> || <image>` — os três em qualquer
-            // ordem, e agora os três GUARDADOS: a posição deixou de ser descartada
-            // quando o marcador passou a ser desenhado.
-            //
-            // A ordem dos ramos importa: `none` é um valor válido de `type` E o
-            // ficheiro não tem como saber a qual dos dois o autor se referia, por
-            // isso o `type` é tentado ANTES da posição — `outside`/`inside` não
-            // são valores de `type`, portanto não há ambiguidade no outro sentido.
-            "list-style" => {
-                for tok in val.split_whitespace() {
-                    if tok.to_ascii_lowercase().starts_with("url(") {
-                        css.list_style_image = Some(tok.to_string());
-                    } else if let Some(t) = crate::style::ListStyleType::parse(tok) {
-                        css.list_style_type = Some(t);
-                    } else if let Some(p) = crate::style::ListStylePosition::parse(tok) {
-                        css.list_style_position = Some(p);
-                    }
-                }
-            }
-            // `cursor` — guardado cru; quem o usa é o backend de janela.
-            "cursor" => css.cursor = Some(val.trim().to_ascii_lowercase()),
-            // `flex-flow: <direction> || <wrap>` (MDN) — só expande.
-            "flex-flow" => {
-                for tok in val.split_whitespace() {
-                    if let Some(d) = FlexDirection::parse(tok) {
-                        css.flex_direction = Some(d);
-                    } else if tok.eq_ignore_ascii_case("wrap")
-                        || tok.eq_ignore_ascii_case("wrap-reverse")
-                    {
-                        css.flex_wrap = Some(true);
-                    } else if tok.eq_ignore_ascii_case("nowrap") {
-                        css.flex_wrap = Some(false);
-                    }
-                }
-            }
-            "transition" => css.transition = crate::anim::TransitionSpec::parse(val),
-            "animation" => css.animation = crate::anim::AnimationSpec::parse(val),
-            // Uma propriedade que nenhum braço reconhece é CSS que a página
-            // escreveu e o motor ignora em silêncio. Contá-la é o que transforma
-            // "o layout não bate com o Chrome" numa lista de nomes a implementar.
-            // GRUPOS de propriedades resolvidos por módulo, antes de desistir. Um
-            // grupo aqui em vez de treze braços literais mantém a lista de nomes
-            // do lado de quem os aplica — uma segunda lista neste `match` era o
-            // sítio óbvio para uma delas ficar de fora.
-            _ if crate::style::timing::try_apply(css, &prop, val) => {}
-            _ if crate::style::logical::try_apply(css, &prop, val) => {}
-            _ if crate::style::vocab::try_apply(css, &prop, val) => {}
-            _ if crate::style::radius::try_apply(css, &prop, val) => {}
-            // RECONHECIDA e deliberadamente não modelada: conta noutra coluna,
-            // para a coluna das desconhecidas continuar a ser a lista do que
-            // falta fazer e não uma mistura com o que foi recusado.
-            _ if crate::style::inert::is_inert(&prop) => {
-                crate::bump!(css_declarations_inert);
-            }
-            _ => {
-                crate::bump!(css_declarations_unknown);
-                crate::note!("propriedade-ignorada", prop.clone());
             }
         }
     }
     block
+}
+
+/// Aplica `text-decoration` / `text-decoration-line`. `com_cor` distingue os
+/// dois: o SHORTHAND também traz a cor (`underline dotted red`), e o parser da
+/// linha já ignora os tokens que não são de linha — por isso a cor não tem onde
+/// ser lida a não ser aqui. `-line` não aceita cor, mas nenhum valor de linha
+/// parseia como cor, então partilhar o corpo não engana nenhum dos dois.
+///
+/// É `pub(super)` porque `style::vocab` a chama para as grafias prefixadas
+/// (`-webkit-text-decoration`, 6 folhas do corpus), que nunca chegam ao `match`
+/// deste ficheiro — ele casa por literal e não vê o prefixo. Uma segunda cópia
+/// lá seria duas respostas à mesma pergunta, com a cor a ser lida só numa delas.
+pub(super) fn apply_text_decoration(css: &mut ComputedStyle, val: &str, com_cor: bool) {
+    css.text_decoration = crate::style::values::TextDecoration::parse(val);
+    if com_cor {
+        if let Some(c) = val.split_whitespace().find_map(parse_color) {
+            css.text_decoration_color = Some(c);
+        }
+    }
+}
+
+/// Aplica UMA declaração já normalizada. `false` = nenhum braço reclamou o
+/// nome, e é o chamador que decide o que fazer com isso.
+///
+/// Extraída do corpo do laço para poder ser chamada DUAS vezes: uma com o nome
+/// como veio, outra sem o prefixo de fornecedor. Enquanto o `match` estava
+/// inline não havia como repetir a tentativa sem repetir os braços — e a
+/// alternativa, uma segunda lista com os nomes que são alias puro, era mais uma
+/// coisa a dessincronizar da primeira.
+pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
+    match prop {
+        "color" => css.color = parse_color(val),
+        "background-color" => css.bg = parse_color(val),
+        // SHORTHAND `background` — cor + imagem/gradiente + position/size/
+        // repeat, em qualquer ordem (ver `style::background`, que também lista
+        // o que ficou de fora). Antes daqui só a forma "o valor INTEIRO é uma
+        // cor ou um gradiente" era lida, então `background: #fff url(x)
+        // no-repeat` — a forma da folha real — não pintava fundo nenhum.
+        "background" => {
+            let bg = crate::style::background::parse_background(val);
+            if let Some(c) = bg.color {
+                css.bg = Some(c);
+            }
+            if let Some(g) = bg.gradient {
+                css.gradient = Some(g);
+            }
+            if let Some(i) = bg.image {
+                css.bg_image = Some(i);
+            }
+            if let Some(p) = bg.position {
+                css.bg_position = Some(p);
+            }
+            if let Some(s) = bg.size {
+                css.bg_size = Some(s);
+            }
+            if let Some(r) = bg.repeat {
+                css.bg_repeat = Some(r);
+            }
+        }
+        "background-image" => {
+            // Um gradiente É a imagem de fundo e o motor pinta-o; uma `url()`
+            // fica guardada crua (não é buscada — ver `style::background`).
+            if let Some(g) = crate::style::effects::LinearGradient::parse(val) {
+                css.gradient = Some(g);
+            } else {
+                css.bg_image = Some(val.trim().to_string());
+            }
+        }
+        // A máscara é RECONHECIDA, não interpretada: guardamos a url crua só
+        // para saber que a forma da caixa vem de fora. O prefixo `-webkit-` é
+        // o que a folha real traz ao lado da propriedade padrão (a Wikipédia
+        // declara as duas), e ignorá-lo deixava metade das páginas de fora.
+        "mask-image" | "-webkit-mask-image" => css.mask_image = Some(val.trim().to_string()),
+        // `filter` e `clip-path` guardados CRUS, para o paint. O prefixo
+        // `-webkit-` está ao lado do nome padrão porque a folha real declara
+        // os dois na mesma regra, e reconhecer só um deixaria a metade que a
+        // página escreveu primeiro a decidir o resultado. Ver os campos em
+        // `props.rs` para o motivo de não serem tipados aqui.
+        "filter" | "-webkit-filter" => css.filter = Some(val.trim().to_string()),
+        "clip-path" | "-webkit-clip-path" => css.clip_path = Some(val.trim().to_string()),
+        "background-repeat" => css.bg_repeat = crate::style::BgRepeat::parse(val),
+        "background-position" => css.bg_position = crate::style::BgPosition::parse(val),
+        "background-size" => css.bg_size = crate::style::BgSize::parse(val),
+        "box-shadow" => css.box_shadow = crate::style::effects::BoxShadow::parse(val),
+        "grid-template-columns" => {
+            css.grid_columns = parse_grid_columns(val);
+            css.grid_template_columns =
+                crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new);
+        }
+        "grid-template-rows" => {
+            css.grid_template_rows =
+                crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new);
+        }
+        "grid-auto-rows" => {
+            css.grid_auto_rows = crate::style::GridTrack::parse_one(val);
+        }
+        "justify-items" => {
+            css.grid_justify_items = crate::style::AlignItems::parse(val);
+        }
+        "grid-template-areas" => {
+            css.grid_template_areas = crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
+        }
+        "grid-area" => {
+            css.grid_area = crate::style::grid_areas::parse_grid_area_name(val);
+        }
+        "grid" | "grid-template" => {
+            // shorthand `grid-template: [áreas] rows / columns`. As linhas de
+            // área vêm INTERCALADAS com os tamanhos das linhas, então tirá-las
+            // primeiro é o que deixa o resto na forma `rows / cols` que o mesmo
+            // código já lia — em vez de um segundo parser para a forma com áreas.
+            css.grid_template_areas = crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
+            let tracks = crate::style::grid_areas::strip_quoted(val);
+            if let Some((rows, cols)) = tracks.split_once('/') {
+                css.grid_template_rows =
+                    crate::style::GridTrack::parse_list(rows).map(std::sync::Arc::new);
+                css.grid_template_columns =
+                    crate::style::GridTrack::parse_list(cols).map(std::sync::Arc::new);
+                css.grid_columns = parse_grid_columns(cols);
+            }
+        }
+        "transform" => css.transform = crate::style::effects::Transform::parse(val),
+        "aspect-ratio" => css.aspect_ratio = parse_aspect_ratio(val),
+        "opacity" => {
+            // `opacity: <0..1>` (clampa fora do intervalo, como o browser).
+            css.opacity = val.trim().parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
+        }
+        "font-size" => css.font_size = parse_dimension(val),
+        "font-weight" => css.bold = Some(is_bold(val)),
+        "font-style" => {
+            css.italic =
+                Some(val.eq_ignore_ascii_case("italic") || val.eq_ignore_ascii_case("oblique"))
+        }
+        // ── Texto/fonte (#1749) ────────────────────────────────────────────────
+        "text-align" => css.text_align = TextAlign::parse(val),
+        "line-height" => css.line_height = LineHeight::parse(val),
+        "white-space" => css.white_space = WhiteSpace::parse(val),
+        "visibility" => css.visibility = Visibility::parse(val),
+        "text-transform" => css.text_transform = TextTransform::parse(val),
+        "letter-spacing" => {
+            // `normal` = 0; senão um comprimento (px/em/rem — resolve p/ px cedo
+            // seria ideal, mas letter-spacing quase sempre vem em px/em pequenos;
+            // usa parse_len que cobre px). `normal`/inválido → None.
+            // `normal` = 0. NEGATIVO é legal e usa-se para apertar títulos
+            // (`letter-spacing: -1px`); o `parse_len` recusa-o por servir
+            // larguras, daí o caminho com sinal.
+            css.letter_spacing = if val.trim().eq_ignore_ascii_case("normal") {
+                Some(0.0)
+            } else {
+                parse_signed_px(val)
+            };
+        }
+        "text-decoration" | "text-decoration-line" => {
+            apply_text_decoration(css, val, prop != "text-decoration-line")
+        }
+        "font-family" => css.font_family = parse_font_family(val),
+        "font" => apply_font_shorthand(css, val),
+        // ── overflow (#1744): scroll container interno. `overflow` define os dois
+        // eixos; `-x`/`-y` cada um. Reusa o enum do módulo scrollbar.
+        "overflow" => {
+            let o = crate::scrollbar::Overflow::parse_str(val);
+            css.overflow_x = o;
+            css.overflow_y = o;
+        }
+        "overflow-x" => css.overflow_x = crate::scrollbar::Overflow::parse_str(val),
+        "overflow-y" => css.overflow_y = crate::scrollbar::Overflow::parse_str(val),
+        // ── Box model: shorthand 1/2/3/4 valores + longhands por lado. ─────────
+        "padding" => css.padding = parse_edges(val, false),
+        "padding-top" => css.padding.top = parse_side(val, false),
+        "padding-right" => css.padding.right = parse_side(val, false),
+        "padding-bottom" => css.padding.bottom = parse_side(val, false),
+        "padding-left" => css.padding.left = parse_side(val, false),
+        // Props LÓGICAS (Tailwind v4 usa `px-N`→padding-inline, `py-N`→padding-block
+        // em TUDO): inline = left+right, block = top+bottom (modo horizontal LTR).
+        "padding-inline" => {
+            let s = parse_side(val, false);
+            css.padding.left = s;
+            css.padding.right = s;
+        }
+        "padding-block" => {
+            let s = parse_side(val, false);
+            css.padding.top = s;
+            css.padding.bottom = s;
+        }
+        "padding-inline-start" | "padding-inline-end" => {
+            // LTR: start=left, end=right. Sem distinguir aqui, aplica no lado certo.
+            let s = parse_side(val, false);
+            if prop == "padding-inline-start" {
+                css.padding.left = s;
+            } else {
+                css.padding.right = s;
+            }
+        }
+        // margin aceita `auto` (centralização); padding não.
+        "margin" => css.margin = parse_edges(val, true),
+        "margin-top" => css.margin.top = parse_side(val, true),
+        "margin-right" => css.margin.right = parse_side(val, true),
+        "margin-bottom" => css.margin.bottom = parse_side(val, true),
+        "margin-left" => css.margin.left = parse_side(val, true),
+        "margin-inline" => {
+            let s = parse_side(val, true);
+            css.margin.left = s;
+            css.margin.right = s;
+        }
+        "margin-block" => {
+            let s = parse_side(val, true);
+            css.margin.top = s;
+            css.margin.bottom = s;
+        }
+        // LTR: start=left, end=right (o mesmo corte do `padding-inline-*` —
+        // `direction:rtl` é aceite mas o layout não inverte; ver `style::text`).
+        "margin-inline-start" | "margin-inline-end" => {
+            let s = parse_side(val, true);
+            if prop == "margin-inline-start" {
+                css.margin.left = s;
+            } else {
+                css.margin.right = s;
+            }
+        }
+        "margin-block-start" | "margin-block-end" => {
+            let s = parse_side(val, true);
+            if prop == "margin-block-start" {
+                css.margin.top = s;
+            } else {
+                css.margin.bottom = s;
+            }
+        }
+        // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
+        // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
+        "border" => apply_border_shorthand(css, val),
+        "border-width" => crate::style::borders::apply_width_shorthand(css, val),
+        "border-style" => crate::style::borders::apply_style_shorthand(css, val),
+        "border-color" => crate::style::borders::apply_color_shorthand(css, val),
+        // O campo UNICO continua a responder o que sempre respondeu (quem o
+        // le nao pode mudar de resposta por causa dos cantos); os quatro
+        // cantos sao escritos por cima, sem lhe tocar. Ver `style::radius`.
+        "border-radius" => {
+            css.corner_radius = parse_len(val);
+            crate::style::radius::apply_shorthand(css, val);
+        }
+        // ── Bordas POR LADO: `border-top: 1px solid #ccc` e as 12 longhands.
+        // Uma barra separadora é quase sempre um lado só; pintá-la com a borda
+        // uniforme daria uma moldura fechada (ver `style::borders`).
+        "border-top" | "border-right" | "border-bottom" | "border-left" => {
+            if let Some(side) = crate::style::SideName::parse(&prop["border-".len()..]) {
+                crate::style::borders::apply_side_shorthand(css, side, val);
+            }
+        }
+        _ if crate::style::borders::is_longhand(&prop) => {
+            crate::style::borders::apply_longhand(css, &prop, val)
+        }
+        // `outline`: uma borda que não ocupa espaço (fora do box model).
+        "outline" => crate::style::borders::apply_outline_shorthand(css, val),
+        "outline-width" => css.outline_width = crate::style::borders::parse_width_token(val),
+        "outline-style" => {
+            css.outline_style = if val.trim().eq_ignore_ascii_case("auto") {
+                Some(BorderStyle::Solid)
+            } else {
+                BorderStyle::parse(val)
+            }
+        }
+        "outline-color" => css.outline_color = parse_color(val),
+        "outline-offset" => css.outline_offset = parse_signed_px(val),
+        "width" => css.width = parse_dimension(val),
+        // `box-sizing: border-box | content-box` — border-box faz o `width`
+        // incluir padding+border (3 cards de 32% cabem). Default content-box.
+        "box-sizing" => css.border_box = Some(val.eq_ignore_ascii_case("border-box")),
+        // `display` — o eixo/fluxo dos filhos, do CSS (não mais só do defineBlock).
+        "display" => css.display = parse_display(val),
+        // `flex-wrap` — combina com display:flex para promover a FlexWrap.
+        "flex-wrap" => css.flex_wrap = Some(val.eq_ignore_ascii_case("wrap")),
+        // ── Flexbox: alinhamento + gap + direção ──────────────────────────────
+        "justify-content" => css.justify = JustifyContent::parse(val),
+        "align-items" => css.align_items = AlignItems::parse(val),
+        "align-self" => {
+            // `auto` = herda o align-items do container (campo fica None).
+            css.align_self = if val.eq_ignore_ascii_case("auto") {
+                None
+            } else {
+                AlignItems::parse(val)
+            }
+        }
+        "order" => css.order = val.trim().parse::<i32>().ok(),
+        "flex-grow" => css.flex_grow = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
+        "flex-shrink" => css.flex_shrink = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
+        "flex-basis" => css.flex_basis = parse_dimension(val),
+        // shorthand `flex`: none | auto | <grow> [<shrink>] [<basis>] — o
+        // `.col` do Bootstrap é `flex: 1 0 0%`.
+        "flex" => apply_flex_shorthand(css, val),
+        "flex-direction" => css.flex_direction = FlexDirection::parse(val),
+        "column-gap" => css.gap = parse_dimension(val),
+        "row-gap" => css.row_gap = parse_dimension(val),
+        // `gap: <row> <col>` (1 valor = ambos; 2 = row col).
+        "gap" => {
+            let (rg, cg) = parse_gap_pair(val);
+            css.row_gap = rg;
+            css.gap = cg;
+        }
+        "height" => css.height = parse_dimension(val),
+        "min-width" => css.min_width = parse_dimension(val),
+        "max-width" => css.max_width = parse_dimension(val),
+        "min-height" => css.min_height = parse_dimension(val),
+        "max-height" => css.max_height = parse_dimension(val),
+        // `position` + offsets (top/right/bottom/left). Os offsets aceitam
+        // negativos (deslocam para fora) — parse_dimension rejeita <0, então
+        // px negativo entra por parse direto.
+        "float" => css.float_side = FloatSide::parse(val),
+        "position" => css.position = Position::parse(val),
+        "z-index" => css.z_index = val.trim().parse::<i32>().ok(),
+        "top" => css.inset_top = parse_inset(val),
+        "right" => css.inset_right = parse_inset(val),
+        "bottom" => css.inset_bottom = parse_inset(val),
+        "left" => css.inset_left = parse_inset(val),
+        // ── Texto / listas / fluxo (ver `style::text` p/ o que cada uma faz) ──
+        "vertical-align" => css.vertical_align = crate::style::VerticalAlign::parse(val),
+        "clear" => css.clear = crate::style::Clear::parse(val),
+        "word-break" => css.word_break = crate::style::WordBreak::parse(val),
+        // `word-wrap` é o nome legado de `overflow-wrap` (MDN: alias).
+        "overflow-wrap" | "word-wrap" => css.overflow_wrap = crate::style::OverflowWrap::parse(val),
+        "direction" => css.direction = crate::style::Direction::parse(val),
+        // `text-indent` aceita negativo (o truque de esconder texto atrás da
+        // margem, comum em logos com fundo).
+        "text-indent" => css.text_indent = parse_dimension_signed(val),
+        "list-style-type" => css.list_style_type = crate::style::ListStyleType::parse(val),
+        "list-style-position" => {
+            css.list_style_position = crate::style::ListStylePosition::parse(val)
+        }
+        // ── Tabela ────────────────────────────────────────────────────────
+        "border-collapse" => css.border_collapse = crate::style::BorderCollapse::parse(val),
+        "border-spacing" => css.border_spacing = crate::style::BorderSpacing::parse(val),
+        "table-layout" => css.table_layout = crate::style::TableLayout::parse(val),
+        "list-style-image" => css.list_style_image = Some(val.trim().to_string()),
+        // `list-style: <type> || <position> || <image>` — os três em qualquer
+        // ordem, e agora os três GUARDADOS: a posição deixou de ser descartada
+        // quando o marcador passou a ser desenhado.
+        //
+        // A ordem dos ramos importa: `none` é um valor válido de `type` E o
+        // ficheiro não tem como saber a qual dos dois o autor se referia, por
+        // isso o `type` é tentado ANTES da posição — `outside`/`inside` não
+        // são valores de `type`, portanto não há ambiguidade no outro sentido.
+        "list-style" => {
+            for tok in val.split_whitespace() {
+                if tok.to_ascii_lowercase().starts_with("url(") {
+                    css.list_style_image = Some(tok.to_string());
+                } else if let Some(t) = crate::style::ListStyleType::parse(tok) {
+                    css.list_style_type = Some(t);
+                } else if let Some(p) = crate::style::ListStylePosition::parse(tok) {
+                    css.list_style_position = Some(p);
+                }
+            }
+        }
+        // `cursor` — guardado cru; quem o usa é o backend de janela.
+        "cursor" => css.cursor = Some(val.trim().to_ascii_lowercase()),
+        // `flex-flow: <direction> || <wrap>` (MDN) — só expande.
+        "flex-flow" => {
+            for tok in val.split_whitespace() {
+                if let Some(d) = FlexDirection::parse(tok) {
+                    css.flex_direction = Some(d);
+                } else if tok.eq_ignore_ascii_case("wrap")
+                    || tok.eq_ignore_ascii_case("wrap-reverse")
+                {
+                    css.flex_wrap = Some(true);
+                } else if tok.eq_ignore_ascii_case("nowrap") {
+                    css.flex_wrap = Some(false);
+                }
+            }
+        }
+        "transition" => css.transition = crate::anim::TransitionSpec::parse(val),
+        "animation" => css.animation = crate::anim::AnimationSpec::parse(val),
+        // Uma propriedade que nenhum braço reconhece é CSS que a página
+        // escreveu e o motor ignora em silêncio. Contá-la é o que transforma
+        // "o layout não bate com o Chrome" numa lista de nomes a implementar.
+        // GRUPOS de propriedades resolvidos por módulo, antes de desistir. Um
+        // grupo aqui em vez de treze braços literais mantém a lista de nomes
+        // do lado de quem os aplica — uma segunda lista neste `match` era o
+        // sítio óbvio para uma delas ficar de fora.
+        _ if crate::style::timing::try_apply(css, &prop, val) => {}
+        _ if crate::style::logical::try_apply(css, &prop, val) => {}
+        _ if crate::style::vocab::try_apply(css, &prop, val) => {}
+        _ if crate::style::radius::try_apply(css, &prop, val) => {}
+        _ if crate::style::grid_lines::try_apply(css, &prop, val) => {}
+        _ if crate::style::painting::try_apply(css, &prop, val) => {}
+        // RECONHECIDA e deliberadamente não modelada: conta noutra coluna,
+        // para a coluna das desconhecidas continuar a ser a lista do que
+        // falta fazer e não uma mistura com o que foi recusado.
+        _ if crate::style::inert::is_inert(&prop) => {
+            crate::bump!(css_declarations_inert);
+        }
+        _ => return false,
+    }
+    true
 }
 
 /// Separa o sufixo `!important` (case-insensitive, com espaços) de um valor CSS.
@@ -453,9 +535,6 @@ fn split_important(val: &str) -> (&str, bool) {
     }
     (v, false)
 }
-
-
-
 
 /// Parseia `display: block|flex|inline|inline-block|none` para [`DisplayKind`].
 /// Extrai o Nº DE COLUNAS de `grid-template-columns`: de `repeat(N, ...)` pega N; de
@@ -563,7 +642,6 @@ fn parse_border_width_token(tok: &str) -> Option<f32> {
     }
 }
 
-
 /// Aplica o shorthand `flex: none | auto | <grow> [<shrink>] [<basis>]`.
 /// Mapeamentos da spec: `none` = 0 0 auto; `auto` = 1 1 auto; UM número =
 /// grow=N shrink=1 basis=0% (o `.col { flex: 1 0 0% }` já vem com os três).
@@ -609,16 +687,6 @@ fn apply_flex_shorthand(css: &mut ComputedStyle, val: &str) {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
 /// `font-weight`: `bold`/`bolder` ou peso numérico ≥ 600 → negrito.
 fn is_bold(v: &str) -> bool {
     let v = v.trim();
@@ -631,7 +699,11 @@ fn is_bold(v: &str) -> bool {
 /// `font-family: A, B, C` → o NOME da 1ª família (sem aspas). É o que guardamos
 /// (o backend resolve a fonte real; o motor só precisa saber se é monoespaçada).
 fn parse_font_family(v: &str) -> Option<String> {
-    let first = v.split(',').next()?.trim().trim_matches(|c| c == '"' || c == '\'');
+    let first = v
+        .split(',')
+        .next()?
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'');
     (!first.is_empty()).then(|| first.to_string())
 }
 
@@ -655,7 +727,11 @@ fn apply_font_shorthand(css: &mut ComputedStyle, val: &str) {
     let mut size_idx = None;
     for (i, t) in tokens.iter().enumerate() {
         // o token de size é o 1º que começa com dígito (ex: 16px, 1.2em, 16px/1.5).
-        if t.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        if t.chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+        {
             size_idx = Some(i);
             break;
         }

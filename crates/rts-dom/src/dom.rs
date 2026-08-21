@@ -28,7 +28,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::html::{tokenize, Token};
+use crate::html::{Token, tokenize};
 
 /// Índice cru de um nó na arena (`Dom::nodes`). Uso INTERNO ao `dom.rs` — o que
 /// cruza a fronteira (TS/ABI) é sempre o `NodeId` VERSIONADO, nunca este índice.
@@ -122,7 +122,10 @@ impl NodeId {
             return None;
         }
         let u = v as u64;
-        Some(NodeId { generation: (u >> 32) as u32, idx: (u & 0xFFFF_FFFF) as u32 })
+        Some(NodeId {
+            generation: (u >> 32) as u32,
+            idx: (u & 0xFFFF_FFFF) as u32,
+        })
     }
 }
 
@@ -301,10 +304,24 @@ pub struct Dom {
     /// A revisão estrutural em que o `base_memo` foi preenchido.
     base_memo_revision: std::cell::Cell<u64>,
     base_memo_viewport: std::cell::Cell<(u32, u32)>,
+    /// Memo da tabela de CONTADORES do documento (ver [`crate::counters`]).
+    ///
+    /// É por DOCUMENTO e não por nó, porque a resposta de um nó depende de tudo
+    /// o que veio antes dele em ordem documental — memoizar por nó guardaria n
+    /// cópias de uma travessia que se faz uma vez. Invalidado pelas mesmas duas
+    /// chaves que o `base_memo`: a revisão estrutural (a árvore mudou de ordem)
+    /// e o epoch de estilo (as regras mudaram).
+    ///
+    /// `None` = ainda não calculada nesta revisão; uma página sem contadores
+    /// calcula uma tabela VAZIA e volta a acertar o memo, em vez de refazer a
+    /// pergunta por cada pseudo-elemento.
+    counter_memo: std::cell::RefCell<Option<std::rc::Rc<crate::counters::Tabela>>>,
+    counter_memo_revision: std::cell::Cell<(u64, u64)>,
     /// Cache derivado de medições de bloco feitas em listas descartáveis durante
     /// flex/grid/inline-block/out-of-flow. É limpo em qualquer mutação visual para
     /// não reutilizar tamanho sob estilo ou conteúdo stale.
-    layout_measure_cache: std::cell::RefCell<crate::fasthash::FastMap<LayoutMeasureKey, (f32, f32)>>,
+    layout_measure_cache:
+        std::cell::RefCell<crate::fasthash::FastMap<LayoutMeasureKey, (f32, f32)>>,
     /// Cache derivado de largura intrínseca (max-content), usada pelos pré-passos
     /// de shrink-to-fit/flex/grid. A chave inclui o contexto tipográfico completo.
     intrinsic_width_cache: std::cell::RefCell<crate::fasthash::FastMap<IntrinsicWidthKey, f32>>,
@@ -354,13 +371,16 @@ pub struct Dom {
     /// É o que torna o layout INCREMENTAL: mudar uma folha invalida o epoch dela
     /// e dos ancestrais, e todo irmão intacto reusa o fragmento em vez de
     /// recalcular cascade, medição de texto e box model.
-    fragment_cache: std::cell::RefCell<crate::fasthash::FastMap<FragmentKey, std::rc::Rc<crate::layout::Fragment>>>,
+    fragment_cache: std::cell::RefCell<
+        crate::fasthash::FastMap<FragmentKey, std::rc::Rc<crate::layout::Fragment>>,
+    >,
     /// A ÚLTIMA `DisplayList` calculada, com a chave que a validou — o layout
     /// inteiro reusado enquanto nada que o afete mudar (ver
     /// [`crate::layout::layout_cached`]). Um só slot: o padrão é reperguntar
     /// pelo MESMO estado (uma consulta de geometria atrás da outra, um frame
     /// atrás do outro), não alternar entre viewports.
-    display_cache: std::cell::RefCell<Option<(DisplayKey, std::rc::Rc<crate::layout::DisplayList>)>>,
+    display_cache:
+        std::cell::RefCell<Option<(DisplayKey, std::rc::Rc<crate::layout::DisplayList>)>>,
     /// Algum `style=""` inline desta árvore menciona `position`.
     ///
     /// Junto com [`Stylesheet::has_out_of_flow`](crate::style::Stylesheet::has_out_of_flow),
@@ -417,6 +437,8 @@ impl Dom {
             memo_style_epoch: std::cell::Cell::new(crate::style::props::style_epoch()),
             base_memo: std::cell::RefCell::new(Vec::new()),
             base_memo_revision: std::cell::Cell::new(u64::MAX),
+            counter_memo: std::cell::RefCell::new(None),
+            counter_memo_revision: std::cell::Cell::new((u64::MAX, u64::MAX)),
             base_memo_viewport: std::cell::Cell::new((0, 0)),
             layout_measure_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
             intrinsic_width_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
@@ -471,7 +493,9 @@ impl Dom {
     /// Anexa `text` (os caracteres digitados no frame) ao input FOCADO. Ignora se
     /// não há foco. Retorna `true` se algo mudou.
     pub fn input_feed_text(&mut self, text: &str) -> bool {
-        let Some(id) = self.focused_input else { return false };
+        let Some(id) = self.focused_input else {
+            return false;
+        };
         if text.is_empty() {
             return false;
         }
@@ -509,7 +533,9 @@ impl Dom {
 
     /// Os pixels próprios de um nó, se ele tem.
     pub fn pixel_data_of(&self, idx: NodeIdx) -> Option<(std::rc::Rc<Vec<u8>>, u32, u32)> {
-        self.own_pixels.get(&idx).map(|(b, w, h)| (std::rc::Rc::clone(b), *w, *h))
+        self.own_pixels
+            .get(&idx)
+            .map(|(b, w, h)| (std::rc::Rc::clone(b), *w, *h))
     }
 
     pub fn set_image(&mut self, id: NodeId, handle: u64, off: u32, w: u32, h: u32) {
@@ -538,7 +564,9 @@ impl Dom {
 
     /// Apaga o último caractere do input focado (Backspace). Retorna `true` se mudou.
     pub fn input_backspace(&mut self) -> bool {
-        let Some(id) = self.focused_input else { return false };
+        let Some(id) = self.focused_input else {
+            return false;
+        };
         let mut cur = self.input_value(id);
         if cur.pop().is_none() {
             return false;
@@ -748,7 +776,10 @@ impl Dom {
         drop(base);
         // Ancestrais: só o EPOCH — o estilo deles não mudou, o tamanho pode ter.
         self.mark_self_dirty(moved);
-        for start in [self.nodes[moved].parent, former_parent].into_iter().flatten() {
+        for start in [self.nodes[moved].parent, former_parent]
+            .into_iter()
+            .flatten()
+        {
             let mut filho = moved;
             let mut cur = Some(start);
             while let Some(node) = cur {
@@ -765,8 +796,17 @@ impl Dom {
     /// métricas e pelo atalho da construção pura, ambos fora do caminho quente
     /// de um layout.
     fn memo_entries(&self) -> usize {
-        self.computed_memo.borrow().iter().filter(|s| s.is_some()).count()
-            + self.base_memo.borrow().iter().filter(|s| s.is_some()).count()
+        self.computed_memo
+            .borrow()
+            .iter()
+            .filter(|s| s.is_some())
+            .count()
+            + self
+                .base_memo
+                .borrow()
+                .iter()
+                .filter(|s| s.is_some())
+                .count()
     }
 
     /// A posição de `idx` em ordem documental, renumerando se a árvore mudou.
@@ -838,7 +878,9 @@ impl Dom {
         key: FragmentKey,
         fragment: std::rc::Rc<crate::layout::Fragment>,
     ) {
-        self.last_fragment.borrow_mut().insert(key.node, (key, std::rc::Rc::clone(&fragment)));
+        self.last_fragment
+            .borrow_mut()
+            .insert(key.node, (key, std::rc::Rc::clone(&fragment)));
         let mut cache = self.fragment_cache.borrow_mut();
         // Teto igual ao dos outros caches de layout: uma página que rola muito
         // acumula fragmentos de nós que já saíram de cena, e o epoch na chave
@@ -907,7 +949,10 @@ impl Dom {
     /// classe.
     pub(crate) fn debug_indices(
         &self,
-    ) -> (&HashMap<String, Vec<NodeIdx>>, &HashMap<String, Vec<NodeIdx>>) {
+    ) -> (
+        &HashMap<String, Vec<NodeIdx>>,
+        &HashMap<String, Vec<NodeIdx>>,
+    ) {
         (&self.id_index, &self.class_index)
     }
 
@@ -926,10 +971,16 @@ impl Dom {
         };
         push("style_overrides", &mut self.style_overrides.keys().copied());
         push("listeners", &mut self.listeners.keys().copied());
-        push("listener_cbs", &mut self.listener_cbs.keys().map(|(idx, _)| *idx));
+        push(
+            "listener_cbs",
+            &mut self.listener_cbs.keys().map(|(idx, _)| *idx),
+        );
         push("input_values", &mut self.input_values.keys().copied());
         push("image_pixels", &mut self.image_pixels.keys().copied());
-        push("active_transitions", &mut self.active_transitions.keys().copied());
+        push(
+            "active_transitions",
+            &mut self.active_transitions.keys().copied(),
+        );
         push("anim_override", &mut self.anim_override.keys().copied());
         push("prev_computed", &mut self.prev_computed.keys().copied());
         push("focused_input", &mut self.focused_input.into_iter());
@@ -1055,7 +1106,12 @@ impl Dom {
             return Some(std::rc::Rc::clone(hit));
         }
         let computed = std::rc::Rc::new(self.computed_style_idx_inner(idx)?);
-        memo_put(&mut self.base_memo.borrow_mut(), idx, self.nodes.len(), &computed);
+        memo_put(
+            &mut self.base_memo.borrow_mut(),
+            idx,
+            self.nodes.len(),
+            &computed,
+        );
         Some(computed)
     }
 
@@ -1093,20 +1149,62 @@ impl Dom {
     /// usa em todo o resto. Quem tem janela lê a geometria exata da
     /// `DisplayList` do backend.
     pub fn bounding_component(&self, id: NodeId, which: i64) -> f32 {
-        let Some(idx) = self.resolve(id) else { return 0.0 };
+        let Some(idx) = self.resolve(id) else {
+            return 0.0;
+        };
         let (vw, vh) = self.viewport.get();
         let ctx = crate::layout::LayoutCtx {
             viewport_w: vw,
             viewport_h: vh,
             measurer: &crate::layout::ApproxMeasurer,
         };
-        let Some(rect) = crate::layout::bounding_rect(self, idx, &ctx) else { return 0.0 };
+        let Some(rect) = crate::layout::bounding_rect(self, idx, &ctx) else {
+            return 0.0;
+        };
         match which {
             0 => rect.x,
             1 => rect.y,
             2 => rect.w,
             _ => rect.h,
         }
+    }
+
+    /// As quatro componentes da caixa de MUITOS nós de uma vez, na ordem
+    /// `x, y, w, h` por nó pedido.
+    ///
+    /// Existe porque `bounding_component` faz um `layout_document` INTEIRO por
+    /// chamada, e isso é linear no documento: medido a 13,7 ms por chamada na
+    /// Wikipédia (16 813 elementos). O extrator de paridade pede quatro
+    /// componentes por elemento, ou seja ~67 mil layouts completos do mesmo
+    /// documento imutável — os 9m21s que a extração de paridade custava eram
+    /// isto, e não o layout, que precisa de correr uma vez. Com esta: 9,7s, e o
+    /// dump a sair byte a byte igual ao de antes.
+    ///
+    /// **Não é um cache, de propósito.** O layout é feito AQUI DENTRO, nesta
+    /// chamada, e não sobrevive a ela: não há estado entre chamadas que possa
+    /// ficar velho depois de uma mutação. Um `DisplayList` guardado no `Dom`
+    /// seria mais rápido para todos os consumidores e traria a pergunta de
+    /// invalidação para um sítio que hoje não a tem — e uma geometria que não
+    /// reflete o DOM não é uma medição mais rápida, é outra medição.
+    ///
+    /// Um id que não resolve responde `0.0` nas quatro, que é exatamente o que
+    /// `bounding_component` responde no mesmo caso.
+    pub fn bounding_components_many(&self, ids: &[NodeId]) -> Vec<f32> {
+        let (vw, vh) = self.viewport.get();
+        let ctx = crate::layout::LayoutCtx {
+            viewport_w: vw,
+            viewport_h: vh,
+            measurer: &crate::layout::ApproxMeasurer,
+        };
+        let list = crate::layout::layout_document(self, &ctx);
+        let mut out = Vec::with_capacity(ids.len() * 4);
+        for &id in ids {
+            match self.resolve(id).and_then(|idx| list.rect_of(idx)) {
+                Some(r) => out.extend_from_slice(&[r.x, r.y, r.w, r.h]),
+                None => out.extend_from_slice(&[0.0, 0.0, 0.0, 0.0]),
+            }
+        }
+        out
     }
 
     /// A geração desta árvore (para o render/ABI compor `NodeId` versionados).
@@ -1117,7 +1215,10 @@ impl Dom {
     /// Empacota um índice cru desta árvore num `NodeId` versionado (com a `generation`
     /// da árvore). É como um índice interno vira handle público.
     fn make_id(&self, idx: NodeIdx) -> NodeId {
-        NodeId { generation: self.generation, idx: idx as u32 }
+        NodeId {
+            generation: self.generation,
+            idx: idx as u32,
+        }
     }
 
     /// Valida um `NodeId` versionado contra ESTA árvore e devolve o índice cru.
@@ -1172,7 +1273,11 @@ impl Dom {
     }
 
     fn remove_index_key(&mut self, key: &str, id: NodeIdx, is_id: bool) {
-        let index = if is_id { &mut self.id_index } else { &mut self.class_index };
+        let index = if is_id {
+            &mut self.id_index
+        } else {
+            &mut self.class_index
+        };
         if let Some(bucket) = index.get_mut(key) {
             bucket.retain(|&x| x != id);
             if bucket.is_empty() {
@@ -1259,11 +1364,14 @@ impl Dom {
         // ordem de alocação da arena.
         if let Some(key) = sel.strip_prefix('#') {
             if is_plain_ident(key) {
-                let has_candidate = self.id_index.get(key).map(|v| {
-                    v.iter().any(|&i| {
-                        self.is_attached(i) && self.nodes[i].attr("id") == Some(key)
+                let has_candidate = self
+                    .id_index
+                    .get(key)
+                    .map(|v| {
+                        v.iter()
+                            .any(|&i| self.is_attached(i) && self.nodes[i].attr("id") == Some(key))
                     })
-                }).unwrap_or(false);
+                    .unwrap_or(false);
                 return has_candidate
                     .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
                     .flatten();
@@ -1271,15 +1379,19 @@ impl Dom {
         }
         if let Some(cls) = sel.strip_prefix('.') {
             if is_plain_ident(cls) {
-                let has_candidate = self.class_index.get(cls).map(|v| {
-                    v.iter().any(|&i| {
-                        self.is_attached(i)
-                            && self.nodes[i]
-                                .attr("class")
-                                .map(|c| c.split_whitespace().any(|x| x == cls))
-                                .unwrap_or(false)
+                let has_candidate = self
+                    .class_index
+                    .get(cls)
+                    .map(|v| {
+                        v.iter().any(|&i| {
+                            self.is_attached(i)
+                                && self.nodes[i]
+                                    .attr("class")
+                                    .map(|c| c.split_whitespace().any(|x| x == cls))
+                                    .unwrap_or(false)
+                        })
                     })
-                }).unwrap_or(false);
+                    .unwrap_or(false);
                 return has_candidate
                     .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
                     .flatten();
@@ -1352,7 +1464,8 @@ impl Dom {
         // A API pública devolve VALOR: quem chama de fora (a ABI, o `getComputedStyle`)
         // quer um dado próprio, e é uma chamada por vez — o `Rc` existe para o
         // caminho interno do layout, que pede o mesmo estilo dezenas de vezes.
-        self.computed_style_idx(self.resolve(id)?).map(|rc| (*rc).clone())
+        self.computed_style_idx(self.resolve(id)?)
+            .map(|rc| (*rc).clone())
     }
 
     /// Igual a [`computed_style`](Dom::computed_style), mas por `NodeIdx` cru — o
@@ -1368,7 +1481,10 @@ impl Dom {
     /// o layout o pede várias vezes por nó. Quem precisa MUTAR faz
     /// `(*rc).clone()`, o que é exatamente o ponto (a cópia passa a ser
     /// explícita e rara em vez de implícita e por acesso).
-    pub fn computed_style_idx(&self, idx: NodeIdx) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {
+    pub fn computed_style_idx(
+        &self,
+        idx: NodeIdx,
+    ) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {
         // MEMO por revisão: dentro de um mesmo estado da árvore, a cascade de um nó
         // é determinística — e o layout a consulta várias vezes por nó (medição +
         // pintura). Um clone do ComputedStyle é muito mais barato que re-rodar
@@ -1409,7 +1525,12 @@ impl Dom {
                 std::rc::Rc::new(c)
             }
         };
-        memo_put(&mut self.computed_memo.borrow_mut(), idx, self.nodes.len(), &computed);
+        memo_put(
+            &mut self.computed_memo.borrow_mut(),
+            idx,
+            self.nodes.len(),
+            &computed,
+        );
         Some(computed)
     }
 
@@ -1431,7 +1552,9 @@ impl Dom {
         if !self.stylesheet.has_generated_content() {
             return None;
         }
-        let NodeKind::Element { tag } = &self.nodes[idx].kind else { return None };
+        let NodeKind::Element { tag } = &self.nodes[idx].kind else {
+            return None;
+        };
         let classes: Vec<&str> = self.nodes[idx]
             .attr("class")
             .map(|c| c.split_whitespace().collect())
@@ -1445,9 +1568,12 @@ impl Dom {
             |sel| self.matches_complex(idx, sel),
         );
         let content = content?;
-        let texto = crate::pseudo::texto_de(&content, &|nome: &str| {
-            self.nodes[idx].attr(nome).map(str::to_string)
-        })?;
+        let contadores = self.document_counters();
+        let texto = crate::pseudo::texto_de(
+            &content,
+            &|nome: &str| self.nodes[idx].attr(nome).map(str::to_string),
+            contadores.get(&(idx, pe)),
+        )?;
         let decls = self.stylesheet.declarations_from(&matched, None);
         // Herda do originante e só depois aplica o que o pseudo declara — a
         // ordem inversa perderia a herança para qualquer propriedade que o
@@ -1462,6 +1588,69 @@ impl Dom {
             return None;
         }
         Some(crate::pseudo::PseudoBox { texto, css })
+    }
+
+    /// A tabela de CONTADORES do documento, calculada uma vez por revisão.
+    ///
+    /// Numa página que não declare `counter-reset`/`counter-increment` isto é
+    /// uma tabela vazia e a travessia nem corre — a guarda é a mesma ideia do
+    /// `has_generated_content()` que abre o `pseudo_box`, e pela mesma razão:
+    /// três das quatro folhas do corpus não têm contador nenhum.
+    fn document_counters(&self) -> std::rc::Rc<crate::counters::Tabela> {
+        let chave = (self.revision, crate::style::props::style_epoch());
+        if self.counter_memo_revision.get() == chave {
+            if let Some(t) = self.counter_memo.borrow().as_ref() {
+                return std::rc::Rc::clone(t);
+            }
+        }
+        let tabela = if self.stylesheet.has_counters() {
+            crate::counters::calcula(self, &|idx, pe| self.counter_ops(idx, pe))
+        } else {
+            crate::counters::Tabela::default()
+        };
+        let tabela = std::rc::Rc::new(tabela);
+        *self.counter_memo.borrow_mut() = Some(std::rc::Rc::clone(&tabela));
+        self.counter_memo_revision.set(chave);
+        tabela
+    }
+
+    /// As operações de contador de um elemento (`pe: None`) ou de um dos seus
+    /// pseudo-elementos, já resolvidas pela cascata.
+    ///
+    /// O `style=""` inline NÃO é consultado: `counter-increment` num atributo de
+    /// estilo não aparece em nenhuma das quatro folhas do corpus, e lê-lo
+    /// exigiria parsear o atributo por nó nesta passagem — o custo por elemento
+    /// que a guarda de `has_counters` existe para evitar. Fica dito por ser um
+    /// corte e não um esquecimento.
+    fn counter_ops(
+        &self,
+        idx: NodeIdx,
+        pe: Option<crate::style::PseudoElement>,
+    ) -> Option<std::rc::Rc<crate::counters::Ops>> {
+        let NodeKind::Element { tag } = &self.nodes[idx].kind else {
+            return None;
+        };
+        let classes: Vec<&str> = self.nodes[idx]
+            .attr("class")
+            .map(|c| c.split_whitespace().collect())
+            .unwrap_or_default();
+        let vw = self.viewport.get().0;
+        let id_attr = self.nodes[idx].attr("id");
+        let matched = match pe {
+            None => self
+                .stylesheet
+                .matched_for_node(vw, tag, id_attr, &classes, |sel| {
+                    self.matches_complex(idx, sel)
+                }),
+            Some(pe) => {
+                self.stylesheet
+                    .matched_for_pseudo(vw, tag, id_attr, &classes, pe, |sel| {
+                        self.matches_complex(idx, sel)
+                    })
+                    .0
+            }
+        };
+        self.stylesheet.counters_from(&matched)
     }
 
     /// Núcleo da cascade — computa o ALVO-BASE de um nó (SEM a camada de animação; o
@@ -1526,7 +1715,9 @@ impl Dom {
             v.extend(inline.custom.iter().cloned());
             v
         };
-        let parent_vars = parent_css_for_vars.as_ref().and_then(|p| p.custom_props.clone());
+        let parent_vars = parent_css_for_vars
+            .as_ref()
+            .and_then(|p| p.custom_props.clone());
         let vars_arc: Option<std::sync::Arc<std::collections::HashMap<String, String>>> =
             match (parent_vars, own_customs.is_empty()) {
                 (p, true) => p, // só herda: compartilha o Arc (O(1))
@@ -1609,7 +1800,10 @@ impl Dom {
                 viewport_w: vw,
                 viewport_h: vh,
             };
-            css.font_size = d.resolve(&rctx).filter(|v| *v > 0.0).map(style::Dimension::Px);
+            css.font_size = d
+                .resolve(&rctx)
+                .filter(|v| *v > 0.0)
+                .map(style::Dimension::Px);
         }
         // A fonte do `<html>` é a BASE DO `rem` para a árvore inteira — o idioma
         // `html { font-size: 62.5% }` faz `1rem` valer 10px, e sem esta linha
@@ -1657,10 +1851,12 @@ impl Dom {
         // rgb(0, 0, 0)`). O `get_property` cru continua a servir o
         // `el.style.x`, que TEM de responder vazio fora do `style=""`. A tag vai
         // junto porque o inicial de `display` é o da UA-stylesheet dela.
-        let tag = self.resolve(id).and_then(|idx| match &self.nodes[idx].kind {
-            NodeKind::Element { tag } => Some(tag.clone()),
-            _ => None,
-        });
+        let tag = self
+            .resolve(id)
+            .and_then(|idx| match &self.nodes[idx].kind {
+                NodeKind::Element { tag } => Some(tag.clone()),
+                _ => None,
+            });
         self.computed_style(id)
             .map(|c| c.computed_value(name, tag.as_deref()))
             .unwrap_or_default()
@@ -1669,7 +1865,9 @@ impl Dom {
     /// `el.style.<name>` (getPropertyValue) — o valor INLINE da propriedade (só o
     /// `style=""`, sem a cascade), no formato do browser. `""` se ausente.
     pub fn inline_property(&self, id: NodeId, name: &str) -> String {
-        let Some(idx) = self.resolve(id) else { return String::new() };
+        let Some(idx) = self.resolve(id) else {
+            return String::new();
+        };
         let inline = self.nodes[idx]
             .attr("style")
             .map(crate::style::parse_inline_block)
@@ -1753,8 +1951,13 @@ impl Dom {
 
     /// `true` se o nó escuta o tipo de evento dado (case-sensitive).
     pub fn has_listener(&self, id: NodeId, event_type: &str) -> bool {
-        let Some(idx) = self.resolve(id) else { return false };
-        self.listeners.get(&idx).map(|v| v.iter().any(|x| x == event_type)).unwrap_or(false)
+        let Some(idx) = self.resolve(id) else {
+            return false;
+        };
+        self.listeners
+            .get(&idx)
+            .map(|v| v.iter().any(|x| x == event_type))
+            .unwrap_or(false)
     }
 
     /// `element.dispatchEvent(type, bubbles)`: dispara um evento no nó-alvo. Sempre
@@ -1769,7 +1972,12 @@ impl Dom {
         let mut first = true;
         while let Some(node) = cur {
             let Some(idx) = self.resolve(node) else { break };
-            if self.listeners.get(&idx).map(|v| v.iter().any(|x| x == event_type)).unwrap_or(false) {
+            if self
+                .listeners
+                .get(&idx)
+                .map(|v| v.iter().any(|x| x == event_type))
+                .unwrap_or(false)
+            {
                 crate::bump!(dispatch_targets);
                 self.event_queue.push_back((idx, event_type.to_string()));
                 count += 1;
@@ -1788,7 +1996,9 @@ impl Dom {
     /// `None` se a fila está vazia. O loop TS chama em laço por frame e despacha o
     /// callback certo (que vive no TS, indexado por nó+tipo). O NodeId é versionado.
     pub fn poll_event(&mut self) -> Option<(NodeId, String)> {
-        self.event_queue.pop_front().map(|(idx, t)| (self.make_id(idx), t))
+        self.event_queue
+            .pop_front()
+            .map(|(idx, t)| (self.make_id(idx), t))
     }
 
     /// `dispatchEvent` com COLETA de callbacks: mesmo caminhamento (alvo → bubbling
@@ -1888,7 +2098,8 @@ impl Dom {
     /// e faz o dispatch completo (bubbling + callbacks). `idx` é o `NodeIdx` cru
     /// que o backend tem em mãos (chave de `node_rects`).
     pub fn push_raw_event(&mut self, idx: NodeIdx, event_type: &str) {
-        self.raw_event_queue.push_back((idx, event_type.to_string()));
+        self.raw_event_queue
+            .push_back((idx, event_type.to_string()));
     }
 
     /// Próximo evento CRU do backend `(NodeId versionado, tipo)`, ou `None`.
@@ -1939,7 +2150,9 @@ impl Dom {
         for idx in elements {
             // o ALVO base deste frame (cascade sem a camada de animação) — MEMOIZADO
             // por revisão estrutural, então entre frames de animação é hit de cache.
-            let Some(target) = self.base_style_idx(idx) else { continue };
+            let Some(target) = self.base_style_idx(idx) else {
+                continue;
+            };
 
             // ── @keyframes ANIMATION (#1776 fase 2): roda sozinha no tempo ──────────
             if let Some(anim) = &target.animation {
@@ -1986,7 +2199,11 @@ impl Dom {
                     crate::bump!(transitions_started);
                     self.active_transitions.insert(
                         idx,
-                        crate::anim::ActiveTransition { from, start_ms: now_ms, spec },
+                        crate::anim::ActiveTransition {
+                            from,
+                            start_ms: now_ms,
+                            spec,
+                        },
                     );
                 }
             }
@@ -2039,7 +2256,10 @@ impl Dom {
         crate::bump!(style_overrides_set);
         let Some(idx) = self.resolve(id) else { return };
         self.touch_subtree(idx);
-        self.style_overrides.entry(idx).or_default().apply_slot(slot, val);
+        self.style_overrides
+            .entry(idx)
+            .or_default()
+            .apply_slot(slot, val);
     }
 
     /// Aplica um LOTE de triplas `(nodeId, slot, val)` de uma vez (invariante 6:
@@ -2062,7 +2282,10 @@ impl Dom {
         }
         self.touch_subtrees(updates.iter().map(|(idx, _, _)| *idx));
         for (idx, slot, val) in updates {
-            self.style_overrides.entry(idx).or_default().apply_slot(slot, val);
+            self.style_overrides
+                .entry(idx)
+                .or_default()
+                .apply_slot(slot, val);
         }
     }
 
@@ -2089,11 +2312,11 @@ impl Dom {
     /// O código de `display` de um nó (do `BlockDef` registrado p/ a tag), ou
     /// `-1` se a tag não tem layout de bloco (inline/desconhecida).
     pub fn display_of(&self, id: NodeId) -> i64 {
-        let Some(idx) = self.resolve(id) else { return -1 };
+        let Some(idx) = self.resolve(id) else {
+            return -1;
+        };
         match &self.nodes[idx].kind {
-            NodeKind::Element { tag } => {
-                crate::block::lookup(tag).map(|d| d.display).unwrap_or(-1)
-            }
+            NodeKind::Element { tag } => crate::block::lookup(tag).map(|d| d.display).unwrap_or(-1),
             _ => -1,
         }
     }
@@ -2140,7 +2363,9 @@ impl Dom {
     /// Os filhos ELEMENTO de um nó (`element.children` — exclui nós de texto), em
     /// ordem. Vazio se o id não resolve.
     pub fn child_elements(&self, id: NodeId) -> Vec<NodeId> {
-        let Some(idx) = self.resolve(id) else { return Vec::new() };
+        let Some(idx) = self.resolve(id) else {
+            return Vec::new();
+        };
         self.nodes[idx]
             .children
             .iter()
@@ -2153,8 +2378,14 @@ impl Dom {
     /// ordem de documento. Vazio se o id não resolve. (`child_elements` filtra só
     /// elementos; este é o `childNodes` cru do DOM.)
     pub fn child_nodes(&self, id: NodeId) -> Vec<NodeId> {
-        let Some(idx) = self.resolve(id) else { return Vec::new() };
-        self.nodes[idx].children.iter().map(|&c| self.make_id(c)).collect()
+        let Some(idx) = self.resolve(id) else {
+            return Vec::new();
+        };
+        self.nodes[idx]
+            .children
+            .iter()
+            .map(|&c| self.make_id(c))
+            .collect()
     }
 
     // ── Traversal POR ELEMENTO (pula nós de texto/comentário) — #1757 ────────────
@@ -2204,7 +2435,9 @@ impl Dom {
     /// `element.matches(sel)`: o nó casa o seletor SIMPLES (tag/`#id`/`.classe`)?
     /// Reusa o matcher de `querySelector` (mesma sintaxe). Combinadores → #1752.
     pub fn matches_selector(&self, id: NodeId, sel: &str) -> bool {
-        self.resolve(id).map(|i| self.matches(i, sel.trim())).unwrap_or(false)
+        self.resolve(id)
+            .map(|i| self.matches(i, sel.trim()))
+            .unwrap_or(false)
     }
 
     /// `element.closest(sel)`: sobe pela cadeia de ancestrais (incluindo o próprio
@@ -2236,7 +2469,9 @@ impl Dom {
         if selectors.is_empty() {
             return Vec::new();
         }
-        let Some(root_idx) = self.resolve(root) else { return Vec::new() };
+        let Some(root_idx) = self.resolve(root) else {
+            return Vec::new();
+        };
         let keys: Vec<TargetKey> = selectors.iter().map(TargetKey::of).collect();
         let mut out = Vec::new();
         // só os DESCENDENTES (o próprio nó não casa a si mesmo no querySelector).
@@ -2286,10 +2521,11 @@ impl Dom {
     fn collect_by_classes(&self, idx: NodeIdx, wanted: &[&str], out: &mut Vec<NodeId>) {
         if idx != self.root {
             if let Some(class_attr) = self.nodes[idx].attr("class") {
-                if wanted
-                    .iter()
-                    .all(|wanted_class| class_attr.split_whitespace().any(|class| class == *wanted_class))
-                {
+                if wanted.iter().all(|wanted_class| {
+                    class_attr
+                        .split_whitespace()
+                        .any(|class| class == *wanted_class)
+                }) {
                     out.push(self.make_id(idx));
                 }
             }
@@ -2362,8 +2598,14 @@ impl Dom {
     /// `node` (no pai de `node`). `after=true` insere depois.
     pub fn insert_adjacent(&mut self, node: NodeId, other: NodeId, after: bool) {
         self.touch();
-        let Some(parent) = self.parent_of(node) else { return };
-        let reference = if after { self.next_sibling(node) } else { Some(node) };
+        let Some(parent) = self.parent_of(node) else {
+            return;
+        };
+        let reference = if after {
+            self.next_sibling(node)
+        } else {
+            Some(node)
+        };
         self.insert_before(parent, other, reference);
     }
 
@@ -2376,7 +2618,9 @@ impl Dom {
         if node == other {
             return; // substituir por si mesmo é no-op (não remove)
         }
-        let Some(parent) = self.parent_of(node) else { return };
+        let Some(parent) = self.parent_of(node) else {
+            return;
+        };
         self.insert_before(parent, other, Some(node)); // other ANTES de node
         // só remove node se other realmente entrou (insert pode ter abortado por ciclo).
         if self.parent_of(other) == Some(parent) {
@@ -2412,7 +2656,9 @@ impl Dom {
     /// com novos filhos é montada no JS chamando isto + appendChild).
     pub fn clear_children(&mut self, parent: NodeId) {
         self.touch();
-        let Some(idx) = self.resolve(parent) else { return };
+        let Some(idx) = self.resolve(parent) else {
+            return;
+        };
         let children: Vec<NodeIdx> = self.nodes[idx].children.clone();
         for c in children {
             self.detach(c);
@@ -2424,13 +2670,17 @@ impl Dom {
     /// `node.contains(other)`: `other` é o próprio nó OU um descendente dele?
     /// (Reusa a guarda de ciclo `is_ancestor`, que é exatamente esta relação.)
     pub fn contains(&self, node: NodeId, other: NodeId) -> bool {
-        let (Some(a), Some(b)) = (self.resolve(node), self.resolve(other)) else { return false };
+        let (Some(a), Some(b)) = (self.resolve(node), self.resolve(other)) else {
+            return false;
+        };
         a == b || self.is_ancestor(a, b)
     }
 
     /// `node.hasChildNodes()`: tem ao menos um filho (de qualquer tipo)?
     pub fn has_child_nodes(&self, id: NodeId) -> bool {
-        self.resolve(id).map(|i| !self.nodes[i].children.is_empty()).unwrap_or(false)
+        self.resolve(id)
+            .map(|i| !self.nodes[i].children.is_empty())
+            .unwrap_or(false)
     }
 
     /// `node.nodeValue`: o texto cru de um nó Text/Comment; `None` para
@@ -2538,15 +2788,23 @@ impl Dom {
     /// vazio — `hidden`/`disabled` são booleanos com valor `""`)? Checa a presença
     /// na lista, não o valor (o `getAttribute("").length>0` da fachada errava aqui).
     pub fn has_attr(&self, id: NodeId, name: &str) -> bool {
-        let Some(idx) = self.resolve(id) else { return false };
+        let Some(idx) = self.resolve(id) else {
+            return false;
+        };
         let name_lc = name.to_ascii_lowercase();
         self.nodes[idx].attrs.iter().any(|a| a.name == name_lc)
     }
 
     /// `element.getAttributeNames()`: os nomes dos atributos, em ordem do HTML.
     pub fn attr_names(&self, id: NodeId) -> Vec<String> {
-        let Some(idx) = self.resolve(id) else { return Vec::new() };
-        self.nodes[idx].attrs.iter().map(|a| a.name.clone()).collect()
+        let Some(idx) = self.resolve(id) else {
+            return Vec::new();
+        };
+        self.nodes[idx]
+            .attrs
+            .iter()
+            .map(|a| a.name.clone())
+            .collect()
     }
 
     /// Valor do atributo N-ésimo (para `attributes`), por índice. `None` fora do range.
@@ -2735,7 +2993,12 @@ impl Dom {
     /// Tenta casar os compounds [0..=i-1] contra o contexto (ancestrais/irmãos) de
     /// `idx`, dado que `compounds[i]` já casou `idx`. Backtracking p/ descendente e
     /// irmão-geral (que têm múltiplos candidatos).
-    fn match_combinators(&self, idx: NodeIdx, sel: &crate::style::ComplexSelector, i: usize) -> bool {
+    fn match_combinators(
+        &self,
+        idx: NodeIdx,
+        sel: &crate::style::ComplexSelector,
+        i: usize,
+    ) -> bool {
         if i == 0 {
             return true;
         }
@@ -2744,7 +3007,9 @@ impl Dom {
         use crate::style::Combinator;
         match combinator {
             Combinator::Child => match self.parent_element_idx(idx) {
-                Some(p) if self.compound_matches_idx(p, prev) => self.match_combinators(p, sel, i - 1),
+                Some(p) if self.compound_matches_idx(p, prev) => {
+                    self.match_combinators(p, sel, i - 1)
+                }
                 _ => false,
             },
             Combinator::Descendant => {
@@ -2758,7 +3023,9 @@ impl Dom {
                 false
             }
             Combinator::NextSibling => match self.prev_element_sibling_idx(idx) {
-                Some(s) if self.compound_matches_idx(s, prev) => self.match_combinators(s, sel, i - 1),
+                Some(s) if self.compound_matches_idx(s, prev) => {
+                    self.match_combinators(s, sel, i - 1)
+                }
                 _ => false,
             },
             Combinator::SubsequentSibling => {
@@ -2775,7 +3042,11 @@ impl Dom {
     }
 
     /// `true` se o COMPOUND casa o elemento `idx` (tag/id/classe/atributo/pseudo).
-    fn compound_matches_idx(&self, idx: NodeIdx, compound: &crate::style::CompoundSelector) -> bool {
+    fn compound_matches_idx(
+        &self,
+        idx: NodeIdx,
+        compound: &crate::style::CompoundSelector,
+    ) -> bool {
         let tag = match &self.nodes[idx].kind {
             NodeKind::Element { tag } => tag.as_str(),
             _ => return false,
@@ -2843,14 +3114,33 @@ impl Dom {
             // `:root` = o elemento raiz do documento (o `<html>`). Num DOM headless de
             // FRAGMENTO (sem <html>), casa só se for o ÚNICO elemento top-level — senão
             // 0 (fiel ao browser, que tem exatamente 1 root).
+            //
+            // A CONTAGEM SOZINHA NÃO CHEGA, e o caso não é raro: um `<style>` ou um
+            // `<link>` antes do `<html>` fica IRMÃO dele — `open_implicit_body`
+            // recusa-lhe estrutura implícita de propósito, para não enterrar o
+            // `<html>` real dentro de um implícito. O documento passa a ter dois
+            // elementos de topo e o `== 1` recusava tudo, incluindo o `<html>`. Com
+            // a folha do Google — que declara as suas 83 variáveis em `:root` — isso
+            // esvaziava o mapa de custom properties do documento inteiro: 329 dos 368
+            // elementos ficavam com o `font-size` errado e 297 com a cor errada.
+            // Havendo um `<html>` de topo, ele É a raiz; a contagem fica para o
+            // fragmento que não tem nenhum.
             P::Root => {
-                self.nodes[idx].parent == Some(self.root)
-                    && self.nodes[self.root]
-                        .children
-                        .iter()
-                        .filter(|&&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
-                        .count()
-                        == 1
+                self.nodes[idx].parent == Some(self.root) && {
+                    let topo = || {
+                        self.nodes[self.root]
+                            .children
+                            .iter()
+                            .copied()
+                            .filter(|&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
+                    };
+                    match topo().find(
+                        |&c| matches!(&self.nodes[c].kind, NodeKind::Element { tag } if tag == "html"),
+                    ) {
+                        Some(html) => html == idx,
+                        None => topo().count() == 1,
+                    }
+                }
             }
             P::Empty => !self.nodes[idx].children.iter().any(|&c| {
                 matches!(self.nodes[c].kind, NodeKind::Element { .. })
@@ -2865,7 +3155,8 @@ impl Dom {
             },
             // estado → presença de atributo (DOM headless, sem UI viva).
             P::Checked => {
-                self.nodes[idx].attr("checked").is_some() || self.nodes[idx].attr("selected").is_some()
+                self.nodes[idx].attr("checked").is_some()
+                    || self.nodes[idx].attr("selected").is_some()
             }
             P::Disabled => self.nodes[idx].attr("disabled").is_some(),
             P::Required => self.nodes[idx].attr("required").is_some(),
@@ -2947,9 +3238,13 @@ impl Dom {
     /// Os irmãos-elemento com a MESMA tag de `idx` (incluindo ele), em ordem —
     /// o universo que a família `-of-type` conta.
     fn type_siblings(&self, idx: NodeIdx) -> Vec<NodeIdx> {
-        let NodeKind::Element { tag } = &self.nodes[idx].kind else { return Vec::new() };
+        let NodeKind::Element { tag } = &self.nodes[idx].kind else {
+            return Vec::new();
+        };
         let alvo = tag.as_str();
-        let Some(parent) = self.nodes[idx].parent else { return vec![idx] };
+        let Some(parent) = self.nodes[idx].parent else {
+            return vec![idx];
+        };
         self.nodes[parent]
             .children
             .iter()
@@ -2972,7 +3267,9 @@ impl Dom {
 
     /// Os irmãos-ELEMENTO de `idx` (incluindo ele), em ordem.
     fn element_siblings(&self, idx: NodeIdx) -> Vec<NodeIdx> {
-        let Some(parent) = self.nodes[idx].parent else { return vec![idx] };
+        let Some(parent) = self.nodes[idx].parent else {
+            return vec![idx];
+        };
         self.nodes[parent]
             .children
             .iter()
@@ -3046,7 +3343,10 @@ impl Dom {
         if let Some(a) = node.attrs.iter_mut().find(|a| a.name == name_lc) {
             a.value = value.to_string();
         } else {
-            node.attrs.push(Attr { name: name_lc, value: value.to_string() });
+            node.attrs.push(Attr {
+                name: name_lc,
+                value: value.to_string(),
+            });
         }
         if affects_index {
             self.index_node(idx);
@@ -3056,7 +3356,9 @@ impl Dom {
     /// Cria um elemento SOLTO (sem pai) e devolve seu `NodeId` versionado; ligue-o
     /// com `append_child` (`document.createElement`).
     pub fn create_element(&mut self, tag: &str) -> NodeId {
-        let idx = self.push_detached(NodeKind::Element { tag: tag.to_ascii_lowercase() });
+        let idx = self.push_detached(NodeKind::Element {
+            tag: tag.to_ascii_lowercase(),
+        });
         self.make_id(idx)
     }
 
@@ -3107,7 +3409,9 @@ impl Dom {
     /// `node.nodeType` — código numérico do DOM: Element=1, Text=3, Comment=8,
     /// Document=9. `-1` se o id não resolve.
     pub fn node_type(&self, id: NodeId) -> i64 {
-        let Some(idx) = self.resolve(id) else { return -1 };
+        let Some(idx) = self.resolve(id) else {
+            return -1;
+        };
         match &self.nodes[idx].kind {
             NodeKind::Element { .. } => 1,
             NodeKind::Text(_) => 3,
@@ -3169,7 +3473,12 @@ impl Dom {
     /// Aloca um nó sem pai (usado por create_element / set_text). Índice cru.
     fn push_detached(&mut self, kind: NodeKind) -> NodeIdx {
         let id = self.nodes.len();
-        self.nodes.push(Node { kind, attrs: Vec::new(), parent: None, children: Vec::new() });
+        self.nodes.push(Node {
+            kind,
+            attrs: Vec::new(),
+            parent: None,
+            children: Vec::new(),
+        });
         self.layout_epochs.push(0);
         crate::bump!(nodes_created);
         id
@@ -3376,8 +3685,19 @@ impl Dom {
 fn is_void(tag: &str) -> bool {
     matches!(
         tag,
-        "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input"
-            | "link" | "meta" | "source" | "track" | "wbr"
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "source"
+            | "track"
+            | "wbr"
     )
 }
 
@@ -3389,10 +3709,36 @@ fn is_void(tag: &str) -> bool {
 fn closes_open_p(tag: &str) -> bool {
     matches!(
         tag,
-        "address" | "article" | "aside" | "blockquote" | "details" | "div" | "dl"
-            | "fieldset" | "figcaption" | "figure" | "footer" | "form"
-            | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "header" | "hgroup" | "hr"
-            | "main" | "menu" | "nav" | "ol" | "p" | "pre" | "section" | "table" | "ul"
+        "address"
+            | "article"
+            | "aside"
+            | "blockquote"
+            | "details"
+            | "div"
+            | "dl"
+            | "fieldset"
+            | "figcaption"
+            | "figure"
+            | "footer"
+            | "form"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "header"
+            | "hgroup"
+            | "hr"
+            | "main"
+            | "menu"
+            | "nav"
+            | "ol"
+            | "p"
+            | "pre"
+            | "section"
+            | "table"
+            | "ul"
     )
 }
 
@@ -3412,8 +3758,16 @@ fn closes_open_p(tag: &str) -> bool {
 fn allowed_in_head(tag: &str) -> bool {
     matches!(
         tag,
-        "base" | "basefont" | "bgsound" | "link" | "meta" | "noscript" | "script" | "style"
-            | "template" | "title"
+        "base"
+            | "basefont"
+            | "bgsound"
+            | "link"
+            | "meta"
+            | "noscript"
+            | "script"
+            | "style"
+            | "template"
+            | "title"
     )
 }
 
@@ -3466,7 +3820,9 @@ fn references_self(name: &str, value: &str) -> bool {
 }
 
 fn is_plain_ident(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Insere/atualiza/remove uma declaração `name: value` numa string de `style=""`,
@@ -3482,7 +3838,9 @@ fn upsert_css_decl(css_text: &str, name: &str, value: &str) -> String {
         if part.is_empty() {
             continue;
         }
-        let Some((p, v)) = part.split_once(':') else { continue };
+        let Some((p, v)) = part.split_once(':') else {
+            continue;
+        };
         let p = p.trim().to_ascii_lowercase();
         if p == name_lc {
             if !value.is_empty() {
@@ -3583,10 +3941,7 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
 
 /// Esquece o estilo memoizado de um nó. O vetor é esparso por índice, então
 /// "esquecer" é apagar o slot — e um índice além do fim já não tem nada.
-fn memo_forget(
-    memo: &mut Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>,
-    idx: NodeIdx,
-) {
+fn memo_forget(memo: &mut Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>, idx: NodeIdx) {
     if let Some(slot) = memo.get_mut(idx) {
         *slot = None;
     }
@@ -3641,7 +3996,9 @@ enum TargetKey {
 impl TargetKey {
     fn of(sel: &crate::style::ComplexSelector) -> TargetKey {
         use crate::style::SimpleSelector as S;
-        let Some(last) = sel.compounds.last() else { return TargetKey::Any };
+        let Some(last) = sel.compounds.last() else {
+            return TargetKey::Any;
+        };
         for p in &last.parts {
             if let S::Id(v) = p {
                 return TargetKey::Id(v.clone());
@@ -3716,7 +4073,11 @@ fn parse_com_estrutura(html: &str, estrutura: bool) -> Dom {
 
     for tok in tokenize(html) {
         match tok {
-            Token::Tag { name, attrs_raw, close } => {
+            Token::Tag {
+                name,
+                attrs_raw,
+                close,
+            } => {
                 if close {
                     // Pop até encontrar a tag de nome igual (tolerante).
                     if let Some(pos) = open.iter().rposition(|(_, n)| *n == name) {
@@ -3767,7 +4128,11 @@ fn parse_com_estrutura(html: &str, estrutura: bool) -> Dom {
                 let parent = open.last().unwrap().0;
                 dom.push(NodeKind::Comment(content), Vec::new(), parent);
             }
-            Token::RawElement { tag, attrs, content } => {
+            Token::RawElement {
+                tag,
+                attrs,
+                content,
+            } => {
                 // `<style>`/`<script>`: DOM fiel preserva o ELEMENTO (com o texto cru
                 // como filho), mas o conteúdo NÃO é HTML. Para `<style>`, o CSS
                 // alimenta o stylesheet de autor (a cascade de `computed_style`).
@@ -3826,11 +4191,23 @@ fn open_implicit_body(dom: &mut Dom, open: &mut Vec<(NodeIdx, String)>, new_tag:
     // é que não existia.
     if !open.iter().any(|(_, n)| n == "html") {
         let raiz = open.last().unwrap().0;
-        let html = dom.push(NodeKind::Element { tag: "html".to_owned() }, Vec::new(), raiz);
+        let html = dom.push(
+            NodeKind::Element {
+                tag: "html".to_owned(),
+            },
+            Vec::new(),
+            raiz,
+        );
         open.push((html, "html".to_owned()));
     }
     let parent = open.last().unwrap().0;
-    let body = dom.push(NodeKind::Element { tag: "body".to_owned() }, Vec::new(), parent);
+    let body = dom.push(
+        NodeKind::Element {
+            tag: "body".to_owned(),
+        },
+        Vec::new(),
+        parent,
+    );
     open.push((body, "body".to_owned()));
 }
 
@@ -3841,7 +4218,11 @@ mod tests {
     /// `true` se o nó tem estilo memoizado — o memo é um vetor esparso por
     /// índice da arena, então "tem entrada" é "o slot existe e está cheio".
     fn memoizado(dom: &Dom, idx: NodeIdx) -> bool {
-        dom.computed_memo.borrow().get(idx).map(Option::is_some).unwrap_or(false)
+        dom.computed_memo
+            .borrow()
+            .get(idx)
+            .map(Option::is_some)
+            .unwrap_or(false)
     }
 
     use super::*;
@@ -3858,7 +4239,8 @@ mod tests {
     /// Helper: resolve um `NodeId` versionado da API pública para o índice cru
     /// usado nos asserts de `children`/`parent`.
     fn idx(dom: &Dom, id: NodeId) -> NodeIdx {
-        dom.resolve(id).expect("NodeId deveria resolver nesta árvore")
+        dom.resolve(id)
+            .expect("NodeId deveria resolver nesta árvore")
     }
 
     /// Helper: o `<body>` IMPLÍCITO da árvore.
@@ -3913,7 +4295,10 @@ mod tests {
         // parentNode
         assert_eq!(dom.parent_of(a), Some(div));
         // Pai do div = o `<body>` implícito (era o `#document`); ver `body_idx`.
-        assert_eq!(dom.parent_of(div).map(|p| idx(&dom, p)), Some(body_idx(&dom)));
+        assert_eq!(
+            dom.parent_of(div).map(|p| idx(&dom, p)),
+            Some(body_idx(&dom))
+        );
         // first/lastChild do div
         assert_eq!(dom.first_child(div), Some(a));
         assert_eq!(dom.last_child(div), Some(i));
@@ -3958,9 +4343,15 @@ mod tests {
         assert_eq!(dom.computed_style(b).unwrap().color, None); // #b intacto
         // batch: triplas planas [id, slot, val] — bg em ambos + cor no #b.
         let triples = vec![
-            a.to_abi(), SLOT_BG, 0x111111FF,
-            b.to_abi(), SLOT_BG, 0x222222FF,
-            b.to_abi(), SLOT_COLOR, 0x00FF00FF,
+            a.to_abi(),
+            SLOT_BG,
+            0x111111FF,
+            b.to_abi(),
+            SLOT_BG,
+            0x222222FF,
+            b.to_abi(),
+            SLOT_COLOR,
+            0x00FF00FF,
         ];
         dom.apply_style_batch(&triples);
         assert_eq!(dom.computed_style(a).unwrap().bg, Some(0x111111FF));
@@ -4062,7 +4453,10 @@ mod tests {
 
         assert!(dom.advance(50.0));
         assert_eq!(dom.base_memo_revision.get(), base_revision);
-        assert_eq!(dom.base_memo.borrow().get(node_idx).cloned().flatten(), base_before);
+        assert_eq!(
+            dom.base_memo.borrow().get(node_idx).cloned().flatten(),
+            base_before
+        );
         // O epoch de animação muda, portanto o memo interpolado é recalculado sob
         // demanda; o alvo-base continua sendo o mesmo objeto lógico.
         let _ = dom.computed_style(node);
@@ -4139,7 +4533,10 @@ mod tests {
         assert!(dom.query("p").is_some());
         // o combinador `a > b` é cortado (não suportado); mas `p { }` simples passa.
         assert!(!dom.stylesheet().is_empty());
-        assert_eq!(dom.computed_style(dom.query("p").unwrap()).unwrap().color, Some(0x0000FFFF));
+        assert_eq!(
+            dom.computed_style(dom.query("p").unwrap()).unwrap().color,
+            Some(0x0000FFFF)
+        );
     }
 
     #[test]
@@ -4147,9 +4544,15 @@ mod tests {
         // innerHTML (get): reconstrói o HTML dos filhos.
         let dom = parse_html_to_dom("<div><p class='x'>oi <b>forte</b></p></div>");
         let div = dom.query("div").unwrap();
-        assert_eq!(dom.inner_html(div).unwrap(), "<p class=\"x\">oi <b>forte</b></p>");
+        assert_eq!(
+            dom.inner_html(div).unwrap(),
+            "<p class=\"x\">oi <b>forte</b></p>"
+        );
         // outerHTML inclui o próprio div.
-        assert_eq!(dom.outer_html(div).unwrap(), "<div><p class=\"x\">oi <b>forte</b></p></div>");
+        assert_eq!(
+            dom.outer_html(div).unwrap(),
+            "<div><p class=\"x\">oi <b>forte</b></p></div>"
+        );
         // entidades re-encodadas no texto.
         let d2 = parse_html_to_dom("<p>a &lt; b &amp; c</p>");
         let p = d2.query("p").unwrap();
@@ -4187,7 +4590,10 @@ mod tests {
         let rev0 = dom.render_revision();
         // hovered no <a>: a regra a:hover casa o link; li:hover casa o PAI (propaga).
         dom.set_hovered(Some(link_idx));
-        assert!(dom.render_revision() != rev0, "hover com regra :hover deve invalidar");
+        assert!(
+            dom.render_revision() != rev0,
+            "hover com regra :hover deve invalidar"
+        );
         let c1 = dom.computed_style(link).unwrap();
         assert_eq!(c1.color, Some(0xFF0000FF));
         let c2 = dom.computed_style(item).unwrap();
@@ -4284,7 +4690,11 @@ mod tests {
         // defineStyle (estado global por-tag, fora do Dom) também invalida.
         let r2 = dom.render_revision();
         crate::style::define_style("tag_rev_teste", crate::style::SLOT_COLOR, 0x11223344);
-        assert_ne!(dom.render_revision(), r2, "defineStyle bumpa o epoch global");
+        assert_ne!(
+            dom.render_revision(),
+            r2,
+            "defineStyle bumpa o epoch global"
+        );
     }
 
     #[test]
@@ -4295,9 +4705,17 @@ mod tests {
         dom.set_attr(a, "style", "color:#fff");
         assert_eq!(dom.render_revision(), r0, "set_attr igual deve ser no-op");
         dom.remove_attr(a, "data-ausente");
-        assert_eq!(dom.render_revision(), r0, "remove_attr ausente deve ser no-op");
+        assert_eq!(
+            dom.render_revision(),
+            r0,
+            "remove_attr ausente deve ser no-op"
+        );
         dom.set_css_text(a, "color:#fff");
-        assert_eq!(dom.render_revision(), r0, "set_css_text igual deve ser no-op");
+        assert_eq!(
+            dom.render_revision(),
+            r0,
+            "set_css_text igual deve ser no-op"
+        );
     }
 
     #[test]
@@ -4370,17 +4788,29 @@ mod tests {
         let bi = dom.resolve(dom.query("#box").unwrap()).unwrap();
         // t=0: começa no 0% (preto). advance estabelece o start.
         dom.advance(0.0);
-        assert_eq!(dom.computed_style_idx(bi).unwrap().bg, Some(0x000000FF), "0%");
+        assert_eq!(
+            dom.computed_style_idx(bi).unwrap().bg,
+            Some(0x000000FF),
+            "0%"
+        );
         // t=250ms (25% da animação): entre 0% e 50% → metade do caminho preto→vermelho.
         dom.advance(250.0);
         let q = dom.computed_style_idx(bi).unwrap().bg.unwrap();
         assert_eq!(q, 0x800000FF, "25% = meio de preto→vermelho, got 0x{q:08X}");
         // t=500ms (50%): vermelho puro.
         dom.advance(500.0);
-        assert_eq!(dom.computed_style_idx(bi).unwrap().bg, Some(0xFF0000FF), "50%");
+        assert_eq!(
+            dom.computed_style_idx(bi).unwrap().bg,
+            Some(0xFF0000FF),
+            "50%"
+        );
         // t=750ms (75%): meio de vermelho→preto de volta.
         dom.advance(750.0);
-        assert_eq!(dom.computed_style_idx(bi).unwrap().bg, Some(0x800000FF), "75%");
+        assert_eq!(
+            dom.computed_style_idx(bi).unwrap().bg,
+            Some(0x800000FF),
+            "75%"
+        );
         // a animação fica ativa (retorna true durante o curso).
         assert!(dom.advance(400.0));
     }
@@ -4393,9 +4823,17 @@ mod tests {
         );
         let bi = dom.resolve(dom.query("#b").unwrap()).unwrap();
         dom.advance(0.0);
-        assert_eq!(dom.computed_style_idx(bi).unwrap().width, Some(crate::style::Dimension::Px(100.0)), "from");
+        assert_eq!(
+            dom.computed_style_idx(bi).unwrap().width,
+            Some(crate::style::Dimension::Px(100.0)),
+            "from"
+        );
         dom.advance(500.0);
-        assert_eq!(dom.computed_style_idx(bi).unwrap().width, Some(crate::style::Dimension::Px(200.0)), "meio");
+        assert_eq!(
+            dom.computed_style_idx(bi).unwrap().width,
+            Some(crate::style::Dimension::Px(200.0)),
+            "meio"
+        );
         // depois de 1 iteração (1s), a animação encerra (não retorna ativa).
         let active = dom.advance(1100.0);
         assert!(!active, "1 iteração terminou");
@@ -4403,7 +4841,9 @@ mod tests {
 
     #[test]
     fn seletor_composto() {
-        let dom = parse_html_to_dom("<p class=\"card big\" id=\"x\">a</p><p class=\"card\">b</p><div class=\"card\">c</div>");
+        let dom = parse_html_to_dom(
+            "<p class=\"card big\" id=\"x\">a</p><p class=\"card\">b</p><div class=\"card\">c</div>",
+        );
         assert_eq!(dom.query_all("p.card").len(), 2);
         assert_eq!(dom.query_all(".card.big").len(), 1);
         assert_eq!(dom.query_all("p.card#x").len(), 1);
@@ -4507,7 +4947,9 @@ mod tests {
     #[test]
     fn traversal_por_elemento() {
         // firstElementChild/nextElementSibling pulam texto e comentário (#1757).
-        let dom = parse_html_to_dom("<div id=\"a\"><!--c--><p class=\"x\">um</p>txt<span>dois</span></div>");
+        let dom = parse_html_to_dom(
+            "<div id=\"a\"><!--c--><p class=\"x\">um</p>txt<span>dois</span></div>",
+        );
         let div = dom.query("#a").unwrap();
         let p = dom.first_element_child(div).unwrap();
         // node_name no Rust é minúsculo (a fachada TS faz toUpperCase).
@@ -4570,7 +5012,9 @@ mod tests {
     fn query_por_subarvore() {
         // querySelector restrito à subárvore (#1758): o <p> dentro de #b não deve
         // ser achado pela busca dentro de #a.
-        let dom = parse_html_to_dom("<div id=\"a\"><p class=\"x\">in-a</p></div><div id=\"b\"><p class=\"x\">in-b</p></div>");
+        let dom = parse_html_to_dom(
+            "<div id=\"a\"><p class=\"x\">in-a</p></div><div id=\"b\"><p class=\"x\">in-b</p></div>",
+        );
         let a = dom.query("#a").unwrap();
         let found = dom.query_within(a, ".x").unwrap();
         assert_eq!(dom.text_content(found).as_deref(), Some("in-a")); // só o de dentro de #a
@@ -4667,13 +5111,17 @@ mod tests {
     #[test]
     fn replace_with_atomico_nao_destroi_em_ciclo() {
         // BUG CRITICAL: replaceWith(node, ancestral) destruía node sem inserir.
-        let mut dom = parse_html_to_dom("<div id=\"out\"><div id=\"in\"><p id=\"p\">x</p></div></div>");
+        let mut dom =
+            parse_html_to_dom("<div id=\"out\"><div id=\"in\"><p id=\"p\">x</p></div></div>");
         let out = dom.query("#out").unwrap();
         let p = dom.query("#p").unwrap();
         // tentar substituir p por 'out' (ancestral de p) — guarda de ciclo aborta o
         // insert; p NÃO deve ser destruído.
         dom.replace_with(p, out);
-        assert!(dom.query("#p").is_some(), "p preservado quando a inserção aborta");
+        assert!(
+            dom.query("#p").is_some(),
+            "p preservado quando a inserção aborta"
+        );
         // replaceWith por si mesmo é no-op (não remove).
         dom.replace_with(p, p);
         assert!(dom.query("#p").is_some());
@@ -4688,14 +5136,51 @@ mod tests {
     #[test]
     fn after_com_proximo_irmao_mantem_ordem() {
         // BUG: after(other) com other já sendo o próximo irmão jogava other pro fim.
-        let mut dom = parse_html_to_dom("<div id=\"a\"><b id=\"b\">1</b><i id=\"i\">2</i><u id=\"u\">3</u></div>");
+        let mut dom = parse_html_to_dom(
+            "<div id=\"a\"><b id=\"b\">1</b><i id=\"i\">2</i><u id=\"u\">3</u></div>",
+        );
         let a = dom.query("#a").unwrap();
         let b = dom.query("#b").unwrap();
         let i = dom.query("#i").unwrap();
         // b.after(i) — i JÁ é o próximo irmão de b; deve manter a ordem b,i,u.
         dom.insert_adjacent(b, i, true);
-        let names: Vec<String> = dom.child_elements(a).iter().map(|&k| dom.node_name(k).unwrap()).collect();
+        let names: Vec<String> = dom
+            .child_elements(a)
+            .iter()
+            .map(|&k| dom.node_name(k).unwrap())
+            .collect();
         assert_eq!(names, vec!["b", "i", "u"]); // ordem preservada, i não foi pro fim
+    }
+
+    #[test]
+    fn geometria_em_lote_responde_o_mesmo_que_a_singular() {
+        // O que se pina NÃO é que o layout está certo — é que pedir as caixas de
+        // uma vez dá o MESMO que pedi-las uma a uma. É a única coisa que separa
+        // "o extrator de paridade ficou rápido" de "o extrator de paridade
+        // passou a medir outra coisa", e a diferença entre as duas seria um
+        // número de paridade a melhorar sem ninguém ter corrigido layout.
+        let dom = parse_html_to_dom(
+            "<style>.a{width:100px;height:30px;margin:5px}</style>\
+             <div class=\"a\">um</div><p>dois<span>três</span></p><div><div>n</div></div>",
+        );
+        let ids: Vec<NodeId> = dom.query_all("div, p, span");
+        assert!(ids.len() >= 5, "a fixture tem de ter elementos para comparar");
+        let lote = dom.bounding_components_many(&ids);
+        for (i, &id) in ids.iter().enumerate() {
+            for k in 0..4i64 {
+                assert_eq!(
+                    lote[i * 4 + k as usize],
+                    dom.bounding_component(id, k),
+                    "nó {i}, componente {k}"
+                );
+            }
+        }
+        // E um id que não resolve responde zeros nas quatro, como a singular.
+        let morto = NodeId {
+            generation: u32::MAX,
+            idx: u32::MAX,
+        };
+        assert_eq!(dom.bounding_components_many(&[morto]), vec![0.0; 4]);
     }
 
     #[test]
@@ -4707,7 +5192,10 @@ mod tests {
         let a = dom.query("#a").unwrap();
         assert_eq!(dom.computed_property(a, "color"), "rgb(255, 0, 0)");
         // alpha a 2 casas — VALIDADO no Chrome (#..80 / rgba(.5) → "0.5", não 0.501961).
-        assert_eq!(dom.computed_property(a, "background-color"), "rgba(0, 0, 255, 0.5)");
+        assert_eq!(
+            dom.computed_property(a, "background-color"),
+            "rgba(0, 0, 255, 0.5)"
+        );
         assert_eq!(dom.computed_property(a, "font-size"), "18px");
         assert_eq!(dom.computed_property(a, "padding-top"), "10px");
         // NÃO declarado responde o valor USADO, não vazio: `getComputedStyle` de
@@ -4755,7 +5243,9 @@ mod tests {
     #[test]
     fn display_keyword_valido() {
         // FlexWrap → "flex" (não "flexwrap" inválido); flex-wrap é prop separada.
-        let dom = parse_html_to_dom("<style>#a{display:flex;flex-wrap:wrap}</style><div id=\"a\">x</div>");
+        let dom = parse_html_to_dom(
+            "<style>#a{display:flex;flex-wrap:wrap}</style><div id=\"a\">x</div>",
+        );
         let a = dom.query("#a").unwrap();
         assert_eq!(dom.computed_property(a, "display"), "flex");
     }
@@ -4918,7 +5408,10 @@ mod tests {
         dom.set_text(p, "depois");
         let p = idx(&dom, p);
         assert_eq!(dom.node(p).children.len(), 1);
-        assert_eq!(dom.node(dom.node(p).children[0]).kind, NodeKind::Text("depois".into()));
+        assert_eq!(
+            dom.node(dom.node(p).children[0]).kind,
+            NodeKind::Text("depois".into())
+        );
     }
 
     #[test]
@@ -4992,7 +5485,10 @@ mod tests {
 
     #[test]
     fn nodeid_abi_roundtrip() {
-        let id = NodeId { generation: 7, idx: 42 };
+        let id = NodeId {
+            generation: 7,
+            idx: 42,
+        };
         let v = id.to_abi();
         assert!(v >= 0);
         assert_eq!(NodeId::from_abi(v), Some(id));
@@ -5003,9 +5499,8 @@ mod tests {
 
     #[test]
     fn atributos_class_id_href_preservados() {
-        let dom = parse_html_to_dom(
-            "<div class='card' id=\"alvo\"><a href='https://x'>l</a></div>",
-        );
+        let dom =
+            parse_html_to_dom("<div class='card' id=\"alvo\"><a href='https://x'>l</a></div>");
         let div = topo(&dom)[0];
         assert_eq!(dom.node(div).attr("class"), Some("card"));
         assert_eq!(dom.node(div).attr("id"), Some("alvo"));
@@ -5020,10 +5515,10 @@ mod tests {
         // aspas duplas, simples, sem aspas, e atributo sem valor.
         let dom = parse_html_to_dom("<input type=text value='oi' disabled checked=\"x\">");
         let inp = topo(&dom)[0];
-        assert_eq!(dom.node(inp).attr("type"), Some("text"));   // sem aspas
-        assert_eq!(dom.node(inp).attr("value"), Some("oi"));    // aspas simples
-        assert_eq!(dom.node(inp).attr("disabled"), Some(""));   // booleano
-        assert_eq!(dom.node(inp).attr("checked"), Some("x"));   // aspas duplas
+        assert_eq!(dom.node(inp).attr("type"), Some("text")); // sem aspas
+        assert_eq!(dom.node(inp).attr("value"), Some("oi")); // aspas simples
+        assert_eq!(dom.node(inp).attr("disabled"), Some("")); // booleano
+        assert_eq!(dom.node(inp).attr("checked"), Some("x")); // aspas duplas
         // `input` é void: não empilha, não tem filhos.
         assert!(dom.node(inp).children.is_empty());
     }
@@ -5258,7 +5753,10 @@ mod tests {
         let dom2 = parse_html_to_dom("<p>texto<div>x</div>");
         let p = dom2.query("p").unwrap();
         let div = dom2.query("div").unwrap();
-        assert_eq!(dom2.parent_of(div).map(|x| idx(&dom2, x)), Some(body_idx(&dom2)));
+        assert_eq!(
+            dom2.parent_of(div).map(|x| idx(&dom2, x)),
+            Some(body_idx(&dom2))
+        );
         assert_eq!(dom2.next_sibling(p), Some(div));
         assert_eq!(dom2.text_content(p).unwrap(), "texto"); // o "x" NÃO entrou no p
     }
@@ -5420,7 +5918,10 @@ mod tests {
         };
         assert_eq!(caso(".btn { color: red }"), HoverReach::None);
         assert_eq!(caso(".btn:hover { color: red }"), HoverReach::SelfOnly);
-        assert_eq!(caso(".card:hover .title { color: red }"), HoverReach::Subtree);
+        assert_eq!(
+            caso(".card:hover .title { color: red }"),
+            HoverReach::Subtree
+        );
         assert_eq!(caso(".a:hover + .b { color: red }"), HoverReach::Siblings);
     }
 
@@ -5430,7 +5931,9 @@ mod tests {
     #[cfg(feature = "metrics")]
     #[test]
     fn hover_recascadeia_a_cadeia_e_nao_a_pagina() {
-        let filhos: String = (0..50).map(|i| format!("<p class=\"linha\">l{i}</p>")).collect();
+        let filhos: String = (0..50)
+            .map(|i| format!("<p class=\"linha\">l{i}</p>"))
+            .collect();
         let mut dom = parse_html_to_dom(&format!(
             "<style>.btn:hover {{ color: red }}</style>             <div id=\"lado\">{filhos}</div><a class=\"btn\" id=\"alvo\">x</a>"
         ));

@@ -34,7 +34,10 @@ impl Samples {
 
     /// As amostras de uma categoria e quantas vezes ela ocorreu ao todo.
     pub fn get(&self, kind: &str) -> Option<(&[String], u64)> {
-        self.entries.iter().find(|(k, _, _)| *k == kind).map(|(_, v, n)| (v.as_slice(), *n))
+        self.entries
+            .iter()
+            .find(|(k, _, _)| *k == kind)
+            .map(|(_, v, n)| (v.as_slice(), *n))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&'static str, &[String], u64)> + '_ {
@@ -82,7 +85,9 @@ macro_rules! note {
 #[cfg(feature = "metrics")]
 pub fn record(kind: &'static str, text: impl FnOnce() -> String) {
     SAMPLES.with(|s| {
-        let Ok(mut s) = s.try_borrow_mut() else { return };
+        let Ok(mut s) = s.try_borrow_mut() else {
+            return;
+        };
         match s.entries.iter_mut().find(|(k, _, _)| *k == kind) {
             Some((_, list, total)) => {
                 *total += 1;

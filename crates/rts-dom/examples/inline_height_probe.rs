@@ -17,7 +17,6 @@
 // sobre o motor.
 use rts_dom::layout::{self, DisplayItem};
 
-
 /// Percorre a árvore como o extrator de paridade, emitindo `caminho	rect`.
 ///
 /// O caminho é `html[1]/body[1]/div[3]/…`, com o índice a contar irmãos DA MESMA
@@ -44,15 +43,20 @@ fn dump_caminhos(
     if let Some(r) = geo.rects.get(&idx) {
         out.push_str(&format!(
             "{caminho}	{:.2}	{:.2}	{:.2}	{:.2}	{fonte:.2}
-", r.x, r.y, r.w, r.h
+",
+            r.x, r.y, r.w, r.h
         ));
     } else {
-        out.push_str(&format!("{caminho}	-	-	-	-	{fonte:.2}
-"));
+        out.push_str(&format!(
+            "{caminho}	-	-	-	-	{fonte:.2}
+"
+        ));
     }
     let mut contas: std::collections::BTreeMap<String, usize> = Default::default();
     for &f in &dom.node(idx).children {
-        let NodeKind::Element { tag } = &dom.node(f).kind else { continue };
+        let NodeKind::Element { tag } = &dom.node(f).kind else {
+            continue;
+        };
         let n = contas.entry(tag.clone()).or_insert(0);
         *n += 1;
         dump_caminhos(dom, geo, f, format!("{caminho}/{tag}[{n}]"), out);
@@ -63,7 +67,11 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let html = std::fs::read_to_string(&args[1]).expect("html");
     let dom = rts_dom::parse_html_to_dom(&html);
-    let ctx = layout::LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &layout::ApproxMeasurer };
+    let ctx = layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &layout::ApproxMeasurer,
+    };
     let list = layout::layout_document(&dom, &ctx);
     println!("altura do documento: {:.0}", list.content_height);
 
@@ -77,7 +85,9 @@ fn main() {
     let mut por_tipo = std::collections::BTreeMap::new();
     list.walk(|it, dx, dy| {
         let nome = match it {
-            DisplayItem::Text { x, y, text, size, .. } => {
+            DisplayItem::Text {
+                x, y, text, size, ..
+            } => {
                 textos.push((x + dx, y + dy, *size, text.chars().count()));
                 "Text"
             }
@@ -99,99 +109,110 @@ fn main() {
     // caixas de elementos inline interessam aqui.
     let geo = list.geometry();
     {
-        let mut soma_por_tag: std::collections::BTreeMap<String, (usize, f32)> =
-            Default::default();
+        let mut soma_por_tag: std::collections::BTreeMap<String, (usize, f32)> = Default::default();
         for tag in ["a", "span", "i", "b", "sup", "cite", "small"] {
             for id in dom.query_all(tag) {
                 let Some(idx) = dom.resolve(id) else { continue };
-                let Some(r) = geo.rects.get(&idx) else { continue };
+                let Some(r) = geo.rects.get(&idx) else {
+                    continue;
+                };
                 let e = soma_por_tag.entry(tag.to_string()).or_insert((0, 0.0));
                 e.0 += 1;
                 e.1 += r.h;
             }
         }
         {
-        let mut com_caixa = 0usize;
-        let mut sem_caixa = 0usize;
-        for id in dom.query_all("a") {
-            let Some(idx) = dom.resolve(id) else { continue };
-            let css = dom.computed_style_idx(idx).unwrap_or_default();
-            if css.has_box() || css.height.is_some() {
-                com_caixa += 1;
-            } else {
-                sem_caixa += 1;
+            let mut com_caixa = 0usize;
+            let mut sem_caixa = 0usize;
+            for id in dom.query_all("a") {
+                let Some(idx) = dom.resolve(id) else { continue };
+                let css = dom.computed_style_idx(idx).unwrap_or_default();
+                if css.has_box() || css.height.is_some() {
+                    com_caixa += 1;
+                } else {
+                    sem_caixa += 1;
+                }
             }
+            println!("<a> com caixa (has_box): {com_caixa}, sem: {sem_caixa}");
+            let mut porque: std::collections::BTreeMap<&str, usize> = Default::default();
+            for id in dom.query_all("a") {
+                let Some(idx) = dom.resolve(id) else { continue };
+                let css = dom.computed_style_idx(idx).unwrap_or_default();
+                for (nome, ativo) in [
+                    ("bg", css.bg.is_some()),
+                    ("gradient", css.gradient.is_some()),
+                    ("box_shadow", css.box_shadow.is_some()),
+                    ("padding", css.padding.any_set()),
+                    ("margin", css.margin.any_set()),
+                    ("border_width", css.border_width.is_some()),
+                    ("border_widths", css.border_widths.any_set()),
+                    ("outline", css.outline_width.is_some()),
+                    ("radius", css.corner_radius.is_some()),
+                    ("width", css.width.is_some()),
+                    ("height", css.height.is_some()),
+                ] {
+                    if ativo {
+                        *porque.entry(nome).or_insert(0) += 1;
+                    }
+                }
+            }
+            println!("porque os <a> contam como caixa: {porque:?}");
         }
-        println!("<a> com caixa (has_box): {com_caixa}, sem: {sem_caixa}");
-        let mut porque: std::collections::BTreeMap<&str, usize> = Default::default();
-        for id in dom.query_all("a") {
-            let Some(idx) = dom.resolve(id) else { continue };
-            let css = dom.computed_style_idx(idx).unwrap_or_default();
-            for (nome, ativo) in [
-                ("bg", css.bg.is_some()),
-                ("gradient", css.gradient.is_some()),
-                ("box_shadow", css.box_shadow.is_some()),
-                ("padding", css.padding.any_set()),
-                ("margin", css.margin.any_set()),
-                ("border_width", css.border_width.is_some()),
-                ("border_widths", css.border_widths.any_set()),
-                ("outline", css.outline_width.is_some()),
-                ("radius", css.corner_radius.is_some()),
-                ("width", css.width.is_some()),
-                ("height", css.height.is_some()),
-            ] {
-                if ativo {
-                    *porque.entry(nome).or_insert(0) += 1;
+        {
+            println!("INPUTS:");
+            for id in dom.query_all("input") {
+                let Some(idx) = dom.resolve(id) else { continue };
+                let tipo = dom
+                    .node(idx)
+                    .attr("type")
+                    .unwrap_or("(sem type)")
+                    .to_string();
+                let css = dom.computed_style_idx(idx).unwrap_or_default();
+                match geo.rects.get(&idx) {
+                    Some(r) => println!(
+                        "  type={tipo:<10} caixa={:.0}x{:.0} em ({:.0},{:.0}) | font={:?} height={:?}",
+                        r.w, r.h, r.x, r.y, css.font_size, css.height
+                    ),
+                    None => println!("  type={tipo:<10} SEM CAIXA"),
                 }
             }
         }
-        println!("porque os <a> contam como caixa: {porque:?}");
-    }
-    {
-        println!("INPUTS:");
-        for id in dom.query_all("input") {
-            let Some(idx) = dom.resolve(id) else { continue };
-            let tipo = dom.node(idx).attr("type").unwrap_or("(sem type)").to_string();
-            let css = dom.computed_style_idx(idx).unwrap_or_default();
-            match geo.rects.get(&idx) {
-                Some(r) => println!(
-                    "  type={tipo:<10} caixa={:.0}x{:.0} em ({:.0},{:.0}) | font={:?} height={:?}",
-                    r.w, r.h, r.x, r.y, css.font_size, css.height
-                ),
-                None => println!("  type={tipo:<10} SEM CAIXA"),
-            }
-        }
-    }
-    // CADEIA de ancestrais do input mais alto: quem lhe dá o containing block.
-    {
-        let mut pior: Option<(rts_dom::NodeIdx, f32)> = None;
-        for id in dom.query_all("input") {
-            let Some(idx) = dom.resolve(id) else { continue };
-            let Some(r) = geo.rects.get(&idx) else { continue };
-            if pior.map(|(_, h)| r.h > h).unwrap_or(true) {
-                pior = Some((idx, r.h));
-            }
-        }
-        if let Some((alvo, _)) = pior {
-            println!("CADEIA do <input> mais alto (do próprio para a raiz):");
-            let mut cur = Some(alvo);
-            while let Some(idx) = cur {
-                let css = dom.computed_style_idx(idx).unwrap_or_default();
-                let nome = match &dom.node(idx).kind {
-                    rts_dom::NodeKind::Element { tag } => tag.clone(),
-                    _ => "(texto)".to_string(),
+        // CADEIA de ancestrais do input mais alto: quem lhe dá o containing block.
+        {
+            let mut pior: Option<(rts_dom::NodeIdx, f32)> = None;
+            for id in dom.query_all("input") {
+                let Some(idx) = dom.resolve(id) else { continue };
+                let Some(r) = geo.rects.get(&idx) else {
+                    continue;
                 };
-                let r = geo.rects.get(&idx);
-                println!(
-                    "  <{nome}> caixa={} | css height={:?} position={:?} display={:?} overflow_y={:?}",
-                    r.map(|r| format!("{:.0}x{:.0}", r.w, r.h)).unwrap_or_else(|| "-".into()),
-                    css.height, css.position, css.display, css.overflow_y
-                );
-                cur = dom.node(idx).parent;
+                if pior.map(|(_, h)| r.h > h).unwrap_or(true) {
+                    pior = Some((idx, r.h));
+                }
+            }
+            if let Some((alvo, _)) = pior {
+                println!("CADEIA do <input> mais alto (do próprio para a raiz):");
+                let mut cur = Some(alvo);
+                while let Some(idx) = cur {
+                    let css = dom.computed_style_idx(idx).unwrap_or_default();
+                    let nome = match &dom.node(idx).kind {
+                        rts_dom::NodeKind::Element { tag } => tag.clone(),
+                        _ => "(texto)".to_string(),
+                    };
+                    let r = geo.rects.get(&idx);
+                    println!(
+                        "  <{nome}> caixa={} | css height={:?} position={:?} display={:?} overflow_y={:?}",
+                        r.map(|r| format!("{:.0}x{:.0}", r.w, r.h))
+                            .unwrap_or_else(|| "-".into()),
+                        css.height,
+                        css.position,
+                        css.display,
+                        css.overflow_y
+                    );
+                    cur = dom.node(idx).parent;
+                }
             }
         }
-    }
-    println!("altura somada por tag (n, total):");
+        println!("altura somada por tag (n, total):");
         for (t, (n, h)) in &soma_por_tag {
             println!("  <{t}> {n} elementos, {:.0}px somados", h);
         }
@@ -207,9 +228,9 @@ fn main() {
     // Um despejo `caminho	rect` para comparar com o lado Chrome sem passar pelo
     // harness de paridade, que é do team-lead e não pode ter duas mãos a mexer-lhe.
     if let Ok(destino) = std::env::var("DUMP") {
-        let raiz = dom.node(dom.root).children.iter().copied().find(|&f| {
-            matches!(&dom.node(f).kind, rts_dom::NodeKind::Element { tag } if tag == "html")
-        });
+        let raiz = dom.node(dom.root).children.iter().copied().find(
+            |&f| matches!(&dom.node(f).kind, rts_dom::NodeKind::Element { tag } if tag == "html"),
+        );
         match raiz {
             Some(raiz) => {
                 let mut out = String::new();

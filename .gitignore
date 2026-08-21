@@ -116,3 +116,7 @@ scripts/captura/out/
 scripts/parity/out*/
 scripts/parity/pagina.combinada.html
 paridade/
+# Páginas COMBINADAS do harness de paridade: são geradas por `scripts/parity/run.sh`
+# a partir do par HTML/CSS, pesam megabytes e mudam a cada corrida. O que se
+# versiona é o gerador, não a saída dele.
+scripts/parity/*.combinada.html

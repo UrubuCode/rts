@@ -21,7 +21,10 @@ fn parses_z_index() {
 
 #[test]
 fn parses_aspect_ratio() {
-    assert_eq!(parse_inline("aspect-ratio: 16 / 9").aspect_ratio, Some(16.0 / 9.0));
+    assert_eq!(
+        parse_inline("aspect-ratio: 16 / 9").aspect_ratio,
+        Some(16.0 / 9.0)
+    );
     assert_eq!(parse_inline("aspect-ratio: 1 / 1").aspect_ratio, Some(1.0));
     assert_eq!(parse_inline("aspect-ratio: 1.5").aspect_ratio, Some(1.5));
     assert_eq!(parse_inline("aspect-ratio: auto").aspect_ratio, None);
@@ -29,15 +32,21 @@ fn parses_aspect_ratio() {
 
 #[test]
 fn parses_transform() {
-    let t = parse_inline("transform: translate(10px, -20px) scale(1.5) rotate(45deg)").transform.unwrap();
+    let t = parse_inline("transform: translate(10px, -20px) scale(1.5) rotate(45deg)")
+        .transform
+        .unwrap();
     assert_eq!((t.tx, t.ty), (10.0, -20.0));
     assert_eq!((t.sx, t.sy), (1.5, 1.5));
     assert_eq!(t.rot_deg, 45.0);
     // translate(-50%, -50%) → frações.
-    let c = parse_inline("transform: translate(-50%, -50%)").transform.unwrap();
+    let c = parse_inline("transform: translate(-50%, -50%)")
+        .transform
+        .unwrap();
     assert_eq!((c.tx_pct, c.ty_pct), (-0.5, -0.5));
     // translateX/Y e scaleX/Y isolados.
-    let x = parse_inline("transform: translateX(8px)").transform.unwrap();
+    let x = parse_inline("transform: translateX(8px)")
+        .transform
+        .unwrap();
     assert_eq!(x.tx, 8.0);
     assert_eq!(x.ty, 0.0);
     let s = parse_inline("transform: scaleY(2)").transform.unwrap();
@@ -53,12 +62,18 @@ fn parses_text_effects() {
     assert_eq!(a.letter_spacing, Some(2.0));
     assert_eq!(a.text_decoration, Some(TextDecoration::Underline));
     // `normal` = 0; shorthand com cor/estilo → pega a keyword de linha.
-    assert_eq!(parse_inline("letter-spacing: normal").letter_spacing, Some(0.0));
+    assert_eq!(
+        parse_inline("letter-spacing: normal").letter_spacing,
+        Some(0.0)
+    );
     assert_eq!(
         parse_inline("text-decoration: line-through dotted red").text_decoration,
         Some(TextDecoration::LineThrough)
     );
-    assert_eq!(parse_inline("text-decoration-line: overline").text_decoration, Some(TextDecoration::Overline));
+    assert_eq!(
+        parse_inline("text-decoration-line: overline").text_decoration,
+        Some(TextDecoration::Overline)
+    );
 }
 
 #[test]
@@ -106,7 +121,10 @@ fn parses_opacity() {
     // via cascade de autor.
     let mut sheet = Stylesheet::new();
     sheet.append_css(".fade{opacity:0.3}");
-    assert_eq!(sheet.computed_for("div", None, &["fade"]).normal.opacity, Some(0.3));
+    assert_eq!(
+        sheet.computed_for("div", None, &["fade"]).normal.opacity,
+        Some(0.3)
+    );
 }
 
 #[test]
@@ -170,7 +188,10 @@ fn margin_padding_longhand_e_auto() {
     // padding NÃO aceita auto (vira Unset).
     assert_eq!(parse_inline("padding: auto").padding.left, Side::Unset);
     // margin negativo permitido.
-    assert_eq!(parse_inline("margin-top: -5px").margin.top, Side::px_len(-5.0));
+    assert_eq!(
+        parse_inline("margin-top: -5px").margin.top,
+        Side::px_len(-5.0)
+    );
     // longhand VENCE o shorthand na cascade (merge_over por lado).
     let mut base = parse_inline("padding: 10px");
     base.merge_over(&parse_inline("padding-left: 30px"));
@@ -191,9 +212,15 @@ fn border_shorthand() {
     assert_eq!(c2.border_style, Some(BorderStyle::Solid));
     assert_eq!(c2.border_color, Some(0xFF0000FF));
     // keyword de largura.
-    assert_eq!(parse_inline("border: thin dashed blue").border_width, Some(1.0));
+    assert_eq!(
+        parse_inline("border: thin dashed blue").border_width,
+        Some(1.0)
+    );
     // border-style isolado.
-    assert_eq!(parse_inline("border-style: dotted").border_style, Some(BorderStyle::Dotted));
+    assert_eq!(
+        parse_inline("border-style: dotted").border_style,
+        Some(BorderStyle::Dotted)
+    );
 }
 
 #[test]
@@ -280,7 +307,10 @@ fn apply_slot_desconhecido_e_invalido_ignora() {
 fn egui_free_garantia() {
     // Documenta a invariante F0(d): este módulo não nomeia tipos do egui.
     // A cor é u32; o teste compila SÓ se ComputedStyle for egui-free.
-    let s = ComputedStyle { color: Some(0xAABBCCFF), ..Default::default() };
+    let s = ComputedStyle {
+        color: Some(0xAABBCCFF),
+        ..Default::default()
+    };
     let _raw: Option<u32> = s.color; // se fosse Color32, isto não compilaria.
 }
 
@@ -339,10 +369,22 @@ fn dimension_abi_roundtrip() {
     }
     // contrato concreto das bases (valor × 1000 dentro da faixa):
     assert_eq!(Dimension::from_abi(-1), Some(Dimension::Auto));
-    assert_eq!(Dimension::from_abi(DIM_BASE_PX + 280_000), Some(Dimension::Px(280.0)));
-    assert_eq!(Dimension::from_abi(DIM_BASE_PERCENT + 60_000), Some(Dimension::Percent(60.0)));
-    assert_eq!(Dimension::from_abi(DIM_BASE_EM + 1_500), Some(Dimension::Em(1.5)));
-    assert_eq!(Dimension::from_abi(DIM_BASE_VW + 50_000), Some(Dimension::Vw(50.0)));
+    assert_eq!(
+        Dimension::from_abi(DIM_BASE_PX + 280_000),
+        Some(Dimension::Px(280.0))
+    );
+    assert_eq!(
+        Dimension::from_abi(DIM_BASE_PERCENT + 60_000),
+        Some(Dimension::Percent(60.0))
+    );
+    assert_eq!(
+        Dimension::from_abi(DIM_BASE_EM + 1_500),
+        Some(Dimension::Em(1.5))
+    );
+    assert_eq!(
+        Dimension::from_abi(DIM_BASE_VW + 50_000),
+        Some(Dimension::Vw(50.0))
+    );
 }
 
 #[test]
@@ -375,8 +417,14 @@ fn width_slot_e_parse() {
     assert_eq!(s.width, Some(Dimension::Px(320.0)));
     // via style="" inline: TODAS as unidades.
     assert_eq!(parse_inline("width: 280").width, Some(Dimension::Px(280.0)));
-    assert_eq!(parse_inline("width: 280px").width, Some(Dimension::Px(280.0)));
-    assert_eq!(parse_inline("width: 60%").width, Some(Dimension::Percent(60.0)));
+    assert_eq!(
+        parse_inline("width: 280px").width,
+        Some(Dimension::Px(280.0))
+    );
+    assert_eq!(
+        parse_inline("width: 60%").width,
+        Some(Dimension::Percent(60.0))
+    );
     assert_eq!(parse_inline("width: 1.5em").width, Some(Dimension::Em(1.5)));
     assert_eq!(parse_inline("width: 2rem").width, Some(Dimension::Rem(2.0)));
     assert_eq!(parse_inline("width: 50vw").width, Some(Dimension::Vw(50.0)));
@@ -420,25 +468,41 @@ fn stylesheet_empate_ordem_e_virgula() {
     let mut sheet = Stylesheet::new();
     // mesma especificidade (classe) → a DECLARADA DEPOIS vence.
     sheet.append_css(".a { color:#ff0000 } .a { color:#00ff00 }");
-    assert_eq!(sheet.computed_for("div", None, &["a"]).normal.color, Some(0x00FF00FF));
+    assert_eq!(
+        sheet.computed_for("div", None, &["a"]).normal.color,
+        Some(0x00FF00FF)
+    );
     // seletor-lista `h1, h2, .big { ... }` → aplica aos três.
     let mut s2 = Stylesheet::new();
     s2.append_css("h1, h2, .big { font-size:30 }");
-    assert_eq!(s2.computed_for("h1", None, &[]).normal.font_size, Some(Dimension::Px(30.0)));
-    assert_eq!(s2.computed_for("h2", None, &[]).normal.font_size, Some(Dimension::Px(30.0)));
-    assert_eq!(s2.computed_for("p", None, &["big"]).normal.font_size, Some(Dimension::Px(30.0)));
+    assert_eq!(
+        s2.computed_for("h1", None, &[]).normal.font_size,
+        Some(Dimension::Px(30.0))
+    );
+    assert_eq!(
+        s2.computed_for("h2", None, &[]).normal.font_size,
+        Some(Dimension::Px(30.0))
+    );
+    assert_eq!(
+        s2.computed_for("p", None, &["big"]).normal.font_size,
+        Some(Dimension::Px(30.0))
+    );
     assert_eq!(s2.computed_for("p", None, &[]).normal.font_size, None); // não casa
 }
 
 #[test]
 fn stylesheet_universal_e_comentarios() {
     let mut sheet = Stylesheet::new();
-    sheet.append_css(
-        "/* tema escuro */ * { color:#cccccc } /* destaque */ .hl { color:#ffff00 }",
-    );
+    sheet.append_css("/* tema escuro */ * { color:#cccccc } /* destaque */ .hl { color:#ffff00 }");
     // universal aplica a qualquer tag; a classe (mais específica) sobrepõe.
-    assert_eq!(sheet.computed_for("span", None, &[]).normal.color, Some(0xCCCCCCFF));
-    assert_eq!(sheet.computed_for("span", None, &["hl"]).normal.color, Some(0xFFFF00FF));
+    assert_eq!(
+        sheet.computed_for("span", None, &[]).normal.color,
+        Some(0xCCCCCCFF)
+    );
+    assert_eq!(
+        sheet.computed_for("span", None, &["hl"]).normal.color,
+        Some(0xFFFF00FF)
+    );
 }
 
 #[test]
@@ -502,17 +566,34 @@ fn define_style_acumula_por_tag() {
 fn font_size_e_lados_em_rem() {
     // font-size preserva a FORMA no parse (rem/em/%/vw/calc); quem resolve para
     // Px é a CASCADE (base de em/% = font do pai — ver dom.rs). 2.5rem → Rem(2.5).
-    assert_eq!(parse_inline("font-size: 2.5rem").font_size, Some(Dimension::Rem(2.5)));
+    assert_eq!(
+        parse_inline("font-size: 2.5rem").font_size,
+        Some(Dimension::Rem(2.5))
+    );
     // calc() linear reduz no parse: calc(1.375rem + 1.5vw) → {rem:1.375, vw:1.5}.
     let c = parse_inline("font-size: calc(1.375rem + 1.5vw)").font_size;
-    assert_eq!(c, Some(Dimension::Calc(CalcLen { rem: 1.375, vw: 1.5, ..Default::default() })));
+    assert_eq!(
+        c,
+        Some(Dimension::Calc(CalcLen {
+            rem: 1.375,
+            vw: 1.5,
+            ..Default::default()
+        }))
+    );
     // padding/margin carregam a unidade (resolve TARDE no layout).
     let c = parse_inline("padding: 1rem; margin: -0.5rem 2em");
     assert_eq!(c.padding.top, Side::Len(Dimension::Rem(1.0)));
-    assert_eq!(c.margin.top, Side::Len(Dimension::Rem(-0.5)), "negativo preserva o sinal");
+    assert_eq!(
+        c.margin.top,
+        Side::Len(Dimension::Rem(-0.5)),
+        "negativo preserva o sinal"
+    );
     assert_eq!(c.margin.left, Side::Len(Dimension::Em(2.0)));
     // border-radius em rem: 0.375rem = 6px (o .btn do Bootstrap).
-    assert_eq!(parse_inline("border-radius: 0.375rem").corner_radius, Some(6.0));
+    assert_eq!(
+        parse_inline("border-radius: 0.375rem").corner_radius,
+        Some(6.0)
+    );
 }
 
 #[test]
@@ -529,8 +610,14 @@ fn at_rules_nao_corrompem_o_parse() {
          p { color:#00ff00 }",
     );
     // as regras APÓS as at-rules sobrevivem (antes eram corrompidas).
-    assert_eq!(sheet.computed_for("h1", None, &[]).normal.color, Some(0xFF0000FF));
-    assert_eq!(sheet.computed_for("p", None, &[]).normal.color, Some(0x00FF00FF));
+    assert_eq!(
+        sheet.computed_for("h1", None, &[]).normal.color,
+        Some(0xFF0000FF)
+    );
+    assert_eq!(
+        sheet.computed_for("p", None, &[]).normal.color,
+        Some(0x00FF00FF)
+    );
     // FASE 2: as regras INTERNAS do @media APLICAM quando o viewport casa (o
     // helper computed_for usa 1280 ≥ 1200)…
     assert_eq!(
@@ -544,7 +631,11 @@ fn at_rules_nao_corrompem_o_parse() {
     });
     let no_match = sheet.declarations_from(&matched, None);
     assert_eq!(no_match.normal.font_size, None);
-    assert_eq!(no_match.normal.color, Some(0xFF0000FF), "a regra fora do @media segue");
+    assert_eq!(
+        no_match.normal.color,
+        Some(0xFF0000FF),
+        "a regra fora do @media segue"
+    );
     // feature desconhecida (prefers-*) nunca casa.
     let mut s3 = Stylesheet::new();
     s3.append_css("@media (prefers-reduced-motion: reduce){ p{ color:#111111 } }");
@@ -552,7 +643,10 @@ fn at_rules_nao_corrompem_o_parse() {
     // @media sem fechar não panica (tolerância).
     let mut s2 = Stylesheet::new();
     s2.append_css("p { color:#0000ff } @media (x) { .a { color:#fff }");
-    assert_eq!(s2.computed_for("p", None, &[]).normal.color, Some(0x0000FFFF));
+    assert_eq!(
+        s2.computed_for("p", None, &[]).normal.color,
+        Some(0x0000FFFF)
+    );
 }
 
 #[test]
@@ -607,5 +701,8 @@ fn inline_block_e_de_nivel_inline_e_nao_de_bloco() {
     assert!(DisplayKind::Inline.is_inline_level());
     assert!(!DisplayKind::Block.is_inline_level());
     // e continua a empilhar os filhos no mesmo eixo do `inline` (wrap).
-    assert_eq!(DisplayKind::InlineBlock.to_display_code(), DisplayKind::Inline.to_display_code());
+    assert_eq!(
+        DisplayKind::InlineBlock.to_display_code(),
+        DisplayKind::Inline.to_display_code()
+    );
 }

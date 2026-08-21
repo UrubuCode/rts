@@ -553,3 +553,191 @@ cargo test -p rts-dom                           # 376 testes
 ```
 
 `OUT=` no `run.sh` para não escrever por cima da medição de referência.
+
+---
+
+## O erro de POSIÇÃO dos elementos inline — quatro hipóteses ELIMINADAS
+
+Estado em **2026-08-21**. Isto não é um diagnóstico: é a lista do que já foi
+medido e **não** é a causa, para que quem pegue nisto não repita o caminho.
+
+O que se sabe, medido no harness (Wikipédia, 16 813 pares, dumps
+`scripts/parity/out/rts-disp.jsonl` contra `out/chrome.jsonl`):
+
+| | |
+|---|---:|
+| soma \|dx\| dos inline que erram | **1 217 k px** |
+| soma \|dw\| dos mesmos | 272 k px |
+| erram em x e w | 7 835 |
+| só em x | 931 |
+| só em w | 2 209 |
+| nossos mais largos / mais estreitos | 5 434 / 5 541 |
+| de UMA linha / multi-linha | 9 775 / 1 200 |
+
+**O erro é sobretudo de POSIÇÃO** — `|dx|` é 4,5x `|dw|` — **sem viés de
+largura**, e sobretudo em elementos de uma linha.
+
+### O que NÃO é a causa
+
+1. **A união dos fragmentos.** `inline_box::union_rect` está correta: a caixa de
+   um inline é o bounding box dos seus fragmentos, que é o que a spec manda o
+   `getBoundingClientRect` devolver. Verificado com sonda — as uniões repetidas
+   são idênticas entre si e nenhuma passagem de medição partilha a lista final.
+2. **A acumulação dentro da linha.** O primeiro elemento de cada linha já erra.
+3. **A largura do texto.** Nos elementos de uma linha com texto conhecido dos
+   dois lados (n=277), o rácio da largura nossa sobre a do Chrome tem **mediana
+   1,000** e 87% ficam dentro de 2%. O medidor aproximado não é o culpado.
+4. **"A linha começa no sítio errado".** Pareceu confirmado — 84% das linhas com
+   o primeiro elemento errado, 85 px em média — e **caiu por VIÉS DO MÉTODO**: os
+   elementos foram agrupados pelo `y` do CHROME, e se as nossas linhas quebram
+   noutro sítio, o primeiro elemento da linha dele não é o primeiro da nossa.
+   Estavam a ser comparados elementos diferentes. Um teste seguinte confirmou-o:
+   nos `<p>` cujo bloco está no x EXATO do Chrome (497 de 497), o deslocamento da
+   primeira palavra é disperso (−11 a +7 px) em vez de um valor repetido, que é o
+   que um recuo em falta produziria.
+
+### O que sobra, e é pouco
+
+Dos 277 comparáveis, 35 fogem aos 2% e têm família: `<td>` sempre mais
+ESTREITOS (9 de 9) e `<li>` quase sempre mais LARGOS (14 de 15) — a repartição
+de colunas de tabela e o recuo de lista, ambos já conhecidos. Não explicam
+1,2 M px.
+
+**Limitação do instrumento, escrita porque restringe tudo acima:** o extrator do
+Chrome só despeja o texto renderizado (`chars`) para blocos de conteúdo puro sem
+descendentes de bloco. Portanto a amostra de 277 é enviesada para parágrafos
+simples, e um `<span>` dentro de um `<a>` dentro de um `<li>` — que é o grosso
+dos 8 856 que erram — **não entra nela**. Alargar essa amostra é o passo que
+falta antes de qualquer nova hipótese.
+
+---
+
+## Estado ao fim de 2026-08-21
+
+Medido com o binário do `HEAD` desse dia, mesma página e mesmo `chrome.jsonl`.
+
+| | manhã | fim do dia |
+|---|---:|---:|
+| erro de LARGURA da página | 804 k px | **360 k** |
+| erro de `y` (todos os pares) | 215,8 M px | **30,8 M** |
+| elementos que NÃO dispomos | 342 | **30** |
+| — o erro deles | 20,9% | **0,14%** |
+| o erro que é do que SE VÊ | 42,5% | **91,5%** |
+| declarações CSS reconhecidas | 76,1% | **97,9%** |
+| corpus de medição | 4 folhas | **13 folhas reais** |
+| testes do `rts-dom` | 376 | **565** |
+
+**A linha que mais interessa é a do meio.** De manhã, mais de metade do número
+era invisível — elementos sem área ou que não dispúnhamos, e cujo `y` a régua
+lia como zero. Hoje são 8,5%. **O número passou a medir sobretudo coisas que
+aparecem no ecrã**, que era o objetivo da régua nova.
+
+### O que se DESENHA está fechado
+
+    marcadores de lista   787 contra 787   — em falta 0, a mais 0
+    caracteres em falta   24 (18 `·` + 6 aspas)
+    caracteres a mais     73
+    sobre 153 124 do Chrome: 0,0% dos dois lados
+
+A quarta régua (`scripts/parity/regua_desenho.mjs`) mede isto, e nasceu porque
+as outras três só viam caixas: um marcador no sítio errado não move caixa
+nenhuma, e texto que falta ou sobra também não.
+
+### O que falta, com causa nomeada
+
+1. **A repartição de largura entre COLUNAS de tabela.** 70 px numa célula
+   propagam-se e produzem 545 px de deslocamento visível numa lista a jusante.
+   Sinal MISTO — 207 células largas demais contra 132 estreitas demais, em pares
+   na mesma linha —, portanto mede-se por par e nunca por soma.
+2. **O erro de POSIÇÃO dos elementos inline**, 1,2 M px, **sem causa** depois de
+   quatro hipóteses eliminadas (ver a secção própria).
+3. Pequenos e medidos: 24 caracteres (`·` e aspas), 5 px de reserva entre um
+   `ul` e um `li` inline, `opacity:0` num ancestral não tratado.
+
+---
+
+## Segunda sessão do dia: treze lotes, uma regressão declarada
+
+Todos medidos por elemento contra a base do lote anterior, mesma entrada e mesmo
+dump do Chrome, com `scripts/parity/regressao.mjs`.
+
+| | ao retomar | ao fechar |
+|---|---|---|
+| imagens que casam em largura | 72 / 110 | **109 / 110** |
+| erro de `x` | 918 125 px | **835 389 px** |
+| erro de `w` | 371 001 px | **277 793 px** |
+| erro de `y` | 30,95 M px | **29,56 M px** |
+| elementos sem caixa | 23 | 23 |
+| testes em `rts-dom` | 565 | **590** |
+
+**Uma única regressão em todo o dia, e está declarada:** quatro `<a>` a errar
+3 px de altura, em troca de seis elementos que voltaram a ter caixa. Casavam
+enquanto o pai não existia.
+
+### O que foi corrigido, por ordem de efeito
+
+1. **`width:max-content` descartado no parse** — oito `<div>`, **1 882 ganhos**.
+   O painel do menu tomava a largura do pai e estrangulava ~135 `<li>` a 22 px.
+2. **`padding:0` a fazer um inline virar bloco** — os 51 cabeçalhos deixaram de
+   ocupar a linha inteira: **−986 020 px em `y`, sem um perdido**.
+3. **`inline-block` contado como display de bloco** — os `<li>` da `hlist`
+   ficavam sem caixa nenhuma.
+4. **Quatro regras dos elementos replaced** — não cortar pela largura do
+   contentor, a base da percentagem sem a margem própria, `auto` distinto de
+   ausente, a borda na caixa, e a razão de aspecto vinda dos atributos.
+5. **`<picture>`/`<source>`**, com o `media` avaliado pelo mesmo `MediaQuery`
+   dos blocos `@media`.
+6. **`font:inherit`** — certo por spec, **zero efeito nesta página**, medido.
+
+### O que o dia ensinou sobre MEDIR, que vale mais que a lista acima
+
+**A régua julga pela população e pelo eixo.** Pelo tuplo `x,y,w,h`, a correção
+das imagens dava 0 de 110 antes e 0 de 110 depois, porque a mediana do erro em
+`y` são milhares de pixels. Por `--eixos w`: 72 → 107. `regressao.mjs` aceita
+agora `--tags` e `--eixos` por causa disto.
+
+**Um número sintético prevê o mecanismo, nunca o efeito.** Duas frentes foram
+escolhidas com números de laboratório e as duas desmentidas pela página: o
+`inline-block` prometia 738 px por elemento e são 2 032 px no total, dois deles
+a valerem 1 757; o `font:inherit` prometia mover os 51 cabeçalhos e não moveu
+nada, porque a folha real já tem o longhand ao lado.
+
+**A causa raramente está onde o sintoma se vê.** A triagem apontava
+`<li> +2,6k de altura`; a causa estava dois níveis acima, numa palavra-chave que
+o parse deitava fora. Quem fosse atrás do sintoma teria afinado alturas de lista
+o dia inteiro.
+
+**Um custo tem de ser DATADO contra a base antes de ser atribuído.** Oito
+marcadores de lista foram dados como custo de um commit; medidos com o binário
+da base, já lá estavam antes de tudo. A régua de geometria compara sempre contra
+um dump da base; a de desenho tinha de ser lida duas vezes, e não foi.
+
+**Quando toda a resposta certa mede pior que a errada, o medido não é o motor.**
+A altura das miniaturas: 0 pela spec pura, 150 pela CSS Images §5.3, 169 pela
+razão dos atributos — todas piores contra um Chrome que cai num quadrado porque
+a imagem nunca carregou. Ficou escrita como limite, não forçada como número.
+
+### A fila, com o número de cada uma
+
+Nenhuma começada, todas com a causa já apurada ou explicitamente por apurar.
+
+| o quê | escala medida | nota |
+|---|---|---|
+| `inline-block` sob pai de BLOCO | 31 elementos, 2 032 px — **1 757 em dois `<li>`** | 22 dos 31 já casam |
+| bloco dentro de um inline | **desconhecida** | conteúdo invisível; o Chrome parte o inline à volta (*block-in-inline splitting*) |
+| dois `<div>` menores que o Chrome | 16,2 contra 98,8 | não é o defeito do `inline-block`; caixa que mediu quase nada |
+| repartição de largura entre COLUNAS | 207 largas contra 132 estreitas | sinal MISTO — mede-se por par, nunca por soma |
+| posição dos inline | 1,2 M px | **sem causa**, quatro hipóteses eliminadas |
+| os 8 `inherit` sem efeito | 4 estão dentro de `display:none` | dois em `.infobox-table td` são os únicos que podem mexer |
+
+E as quatro divergências registadas na §6 do `css-support.md`, que são decisões
+e não dívida: a altura das imagens sem rede, o `absolute` que devia encolher,
+`min-content`/`fit-content` fora de propósito, e o `revert-layer` como pista por
+confirmar.
+
+**Nota sobre a segunda linha.** "Escala desconhecida" é a resposta honesta e
+está aqui em vez de um palpite: sabe-se que o caso existe e que produz conteúdo
+invisível, não se sabe quantos elementos da página têm essa forma. Depois de
+duas frentes escolhidas nesta sessão com números que não eram da página, um
+número inventado para preencher esta célula seria a terceira.
+

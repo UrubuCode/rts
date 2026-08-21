@@ -64,7 +64,11 @@ impl Footprint {
         let mut areas: Vec<(&str, usize, String)> = vec![
             ("árvore (arena)", self.arena, format!("{} nós", self.nodes)),
             ("texto (tags/attrs/conteúdo)", self.strings, String::new()),
-            ("índices #id/.classe", self.indices, format!("{} entradas", self.entries_indices)),
+            (
+                "índices #id/.classe",
+                self.indices,
+                format!("{} entradas", self.entries_indices),
+            ),
             (
                 "memos de estilo",
                 self.style_memos,
@@ -76,7 +80,11 @@ impl Footprint {
                 format!("{} entradas", self.entries_layout_caches),
             ),
             ("stylesheet + CSS bruto", self.stylesheet, String::new()),
-            ("estado derivado por nó", self.derived, format!("{} entradas", self.entries_derived)),
+            (
+                "estado derivado por nó",
+                self.derived,
+                format!("{} entradas", self.entries_derived),
+            ),
         ];
         areas.sort_by_key(|(_, b, _)| std::cmp::Reverse(*b));
         let total = self.total().max(1);
@@ -113,7 +121,10 @@ pub fn type_sizes() -> Vec<(&'static str, usize)> {
         ("Attr", std::mem::size_of::<Attr>()),
         ("ComputedStyle", std::mem::size_of::<ComputedStyle>()),
         ("Rule (CSS)", crate::style::stylesheet::rule_size()),
-        ("DisplayItem", std::mem::size_of::<crate::layout::DisplayItem>()),
+        (
+            "DisplayItem",
+            std::mem::size_of::<crate::layout::DisplayItem>(),
+        ),
     ]
 }
 
@@ -130,7 +141,10 @@ pub fn footprint(dom: &Dom) -> Footprint {
     use crate::dom::{Attr, Node, NodeIdx};
     use crate::style::ComputedStyle;
 
-    let mut f = Footprint { nodes: dom.nodes.len(), ..Default::default() };
+    let mut f = Footprint {
+        nodes: dom.nodes.len(),
+        ..Default::default()
+    };
     f.arena = dom.nodes.capacity() * std::mem::size_of::<Node>()
         + dom.layout_epoch_len() * std::mem::size_of::<u64>();
 
@@ -174,7 +188,8 @@ pub fn footprint(dom: &Dom) -> Footprint {
     // tamanho de um `ComputedStyle` no pior caso (anim_override/prev_computed,
     // que são os maiores). Estimar pelo maior evita um número que parece pequeno
     // justamente na área que cresce sozinha.
-    f.derived = derived.len() * (std::mem::size_of::<NodeIdx>() + std::mem::size_of::<ComputedStyle>());
+    f.derived =
+        derived.len() * (std::mem::size_of::<NodeIdx>() + std::mem::size_of::<ComputedStyle>());
 
     f
 }

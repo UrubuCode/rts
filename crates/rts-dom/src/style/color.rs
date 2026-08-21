@@ -36,7 +36,8 @@ pub fn parse_color(v: &str) -> Option<Rgba> {
 /// Extrai o miolo de uma chamada `name(...)` (case-insensitive), ou `None`.
 fn func_args<'a>(v: &'a str, name: &str) -> Option<&'a str> {
     let low = v.to_ascii_lowercase();
-    if low.starts_with(name) && low[name.len()..].trim_start().starts_with('(') && v.ends_with(')') {
+    if low.starts_with(name) && low[name.len()..].trim_start().starts_with('(') && v.ends_with(')')
+    {
         let open = v.find('(')?;
         Some(v[open + 1..v.len() - 1].trim())
     } else {
@@ -64,7 +65,11 @@ fn parse_hex(hex: &str) -> Option<Rgba> {
             let r = nib(chars[0])?;
             let g = nib(chars[1])?;
             let b = nib(chars[2])?;
-            let a = if chars.len() == 4 { nib(chars[3])? } else { 0xFF };
+            let a = if chars.len() == 4 {
+                nib(chars[3])?
+            } else {
+                0xFF
+            };
             Some(rgba_a(r, g, b, a))
         }
         // #rrggbb / #rrggbbaa — bytes.
@@ -110,9 +115,26 @@ fn parse_hsl_fn(inner: &str) -> Option<Rgba> {
     if comps.len() < 3 || comps.len() > 4 {
         return None;
     }
-    let h = comps[0].trim().trim_end_matches("deg").trim().parse::<f32>().ok()?;
-    let s = comps[1].trim().trim_end_matches('%').trim().parse::<f32>().ok()? / 100.0;
-    let l = comps[2].trim().trim_end_matches('%').trim().parse::<f32>().ok()? / 100.0;
+    let h = comps[0]
+        .trim()
+        .trim_end_matches("deg")
+        .trim()
+        .parse::<f32>()
+        .ok()?;
+    let s = comps[1]
+        .trim()
+        .trim_end_matches('%')
+        .trim()
+        .parse::<f32>()
+        .ok()?
+        / 100.0;
+    let l = comps[2]
+        .trim()
+        .trim_end_matches('%')
+        .trim()
+        .parse::<f32>()
+        .ok()?
+        / 100.0;
     let (r, g, b) = hsl_to_rgb(h, s.clamp(0.0, 1.0), l.clamp(0.0, 1.0));
     let a = if comps.len() == 4 {
         parse_alpha(comps[3])?
@@ -133,9 +155,16 @@ fn parse_oklch_fn(inner: &str) -> Option<Rgba> {
     }
     let l = parse_ok_l(comps[0])?;
     let c = comps[1].trim().parse::<f32>().ok()?.max(0.0);
-    let h = comps[2].trim().trim_end_matches("deg").trim().parse::<f32>().ok()?;
+    let h = comps[2]
+        .trim()
+        .trim_end_matches("deg")
+        .trim()
+        .parse::<f32>()
+        .ok()?;
     let (a, b) = (c * h.to_radians().cos(), c * h.to_radians().sin());
-    let alpha = comps.get(3).and_then(|s| parse_alpha(s))
+    let alpha = comps
+        .get(3)
+        .and_then(|s| parse_alpha(s))
         .or_else(|| slash_alpha.and_then(parse_alpha))
         .unwrap_or(0xFF);
     let (r, g, bl) = oklab_to_srgb(l, a, b);
@@ -152,7 +181,9 @@ fn parse_oklab_fn(inner: &str) -> Option<Rgba> {
     let l = parse_ok_l(comps[0])?;
     let a = comps[1].trim().parse::<f32>().ok()?;
     let b = comps[2].trim().parse::<f32>().ok()?;
-    let alpha = comps.get(3).and_then(|s| parse_alpha(s))
+    let alpha = comps
+        .get(3)
+        .and_then(|s| parse_alpha(s))
         .or_else(|| slash_alpha.and_then(parse_alpha))
         .unwrap_or(0xFF);
     let (r, g, bl) = oklab_to_srgb(l, a, b);
@@ -163,7 +194,11 @@ fn parse_oklab_fn(inner: &str) -> Option<Rgba> {
 fn parse_ok_l(s: &str) -> Option<f32> {
     let s = s.trim();
     if let Some(p) = s.strip_suffix('%') {
-        return p.trim().parse::<f32>().ok().map(|v| (v / 100.0).clamp(0.0, 1.0));
+        return p
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|v| (v / 100.0).clamp(0.0, 1.0));
     }
     s.parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
 }
@@ -219,7 +254,9 @@ fn parse_channel_255(s: &str) -> Option<u8> {
         let pct = p.trim().parse::<f32>().ok()?;
         return Some((pct.clamp(0.0, 100.0) * 2.55).round() as u8);
     }
-    s.parse::<f32>().ok().map(|n| n.clamp(0.0, 255.0).round() as u8)
+    s.parse::<f32>()
+        .ok()
+        .map(|n| n.clamp(0.0, 255.0).round() as u8)
 }
 
 /// Alpha: número 0-1 OU `%` (0-100). Vira 0-255.
@@ -229,7 +266,9 @@ fn parse_alpha(s: &str) -> Option<u8> {
         let pct = p.trim().parse::<f32>().ok()?;
         return Some((pct.clamp(0.0, 100.0) * 2.55).round() as u8);
     }
-    s.parse::<f32>().ok().map(|n| (n.clamp(0.0, 1.0) * 255.0).round() as u8)
+    s.parse::<f32>()
+        .ok()
+        .map(|n| (n.clamp(0.0, 1.0) * 255.0).round() as u8)
 }
 
 /// Conversão HSL→RGB (algoritmo padrão CSS). `h` graus, `s`/`l` em 0..=1.

@@ -113,8 +113,15 @@ impl LinearGradient {
         // 1ª e última cor (interpolação de 2 pontos). Uma parada pode ter posição
         // ("#fff 20%") — só o token de cor importa.
         let first_col = color_parts.first().and_then(|p| color_of_stop(p))?;
-        let last_col = color_parts.last().and_then(|p| color_of_stop(p)).unwrap_or(first_col);
-        Some(LinearGradient { c0: first_col, c1: last_col, angle_deg })
+        let last_col = color_parts
+            .last()
+            .and_then(|p| color_of_stop(p))
+            .unwrap_or(first_col);
+        Some(LinearGradient {
+            c0: first_col,
+            c1: last_col,
+            angle_deg,
+        })
     }
 }
 
@@ -143,7 +150,15 @@ impl Transform {
     /// neutro da escala é 1, e um `Default` de zeros daria uma caixa de tamanho
     /// zero em vez de uma caixa intacta.
     pub fn identity() -> Transform {
-        Transform { tx: 0.0, ty: 0.0, tx_pct: 0.0, ty_pct: 0.0, sx: 1.0, sy: 1.0, rot_deg: 0.0 }
+        Transform {
+            tx: 0.0,
+            ty: 0.0,
+            tx_pct: 0.0,
+            ty_pct: 0.0,
+            sx: 1.0,
+            sy: 1.0,
+            rot_deg: 0.0,
+        }
     }
 
     /// `true` se é a identidade (nenhum efeito) — o layout pode pular a aplicação.
@@ -167,13 +182,24 @@ impl Transform {
             return None;
         }
         let mut t = Transform {
-            tx: 0.0, ty: 0.0, tx_pct: 0.0, ty_pct: 0.0, sx: 1.0, sy: 1.0, rot_deg: 0.0,
+            tx: 0.0,
+            ty: 0.0,
+            tx_pct: 0.0,
+            ty_pct: 0.0,
+            sx: 1.0,
+            sy: 1.0,
+            rot_deg: 0.0,
         };
         let mut saw = false;
         // percorre cada `func(args)`.
         let mut rest = v;
         while let Some(open) = rest.find('(') {
-            let name = rest[..open].trim().rsplit(|c: char| c.is_whitespace() || c == ')').next().unwrap_or("").to_ascii_lowercase();
+            let name = rest[..open]
+                .trim()
+                .rsplit(|c: char| c.is_whitespace() || c == ')')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
             let after = &rest[open + 1..];
             let Some(close) = after.find(')') else { break };
             let args = &after[..close];
@@ -189,12 +215,21 @@ impl Transform {
                     saw = true;
                 }
                 "scale" | "scalex" | "scaley" => {
-                    let s0 = parts.first().and_then(|s| s.parse::<f32>().ok()).unwrap_or(1.0);
-                    let s1 = parts.get(1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(s0);
+                    let s0 = parts
+                        .first()
+                        .and_then(|s| s.parse::<f32>().ok())
+                        .unwrap_or(1.0);
+                    let s1 = parts
+                        .get(1)
+                        .and_then(|s| s.parse::<f32>().ok())
+                        .unwrap_or(s0);
                     match name.as_str() {
                         "scalex" => t.sx *= s0,
                         "scaley" => t.sy *= s0,
-                        _ => { t.sx *= s0; t.sy *= s1; }
+                        _ => {
+                            t.sx *= s0;
+                            t.sy *= s1;
+                        }
                     }
                     saw = true;
                 }

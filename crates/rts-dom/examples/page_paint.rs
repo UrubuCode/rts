@@ -11,7 +11,7 @@ use rts_dom::layout::{self, DisplayItem};
 struct Medidor;
 
 impl layout::TextMeasurer for Medidor {
-    fn text_width(&self, text: &str, size: f32, _bold: bool, _italic: bool) -> f32 {
+    fn text_width(&self, text: &str, size: f32, _mono: bool, _bold: bool, _italic: bool) -> f32 {
         text.chars().count() as f32 * size * 0.5
     }
 
@@ -29,7 +29,11 @@ fn main() {
         dom.add_stylesheet(css);
     }
     let medidor = Medidor;
-    let ctx = layout::LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &medidor };
+    let ctx = layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &medidor,
+    };
     let t0 = std::time::Instant::now();
     let list = layout::layout_document(&dom, &ctx);
     let primeiro = t0.elapsed();
@@ -51,14 +55,25 @@ fn main() {
         list.walk(|item, dx, dy| match item {
             DisplayItem::BeginClip { rect, .. } => {
                 prof += 1;
-                println!("  {}BeginClip ({:.0},{:.0}) {:.0}x{:.0}", "  ".repeat(prof as usize), rect.x + dx, rect.y + dy, rect.w, rect.h);
+                println!(
+                    "  {}BeginClip ({:.0},{:.0}) {:.0}x{:.0}",
+                    "  ".repeat(prof as usize),
+                    rect.x + dx,
+                    rect.y + dy,
+                    rect.w,
+                    rect.h
+                );
             }
             DisplayItem::EndClip { .. } => {
                 println!("  {}EndClip", "  ".repeat(prof.max(1) as usize));
                 prof -= 1;
             }
             DisplayItem::Text { text, .. } => {
-                println!("  {}txt(prof={prof}) {:?}", "  ".repeat((prof + 1).max(1) as usize), text.chars().take(20).collect::<String>());
+                println!(
+                    "  {}txt(prof={prof}) {:?}",
+                    "  ".repeat((prof + 1).max(1) as usize),
+                    text.chars().take(20).collect::<String>()
+                );
             }
             _ => {}
         });
@@ -94,14 +109,22 @@ fn main() {
         // errado" e "a regra casou com o elemento errado".
         let mut achou = false;
         list.walk(|item, _, _| {
-            if achou { return; }
+            if achou {
+                return;
+            }
             if let DisplayItem::BeginClip { node, rect, .. } = item {
                 achou = true;
                 let no = dom.node(*node);
-                let tag = match &no.kind { rts_dom::NodeKind::Element { tag } => tag.clone(), _ => "?".into() };
-                println!("  recorta: <{tag}> node={node:?} rect={:.0}x{:.0} filhos={}",
-                         rect.w, rect.h, no.children.len());
-
+                let tag = match &no.kind {
+                    rts_dom::NodeKind::Element { tag } => tag.clone(),
+                    _ => "?".into(),
+                };
+                println!(
+                    "  recorta: <{tag}> node={node:?} rect={:.0}x{:.0} filhos={}",
+                    rect.w,
+                    rect.h,
+                    no.children.len()
+                );
             }
         });
     }
@@ -111,10 +134,12 @@ fn main() {
         let mut marcas = Vec::new();
         list.walk(|item, _, _| {
             match item {
-                DisplayItem::BeginClip { rect, node, .. } if marcas.len() < 6 =>
-                    marcas.push(format!("#{pos} Begin no={node:?} {:.0}x{:.0}", rect.w, rect.h)),
-                DisplayItem::EndClip { filhos_dentro } if marcas.len() < 6 =>
-                    marcas.push(format!("#{pos} End (filhos_dentro={filhos_dentro})")),
+                DisplayItem::BeginClip { rect, node, .. } if marcas.len() < 6 => marcas.push(
+                    format!("#{pos} Begin no={node:?} {:.0}x{:.0}", rect.w, rect.h),
+                ),
+                DisplayItem::EndClip { filhos_dentro } if marcas.len() < 6 => {
+                    marcas.push(format!("#{pos} End (filhos_dentro={filhos_dentro})"))
+                }
                 _ => {}
             }
             pos += 1;
@@ -137,18 +162,26 @@ fn main() {
         });
         println!("primeiro clip fecha no item {fecha_em:?}");
         println!("total de itens pintados: {pos}");
-        for m in marcas { println!("  {m}"); }
+        for m in marcas {
+            println!("  {m}");
+        }
     }
     {
         // A ESTRUTURA da lista de topo: onde os marcadores estão nos itens
         // próprios, e onde os filhos entram.
-        println!("topo: items={} children={}", list.items.len(), list.children.len());
+        println!(
+            "topo: items={} children={}",
+            list.items.len(),
+            list.children.len()
+        );
         for (i, it) in list.items.iter().enumerate().take(2000) {
             match it {
-                DisplayItem::BeginClip { rect, node, .. } =>
-                    println!("  items[{i}] Begin no={node:?} {:.0}x{:.0}", rect.w, rect.h),
-                DisplayItem::EndClip { filhos_dentro } =>
-                    println!("  items[{i}] End (filhos_dentro={filhos_dentro})"),
+                DisplayItem::BeginClip { rect, node, .. } => {
+                    println!("  items[{i}] Begin no={node:?} {:.0}x{:.0}", rect.w, rect.h)
+                }
+                DisplayItem::EndClip { filhos_dentro } => {
+                    println!("  items[{i}] End (filhos_dentro={filhos_dentro})")
+                }
                 _ => {}
             }
         }
@@ -159,7 +192,9 @@ fn main() {
     let (mut textos_na_tela, mut rects_na_tela) = (0usize, 0usize);
     let mut amostra = Vec::new();
     list.walk(|item, dx, dy| match item {
-        DisplayItem::Text { x, y, text, color, .. } => {
+        DisplayItem::Text {
+            x, y, text, color, ..
+        } => {
             textos += 1;
             let (x, y) = (x + dx, y + dy);
             if y < 800.0 && x < 1280.0 {
@@ -167,7 +202,10 @@ fn main() {
                 if amostra.len() < 12 && !text.trim().is_empty() {
                     amostra.push(format!(
                         "  texto y={:.0} x={:.0} cor=#{:08X} {:?}",
-                        y, x, color, text.chars().take(28).collect::<String>()
+                        y,
+                        x,
+                        color,
+                        text.chars().take(28).collect::<String>()
                     ));
                 }
             }
@@ -183,7 +221,10 @@ fn main() {
     println!(
         "itens: texto={textos} rect={rects} outros={outros} | na primeira tela: texto={textos_na_tela} rect={rects_na_tela}"
     );
-    println!("altura do conteúdo: {:.0} | canvas: #{:08X}", list.content_height, list.canvas_background);
+    println!(
+        "altura do conteúdo: {:.0} | canvas: #{:08X}",
+        list.content_height, list.canvas_background
+    );
     for linha in amostra {
         println!("{linha}");
     }

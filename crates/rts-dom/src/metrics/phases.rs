@@ -44,7 +44,11 @@ impl PhaseStats {
     /// Média em milissegundos. Média SEM o `max_ns` ao lado engana: um frame
     /// médio de 4 ms com pico de 90 ms é uma página que trava, não uma suave.
     pub fn avg_ms(&self) -> f64 {
-        if self.calls == 0 { 0.0 } else { self.total_ns as f64 / self.calls as f64 / 1e6 }
+        if self.calls == 0 {
+            0.0
+        } else {
+            self.total_ns as f64 / self.calls as f64 / 1e6
+        }
     }
     pub fn total_ms(&self) -> f64 {
         self.total_ns as f64 / 1e6
@@ -67,7 +71,10 @@ pub struct Phases {
 
 impl Phases {
     pub fn get(&self, name: &str) -> Option<PhaseStats> {
-        self.entries.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+        self.entries
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, s)| *s)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&'static str, PhaseStats)> + '_ {
@@ -201,7 +208,13 @@ impl Drop for Scope {
                 } else {
                     p.entries.push((
                         name,
-                        PhaseStats { calls: 1, total_ns: ns, min_ns: ns, max_ns: ns, depth_max: depth },
+                        PhaseStats {
+                            calls: 1,
+                            total_ns: ns,
+                            min_ns: ns,
+                            max_ns: ns,
+                            depth_max: depth,
+                        },
                     ));
                 }
             });
@@ -225,7 +238,10 @@ pub fn scope(name: &'static str) -> Scope {
                 None => d.push((name, 1)),
             }
         });
-        Scope { name, start: std::time::Instant::now() }
+        Scope {
+            name,
+            start: std::time::Instant::now(),
+        }
     }
     #[cfg(not(feature = "metrics"))]
     {

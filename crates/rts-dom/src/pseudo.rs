@@ -58,6 +58,10 @@ pub enum Peca {
     /// `attr(nome)` — o valor do atributo do elemento ORIGINANTE (não da caixa,
     /// que não tem atributos). Ausente resolve para string vazia, como na spec.
     Attr(String),
+    /// `counter(nome)` / `counter(nome, estilo)` — o valor do contador de
+    /// documento visível a esta caixa, escrito no sistema de numeração dado
+    /// (`decimal` por omissão). Ver [`crate::counters`], que é quem o calcula.
+    Contador(String, crate::style::ListStyleType),
 }
 
 /// Parseia o valor de uma declaração `content`.
@@ -71,9 +75,15 @@ pub enum Peca {
 /// - `url(...)` — gera uma caixa SUBSTITUÍDA (uma imagem), que não é texto e
 ///   precisa do caminho de imagem do layout, com carregamento e tamanho
 ///   intrínseco. Medido na folha da Wikipédia: 6 das 100 regras.
-/// - `counter(...)` — precisa de contadores de documento (`counter-reset` e
-///   `counter-increment` propagados na ordem da árvore), que o motor não tem.
-///   4 das 100 regras.
+/// - `counters(...)` — o PLURAL, que junta a pilha de escopos com um separador.
+///   Zero ocorrências nas quatro folhas do corpus (`pagina.css`, `google.css`,
+///   `wa.css`, `wa-app.css`), contra oito do singular. Recusado por nome e não
+///   por acidente de parse, para não ser confundido com o singular e pintar um
+///   número sem os antepassados.
+/// - `var(...)` — o valor de uma custom property só se resolve POR ELEMENTO, e
+///   o `content` é parseado uma vez ao ler a folha. Duas das oito ocorrências de
+///   `counter()` da folha da Wikipédia estão nesta forma; ambas perdem a cascata
+///   para uma regra posterior com o estilo literal, que é o que se pinta.
 /// - `open-quote`/`close-quote` — dependem de `quotes` e do nível de aninhamento.
 ///
 /// Em todos, gerar uma caixa vazia seria pior do que não gerar: reservaria
@@ -100,11 +110,42 @@ pub fn parse_content(valor: &str) -> Option<Content> {
             }
             pecas.push(Peca::Attr(nome));
             resto = &depois[fecha + 1..];
+        } else if let Some(depois) = tira_prefixo_sem_caso(resto, "counter(") {
+            let fecha = depois.find(')')?;
+            let (nome, estilo) = counter_args(&depois[..fecha])?;
+            pecas.push(Peca::Contador(nome, estilo));
+            resto = &depois[fecha + 1..];
         } else {
-            return None; // url(), counter(), open-quote, um identificador solto…
+            return None; // url(), counters(), open-quote, um identificador solto…
         }
     }
     (!pecas.is_empty()).then_some(Content::Pecas(pecas))
+}
+
+/// Os argumentos de `counter(…)`: o nome e o sistema de numeração.
+///
+/// `None` recusa a declaração inteira, e é o que acontece com
+/// `counter(x, var(--y))`: o primeiro `)` do texto fecha o `var`, o segundo
+/// argumento chega partido e nenhum `ListStyleType` o reconhece. É o
+/// comportamento que se quer — descartar a declaração deixa a cascata escolher
+/// outra regra, enquanto adivinhar `decimal` pintaria um estilo que a folha não
+/// pediu.
+///
+/// Um estilo que não conhecemos também recusa, em vez de cair em `decimal`: a
+/// spec manda o *fallback*, mas aqui `decimal` seria um NÚMERO onde a folha
+/// pediu letras — um erro com aparência de acerto, que é o que esta casa não
+/// entrega.
+fn counter_args(args: &str) -> Option<(String, crate::style::ListStyleType)> {
+    let mut it = args.splitn(2, ',');
+    let nome = it.next()?.trim();
+    if nome.is_empty() || nome.contains(char::is_whitespace) {
+        return None;
+    }
+    let estilo = match it.next() {
+        None => crate::style::ListStyleType::Decimal,
+        Some(s) => crate::style::ListStyleType::parse(&s.trim().to_ascii_lowercase())?,
+    };
+    Some((nome.to_string(), estilo))
 }
 
 /// `s` sem o prefixo `pref`, comparado sem distinguir maiúsculas.
@@ -158,8 +199,20 @@ fn string_css(s: &str) -> Option<(String, &str)> {
 }
 
 /// Materializa o texto de um [`Content`] contra o elemento originante.
-pub fn texto_de(content: &Content, attr: &impl Fn(&str) -> Option<String>) -> Option<String> {
-    let Content::Pecas(pecas) = content else { return None };
+///
+/// `contadores` é a fotografia dos contadores ativos nesta caixa, calculada em
+/// ordem documental por [`crate::counters`]. `None` significa "esta página não
+/// declara contadores" e não "o contador vale zero" — a diferença não se vê no
+/// resultado (ambos dão o zero implícito da spec) mas vê-se no custo: sem
+/// contadores na folha, a passagem documental não corre de todo.
+pub fn texto_de(
+    content: &Content,
+    attr: &impl Fn(&str) -> Option<String>,
+    contadores: Option<&crate::counters::Snapshot>,
+) -> Option<String> {
+    let Content::Pecas(pecas) = content else {
+        return None;
+    };
     let mut out = String::new();
     for p in pecas {
         match p {
@@ -168,22 +221,33 @@ pub fn texto_de(content: &Content, attr: &impl Fn(&str) -> Option<String>) -> Op
             // folha que escreve `content: "[" attr(x) "]"` ainda quer os
             // colchetes quando `x` não existe.
             Peca::Attr(nome) => out.push_str(&attr(nome).unwrap_or_default()),
+            Peca::Contador(nome, estilo) => {
+                out.push_str(&crate::counters::texto(contadores, nome, *estilo))
+            }
         }
     }
     Some(out)
 }
 
 #[cfg(test)]
-mod tests {
+// `pub(crate)` por causa do `textos` abaixo: os testes ponta a ponta dos
+// contadores vivem no `counters.rs`, ao lado da lógica que provam, e precisam
+// do mesmo helper. Reusar o helper é o que impede duas montagens diferentes de
+// `layout_document` a responder à mesma pergunta.
+pub(crate) mod tests {
     use super::*;
     use crate::dom::parse_html_to_dom;
-    use crate::layout::{layout_document, ApproxMeasurer, DisplayItem, LayoutCtx};
+    use crate::layout::{ApproxMeasurer, DisplayItem, LayoutCtx, layout_document};
 
     /// Os textos pintados, em ordem de pintura — é o que prova que a caixa
     /// gerada existe e onde ficou.
-    fn textos(html: &str) -> Vec<String> {
+    pub(crate) fn textos(html: &str) -> Vec<String> {
         let dom = parse_html_to_dom(html);
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let lista = layout_document(&dom, &ctx);
         let mut out = Vec::new();
         lista.walk(|item, _, _| {
@@ -197,7 +261,11 @@ mod tests {
     /// A cor com que cada texto foi pintado.
     fn textos_e_cores(html: &str) -> Vec<(String, u32)> {
         let dom = parse_html_to_dom(html);
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let lista = layout_document(&dom, &ctx);
         let mut out = Vec::new();
         lista.walk(|item, _, _| {
@@ -219,9 +287,7 @@ mod tests {
         let t = textos("<style>p::after { content:\"!\" }</style><p>oi</p>");
         assert_eq!(t, vec!["oi".to_string(), "!".to_string()]);
         // e os dois juntos envolvem o conteúdo.
-        let t2 = textos(
-            "<style>p::before{content:\"[\"} p::after{content:\"]\"}</style><p>oi</p>",
-        );
+        let t2 = textos("<style>p::before{content:\"[\"} p::after{content:\"]\"}</style><p>oi</p>");
         assert_eq!(t2, vec!["[".to_string(), "oi".to_string(), "]".to_string()]);
     }
 
@@ -255,9 +321,7 @@ mod tests {
 
     #[test]
     fn display_none_no_pseudo_nao_gera_caixa() {
-        let t = textos(
-            "<style>p::before { content:\"→\"; display:none }</style><p>oi</p>",
-        );
+        let t = textos("<style>p::before { content:\"→\"; display:none }</style><p>oi</p>");
         assert_eq!(t, vec!["oi".to_string()]);
     }
 
@@ -265,11 +329,13 @@ mod tests {
     fn regra_de_pseudo_elemento_nao_estiliza_o_elemento() {
         // O erro que fazia o `::before` ser recusado no parse durante tanto
         // tempo: as declarações são da caixa gerada, não do `<p>`.
-        let v = textos_e_cores(
-            "<style>p::before { content:\"→\"; color:#ff0000 }</style><p>oi</p>",
-        );
+        let v =
+            textos_e_cores("<style>p::before { content:\"→\"; color:#ff0000 }</style><p>oi</p>");
         let oi = v.iter().find(|(t, _)| t == "oi").unwrap();
-        assert_ne!(oi.1, 0xFF0000FF, "o vermelho era da caixa gerada, não do <p>");
+        assert_ne!(
+            oi.1, 0xFF0000FF,
+            "o vermelho era da caixa gerada, não do <p>"
+        );
         let seta = v.iter().find(|(t, _)| t == "→").unwrap();
         assert_eq!(seta.1, 0xFF0000FF);
     }
@@ -277,9 +343,7 @@ mod tests {
     #[test]
     fn pseudo_herda_a_cor_do_elemento_e_a_propria_vence() {
         // Sem `color` próprio, sai da cor do texto à volta.
-        let v = textos_e_cores(
-            "<style>p{color:#00ff00} p::before{content:\"→\"}</style><p>oi</p>",
-        );
+        let v = textos_e_cores("<style>p{color:#00ff00} p::before{content:\"→\"}</style><p>oi</p>");
         assert_eq!(v.iter().find(|(t, _)| t == "→").unwrap().1, 0x00FF00FF);
     }
 
@@ -300,12 +364,13 @@ mod tests {
         // punha-a numa linha só dela; nós pomo-la na mesma linha do conteúdo.
         // A alternativa — gerar uma caixa de bloco — exige um ponto de enxerto
         // no fluxo de `layout.rs` que ainda não foi aberto.
-        let t = textos(
-            "<style>p::before { content:\"→\"; display:block }</style><p>oi</p>",
-        );
+        let t = textos("<style>p::before { content:\"→\"; display:block }</style><p>oi</p>");
         // Idêntico ao caso sem `display` — é essa igualdade que diz que a
         // declaração não foi lida, e não uma ordem que por acaso coincide.
-        assert_eq!(t, textos("<style>p::before { content:\"→\" }</style><p>oi</p>"));
+        assert_eq!(
+            t,
+            textos("<style>p::before { content:\"→\" }</style><p>oi</p>")
+        );
         assert_eq!(t, vec!["→".to_string(), "oi".to_string()]);
     }
 
@@ -327,9 +392,7 @@ mod tests {
     fn pseudo_de_elemento_inline_entra_no_meio_da_linha() {
         // O `::after` de um `<a>` dentro de um parágrafo fica ENTRE o texto do
         // link e o que vem a seguir — é o caso do ícone de link externo.
-        let t = textos(
-            "<style>a::after { content:\"↗\" }</style><p>ver <a>aqui</a> agora</p>",
-        );
+        let t = textos("<style>a::after { content:\"↗\" }</style><p>ver <a>aqui</a> agora</p>");
         // O ícone entra COLADO ao fim do texto do link — a linha pinta-o no
         // mesmo segmento, que é a prova de que ficou dentro da linha e não numa
         // caixa à parte.
@@ -362,10 +425,14 @@ mod tests {
     fn content_string_com_escape_hexadecimal_vira_o_caractere() {
         // `"\2192"` é como uma folha real escreve a seta — se não se resolvesse
         // o escape, a página mostrava os dígitos.
-        let Some(Content::Pecas(p)) = parse_content(r#""\2192""#) else { panic!() };
+        let Some(Content::Pecas(p)) = parse_content(r#""\2192""#) else {
+            panic!()
+        };
         assert_eq!(p, vec![Peca::Texto("→".to_string())]);
         // e o espaço que termina o código hexadecimal é consumido, não pintado.
-        let Some(Content::Pecas(p)) = parse_content(r#""\2192 x""#) else { panic!() };
+        let Some(Content::Pecas(p)) = parse_content(r#""\2192 x""#) else {
+            panic!()
+        };
         assert_eq!(p, vec![Peca::Texto("→x".to_string())]);
     }
 
@@ -376,16 +443,25 @@ mod tests {
         assert_eq!(parse_content("none"), Some(Content::Nenhum));
         assert_eq!(parse_content("normal"), Some(Content::Nenhum));
         assert_eq!(parse_content("url(seta.png)"), None);
-        assert_eq!(parse_content("counter(item)"), None);
+        // `counter()` (singular) DEIXOU de estar nesta lista — é o que este
+        // trabalho acrescentou. O plural continua nela, e a linha abaixo é o que
+        // impede que ele passe a ser aceite por acidente de prefixo: `counters(`
+        // começa por `counter` e um `starts_with` desatento aceitá-lo-ia,
+        // pintando "3" onde a folha pediu "1.2.3".
+        assert_eq!(parse_content("counters(item, '.')"), None);
+        // E o estilo dentro de `var()`: a declaração inteira cai, para a cascata
+        // poder escolher outra regra em vez de nós inventarmos `decimal`.
+        assert_eq!(parse_content("counter(x, var(--y))"), None);
+        assert_eq!(parse_content("counter(x, esquisito)"), None);
     }
 
     #[test]
     fn content_concatena_string_e_attr() {
         let c = parse_content(r#""[" attr(data-x) "]""#).unwrap();
         let attr = |n: &str| (n == "data-x").then(|| "oi".to_string());
-        assert_eq!(texto_de(&c, &attr).unwrap(), "[oi]");
+        assert_eq!(texto_de(&c, &attr, None).unwrap(), "[oi]");
         // atributo ausente é string vazia, e os literais ficam.
         let vazio = |_: &str| None;
-        assert_eq!(texto_de(&c, &vazio).unwrap(), "[]");
+        assert_eq!(texto_de(&c, &vazio, None).unwrap(), "[]");
     }
 }

@@ -34,6 +34,16 @@ Corpus: MediaWiki, Google, WhatsApp Web landing e app. Por ocorrências, as
 desconhecidas que pesam: `filter` 114, `-webkit-filter` 94, `content` 87,
 `clip-path` 59, `-webkit-clip-path` 50, `mask-size` 27, `backdrop-filter` 18.
 
+**Esta contagem é anterior a 2026-08-21 e não foi re-medida.** Nesse dia
+`filter`/`-webkit-filter` e `clip-path`/`-webkit-clip-path` passaram a ter campo
+e a pintar (§4.5), portanto saem das desconhecidas — são ~317 das 622
+ocorrências dessa coluna. Os números acima ficam como estão em vez de serem
+corrigidos por subtração: a coluna mede-se correndo a sonda, e um número
+estimado no lugar de um medido é a coisa que estas três colunas existem para
+evitar. Fica também dito que parte do que sai é **recusa** e não pintura — o
+`blur` e o `polygon` contarão como reconhecidos sem mudar um pixel, por decisão
+tomada e escrita em §4.5.
+
 **As três colunas existem porque sem a do meio o total não mede nada:** um
 `will-change`, que nunca vai ter efeito, somava com um `object-fit`, que é
 trabalho por fazer.
@@ -205,6 +215,8 @@ estrutural.
 | `box-shadow` | **a primeira** sombra da lista | listas de sombras; `inset` |
 | `background` | cor sólida **ou** um `linear-gradient` | `url(...)` é **ignorado**; `radial-gradient`, `background-size/position/repeat/attachment/clip` (109 ocorrências somadas), múltiplas camadas |
 | `opacity` | multiplica o alpha das cores do próprio elemento | grupo de compositing (um subárvore a 0.5 desenha cada caixa a 0.5, não o conjunto) |
+| `filter` | as funções que são matriz de cor (`brightness`, `contrast`, `invert`, `grayscale`, `sepia`, `saturate`, `hue-rotate`, `opacity`), exatas, sobre as cores próprias da caixa | `blur` e `drop-shadow` **recusados com motivo** (§4.5); não alcança descendentes — mesmo limite do `opacity`; a cadeia é tudo-ou-nada |
+| `clip-path` | `inset()` sem `round`, como recorte retangular real | `polygon`/`circle`/`ellipse`/`path` e `inset` com raio **recusados** — o recorte é AABB (§4.5) |
 | `display` | `block`, `flex`, `inline`/`inline-block`, `grid`, `none`, `flow-root`→block | `inline` e `inline-block` colapsam no MESMO modo (wrap): não há distinção entre fluxo inline e caixa inline-block. Faltam `table*`, `list-item`, `contents`, `inline-grid` distinto |
 | `position` | `static`/`absolute`/`fixed` com containing block = ancestral posicionado mais próximo (`containing_block_rect`, layout.rs:585) | **`relative` não desloca**: `Position::Relative` não aparece uma única vez em `layout.rs`, portanto `top/left` num `position:relative` não têm efeito. `sticky` parseia e comporta-se como estático |
 | `float` | floats consecutivos partilham a linha | `clear` **não existe** (37 ocorrências — o 2.º maior buraco padrão da folha); não há float a envolver texto de vários parágrafos |
@@ -524,8 +536,11 @@ Falta: `background-image: url()` **[A]**, `background-size`/`-position`/
 `color-scheme` **[A]** (6), `accent-color` **[N]**, `mix-blend-mode` **[N]**.
 
 ### Efeitos
-Falta: `filter` **[A]** (12 ocorrências), `backdrop-filter` **[N]**,
-`clip-path` **[A]**, `mask`/`mask-image`/`mask-size`/`-position`/`-repeat`
+`filter` e `clip-path` deixaram de faltar em 2026-08-21, em parte e com a outra
+parte recusada com motivo — ver §4.5, que é onde a divisão está escrita.
+
+Falta: `backdrop-filter` **[N]**,
+`mask`/`mask-image`/`mask-size`/`-position`/`-repeat`
 **[A]** — e é a **maior contagem única da folha** (112 `-webkit-mask-image` +
 26 `-webkit-mask-size` + 14 `mask-image` + …), ver §3 para porque isso *não* a
 torna a maior prioridade; `text-shadow` **[A]**; `transform-origin`,
@@ -538,8 +553,14 @@ Uma `<table>` hoje cai no fluxo de blocos.
 
 ### Listas
 Falta: `list-style`, `list-style-type` (3), `list-style-position`,
-`list-style-image`, `::marker`, `counter-reset`/`counter-increment` (2) e
-`counter()`. Uma `<ol>` não numera.
+`list-style-image` e `::marker`. Uma `<ol>` não numera pelo mecanismo de
+`::marker` — numera por `listitem.rs`, que é outro caminho.
+
+`counter-reset`/`counter-increment` (2) e `counter()` **passaram a funcionar**:
+ver `crates/rts-dom/src/counters.rs`. São calculados numa passagem em ordem
+documental, memoizada por revisão, e só corrida quando a folha declara algum
+contador. O plural `counters()` continua de fora, e o módulo diz o número que o
+justifica: zero ocorrências nas quatro folhas do corpus.
 
 ### Animação e transição
 Temos os shorthands; faltam **os longhands** (`transition-property` 9,
@@ -658,7 +679,8 @@ responde `None`, e é isso que `before_nao_muda_a_arvore_de_nos` pina. Por isso
 a "mudança de arquitetura" que o título anunciava não chegou a ser paga.
 
 Os limites reais, em `pseudo::parse_content`: aceita strings e `attr()`;
-**recusa `url()`, `counter()`, `open-quote` e um identificador solto**. E
+**recusa `url()`, `counters()` (o plural), `var()` e `open-quote`**; `counter()`
+no singular é aceite desde a implementação dos contadores. E
 `p::before span` não parseia — um pseudo-elemento não tem descendentes. O
 `::marker` das listas foi por outro caminho (`listitem.rs`), pelo que a
 amortização entre os dois que o texto abaixo previa **não se realizou**.
@@ -727,17 +749,116 @@ modernas, e a Wikipédia, que a usa muito, usa-a como grelha de dados onde o
 resultado errado ainda se lê. É caro **e** adiável — a combinação que justifica
 adiar.
 
-### 4.5 Máscaras e `filter` — MÉDIO, e são do backend, não do layout
+### 4.5 Máscaras e `filter` — DECIDIDO em 2026-08-21, e a decisão foi partir em dois
 
-`mask-image`, `filter`, `clip-path` e `backdrop-filter` não mudam geometria:
-mudam como um retângulo já colocado é pintado. Não tocam no `layout.rs`. O preço
-está todo do outro lado — no `DisplayItem` e no backend egui/wgpu, que hoje
-sabe pintar retângulo, gradiente de 4 vértices, borda, texto e imagem, e teria
-de saber compor com um canal alfa vindo de outra imagem. Isso mesmo se aplica ao
-grupo de compositing que falta ao `opacity`, e as duas coisas partilham o
-mecanismo: renderizar uma subárvore para fora do ecrã e compor o resultado.
+Esta secção dizia que as três custavam menos feitas de uma vez, e o que a
+implementação mostrou foi o contrário: **elas não são uma família, são duas.**
+Uma metade é aritmética de cor e sai exata sem tocar no backend; a outra precisa
+do elemento já rasterizado e não existe num motor imediato. Juntá-las era o que
+fazia a estimativa parecer uniforme.
 
-Implementar as três de uma vez custa menos do que uma de cada vez.
+**O que PINTA hoje** (`crates/rts-dom/src/painteffects.rs`, consumido em
+`layout.rs` no mesmo sítio que o `opacity`):
+
+- `filter` com `brightness`, `contrast`, `invert`, `grayscale`, `sepia`,
+  `saturate`, `hue-rotate` e `opacity`. Cada uma é uma matriz 3×3 sobre RGB mais
+  um deslocamento — o §8 da Filter Effects 1 define-as literalmente assim, em
+  sRGB. Sobre uma cor sólida, uma borda, um gradiente ou uma sombra, isto **não
+  é uma aproximação, é a definição**.
+- `clip-path: inset()` sem `round`, como um `BeginClip`/`EndClip` — o recorte do
+  egui é um retângulo alinhado aos eixos, e um `inset()` reto é exatamente isso.
+
+**O que está RECUSADO, com o motivo** (não é trabalho por decidir; é decisão
+tomada):
+
+| recusado | porquê |
+|---|---|
+| `filter: blur()` | precisa do elemento **já rasterizado** para o reprocessar. O egui pinta direto no buffer do frame e não expõe render target por elemento; o `blur` do `epaint::Shadow` desfoca uma sombra que ele próprio gera, não conteúdo alheio. É um pass de wgpu com readback, não uma mudança de display list. |
+| `filter: drop-shadow()` | segue a silhueta **alpha** do elemento, que uma lista de retângulos não conhece. Coincidiria com `box-shadow` só em caixas opacas — e onde a folha real o usa é sobre ícones com alpha. |
+| `clip-path: polygon()/circle()/ellipse()/path()`, e `inset()` com `round` | o recorte é AABB. Recortar pela caixa envolvente deixaria um losango quadrado: um desenho errado com aparência de certo. |
+| `filter` sobre `Image`/`Pixels` | `Shape::image` do egui só aceita `tint: Color32`, que é multiplicativo. `grayscale` é mistura de canais e não se exprime como tint. |
+| `backdrop-filter` | filtra o que está POR BAIXO do elemento — o mesmo readback do `blur`, sobre conteúdo que nem sequer é deste elemento. |
+
+**A decisão que alguém vai querer "melhorar", e não deve:** a cadeia é
+tudo-ou-nada. Perante `filter: blur(4px) brightness(1.2)`, aplicar só o
+`brightness` daria um elemento nítido e mais claro — que não é o pedido nem o
+anterior, é um terceiro desenho que ninguém escreveu. Uma função não suportada
+recusa a cadeia inteira e o elemento fica **com o mesmo `u32` de antes**. Há um
+teste com esse nome.
+
+**`mask-*` já estava resolvido antes disto**, e por outra via: `mask_image`
+guarda a url crua e `deve_suprimir_fundo` não pinta o fundo de uma caixa com
+máscara. Um ícone com `background-color` + `mask-image` sem a máscara não é um
+glifo, é um quadrado cheio — foi assim que a Wikipédia ganhou blocos cinzentos.
+É substituto, não semântica final, e o campo diz isso.
+
+**Nada disto está em `style/inert.rs`, e não pode estar.** Aquele módulo é
+por PROPRIEDADE e a sua própria regra é que nada lá guarda campo nem muda
+pintura; `filter` e `clip-path` têm campo e pintam. Além disso a recusa aqui é
+por FUNÇÃO — `blur` sim, `invert` não — que um predicado sobre o nome da
+propriedade não consegue exprimir. O sítio da decisão é o cabeçalho de
+`painteffects.rs`, onde ela é tomada.
+
+### 4.5.1 O grupo de compositing — RECUSADO em 2026-08-21, com o número
+
+A campanha do grupo de compositing (renderizar uma subárvore para fora do ecrã
+e compor o resultado) foi caracterizada e **não abre**. Traz `blur`,
+`drop-shadow`, `backdrop-filter`, o `filter` a alcançar descendentes, e o
+`opacity` de grupo. É possível — `egui_wgpu::Renderer::render` aceita uma FATIA
+de primitivas, `Context::graphics_mut` dá as shapes por `LayerId`, e
+`frame/scene3d.rs` já é o precedente de um pass wgpu próprio no mesmo encoder.
+Três coisas decidiram contra:
+
+**1. O custo.** Um grupo são 3–4 passes de render e uma textura fora do ecrã,
+por elemento e por frame, num motor imediato que repinta sempre.
+
+**2. É WGPU-ONLY.** O `rts-egui` tem o fallback `glow-backend`, que existe para
+GPU antiga. A mesma página desenharia diferente conforme o backend — um `blur`
+que desfoca numa máquina e não noutra é pior do que um que não desfoca em lado
+nenhum, porque deixa de ser previsível.
+
+**3. O número, que é o que fecha o assunto.** A intuição registada aqui era que
+o `opacity` de grupo "afeta mais páginas que o `blur`". Foi medido, e não
+afeta.
+
+O `opacity` por-cor e o `opacity` de grupo dão **o mesmo pixel** exceto onde
+duas camadas pintadas se sobrepõem dentro do elemento: compor áreas disjuntas
+dá o mesmo resultado nas duas ordens. A sonda
+`crates/rts-dom/examples/opacity_group_probe.rs` conta exatamente isso, sobre a
+display list de uma página real:
+
+| | `pagina.combinada.html` | `google.html` |
+|---|---:|---:|
+| elementos com `opacity` | 19 | 12 |
+| dos quais `0` ou `1` (grupo irrelevante) | 17 | 10 |
+| fracionários | 2 | 2 |
+| **DIFERE** (camadas sobrepostas) | **0** | **0** |
+| IGUAL (uma camada, ou disjuntas) | 2 | 2 |
+| AMBÍGUO | 0 | 0 |
+
+**Zero elementos das duas páginas reais precisariam de um grupo.** Bate com o
+que a folha já dizia: das 210 declarações de `opacity` do corpus, 105 são
+exatamente `0` ou `1`, e as fracionárias do MediaWiki são quase todas
+`var(--opacity-icon-base,.87)` — ícones, que pintam uma camada só.
+
+**A sonda foi verificada contra um controlo positivo** antes de este número ser
+aceite, porque "zero" é a resposta que um instrumento avariado também dá: numa
+página escrita à mão com fundo+borda+texto a 0,5 ela responde DIFERE 1, IGUAL 1,
+AMBÍGUO 1. As três colunas acendem.
+
+**Dois limites do número, ditos porque o restringem:** a página do WhatsApp, que
+tem 170 das 210 declarações, **não foi medida** — só a folha `.css` está no
+tree, não há HTML. E a sonda vê a página ESTÁTICA: um `opacity` fracionário que
+só aparece em `:hover` ou a meio de uma transição não é alcançado. Se o HTML do
+WhatsApp entrar no corpus, correr a sonda outra vez é o que reabre a questão.
+
+**O que continua a valer da estimativa antiga:** o grupo de compositing. O
+`filter` alcança as cores próprias da caixa e não os descendentes — um
+`filter: invert(1)` numa div com texto inverte o fundo e não o texto —, que é
+exatamente o mesmo limite que o `opacity` tem. As duas partilham o mecanismo em
+falta: renderizar uma subárvore para fora do ecrã e compor o resultado. É esse
+mecanismo que traz `blur`, `drop-shadow` e o `opacity` de grupo juntos, e aí sim
+de uma vez.
 
 ### 4.6 `position: relative` — BARATO, e falha em silêncio
 
@@ -783,3 +904,157 @@ declaramos ter) antes de ser código.
   buraco nesta contagem. Medir isso pede instrumentar o `stylesheet.rs` para
   contar regras descartadas, e não foi feito.
 - **A cobertura fora desta folha.** Ver a §3.
+
+---
+
+## 6. Limites conhecidos — o que NÃO se implementa, e porquê
+
+Um limite escrito é reversível; um número forçado não. Esta secção existe para
+que uma resposta que hoje diverge da régua mude por decisão e não por acidente.
+
+### 6.1 A altura de uma imagem que nunca carrega (2026-08-21)
+
+**O caso.** As 110 imagens da Wikipédia trazem `width`/`height` no HTML e
+`.mw-file-element{height:auto}` no CSS. O harness de paridade corre OFFLINE por
+desenho, portanto nenhuma delas chega da rede.
+
+**O que cada lado responde**, na receita real (contentor 258px, `margin:3px`,
+`border:1px`, `max-width:calc(100% - (2 * 3px) - (2 * 1px))`, `<img>` de 250×167):
+
+| | largura | altura |
+|---|---|---|
+| Chrome (a régua) | 252 | **252** |
+| nós | 252 | **169** |
+
+A largura bate ao pixel. A altura diverge em 83px, e a divergência FICA.
+
+**Porque é que o Chrome dá um quadrado — lido na source do Blink, não deduzido.**
+O que ele mede não é a nossa imagem: **é o ÍCONE de imagem partida**, que é
+quadrado.
+
+A cadeia, três ficheiros de `third_party/blink/renderer/core/`:
+
+1. `layout/layout_image_resource.cc`, `UseBrokenImage()` — falhado o
+   carregamento, o Blink **substitui o recurso** por um
+   `ImageResourceContent::CreateLoaded(BrokenImage(...))`. O `CreateLoaded` é o
+   detalhe que decide tudo: a partir dali `HasImage()` é `true` e o elemento tem
+   dimensões naturais **reais** — as do ícone.
+2. `layout/block_node.cc`, `GetReplacedAspectRatio()` — consulta a razão NATURAL
+   **antes** do `kAutoAndRatio` vindo dos atributos. Havendo razão natural, o
+   `aspect-ratio: auto 250/167` nunca chega a ser considerado.
+3. `layout/length_utils.cc`, `ComputeReplacedSizeInternal` — resolve a altura a
+   partir dessa razão.
+
+**Sem a source isto era inexplicável**: `getComputedStyle` responde
+`aspect-ratio: auto 250 / 167` na nossa `<img>`, e o valor está lá e é ignorado.
+
+**Quatro formas medidas com o nosso extractor**, e a quarta é a que fecha:
+
+    atributos 100/300, height:auto  ->  100x100
+    atributos 400/20,  height:auto  ->  400x400
+    só width=80 (sem ratio)         ->   80x80
+    height:60px + width:AUTO        ->   60x60   <- quadrado pelo OUTRO eixo
+
+Não é "a altura copia a largura": é **razão 1:1**, a do ícone.
+
+**A contraprova, que é o que fecha esta secção.** Com uma imagem que CARREGA —
+um GIF de 10×5 num `data:` URI — o mesmo `<img width=250 height=167
+style="height:auto">` dá **250×125**: a razão intrínseca real, nem a dos
+atributos nem o quadrado. É exatamente o que esta secção previa para o dia em
+que o harness tiver rede, agora **verificado em vez de previsto**.
+
+**Isso não é regra de CSS nenhuma**, e agora sabe-se porquê à letra: é o Blink a
+dimensionar um ícone de erro que ele desenha e nós não. Reproduzi-lo exigiria
+ter um ícone de imagem partida quadrado como recurso e deixá-lo governar o
+layout. A nossa resposta é a que o Chrome dá **assim que a imagem existe**.
+
+**As três respostas defensáveis são todas PIORES contra a régua do que o defeito
+que existia** — e é esse o argumento decisivo, não a preferência:
+
+| resposta | altura | erro vs 252 |
+|---|---|---|
+| o defeito de então (atributo sobrevive a `height:auto`) | 167 | 85 |
+| metade da correção (`auto` descarta o atributo, sem razão) | **0** | 252 |
+| CSS Images §5.3, *default sizing* (sem razão → 150) | 150 | 102 |
+| o que fazemos (razão dos atributos + bordas) | 169 | 83 |
+
+Quando toda a resposta certa mede pior do que a errada, o que está a ser medido
+não é o motor: é o harness não ter rede.
+
+**O que fazemos, e é de spec.** Os atributos `width` e `height` juntos dão ao
+elemento uma razão de aspecto (HTML, *dimension attributes* — o
+`aspect-ratio: auto w / h` que existe precisamente para dimensionar antes de a
+imagem chegar). Com ela, `height:auto` sobre um `<img width=250 height=167>`
+responde 167 pela razão, e não pelo atributo que acabou de ser descartado.
+
+Isto importa por uma razão que o número não mostra: **a metade defensável
+sozinha responderia ZERO**. Descartar o atributo é certo, e sem a razão que o
+substitui a imagem colapsa para as duas bordas — 252×2. As duas regras entram
+juntas ou não entram.
+
+**Uma pista por confirmar, escrita ao lado do sintoma.** A mesma regra
+`.mw-file-element` declara também `height: revert-layer`, e **não implementamos
+`revert` nem `revert-layer`** (nem `initial` nem `unset` — só `inherit`, ver
+`style/inherit_kw.rs`). Não está provado que explique os 83px: `revert-layer`
+manda a propriedade voltar ao valor da camada de cascata anterior, e o que essa
+camada tem para `height` naquele elemento não foi apurado. Fica registado porque
+é a única pista nova sobre esta divergência desde que ela foi escrita, e porque
+descobri-la outra vez do zero custa mais do que lê-la aqui.
+
+Saber se é a causa exige o que `revert` exige para ser implementado: guardar de
+que CAMADA veio cada declaração, que o nosso modelo de cascata não guarda. É um
+trabalho de cascata, não de herança.
+
+**O que desbloqueia isto:** o harness carregar as imagens. Com pixels há razão
+intrínseca real, o Chrome deixa de cair no quadrado, e as respostas convergem
+sem que nada aqui mude.
+
+### 6.2 `<picture>`: o `media` é lido, os descritores do `srcset` não (2026-08-21)
+
+Um `<img>` dentro de um `<picture>` passa a ser dimensionado pelo `<source>`
+escolhido: percorrem-se os `<source>` na ordem do documento, salta-se quem
+declara um `media` que não casa com o viewport, e ganha o primeiro que sobra —
+os seus `width`/`height` passam a ser os do elemento. Sem nenhum que case,
+responde o `<img>` de fallback. É por isso que o rodapé da Wikipédia mede agora
+84×29 e 88×31 como o Chrome, em vez dos 25×25 do fallback.
+
+O `media` é avaliado pelo MESMO `MediaQuery` que serve os blocos `@media`. Isso
+não é só reuso: é o que impede que `min-width` signifique duas coisas no motor,
+e traz junto a honestidade dele — uma feature que não sabemos ler (§4.8) torna a
+query sempre-falsa, portanto uma `<source>` com `orientation` é SALTADA em vez de
+escolhida por engano.
+
+**O que ficou de fora, dito em vez de aproximado:**
+
+- **os descritores `w`/`x` do `srcset`** — qual candidato para qual densidade ou
+  largura;
+- **o `type`** — saltar uma `<source>` cujo formato não saberíamos descodificar.
+
+Nenhum dos dois muda a GEOMETRIA, que é o que esta ronda foi buscar: as
+dimensões vêm dos atributos da `<source>` escolhida e não do candidato. Mudam
+qual ficheiro se carregaria — e este motor ainda não carrega nenhum por esta
+via. Quando carregar, é aqui que os dois entram.
+
+### 6.3 Um `position:absolute` com `width:auto` toma a largura do pai (2026-08-21)
+
+Pela spec ele encolhe ao conteúdo (*shrink-to-fit*); nós damos-lhe a largura do
+containing block. **Não entrou** com o `width:max-content` porque o elemento onde
+foi encontrado — `.vector-dropdown-content` do menu da Wikipédia — declara
+`max-content`, e com essa palavra-chave implementada fica certo pelos DOIS
+caminhos: uma medição ali não distingue qual dos dois o corrigiu.
+
+Aparecerá sozinho no dia em que houver um absoluto **sem** `width` declarada, e
+nessa altura tem número próprio. O sintoma será o mesmo: um painel, um menu ou um
+tooltip com a largura do que está por baixo dele em vez da do seu texto.
+
+### 6.4 `min-content` e `fit-content` não são lidos (2026-08-21)
+
+`width:max-content` funciona; as outras duas palavras-chave intrínsecas continuam
+descartadas no parse, e é deliberado. `intrinsic_content_width` calcula o MÁXIMO
+do conteúdo — `min-content` é a maior palavra indivisível, e `fit-content` precisa
+das duas para o seu `min(max(min, disponível), max)`.
+
+Mapeá-las para `max-content` seria dar a um `min-content` a resposta oposta à que
+o nome promete, em silêncio. Duas ocorrências de `fit-content` na folha da
+Wikipédia, nenhuma de `min-content`. O que as desbloqueia é uma medição de mínimo
+intrínseco, que hoje não existe.

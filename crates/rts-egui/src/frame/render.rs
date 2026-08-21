@@ -35,26 +35,33 @@ struct EguiMeasurer<'a> {
 thread_local! {
     /// Métricas persistentes entre relayouts. O contexto faz parte da chave para não
     /// misturar fontes de janelas egui diferentes; o limite evita crescimento infinito.
-    static TEXT_WIDTH_CACHE: RefCell<HashMap<(usize, u32, bool, bool), HashMap<String, f32>>> =
+    static TEXT_WIDTH_CACHE: RefCell<HashMap<(usize, u32, bool, bool, bool), HashMap<String, f32>>> =
         RefCell::new(HashMap::new());
     static LINE_HEIGHT_CACHE: RefCell<HashMap<(usize, u32), f32>> =
         RefCell::new(HashMap::new());
 }
 
 impl<'a> EguiMeasurer<'a> {
-    /// A família egui p/ (mono, bold): bold vence (família nomeada "bold"); senão
-    /// mono → Monospace; senão Proportional. Casa medição com pintura.
-    fn family(mono: bool, bold: bool) -> egui::FontFamily {
-        if bold {
-            egui::FontFamily::Name("bold".into())
-        } else if mono {
-            egui::FontFamily::Monospace
-        } else {
-            egui::FontFamily::Proportional
+    /// A família egui p/ (mono, bold, italic). Peso e estilo são dois EIXOS, não
+    /// uma escala: `<em><strong>` pede a família "bold-italic", que é um ficheiro
+    /// de fonte próprio e não um bold inclinado. Mono vem depois porque nenhuma
+    /// mono itálica é carregada (ver `app::install_ui_fonts`); senão Proportional.
+    ///
+    /// É `pub(crate)` e usada TAMBÉM pela pintura. A alternativa rejeitada foi
+    /// deixar a pintura com a sua cópia da escolha — era o que estava, e uma
+    /// família nova tinha de ser acrescentada em dois sítios para medição e
+    /// pintura não divergirem.
+    pub(crate) fn family(mono: bool, bold: bool, italic: bool) -> egui::FontFamily {
+        match (bold, italic) {
+            (true, true) => egui::FontFamily::Name("bold-italic".into()),
+            (true, false) => egui::FontFamily::Name("bold".into()),
+            (false, true) => egui::FontFamily::Name("italic".into()),
+            (false, false) if mono => egui::FontFamily::Monospace,
+            (false, false) => egui::FontFamily::Proportional,
         }
     }
-    fn font_id(size: f32, mono: bool, bold: bool) -> egui::FontId {
-        egui::FontId::new(size, Self::family(mono, bold))
+    fn font_id(size: f32, mono: bool, bold: bool, italic: bool) -> egui::FontId {
+        egui::FontId::new(size, Self::family(mono, bold, italic))
     }
 }
 
@@ -68,9 +75,12 @@ impl<'a> TextMeasurer for EguiMeasurer<'a> {
         context ^ ((self.ctx.pixels_per_point().to_bits() as u64) << 32)
     }
 
-    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32 {
+    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, italic: bool) -> f32 {
         let context_key = self.ctx as *const egui::Context as usize;
-        let font_key = (context_key, size.to_bits(), mono, bold);
+        // `italic` entra na CHAVE do cache: a família itálica tem avanços
+        // próprios, e sem este bit a primeira medição de uma palavra ficava a
+        // valer para as duas versões dela.
+        let font_key = (context_key, size.to_bits(), mono, bold, italic);
         if let Some(width) = TEXT_WIDTH_CACHE.with(|cache| {
             cache
                 .borrow()
@@ -80,7 +90,7 @@ impl<'a> TextMeasurer for EguiMeasurer<'a> {
         }) {
             return width;
         }
-        let font = Self::font_id(size, mono, bold);
+        let font = Self::font_id(size, mono, bold, italic);
         // `fonts_mut` dá um `&mut FontsView` (glyph_width exige `&mut`).
         let width = self.ctx.fonts_mut(|f| text.chars().map(|c| f.glyph_width(&font, c)).sum());
         TEXT_WIDTH_CACHE.with(|cache| {
@@ -100,7 +110,7 @@ impl<'a> TextMeasurer for EguiMeasurer<'a> {
         if let Some(height) = LINE_HEIGHT_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
             return height;
         }
-        let font = Self::font_id(size, false, false);
+        let font = Self::font_id(size, false, false, false);
         let height = self.ctx.fonts_mut(|f| f.row_height(&font));
         LINE_HEIGHT_CACHE.with(|cache| {
             let mut cache = cache.borrow_mut();
@@ -561,16 +571,9 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                     egui::StrokeKind::Inside,
                 );
             }
-            DisplayItem::Text { x, y, text, color, size, mono, bold, letter_spacing, decoration } => {
-                // bold vence (família "bold"); senão mono → Monospace; senão Proportional.
-                let family = if *bold {
-                    egui::FontFamily::Name("bold".into())
-                } else if *mono {
-                    egui::FontFamily::Monospace
-                } else {
-                    egui::FontFamily::Proportional
-                };
-                let font = egui::FontId::new(*size, family);
+            DisplayItem::Text { x, y, text, color, size, mono, bold, italic, letter_spacing, decoration } => {
+                // a MESMA escolha que o medidor faz — ver `EguiMeasurer::family`.
+                let font = egui::FontId::new(*size, EguiMeasurer::family(*mono, *bold, *italic));
                 let col = rgba_to_color32(*color);
                 let base = origin + egui::vec2(*x, *y);
                 let total_w = if *letter_spacing != 0.0 {

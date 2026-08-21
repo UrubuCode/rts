@@ -85,7 +85,15 @@ impl GridAreas {
                 }
                 match named.get_mut(name) {
                     None => {
-                        named.insert(name.to_string(), GridArea { r0: r, c0: c, r1: r + 1, c1: c + 1 });
+                        named.insert(
+                            name.to_string(),
+                            GridArea {
+                                r0: r,
+                                c0: c,
+                                r1: r + 1,
+                                c1: c + 1,
+                            },
+                        );
                     }
                     Some(a) => {
                         a.r0 = a.r0.min(r);
@@ -99,7 +107,11 @@ impl GridAreas {
         if named.is_empty() {
             return None;
         }
-        Some(GridAreas { rows: rows_text.len(), cols: cols.max(1), named })
+        Some(GridAreas {
+            rows: rows_text.len(),
+            cols: cols.max(1),
+            named,
+        })
     }
 }
 
@@ -177,9 +189,33 @@ mod tests {
     fn nome_repetido_em_celulas_adjacentes_forma_um_span() {
         let a = GridAreas::parse("'topo topo' 'lado conteudo' 'rodape rodape'").unwrap();
         assert_eq!((a.rows, a.cols), (3, 2));
-        assert_eq!(a.area("topo").unwrap(), GridArea { r0: 0, c0: 0, r1: 1, c1: 2 });
-        assert_eq!(a.area("lado").unwrap(), GridArea { r0: 1, c0: 0, r1: 2, c1: 1 });
-        assert_eq!(a.area("conteudo").unwrap(), GridArea { r0: 1, c0: 1, r1: 2, c1: 2 });
+        assert_eq!(
+            a.area("topo").unwrap(),
+            GridArea {
+                r0: 0,
+                c0: 0,
+                r1: 1,
+                c1: 2
+            }
+        );
+        assert_eq!(
+            a.area("lado").unwrap(),
+            GridArea {
+                r0: 1,
+                c0: 0,
+                r1: 2,
+                c1: 1
+            }
+        );
+        assert_eq!(
+            a.area("conteudo").unwrap(),
+            GridArea {
+                r0: 1,
+                c0: 1,
+                r1: 2,
+                c1: 2
+            }
+        );
         assert_eq!(a.area("rodape").unwrap().rows(), 1);
         assert_eq!(a.area("rodape").unwrap().cols(), 2);
         assert!(a.area("inexistente").is_none());
@@ -195,13 +231,20 @@ mod tests {
 
     #[test]
     fn shorthand_sem_as_areas_ainda_e_rows_barra_cols() {
-        assert_eq!(strip_quoted("\"a b\" 40px \"c d\" 1fr / 100px 1fr").split_whitespace().collect::<Vec<_>>(),
-                   vec!["40px", "1fr", "/", "100px", "1fr"]);
+        assert_eq!(
+            strip_quoted("\"a b\" 40px \"c d\" 1fr / 100px 1fr")
+                .split_whitespace()
+                .collect::<Vec<_>>(),
+            vec!["40px", "1fr", "/", "100px", "1fr"]
+        );
     }
 
     #[test]
     fn grid_area_numerica_nao_vira_nome() {
-        assert_eq!(parse_grid_area_name("pageContent").as_deref(), Some("pageContent"));
+        assert_eq!(
+            parse_grid_area_name("pageContent").as_deref(),
+            Some("pageContent")
+        );
         assert!(parse_grid_area_name("1 / 2 / 3 / 4").is_none());
         assert!(parse_grid_area_name("auto").is_none());
     }

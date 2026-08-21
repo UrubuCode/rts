@@ -444,6 +444,83 @@ css_props! {
         [inh] word_spacing: f32;
         /// `text-overflow`. Guardada — ver [`crate::style::vocab::TextOverflow`].
         [] text_overflow: crate::style::vocab::TextOverflow;
+        /// A cauda de PINTURA (ver `style::painting`): guardadas e sem pintar.
+        /// `background_clip` — o pintor de fundo desenha sempre o retângulo da
+        /// borda; `mix_blend_mode`/`background_blend_mode` — não há composição,
+        /// a lista de display não sabe ler o que já está por baixo;
+        /// `text_shadow` — reusa [`BoxShadow`], mas quem a pintaria era o pintor
+        /// de TEXTO, e esse não pergunta por sombra. Nenhuma tem consumidor.
+        [] background_clip: crate::style::painting::BackgroundClip;
+        [] mix_blend_mode: crate::style::painting::BlendMode;
+        [] background_blend_mode: crate::style::painting::BlendMode;
+        /// Sem `[anim]`: a `BoxShadow` não implementa `AnimValue`, e a sombra da
+        /// caixa — que É pintada — também não transiciona. Marcar esta como
+        /// animável antes daquela seria a que não pinta a ganhar uma capacidade
+        /// que a que pinta não tem.
+        [] text_shadow: BoxShadow;
+        /// O resto da cauda de pintura, tudo sem consumidor (ver
+        /// `style::painting`): `background_origin` reusa o tipo do `clip` menos
+        /// o `text`; `text_fill_color` é a cor do glifo no WebKit, e quem pinta
+        /// texto lê `color`; `text_underline_offset` e `text_decoration_style`
+        /// não cabem no código de decoração de 0 a 3 do layout; `tab_size` não
+        /// é lido pelo medidor, que trata `\t` como espaço; `scrollbar_color`
+        /// é do backend, como a `scrollbar_width` ao lado.
+        [] background_origin: crate::style::painting::BackgroundClip;
+        [] text_decoration_style: crate::style::painting::TextDecorationStyle;
+        [anim] text_fill_color: Rgba;
+        [] text_underline_offset: Dimension;
+        [inh] tab_size: f32;
+        [] scrollbar_color: crate::style::painting::ScrollbarColor;
+        /// As três camadas da MÁSCARA que faltavam ao lado do `mask_image`.
+        /// Guardadas e sem efeito: `layout::deve_suprimir_fundo` lê apenas o
+        /// `mask_image`, e continua a ler só esse.
+        [] mask_size: crate::style::BgSize;
+        [] mask_position: crate::style::BgPosition;
+        [] mask_repeat: crate::style::BgRepeat;
+        /// O fim da cauda, tudo sem consumidor (ver `style::painting`).
+        /// `background_attachment` — o pintor desenha sempre no retângulo do
+        /// elemento; `box_decoration_break` — o fluxo inline não tem a noção de
+        /// "a mesma caixa continuada"; `line_break` — o quebrador parte em
+        /// espaços e as variantes só se distinguem em CJK;
+        /// `text_decoration_skip_ink`/`text_decoration_thickness` — a decoração
+        /// é um código de 0 a 3 no `DisplayItem::Text`, sem geometria por glifo.
+        /// `caret_color` é a que tem o consumidor mais perto: quem desenha o
+        /// cursor é o campo editável, que hoje usa a cor do texto.
+        [] background_attachment: crate::style::painting::BackgroundAttachment;
+        [] box_decoration_break: crate::style::painting::BoxDecorationBreak;
+        [inh] line_break: crate::style::painting::LineBreak;
+        [inh] text_decoration_skip_ink: crate::style::painting::SkipInk;
+        [] text_decoration_thickness: Dimension;
+        [inh] caret_color: Rgba;
+        /// `grid-auto-flow` — a direção da colocação automática. Guardada; ver
+        /// `style::grid_lines` para o ponto de enxerto no layout.
+        [] grid_auto_flow: crate::style::grid_lines::GridAutoFlow;
+        /// `grid-auto-columns` — o tamanho das COLUNAS implícitas.
+        ///
+        /// Reusa [`crate::style::GridTrack`], que é o tipo que
+        /// `grid-auto-rows` — a irmã, JÁ consumida pelo layout — usa desde
+        /// sempre, e que já sabe ler `1fr`, `minmax(0, 1fr)`, `min-content` e
+        /// `fit-content()`. Uma primeira versão desta guardou a string CRUA por
+        /// eu supor que a gramática não tinha tipo neste motor; tinha, ao lado,
+        /// no campo gémeo. Guardar cru teria sido um segundo modelo de trilha
+        /// dentro da mesma tabela.
+        ///
+        /// GUARDADA e não efetiva, ao contrário da irmã: o layout dimensiona as
+        /// colunas por `grid-template-columns` e nunca cria colunas implícitas.
+        [] grid_auto_columns: crate::style::GridTrack;
+        /// As quatro extremidades da COLOCAÇÃO POR LINHA de grid. Guardadas e
+        /// sem geometria: os itens continuam a ser colocados por ordem de
+        /// documento. Ver `style::grid_lines`, que tem o ponto de enxerto e a
+        /// razão para conviverem com o `grid_area` (colocação por NOME) em vez
+        /// de uma delas se sobrepor à outra aqui.
+        [] grid_column_start: crate::style::grid_lines::GridLine;
+        [] grid_column_end: crate::style::grid_lines::GridLine;
+        [] grid_row_start: crate::style::grid_lines::GridLine;
+        [] grid_row_end: crate::style::grid_lines::GridLine;
+        /// `clip` — o retângulo de recorte de uma caixa posicionada. Guardada e
+        /// SEM recortar; [`crate::style::vocab::Clip`] tem a verificação de que
+        /// isso não deixa nenhum `.sr-only` do corpus visível.
+        [] clip: crate::style::vocab::Clip;
         /// `text-wrap`. Guardada — ver [`crate::style::vocab::TextWrap`].
         [inh] text_wrap: crate::style::vocab::TextWrap;
         /// `object-fit`. Guardada — ver [`crate::style::vocab::ObjectFit`].
@@ -558,6 +635,17 @@ css_props! {
         /// sem a máscara não é um glifo, é um quadrado cheio que o browser nunca
         /// mostra — e foi assim que a Wikipédia ganhou blocos cinzentos.
         [] mask_image: String;
+        /// `filter` / `-webkit-filter` — a lista de funções, CRUA. Pedido pelo
+        /// lado do paint, e cru de propósito: só um subconjunto das funções é
+        /// exprimível no backend, e a decisão de qual é dele. Tipá-la aqui
+        /// obrigaria a modelar formas que nunca chegam a ser desenhadas — o
+        /// oposto do que a tabela serve, que é uma decisão num sítio só. Mesmo
+        /// molde do `mask_image` acima. 208 declarações na folha real.
+        [] filter: String;
+        /// `clip-path` / `-webkit-clip-path` — a forma de recorte, CRUA, pelo
+        /// mesmo motivo: `polygon()`, `inset()` e `circle()` são geometrias
+        /// diferentes e quem as sabe desenhar é o consumidor. 109 declarações.
+        [] clip_path: String;
         /// `background-repeat`. Aceite e serializado (sem imagem pintada, não há
         /// o que repetir ainda).
         [] bg_repeat: crate::style::BgRepeat;
@@ -657,6 +745,32 @@ impl ComputedStyle {
             || self.outline_width.is_some()
             || self.corner_radius.is_some()
             || self.width.is_some()
+    }
+
+    /// A IMAGEM de marcador declarada, ou `None` quando não há nenhuma.
+    ///
+    /// Existe porque o campo cru não responde a esta pergunta: `list-style-image`
+    /// tem dois estados — um URL, ou nenhum — e é guardado como `String` porque
+    /// `get_property` tem de devolver ao `getComputedStyle` a string que o autor
+    /// escreveu, incluindo `none`. Logo `Some("none")` significa **não há
+    /// imagem**, e `is_some()` responde ao contrário do que quem pergunta quer
+    /// saber.
+    ///
+    /// **Isto apagava os 457 marcadores de `<ol>` da Wikipédia.** A folha tem
+    /// `ol{…;list-style-image:none}` — a linha de reset mais banal que existe —
+    /// e o `listitem.rs` lia-a como "há imagem" e saía sem desenhar nada, com a
+    /// numeração inteira a funcionar por trás. Um `<ol>` isolado numerava, que é
+    /// o que fazia nenhum teste apanhar isto.
+    ///
+    /// Fica AQUI, ao lado do campo, e não no consumidor: era um consumidor só
+    /// hoje, e a pergunta "há imagem?" é da propriedade, não de quem desenha o
+    /// bullet. O dia em que o campo virar `Option<Url>` esta função desaparece
+    /// com a ambiguidade que a obrigou a existir.
+    pub fn list_style_image_url(&self) -> Option<&str> {
+        self.list_style_image
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.eq_ignore_ascii_case("none"))
     }
 
     /// O `display` EFETIVO, combinando `display` + `flex_wrap` (flex + wrap →

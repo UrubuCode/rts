@@ -94,6 +94,22 @@ descontado do denominador em silêncio:
   diferentes, por isso o comparador conta "não reportado" numa coluna própria e
   fora do denominador. Ler os 93% de `display` como "93% dos elementos" seria
   errado: é 93% dos 2424 que temos valor para responder.
-- O tempo: o lado RTS leva ~5 minutos na Wikipédia. É o custo do **instrumento**
-  (9 chamadas de fronteira `rts:dom` por elemento x 16k), não do layout, que
-  corre uma vez.
+- O tempo: o lado RTS leva **~10 segundos** na Wikipédia (16 813 elementos),
+  medido 2026-08-21. Levava **9m21s** — medido no mesmo binário e sobre a mesma
+  página, com o dump a sair byte a byte igual. A diferença era um só sítio:
+  `boundingRect` fazia um `layout_document` INTEIRO por chamada — 13,7 ms
+  medidos — e o extrator pede quatro por elemento, ou seja ~67 mil layouts do
+  mesmo documento imutável. A frase que estava aqui dizia "o layout corre uma
+  vez"; era o que devia acontecer e não o que acontecia.
+
+  `boundingRectAll(doc, ids, saida)` faz o layout uma vez para a árvore toda e
+  responde as caixas por buffer. **Não guarda nada entre chamadas**, de
+  propósito: um `DisplayList` em cache no `Dom` seria mais rápido ainda e traria
+  a pergunta da invalidação, e uma geometria que não reflete o DOM é outra
+  medição, não uma medição mais rápida. O extrator confronta uma amostra de 40
+  elementos contra o `boundingRect` singular e emite `__erro` se um valor
+  divergir — a guarda contra acelerar medindo menos.
+
+  As restantes ~150 mil travessias de fronteira (`childCount`, `childAt`,
+  `tagName`, cinco `computedProperty`) custam, todas juntas, menos de 2
+  segundos: medidas a ~0,01 ms cada, contra os 13,7 ms de uma `boundingRect`.

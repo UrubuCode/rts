@@ -19,6 +19,10 @@
 //! `u64` (extern "C") através de [`register`]; a camada ergonômica
 //! (`Document`/`Element`) é TS. Depende só de `rts-engine`.
 
+/// INTENT de layout por-tag (egui-free): `BlockDef` (display/indent/prefix/flags),
+/// o registro (`defineBlock`/`defineInline`) e os códigos de display. O DOM diz
+/// "esta tag é um bloco vertical / inline-flow"; o renderer decide como pintar.
+pub mod block;
 mod dom;
 /// Hasher rápido para as chaves INTERNAS (índices de nó, chaves de cache de
 /// layout): nenhuma delas vem de fora do processo, e o SipHash da `std` cobra
@@ -26,27 +30,26 @@ mod dom;
 pub mod fasthash;
 mod html;
 mod inline_box;
-/// CONTEÚDO GERADO (`::before`/`::after`): resolução da caixa que a cascata manda
-/// existir, sem que ela entre na árvore de nós.
-pub mod pseudo;
-/// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
-/// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
-/// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
-pub mod style;
-/// INTENT de layout por-tag (egui-free): `BlockDef` (display/indent/prefix/flags),
-/// o registro (`defineBlock`/`defineInline`) e os códigos de display. O DOM diz
-/// "esta tag é um bloco vertical / inline-flow"; o renderer decide como pintar.
-pub mod block;
-/// Store de `Dom`s vivos por handle — a fonte única da verdade. A ABI headless e
-/// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
-/// mutações pela fachada `document` mudam o que a janela pinta.
-pub mod store;
 /// Motor de LAYOUT (egui-free): calcula a geometria (x,y,w,h) de cada nó via box
 /// model + fluxo normal e emite uma `DisplayList` plana. Decisão 2026-06-27:
 /// "processar tudo no DOM, o egui só lê e exibe" — o backend NÃO decide layout,
 /// só pinta a display-list. Medição de texto via trait `TextMeasurer` (o backend
 /// implementa; reimplementar largura de glifo aqui é a armadilha do roadmap).
 pub mod layout;
+/// CONTEÚDO GERADO (`::before`/`::after`): resolução da caixa que a cascata manda
+/// existir, sem que ela entre na árvore de nós.
+pub mod pseudo;
+/// CONTADORES de CSS (`counter-reset`/`counter-increment`) e o valor que
+/// `counter()` lê dentro de um `content`.
+pub mod counters;
+/// Store de `Dom`s vivos por handle — a fonte única da verdade. A ABI headless e
+/// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
+/// mutações pela fachada `document` mudam o que a janela pinta.
+pub mod store;
+/// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
+/// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
+/// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
+pub mod style;
 
 /// `display: list-item` — o MARCADOR de um `<li>` (ponto, círculo, quadrado,
 /// número). Separado do `layout.rs` porque a numeração é uma pergunta que
@@ -61,11 +64,26 @@ mod table;
 #[cfg(test)]
 mod flowtests;
 
+/// O que conta como ITEM de flex e o que conta para a largura da linha —
+/// medido num container isolado, não na página.
+#[cfg(test)]
+mod flextests;
+
+/// O INVARIANTE DA UNIÃO de um inline: a caixa do pai contém a dos fragmentos.
+/// Módulo próprio porque o que fixa é uma propriedade da árvore, não um valor.
+#[cfg(test)]
+mod uniontests;
+
 /// Os testes do RAIO POR CANTO: o que a display list carrega e o que o backend
 /// pode recortar. Módulo próprio porque não são fluxo nem tabela — o que fixam é
 /// a caixa pintada.
 #[cfg(test)]
 mod radiustests;
+
+/// `filter` e `clip-path` do estilo até à display list — a LIGAÇÃO, que os
+/// testes de `painteffects` (a aritmética) não veem.
+#[cfg(test)]
+mod filtertests;
 
 /// Motor de ANIMAÇÃO (#1776): interpolação de [`style::ComputedStyle`] no tempo +
 /// curvas de easing. Núcleo comum de `transition` (2 pontos) e `@keyframes` (N).
@@ -83,8 +101,12 @@ pub mod metrics;
 /// (egui) lê e aplica — o motor não conhece o egui.
 pub mod scrollbar;
 
-pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
+/// `filter` e `clip-path` reduzidos ao que uma display list sabe fazer EXATO —
+/// e a recusa explícita do resto. Módulo à parte de `layout.rs` porque este já
+/// passa o teto de linhas com folga; ver o cabeçalho para o que fica de fora.
+pub mod painteffects;
 
+pub use dom::{Attr, Dom, Node, NodeId, NodeIdx, NodeKind, parse_html_to_dom};
 
 /// Prelude `.ts` da FACHADA DOM ergonômica (`document` global + `Element`, com a
 /// API/nomes do browser) sobre os primitivos do namespace `rts:dom`. Incluído via

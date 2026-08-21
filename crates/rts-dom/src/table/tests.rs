@@ -6,18 +6,27 @@
 //! célula com "aa" a 16px quer 16px de conteúdo. Um medidor real daria números
 //! diferentes e o teste passaria a afirmar coisas sobre a fonte.
 
-use crate::layout::{layout_document, ApproxMeasurer, DisplayItem, LayoutCtx, Rect};
+use crate::layout::{ApproxMeasurer, DisplayItem, LayoutCtx, Rect, layout_document};
 use crate::parse_html_to_dom;
 
 pub(crate) fn geometria(html: &str, largura: f32) -> (crate::Dom, crate::layout::DisplayList) {
     let dom = parse_html_to_dom(html);
-    let ctx = LayoutCtx { viewport_w: largura, viewport_h: 600.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: largura,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
     let list = layout_document(&dom, &ctx);
     (dom, list)
 }
 
 /// O rect do n-ésimo elemento que casa com o seletor.
-pub(crate) fn rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, n: usize) -> Rect {
+pub(crate) fn rect(
+    dom: &crate::Dom,
+    list: &crate::layout::DisplayList,
+    sel: &str,
+    n: usize,
+) -> Rect {
     let ids = dom.query_all(sel);
     let id = ids.get(n).unwrap_or_else(|| panic!("sem {sel}[{n}]"));
     let idx = dom.resolve(*id).expect("nó vivo");
@@ -59,13 +68,23 @@ fn tabela_2x2_com_larguras_conhecidas_poe_as_celulas_nas_colunas() {
     assert!((a.w - 100.0).abs() < 0.5, "coluna 1 = {}", a.w);
     assert!((b.w - 200.0).abs() < 0.5, "coluna 2 = {}", b.w);
     // A segunda coluna começa onde a primeira acaba: `cellspacing=0`.
-    assert!((b.x - (a.x + a.w)).abs() < 0.5, "b.x={} a fim={}", b.x, a.x + a.w);
+    assert!(
+        (b.x - (a.x + a.w)).abs() < 0.5,
+        "b.x={} a fim={}",
+        b.x,
+        a.x + a.w
+    );
     // A segunda linha usa as MESMAS colunas — é o que distingue uma tabela de
     // duas linhas de blocos empilhados.
     assert!((c.x - a.x).abs() < 0.5 && (c.w - a.w).abs() < 0.5);
     assert!((d.x - b.x).abs() < 0.5 && (d.w - b.w).abs() < 0.5);
     // E fica ABAIXO da primeira.
-    assert!(c.y >= a.y + a.h - 0.5, "linha 2 em y={} linha 1 acaba em {}", c.y, a.y + a.h);
+    assert!(
+        c.y >= a.y + a.h - 0.5,
+        "linha 2 em y={} linha 1 acaba em {}",
+        c.y,
+        a.y + a.h
+    );
 }
 
 /// A altura de uma linha é a da célula mais alta, e as duas células da linha
@@ -81,7 +100,12 @@ fn a_linha_fica_com_a_altura_da_celula_mais_alta() {
     let alto = rect(&dom, &list, "td", 1);
     let tr = rect(&dom, &list, "tr", 0);
     assert!(alto.h >= 80.0, "célula alta = {}", alto.h);
-    assert!((curto.h - alto.h).abs() < 0.5, "curta={} alta={}", curto.h, alto.h);
+    assert!(
+        (curto.h - alto.h).abs() < 0.5,
+        "curta={} alta={}",
+        curto.h,
+        alto.h
+    );
     assert!((tr.h - alto.h).abs() < 0.5, "linha = {}", tr.h);
 }
 
@@ -97,7 +121,12 @@ fn colspan_atravessa_as_colunas_sem_desalinhar_a_linha_seguinte() {
     let cab = rect(&dom, &list, "td", 0);
     let a = rect(&dom, &list, "td", 1);
     let b = rect(&dom, &list, "td", 2);
-    assert!((cab.w - (a.w + b.w)).abs() < 0.5, "colspan={} a+b={}", cab.w, a.w + b.w);
+    assert!(
+        (cab.w - (a.w + b.w)).abs() < 0.5,
+        "colspan={} a+b={}",
+        cab.w,
+        a.w + b.w
+    );
     assert!((a.x - cab.x).abs() < 0.5);
     assert!((b.x - (a.x + a.w)).abs() < 0.5);
 }
@@ -115,8 +144,16 @@ fn rowspan_faz_a_linha_seguinte_saltar_a_coluna_ocupada() {
     let a = rect(&dom, &list, "td", 1);
     let b = rect(&dom, &list, "td", 2);
     // `b` é o único da segunda linha e pertence à SEGUNDA coluna.
-    assert!((b.x - a.x).abs() < 0.5, "b.x={} devia estar na coluna de a (x={})", b.x, a.x);
-    assert!(b.x > alto.x + 1.0, "b não devia ficar sob a célula com rowspan");
+    assert!(
+        (b.x - a.x).abs() < 0.5,
+        "b.x={} devia estar na coluna de a (x={})",
+        b.x,
+        a.x
+    );
+    assert!(
+        b.x > alto.x + 1.0,
+        "b não devia ficar sob a célula com rowspan"
+    );
 }
 
 /// `border-spacing` (via `cellspacing`) separa as colunas E afasta a primeira da
@@ -130,8 +167,16 @@ fn o_border_spacing_existe_tambem_entre_a_borda_e_a_primeira_coluna() {
     let tabela = rect(&dom, &list, "table", 0);
     let a = rect(&dom, &list, "td", 0);
     let b = rect(&dom, &list, "td", 1);
-    assert!((a.x - tabela.x - 10.0).abs() < 0.5, "recuo inicial = {}", a.x - tabela.x);
-    assert!((b.x - (a.x + a.w) - 10.0).abs() < 0.5, "vão = {}", b.x - a.x - a.w);
+    assert!(
+        (a.x - tabela.x - 10.0).abs() < 0.5,
+        "recuo inicial = {}",
+        a.x - tabela.x
+    );
+    assert!(
+        (b.x - (a.x + a.w) - 10.0).abs() < 0.5,
+        "vão = {}",
+        b.x - a.x - a.w
+    );
 }
 
 /// Uma tabela sem `width` encolhe ao conteúdo em vez de ocupar o pai — é a
@@ -158,8 +203,15 @@ fn tbody_nao_cria_uma_grade_separada() {
     let a = rect(&dom, &list, "td", 0);
     let c = rect(&dom, &list, "td", 2);
     let tbody = rect(&dom, &list, "tbody", 0);
-    assert!((c.x - a.x).abs() < 0.5, "as duas linhas do tbody usam a mesma coluna");
-    assert!(tbody.h >= a.h + c.h - 0.5, "o grupo abrange as duas linhas: {}", tbody.h);
+    assert!(
+        (c.x - a.x).abs() < 0.5,
+        "as duas linhas do tbody usam a mesma coluna"
+    );
+    assert!(
+        tbody.h >= a.h + c.h - 0.5,
+        "o grupo abrange as duas linhas: {}",
+        tbody.h
+    );
 }
 
 /// Um `<ol>` numera 1., 2., 3. — e os números são pintados à ESQUERDA do texto.
@@ -175,7 +227,11 @@ fn o_padding_left_do_autor_anula_o_recuo_da_ua() {
     let com_ua = rect(&dom, &list, "li", 0).x;
     let (dom2, list2) = geometria("<ul style=\"padding-left:0\"><li>a</li></ul>", 800.0);
     let sem = rect(&dom2, &list2, "li", 0).x;
-    assert!((com_ua - sem - 40.0).abs() < 0.5, "recuo da UA = {}", com_ua - sem);
+    assert!(
+        (com_ua - sem - 40.0).abs() < 0.5,
+        "recuo da UA = {}",
+        com_ua - sem
+    );
 }
 
 /// Uma célula cujo conteúdo declara `width:100%` NÃO exige a largura da viewport
@@ -194,7 +250,11 @@ fn width_percentual_dentro_da_celula_nao_vira_minimo_de_viewport() {
     let t = rect(&dom, &list, "table", 0);
     let a = rect(&dom, &list, "td", 0);
     assert!(t.w <= 301.0, "a tabela saiu com {}", t.w);
-    assert!(a.w <= 301.0, "a célula saiu com {} — o `100%` virou 1280", a.w);
+    assert!(
+        a.w <= 301.0,
+        "a célula saiu com {} — o `100%` virou 1280",
+        a.w
+    );
 }
 
 // ── AS QUATRO PROPRIEDADES ──────────────────────────────────────────────────
@@ -208,7 +268,9 @@ fn width_percentual_dentro_da_celula_nao_vira_minimo_de_viewport() {
 #[test]
 fn border_collapse_muda_a_posicao_das_celulas_e_nao_so_a_borda() {
     let corpo = r#"<tr><td style="width:100px">a</td><td style="width:100px">b</td></tr>"#;
-    let sep = format!(r#"<table style="width:220px;border-collapse:separate;border-spacing:10px">{corpo}</table>"#);
+    let sep = format!(
+        r#"<table style="width:220px;border-collapse:separate;border-spacing:10px">{corpo}</table>"#
+    );
     let col = format!(r#"<table style="width:220px;border-collapse:collapse">{corpo}</table>"#);
 
     let (d1, l1) = geometria(&sep, 800.0);
@@ -219,9 +281,17 @@ fn border_collapse_muda_a_posicao_das_celulas_e_nao_so_a_borda() {
     let b_col = rect(&d2, &l2, "td", 1);
 
     // `separate` com 10px: recuo de 10 antes da primeira, 10 entre as duas.
-    assert!((b_sep.x - (a_sep.x + a_sep.w) - 10.0).abs() < 0.5, "vão separate = {}", b_sep.x - a_sep.x - a_sep.w);
+    assert!(
+        (b_sep.x - (a_sep.x + a_sep.w) - 10.0).abs() < 0.5,
+        "vão separate = {}",
+        b_sep.x - a_sep.x - a_sep.w
+    );
     // `collapse`: as colunas encostam, e a primeira encosta à borda da tabela.
-    assert!((b_col.x - (a_col.x + a_col.w)).abs() < 0.5, "vão collapse = {}", b_col.x - a_col.x - a_col.w);
+    assert!(
+        (b_col.x - (a_col.x + a_col.w)).abs() < 0.5,
+        "vão collapse = {}",
+        b_col.x - a_col.x - a_col.w
+    );
     assert!(a_col.x < a_sep.x, "collapse devia começar mais à esquerda");
 }
 
@@ -236,7 +306,11 @@ fn o_border_spacing_do_css_vence_o_atributo_cellspacing() {
     let (dom, list) = geometria(html, 800.0);
     let a = rect(&dom, &list, "td", 0);
     let b = rect(&dom, &list, "td", 1);
-    assert!((b.x - (a.x + a.w) - 12.0).abs() < 0.5, "o atributo ganhou: vão = {}", b.x - a.x - a.w);
+    assert!(
+        (b.x - (a.x + a.w) - 12.0).abs() < 0.5,
+        "o atributo ganhou: vão = {}",
+        b.x - a.x - a.w
+    );
 }
 
 /// `border-spacing` aceita dois comprimentos, e o segundo é o VERTICAL: as
@@ -251,8 +325,15 @@ fn border_spacing_de_dois_valores_afasta_as_linhas_sem_mexer_nas_colunas() {
     let a = rect(&dom, &list, "td", 0);
     let b = rect(&dom, &list, "td", 1);
     let c = rect(&dom, &list, "td", 2);
-    assert!((b.x - (a.x + a.w)).abs() < 0.5, "o vão horizontal devia ser 0");
-    assert!((c.y - (a.y + a.h) - 20.0).abs() < 0.5, "vão vertical = {}", c.y - a.y - a.h);
+    assert!(
+        (b.x - (a.x + a.w)).abs() < 0.5,
+        "o vão horizontal devia ser 0"
+    );
+    assert!(
+        (c.y - (a.y + a.h) - 20.0).abs() < 0.5,
+        "vão vertical = {}",
+        c.y - a.y - a.h
+    );
 }
 
 /// `table-layout: fixed` decide as colunas pela PRIMEIRA linha e ignora o
@@ -263,7 +344,9 @@ fn table_layout_fixed_ignora_o_conteudo_das_linhas_seguintes() {
         <tr><td style="width:50px">a</td><td>b</td></tr>
         <tr><td>uma frase muito comprida que num layout auto alargaria esta coluna toda</td><td>x</td></tr>"#;
     let auto = format!(r#"<table style="width:300px;border-spacing:0">{corpo}</table>"#);
-    let fixo = format!(r#"<table style="width:300px;border-spacing:0;table-layout:fixed">{corpo}</table>"#);
+    let fixo = format!(
+        r#"<table style="width:300px;border-spacing:0;table-layout:fixed">{corpo}</table>"#
+    );
 
     let (d1, l1) = geometria(&auto, 800.0);
     let (d2, l2) = geometria(&fixo, 800.0);
@@ -271,7 +354,10 @@ fn table_layout_fixed_ignora_o_conteudo_das_linhas_seguintes() {
     let fixo_c1 = rect(&d2, &l2, "td", 0).w;
 
     // No fixo a primeira coluna fica com os 50px pedidos, custe o que custar.
-    assert!((fixo_c1 - 50.0).abs() < 0.5, "fixed deu {fixo_c1} à coluna de 50px");
+    assert!(
+        (fixo_c1 - 50.0).abs() < 0.5,
+        "fixed deu {fixo_c1} à coluna de 50px"
+    );
     // No auto a frase da segunda linha alarga-a — é a diferença entre os dois.
     assert!(auto_c1 > fixo_c1 + 1.0, "auto={auto_c1} fixo={fixo_c1}");
 }
@@ -318,7 +404,12 @@ fn a_infobox_da_wikipedia_da_caixa_a_todas_as_celulas() {
     // quando um `<tr>` cai no fluxo inline em vez do algoritmo de tabela).
     let l0 = rect(&dom, &list, "tr", 0);
     let l1 = rect(&dom, &list, "tr", 1);
-    assert!(l1.y >= l0.y + l0.h - 0.5, "as linhas não empilharam: {} e {}", l0.y, l1.y);
+    assert!(
+        l1.y >= l0.y + l0.h - 0.5,
+        "as linhas não empilharam: {} e {}",
+        l0.y,
+        l1.y
+    );
     // E o `display:table` do autor, aninhado numa célula, também reparte.
     let celulas = dom.query_all("div[style*=table-cell]");
     assert_eq!(celulas.len(), 2, "as duas células do table aninhado");
@@ -345,9 +436,20 @@ fn celulas_sem_linha_ganham_uma_linha_anonima_e_ficam_lado_a_lado() {
         .map(|id| *g.rects.get(&dom.resolve(id).unwrap()).expect("caixa"))
         .collect();
     assert_eq!(cel.len(), 2);
-    assert!((cel[0].y - cel[1].y).abs() < 0.5, "empilharam: y={} e {}", cel[0].y, cel[1].y);
-    assert!((cel[1].x - (cel[0].x + cel[0].w)).abs() < 0.5, "não ficaram encostadas");
-    assert!((cel[0].w + cel[1].w - 400.0).abs() < 0.5, "juntas deviam dar a tabela");
+    assert!(
+        (cel[0].y - cel[1].y).abs() < 0.5,
+        "empilharam: y={} e {}",
+        cel[0].y,
+        cel[1].y
+    );
+    assert!(
+        (cel[1].x - (cel[0].x + cel[0].w)).abs() < 0.5,
+        "não ficaram encostadas"
+    );
+    assert!(
+        (cel[0].w + cel[1].w - 400.0).abs() < 0.5,
+        "juntas deviam dar a tabela"
+    );
 }
 
 /// Uma célula solta ANTES de um `<tr>` não se junta a ele: são duas linhas, e
@@ -366,7 +468,10 @@ fn a_linha_anonima_fecha_quando_aparece_uma_linha_de_verdade() {
         .map(|id| *g.rects.get(&dom.resolve(id).unwrap()).expect("caixa"))
         .collect();
     assert_eq!(cel.len(), 2);
-    assert!(cel[1].y >= cel[0].y + cel[0].h - 0.5, "deviam ser duas linhas");
+    assert!(
+        cel[1].y >= cel[0].y + cel[0].h - 0.5,
+        "deviam ser duas linhas"
+    );
 }
 
 /// A MINIATURA da Wikipédia: `figure { display: table }` com uma imagem e um
@@ -389,7 +494,10 @@ fn figure_como_tabela_ganha_a_largura_do_conteudo_e_a_legenda_ganha_caixa() {
     let cap = rect(&dom, &list, "figcaption", 0);
     assert!(fig.w > 200.0, "a figura encolheu para {}", fig.w);
     assert!(fig.w < 300.0, "a figura ocupou o pai todo: {}", fig.w);
-    assert!(cap.w > 1.0 && cap.h > 1.0, "a legenda saiu sem caixa: {cap:?}");
+    assert!(
+        cap.w > 1.0 && cap.h > 1.0,
+        "a legenda saiu sem caixa: {cap:?}"
+    );
 }
 
 /// Uma legenda fica FORA da grade: não é uma coluna, e por isso não reparte
@@ -404,9 +512,20 @@ fn a_legenda_nao_vira_uma_coluna_da_tabela() {
     let a = rect(&dom, &list, "td", 0);
     let b = rect(&dom, &list, "td", 1);
     let cap = rect(&dom, &list, "caption", 0);
-    assert!((a.w - 100.0).abs() < 0.5, "a legenda mexeu na coluna 1: {}", a.w);
-    assert!((b.w - 200.0).abs() < 0.5, "a legenda mexeu na coluna 2: {}", b.w);
-    assert!(cap.y + cap.h <= a.y + 0.5, "a legenda devia ficar ACIMA da grade");
+    assert!(
+        (a.w - 100.0).abs() < 0.5,
+        "a legenda mexeu na coluna 1: {}",
+        a.w
+    );
+    assert!(
+        (b.w - 200.0).abs() < 0.5,
+        "a legenda mexeu na coluna 2: {}",
+        b.w
+    );
+    assert!(
+        cap.y + cap.h <= a.y + 0.5,
+        "a legenda devia ficar ACIMA da grade"
+    );
 }
 
 // ── GRADE: a largura que as tabelas herdavam errada ─────────────────────────
@@ -429,10 +548,18 @@ fn minmax_nao_come_o_maximo_quando_ha_outra_trilha_ao_lado() {
     let (dom, list) = geometria(html, 1280.0);
     let conteudo = rect(&dom, &list, "#conteudo", 0);
     let lado = rect(&dom, &list, "#lado", 0);
-    assert!((conteudo.w - 752.0).abs() < 1.0, "coluna de conteúdo = {}", conteudo.w);
+    assert!(
+        (conteudo.w - 752.0).abs() < 1.0,
+        "coluna de conteúdo = {}",
+        conteudo.w
+    );
     assert!((lado.w - 196.0).abs() < 1.0, "barra lateral = {}", lado.w);
     // E a barra lateral fica DENTRO da grade, não empurrada para fora.
-    assert!((lado.x - (conteudo.x + conteudo.w + 24.0)).abs() < 1.0, "lado em x={}", lado.x);
+    assert!(
+        (lado.x - (conteudo.x + conteudo.w + 24.0)).abs() < 1.0,
+        "lado em x={}",
+        lado.x
+    );
 }
 
 /// Uma trilha limitada SOZINHA continua a poder chegar ao seu máximo — o que
@@ -460,7 +587,11 @@ fn trilha_auto_e_dimensionada_pelo_conteudo() {
     let b = rect(&dom, &list, "#b", 0);
     // `a` fica com o que sobra (é a única trilha esticável): 600 - 200.
     assert!((a.w - 400.0).abs() < 1.0, "trilha auto = {}", a.w);
-    assert!((b.x - 400.0).abs() < 1.0, "a segunda coluna começa em {}", b.x);
+    assert!(
+        (b.x - 400.0).abs() < 1.0,
+        "a segunda coluna começa em {}",
+        b.x
+    );
 }
 
 /// Uma célula `white-space:nowrap` não tem folga: mínimo e máximo coincidem na
@@ -489,7 +620,11 @@ fn coluna_nowrap_nao_tem_folga_e_a_vizinha_leva_o_espaco_todo() {
 
     // 8 caracteres sem quebra: a largura sai da constante do medidor.
     let oito = 8.0 * 16.0 * crate::style::PROP_ADVANCE;
-    assert!((rotulo.w - oito).abs() < 1.0, "coluna nowrap = {}", rotulo.w);
+    assert!(
+        (rotulo.w - oito).abs() < 1.0,
+        "coluna nowrap = {}",
+        rotulo.w
+    );
     assert!(
         (rotulo.w + conteudo.w - 200.0).abs() < 1.0,
         "as duas colunas somam {} e nao 200",
@@ -531,6 +666,9 @@ fn nowrap_soma_os_filhos_inline_em_vez_de_tomar_o_maior() {
     // SOMA dos dois inline, não o avanço por carácter.
     let oito = 8.0 * 16.0 * crate::style::PROP_ADVANCE;
     let rotulo = rect(&dom, &list, "th", 0);
-    assert!((rotulo.w - oito).abs() < 1.0, "coluna nowrap com dois inline = {}", rotulo.w);
+    assert!(
+        (rotulo.w - oito).abs() < 1.0,
+        "coluna nowrap com dois inline = {}",
+        rotulo.w
+    );
 }
-

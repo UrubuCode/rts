@@ -155,7 +155,9 @@ pub fn parse_width_token(tok: &str) -> Option<f32> {
     // A correção fica AQUI e não no `parse_px`: aquele serve `width`/`height`,
     // onde o filtro `> 0` distingue "não declarado" de "zero" para outros
     // consumidores. Mudá-lo seria consertar uma borda e mexer no box model todo.
-    let num = low.trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%').trim();
+    let num = low
+        .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%')
+        .trim();
     if num.parse::<f32>().map(|n| n == 0.0).unwrap_or(false) {
         return Some(0.0);
     }
@@ -185,7 +187,9 @@ fn split_longhand(prop: &str) -> Option<(SideName, &str)> {
 
 /// Aplica uma longhand por lado já reconhecida por [`is_longhand`].
 pub fn apply_longhand(css: &mut ComputedStyle, prop: &str, val: &str) {
-    let Some((side, what)) = split_longhand(prop) else { return };
+    let Some((side, what)) = split_longhand(prop) else {
+        return;
+    };
     match what {
         "width" => set_side_width(css, side, parse_width_token(val)),
         "style" => set_side_style(css, side, BorderStyle::parse(val)),
@@ -230,10 +234,26 @@ pub fn resolved_sides(css: &ComputedStyle) -> [SideBorder; 4] {
         color: c.unwrap_or(uc),
     };
     [
-        one(css.border_widths.top, css.border_top_style, css.border_top_color),
-        one(css.border_widths.right, css.border_right_style, css.border_right_color),
-        one(css.border_widths.bottom, css.border_bottom_style, css.border_bottom_color),
-        one(css.border_widths.left, css.border_left_style, css.border_left_color),
+        one(
+            css.border_widths.top,
+            css.border_top_style,
+            css.border_top_color,
+        ),
+        one(
+            css.border_widths.right,
+            css.border_right_style,
+            css.border_right_color,
+        ),
+        one(
+            css.border_widths.bottom,
+            css.border_bottom_style,
+            css.border_bottom_color,
+        ),
+        one(
+            css.border_widths.left,
+            css.border_left_style,
+            css.border_left_color,
+        ),
     ]
 }
 
@@ -327,7 +347,12 @@ fn quatro_lados(val: &str) -> Option<([String; 4], bool)> {
 }
 
 /// A ordem em que `quatro_lados` devolve os lados.
-const ORDEM: [SideName; 4] = [SideName::Top, SideName::Right, SideName::Bottom, SideName::Left];
+const ORDEM: [SideName; 4] = [
+    SideName::Top,
+    SideName::Right,
+    SideName::Bottom,
+    SideName::Left,
+];
 
 /// `border-width: <1 a 4 larguras>`.
 ///
@@ -348,7 +373,9 @@ const ORDEM: [SideName; 4] = [SideName::Top, SideName::Right, SideName::Bottom, 
 /// que o descreva, e escrever lá uma das quatro seria dar uma resposta errada a
 /// quem lê o campo em vez de nenhuma.
 pub fn apply_width_shorthand(css: &mut ComputedStyle, val: &str) {
-    let Some((v, uniforme)) = quatro_lados(val) else { return };
+    let Some((v, uniforme)) = quatro_lados(val) else {
+        return;
+    };
     for (i, lado) in ORDEM.into_iter().enumerate() {
         set_side_width(css, lado, parse_width_token(&v[i]));
     }
@@ -364,7 +391,9 @@ pub fn apply_width_shorthand(css: &mut ComputedStyle, val: &str) {
 /// [`used_widths`] zera a largura de um lado que não pinta. Corrigir a largura
 /// sem corrigir o estilo não teria movido nada.
 pub fn apply_style_shorthand(css: &mut ComputedStyle, val: &str) {
-    let Some((v, uniforme)) = quatro_lados(val) else { return };
+    let Some((v, uniforme)) = quatro_lados(val) else {
+        return;
+    };
     for (i, lado) in ORDEM.into_iter().enumerate() {
         set_side_style(css, lado, BorderStyle::parse(&v[i]));
     }
@@ -380,7 +409,9 @@ pub fn apply_style_shorthand(css: &mut ComputedStyle, val: &str) {
 /// que respeita parênteses: um `split_whitespace` transformaria uma cor em três
 /// lados.
 pub fn apply_color_shorthand(css: &mut ComputedStyle, val: &str) {
-    let Some((v, uniforme)) = quatro_lados(val) else { return };
+    let Some((v, uniforme)) = quatro_lados(val) else {
+        return;
+    };
     for (i, lado) in ORDEM.into_iter().enumerate() {
         set_side_color(css, lado, super::color::parse_color(&v[i]));
     }

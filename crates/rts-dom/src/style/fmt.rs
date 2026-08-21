@@ -3,13 +3,11 @@
 //! → `Npx`, enums → keyword. Validado contra o Chrome real (ver `fmt_color`).
 
 use super::fmt_values::{
-    display_css, fmt_align, fmt_color, fmt_dim, fmt_justify, fmt_px, fmt_tracks,
-    overflow_css, side_css, side_of,
+    display_css, fmt_align, fmt_color, fmt_dim, fmt_justify, fmt_px, fmt_tracks, overflow_css,
+    side_css, side_of,
 };
 use super::props::ComputedStyle;
-use super::values::{
-    Dimension, LineHeight, TextAlign, TextTransform, WhiteSpace,
-};
+use super::values::{Dimension, LineHeight, TextAlign, TextTransform, WhiteSpace};
 
 impl ComputedStyle {
     /// O font-size deste elemento em px, ou o default de 16px quando a cascade
@@ -64,7 +62,12 @@ impl ComputedStyle {
             // a cor sólida. (Este braço precede o de cor sólida abaixo p/ vencer.)
             "background" | "background-image" if self.gradient.is_some() => {
                 let g = self.gradient.unwrap();
-                format!("linear-gradient({}deg, {}, {})", g.angle_deg, fmt_color(g.c0), fmt_color(g.c1))
+                format!(
+                    "linear-gradient({}deg, {}, {})",
+                    g.angle_deg,
+                    fmt_color(g.c0),
+                    fmt_color(g.c1)
+                )
             }
             "background-color" | "background" => self.bg.map(fmt_color).unwrap_or_default(),
             "font-size" => self.font_size.map(fmt_dim).unwrap_or_default(),
@@ -125,7 +128,10 @@ impl ComputedStyle {
             "margin-left" => side_css(self.margin.left),
             "border-width" => self.border_width.map(fmt_px).unwrap_or_default(),
             "border-color" => self.border_color.map(fmt_color).unwrap_or_default(),
-            "border-style" => self.border_style.map(|s| format!("{s:?}").to_ascii_lowercase()).unwrap_or_default(),
+            "border-style" => self
+                .border_style
+                .map(|s| format!("{s:?}").to_ascii_lowercase())
+                .unwrap_or_default(),
             "border-radius" => self.corner_radius.map(fmt_px).unwrap_or_default(),
             "width" => self.width.map(fmt_dim).unwrap_or_default(),
             "height" => self.height.map(fmt_dim).unwrap_or_default(),
@@ -145,7 +151,10 @@ impl ComputedStyle {
             "right" => self.inset_right.map(fmt_dim).unwrap_or_default(),
             "bottom" => self.inset_bottom.map(fmt_dim).unwrap_or_default(),
             "left" => self.inset_left.map(fmt_dim).unwrap_or_default(),
-            "display" => self.display.map(|d| display_css(d).to_string()).unwrap_or_default(),
+            "display" => self
+                .display
+                .map(|d| display_css(d).to_string())
+                .unwrap_or_default(),
             "box-sizing" => match self.border_box {
                 Some(true) => "border-box".into(),
                 Some(false) => "content-box".into(),
@@ -155,7 +164,10 @@ impl ComputedStyle {
             "align-items" => self.align_items.map(fmt_align).unwrap_or_default(),
             "align-self" => self.align_self.map(fmt_align).unwrap_or_default(),
             "opacity" => self.opacity.map(|v| format!("{v}")).unwrap_or_default(),
-            "aspect-ratio" => self.aspect_ratio.map(|r| format!("{r}")).unwrap_or_default(),
+            "aspect-ratio" => self
+                .aspect_ratio
+                .map(|r| format!("{r}"))
+                .unwrap_or_default(),
             "z-index" => self.z_index.map(|z| format!("{z}")).unwrap_or_default(),
             "transition" => self
                 .transition
@@ -165,19 +177,26 @@ impl ComputedStyle {
             // `transition-duration` respondia `all 0.3s 0s`, que não é um valor
             // válido da propriedade que foi perguntada. Sem transição declarada o
             // browser devolve o INICIAL (`0s`), não vazio.
-            "transition-duration" => {
-                self.transition.map(|t| fmt_seconds(t.duration_ms)).unwrap_or_default()
-            }
-            "transition-delay" => {
-                self.transition.map(|t| fmt_seconds(t.delay_ms)).unwrap_or_default()
-            }
-            "transition-timing-function" => {
-                self.transition.map(|t| fmt_easing(t.easing)).unwrap_or_default()
-            }
+            "transition-duration" => self
+                .transition
+                .map(|t| fmt_seconds(t.duration_ms))
+                .unwrap_or_default(),
+            "transition-delay" => self
+                .transition
+                .map(|t| fmt_seconds(t.delay_ms))
+                .unwrap_or_default(),
+            "transition-timing-function" => self
+                .transition
+                .map(|t| fmt_easing(t.easing))
+                .unwrap_or_default(),
             // O modelo transiciona `all` e não guarda a lista declarada — ver
             // `style::timing`. Responder `all` é o que ele faz de facto.
             "transition-property" => {
-                if self.transition.is_some() { "all".into() } else { String::new() }
+                if self.transition.is_some() {
+                    "all".into()
+                } else {
+                    String::new()
+                }
             }
             // Vazio quando não há animação declarada: este caminho serve também
             // `el.style.x`, e o INICIAL vem de `style::initial` (ver o cabeçalho
@@ -185,17 +204,29 @@ impl ComputedStyle {
             "animation-name" => self
                 .animation
                 .as_ref()
-                .map(|a| if a.name.is_empty() { "none".to_string() } else { a.name.clone() })
+                .map(|a| {
+                    if a.name.is_empty() {
+                        "none".to_string()
+                    } else {
+                        a.name.clone()
+                    }
+                })
                 .unwrap_or_default(),
-            "animation-duration" => {
-                self.animation.as_ref().map(|a| fmt_seconds(a.duration_ms)).unwrap_or_default()
-            }
-            "animation-delay" => {
-                self.animation.as_ref().map(|a| fmt_seconds(a.delay_ms)).unwrap_or_default()
-            }
-            "animation-timing-function" => {
-                self.animation.as_ref().map(|a| fmt_easing(a.easing)).unwrap_or_default()
-            }
+            "animation-duration" => self
+                .animation
+                .as_ref()
+                .map(|a| fmt_seconds(a.duration_ms))
+                .unwrap_or_default(),
+            "animation-delay" => self
+                .animation
+                .as_ref()
+                .map(|a| fmt_seconds(a.delay_ms))
+                .unwrap_or_default(),
+            "animation-timing-function" => self
+                .animation
+                .as_ref()
+                .map(|a| fmt_easing(a.easing))
+                .unwrap_or_default(),
             "animation-iteration-count" => match self.animation.as_ref().map(|a| a.iterations) {
                 Some(None) => "infinite".into(),
                 Some(Some(n)) => format!("{n}"),
@@ -210,7 +241,13 @@ impl ComputedStyle {
             },
             "letter-spacing" => self
                 .letter_spacing
-                .map(|v| if v == 0.0 { "normal".to_string() } else { format!("{v}px") })
+                .map(|v| {
+                    if v == 0.0 {
+                        "normal".to_string()
+                    } else {
+                        format!("{v}px")
+                    }
+                })
                 .unwrap_or_default(),
             "text-decoration" | "text-decoration-line" => self
                 .text_decoration
@@ -233,7 +270,13 @@ impl ComputedStyle {
                 .map(|t| {
                     format!(
                         "translate({}px + {}%, {}px + {}%) scale({}, {}) rotate({}deg)",
-                        t.tx, t.tx_pct * 100.0, t.ty, t.ty_pct * 100.0, t.sx, t.sy, t.rot_deg
+                        t.tx,
+                        t.tx_pct * 100.0,
+                        t.ty,
+                        t.ty_pct * 100.0,
+                        t.sx,
+                        t.sy,
+                        t.rot_deg
                     )
                 })
                 .unwrap_or_default(),
@@ -308,7 +351,11 @@ impl ComputedStyle {
                 (None, None) => String::new(),
                 _ => {
                     let (x, y) = self.overflow_pair();
-                    if x == y { x.to_string() } else { format!("{x} {y}") }
+                    if x == y {
+                        x.to_string()
+                    } else {
+                        format!("{x} {y}")
+                    }
                 }
             },
             "overflow-x" => match self.overflow_x {
@@ -320,7 +367,10 @@ impl ComputedStyle {
                 _ => self.overflow_pair().1.to_string(),
             },
             // ── Fundo (as camadas do shorthand) ───────────────────────────────
-            "background-repeat" => self.bg_repeat.map(|r| r.css().to_string()).unwrap_or_default(),
+            "background-repeat" => self
+                .bg_repeat
+                .map(|r| r.css().to_string())
+                .unwrap_or_default(),
             "background-position" => self
                 .bg_position
                 .map(|p| format!("{} {}", fmt_dim(p.x), fmt_dim(p.y)))
@@ -337,13 +387,17 @@ impl ComputedStyle {
             // ── Bordas por lado: reportam o EFETIVO (com o fallback da uniforme),
             // que é o que o browser reporta — `border: 1px solid red` faz o
             // `border-top-color` responder `rgb(255, 0, 0)`, não vazio.
-            "border-top-width" | "border-right-width" | "border-bottom-width"
+            "border-top-width"
+            | "border-right-width"
+            | "border-bottom-width"
             | "border-left-width" => fmt_px(side_of(self, &n).width),
-            "border-top-style" | "border-right-style" | "border-bottom-style"
-            | "border-left-style" => {
-                format!("{:?}", side_of(self, &n).style).to_ascii_lowercase()
-            }
-            "border-top-color" | "border-right-color" | "border-bottom-color"
+            "border-top-style"
+            | "border-right-style"
+            | "border-bottom-style"
+            | "border-left-style" => format!("{:?}", side_of(self, &n).style).to_ascii_lowercase(),
+            "border-top-color"
+            | "border-right-color"
+            | "border-bottom-color"
             | "border-left-color" => fmt_color(side_of(self, &n).color),
             "outline-width" => self.outline_width.map(fmt_px).unwrap_or_default(),
             "outline-style" => self
@@ -353,34 +407,48 @@ impl ComputedStyle {
             "outline-color" => self.outline_color.map(fmt_color).unwrap_or_default(),
             "outline-offset" => self.outline_offset.map(fmt_px).unwrap_or_default(),
             // ── Texto / listas / fluxo ────────────────────────────────────────
-            "vertical-align" => {
-                self.vertical_align.map(|v| v.css().to_string()).unwrap_or_default()
-            }
+            "vertical-align" => self
+                .vertical_align
+                .map(|v| v.css().to_string())
+                .unwrap_or_default(),
             "clear" => self.clear.map(|c| c.css().to_string()).unwrap_or_default(),
-            "word-break" => self.word_break.map(|w| w.css().to_string()).unwrap_or_default(),
-            "overflow-wrap" | "word-wrap" => {
-                self.overflow_wrap.map(|w| w.css().to_string()).unwrap_or_default()
-            }
-            "direction" => self.direction.map(|d| d.css().to_string()).unwrap_or_default(),
+            "word-break" => self
+                .word_break
+                .map(|w| w.css().to_string())
+                .unwrap_or_default(),
+            "overflow-wrap" | "word-wrap" => self
+                .overflow_wrap
+                .map(|w| w.css().to_string())
+                .unwrap_or_default(),
+            "direction" => self
+                .direction
+                .map(|d| d.css().to_string())
+                .unwrap_or_default(),
             "text-indent" => self.text_indent.map(fmt_dim).unwrap_or_default(),
-            "list-style-type" => {
-                self.list_style_type.map(|t| t.css().to_string()).unwrap_or_default()
-            }
+            "list-style-type" => self
+                .list_style_type
+                .map(|t| t.css().to_string())
+                .unwrap_or_default(),
             "list-style-image" => self.list_style_image.clone().unwrap_or_default(),
-            "list-style-position" => {
-                self.list_style_position.map(|p| p.css().to_string()).unwrap_or_default()
-            }
+            "list-style-position" => self
+                .list_style_position
+                .map(|p| p.css().to_string())
+                .unwrap_or_default(),
             // ── Tabela ────────────────────────────────────────────────────────
-            "border-collapse" => {
-                self.border_collapse.map(|c| c.css().to_string()).unwrap_or_default()
-            }
+            "border-collapse" => self
+                .border_collapse
+                .map(|c| c.css().to_string())
+                .unwrap_or_default(),
             // O Chrome responde os DOIS eixos sempre (`2px 2px`), mesmo quando a
             // folha declarou um só — é o valor computado, não o declarado.
             "border-spacing" => self
                 .border_spacing
                 .map(|s| format!("{} {}", fmt_dim(s.h), fmt_dim(s.v)))
                 .unwrap_or_default(),
-            "table-layout" => self.table_layout.map(|t| t.css().to_string()).unwrap_or_default(),
+            "table-layout" => self
+                .table_layout
+                .map(|t| t.css().to_string())
+                .unwrap_or_default(),
             "cursor" => self.cursor.clone().unwrap_or_default(),
             "flex-flow" => match (self.flex_direction, self.flex_wrap) {
                 (None, None) => String::new(),
@@ -401,11 +469,12 @@ impl ComputedStyle {
             // O 2º lote responde do seu próprio módulo — ver `style::vocab`.
             _ => super::vocab::get_property(self, n.as_str())
                 .or_else(|| super::radius::get_property(self, n.as_str()))
+                .or_else(|| super::grid_lines::get_property(self, n.as_str()))
+                .or_else(|| super::painting::get_property(self, n.as_str()))
                 .unwrap_or_default(),
         }
     }
 }
-
 
 /// Milissegundos → o formato em que o browser responde um tempo de CSS: segundos
 /// com sufixo `s` e sem zeros à direita (`300` → `"0.3s"`). `format!("{}")` num

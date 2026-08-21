@@ -32,9 +32,21 @@ pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     if v.eq_ignore_ascii_case("auto") {
         return Some(Dimension::Auto);
     }
+    // `max-content` — palavra-chave intrínseca, resolvida pelo layout.
+    //
+    // `min-content` e `fit-content` continuam a cair no `None` do fim, que é o
+    // comportamento de hoje: a máquina de medida que temos calcula o MÁXIMO do
+    // conteúdo e mais nada. Mapeá-las para `MaxContent` daria a um `min-content`
+    // a resposta oposta à que o nome promete, em silêncio.
+    if v.eq_ignore_ascii_case("max-content") {
+        return Some(Dimension::MaxContent);
+    }
     // `calc(...)` — expressão linear reduzida no parse (resolve tarde).
     let low_full = v.to_ascii_lowercase();
-    if let Some(inner) = low_full.strip_prefix("calc(").and_then(|r| r.strip_suffix(')')) {
+    if let Some(inner) = low_full
+        .strip_prefix("calc(")
+        .and_then(|r| r.strip_suffix(')'))
+    {
         return super::calc::parse_calc_dim(inner);
     }
     // (sufixo, construtor, clamp_max) — `%`/`vw`/`vh` em 0..=100; resto sem teto.
@@ -117,9 +129,24 @@ pub(crate) fn parse_edges(val: &str, allow_auto: bool) -> Edges {
         .collect();
     match toks.as_slice() {
         [a] => Edges::all(*a),
-        [v, h] => Edges { top: *v, right: *h, bottom: *v, left: *h },
-        [t, h, b] => Edges { top: *t, right: *h, bottom: *b, left: *h },
-        [t, r, b, l] => Edges { top: *t, right: *r, bottom: *b, left: *l },
+        [v, h] => Edges {
+            top: *v,
+            right: *h,
+            bottom: *v,
+            left: *h,
+        },
+        [t, h, b] => Edges {
+            top: *t,
+            right: *h,
+            bottom: *b,
+            left: *h,
+        },
+        [t, r, b, l] => Edges {
+            top: *t,
+            right: *r,
+            bottom: *b,
+            left: *l,
+        },
         _ => Edges::default(), // 0 ou >4: ignora (robustez).
     }
 }
@@ -235,6 +262,9 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
     }
     Some(match d {
         Dimension::Auto => Dimension::Auto,
+        // `-max-content` não existe em CSS; um sinal antes de uma palavra-chave
+        // é a declaração inválida, e devolvê-la sem sinal é o que o `auto` já faz.
+        Dimension::MaxContent => Dimension::MaxContent,
         Dimension::Px(x) => Dimension::Px(-x),
         Dimension::Percent(x) => Dimension::Percent(-x),
         Dimension::Em(x) => Dimension::Em(-x),
@@ -253,7 +283,74 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
 pub(crate) fn parse_len(v: &str) -> Option<f32> {
     let low = v.trim().to_ascii_lowercase();
     if let Some(n) = low.strip_suffix("rem") {
-        return n.trim().parse::<f32>().ok().filter(|x| *x > 0.0).map(|x| x * 16.0);
+        return n
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .filter(|x| *x > 0.0)
+            .map(|x| x * 16.0);
     }
     parse_px(&low)
+}
+
+
+#[cfg(test)]
+mod palavras_chave_intrinsecas {
+    use crate::style::{Dimension, parse::parse_inline};
+    use crate::table::tests::{geometria, rect};
+
+    /// `width: max-content` deixa de ser DESCARTADO no parse.
+    ///
+    /// Respondia `None` — indistinguível de "não declarado" — e o elemento
+    /// tomava a largura do pai.
+    #[test]
+    fn max_content_e_parseado_e_nao_descartado() {
+        assert_eq!(parse_inline("width:max-content").width, Some(Dimension::MaxContent));
+    }
+
+    /// `min-content` e `fit-content` continuam DESCARTADOS, deliberadamente.
+    ///
+    /// A máquina de medida que temos calcula o máximo do conteúdo e mais nada.
+    /// Mapeá-las para `MaxContent` daria a um `min-content` a resposta oposta à
+    /// que o nome promete, em silêncio — e um valor que erra ao contrário é pior
+    /// do que um valor ausente. Este teste existe para que a ausência seja uma
+    /// decisão visível e não um esquecimento.
+    #[test]
+    fn min_content_e_fit_content_ficam_de_fora_de_proposito() {
+        assert_eq!(parse_inline("width:min-content").width, None);
+        assert_eq!(parse_inline("width:fit-content").width, None);
+    }
+
+    /// A largura passa a ser a do CONTEÚDO, e transborda o pai em vez de ceder.
+    ///
+    /// É a diferença face ao shrink-to-fit, que é a mesma medição com um
+    /// `.min(disponível)` por cima: um contentor de 60px não encolhe um
+    /// `max-content` de 164. É a forma do painel do menu da Wikipédia, onde o
+    /// Chrome dá 198,6 e nós dávamos 56,2.
+    #[test]
+    fn max_content_mede_o_conteudo_e_transborda_o_pai() {
+        let com = "<div style='width:60px'><div style='width:max-content'>                   <ul><li>Pagina principal</li><li>Conteudo destacado</li></ul></div></div>";
+        let sem = "<div style='width:60px'><div>                   <ul><li>Pagina principal</li><li>Conteudo destacado</li></ul></div></div>";
+        let (d1, l1) = geometria(com, 1280.0);
+        let (d2, l2) = geometria(sem, 1280.0);
+        let a = rect(&d1, &l1, "div", 1);
+        let b = rect(&d2, &l2, "div", 1);
+        assert!(a.w > 100.0, "max-content tem de medir o conteúdo: {a:?}");
+        assert!((b.w - 60.0).abs() < 0.5, "sem ele, a largura do pai: {b:?}");
+    }
+
+    /// E o `max-width` continua a morder POR CIMA, como manda a spec.
+    ///
+    /// É também como se distingue um `max-content` que calcula a mais: se o
+    /// elemento real da página passar a bater no seu teto de 200px, é a medição
+    /// que cresceu, não a folha que mudou.
+    #[test]
+    fn o_teto_de_max_width_continua_a_morder_sobre_o_max_content() {
+        let (dom, list) = geometria(
+            "<div style='width:60px'><div style='width:max-content;max-width:50px'>             <ul><li>Pagina principal muito comprida aqui</li></ul></div></div>",
+            1280.0,
+        );
+        let d = rect(&dom, &list, "div", 1);
+        assert!((d.w - 50.0).abs() < 0.5, "o teto tem de vencer: {d:?}");
+    }
 }

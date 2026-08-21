@@ -15,20 +15,31 @@ use crate::table::tests::{geometria, rect};
 #[test]
 fn o_colapso_de_margens_nao_e_o_maximo_quando_uma_delas_e_negativa() {
     let caso = |estilo: &str| -> f32 {
-        let html = format!(
-            "<div style='height:30px'>a</div><div style='height:30px; {estilo}'>b</div>"
-        );
+        let html =
+            format!("<div style='height:30px'>a</div><div style='height:30px; {estilo}'>b</div>");
         let (dom, list) = geometria(&html, 600.0);
         rect(&dom, &list, "div", 1).y
     };
     // Duas positivas: a maior vence (0 e 10 → 10).
-    assert!((caso("margin-top:10px") - 40.0).abs() < 0.5, "positiva: {}", caso("margin-top:10px"));
+    assert!(
+        (caso("margin-top:10px") - 40.0).abs() < 0.5,
+        "positiva: {}",
+        caso("margin-top:10px")
+    );
     // Sinais mistos: SOMAM. Uma margem negativa puxa o bloco para cima, e é o
     // `margin-top` negativo dos gutters `.row` do Bootstrap; com `max(a,b)` a
     // negativa era simplesmente ignorada e o bloco ficava em 30.
-    assert!((caso("margin-top:-10px") - 20.0).abs() < 0.5, "negativa: {}", caso("margin-top:-10px"));
+    assert!(
+        (caso("margin-top:-10px") - 20.0).abs() < 0.5,
+        "negativa: {}",
+        caso("margin-top:-10px")
+    );
     // E uma negativa maior que a altura anterior puxa para cima na mesma.
-    assert!((caso("margin-top:-40px") - (-10.0)).abs() < 0.5, "muito negativa: {}", caso("margin-top:-40px"));
+    assert!(
+        (caso("margin-top:-40px") - (-10.0)).abs() < 0.5,
+        "muito negativa: {}",
+        caso("margin-top:-40px")
+    );
 }
 
 /// Um elemento fora do fluxo (`position:fixed`) pinta DEPOIS do conteúdo, não
@@ -52,7 +63,10 @@ fn um_fixed_pinta_por_cima_do_fluxo_e_nao_por_baixo() {
         })
         .collect();
     let ultimo = ordem.last().expect("algum fundo pintado");
-    assert!((ultimo.w - 50.0).abs() < 0.5, "o último a pintar devia ser o fixed: {ordem:?}");
+    assert!(
+        (ultimo.w - 50.0).abs() < 0.5,
+        "o último a pintar devia ser o fixed: {ordem:?}"
+    );
 }
 
 // ── FLEX: a distribuição de espaço ──────────────────────────────────────────
@@ -92,8 +106,16 @@ fn o_shrink_e_ponderado_pela_base_e_nao_so_pelo_peso() {
         "<div style='display:flex; width:300px'>           <div id='a' style='width:200px'>a</div>           <div id='b' style='width:400px'>b</div></div>",
         800.0,
     );
-    assert!((rect(&d, &l, "#a", 0).w - 100.0).abs() < 0.5, "a={}", rect(&d, &l, "#a", 0).w);
-    assert!((rect(&d, &l, "#b", 0).w - 200.0).abs() < 0.5, "b={}", rect(&d, &l, "#b", 0).w);
+    assert!(
+        (rect(&d, &l, "#a", 0).w - 100.0).abs() < 0.5,
+        "a={}",
+        rect(&d, &l, "#a", 0).w
+    );
+    assert!(
+        (rect(&d, &l, "#b", 0).w - 200.0).abs() < 0.5,
+        "b={}",
+        rect(&d, &l, "#b", 0).w
+    );
 }
 
 /// `flex-shrink: 0` não encolhe, e o irmão absorve o excesso todo.
@@ -103,7 +125,10 @@ fn um_item_com_shrink_zero_nao_encolhe_e_o_irmao_absorve_tudo() {
         "<div style='display:flex; width:300px'>           <div id='a' style='width:200px; flex-shrink:0'>a</div>           <div id='b' style='width:400px'>b</div></div>",
         800.0,
     );
-    assert!((rect(&d, &l, "#a", 0).w - 200.0).abs() < 0.5, "shrink:0 encolheu");
+    assert!(
+        (rect(&d, &l, "#a", 0).w - 200.0).abs() < 0.5,
+        "shrink:0 encolheu"
+    );
     assert!((rect(&d, &l, "#b", 0).w - 100.0).abs() < 0.5);
 }
 
@@ -115,7 +140,11 @@ fn a_flex_basis_declarada_vence_a_largura_do_conteudo() {
         "<div style='display:flex; width:300px'>           <div id='a' style='flex-basis:100px'>um texto bastante mais comprido que cem pixels</div>           <div id='b' style='flex-grow:1'>b</div></div>",
         800.0,
     );
-    assert!((rect(&d, &l, "#a", 0).w - 100.0).abs() < 0.5, "a basis foi ignorada: {}", rect(&d, &l, "#a", 0).w);
+    assert!(
+        (rect(&d, &l, "#a", 0).w - 100.0).abs() < 0.5,
+        "a basis foi ignorada: {}",
+        rect(&d, &l, "#a", 0).w
+    );
 }
 
 /// Um item flex cujo CONTEÚDO declara `width:%` não passa a pedir a linha toda.
@@ -135,10 +164,24 @@ fn um_filho_com_width_percentual_nao_faz_o_item_flex_encher_a_linha() {
     let (a1, b1) = (rect(&d1, &l1, "#a", 0), rect(&d1, &l1, "#b", 0));
     let (a2, b2) = (rect(&d2, &l2, "#a", 0), rect(&d2, &l2, "#b", 0));
     // A percentagem no filho não pode mudar NADA da disposição dos dois itens.
-    assert!((a1.w - a2.w).abs() < 0.5, "a com % = {} contra {}", a1.w, a2.w);
+    assert!(
+        (a1.w - a2.w).abs() < 0.5,
+        "a com % = {} contra {}",
+        a1.w,
+        a2.w
+    );
     // E os dois ficam na MESMA linha — o sintoma era o segundo descer.
-    assert!((b1.y - a1.y).abs() < 0.5, "o irmão quebrou para a linha de baixo: y={}", b1.y);
-    assert!((b1.w - b2.w).abs() < 0.5, "b com % = {} contra {}", b1.w, b2.w);
+    assert!(
+        (b1.y - a1.y).abs() < 0.5,
+        "o irmão quebrou para a linha de baixo: y={}",
+        b1.y
+    );
+    assert!(
+        (b1.w - b2.w).abs() < 0.5,
+        "b com % = {} contra {}",
+        b1.w,
+        b2.w
+    );
 }
 
 // ── INLINE: a caixa é a UNIÃO dos fragmentos de linha ───────────────────────
@@ -162,7 +205,10 @@ fn um_filho_com_width_percentual_nao_faz_o_item_flex_encher_a_linha() {
 /// de paridade dizia estar partida.
 #[test]
 fn um_inline_de_uma_linha_mede_o_seu_texto_e_nao_a_linha() {
-    let (d, l) = geometria("<p style='width:400px'>antes <a id='t'>alvo</a> depois</p>", 800.0);
+    let (d, l) = geometria(
+        "<p style='width:400px'>antes <a id='t'>alvo</a> depois</p>",
+        800.0,
+    );
     let p = rect(&d, &l, "p", 0);
     let t = rect(&d, &l, "#t", 0);
     assert!((p.w - 400.0).abs() < 0.5, "o bloco é o bloco: {}", p.w);
@@ -171,7 +217,11 @@ fn um_inline_de_uma_linha_mede_o_seu_texto_e_nao_a_linha() {
     // não quanto mede um carácter — e escrever 32 aqui fazia-o falhar sempre
     // que o avanço fosse recalibrado, por uma razão que não é a dele.
     let ch = 16.0 * crate::style::PROP_ADVANCE;
-    assert!((t.w - 4.0 * ch).abs() < 0.5, "o inline devia medir o seu texto, mediu {}", t.w);
+    assert!(
+        (t.w - 4.0 * ch).abs() < 0.5,
+        "o inline devia medir o seu texto, mediu {}",
+        t.w
+    );
     // e começa depois de "antes " (6 caracteres), não no início da linha.
     assert!((t.x - 6.0 * ch).abs() < 0.5, "x do inline: {}", t.x);
 }
@@ -189,7 +239,11 @@ fn um_inline_que_quebra_em_tres_linhas_da_a_uniao_larga_e_alta() {
     let (d, l) = geometria(html, 800.0);
     let t = rect(&d, &l, "#t", 0);
     // Três linhas de 18px: a união vai do topo da primeira ao fundo da terceira.
-    assert!((t.h - 54.0).abs() < 0.5, "a união devia cobrir as três linhas, tem {}", t.h);
+    assert!(
+        (t.h - 54.0).abs() < 0.5,
+        "a união devia cobrir as três linhas, tem {}",
+        t.h
+    );
     // E é larga: as linhas cheias chegam perto do limite dos 200px.
     assert!(t.w > 110.0, "a união devia ser larga, tem {}", t.w);
     assert!(t.w <= 200.5, "a união não pode passar o bloco: {}", t.w);
@@ -210,10 +264,21 @@ fn um_inline_dentro_de_outro_tem_a_sua_propria_caixa_mais_estreita() {
     let s = rect(&d, &l, "#s", 0);
     let ch = 16.0 * crate::style::PROP_ADVANCE;
     assert!((t.w - 4.0 * ch).abs() < 0.5, "o <a> mede 'alvo': {}", t.w);
-    assert!((s.w - 2.0 * ch).abs() < 0.5, "o <span> mede só 'vo': {}", s.w);
+    assert!(
+        (s.w - 2.0 * ch).abs() < 0.5,
+        "o <span> mede só 'vo': {}",
+        s.w
+    );
     // contido: começa depois do pai e acaba com ele.
-    assert!(s.x >= t.x - 0.5 && s.x + s.w <= t.x + t.w + 0.5, "o filho saiu do pai: {s:?} em {t:?}");
-    assert!(s.x > t.x + 0.5, "o filho devia começar depois de 'al': {}", s.x);
+    assert!(
+        s.x >= t.x - 0.5 && s.x + s.w <= t.x + t.w + 0.5,
+        "o filho saiu do pai: {s:?} em {t:?}"
+    );
+    assert!(
+        s.x > t.x + 0.5,
+        "o filho devia começar depois de 'al': {}",
+        s.x
+    );
 }
 
 /// Um inline com uma caixa ATÓMICA dentro (um `<img>`) mede a LARGURA que ela
@@ -233,7 +298,104 @@ fn um_inline_com_caixa_atomica_dentro_leva_a_largura_dela_mas_nao_a_altura() {
     // "x" + 40 da imagem + "y": o que se afirma é que a imagem CONTA, e por
     // isso os dois caracteres vêm da constante e o 40 é o número do teste.
     let ch = 16.0 * crate::style::PROP_ADVANCE;
-    assert!((t.w - (40.0 + 2.0 * ch)).abs() < 0.5, "a largura devia incluir a imagem: {}", t.w);
+    assert!(
+        (t.w - (40.0 + 2.0 * ch)).abs() < 0.5,
+        "a largura devia incluir a imagem: {}",
+        t.w
+    );
     // A altura é a da fonte (18), não a da imagem (40).
-    assert!((t.h - 18.0).abs() < 0.5, "levou a altura da imagem em vez da fonte: {}", t.h);
+    assert!(
+        (t.h - 18.0).abs() < 0.5,
+        "levou a altura da imagem em vez da fonte: {}",
+        t.h
+    );
+}
+
+/// Um `display:inline` DECLARADO numa tag de bloco põe-na na linha: a caixa
+/// mede o seu texto, não a largura do contentor.
+///
+/// É a forma que os cabeçalhos das secções colapsáveis do MediaWiki usam, e
+/// sem ela o `<h3>` saía com os 752px do contentor da Wikipédia contra os ~55px
+/// que o Chrome mede — 38 `<h3>` e 482 `<li>` com esta forma exata no corpus de
+/// paridade, todos mais largos do que deviam, nenhum por outra razão.
+///
+/// O teste afirma o MECANISMO em isolamento: o `<h3>` só difere do `<span>` ao
+/// lado pela tag, e é por isso que os dois têm de medir o mesmo.
+#[test]
+fn display_inline_declarado_vence_a_tag_de_bloco() {
+    let (d, l) = geometria(
+        "<div style='width:400px'>\
+         <h3 id='h' style='display:inline'>abc</h3>\
+         <span id='s'>abc</span></div>",
+        800.0,
+    );
+    let h = rect(&d, &l, "#h", 0);
+    let s = rect(&d, &l, "#s", 0);
+    assert!(
+        h.w < 100.0,
+        "o h3 inline levou a largura do contentor: {}",
+        h.w
+    );
+    // O span é a referência: mesmo texto, mesmo fluxo — a única diferença que
+    // resta é o tamanho de fonte da UA-stylesheet do h3, que não afeta esta
+    // comparação porque o que se afirma é a ORDEM de grandeza, não o glifo.
+    assert!(
+        h.w >= s.w,
+        "h3 ({}) devia medir pelo menos o texto que o span mede ({})",
+        h.w,
+        s.w
+    );
+}
+
+/// E o inline declarado que CRIA caixa (fundo, padding) continua a ir pelo
+/// caminho de bloco, porque é quem pinta essa caixa. A regra que a correção
+/// acima introduz não podia levar esse caso com ela.
+#[test]
+fn display_inline_com_fundo_mantem_a_caixa_que_o_pinta() {
+    let (d, l) = geometria(
+        "<div style='width:400px'>\
+         <h3 id='h' style='display:inline; background:#900; padding:4px'>abc</h3></div>",
+        800.0,
+    );
+    let h = rect(&d, &l, "#h", 0);
+    assert!(h.w > 0.0 && h.h > 0.0, "perdeu a caixa: {:?}", h);
+}
+
+/// E o sentido INVERSO: um `<span style='display:block'>` abre bloco e ocupa o
+/// contentor, apesar de a tag ser inline.
+///
+/// É a metade que parte se a correção acima for um remendo por tag em vez de
+/// uma pergunta ao `display` — pela spec a tag decide só o valor INICIAL, e é o
+/// `display` computado que manda. Os dois testes existem em par por isso: um
+/// sozinho passa com a regra errada.
+#[test]
+fn display_block_declarado_vence_a_tag_inline() {
+    let (d, l) = geometria(
+        "<div style='width:400px'><span id='s' style='display:block'>abc</span></div>",
+        800.0,
+    );
+    let s = rect(&d, &l, "#s", 0);
+    assert!(
+        (s.w - 400.0).abs() < 0.5,
+        "o span display:block devia ocupar o contentor: {}",
+        s.w
+    );
+}
+
+/// A mesma regra numa tag de bloco que não é o `<h3>`: um `<div>` e um `<p>`
+/// com `display:inline` medem o seu texto.
+///
+/// O `<h3>` foi por onde o defeito apareceu, mas a família nos dumps de
+/// paridade tem 604 elementos e inclui `<div>`, `<li>` e `<p>` — se este teste
+/// precisar de uma linha nova por tag, a correção está no sítio errado.
+#[test]
+fn display_inline_vale_para_qualquer_tag_de_bloco() {
+    for tag in ["div", "p", "li", "h2"] {
+        let (d, l) = geometria(
+            &format!("<div style='width:400px'><{tag} id='b' style='display:inline'>abc</{tag}></div>"),
+            800.0,
+        );
+        let b = rect(&d, &l, "#b", 0);
+        assert!(b.w < 100.0, "<{tag}> inline levou a largura do pai: {}", b.w);
+    }
 }

@@ -8,7 +8,7 @@
 //! exatamente onde este motor podia errar sem se notar.
 
 use crate::dom::parse_html_to_dom;
-use crate::style::{parse_selector, PseudoClass, PseudoElement, SimpleSelector};
+use crate::style::{PseudoClass, PseudoElement, SimpleSelector, parse_selector};
 
 /// Quantos nós da árvore de `html` casam `sel`.
 fn conta(html: &str, sel: &str) -> usize {
@@ -18,7 +18,9 @@ fn conta(html: &str, sel: &str) -> usize {
 
 /// O peso de cascade de `sel` (a soma que desempata as regras).
 fn peso(sel: &str) -> u32 {
-    parse_selector(sel).expect("seletor deve parsear").specificity()
+    parse_selector(sel)
+        .expect("seletor deve parsear")
+        .specificity()
 }
 
 #[test]
@@ -143,7 +145,10 @@ fn read_write_e_o_campo_editavel_e_read_only_o_complemento() {
     assert_eq!(conta(html, "input:read-only"), 1);
     // `contenteditable` torna qualquer elemento editável — e `="false"` não.
     assert_eq!(conta("<div contenteditable>x</div>", "div:read-write"), 1);
-    assert_eq!(conta("<div contenteditable='false'>x</div>", "div:read-write"), 0);
+    assert_eq!(
+        conta("<div contenteditable='false'>x</div>", "div:read-write"),
+        0
+    );
 }
 
 #[test]
@@ -168,15 +173,17 @@ fn pseudo_elemento_e_parseado_mas_nunca_estiliza_o_elemento() {
     // caixa gerada e não do elemento originante.
     let sel = parse_selector("p::before").unwrap();
     assert_eq!(sel.pseudo_element, Some(PseudoElement::Before));
-    assert_eq!(parse_selector("p:after").unwrap().pseudo_element, Some(PseudoElement::After));
+    assert_eq!(
+        parse_selector("p:after").unwrap().pseudo_element,
+        Some(PseudoElement::After)
+    );
     // Um pseudo-elemento que não geramos continua a DESCARTAR a regra — deixá-la
     // sem o `::marker` aplicá-la-ia ao `<p>`.
     assert!(parse_selector("p::marker").is_none());
     // Nada pode seguir um pseudo-elemento.
     assert!(parse_selector("p::before span").is_none());
-    let dom = parse_html_to_dom(
-        "<style>p::before { color:#ff0000 } p { color:#0000ff }</style><p>x</p>",
-    );
+    let dom =
+        parse_html_to_dom("<style>p::before { color:#ff0000 } p { color:#0000ff }</style><p>x</p>");
     let p = dom.query("p").unwrap();
     assert_eq!(dom.computed_style(p).unwrap().color, Some(0x0000FFFF));
 }

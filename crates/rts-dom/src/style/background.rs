@@ -83,7 +83,10 @@ pub struct BgPosition {
 impl Default for BgPosition {
     /// O inicial da spec: `0% 0%`.
     fn default() -> Self {
-        BgPosition { x: Dimension::Percent(0.0), y: Dimension::Percent(0.0) }
+        BgPosition {
+            x: Dimension::Percent(0.0),
+            y: Dimension::Percent(0.0),
+        }
     }
 }
 
@@ -129,7 +132,10 @@ impl BgPosition {
         // Um valor só ⇒ o outro eixo é `center` (MDN), exceto quando o keyword
         // dado era vertical (`top`/`bottom`), caso em que o horizontal é que fica
         // ao centro.
-        Some(BgPosition { x, y: y.unwrap_or(Dimension::Percent(50.0)) })
+        Some(BgPosition {
+            x,
+            y: y.unwrap_or(Dimension::Percent(50.0)),
+        })
     }
 }
 
@@ -159,7 +165,10 @@ impl BgSize {
         }
         let toks: Vec<&str> = t.split_whitespace().collect();
         match toks.as_slice() {
-            [w] => Some(BgSize::Len(super::lengths::parse_dimension_pub(w)?, Dimension::Auto)),
+            [w] => Some(BgSize::Len(
+                super::lengths::parse_dimension_pub(w)?,
+                Dimension::Auto,
+            )),
             [w, h] => Some(BgSize::Len(
                 super::lengths::parse_dimension_pub(w)?,
                 super::lengths::parse_dimension_pub(h)?,
@@ -192,7 +201,10 @@ pub fn parse_background(val: &str) -> BackgroundShorthand {
     let mut out = BackgroundShorthand::default();
     // Só a primeira camada (ver o corte no topo). A vírgula de TOPO separa
     // camadas; as de dentro de `rgb(...)`/`linear-gradient(...)` não contam.
-    let layer = super::lengths::split_top(val, ',').into_iter().next().unwrap_or_default();
+    let layer = super::lengths::split_top(val, ',')
+        .into_iter()
+        .next()
+        .unwrap_or_default();
     // Um gradiente ocupa o token inteiro (tem espaços dentro dos parênteses) —
     // testá-lo primeiro evita que o tokenizador o parta.
     if let Some(g) = super::effects::LinearGradient::parse(&layer) {

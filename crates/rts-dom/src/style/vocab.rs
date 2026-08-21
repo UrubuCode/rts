@@ -110,6 +110,99 @@ pub enum PointerEvents {
     None,
 }
 
+/// `clip: rect(<t>, <r>, <b>, <l>) | auto` — o retângulo de recorte de uma caixa
+/// posicionada. Cada lado é um comprimento ou `auto`, e é medido a partir do
+/// canto SUPERIOR ESQUERDO da caixa (não é um `inset`: `bottom` cresce para
+/// baixo, ao contrário de `inset-bottom`).
+///
+/// GUARDADA, SEM RECORTE — e a pergunta que decide isso foi verificada em vez de
+/// assumida. `clip` está obsoleta na spec há anos e mesmo assim aparece em 8 das
+/// 13 folhas do corpus, sempre com o mesmo papel: o `.sr-only`/`.visually-hidden`
+/// que esconde texto de quem vê e o deixa para o leitor de ecrã. **Se o recorte
+/// faltasse, esse texto aparecia na página** — um defeito visível é pior que uma
+/// propriedade ausente, que é a razão para não a reconhecer às cegas.
+///
+/// Não é o caso, e isto é a evidência: em TODAS as ocorrências do corpus o
+/// `clip: rect(…)` vem ao lado de `width:1px; height:1px; overflow:hidden`
+/// (Bootstrap, Tailwind, Bulma, Foundation, Primer, MediaWiki, WhatsApp). A
+/// caixa de 1px com `overflow:hidden` já esconde o conteúdo sozinha; o `clip` é
+/// cinto-e-suspensórios do tempo em que `overflow` não bastava. Guardar sem
+/// recortar não torna nada visível.
+///
+/// A alternativa — recortar a sério — pedia um retângulo de corte na lista de
+/// display, que hoje não existe (o `overflow` é resolvido pelo container de
+/// rolagem, não por um clip por item). Seria um segundo mecanismo de recorte ao
+/// lado do primeiro, para uma propriedade que a spec já substituiu por
+/// `clip-path`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Clip {
+    Auto,
+    /// Os quatro lados, na ordem da spec. `None` num lado = `auto` naquele lado.
+    Rect {
+        top: Option<Dimension>,
+        right: Option<Dimension>,
+        bottom: Option<Dimension>,
+        left: Option<Dimension>,
+    },
+}
+
+impl Clip {
+    /// `auto` ou `rect(...)`. As DUAS sintaxes de `rect()` são aceites porque as
+    /// duas estão no corpus: com vírgulas (`rect(0, 0, 0, 0)` — Bootstrap,
+    /// Tailwind, Foundation) e sem (`rect(0 0 0 0)` — MediaWiki, WhatsApp). A
+    /// primeira é a de CSS2 e a segunda a que os browsers também aceitam; tratar
+    /// só uma delas deixava metade do corpus por reconhecer.
+    pub fn parse(v: &str) -> Option<Clip> {
+        let low = v.trim().to_ascii_lowercase();
+        if low == "auto" {
+            return Some(Clip::Auto);
+        }
+        let dentro = low.strip_prefix("rect(")?.strip_suffix(')')?;
+        // Vírgula OU espaço como separador — `split_top_ws` não serve porque não
+        // conhece a vírgula, e trocar uma pela outra antes de partir é mais
+        // barato que um segundo separador no partidor comum.
+        let toks = split_top_ws(&dentro.replace(',', " "));
+        if toks.len() != 4 {
+            return None;
+        }
+        // `auto` por lado vem como `None`; um comprimento negativo é legal aqui
+        // (o retângulo pode começar acima da caixa), e é por isso que o parser é
+        // o `parse_inset` e não o `parse_dimension`, que rejeita negativos.
+        let lado = |i: usize| -> Option<Dimension> {
+            if toks[i] == "auto" {
+                None
+            } else {
+                super::lengths::parse_inset(&toks[i])
+            }
+        };
+        Some(Clip::Rect {
+            top: lado(0),
+            right: lado(1),
+            bottom: lado(2),
+            left: lado(3),
+        })
+    }
+
+    /// O que `getComputedStyle` responde. O Chrome imprime sempre a forma COM
+    /// vírgulas e com a unidade explícita, mesmo quando o autor escreveu `0`.
+    pub fn css(self) -> String {
+        let Clip::Rect {
+            top,
+            right,
+            bottom,
+            left,
+        } = self
+        else {
+            return "auto".to_string();
+        };
+        let d = |v: Option<Dimension>| {
+            v.map(super::fmt_values::fmt_dim)
+                .unwrap_or_else(|| "auto".to_string())
+        };
+        format!("rect({}, {}, {}, {})", d(top), d(right), d(bottom), d(left))
+    }
+}
+
 /// Um keyword simples: a lista de pares (texto, variante), num sítio só por tipo.
 macro_rules! kw {
     ($t:ty { $( $s:literal => $v:path ),* $(,)? }) => {
@@ -198,20 +291,27 @@ fn parse_zoom(v: &str) -> Option<f32> {
 pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     // O prefixo de fornecedor é um alias do mesmo nome — exceto onde o valor
     // também difere, e nenhuma deste lote é desse caso.
-    let name = prop.strip_prefix("-webkit-").or_else(|| prop.strip_prefix("-moz-")).unwrap_or(prop);
+    let name = prop
+        .strip_prefix("-webkit-")
+        .or_else(|| prop.strip_prefix("-moz-"))
+        .unwrap_or(prop);
     match name {
         // ── COM EFEITO REAL: caem em mecanismos que já são consumidos ──────────
         // Os dois eixos de `background-position` em separado. O campo é o mesmo
         // que o shorthand escreve, portanto o render já os pinta.
         "background-position-x" => {
             let mut p = css.bg_position.unwrap_or_default();
-            let Some(x) = parse_dimension_or_keyword(val, true) else { return true };
+            let Some(x) = parse_dimension_or_keyword(val, true) else {
+                return true;
+            };
             p.x = x;
             css.bg_position = Some(p);
         }
         "background-position-y" => {
             let mut p = css.bg_position.unwrap_or_default();
-            let Some(y) = parse_dimension_or_keyword(val, false) else { return true };
+            let Some(y) = parse_dimension_or_keyword(val, false) else {
+                return true;
+            };
             p.y = y;
             css.bg_position = Some(p);
         }
@@ -224,6 +324,18 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             }
             if let Some(a) = t.first().and_then(|s| JustifyContent::parse(s)) {
                 css.align_content = Some(a);
+            }
+        }
+        // `place-items: <align> <justify>` — o par que `place-content` e
+        // `place-self` já expandem ao lado, sobre os campos que o container usa
+        // para os ITENS. Um valor só vale para os dois eixos.
+        "place-items" => {
+            let t = split_top_ws(val);
+            if let Some(a) = t.first().and_then(|s| AlignItems::parse(s)) {
+                css.align_items = Some(a);
+            }
+            if let Some(j) = t.last().and_then(|s| AlignItems::parse(s)) {
+                css.grid_justify_items = Some(j);
             }
         }
         "place-self" => {
@@ -246,6 +358,9 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // `grid_justify_items` já reusa: é o mesmo conjunto de posições.
         "justify-self" => css.justify_self = AlignItems::parse(val),
         "text-overflow" => css.text_overflow = TextOverflow::parse(val),
+        // `clip` — ver [`Clip`] para porque é guardada sem recortar. Só chega
+        // aqui pelo nome nu; não tem forma prefixada em folha nenhuma do corpus.
+        "clip" => css.clip = Clip::parse(val),
         "text-wrap" | "text-wrap-mode" => css.text_wrap = TextWrap::parse(val),
         "object-fit" => css.object_fit = ObjectFit::parse(val),
         // `object-position` tem a MESMA gramática de `background-position` — reusa
@@ -287,6 +402,13 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // proprio no `parse`, que corre antes deste modulo.
         "transform" => css.transform = super::effects::Transform::parse(val),
         "text-decoration-color" => css.text_decoration_color = super::color::parse_color(val),
+        // `-webkit-text-decoration` / `-moz-text-decoration`: só o prefixo muda,
+        // o valor é o mesmo shorthand (é a forma que o WebKit antigo exigia, e
+        // 6 das 13 folhas do corpus ainda a escrevem ao lado da nua). O nome nu
+        // tem braço próprio no `parse`, que corre antes deste módulo — chamar a
+        // MESMA função em vez de repetir o corpo é o que impede as duas grafias
+        // de responderem coisas diferentes.
+        "text-decoration" => super::parse::apply_text_decoration(css, val, true),
         // As propriedades INDIVIDUAIS de transformacao (`rotate: 45deg`), que a
         // spec define como aplicadas DEPOIS do `transform`. Escrevem no mesmo
         // `Transform` que o shorthand escreve — e por isso ja sao PINTADAS, sem
@@ -298,16 +420,24 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // 10 no browser (o shorthand substitui). Uma folha que declare as duas
         // formas no mesmo elemento e rara; uma que declare so uma sai certa.
         "rotate" => {
-            let Some(d) = super::effects::parse_angle_deg(&val.trim()) else { return true };
-            let mut t = css.transform.unwrap_or_else(super::effects::Transform::identity);
+            let Some(d) = super::effects::parse_angle_deg(&val.trim()) else {
+                return true;
+            };
+            let mut t = css
+                .transform
+                .unwrap_or_else(super::effects::Transform::identity);
             t.rot_deg += d;
             css.transform = Some(t);
         }
         "scale" => {
             let t2 = split_top_ws(val);
-            let Some(sx) = t2.first().and_then(|s| s.parse::<f32>().ok()) else { return true };
+            let Some(sx) = t2.first().and_then(|s| s.parse::<f32>().ok()) else {
+                return true;
+            };
             let sy = t2.get(1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(sx);
-            let mut t = css.transform.unwrap_or_else(super::effects::Transform::identity);
+            let mut t = css
+                .transform
+                .unwrap_or_else(super::effects::Transform::identity);
             t.sx *= sx;
             t.sy *= sy;
             css.transform = Some(t);
@@ -363,6 +493,7 @@ fn parse_dimension_or_keyword(v: &str, horizontal: bool) -> Option<Dimension> {
 pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
     let s = match name {
         "text-overflow" => opt(css.text_overflow.map(|v| v.css())),
+        "clip" => css.clip.map(|v| v.css()).unwrap_or_default(),
         "text-wrap" => opt(css.text_wrap.map(|v| v.css())),
         "object-fit" => opt(css.object_fit.map(|v| v.css())),
         "unicode-bidi" => opt(css.unicode_bidi.map(|v| v.css())),
@@ -372,23 +503,45 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
         "pointer-events" => opt(css.pointer_events.map(|v| v.css())),
         "transform-origin" => css
             .transform_origin
-            .map(|p| format!("{} {}", super::fmt_values::fmt_dim(p.x), super::fmt_values::fmt_dim(p.y)))
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    super::fmt_values::fmt_dim(p.x),
+                    super::fmt_values::fmt_dim(p.y)
+                )
+            })
             .unwrap_or_default(),
-        "text-decoration-color" => {
-            css.text_decoration_color.map(super::fmt_values::fmt_color).unwrap_or_default()
-        }
+        "text-decoration-color" => css
+            .text_decoration_color
+            .map(super::fmt_values::fmt_color)
+            .unwrap_or_default(),
         // O computado de `font-stretch` é a PERCENTAGEM, mesmo quando o autor
         // escreveu o keyword — é o que o Chrome responde.
-        "font-stretch" => css.font_stretch.map(|v| format!("{v}%")).unwrap_or_default(),
+        "font-stretch" => css
+            .font_stretch
+            .map(|v| format!("{v}%"))
+            .unwrap_or_default(),
         "zoom" => css.zoom.map(|v| format!("{v}")).unwrap_or_default(),
-        "word-spacing" => css.word_spacing.map(|v| format!("{v}px")).unwrap_or_default(),
+        "word-spacing" => css
+            .word_spacing
+            .map(|v| format!("{v}px"))
+            .unwrap_or_default(),
         "-webkit-line-clamp" | "line-clamp" => {
             css.line_clamp.map(|n| n.to_string()).unwrap_or_default()
         }
-        "column-width" => css.column_width.map(super::fmt_values::fmt_dim).unwrap_or_default(),
+        "column-width" => css
+            .column_width
+            .map(super::fmt_values::fmt_dim)
+            .unwrap_or_default(),
         "object-position" => css
             .object_position
-            .map(|p| format!("{} {}", super::fmt_values::fmt_dim(p.x), super::fmt_values::fmt_dim(p.y)))
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    super::fmt_values::fmt_dim(p.x),
+                    super::fmt_values::fmt_dim(p.y)
+                )
+            })
             .unwrap_or_default(),
         _ => return None,
     };
