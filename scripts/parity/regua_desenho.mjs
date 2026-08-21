@@ -416,13 +416,20 @@ console.log("CARACTERES (imune à fragmentação — ver o comentário em `carac
 console.log(`  chrome pinta ${totalCC}   |   nós pintamos ${totalCR}`);
 console.log(`  SÓ-CHROME: ${cFaltam}  (${pct(cFaltam, totalCC)}%)   |   SÓ-NÓS: ${cSobram}  (${pct(cSobram, totalCC)}%)`);
 console.log(`  soma dos ABSOLUTOS: ${cFaltam + cSobram}`);
-// O MESMO aviso que os marcadores levaram, e pela mesma razão medida: o corpus
-// de texto do lado do Chrome vem da árvore de acessibilidade, e a AX já foi
-// apanhada a subcontar 294 marcadores. `chrome_text.mjs` passou a contar
-// também o texto que o DOM desenha, por fora da AX. Quando os dois discordam, o
-// "só-nós" desta secção NÃO é atribuível ao motor até a discordância ser
-// resolvida — foi exatamente assim que 294 bullets corretos quase foram
-// suprimidos.
+// O corpus de texto do lado do Chrome tem DUAS leituras, e ficam lado a lado
+// pela mesma razão que as dos marcadores: a AX descreve a árvore, o DOM descreve
+// o que sobrevive ao desenho, e já se mediu que discordam.
+//
+// Nos MARCADORES discordam muito (294 num total de 787) e a AX é a errada. No
+// TEXTO discordam pouco — ~1 100 caracteres em 152 000, com a AX ligeiramente
+// ACIMA, o que é esperado: um `::before` tem `InlineTextBox` na AX e não tem nó
+// de texto no DOM, portanto o conteúdo gerado só existe de um dos lados.
+//
+// Isto está escrito porque uma versão anterior desta secção afirmou uma fenda de
+// 16 440 caracteres que NÃO EXISTE. O censo do DOM viajava num template literal,
+// onde `\s` não é a classe de espaço mas a letra "s": a página recebia `/s/` e
+// contava tudo o que não fosse um "s". O número saiu 11% alto e a conclusão que
+// se tirou dele — que as 712 palavras a mais eram do instrumento — era falsa.
 const txtDom = C.fim.textoCaracteres ?? null;
 if (txtDom !== null) {
   const fendaT = txtDom - totalCC;
@@ -430,8 +437,8 @@ if (txtDom !== null) {
               ` (fenda ${fendaT})`);
   if (Math.abs(fendaT) > totalCC * 0.02) {
     console.log(`  ⚠ as duas leituras do lado do Chrome discordam em ${Math.abs(fendaT)}` +
-                ` (${pct(Math.abs(fendaT), totalCC)}%). O "SÓ-NÓS" acima é MENOR do que parece,`);
-    console.log("    e não é atribuível ao motor enquanto o denominador não for um só.");
+                ` (${pct(Math.abs(fendaT), totalCC)}%) — acima do que o conteúdo gerado explica.`);
+    console.log("    Enquanto isso durar, nada nesta secção é atribuível ao motor.");
   }
 }
 const cDif = [...new Set([...cc.keys(), ...cr.keys()])]

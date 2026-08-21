@@ -216,12 +216,53 @@ const censoTexto = await c.envia("Runtime.evaluate", {
       // O TEXTO, e não só a contagem: sem ele a fenda entre a AX e o DOM é um
       // número sem sítio, e localizá-la é o trabalho seguinte.
       textos.push(t);
-      for (const ch of t) if (!/\s/.test(ch)) chars++;
+      for (const ch of t) if (!/\\s/.test(ch)) chars++;
     }
-    return { chars, nos, ocultos, textos };
+    // O array FICA NA PAGINA e e puxado por paginas (ver puxarTextos).
+    // Devolve-lo inteiro aqui perdia 17 536 caracteres em silencio.
+    window.__rtsTextos = textos;
+    // O AUTO-CONTROLO dentro da pagina: os mesmos caracteres, recontados a
+    // partir do array que vai ser puxado. Se este bater com o que se reconta
+    // do lado de ca, o transporte esta limpo; se nao bater com o contador, e o
+    // contador que esta errado. Sem os dois nao se sabe qual dos dois culpar.
+    let charsDoArray = 0;
+    for (const t of textos) for (const ch of t) if (!/\\s/.test(ch)) charsDoArray++;
+    return { chars, charsDoArray, nos, ocultos };
   })()`,
 }, sessionId);
 const txtComputado = censoTexto?.result?.value ?? null;
+
+/// Puxa o corpus do DOM POR PAGINAS, e reconta o que chegou.
+///
+/// Um array de 10 000 strings devolvido de uma vez por `returnByValue` chega
+/// CORTADO: mediu-se 169 564 caracteres contados dentro da pagina contra
+/// 152 028 recontaveis do que chegou, sobre o mesmo numero de nos — e o
+/// contador, sendo um numero, chega sempre inteiro, portanto a perda e
+/// invisivel a quem so olhe para ele.
+///
+/// Isso importa mais do que parece: um corpus truncado le-se exatamente como
+/// "o Chrome nao desenha este texto", que e a mesma leitura que um motor a
+/// falhar produz. E a razao pela qual o ficheiro principal tem rodape.
+///
+/// Fatias pequenas atravessam inteiras. Quem chama CONFERE o total contra o
+/// contador da pagina em vez de assumir que atravessaram.
+async function puxarTextos(total, tamanho = 400) {
+  const out = [];
+  for (let i = 0; i < total; i += tamanho) {
+    const r = await c.envia("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `window.__rtsTextos.slice(${i}, ${i + tamanho})`,
+    }, sessionId);
+    const fatia = r?.result?.value;
+    if (!Array.isArray(fatia)) {
+      console.error(`ERRO: a fatia [${i}, ${i + tamanho}) do corpus do DOM nao voltou como array.`);
+      process.exit(2);
+    }
+    out.push(...fatia);
+  }
+  return out;
+}
+const textosDom = txtComputado ? await puxarTextos(txtComputado.nos) : [];
 
 await c.envia("DOM.enable", {}, sessionId);
 await c.envia("Accessibility.enable", {}, sessionId);
@@ -297,6 +338,7 @@ const rodape = JSON.stringify({
   textoCaracteres: txtComputado?.chars ?? null,
   textoNos: txtComputado?.nos ?? null,
   textoNosOcultos: txtComputado?.ocultos ?? null,
+  textoCharsDoArray: txtComputado?.charsDoArray ?? null,
 });
 writeFileSync(saida, [cabecalho, ...linhas, rodape].join("\n") + "\n");
 
@@ -306,32 +348,37 @@ writeFileSync(saida, [cabecalho, ...linhas, rodape].join("\n") + "\n");
 // leituras da mesma pagina - que e a classe de erro que este dia documenta.
 // Aqui ficam lado a lado, comparaveis e nunca somadas.
 const saidaDom = saida.replace(/[.]jsonl$/, "") + ".domtext.jsonl";
-// AUTO-CONTROLO DO TRANSPORTE, e nao do calculo.
+// AUTO-CONTROLO DO TRANSPORTE.
 //
-// O censo conta os caracteres DENTRO da pagina e devolve tambem os textos. As
-// duas coisas atravessam o CDP com `returnByValue`, e mediu-se que os textos
-// chegam TRUNCADOS enquanto o contador chega inteiro: 169 564 contados na
-// pagina contra 152 028 recontaveis do que chegou, sobre o mesmo numero de nos.
+// O censo conta os caracteres DENTRO da pagina; as strings atravessam o CDP em
+// fatias (ver puxarTextos). Este controlo reconta do lado de ca e compara.
 //
-// Um corpus truncado le-se exatamente como "o Chrome nao desenha este texto" —
-// a mesma leitura que um motor a falhar produz, e a razao pela qual o rodape do
-// ficheiro principal existe. Por isso os dois totais sao escritos LADO A LADO e
-// a divergencia e gritada: um numero que so se confere contra si proprio nao
-// esta conferido.
-const charsRecontados = (txtComputado?.textos ?? []).reduce(
+// Existe por uma razao especifica: um corpus truncado le-se exatamente como
+// "o Chrome nao desenha este texto" — indistinguivel de um motor a falhar — e
+// o contador, sendo um numero, atravessa sempre inteiro, portanto a perda seria
+// invisivel a quem so olhasse para ele.
+//
+// E ja apanhou um erro, embora nao o que veio procurar. Durante algumas horas
+// os dois numeros discordavam em 17 536 caracteres e a leitura obvia era
+// truncagem. Nao era: a expressao do censo viaja num TEMPLATE LITERAL, onde
+// \s nao e a classe de espaco mas a letra "s" — a pagina recebia /s/ e contava
+// tudo o que nao fosse um "s". O contador estava errado e o transporte limpo.
+// Por isso a mensagem abaixo diz que os dois discordam, e nao qual deles mente.
+const charsRecontados = textosDom.reduce(
   (n, t) => n + [...String(t)].filter((c) => !/\s/.test(c)).length, 0);
 if (txtComputado && charsRecontados !== txtComputado.chars) {
-  console.error(`AVISO: o corpus do DOM chegou TRUNCADO — ${txtComputado.chars}` +
-                ` caracteres contados na pagina, ${charsRecontados} recontaveis do que chegou` +
-                ` (perdidos ${txtComputado.chars - charsRecontados}).`);
-  console.error("  O ficheiro .domtext.jsonl NAO serve para comparar palavras;");
-  console.error("  `textoCaracteres` no rodape principal continua a valer (e contado na pagina).");
+  console.error(`AVISO: as duas contagens do corpus do DOM DISCORDAM — ` +
+                `${txtComputado.chars} contados na pagina, ${charsRecontados} recontados aqui ` +
+                `(diferenca ${txtComputado.chars - charsRecontados}).`);
+  console.error("  Uma das duas esta errada e este aviso NAO diz qual: pode ser o corpus a");
+  console.error("  chegar cortado, ou o contador da pagina a contar mal. Nao use nenhum dos");
+  console.error("  dois numeros ate saber qual — os dois lados sao codigo deste ficheiro.");
 }
 writeFileSync(saidaDom, [
   JSON.stringify({ __meta: 1, lado: "chrome-domtext", ficheiro: alvo,
                    fonte: "TreeWalker(SHOW_TEXT) + Range.getClientRects + checkVisibility" }),
-  ...(txtComputado?.textos ?? []).map((t) => JSON.stringify({ k: "text", t })),
-  JSON.stringify({ __fim: 1, emitidos: (txtComputado?.textos ?? []).length,
+  ...textosDom.map((t) => JSON.stringify({ k: "text", t })),
+  JSON.stringify({ __fim: 1, emitidos: textosDom.length,
                    // DOIS totais, e nao um: o contado NA PAGINA e o que se
                    // consegue recontar do que chegou. Ver a verificacao abaixo.
                    caracteres: txtComputado?.chars ?? 0,
