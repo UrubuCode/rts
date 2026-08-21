@@ -137,3 +137,36 @@ mudança é precisamente o que ninguém consegue confirmar depois.
 E a indentação de 4 espaços foi mantida nos ficheiros de teste, de propósito:
 vários têm literais multi-linha em que o espaço à esquerda é **conteúdo**.
 
+### O portão passou: 16 813 elementos idênticos byte a byte
+
+Três passos (`b91ae530`, `dc1ee62e`, `f6bbe566`), **5 974 → 1 619 linhas**, e o
+dump da página construído do commit final é **byte a byte igual** ao de antes do
+refactor. Nenhum dos 16 813 elementos mudou um pixel.
+
+Isso é o que uma arrumação tem de conseguir provar, e a suite não o prova: os
+604 testes dizem que o que eles cobrem continua igual; o dump diz que **a página
+inteira** continua igual. `cargo test` verde continua a ser condição necessária,
+não suficiente.
+
+Uma nota sobre como o portão foi corrido, porque a árvore partilhada torna isto
+não-óbvio: **os binários foram construídos em worktrees isolados nos commits**,
+nunca da árvore de trabalho. Durante os três passos houve, em momentos
+diferentes, um `style/parse.rs` com erro de sintaxe a meio da edição de outro
+agente e dois testes vermelhos de um terceiro. Um binário feito da árvore nessas
+alturas compila um estado que nunca existiu, e a medição que sair dele não é de
+ninguém.
+
+### O que este refactor rendeu além das linhas
+
+**Uma fronteira que não existia.** O `matcher.rs` juntou as sete funções que
+respondem *"este nó casa com este seletor?"*, e ao pô-las lado a lado apareceu a
+regra que nenhuma delas escrevia: **três são aproximações, e podem responder
+"sim" a mais, nunca "não" a mais.** Um falso positivo custa uma cascade extra;
+um falso negativo perde um resultado do `querySelectorAll` ou deixa um nó com
+estilo velho depois de um hover. Cada uma dizia isso à sua maneira; nenhuma dizia
+que era a mesma regra nas três.
+
+É a forma do defeito que o `layout.rs` tem **cinco vezes** — *"não é inline?"*
+onde a pergunta é *"é de bloco?"* erra para o lado errado, e por isso cada cópia
+falha sozinha e é corrigida sozinha, ao preço de um lote e uma medição cada.
+
