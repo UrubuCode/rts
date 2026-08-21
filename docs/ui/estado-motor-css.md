@@ -553,3 +553,59 @@ cargo test -p rts-dom                           # 376 testes
 ```
 
 `OUT=` no `run.sh` para não escrever por cima da medição de referência.
+
+---
+
+## O erro de POSIÇÃO dos elementos inline — quatro hipóteses ELIMINADAS
+
+Estado em **2026-08-21**. Isto não é um diagnóstico: é a lista do que já foi
+medido e **não** é a causa, para que quem pegue nisto não repita o caminho.
+
+O que se sabe, medido no harness (Wikipédia, 16 813 pares, dumps
+`scripts/parity/out/rts-disp.jsonl` contra `out/chrome.jsonl`):
+
+| | |
+|---|---:|
+| soma \|dx\| dos inline que erram | **1 217 k px** |
+| soma \|dw\| dos mesmos | 272 k px |
+| erram em x e w | 7 835 |
+| só em x | 931 |
+| só em w | 2 209 |
+| nossos mais largos / mais estreitos | 5 434 / 5 541 |
+| de UMA linha / multi-linha | 9 775 / 1 200 |
+
+**O erro é sobretudo de POSIÇÃO** — `|dx|` é 4,5x `|dw|` — **sem viés de
+largura**, e sobretudo em elementos de uma linha.
+
+### O que NÃO é a causa
+
+1. **A união dos fragmentos.** `inline_box::union_rect` está correta: a caixa de
+   um inline é o bounding box dos seus fragmentos, que é o que a spec manda o
+   `getBoundingClientRect` devolver. Verificado com sonda — as uniões repetidas
+   são idênticas entre si e nenhuma passagem de medição partilha a lista final.
+2. **A acumulação dentro da linha.** O primeiro elemento de cada linha já erra.
+3. **A largura do texto.** Nos elementos de uma linha com texto conhecido dos
+   dois lados (n=277), o rácio da largura nossa sobre a do Chrome tem **mediana
+   1,000** e 87% ficam dentro de 2%. O medidor aproximado não é o culpado.
+4. **"A linha começa no sítio errado".** Pareceu confirmado — 84% das linhas com
+   o primeiro elemento errado, 85 px em média — e **caiu por VIÉS DO MÉTODO**: os
+   elementos foram agrupados pelo `y` do CHROME, e se as nossas linhas quebram
+   noutro sítio, o primeiro elemento da linha dele não é o primeiro da nossa.
+   Estavam a ser comparados elementos diferentes. Um teste seguinte confirmou-o:
+   nos `<p>` cujo bloco está no x EXATO do Chrome (497 de 497), o deslocamento da
+   primeira palavra é disperso (−11 a +7 px) em vez de um valor repetido, que é o
+   que um recuo em falta produziria.
+
+### O que sobra, e é pouco
+
+Dos 277 comparáveis, 35 fogem aos 2% e têm família: `<td>` sempre mais
+ESTREITOS (9 de 9) e `<li>` quase sempre mais LARGOS (14 de 15) — a repartição
+de colunas de tabela e o recuo de lista, ambos já conhecidos. Não explicam
+1,2 M px.
+
+**Limitação do instrumento, escrita porque restringe tudo acima:** o extrator do
+Chrome só despeja o texto renderizado (`chars`) para blocos de conteúdo puro sem
+descendentes de bloco. Portanto a amostra de 277 é enviesada para parágrafos
+simples, e um `<span>` dentro de um `<a>` dentro de um `<li>` — que é o grosso
+dos 8 856 que erram — **não entra nela**. Alargar essa amostra é o passo que
+falta antes de qualquer nova hipótese.
