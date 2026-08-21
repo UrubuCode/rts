@@ -130,19 +130,63 @@ o número, o corpus e o ficheiro que decide a causa.
 citados: 16 814 pares comparáveis, **11 738 elementos com `|dw| > 1 px`,
 somando 810 874 px de erro de largura**. As percentagens abaixo são desse total.
 
+**O denominador já MEXEU uma vez, e as duas metades estão escritas por isso.**
+O item 1 foi corrigido a 2026-08-21 e o erro de largura da página está agora em
+**623 754 px**. As percentagens dos itens 2 em diante continuam a ser contra
+810 874, que é o total sobre o qual foram diagnosticados — recalculá-las contra
+623 754 fá-las-ia SUBIR sem que nada tivesse piorado, que é a armadilha do
+denominador a acontecer dentro do próprio documento. Quem refizer a lista
+re-mede tudo contra um único dump, e diz qual.
+
 ---
 
 **1. O shorthand `border-width` com 1..4 valores era DESCARTADO.**
 **36 elementos, 201 954 px — 24,9% do erro de largura da página**, e era o maior
 bloco único depois dos inline.
 
-> **Estado a 2026-08-21: correção NA ÁRVORE DE TRABALHO, POR MEDIR.**
-> `parse.rs` já chama `borders::apply_width_shorthand` em vez de `parse_len`.
-> **Ninguém mediu ainda o efeito**, e este número — 201 954 px — é o do estado
-> ANTERIOR. Quem confirmar: comparar por elemento contra um dump com `__fim`, e
-> ler as duas armadilhas do fim desta secção antes de olhar para o total. O
-> diagnóstico abaixo fica porque é o que diz onde procurar se a correção não
-> render os 201 954 px.
+> ### CORRIGIDO E MEDIDO — 2026-08-21
+>
+> | | |
+> |---|---:|
+> | erro de LARGURA total da página | 825 799 px → **623 754 px** |
+> | redução | **−202 045 px (−24,5%)** |
+> | previsão do diagnóstico | −201 954 px |
+> | diferença entre previsto e medido | **91 px** |
+> | elementos PERDIDOS | **0** |
+> | elementos GANHOS (passam a casar a 1px) | **0** |
+>
+> Commit `9bd941eb`, binário compilado num worktree isolado a partir desse
+> commit, `scripts/parity/out/rts-bw.jsonl` contra o mesmo `chrome.jsonl`,
+> comparação por elemento com `regressao.mjs`, 16 813 pares.
+
+**São DUAS correções acopladas, e a atribuição é indivisível nos dois sentidos.**
+Repartir os quatro valores não bastava: `parse_px` filtrava `> 0`, portanto um
+`0` declarado não era largura mas **ausência**, e um lado por definir HERDA a
+borda uniforme. A forma do triângulo é `0 200px 100px 0` — metade zeros. O
+número de cima é das duas juntas; e **se não tivesse rendido, também não se
+poderia culpar nenhuma delas isolada**.
+
+**`border-style` estava no mesmo caso, e não é simetria.** O cálculo zera a
+largura de um lado que não pinta, portanto um triângulo com as quatro larguras
+certas e sem estilo continuaria invisível **e sem ocupar espaço** — o mesmo
+sintoma de partida, com outra causa.
+
+**Os GANHOS são zero, e isso não contradiz nada.** "Casa a 1px" é a conjunção de
+quatro condições; melhorar uma delas em 159 mil pixels não a satisfaz. Um
+triângulo cuja largura passa de 100 px para 159 254 px continua a não casar
+enquanto a altura ou a posição errarem. A leitura ingénua de "0 ganhos" é "não
+fez nada", e neste caso o que aconteceu foi um quarto do erro de largura da
+página a desaparecer.
+
+**E este é o mesmo mecanismo da armadilha do agregado, na direção oposta.** A
+soma do "erro máximo por elemento" praticamente não mexeu — 223 989 651 →
+223 814 259, menos de 0,1% — porque nestes 36 elementos o erro máximo é dominado
+pelo eixo `y`, não pela largura. **Um quarto do erro de largura da página
+desapareceu sem aparecer no número que se olha primeiro.**
+
+Lá, uma correção certa fazia o agregado SUBIR; aqui, uma correção certa não o
+faz DESCER. Nos dois casos a régua é a mesma: a lista de perdidos por elemento,
+e a família atacada medida sozinha. Ver `parity-chrome.md`.
 
 Em `crates/rts-dom/src/style/parse.rs`, o braço
 `"border-width" => css.border_width = parse_len(val)` dentro de
@@ -181,15 +225,33 @@ replaced. A coluna da tabela (`table::max_content_width`) mede 0 → a `figure`
 fica com 10 px → o clamp `if w > max_w { w = max_w }` em `atomic_box` esmaga a
 imagem para 0.
 
-O efeito no eixo `y` é o que faz deste o item 2 e não o item 4: as
+O efeito no eixo `y` é o que faz deste o item 2 e não algo mais abaixo: as
 `figcaption` ficam com **14 px de largura por 502 px de altura** onde o Chrome
 dá 260×87.
 
-**3. Floats.** Responsáveis por **~38% do crescimento vertical** — número do
+**3. O TEXTO ANÓNIMO — EM INVESTIGAÇÃO, sem número de px.**
+
+Nos mesmos 161 parágrafos, duas medições que só se conciliam de uma maneira:
+
+- as folhas inline são **9,3% mais largas** que o Chrome;
+- e ao mesmo tempo **cabe-nos 23,4% mais texto por linha** — 2 464 linhas
+  contra 1 996.
+
+Caixas mais largas com mais texto por linha é uma contradição, a menos que o
+que enche a linha não seja o que estamos a medir. O candidato é o **texto
+anónimo** — o que está solto entre os elementos, e que é a maior parte de um
+parágrafo — medido estreito demais ou não medido todo. Fator combinado ≈1,35.
+
+**Não tem px atribuídos de propósito: nenhum foi medido.** Está a ser
+investigado por dois agentes, por caminhos diferentes. Pode ser a mesma causa do
+inchaço das caixas inline (`sup`/`a`/`span` a devolver 752×41 onde o Chrome dá
+21,4×15, em 96 elementos) — pode, não está estabelecido.
+
+**4. Floats.** Responsáveis por **~38% do crescimento vertical** — número do
 `recon-y`, sobre os mesmos dumps. **Não foi re-medido por mim**; fica atribuído
 e por confirmar.
 
-**4. `position:absolute` com `width/height:100%` sobre um containing block de
+**5. `position:absolute` com `width/height:100%` sobre um containing block de
 tamanho zero.** 5 elementos, 5 275 px de largura (0,7%) — mas mata um outlier
 de **96 665 px de altura**, que contamina qualquer percentagem resolvida contra
 a altura do documento.
@@ -211,20 +273,20 @@ BLOCK de um `position:absolute` = o ancestral mais próximo com
 `input[type=hidden]` está **correto** — damos 0×0 nos dois lados. Não é falha de
 UA-stylesheet.
 
-**5. Tabelas: a REPARTIÇÃO entre colunas, não a largura total.**
+**6. Tabelas: a REPARTIÇÃO entre colunas, não a largura total.**
 339 `table-cell`, 15 095 px. O sinal é misto e é essa a informação: **207
 células largas demais contra 132 estreitas demais, aos pares dentro da mesma
 `tr`** (`td` 508→134 e `th` 220→594 na mesma linha). `crates/rts-dom/src/table/`.
 
 Risco alto por causa do sinal misto: é fácil mexer e melhorar o líquido sem
-melhorar nada. **Não abrir isto antes de 1–4 estarem medidos**, porque parte do
+melhorar nada. **Não abrir isto antes de 1–5 estarem medidos**, porque parte do
 desvio pode ser a jusante deles.
 
-**6. `mask-image` a sério.** Hoje é reconhecido e o fundo é SUPRIMIDO, para não
+**7. `mask-image` a sério.** Hoje é reconhecido e o fundo é SUPRIMIDO, para não
 pintarmos um quadrado onde o browser desenha um glifo. Quando houver máscaras, o
 fundo volta a ser pintado e recortado por elas.
 
-**7. As 17 fixtures que ainda falham** (`bash scripts/css_fixtures.sh`), com o
+**8. As 17 fixtures que ainda falham** (`bash scripts/css_fixtures.sh`), com o
 esperado medido num Chrome real — cada uma isola um mecanismo.
 
 ---
@@ -245,6 +307,31 @@ família não mede nada.
 
 **Os 11 `<br>`/`<wbr>` que o Chrome dá 0×0** — artefacto do extrator, ver a
 secção das armadilhas.
+
+---
+
+### Propostas RETIRADAS — e porquê
+
+**Calibrar `PROP_ADVANCE` (o avanço por carácter). Retirada em 2026-08-21.
+`PROP_ADVANCE` NÃO foi tocado.**
+
+Foi investigada e o resultado foi este: **duas medições independentes discordam
+em 30% e em SENTIDO.**
+
+| método | valor | o que diria |
+|---|---:|---|
+| via direta, sobre 2 513 folhas inline | 0,4766 | as nossas caixas são 4,7% **largas** demais |
+| inferência por rácio de linhas | 0,617 | **estreitas** demais |
+
+Não é uma discordância que se resolva pela média. Quando dois métodos dão
+sentidos opostos, pelo menos um está a medir outra coisa, e **calibrar assim
+seria escolher o número que dá jeito** — cravar uma constante que faria o
+agregado mexer sem que ninguém soubesse porquê, e que depois teria de ser
+desfeita quando a causa real aparecesse.
+
+O que sobrevive desta investigação não é uma calibração: é o item 3 da lista de
+valor, o texto anónimo. A discordância entre os dois métodos é provavelmente o
+mesmo facto, visto de dois lados.
 
 ---
 
