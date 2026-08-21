@@ -197,7 +197,7 @@ const censoTexto = await c.envia("Runtime.evaluate", {
   returnByValue: true,
   expression: `(() => {
     const it = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let chars = 0, nos = 0, ocultos = 0;
+    let chars = 0, nos = 0, ocultos = 0; const textos = [];
     const r = document.createRange();
     for (let n = it.nextNode(); n; n = it.nextNode()) {
       const t = n.nodeValue;
@@ -213,9 +213,12 @@ const censoTexto = await c.envia("Runtime.evaluate", {
         visibilityProperty: true, opacityProperty: true, contentVisibilityAuto: true,
       })) { ocultos++; continue; }
       nos++;
+      // O TEXTO, e não só a contagem: sem ele a fenda entre a AX e o DOM é um
+      // número sem sítio, e localizá-la é o trabalho seguinte.
+      textos.push(t);
       for (const ch of t) if (!/\s/.test(ch)) chars++;
     }
-    return { chars, nos, ocultos };
+    return { chars, nos, ocultos, textos };
   })()`,
 }, sessionId);
 const txtComputado = censoTexto?.result?.value ?? null;
@@ -241,7 +244,7 @@ function ancoraDom(n) {
 const vistos = new Set();
 let repetidos = 0;
 const linhas = [];
-let fragmentos = 0, marcadores = 0;
+let fragmentos = 0, marcadores = 0, charsRepetidos = 0, charsEmitidos = 0;
 for (const nodo of ax.nodes) {
   const papel = nodo.role?.value;
   if (papel !== "InlineTextBox" && papel !== "ListMarker") continue;
@@ -255,9 +258,12 @@ for (const nodo of ax.nodes) {
     const avo = pai && porId.get(pai.parentId);
     if (pai?.role?.value === "ListMarker" || avo?.role?.value === "ListMarker") continue;
   }
-  if (vistos.has(nodo.nodeId)) { repetidos++; continue; }
+  if (vistos.has(nodo.nodeId)) { repetidos++; charsRepetidos += [...t].filter((c) => !/\s/.test(c)).length; continue; }
   vistos.add(nodo.nodeId);
-  if (papel === "ListMarker") marcadores++; else fragmentos++;
+  if (papel === "ListMarker") marcadores++; else {
+    fragmentos++;
+    charsEmitidos += [...t].filter((c) => !/\s/.test(c)).length;
+  }
   linhas.push(JSON.stringify({
     k: papel === "ListMarker" ? "marker" : "text",
     t,
@@ -273,6 +279,12 @@ const cabecalho = JSON.stringify({
 const rodape = JSON.stringify({
   __fim: 1, emitidos: linhas.length, fragmentos, marcadores,
   repetidosDescartados: repetidos,
+  // A MASSA dos descartados e a dos emitidos, em caracteres. O número de nós
+  // não diz se o que se descartou era um pedaço grande do corpus — e a AX está
+  // 16 440 caracteres abaixo do que o DOM desenha, portanto a pergunta "quanto
+  // é que a deduplicação levou?" tem de ter resposta em vez de suposição.
+  charsRepetidosDescartados: charsRepetidos,
+  charsEmitidos,
   // `marcadores` acima é o que a AX REPORTA; este é o que a página PINTA. Os
   // dois ficam, e ficam com nomes diferentes, porque a diferença entre eles é
   // uma propriedade do instrumento que quem lê o relatório tem de poder ver.
@@ -287,6 +299,44 @@ const rodape = JSON.stringify({
   textoNosOcultos: txtComputado?.ocultos ?? null,
 });
 writeFileSync(saida, [cabecalho, ...linhas, rodape].join("\n") + "\n");
+
+// O corpus do DOM sai num ficheiro A PARTE, e de proposito: o contrato do
+// ficheiro principal e "uma linha por fragmento da AX, e o rodape confere o
+// total". Misturar as duas fontes no mesmo sitio faria a regua somar duas
+// leituras da mesma pagina - que e a classe de erro que este dia documenta.
+// Aqui ficam lado a lado, comparaveis e nunca somadas.
+const saidaDom = saida.replace(/[.]jsonl$/, "") + ".domtext.jsonl";
+// AUTO-CONTROLO DO TRANSPORTE, e nao do calculo.
+//
+// O censo conta os caracteres DENTRO da pagina e devolve tambem os textos. As
+// duas coisas atravessam o CDP com `returnByValue`, e mediu-se que os textos
+// chegam TRUNCADOS enquanto o contador chega inteiro: 169 564 contados na
+// pagina contra 152 028 recontaveis do que chegou, sobre o mesmo numero de nos.
+//
+// Um corpus truncado le-se exatamente como "o Chrome nao desenha este texto" —
+// a mesma leitura que um motor a falhar produz, e a razao pela qual o rodape do
+// ficheiro principal existe. Por isso os dois totais sao escritos LADO A LADO e
+// a divergencia e gritada: um numero que so se confere contra si proprio nao
+// esta conferido.
+const charsRecontados = (txtComputado?.textos ?? []).reduce(
+  (n, t) => n + [...String(t)].filter((c) => !/\s/.test(c)).length, 0);
+if (txtComputado && charsRecontados !== txtComputado.chars) {
+  console.error(`AVISO: o corpus do DOM chegou TRUNCADO — ${txtComputado.chars}` +
+                ` caracteres contados na pagina, ${charsRecontados} recontaveis do que chegou` +
+                ` (perdidos ${txtComputado.chars - charsRecontados}).`);
+  console.error("  O ficheiro .domtext.jsonl NAO serve para comparar palavras;");
+  console.error("  `textoCaracteres` no rodape principal continua a valer (e contado na pagina).");
+}
+writeFileSync(saidaDom, [
+  JSON.stringify({ __meta: 1, lado: "chrome-domtext", ficheiro: alvo,
+                   fonte: "TreeWalker(SHOW_TEXT) + Range.getClientRects + checkVisibility" }),
+  ...(txtComputado?.textos ?? []).map((t) => JSON.stringify({ k: "text", t })),
+  JSON.stringify({ __fim: 1, emitidos: (txtComputado?.textos ?? []).length,
+                   // DOIS totais, e nao um: o contado NA PAGINA e o que se
+                   // consegue recontar do que chegou. Ver a verificacao abaixo.
+                   caracteres: txtComputado?.chars ?? 0,
+                   caracteresRecontados: charsRecontados }),
+].join("\n") + "\n");
 
 console.log(`chrome-text: ${fragmentos} fragmentos, ${marcadores} marcadores de lista pela AX, ` +
             `${marcComputados?.pinta ?? "?"} PINTADOS pelo estilo computado, ` +
