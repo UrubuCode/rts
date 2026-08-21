@@ -460,3 +460,31 @@ independentemente de esta página o exercitar. O que não fica é a afirmação 
 que era a segunda causa dos 51 cabeçalhos — a altura deles já casava dentro de
 tolerância antes deste lote.
 
+## `width:max-content`: oito `<div>`, 1 882 ganhos (2026-08-21)
+
+Medido contra a base do commit anterior, quatro eixos sobre os 16 813:
+
+| eixo | ganhos | perdidos | soma do erro |
+|---|---|---|---|
+| `x` | **986** | **0** | 918 125 → **835 389** |
+| `w` | **718** | 1 | 344 176 → **277 793** |
+| `h` | **145** | **0** | 93 924 → **87 921** |
+| `y` | 33 | **0** | 29 703 011 → 29 561 317 |
+
+**Oito elementos produziram 1 882 ganhos**, e é a maior razão
+efeito-por-elemento de toda a série: o painel do menu deixou de ser estrangulado
+a 56 px, e com ele o `<ul>` e os ~135 `<li>` que quebravam texto numa coluna de
+22 px onde cabem 200. A altura a mais das listas caiu de 2 600 px para 1 464.
+
+O único perdido é um `<span>` de rótulo a errar 3,14 px de largura dentro de um
+`<li>` que acabou de deixar de estar esmagado — o mesmo padrão dos `<a>` do lote
+anterior: casava enquanto o pai estava errado.
+
+**Os não dispostos ficam nos 23**, e a contagem que mais importa aqui é a que
+NÃO se moveu: nada perdeu caixa quando oito contentores mudaram de largura.
+
+E o número que fecha a escolha da frente: a triagem que a apontou dizia
+`<li> +2,6k` de altura a mais, e a causa não estava nos `<li>` nem no `<div>`
+de 167 px onde o sintoma se via — estava dois níveis acima, numa palavra-chave
+que o parse deitava fora.
+
