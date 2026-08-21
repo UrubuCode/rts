@@ -104,7 +104,11 @@ $Benches = @(
   # contra o Node e concluiu que nao havia nada a ganhar, o que era falso por
   # escolha de denominador — contra o Bun ha' ~28%. Um bench cuja conclusao
   # depende de qual referencia se escolhe tem de correr contra as duas.
-  @{ id = "property_access";      rts = "bench\property_access.ts";          js = "bench\property_access.ts";             jsRunners = @("bun","node","deno") }
+  # O `.js` e' o gemeo do `.ts`, nao um segundo programa: o Node do workflow
+  # esta fixo na v20 e nao le TypeScript, e como esta funcao manda a saida dos
+  # runners para `$null`, um Node que falha em milissegundos seria medido como
+  # o runtime MAIS RAPIDO da tabela em vez de aparecer como falha.
+  @{ id = "property_access";      rts = "bench\property_access.ts";          js = "bench\property_access.js";             jsRunners = @("bun","node","deno") }
 )
 
 # -------------------------------------------------------------------
