@@ -561,3 +561,121 @@ diz outra coisa. **Um teste de tolerância responde "falha", não "falha porquê
 para separar as duas causas é preciso a distribuição, não o binário.** É a mesma
 lição do eixo e da população, num terceiro sítio.
 
+
+---
+
+## O `vertical-align` que estava certo e piorou a página — e o que a decomposição disse
+
+O lote corrigia o `baseline`: a caixa de linha deixava de ser o máximo das
+alturas e passava a compor-se pela base, com a descida do strut. **Nos casos
+sintéticos batia com o Chrome ao centésimo** — `baseline`, `top` e
+`line-height:0`, três fixtures, três acertos.
+
+Na página real, medido isoladamente contra o commit imediatamente anterior:
+
+```
+eixo   ganhos  perdidos      soma antes → depois          delta
+y         1       23      27 745 616 → 30 327 929      +2 582 313
+h         8      128          85 481 →     90 596          +5 115
+```
+
+**9% de piora no eixo dominante.** Revertido.
+
+**Os 23 perdidos eram UM.** A decomposição por filho, no elemento com o maior
+erro:
+
+```
+                       chrome         nós (com o lote)
+header/div[2]      y=17 h=32 flex    y=12 h=42
+ └ form[1]         y=17 h=32 flex    y=12 h=42
+   ├ div[1]        y=17 h=32 block   y=12 h=26   ← encolhe 6
+   └ button[1]     y=17 h=32 flex    y=12 h=42   ← CRESCE 10
+```
+
+O `<button>` é `display:flex`, tem texto puro e **nenhum filho elemento**.
+Cresceu 10 px; tudo acima dele na cadeia mede 42 porque *ele* mede 42; e o `y`
+desce exactamente `(42−32)/2 = 5`, que é o centramento do pai. **Um elemento
+cresceu e os outros 22 são o eco.**
+
+Três coisas a reter, e nenhuma é sobre `vertical-align`:
+
+- **Uma lista de perdidos conta elementos, não causas.** "1 ganho contra 23
+  perdidos" leu-se como um desastre distribuído e era um defeito único. A
+  decomposição por filho custou cinco minutos.
+- **Duas fixtures sintéticas não podiam apanhá-lo**: nenhuma tinha `flex`. Um
+  número sintético prevê o mecanismo, nunca o efeito — terceira vez.
+- **A correção estava certa e o sítio errado.** O strut é real numa caixa de
+  linha; num item flex cujo conteúdo é texto puro o Chrome não tem linha ali, e
+  qualquer descida acrescentada é altura inventada. Uma correcção certa aplicada
+  onde a estrutura não é a que ela pressupõe perde quase sempre.
+
+O `<input>` irmão está a **26 contra 32** — 6 a menos — e já estava errado antes.
+Duas folhas com texto lado a lado, uma alta demais e outra baixa demais: o sinal
+misto que aponta um **caminho** errado e não um valor, exactamente como nas
+tabelas.
+
+## A quinta coluna: a pré-condição
+
+As quatro colunas da régua de cálculos medem o que está no `ComputedStyle`.
+Nenhuma media **o que é preciso para aquilo pintar**, e por isso dois alvos
+foram escolhidos por número de elementos e morreram ao ser tentados:
+
+| alvo | elementos | porque não pinta |
+|---|---:|---|
+| `background-image url()` | 1 170 | nenhum é `data:` — precisa de rede |
+| `tab-size` | 1 632 | **zero** têm `white-space: pre` |
+
+Nos dois casos o número estava certo. O que estava errado era lê-lo como
+alcance. **Um alcance sem pré-condição verificada é um orçamento sem o preço.**
+
+Três valores, e a fronteira entre os dois últimos decide trabalho: `nenhuma`,
+`consumidor-nao-le` (é uma linha), `consumidor-nao-existe` (é um lote). A
+conferência recusa `estado:"tem"` com uma pré-condição por cumprir — que é a
+contradição que a coluna existe para impedir: uma propriedade a passar para a
+coluna das reconhecidas sem mover um pixel.
+
+### E falhou no primeiro caso a que foi aplicada
+
+O `<pre>` foi classificado `consumidor-nao-le`, apontando o `layout/linha.rs`.
+As duas metades estavam erradas, e a razão é de método: **a pré-condição foi
+determinada por grep de quem LÊ a propriedade.** `WhiteSpace::Pre` tinha dois
+leitores, ambos a decidir `nowrap` e nenhum a preservar coisa nenhuma.
+
+O colapso real está no `layout/quebra.rs::wrap_text`, que remonta cada linha com
+`split_whitespace()` — os espaços não são filtrados em lado nenhum, desaparecem
+na forma como o texto é remontado. E por baixo há isto:
+
+```
+refs ao caractere '\n' em todo o layout/ e inline_box/:  1
+  inline_box.rs:65   matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{000C}')
+```
+
+Uma, e a classificá-lo como espaço a colapsar. **O motor não tem o conceito de
+quebra dura vinda do conteúdo**, que é metade daquilo para que um `<pre>` existe.
+
+**A pergunta é quem PRODUZ o efeito, não quem LÊ a propriedade — e essa só se
+responde a partir do efeito para trás.** É a auditoria pelo complemento outra
+vez, e o custo de não a fazer foi uma classificação errada publicada.
+
+**42 dos 71 `<pre>` da página colapsam o espaço**, e não há um único teste no
+crate que mencione a etiqueta.
+
+### Um zero que não valia nada
+
+O `tab-size` foi medido e deu zero. Em vez de o reportar, o agente pôs um
+**controlo positivo** — um documento que tinha o caso e que a sonda era obrigada
+a contar. **O controlo deu zero também.** Nesse instante o resultado deixou de
+ser sobre o `tab-size` e passou a ser sobre a sonda, e foi assim que a UA
+partida apareceu.
+
+Sem esse passo isto entrava no relatório como *"frente morta"* — uma frase
+verdadeira pela razão errada, com uma medição a atestá-la.
+
+## O que a lista de alvos afinal diz
+
+`scrollbar-width` (193), `caption-side` (303) e `cursor` (417) não são "ler o
+campo e pintar": dois precisam de um consumidor inteiro e o terceiro não pinta
+por definição. Com o `tab-size` e o `background-image` são cinco seguidos.
+
+**A régua de elementos efectivos ordenou bem o que já está no estilo. O trabalho
+que resta a seguir não é ligar campos — é escrever consumidores.**
