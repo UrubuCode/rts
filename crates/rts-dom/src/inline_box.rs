@@ -194,35 +194,7 @@ pub(crate) fn meia_entrelinha(altura_da_linha: f32, conteudo: f32) -> f32 {
 /// box dos border boxes dos seus fragmentos. Um `<a>` que quebra em duas linhas
 /// tem dois fragmentos e um retângulo que os contém aos dois — deliberadamente
 /// mais largo do que qualquer um deles, que é o que o browser também devolve.
-/// SONDA TEMPORÁRIA (só em `cfg(test)`): regista cada fragmento unido, para
-/// responder "quantas vezes o mesmo nó é unido, e com que retângulos". Não
-/// existe fora dos testes — a apagar quando a investigação do inchaço fechar.
-#[cfg(test)]
-pub(crate) mod sonda {
-    use super::{NodeIdx, Rect};
-    use std::cell::RefCell;
-    thread_local! {
-        static UNIOES: RefCell<Vec<(NodeIdx, Rect)>> = const { RefCell::new(Vec::new()) };
-        static LIGADA: RefCell<bool> = const { RefCell::new(false) };
-    }
-    pub(crate) fn ligar() {
-        LIGADA.with(|l| *l.borrow_mut() = true);
-        UNIOES.with(|u| u.borrow_mut().clear());
-    }
-    pub(crate) fn registar(idx: NodeIdx, r: Rect) {
-        if LIGADA.with(|l| *l.borrow()) {
-            UNIOES.with(|u| u.borrow_mut().push((idx, r)));
-        }
-    }
-    pub(crate) fn colher() -> Vec<(NodeIdx, Rect)> {
-        LIGADA.with(|l| *l.borrow_mut() = false);
-        UNIOES.with(|u| std::mem::take(&mut *u.borrow_mut()))
-    }
-}
-
 pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
-    #[cfg(test)]
-    sonda::registar(idx, fragment);
     if let Some(old) = list.node_rects.get_mut(&idx) {
         // Um placeholder reservado (`reserve_node_order`) é 0,0,0,0 e não é um
         // fragmento: uni-lo puxaria a caixa até à origem do documento.

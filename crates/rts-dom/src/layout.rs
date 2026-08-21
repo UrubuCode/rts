@@ -7377,206 +7377,6 @@ mod tests {
     /// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
     const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";
 
-    /// SONDA TEMPORÁRIA (`#[ignore]`, corre com `--ignored`): despeja, para os
-    /// `<p>` da página real de paridade, quantas caixas de linha fazemos, a
-    /// largura somada dos segmentos e os DONOS de cada um. Não é um teste — não
-    /// afirma nada; existe para comparar com o Chrome no mesmo caminho.
-    /// A apagar quando a investigação do texto anónimo fechar.
-    /// SONDA TEMPORÁRIA (`#[ignore]`): quantas vezes o MESMO nó é unido em
-    /// `union_rect` num layout completo da página real, e com que retângulos.
-    /// Responde à pergunta "há duas passagens a partilhar a mesma DisplayList?"
-    /// com contagem, em vez de por leitura do código.
-    #[test]
-    #[ignore]
-    fn sonda_unioes_por_no_na_pagina_real() {
-        let html = match std::fs::read_to_string("../../scripts/parity/pagina.combinada.html") {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("sem a página de paridade: {e}");
-                return;
-            }
-        };
-        def_div();
-        let dom = parse_html_to_dom(&html);
-        let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
-        crate::inline_box::sonda::ligar();
-        let _lista = layout_document(&dom, &ctx);
-        let unioes = crate::inline_box::sonda::colher();
-        let mut por_no: std::collections::HashMap<NodeIdx, Vec<Rect>> = Default::default();
-        for (idx, r) in &unioes {
-            por_no.entry(*idx).or_default().push(*r);
-        }
-        let total = por_no.len();
-        // A assinatura de DUAS PASSAGENS sem ambiguidade é o fragmento
-        // REPETIDO: um inline de várias linhas tem fragmentos de larguras muito
-        // diferentes (a última linha é curta) e isso é legítimo, mas nunca
-        // produz DUAS VEZES o mesmo retângulo. Se o mesmo nó é unido com um
-        // retângulo idêntico mais do que uma vez, foi percorrido mais do que
-        // uma vez sobre a mesma lista.
-        let mut suspeitos: Vec<(NodeIdx, usize, f32, f32)> = Vec::new();
-        for (idx, rs) in &por_no {
-            let mut vistos: Vec<Rect> = Vec::new();
-            let mut repetidos = 0;
-            for r in rs {
-                if vistos.iter().any(|v| {
-                    (v.x - r.x).abs() < 0.01
-                        && (v.y - r.y).abs() < 0.01
-                        && (v.w - r.w).abs() < 0.01
-                        && (v.h - r.h).abs() < 0.01
-                }) {
-                    repetidos += 1;
-                } else {
-                    vistos.push(*r);
-                }
-            }
-            if repetidos > 0 {
-                let mx = rs.iter().fold(0.0f32, |a, r| a.max(r.w));
-                let mn = rs.iter().fold(f32::MAX, |a, r| a.min(r.w));
-                suspeitos.push((*idx, repetidos, mn, mx));
-            }
-        }
-        suspeitos.sort_by(|a, b| b.1.cmp(&a.1));
-        eprintln!(
-            "UNIOES total={} nos distintos={} nos com >1 uniao={}",
-            unioes.len(),
-            total,
-            por_no.values().filter(|v| v.len() > 1).count()
-        );
-        eprintln!("nos com FRAGMENTO REPETIDO (assinatura de duas passagens): {}", suspeitos.len());
-        for (idx, n, mn, mx) in suspeitos.iter().take(10) {
-            let tag = match &dom.node(*idx).kind {
-                NodeKind::Element { tag } => tag.clone(),
-                _ => "?".into(),
-            };
-            eprintln!("  {tag:8} repetidos={n:3} largura min={mn:.1} max={mx:.1}");
-        }
-        // distribuição do numero de fragmentos por no
-        let mut hist: std::collections::BTreeMap<usize, usize> = Default::default();
-        for v in por_no.values() {
-            *hist.entry(v.len().min(10)).or_default() += 1;
-        }
-        eprintln!("fragmentos por no (10 = 10 ou mais): {hist:?}");
-        // OS INCHADOS: inline cuja caixa FINAL e' larga como um paragrafo.
-        // Que fragmentos a produziram?
-        let geo = _lista.geometry();
-        let mut inchados = 0;
-        for (idx, r) in geo.rects.iter() {
-            let NodeKind::Element { tag } = &dom.node(*idx).kind else { continue };
-            if !matches!(tag.as_str(), "sup" | "a" | "span" | "cite" | "i" | "b" | "abbr") {
-                continue;
-            }
-            if r.w < 700.0 {
-                continue;
-            }
-            inchados += 1;
-            if inchados > 6 {
-                continue;
-            }
-            let vazio = Vec::new();
-            let frs = por_no.get(idx).unwrap_or(&vazio);
-            eprintln!("INCHADO {tag} final w={:.1} h={:.1} — {} fragmentos:", r.w, r.h, frs.len());
-            for f in frs.iter().take(8) {
-                eprintln!("    x={:.1} y={:.1} w={:.1} h={:.1}", f.x, f.y, f.w, f.h);
-            }
-        }
-        eprintln!("inline com caixa final >=700 de largura: {inchados}");
-    }
-
-    #[test]
-    #[ignore]
-    fn sonda_dump_de_paragrafos_da_pagina_real() {
-        let html = match std::fs::read_to_string("../../scripts/parity/pagina.combinada.html") {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("sem a página de paridade: {e}");
-                return;
-            }
-        };
-        def_div();
-        let dom = parse_html_to_dom(&html);
-        let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
-        let lista = layout_document(&dom, &ctx);
-        // caminho estrutural no MESMO formato do dump (`tag[n]` por irmãos).
-        fn caminho(dom: &Dom, alvo: NodeIdx) -> String {
-            let mut pais: Vec<NodeIdx> = Vec::new();
-            fn acha(dom: &Dom, id: NodeIdx, alvo: NodeIdx, pilha: &mut Vec<NodeIdx>) -> bool {
-                pilha.push(id);
-                if id == alvo {
-                    return true;
-                }
-                for &c in &dom.node(id).children {
-                    if acha(dom, c, alvo, pilha) {
-                        return true;
-                    }
-                }
-                pilha.pop();
-                false
-            }
-            acha(dom, 0, alvo, &mut pais);
-            let mut out = String::new();
-            for (i, &n) in pais.iter().enumerate().skip(1) {
-                let NodeKind::Element { tag } = &dom.node(n).kind else { continue };
-                let pai = pais[i - 1];
-                let mut k = 0;
-                for &irmao in &dom.node(pai).children {
-                    if let NodeKind::Element { tag: t } = &dom.node(irmao).kind {
-                        if t == tag {
-                            k += 1;
-                        }
-                    }
-                    if irmao == n {
-                        break;
-                    }
-                }
-                if !out.is_empty() {
-                    out.push('/');
-                }
-                out.push_str(&format!("{tag}[{k}]"));
-            }
-            out
-        }
-        // todo o texto de uma subárvore, como o `collect_runs` o veria.
-        fn texto(dom: &Dom, id: NodeIdx, out: &mut String) {
-            match &dom.node(id).kind {
-                NodeKind::Text(t) => out.push_str(t),
-                NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
-                _ => {
-                    for &c in &dom.node(id).children {
-                        texto(dom, c, out);
-                    }
-                }
-            }
-        }
-        let geo = lista.geometry();
-        let mut n = 0;
-        for (idx, rect) in geo.rects.iter() {
-            if n >= 8 {
-                break;
-            }
-            let NodeKind::Element { tag } = &dom.node(*idx).kind else { continue };
-            if tag != "p" || rect.h < 60.0 {
-                continue;
-            }
-            let mut t = String::new();
-            texto(&dom, *idx, &mut t);
-            let colapsado: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
-            eprintln!(
-                "PARAGRAFO {}
-  caixa w={:.1} h={:.1}
-  caracteres (colapsados) {}
-  largura implicita = {:.0}
-  inicio: {:?}",
-                caminho(&dom, *idx),
-                rect.w,
-                rect.h,
-                colapsado.chars().count(),
-                colapsado.chars().count() as f32 * 0.5 * 14.125,
-                &colapsado.chars().take(90).collect::<String>(),
-            );
-            n += 1;
-        }
-    }
-
     #[test]
     fn referencia_nao_e_partida_ao_meio_por_uma_quebra_de_linha() {
         // A marcação de referência da Wikipédia: `[`, `135`, `]` em spans
@@ -7607,10 +7407,19 @@ mod tests {
     }
 
     #[test]
-    fn sonda_fronteiras_inline_nao_devem_dar_linha_de_graca() {
-        // SONDA: o MESMO texto, uma vez solto e outra partido por fronteiras de
-        // elemento inline. O número de linhas tem de ser o mesmo — as fronteiras
-        // não acrescentam nem removem conteúdo.
+    fn fronteiras_inline_nao_mudam_o_numero_de_linhas() {
+        // O MESMO texto, uma vez solto e outra partido por fronteiras de
+        // elemento inline: o número de linhas tem de ser o mesmo, porque uma
+        // fronteira não acrescenta nem remove conteúdo.
+        //
+        // Nasceu de uma hipótese REFUTADA — que o vão do espaço entre um texto e
+        // o inline seguinte não entrava na largura da linha, dando uma linha de
+        // graça a cada fronteira. Não entra mesmo em `cur_w`, mas o
+        // `collapse_ws` prefixa o espaço e o `push_segment` separa-o preservando
+        // a largura, portanto a conta fecha. Fica a pinar o que se provou já
+        // funcionar: é dos sítios onde um defeito passaria despercebido, porque
+        // o sintoma seria um parágrafo com a altura errada e não uma linha
+        // visivelmente torta.
         let palavras: Vec<String> = (0..60).map(|i| format!("pal{i:02}")).collect();
         let solto = palavras.join(" ");
         let partido = palavras
