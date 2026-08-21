@@ -526,8 +526,16 @@ if (marcC !== null) {
   const fenda = marcC - marcAX;
   console.log(`  fontes do Chrome para os marcadores: AX ${marcAX}, computado ${marcC}` +
               ` (fenda ${fenda})`);
-  exige(fenda >= 0,
-    "a AX não reporta MAIS marcadores do que a página pinta (se reportasse, uma das duas leituras está errada)");
+  // O invariante audita o dump REAL. Com o lado do Chrome deliberadamente
+  // corrompido ele tem de partir — é a sabotagem a funcionar — e exigi-lo aqui
+  // confundiria "a régua viu a sabotagem" com "o instrumento está partido" no
+  // mesmo código de saída.
+  if (ladoSabotado !== "chrome") {
+    exige(fenda >= 0,
+      "a AX não reporta MAIS marcadores do que a página pinta (se reportasse, uma das duas leituras está errada)");
+  } else {
+    console.log("  (invariante AX-vs-computado suspenso: o lado do Chrome está sabotado de propósito)");
+  }
   if (fenda > marcC * 0.05) {
     console.log(`  ⚠ a AX subconta ${fenda} marcadores (${pct(fenda, marcC)}%).` +
                 " NÃO a use como denominador — é o defeito que esta secção já teve.");
@@ -553,16 +561,25 @@ if (SABOTAGEM && ladoSabotado === "nosso") {
   // o que foi injetado. Um instrumento que reagisse na mesma direção nos dois
   // casos estaria a medir outra coisa.
   if (alvoChrome === "marcadores") {
+    // A DIVERGÊNCIA ABSOLUTA, e não "o que nos falta".
+    //
+    // Custou uma falha em falso descobri-lo, e é a mesma regra que este ficheiro
+    // documenta no cabeçalho: quando os dois lados passaram a bater ao número
+    // (787 contra 787), tirar 302 ao Chrome deixou de aumentar o que nos falta e
+    // passou a aumentar o que temos a mais. A asserção olhava só para uma das
+    // metades, portanto via zero e dizia que a régua estava cega — quando o que
+    // estava cega era a asserção. O módulo move-se nos dois regimes.
     const limpoC = carregar(F_CHROME, "chrome").fim.marcadoresPintados ?? 0;
-    const faltamMLimpo = Math.max(0, limpoC - marcR);
-    const faltamM = Math.max(0, (marcC ?? 0) - marcR);
-    console.log(`  sabotagem "${SABOTAGEM}" (lado do Chrome): marcadores EM FALTA` +
-                ` passaram de ${faltamMLimpo} para ${faltamM} (injetado ${injetadoChrome})`);
+    const divLimpo = Math.abs(limpoC - marcR);
+    const divAgora = Math.abs((marcC ?? 0) - marcR);
+    const faltamMLimpo = divLimpo, faltamM = divAgora;
+    console.log(`  sabotagem "${SABOTAGEM}" (lado do Chrome): divergência ABSOLUTA de` +
+                ` marcadores passou de ${divLimpo} para ${divAgora} (injetado ${injetadoChrome})`);
     // A NULA cai aqui com `injetado = 0`, e a asserção é a mesma: exigir que a
     // régua veja pelo menos o injetado é impossível de satisfazer quando não se
     // injetou nada. `exit 1` é o resultado CORRETO — é o teste do próprio teste,
     // e não precisa de um ramo próprio para o ser.
-    exige(injetadoChrome > 0 && faltamMLimpo - faltamM >= injetadoChrome,
+    exige(injetadoChrome > 0 && Math.abs(faltamM - faltamMLimpo) >= injetadoChrome,
       "a régua VÊ um denominador do Chrome abaixo do real — o defeito que esta secção teve");
   } else {
     const pcLimpo = conta(palavras(fragChrome(carregar(F_CHROME, "chrome").linhas)));

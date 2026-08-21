@@ -165,15 +165,21 @@ await c.envia("Runtime.evaluate",
 const censo = await c.envia("Runtime.evaluate", {
   returnByValue: true,
   expression: `(() => {
-    let pinta = 0; const porTipo = {};
+    let pinta = 0, ocultos = 0; const porTipo = {};
     for (const li of document.querySelectorAll('*')) {
       const cs = getComputedStyle(li);
       if (cs.display !== 'list-item') continue;
       if (cs.listStyleType === 'none') continue;
       if (cs.listStyleImage !== 'none') continue;
+      // RENDERIZA de facto. Um antepassado \`display:none\` deixa o
+      // \`getComputedStyle\` a responder \`list-item\` para um elemento que não
+      // gera caixa nenhuma — e um marcador que ninguém desenha não é um
+      // marcador. Sem esta linha o censo contava 302 a mais e o erro era o
+      // simétrico do que veio corrigir.
+      if (li.getClientRects().length === 0) { ocultos++; continue; }
       pinta++; porTipo[cs.listStyleType] = (porTipo[cs.listStyleType] || 0) + 1;
     }
-    return { pinta, porTipo };
+    return { pinta, ocultos, porTipo };
   })()`,
 }, sessionId);
 const marcComputados = censo?.result?.value ?? null;
@@ -236,6 +242,9 @@ const rodape = JSON.stringify({
   // uma propriedade do instrumento que quem lê o relatório tem de poder ver.
   marcadoresPintados: marcComputados?.pinta ?? null,
   marcadoresPorTipo: marcComputados?.porTipo ?? null,
+  // Os que computam marcador mas não geram caixa (antepassado `display:none`).
+  // Contados e NÃO somados — a régua tem de poder ver que foram excluídos.
+  marcadoresOcultos: marcComputados?.ocultos ?? null,
 });
 writeFileSync(saida, [cabecalho, ...linhas, rodape].join("\n") + "\n");
 
