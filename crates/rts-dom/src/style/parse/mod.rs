@@ -5,15 +5,20 @@
 //! dispatch nome→campo é um match explícito, não gerado (1 nome ≠ 1 campo).
 //! Ignora propriedade/valor desconhecido sem panicar (robustez de parser real).
 
-use super::color::parse_color;
-use super::aplica::{set_edges, set_if, set_ou_limpa, set_side};
-use super::lengths::{
+mod fundo_grelha;
+mod caixa;
+mod fluxo;
+
+use super::{aplica, color, lengths, props, stylesheet, values};
+pub(in crate::style::parse) use super::color::parse_color;
+pub(in crate::style::parse) use super::aplica::{set_edges, set_if, set_ou_limpa, set_side};
+pub(in crate::style::parse) use super::lengths::{
     Caixa, parse_dimension, parse_dimension_signed, parse_edges, parse_gap_pair, parse_inset, parse_len,
     parse_px, parse_side, parse_signed_px, split_top_ws,
 };
-use super::props::ComputedStyle;
-use super::stylesheet::DeclBlock;
-use super::values::{
+pub(in crate::style::parse) use super::props::ComputedStyle;
+pub(in crate::style::parse) use super::stylesheet::DeclBlock;
+pub(in crate::style::parse) use super::values::{
     AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
     JustifyContent, LineHeight, Position, Side, TextAlign, TextTransform, Visibility, WhiteSpace,
 };
@@ -162,95 +167,6 @@ pub(super) fn apply_text_decoration(css: &mut ComputedStyle, val: &str, com_cor:
 /// coisa a dessincronizar da primeira.
 pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     match prop {
-        "color" => set_if(&mut css.color, parse_color(val)),
-        "background-color" => set_if(&mut css.bg, parse_color(val)),
-        // SHORTHAND `background` — cor + imagem/gradiente + position/size/
-        // repeat, em qualquer ordem (ver `style::background`, que também lista
-        // o que ficou de fora). Antes daqui só a forma "o valor INTEIRO é uma
-        // cor ou um gradiente" era lida, então `background: #fff url(x)
-        // no-repeat` — a forma da folha real — não pintava fundo nenhum.
-        "background" => {
-            let bg = crate::style::background::parse_background(val);
-            if let Some(c) = bg.color {
-                set_if(&mut css.bg, Some(c));
-            }
-            if let Some(g) = bg.gradient {
-                set_if(&mut css.gradient, Some(g));
-            }
-            if let Some(i) = bg.image {
-                set_if(&mut css.bg_image, Some(i));
-            }
-            if let Some(p) = bg.position {
-                set_if(&mut css.bg_position, Some(p));
-            }
-            if let Some(s) = bg.size {
-                set_if(&mut css.bg_size, Some(s));
-            }
-            if let Some(r) = bg.repeat {
-                set_if(&mut css.bg_repeat, Some(r));
-            }
-        }
-        "background-image" => {
-            // Um gradiente É a imagem de fundo e o motor pinta-o; uma `url()`
-            // fica guardada crua (não é buscada — ver `style::background`).
-            if let Some(g) = crate::style::effects::LinearGradient::parse(val) {
-                set_if(&mut css.gradient, Some(g));
-            } else {
-                set_if(&mut css.bg_image, Some(val.trim().to_string()));
-            }
-        }
-        // A máscara é RECONHECIDA, não interpretada: guardamos a url crua só
-        // para saber que a forma da caixa vem de fora. O prefixo `-webkit-` é
-        // o que a folha real traz ao lado da propriedade padrão (a Wikipédia
-        // declara as duas), e ignorá-lo deixava metade das páginas de fora.
-        "mask-image" | "-webkit-mask-image" => set_if(&mut css.mask_image, Some(val.trim().to_string())),
-        // `filter` e `clip-path` guardados CRUS, para o paint. O prefixo
-        // `-webkit-` está ao lado do nome padrão porque a folha real declara
-        // os dois na mesma regra, e reconhecer só um deixaria a metade que a
-        // página escreveu primeiro a decidir o resultado. Ver os campos em
-        // `props.rs` para o motivo de não serem tipados aqui.
-        "filter" | "-webkit-filter" => set_if(&mut css.filter, Some(val.trim().to_string())),
-        "clip-path" | "-webkit-clip-path" => set_if(&mut css.clip_path, Some(val.trim().to_string())),
-        "background-repeat" => set_if(&mut css.bg_repeat, crate::style::BgRepeat::parse(val)),
-        "background-position" => set_if(&mut css.bg_position, crate::style::BgPosition::parse(val)),
-        "background-size" => set_if(&mut css.bg_size, crate::style::BgSize::parse(val)),
-        "box-shadow" => set_ou_limpa(&mut css.box_shadow, val, crate::style::effects::BoxShadow::parse(val)),
-        "grid-template-columns" => {
-            set_if(&mut css.grid_columns, parse_grid_columns(val));
-            set_ou_limpa(&mut css.grid_template_columns, val,
-                crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new));
-        }
-        "grid-template-rows" => {
-            set_ou_limpa(&mut css.grid_template_rows, val,
-                crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new));
-        }
-        "grid-auto-rows" => {
-            set_if(&mut css.grid_auto_rows, crate::style::GridTrack::parse_one(val));
-        }
-        "justify-items" => {
-            set_if(&mut css.grid_justify_items, crate::style::AlignItems::parse(val));
-        }
-        "grid-template-areas" => {
-            css.grid_template_areas = crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
-        }
-        "grid-area" => {
-            set_if(&mut css.grid_area, crate::style::grid_areas::parse_grid_area_name(val));
-        }
-        "grid" | "grid-template" => {
-            // shorthand `grid-template: [áreas] rows / columns`. As linhas de
-            // área vêm INTERCALADAS com os tamanhos das linhas, então tirá-las
-            // primeiro é o que deixa o resto na forma `rows / cols` que o mesmo
-            // código já lia — em vez de um segundo parser para a forma com áreas.
-            css.grid_template_areas = crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
-            let tracks = crate::style::grid_areas::strip_quoted(val);
-            if let Some((rows, cols)) = tracks.split_once('/') {
-                css.grid_template_rows =
-                    crate::style::GridTrack::parse_list(rows).map(std::sync::Arc::new);
-                css.grid_template_columns =
-                    crate::style::GridTrack::parse_list(cols).map(std::sync::Arc::new);
-                set_if(&mut css.grid_columns, parse_grid_columns(cols));
-            }
-        }
         "transform" => set_ou_limpa(&mut css.transform, val, crate::style::effects::Transform::parse(val)),
         "aspect-ratio" => set_if(&mut css.aspect_ratio, parse_aspect_ratio(val)),
         "opacity" => {
@@ -297,206 +213,6 @@ pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) 
         "overflow-x" => set_if(&mut css.overflow_x, crate::scrollbar::Overflow::parse_str(val)),
         "overflow-y" => set_if(&mut css.overflow_y, crate::scrollbar::Overflow::parse_str(val)),
         // ── Box model: shorthand 1/2/3/4 valores + longhands por lado. ─────────
-        "padding" => set_edges(&mut css.padding, parse_edges(val, Caixa::Padding)),
-        "padding-top" => set_side(&mut css.padding.top, parse_side(val, Caixa::Padding)),
-        "padding-right" => set_side(&mut css.padding.right, parse_side(val, Caixa::Padding)),
-        "padding-bottom" => set_side(&mut css.padding.bottom, parse_side(val, Caixa::Padding)),
-        "padding-left" => set_side(&mut css.padding.left, parse_side(val, Caixa::Padding)),
-        // Props LÓGICAS (Tailwind v4 usa `px-N`→padding-inline, `py-N`→padding-block
-        // em TUDO): inline = left+right, block = top+bottom (modo horizontal LTR).
-        "padding-inline" => {
-            let s = parse_side(val, Caixa::Padding);
-            css.padding.left = s;
-            css.padding.right = s;
-        }
-        "padding-block" => {
-            let s = parse_side(val, Caixa::Padding);
-            css.padding.top = s;
-            css.padding.bottom = s;
-        }
-        "padding-inline-start" | "padding-inline-end" => {
-            // LTR: start=left, end=right. Sem distinguir aqui, aplica no lado certo.
-            let s = parse_side(val, Caixa::Padding);
-            if prop == "padding-inline-start" {
-                css.padding.left = s;
-            } else {
-                css.padding.right = s;
-            }
-        }
-        // margin aceita `auto` (centralização); padding não.
-        "margin" => set_edges(&mut css.margin, parse_edges(val, Caixa::Margem)),
-        "margin-top" => set_side(&mut css.margin.top, parse_side(val, Caixa::Margem)),
-        "margin-right" => set_side(&mut css.margin.right, parse_side(val, Caixa::Margem)),
-        "margin-bottom" => set_side(&mut css.margin.bottom, parse_side(val, Caixa::Margem)),
-        "margin-left" => set_side(&mut css.margin.left, parse_side(val, Caixa::Margem)),
-        "margin-inline" => {
-            let s = parse_side(val, Caixa::Margem);
-            css.margin.left = s;
-            css.margin.right = s;
-        }
-        "margin-block" => {
-            let s = parse_side(val, Caixa::Margem);
-            css.margin.top = s;
-            css.margin.bottom = s;
-        }
-        // LTR: start=left, end=right (o mesmo corte do `padding-inline-*` —
-        // `direction:rtl` é aceite mas o layout não inverte; ver `style::text`).
-        "margin-inline-start" | "margin-inline-end" => {
-            let s = parse_side(val, Caixa::Margem);
-            if prop == "margin-inline-start" {
-                css.margin.left = s;
-            } else {
-                css.margin.right = s;
-            }
-        }
-        "margin-block-start" | "margin-block-end" => {
-            let s = parse_side(val, Caixa::Margem);
-            if prop == "margin-block-start" {
-                css.margin.top = s;
-            } else {
-                css.margin.bottom = s;
-            }
-        }
-        // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
-        // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
-        "border" => apply_border_shorthand(css, val),
-        "border-width" => crate::style::borders::apply_width_shorthand(css, val),
-        "border-style" => crate::style::borders::apply_style_shorthand(css, val),
-        "border-color" => crate::style::borders::apply_color_shorthand(css, val),
-        // O campo UNICO continua a responder o que sempre respondeu (quem o
-        // le nao pode mudar de resposta por causa dos cantos); os quatro
-        // cantos sao escritos por cima, sem lhe tocar. Ver `style::radius`.
-        "border-radius" => {
-            set_if(&mut css.corner_radius, parse_len(val));
-            crate::style::radius::apply_shorthand(css, val);
-        }
-        // ── Bordas POR LADO: `border-top: 1px solid #ccc` e as 12 longhands.
-        // Uma barra separadora é quase sempre um lado só; pintá-la com a borda
-        // uniforme daria uma moldura fechada (ver `style::borders`).
-        "border-top" | "border-right" | "border-bottom" | "border-left" => {
-            if let Some(side) = crate::style::SideName::parse(&prop["border-".len()..]) {
-                crate::style::borders::apply_side_shorthand(css, side, val);
-            }
-        }
-        _ if crate::style::borders::is_longhand(&prop) => {
-            crate::style::borders::apply_longhand(css, &prop, val)
-        }
-        // `outline`: uma borda que não ocupa espaço (fora do box model).
-        "outline" => crate::style::borders::apply_outline_shorthand(css, val),
-        "outline-width" => set_if(&mut css.outline_width, crate::style::borders::parse_width_token(val)),
-        "outline-style" => {
-            css.outline_style = if val.trim().eq_ignore_ascii_case("auto") {
-                Some(BorderStyle::Solid)
-            } else {
-                BorderStyle::parse(val)
-            }
-        }
-        "outline-color" => set_if(&mut css.outline_color, parse_color(val)),
-        "outline-offset" => set_if(&mut css.outline_offset, parse_signed_px(val)),
-        "width" => set_if(&mut css.width, parse_dimension(val)),
-        // `box-sizing: border-box | content-box` — border-box faz o `width`
-        // incluir padding+border (3 cards de 32% cabem). Default content-box.
-        "box-sizing" => set_if(&mut css.border_box, Some(val.eq_ignore_ascii_case("border-box"))),
-        // `display` — o eixo/fluxo dos filhos, do CSS (não mais só do defineBlock).
-        "display" => set_if(&mut css.display, parse_display(val)),
-        // `flex-wrap` — combina com display:flex para promover a FlexWrap.
-        "flex-wrap" => set_if(&mut css.flex_wrap, Some(val.eq_ignore_ascii_case("wrap"))),
-        // ── Flexbox: alinhamento + gap + direção ──────────────────────────────
-        "justify-content" => set_if(&mut css.justify, JustifyContent::parse(val)),
-        "align-items" => set_if(&mut css.align_items, AlignItems::parse(val)),
-        "align-self" => {
-            // `auto` = herda o align-items do container (campo fica None).
-            css.align_self = if val.eq_ignore_ascii_case("auto") {
-                None
-            } else {
-                AlignItems::parse(val)
-            }
-        }
-        "order" => css.order = val.trim().parse::<i32>().ok(),
-        "flex-grow" => css.flex_grow = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
-        "flex-shrink" => css.flex_shrink = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
-        "flex-basis" => set_if(&mut css.flex_basis, parse_dimension(val)),
-        // shorthand `flex`: none | auto | <grow> [<shrink>] [<basis>] — o
-        // `.col` do Bootstrap é `flex: 1 0 0%`.
-        "flex" => apply_flex_shorthand(css, val),
-        "flex-direction" => set_if(&mut css.flex_direction, FlexDirection::parse(val)),
-        "column-gap" => set_if(&mut css.gap, parse_dimension(val)),
-        "row-gap" => set_if(&mut css.row_gap, parse_dimension(val)),
-        // `gap: <row> <col>` (1 valor = ambos; 2 = row col).
-        "gap" => {
-            let (rg, cg) = parse_gap_pair(val);
-            css.row_gap = rg;
-            css.gap = cg;
-        }
-        "height" => set_if(&mut css.height, parse_dimension(val)),
-        "min-width" => set_if(&mut css.min_width, parse_dimension(val)),
-        "max-width" => set_if(&mut css.max_width, parse_dimension(val)),
-        "min-height" => set_if(&mut css.min_height, parse_dimension(val)),
-        "max-height" => set_if(&mut css.max_height, parse_dimension(val)),
-        // `position` + offsets (top/right/bottom/left). Os offsets aceitam
-        // negativos (deslocam para fora) — parse_dimension rejeita <0, então
-        // px negativo entra por parse direto.
-        "float" => set_if(&mut css.float_side, FloatSide::parse(val)),
-        "position" => set_if(&mut css.position, Position::parse(val)),
-        "z-index" => css.z_index = val.trim().parse::<i32>().ok(),
-        "top" => set_if(&mut css.inset_top, parse_inset(val)),
-        "right" => set_if(&mut css.inset_right, parse_inset(val)),
-        "bottom" => set_if(&mut css.inset_bottom, parse_inset(val)),
-        "left" => set_if(&mut css.inset_left, parse_inset(val)),
-        // ── Texto / listas / fluxo (ver `style::text` p/ o que cada uma faz) ──
-        "vertical-align" => set_if(&mut css.vertical_align, crate::style::VerticalAlign::parse(val)),
-        "clear" => set_if(&mut css.clear, crate::style::Clear::parse(val)),
-        "word-break" => set_if(&mut css.word_break, crate::style::WordBreak::parse(val)),
-        // `word-wrap` é o nome legado de `overflow-wrap` (MDN: alias).
-        "overflow-wrap" | "word-wrap" => set_if(&mut css.overflow_wrap, crate::style::OverflowWrap::parse(val)),
-        "direction" => set_if(&mut css.direction, crate::style::Direction::parse(val)),
-        // `text-indent` aceita negativo (o truque de esconder texto atrás da
-        // margem, comum em logos com fundo).
-        "text-indent" => set_if(&mut css.text_indent, parse_dimension_signed(val)),
-        "list-style-type" => set_if(&mut css.list_style_type, crate::style::ListStyleType::parse(val)),
-        "list-style-position" => {
-            css.list_style_position = crate::style::ListStylePosition::parse(val)
-        }
-        // ── Tabela ────────────────────────────────────────────────────────
-        "border-collapse" => set_if(&mut css.border_collapse, crate::style::BorderCollapse::parse(val)),
-        "border-spacing" => set_if(&mut css.border_spacing, crate::style::BorderSpacing::parse(val)),
-        "table-layout" => set_if(&mut css.table_layout, crate::style::TableLayout::parse(val)),
-        "list-style-image" => set_if(&mut css.list_style_image, Some(val.trim().to_string())),
-        // `list-style: <type> || <position> || <image>` — os três em qualquer
-        // ordem, e agora os três GUARDADOS: a posição deixou de ser descartada
-        // quando o marcador passou a ser desenhado.
-        //
-        // A ordem dos ramos importa: `none` é um valor válido de `type` E o
-        // ficheiro não tem como saber a qual dos dois o autor se referia, por
-        // isso o `type` é tentado ANTES da posição — `outside`/`inside` não
-        // são valores de `type`, portanto não há ambiguidade no outro sentido.
-        "list-style" => {
-            for tok in val.split_whitespace() {
-                if tok.to_ascii_lowercase().starts_with("url(") {
-                    set_if(&mut css.list_style_image, Some(tok.to_string()));
-                } else if let Some(t) = crate::style::ListStyleType::parse(tok) {
-                    set_if(&mut css.list_style_type, Some(t));
-                } else if let Some(p) = crate::style::ListStylePosition::parse(tok) {
-                    set_if(&mut css.list_style_position, Some(p));
-                }
-            }
-        }
-        // `cursor` — guardado cru; quem o usa é o backend de janela.
-        "cursor" => set_if(&mut css.cursor, Some(val.trim().to_ascii_lowercase())),
-        // `flex-flow: <direction> || <wrap>` (MDN) — só expande.
-        "flex-flow" => {
-            for tok in val.split_whitespace() {
-                if let Some(d) = FlexDirection::parse(tok) {
-                    set_if(&mut css.flex_direction, Some(d));
-                } else if tok.eq_ignore_ascii_case("wrap")
-                    || tok.eq_ignore_ascii_case("wrap-reverse")
-                {
-                    set_if(&mut css.flex_wrap, Some(true));
-                } else if tok.eq_ignore_ascii_case("nowrap") {
-                    set_if(&mut css.flex_wrap, Some(false));
-                }
-            }
-        }
         "transition" => set_if(&mut css.transition, crate::anim::TransitionSpec::parse(val)),
         "animation" => set_if(&mut css.animation, crate::anim::AnimationSpec::parse(val)),
         // Uma propriedade que nenhum braço reconhece é CSS que a página
@@ -506,6 +222,9 @@ pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) 
         // grupo aqui em vez de treze braços literais mantém a lista de nomes
         // do lado de quem os aplica — uma segunda lista neste `match` era o
         // sítio óbvio para uma delas ficar de fora.
+        _ if fundo_grelha::try_apply(css, prop, val) => {}
+        _ if caixa::try_apply(css, prop, val) => {}
+        _ if fluxo::try_apply(css, prop, val) => {}
         _ if crate::style::timing::try_apply(css, &prop, val) => {}
         _ if crate::style::logical::try_apply(css, &prop, val) => {}
         _ if crate::style::vocab::try_apply(css, &prop, val) => {}
