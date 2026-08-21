@@ -256,6 +256,62 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         "scrollbar-width" => css.scrollbar_width = ScrollbarWidth::parse(val),
         "caption-side" => css.caption_side = CaptionSide::parse(val),
         "pointer-events" => css.pointer_events = PointerEvents::parse(val),
+        // `transform-origin` tem a mesma gramatica de `background-position` —
+        // reusa o parser dela, como o `object-position` ao lado. O layout
+        // continua a rodar em torno do centro; ver o comentario do campo.
+        "transform-origin" => css.transform_origin = BgPosition::parse(val),
+        // Aliases do WebKit para propriedades que ja existem. O `-webkit-` sozinho
+        // ja foi tirado no topo; estes tres tem NOME diferente, nao so prefixo, e
+        // sao a sintaxe da flexbox de 2009 que o `google.css` ainda escreve.
+        "box-orient" => {
+            css.flex_direction = match val.trim() {
+                "vertical" => Some(super::values::FlexDirection::Column),
+                "horizontal" => Some(super::values::FlexDirection::Row),
+                _ => return true,
+            }
+        }
+        // `justify` e o nome antigo de `space-between`; os outros coincidem.
+        "box-pack" => {
+            css.justify = if val.trim() == "justify" {
+                Some(JustifyContent::SpaceBetween)
+            } else {
+                JustifyContent::parse(val)
+            }
+        }
+        "box-align" => css.align_items = AlignItems::parse(val),
+        // `-webkit-justify-content` / `-webkit-align-items`: o nome e o mesmo, so
+        // o prefixo muda — mas o `parse` casa por literal e nao ve o prefixado.
+        "justify-content" => css.justify = JustifyContent::parse(val),
+        "align-items" => css.align_items = AlignItems::parse(val),
+        // `-webkit-transform`: so chega aqui prefixado — o nome nu tem braco
+        // proprio no `parse`, que corre antes deste modulo.
+        "transform" => css.transform = super::effects::Transform::parse(val),
+        "text-decoration-color" => css.text_decoration_color = super::color::parse_color(val),
+        // As propriedades INDIVIDUAIS de transformacao (`rotate: 45deg`), que a
+        // spec define como aplicadas DEPOIS do `transform`. Escrevem no mesmo
+        // `Transform` que o shorthand escreve — e por isso ja sao PINTADAS, sem
+        // nada por ligar. Um campo proprio por eixo seria uma segunda descricao
+        // da mesma transformacao, com o layout a ter de as compor.
+        //
+        // O CORTE: composicao por ORDEM DE DECLARACAO, nao pela ordem da spec.
+        // `transform: rotate(10deg)` depois de `rotate: 45deg` da 55 graus aqui e
+        // 10 no browser (o shorthand substitui). Uma folha que declare as duas
+        // formas no mesmo elemento e rara; uma que declare so uma sai certa.
+        "rotate" => {
+            let Some(d) = super::effects::parse_angle_deg(&val.trim()) else { return true };
+            let mut t = css.transform.unwrap_or_else(super::effects::Transform::identity);
+            t.rot_deg += d;
+            css.transform = Some(t);
+        }
+        "scale" => {
+            let t2 = split_top_ws(val);
+            let Some(sx) = t2.first().and_then(|s| s.parse::<f32>().ok()) else { return true };
+            let sy = t2.get(1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(sx);
+            let mut t = css.transform.unwrap_or_else(super::effects::Transform::identity);
+            t.sx *= sx;
+            t.sy *= sy;
+            css.transform = Some(t);
+        }
         "font-stretch" => css.font_stretch = parse_font_stretch(val),
         "zoom" => css.zoom = parse_zoom(val),
         "word-spacing" => {
@@ -314,6 +370,13 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
         "scrollbar-width" => opt(css.scrollbar_width.map(|v| v.css())),
         "caption-side" => opt(css.caption_side.map(|v| v.css())),
         "pointer-events" => opt(css.pointer_events.map(|v| v.css())),
+        "transform-origin" => css
+            .transform_origin
+            .map(|p| format!("{} {}", super::fmt_values::fmt_dim(p.x), super::fmt_values::fmt_dim(p.y)))
+            .unwrap_or_default(),
+        "text-decoration-color" => {
+            css.text_decoration_color.map(super::fmt_values::fmt_color).unwrap_or_default()
+        }
         // O computado de `font-stretch` é a PERCENTAGEM, mesmo quando o autor
         // escreveu o keyword — é o que o Chrome responde.
         "font-stretch" => css.font_stretch.map(|v| format!("{v}%")).unwrap_or_default(),

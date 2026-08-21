@@ -82,5 +82,28 @@ pub fn is_inert(prop: &str) -> bool {
         // propriedade sem a regra seria prometer a metade que não serve para nada.
             | "container-type" | "container-name" | "container"
             | "anchor-name" | "position-anchor"
+        // CONTADORES E ASPAS: só têm efeito através de `content`, que é de outro
+        // dono. Um contador que ninguém imprime é estado sem leitor — e imprimi-lo
+        // é a tarefa do `content`, não desta.
+            | "counter-reset" | "counter-increment" | "counter-set" | "quotes"
+        // SVG: não há motor de SVG, e não é para haver nesta campanha. É a
+        // recusa mais fácil de justificar com a própria sonda: reconhecer as ~300
+        // declarações de `fill`/`stroke` faria a cobertura subir sem um pixel
+        // mudar na página, que é a contagem a mentir sobre o estado. A coluna
+        // existe para medir trabalho feito, não trabalho parecido com feito.
+            | "fill" | "fill-opacity" | "fill-rule" | "stroke" | "stroke-width"
+            | "stroke-opacity" | "stroke-dasharray" | "stroke-dashoffset"
+            | "stroke-linecap" | "stroke-linejoin" | "stroke-miterlimit"
+            | "text-anchor" | "dominant-baseline" | "paint-order" | "vector-effect"
+            | "shape-rendering" | "color-interpolation-filters" | "stop-color"
+        // TRÊS DIMENSÕES: o `Transform` deste motor é 2D (translação, escala,
+        // rotação no plano). Sem uma matriz 3D e sem profundidade no paint, estas
+        // não têm o que descrever.
+            | "perspective" | "perspective-origin" | "transform-style"
+            | "transform-box" | "translate3d"
+        // `transition-behavior: allow-discrete` liga a transição de propriedades
+        // NÃO interpoláveis. Este motor interpola por tipo (`style::lerp`) e não
+        // tem a noção de "discreta" para ligar.
+            | "transition-behavior"
     )
 }

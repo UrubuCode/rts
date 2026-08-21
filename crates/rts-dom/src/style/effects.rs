@@ -139,6 +139,13 @@ pub struct Transform {
 }
 
 impl Transform {
+    /// A transformação NEUTRA. Não é o `Default` derivado, e não pode ser: o
+    /// neutro da escala é 1, e um `Default` de zeros daria uma caixa de tamanho
+    /// zero em vez de uma caixa intacta.
+    pub fn identity() -> Transform {
+        Transform { tx: 0.0, ty: 0.0, tx_pct: 0.0, ty_pct: 0.0, sx: 1.0, sy: 1.0, rot_deg: 0.0 }
+    }
+
     /// `true` se é a identidade (nenhum efeito) — o layout pode pular a aplicação.
     pub fn is_identity(&self) -> bool {
         self.tx == 0.0
@@ -231,7 +238,7 @@ fn add_translate(t: &mut Transform, x: (f32, f32), y: (f32, f32)) {
 }
 
 /// Ângulo em graus de `<n>deg`/`<n>rad`/`<n>turn` (para rotate).
-fn parse_angle_deg(s: &&str) -> Option<f32> {
+pub fn parse_angle_deg(s: &&str) -> Option<f32> {
     let s = s.trim();
     if let Some(n) = s.strip_suffix("deg") {
         return n.trim().parse::<f32>().ok();

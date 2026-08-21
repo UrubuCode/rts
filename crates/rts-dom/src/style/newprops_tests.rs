@@ -848,3 +848,58 @@ fn text_decoration_color_vem_da_longhand_e_do_shorthand() {
     // `text-decoration-line` NÃO aceita cor (é a longhand da linha, e mais nada).
     assert_eq!(parse_inline("text-decoration-line: underline").text_decoration_color, None);
 }
+
+// ── Propriedades individuais de transformação e aliases do WebKit ────────────
+
+#[test]
+fn rotate_individual_pinta_pelo_mesmo_transform_do_shorthand() {
+    // Esta tem EFEITO REAL e não é vocabulário: escreve o `Transform` que o
+    // layout já aplica. Um campo próprio seria uma segunda descrição da mesma
+    // transformação, e alguém teria de as compor.
+    let s = parse_inline("rotate: 45deg");
+    assert_eq!(s.transform.expect("cria a transformação").rot_deg, 45.0);
+    // as outras componentes ficam NEUTRAS — e o neutro da escala é 1, não 0.
+    let t = s.transform.unwrap();
+    assert_eq!((t.sx, t.sy), (1.0, 1.0), "um Default de zeros encolheria a caixa a nada");
+    // `turn` e `rad` também, pelo mesmo parser de ângulo do shorthand.
+    assert_eq!(parse_inline("rotate: 0.5turn").transform.unwrap().rot_deg, 180.0);
+    // `scale` com um valor vale para os dois eixos.
+    let e = parse_inline("scale: 2").transform.unwrap();
+    assert_eq!((e.sx, e.sy), (2.0, 2.0));
+}
+
+#[test]
+fn sintaxe_de_flexbox_de_2009_cai_nos_campos_de_hoje() {
+    // O `google.css` ainda escreve a flexbox antiga. Estes três têm NOME
+    // diferente, não só prefixo, por isso não bastava tirar o `-webkit-`.
+    assert_eq!(
+        parse_inline("-webkit-box-orient: vertical").flex_direction,
+        Some(crate::style::FlexDirection::Column)
+    );
+    // `justify` é o nome antigo de `space-between`.
+    assert_eq!(
+        parse_inline("-webkit-box-pack: justify").justify,
+        Some(crate::style::JustifyContent::SpaceBetween)
+    );
+    assert_eq!(
+        parse_inline("-webkit-box-align: center").align_items,
+        Some(crate::style::AlignItems::Center)
+    );
+    // e o alias puro do shorthand chega ao mesmo sítio que o nome nu.
+    let a = parse_inline("-webkit-transform: rotate(90deg)");
+    assert_eq!(a.transform.unwrap().rot_deg, 90.0);
+}
+
+#[test]
+fn svg_e_contadores_sao_recusa_e_nao_lista_de_afazeres() {
+    use crate::style::inert::is_inert;
+    // SVG: reconhecer ~300 declarações faria a cobertura subir sem um pixel
+    // mudar. A coluna mede trabalho feito, não trabalho parecido com feito.
+    assert!(is_inert("fill") && is_inert("stroke") && is_inert("stroke-dasharray"));
+    // contadores só imprimem através de `content`, que é de outro dono.
+    assert!(is_inert("counter-reset") && is_inert("quotes"));
+    // 3D: o Transform deste motor é 2D.
+    assert!(is_inert("perspective") && is_inert("transform-style"));
+    // e o que está ADIADO continua do lado das desconhecidas, de propósito.
+    assert!(!is_inert("filter") && !is_inert("mask-size") && !is_inert("clip-path"));
+}
