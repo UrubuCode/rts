@@ -67,6 +67,8 @@ pub(crate) mod vars;
 pub mod vocab;
 
 #[cfg(test)]
+mod afirmacoes_tests;
+#[cfg(test)]
 mod computed_tests;
 #[cfg(test)]
 mod newprops_tests;
