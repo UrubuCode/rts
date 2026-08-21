@@ -288,6 +288,44 @@ pub(crate) fn altura_da_linha(css: &ComputedStyle, font_size: f32, m: &dyn TextM
         .unwrap_or(normal)
 }
 
+/// Este `Edges` OCUPA ESPAÇO — algum lado resolve a um valor diferente de zero?
+///
+/// Não é a mesma pergunta que `any_set`, e a diferença é o que dava 752px de
+/// largura a cada um dos 51 cabeçalhos da Wikipédia: `.mw-heading h3` declara
+/// `display:inline;border:0;margin:0;padding:0`, e o `padding:0` contava como
+/// "há padding" — devolvendo ao caminho de bloco o elemento que o `display`
+/// acabou de tirar de lá. Um zero declarado não ocupa nem pinta; declará-lo é a
+/// forma normal de um reset dizer que NÃO quer padding.
+///
+/// Uma percentagem responde `true` sem se resolver: aqui não há largura de
+/// contentor, e `padding:5%` ocupa espaço em qualquer contentor que não seja
+/// vazio. O erro conservador é o certo — tratá-la como zero tirava a caixa a
+/// quem tem padding a sério.
+fn ocupa_espaco(e: &crate::style::Edges) -> bool {
+    use crate::style::{Dimension, Side};
+    [e.top, e.right, e.bottom, e.left].iter().any(|s| match s {
+        // `auto` não ocupa por si: num padding não existe, e numa margem é o
+        // espaço livre que sobra — não um comprimento que crie caixa.
+        Side::Unset | Side::Auto => false,
+        Side::Len(d) => !matches!(
+            d,
+            Dimension::Px(v) | Dimension::Percent(v) | Dimension::Em(v)
+                | Dimension::Rem(v) | Dimension::Vw(v) | Dimension::Vh(v)
+            if *v == 0.0
+        ),
+    })
+}
+
+/// A mesma pergunta para a BORDA, que é `f32` uniforme mais os quatro lados.
+///
+/// O estilo (`border-style:none` não pinta, mesmo com largura) deliberadamente
+/// NÃO entra aqui: é outra pergunta, com outro consumidor
+/// (`SideBorder::paints`), e respondê-la neste sítio alargava um lote que existe
+/// para corrigir a confusão entre "declarado" e "ocupa espaço".
+fn borda_ocupa_espaco(css: &ComputedStyle) -> bool {
+    css.border_width.is_some_and(|w| w > 0.0) || ocupa_espaco(&css.border_widths)
+}
+
 /// Este estilo cria uma caixa que precisa de LAYOUT DE BLOCO?
 ///
 /// Não é a mesma pergunta que `ComputedStyle::has_box`, e a diferença é o que
@@ -303,10 +341,9 @@ pub(crate) fn cria_caixa_de_bloco(css: &ComputedStyle) -> bool {
     css.bg.is_some()
         || css.gradient.is_some()
         || css.box_shadow.is_some()
-        || css.padding.any_set()
-        || css.margin.any_set()
-        || css.border_width.is_some()
-        || css.border_widths.any_set()
+        || ocupa_espaco(&css.padding)
+        || ocupa_espaco(&css.margin)
+        || borda_ocupa_espaco(css)
         || css.width.is_some()
         || css.height.is_some()
 }
@@ -332,9 +369,8 @@ pub(crate) fn cria_caixa_apesar_de_inline(css: &ComputedStyle) -> bool {
     css.bg.is_some()
         || css.gradient.is_some()
         || css.box_shadow.is_some()
-        || css.padding.any_set()
-        || css.border_width.is_some()
-        || css.border_widths.any_set()
+        || ocupa_espaco(&css.padding)
+        || borda_ocupa_espaco(css)
 }
 
 /// A altura da CAIXA de um elemento inline — que NÃO é a altura da linha.
@@ -862,6 +898,74 @@ mod tests {
         assert!((img.w - 25.0).abs() < 0.5, "{img:?}");
     }
 
+    /// Um `display:inline` com `padding:0` mede o TEXTO, não o contentor.
+    ///
+    /// É a receita do `.mw-heading` da Wikipédia, e o `padding:0` era sozinho o
+    /// que a partia: um zero declarado contava como "há padding", devolvia o
+    /// `<h3>` ao caminho de bloco e ele saía com os 752px do contentor em vez dos
+    /// ~185 do seu texto. São 51 cabeçalhos na página, 100% errados, todos assim.
+    #[test]
+    fn cabecalho_inline_com_padding_zero_mede_o_texto_e_nao_o_contentor() {
+        let regra = "<style>.mw-heading h3{display:inline;border:0;margin:0;                     padding:0;color:inherit;font:inherit}</style>";
+        let html = format!(
+            "{regra}<div style='width:600px' class='mw-heading'><h3>abc</h3></div>"
+        );
+        let (dom, list) = geometria(&html, 800.0);
+        let h3 = rect(&dom, &list, "h3", 0);
+        assert!(
+            h3.w < 100.0,
+            "o cabeçalho tomou a largura do contentor: {h3:?}"
+        );
+    }
+
+    /// E um padding REAL continua a criar caixa: é o par que prova que a pergunta
+    /// mudou de "declarou?" para "ocupa espaço?" em vez de desaparecer.
+    #[test]
+    fn padding_declarado_com_valor_continua_a_criar_caixa() {
+        let zero = "<div style='width:400px'><span style='padding:0'>abc</span></div>";
+        let real = "<div style='width:400px'><span style='padding:4px'>abc</span></div>";
+        let (d1, l1) = geometria(zero, 800.0);
+        let (d2, l2) = geometria(real, 800.0);
+        let a = rect(&d1, &l1, "span", 0);
+        let b = rect(&d2, &l2, "span", 0);
+        assert!(
+            (b.w - a.w - 8.0).abs() < 0.5,
+            "os 4px de cada lado têm de aparecer: zero={a:?} real={b:?}"
+        );
+    }
+
+    /// A mesma pergunta para a BORDA, que hoje não disparava por acidente e não
+    /// por desenho — os dois lados respondem agora à mesma regra.
+    #[test]
+    fn borda_zero_nao_cria_caixa_e_borda_real_cria() {
+        let zero = "<div style='width:400px'><span style='border:0'>abc</span></div>";
+        let real = "<div style='width:400px'><span style='border:2px solid #000'>abc</span></div>";
+        let (d1, l1) = geometria(zero, 800.0);
+        let (d2, l2) = geometria(real, 800.0);
+        let a = rect(&d1, &l1, "span", 0);
+        let b = rect(&d2, &l2, "span", 0);
+        assert!((a.w - 22.08).abs() < 1.0, "borda zero não ocupa: {a:?}");
+        assert!(b.w > a.w, "borda real ocupa: zero={a:?} real={b:?}");
+    }
+
+    /// A `hlist` do MediaWiki NÃO regride, e o número é o do Chrome.
+    ///
+    /// Medido em `chrome_extract.mjs` sobre o CSS verdadeiro: o `<ul>` interior
+    /// mede **89,3** — a largura do seu conteúdo — e não os 600 do contentor. O
+    /// teste que já existia fixava só `w > 0`, o que passa nos dois mundos; este
+    /// fixa o valor, que é o que separa "tem caixa" de "tem a caixa certa".
+    /// (88,3 aqui contra 89,3 lá é a métrica aproximada do medidor de teste.)
+    #[test]
+    fn a_hlist_do_mediawiki_mede_o_conteudo_e_nao_o_contentor() {
+        let html = "<style>.hlist ul{margin:0;padding:0}            .hlist li{margin:0;display:inline}.hlist ul ul{display:inline}</style>            <div style='width:600px'><div class='hlist'><ul><li>alfa            <ul><li>bravo</li><li>charlie</li></ul></li><li>delta</li></ul></div></div>";
+        let (dom, list) = geometria(html, 800.0);
+        let ul = rect(&dom, &list, "ul", 1);
+        assert!(
+            ul.w > 50.0 && ul.w < 150.0,
+            "o ul interior é a largura do seu conteúdo (~89 no Chrome): {ul:?}"
+        );
+    }
+
     /// Um `<img>` que não declara dimensão nenhuma e não tem pixels continua sem
     /// caixa. O par com os testes acima é o que prova que a caixa vem do que se
     /// DECLARA, e não de o elemento ser um `<img>`.
@@ -1150,6 +1254,8 @@ mod inline_declarado_e_dono {
         );
     }
 }
+
+
 
 
 
