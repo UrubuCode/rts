@@ -63,8 +63,24 @@ tempo.** O Blink tem cinco regimes **por CLASSE**.
 A consequência é o sinal misto, e vê-se degrau a degrau:
 
 - no `kSpecifiedGuess`, o Blink deixa as colunas de texto **presas no mínimo** e
-  nós damos-lhes a fatia proporcional da folga → **as auto saem largas demais e
-  as declaradas estreitas demais, no mesmo par**;
+  nós damos-lhes a fatia proporcional da folga;
+
+**CORREÇÃO, medida contra o Chrome em nove casos: o sinal está ao contrário do
+que esta página dizia.** Estava escrito *"as auto saem largas demais e as
+declaradas estreitas demais"*; nos nove casos medidos é **sempre o inverso** — a
+declarada ou percent sai **larga demais** e a auto **estreita demais**:
+
+    declarada 200 + auto 50..100, alvo 600   Chrome [200,400]   nós [480,120]
+    width:30% + duas auto, alvo 600          Chrome [180,210,210]  nós [300,150,150]
+
+A causa é o ramo `disponivel >= total_max`, que reparte a sobra
+**proporcionalmente ao máximo** — e uma coluna declarada tem máximo grande,
+portanto leva a maior fatia exactamente onde devia estar parada.
+
+Não muda a conclusão — continua a ser critério de classe e não valor errado —
+mas **muda a direcção que se espera ao ler a régua**, e quem fosse procurar uma
+auto larga demais não a encontrava. O texto anterior foi derivado da leitura do
+Blink e nunca medido no nosso lado;
 - no `kMaxGuess` é o simétrico: as declaradas param no máximo e nós continuamos
   a dar-lhes folga, roubando-a às auto;
 - uma **coluna `mergeable`** — sem largura, sem percentagem e que nenhuma célula
