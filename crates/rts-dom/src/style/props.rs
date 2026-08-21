@@ -747,6 +747,32 @@ impl ComputedStyle {
             || self.width.is_some()
     }
 
+    /// A IMAGEM de marcador declarada, ou `None` quando não há nenhuma.
+    ///
+    /// Existe porque o campo cru não responde a esta pergunta: `list-style-image`
+    /// tem dois estados — um URL, ou nenhum — e é guardado como `String` porque
+    /// `get_property` tem de devolver ao `getComputedStyle` a string que o autor
+    /// escreveu, incluindo `none`. Logo `Some("none")` significa **não há
+    /// imagem**, e `is_some()` responde ao contrário do que quem pergunta quer
+    /// saber.
+    ///
+    /// **Isto apagava os 457 marcadores de `<ol>` da Wikipédia.** A folha tem
+    /// `ol{…;list-style-image:none}` — a linha de reset mais banal que existe —
+    /// e o `listitem.rs` lia-a como "há imagem" e saía sem desenhar nada, com a
+    /// numeração inteira a funcionar por trás. Um `<ol>` isolado numerava, que é
+    /// o que fazia nenhum teste apanhar isto.
+    ///
+    /// Fica AQUI, ao lado do campo, e não no consumidor: era um consumidor só
+    /// hoje, e a pergunta "há imagem?" é da propriedade, não de quem desenha o
+    /// bullet. O dia em que o campo virar `Option<Url>` esta função desaparece
+    /// com a ambiguidade que a obrigou a existir.
+    pub fn list_style_image_url(&self) -> Option<&str> {
+        self.list_style_image
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.eq_ignore_ascii_case("none"))
+    }
+
     /// O `display` EFETIVO, combinando `display` + `flex_wrap` (flex + wrap →
     /// FlexWrap). `None` se não declarado (o layout cai no default da tag).
     pub fn effective_display(&self) -> Option<DisplayKind> {

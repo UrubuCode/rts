@@ -149,6 +149,35 @@ await new Promise((r) => setTimeout(r, 300));
 await c.envia("Runtime.evaluate",
   { expression: "document.documentElement.offsetHeight" }, sessionId);
 
+// O CENSO DOS MARCADORES, pelo estilo computado e NÃO pela AX.
+//
+// A AX é a fonte do resto deste ficheiro e é a errada para esta pergunta:
+// mediu-se, e ela reporta um `ListMarker` para 32 dos 334 bullets que a página
+// da Wikipédia desenha. O denominador do Chrome saía **302 abaixo** do que o
+// Chrome pinta, e a régua apresentava essa falta do instrumento como marcadores
+// a mais do nosso lado — 294 bullets corretos que quase foram suprimidos para
+// acertar num número que estava errado.
+//
+// O estilo computado responde exatamente: um `display:list-item` desenha
+// marcador quando o `list-style-type` não é `none` e não há imagem a
+// substituí-lo. É a mesma regra que o `listitem.rs` aplica, o que torna os dois
+// lados comparáveis por construção em vez de por coincidência.
+const censo = await c.envia("Runtime.evaluate", {
+  returnByValue: true,
+  expression: `(() => {
+    let pinta = 0; const porTipo = {};
+    for (const li of document.querySelectorAll('*')) {
+      const cs = getComputedStyle(li);
+      if (cs.display !== 'list-item') continue;
+      if (cs.listStyleType === 'none') continue;
+      if (cs.listStyleImage !== 'none') continue;
+      pinta++; porTipo[cs.listStyleType] = (porTipo[cs.listStyleType] || 0) + 1;
+    }
+    return { pinta, porTipo };
+  })()`,
+}, sessionId);
+const marcComputados = censo?.result?.value ?? null;
+
 await c.envia("DOM.enable", {}, sessionId);
 await c.envia("Accessibility.enable", {}, sessionId);
 const ax = await c.envia("Accessibility.getFullAXTree", {}, sessionId);
@@ -202,10 +231,16 @@ const cabecalho = JSON.stringify({
 const rodape = JSON.stringify({
   __fim: 1, emitidos: linhas.length, fragmentos, marcadores,
   repetidosDescartados: repetidos,
+  // `marcadores` acima é o que a AX REPORTA; este é o que a página PINTA. Os
+  // dois ficam, e ficam com nomes diferentes, porque a diferença entre eles é
+  // uma propriedade do instrumento que quem lê o relatório tem de poder ver.
+  marcadoresPintados: marcComputados?.pinta ?? null,
+  marcadoresPorTipo: marcComputados?.porTipo ?? null,
 });
 writeFileSync(saida, [cabecalho, ...linhas, rodape].join("\n") + "\n");
 
-console.log(`chrome-text: ${fragmentos} fragmentos, ${marcadores} marcadores de lista, ` +
+console.log(`chrome-text: ${fragmentos} fragmentos, ${marcadores} marcadores de lista pela AX, ` +
+            `${marcComputados?.pinta ?? "?"} PINTADOS pelo estilo computado, ` +
             `${repetidos} entradas repetidas descartadas, de ${ax.nodes.length} nós AX`);
 
 ws.close();

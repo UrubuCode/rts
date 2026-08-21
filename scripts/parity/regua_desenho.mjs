@@ -114,9 +114,64 @@ function carregar(caminho, lado) {
 /// Então saem os dois, contados, e a pergunta dos marcadores é respondida na
 /// sua própria secção — que é onde ela pertence, porque lá a unidade é o
 /// marcador e não o caractere.
+
+/// COMO se reconhece um marcador NOSSO: pela forma, confirmada pelo DONO.
+///
+/// A versão anterior perguntava pela forma — um rect pequeno e redondo, ou um
+/// texto a casar `^[0-9a-z]+\.$` — e media-se: dos 433 que contava, **107 eram
+/// texto corrido da página** ("1.", "a." dentro de frases). 25% de falsos
+/// positivos, e não só na secção dos marcadores: o `fragRts` usava a mesma
+/// expressão para EXCLUIR marcadores do fluxo de texto, portanto apagava 107
+/// palavras legítimas do nosso lado e inflacionava o "só-chrome" na mesma conta.
+///
+/// O dono resolve as duas de uma vez, e não é heurística de aparência: um
+/// marcador é desenhado imediatamente à esquerda do content-box do seu `<li>`,
+/// na mesma linha (é o que `listitem.rs` faz, e o `outside` é o único caso que
+/// desenhamos). Um "1." no meio de um parágrafo não tem `<li>` nenhum ali à
+/// direita — foi assim que os 107 se separaram dos 326 verdadeiros, sem um
+/// único caso ambíguo.
+///
+/// A alternativa era um campo no `DisplayItem` a dizer "isto é um marcador".
+/// É a resposta certa e continua por fazer: obriga a tocar em 89 sítios de
+/// construção e no `layout.rs`. Enquanto não existir, a correlação responde à
+/// mesma pergunta com os dados que o dump já tem.
+function indiceDeLi(linhas) {
+  const porFaixa = new Map(); // y arredondado a 8px -> [caixas de <li>]
+  for (const o of linhas) {
+    if (o.k !== "el" || o.tag !== "li") continue;
+    for (const f of [Math.floor(o.y / 8) - 1, Math.floor(o.y / 8), Math.floor(o.y / 8) + 1]) {
+      if (!porFaixa.has(f)) porFaixa.set(f, []);
+      porFaixa.get(f).push(o);
+    }
+  }
+  return (m) => {
+    const cand = porFaixa.get(Math.floor(m.y / 8)) ?? [];
+    for (const b of cand) {
+      // Mesma linha, e a caixa do item começa logo à direita do marcador.
+      if (Math.abs(b.y - m.y) > 20) continue;
+      const dx = b.x - m.x;
+      if (dx >= -2 && dx < 40) return b;
+    }
+    return null;
+  };
+}
+
+/// A FORMA continua a ser o pré-filtro, e o dono é que decide.
+///
+/// A correlação sozinha não serve e vale a pena dizer porquê, porque é o erro
+/// que esta linha quase teve: o texto do PRÓPRIO item também começa junto à
+/// caixa do `<li>` (com `padding-left` o marcador cai à direita de `b.x`, sem
+/// ele cai à esquerda), portanto "tem um `<li>` ali" apanharia a primeira
+/// palavra de cada item de lista da página. A forma sozinha tem 107 falsos
+/// positivos; as duas juntas não têm nenhum — foi o que a separação mediu.
 const EH_MARCADOR = /^[0-9a-z]+\.$/i;
 const fragChrome = (l) => l.filter((o) => o.k === "text");
-const fragRts = (l) => l.filter((o) => o.k === "text" && !EH_MARCADOR.test(String(o.t).trim()));
+const fragRts = (l) => {
+  const dono = indiceDeLi(l);
+  return l.filter(
+    (o) => o.k === "text" && !(EH_MARCADOR.test(String(o.t).trim()) && dono(o)),
+  );
+};
 
 /// Palavras, normalizadas.
 ///
@@ -244,9 +299,19 @@ console.log(`  rts:    ${fr.length} itens DisplayItem::Text` +
             ` de ${R.fim.itens} itens de pintura, ${R.fim.elementos} elementos` +
             ` (${R.fim.sem_caixa} sem caixa)`);
 console.log(`  linhas malformadas: chrome ${C.malformadas}, rts ${R.malformadas}`);
+// O índice do dono é construído UMA vez: as duas secções que perguntam "isto é
+// um marcador?" partilham-no, e reconstruí-lo por item era O(n²) sobre 13 000
+// itens de pintura.
+const dono = indiceDeLi(R.linhas);
+// A MESMA definição que a secção dos marcadores usa (forma + dono). Esta linha
+// dizia 110 enquanto a outra dizia 0 — duas contagens da mesma coisa no mesmo
+// relatório, e a diferença entre elas eram exatamente os falsos positivos.
+const excluidosNossos = R.linhas.filter(
+  (o) => o.k === "text" && EH_MARCADOR.test(String(o.t).trim()) && dono(o),
+).length;
 console.log(`  EXCLUÍDOS do fluxo de texto (contados, comparados à parte):` +
-            ` ${C.fim.marcadores ?? 0} marcadores do Chrome,` +
-            ` ${R.linhas.filter((o) => o.k === "text" && EH_MARCADOR.test(String(o.t).trim())).length} nossos`);
+            ` ${C.fim.marcadoresPintados ?? C.fim.marcadores ?? 0} marcadores do Chrome,` +
+            ` ${excluidosNossos} nossos`);
 console.log("");
 console.log("PALAVRAS");
 console.log(`  chrome pinta ${totalC}   |   nós pintamos ${totalR}` +
@@ -281,23 +346,51 @@ console.log(`TOP ${TOP} — palavras que nós pintamos e o Chrome NÃO`);
 for (const [p, n] of ordena(soNos)) console.log(`  ${String(n).padStart(6)}x  ${JSON.stringify(p)}`);
 
 // --------------------------------------------------- marcadores de lista (B)
-const marcC = C.fim.marcadores ?? 0;
-// Do nosso lado um marcador não é um campo: a `DisplayList` não diz que um item
-// é um bullet. Reconhece-se pela FORMA que `listitem.rs` lhe dá — um quadrado
-// com raio igual a metade do lado — e os textuais pelo padrão `N.`.
+// O NÚMERO DO CHROME é o que ele PINTA, e não o que a AX reporta.
+//
+// A AX reportava 493 numa página que desenha 795 — faltavam-lhe 302 dos 334
+// bullets. A régua apresentava essa falta do INSTRUMENTO como marcadores a mais
+// do nosso lado, e o líquido (-167) escondia -457 num sentido e +294 no outro.
+// Quase se suprimiram 294 bullets corretos para acertar num número errado.
+// `chrome_text.mjs` passou a censar por estilo computado; o valor da AX fica ao
+// lado, porque a diferença entre os dois é uma propriedade do instrumento.
+const marcAX = C.fim.marcadores ?? 0;
+const marcC = C.fim.marcadoresPintados ?? null;
+// Do nosso lado um marcador não é um campo — a `DisplayList` não diz que um
+// item é um bullet — por isso é FORMA (o que `listitem.rs` desenha) confirmada
+// pelo DONO (o `<li>` que lhe fica ao lado). Ver `indiceDeLi`.
 const bullets = R.linhas.filter((o) => o.k === "rect" && o.w === o.h && o.r &&
-                                       o.r.every((v) => Math.abs(v - o.w / 2) < 0.01));
+                                       o.r.every((v) => Math.abs(v - o.w / 2) < 0.01) && dono(o));
 const aneis = R.linhas.filter((o) => o.k === "border" && o.w === o.h &&
-                                     Math.abs(o.r - o.w / 2) < 0.01);
-const textuais = R.linhas.filter((o) => o.k === "text" && /^[0-9a-z]+\.$/i.test(String(o.t)));
+                                     Math.abs(o.r - o.w / 2) < 0.01 && dono(o));
+const textuais = R.linhas.filter((o) => o.k === "text" &&
+                                        EH_MARCADOR.test(String(o.t).trim()) && dono(o));
 const marcR = bullets.length + aneis.length + textuais.length;
 console.log("");
 console.log("MARCADORES DE LISTA");
-console.log(`  chrome: ${marcC}   |   nós: ${marcR}` +
+if (marcC === null) {
+  console.log(`  chrome: ${marcAX} (SÓ a árvore de acessibilidade — re-extraia com o`);
+  console.log("          chrome_text.mjs novo para ter o número que a página PINTA)");
+} else {
+  const tipos = Object.entries(C.fim.marcadoresPorTipo ?? {})
+    .map(([k, v]) => `${v} ${k}`).join(" + ");
+  console.log(`  chrome PINTA: ${marcC}${tipos ? ` (${tipos})` : ""}`);
+  console.log(`  chrome pela AX: ${marcAX}` +
+              `  <- ${marcC - marcAX} que a AX não reporta; NÃO é diferença de motor`);
+}
+console.log(`  nós: ${marcR}` +
             ` (${bullets.length} disc, ${aneis.length} circle, ${textuais.length} textuais)`);
-console.log(`  diferença: ${marcR - marcC}`);
-console.log("  (o nosso lado é reconhecido pela FORMA — a DisplayList não marca um item");
-console.log("   como bullet — logo este número tem a margem de erro dessa heurística.)");
+// A REGRA DOS ABSOLUTOS, que esta secção era a única a não aplicar. O líquido
+// de -167 era -457 e +294 a cancelarem-se, e as duas metades são trabalhos
+// diferentes: uma é desenho em falta, a outra seria desenho a apagar.
+if (marcC !== null) {
+  const faltamM = Math.max(0, marcC - marcR);
+  const sobramM = Math.max(0, marcR - marcC);
+  console.log(`  líquido: ${marcR - marcC >= 0 ? "+" : ""}${marcR - marcC}` +
+              `   |   em falta: ${faltamM}   |   a mais: ${sobramM}`);
+}
+console.log("  (o nosso lado é FORMA confirmada pelo DONO — a DisplayList não marca um");
+console.log("   item como bullet. Um campo no DisplayItem tirava a heurística toda.)");
 
 // ------------------------------------------------------------------- BASE
 //
