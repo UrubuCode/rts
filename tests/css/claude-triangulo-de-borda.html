@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: o TRIÂNGULO de CSS — conteúdo 0x0, três lados a zero e um enorme, com
+     a caixa a ser inteiramente a borda. É como um gráfico de setores se desenha,
+     e valia 24,9% de todo o erro de largura da página real enquanto a declaração
+     multi-valor caía no parse. Vale por si: as duas correções (repartir os quatro
+     valores, e aceitar `0` como largura) só juntas dão a caixa certa. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="cima,direita">
+<meta name="fixar-estilo" content="border-top-width,border-right-width,border-bottom-width,border-left-width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .tri { width: 0; height: 0; border-style: solid; }
+  /* aponta para cima: base em baixo, os lados transparentes */
+  #cima { border-width: 0 60px 100px 60px; border-color: transparent transparent #c00 transparent; }
+  /* a forma da folha real: dois lados a zero e um deles enorme */
+  #direita { border-width: 100px 0 0 200px; border-color: #00c transparent transparent transparent; }
+</style></head>
+<body>
+  <div class="tri" id="cima"></div>
+  <div class="tri" id="direita"></div>
+</body>
+</html>

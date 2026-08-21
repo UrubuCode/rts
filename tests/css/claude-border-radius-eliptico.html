@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- CARACTERIZAÇÃO DE UM CORTE, e não uma behaviour desejada.
+     Um canto do CSS são DOIS raios (é uma elipse): `10px 20px` num canto, e a
+     forma `<horizontais> / <verticais>` no shorthand. O nosso modelo tem UM
+     número por canto e guarda o HORIZONTAL, portanto um canto elíptico sai
+     circular. Esta fixture EXISTE PARA FALHAR enquanto for assim: o esperado é
+     o que o Chrome responde, e o desvio é a medida exata do corte. Quando o
+     modelo passar a guardar os dois raios, ela passa sozinha.
+     Ver `crates/rts-dom/src/style/radius.rs`. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="canto,barra">
+<meta name="fixar-estilo" content="border-top-left-radius,border-bottom-right-radius">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 100px; height: 40px; background: #dcd; margin-bottom: 5px; }
+  #canto { border-top-left-radius: 10px 20px; }
+  #barra { border-radius: 5px / 15px; }
+</style></head>
+<body>
+  <div id="canto"></div>
+  <div id="barra"></div>
+</body>
+</html>

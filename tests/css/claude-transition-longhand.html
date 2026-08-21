@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- Fixa: as LONGHANDS de `transition` (`-duration`, `-delay`,
+     `-timing-function`) são lidas e acumulam num só valor, em qualquer ordem
+     dentro do bloco. Só o shorthand tinha braço no parse, portanto uma folha
+     escrita na forma longa — que é o que toda ferramenta emite — não ligava
+     transição nenhuma. E `cubic-bezier(.4, 0, .2, 1)` chega inteira: o shorthand
+     parte o valor por espaços e perdia toda curva escrita com espaço depois da
+     vírgula. Sem geometria: o que se fixa é o valor computado. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="longa,invertida,curva,curta">
+<meta name="fixar-estilo" content="transition-duration,transition-delay,transition-timing-function">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 100px; height: 20px; background: #eee; }
+  #longa     { transition-duration: 0.3s; transition-delay: 100ms; transition-timing-function: ease-in; }
+  /* a ordem inversa tem de dar o mesmo: cada longhand escreve só o seu campo */
+  #invertida { transition-delay: 1s; transition-duration: 2s; }
+  #curva     { transition-duration: 0.2s; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+  /* o shorthand ao lado, para as duas formas se compararem na mesma régua */
+  #curta     { transition: 0.3s ease-in 100ms; }
+</style></head>
+<body>
+  <div id="longa"></div>
+  <div id="invertida"></div>
+  <div id="curva"></div>
+  <div id="curta"></div>
+</body>
+</html>

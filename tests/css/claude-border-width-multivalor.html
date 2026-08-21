@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Fixa: `border-width` com 1 a 4 valores reparte pelos quatro lados na regra
+     dos shorthands de CAIXA (2 = vertical/horizontal, 3 = topo/horizontal/baixo)
+     e a caixa cresce com as quatro larguras. A declaração inteira era descartada
+     no parse — `parse_len` lê UM comprimento e devolvia `None`. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="quatro,dois,tres,apagado">
+<meta name="fixar-estilo" content="border-top-width,border-right-width,border-bottom-width,border-left-width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 100px; height: 20px; background: #eee; margin-bottom: 5px; }
+  #quatro { border-style: solid; border-width: 1px 2px 3px 4px; }
+  #dois   { border-style: solid; border-width: 5px 10px; }
+  #tres   { border-style: solid; border-width: 1px 2px 3px; }
+  /* ZERO é uma largura declarada e não uma ausência: sem isso o lado ficava por
+     declarar e HERDAVA a borda uniforme, dando 5px onde o autor pôs 0. */
+  #apagado { border: 5px solid #000; border-top-width: 0; }
+</style></head>
+<body>
+  <div id="quatro"></div>
+  <div id="dois"></div>
+  <div id="tres"></div>
+  <div id="apagado"></div>
+</body>
+</html>

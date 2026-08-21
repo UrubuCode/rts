@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- Fixa: `border-radius` por canto, e a regra que distingue este shorthand dos
+     de caixa — com DOIS valores, o segundo vale para a DIAGONAL (topo-esquerdo e
+     baixo-direito ficam com o primeiro), não para os lados adjacentes. As oito
+     longhands (as quatro físicas e as quatro lógicas) caíam no parse. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="quatro,diagonal,tres,logico,um-canto">
+<meta name="fixar-estilo" content="border-top-left-radius,border-top-right-radius,border-bottom-right-radius,border-bottom-left-radius">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 100px; height: 40px; background: #ccd; margin-bottom: 5px; }
+  #quatro   { border-radius: 1px 2px 3px 4px; }
+  #diagonal { border-radius: 10px 20px; }
+  #tres     { border-radius: 5px 10px 15px; }
+  /* as formas LÓGICAS, que é o que o CSS gerado escreve; em LTR
+     start-start = topo-esquerdo e end-end = baixo-direito. */
+  #logico   { border-start-start-radius: 8px; border-end-end-radius: 12px; }
+  /* um canto sozinho NÃO arredonda os outros três */
+  #um-canto { border-top-left-radius: 30px; }
+</style></head>
+<body>
+  <div id="quatro"></div>
+  <div id="diagonal"></div>
+  <div id="tres"></div>
+  <div id="logico"></div>
+  <div id="um-canto"></div>
+</body>
+</html>

@@ -975,3 +975,17 @@ fn largura_zero_e_uma_largura_declarada_e_nao_uma_ausencia() {
     // os keywords também: `parse_len` não os conhecia e caíam do mesmo modo.
     assert_eq!(parse_inline("border-width: thick").border_width, Some(5.0));
 }
+
+#[test]
+fn cor_de_decoracao_nao_declarada_e_a_cor_do_elemento() {
+    // `currentColor` é o inicial de `text-decoration-color`, e o Chrome responde
+    // a cor já RESOLVIDA. O inicial não cabia na tabela de `style::initial`
+    // porque não é uma constante: é o valor de outra propriedade deste nó.
+    let s = parse_inline("color: #0000ff; text-decoration-line: underline");
+    assert_eq!(s.computed_value("text-decoration-color", None), "rgb(0, 0, 255)");
+    // declarada, vence o declarado.
+    let d = parse_inline("color: #0000ff; text-decoration-color: #ff0000");
+    assert_eq!(d.computed_value("text-decoration-color", None), "rgb(255, 0, 0)");
+    // e o `el.style` continua vazio para o que o elemento não declarou.
+    assert_eq!(s.get_property("text-decoration-color"), "");
+}

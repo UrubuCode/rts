@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- Fixa: os offsets LÓGICOS (`inset-inline-start`, `inset-block-start`, …) e o
+     shorthand `inset` posicionam pelo lado FÍSICO correspondente — em LTR,
+     inline-start = esquerda e block-start = topo. Caíam todos no parse; a folha
+     do WhatsApp escreve `inset-inline-start` 216 vezes.
+     Só um offset por eixo, de propósito: `left` e `right` juntos ESTICAM a caixa,
+     e isso é outro mecanismo (ver `claude-position-absolute`). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="ancora">
+<meta name="fixar-estilo" content="position">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #ancora { position: relative; width: 400px; height: 200px; background: #eee; }
+  #ancora div { position: absolute; width: 50px; height: 20px; background: #cfc; }
+  #logico  { inset-inline-start: 30px; inset-block-start: 10px; }
+  #ao-fim  { inset-inline-end: 40px; inset-block-end: 15px; }
+  #eixo    { inset-block: 80px; inset-inline-start: 100px; }
+  #curto   { inset: 120px 0 0 200px; }
+</style></head>
+<body>
+  <div id="ancora">
+    <div id="logico"></div>
+    <div id="ao-fim"></div>
+    <div id="eixo"></div>
+    <div id="curto"></div>
+  </div>
+</body>
+</html>

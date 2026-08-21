@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: `text-decoration-color` pela longhand E pelo shorthand. O parser da
+     LINHA já ignorava os tokens que não são de linha, portanto numa declaração
+     `text-decoration: underline dotted red` a cor não tinha por onde entrar — e
+     `text-decoration-line`, que é a longhand da linha, continua a não aceitar
+     cor nenhuma. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="longa,pelo-shorthand,so-linha">
+<meta name="fixar-estilo" content="text-decoration-color">
+<style>
+  body { margin: 0; font: 16px/20px monospace; color: #000; }
+  #longa          { text-decoration-color: #ff0000; }
+  #pelo-shorthand { text-decoration: underline dotted #00ff00; }
+  /* a longhand da LINHA não traz cor: fica a do texto (`currentColor`) */
+  #so-linha       { color: #0000ff; text-decoration-line: underline; }
+</style></head>
+<body>
+  <p id="longa">um</p>
+  <p id="pelo-shorthand">dois</p>
+  <p id="so-linha">tres</p>
+</body>
+</html>

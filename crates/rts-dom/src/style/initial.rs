@@ -165,6 +165,21 @@ impl ComputedStyle {
         if !direto.is_empty() {
             return direto;
         }
+        // As propriedades cujo INICIAL é `currentColor` — a cor do próprio
+        // elemento. Não cabem na tabela acima porque o inicial delas não é uma
+        // string: é o valor de outra propriedade DESTE nó, e a tabela só sabe
+        // constantes. O Chrome responde a cor já resolvida (`rgb(0, 0, 255)` num
+        // elemento azul), e é isso que uma fixture medida nele exige.
+        //
+        // Medido: `text-decoration-color` num `<p>` com `color: #0000ff` e sem
+        // decoração declarada responde `rgb(0, 0, 255)`; nós respondíamos vazio.
+        if matches!(
+            name,
+            "text-decoration-color" | "border-color" | "outline-color" | "caret-color"
+                | "column-rule-color" | "text-emphasis-color"
+        ) {
+            return self.color.map(super::fmt_values::fmt_color).unwrap_or_default();
+        }
         if name == "display" {
             // A UA-stylesheet é a dona desta resposta e já existe — duplicar
             // aqui uma segunda tabela de tags seria a duplicação que o resto
