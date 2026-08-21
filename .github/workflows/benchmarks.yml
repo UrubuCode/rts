@@ -161,13 +161,45 @@ jobs:
             const ratio = (base, rts) => (base == null || rts == null || rts === 0)
               ? '—' : '**' + (base / rts).toFixed(2) + '×**';
 
+            // One row per bench the matrix in `bench/benchmark.ps1` ACTUALLY
+            // runs, and nothing else. The two lists had drifted apart in both
+            // directions and each direction was its own defect:
+            //
+            //   `pi_bigfloat` and `monte_carlo_threaded` were listed here and
+            //   are not in the matrix, so they could never be emitted — the
+            //   loop below skips a row whose jit and aot are both null. A
+            //   reader of this file saw two benchmarks that do not exist, and
+            //   the second named "Bun Workers", which is the `thread` surface
+            //   CLAUDE.md records as deliberately removed.
+            //
+            //   Six benches ran on every CI invocation and were thrown away:
+            //   objbench, objbench_noalloc, objbench_methods, field_access,
+            //   string_index and property_access. That is worse than the
+            //   phantoms — it is measurement being paid for and discarded,
+            //   which is the opposite of "coverage is measured, never claimed".
+            //
+            // The labels say what each one MEASURES rather than what it is
+            // called, because most of them are only meaningful next to another
+            // row: objbench minus objbench_noalloc is the allocation, and
+            // property_access's own four lines are the cost of where state
+            // lives.
             const ROWS = [
               { id: 'simple',               label: 'Hello/startup' },
-              { id: 'monte_carlo',          label: 'Monte Carlo π 10M (same xorshift algorithm)' },
-              { id: 'monte_carlo_jsrand',   label: 'Monte Carlo π 10M (JS `Math.random`)' },
-              { id: 'pi_bigfloat',          label: 'π decimal ~30 digits (i128 vs BigInt)' },
-              { id: 'monte_carlo_threaded', label: 'Monte Carlo 10M threaded (vs Bun Workers)' },
+              // These two share ONE RTS source, so their RTS JIT and RTS AOT
+              // cells are the same run reported twice — what differs is the
+              // `.js` on the other side of the comparison. Said in the label
+              // because the table otherwise reads as two benchmarks that
+              // happen to agree to the millisecond, which is the kind of
+              // coincidence a reader is right to distrust.
+              { id: 'monte_carlo',          label: 'Monte Carlo π 10M — vs the same xorshift in JS' },
+              { id: 'monte_carlo_jsrand',   label: '…the same RTS run, vs JS using native `Math.random`' },
               { id: 'pi_machin',            label: 'π Machin f64 (RTS only)' },
+              { id: 'objbench',             label: '3M objects allocated (RTS only)' },
+              { id: 'objbench_noalloc',     label: '…the same loop without allocating — the difference is the collector' },
+              { id: 'objbench_methods',     label: '3M objects, reached through a method (RTS only)' },
+              { id: 'field_access',         label: 'two fields read from classes of 2/5/10/20 (RTS only)' },
+              { id: 'string_index',         label: 'string indexing, input doubled four times (RTS only)' },
+              { id: 'property_access',      label: 'one loop, state as a local / captured / property' },
             ];
             let table =
               '| Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |\n' +
