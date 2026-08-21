@@ -258,7 +258,23 @@ async function puxarTextos(total, tamanho = 400) {
       console.error(`ERRO: a fatia [${i}, ${i + tamanho}) do corpus do DOM nao voltou como array.`);
       process.exit(2);
     }
+    // CADA PAGINA e conferida, e nao so o total no fim.
+    //
+    // Um total curto diz que se perdeu alguma coisa; nao diz ONDE, e uma pagina
+    // que volte curta no meio de vinte e indistinguivel de vinte que voltem
+    // completas menos uma. Aqui a pagina que faltar grita com o seu indice.
+    const esperado = Math.min(tamanho, total - i);
+    if (fatia.length !== esperado) {
+      console.error(`ERRO: a fatia [${i}, ${i + tamanho}) voltou com ${fatia.length}` +
+                    ` textos, esperavam-se ${esperado}. O corpus do DOM esta incompleto` +
+                    " e le-se como texto que o Chrome nao desenha.");
+      process.exit(2);
+    }
     out.push(...fatia);
+  }
+  if (out.length !== total) {
+    console.error(`ERRO: o corpus do DOM tem ${out.length} textos e a pagina contou ${total}.`);
+    process.exit(2);
   }
   return out;
 }
