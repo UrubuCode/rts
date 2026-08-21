@@ -3,6 +3,7 @@
 //   node scripts/parity/regua_desenho.mjs
 //   node scripts/parity/regua_desenho.mjs --base=out/paint-base.jsonl
 //   node scripts/parity/regua_desenho.mjs --sabotagem=sem-setas    # a auto-conferência
+//   node scripts/parity/regua_desenho.mjs --sabotagem=chrome-menos-marcadores
 //
 // ## A pergunta que as outras três não fazem
 //
@@ -44,10 +45,27 @@
 // ## A AUTO-CONFERÊNCIA é injeção de falha, não re-derivação
 //
 // Uma conferência já passou aqui sobre uma sabotagem por ser TAUTOLÓGICA:
-// re-derivava a resposta da mesma estrutura que auditava. Esta corrompe o
-// NOSSO dump depois de carregado e exige que a divergência CRESÇA pelo menos o
-// que foi injetado. A asserção é sobre um número derivado do lado do CHROME,
-// que a sabotagem não toca. Se sabotar e o número não mexer, sai `exit 1`.
+// re-derivava a resposta da mesma estrutura que auditava. Esta corrompe um dos
+// dumps depois de carregado e exige que a divergência se mova pelo menos o que
+// foi injetado. Se sabotar e o número não mexer, sai `exit 1`.
+//
+// ## E audita OS DOIS LADOS, porque auditar só um deixou passar o defeito real
+//
+// Durante muito tempo as quatro sabotagens corrompiam só o NOSSO dump. Isso
+// deixou passar um defeito que estava do outro lado e que custou uma correção
+// errada quase escrita: a contagem de marcadores do Chrome vinha da árvore de
+// acessibilidade, que reporta 493 numa página que pinta 795. O denominador
+// estava 302 abaixo, e a régua apresentou a falta do INSTRUMENTO como desenho a
+// mais do nosso lado — o líquido de -167 era -469 e +302 a cancelarem-se.
+//
+// Duas coisas responderam a isso, e a segunda é a que fica:
+//   1. `--sabotagem=chrome-*` corrompe o lado do CHROME. O sentido faz parte da
+//      asserção — tirar ao Chrome tem de fazer o que nos falta ENCOLHER, e uma
+//      conferência que só exigisse "mexeu" passaria com o sinal trocado.
+//   2. Um INVARIANTE permanente, que não precisa de sabotagem nenhuma: as duas
+//      fontes do lado do Chrome (AX e estilo computado) respondem à mesma
+//      pergunta e têm de concordar. Duas fontes para uma pergunta só são
+//      seguras enquanto alguém verifica que concordam — e ninguém verificava.
 
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -239,7 +257,7 @@ const C = carregar(F_CHROME, "chrome");
 const R = carregar(F_RTS, "rts");
 
 let fr = fragRts(R.linhas);
-const fc = fragChrome(C.linhas);
+let fc = fragChrome(C.linhas);
 
 // ------------------------------------------------------------- SABOTAGEM
 //
@@ -262,16 +280,72 @@ const SABOTAGENS = {
   // É o teste do próprio teste.
   "nula": (l) => l,
 };
+
+/// SABOTAGEM DO LADO DO CHROME — as quatro de cima auditam metade.
+///
+/// **Isto existe porque a régua já mentiu por aqui e nenhuma sabotagem a
+/// apanhou.** A contagem de marcadores do Chrome vinha da árvore de
+/// acessibilidade, que reporta um `ListMarker` para 32 dos 334 bullets que a
+/// página desenha: o DENOMINADOR estava 302 abaixo do real, e a régua
+/// apresentou essa falta do instrumento como desenho a mais do nosso lado. Os
+/// quatro modos acima corrompem só o NOSSO dump, portanto nenhum deles podia
+/// ver um defeito que estava do outro lado — uma conferência que só audita
+/// metade não audita.
+///
+/// Cada modo devolve o par (dados do Chrome, quanto foi injetado), e a
+/// conferência exige que a divergência ENCOLHA pelo menos o injetado — o
+/// sentido oposto ao das sabotagens do nosso lado, porque tirar ao Chrome tira
+/// ao que nos falta. O sentido faz parte da asserção: uma conferência que só
+/// exigisse "mexeu" passaria com o sinal trocado.
+const SABOTAGENS_CHROME = {
+  // O defeito REAL, reproduzido: o lado do Chrome conta menos marcadores do que
+  // a página pinta — exatamente os 302 que a AX não reportava. Se a régua não
+  // vir isto, não vê o que já lhe aconteceu.
+  "chrome-menos-marcadores": ({ fc, fim }) => ({
+    fc,
+    fim: { ...fim, marcadoresPintados: Math.max(0, (fim.marcadoresPintados ?? 0) - 302) },
+    injetado: Math.min(302, fim.marcadoresPintados ?? 0),
+    alvo: "marcadores",
+  }),
+  // Perda difusa no corpus do Chrome — "a extração trouxe menos página do que a
+  // página tem", que é a mesma classe de defeito noutra métrica.
+  "chrome-perde-1pc": ({ fc, fim }) => ({
+    fc: fc.filter((_, i) => i % 100 !== 0),
+    fim,
+    injetado: Math.floor(fc.length / 100),
+    alvo: "palavras",
+  }),
+  // A NULA do lado do Chrome, pela mesma razão que a outra existe: provar que
+  // esta conferência sabe FALHAR. Não corrompe nada, logo nada pode encolher.
+  "chrome-nula": ({ fc, fim }) => ({ fc, fim, injetado: 0, alvo: "marcadores" }),
+};
 let sabotado = 0;
+// O LADO sabotado decide o SENTIDO que a conferência exige. Tirar ao nosso dump
+// faz a divergência crescer; tirar ao do Chrome fá-la encolher. Uma conferência
+// que só exigisse "mexeu" passaria com o sinal trocado, que é meia asserção.
+let ladoSabotado = null, injetadoChrome = 0, alvoChrome = null;
 if (SABOTAGEM) {
-  const f = SABOTAGENS[SABOTAGEM];
-  if (!f) {
-    console.error(`sabotagem desconhecida: ${SABOTAGEM}. Há: ${Object.keys(SABOTAGENS).join(", ")}`);
+  const f = SABOTAGENS[SABOTAGEM], g = SABOTAGENS_CHROME[SABOTAGEM];
+  if (!f && !g) {
+    console.error(`sabotagem desconhecida: ${SABOTAGEM}. Há: ` +
+                  `${[...Object.keys(SABOTAGENS), ...Object.keys(SABOTAGENS_CHROME)].join(", ")}`);
     process.exit(2);
   }
-  const antes = fr.length;
-  fr = f(fr);
-  sabotado = antes - fr.length;
+  if (f) {
+    ladoSabotado = "nosso";
+    const antes = fr.length;
+    fr = f(fr);
+    sabotado = antes - fr.length;
+  } else {
+    ladoSabotado = "chrome";
+    const antes = fc.length;
+    const r = g({ fc, fim: C.fim });
+    fc = r.fc;
+    C.fim = r.fim;
+    injetadoChrome = r.injetado;
+    alvoChrome = r.alvo;
+    sabotado = antes - fc.length;
+  }
 }
 
 const pc = conta(palavras(fc));
@@ -440,20 +514,69 @@ exige(fr.length > 0, `o nosso lado tem itens de texto (${fr.length})`);
 exige(C.malformadas === 0 && R.malformadas === 0, "nenhuma linha malformada");
 exige(totalC > 1000, `o corpus do Chrome é plausível (${totalC} palavras, não um resto de extração)`);
 
-if (SABOTAGEM) {
+// O INVARIANTE PERMANENTE sobre o lado do Chrome, que não precisa de sabotagem
+// nenhuma para disparar.
+//
+// É este que teria apanhado o defeito real: as duas fontes do lado do Chrome —
+// a árvore de acessibilidade e o estilo computado — respondem à MESMA pergunta
+// e discordavam em 302. Enquanto ninguém as comparou, a régua usou a mais baixa
+// e apresentou a falta como desenho a mais do nosso lado. Duas fontes para uma
+// pergunta só são seguras enquanto alguém verifica que concordam.
+if (marcC !== null) {
+  const fenda = marcC - marcAX;
+  console.log(`  fontes do Chrome para os marcadores: AX ${marcAX}, computado ${marcC}` +
+              ` (fenda ${fenda})`);
+  exige(fenda >= 0,
+    "a AX não reporta MAIS marcadores do que a página pinta (se reportasse, uma das duas leituras está errada)");
+  if (fenda > marcC * 0.05) {
+    console.log(`  ⚠ a AX subconta ${fenda} marcadores (${pct(fenda, marcC)}%).` +
+                " NÃO a use como denominador — é o defeito que esta secção já teve.");
+  }
+} else {
+  exige(false,
+    "o dump do Chrome traz `marcadoresPintados` (sem ele a contagem de marcadores vem da AX, que subconta)");
+}
+
+if (SABOTAGEM && ladoSabotado === "nosso") {
   // O limpo, recalculado do MESMO ficheiro, para o crescimento ser atribuível.
-  const limpo = diferenca(conta(palavras(fragRts(R.linhas))), pc);
   const faltamLimpo = soma(diferenca(pc, conta(palavras(fragRts(R.linhas)))));
   const cresceu = faltam - faltamLimpo;
-  console.log(`  sabotagem "${SABOTAGEM}": SÓ-CHROME passou de ${faltamLimpo} para ${faltam} (+${cresceu})`);
+  console.log(`  sabotagem "${SABOTAGEM}" (nosso lado): SÓ-CHROME passou de ${faltamLimpo} para ${faltam} (+${cresceu})`);
   exige(cresceu > 0,
     `a régua VÊ a sabotagem (se não crescesse, o instrumento não vê o que audita)`);
   if (SABOTAGEM === "sem-setas") {
     exige((soChrome.get("↑") ?? 0) > 0, "a seta ↑ aparece nomeada no SÓ-CHROME");
   }
-  void limpo;
+} else if (SABOTAGEM && ladoSabotado === "chrome") {
+  // O SENTIDO INVERSO, e é por isso que esta asserção é separada e não um
+  // `!==`: tirar ao Chrome tem de fazer o que nos falta ENCOLHER, e pelo menos
+  // o que foi injetado. Um instrumento que reagisse na mesma direção nos dois
+  // casos estaria a medir outra coisa.
+  if (alvoChrome === "marcadores") {
+    const limpoC = carregar(F_CHROME, "chrome").fim.marcadoresPintados ?? 0;
+    const faltamMLimpo = Math.max(0, limpoC - marcR);
+    const faltamM = Math.max(0, (marcC ?? 0) - marcR);
+    console.log(`  sabotagem "${SABOTAGEM}" (lado do Chrome): marcadores EM FALTA` +
+                ` passaram de ${faltamMLimpo} para ${faltamM} (injetado ${injetadoChrome})`);
+    // A NULA cai aqui com `injetado = 0`, e a asserção é a mesma: exigir que a
+    // régua veja pelo menos o injetado é impossível de satisfazer quando não se
+    // injetou nada. `exit 1` é o resultado CORRETO — é o teste do próprio teste,
+    // e não precisa de um ramo próprio para o ser.
+    exige(injetadoChrome > 0 && faltamMLimpo - faltamM >= injetadoChrome,
+      "a régua VÊ um denominador do Chrome abaixo do real — o defeito que esta secção teve");
+  } else {
+    const pcLimpo = conta(palavras(fragChrome(carregar(F_CHROME, "chrome").linhas)));
+    const faltamLimpo = soma(diferenca(pcLimpo, pr));
+    const encolheu = faltamLimpo - faltam;
+    console.log(`  sabotagem "${SABOTAGEM}" (lado do Chrome): SÓ-CHROME passou de` +
+                ` ${faltamLimpo} para ${faltam} (-${encolheu})`);
+    exige(encolheu > 0,
+      "a régua VÊ um corpus do Chrome menor do que a página tem");
+  }
 } else {
-  console.log("  (corra com --sabotagem=sem-setas|perde-1pc|troca para provar que dispara)");
+  console.log("  (corra com --sabotagem=sem-setas|perde-1pc|troca|nula para provar que dispara");
+  console.log("   do NOSSO lado, e --sabotagem=chrome-menos-marcadores|chrome-perde-1pc|chrome-nula");
+  console.log("   para o lado do Chrome — uma conferência que só audita metade não audita)");
 }
 
 if (falhou) {
