@@ -113,11 +113,43 @@ pub(crate) fn replaced_inline_size(
             (None, None) => (0.0, 0.0),
         },
     };
-    // não estoura a linha: encolhe mantendo a razão, como `layout_image`.
-    let max_w = avail_w.max(0.0);
-    if w > max_w && w > 0.0 {
-        h = h * max_w / w;
-        w = max_w;
+    // Quem manda encolher um replaced é `max-width`/`min-width` — NÃO a largura
+    // do contentor (CSS 2.1 §10.4). O que aqui estava era um corte por `avail_w`:
+    // um `<img width=100>` dentro de um `<div style='width:50px'>` saía 50x50, e
+    // o Chrome dá 100x101 e deixa TRANSBORDAR. A alternativa (manter o corte
+    // "para não estourar a linha") é o que fechava um ciclo dentro de tabelas —
+    // a imagem encolhia porque a célula era estreita, e a célula era estreita
+    // porque o mínimo da imagem tinha encolhido — e na Wikipédia levava 100px a
+    // valerem 3, com 545px de deslocamento a jusante.
+    //
+    // A razão de aspecto só se preserva quando a outra dimensão é `auto`: com
+    // `width` e `height` ambos declarados, o CSS não reescala o que o autor fixou.
+    let w_auto = w0.is_none();
+    let h_auto = h0.is_none();
+    let dim = |d: Option<crate::style::Dimension>| d.and_then(|d| d.resolve(&resolve));
+    if let Some(mx) = dim(css.max_width).filter(|mx| w > *mx) {
+        if h_auto && w > 0.0 {
+            h = h * mx / w;
+        }
+        w = mx;
+    }
+    if let Some(mn) = dim(css.min_width).filter(|mn| w < *mn) {
+        if h_auto && w > 0.0 {
+            h = h * mn / w;
+        }
+        w = mn;
+    }
+    if let Some(mx) = dim(css.max_height).filter(|mx| h > *mx) {
+        if w_auto && h > 0.0 {
+            w = w * mx / h;
+        }
+        h = mx;
+    }
+    if let Some(mn) = dim(css.min_height).filter(|mn| h < *mn) {
+        if w_auto && h > 0.0 {
+            w = w * mn / h;
+        }
+        h = mn;
     }
     Some((w.max(0.0), h.max(0.0)))
 }
@@ -535,6 +567,47 @@ mod tests {
             .filter(|i| matches!(i, crate::layout::DisplayItem::Image { .. }))
             .count();
         assert_eq!(pintadas, 0, "pintou {pintadas} imagem(ns) sem pixels");
+    }
+
+    /// Uma imagem larga num contentor estreito TRANSBORDA — não encolhe.
+    ///
+    /// Medido no Chrome: `<div style='width:50px'><img width='100' height='101'>`
+    /// dá 100x101, e assim a 500, 100, 50 e 10px de contentor. Encolher era o que
+    /// aqui se fazia (50x50 aos 50px, 10x10 aos 10px), e dentro de uma tabela
+    /// fechava um ciclo: a célula estreitava porque a imagem encolhia, e a imagem
+    /// encolhia porque a célula estreitara.
+    #[test]
+    fn imagem_larga_em_container_estreito_transborda_como_no_chrome() {
+        for largura in [500, 100, 50, 10] {
+            let html = format!(
+                "<div style='width:{largura}px'><img width='100' height='101'></div>"
+            );
+            let (dom, list) = geometria(&html, 800.0);
+            let img = rect(&dom, &list, "img", 0);
+            assert!(
+                (img.w - 100.0).abs() < 0.5 && (img.h - 101.0).abs() < 0.5,
+                "contentor de {largura}px encolheu a imagem: {img:?}"
+            );
+        }
+    }
+
+    /// E um `max-width` DECLARADO continua a encolher: é ele quem manda encolher
+    /// no CSS, e esta é a metade que prova que o corte mudou de sítio em vez de
+    /// desaparecer.
+    ///
+    /// A altura NÃO acompanha aqui, e é o comportamento certo: a razão só se
+    /// preserva quando a outra dimensão é `auto`, e este `<img>` declara as duas.
+    /// (Sem rede não há pixels, logo não há razão intrínseca para exercitar o
+    /// outro ramo — é o que todo este harness mede.)
+    #[test]
+    fn max_width_declarado_encolhe_a_largura() {
+        let (dom, list) = geometria(
+            "<div style='width:500px'><img style='max-width:50px' width='100' height='200'></div>",
+            800.0,
+        );
+        let img = rect(&dom, &list, "img", 0);
+        assert!((img.w - 50.0).abs() < 0.5, "largura = {}", img.w);
+        assert!((img.h - 200.0).abs() < 0.5, "altura declarada = {}", img.h);
     }
 
     /// Um `<img>` que não declara dimensão nenhuma e não tem pixels continua sem
