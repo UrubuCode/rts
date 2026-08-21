@@ -374,3 +374,34 @@ pequeno**: quanto menos se mexe, menos há para correr mal.
 E quem entrega tem de dizer isto à cabeça, para o "verde" não ser lido com o
 peso que teria noutro crate.
 
+### 9. O `--numstat` deixa de servir quando as remoções são muitas e dispersas
+
+Ele prova "só se acrescentaram `mod` e `use`" **enquanto as remoções forem um
+bloco contíguo, ou dois.** Num passo que tirou nove blocos de um ficheiro de
+7 000 linhas, respondeu:
+
+    155  2524  crates/rts-dom/src/layout.rs
+
+**155 adicionadas quando só 29 eram novas.** As outras 126 são código que
+ninguém tocou, contado como removido-e-readicionado porque o algoritmo de diff
+realinhou as fronteiras à volta dos nove buracos.
+
+Entregue sem ser lido, esse número afirmaria "155 linhas de lógica novas" sobre
+um passo que não tem nenhuma. **A técnica não avisa quando deixa de valer** — é
+preciso saber que ela tem esta forma de falhar.
+
+A prova que resta e que basta: **o pai reconstruído idêntico byte a byte**, cada
+pedaço idêntico descontando as promoções declaradas, e a soma a fechar com o
+total original.
+
+### 10. Reportar o NÚMERO, não a conclusão
+
+Num só passo, três instrumentos falharam — um índice `[-1]` que apanhou o
+elemento errado, um verificador que procurou uma marca no ficheiro inteiro em vez
+do bloco, e um erro de sintaxe num literal. **Nenhum chegou ao resultado, e
+todos foram apanhados por o número não fazer sentido**: "bloco adicionado: 4 566
+linhas" é absurdo à vista.
+
+Um `PASSA` não teria mostrado nada. **Um instrumento que imprime o número que
+mediu denuncia-se sozinho; um que imprime só o veredicto, não.**
+
