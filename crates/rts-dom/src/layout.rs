@@ -4475,9 +4475,12 @@ fn layout_inline_flow(
         // largura total da linha (texto no SEU peso + widgets) p/ text-align.
         let line_w: f32 = line
             .iter()
-            .map(|seg| match seg.atomic {
-                Some(_) => seg.ww,
-                None => seg.text_width,
+            .map(|seg| {
+                seg.lead_w
+                    + match seg.atomic {
+                        Some(_) => seg.ww,
+                        None => seg.text_width,
+                    }
             })
             .sum();
         // altura da linha: o texto (lh) ou o widget mais alto nela.
@@ -4504,6 +4507,9 @@ fn layout_inline_flow(
         // pinta cada pedaço NA SUA COR e PESO, avançando o x.
         for seg in line {
             let seg: Segment = seg;
+            // O vão que precede o segmento ocupa lugar na linha mas não pertence
+            // a nada: avança o cursor antes de qualquer caixa ser calculada.
+            seg_x += seg.lead_w;
             if let Some((a_idx, kind)) = seg.atomic {
                 match kind {
                     AtomicKind::Widget => {
@@ -4972,6 +4978,17 @@ struct Segment {
     atomic: Option<(NodeIdx, AtomicKind)>,
     ww: f32,
     wh: f32,
+    /// A largura do espaço que precede este segmento e NÃO lhe pertence: o que
+    /// veio do run ANTERIOR, em `antes <a>alvo</a>`.
+    ///
+    /// É um vão antes do segmento, nunca parte do `text`/`text_width`/`ww` — e é
+    /// por isso que existe em vez de se somar à largura. O espaço ocupa lugar na
+    /// linha (o `<a>` começa depois dele) mas é conteúdo do texto anónimo que vem
+    /// antes, portanto a CAIXA do `<a>` não o contém: o Chrome responde `x=48,
+    /// w=32` onde somá-lo dava `x=40, w=40`. Quando o segmento é FUNDIDO no
+    /// anterior o vão passa a ser interior e vive dentro do `text` — é o mesmo
+    /// espaço no mesmo sítio, visto do lado de dentro.
+    lead_w: f32,
 }
 
 /// Quebra uma sequência de RUNS coloridos em LINHAS por palavra (word-wrap), juntando
@@ -4986,11 +5003,22 @@ struct Segment {
 /// entra quando havia palavra antes na linha. É a normalização que o scanner
 /// palavra-a-palavra produz implicitamente — o fast path precisa dela explícita
 /// para que os dois caminhos gerem o MESMO texto.
+///
+/// `leading_space` é a resposta JÁ TOMADA pelo chamador à pergunta "havia
+/// whitespace desde a última palavra?", e é a única coisa que decide o espaço da
+/// frente. Perguntá-la outra vez aqui — exigindo além disso que o texto DESTE
+/// run comece por whitespace — apagava o espaço em toda fronteira de elemento
+/// inline: em `antes <a>alvo</a>`, o espaço está no fim do run anterior e o run
+/// do `<a>` começa por 'a', portanto nenhum dos dois o emitia. A página saía
+/// pintada com `antesalvo`, e cada fronteira encurtava a linha em um espaço, o
+/// que mudava o ponto de quebra. O scanner palavra-a-palavra decide por
+/// `pending_space && !at_line_start` e só por isso — é a mesma pergunta e passa
+/// a ter a mesma resposta.
 fn collapse_ws(text: &str, leading_space: bool) -> std::borrow::Cow<'_, str> {
     // O caso comum é o texto JÁ normalizado (uma palavra, ou palavras separadas
     // por um espaço só, sem borda) — devolver emprestado evita uma alocação por
     // run, e um relayout de página grande são milhares deles.
-    let needs_work = leading_space && text.starts_with(char::is_whitespace)
+    let needs_work = leading_space
         || text.starts_with(char::is_whitespace)
         || text.ends_with(char::is_whitespace)
         || text.contains("  ")
@@ -4998,8 +5026,8 @@ fn collapse_ws(text: &str, leading_space: bool) -> std::borrow::Cow<'_, str> {
     if !needs_work {
         return std::borrow::Cow::Borrowed(text);
     }
-    let mut out = String::with_capacity(text.len());
-    if leading_space && text.starts_with(char::is_whitespace) {
+    let mut out = String::with_capacity(text.len() + 1);
+    if leading_space {
         out.push(' ');
     }
     let mut first = true;
@@ -5015,7 +5043,11 @@ fn collapse_ws(text: &str, leading_space: bool) -> std::borrow::Cow<'_, str> {
 
 /// Acrescenta texto à linha, juntando ao último segmento quando o estilo é o
 /// mesmo (é o que evita um segmento por palavra na hora de pintar).
-fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32) {
+/// `lead` é a largura do espaço com que `text` começa quando esse espaço veio do
+/// run ANTERIOR (zero se não há espaço ou se ele é deste run). Ao abrir segmento
+/// novo o espaço sai do texto e vira vão, para ficar de fora da caixa dos donos;
+/// ao FUNDIR fica onde está, porque aí é interior ao segmento que o recebe.
+fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32, lead: f32) {
     if let Some(last) = cur.last_mut() {
         if last.atomic.is_none()
             && last.color == run.color
@@ -5028,6 +5060,13 @@ fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32)
             return;
         }
     }
+    // Só sai do texto se sobrar texto: um segmento que fosse SÓ o vão não tem
+    // dono a quem servir e ainda perderia o espaço.
+    let separa = lead > 0.0 && text.starts_with(' ') && text.len() > 1;
+    let (text, width, lead) = match separa {
+        true => (&text[1..], width - lead, lead),
+        false => (text, width, 0.0),
+    };
     cur.push(Segment {
         text: text.to_string(),
         text_width: width,
@@ -5038,6 +5077,7 @@ fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32)
         atomic: None,
         ww: 0.0,
         wh: 0.0,
+        lead_w: lead,
     });
 }
 
@@ -5078,6 +5118,7 @@ fn wrap_runs(
                     atomic: Some((a_idx, AtomicKind::Break)),
                     ww: 0.0,
                     wh: 0.0,
+                    lead_w: 0.0,
                 });
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
@@ -5098,6 +5139,7 @@ fn wrap_runs(
                     atomic: Some((a_idx, AtomicKind::Marker)),
                     ww: 0.0,
                     wh: 0.0,
+                    lead_w: 0.0,
                 });
                 continue;
             }
@@ -5108,6 +5150,11 @@ fn wrap_runs(
                 cur_w = 0.0;
                 at_line_start = true;
             }
+            // Recalculado DEPOIS da quebra: uma caixa atómica que abre linha não
+            // leva o espaço com ela. O vão entrava no `cur_w` e não no segmento,
+            // por isso a linha contava um espaço que a emissão não avançava nem
+            // pintava — e a caixa saía colada à palavra anterior.
+            let vao = if pending_space && !at_line_start { space_w(m) } else { 0.0 };
             cur.push(Segment {
                 text: String::new(),
                 text_width: 0.0,
@@ -5118,8 +5165,9 @@ fn wrap_runs(
                 atomic: Some((a_idx, kind)),
                 ww: run.ww,
                 wh: run.wh,
+                lead_w: vao,
             });
-            cur_w += if pending_space && !at_line_start { space_w(m) + run.ww } else { run.ww };
+            cur_w += vao + run.ww;
             at_line_start = false;
             pending_space = false;
             continue;
@@ -5137,13 +5185,23 @@ fn wrap_runs(
         // resultante é MAIS fiel e não menos: soma de palavras ignora o que a
         // fonte faz nas junções.
         if run.atomic.is_none() {
-            let leading = pending_space && !at_line_start;
+            // só whitespace: vira separador pendente e não abre segmento. Decidido
+            // ANTES de normalizar, porque um separador pendente faz a normalização
+            // devolver " " — não-vazio — e o run deixaria de ser reconhecido como
+            // o separador que é.
+            if !run.text.is_empty() && run.text.trim().is_empty() {
+                pending_space = true;
+                continue;
+            }
+            // O espaço da frente é devido quando havia whitespace desde a última
+            // palavra, esteja ele no fim do run ANTERIOR ou no início deste. A
+            // condição olhava só para o primeiro caso e o `collapse_ws` só para o
+            // segundo, por isso nenhum dos dois emitia o espaço de
+            // `antes <a>alvo</a>` nem o de `<a>alvo</a> depois`.
+            let leading =
+                (pending_space || run.text.starts_with(char::is_whitespace)) && !at_line_start;
             let normalized = collapse_ws(&run.text, leading);
             if normalized.is_empty() {
-                // só whitespace: vira separador pendente e não abre segmento.
-                if run.text.chars().any(char::is_whitespace) {
-                    pending_space = true;
-                }
                 continue;
             }
             let w = m.text_width(&normalized, font_size, mono, run.bold);
@@ -5156,7 +5214,11 @@ fn wrap_runs(
             // palavra), por isso a condição certa é só "cabe".
             if cur_w + w <= max_w {
                 let trailing_space = run.text.ends_with(char::is_whitespace);
-                push_segment(&mut cur, run, &normalized, w);
+                // O vão só existe quando o espaço veio do run ANTERIOR. Se o
+                // whitespace é do texto deste run (`<a> alvo</a>`), o espaço é
+                // dele e conta para a sua caixa — que é o que o Chrome faz.
+                let vao = if leading && pending_space { space_w(m) } else { 0.0 };
+                push_segment(&mut cur, run, &normalized, w, vao);
                 cur_w += w;
                 at_line_start = false;
                 pending_space = trailing_space;
@@ -5164,6 +5226,12 @@ fn wrap_runs(
             }
         }
         // scanner ws/palavra preservando a fronteira original.
+        //
+        // `fora` guarda se JÁ havia espaço pendente à entrada do run: só então o
+        // espaço da primeira palavra pertence ao texto anterior e não aos donos
+        // deste segmento. O whitespace que o scanner encontra a seguir é interior
+        // ao run, logo é dos donos dele.
+        let mut fora = pending_space;
         let mut rest = run.text.as_str();
         while !rest.is_empty() {
             if rest.starts_with(char::is_whitespace) {
@@ -5191,45 +5259,15 @@ fn wrap_runs(
                 piece.push(' ');
             }
             piece.push_str(word);
-            // junta no último segmento se mesma cor E peso (e não-widget), senão novo.
-            if let Some(last) = cur.last_mut() {
-                if last.atomic.is_none()
-                    && last.color == run.color
-                    && last.bold == run.bold
-                    && last.deco == run.deco
-                    && last.owners == run.owners
-                {
-                    last.text.push_str(&piece);
-                    last.text_width += piece_w;
-                } else {
-                    cur.push(Segment {
-                        text: piece,
-                        text_width: piece_w,
-                        color: run.color,
-                        bold: run.bold,
-                        deco: run.deco,
-                        owners: run.owners.clone(),
-                        atomic: None,
-                        ww: 0.0,
-                        wh: 0.0,
-                    });
-                }
-            } else {
-                cur.push(Segment {
-                    text: piece,
-                    text_width: piece_w,
-                    color: run.color,
-                    bold: run.bold,
-                    deco: run.deco,
-                    owners: run.owners.clone(),
-                    atomic: None,
-                    ww: 0.0,
-                    wh: 0.0,
-                });
-            }
+            // O MESMO `push_segment` do fast path decide juntar ou abrir: a regra
+            // de fusão estava escrita duas vezes, e era ela que tinha de responder
+            // igual nos dois caminhos.
+            let vao = if sep && fora { space_w(m) } else { 0.0 };
+            push_segment(&mut cur, run, &piece, piece_w, vao);
             cur_w += piece_w;
             at_line_start = false;
             pending_space = false;
+            fora = false;
         }
     }
     if !cur.is_empty() {
@@ -5246,6 +5284,7 @@ fn wrap_runs(
             atomic: None,
             ww: 0.0,
             wh: 0.0,
+            lead_w: 0.0,
         }]);
     }
     lines
