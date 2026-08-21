@@ -89,20 +89,44 @@ pub(crate) fn replaced_inline_size(
             v.parse::<f32>().ok().filter(|n| *n >= 0.0)
         })
     };
-    let w0 = css
-        .width
-        .and_then(|d| d.resolve(&resolve))
-        .or_else(|| attr_px("width"));
-    let h0 = css
-        .height
-        .and_then(|d| d.resolve(&resolve))
-        .or_else(|| attr_px("height"));
-    // razão de aspecto: a dos pixels quando existem, senão nenhuma (uma
-    // dimensão só fica sozinha em vez de inventar a outra).
+    // `auto` DECLARADO não é o mesmo que não declarado, e confundi-los era o que
+    // punha a altura do atributo HTML de volta contra a vontade do CSS: o
+    // `width`/`height` de um `<img>` é um *presentational hint* de especificidade
+    // zero, logo qualquer declaração o vence — e `.mw-file-element{height:auto}`
+    // é exatamente essa declaração em todas as miniaturas da Wikipédia.
+    //
+    // A alternativa era continuar a ler `Option<f32>`: `Dimension::Auto` resolve
+    // `None`, indistinguível de "o autor não disse nada", e é essa perda de
+    // informação que o `or_else` transformava em silêncio.
+    let declarado = |d: Option<crate::style::Dimension>, attr: &str| match d {
+        Some(crate::style::Dimension::Auto) => None,
+        Some(d) => d.resolve(&resolve),
+        None => attr_px(attr),
+    };
+    let w0 = declarado(css.width, "width");
+    let h0 = declarado(css.height, "height");
+    // A razão de aspecto: a dos pixels quando existem e, quando não, a dos
+    // ATRIBUTOS `width`/`height` do HTML.
+    //
+    // A segunda é spec (HTML, "dimension attributes": os dois atributos juntos
+    // dão ao elemento um `aspect-ratio: auto w / h`) e existe precisamente para o
+    // caso deste harness — dimensionar antes de a imagem chegar da rede, que é o
+    // que evita o salto de layout. Sem ela, `height:auto` num `<img width height>`
+    // ficava sem razão nenhuma e a altura saía ZERO: a miniatura da Wikipédia
+    // media 252x2, só as bordas.
+    //
+    // A alternativa rejeitada é a que o Chrome offline mostra — sem razão, cair
+    // num quadrado (252x252). Isso não é regra de CSS nenhuma: é o que aquele
+    // browser faz com uma imagem que FALHOU a carregar, e copiá-lo seria acertar
+    // a régua contra o defeito de rede em vez de contra a página.
     let ratio = dom
         .image_of(id)
         .filter(|(_, _, iw, ih)| *iw > 0 && *ih > 0)
-        .map(|(_, _, iw, ih)| (iw as f32, ih as f32));
+        .map(|(_, _, iw, ih)| (iw as f32, ih as f32))
+        .or_else(|| match (attr_px("width"), attr_px("height")) {
+            (Some(aw), Some(ah)) if aw > 0.0 && ah > 0.0 => Some((aw, ah)),
+            _ => None,
+        });
     let (mut w, mut h) = match (w0, h0) {
         (Some(w), Some(h)) => (w, h),
         (Some(w), None) => (w, ratio.map(|(nw, nh)| w * nh / nw).unwrap_or(0.0)),
@@ -151,7 +175,19 @@ pub(crate) fn replaced_inline_size(
         }
         h = mn;
     }
-    Some((w.max(0.0), h.max(0.0)))
+    // A caixa de um replaced é a BORDER-BOX, que é o que `getBoundingClientRect`
+    // devolve — e os clamps acima são sobre a content box (`box-sizing` inicial é
+    // `content-box`), por isso a borda entra só aqui, depois deles.
+    //
+    // Eram os 2px que sobravam em cada miniatura da Wikipédia depois de a base da
+    // percentagem ser corrigida: `.mw-file-element{border:1px solid}` dá 250 de
+    // conteúdo e 252 de caixa, e nós parávamos nos 250. A alternativa — somar a
+    // borda no chamador — espalhava a regra por três sítios de chamada, e é este
+    // o único que sabe o que é conteúdo e o que é caixa.
+    let bordas = crate::style::borders::resolved_sides(css);
+    let px = |b: crate::style::borders::SideBorder| if b.paints() { b.width } else { 0.0 };
+    let (bt, br, bb, bl) = (px(bordas[0]), px(bordas[1]), px(bordas[2]), px(bordas[3]));
+    Some((w.max(0.0) + bl + br, h.max(0.0) + bt + bb))
 }
 
 /// Este carácter é WHITESPACE para o CSS?
@@ -631,6 +667,90 @@ mod tests {
         );
     }
 
+    /// Um `height:auto` DECLARADO vence o atributo `height` do HTML — e a altura
+    /// sai da RAZÃO, não do zero.
+    ///
+    /// Duas regras num teste porque é o par que as torna verdadeiras: o atributo
+    /// é um presentational hint e perde para qualquer declaração, mas os dois
+    /// atributos juntos continuam a dar a razão de aspecto (HTML, "dimension
+    /// attributes"). Tirar o atributo e não pôr a razão dava altura ZERO — a
+    /// miniatura da Wikipédia media 252x2, só as bordas.
+    #[test]
+    fn height_auto_declarado_vence_o_atributo_mas_a_razao_sobrevive() {
+        let (dom, list) = geometria(
+            "<div style='width:400px'><img style='height:auto' width='250' height='167'></div>",
+            800.0,
+        );
+        let img = rect(&dom, &list, "img", 0);
+        assert!((img.w - 250.0).abs() < 0.5, "largura = {}", img.w);
+        assert!(
+            (img.h - 167.0).abs() < 0.5,
+            "a altura tem de vir da razão 250:167, não do zero: {}",
+            img.h
+        );
+    }
+
+    /// E com `width` declarado MENOR, a razão dos atributos escala a altura: é a
+    /// prova de que o 167 acima veio da razão e não de o atributo ter sobrevivido.
+    #[test]
+    fn a_razao_dos_atributos_escala_a_altura_quando_a_largura_muda() {
+        let (dom, list) = geometria(
+            "<div style='width:400px'><img style='width:125px;height:auto'              width='250' height='167'></div>",
+            800.0,
+        );
+        let img = rect(&dom, &list, "img", 0);
+        assert!((img.w - 125.0).abs() < 0.5, "largura = {}", img.w);
+        assert!(
+            (img.h - 83.5).abs() < 0.5,
+            "metade da largura é metade da altura: {}",
+            img.h
+        );
+    }
+
+    /// A caixa de um replaced é a BORDER-BOX, que é o que `getBoundingClientRect`
+    /// devolve. `.mw-file-element{border:1px solid}` dá 250 de conteúdo e 252 de
+    /// caixa — os 2px que sobravam depois de a base da percentagem ser corrigida.
+    #[test]
+    fn a_borda_entra_na_caixa_do_replaced() {
+        let (dom, list) = geometria(
+            "<div style='width:400px'><img style='border:1px solid #000'              width='250' height='167'></div>",
+            800.0,
+        );
+        let img = rect(&dom, &list, "img", 0);
+        assert!((img.w - 252.0).abs() < 0.5, "250 + 1 + 1 = {}", img.w);
+        assert!((img.h - 169.0).abs() < 0.5, "167 + 1 + 1 = {}", img.h);
+    }
+
+    /// Uma largura SEM estilo de borda não ocupa nada: o inicial de
+    /// `border-style` é `none`, e sem estilo o Chrome não desenha nem reserva.
+    #[test]
+    fn largura_de_borda_sem_estilo_nao_entra_na_caixa() {
+        let (dom, list) = geometria(
+            "<div style='width:400px'><img style='border-width:10px'              width='250' height='167'></div>",
+            800.0,
+        );
+        let img = rect(&dom, &list, "img", 0);
+        assert!((img.w - 250.0).abs() < 0.5, "largura = {}", img.w);
+    }
+
+    /// A receita COMPLETA da Wikipédia, medida contra o Chrome: contentor de
+    /// 258px, `margin:3px`, `border:1px`, `height:auto` e
+    /// `max-width:calc(100% - (2 * 3px) - (2 * 1px))` sobre um `<img>` de 250x167.
+    ///
+    /// A largura é a do Chrome ao pixel (252). A ALTURA diverge — o Chrome dá 252,
+    /// porque offline a imagem nunca carrega e ele cai num quadrado; nós damos 169
+    /// pela razão dos atributos, que é o que a spec manda e o que continua certo
+    /// no dia em que a imagem chegar. Divergência conhecida, fixada aqui para que
+    /// mude por decisão e não por acidente.
+    #[test]
+    fn a_miniatura_da_wikipedia_mede_a_largura_do_chrome() {
+        let html = "<div style='width:258px'><a>            <img style='margin:3px;border:1px solid #000;height:auto;             max-width:calc(100% - (2 * 3px) - (2 * 1px))' width='250' height='167'></a></div>";
+        let (dom, list) = geometria(html, 800.0);
+        let img = rect(&dom, &list, "img", 0);
+        assert!((img.w - 252.0).abs() < 0.5, "o Chrome dá 252: {}", img.w);
+        assert!((img.h - 169.0).abs() < 0.5, "167 + as duas bordas: {}", img.h);
+    }
+
     /// Um `<img>` que não declara dimensão nenhuma e não tem pixels continua sem
     /// caixa. O par com os testes acima é o que prova que a caixa vem do que se
     /// DECLARA, e não de o elemento ser um `<img>`.
@@ -919,3 +1039,4 @@ mod inline_declarado_e_dono {
         );
     }
 }
+
