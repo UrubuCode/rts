@@ -610,6 +610,27 @@ mod tests {
         assert!((img.h - 200.0).abs() < 0.5, "altura declarada = {}", img.h);
     }
 
+    /// A base de uma PERCENTAGEM é a largura do bloco contentor — a margem do
+    /// próprio elemento NÃO entra nela.
+    ///
+    /// É a receita do `.mw-file-element` da Wikipédia: `margin:3px` e
+    /// `max-width:calc(100% - (2 * 3px) - (2 * 1px))` num contentor de 258px. O
+    /// `100%` vale 258, o `calc` dá 250, e a imagem de 250 fica intacta. Descontar
+    /// as margens antes de resolver — o que `layout_image` fazia — punha o `100%`
+    /// a valer 252 e cortava a imagem para 244: 6px exatos, em 30 imagens da
+    /// página.
+    #[test]
+    fn a_percentagem_de_max_width_resolve_contra_o_contentor_e_nao_menos_a_margem() {
+        let html = "<div style='width:258px'>            <img style='margin:3px;max-width:calc(100% - (2 * 3px) - (2 * 1px))'              width='250' height='167'></div>";
+        let (dom, list) = geometria(html, 800.0);
+        let img = rect(&dom, &list, "img", 0);
+        assert!(
+            (img.w - 250.0).abs() < 0.5,
+            "o 100% resolveu contra {} em vez de 258: {img:?}",
+            img.w + 8.0
+        );
+    }
+
     /// Um `<img>` que não declara dimensão nenhuma e não tem pixels continua sem
     /// caixa. O par com os testes acima é o que prova que a caixa vem do que se
     /// DECLARA, e não de o elemento ser um `<img>`.

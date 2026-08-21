@@ -2995,8 +2995,17 @@ fn layout_image(
     // `display:table`, encolhia ao conteúdo e ficava com 10px, e a `<figcaption>`
     // ao lado passava a quebrar a um carácter por linha. 25 figuras nessa forma
     // valem +6 629px de legenda na página.
-    let max_w = (avail_w - margin_left - margin_right).max(0.0);
-    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, max_w, ctx)?;
+    // A base de uma PERCENTAGEM é a largura do bloco CONTENTOR, e a margem do
+    // próprio elemento não entra nela (CSS 2.1 §10.2). Descontá-la aqui — o que
+    // este sítio fazia — custava 6px exatos em cada miniatura da Wikipédia:
+    // `.mw-file-element` declara `margin:3px` e `max-width:calc(100% - 8px)`, o
+    // `100%` valia 252 em vez dos 258 do `<a>`, e a imagem saía 244 onde o Chrome
+    // dá 250 de conteúdo. Enquanto o tamanho era cortado por `avail_w` o erro
+    // estava lá e ninguém o lia: nada consultava esta base.
+    //
+    // A alternativa — manter a subtração e corrigi-la só para o `calc` — punha a
+    // regra de resolução em dois sítios, que é o que este ficheiro já pagou.
+    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
     // O item de pintura, esse, PRECISA de pixels: uma caixa reservada com nada
