@@ -84,9 +84,31 @@ for (const r of registos) {
 // responde "o símbolo desapareceu" — a conferência acusaria a árvore inteira de
 // podre por causa do PATH. Um `includes` não tem essa forma de falhar.
 const cache = new Map();
+// `Tipo::metodo` NUNCA aparece literalmente num ficheiro Rust: o método
+// escreve-se `impl Tipo { fn metodo }`. Um `includes` da string inteira erra nos
+// DOIS sentidos — dizia que `MediaQuery::parse` tinha desaparecido de onde está
+// definido, e dizia que `TableStyle::of` existe num ficheiro onde ele é apenas
+// CHAMADO. Falso negativo e falso positivo pela mesma causa.
+//
+// Rejeitado reescrever os registos para `parse` em vez de `MediaQuery::parse`:
+// punha zero problemas em dez segundos e perdia a informação de QUAL `parse` —
+// mudar os dados para mover o número, que é o que o CLAUDE.md proíbe primeiro.
+// O defeito era da régua e é aqui que se arranja.
 const existeSimbolo = (simbolo, ficheiro) => {
   if (!cache.has(ficheiro)) cache.set(ficheiro, readFileSync(ficheiro, "utf8"));
-  return cache.get(ficheiro).includes(simbolo);
+  const texto = cache.get(ficheiro);
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)$/.exec(simbolo);
+  if (!m) return texto.includes(simbolo);
+  // As duas metades no mesmo ficheiro: o `impl Tipo` e o `fn metodo`. Não prova
+  // que o `fn` está DENTRO daquele `impl` — prova-o o suficiente para a
+  // pergunta que este campo faz, que é "o apontador ainda leva a algum lado".
+  // Os `\\s` e `\\b` vão DUPLICADOS de propósito: num template literal um `\s`
+  // colapsa para a letra `s`, e a expressão passaria a procurar `impls+Tipo`,
+  // que não casa com nada. Foi assim que esta correcção falhou à primeira — e
+  // falhou em silêncio, dando exactamente o mesmo "desapareceu" que vinha
+  // corrigir.
+  return new RegExp(`impl(<[^>]*>)?\\s+(\\w+\\s+for\\s+)?${m[1]}\\b`).test(texto)
+      && new RegExp(`fn\\s+${m[2]}\\b`).test(texto);
 };
 let mortos = 0;
 for (const r of registos) {
