@@ -103,14 +103,6 @@ pub(in crate::dom) fn memo_put(
 }
 
 
-/// A CHAVE-ALVO de um seletor: o que o último compound exige do nó que ele casa.
-/// Um filtro barato antes do matcher completo (que navega a árvore) — a mesma
-/// ideia do `RuleIndex` da cascade, aplicada às consultas.
-///
-/// Só uma chave por seletor, e a mais seletiva disponível: `#id` descarta quase
-/// tudo, `.classe` descarta muito, a tag descarta o resto. `Any` (universal,
-/// `[attr]`, pseudo) não descarta nada e cai direto no matcher — é o caso em que
-/// o filtro não ajuda, e ele não pode ATRAPALHAR respondendo "não" por engano.
 /// `true` se a posição `n` (1-based) satisfaz `an+b` para algum `k >= 0` — a
 /// aritmética partilhada por `:nth-child` e `:nth-of-type`, que só diferem no
 /// conjunto de irmãos que numeram.

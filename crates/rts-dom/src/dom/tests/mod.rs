@@ -24,8 +24,6 @@ mod parser;
     }
 
 
-    use super::*;
-
     /// Helper: nome de tag de um nó Element por índice cru (panica se não for
     /// elemento) — só para deixar os asserts curtos.
     fn tag(dom: &Dom, idx: NodeIdx) -> &str {
