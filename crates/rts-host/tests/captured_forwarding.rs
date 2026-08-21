@@ -109,16 +109,6 @@ fn two_bindings_of_one_name_at_different_depths_do_not_forward_into_each_other()
     // different variables at different depths. A memo keyed on the name alone
     // would answer one for the other.
     //
-    // # Why the shadowing is between FUNCTIONS and not inside a block
-    //
-    // The block form of this test — `{ let v = 10; function inner() {…} }`
-    // nested inside a function whose enclosing scope also captures a `v` —
-    // answers `NaN` on this engine, and answered `NaN` before this file
-    // existed. That is a real defect and it is NOT this optimisation's:
-    // verified against the binary of the previous commit, which gives the same
-    // `NaN` where Node and Bun both give 21. It is recorded in the commit that
-    // added this file rather than pinned by a failing test here, because a
-    // test that fails is not a record of anything — it is a broken build.
     let source = "
         let v = 1;
         function outer() { return v; }
@@ -135,6 +125,52 @@ fn two_bindings_of_one_name_at_different_depths_do_not_forward_into_each_other()
         41.0,
         "the inner `v` is 20, read twice, and the outer one is still 1"
     );
+}
+
+#[test]
+fn a_captured_block_binding_does_not_shadow_the_outer_one_after_the_block() {
+    // The same question one level harder, and it is where this engine used to
+    // answer wrongly — `undefined` for the last read, where Node and Bun
+    // answer `1`.
+    //
+    // The cause was not the forwarding above: `capture::captured` is
+    // deliberately over-inclusive and counted the block's `v` as a name the
+    // FUNCTION declares, so `Scope::for_function` bound it at zero hops in
+    // `run`'s own layer. `lookup` scans innermost-first, so every read of `v`
+    // in `run` — including the one after the block — resolved into a slot of
+    // `run`'s own environment that nothing ever wrote, because the block wrote
+    // its own object.
+    //
+    // `capture::declared_at_own_level` is what separates the two questions.
+    let source = "
+        let v = 1;
+        function outer() { return v; }
+        function run() {
+            { let v = 10; function inner() { return v; } }
+            return v;
+        }
+        return run();
+    ";
+    assert_eq!(number(source), 1.0);
+}
+
+#[test]
+fn a_var_inside_a_block_is_still_the_functions_own_binding() {
+    // The other side of that split, and the reason `declared_at_own_level`
+    // walks INTO blocks for `var` while stopping at them for `let`. A `var` in
+    // a block is a binding of the enclosing function; leaving it out would
+    // have moved the bug rather than fixed it, giving a captured `var` no
+    // zero-hop binding at all.
+    let source = "
+        function run() {
+            { var counted = 5; }
+            function peek() { return counted; }
+            counted = counted + 1;
+            return peek();
+        }
+        return run();
+    ";
+    assert_eq!(number(source), 6.0);
 }
 
 #[test]

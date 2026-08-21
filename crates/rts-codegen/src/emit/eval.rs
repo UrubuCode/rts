@@ -59,6 +59,12 @@ pub fn emit_eval_program(
         };
         body.push(last);
     }
-    let scope = Scope::for_function(None, std::collections::BTreeSet::new(), enclosing);
+    let scope = Scope::for_function(
+        None,
+        std::collections::BTreeSet::new(),
+        // Nothing is captured, so nothing is bound at zero hops either.
+        &std::collections::BTreeSet::new(),
+        enclosing,
+    );
     emit_program_into(&body, &[], None, &[], &scope, ctx)
 }
