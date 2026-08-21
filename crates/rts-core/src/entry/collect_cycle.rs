@@ -174,6 +174,19 @@ fn release(context: &mut Context, cell: u32) {
     if let Some(buffer) = context.buffer_of.remove(cell) {
         context.buffers.free(buffer);
     }
+    // Beside the buffer it is a fact about, and it is the one entry this list
+    // MISSED. Left behind, it is not the leak this module's documentation
+    // predicts for a forgotten `Aside` — it is corruption, because `detached`
+    // is READ as a live fact: `buffers::window` refuses a view whose cell is
+    // marked, so the next object to be handed this index is born detached.
+    //
+    // Measured before this line existed: 80 000 iterations each making a fresh
+    // `ArrayBuffer` and transferring it once — which the language always allows,
+    // since the buffer transferred away is a different object every pass — died
+    // with an uncaught `TypeError: ArrayBuffer is detached`. Node runs the same
+    // program to completion. The failures start only once the region has filled
+    // and cells begin coming back, which is why nothing smaller reproduces it.
+    context.detached.remove(cell);
 
     // Every remaining `Aside` in `Context`, by its field list — see this
     // module's own documentation for what keeps this exhaustive and what does
