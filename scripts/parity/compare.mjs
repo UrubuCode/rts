@@ -102,7 +102,22 @@ function normCor(v) {
   if (n.length === 4 && n[3] === 0) return "transparent";
   return `rgb(${n[0]},${n[1]},${n[2]})` + (n.length === 4 && n[3] !== 1 ? `/${n[3]}` : "");
 }
-const norm = (k, v) => (k.includes("color") ? normCor(v) : String(v).trim().toLowerCase());
+// Normalizar comprimento: o Chrome serializa `font-size` com seis dígitos
+// significativos (`14.1251px`) e nós imprimimos o `f32` inteiro
+// (`14.125056px`). Comparadas como texto, essas duas dão DIVERGÊNCIA — e são
+// 1 882 das 1 910 que o `font-size` reportava, ou seja 98,5% do que esta coluna
+// dizia era o formato e não o valor. Uma régua que conta 1 882 defeitos
+// inexistentes é pior que não ter régua: manda trabalhar onde não há trabalho.
+//
+// O corte é 0,01px — abaixo disso não há decisão de layout que mude.
+function normPx(v) {
+  const m = /^(-?[0-9.]+)px$/.exec(String(v).trim());
+  return m ? `${Math.round(parseFloat(m[1]) * 100) / 100}px` : null;
+}
+const norm = (k, v) => {
+  if (k.includes("color")) return normCor(v);
+  return normPx(v) ?? String(v).trim().toLowerCase();
+};
 
 const props = {};
 for (const k of PROPS) props[k] = { igual: 0, diferente: 0, naoReportado: 0, exemplos: [] };
