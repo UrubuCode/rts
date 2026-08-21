@@ -284,16 +284,43 @@ mod tests {
     }
 
     #[test]
+    fn content_vazio_nao_pinta_texto_nenhum() {
+        // `content:""` é o caso MAIORITÁRIO da folha real (16 das 80 regras com
+        // pseudo-elemento): a caixa existe para levar um `background` ou uma
+        // `border`, não texto. Aqui ela não pinta glifo nenhum — o que se fixa é
+        // que também não inventa um run vazio a deslocar o que vem a seguir.
+        let t = textos("<style>p::before { content:\"\" }</style><p>oi</p>");
+        assert_eq!(t, vec!["oi".to_string()]);
+    }
+
+    #[test]
+    fn display_block_no_pseudo_e_tratado_como_inline() {
+        // CORTE DECLARADO, fixado aqui para não passar por acidente: a caixa
+        // gerada entra sempre como run inline. Com `display:block` o browser
+        // punha-a numa linha só dela; nós pomo-la na mesma linha do conteúdo.
+        // A alternativa — gerar uma caixa de bloco — exige um ponto de enxerto
+        // no fluxo de `layout.rs` que ainda não foi aberto.
+        let t = textos(
+            "<style>p::before { content:\"→\"; display:block }</style><p>oi</p>",
+        );
+        // Idêntico ao caso sem `display` — é essa igualdade que diz que a
+        // declaração não foi lida, e não uma ordem que por acaso coincide.
+        assert_eq!(t, textos("<style>p::before { content:\"→\" }</style><p>oi</p>"));
+        assert_eq!(t, vec!["→".to_string(), "oi".to_string()]);
+    }
+
+    #[test]
     fn content_com_attr_le_o_atributo_do_originante() {
         let t = textos(
             "<style>p::after { content:\" (\" attr(data-nota) \")\" }</style>\
              <p data-nota='n1'>oi</p>",
         );
-        // O espaço inicial do `content` some, e não é coisa do pseudo-elemento:
-        // o fluxo inline faz o mesmo a `<span> (n1)</span>`. Ver o relatório —
-        // a normalização de whitespace entre runs vive no fluxo inline, que
-        // está com outro agente.
-        assert_eq!(t, vec!["oi".to_string(), "(n1)".to_string()]);
+        // O espaço inicial do `content` SOBREVIVE. Este teste esperava que ele
+        // sumisse e dizia porquê: o fluxo inline apagava o espaço em toda
+        // fronteira de run, e a expectativa registava o defeito à espera de quem
+        // o corrigisse. Corrigido no `collapse_ws`/`wrap_runs`, a expectativa
+        // passa a ser a do browser.
+        assert_eq!(t, vec!["oi".to_string(), " (n1)".to_string()]);
     }
 
     #[test]
