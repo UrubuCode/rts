@@ -1,8 +1,15 @@
 # O motor de CSS e layout — o que foi feito, o que falta
 
 Estado em **2026-08-18**, no fim da campanha de paridade com o Chrome, com a
-lista de valor **refeita em 2026-08-21** (secção "O que falta").
+lista de valor **refeita em 2026-08-21** e os resultados da sessão desse dia
+(secções "A sessão de 2026-08-21" e "O que falta").
 Escrito para quem retomar isto sem ter estado presente.
+
+**Se lê só uma coisa, leia isto:** na sessão de 2026-08-21 o erro de largura
+caiu **43%** e o de `y` **66%**, em quatro lotes, **sem perder um único
+elemento em nenhum deles**. Cinco causas nomeadas fecharam, e duas das
+entradas desta lista fecharam por a suspeita ser FALSA e não por terem sido
+corrigidas — o que também é resultado.
 
 Os números têm todos a mesma proveniência salvo indicação: `bash
 scripts/parity/run.sh` sobre `pagina.html` + `pagina.css` (a Wikipédia
@@ -10,7 +17,7 @@ pt/Brasil, 2 MB de HTML e 257 KB de CSS), viewport 1280x800, JavaScript da
 página desligado, contra um Chrome real.
 
 **A secção "O que falta" tem proveniência PRÓPRIA e está escrita em cada item.**
-Os números de 2026-08-21 saem de uma releitura dos dumps
+Os números de DIAGNÓSTICO de 2026-08-21 saem de uma releitura dos dumps
 `scripts/parity/out/chrome.jsonl` (2026-08-18 20:11) e
 `scripts/parity/out/rts.jsonl` (2026-08-18 20:29), sobre
 `pagina.combinada.html`, viewport 1280x800, JS da página desligado — não de uma
@@ -154,17 +161,27 @@ reais, em `pseudo::parse_content`: aceita strings e `attr()`; **recusa
 estava refutado e o item 4 estava implementado. O que segue tem, em cada linha,
 o número, o corpus e o ficheiro que decide a causa.
 
+**Os itens 1 a 4 FECHARAM no mesmo dia e ficam aqui em vez de irem para "o que
+foi implementado".** Dois foram corrigidos (1 e 2), um era um defeito que
+ninguém tinha visto (4), e **um fechou por a suspeita ser falsa** (3). Ficam
+porque o valor deles não é o estado — é o diagnóstico por baixo, que é o que
+diz onde procurar quando o mesmo sintoma voltar. **O que falta a sério começa
+no 5.**
+
 **Denominador comum destes itens**, medido sobre os dumps de 2026-08-18 já
 citados: 16 814 pares comparáveis, **11 738 elementos com `|dw| > 1 px`,
 somando 810 874 px de erro de largura**. As percentagens abaixo são desse total.
 
-**O denominador já MEXEU uma vez, e as duas metades estão escritas por isso.**
-O item 1 foi corrigido a 2026-08-21 e o erro de largura da página está agora em
-**623 754 px**. As percentagens dos itens 2 em diante continuam a ser contra
-810 874, que é o total sobre o qual foram diagnosticados — recalculá-las contra
-623 754 fá-las-ia SUBIR sem que nada tivesse piorado, que é a armadilha do
-denominador a acontecer dentro do próprio documento. Quem refizer a lista
-re-mede tudo contra um único dump, e diz qual.
+**O denominador MEXEU quatro vezes durante a sessão, e as percentagens abaixo
+NÃO foram recalculadas.** Elas são contra 810 874 px, que é o total sobre o qual
+os itens foram diagnosticados; o erro de largura acabou o dia em **455 k** (ver
+a tabela lote a lote). Recalcular contra 455 k fá-las-ia **subir** sem que nada
+tivesse piorado — a armadilha do denominador a acontecer dentro do próprio
+documento que a regista.
+
+Quem refizer esta lista re-mede tudo contra **um único** dump, e diz qual. Ler
+uma percentagem daqui como "quanto vale hoje" é o erro que esta nota existe
+para evitar: vale "quanto valia quando foi diagnosticado".
 
 ---
 
@@ -264,7 +281,7 @@ O efeito no eixo `y` é o que faz deste o item 2 e não algo mais abaixo: as
 `figcaption` ficam com **14 px de largura por 502 px de altura** onde o Chrome
 dá 260×87.
 
-**3. O TEXTO ANÓNIMO — EM INVESTIGAÇÃO, sem número de px.**
+**3. O TEXTO ANÓNIMO — SUSPEITA FECHADA.**
 
 Nos mesmos 161 parágrafos, duas medições que só se conciliam de uma maneira:
 
@@ -282,7 +299,48 @@ investigado por dois agentes, por caminhos diferentes. Pode ser a mesma causa do
 inchaço das caixas inline (`sup`/`a`/`span` a devolver 752×41 onde o Chrome dá
 21,4×15, em 96 elementos) — pode, não está estabelecido.
 
-**4. Floats.** Responsáveis por **~38% do crescimento vertical** — número do
+> **SUSPEITA FECHADA — 2026-08-21. NÃO ABRIR TAREFA.**
+>
+> O défice de linhas que motivou tudo isto **já não existe**. Medido sobre o
+> estado commitado: **533 elementos, 2 033 linhas do Chrome contra 2 030
+> nossas**. Os 23% de défice eram de um binário **anterior aos floats e aos
+> clusters** — a suspeita nasceu de um número que já estava velho quando foi
+> lido.
+>
+> *(Populações diferentes: os 2 464 contra 1 996 acima são 161 parágrafos; o
+> fecho é sobre 533 elementos. Não são a mesma medição e não devem ser subtraídos
+> um do outro.)*
+>
+> **O que o número líquido esconde, e é a razão de isto ficar escrito:** o rácio
+> é 0,999 e diz "perfeito". A verdade é que **83% dos parágrafos acertam o
+> número de linhas exatamente, e os outros 17% erram até 4 linhas para cada
+> lado** — soma de desvios ABSOLUTOS de 115 linhas (5,7%), com **+56 e −59 a
+> cancelarem-se** num líquido de −3.
+>
+> É o "+3 é igual a três ganhos ou a cinco ganhos e dois perdidos" desta casa,
+> aplicado a LINHAS em vez de a ficheiros. Ver as armadilhas no fim.
+>
+> **O que sobra é uma cauda, e fica como cauda:** ~88 parágrafos com desvios de
+> 1 a 4 linhas, **assimétrica** — os `+1` são 54 e cheiram a arredondamento no
+> limiar da última palavra; os `−3` e `−4` são 4 parágrafos concretos. Não é
+> tarefa aberta.
+
+**4. Quebra de linha DENTRO de um token — defeito novo, não estava nesta lista.**
+
+A linha era partida entre dois textos colados: `ano[135]` deixava o `[` para
+trás. **FEITO em 2026-08-21.**
+
+Aparece aqui em vez de desaparecer em silêncio porque é o par do item seguinte:
+**a união dos fragmentos de um inline JÁ ESTAVA FEITA**, com testes em
+`crates/rts-dom/src/flowtests.rs`
+(`um_inline_que_quebra_em_tres_linhas_da_a_uniao_larga_e_alta`,
+`um_inline_de_uma_linha_mede_o_seu_texto_e_nao_a_linha`), desde o primeiro lote
+do dia. **Este documento chegou a dizer que estava por fazer, e estava errado.**
+O que punha a união em sítios errados era esta quebra dentro do token — as duas
+coisas são o mesmo problema visto de dois lados, e é por isso que "a união está
+partida" era um diagnóstico plausível e falso.
+
+**5. Floats.** Responsáveis por **~38% do crescimento vertical** — número do
 `recon-y`, sobre os mesmos dumps.
 
 > **FEITO — 2026-08-21**, no mesmo lote `376f88fe` da tabela do topo, e sem
@@ -294,7 +352,7 @@ inchaço das caixas inline (`sup`/`a`/`span` a devolver 752×41 onde o Chrome d�
 > haja um BFC — e é outro lote, com medição própria. Não é dívida escondida: é
 > um comportamento errado que ficou porque a alternativa não estava medida.
 
-**5. `position:absolute` com `width/height:100%` sobre um containing block de
+**6. `position:absolute` com `width/height:100%` sobre um containing block de
 tamanho zero.** 5 elementos, 5 275 px de largura (0,7%) — mas mata um outlier
 de **96 665 px de altura**, que contamina qualquer percentagem resolvida contra
 a altura do documento.
@@ -316,20 +374,20 @@ BLOCK de um `position:absolute` = o ancestral mais próximo com
 `input[type=hidden]` está **correto** — damos 0×0 nos dois lados. Não é falha de
 UA-stylesheet.
 
-**6. Tabelas: a REPARTIÇÃO entre colunas, não a largura total.**
+**7. Tabelas: a REPARTIÇÃO entre colunas, não a largura total.**
 339 `table-cell`, 15 095 px. O sinal é misto e é essa a informação: **207
 células largas demais contra 132 estreitas demais, aos pares dentro da mesma
 `tr`** (`td` 508→134 e `th` 220→594 na mesma linha). `crates/rts-dom/src/table/`.
 
 Risco alto por causa do sinal misto: é fácil mexer e melhorar o líquido sem
-melhorar nada. **Não abrir isto antes de 1–5 estarem medidos**, porque parte do
+melhorar nada. **Não abrir isto antes de 1–6 estarem medidos**, porque parte do
 desvio pode ser a jusante deles.
 
-**7. `mask-image` a sério.** Hoje é reconhecido e o fundo é SUPRIMIDO, para não
+**8. `mask-image` a sério.** Hoje é reconhecido e o fundo é SUPRIMIDO, para não
 pintarmos um quadrado onde o browser desenha um glifo. Quando houver máscaras, o
 fundo volta a ser pintado e recortado por elas.
 
-**8. As 17 fixtures que ainda falham** (`bash scripts/css_fixtures.sh`), com o
+**9. As 17 fixtures que ainda falham** (`bash scripts/css_fixtures.sh`), com o
 esperado medido num Chrome real — cada uma isola um mecanismo.
 
 ---
@@ -355,26 +413,41 @@ secção das armadilhas.
 
 ### Propostas RETIRADAS — e porquê
 
-**Calibrar `PROP_ADVANCE` (o avanço por carácter). Retirada em 2026-08-21.
-`PROP_ADVANCE` NÃO foi tocado.**
+**Calibrar `PROP_ADVANCE` (o avanço por carácter) — FEITA à terceira, `0,5 →
+0,46`, commit `80b60a3a`.** O ganho está na linha "avanço 0,46" da tabela do
+topo, medido em lote com nada mais.
 
-Foi investigada e o resultado foi este: **duas medições independentes discordam
-em 30% e em SENTIDO.**
+**Fica aqui, e não na lista do que foi implementado, porque as DUAS RETIRADAS
+valem mais do que o número.** Duas vezes esta proposta foi levantada com um
+valor medido, e duas vezes foi retirada por o valor estar errado:
 
-| método | valor | o que diria |
-|---|---:|---|
-| via direta, sobre 2 513 folhas inline | 0,4766 | as nossas caixas são 4,7% **largas** demais |
-| inferência por rácio de linhas | 0,617 | **estreitas** demais |
+| tentativa | método | valor | desfecho |
+|---|---|---:|---|
+| 1ª | contagem de linhas por parágrafo | 0,617 | retirada |
+| 2ª | idem, outro corte | 0,71 | retirada |
+| 3ª | **divisão direta**, com o extrator a dar caracteres e `line-height` | **0,4646** (teto) | **adotada como 0,46** |
 
-Não é uma discordância que se resolva pela média. Quando dois métodos dão
-sentidos opostos, pelo menos um está a medir outra coisa, e **calibrar assim
-seria escolher o número que dá jeito** — cravar uma constante que faria o
-agregado mexer sem que ninguém soubesse porquê, e que depois teria de ser
-desfeita quando a causa real aparecesse.
+**Porque é que as duas primeiras erraram — e é a mesma lição da casa outra vez:**
+o corpus misturava **DUAS POPULAÇÕES**. Nos parágrafos de texto denso o motor
+fazia 15% de linhas a MAIS que o Chrome; nos que têm quebras forçadas, 23% a
+MENOS. **A média de dois sinais opostos não descreve nenhum dos dois.** Quem
+revisitar isto separa as populações antes de medir. Está escrito também no
+código, em `crates/rts-dom/src/style/text_metrics.rs`, junto à constante.
 
-O que sobrevive desta investigação não é uma calibração: é o item 3 da lista de
-valor, o texto anónimo. A discordância entre os dois métodos é provavelmente o
-mesmo facto, visto de dois lados.
+O que destravou a terceira foi mudar de instrumento, não de aritmética: o
+extrator do Chrome passou a dizer quantos caracteres e que `line-height`
+(`07b43082`), e o avanço saiu por **divisão** em vez de por inferência.
+
+**0,46 e não 0,4646**, porque 0,4646 é um **teto** e não uma estimativa — um
+valor colado ao limite é frágil. Este fica dentro dele com margem, e a 3% da
+medição direta.
+
+*(Nota de conciliação, para quem ler esta secção numa versão anterior deste
+documento: a tabela dizia que a via direta dava 0,4766 e a inferência 0,617, e
+que a discordância impedia calibrar. Estava certa quanto ao facto e quanto à
+decisão do momento. O que a fechou não foi escolher entre os dois — foi um
+terceiro instrumento mostrar que a via direta é que estava perto: 0,4766 de
+mediana contra os 0,4646 de teto.)*
 
 ---
 
@@ -444,6 +517,16 @@ Estão em `docs/ui/parity-chrome.md` com detalhe. Em resumo:
   2026-08-21 — o `<br>` no `getBoundingClientRect`, e o rect de um inline ser a
   caixa da FONTE no Chrome e a caixa da LINHA em nós. Ambas em
   `docs/ui/parity-chrome.md`, com o que cada uma invalida.
+- **Um líquido cancela-se, e a unidade não importa.** 2 033 linhas do Chrome
+  contra 2 030 nossas dá um rácio de 0,999 e parece perfeito; a soma dos
+  desvios ABSOLUTOS é 115 linhas (5,7%), com +56 e −59 a cancelarem-se. Para
+  qualquer soma com sinal, medir também os absolutos.
+- **Uma correção certa pode subir o EIXO que não estava a atacar.** O
+  `border-width` tirou 180 k da largura e subiu o `y` de 215,8 M para 223,6 M,
+  com zero perdidos.
+- **Um número velho lido hoje inventa uma suspeita.** Os 23% de défice de linhas
+  que abriram a investigação do texto anónimo eram de um binário anterior aos
+  floats e aos clusters. A suspeita custou trabalho e fechou em nada.
 - **Uma correção CERTA pela spec pode AFASTAR o agregado.** O fix do espaço
   inline (`036b858b`) aproximou os `<p>` do Chrome em 520 px com **zero
   elementos perdidos**, e subiu o erro de largura total de 810 874 para

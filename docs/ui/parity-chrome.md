@@ -155,6 +155,50 @@ Um total que sobe com a lista de perdidos vazia é informação sobre o trabalho
 que FALTA, não sobre o trabalho que se fez. Um total que desce sem essas duas
 verificações não prova nada — pode ser uma família a melhorar e outra a partir-se.
 
+**E a terceira forma, na mesma sessão: uma correção certa pode fazer subir o
+EIXO que não estava a atacar.** O `border-width` (`9bd941eb`) tirou 180 k do
+erro de largura e **subiu** o de `y`, de 215,8 M para 223,6 M. Zero perdidos.
+Só o lote seguinte derrubou o `y`. Um agregado por eixo tem exatamente o mesmo
+problema que um agregado por página.
+
+---
+
+## O líquido cancela-se: a regra dos ficheiros, aplicada a LINHAS
+
+O `+3` que tanto pode ser três ganhos como cinco ganhos e dois perdidos **não é
+uma regra sobre ficheiros de teste** — é uma regra sobre somas com sinal, e
+aplica-se a qualquer unidade. Vale a pena tê-la escrita numa segunda unidade,
+porque foi assim que quase passou.
+
+**O caso, medido a 2026-08-21 sobre o estado commitado:** 533 elementos,
+**2 033 linhas do Chrome contra 2 030 nossas**. Rácio 0,999. Um número que diz
+"perfeito" e fecharia a pergunta.
+
+O que ele esconde:
+
+| | |
+|---|---:|
+| parágrafos com o número de linhas EXATO | **83%** |
+| parágrafos que erram (até 4 linhas para cada lado) | **17%** |
+| soma dos desvios ABSOLUTOS | **115 linhas (5,7%)** |
+| desvios positivos | +56 |
+| desvios negativos | −59 |
+| **líquido** | **−3** |
+
+**115 linhas de erro real apresentam-se como 3.** O `+56` e o `−59` cancelam-se
+quase exatamente, e o rácio de 0,999 é o produto desse cancelamento e não de
+acerto.
+
+A leitura correta é a cauda, e a cauda tem forma: **~88 parágrafos com desvios
+de 1 a 4 linhas, assimétrica** — os `+1` são 54 e cheiram a arredondamento no
+limiar da última palavra; os `−3` e `−4` são 4 parágrafos concretos. Isso é
+informação sobre onde olhar, não uma tarefa aberta.
+
+**A regra: para qualquer soma com sinal, medir também a soma dos ABSOLUTOS.**
+Se as duas divergirem muito, o líquido está a medir cancelamento. Vale para
+ficheiros de teste, para pixels por eixo e para linhas por parágrafo — e a
+única razão pela qual não é óbvio de cada vez é a unidade mudar.
+
 ---
 
 ## O que estas réguas já apanharam
