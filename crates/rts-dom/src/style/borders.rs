@@ -29,6 +29,7 @@
 //! `solid`, porque não temos o anel de foco próprio da plataforma.
 
 use super::props::ComputedStyle;
+use super::aplica::set_if;
 use super::values::{BorderStyle, Dimension, Rgba, Side};
 
 /// Um dos quatro lados, na ordem do CSS (top/right/bottom/left).
@@ -211,14 +212,14 @@ pub fn apply_outline_shorthand(css: &mut ComputedStyle, val: &str) {
         } else if let Some(s) = BorderStyle::parse(tok) {
             style = Some(s);
         } else if let Some(w) = parse_width_token(tok) {
-            css.outline_width = Some(w);
+            set_if(&mut css.outline_width, Some(w));
         } else if let Some(c) = super::color::parse_color(tok) {
-            css.outline_color = Some(c);
+            set_if(&mut css.outline_color, Some(c));
         }
     }
-    css.outline_style = Some(style.unwrap_or(BorderStyle::None));
+    set_if(&mut css.outline_style, Some(style.unwrap_or(BorderStyle::None)));
     if css.outline_width.is_none() {
-        css.outline_width = Some(3.0); // `medium`, o inicial da spec
+        set_if(&mut css.outline_width, Some(3.0)); // `medium`, o inicial da spec
     }
 }
 
@@ -380,7 +381,7 @@ pub fn apply_width_shorthand(css: &mut ComputedStyle, val: &str) {
         set_side_width(css, lado, parse_width_token(&v[i]));
     }
     if uniforme {
-        css.border_width = parse_width_token(&v[0]);
+        set_if(&mut css.border_width, parse_width_token(&v[0]));
     }
 }
 
@@ -398,7 +399,7 @@ pub fn apply_style_shorthand(css: &mut ComputedStyle, val: &str) {
         set_side_style(css, lado, BorderStyle::parse(&v[i]));
     }
     if uniforme {
-        css.border_style = BorderStyle::parse(&v[0]);
+        set_if(&mut css.border_style, BorderStyle::parse(&v[0]));
     }
 }
 
@@ -416,6 +417,6 @@ pub fn apply_color_shorthand(css: &mut ComputedStyle, val: &str) {
         set_side_color(css, lado, super::color::parse_color(&v[i]));
     }
     if uniforme {
-        css.border_color = super::color::parse_color(&v[0]);
+        set_if(&mut css.border_color, super::color::parse_color(&v[0]));
     }
 }

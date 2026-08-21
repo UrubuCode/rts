@@ -31,6 +31,7 @@
 //! resto é o mesmo que o shorthand já fazia com o nome da propriedade.
 
 use super::props::ComputedStyle;
+use super::aplica::set_if;
 use crate::anim::{AnimationSpec, Easing, TransitionSpec, parse_direction, parse_time_ms};
 
 /// Os valores iniciais de `transition-*` da spec: duração 0 (= não transiciona),
@@ -93,8 +94,8 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     match name {
         // Os shorthands prefixados — os sem prefixo têm braço próprio no parse e
         // nunca chegam aqui.
-        "transition" => css.transition = TransitionSpec::parse(val),
-        "animation" => css.animation = AnimationSpec::parse(val),
+        "transition" => set_if(&mut css.transition, TransitionSpec::parse(val)),
+        "animation" => set_if(&mut css.animation, AnimationSpec::parse(val)),
 
         "transition-duration" => {
             let Some(ms) = parse_time_ms(first_item(val)) else {
@@ -102,7 +103,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             };
             let mut t = transition_or_initial(css);
             t.duration_ms = ms;
-            css.transition = Some(t);
+            set_if(&mut css.transition, Some(t));
         }
         "transition-delay" => {
             let Some(ms) = parse_time_ms(first_item(val)) else {
@@ -110,7 +111,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             };
             let mut t = transition_or_initial(css);
             t.delay_ms = ms;
-            css.transition = Some(t);
+            set_if(&mut css.transition, Some(t));
         }
         // O valor INTEIRO vai para `Easing::parse`, não um token: o shorthand
         // parte por espaços e por isso perde `cubic-bezier(.4, 0, .2, 1)`, que tem
@@ -121,7 +122,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             };
             let mut t = transition_or_initial(css);
             t.easing = e;
-            css.transition = Some(t);
+            set_if(&mut css.transition, Some(t));
         }
         // `transition-property` só tem UM efeito que este modelo sabe honrar:
         // `none` desliga a transição. Os outros valores nomeiam propriedades, e o
@@ -142,7 +143,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             } else {
                 n.to_string()
             };
-            css.animation = Some(a);
+            set_if(&mut css.animation, Some(a));
         }
         "animation-duration" => {
             let Some(ms) = parse_time_ms(first_item(val)) else {
@@ -150,7 +151,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             };
             let mut a = animation_or_initial(css);
             a.duration_ms = ms;
-            css.animation = Some(a);
+            set_if(&mut css.animation, Some(a));
         }
         "animation-delay" => {
             let Some(ms) = parse_time_ms(first_item(val)) else {
@@ -158,7 +159,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             };
             let mut a = animation_or_initial(css);
             a.delay_ms = ms;
-            css.animation = Some(a);
+            set_if(&mut css.animation, Some(a));
         }
         "animation-timing-function" => {
             let Some(e) = Easing::parse(first_item(val)) else {
@@ -166,7 +167,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             };
             let mut a = animation_or_initial(css);
             a.easing = e;
-            css.animation = Some(a);
+            set_if(&mut css.animation, Some(a));
         }
         "animation-iteration-count" => {
             let v = first_item(val);
@@ -179,7 +180,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             };
             let mut a = animation_or_initial(css);
             a.iterations = it;
-            css.animation = Some(a);
+            set_if(&mut css.animation, Some(a));
         }
         "animation-direction" => {
             let Some(d) = parse_direction(first_item(val)) else {
@@ -187,7 +188,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             };
             let mut a = animation_or_initial(css);
             a.direction = d;
-            css.animation = Some(a);
+            set_if(&mut css.animation, Some(a));
         }
         // RECONHECIDAS E INERTES, com o motivo. `AnimationSpec` não tem campo para
         // nenhuma das duas e o consumidor está fora deste módulo: `fill-mode`

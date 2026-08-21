@@ -22,6 +22,7 @@
 //! `parse.rs` e um `or_else` em `fmt.rs`) em vez de o rebentar.
 
 use super::effects::BoxShadow;
+use super::aplica::{set_if, set_ou_limpa};
 use super::props::ComputedStyle;
 use super::values::Rgba;
 
@@ -288,7 +289,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         .or_else(|| prop.strip_prefix("-ms-"))
         .unwrap_or(prop);
     match name {
-        "background-clip" => css.background_clip = BackgroundClip::parse(val),
+        "background-clip" => set_if(&mut css.background_clip, BackgroundClip::parse(val)),
         // `background-origin` tem as MESMAS três caixas de `background-clip`
         // menos o `text` — a spec não o define aqui. Reusa o tipo em vez de um
         // enum gémeo, e rejeita o `text` explicitamente: aceitá-lo guardaria uma
@@ -297,7 +298,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             css.background_origin =
                 BackgroundClip::parse(val).filter(|v| *v != BackgroundClip::Text)
         }
-        "text-decoration-style" => css.text_decoration_style = TextDecorationStyle::parse(val),
+        "text-decoration-style" => set_if(&mut css.text_decoration_style, TextDecorationStyle::parse(val)),
         // `text-decoration-thickness: auto | from-font | <comprimento>`. Como o
         // `text-underline-offset` ao lado: `auto` é o inicial e o `Option` já o
         // diz. `from-font` pede à fonte uma métrica que o medidor não expõe, e
@@ -311,26 +312,26 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // `caret-color` — a cor do cursor de texto. GUARDADA SEM PINTURA, e o
         // consumidor está mais perto do que o das outras: quem desenha o cursor
         // é o campo editável do DOM, que hoje usa a cor do texto.
-        "caret-color" => css.caret_color = super::color::parse_color(val),
+        "caret-color" => set_if(&mut css.caret_color, super::color::parse_color(val)),
         // `background-attachment` — se o fundo rola com o conteúdo. GUARDADA SEM
         // EFEITO: `fixed` pede um fundo preso à viewport, e o pintor de fundo
         // desenha sempre no retângulo do elemento.
-        "background-attachment" => css.background_attachment = BackgroundAttachment::parse(val),
+        "background-attachment" => set_if(&mut css.background_attachment, BackgroundAttachment::parse(val)),
         // `box-decoration-break` — o que acontece à borda/fundo de uma caixa
         // inline PARTIDA por uma quebra de linha. GUARDADA SEM EFEITO: o fluxo
         // inline pinta cada fragmento com a caixa inteira (que é `clone`), e não
         // tem a noção de "a mesma caixa continuada" para fazer `slice`.
-        "box-decoration-break" => css.box_decoration_break = BoxDecorationBreak::parse(val),
+        "box-decoration-break" => set_if(&mut css.box_decoration_break, BoxDecorationBreak::parse(val)),
         // `line-break` — a rigidez das regras de quebra em CJK. GUARDADA SEM
         // EFEITO: o quebrador de linha deste motor parte em espaços, e as quatro
         // variantes só se distinguem umas das outras num texto CJK.
-        "line-break" => css.line_break = LineBreak::parse(val),
-        "text-decoration-skip-ink" => css.text_decoration_skip_ink = SkipInk::parse(val),
+        "line-break" => set_if(&mut css.line_break, LineBreak::parse(val)),
+        "text-decoration-skip-ink" => set_if(&mut css.text_decoration_skip_ink, SkipInk::parse(val)),
         // `-webkit-text-fill-color` é a cor de PREENCHIMENTO do glifo, e no
         // WebKit ganha ao `color` quando ambas estão postas. Guardada sem
         // consumidor: quem pinta texto lê `color`. É a outra metade do idioma do
         // texto com gradiente — ver a nota em `BackgroundClip`.
-        "text-fill-color" => css.text_fill_color = super::color::parse_color(val),
+        "text-fill-color" => set_if(&mut css.text_fill_color, super::color::parse_color(val)),
         // `text-underline-offset: auto | <comprimento>`. `auto` = não declarado:
         // é o inicial, e um campo `Option` já o exprime sem uma variante extra.
         "text-underline-offset" => {
@@ -342,8 +343,8 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         }
         // `tab-size: <número> | <comprimento>` — a largura de um TAB. Guardada
         // sem consumidor: o medidor de texto trata `\t` como um espaço.
-        "tab-size" => css.tab_size = parse_tab_size(val),
-        "scrollbar-color" => css.scrollbar_color = parse_scrollbar_color(val),
+        "tab-size" => set_if(&mut css.tab_size, parse_tab_size(val)),
+        "scrollbar-color" => set_if(&mut css.scrollbar_color, parse_scrollbar_color(val)),
         // As três da MÁSCARA que faltavam ao lado do `mask-image`. Reusam os
         // parsers de `background-*`: a spec define-lhes a MESMA gramática, e um
         // segundo parser de posição/tamanho/repetição divergiria do primeiro à
@@ -353,21 +354,21 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // fundo da caixa (`layout::deve_suprimir_fundo`), para um ícone não sair
         // como quadrado cheio. Essa função lê APENAS `mask_image` — verificado,
         // não assumido —, portanto guardar estas três não muda o que se pinta.
-        "mask-size" => css.mask_size = super::BgSize::parse(val),
-        "mask-position" => css.mask_position = super::BgPosition::parse(val),
-        "mask-repeat" => css.mask_repeat = super::BgRepeat::parse(val),
+        "mask-size" => set_if(&mut css.mask_size, super::BgSize::parse(val)),
+        "mask-position" => set_if(&mut css.mask_position, super::BgPosition::parse(val)),
+        "mask-repeat" => set_if(&mut css.mask_repeat, super::BgRepeat::parse(val)),
         // O shorthand `mask: <image> …`. Só a imagem é lida, que é a única parte
         // com consumidor; as outras camadas caem nos campos acima quando vierem
         // escritas à parte. Reusar `parse_background` seria tentador e está
         // errado: aquele resolve `background-color`, que a máscara não tem.
         "mask" => {
             if let Some(tok) = val.split_whitespace().find(|t| t.starts_with("url(")) {
-                css.mask_image = Some(tok.to_string());
+                set_if(&mut css.mask_image, Some(tok.to_string()));
             }
         }
-        "mix-blend-mode" => css.mix_blend_mode = BlendMode::parse(val),
-        "background-blend-mode" => css.background_blend_mode = BlendMode::parse(val),
-        "text-shadow" => css.text_shadow = parse_text_shadow(val),
+        "mix-blend-mode" => set_if(&mut css.mix_blend_mode, BlendMode::parse(val)),
+        "background-blend-mode" => set_if(&mut css.background_blend_mode, BlendMode::parse(val)),
+        "text-shadow" => set_ou_limpa(&mut css.text_shadow, val, parse_text_shadow(val)),
         _ => return false,
     }
     true

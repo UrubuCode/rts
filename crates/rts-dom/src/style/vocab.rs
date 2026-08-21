@@ -23,6 +23,7 @@
 //! dois — que é a regra da casa para código novo em ficheiro já grande.
 
 use super::background::BgPosition;
+use super::aplica::set_if;
 use super::lengths::{parse_dimension, split_top_ws};
 use super::props::ComputedStyle;
 use super::values::{AlignItems, Dimension, JustifyContent};
@@ -305,7 +306,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
                 return true;
             };
             p.x = x;
-            css.bg_position = Some(p);
+            set_if(&mut css.bg_position, Some(p));
         }
         "background-position-y" => {
             let mut p = css.bg_position.unwrap_or_default();
@@ -313,17 +314,17 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
                 return true;
             };
             p.y = y;
-            css.bg_position = Some(p);
+            set_if(&mut css.bg_position, Some(p));
         }
         // `place-content: <align> <justify>` e `place-self: <align> <justify>` —
         // só expandem para os campos que já existem (o mesmo que `flex-flow` faz).
         "place-content" => {
             let t = split_top_ws(val);
             if let Some(j) = t.last().and_then(|s| JustifyContent::parse(s)) {
-                css.justify = Some(j);
+                set_if(&mut css.justify, Some(j));
             }
             if let Some(a) = t.first().and_then(|s| JustifyContent::parse(s)) {
-                css.align_content = Some(a);
+                set_if(&mut css.align_content, Some(a));
             }
         }
         // `place-items: <align> <justify>` — o par que `place-content` e
@@ -332,19 +333,19 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         "place-items" => {
             let t = split_top_ws(val);
             if let Some(a) = t.first().and_then(|s| AlignItems::parse(s)) {
-                css.align_items = Some(a);
+                set_if(&mut css.align_items, Some(a));
             }
             if let Some(j) = t.last().and_then(|s| AlignItems::parse(s)) {
-                css.grid_justify_items = Some(j);
+                set_if(&mut css.grid_justify_items, Some(j));
             }
         }
         "place-self" => {
             let t = split_top_ws(val);
             if let Some(a) = t.first().and_then(|s| AlignItems::parse(s)) {
-                css.align_self = Some(a);
+                set_if(&mut css.align_self, Some(a));
             }
             if let Some(j) = t.last().and_then(|s| AlignItems::parse(s)) {
-                css.justify_self = Some(j);
+                set_if(&mut css.justify_self, Some(j));
             }
         }
 
@@ -353,28 +354,28 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // enum próprio com as mesmas seis variantes. O corte: `stretch`/`normal`
         // chegam como `FlexStart`, porque é o que o layout faz hoje com `stretch`
         // no eixo cruzado (ver a nota em `AlignItems::Stretch`).
-        "align-content" => css.align_content = JustifyContent::parse(val),
+        "align-content" => set_if(&mut css.align_content, JustifyContent::parse(val)),
         // `justify-self` reusa `AlignItems` pelo mesmo motivo que
         // `grid_justify_items` já reusa: é o mesmo conjunto de posições.
-        "justify-self" => css.justify_self = AlignItems::parse(val),
-        "text-overflow" => css.text_overflow = TextOverflow::parse(val),
+        "justify-self" => set_if(&mut css.justify_self, AlignItems::parse(val)),
+        "text-overflow" => set_if(&mut css.text_overflow, TextOverflow::parse(val)),
         // `clip` — ver [`Clip`] para porque é guardada sem recortar. Só chega
         // aqui pelo nome nu; não tem forma prefixada em folha nenhuma do corpus.
-        "clip" => css.clip = Clip::parse(val),
-        "text-wrap" | "text-wrap-mode" => css.text_wrap = TextWrap::parse(val),
-        "object-fit" => css.object_fit = ObjectFit::parse(val),
+        "clip" => set_if(&mut css.clip, Clip::parse(val)),
+        "text-wrap" | "text-wrap-mode" => set_if(&mut css.text_wrap, TextWrap::parse(val)),
+        "object-fit" => set_if(&mut css.object_fit, ObjectFit::parse(val)),
         // `object-position` tem a MESMA gramática de `background-position` — reusa
         // o parser dela em vez de um segundo parser de posição.
-        "object-position" => css.object_position = BgPosition::parse(val),
-        "unicode-bidi" => css.unicode_bidi = UnicodeBidi::parse(val),
-        "hyphens" => css.hyphens = Hyphens::parse(val),
-        "scrollbar-width" => css.scrollbar_width = ScrollbarWidth::parse(val),
-        "caption-side" => css.caption_side = CaptionSide::parse(val),
-        "pointer-events" => css.pointer_events = PointerEvents::parse(val),
+        "object-position" => set_if(&mut css.object_position, BgPosition::parse(val)),
+        "unicode-bidi" => set_if(&mut css.unicode_bidi, UnicodeBidi::parse(val)),
+        "hyphens" => set_if(&mut css.hyphens, Hyphens::parse(val)),
+        "scrollbar-width" => set_if(&mut css.scrollbar_width, ScrollbarWidth::parse(val)),
+        "caption-side" => set_if(&mut css.caption_side, CaptionSide::parse(val)),
+        "pointer-events" => set_if(&mut css.pointer_events, PointerEvents::parse(val)),
         // `transform-origin` tem a mesma gramatica de `background-position` —
         // reusa o parser dela, como o `object-position` ao lado. O layout
         // continua a rodar em torno do centro; ver o comentario do campo.
-        "transform-origin" => css.transform_origin = BgPosition::parse(val),
+        "transform-origin" => set_if(&mut css.transform_origin, BgPosition::parse(val)),
         // Aliases do WebKit para propriedades que ja existem. O `-webkit-` sozinho
         // ja foi tirado no topo; estes tres tem NOME diferente, nao so prefixo, e
         // sao a sintaxe da flexbox de 2009 que o `google.css` ainda escreve.
@@ -393,15 +394,15 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
                 JustifyContent::parse(val)
             }
         }
-        "box-align" => css.align_items = AlignItems::parse(val),
+        "box-align" => set_if(&mut css.align_items, AlignItems::parse(val)),
         // `-webkit-justify-content` / `-webkit-align-items`: o nome e o mesmo, so
         // o prefixo muda — mas o `parse` casa por literal e nao ve o prefixado.
-        "justify-content" => css.justify = JustifyContent::parse(val),
-        "align-items" => css.align_items = AlignItems::parse(val),
+        "justify-content" => set_if(&mut css.justify, JustifyContent::parse(val)),
+        "align-items" => set_if(&mut css.align_items, AlignItems::parse(val)),
         // `-webkit-transform`: so chega aqui prefixado — o nome nu tem braco
         // proprio no `parse`, que corre antes deste modulo.
-        "transform" => css.transform = super::effects::Transform::parse(val),
-        "text-decoration-color" => css.text_decoration_color = super::color::parse_color(val),
+        "transform" => set_if(&mut css.transform, super::effects::Transform::parse(val)),
+        "text-decoration-color" => set_if(&mut css.text_decoration_color, super::color::parse_color(val)),
         // `-webkit-text-decoration` / `-moz-text-decoration`: só o prefixo muda,
         // o valor é o mesmo shorthand (é a forma que o WebKit antigo exigia, e
         // 6 das 13 folhas do corpus ainda a escrevem ao lado da nua). O nome nu
@@ -427,7 +428,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
                 .transform
                 .unwrap_or_else(super::effects::Transform::identity);
             t.rot_deg += d;
-            css.transform = Some(t);
+            set_if(&mut css.transform, Some(t));
         }
         "scale" => {
             let t2 = split_top_ws(val);
@@ -440,10 +441,10 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
                 .unwrap_or_else(super::effects::Transform::identity);
             t.sx *= sx;
             t.sy *= sy;
-            css.transform = Some(t);
+            set_if(&mut css.transform, Some(t));
         }
-        "font-stretch" => css.font_stretch = parse_font_stretch(val),
-        "zoom" => css.zoom = parse_zoom(val),
+        "font-stretch" => set_if(&mut css.font_stretch, parse_font_stretch(val)),
+        "zoom" => set_if(&mut css.zoom, parse_zoom(val)),
         "word-spacing" => {
             // `normal` é 0, e o NEGATIVO vale — como no `letter-spacing` ao
             // lado. Usava um parse de LARGURA, que recusa o sinal: duas
@@ -463,7 +464,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
                 val.trim().parse::<i32>().ok().filter(|n| *n > 0)
             }
         }
-        "column-width" => css.column_width = parse_dimension(val),
+        "column-width" => set_if(&mut css.column_width, parse_dimension(val)),
         _ => return false,
     }
     true

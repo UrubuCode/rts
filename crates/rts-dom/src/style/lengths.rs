@@ -122,8 +122,14 @@ pub(crate) fn parse_gap_pair(val: &str) -> (Option<Dimension>, Option<Dimension>
 /// - 3: `top` | `left/right` | `bottom`
 /// - 4: `top` | `right` | `bottom` | `left` (horário)
 /// A [`Caixa`] diz qual das duas é, e com isso o que `auto` e o sinal valem.
-/// Tokens inválidos para essa caixa → `Unset`.
-pub(crate) fn parse_edges(val: &str, caixa: Caixa) -> Edges {
+///
+/// Responde `None` quando a declaração é INVÁLIDA — nenhum token, mais de
+/// quatro, ou qualquer um deles recusado. Um shorthand com um componente
+/// inválido é inválido por inteiro (CSS Cascade 5 §3.2), e aqui isso não é
+/// pedantismo: o shorthand escreve os quatro lados de uma vez, portanto
+/// devolver os lados que deram apagaria os outros três. Ver
+/// [`super::aplica::set_edges`].
+pub(crate) fn parse_edges(val: &str, caixa: Caixa) -> Option<Edges> {
     // Separa os lados respeitando PARÊNTESES — um `calc(0.25rem * 4)` (todo o
     // espaçamento do Tailwind v4) tem espaços INTERNOS que o `split_whitespace` cru
     // quebraria em 3 tokens inválidos, zerando o padding/margin da página inteira.
@@ -131,7 +137,12 @@ pub(crate) fn parse_edges(val: &str, caixa: Caixa) -> Edges {
         .iter()
         .map(|t| parse_side(t, caixa))
         .collect();
-    match toks.as_slice() {
+    // Um componente recusado invalida o shorthand INTEIRO — a verificação vem
+    // antes do mapeamento porque é sobre a declaração e não sobre um lado.
+    if toks.iter().any(|s| *s == Side::Unset) {
+        return None;
+    }
+    Some(match toks.as_slice() {
         [a] => Edges::all(*a),
         [v, h] => Edges {
             top: *v,
@@ -151,8 +162,8 @@ pub(crate) fn parse_edges(val: &str, caixa: Caixa) -> Edges {
             bottom: *b,
             left: *l,
         },
-        _ => Edges::default(), // 0 ou >4: ignora (robustez).
-    }
+        _ => return None, // 0 ou >4 valores: a declaração é inválida.
+    })
 }
 
 /// [`split_top_ws`] para os módulos de shorthand (`background`), que precisam da
@@ -284,27 +295,6 @@ pub(crate) fn parse_side(tok: &str, caixa: Caixa) -> Side {
         // (padding: auto não existe) — vira Unset, nunca `Len(Auto)`.
         Some(Dimension::Auto) | None => Side::Unset,
         Some(d) => Side::Len(d),
-    }
-}
-
-/// Escreve um lado SÓ se o valor for válido para aquela caixa.
-///
-/// Uma declaração inválida não é uma declaração a zero: o CSS manda deitá-la
-/// fora no parse, e o que estava declarado antes fica a valer. `parse_side`
-/// devolve `Unset` para o que recusa, e atribuir isso ao campo APAGA a
-/// declaração anterior — que é o contrário do que recusar significa.
-///
-/// Existe por causa do `padding` negativo, que passou a ser recusado neste lote:
-/// sem esta guarda, `padding-left:8px; padding-left:-4px` ficava sem padding
-/// nenhum, quando o browser mantém os 8px.
-///
-/// ⚠️ Cobre os lados de margin/padding e mais nada. O mesmo defeito existe em
-/// TODA a tabela — `color:red; color:xpto` responde preto, `width:100px;
-/// width:-5px` responde não-declarado — porque o dispatch atribui o resultado do
-/// parse sem perguntar se ele falhou. Isso é uma correção por si, noutro sítio.
-pub(crate) fn set_side(dst: &mut Side, novo: Side) {
-    if novo != Side::Unset {
-        *dst = novo;
     }
 }
 

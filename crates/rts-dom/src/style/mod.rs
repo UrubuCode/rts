@@ -66,6 +66,8 @@ pub(crate) mod vars;
 /// O vocabulário do 2º lote de propriedades (keywords novos) — ver o módulo.
 pub mod vocab;
 
+mod aplica;
+
 #[cfg(test)]
 mod afirmacoes_tests;
 #[cfg(test)]

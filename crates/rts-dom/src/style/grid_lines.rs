@@ -35,6 +35,7 @@
 //! `GridLine::Named` sem nada que resolva nomes seria um campo que ninguém lê.
 
 use super::props::ComputedStyle;
+use super::aplica::set_if;
 
 /// Uma extremidade de colocação. `Line(-1)` é a última linha do eixo (contagem
 /// a partir do fim), que é como `grid-column: 1 / -1` diz "todas as colunas".
@@ -151,10 +152,10 @@ impl GridAutoFlow {
 /// Tenta aplicar uma das seis. `false` = o nome não é de nenhuma delas.
 pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     match prop {
-        "grid-column-start" => css.grid_column_start = GridLine::parse(val),
-        "grid-column-end" => css.grid_column_end = GridLine::parse(val),
-        "grid-row-start" => css.grid_row_start = GridLine::parse(val),
-        "grid-row-end" => css.grid_row_end = GridLine::parse(val),
+        "grid-column-start" => set_if(&mut css.grid_column_start, GridLine::parse(val)),
+        "grid-column-end" => set_if(&mut css.grid_column_end, GridLine::parse(val)),
+        "grid-row-start" => set_if(&mut css.grid_row_start, GridLine::parse(val)),
+        "grid-row-end" => set_if(&mut css.grid_row_end, GridLine::parse(val)),
         "grid-column" => {
             let (s, e) = parse_shorthand(val);
             css.grid_column_start = s;
@@ -165,11 +166,11 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             css.grid_row_start = s;
             css.grid_row_end = e;
         }
-        "grid-auto-flow" => css.grid_auto_flow = GridAutoFlow::parse(val),
+        "grid-auto-flow" => set_if(&mut css.grid_auto_flow, GridAutoFlow::parse(val)),
         // `grid-auto-columns` — o tamanho das colunas IMPLÍCITAS. `grid-auto-rows`
         // não está aqui porque já tem braço próprio no `parse` e é CONSUMIDA
         // pelo layout; esta é a metade que faltava, com o mesmo tipo.
-        "grid-auto-columns" => css.grid_auto_columns = super::GridTrack::parse_one(val),
+        "grid-auto-columns" => set_if(&mut css.grid_auto_columns, super::GridTrack::parse_one(val)),
         // `grid-gap` é o nome ANTIGO de `gap` — alias puro, e a folha que o
         // escreve escreve-o sozinho. Reentrega ao `parse`, que já sabe expandir
         // o par; uma segunda expansão aqui divergia da primeira.
