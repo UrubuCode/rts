@@ -336,6 +336,9 @@ impl Dom {
         // cada nível). É o que permite `calc(1.375rem + 1.5vw)` no font-size (a
         // tipografia fluida do h1 do Bootstrap).
         let parent_css = parent_css_for_vars;
+        // Perguntado UMA vez: decide a base do `rem` na resolução abaixo e a
+        // escrita da base logo a seguir, e as duas têm de concordar.
+        let e_raiz = matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "html");
         if let Some(d) = css.font_size {
             let parent_font = parent_css
                 .as_ref()
@@ -348,7 +351,31 @@ impl Dom {
             let rctx = style::ResolveCtx {
                 parent_content_w: parent_font, // `%` de font-size = % do font do PAI
                 node_font_size: parent_font,   // `em` de font-size = × font do PAI
-                root_font_size: crate::style::root_font_size(),
+                // A RAIZ não tem raiz. Enquanto o `<html>` está a ser resolvido
+                // ainda não existe base de `rem` deste documento — e o
+                // thread-local ainda carrega a do documento ANTERIOR, porque só
+                // é reescrito umas linhas abaixo. Um `html{font-size:2rem}`
+                // resolvia contra o `html{font-size:10px}` da página de antes e
+                // respondia 20px; agora resolve contra o inicial.
+                //
+                // É o que o Blink faz, e lá é estrutural em vez de condicional:
+                // `ElementResolveContext` só guarda o estilo da raiz `if
+                // (element != root_element)`, e o `CSSToLengthConversionData::
+                // FontSizes` trata esse nulo com regra própria. O valor deles
+                // pertence ao DOCUMENTO e é passado por parâmetro; o nosso é um
+                // thread-local, e é essa diferença que abre a janela que esta
+                // linha fecha.
+                //
+                // ⚠️ Fecha a FUGA, não o estado global: os 15 sítios do
+                // `layout/` continuam a ler o thread-local, e continuam certos
+                // porque a raiz já foi resolvida quando eles correm. Pôr a base
+                // no `Dom`, como o Blink, é candidato próprio — toca 11
+                // ficheiros do `layout/`.
+                root_font_size: if e_raiz {
+                    crate::layout::DEFAULT_FONT_SIZE
+                } else {
+                    crate::style::root_font_size()
+                },
                 viewport_w: vw,
                 viewport_h: vh,
             };
@@ -362,7 +389,7 @@ impl Dom {
         // ficava nos 16px de default e todo o `rem` da página saía 60% grande
         // demais. Escrito aqui porque a cascade corre de cima para baixo: quando
         // um descendente resolve o seu `rem`, a raiz já passou por aqui.
-        if matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "html") {
+        if e_raiz {
             // Sem declaração no root, a base VOLTA aos 16px. É o que impede o
             // valor de um documento de sobreviver ao seguinte: o estado é por
             // thread (como o estilo por tag) e um `html { font-size: 10px }` de
