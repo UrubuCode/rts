@@ -283,7 +283,7 @@ impl<'a> Body<'a> {
                 // language asks for it:
                 //
                 //   t  = trunc(x)              toward zero, per ToInteger
-                //   r  = t - trunc(t / 2^32) * 2^32     |r| < 2^32, integral
+                //   r  = t - trunc(t * 2^-32) * 2^32    |r| < 2^32, integral
                 //   i  = fcvt_to_sint_sat(i64, r)       exact: r is in range
                 //   i32 = ireduce(i32, i)               the modulo, and the
                 //                                       wrap into signed
@@ -292,10 +292,35 @@ impl<'a> Body<'a> {
                 // keeps them, the subtract turns an infinity into NaN, and the
                 // saturating conversion answers zero for NaN — which is the
                 // language's answer for all three.
+                //
+                // # Why the scale down is a MULTIPLY where it was a divide
+                //
+                // Because the two are bit-identical here and `divsd` is the
+                // longest-latency instruction on this chain — ~13-14 cycles
+                // against ~4 — and this whole sequence is serial, so its cost
+                // is latency rather than throughput. Measured before the
+                // change: `a = a | 0` carried on the loop's dependency chain
+                // cost 11.6 ns against 2.98 ns for the same operator off it.
+                //
+                // Identical rather than merely close, and the reason is worth
+                // stating because "replace a divide with a reciprocal multiply"
+                // is normally exactly the transformation that is NOT sound.
+                // Here it is: 2^-32 is a power of two and therefore exact, so
+                // both spellings only adjust the exponent, and an exponent
+                // adjustment rounds nothing UNLESS it reaches the subnormal
+                // range. It cannot: `t` is `trunc(x)`, so `t` is an integer and
+                // either zero or `|t| >= 1`, and `1 * 2^-32` is `2^-32` — 990
+                // binades above where subnormals begin. Zero, both infinities
+                // and NaN are unchanged by either spelling, signs included.
                 let raw = self.value(*v);
                 let truncated = builder.ins().trunc(raw);
                 let scale = builder.ins().f64const(4294967296.0);
-                let quotient = builder.ins().fdiv(truncated, scale);
+                // Written as the quotient rather than as `2.3283064365386963e-10`
+                // so that being exactly 2^-32 is visible instead of trusted to a
+                // decimal round trip. Both operands are exact powers of two, so
+                // Rust folds this at compile time with no rounding.
+                let reciprocal = builder.ins().f64const(1.0 / 4294967296.0);
+                let quotient = builder.ins().fmul(truncated, reciprocal);
                 let whole = builder.ins().trunc(quotient);
                 let carried = builder.ins().fmul(whole, scale);
                 let inside = builder.ins().fsub(truncated, carried);
