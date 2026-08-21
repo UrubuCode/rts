@@ -405,6 +405,28 @@ linhas" é absurdo à vista.
 Um `PASSA` não teria mostrado nada. **Um instrumento que imprime o número que
 mediu denuncia-se sozinho; um que imprime só o veredicto, não.**
 
+### 10b. Um chunker de chavetas mente num ficheiro cujo assunto são chavetas
+
+O contador de `{`/`}` anunciou uma função com **221 linhas** e um `impl` a ir
+até ao fim do ficheiro. A função tem **28**. A causa: era o ficheiro que
+**parseia CSS**, cheio de `'{'` e `'}'` em literais, e o contador conta-os.
+
+Trocado para a regra de indentação (`    fn` abre, `    }` fecha), os números
+ficam certos. **Foi a regra 10 que o apanhou** — os dois valores eram absurdos à
+vista, e um `PASSA` não teria mostrado nada.
+
+Corolário para escolher a técnica: **a forma do chunker tem de ser escolhida
+contra o CONTEÚDO do ficheiro**, não em geral. Chavetas num parser, `    }` num
+ficheiro com `macro_rules!` indentados, itens de topo em qualquer um.
+
+### 10c. `#[path = "…"]` resolve-se contra a pasta do ficheiro que o contém
+
+Ao descer um nível, um `#[path]` passa a apontar para o sítio errado — **e só o
+alvo de TESTE falha; a lib compila com zero erros.** `cargo check` sozinho não a
+apanha, e é a única cegueira desta lista que sobrevive a ele.
+
+Remédio: mover o ficheiro apontado, **nunca reescrever a linha movida**.
+
 ### 11. Listar os `super::` é um passo do MAPA, não uma surpresa
 
 Um corpo movido que diz `super::X` passa a ter outro `super`. **O texto continua
