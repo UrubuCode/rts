@@ -592,3 +592,54 @@ uma escolha de plano**. A decisão de deixar as estruturas no pai foi tomada
 quatro vezes em quatro áreas por quatro raciocínios independentes, e nas quatro
 a conta deu o mesmo — a maior delas 1 anotação contra ~15.
 
+---
+
+## Fechado — e o último corte é o que explica o critério
+
+    ficheiros acima de 500 no rts-dom :  16  ->  1
+    layout.rs   9 987 -> 309       dom.rs  5 974 -> 26 ficheiros
+    style/      9 acima -> ZERO    inline_box.rs 1 350 -> 342
+    PORTÃO      16 813 elementos IDÊNTICOS byte a byte
+
+O que sobra é `layout/bloco.rs` com 818, e é o desvio declarado: **é uma função
+de 807 linhas**, e parti-la por dentro deixa de ser um `move`.
+
+### O critério não é o teto — é quem espera por quem
+
+O último corte não foi pedido por nenhum número: `vertical.rs` tinha 577 e o
+módulo que saiu tem 83. **Foi pedido por um bloqueio real:** duas tarefas que
+**não se tocavam** — o colapso de margens e o `vertical-align` — calharam no
+mesmo ficheiro, e uma esperou pela outra.
+
+E a distinção que decidiu não partir outros ficheiros veio da mesma pergunta:
+
+> **colidir em LINHAS não é colidir em LÓGICA**
+
+Duas pessoas a acrescentar duas propriedades ao mesmo `match` acrescentam duas
+linhas que não se leem uma à outra — **isso é um merge, não um bloqueio**. O
+dispatch de CSS com 36 braços ficou inteiro por isso. O único ficheiro que duas
+tarefas tocam sempre é a tabela de propriedades, e essa **não se parte por
+decisão**: é a fonte única de que saem quatro vistas geradas.
+
+### Como se decide se um corte é real
+
+Duas leituras independentes do mesmo ficheiro, por caminhos diferentes, e as
+duas têm de concordar:
+
+- **a interface** — quantos chamadores, o que passa por parâmetro, o que devolve;
+- **o alcance** — tudo o que o corpo nomeia, e se alguma dessas coisas é estado
+  do pai.
+
+*Um corte é artificial quando o filho continua a puxar o estado do pai.*
+
+E a prova de que resolve **a colisão que houve** e não uma parecida: o símbolo
+disputado tem de ficar num só dos lados. Aqui ficou — depois do corte, as duas
+tarefas não partilham uma linha.
+
+### O sinal de um corte bem posto
+
+**O ficheiro de origem não ganha linhas.** Seguindo o padrão de registo que o
+módulo já usava, o `--numstat` do ficheiro de origem foi `0 82`: nada entrou,
+82 saíram. **É o mais próximo de um `move` puro que um corte com fronteira
+consegue ser** — e é observável antes de qualquer teste correr.
+
