@@ -6318,10 +6318,18 @@ mod tests {
             let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
             *list.geometry().rects.get(&idx).expect("o input devia ter caixa")
         };
-        let c = caixa("<div>a <input id='x' type='checkbox'> b</div>");
-        assert_eq!((c.w, c.h), (13.0, 13.0), "quadrado intrínseco: {c:?}");
-        let r = caixa("<div>a <input id='x' type='radio'> b</div>");
-        assert_eq!((r.w, r.h), (13.0, 13.0), "o radio idem: {r:?}");
+        // Tolerância e não igualdade: 13 é o tamanho intrínseco, mas chega aqui
+        // por uma cadeia de contas em f32 e sai 13.000001 conforme o que a
+        // precede na linha. O que o teste afirma é o QUADRADO de 13, não a
+        // reprodutibilidade bit a bit de uma soma de floats.
+        let quadrado = |r: Rect, quem: &str| {
+            assert!(
+                (r.w - 13.0).abs() < 0.01 && (r.h - 13.0).abs() < 0.01,
+                "{quem} devia ser um quadrado de 13: {r:?}"
+            );
+        };
+        quadrado(caixa("<div>a <input id='x' type='checkbox'> b</div>"), "o checkbox");
+        quadrado(caixa("<div>a <input id='x' type='radio'> b</div>"), "o radio");
         // o campo de texto continua a ser um campo de texto.
         let t = caixa("<div>a <input id='x' type='text'> b</div>");
         assert!(t.w > 100.0, "campo de texto mantém a largura de campo: {t:?}");
@@ -7460,7 +7468,7 @@ mod tests {
         let cruzam: Vec<_> = t.iter().filter(|(_, _, y, _)| *y < 100.0).collect();
         assert!(cruzam.len() >= 2, "várias linhas ao lado do float: {t:?}");
         for (txt, x, y, _) in &cruzam {
-            let largura = txt.chars().count() as f32 * 8.0;
+            let largura = txt.chars().count() as f32 * 16.0 * crate::style::PROP_ADVANCE;
             assert!(*x + largura <= 400.5, "linha em y={y} invade o float: {txt:?} x={x}");
         }
     }
@@ -7481,7 +7489,8 @@ mod tests {
         let abaixo: Vec<_> = t.iter().filter(|(_, _, y, _)| *y >= 30.0).collect();
         assert!(!acima.is_empty() && !abaixo.is_empty(), "linhas dos dois lados: {t:?}");
         let largura = |v: &Vec<&(String, f32, f32, u32)>| {
-            v.iter().map(|(s, _, _, _)| s.chars().count() as f32 * 8.0).fold(0.0, f32::max)
+            let ch = 16.0 * crate::style::PROP_ADVANCE;
+            v.iter().map(|(s, _, _, _)| s.chars().count() as f32 * ch).fold(0.0, f32::max)
         };
         assert!(largura(&acima) <= 300.5, "linha ao lado do float é curta: {acima:?}");
         assert!(

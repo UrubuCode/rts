@@ -63,9 +63,40 @@ pub fn normal_line_height(size: f32) -> f32 {
 /// Chrome (ver o topo do módulo): nove amostras, três fixtures, todas a 0,5498.
 pub const MONO_ADVANCE: f32 = 0.5498;
 
-/// O avanço MÉDIO de um carácter proporcional. Aproximação sem calibração
-/// possível — ver o topo do módulo.
-pub const PROP_ADVANCE: f32 = 0.5;
+/// O avanço MÉDIO de um carácter proporcional, em frações do font-size.
+///
+/// **A frase que aqui estava — "aproximação sem calibração possível" — era
+/// verdadeira em geral e falsa para esta régua.** Uma fonte proporcional não
+/// tem avanço único, cada glifo tem o seu, e a média certa depende do texto:
+/// isso continua a valer. O que mudou é que existe um corpus onde a pergunta
+/// tem resposta — a Wikipédia pt/Brasil medida num Chrome real — e o que se
+/// calibra é ESTA FAMÍLIA DE PÁGINAS, texto latino corrido na pilha de fontes
+/// do MediaWiki, não o universo.
+///
+/// **O método foi um LIMITE, não uma média.** Um parágrafo que ocupa `n`
+/// linhas de largura `w` diz que a soma das larguras das suas linhas é no
+/// máximo `n × w`, portanto `avanço ≤ n × w / (caracteres × font-size)`. Isso
+/// vale sempre: um parágrafo cuja altura tenha outra causa (uma imagem, uma
+/// quebra forçada) só dá um limite FROUXO, nunca aperta o limite a menos do
+/// que deve. Sobre 538 parágrafos do corpus com `line-height` numérico e altura
+/// múltipla dele, o menor limite é **0,4646**, e os cinco mais apertados caem
+/// em 0,4646 · 0,4653 · 0,4667 · 0,4688 · 0,4724 — um patamar, não um outlier.
+///
+/// Confirmado por um segundo método independente do primeiro: as larguras de
+/// 2 513 elementos inline de uma linha, comparadas com o Chrome, dão 0,4731
+/// ponderado pela largura e 0,4766 de mediana.
+///
+/// **0,46 e não 0,4646**: um valor colado ao limite é frágil, porque o limite é
+/// um teto e não uma estimativa. Este fica dentro dele com margem e a 3% da
+/// medição direta.
+///
+/// O caminho até aqui tem uma armadilha que vale mais do que o número: durante
+/// a mesma investigação, contar linhas por parágrafo deu 0,617 e depois 0,71 —
+/// ambos errados, porque o corpus misturava DUAS POPULAÇÕES. Nos parágrafos de
+/// texto denso o motor fazia 15% de linhas a MAIS que o Chrome; nos que têm
+/// quebras forçadas, 23% a MENOS. A média de dois sinais opostos não descreve
+/// nenhum dos dois. Quem revisitar isto separe as populações antes de medir.
+pub const PROP_ADVANCE: f32 = 0.46;
 
 /// A largura que o `letter-spacing` acrescenta a um texto de `n` caracteres.
 ///

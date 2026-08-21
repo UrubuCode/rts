@@ -487,7 +487,9 @@ fn coluna_nowrap_nao_tem_folga_e_a_vizinha_leva_o_espaco_todo() {
     let rotulo = rect(&dom, &list, "th", 0);
     let conteudo = rect(&dom, &list, "td", 0);
 
-    assert!((rotulo.w - 64.0).abs() < 1.0, "coluna nowrap = {}", rotulo.w);
+    // 8 caracteres sem quebra: a largura sai da constante do medidor.
+    let oito = 8.0 * 16.0 * crate::style::PROP_ADVANCE;
+    assert!((rotulo.w - oito).abs() < 1.0, "coluna nowrap = {}", rotulo.w);
     assert!(
         (rotulo.w + conteudo.w - 200.0).abs() < 1.0,
         "as duas colunas somam {} e nao 200",
@@ -525,8 +527,10 @@ fn nowrap_soma_os_filhos_inline_em_vez_de_tomar_o_maior() {
     </table>"#;
     let (dom, list) = geometria(html, 800.0);
 
-    // 4 chars * 16 * 0.5 = 32px cada; na mesma linha somam 64.
+    // 4 caracteres cada; na mesma linha somam 8 — e o que o teste afirma é a
+    // SOMA dos dois inline, não o avanço por carácter.
+    let oito = 8.0 * 16.0 * crate::style::PROP_ADVANCE;
     let rotulo = rect(&dom, &list, "th", 0);
-    assert!((rotulo.w - 64.0).abs() < 1.0, "coluna nowrap com dois inline = {}", rotulo.w);
+    assert!((rotulo.w - oito).abs() < 1.0, "coluna nowrap com dois inline = {}", rotulo.w);
 }
 

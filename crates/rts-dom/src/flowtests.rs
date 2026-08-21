@@ -166,10 +166,14 @@ fn um_inline_de_uma_linha_mede_o_seu_texto_e_nao_a_linha() {
     let p = rect(&d, &l, "p", 0);
     let t = rect(&d, &l, "#t", 0);
     assert!((p.w - 400.0).abs() < 0.5, "o bloco é o bloco: {}", p.w);
-    // "alvo" = 4 caracteres a 8px.
-    assert!((t.w - 32.0).abs() < 0.5, "o inline devia medir o seu texto, mediu {}", t.w);
+    // "alvo" = 4 caracteres. A largura vem da CONSTANTE e não de um número
+    // escrito à mão: o que este teste afirma é que o inline mede o seu texto,
+    // não quanto mede um carácter — e escrever 32 aqui fazia-o falhar sempre
+    // que o avanço fosse recalibrado, por uma razão que não é a dele.
+    let ch = 16.0 * crate::style::PROP_ADVANCE;
+    assert!((t.w - 4.0 * ch).abs() < 0.5, "o inline devia medir o seu texto, mediu {}", t.w);
     // e começa depois de "antes " (6 caracteres), não no início da linha.
-    assert!((t.x - 48.0).abs() < 0.5, "x do inline: {}", t.x);
+    assert!((t.x - 6.0 * ch).abs() < 0.5, "x do inline: {}", t.x);
 }
 
 /// Um inline que quebra em três linhas tem UMA caixa que as contém às três:
@@ -177,13 +181,17 @@ fn um_inline_de_uma_linha_mede_o_seu_texto_e_nao_a_linha() {
 /// do que qualquer um dos fragmentos — é o que o browser devolve.
 #[test]
 fn um_inline_que_quebra_em_tres_linhas_da_a_uniao_larga_e_alta() {
-    let html = "<p style='width:200px'><a id='t'>aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn</a></p>";
+    // A largura vem do NUMERO DE LINHAS que se quer, e o numero de caracteres
+    // que cabem numa linha depende da calibracao do medidor: com 150px o texto
+    // da tres linhas com folga dos dois lados de PROP_ADVANCE, em vez de ficar
+    // no limiar entre duas e tres.
+    let html = "<p style='width:150px'><a id='t'>aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn</a></p>";
     let (d, l) = geometria(html, 800.0);
     let t = rect(&d, &l, "#t", 0);
     // Três linhas de 18px: a união vai do topo da primeira ao fundo da terceira.
     assert!((t.h - 54.0).abs() < 0.5, "a união devia cobrir as três linhas, tem {}", t.h);
     // E é larga: as linhas cheias chegam perto do limite dos 200px.
-    assert!(t.w > 150.0, "a união devia ser larga, tem {}", t.w);
+    assert!(t.w > 110.0, "a união devia ser larga, tem {}", t.w);
     assert!(t.w <= 200.5, "a união não pode passar o bloco: {}", t.w);
     // Guardar UM fragmento só daria a altura de uma linha — era a segunda cara
     // da acusação, e é isto que a recusa.
@@ -200,8 +208,9 @@ fn um_inline_dentro_de_outro_tem_a_sua_propria_caixa_mais_estreita() {
     );
     let t = rect(&d, &l, "#t", 0);
     let s = rect(&d, &l, "#s", 0);
-    assert!((t.w - 32.0).abs() < 0.5, "o <a> mede 'alvo': {}", t.w);
-    assert!((s.w - 16.0).abs() < 0.5, "o <span> mede só 'vo': {}", s.w);
+    let ch = 16.0 * crate::style::PROP_ADVANCE;
+    assert!((t.w - 4.0 * ch).abs() < 0.5, "o <a> mede 'alvo': {}", t.w);
+    assert!((s.w - 2.0 * ch).abs() < 0.5, "o <span> mede só 'vo': {}", s.w);
     // contido: começa depois do pai e acaba com ele.
     assert!(s.x >= t.x - 0.5 && s.x + s.w <= t.x + t.w + 0.5, "o filho saiu do pai: {s:?} em {t:?}");
     assert!(s.x > t.x + 0.5, "o filho devia começar depois de 'al': {}", s.x);
@@ -221,8 +230,10 @@ fn um_inline_com_caixa_atomica_dentro_leva_a_largura_dela_mas_nao_a_altura() {
         800.0,
     );
     let t = rect(&d, &l, "#t", 0);
-    // "x" + 40 da imagem + "y" = 56.
-    assert!((t.w - 56.0).abs() < 0.5, "a largura devia incluir a imagem: {}", t.w);
+    // "x" + 40 da imagem + "y": o que se afirma é que a imagem CONTA, e por
+    // isso os dois caracteres vêm da constante e o 40 é o número do teste.
+    let ch = 16.0 * crate::style::PROP_ADVANCE;
+    assert!((t.w - (40.0 + 2.0 * ch)).abs() < 0.5, "a largura devia incluir a imagem: {}", t.w);
     // A altura é a da fonte (18), não a da imagem (40).
     assert!((t.h - 18.0).abs() < 0.5, "levou a altura da imagem em vez da fonte: {}", t.h);
 }
