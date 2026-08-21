@@ -47,8 +47,34 @@ elementos** continuam iguais.
 
 ## A decomposição proposta para `layout.rs`
 
-77 funções de topo, testes a partir da linha 6953 (~3 000 linhas). Os nomes já
-declaram as fronteiras:
+77 funções de topo, **3 010 linhas de teste (30,1%)** a partir da 6978. Os nomes
+já declaram as fronteiras.
+
+**AVISO: a tabela abaixo tinha dois números errados, e o defeito era do
+contador.** Estava escrito `bounding_rect` **828** e `collect_geometry` **314**.
+O `bounding_rect` tem **nove linhas** — cinco delas de doc — e o
+`collect_geometry` tem **31**. A função de 807 linhas é o `layout_block`, que
+não aparecia de todo.
+
+O mecanismo, porque o número errado vale menos que a razão:
+
+```
+awk '/^(pub )?fn [a-z_]+/{ ... print prevline, NR-prevline, prev }'
+```
+
+O padrão **não apanha `pub(crate) fn`** — e é assim que o `layout_block` está
+declarado — nem os métodos dentro de um `impl`, que são indentados. E o tamanho
+que ele imprime é **a distância até à declaração seguinte que o padrão apanha**,
+não o corpo da função. Um defeito, dois sintomas, os dois na mesma direção:
+inflacionar quem vem antes de algo que o contador não vê.
+
+O custo não era cosmético. O plano desenhava um módulo à volta de um problema
+que não existe, **enquanto o problema verdadeiro ficava dentro de outro sem
+ninguém contar com ele** — e só apareceria a meio do passo mais arriscado.
+
+É a mesma forma dos dois defeitos de régua apanhados no mesmo dia: o instrumento
+a reportar com confiança um número que era artefacto dele próprio. **Um contador
+de linhas é um instrumento e obedece às mesmas regras que uma régua de pixels.**
 
 | módulo | o que leva | maiores funções |
 |---|---|---|
@@ -69,7 +95,7 @@ honesto; um que fica em 700 em silêncio repõe o problema.
 
 ## A ordem, e porque é que ela importa
 
-1. **Primeiro os testes.** Tirar `#[cfg(test)]` para `layout/tests/` corta ~3 000
+1. **Primeiro os testes.** Tirar `#[cfg(test)]` para `layout/tests/` corta 3 010
    linhas sem tocar numa única linha de lógica — é o movimento com melhor razão
    risco/benefício de todos, e sozinho tira o ficheiro de 9 961 para ~6 950.
 2. **Depois as folhas** — `display.rs`, `medida.rs`, `replaced.rs`, `consulta.rs`:
@@ -175,3 +201,20 @@ que era a mesma regra nas três.
 É a forma do defeito que o `layout.rs` tem **cinco vezes** — *"não é inline?"*
 onde a pergunta é *"é de bloco?"* erra para o lado errado, e por isso cada cópia
 falha sozinha e é corrigida sozinha, ao preço de um lote e uma medição cada.
+
+### "Testes primeiro" é uma hipótese, não uma regra
+
+Esta ordem veio do `dom.rs`, onde cortava 29,5% do ficheiro. **Nas outras duas
+áreas foi medida antes de seguida e não transferiu:**
+
+- no **`style/`** os testes já vivem em ficheiros próprios; as 449 linhas que
+  restam dentro da lógica (4,0%) estão em ficheiros que **já cumprem o teto**, e
+  extraí-las não tirava um único da lista;
+- em **`table/mod.rs` e `block.rs`** não há teste nenhum — são 100% lógica.
+
+E há o caso invertido: o **`inline_box.rs` é 61,4% teste**, e um único passo
+deixa a lógica em 521 linhas.
+
+A regra que sobrevive é a de partida: **medir o ficheiro antes de lhe aplicar um
+plano feito para outro.**
+
