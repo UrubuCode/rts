@@ -184,11 +184,31 @@ function indiceDeLi(linhas) {
 /// palavra de cada item de lista da página. A forma sozinha tem 107 falsos
 /// positivos; as duas juntas não têm nenhum — foi o que a separação mediu.
 const EH_MARCADOR = /^[0-9a-z]+\.$/i;
+/// Um item de texto com ALPHA ZERO nao e texto pintado.
+///
+/// `visibility: hidden` mantem a caixa e apaga o glifo, e este motor implementa-o
+/// zerando o alpha do run em vez de o suprimir (ver `cor_visivel` no `layout.rs`)
+/// — o que esta certo, porque a caixa tem de continuar a ocupar espaco. Mas a
+/// regua contava `DisplayItem::Text` sem olhar a cor, portanto contava como
+/// desenhado aquilo que o motor emite precisamente para NAO desenhar.
+///
+/// Mediu-se: **423 itens, 3 060 caracteres invisiveis** — 98% dos 3 133 que esta
+/// regua atribuia a "texto a mais". A lista de idiomas da Wikipedia (304 li com
+/// `visibility:hidden` herdado do dropdown fechado) e quase tudo isso, e o caso
+/// que fecha a duvida e o `Ferramentas`: dois itens nossos, alphas 255 e 0, e o
+/// DOM do Chrome diz 1. Pintamos exatamente um. A "duplicacao" era a copia
+/// invisivel a ser contada.
+///
+/// O Chrome nao reporta estes de nenhum dos dois lados porque nao os pinta. Nao
+/// os contar aqui e o que torna as duas colunas a mesma pergunta.
+const VISIVEL = (o) => (o.color === undefined ? true : (o.color & 0xff) !== 0);
+
 const fragChrome = (l) => l.filter((o) => o.k === "text");
 const fragRts = (l) => {
   const dono = indiceDeLi(l);
   return l.filter(
-    (o) => o.k === "text" && !(EH_MARCADOR.test(String(o.t).trim()) && dono(o)),
+    (o) => o.k === "text" && VISIVEL(o) &&
+           !(EH_MARCADOR.test(String(o.t).trim()) && dono(o)),
   );
 };
 
