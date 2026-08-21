@@ -2995,14 +2995,33 @@ impl Dom {
             // `:root` = o elemento raiz do documento (o `<html>`). Num DOM headless de
             // FRAGMENTO (sem <html>), casa só se for o ÚNICO elemento top-level — senão
             // 0 (fiel ao browser, que tem exatamente 1 root).
+            //
+            // A CONTAGEM SOZINHA NÃO CHEGA, e o caso não é raro: um `<style>` ou um
+            // `<link>` antes do `<html>` fica IRMÃO dele — `open_implicit_body`
+            // recusa-lhe estrutura implícita de propósito, para não enterrar o
+            // `<html>` real dentro de um implícito. O documento passa a ter dois
+            // elementos de topo e o `== 1` recusava tudo, incluindo o `<html>`. Com
+            // a folha do Google — que declara as suas 83 variáveis em `:root` — isso
+            // esvaziava o mapa de custom properties do documento inteiro: 329 dos 368
+            // elementos ficavam com o `font-size` errado e 297 com a cor errada.
+            // Havendo um `<html>` de topo, ele É a raiz; a contagem fica para o
+            // fragmento que não tem nenhum.
             P::Root => {
-                self.nodes[idx].parent == Some(self.root)
-                    && self.nodes[self.root]
-                        .children
-                        .iter()
-                        .filter(|&&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
-                        .count()
-                        == 1
+                self.nodes[idx].parent == Some(self.root) && {
+                    let topo = || {
+                        self.nodes[self.root]
+                            .children
+                            .iter()
+                            .copied()
+                            .filter(|&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
+                    };
+                    match topo().find(
+                        |&c| matches!(&self.nodes[c].kind, NodeKind::Element { tag } if tag == "html"),
+                    ) {
+                        Some(html) => html == idx,
+                        None => topo().count() == 1,
+                    }
+                }
             }
             P::Empty => !self.nodes[idx].children.iter().any(|&c| {
                 matches!(self.nodes[c].kind, NodeKind::Element { .. })

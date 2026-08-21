@@ -85,3 +85,61 @@ fn var_que_nao_resolve_usa_o_fallback() {
     assert_eq!(font_size(&dom, "#d"), "14px");
 }
 
+
+
+
+#[test]
+fn root_casa_o_html_mesmo_com_uma_folha_antes_dele() {
+    // Um `<style>` antes do `<html>` fica IRMÃO dele (o parser recusa-lhe
+    // estrutura implícita), portanto o documento tem dois elementos de topo. O
+    // `:root` continua a ser o `<html>` — é o que o browser faz, e é o que faz a
+    // folha do Google chegar ao documento: ela declara as variáveis todas em
+    // `:root` e o harness de paridade cola a folha à frente da página.
+    let dom = parse_html_to_dom(
+        "<style>:root{--a:14px} body{font-size:var(--a)}</style>\
+         <html><body><div id=\"d\">x</div></body></html>",
+    );
+    assert_eq!(dom.query_all(":root").len(), 1, ":root casa o <html>, não zero");
+    assert_eq!(font_size(&dom, "body"), "14px");
+    assert_eq!(font_size(&dom, "#d"), "14px");
+}
+
+#[test]
+fn folha_antes_do_html_aplica_as_regras_que_nao_dependem_do_root() {
+    // Pin do que NUNCA esteve partido: uma folha antes do `<html>` sempre foi
+    // parseada e as suas regras sempre casaram. Só o `:root` falhava — e foi essa
+    // distinção que evitou reescrever o parser de HTML para corrigir um seletor.
+    let dom = parse_html_to_dom(
+        "<style>body{font-size:14px} p{color:#ff0000}</style>\
+         <html><body><p id=\"p\">x</p></body></html>",
+    );
+    let p = dom.query("#p").unwrap();
+    assert_eq!(font_size(&dom, "body"), "14px");
+    assert_eq!(dom.computed_property(p, "color"), "rgb(255, 0, 0)");
+}
+
+#[test]
+fn a_pagina_do_harness_de_paridade_resolve_as_variaveis() {
+    // A forma exata que `scripts/parity/run.sh` monta: `<style>` + CSS +
+    // `</style>` + o documento, doctype incluído. O Chrome move a folha para o
+    // `head` implícito e as variáveis valem; aqui a folha fica de fora e é o
+    // `:root` que tem de continuar a encontrar o `<html>`.
+    let dom = parse_html_to_dom(
+        "<style>:root{--a:14px} body,input,button{font-size:var(--a)}</style>\n\
+         <!doctype html><html><head></head><body><div id=\"d\">x</div></body></html>",
+    );
+    assert_eq!(font_size(&dom, "body"), "14px");
+    assert_eq!(font_size(&dom, "#d"), "14px", "e desce por herança");
+}
+
+#[test]
+fn fragmento_sem_html_continua_a_ter_um_unico_root() {
+    // O caso para que a contagem `== 1` foi escrita, e que o fix não pode perder:
+    // sem `<html>`, dois elementos de topo não têm raiz (o browser tem sempre uma
+    // só), e um tem.
+    let um = parse_html_to_dom("<div id=\"a\">x</div>");
+    assert_eq!(um.query_all(":root").len(), 1, "o <html> inventado é a raiz");
+    let frag = crate::dom::parse_fragmento("<div>a</div><div>b</div>");
+    assert_eq!(frag.query_all(":root").len(), 0, "dois topos, nenhuma raiz");
+}
+
