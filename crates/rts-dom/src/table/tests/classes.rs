@@ -247,3 +247,141 @@ fn o_padding_de_uma_coluna_auto_nao_entra_na_percentagem_da_vizinha() {
         [180.0, 420.0]
     );
 }
+
+// ── Tabelas dentro de tabelas ────────────────────────────────────────────────
+// O cluster que a régua da página real apontou depois da escada entrar: os seis
+// elementos perdidos em `w` e as três piores células eram todos desta forma, e o
+// amplificador eram os `<li>` lá dentro — `w=72` no Chrome contra 578 nossos,
+// com a altura a passar de 16 para 37 porque a linha partiu em duas.
+
+/// A largura das `<table>`, na ordem do documento — a de fora primeiro.
+fn tabelas(html: &str, n: usize) -> Vec<f32> {
+    let doc = format!("{BASE}{html}");
+    let (dom, list) = geometria(&doc, 900.0);
+    (0..n).map(|i| rect(&dom, &list, "table", i).w).collect()
+}
+
+#[test]
+fn uma_tabela_dentro_de_uma_celula_encolhe_ao_conteudo() {
+    // A de dentro cabe em 200 e a célula dá-lhe 600: uma `<table>` sem `width` é
+    // shrink-to-fit e não ocupa o que lhe dão, que é a diferença mais visível
+    // entre uma tabela e um `<div>`.
+    iguais!(
+        tabelas(r#"<table style="width:600px"><tr><td><table><tr><td><b></b></td><td><b></b></td></tr></table></td></tr></table>"#, 2),
+        [600.0, 200.0]
+    );
+}
+
+#[test]
+fn a_tabela_de_dentro_com_width_cem_por_cento_ocupa_a_celula() {
+    // O contraste do teste anterior: com `width` declarado ela ocupa mesmo, e as
+    // colunas dela repartem os 600.
+    iguais!(
+        tabelas(r#"<table style="width:600px"><tr><td><table style="width:100%"><tr><td><b></b></td><td><b></b></td></tr></table></td></tr></table>"#, 2),
+        [600.0, 600.0]
+    );
+}
+
+#[test]
+fn o_maximo_de_uma_celula_que_contem_tabela_e_o_maximo_da_tabela() {
+    // A célula da esquerda vale o que a tabela de dentro quer (200) e a da
+    // direita 100: acima do máximo, as duas crescem em proporção ao seu máximo.
+    //
+    // O selector é `td.fora` e não `td`: em ordem de documento a segunda `<td>`
+    // da página é a primeira célula da tabela de DENTRO, e um teste com o nome
+    // deste a medir aquela célula passaria a perseguir um número que nunca era o
+    // que o nome diz.
+    let doc = format!(
+        "{BASE}{}",
+        r#"<table style="width:600px"><tr><td class="fora"><table><tr><td><b></b></td><td><b></b></td></tr></table></td><td class="fora"><b></b></td></tr></table>"#
+    );
+    let (dom, list) = geometria(&doc, 900.0);
+    let w: Vec<f32> = (0..2).map(|i| rect(&dom, &list, "td.fora", i).w).collect();
+    iguais!(w, [400.0, 200.0]);
+}
+
+#[test]
+fn a_tabela_de_dentro_com_folga_encolhe_a_soma_dos_maximos() {
+    // Colunas com folga (50..100) na de dentro: o alvo dela é a soma dos máximos
+    // e não o espaço da célula, portanto 200 e não 600.
+    iguais!(
+        tabelas(r#"<table style="width:600px"><tr><td><table><tr><td><i></i><i></i></td><td><i></i><i></i></td></tr></table></td></tr></table>"#, 2),
+        [600.0, 200.0]
+    );
+}
+
+// ── A forma REAL: o navbox do MediaWiki ──────────────────────────────────────
+// Reduzida da página que a régua mede. Traz duas coisas que a escada acabou de
+// tocar: uma célula `colspan=2` com `width:100%` e, dentro da tabela aninhada,
+// um rótulo com `width:1%` — a `.navbox-group`, que já custou 231px onde o
+// Chrome dá 123.
+
+#[test]
+fn um_rotulo_a_um_por_cento_fica_no_seu_minimo_e_nao_no_seu_um_por_cento() {
+    // 1% de 600 são 6px e o rótulo precisa de 100: a percentagem é levantada
+    // até ao mínimo, não respeitada com o conteúdo a transbordar.
+    iguais!(
+        larguras(r#"<table style="width:600px;border-spacing:0"><tr><th style="width:1%"><b></b></th><td><b></b><b></b></td></tr></table>"#, 1),
+        [500.0]
+    );
+}
+
+#[test]
+fn uma_tabela_com_coluna_em_percentagem_nao_encolhe_ao_conteudo() {
+    // A de dentro tem max-content 300 e fica com 600. Uma coluna a 1% que
+    // precisa de 100px implica uma tabela de 10 000 para a satisfazer, e é esse
+    // o máximo intrínseco — não a soma dos máximos das colunas. É por isso que
+    // ela ocupa a célula toda em vez de encolher.
+    iguais!(
+        tabelas(r#"<table style="width:600px;border-spacing:0"><tr><th colspan="2"><b></b></th></tr><tr><td colspan="2" style="width:100%"><table style="border-spacing:0"><tr><th style="width:1%"><b></b></th><td><b></b><b></b></td></tr></table></td></tr></table>"#, 2),
+        [600.0, 600.0]
+    );
+}
+
+#[test]
+fn uma_celula_com_colspan_e_percentagem_nao_desequilibra_as_colunas() {
+    // A célula que atravessa pede 100%; as duas colunas por baixo repartem em
+    // partes iguais porque nenhuma delas declara nada.
+    iguais!(
+        larguras(r#"<table style="width:600px;border-spacing:0"><tr><td colspan="2" style="width:100%"><b></b></td></tr><tr><td><b></b></td><td><i></i><i></i></td></tr></table>"#, 3),
+        [600.0, 300.0, 300.0]
+    );
+}
+
+// ── A raiz do cluster da página real: uma coluna com uma IMAGEM ──────────────
+// Emparelhando o dump do Chrome com o nosso na `pagina.combinada.html`, a cadeia
+// inteira de 21 ancestrais bate a ZERO até um sítio só: uma coluna de navbox com
+// uma imagem, que recebe 5px onde o Chrome dá 154. A `<img>` é medida bem — 152px
+// nos dois motores — mas a COLUNA não a vê, colapsa, e as duas vizinhas absorvem
+// o que ela devia ocupar. Era isto o cluster, e não o aninhamento.
+
+#[test]
+fn uma_coluna_com_imagem_vale_a_largura_da_imagem() {
+    iguais!(
+        larguras(r#"<table style="width:600px;border-spacing:0"><tr><td><b></b></td><td><img width="152" height="117" alt=""></td></tr></table>"#, 2),
+        [238.09, 361.91]
+    );
+}
+
+#[test]
+fn a_imagem_conta_mesmo_dentro_de_um_span_e_de_um_a() {
+    // A forma da página real: a miniatura vem embrulhada em `<span><a>`, e o
+    // embrulho não pode esconder a largura de quem está lá dentro.
+    iguais!(
+        larguras(r#"<table style="width:600px;border-spacing:0"><tr><td><b></b></td><td><span><a><img width="152" height="117" alt=""></a></span></td></tr></table>"#, 2),
+        [238.09, 361.91]
+    );
+}
+
+#[test]
+fn uma_largura_declarada_de_um_pixel_e_levantada_ate_a_imagem() {
+    // A forma EXATA da página: `.navbox-image` do MediaWiki escreve
+    // `width:1px;padding:0 0 0 2px` na célula da miniatura. Um pixel não cabe, e
+    // uma largura declarada que não cabe é levantada até ao mínimo do conteúdo —
+    // que numa imagem é a imagem. O Chrome dá 154 = 152 + 2 de padding, que é o
+    // número que a página real mostra ao pixel.
+    iguais!(
+        larguras(r#"<table style="width:600px;border-spacing:0"><tr><td><b></b></td><td style="width:1px;padding:0 0 0 2px"><img width="152" height="117" alt=""></td></tr></table>"#, 2),
+        [446.0, 154.0]
+    );
+}
