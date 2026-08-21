@@ -40,6 +40,13 @@ const DIR = "scripts/parity/calculos";
 const BLINK = "C:/CHAMALEON/third_party/blink/renderer";
 const ESTADOS = ["tem", "falta", "difere", "desconhecido"];
 const VEREDICTOS = ["spec", "quirk", "por-apurar"];
+// A quinta coluna, e nenhuma das outras a via: elas medem o que está no
+// `ComputedStyle`, esta mede o que é preciso para aquilo PINTAR. Dois alvos
+// morreram por falta dela — `background-image` precisava de rede, `tab-size`
+// precisava do `white-space` do `<pre>` — e nos dois casos o número de elementos
+// estava certo e era inalcançável. A diferença entre os dois últimos valores é a
+// diferença entre uma linha e um lote, e é por isso que são valores separados.
+const PRECONDICOES = ["nenhuma", "consumidor-nao-le", "consumidor-nao-existe"];
 
 const problemas = [];
 const registos = [];
@@ -61,6 +68,13 @@ for (const f of readdirSync(DIR).filter((x) => x.endsWith(".jsonl"))) {
     vistos.add(r.id);
     if (!ESTADOS.includes(r.nosso && r.nosso.estado)) problemas.push(f + ":" + n + " estado inválido: " + (r.nosso && r.nosso.estado));
     if (!VEREDICTOS.includes(r.veredicto)) problemas.push(f + ":" + n + " veredicto inválido: " + r.veredicto);
+    if (r.precondicao !== undefined && !PRECONDICOES.includes(r.precondicao))
+      problemas.push(f + ":" + n + " precondicao inválida: " + r.precondicao);
+    // Um registo `tem` com uma pré-condição por cumprir é a contradição que esta
+    // coluna existe para tornar impossível: seria uma propriedade a contar como
+    // feita sem mover um pixel.
+    if (r.nosso && r.nosso.estado === "tem" && r.precondicao && r.precondicao !== "nenhuma")
+      problemas.push(f + ":" + n + " estado=tem com precondicao=" + r.precondicao + " — não pode pintar   (" + r.id + ")");
     registos.push(Object.assign({}, r, { __f: f, __n: n }));
   }
 }
@@ -170,6 +184,16 @@ const pc = alvo.length ? (100 * executados / alvo.length).toFixed(0) : "0";
 console.log("  " + executados + " de " + alvo.length + " (" + pc + "%) foram EXECUTADOS;" +
   " os outros afirmam o que o código PARECE fazer\n");
 
+const comPre = alvo.filter((r) => r.precondicao);
+if (comPre.length) {
+  const c = (v) => comPre.filter((r) => r.precondicao === v).length;
+  console.log("  PRÉ-CONDIÇÃO, em " + comPre.length + " dos " + alvo.length + " declarados: " +
+    c("nenhuma") + " prontos, " + c("consumidor-nao-le") + " com consumidor que NÃO LÊ (uma linha), " +
+    c("consumidor-nao-existe") + " sem consumidor nenhum (um lote)");
+  console.log("  os outros " + (alvo.length - comPre.length) + " não a declaram — e um alcance sem" +
+    " pré-condição verificada é um orçamento sem o preço\n");
+}
+
 if (tem("faltam") || area) {
   console.log("-- OS CANDIDATOS --");
   for (const r of candidatos.sort((a, b) => a.id.localeCompare(b.id))) {
@@ -178,6 +202,7 @@ if (tem("faltam") || area) {
     console.log("        blink: " + r.blink.ficheiro + (r.blink.simbolo ? " :: " + r.blink.simbolo : ""));
     console.log("        nosso: " + (r.nosso.ficheiro || "-") + (r.nosso.simbolo ? " :: " + r.nosso.simbolo : ""));
     if (r.spec) console.log("        spec:  " + r.spec);
+    if (r.precondicao) console.log("        pré:   " + r.precondicao);
     if (r.nota) console.log("        " + r.nota);
   }
 }
