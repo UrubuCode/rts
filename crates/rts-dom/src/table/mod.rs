@@ -492,7 +492,16 @@ fn pinta_caixa(
             radius: crate::layout::Corners::from_style(&css, 0.0),
         });
     }
-    em.extend(crate::layout::border_items(&css, rect, radius, 1.0));
+    em.extend(crate::layout::border_items(
+        &css,
+        rect,
+        radius,
+        1.0,
+        // A borda de uma célula respeita o `filter` dela como a de qualquer
+        // outra caixa; passar a identidade aqui faria a mesma folha pintar
+        // diferente consoante o elemento fosse ou não uma célula de tabela.
+        crate::painteffects::filtro(css.filter.as_deref().unwrap_or("")),
+    ));
     for (i, item) in em.into_iter().enumerate() {
         crate::layout::insert_item(list, at + i, filhos_antes, item);
     }

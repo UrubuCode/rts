@@ -402,6 +402,7 @@ impl ComputedStyle {
             _ => super::vocab::get_property(self, n.as_str())
                 .or_else(|| super::radius::get_property(self, n.as_str()))
                 .or_else(|| super::grid_lines::get_property(self, n.as_str()))
+                .or_else(|| super::painting::get_property(self, n.as_str()))
                 .unwrap_or_default(),
         }
     }

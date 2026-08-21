@@ -47,6 +47,7 @@ pub mod lengths;
 pub mod logical;
 pub mod lerp;
 pub mod text_metrics;
+pub mod painting;
 pub mod parse;
 pub mod props;
 /// Os raios POR CANTO (`border-top-left-radius` e as sete companhias).

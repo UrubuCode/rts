@@ -123,6 +123,21 @@ impl FilterMatriz {
         let alpha = alpha.round().clamp(0.0, 255.0) as u32;
         (out[0] << 24) | (out[1] << 16) | (out[2] << 8) | alpha
     }
+
+    /// A cor final: o filtro e depois o `opacity` do elemento.
+    ///
+    /// A ordem é a do CSS — o filtro atua sobre o elemento renderizado e a
+    /// opacidade compõe o resultado — e existe como método para que os pontos
+    /// de emissão não possam aplicar um e esquecer o outro, que era exatamente
+    /// o risco de trocar um `apply_opacity` por duas chamadas soltas.
+    pub fn aplicar_com_opacidade(&self, cor: u32, opacidade: f32) -> u32 {
+        let c = self.aplicar(cor);
+        if opacidade >= 1.0 {
+            return c;
+        }
+        let a = (c & 0xFF) as f32 * opacidade.clamp(0.0, 1.0);
+        (c & 0xFFFF_FF00) | (a.round().clamp(0.0, 255.0) as u32)
+    }
 }
 
 /// Coeficientes de luminância do sRGB (Rec. 709) — os que o spec do

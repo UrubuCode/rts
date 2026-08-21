@@ -1405,6 +1405,25 @@ pub(crate) fn layout_block(
         } else {
             css.opacity.unwrap_or(1.0)
         };
+        // `filter`: a cadeia inteira reduzida a UMA matriz de cor, uma vez por
+        // elemento. Ver `painteffects` para o que é exprimível — em resumo, as
+        // funções que são aritmética de canal são exatas e o `blur`/`drop-shadow`
+        // recusam a cadeia toda, deixando esta matriz na identidade.
+        //
+        // Aplicada ANTES do `opacity` porque é essa a ordem do CSS: o filtro
+        // atua sobre o elemento renderizado e a opacidade compõe o resultado.
+        //
+        // LIMITE, e é o mesmo que o `opacity` acima já tem: alcança as cores
+        // PRÓPRIAS desta caixa (sombra, fundo, gradiente, borda) e não os
+        // descendentes, que são pintados pelos seus próprios layouts. Um
+        // `filter: invert(1)` numa div com texto inverte aqui o fundo e não o
+        // texto. Não há grupo de compositing nesta display list onde a subárvore
+        // pudesse ser filtrada como uma unidade — quando houver, é ele que passa
+        // a carregar isto, e não este sítio.
+        let fx = crate::painteffects::filtro(css.filter.as_deref().unwrap_or(""));
+        // Compõe as duas numa função só, para que nenhum dos pontos de emissão
+        // abaixo possa aplicar uma e esquecer a outra.
+        let cor = |c: u32| apply_opacity(fx.aplicar(c), op);
         // Insere na ordem: primeiro o fundo, depois a borda por cima dele (ambos
         // atrás dos filhos). `insert` desloca os filhos para a frente.
         let mut at = box_index;
@@ -1416,7 +1435,7 @@ pub(crate) fn layout_block(
                 dy: sh.dy,
                 blur: sh.blur,
                 spread: sh.spread,
-                color: apply_opacity(sh.color, op),
+                color: cor(sh.color),
                 radius,
             });
             at += 1;
@@ -1427,18 +1446,18 @@ pub(crate) fn layout_block(
         if let Some(g) = css.gradient.filter(|_| fundo) {
             insert_item(list, at, filhos_antes_da_caixa, DisplayItem::GradientRect {
                 rect: box_rect,
-                c0: apply_opacity(g.c0, op),
-                c1: apply_opacity(g.c1, op),
+                c0: cor(g.c0),
+                c1: cor(g.c1),
                 angle_deg: g.angle_deg,
                 radius,
             });
             at += 1;
         } else if let Some(color) = css.bg.filter(|_| fundo) {
-            let color = apply_opacity(color, op);
+            let color = cor(color);
             insert_item(list, at, filhos_antes_da_caixa, DisplayItem::SolidRect { rect: box_rect, color, radius: cantos });
             at += 1;
         }
-        for item in border_items(&css, box_rect, radius, op) {
+        for item in border_items(&css, box_rect, radius, op, fx) {
             insert_item(list, at, filhos_antes_da_caixa, item);
             at += 1;
         }
@@ -1463,7 +1482,8 @@ pub(crate) fn layout_block(
             // o índice do clip quando uma borda por lado entra em jogo.
             css.box_shadow.is_some() as usize
                 + (css.gradient.is_some() || css.bg.is_some()) as usize
-                + border_items(&css, box_rect, css.corner_radius.unwrap_or(0.0), 1.0).len()
+                + border_items(&css, box_rect, css.corner_radius.unwrap_or(0.0), 1.0,
+                    crate::painteffects::FilterMatriz::IDENTIDADE).len()
         } else {
             0
         };
@@ -1500,6 +1520,43 @@ pub(crate) fn layout_block(
                 overflow_x: ov_x,
                 overflow_y: ov_y,
             });
+        }
+    }
+
+    // ── CLIP-PATH: recorta o elemento a um retângulo. SÓ `inset()` sem `round`
+    // chega aqui com um rect — as outras formas devolvem `None` e não recortam
+    // nada, porque recortar um `polygon()` pela caixa envolvente desenharia um
+    // quadrado onde devia estar um losango (ver `painteffects`).
+    //
+    // Emitido DEPOIS do bloco de overflow acima, e de propósito: inserir em
+    // `box_index` empurra tudo o que vem a partir dali, e fazê-lo antes
+    // desalinharia por um o `children_start` que aquele bloco calcula. Como o
+    // `EndClip` deste é empilhado no fim, o aninhamento sai certo — este abre
+    // primeiro e fecha por último, portanto envolve o clip de scroll.
+    //
+    // A diferença para o clip de overflow é onde ABRE: aquele recorta só os
+    // FILHOS (abre depois dos itens de caixa), este recorta o elemento INTEIRO,
+    // fundo e borda incluídos, que é o que o `clip-path` do CSS faz. Daí abrir
+    // em `box_index`.
+    if let Some(cp) = css.clip_path.as_deref() {
+        if let Some(rect) = crate::painteffects::clip_retangulo(cp, box_rect) {
+            insert_item(
+                list,
+                box_index,
+                filhos_antes_da_caixa,
+                DisplayItem::BeginClip {
+                    rect,
+                    node: id,
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    // Os fragmentos-filhos que existiam quando a CAIXA foi
+                    // reservada — não `list.children.len()` de agora, que já
+                    // conta os desta subárvore. O clip abre conceptualmente
+                    // antes deles, mesmo sendo inserido depois de existirem.
+                    filhos_antes: filhos_antes_da_caixa,
+                },
+            );
+            list.items.push(DisplayItem::EndClip { filhos_dentro: list.children.len() });
         }
     }
 
@@ -3445,7 +3502,18 @@ fn layout_inline_block_line(
 ///
 /// O `outline` sai por último (por cima) e por FORA do border-box, inflado pelo
 /// `outline-offset` — é o que o distingue da borda: não ocupa espaço nenhum.
-pub(crate) fn border_items(css: &ComputedStyle, box_rect: Rect, radius: f32, op: f32) -> Vec<DisplayItem> {
+pub(crate) fn border_items(
+    css: &ComputedStyle,
+    box_rect: Rect,
+    radius: f32,
+    op: f32,
+    // O `filter` do elemento. Parâmetro e não leitura do `css` aqui dentro porque
+    // esta função é chamada TAMBÉM só para CONTAR quantos itens de borda existem
+    // (o índice do clip), e nessa chamada a cor não interessa — passar a
+    // identidade diz isso explicitamente em vez de calcular uma matriz para a
+    // deitar fora.
+    fx: crate::painteffects::FilterMatriz,
+) -> Vec<DisplayItem> {
     let mut out = Vec::new();
     let sides = crate::style::borders::resolved_sides(css);
     if crate::style::borders::has_per_side(css) {
@@ -3464,7 +3532,7 @@ pub(crate) fn border_items(css: &ComputedStyle, box_rect: Rect, radius: f32, op:
             if side.paints() {
                 out.push(DisplayItem::SolidRect {
                     rect,
-                    color: apply_opacity(side.color, op),
+                    color: fx.aplicar_com_opacidade(side.color, op),
                     radius: Corners::ZERO,
                 });
             }
@@ -3477,7 +3545,7 @@ pub(crate) fn border_items(css: &ComputedStyle, box_rect: Rect, radius: f32, op:
             out.push(DisplayItem::Border {
                 rect: box_rect,
                 width: sides[0].width,
-                color: apply_opacity(sides[0].color, op),
+                color: fx.aplicar_com_opacidade(sides[0].color, op),
                 radius,
             });
         }
@@ -3495,7 +3563,7 @@ pub(crate) fn border_items(css: &ComputedStyle, box_rect: Rect, radius: f32, op:
             ),
             width: ow,
             // `outline-color` ausente = `currentColor` (a cor do texto).
-            color: apply_opacity(css.outline_color.or(css.color).unwrap_or(0x000000FF), op),
+            color: fx.aplicar_com_opacidade(css.outline_color.or(css.color).unwrap_or(0x000000FF), op),
             // O outline é sempre RETANGULAR aqui (o Chrome moderno segue o
             // border-radius) — ver `style::borders`.
             radius: 0.0,

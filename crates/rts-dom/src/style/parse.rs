@@ -423,6 +423,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             _ if crate::style::vocab::try_apply(css, &prop, val) => {}
             _ if crate::style::radius::try_apply(css, &prop, val) => {}
             _ if crate::style::grid_lines::try_apply(css, &prop, val) => {}
+            _ if crate::style::painting::try_apply(css, &prop, val) => {}
             // RECONHECIDA e deliberadamente não modelada: conta noutra coluna,
             // para a coluna das desconhecidas continuar a ser a lista do que
             // falta fazer e não uma mistura com o que foi recusado.

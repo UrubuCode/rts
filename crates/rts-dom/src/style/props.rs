@@ -444,6 +444,20 @@ css_props! {
         [inh] word_spacing: f32;
         /// `text-overflow`. Guardada — ver [`crate::style::vocab::TextOverflow`].
         [] text_overflow: crate::style::vocab::TextOverflow;
+        /// A cauda de PINTURA (ver `style::painting`): guardadas e sem pintar.
+        /// `background_clip` — o pintor de fundo desenha sempre o retângulo da
+        /// borda; `mix_blend_mode`/`background_blend_mode` — não há composição,
+        /// a lista de display não sabe ler o que já está por baixo;
+        /// `text_shadow` — reusa [`BoxShadow`], mas quem a pintaria era o pintor
+        /// de TEXTO, e esse não pergunta por sombra. Nenhuma tem consumidor.
+        [] background_clip: crate::style::painting::BackgroundClip;
+        [] mix_blend_mode: crate::style::painting::BlendMode;
+        [] background_blend_mode: crate::style::painting::BlendMode;
+        /// Sem `[anim]`: a `BoxShadow` não implementa `AnimValue`, e a sombra da
+        /// caixa — que É pintada — também não transiciona. Marcar esta como
+        /// animável antes daquela seria a que não pinta a ganhar uma capacidade
+        /// que a que pinta não tem.
+        [] text_shadow: BoxShadow;
         /// As quatro extremidades da COLOCAÇÃO POR LINHA de grid. Guardadas e
         /// sem geometria: os itens continuam a ser colocados por ordem de
         /// documento. Ver `style::grid_lines`, que tem o ponto de enxerto e a

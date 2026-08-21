@@ -41,6 +41,10 @@ pub fn initial(name: &str) -> Option<&'static str> {
         // dois sítios era a lista paralela que este ficheiro existe para evitar.
         "text-overflow" => "clip",
         "clip" => "auto",
+        // A cauda de pintura (ver `style::painting`).
+        "background-clip" => "border-box",
+        "mix-blend-mode" | "background-blend-mode" => "normal",
+        "text-shadow" => "none",
         // As seis da colocação por linha (ver `style::grid_lines`). O shorthand
         // não está aqui: a forma computada dele é a única do módulo que não foi
         // medida contra o Chrome, e pôr um palpite na TABELA DOS MEDIDOS era
