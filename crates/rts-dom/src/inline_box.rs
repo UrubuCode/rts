@@ -122,6 +122,41 @@ pub(crate) fn replaced_inline_size(
     Some((w.max(0.0), h.max(0.0)))
 }
 
+/// Este carácter é WHITESPACE para o CSS?
+///
+/// São cinco e só cinco (CSS Text §3, "white space characters"): espaço, tab,
+/// LF, CR e FF. `char::is_whitespace` — que é o que o fluxo inline usava em
+/// todos os sítios — responde pela propriedade Unicode `White_Space`, e essa
+/// inclui o NBSP (U+00A0). O NBSP é exatamente o carácter que a spec manda NÃO
+/// colapsar e NÃO oferecer como oportunidade de quebra: colapsá-lo apaga o seu
+/// avanço (4,45px a 14,4px de fonte, medido no Chrome) e desloca para a
+/// esquerda tudo o que vem depois dele na linha.
+///
+/// A alternativa rejeitada era perguntar `!c.is_whitespace() || c == NBSP` em
+/// cada chamada. Isso é a mesma regra escrita nove vezes dentro de um ficheiro
+/// — e foi tê-la escrita uma vez por sítio (como `char::is_whitespace`) que
+/// produziu o defeito. Uma pergunta, uma resposta.
+pub(crate) fn e_espaco_css(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{000C}')
+}
+
+/// O texto sem whitespace CSS nas duas pontas — o `trim` desta regra.
+pub(crate) fn apara_css(s: &str) -> &str {
+    s.trim_matches(e_espaco_css)
+}
+
+/// Este run é SÓ separador? Um run de um NBSP não é, e é essa a diferença que
+/// lhe devolve a caixa: quem responde `true` aqui não abre peça nenhuma no
+/// aglomerado, logo não fica dono de nada, logo não recebe retângulo.
+pub(crate) fn so_espaco_css(s: &str) -> bool {
+    s.chars().all(e_espaco_css)
+}
+
+/// As palavras separadas por whitespace CSS — o `split_whitespace` desta regra.
+pub(crate) fn palavras_css(s: &str) -> impl Iterator<Item = &str> {
+    s.split(e_espaco_css).filter(|w| !w.is_empty())
+}
+
 /// A ALTURA DE UMA LINHA de texto sob este estilo.
 ///
 /// Existe como função porque a resposta estava em dois estados no motor: o fluxo
@@ -553,5 +588,177 @@ mod quebra_de_linha {
             sup.w < 30.0,
             "a caixa do pai é a do aglomerado, não a da linha: {sup:?}"
         );
+    }
+}
+
+
+
+#[cfg(test)]
+mod espaco_que_nao_colapsa {
+    //! O NBSP e o inline sem texto visivel: dois defeitos com o mesmo sintoma
+    //! (o elemento fica sem caixa) e causas diferentes, por isso testados
+    //! separados.
+    //!
+    //! Todos medem com o `ApproxMeasurer` — cada caractere vale
+    //! `tamanho * 0.46` — para que as larguras sejam previsiveis sem falar
+    //! sobre uma fonte real.
+
+    use crate::table::tests::{geometria, rect, textos};
+
+    /// Uma caixa que pode nao existir: e a diferenca entre "sem geometria" e
+    /// "geometria de largura zero", e os dois casos aparecem aqui.
+    fn caixa(html: &str, sel: &str, n: usize) -> Option<crate::layout::Rect> {
+        let (dom, list) = geometria(html, 800.0);
+        let id = *dom.query_all(sel).get(n)?;
+        let idx = dom.resolve(id)?;
+        list.geometry_now().rects.get(&idx).copied()
+    }
+
+    /// O NBSP OCUPA largura; o espaco normal no mesmo sitio nao ocupa nenhuma.
+    ///
+    /// E o par que separa os dois caracteres: um `<span>&nbsp;</span>` e
+    /// conteudo — o Chrome da-lhe 4,45px a 14,4px de fonte — e um
+    /// `<span> </span>` entre duas palavras e o separador que elas ja tinham,
+    /// portanto colapsa e o span fica com largura zero.
+    #[test]
+    fn nbsp_ocupa_largura_e_o_espaco_normal_colapsa() {
+        let com_nbsp = caixa("<p>aa <span>&nbsp;</span> bb</p>", "span", 0);
+        let com_espaco = caixa("<p>aa <span> </span> bb</p>", "span", 0);
+        assert!(
+            com_nbsp.is_some_and(|r| r.w > 0.0),
+            "o NBSP tem avanco proprio: {com_nbsp:?}"
+        );
+        assert!(
+            com_espaco.is_none_or(|r| r.w == 0.0),
+            "o espaco normal entre duas palavras colapsa: {com_espaco:?}"
+        );
+    }
+
+    /// E o NBSP e PINTADO, em vez de desaparecer no colapso.
+    ///
+    /// A prova de que nao e so a caixa que voltou: o caractere continua no
+    /// texto que vai para o ecra, que e o que faz a linha ter a largura certa.
+    #[test]
+    fn o_nbsp_sobrevive_ao_texto_pintado() {
+        let (_d, list) = geometria("<p>aa<span>&nbsp;</span>bb</p>", 800.0);
+        assert!(
+            textos(&list).iter().any(|t| t.contains('\u{00A0}')),
+            "o NBSP foi engolido pela normalizacao: {:?}",
+            textos(&list)
+        );
+    }
+
+    /// O NBSP NAO e oportunidade de quebra — e a razao de existir.
+    ///
+    /// Com espaco normal as duas palavras separam-se e a linha parte em duas;
+    /// com NBSP nao ha onde partir e a linha transborda inteira, que e o que o
+    /// browser faz. A caixa de 60px cabe "aaaa" (29,4) mas nao "aaaa bbbb"
+    /// (66,2).
+    #[test]
+    fn nbsp_nao_oferece_oportunidade_de_quebra() {
+        let estreito = "width:60px;font-size:16px";
+        let colado = caixa(
+            &format!("<p style='{estreito}'><span>aaaa&nbsp;bbbb</span></p>"),
+            "span",
+            0,
+        )
+        .expect("o span colado tem caixa");
+        let separado = caixa(
+            &format!("<p style='{estreito}'><span>aaaa bbbb</span></p>"),
+            "span",
+            0,
+        )
+        .expect("o span separado tem caixa");
+        assert!(
+            colado.h < separado.h,
+            "o NBSP tem de manter uma linha so: colado={colado:?} separado={separado:?}"
+        );
+        assert!(
+            colado.w > 60.0,
+            "e transborda em vez de partir: {colado:?}"
+        );
+    }
+
+    /// O avanco do NBSP DESLOCA o que vem a seguir na linha.
+    ///
+    /// E o erro visivel do colapso, e o que o distingue de uma caixa em falta:
+    /// perder o NBSP nao apaga so o span dele, encosta a esquerda tudo o que
+    /// vem depois na mesma linha.
+    #[test]
+    fn o_avanco_do_nbsp_empurra_o_vizinho_da_linha() {
+        let com = caixa("<p>a<span>&nbsp;</span><b>b</b></p>", "b", 0)
+            .expect("o vizinho tem caixa");
+        let sem = caixa("<p>a<span></span><b>b</b></p>", "b", 0)
+            .expect("o vizinho tem caixa");
+        assert!(
+            com.x > sem.x,
+            "o NBSP tem de empurrar o vizinho: com={com:?} sem={sem:?}"
+        );
+    }
+
+    /// Um inline cujo conteudo TODO e `display:none` tem caixa de largura zero.
+    ///
+    /// E a forma do COinS da Wikipedia — `<span class="Z3988">` com um unico
+    /// filho escondido, ~280 por pagina. Pela spec o pai continua a gerar uma
+    /// caixa inline: existe, esta na posicao corrente da linha, e nao tem
+    /// largura porque nao tem conteudo que a de.
+    #[test]
+    fn inline_com_todo_o_conteudo_escondido_tem_caixa_de_largura_zero() {
+        let r = caixa(
+            "<p>aa <span class='z'><span style='display:none'>Z39.88</span></span> bb</p>",
+            "span",
+            0,
+        );
+        let r = r.expect("o inline escondido continua a ter caixa");
+        assert_eq!(r.w, 0.0, "o conteudo escondido nao da largura: {r:?}");
+        assert!(r.h > 0.0, "mas a caixa tem a altura da linha: {r:?}");
+    }
+
+    /// E o texto escondido NAO e pintado.
+    ///
+    /// A metade que prova que a largura zero veio de o conteudo ser saltado, e
+    /// nao de ele ter sido medido a zero: antes deste par, os metadados de
+    /// citacao apareciam escritos no meio do paragrafo.
+    #[test]
+    fn o_texto_de_um_display_none_nao_entra_na_linha() {
+        let (_d, list) = geometria(
+            "<p>aa <span><span style='display:none'>Z39.88</span></span> bb</p>",
+            800.0,
+        );
+        assert!(
+            !textos(&list).iter().any(|t| t.contains("Z39.88")),
+            "texto escondido pintado na linha: {:?}",
+            textos(&list)
+        );
+    }
+
+    /// Um inline VAZIO ja tinha caixa, e continua a ter: o `Marker` e a
+    /// resposta que os dois casos acima passaram a partilhar em vez de
+    /// duplicar.
+    #[test]
+    fn inline_vazio_continua_a_ter_caixa_de_largura_zero() {
+        let (dom, list) = geometria("<p>aa <span></span> bb</p>", 800.0);
+        let r = rect(&dom, &list, "span", 0);
+        assert_eq!(r.w, 0.0, "{r:?}");
+        assert!(r.h > 0.0, "{r:?}");
+    }
+}
+
+#[cfg(test)]
+mod sonda_ul {
+    use crate::table::tests::geometria;
+    fn r(html: &str, sel: &str, n: usize) -> Option<crate::layout::Rect> {
+        let (dom, list) = geometria(html, 800.0);
+        let id = *dom.query_all(sel).get(n)?;
+        let idx = dom.resolve(id)?;
+        list.geometry_now().rects.get(&idx).copied()
+    }
+    #[test]
+    fn sonda() {
+        println!("ul aninhada     = {:?}", r("<ul><li>a<ul><li>b</li></ul></li></ul>", "ul", 1));
+        println!("ul vazia        = {:?}", r("<ul><li>a<ul></ul></li></ul>", "ul", 1));
+        println!("ul em li inline = {:?}", r("<li style='display:inline'>a<ul><li>b</li></ul></li>", "ul", 0));
+        println!("navbox          = {:?}", r("<div><ul><li><ul><li><a>x</a></li></ul></li></ul></div>", "ul", 1));
+        println!("ul so espacos   = {:?}", r("<ul><li>a<ul>   </ul></li></ul>", "ul", 1));
     }
 }

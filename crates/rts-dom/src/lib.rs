@@ -61,6 +61,11 @@ mod table;
 #[cfg(test)]
 mod flowtests;
 
+/// O que conta como ITEM de flex e o que conta para a largura da linha —
+/// medido num container isolado, não na página.
+#[cfg(test)]
+mod flextests;
+
 /// Os testes do RAIO POR CANTO: o que a display list carrega e o que o backend
 /// pode recortar. Módulo próprio porque não são fluxo nem tabela — o que fixam é
 /// a caixa pintada.

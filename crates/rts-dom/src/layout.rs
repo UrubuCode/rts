@@ -40,7 +40,7 @@
 //!   main vertical, justify no Y). `flex-grow`/`shrink`/`basis` também fora.
 
 use crate::dom::{Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeIdx, NodeKind};
-use crate::inline_box::AtomicKind;
+use crate::inline_box::{AtomicKind, apara_css, e_espaco_css, so_espaco_css};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 /// Um retângulo em coordenadas de conteúdo (a origem é o canto da área de render;
@@ -2580,6 +2580,15 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         if is_out_of_flow(dom, child) {
             continue;
         }
+        // Numa linha de FLEX, um nó de texto só-espaços não é item nenhum — o
+        // pré-passo de `layout_children_horizontal` descarta-o (`trim().is_empty()`)
+        // e aqui ele contava DUAS vezes: a largura do `"\n\t\t"` e mais um `gap`
+        // por ser um item a mais. Eram 155 px no `.vector-header-start` da
+        // Wikipédia. Fora de flex não se toca: entre dois inline o espaço é
+        // largura real, e essa pergunta é do fluxo inline, não desta função.
+        if is_row && matches!(&dom.node(child).kind, NodeKind::Text(t) if t.trim().is_empty()) {
+            continue;
+        }
         let w = intrinsic_outer_width(dom, child, font, ctx);
         if w > 0.0 {
             count += 1;
@@ -2612,6 +2621,17 @@ pub(crate) fn intrinsic_outer_width(
                 if is_non_rendered_tag(tag) {
                     return 0.0;
                 }
+            }
+            // `display:none` não gera caixa, logo não tem largura NENHUMA — e
+            // contá-la aqui não era um erro pequeno: os quatro menus escondidos
+            // do cabeçalho da Wikipédia somavam 520 px à intrínseca do `nav`, o
+            // que fazia o `flex-wrap` do `<header>` quebrar linha e empilhar os
+            // dois filhos que o Chrome põe lado a lado. A alternativa —
+            // filtrá-los em cada CHAMADOR — foi rejeitada por ser a mesma
+            // pergunta respondida em cinco sítios; quem sabe que uma caixa não
+            // existe é quem mede a caixa.
+            if e_display_none(dom, id) {
+                return 0.0;
             }
             let css = dom.computed_style_idx(id).unwrap_or_default();
             let f = font_px(&css, parent_font);
@@ -4317,6 +4337,12 @@ fn layout_children_horizontal(
         if is_out_of_flow(dom, child) {
             continue;
         }
+        // `display:none` não é item de flex: não conta para o wrap, não come um
+        // `gap` e não recebe main size. `layout_block` já lhe dava caixa zero, o
+        // que escondia o defeito — a caixa era invisível mas o LUGAR dela não.
+        if e_display_none(dom, child) {
+            continue;
+        }
         // BLOCKIFICAÇÃO: um filho de flex é um item de nível BLOCO, mesmo sendo
         // um `<span>` (a spec blockifica os itens de flex; o Chrome reporta
         // `display:block` neles). Só um NÓ DE TEXTO é item anónimo.
@@ -5052,6 +5078,11 @@ fn layout_children_column(
         }
         // fora do fluxo: não é item flex (pintado na passada out-of-flow).
         if is_out_of_flow(dom, child) {
+            continue;
+        }
+        // `display:none` não é item — mesmo motivo do eixo horizontal; aqui o
+        // que ele roubava era altura e um `gap` vertical.
+        if e_display_none(dom, child) {
             continue;
         }
         // Blockificação, como no eixo horizontal — ver o comentário lá.
@@ -5915,6 +5946,22 @@ fn collect_runs(
                 if is_non_rendered_tag(tag) {
                     return;
                 }
+                // `display:none` DENTRO de uma linha. O comentário de
+                // `e_display_none` diz que a herança vem de "quem varre já não
+                // desce nele" — e este varredor descia: um
+                // `<span><span style=display:none>Z39.88…</span></span>` (o
+                // COinS de cada citação da Wikipédia, ~280 na página) era
+                // medido e PINTADO na linha, dando ao pai a largura do texto
+                // oculto em vez da caixa de largura zero que o Chrome lhe dá.
+                //
+                // Saltar aqui é também o que devolve a caixa ao pai: sem filho
+                // que gere run, ele cai no `Marker` lá abaixo, que é a resposta
+                // que já existia para o inline vazio. A alternativa — um caminho
+                // novo para "inline cujo conteúdo todo é invisível" — era pôr a
+                // mesma resposta num segundo sítio.
+                if e_display_none(dom, id) {
+                    return;
+                }
                 // WIDGET inline: um `<input>` no meio do fluxo (botão/campo) vira
                 // um run-widget com o tamanho pré-medido — o wrap o trata como
                 // palavra inquebrável e a emissão pinta a caixa no lugar.
@@ -6160,10 +6207,10 @@ fn collapse_ws(text: &str, leading_space: bool) -> std::borrow::Cow<'_, str> {
     // por um espaço só, sem borda) — devolver emprestado evita uma alocação por
     // run, e um relayout de página grande são milhares deles.
     let needs_work = leading_space
-        || text.starts_with(char::is_whitespace)
-        || text.ends_with(char::is_whitespace)
+        || text.starts_with(e_espaco_css)
+        || text.ends_with(e_espaco_css)
         || text.contains("  ")
-        || text.chars().any(|c| c.is_whitespace() && c != ' ');
+        || text.chars().any(|c| e_espaco_css(c) && c != ' ');
     if !needs_work {
         return std::borrow::Cow::Borrowed(text);
     }
@@ -6172,7 +6219,7 @@ fn collapse_ws(text: &str, leading_space: bool) -> std::borrow::Cow<'_, str> {
         out.push(' ');
     }
     let mut first = true;
-    for word in text.split_whitespace() {
+    for word in crate::inline_box::palavras_css(text) {
         if !first {
             out.push(' ');
         }
@@ -6609,7 +6656,7 @@ fn wrap_runs(
         // de normalizar, porque um separador pendente faz a normalizacao
         // devolver " " -- nao-vazio -- e o run deixaria de ser reconhecido como
         // o separador que e.
-        if !run.text.is_empty() && run.text.trim().is_empty() {
+        if !run.text.is_empty() && so_espaco_css(&run.text) {
             fechar_cluster!();
             pending_space = true;
             espaco_de_fora = true;
@@ -6620,7 +6667,7 @@ fn wrap_runs(
         }
         // O espaco da frente e devido quando havia whitespace desde a ultima
         // palavra, esteja ele no fim do run ANTERIOR ou no inicio deste.
-        if run.text.starts_with(char::is_whitespace) {
+        if run.text.starts_with(e_espaco_css) {
             fechar_cluster!();
             pending_space = true;
             // NAO e vao: este espaco esta no texto DESTE run, logo pertence aos
@@ -6635,10 +6682,10 @@ fn wrap_runs(
         // Medir a string inteira e o que um browser faz, e e o que evita uma
         // medicao por palavra: `wrap-runs` era 38% de um relayout de pagina
         // grande, com 11 000 `text_width` por frame.
-        let miolo = run.text.trim();
-        if !miolo.contains(char::is_whitespace) {
+        let miolo = apara_css(&run.text);
+        if !miolo.contains(e_espaco_css) {
             let w = m.text_width(miolo, font_size, mono, run.bold, run.italic);
-            let terminava_em_espaco = run.text.ends_with(char::is_whitespace);
+            let terminava_em_espaco = run.text.ends_with(e_espaco_css);
             juntar!(
                 Peca {
                     run: i,
@@ -6668,7 +6715,7 @@ fn wrap_runs(
         // (senao a sua ultima palavra pode ainda vir a ter de descer com o run
         // seguinte). Sem as duas, o caminho lento e o que responde certo.
         let abre_cluster = cluster.is_empty();
-        let fecha_cluster = run.text.ends_with(char::is_whitespace);
+        let fecha_cluster = run.text.ends_with(e_espaco_css);
         if abre_cluster && fecha_cluster {
             let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
             if !normalizado.is_empty() {
@@ -6692,14 +6739,14 @@ fn wrap_runs(
         // oportunidade de quebra) e cada palavra abre o seguinte.
         let mut rest = run.text.as_str();
         while !rest.is_empty() {
-            if rest.starts_with(char::is_whitespace) {
+            if rest.starts_with(e_espaco_css) {
                 fechar_cluster!();
                 pending_space = true;
                 espaco_de_fora = false;
-                rest = rest.trim_start();
+                rest = rest.trim_start_matches(e_espaco_css);
                 continue;
             }
-            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let end = rest.find(e_espaco_css).unwrap_or(rest.len());
             let word = &rest[..end];
             rest = &rest[end..];
             let ww = m.text_width(word, font_size, mono, run.bold, run.italic);
@@ -6713,7 +6760,7 @@ fn wrap_runs(
                 ww
             );
         }
-        if run.text.ends_with(char::is_whitespace) {
+        if run.text.ends_with(e_espaco_css) {
             fechar_cluster!();
             pending_space = true;
             espaco_de_fora = true;
@@ -9811,3 +9858,4 @@ mod tests {
         assert!(pintou, "sem máscara, o fundo declarado é pintado");
     }
 }
+
