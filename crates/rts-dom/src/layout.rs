@@ -59,14 +59,76 @@ impl Rect {
     }
 }
 
+/// Os quatro raios de canto de um retângulo pintado, em pontos.
+///
+/// Vive aqui e não em `style::radius` porque é o que a DISPLAY LIST carrega: um
+/// número por canto, já resolvido, sem `Option` e sem cascata. O `ComputedStyle`
+/// tem a pergunta ("foi declarado?"), este tem a resposta ("pinta assim").
+///
+/// Existe porque um raio só não representava o que 334 declarações do corpus
+/// dizem: um canto declarado sozinho (`border-top-left-radius`) nunca tocava o
+/// campo único — deliberadamente, porque escrevê-lo ali arredondaria os outros
+/// três — e saía pintado QUADRADO. E `border-radius: 2px 2px 0 0`, a forma dos
+/// cartões do Bootstrap, arredondava os quatro.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct Corners {
+    pub tl: f32,
+    pub tr: f32,
+    pub br: f32,
+    pub bl: f32,
+}
+
+impl Corners {
+    pub const ZERO: Corners = Corners { tl: 0.0, tr: 0.0, br: 0.0, bl: 0.0 };
+
+    /// Os quatro iguais — o que um `radius: f32` queria dizer.
+    pub fn same(r: f32) -> Corners {
+        Corners { tl: r, tr: r, br: r, bl: r }
+    }
+
+    /// Algum canto arredonda?
+    ///
+    /// É uma pergunta sobre os QUATRO, e é a que o backend faz para decidir se
+    /// pode recortar o retângulo ao visível. Respondê-la por um canto só faria um
+    /// `<div>` de dezenas de milhares de pontos voltar inteiro ao tesselador —
+    /// uma regressão de desempenho que nenhum teste de layout apanha, e por isso
+    /// a pergunta é um método aqui em vez de uma comparação no consumidor.
+    pub fn any(&self) -> bool {
+        self.tl > 0.0 || self.tr > 0.0 || self.br > 0.0 || self.bl > 0.0
+    }
+
+    /// Os cantos de um estilo, com `default` para o que ninguém declarou.
+    ///
+    /// A ordem é canto → campo único → `default`. O campo único entra como
+    /// fallback e não como override: é o que mantém a condição do lote anterior
+    /// — `border-radius: 6px` escreve os dois, portanto os quatro cantos já
+    /// respondem 6 e o fallback nem chega a ser consultado; quem só declarou um
+    /// canto continua a não ver os outros três mexer.
+    pub fn from_style(css: &ComputedStyle, default: f32) -> Corners {
+        let um = |c: Option<f32>| c.or(css.corner_radius).unwrap_or(default);
+        Corners {
+            tl: um(css.corner_tl),
+            tr: um(css.corner_tr),
+            br: um(css.corner_br),
+            bl: um(css.corner_bl),
+        }
+    }
+}
+
 /// UM item da display list — uma instrução de pintura ATÔMICA e já posicionada. O
 /// backend percorre a lista em ordem (a ordem É o z-order: o que vem depois pinta
 /// por cima) e desenha cada item, sem nenhuma decisão de layout. Egui-free: cor é
 /// `u32` RGBA, posição é `f32` — nenhum tipo de backend.
 #[derive(Clone, PartialEq, Debug)]
 pub enum DisplayItem {
-    /// Retângulo preenchido (fundo de uma caixa). `radius` arredonda os cantos.
-    SolidRect { rect: Rect, color: u32, radius: f32 },
+    /// Retângulo preenchido (fundo de uma caixa). `radius` arredonda os cantos —
+    /// um valor POR CANTO, porque o CSS tem quatro e um cartão com
+    /// `border-radius: 2px 2px 0 0` não é o mesmo desenho que um com `2px`.
+    ///
+    /// Os outros três itens com `radius: f32` (`Shadow`, `GradientRect`,
+    /// `Border`) continuam com um valor só: mudá-los é a fatia seguinte, e
+    /// enquanto não for feita respondem exatamente o que respondiam.
+    SolidRect { rect: Rect, color: u32, radius: Corners },
     /// SOMBRA de caixa (`box-shadow`): pintada ATRÁS da caixa. `dx`/`dy` deslocam,
     /// `blur` amacia a borda, `spread` cresce/encolhe o rect, `color` é a cor (com
     /// alpha). O backend usa o blur real do egui (`epaint::Shadow`).
@@ -481,6 +543,10 @@ pub(crate) fn measure_block(
         forced_outer_w,
         forced_outer_h,
         shrink_to_fit,
+        // A MEDIDA de um bloco é a do seu conteúdo, não a da banda onde calha
+        // ficar: medir com o float à frente dava uma largura intrínseca que
+        // mudava consoante a vizinhança.
+        &[],
         ctx,
         &mut scratch,
     );
@@ -556,7 +622,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         // o containing block da raiz é a VIEWPORT: `height:100%` no <html> resolve
         // contra a altura da janela (base do `h-100` de páginas reais).
         let (_, h) =
-            layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, Some(ctx.viewport_h), None, None, false, ctx, &mut list);
+            layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, Some(ctx.viewport_h), None, None, false, &[], ctx, &mut list);
         cursor_y += h;
     }
     list.content_height = cursor_y;
@@ -720,7 +786,7 @@ fn layout_out_of_flow(
         (None, Some(b)) => cb.y + cb.h - h - b,
         (None, None) => cb.y,
     };
-    layout_block(dom, id, x, y, cb.w, Some(cb.h), None, None, true, ctx, list);
+    layout_block(dom, id, x, y, cb.w, Some(cb.h), None, None, true, &[], ctx, list);
 }
 
 /// Resolve um offset de posicionamento (`top`/`left`/…): px SEM clamp (negativo
@@ -793,13 +859,13 @@ pub fn emit_scrollbar(
     list.items.push(DisplayItem::SolidRect {
         rect: Rect::new(bar_x, vy, bar_w, viewport_h),
         color: track_color,
-        radius: 0.0,
+        radius: Corners::ZERO,
     });
     // thumb (handle).
     list.items.push(DisplayItem::SolidRect {
         rect: Rect::new(bar_x, vy + thumb_y, bar_w, thumb_h),
         color: thumb_color,
-        radius,
+        radius: Corners::same(radius),
     });
 }
 
@@ -836,8 +902,8 @@ pub fn emit_scrollbar_in(
         let max_off = (region.content_h - v.h).max(1.0);
         let thumb_y = (offset_y / max_off).clamp(0.0, 1.0) * (track_h - thumb_h);
         let bx = v.x + v.w - bar_w;
-        list.items.push(DisplayItem::SolidRect { rect: Rect::new(bx, v.y, bar_w, track_h), color: track_color, radius: 0.0 });
-        list.items.push(DisplayItem::SolidRect { rect: Rect::new(bx, v.y + thumb_y, bar_w, thumb_h), color: thumb_color, radius });
+        list.items.push(DisplayItem::SolidRect { rect: Rect::new(bx, v.y, bar_w, track_h), color: track_color, radius: Corners::ZERO });
+        list.items.push(DisplayItem::SolidRect { rect: Rect::new(bx, v.y + thumb_y, bar_w, thumb_h), color: thumb_color, radius: Corners::same(radius) });
     }
     // barra HORIZONTAL (borda inferior da div).
     if need_x {
@@ -847,8 +913,8 @@ pub fn emit_scrollbar_in(
         let max_off = (region.content_w - v.w).max(1.0);
         let thumb_x = (offset_x / max_off).clamp(0.0, 1.0) * (track_w - thumb_w);
         let by = v.y + v.h - bar_w;
-        list.items.push(DisplayItem::SolidRect { rect: Rect::new(v.x, by, track_w, bar_w), color: track_color, radius: 0.0 });
-        list.items.push(DisplayItem::SolidRect { rect: Rect::new(v.x + thumb_x, by, thumb_w, bar_w), color: thumb_color, radius });
+        list.items.push(DisplayItem::SolidRect { rect: Rect::new(v.x, by, track_w, bar_w), color: track_color, radius: Corners::ZERO });
+        list.items.push(DisplayItem::SolidRect { rect: Rect::new(v.x + thumb_x, by, thumb_w, bar_w), color: thumb_color, radius: Corners::same(radius) });
     }
 }
 
@@ -927,6 +993,11 @@ pub(crate) fn layout_block(
     // disponível. É o que faz badges num container horizontal não esticarem para a
     // linha toda. No fluxo vertical normal é false (block ocupa a largura — MDN).
     shrink_to_fit: bool,
+    // Os floats ABERTOS do contexto que envolve este bloco, em coordenadas
+    // absolutas. Pelo CSS um float estorva o conteúdo de todo o bloco de
+    // formatação, não só o do container onde foi declarado — é por isso que
+    // atravessa a fronteira em vez de ficar em `layout_children_vertical`.
+    exclusoes: &[Exclusao],
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> (f32, f32) {
@@ -1256,7 +1327,7 @@ pub(crate) fn layout_block(
             layout_children_horizontal(dom, id, content_x, content_y, scroll_children_w, avail_children, &css, font_size, true, None, ctx, list)
         }
         // vertical (block): empilha.
-        _ => layout_children_vertical(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list),
+        _ => layout_children_vertical(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, exclusoes, ctx, list),
     };
     // MARCADOR do item de lista. Emitido DEPOIS dos filhos e com o content-box já
     // conhecido, e não desloca coisa nenhuma: `list-style-position: outside` (o
@@ -1320,6 +1391,9 @@ pub(crate) fn layout_block(
     // fundo antes dos itens dos filhos (z-order).
     if css.has_box() {
         let radius = css.corner_radius.unwrap_or(0.0);
+        // O FUNDO pinta por canto; a borda e a sombra continuam a ler o campo
+        // único, e é isso que as deixa responder hoje o que respondiam ontem.
+        let cantos = Corners::from_style(&css, 0.0);
         // `opacity` do elemento: multiplica o ALPHA das cores próprias (fundo/borda).
         // Cobre o caso comum (card/botão/overlay com fade) sem grupo de compositing.
         // `visibility:hidden` zera o alpha de tudo o que ESTE elemento pinta. Não
@@ -1361,7 +1435,7 @@ pub(crate) fn layout_block(
             at += 1;
         } else if let Some(color) = css.bg.filter(|_| fundo) {
             let color = apply_opacity(color, op);
-            insert_item(list, at, filhos_antes_da_caixa, DisplayItem::SolidRect { rect: box_rect, color, radius });
+            insert_item(list, at, filhos_antes_da_caixa, DisplayItem::SolidRect { rect: box_rect, color, radius: cantos });
             at += 1;
         }
         for item in border_items(&css, box_rect, radius, op) {
@@ -1652,6 +1726,9 @@ fn costurar(
             child.avail_w,
             child.avail_h,
             || margem,
+            // A costura só alcança o que virou fragmento, e um bloco estorvado
+            // por float nunca vira (ver o guard em `layout_block_reusing`).
+            &[],
             ctx,
             &mut own,
         );
@@ -1723,9 +1800,24 @@ fn layout_block_reusing(
     avail_w: f32,
     avail_h: Option<f32>,
     margem_de_topo: impl FnOnce() -> f32,
+    exclusoes: &[Exclusao],
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> ((f32, f32), f32) {
+    // Um bloco ESTORVADO por um float não entra no cache de fragmentos, nem sai
+    // dele: a chave é feita das constraints (largura, altura, viewport) e a
+    // banda livre não é nenhuma delas. Sem esta recusa, o parágrafo ao lado da
+    // figura seria servido pela versão de largura cheia guardada antes — e o
+    // contrário também, a versão estreita reusada longe do float. Acrescentar a
+    // banda à chave era a outra saída; recusar custa só nos blocos que têm
+    // float ao lado, que são poucos, e não põe um campo novo em todas as
+    // chaves da página.
+    if !exclusoes.is_empty() {
+        let size = layout_block(
+            dom, id, x, y, avail_w, avail_h, None, None, false, exclusoes, ctx, list,
+        );
+        return (size, margem_de_topo());
+    }
     let key = fragment_key(dom, id, avail_w, avail_h, ctx);
     if let Some(fragment) = dom.fragment_get(key) {
         crate::bump!(fragment_hits);
@@ -1746,7 +1838,7 @@ fn layout_block_reusing(
     // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
     // e a única forma de saber isso é não misturá-los com os dos irmãos.
     let mut own = DisplayList::default();
-    let size = layout_block(dom, id, x, y, avail_w, avail_h, None, None, false, ctx, &mut own);
+    let size = layout_block(dom, id, x, y, avail_w, avail_h, None, None, false, &[], ctx, &mut own);
     let fragment = std::rc::Rc::new(Fragment {
         node: id,
         rects: std::rc::Rc::new(own.node_rects.iter().map(|(idx, rect)| (*idx, *rect)).collect()),
@@ -2049,6 +2141,20 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         return hit;
     }
 
+    // Um elemento REPLACED não tem filhos nem texto, e por isso caía na resposta
+    // das folhas vazias: zero. Zero é o que fazia a `<figure>` (`display:table`)
+    // encolher a 10px em volta de uma imagem de 252px e a legenda quebrar a um
+    // carácter por linha. A largura de um replaced é a que ele declara, e a
+    // pergunta faz-se com largura disponível INFINITA porque isto é o
+    // max-content: o clamp pela linha é do chamador, e aplicá-lo aqui devolvia o
+    // que coubesse em vez do que se quer.
+    if let Some(css) = dom.computed_style_idx(id) {
+        if let Some((w, _)) = crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, ctx) {
+            dom.intrinsic_width_put(key, w);
+            return w;
+        }
+    }
+
     // folha de texto puro → largura do texto.
     let own_text = collect_text(dom, id);
     let only_text = !dom.node(id).children.is_empty()
@@ -2188,10 +2294,20 @@ pub(crate) fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ct
 fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
-            // `<img>` com imagem decodificada é um elemento REPLACED (conteúdo visual
-            // intrínseco) → precisa de layout_block p/ emitir o DisplayItem::Image,
-            // mesmo sem CSS de caixa.
-            if tag == "img" && dom.image_of(id).is_some() {
+            // `<img>` é um elemento REPLACED → precisa de layout_block p/ ter a
+            // sua caixa registada e emitir o DisplayItem::Image, mesmo sem CSS de
+            // caixa. A condição era ter PIXELS decodificados, e é a mesma
+            // pergunta errada que `layout_image` fazia: uma imagem que declara
+            // `width`/`height` ocupa espaço antes de chegar da rede, e sem rede
+            // nunca chega. Quem sabe dizer se ela se dimensiona é
+            // `replaced_inline_size`, o único sítio onde essa regra vive.
+            // Não é `return`: um `<img>` sem atributos ainda pode ganhar caixa
+            // pelo CSS, e quem responde isso são as regras no fim desta função.
+            if tag == "img"
+                && (dom.image_of(id).is_some()
+                    || dom.node(id).attr("width").is_some()
+                    || dom.node(id).attr("height").is_some())
+            {
                 return true;
             }
             // `<canvas>` é REPLACED como o `<img>`: a caixa vem dos atributos
@@ -2387,7 +2503,7 @@ fn layout_svg_placeholder(
     list.items.push(DisplayItem::SolidRect {
         rect: Rect::new(x, y, w, h),
         color: 0xE8EAEDFF,
-        radius: 2.0,
+        radius: Corners::same(2.0),
     });
     record_node_rect(list, id, Rect::new(x, y, w, h));
     Some((w, h))
@@ -2403,10 +2519,6 @@ fn layout_image(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> Option<(f32, f32)> {
-    let (handle, off, iw, ih) = dom.image_of(id)?;
-    if handle == 0 || iw == 0 || ih == 0 {
-        return None;
-    }
     let font = font_px(css, DEFAULT_FONT_SIZE);
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
@@ -2421,38 +2533,34 @@ fn layout_image(
     let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
-    // largura/altura: CSS explícito, senão o atributo HTML `width`/`height` (comum em
-    // `<img width=100 height=100>`), senão o natural. Se só um é dado, mantém a razão.
-    let attr_px = |name: &str| -> Option<f32> {
-        dom.node(id)
-            .attr(name)
-            .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f32>().ok())
-            .filter(|v| *v >= 0.0)
-    };
-    let css_w = css.width.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("width"));
-    let css_h = css.height.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("height"));
-    let (nat_w, nat_h) = (iw as f32, ih as f32);
-    let (mut w, mut h) = match (css_w, css_h) {
-        (Some(cw), Some(ch)) => (cw, ch),
-        (Some(cw), None) => (cw, cw * nat_h / nat_w),
-        (None, Some(ch)) => (ch * nat_w / nat_h, ch),
-        (None, None) => (nat_w, nat_h),
-    };
-    // não estoura a largura disponível (encolhe mantendo a razão).
+    // A CAIXA não depende de haver pixels, e é por isso que ela vem de
+    // `replaced_inline_size` em vez de uma segunda cópia das mesmas regras: o
+    // `width`/`height` do CSS ou do atributo HTML já decide, que é o que o
+    // browser faz e o que as miniaturas da Wikipédia trazem (109 dos 110 `<img>`
+    // da página têm os dois atributos).
+    //
+    // Sair aqui quando os pixels faltam — o que este caminho fazia — não deixava
+    // a imagem sem caixa apenas a ela: a `<figure>` que a contém é
+    // `display:table`, encolhia ao conteúdo e ficava com 10px, e a `<figcaption>`
+    // ao lado passava a quebrar a um carácter por linha. 25 figuras nessa forma
+    // valem +6 629px de legenda na página.
     let max_w = (avail_w - margin_left - margin_right).max(0.0);
-    if w > max_w && w > 0.0 {
-        h = h * max_w / w;
-        w = max_w;
-    }
+    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, max_w, ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
-    list.items.push(DisplayItem::Image {
-        rect,
-        pixels_handle: handle,
-        pixels_off: off,
-        img_w: iw,
-        img_h: ih,
-    });
+    // O item de pintura, esse, PRECISA de pixels: uma caixa reservada com nada
+    // dentro é o que o browser mostra enquanto a imagem não chega, e é a mesma
+    // doutrina do `<canvas>` logo abaixo.
+    if let Some((handle, off, iw, ih)) = dom.image_of(id).filter(|(h, _, iw, ih)| *h != 0 && *iw != 0 && *ih != 0)
+    {
+        list.items.push(DisplayItem::Image {
+            rect,
+            pixels_handle: handle,
+            pixels_off: off,
+            img_w: iw,
+            img_h: ih,
+        });
+    }
     Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
 }
 
@@ -2497,7 +2605,7 @@ fn layout_canvas(
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
     if let Some(color) = css.bg {
-        list.items.push(DisplayItem::SolidRect { rect, color, radius: 0.0 });
+        list.items.push(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO });
     }
     if let Some((data, pw, ph)) = dom.pixel_data_of(id) {
         if pw > 0 && ph > 0 {
@@ -2531,7 +2639,11 @@ fn layout_button(
     list.items.push(DisplayItem::SolidRect {
         rect: Rect::new(x, y, w, h),
         color: bg,
-        radius: css.corner_radius.unwrap_or(4.0),
+        // 4.0 é o raio que a UA dá a um botão; um canto declarado vence-o, e um
+        // canto NÃO declarado num botão que declarou os outros continua a levar
+        // o da UA — que é o que `from_style` faz e um `unwrap_or` por canto não
+        // conseguiria dizer sem repetir a regra quatro vezes.
+        radius: Corners::from_style(&css, 4.0),
     });
     list.items.push(DisplayItem::Border {
         rect: Rect::new(x, y, w, h),
@@ -2705,6 +2817,7 @@ fn layout_input(
 
     // Fundo: o `background` do CSS, senão branco (campo de texto clássico).
     let radius = css.corner_radius.unwrap_or(0.0);
+    let cantos = Corners::from_style(css, 0.0);
     // A OPACIDADE também vale aqui. Este era o único sítio que emite caixa sem
     // passar por `apply_opacity`, e o preço foi uma página inteira em branco: a
     // Wikipédia usa o "checkbox hack" — `<input type=checkbox>` com
@@ -2717,7 +2830,7 @@ fn layout_input(
     // campo com `opacity: 0` não o pinta.
     let opacidade = css.opacity.unwrap_or(1.0);
     let bg = apply_opacity(css.bg.unwrap_or(0xFFFFFFFF), opacidade);
-    list.items.push(DisplayItem::SolidRect { rect: box_rect, color: bg, radius });
+    list.items.push(DisplayItem::SolidRect { rect: box_rect, color: bg, radius: cantos });
     // Borda: sempre desenha (o input tem contorno por padrão). Cor do CSS ou cinza.
     // Se o campo tem foco, realça a borda (azul), como o browser.
     let focused = dom.focused_input() == Some(id);
@@ -2757,7 +2870,7 @@ fn layout_input(
         let val = dom.input_value(id);
         let caret_x = text_x + ctx.measurer.text_width(&val, font, false, false) + 1.0;
         let caret = Rect::new(caret_x, text_y, 1.5, line_h.min(content_h.max(line_h)));
-        list.items.push(DisplayItem::SolidRect { rect: caret, color: 0x111111FF, radius: 0.0 });
+        list.items.push(DisplayItem::SolidRect { rect: caret, color: 0x111111FF, radius: Corners::ZERO });
     }
 
     (
@@ -2926,7 +3039,7 @@ fn whitespace_is_inline_separator(dom: &Dom, parent: NodeIdx, child: NodeIdx) ->
 /// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
 /// `avail_h` = altura do content DESTE container quando explícita (containing
 /// block dos filhos p/ `height:%`).
-// as macros de estado (close_floats!/flush_inline!) resetam as variáveis a cada
+// as macros de estado (close_floats!/flush_inline!) escrevem no cursor a cada
 // fechamento — a ÚLTIMA atribuição (no flush final) é estruturalmente morta, o
 // que dispara unused_assignments sem haver bug.
 /// As duas margens adjacentes colapsadas numa só, pela regra do CSS 2.1 §8.3.1.
@@ -2969,6 +3082,8 @@ fn layout_children_vertical(
     avail_h: Option<f32>,
     css: &ComputedStyle,
     font_size: f32,
+    // Os floats abertos HERDADOS do contexto de cima (ver `layout_block`).
+    herdadas: &[Exclusao],
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
@@ -2983,21 +3098,22 @@ fn layout_children_vertical(
     // ficar a colapsada ([`colapso_de_margens`]). `prev_margin` guarda a margem
     // do último bloco posto.
     let mut prev_margin = 0.0f32;
-    // ── FLOAT LINE (v1): floats CONSECUTIVOS dividem a mesma linha — left encosta
-    // à esquerda, right à direita (o header brand+nav do Bootstrap). Um irmão
-    // NÃO-float fecha a linha (começa abaixo do float mais alto). Ver FloatSide.
-    let mut float_top: Option<f32> = None; // y do topo da linha de floats
-    let mut float_left_x = content_x;
-    let mut float_right_x = content_x + content_w;
-    let mut float_h = 0.0f32; // altura da linha (max dos floats)
-    // fecha a float line corrente (chamado antes de um não-float e no fim).
+    // ── FLOATS COMO EXCLUSÕES: cada float colocado deixa uma faixa vertical
+    // ocupada de um dos lados, e o conteúdo seguinte CONTORNA-A em vez de descer
+    // abaixo dela. Ver [`Exclusao`] para a medição no Chrome que fixa o modelo.
+    // Os herdados vêm primeiro; os deste container são acrescentados depois, e
+    // `proprios` é a fronteira entre uns e outros. A distinção importa no fecho:
+    // `clear` desce abaixo de QUALQUER float que o estorve, incluindo os de
+    // cima, mas este container só cresce para conter os SEUS — crescer para
+    // conter um float do pai punha altura no sítio errado.
+    let mut floats: Vec<Exclusao> = herdadas.to_vec();
+    let proprios = floats.len();
+    // Desce o cursor para BAIXO dos floats. Já não é "fechar a linha": é o que o
+    // `clear` pede. Um irmão sem `clear` NÃO chama isto: passa ao lado do float.
     macro_rules! close_floats {
         ($y:expr) => {
-            if let Some(top) = float_top.take() {
-                $y = $y.max(top + float_h);
-                float_left_x = content_x;
-                float_right_x = content_x + content_w;
-                float_h = 0.0;
+            if let Some(fundo) = fundo_dos_floats(&floats) {
+                $y = $y.max(fundo);
             }
         };
     }
@@ -3026,9 +3142,12 @@ fn layout_children_vertical(
                 flush_ib!($y);
             }
             if !inline_group.is_empty() {
-                close_floats!($y);
+                // NÃO desce abaixo dos floats: as linhas CONTORNAM-NOS. As
+                // exclusões vão com o grupo — é a travessia de camada que o
+                // comentário de `layout_inline_flow` justifica.
                 $y = layout_inline_flow(
-                    dom, id, &inline_group, content_x, $y, content_w, css, font_size, ctx, list,
+                    dom, id, &inline_group, content_x, $y, content_w, css, font_size, &floats, ctx,
+                    list,
                 );
                 inline_group.clear();
                 prev_margin = 0.0; // texto quebra a sequência de margin-collapse
@@ -3042,12 +3161,15 @@ fn layout_children_vertical(
         // a classificação inteira, que custaria estilo computado,
         // `block::lookup` e a margem resolvida por filho: mil vezes por frame
         // numa lista, para redescobrir o que não mudou.
-        if matches!(dom.node(child).kind, NodeKind::Element { .. }) {
+        // `floats.is_empty()`: um bloco com float ao lado não pode ser servido
+        // pelo fragmento guardado — ele foi medido com a linha inteira e a banda
+        // livre não faz parte da chave. É a mesma recusa de
+        // `layout_block_reusing`, no caminho rápido que a antecede.
+        if floats.is_empty() && matches!(dom.node(child).kind, NodeKind::Element { .. }) {
             let key = key_base.key(dom, child);
             if let Some(fragment) = dom.fragment_get(key) {
                 crate::bump!(fragment_hits);
                 flush_inline!(child_y);
-                close_floats!(child_y);
                 child_y -= excesso_de_margens(prev_margin, fragment.margin_top);
                 emit_fragment(&fragment, list, content_x, child_y, content_w, avail_h);
                 child_y += fragment.size.1;
@@ -3110,28 +3232,45 @@ fn layout_children_vertical(
             // Fora do fluxo (`position:absolute/fixed`): não ocupa espaço aqui —
             // pintado na passada out-of-flow de layout_document.
             NodeKind::Element { .. } if child_out => {}
-            // FLOAT left/right: shrink-to-fit na linha de floats corrente.
+            // FLOAT left/right: encosta ao lado pedido, na primeira faixa a
+            // partir do cursor onde CAIBA ao lado dos floats já postos.
             NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {
                 flush_inline!(child_y);
                 let side = child_float;
-                let top = *float_top.get_or_insert(child_y);
                 let w = child_outer_width(dom, child, content_w, font_size, ctx);
                 let h = child_outer_height(dom, child, content_w, avail_h, css, font_size, ctx);
-                let x = if side == crate::style::FloatSide::Left {
-                    let x = float_left_x;
-                    float_left_x += w;
-                    x
-                } else {
-                    float_right_x -= w;
-                    float_right_x
-                };
-                layout_block(dom, child, x, top, content_w, avail_h, None, None, true, ctx, list);
-                float_h = float_h.max(h);
+                // Onde cabe: tenta o cursor; se a banda livre aí é estreita
+                // demais, desce para o fundo de cada float que a estorva, pela
+                // ordem em que eles acabam. Dois floats do mesmo lado que cabem
+                // lado a lado continuam lado a lado — é o header brand+nav do
+                // Bootstrap, e é o que a primeira tentativa já responde.
+                let mut top = child_y;
+                let mut fundos: Vec<f32> = floats.iter().map(|e| e.bottom).collect();
+                fundos.sort_by(f32::total_cmp);
+                let (mut bx, mut bw) = banda_livre(&floats, top, h, content_x, content_w);
+                for f in fundos {
+                    if bw >= w || f <= top {
+                        continue;
+                    }
+                    top = f;
+                    (bx, bw) = banda_livre(&floats, top, h, content_x, content_w);
+                }
+                let x = if side == crate::style::FloatSide::Left { bx } else { bx + bw - w };
+                layout_block(dom, child, x, top, content_w, avail_h, None, None, true, &[], ctx, list);
+                floats.push(Exclusao {
+                    top,
+                    bottom: top + h,
+                    side,
+                    edge: if side == crate::style::FloatSide::Left { x + w } else { x },
+                });
                 prev_margin = 0.0; // float quebra a sequência de collapse
             }
             NodeKind::Element { .. } if child_block && !child_inline_block => {
                 flush_inline!(child_y);
-                close_floats!(child_y);
+                // Sem `close_floats!`: pelo CSS a caixa de bloco ao lado de um
+                // float NÃO desce nem encolhe — mantém a largura e sobrepõe-se
+                // ao float; quem encolhe são as linhas lá dentro. Ver
+                // [`Exclusao`] para os números do Chrome que o fixam.
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
                 let m = child_css.as_ref().map(|c| {
@@ -3155,7 +3294,7 @@ fn layout_children_vertical(
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
                 child_y -= excesso_de_margens(prev_margin, m);
                 let ((_, h), _) = layout_block_reusing(
-                    dom, child, content_x, child_y, content_w, avail_h, || m, ctx, list,
+                    dom, child, content_x, child_y, content_w, avail_h, || m, &floats, ctx, list,
                 );
                 child_y += h;
                 prev_margin = m;
@@ -3179,9 +3318,9 @@ fn layout_children_vertical(
                 // descarrega só o TEXTO inline pendente (não o ib_run — este b
                 // continua a acumular os inline-blocks IRMÃOS na mesma corrida).
                 if !inline_group.is_empty() {
-                    close_floats!(child_y);
                     child_y = layout_inline_flow(
-                        dom, id, &inline_group, content_x, child_y, content_w, css, font_size, ctx, list,
+                        dom, id, &inline_group, content_x, child_y, content_w, css, font_size,
+                        &floats, ctx, list,
                     );
                     inline_group.clear();
                 }
@@ -3201,11 +3340,17 @@ fn layout_children_vertical(
             }
         }
     }
-    // descarrega o fluxo inline pendente e fecha a float line: os floats
-    // CONTRIBUEM para a altura (v1 = comportamento de BFC — correto p/ flex
-    // items, o caso do header do cover).
+    // descarrega o fluxo inline pendente e cresce para conter os floats DESTE
+    // container. ⚠️ DIVERGÊNCIA CONHECIDA, não é um bug à espera de correção:
+    // pelo CSS um float só faz o pai crescer se o pai for um BFC (`overflow`,
+    // `flow-root`, flex, tabela) ou houver clearfix; aqui cresce sempre. Foi
+    // decidido manter — mexer nisso muda a altura de TODO o contentor com float
+    // e é um segundo eixo de regressão por cima deste lote. O BFC é outro lote,
+    // com medição própria. Ver `float_left_right_dividem_a_linha`.
     flush_inline!(child_y);
-    close_floats!(child_y);
+    if let Some(fundo) = fundo_dos_floats(&floats[proprios..]) {
+        child_y = child_y.max(fundo);
+    }
     (child_y - content_y).max(0.0)
 }
 
@@ -3270,7 +3415,7 @@ fn layout_inline_block_line(
                 Some(crate::style::VerticalAlign::Bottom) => line_h - h,
                 _ => 0.0,
             };
-            layout_block(dom, child, x, cy + dy, content_w, avail_h, None, None, true, ctx, list);
+            layout_block(dom, child, x, cy + dy, content_w, avail_h, None, None, true, &[], ctx, list);
             x += w;
         }
         cy += line_h;
@@ -3320,7 +3465,7 @@ pub(crate) fn border_items(css: &ComputedStyle, box_rect: Rect, radius: f32, op:
                 out.push(DisplayItem::SolidRect {
                     rect,
                     color: apply_opacity(side.color, op),
-                    radius: 0.0,
+                    radius: Corners::ZERO,
                 });
             }
         }
@@ -3357,6 +3502,58 @@ pub(crate) fn border_items(css: &ComputedStyle, box_rect: Rect, radius: f32, op:
         });
     }
     out
+}
+
+/// Um float JÁ COLOCADO, visto pelo fluxo que o rodeia: a faixa vertical que
+/// ocupa e a aresta que deixa livre.
+///
+/// É esta a diferença entre o modelo antigo e o do CSS. O antigo guardava "a
+/// linha de floats corrente" e empurrava para baixo dela tudo o que não fosse
+/// float; o CSS diz que um float é um ESPAÇO DE EXCLUSÃO que o conteúdo
+/// seguinte consulta e CONTORNA. Medido no Chrome, na Wikipédia: a `<figure>`
+/// com `float:right` fica em `y=5877` e o `<p>` seguinte em `y=5869` — ACIMA do
+/// topo do float, com a largura cheia da coluna (752). O parágrafo não desceu e
+/// não encolheu: sobrepôs-se ao float, e só as suas LINHAS ficaram curtas.
+#[derive(Clone, Copy)]
+pub(crate) struct Exclusao {
+    top: f32,
+    bottom: f32,
+    side: crate::style::FloatSide,
+    /// A aresta INTERIOR do float — a fronteira que o fluxo não pode passar.
+    /// Num float `left` é o x onde o conteúdo pode começar (aresta direita do
+    /// float); num `right`, o x onde tem de terminar (aresta esquerda).
+    edge: f32,
+}
+
+/// A banda horizontal livre entre `y` e `y + altura`, dadas as exclusões.
+/// Devolve `(x, largura)` já recortados ao content do container.
+///
+/// A altura entra na pergunta porque uma linha de texto só é estorvada pelo
+/// float com que se CRUZA: a última linha ao lado de uma figura curta usa a
+/// banda estreita, e a primeira linha abaixo dela usa a largura toda.
+fn banda_livre(ex: &[Exclusao], y: f32, altura: f32, content_x: f32, content_w: f32) -> (f32, f32) {
+    let (mut esq, mut dir) = (content_x, content_x + content_w);
+    // Uma linha de altura zero ainda cruza o float que começa exatamente nela —
+    // sem esta espessura mínima, `y == top` não intersectava nada e a primeira
+    // linha ao lado de um float saía com a largura toda.
+    let fim = y + altura.max(0.01);
+    for e in ex {
+        if e.bottom <= y || e.top >= fim {
+            continue;
+        }
+        match e.side {
+            crate::style::FloatSide::Left => esq = esq.max(e.edge),
+            crate::style::FloatSide::Right => dir = dir.min(e.edge),
+            crate::style::FloatSide::None => {}
+        }
+    }
+    (esq, (dir - esq).max(0.0))
+}
+
+/// O fundo do float mais baixo — para onde desce quem tem `clear`, e onde o
+/// container fecha para os conter.
+fn fundo_dos_floats(ex: &[Exclusao]) -> Option<f32> {
+    ex.iter().map(|e| e.bottom).fold(None, |a: Option<f32>, b| Some(a.map_or(b, |a| a.max(b))))
 }
 
 /// O `float` computado de um nó-elemento (None p/ não-elemento/sem estilo).
@@ -3646,7 +3843,7 @@ fn layout_children_horizontal(
                 let forced_h = if stretches { Some(line_h) } else { None };
                 layout_block(
                     dom, it.node, x, item_y, content_w, container_content_h,
-                    Some(it.main), forced_h, true, ctx, list,
+                    Some(it.main), forced_h, true, &[], ctx, list,
                 );
             }
             x += it.main;
@@ -3858,7 +4055,7 @@ fn layout_children_grid(
         // pinta o item: stretch no eixo → forced size; senão shrink-to-fit.
         let forced_w = if stretch_x { None } else { Some(iw) };
         let forced_h = if stretch_y { Some(cell_h) } else { None };
-        layout_block(dom, child, x, y, cell_w, Some(cell_h), forced_w, forced_h, !stretch_x, ctx, list);
+        layout_block(dom, child, x, y, cell_w, Some(cell_h), forced_w, forced_h, !stretch_x, &[], ctx, list);
     }
     // altura total = soma das linhas + gaps.
     let total_h: f32 = row_sizes.iter().sum::<f32>() + (nrows.saturating_sub(1)) as f32 * row_gap;
@@ -4218,7 +4415,7 @@ fn layout_children_column(
             } else {
                 (container_content_h, None)
             };
-            layout_block(dom, it.node, child_x, y, content_w, avail, None, forced_h, !stretch, ctx, list);
+            layout_block(dom, it.node, child_x, y, content_w, avail, None, forced_h, !stretch, &[], ctx, list);
         }
         y += it.h;
         if it.mb_auto {
@@ -4361,7 +4558,7 @@ fn layout_inline_line(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    layout_inline_flow(dom, id, &[id], x, y, content_w, parent_css, font_size, ctx, list)
+    layout_inline_flow(dom, id, &[id], x, y, content_w, parent_css, font_size, &[], ctx, list)
 }
 
 /// O FLUXO INLINE RICO (P4): um GRUPO de irmãos inline consecutivos (nós de texto
@@ -4381,6 +4578,13 @@ fn layout_inline_flow(
     content_w: f32,
     parent_css: &ComputedStyle,
     font_size: f32,
+    // Os floats abertos que atravessam este fluxo. É a razão de a exclusão
+    // atravessar DUAS camadas em vez de ficar no empilhamento de blocos: pelo
+    // CSS a caixa de bloco ao lado de um float não desce nem encolhe — mantém a
+    // largura e sobrepõe-se ao float —, e quem encolhe são as CAIXAS DE LINHA
+    // lá dentro. Parar de empurrar o bloco sem encurtar as linhas trocava um
+    // erro de posição por texto pintado por baixo da figura. Ver [`Exclusao`].
+    exclusoes: &[Exclusao],
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
@@ -4444,9 +4648,28 @@ fn layout_inline_flow(
         parent_css.white_space,
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
     );
-    let wrap_w = if nowrap { f32::INFINITY } else { content_w };
+    // A LARGURA DE QUEBRA, linha a linha: onde um float estorva, a linha é
+    // curta; onde ele acaba, volta a ser a do content.
+    //
+    // ⚠️ APROXIMAÇÃO DECLARADA: a banda de cada linha é prevista pelo ÍNDICE
+    // dela, assumindo que todas medem `lh`. Uma linha com um widget mais alto
+    // desloca as seguintes e a previsão fica uma fração de linha acima do
+    // sítio real. É uma decisão, não um esquecimento: a alternativa é quebrar e
+    // posicionar na mesma passagem, o que obriga a intercalar `wrap_runs` com o
+    // avanço do cursor. A PINTURA não usa esta previsão — usa o `cy` verdadeiro
+    // (ver a banda recalculada no laço), portanto o erro fica no ponto de
+    // quebra e nunca em texto pintado por cima de um float.
+    let mut largura_da_linha = |i: usize| -> f32 {
+        if nowrap {
+            return f32::INFINITY;
+        }
+        if exclusoes.is_empty() {
+            return content_w;
+        }
+        banda_livre(exclusoes, y + i as f32 * lh, lh, x, content_w).1
+    };
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
-    let lines = wrap_runs(&runs, wrap_w, font_size, mono, ctx.measurer);
+    let lines = wrap_runs(&runs, &mut largura_da_linha, font_size, mono, ctx.measurer);
     // `text-indent`: recuo da PRIMEIRA linha (MDN). ⚠️ CORTE: recua o início da
     // linha mas NÃO encurta a largura de quebra dela — a quebra já foi calculada
     // acima, e refazê-la só para a primeira linha exigia partir o `wrap_runs` em
@@ -4494,11 +4717,18 @@ fn layout_inline_flow(
         // decide o espaçamento é o `line-height`, quem decide a caixa é a fonte.
         let conteudo = crate::inline_box::altura_do_conteudo(font_size, ctx.measurer);
         let meia = crate::inline_box::meia_entrelinha(line_h, conteudo);
-        let free = (content_w - line_w).max(0.0);
+        // A banda desta linha, no `cy` VERDADEIRO — é aqui que o texto passa a
+        // correr ao lado do float em vez de por baixo dele.
+        let (linha_x, linha_w) = if exclusoes.is_empty() {
+            (x, content_w)
+        } else {
+            banda_livre(exclusoes, cy, line_h, x, content_w)
+        };
+        let free = (linha_w - line_w).max(0.0);
         let mut seg_x = match parent_css.text_align {
-            Some(crate::style::TextAlign::Right) => x + free,
-            Some(crate::style::TextAlign::Center) => x + free / 2.0,
-            _ => x, // left/justify
+            Some(crate::style::TextAlign::Right) => linha_x + free,
+            Some(crate::style::TextAlign::Center) => linha_x + free / 2.0,
+            _ => linha_x, // left/justify
         };
         if first_line {
             seg_x += indent;
@@ -4547,8 +4777,8 @@ fn layout_inline_flow(
                         // `layout_block` da corrida de inline-blocks irmãos —
                         // não um segundo emissor — só que o x/y vem do fluxo.
                         layout_block(
-                            dom, a_idx, seg_x, cy, seg.ww.max(1.0), None, None, None, true, ctx,
-                            list,
+                            dom, a_idx, seg_x, cy, seg.ww.max(1.0), None, None, None, true, &[],
+                            ctx, list,
                         );
                     }
                     AtomicKind::Marker | AtomicKind::Break => {}
@@ -5083,7 +5313,10 @@ fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32,
 
 fn wrap_runs(
     runs: &[InlineRun],
-    max_w: f32,
+    // A largura disponível DA LINHA `i` — não uma largura só para todas. Um
+    // float encurta uma linha e deixa a seguinte inteira, e a diferença entre as
+    // duas é o que faz o texto contornar a figura em vez de descer abaixo dela.
+    max_w: &mut dyn FnMut(usize) -> f32,
     font_size: f32,
     mono: bool,
     m: &dyn TextMeasurer,
@@ -5145,7 +5378,7 @@ fn wrap_runs(
             }
             let with_space = pending_space && !at_line_start;
             let need = if with_space { space_w(m) + run.ww } else { run.ww };
-            if !at_line_start && cur_w + need > max_w {
+            if !at_line_start && cur_w + need > max_w(lines.len()) {
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
                 at_line_start = true;
@@ -5212,7 +5445,7 @@ fn wrap_runs(
             // todos os inlines dentro dele. O scanner palavra-a-palavra abaixo já
             // trata o início de linha corretamente (não quebra ANTES da primeira
             // palavra), por isso a condição certa é só "cabe".
-            if cur_w + w <= max_w {
+            if cur_w + w <= max_w(lines.len()) {
                 let trailing_space = run.text.ends_with(char::is_whitespace);
                 // O vão só existe quando o espaço veio do run ANTERIOR. Se o
                 // whitespace é do texto deste run (`<a> alvo</a>`), o espaço é
@@ -5246,7 +5479,7 @@ fn wrap_runs(
             let ww = m.text_width(word, font_size, mono, run.bold);
             let with_space = pending_space && !at_line_start;
             let need = if with_space { space_w(m) + ww } else { ww };
-            if !at_line_start && cur_w + need > max_w {
+            if !at_line_start && cur_w + need > max_w(lines.len()) {
                 // não cabe: fecha a linha.
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
@@ -5368,6 +5601,15 @@ mod tests {
             && (a.h - b.h).abs() < TOL
     }
 
+    /// Os quatro cantos iguais a menos da tolerância — a mesma pergunta que se
+    /// fazia a um raio só, feita quatro vezes em vez de uma.
+    fn cantos_equivalentes(a: &Corners, b: &Corners) -> bool {
+        (a.tl - b.tl).abs() < TOL
+            && (a.tr - b.tr).abs() < TOL
+            && (a.br - b.br).abs() < TOL
+            && (a.bl - b.bl).abs() < TOL
+    }
+
     /// Dois itens de pintura iguais a menos da tolerância acima. Texto, cor e
     /// tipo têm de bater EXATAMENTE: só a geometria admite o erro do
     /// deslocamento.
@@ -5375,7 +5617,7 @@ mod tests {
         use DisplayItem as D;
         match (a, b) {
             (D::SolidRect { rect: ra, color: ca, radius: da }, D::SolidRect { rect: rb, color: cb, radius: db }) => {
-                rects_equivalentes(ra, rb) && ca == cb && (da - db).abs() < TOL
+                rects_equivalentes(ra, rb) && ca == cb && cantos_equivalentes(da, db)
             }
             (D::Border { rect: ra, width: wa, color: ca, radius: da }, D::Border { rect: rb, width: wb, color: cb, radius: db }) => {
                 rects_equivalentes(ra, rb) && (wa - wb).abs() < TOL && ca == cb && (da - db).abs() < TOL
@@ -7032,8 +7274,107 @@ mod tests {
         assert_eq!(r.len(), 4);
         assert_eq!((r[1].x, r[1].y), (0.0, 0.0), "left encosta na esquerda: {r:?}");
         assert_eq!((r[2].x, r[2].y), (450.0, 0.0), "right encosta na direita (600-150)");
-        assert_eq!(r[3].y, 40.0, "nao-float comeca abaixo do float mais alto");
-        assert_eq!(r[0].h, 60.0, "pai contem os floats: 40 + 20");
+        // ⚠️ MUDOU, e a mudança é a correção: este bloco começava em y=40 — o
+        // modelo antigo empurrava para baixo do float tudo o que não fosse
+        // float. Pelo CSS a caixa de bloco ao lado de um float NÃO desce nem
+        // encolhe: sobrepõe-se a ele, e só as suas linhas contornam. Medido no
+        // Chrome, na Wikipédia: a `<figure>` com `float:right` fica em y=5877 e
+        // o `<p>` seguinte em y=5869, ACIMA do topo do float, com a largura
+        // cheia da coluna. Ver [`Exclusao`].
+        assert_eq!(r[3].y, 0.0, "o não-float sobrepõe-se ao float, não desce: {r:?}");
+        // ⚠️ DIVERGÊNCIA CONHECIDA que este teste PINA de propósito: pelo CSS
+        // um float só faz o pai crescer num BFC ou com clearfix. Aqui cresce
+        // sempre. Foi decidido manter neste lote — mexer nisso muda a altura de
+        // todo o contentor com float. Não "corrigir" por acidente.
+        // Era 60 (= 40 + 20) porque o bloco de 20 era EMPURRADO para baixo dos
+        // floats; agora sobrepõe-se a eles e o pai mede o float mais alto.
+        assert_eq!(r[0].h, 40.0, "pai contem os floats: o mais alto mede 40: {r:?}");
+    }
+
+    /// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
+    /// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
+    const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";
+
+    #[test]
+    fn texto_corre_ao_lado_do_float_em_vez_de_descer() {
+        // O caso da Wikipédia, em isolamento e com a figura de largura
+        // DECLARADA (sem `<img>`, portanto imune ao tamanho intrínseco):
+        // `float:right` de 200 seguido de um `<p>`. Medido no Chrome, o
+        // parágrafo fica ACIMA do topo do float e com a largura cheia — só as
+        // suas LINHAS encolhem para a banda livre.
+        let list = layout(
+            &format!(
+                "<div style='background:#111'>                   <div style='float:right; background:#222; width:200; height:100'></div>                   <p style='background:#333'>{FRASE}</p>                 </div>"
+            ),
+            600.0,
+        );
+        let r = all_rects(&list);
+        let p = r[2];
+        assert_eq!(p.y, 16.0, "o bloco NÃO desce abaixo do float: {r:?}");
+        assert_eq!(p.w, 600.0, "o bloco NÃO encolhe — mantém a largura: {r:?}");
+        // as linhas que cruzam o float cabem na banda de 400; nenhuma invade.
+        let t = all_texts(&list);
+        let cruzam: Vec<_> = t.iter().filter(|(_, _, y, _)| *y < 100.0).collect();
+        assert!(cruzam.len() >= 2, "várias linhas ao lado do float: {t:?}");
+        for (txt, x, y, _) in &cruzam {
+            let largura = txt.chars().count() as f32 * 8.0;
+            assert!(*x + largura <= 400.5, "linha em y={y} invade o float: {txt:?} x={x}");
+        }
+    }
+
+    #[test]
+    fn linha_abaixo_do_float_volta_a_largura_toda() {
+        // A exclusão é uma FAIXA, não um estado do parágrafo: assim que as
+        // linhas passam o fundo do float, voltam a ter a largura do content. Um
+        // float baixo (30) deixa só a primeira linha estreita.
+        let list = layout(
+            &format!(
+                "<div style='background:#111'>                   <div style='float:right; background:#222; width:300; height:30'></div>                   <p>{FRASE} {FRASE}</p>                 </div>"
+            ),
+            600.0,
+        );
+        let t = all_texts(&list);
+        let acima: Vec<_> = t.iter().filter(|(_, _, y, _)| *y < 30.0).collect();
+        let abaixo: Vec<_> = t.iter().filter(|(_, _, y, _)| *y >= 30.0).collect();
+        assert!(!acima.is_empty() && !abaixo.is_empty(), "linhas dos dois lados: {t:?}");
+        let largura = |v: &Vec<&(String, f32, f32, u32)>| {
+            v.iter().map(|(s, _, _, _)| s.chars().count() as f32 * 8.0).fold(0.0, f32::max)
+        };
+        assert!(largura(&acima) <= 300.5, "linha ao lado do float é curta: {acima:?}");
+        assert!(
+            largura(&abaixo) > 300.5,
+            "abaixo do float a linha volta à largura toda: {abaixo:?}"
+        );
+    }
+
+    #[test]
+    fn float_left_empurra_o_inicio_da_linha() {
+        // Um `float:left` não encurta a linha pela direita: desloca o COMEÇO
+        // dela. É a diferença que um teste só de largura não apanha.
+        let list = layout(
+            &format!(
+                "<div style='background:#111'>                   <div style='float:left; background:#222; width:150; height:100'></div>                   <p>{FRASE}</p>                 </div>"
+            ),
+            600.0,
+        );
+        let t = all_texts(&list);
+        let cruzam: Vec<_> = t.iter().filter(|(_, _, y, _)| *y < 100.0).collect();
+        assert!(!cruzam.is_empty(), "há texto ao lado do float: {t:?}");
+        for (txt, x, y, _) in &cruzam {
+            assert!(*x >= 150.0, "linha em y={y} começa depois do float: {txt:?} x={x}");
+        }
+    }
+
+    #[test]
+    fn clear_continua_a_descer_abaixo_do_float() {
+        // O `clear` é o que sobra do comportamento antigo, e agora é a ÚNICA
+        // forma de descer: quem não o declara passa ao lado.
+        let list = layout(
+            "<div style='background:#111'>               <div style='float:right; background:#222; width:200; height:100'></div>               <div style='clear:both; background:#333; height:20'></div>             </div>",
+            600.0,
+        );
+        let r = all_rects(&list);
+        assert_eq!(r[2].y, 100.0, "o `clear` desce abaixo do float: {r:?}");
     }
 
     #[test]

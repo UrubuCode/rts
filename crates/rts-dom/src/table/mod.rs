@@ -335,7 +335,7 @@ pub(crate) fn layout_table(
     // tabela. Ficam fora do algoritmo de colunas de propósito — não têm coluna.
     for &o in &g.outros {
         let (_, h) = crate::layout::layout_block(
-            dom, o, content_x, y, content_w, None, None, None, false, ctx, list,
+            dom, o, content_x, y, content_w, None, None, None, false, &[], ctx, list,
         );
         y += h;
     }
@@ -436,7 +436,7 @@ pub(crate) fn layout_table(
             let h: f32 = alturas[ri..=fim].iter().sum::<f32>()
                 + (fim - ri) as f32 * ts.spacing_v;
             crate::layout::layout_block(
-                dom, c.node, col_x[c.col], y, w, Some(h), Some(w), Some(h), false, ctx, list,
+                dom, c.node, col_x[c.col], y, w, Some(h), Some(w), Some(h), false, &[], ctx, list,
             );
         }
         // Uma linha ANÓNIMA não tem nó: não há caixa a registar nem fundo a
@@ -486,7 +486,11 @@ fn pinta_caixa(
     let radius = css.corner_radius.unwrap_or(0.0);
     let mut em = Vec::new();
     if let Some(bg) = css.bg {
-        em.push(DisplayItem::SolidRect { rect, color: bg, radius });
+        em.push(DisplayItem::SolidRect {
+            rect,
+            color: bg,
+            radius: crate::layout::Corners::from_style(&css, 0.0),
+        });
     }
     em.extend(crate::layout::border_items(&css, rect, radius, 1.0));
     for (i, item) in em.into_iter().enumerate() {

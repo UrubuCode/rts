@@ -108,9 +108,9 @@ pub(crate) fn emit_marker(
                 }),
                 // `square` é o mesmo rect sem raio — a única diferença.
                 ListStyleType::Square => {
-                    list.items.push(DisplayItem::SolidRect { rect, color, radius: 0.0 })
+                    list.items.push(DisplayItem::SolidRect { rect, color, radius: crate::layout::Corners::ZERO })
                 }
-                _ => list.items.push(DisplayItem::SolidRect { rect, color, radius: d / 2.0 }),
+                _ => list.items.push(DisplayItem::SolidRect { rect, color, radius: crate::layout::Corners::same(d / 2.0) }),
             }
         }
         _ => {

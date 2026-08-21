@@ -56,11 +56,12 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
         // Ainda assim não pode ficar ABAIXO do mínimo do conteúdo: uma largura
         // que não cabe é ignorada pelo browser, não respeitada com o texto a
         // transbordar.
-        let piso = min_content(dom, id, font, ctx) + frame;
+        let piso = min_content(dom, id, font, ctx, false) + frame;
         return MinMax { min: w.max(piso), max: w.max(piso) };
     }
+    let min = min_content(dom, id, font, ctx, false) + frame;
     MinMax {
-        min: min_content(dom, id, font, ctx) + frame,
+        min,
         // O MÁXIMO vem da medição intrínseca que o resto do motor já usa, em vez
         // de uma segunda escrita da mesma travessia. Herda dela uma limitação
         // conhecida: um DESCENDENTE com `width:%` resolve contra a viewport e
@@ -69,7 +70,16 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
         // que decide se a tabela transborda, e corrigi-lo em
         // `intrinsic_outer_width` mudaria o shrink-to-fit de flex e inline-block
         // na página inteira — uma mudança que precisa da sua própria medição.
-        max: crate::layout::intrinsic_outer_width(dom, id, parent_font, ctx),
+        //
+        // O `.max(min)` no fim não é defensivo, é uma correção: aquela medição
+        // toma o MAIOR filho inline onde a linha os SOMA, por isso responde
+        // abaixo do mínimo a uma célula com dois `<a>` lado a lado. Uma folga
+        // negativa não é uma folga — `resolve_colunas` divide por ela e a coluna
+        // sai mais estreita do que o seu próprio mínimo (64px de conteúdo em
+        // 56px de coluna, num teste). Corrigir a medição do layout arrastaria o
+        // shrink-to-fit da página inteira, que é medição à parte; aqui a
+        // resposta fica coerente consigo mesma.
+        max: crate::layout::intrinsic_outer_width(dom, id, parent_font, ctx).max(min),
     }
 }
 
@@ -135,12 +145,26 @@ pub(crate) fn largura_declarada(
 /// derivar um do outro. A alternativa considerada foi medir o bloco com largura
 /// disponível zero e ler o resultado; não serve, porque um bloco sem `width`
 /// ocupa o que lhe derem e responderia zero.
-fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+///
+/// `sem_quebra` é o `white-space` do PAI a chegar ao texto: uma célula
+/// `white-space:nowrap` não tem palavra mais larga, tem a frase inteira, e por
+/// isso o seu mínimo iguala o máximo — folga zero. Ignorar isto era o defeito
+/// que a página real expunha: as `th` das navboxes do MediaWiki (`.navbox-group`
+/// é `nowrap`) declaravam uma folga que não existe, recebiam parte do espaço a
+/// repartir e ficavam com 231px onde o Chrome dá 123 — com a coluna do lado a
+/// pagar a diferença.
+fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: bool) -> f32 {
     match &dom.node(id).kind {
-        NodeKind::Text(t) => t
-            .split_whitespace()
-            .map(|p| ctx.measurer.text_width(p, font, false, false))
-            .fold(0.0f32, f32::max),
+        NodeKind::Text(t) => {
+            if sem_quebra {
+                // Espaços colapsados mas nenhuma quebra: mede-se o texto todo.
+                let junto = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                return ctx.measurer.text_width(&junto, font, false, false);
+            }
+            t.split_whitespace()
+                .map(|p| ctx.measurer.text_width(p, font, false, false))
+                .fold(0.0f32, f32::max)
+        }
         NodeKind::Element { tag } => {
             if crate::layout::is_non_rendered_tag(tag) {
                 return 0.0;
@@ -165,16 +189,51 @@ fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
             if let Some(w) = largura_absoluta(css.width, &resolve) {
                 return w + if css.border_box.unwrap_or(false) { 0.0 } else { frame };
             }
+            // O `white-space` é herdado, por isso lê-se o do próprio nó em vez de
+            // se propagar o do pai pela recursão: um descendente que volte a
+            // `normal` PODE quebrar, e arrastar a bandeira para baixo negar-lhe-ia
+            // isso.
+            let sem_quebra = matches!(
+                css.white_space,
+                Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
+            );
+            // Sem quebra, os filhos de nível inline ficam todos na MESMA linha: o
+            // mínimo é a soma deles, e não o maior. Os de bloco continuam a
+            // empilhar-se, logo entram pelo máximo.
             let mut m = 0.0f32;
+            let mut linha = 0.0f32;
             for &c in &dom.node(id).children {
                 if crate::layout::is_out_of_flow(dom, c) {
                     continue;
                 }
-                m = m.max(min_content(dom, c, f, ctx));
+                let w = min_content(dom, c, f, ctx, sem_quebra);
+                if sem_quebra && em_linha(dom, c) {
+                    linha += w;
+                } else {
+                    m = m.max(w);
+                }
             }
-            m + frame
+            m.max(linha) + frame
         }
         _ => 0.0,
+    }
+}
+
+/// `true` se este nó partilha linha com os irmãos — texto, ou um elemento cujo
+/// `display` é de nível inline. Um elemento sem `display` nenhum (um `<a>`, um
+/// `<span>`) também flui na linha, que é o default do browser para as tags que
+/// não estão registadas como bloco.
+fn em_linha(dom: &Dom, id: NodeIdx) -> bool {
+    match &dom.node(id).kind {
+        NodeKind::Text(_) => true,
+        NodeKind::Element { .. } => match dom
+            .computed_style_idx(id)
+            .and_then(|c| c.effective_display())
+        {
+            Some(d) => d.is_inline_level(),
+            None => true,
+        },
+        _ => false,
     }
 }
 

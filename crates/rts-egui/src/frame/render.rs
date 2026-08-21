@@ -531,9 +531,22 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                 // e a precisão de um `f32` a 77 000 pontos já não é a de um a
                 // 780. Com raio não se recorta: cortar um canto arredondado
                 // mudava o desenho.
-                let r = if *radius <= 0.0 { r.intersect(visivel) } else { r };
+                //
+                // A pergunta é sobre os QUATRO cantos e é o `any()` que a faz.
+                // Respondê-la por um canto — o que a leitura de um `radius`
+                // único virava naturalmente ao passar a quatro — mandaria o
+                // fundo do documento inteiro ao tesselador sempre que qualquer
+                // canto fosse zero, que é o caso comum.
+                let r = if radius.any() { r } else { r.intersect(visivel) };
                 if r.is_positive() {
-                    painter.rect_filled(r, egui::CornerRadius::same(*radius as u8), rgba_to_color32(*color));
+                    // nw/ne/se/sw do egui são tl/tr/br/bl do CSS.
+                    let cr = egui::CornerRadius {
+                        nw: radius.tl as u8,
+                        ne: radius.tr as u8,
+                        se: radius.br as u8,
+                        sw: radius.bl as u8,
+                    };
+                    painter.rect_filled(r, cr, rgba_to_color32(*color));
                 }
             }
             DisplayItem::Border { rect, width, color, radius } => {

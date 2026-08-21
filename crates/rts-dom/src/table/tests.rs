@@ -462,3 +462,71 @@ fn trilha_auto_e_dimensionada_pelo_conteudo() {
     assert!((a.w - 400.0).abs() < 1.0, "trilha auto = {}", a.w);
     assert!((b.x - 400.0).abs() < 1.0, "a segunda coluna começa em {}", b.x);
 }
+
+/// Uma célula `white-space:nowrap` não tem folga: mínimo e máximo coincidem na
+/// frase inteira, e por isso a coluna fica com ela exatamente enquanto todo o
+/// espaço a repartir vai para a vizinha.
+///
+/// É a forma das navboxes da Wikipédia (`.navbox-group` é `nowrap`) e era o
+/// defeito medido contra o Chrome real: sem esta regra a coluna de rótulos
+/// declarava como mínimo a palavra mais larga, ganhava uma fatia da folga que
+/// não lhe pertencia (231px onde o Chrome dá 123), e a coluna do conteúdo pagava
+/// a diferença — texto a mais a quebrar, linhas a crescer, a tabela a inchar.
+///
+/// A tabela é DELIBERADAMENTE mais estreita do que o conteúdo quer: é o regime
+/// de repartição por folga, o único em que a folga decide alguma coisa.
+#[test]
+fn coluna_nowrap_nao_tem_folga_e_a_vizinha_leva_o_espaco_todo() {
+    // ApproxMeasurer: cada caractere mede metade do tamanho da fonte. "aa bb cc"
+    // a 16px = 8 chars = 64px inteira, 16px na palavra mais larga.
+    let html = r#"<table cellspacing="0" style="width:200px">
+        <tr><th style="white-space:nowrap">aa bb cc</th><td>dddddddddd eeeeeeeeee ffffffffff gggggggggg</td></tr>
+    </table>"#;
+    let (dom, list) = geometria(html, 800.0);
+
+    let rotulo = rect(&dom, &list, "th", 0);
+    let conteudo = rect(&dom, &list, "td", 0);
+
+    assert!((rotulo.w - 64.0).abs() < 1.0, "coluna nowrap = {}", rotulo.w);
+    assert!(
+        (rotulo.w + conteudo.w - 200.0).abs() < 1.0,
+        "as duas colunas somam {} e nao 200",
+        rotulo.w + conteudo.w
+    );
+}
+
+/// Sem `nowrap` a mesma coluna ENCOLHE abaixo da frase, porque quebrar linhas é
+/// o que a torna estreita e isso dá-lhe folga para ceder. O par com o teste
+/// acima é o que prova que a diferença vem do `white-space` e não de outra coisa
+/// na repartição.
+#[test]
+fn a_mesma_coluna_sem_nowrap_encolhe_abaixo_da_frase() {
+    fn largura_do_rotulo(estilo: &str) -> f32 {
+        let html = format!(
+            r#"<table cellspacing="0" style="width:200px">
+            <tr><th {estilo}>aa bb cc</th><td>dddddddddd eeeeeeeeee ffffffffff gggggggggg</td></tr>
+        </table>"#
+        );
+        let (dom, list) = geometria(&html, 800.0);
+        rect(&dom, &list, "th", 0).w
+    }
+    let com = largura_do_rotulo(r#"style="white-space:nowrap""#);
+    let sem = largura_do_rotulo("");
+    assert!(sem < com, "sem nowrap = {sem}, com nowrap = {com}");
+}
+
+/// Num rótulo `nowrap` os filhos inline ficam na MESMA linha, por isso o mínimo
+/// da coluna é a SOMA deles e não o maior. Um `<th>` com dois `<a>` lado a lado é
+/// a forma real, e tomar o máximo dava-lhe metade da largura de que precisa.
+#[test]
+fn nowrap_soma_os_filhos_inline_em_vez_de_tomar_o_maior() {
+    let html = r#"<table cellspacing="0" style="width:200px">
+        <tr><th style="white-space:nowrap"><a>aaaa</a><a>bbbb</a></th><td>dddddddddd eeeeeeeeee ffffffffff gggggggggg</td></tr>
+    </table>"#;
+    let (dom, list) = geometria(html, 800.0);
+
+    // 4 chars * 16 * 0.5 = 32px cada; na mesma linha somam 64.
+    let rotulo = rect(&dom, &list, "th", 0);
+    assert!((rotulo.w - 64.0).abs() < 1.0, "coluna nowrap com dois inline = {}", rotulo.w);
+}
+

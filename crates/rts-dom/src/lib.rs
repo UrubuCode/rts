@@ -61,6 +61,12 @@ mod table;
 #[cfg(test)]
 mod flowtests;
 
+/// Os testes do RAIO POR CANTO: o que a display list carrega e o que o backend
+/// pode recortar. Módulo próprio porque não são fluxo nem tabela — o que fixam é
+/// a caixa pintada.
+#[cfg(test)]
+mod radiustests;
+
 /// Motor de ANIMAÇÃO (#1776): interpolação de [`style::ComputedStyle`] no tempo +
 /// curvas de easing. Núcleo comum de `transition` (2 pontos) e `@keyframes` (N).
 /// Egui-free; o tick por frame é dirigido pelo loop de render.

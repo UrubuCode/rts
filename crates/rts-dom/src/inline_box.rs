@@ -212,3 +212,62 @@ pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
         list.hit_order.push(idx);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::table::tests::{geometria, rect};
+
+    /// Um `<img width height>` sem pixels carregados OCUPA a sua caixa. É o que o
+    /// browser faz enquanto a imagem não chegou da rede — e sem rede nunca chega,
+    /// que é a situação de todo o harness de paridade.
+    #[test]
+    fn imagem_sem_pixels_ocupa_a_caixa_que_declara() {
+        let (dom, list) = geometria("<div><img width='252' height='252'></div>", 800.0);
+        let img = rect(&dom, &list, "img", 0);
+        assert!((img.w - 252.0).abs() < 0.5, "largura = {}", img.w);
+        assert!((img.h - 252.0).abs() < 0.5, "altura = {}", img.h);
+    }
+
+    /// E a caixa CONTA para a largura intrínseca de quem encolhe ao conteúdo.
+    ///
+    /// É a cadeia inteira do defeito medido contra o Chrome: a `<figure>` do
+    /// MediaWiki é `display:table`, encolhe ao conteúdo, e com a imagem a medir
+    /// zero ficava com 10px em vez de 260 — a `<figcaption>` ao lado passava a
+    /// quebrar a um carácter por linha, 700px de altura onde o Chrome tem 107.
+    /// A imagem é que estava errada; a legenda só pagava.
+    #[test]
+    fn a_figura_que_encolhe_ao_conteudo_mede_a_imagem_sem_pixels() {
+        let html = "<figure style='display:table'>\
+            <img width='252' height='252'>\
+            <figcaption style='display:table-caption'>aa bb cc dd</figcaption>\
+            </figure>";
+        let (dom, list) = geometria(html, 800.0);
+        let fig = rect(&dom, &list, "figure", 0);
+        assert!(fig.w >= 252.0, "a figura encolheu a {} em volta de uma imagem de 252", fig.w);
+    }
+
+    /// Sem pixels a caixa existe mas NADA é pintado: uma reserva vazia é o que o
+    /// browser mostra, e pintar um retângulo ali seria inventar conteúdo.
+    #[test]
+    fn imagem_sem_pixels_reserva_a_caixa_mas_nao_pinta_nada() {
+        let (_dom, list) = geometria("<div><img width='40' height='40'></div>", 800.0);
+        let pintadas = list
+            .materialized()
+            .iter()
+            .filter(|i| matches!(i, crate::layout::DisplayItem::Image { .. }))
+            .count();
+        assert_eq!(pintadas, 0, "pintou {pintadas} imagem(ns) sem pixels");
+    }
+
+    /// Um `<img>` que não declara dimensão nenhuma e não tem pixels continua sem
+    /// caixa. O par com os testes acima é o que prova que a caixa vem do que se
+    /// DECLARA, e não de o elemento ser um `<img>`.
+    #[test]
+    fn imagem_sem_dimensao_nenhuma_continua_sem_caixa() {
+        let (dom, list) = geometria("<div><img></div>", 800.0);
+        let ids = dom.query_all("img");
+        let idx = dom.resolve(ids[0]).unwrap();
+        let r = list.geometry_now().rects.get(&idx).copied();
+        assert!(r.is_none_or(|r| r.w == 0.0), "caixa inventada: {r:?}");
+    }
+}
