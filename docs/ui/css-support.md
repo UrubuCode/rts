@@ -792,6 +792,59 @@ por FUNÇÃO — `blur` sim, `invert` não — que um predicado sobre o nome da
 propriedade não consegue exprimir. O sítio da decisão é o cabeçalho de
 `painteffects.rs`, onde ela é tomada.
 
+### 4.5.1 O grupo de compositing — RECUSADO em 2026-08-21, com o número
+
+A campanha do grupo de compositing (renderizar uma subárvore para fora do ecrã
+e compor o resultado) foi caracterizada e **não abre**. Traz `blur`,
+`drop-shadow`, `backdrop-filter`, o `filter` a alcançar descendentes, e o
+`opacity` de grupo. É possível — `egui_wgpu::Renderer::render` aceita uma FATIA
+de primitivas, `Context::graphics_mut` dá as shapes por `LayerId`, e
+`frame/scene3d.rs` já é o precedente de um pass wgpu próprio no mesmo encoder.
+Três coisas decidiram contra:
+
+**1. O custo.** Um grupo são 3–4 passes de render e uma textura fora do ecrã,
+por elemento e por frame, num motor imediato que repinta sempre.
+
+**2. É WGPU-ONLY.** O `rts-egui` tem o fallback `glow-backend`, que existe para
+GPU antiga. A mesma página desenharia diferente conforme o backend — um `blur`
+que desfoca numa máquina e não noutra é pior do que um que não desfoca em lado
+nenhum, porque deixa de ser previsível.
+
+**3. O número, que é o que fecha o assunto.** A intuição registada aqui era que
+o `opacity` de grupo "afeta mais páginas que o `blur`". Foi medido, e não
+afeta.
+
+O `opacity` por-cor e o `opacity` de grupo dão **o mesmo pixel** exceto onde
+duas camadas pintadas se sobrepõem dentro do elemento: compor áreas disjuntas
+dá o mesmo resultado nas duas ordens. A sonda
+`crates/rts-dom/examples/opacity_group_probe.rs` conta exatamente isso, sobre a
+display list de uma página real:
+
+| | `pagina.combinada.html` | `google.html` |
+|---|---:|---:|
+| elementos com `opacity` | 19 | 12 |
+| dos quais `0` ou `1` (grupo irrelevante) | 17 | 10 |
+| fracionários | 2 | 2 |
+| **DIFERE** (camadas sobrepostas) | **0** | **0** |
+| IGUAL (uma camada, ou disjuntas) | 2 | 2 |
+| AMBÍGUO | 0 | 0 |
+
+**Zero elementos das duas páginas reais precisariam de um grupo.** Bate com o
+que a folha já dizia: das 210 declarações de `opacity` do corpus, 105 são
+exatamente `0` ou `1`, e as fracionárias do MediaWiki são quase todas
+`var(--opacity-icon-base,.87)` — ícones, que pintam uma camada só.
+
+**A sonda foi verificada contra um controlo positivo** antes de este número ser
+aceite, porque "zero" é a resposta que um instrumento avariado também dá: numa
+página escrita à mão com fundo+borda+texto a 0,5 ela responde DIFERE 1, IGUAL 1,
+AMBÍGUO 1. As três colunas acendem.
+
+**Dois limites do número, ditos porque o restringem:** a página do WhatsApp, que
+tem 170 das 210 declarações, **não foi medida** — só a folha `.css` está no
+tree, não há HTML. E a sonda vê a página ESTÁTICA: um `opacity` fracionário que
+só aparece em `:hover` ou a meio de uma transição não é alcançado. Se o HTML do
+WhatsApp entrar no corpus, correr a sonda outra vez é o que reabre a questão.
+
 **O que continua a valer da estimativa antiga:** o grupo de compositing. O
 `filter` alcança as cores próprias da caixa e não os descendentes — um
 `filter: invert(1)` numa div com texto inverte o fundo e não o texto —, que é
