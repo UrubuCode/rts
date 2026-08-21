@@ -88,3 +88,52 @@ Não se corrige nada, não se renomeia nada, não se "melhora de passagem". Cada
 uma dessas coisas quebra a única verificação forte que temos — o dump idêntico —
 e passa a exigir medição por elemento, que é o custo que a arrumação existe para
 evitar. Havendo algo a corrigir, anota-se e faz-se **depois**, num lote medido.
+
+---
+
+## O `dom.rs`, feito — e três correções que o próprio refactor trouxe
+
+5 974 → **3 336 linhas** em dois passos, com **599 testes antes e depois de cada
+um** e o `--numstat` no corpo de cada commit a provar que só se moveu.
+
+| passo | resultado | linhas adicionadas ao `dom.rs` |
+|---|---|---|
+| 1 — testes para `dom/tests/` | 5 974 → 4 215 | **1** (`mod tests;`) |
+| 2 — seis folhas | 4 215 → 3 336 | **13** (seis `mod`, dois `pub use`, três `use`) |
+
+**1. Os testes eram 1 761 linhas, 29,5% — não "~3 000".** Este documento dizia
+"~3 000" para o `layout.rs` e não media os do `dom.rs`. Um plano com números
+redondos é um plano por medir, e a extração real também desmentiu a
+decomposição: o módulo de testes da cascata saiu com 616 linhas e foi partido em
+três em vez de entregue acima do teto.
+
+**2. A visibilidade custou dez itens, não cinquenta e quatro — e a diferença era
+culpa do plano.** Pôr o `struct Dom` num módulo próprio **cria** a necessidade de
+abrir os 44 campos aos irmãos. Deixá-lo no `dom/mod.rs` custa zero: dez funções
+livres passam a `pub(in crate::dom)`, que é exactamente o alcance que já tinham,
+e **nenhum campo muda**.
+
+Uma saiu da lista por medição — `closes_open_p` só é chamada dentro do próprio
+ficheiro, e foi o compilador que o disse com um `unused import`. **Alargar "por
+precaução" inventa uma fronteira que não existe.**
+
+E os re-exports internos são `use` simples e não `pub(crate) use`: este último
+republicava as dez em `crate::dom::*`, e o `layout.rs` passava a vê-las.
+
+**3. Privado em Rust não é privado ao ficheiro.** É visível no módulo que define
+**e em todos os descendentes**. Três blocos `impl Dom` em ficheiros próprios
+leem campos privados e chamam métodos privados sem uma única anotação. Quem
+partir o `layout.rs` precisa de saber isto antes de começar: metade do medo de
+um refactor destes vem de assumir o contrário.
+
+### O que não foi tocado, e porquê
+
+Um `use super::*;` duplicado e um teste atrás de `#[cfg(feature = "metrics")]`
+— este último explica 98 `#[test]` declarados contra 97 a correr, e vale saber
+antes de contar testes num passo futuro. Ambos anotados, nenhum corrigido: uma
+arrumação que corrige de passagem deixa de ser verificável, e a inocência de uma
+mudança é precisamente o que ninguém consegue confirmar depois.
+
+E a indentação de 4 espaços foi mantida nos ficheiros de teste, de propósito:
+vários têm literais multi-linha em que o espaço à esquerda é **conteúdo**.
+
