@@ -2,8 +2,6 @@
 //!
 //! Extraído de `values.rs` sem alterar uma linha.
 
-use super::*;
-
 /// `flex-direction` — qual eixo é o principal. Default `Row`. Egui-free.
 /// ⚠️ CORTE: o layout hoje SÓ honra `Row`. `Column`/`RowReverse`/`ColumnReverse`
 /// são parseados e mesclados (cascade pronta) mas o `layout_block` dispõe sempre em

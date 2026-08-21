@@ -2,8 +2,6 @@
 //!
 //! Extraído de `values.rs` sem alterar uma linha.
 
-use super::*;
-
 /// O contexto de resolução de uma [`Dimension`] relativa, conhecido só no
 /// render. Cada unidade resolve contra um eixo diferente (north-star risco 5: a
 /// resolução de `%`/`em`/`vw`/… é TARDIA, no layout, não no parse). Egui-free.

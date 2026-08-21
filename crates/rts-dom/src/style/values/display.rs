@@ -2,8 +2,6 @@
 //!
 //! Extraído de `values.rs` sem alterar uma linha.
 
-use super::*;
-
 /// O modo de `display` de um elemento (o eixo/fluxo dos filhos), parseado do CSS.
 /// Mapeia o vocabulário CSS para os modos de layout que o motor implementa.
 /// Egui-free. `None` no `ComputedStyle` = não declarado (usa o default da tag).

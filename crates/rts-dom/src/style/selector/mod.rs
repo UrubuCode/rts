@@ -10,5 +10,5 @@ mod sintaxe;
 mod casamento;
 
 pub use tipos::*;
-pub use sintaxe::*;
+use sintaxe::*;
 pub use casamento::*;

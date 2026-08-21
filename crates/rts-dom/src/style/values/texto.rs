@@ -2,7 +2,6 @@
 //!
 //! Extraído de `values.rs` sem alterar uma linha.
 
-use super::*;
 
 /// Cor RGBA empacotada `0xRRGGBBAA` num `u32`. Tipo próprio (não `Color32`).
 pub type Rgba = u32;
