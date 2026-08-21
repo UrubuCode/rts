@@ -39,6 +39,8 @@ pub mod fmt_values;
 pub mod grid_areas;
 pub mod inherit_kw;
 pub mod initial;
+/// As propriedades reconhecidas e deliberadamente não modeladas — ver o módulo.
+pub mod inert;
 pub mod lengths;
 /// `inset*` e as bordas lógicas (`-inline-`/`-block-`) — ver o módulo.
 pub mod logical;

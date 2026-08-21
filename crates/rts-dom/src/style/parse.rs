@@ -408,6 +408,12 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             _ if crate::style::timing::try_apply(css, &prop, val) => {}
             _ if crate::style::logical::try_apply(css, &prop, val) => {}
             _ if crate::style::vocab::try_apply(css, &prop, val) => {}
+            // RECONHECIDA e deliberadamente não modelada: conta noutra coluna,
+            // para a coluna das desconhecidas continuar a ser a lista do que
+            // falta fazer e não uma mistura com o que foi recusado.
+            _ if crate::style::inert::is_inert(&prop) => {
+                crate::bump!(css_declarations_inert);
+            }
             _ => {
                 crate::bump!(css_declarations_unknown);
                 crate::note!("propriedade-ignorada", prop.clone());

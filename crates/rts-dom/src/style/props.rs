@@ -467,6 +467,12 @@ css_props! {
         /// `column-width` — largura ideal de uma coluna de texto. Guardada: não há
         /// fragmentação em colunas.
         [] column_width: Dimension;
+        /// `pointer-events` — se este elemento RECEBE cliques. `None`/`Auto` =
+        /// recebe. Herda, como na spec. É o único deste lote que tem consumidor à
+        /// vista: o teste de acerto do DOM já existe, e ligá-lo é ler este campo
+        /// (por isso não foi para `style::inert`, que é para o que ninguém vai
+        /// consumir). Até lá o clique atravessa na mesma.
+        [inh] pointer_events: crate::style::vocab::PointerEvents;
         /// `align-self` — sobrepõe o `align-items` do container para ESTE item.
         /// `None` = `auto` (herda o do container).
         [] align_self: AlignItems;

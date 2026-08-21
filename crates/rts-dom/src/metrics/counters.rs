@@ -134,6 +134,7 @@ dom_metrics! {
         css_media_rules: "regras dentro de @media";
         css_declarations: "declarações";
         css_declarations_unknown: "declarações de propriedade DESCONHECIDA";
+        css_declarations_inert: "declarações RECONHECIDAS e não modeladas (ver style::inert)";
         css_custom_declarations: "declarações de custom property (--x)";
         css_var_refs: "declarações pendentes por var()";
     }

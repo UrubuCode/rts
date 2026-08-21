@@ -101,6 +101,15 @@ pub enum CaptionSide {
     Bottom,
 }
 
+/// `pointer-events` — se o elemento é alvo de cliques. Só as duas formas que um
+/// documento HTML usa; os valores de SVG (`visiblePainted` e companhia) não são
+/// modelados e caem como não-declarado, que é o mesmo que `auto`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum PointerEvents {
+    Auto,
+    None,
+}
+
 /// Um keyword simples: a lista de pares (texto, variante), num sítio só por tipo.
 macro_rules! kw {
     ($t:ty { $( $s:literal => $v:path ),* $(,)? }) => {
@@ -150,6 +159,7 @@ kw!(ScrollbarWidth {
     "none" => ScrollbarWidth::None,
 });
 kw!(CaptionSide { "top" => CaptionSide::Top, "bottom" => CaptionSide::Bottom });
+kw!(PointerEvents { "auto" => PointerEvents::Auto, "none" => PointerEvents::None });
 
 /// `font-stretch` em PERCENTAGEM (100 = `normal`), que é a forma em que a spec
 /// define os keywords e a forma em que o computed responde. `None` se o valor não
@@ -245,6 +255,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         "hyphens" => css.hyphens = Hyphens::parse(val),
         "scrollbar-width" => css.scrollbar_width = ScrollbarWidth::parse(val),
         "caption-side" => css.caption_side = CaptionSide::parse(val),
+        "pointer-events" => css.pointer_events = PointerEvents::parse(val),
         "font-stretch" => css.font_stretch = parse_font_stretch(val),
         "zoom" => css.zoom = parse_zoom(val),
         "word-spacing" => {
@@ -296,6 +307,9 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
             css.scrollbar_width.map(|v| v.css().to_string()).unwrap_or_else(|| "auto".into())
         }
         "caption-side" => css.caption_side.map(|v| v.css().to_string()).unwrap_or_else(|| "top".into()),
+        "pointer-events" => {
+            css.pointer_events.map(|v| v.css().to_string()).unwrap_or_else(|| "auto".into())
+        }
         // O computed de `font-stretch` é a percentagem, mesmo quando o autor
         // escreveu o keyword — é o que o Chrome responde.
         "font-stretch" => format!("{}%", css.font_stretch.unwrap_or(100.0)),
