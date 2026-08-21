@@ -40,6 +40,34 @@ ENTRADA" a pagar-se pela segunda vez.
 | propriedades CSS reconhecidas | *ver abaixo* | **186 de 278 (66,9%)** |
 | declarações CSS cobertas | — | **19 363 de 20 578 (94,1%)** |
 
+### A sessão de 2026-08-21, lote a lote
+
+Todas as medições sobre **16 813 pares**, o mesmo `chrome.jsonl`, comparação
+**por elemento** com `regressao.mjs`, binários compilados em worktree isolado a
+partir do commit indicado.
+
+| | erro de LARGURA | erro de `y` |
+|---|---:|---:|
+| baseline do `HEAD` | 804 k | 215,8 M |
+| \+ `border-width` (`9bd941eb`) | 624 k | 223,6 M |
+| \+ floats / `<img>` / cluster | 521 k | 98,7 M |
+| \+ avanço 0,46 (`80b60a3a`) | **455 k** | **73,3 M** |
+
+**Largura −43%, `y` −66%. PERDIDOS: 0 nas quatro medições.**
+
+| mediana | antes | depois |
+|---|---:|---:|
+| erro máximo por elemento | 13 758 px | **2 298 px** |
+| `x` | 18,84 px | **10,14 px** |
+| `y` | 13 726 px | **2 297 px** |
+
+**Leia a segunda linha da primeira tabela antes de tirar conclusões da última:**
+o `border-width` tirou 180 k do erro de largura e **subiu** o de `y`, de 215,8 M
+para 223,6 M. É a armadilha do agregado outra vez, e é a terceira forma dela na
+mesma sessão — uma correção certa pode fazer subir o eixo que não estava a
+atacar. Só o lote seguinte derrubou o `y`, e nenhum destes quatro passos perdeu
+um elemento. Ver `parity-chrome.md`.
+
 **A linha das propriedades dizia "68 de 363 usadas" e foi retirada por não ser
 reproduzível** — ninguém sabia que instrumento a tinha produzido, e um número
 sem instrumento é uma afirmação. O que a substitui tem sonda:
@@ -212,9 +240,16 @@ correlação.
 foi registada como "denominador encolhido". Estava errada — o ficheiro estava a
 ser ESCRITO. Ver a armadilha do `__fim` em `parity-chrome.md`.)*
 
-**2. Um `<img>` contribui ZERO para a largura intrínseca.**
+**2. Um `<img>` contribuía ZERO para a largura intrínseca.**
 24 `figure`, **28 548 px de largura a jusante (3,5%)** — e o pior bloco de erro
 de `y` do artigo.
+
+> **FEITO — 2026-08-21**, dentro do lote `376f88fe`, que está medido em conjunto
+> na linha "floats / `<img>` / cluster" da tabela do topo. **Não tem número
+> isolado**: os três entraram no mesmo lote e só o lote foi medido, por isso
+> nenhum deles pode reclamar uma fração dos 103 k de largura ou dos 125 M de `y`
+> que o lote rendeu. O diagnóstico fica por baixo por ser o que descreve a
+> cadeia inteira.
 
 `figure{display:table}` do MediaWiki: o Chrome dá 310×356, nós damos **10×155**,
 e o `<img width="250" height="167">` lá dentro sai **2×2** (só a borda do `<a>`).
@@ -248,8 +283,16 @@ inchaço das caixas inline (`sup`/`a`/`span` a devolver 752×41 onde o Chrome d�
 21,4×15, em 96 elementos) — pode, não está estabelecido.
 
 **4. Floats.** Responsáveis por **~38% do crescimento vertical** — número do
-`recon-y`, sobre os mesmos dumps. **Não foi re-medido por mim**; fica atribuído
-e por confirmar.
+`recon-y`, sobre os mesmos dumps.
+
+> **FEITO — 2026-08-21**, no mesmo lote `376f88fe` da tabela do topo, e sem
+> número isolado pela mesma razão.
+>
+> **Fica uma divergência conhecida, e é deliberado registá-la em vez de a
+> deixar para alguém a redescobrir:** o pai **cresce para conter o float**.
+> Isso é **falso no CSS** — um float não aumenta a altura do pai a menos que
+> haja um BFC — e é outro lote, com medição própria. Não é dívida escondida: é
+> um comportamento errado que ficou porque a alternativa não estava medida.
 
 **5. `position:absolute` com `width/height:100%` sobre um containing block de
 tamanho zero.** 5 elementos, 5 275 px de largura (0,7%) — mas mata um outlier
