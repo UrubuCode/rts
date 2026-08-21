@@ -1,5 +1,21 @@
 # Cargo configuration for this workspace.
 
+[build]
+# Quantos `rustc` correm ao mesmo tempo. O padrao e o numero de CPUs logicas
+# (16 nesta maquina), e o padrao e o errado aqui por uma razao que nao e a
+# velocidade do build: um `cargo build --release` deste workspace com
+# `lto = "thin"` e `codegen-units = 1` satura a maquina inteira por minutos, e
+# durante esses minutos ela nao serve para mais nada.
+#
+# Oito e metade das logicas desta maquina: deixa folga para o resto do sistema
+# e custa pouco, porque os crates grandes daqui compilam em serie de qualquer
+# forma — `lto = "thin"` e a etapa de link nao paralelizam com os outros. O
+# gargalo de um build de release deste projeto e a cauda, nao a largura.
+#
+# NAO MEDIDO: quanto exatamente o build alonga. Se isso passar a importar,
+# `cargo build -j <n>` sobrepoe isto por invocacao, sem editar o arquivo.
+jobs = 8
+
 [env]
 # The Rust TEST HARNESS runs each test on a spawned thread, whose default stack
 # is 2 MiB — far smaller than the 8 MiB the process main thread gets. The
