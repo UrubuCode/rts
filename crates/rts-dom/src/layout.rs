@@ -2758,6 +2758,25 @@ fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
             let css = dom.computed_style_idx(id);
+            // Um `display:inline-block` DECLARADO responde `true` e não chega às
+            // perguntas seguintes — nem à tag, que é o que o tornava invisível.
+            //
+            // A pergunta abaixo é `d != Inline`, e por ela o `InlineBlock` contava
+            // como display DE BLOCO: um `<li style="display:inline-block">` batia
+            // no `block::lookup("li")` e saía `false`. O efeito dependia do pai e
+            // por isso escondia-se: sob um pai de bloco a caixa saía com a largura
+            // toda (760 onde o Chrome dá 22,2) e sob um pai inline o elemento
+            // ficava SEM CAIXA NENHUMA, que é conteúdo invisível e não geometria
+            // errada. São os `<li>` do menu principal da Wikipédia.
+            //
+            // É a mesma forma do defeito que `is_block_level` já tinha — perguntar
+            // "não é inline?" quando a pergunta é "é de bloco?" — e o `InlineBlock`
+            // é exatamente o valor que as duas leituras separam.
+            if css.as_ref().and_then(|c| c.effective_display())
+                == Some(crate::style::DisplayKind::InlineBlock)
+            {
+                return true;
+            }
             let explicit_block = css
                 .as_ref()
                 .and_then(|c| c.effective_display())

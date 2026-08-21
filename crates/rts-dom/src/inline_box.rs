@@ -966,6 +966,43 @@ mod tests {
         );
     }
 
+    /// Um `inline-block` dentro de um pai INLINE continua a ter caixa.
+    ///
+    /// É a forma do menu principal da Wikipédia — um `<ul>` que passou a inline
+    /// com `<li style="display:inline-block">` dentro — e o que ela expôs não é
+    /// geometria errada, é **conteúdo invisível**: o `<li>` não recebia retângulo
+    /// nenhum. O caminho nunca tinha sido exercitado porque o pai nunca era
+    /// inline; foi a correção dos cabeçalhos que o tornou alcançável.
+    ///
+    /// 22,08 aqui contra os 22,2 medidos no Chrome é a métrica aproximada do
+    /// medidor de teste — o que se fixa é que a caixa EXISTE e mede o texto, e
+    /// não a largura do contentor.
+    #[test]
+    fn inline_block_dentro_de_pai_inline_continua_a_ter_caixa() {
+        let (dom, list) = geometria(
+            "<div style='width:600px'><ul style='display:inline'>             <li style='display:inline-block'>abc</li></ul></div>",
+            800.0,
+        );
+        let li = rect(&dom, &list, "li", 0);
+        assert!(li.w > 0.0, "o inline-block ficou sem caixa: {li:?}");
+        assert!(
+            li.w < 100.0,
+            "e mede o texto, não o contentor de 600: {li:?}"
+        );
+    }
+
+    /// O mesmo com um `<span>`, que é a outra forma em que o defeito aparecia na
+    /// página — um pai inline cujos filhos desapareciam.
+    #[test]
+    fn os_filhos_de_um_inline_nao_desaparecem() {
+        let (dom, list) = geometria(
+            "<div style='width:600px'><span style='display:inline'>             <span style='display:inline-block'>abc</span></span></div>",
+            800.0,
+        );
+        let filho = rect(&dom, &list, "span", 1);
+        assert!(filho.w > 0.0, "o filho perdeu a caixa: {filho:?}");
+    }
+
     /// Um `<img>` que não declara dimensão nenhuma e não tem pixels continua sem
     /// caixa. O par com os testes acima é o que prova que a caixa vem do que se
     /// DECLARA, e não de o elemento ser um `<img>`.
@@ -1254,6 +1291,7 @@ mod inline_declarado_e_dono {
         );
     }
 }
+
 
 
 
