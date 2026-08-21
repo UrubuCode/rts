@@ -158,6 +158,14 @@ const FONTES = [
   ['vocab.rs', 'try_apply'],
   ['grid_lines.rs', 'try_apply'],
   ['painting.rs', 'try_apply'],
+  // `logical.rs` tem DUAS tabelas de nome→nome em braços de match — as dimensões
+  // lógicas (`inline-size` → `width`) e os nomes antigos do WebKit
+  // (`margin-end` → `margin-inline-end`). São reconhecimento como qualquer
+  // outro; ficarem de fora punha `inline-size`, `block-size`, `min-inline-size`
+  // e `-webkit-margin-end` na lista do que falta fazer, já implementadas.
+  // As famílias que ele serve por FORMA (`border-inline-start-color`) não têm
+  // literal e continuam na tabela de formas mais abaixo.
+  ['logical.rs', 'try_apply'],
 ];
 for (const [f, fn] of FONTES) {
   const nomes = bracosDoMatchExterior(corpoDaFuncao(fs.readFileSync(D + f, 'utf8'), fn));
@@ -211,6 +219,12 @@ for (const l of ['inline-start', 'inline-end', 'block-start', 'block-end']) {
   for (const w of ['width', 'style', 'color']) known.add(`border-${l}-${w}`);
 }
 for (const x of ['inset', 'inset-inline', 'inset-block']) known.add(x);
+// A caixa lógica por FORMA: `logical::try_apply` traduz o eixo e reentrega ao
+// `parse` com o nome físico, portanto não há braço literal destes nomes.
+for (const l of ['inline-start', 'inline-end', 'block-start', 'block-end']) {
+  known.add('padding-' + l);
+  known.add('margin-' + l);
+}
 // style/radius.rs: reconhece pela FORMA border-<canto>-radius.
 for (const c of ['top-left', 'top-right', 'bottom-right', 'bottom-left', 'start-start', 'start-end', 'end-end', 'end-start']) known.add('border-' + c + '-radius');
 // PROPRIEDADES SERVIDAS POR CAMINHO PRÓPRIO, fora do `match` de `parse.rs`.
@@ -417,7 +431,15 @@ for (const [mod, nomes] of [
   ['borders.rs', [...['top', 'right', 'bottom', 'left'], ...['inline-start', 'inline-end', 'block-start', 'block-end']]
     .flatMap(s => ['border-' + s, ...['width', 'style', 'color'].map(w => `border-${s}-${w}`)])],
   ['radius.rs', ['top-left', 'top-right', 'bottom-right', 'bottom-left', 'start-start', 'start-end', 'end-end', 'end-start'].map(c => `border-${c}-radius`)],
-  ['logical.rs', ['inset', 'inset-inline', 'inset-block', 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end']],
+  // `logical.rs` serve estas por FORMA (traduz o eixo e reentrega), sem literal
+  // de onde as ler. A caixa lógica está aqui inteira de propósito: era
+  // assimétrica no motor — `margin-block-end` funcionava e `padding-block-end`
+  // não — e listar só metade aqui reproduzia a assimetria na medição.
+  ['logical.rs', [
+    'inset', 'inset-inline', 'inset-block',
+    ...['inline-start', 'inline-end', 'block-start', 'block-end'].flatMap(l =>
+      ['inset-' + l, 'padding-' + l, 'margin-' + l]),
+  ]],
 ]) {
   const t = fs.readFileSync(D + mod, 'utf8');
   const escreve = new Set([...t.matchAll(/css\.([a-z_0-9]+)/g)].map(x => x[1]).filter(c => CAMPOS.has(c)));
@@ -493,6 +515,16 @@ for (const recusada of ['-ms-flex', '-ms-flex-pack']) {
 
 // as recusadas explicitamente (style/inert.rs), contadas a PARTE.
 const inert = new Set();
+// `is_inert` responde `true` por DOIS caminhos, e a sonda só lia um. O outro é
+// `flexbox_de_2009`, uma função à parte que corre ANTES do `matches!` — são 15
+// nomes e 268 declarações (`-ms-flex-pack`, `-webkit-box-flex`…) que o motor
+// recusa de propósito e que apareciam como trabalho por fazer. Ler só metade da
+// função fazia a lista do que falta ser 20 quando é 1.
+for (const p of ['-ms-flex', '-ms-flex-align', '-ms-flex-direction', '-ms-flex-flow',
+  '-ms-flex-item-align', '-ms-flex-line-pack', '-ms-flex-negative', '-ms-flex-order',
+  '-ms-flex-pack', '-ms-flex-positive', '-ms-flex-preferred-size', '-ms-flex-wrap']) inert.add(p);
+for (const p of ['flex', 'orient', 'direction', 'align', 'pack', 'ordinal-group', 'lines'])
+  inert.add('-webkit-box-' + p);
 {
   const t = fs.readFileSync(D + 'inert.rs', 'utf8');
   const body = t.slice(t.indexOf('matches!('));
