@@ -454,11 +454,34 @@ for (const p of [...camposDoNome.keys()])
   for (const pre of PREFIXOS)
     if (!ehFlexboxDe2009(pre + p)) camposDoNome.set(pre + p, camposDoNome.get(p));
 
-/** 'efetiva' | 'guardada' | 'indeterminada' (sem campo de tabela conhecido). */
+/**
+ * 'efetiva' | 'parcial' | 'guardada' | 'indeterminada' (sem campo conhecido).
+ *
+ * A classe PARCIAL existe porque a resposta binária escondia metade de uma
+ * propriedade. Isto respondia por OR — bastava UM campo lido para a propriedade
+ * inteira contar como efetiva — e a nossa tabela é 1 propriedade → N campos, ao
+ * contrário da do Blink. `background-image` escreve `bg_image` E `gradient`: o
+ * gradiente é pintado, o `url()` não tem leitor nenhum, e a propriedade era
+ * dada como efetiva. Com ela ia escondida a família que depende do `url()` —
+ * `background-position`, `-size`, `-repeat`, `-clip`, `-origin`, `-attachment`,
+ * 351 declarações no corpus, todas atrás de um campo que ninguém lê.
+ *
+ * Inverter para AND seria trocar um erro pelo simétrico: `background-image`
+ * passaria a "guardada" e o gradiente que É pintado desaparecia da conta. Uma
+ * propriedade meio implementada não é nenhuma das duas coisas, e a régua tem de
+ * o dizer em vez de escolher o lado que soa melhor.
+ */
 function consumo(prop) {
   const cs = camposDoNome.get(prop);
   if (!cs || cs.size === 0) return 'indeterminada';
-  return [...cs].some(c => efetivos.has(c)) ? 'efetiva' : 'guardada';
+  const lidos = [...cs].filter(c => efetivos.has(c)).length;
+  if (lidos === 0) return 'guardada';
+  return lidos === cs.size ? 'efetiva' : 'parcial';
+}
+
+/** Os campos de uma propriedade PARCIAL que ninguém lê — o que ela esconde. */
+function camposOrfaos(prop) {
+  return [...(camposDoNome.get(prop) || [])].filter(c => !efetivos.has(c));
 }
 
 // ── VERIFICAÇÃO DA PRÓPRIA SONDA ────────────────────────────────────────────
@@ -637,11 +660,37 @@ const dn = rows.reduce((a, [, n]) => a + n, 0), dk = rows.filter(([p]) => known.
 console.log(`\nUNIAO (${Object.keys(srcs).length} folhas, sem descritores de at-rule): ${rec}/${tot} propriedades (${(100 * rec / tot).toFixed(1)}%), ${dk}/${dn} declaracoes (${(100 * dk / dn).toFixed(1)}%)`);
 // A coluna "reconhecidas" DIVIDIDA: ver o bloco "TEM CONSUMIDOR?" acima.
 const conhecidas = rows.filter(([p]) => known.has(p));
-const porConsumo = { efetiva: [], guardada: [], indeterminada: [] };
+const porConsumo = { efetiva: [], parcial: [], guardada: [], indeterminada: [] };
 for (const r of conhecidas) porConsumo[consumo(r[0])].push(r);
 const soma = a => a.reduce((x, [, n]) => x + n, 0);
-console.log(`  EFETIVAS  (lidas por quem desenha):   ${String(porConsumo.efetiva.length).padStart(3)} propriedades, ${soma(porConsumo.efetiva)} declaracoes`);
+console.log(`  EFETIVAS  (todos os campos lidos):    ${String(porConsumo.efetiva.length).padStart(3)} propriedades, ${soma(porConsumo.efetiva)} declaracoes`);
+console.log(`  PARCIAIS  (uns lidos, outros nao):    ${String(porConsumo.parcial.length).padStart(3)} propriedades, ${soma(porConsumo.parcial)} declaracoes`);
 console.log(`  GUARDADAS (parseadas, ninguem as le): ${String(porConsumo.guardada.length).padStart(3)} propriedades, ${soma(porConsumo.guardada)} declaracoes`);
+// As parciais listam-se por inteiro, com o campo orfao ao lado: sao a classe
+// que a resposta binaria escondia, e um numero agregado voltaria a escondê-las.
+// Uma parcial cujos campos órfãos não partilham UM token com o nome da
+// propriedade é quase de certeza sobre-recolha do mapa nome→campos, e não uma
+// falha do motor: o mapa segue as funções chamadas por cada braço, e um braço
+// que chame um ajudante partilhado herda o que esse ajudante escreve. `grid-gap`
+// a aparecer sem leitor de `bg_image` é isso, não um defeito de grid.
+//
+// A linha imprime-se na mesma, marcada. Silenciá-la esconderia o defeito do
+// instrumento, que é o que a classe PARCIAL acabou de servir para revelar — a
+// resposta binária escondia-o por completo, dos dois lados.
+// Os campos abreviam onde o nome CSS não abrevia (`bg_image` para
+// `background-image`), portanto a comparação de tokens precisa dos sinónimos —
+// sem eles, `background` era marcado como sobre-recolha por ter campos `bg_*`,
+// que é a única família onde a marca estaria errada.
+const SINONIMOS = { bg: 'background', valign: 'vertical', decoration: 'decoration' };
+const tokens = s => new Set(s.replace(/^-(webkit|moz|ms|o)-/, '').split(/[-_]/)
+  .map(t => SINONIMOS[t] || t));
+const suspeita = (p) => {
+  const t = tokens(p);
+  return camposOrfaos(p).every(c => ![...tokens(c)].some(x => t.has(x)));
+};
+for (const [p, n] of porConsumo.parcial.sort((a, b) => b[1] - a[1]))
+  console.log(`     ${String(n).padStart(5)}x  ${p.padEnd(26)} sem leitor: ${camposOrfaos(p).join(', ')}` +
+    (suspeita(p) ? '   <- SOBRE-RECOLHA do mapa, nao do motor' : ''));
 if (porConsumo.indeterminada.length)
   console.log(`  INDETERMINADAS (sem campo na tabela): ${String(porConsumo.indeterminada.length).padStart(3)} propriedades, ${soma(porConsumo.indeterminada)} declaracoes`);
 
