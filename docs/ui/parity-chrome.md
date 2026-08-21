@@ -488,3 +488,34 @@ E o número que fecha a escolha da frente: a triagem que a apontou dizia
 de 167 px onde o sintoma se via — estava dois níveis acima, numa palavra-chave
 que o parse deitava fora.
 
+## O `inline-block` a fluir: −1 245 502 px em `y`, sem um perdido (2026-08-21)
+
+Medido a partir de um binário construído num **worktree isolado no commit** —
+a árvore partilhada tinha lotes de dois outros agentes em voo, e um binário
+feito dela compila um estado que nunca existiu.
+
+| eixo | soma do erro | ganhos | perdidos |
+|---|---|---|---|
+| `y` | 29 561 317 → **28 315 815** | 0 | **0** |
+| `x` | 835 389 → 830 473 | 14 | **0** |
+| `w` | 277 793 → 275 459 | 0 | **0** |
+| `h` | 87 921 → 85 693 | 13 | 14 |
+
+**O `y` perde 1 245 502 px sem um único perdido** — o segundo maior movimento
+nesse eixo desde que a régua existe, atrás só dos cabeçalhos. E o número tem uma
+coincidência que vale registar sem lhe inventar mecanismo: o erro de POSIÇÃO dos
+elementos inline estava documentado como **1,2 M px sem causa**, depois de
+quatro hipóteses eliminadas. A ordem de grandeza é a mesma. Não se afirma que
+era o mesmo erro; afirma-se que a auditoria de cobertura chegou a um sítio onde
+quatro hipóteses de sintoma não tinham chegado.
+
+**A troca na altura é limpa e explica-se:** 13 ganhos (10 `<div>`, 1 `<p>`,
+1 `<a>`, 1 `<ul>`) contra **14 perdidos, todos `<span>`, todos exactamente
+2,00 px**. São ícones de 19,67 px que passam a medir 21,67: o elemento entrou
+numa linha e a caixa da linha soma-lhe agora o que a caixa de bloco não somava.
+Um valor único repetido 14 vezes é uma regra, não ruído — e a regra é a próxima
+pergunta, não uma regressão desta.
+
+Entra com a troca declarada: 1,2 M px de posição contra 14 ícones a 2 px, com a
+família dos perdidos nomeada e o valor constante à vista.
+
