@@ -201,6 +201,34 @@ impl<'a> FuncBuilder<'a> {
         self.block = block;
     }
 
+    /// Whether nothing has been appended to the block being built.
+    ///
+    /// # Why a client needs this, and why it is not a convenience
+    ///
+    /// A client that wants to know "has anything happened since I was last
+    /// here" has, without this, only two ways to answer it: keep its own count
+    /// of what it emitted — a second record of a fact this builder already
+    /// holds, and one that goes stale the first time an emission it did not
+    /// perform slips in — or give up and assume the worst.
+    ///
+    /// The question is worth answering exactly because the client asking it is
+    /// deciding whether a value it holds is still the value in a location. The
+    /// difference between "nothing ran" and "probably nothing ran" is the
+    /// difference between a forwarded value and a stale one, and a stale one is
+    /// a wrong answer rather than a slow program.
+    ///
+    /// Says nothing about the terminator: a block whose terminator is set is
+    /// still empty by this measure if no instruction was appended to it. That
+    /// is the right reading for the question — a terminator is where control
+    /// leaves, not something that ran here.
+    pub fn nothing_emitted_here(&self) -> bool {
+        self.func
+            .block(self.block)
+            .expect("block belongs to this function")
+            .insts
+            .is_empty()
+    }
+
     /// Appends an empty block, in whatever region is open.
     pub fn create_block(&mut self) -> BlockId {
         let block = self.func.push_block();
