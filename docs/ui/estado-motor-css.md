@@ -717,3 +717,27 @@ A altura das miniaturas: 0 pela spec pura, 150 pela CSS Images §5.3, 169 pela
 razão dos atributos — todas piores contra um Chrome que cai num quadrado porque
 a imagem nunca carregou. Ficou escrita como limite, não forçada como número.
 
+### A fila, com o número de cada uma
+
+Nenhuma começada, todas com a causa já apurada ou explicitamente por apurar.
+
+| o quê | escala medida | nota |
+|---|---|---|
+| `inline-block` sob pai de BLOCO | 31 elementos, 2 032 px — **1 757 em dois `<li>`** | 22 dos 31 já casam |
+| bloco dentro de um inline | **desconhecida** | conteúdo invisível; o Chrome parte o inline à volta (*block-in-inline splitting*) |
+| dois `<div>` menores que o Chrome | 16,2 contra 98,8 | não é o defeito do `inline-block`; caixa que mediu quase nada |
+| repartição de largura entre COLUNAS | 207 largas contra 132 estreitas | sinal MISTO — mede-se por par, nunca por soma |
+| posição dos inline | 1,2 M px | **sem causa**, quatro hipóteses eliminadas |
+| os 8 `inherit` sem efeito | 4 estão dentro de `display:none` | dois em `.infobox-table td` são os únicos que podem mexer |
+
+E as quatro divergências registadas na §6 do `css-support.md`, que são decisões
+e não dívida: a altura das imagens sem rede, o `absolute` que devia encolher,
+`min-content`/`fit-content` fora de propósito, e o `revert-layer` como pista por
+confirmar.
+
+**Nota sobre a segunda linha.** "Escala desconhecida" é a resposta honesta e
+está aqui em vez de um palpite: sabe-se que o caso existe e que produz conteúdo
+invisível, não se sabe quantos elementos da página têm essa forma. Depois de
+duas frentes escolhidas nesta sessão com números que não eram da página, um
+número inventado para preencher esta célula seria a terceira.
+
