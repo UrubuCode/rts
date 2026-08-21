@@ -1,6 +1,8 @@
 //! Os testes do layout, movidos de `layout.rs` sem alteração de conteúdo.
 //!
-//! Aqui ficam só os HELPERS partilhados; cada área tem o seu submódulo.
+//! Aqui ficam só os HELPERS partilhados; cada área tem o seu submódulo. O
+//! `const FRASE` vive aqui porque dois submódulos o usam — no original estava
+//! ao nível do `mod tests`, e é o item que o chunker por `    }` não via.
 
 mod bloco;
 mod cache;
@@ -10,11 +12,6 @@ mod grid;
 mod inline;
 mod pintura;
 mod posicionado;
-
-    /// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
-    /// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
-    const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";
-
     use super::*;
     use crate::dom::parse_html_to_dom;
 
@@ -35,7 +32,6 @@ mod posicionado;
             && (a.h - b.h).abs() < TOL
     }
 
-
     /// Os quatro cantos iguais a menos da tolerância — a mesma pergunta que se
     /// fazia a um raio só, feita quatro vezes em vez de uma.
     fn cantos_equivalentes(a: &Corners, b: &Corners) -> bool {
@@ -44,7 +40,6 @@ mod posicionado;
             && (a.br - b.br).abs() < TOL
             && (a.bl - b.bl).abs() < TOL
     }
-
 
     /// Dois itens de pintura iguais a menos da tolerância acima. Texto, cor e
     /// tipo têm de bater EXATAMENTE: só a geometria admite o erro do
@@ -128,7 +123,6 @@ mod posicionado;
         }
     }
 
-
     /// Registra `<div>` como bloco vertical (os testes precisam que a tag tenha
     /// layout de bloco para entrar no caminho `layout_block` dos filhos).
     fn def_div() {
@@ -142,7 +136,6 @@ mod posicionado;
             },
         );
     }
-
 
     /// Os itens de texto de um layout, como `(texto, itálico)`. Serve às provas
     /// do `font-style` — o que se pergunta é quais palavras saem inclinadas.
@@ -158,7 +151,6 @@ mod posicionado;
             .collect()
     }
 
-
     /// Layout determinístico com medidor aproximado e viewport fixo.
     fn layout(html: &str, vw: f32) -> DisplayList {
         def_div();
@@ -170,7 +162,6 @@ mod posicionado;
         };
         layout_document(&dom, &ctx)
     }
-
 
     /// Primeiro `SolidRect` da lista (o fundo da 1ª caixa) — atalho de assert.
     ///
@@ -189,7 +180,6 @@ mod posicionado;
             .expect("esperava ao menos um SolidRect")
     }
 
-
     /// Todos os itens de TEXTO, na ordem de pintura: `(texto, x, y, cor)`.
     /// Mesma razão do `first_rect` para não ler `list.items`.
     fn all_texts(list: &DisplayList) -> Vec<(String, f32, f32, u32)> {
@@ -203,7 +193,6 @@ mod posicionado;
             })
             .collect()
     }
-
 
     /// Helper: layout de um HTML num row flex e os rects (x ordenado) dos N cards.
     fn flex_card_rects(style: &str, n_cards: usize, vw: f32) -> Vec<Rect> {
@@ -254,7 +243,6 @@ mod posicionado;
         rects
     }
 
-
     /// Coleta todos os SolidRect da lista, em ordem (container primeiro, filhos
     /// depois — o fundo do container é inserido ATRÁS dos filhos).
     fn all_rects(list: &DisplayList) -> Vec<Rect> {
@@ -268,3 +256,7 @@ mod posicionado;
             })
             .collect()
     }
+
+    /// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
+    /// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
+    const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";

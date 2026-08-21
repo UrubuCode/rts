@@ -2,11 +2,11 @@
 //! do parágrafo, e as fronteiras que não podem mudar o número de linhas.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de teste foi
-//! alterada. A indentação de 4 espaços é a do `mod tests` de origem e foi
-//! MANTIDA: há literais multi-linha em que o espaço à esquerda é conteúdo.
+//! alterada — a reconstrução destes blocos é byte a byte a do original.
+//! A indentação de 4 espaços é a do `mod tests` de origem e foi MANTIDA:
+//! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
-
 
     #[test]
     fn elemento_inline_recebe_bounding_rect() {
@@ -24,7 +24,6 @@
         assert!(rect.w > 0.0);
         assert!(rect.h > 0.0);
     }
-
 
     /// Um `<a>` dentro de um parágrafo ocupa a sua fatia da linha: começa DEPOIS
     /// do texto que o antecede e é mais estreito do que o parágrafo inteiro.
@@ -56,7 +55,6 @@
         );
         assert!(r.h > 0.0);
     }
-
 
     /// Um `<a>` que quebra em duas linhas tem UMA caixa que contém as duas — é a
     /// definição da spec (bounding box dos fragmentos), e é o que
@@ -92,7 +90,6 @@
         );
     }
 
-
     /// Um `<img>` inline é um REPLACED element: tem caixa própria com a largura e
     /// a altura dos atributos, mesmo sem pixels descodificados (é o caso de uma
     /// página real medida sem rede). Antes não gerava run nenhum e ficava a zero.
@@ -114,7 +111,6 @@
         assert_eq!((r.w, r.h), (40.0, 30.0));
         assert!(r.x > 0.0, "está depois do texto que o antecede: x={}", r.x);
     }
-
 
     /// Um inline VAZIO (`<source>` dentro de um `<picture>`) tem no browser
     /// largura zero mas posição e altura reais — não é `0,0,0,0`.
@@ -142,7 +138,6 @@
         );
     }
 
-
     /// Um inline vazio SOZINHO num bloco não inventa uma linha: o bloco continua
     /// com a mesma altura. É o corte que separa "acrescentar geometria" de
     /// "mudar o layout".
@@ -157,7 +152,6 @@
         let sem = layout_document(&parse_html_to_dom("<div></div>"), &ctx);
         assert_eq!(com.content_height, sem.content_height);
     }
-
 
     /// Um inline com CAIXA (fundo/padding) no meio de um parágrafo continua na
     /// linha: o parágrafo tem a altura de uma linha, não de três. Era o que
@@ -190,7 +184,6 @@
         );
     }
 
-
     /// `<br>` fecha a linha: o texto depois dele começa uma linha nova, e o
     /// próprio `<br>` tem posição e altura de linha com largura zero — é o que o
     /// browser reporta. Antes não quebrava nada: as duas linhas saíam como uma.
@@ -221,7 +214,6 @@
         assert_eq!(r.w, 0.0);
         assert!(r.h > 0.0, "altura de linha: {r:?}");
     }
-
 
     /// A caixa de um elemento inline é a CONTENT AREA DA FONTE, não a caixa de
     /// linha: com `line-height: 3`, o `<a>` continua a ter a altura da fonte e
@@ -256,7 +248,6 @@
         );
     }
 
-
     #[test]
     fn tmp_a() {
         let ctx = LayoutCtx {
@@ -278,7 +269,6 @@
             eprintln!("DIAG {:<66} -> {:?}", html, list.geometry().rects.get(&idx));
         }
     }
-
 
     /// `border-radius` sozinho NÃO tira um elemento do fluxo inline: um raio sem
     /// fundo nem borda não pinta nada e não cria caixa. O `has_box` conta-o
@@ -310,7 +300,6 @@
         assert_eq!(r.h, fonte, "altura da fonte, logo continua inline: {r:?}");
         assert!(r.x > 0.0, "flui depois do texto que o antecede: {r:?}");
     }
-
 
     /// Um `<a>` à volta de uma imagem grande NÃO fica do tamanho dela: no browser
     /// a caixa de um inline tem a LARGURA do que ele contém e a ALTURA DA FONTE.
@@ -346,7 +335,6 @@
         // e fica centrado na linha que a imagem tornou alta.
         assert_eq!(a.y, (200.0 - fonte) / 2.0, "meia-entrelinha: {a:?}");
     }
-
 
     #[test]
     fn inline_flow_links_fluem_no_paragrafo() {
@@ -388,6 +376,9 @@
         );
     }
 
+    /// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
+    /// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
+    const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";
 
     #[test]
     fn referencia_nao_e_partida_ao_meio_por_uma_quebra_de_linha() {
@@ -421,7 +412,6 @@
             }
         }
     }
-
 
     #[test]
     fn fronteiras_inline_nao_mudam_o_numero_de_linhas() {

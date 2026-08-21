@@ -2,11 +2,11 @@
 //! `gap` e `wrap`.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de teste foi
-//! alterada. A indentação de 4 espaços é a do `mod tests` de origem e foi
-//! MANTIDA: há literais multi-linha em que o espaço à esquerda é conteúdo.
+//! alterada — a reconstrução destes blocos é byte a byte a do original.
+//! A indentação de 4 espaços é a do `mod tests` de origem e foi MANTIDA:
+//! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
-
 
     /// O `line-height` declarado vale em QUALQUER contexto, não só no fluxo
     /// inline: o mesmo parágrafo dentro de um `display:flex` respondia a altura
@@ -35,7 +35,6 @@
         assert_eq!(sem, ApproxMeasurer.line_height(DEFAULT_FONT_SIZE));
         assert_eq!(com, 32.0, "16 × 2 = 32, e não a altura do medidor");
     }
-
 
     /// Um `<span>` filho de um `display:flex` é um item de flex, e um item de
     /// flex é BLOCKIFICADO pela spec — tem caixa própria, com a sua posição e o
@@ -70,7 +69,6 @@
         );
     }
 
-
     /// A cor de um `<span>` filho de flex é a DELE, não a do container — o mesmo
     /// achatamento que lhe tirava a caixa pintava o texto com o estilo do pai.
     #[test]
@@ -84,7 +82,6 @@
         assert_eq!(texts[0].3, 0xFF0000FF, "a cor do span, não a do container");
     }
 
-
     #[test]
     fn flex_gap_separa_itens() {
         // gap:20px entre 3 cards de 100px: x = 0, 120, 240.
@@ -94,7 +91,6 @@
         assert!((r[1].x - 120.0).abs() < 0.5, "card2 em 100+20: {r:?}");
         assert!((r[2].x - 240.0).abs() < 0.5, "card3 em 220+20: {r:?}");
     }
-
 
     #[test]
     fn flex_justify_content() {
@@ -116,7 +112,6 @@
         assert!((r[0].x - 75.0).abs() < 0.5, "evenly leading=75: {r:?}");
         assert!((r[1].x - 250.0).abs() < 0.5, "{r:?}");
     }
-
 
     #[test]
     fn flex_grow_distribui_o_espaco() {
@@ -160,7 +155,6 @@
         assert!((r2[0].w - 200.0).abs() < 0.5, "grow 1: {r2:?}");
         assert!((r2[1].w - 400.0).abs() < 0.5, "grow 2: {r2:?}");
     }
-
 
     #[test]
     fn flex_shrink_encolhe_em_overflow() {
@@ -207,7 +201,6 @@
             "o flexivel cede tudo: {r2:?}"
         );
     }
-
 
     #[test]
     fn flex_order_e_align_self() {
@@ -256,7 +249,6 @@
         assert!((r[2].y - 0.0).abs() < 0.5, "{r:?}");
     }
 
-
     #[test]
     fn flex_justify_overflow() {
         // 3 cards de 100 em 200 (overflow real = -100). VALIDADO contra Chrome
@@ -280,7 +272,6 @@
         );
         assert!((r[2].x - 150.0).abs() < 0.5, "{r:?}");
     }
-
 
     #[test]
     fn flex_align_center_usa_altura_do_container() {
@@ -328,7 +319,6 @@
         );
     }
 
-
     #[test]
     fn flex_align_items_center() {
         // 1 card baixo + 1 alto: com align-items:center o baixo desce metade da folga.
@@ -373,7 +363,6 @@
         s.sort_by(|p, q| p.0.partial_cmp(&q.0).unwrap());
         assert!(s[0].1 > s[1].1, "card baixo centralizado desce: {s:?}");
     }
-
 
     #[test]
     fn badges_fluem_e_quebram_linha_no_wrap() {
@@ -430,7 +419,6 @@
         assert_eq!(rects[0].x, 0.0);
     }
 
-
     #[test]
     fn flex_column_empilha_com_gap() {
         // `flex-direction:column`: itens empilham na VERTICAL (main = Y) com o gap
@@ -453,7 +441,6 @@
         assert_eq!(r[1].w, 600.0);
     }
 
-
     #[test]
     fn flex_column_margin_auto_empurra() {
         // O padrão do Bootstrap cover: header + main(mt-auto/mb-auto) + footer numa
@@ -474,7 +461,6 @@
         assert_eq!(r[2].y, 120.0); // main: 20 + 100 (mt-auto)
         assert_eq!(r[3].y, 280.0); // footer: 120 + 60 + 100 (mb-auto)
     }
-
 
     #[test]
     fn flex_column_justify_center() {

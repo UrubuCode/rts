@@ -2,11 +2,11 @@
 //! e o reaproveitado.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de teste foi
-//! alterada. A indentação de 4 espaços é a do `mod tests` de origem e foi
-//! MANTIDA: há literais multi-linha em que o espaço à esquerda é conteúdo.
+//! alterada — a reconstrução destes blocos é byte a byte a do original.
+//! A indentação de 4 espaços é a do `mod tests` de origem e foi MANTIDA:
+//! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
-
 
     /// Dentro de um container que ROLA, `width:%` de um filho é a porcentagem da
     /// CAIXA — não do conteúdo transbordado.
@@ -48,7 +48,6 @@
             "o filho largo mantém a largura dele"
         );
     }
-
 
     /// SEQUÊNCIA LONGA de mutações sorteadas: o reuso tem de bater com o cálculo
     /// do zero em todas elas.
@@ -141,7 +140,6 @@
             }
         }
     }
-
 
     /// O caminho CACHEADO e o cálculo do zero produzem a mesma coisa, depois de
     /// cada mutação de uma sequência que passa por texto, atributo, classe,
@@ -243,7 +241,6 @@
         assert_eq!(passo, 7, "todos os passos foram conferidos");
     }
 
-
     /// O cache de layout devolve a MESMA lista enquanto nada muda, e uma NOVA
     /// depois de qualquer mutação. Sem a segunda metade, "o frame parado custa
     /// zero" seria só outra forma de dizer que a página parou de atualizar.
@@ -280,7 +277,6 @@
         assert!(!std::rc::Rc::ptr_eq(&after, &small));
     }
 
-
     #[test]
     fn cache_de_medidas_invalida_largura_mutada() {
         def_div();
@@ -304,7 +300,6 @@
         assert!((before - 100.0).abs() < 0.1);
         assert!((after - 200.0).abs() < 0.1);
     }
-
 
     #[test]
     fn cache_intrinseca_invalida_texto_mutado() {

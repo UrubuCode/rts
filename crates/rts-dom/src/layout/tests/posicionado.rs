@@ -1,11 +1,11 @@
 //! Fora do fluxo: `absolute`, `fixed`, floats, `clear`, hit-test e `z-index`.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de teste foi
-//! alterada. A indentação de 4 espaços é a do `mod tests` de origem e foi
-//! MANTIDA: há literais multi-linha em que o espaço à esquerda é conteúdo.
+//! alterada — a reconstrução destes blocos é byte a byte a do original.
+//! A indentação de 4 espaços é a do `mod tests` de origem e foi MANTIDA:
+//! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
-
 
     #[test]
     fn hit_test_escolhe_o_no_mais_profundo() {
@@ -36,7 +36,6 @@
         // fora de tudo.
         assert_eq!(list.hit_test(-10.0, -10.0), None);
     }
-
 
     /// `display:none` num ANCESTRAL remove a subárvore inteira do layout — e um
     /// `position:absolute` lá dentro não é exceção.
@@ -77,7 +76,6 @@
         assert_eq!(r.h, 400.0, "100% da altura do containing block: {r:?}");
     }
 
-
     #[test]
     fn hit_test_respeita_z_index_em_elementos_sobrepostos() {
         let dom = parse_html_to_dom(
@@ -92,7 +90,6 @@
         let back = dom.resolve(dom.query("#back").unwrap()).unwrap();
         assert_eq!(list.hit_test(50.0, 50.0), Some(back));
     }
-
 
     #[test]
     fn absolute_ancora_no_containing_block() {
@@ -130,7 +127,6 @@
             sp.y
         );
     }
-
 
     #[test]
     fn float_left_right_dividem_a_linha() {
@@ -176,7 +172,6 @@
         );
     }
 
-
     #[test]
     fn texto_corre_ao_lado_do_float_em_vez_de_descer() {
         // O caso da Wikipédia, em isolamento e com a figura de largura
@@ -206,7 +201,6 @@
             );
         }
     }
-
 
     #[test]
     fn linha_abaixo_do_float_volta_a_largura_toda() {
@@ -242,7 +236,6 @@
         );
     }
 
-
     #[test]
     fn float_left_empurra_o_inicio_da_linha() {
         // Um `float:left` não encurta a linha pela direita: desloca o COMEÇO
@@ -264,7 +257,6 @@
         }
     }
 
-
     #[test]
     fn clear_continua_a_descer_abaixo_do_float() {
         // O `clear` é o que sobra do comportamento antigo, e agora é a ÚNICA
@@ -276,7 +268,6 @@
         let r = all_rects(&list);
         assert_eq!(r[2].y, 100.0, "o `clear` desce abaixo do float: {r:?}");
     }
-
 
     #[test]
     fn position_fixed_sai_do_fluxo_e_posiciona_no_viewport() {
@@ -300,7 +291,6 @@
         assert_eq!((r[2].x, r[2].y), (540.0, 570.0), "{r:?}");
         assert_eq!((r[2].w, r[2].h), (50.0, 20.0));
     }
-
 
     #[test]
     fn viewport_e_o_containing_block_da_raiz() {

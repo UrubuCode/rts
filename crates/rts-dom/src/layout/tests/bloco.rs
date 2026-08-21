@@ -2,11 +2,11 @@
 //! `border-box` e margens.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de teste foi
-//! alterada. A indentação de 4 espaços é a do `mod tests` de origem e foi
-//! MANTIDA: há literais multi-linha em que o espaço à esquerda é conteúdo.
+//! alterada — a reconstrução destes blocos é byte a byte a do original.
+//! A indentação de 4 espaços é a do `mod tests` de origem e foi MANTIDA:
+//! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
-
 
     #[test]
     fn block_ocupa_largura_do_container() {
@@ -20,7 +20,6 @@
         assert_eq!(r.w, 600.0); // content(580) + padding(2×10) = 600
     }
 
-
     #[test]
     fn width_percent_resolve_contra_container() {
         // width:50% de um viewport 800 → content=400; sem padding/border a caixa=400.
@@ -29,7 +28,6 @@
         assert_eq!(r.w, 400.0); // 50% de 800
         assert_eq!(r.x, 0.0);
     }
-
 
     #[test]
     fn blocos_empilham_vertical() {
@@ -59,7 +57,6 @@
         );
     }
 
-
     #[test]
     fn fundo_vem_antes_do_texto_filho_no_zorder() {
         // O SolidRect (fundo) deve estar ANTES do Text na lista (pinta atrás).
@@ -77,7 +74,6 @@
             "fundo (idx {i_rect:?}) deve vir antes do texto (idx {i_text:?})"
         );
     }
-
 
     #[test]
     fn box_model_content_box_offset_do_texto() {
@@ -106,7 +102,6 @@
         assert_eq!(r.y, 6.0);
     }
 
-
     #[test]
     fn tres_cards_empilham_no_vertical() {
         // <div> vertical (default): 3 cards empilham — mesmo x, Y crescente, cada
@@ -123,7 +118,6 @@
         assert!(rects.iter().all(|r| (r.w - 270.0).abs() < 0.01)); // 30% de 900
         assert!(rects[0].y < rects[1].y && rects[1].y < rects[2].y); // Y crescente
     }
-
 
     #[test]
     fn cards_lado_a_lado_no_horizontal() {
@@ -184,7 +178,6 @@
             "encostados: {rects:?}"
         );
     }
-
 
     #[test]
     fn cards_com_filhos_nao_esticam_o_ultimo() {
@@ -256,7 +249,6 @@
         );
     }
 
-
     #[test]
     fn border_box_faz_3_cards_caberem() {
         // box-sizing:border-box: width:32% INCLUI padding+border → a CAIXA é 32%,
@@ -317,7 +309,6 @@
         );
     }
 
-
     #[test]
     fn display_vem_do_css_nao_do_defineblock() {
         // O `display:flex` no <style> faz <row> dispor os filhos LADO A LADO, sem
@@ -372,7 +363,6 @@
             .any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
         assert!(!has_invisivel, "display:none não renderiza o conteúdo");
     }
-
 
     #[test]
     fn margin_vertical_empilha_sem_deslocar_horizontal() {

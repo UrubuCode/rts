@@ -2,11 +2,11 @@
 //! relativas.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de teste foi
-//! alterada. A indentação de 4 espaços é a do `mod tests` de origem e foi
-//! MANTIDA: há literais multi-linha em que o espaço à esquerda é conteúdo.
+//! alterada — a reconstrução destes blocos é byte a byte a do original.
+//! A indentação de 4 espaços é a do `mod tests` de origem e foi MANTIDA:
+//! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
-
 
     #[test]
     fn min_max_width_clamp() {
@@ -43,7 +43,6 @@
         }
     }
 
-
     #[test]
     fn min_max_height_clamp() {
         crate::block::define(
@@ -75,7 +74,6 @@
         assert!(rect2.h >= 300.0, "min-height: h={}", rect2.h);
     }
 
-
     #[test]
     fn text_align_desloca_o_texto() {
         // text-align center/right desloca o texto pelo espaço livre (#1749).
@@ -104,7 +102,6 @@
         assert!((rx - 392.0).abs() < 2.0, "right: {rx}");
     }
 
-
     #[test]
     fn calc_de_altura_resolve_contra_a_altura() {
         // `calc(100% - 560px)` num `height` resolve o `%` contra a ALTURA do
@@ -128,7 +125,6 @@
             list.geometry().rects[&idx].h
         );
     }
-
 
     #[test]
     fn flex_grow_vertical_da_altura_a_filho_100pct() {
@@ -157,7 +153,6 @@
         assert!((r.y - 60.0).abs() < 2.0, "y do filho: {}", r.y);
     }
 
-
     #[test]
     fn height_percent_resolve_contra_altura_do_pai() {
         // `height:%` resolve contra a ALTURA do containing block (antes resolvia
@@ -184,7 +179,6 @@
         );
     }
 
-
     #[test]
     fn unidades_relativas_em_padding_e_margem_negativa() {
         // padding: 1rem = 16px (root 16, o default de browser) — o `p-3` do
@@ -203,7 +197,6 @@
         let r2 = all_rects(&l2);
         assert_eq!(r2[1].y, 20.0, "30 - 10 (negativa nao clampa): {r2:?}");
     }
-
 
     #[test]
     fn max_width_em_bate_com_o_chrome() {

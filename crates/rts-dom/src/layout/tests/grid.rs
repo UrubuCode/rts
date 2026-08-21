@@ -2,11 +2,11 @@
 //! alinhamento na célula.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de teste foi
-//! alterada. A indentação de 4 espaços é a do `mod tests` de origem e foi
-//! MANTIDA: há literais multi-linha em que o espaço à esquerda é conteúdo.
+//! alterada — a reconstrução destes blocos é byte a byte a do original.
+//! A indentação de 4 espaços é a do `mod tests` de origem e foi MANTIDA:
+//! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
-
 
     #[test]
     fn grid_fr_track_sizing() {
@@ -36,7 +36,6 @@
             "posições"
         );
     }
-
 
     #[test]
     fn area_nomeada_poe_sidebar_e_conteudo_lado_a_lado() {
@@ -87,7 +86,6 @@
         );
     }
 
-
     #[test]
     fn area_que_atravessa_colunas_cobre_o_gap() {
         // 'topo topo' / 'lado conteudo': o topo ocupa as DUAS colunas, e o span
@@ -126,7 +124,6 @@
         );
     }
 
-
     #[test]
     fn filho_sem_grid_area_continua_na_colocacao_automatica() {
         // Um item nomeado NÃO desliga o auto-placement dos outros: o sem nome cai na
@@ -159,7 +156,6 @@
         );
         assert!((s.x - 0.0).abs() < 1.0, "e para a 1ª coluna livre: {}", s.x);
     }
-
 
     #[test]
     fn grid_align_items_center_centraliza_na_celula() {

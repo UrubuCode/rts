@@ -2,11 +2,11 @@
 //! `text-transform`, visibilidade, opacidade, `mask-image` e substituídos.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de teste foi
-//! alterada. A indentação de 4 espaços é a do `mod tests` de origem e foi
-//! MANTIDA: há literais multi-linha em que o espaço à esquerda é conteúdo.
+//! alterada — a reconstrução destes blocos é byte a byte a do original.
+//! A indentação de 4 espaços é a do `mod tests` de origem e foi MANTIDA:
+//! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
-
 
     #[test]
     fn em_produz_texto_italico() {
@@ -19,7 +19,6 @@
         );
     }
 
-
     #[test]
     fn texto_sem_font_style_nao_e_italico() {
         let itens = textos_italicos("<p>direito</p>");
@@ -28,7 +27,6 @@
             "sem font-style nada é itálico: {itens:?}"
         );
     }
-
 
     #[test]
     fn font_style_normal_no_filho_desliga_o_italico() {
@@ -41,7 +39,6 @@
         );
     }
 
-
     #[test]
     fn italico_do_pai_e_herdado_pelo_filho() {
         let itens = textos_italicos("<p style='font-style:italic'><span>herdado</span></p>");
@@ -50,7 +47,6 @@
             "o span devia herdar o itálico do <p>: {itens:?}"
         );
     }
-
 
     #[test]
     fn italico_e_negrito_sao_eixos_independentes() {
@@ -71,7 +67,6 @@
         });
         assert!(achou, "<em><b> devia sair negrito E itálico");
     }
-
 
     /// Um `checkbox`/`radio` é um quadradinho de 13x13, não um campo de texto de
     /// 190x26 — e a medida que o fluxo RESERVA na linha é a mesma que a emissão
@@ -119,7 +114,6 @@
         );
     }
 
-
     /// `height: %` num `<input>` mede-se contra a ALTURA do containing block, não
     /// contra a largura. A Wikipédia usa o "checkbox hack" — oito
     /// `<input type=checkbox>` com `height:100%` — e cada um vinha com a largura
@@ -139,7 +133,6 @@
         let r = *list.geometry().rects.get(&idx).expect("sem caixa");
         assert_eq!(r.h, 400.0, "100% da ALTURA do pai, não da largura: {r:?}");
     }
-
 
     #[test]
     fn svg_reserva_a_caixa() {
@@ -171,7 +164,6 @@
             ico.h
         );
     }
-
 
     #[test]
     fn link_ua_azul_sublinhado_por_run() {
@@ -219,7 +211,6 @@
         );
     }
 
-
     #[test]
     fn line_height_e_text_transform() {
         // line-height do CSS respeitado + text-transform aplicado (#1749). Usa <div>
@@ -261,7 +252,6 @@
             "line-height: {y_oi} → {y_tchau}"
         );
     }
-
 
     #[test]
     fn bounding_rect_dos_cards() {
@@ -315,7 +305,6 @@
         assert_eq!(ra.y, rb.y); // mesma linha (flex)
     }
 
-
     #[test]
     fn bounding_rect_none_para_texto() {
         // texto/inline não tem rect próprio (a API só dá rect de elemento-bloco).
@@ -341,7 +330,6 @@
         let txt = dom.node(p).children[0];
         assert!(bounding_rect(&dom, txt, &ctx).is_none());
     }
-
     /// `visibility:hidden` esconde SEM tirar do fluxo — é o que o distingue de
     /// `display:none`, e a distinção decide layouts reais: o MediaWiki esconde
     /// os menus que abrem ao clique assim, e sem ela o menu aparecia por cima
@@ -391,7 +379,6 @@
         }
     }
 
-
     /// Um `<input>` com `opacity: 0` não pinta fundo nem borda.
     ///
     /// Vale uma página inteira: a Wikipédia usa o "checkbox hack" — um
@@ -424,7 +411,6 @@
         }
     }
 
-
     /// Um elemento com `background-color` E `mask-image` não emite fundo.
     ///
     /// É o ícone monocromático do MediaWiki (`.cdx-button__icon`: cor de fundo
@@ -456,7 +442,6 @@
             }
         }
     }
-
 
     /// O mesmo fundo, SEM máscara declarada, continua a pintar — a supressão é
     /// da máscara, não uma exceção nova para a cor.
