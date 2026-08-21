@@ -48,18 +48,34 @@ const base = ler(arg("base", "scripts/parity/out-base/rts.jsonl"));
 const novo = ler(arg("novo", "scripts/parity/out/rts.jsonl"));
 const chrome = ler(arg("chrome", "scripts/parity/out/chrome.jsonl"));
 
-const casa = (a, b) =>
-  Math.abs(a.x - b.x) <= TOL && Math.abs(a.y - b.y) <= TOL &&
-  Math.abs(a.w - b.w) <= TOL && Math.abs(a.h - b.h) <= TOL;
+// A FAMÍLIA medida sozinha, e não é conveniência de leitura: uma correção que
+// mexe em imagens é julgada pelas imagens. Diluída em 16 813 elementos, uma
+// troca de 4 ganhos por 30 perdidos numa família cabe dentro do ruído do resto
+// da página e lê-se como "sem efeito" — que é a armadilha do líquido outra vez,
+// agora na escolha da população em vez de no sinal.
+//
+//   --tags img,td,th
+const TAGS = (arg("tags", "") || "").split(",").map((t) => t.trim()).filter(Boolean);
+const naFamilia = (o) => TAGS.length === 0 || TAGS.includes(o.tag);
 
-const erro = (a, b) => Math.max(
-  Math.abs(a.x - b.x), Math.abs(a.y - b.y),
-  Math.abs(a.w - b.w), Math.abs(a.h - b.h));
+// O EIXO atacado, nomeável, e é a mesma armadilha da família aplicada às
+// dimensões: um elemento só "casa" quando x, y, w e h casam todos, e nesta
+// página a mediana do erro em `y` são milhares de pixels. Uma correção de
+// LARGURA julgada pelo tuplo inteiro dá 0 de 110 antes e 0 de 110 depois — o
+// eixo que não se mexeu decide o veredicto do que se mexeu, e a correção lê-se
+// como "sem efeito" tendo mudado 110 caixas.
+//
+//   --eixos w        só a largura
+//   --eixos w,h      a caixa, sem a posição
+const EIXOS = (arg("eixos", "x,y,w,h")).split(",").map((e) => e.trim()).filter(Boolean);
+
+const erro = (a, b) => Math.max(...EIXOS.map((e) => Math.abs(a[e] - b[e])));
 
 const ganhos = [], perdidos = [], sumiram = [], surgiram = [];
 let comuns = 0, casavamAntes = 0, casamAgora = 0, erroAntes = 0, erroAgora = 0;
 
 for (const [p, c] of chrome) {
+  if (!naFamilia(c)) continue;
   const a = base.get(p), b = novo.get(p);
   if (!a && !b) continue;
   if (a && !b) { sumiram.push(p); continue; }
@@ -75,7 +91,7 @@ for (const [p, c] of chrome) {
 }
 
 const n2 = (v) => Number(v).toFixed(2);
-console.log(`REGRESSÃO POR ELEMENTO — tolerância ${TOL}px`);
+console.log(`REGRESSÃO POR ELEMENTO — tolerância ${TOL}px — eixos ${EIXOS.join(",")}${TAGS.length ? ` — família <${TAGS.join(">, <")}>` : ""}`);
 console.log(`  base: ${arg("base", "scripts/parity/out-base/rts.jsonl")}`);
 console.log(`  novo: ${arg("novo", "scripts/parity/out/rts.jsonl")}`);
 console.log(`  árbitro: ${arg("chrome", "scripts/parity/out/chrome.jsonl")}\n`);
