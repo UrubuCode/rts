@@ -31,8 +31,8 @@ JS spec compatibility validated against **Bun** and **Node** over 1513 standalon
 |---|---|
 | **Parity** | **77.8%** (1175/1511) |
 | ✅ RTS = Bun = Node | 1175 |
-| ❌ RTS diverges | 248 |
-| 💥 RTS runtime error | 88 |
+| ❌ RTS diverges | 247 |
+| 💥 RTS runtime error | 89 |
 | 🛠️  **Left to fix** | **336** |
 | ⚠️ Bun ≠ Node (skip) | 1 |
 | 🚫 Rejected (RTS-only) | 0 |
