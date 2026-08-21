@@ -39,10 +39,15 @@ use crate::{Dom, NodeIdx, NodeKind};
 /// - `restringida` — a célula DECLARA uma largura (é o `is_constrained` do
 ///   Blink: "tem um `inline-size` que não é `auto`"). Percentagem também conta.
 ///
-/// Ficam guardados e ainda **não são lidos** por [`resolve_colunas`]: esta
-/// mudança para de perder a informação, e a repartição por classe é o passo
-/// seguinte. Encher os campos e usá-los na mesma volta tornaria impossível dizer
-/// se um número que se mexeu se mexeu de propósito.
+///
+/// **Não há aqui um `percent_border_padding`, e a ausência foi medida.** O
+/// raciocínio de que uma percentagem de CSS mede a caixa de CONTEÚDO e por isso
+/// a moldura teria de somar-se está certo em geral e é FALSO numa tabela auto: o
+/// Blink só usa esse termo quando a tabela é `fixed` — a linha na source di-lo
+/// nessas palavras. O Chrome dá 180px a uma `width:30%` de uma tabela de 600,
+/// com padding ou sem ele, em `content-box` ou em `border-box`. O campo chegou a
+/// existir aqui, com o sinal a somar, e nenhum caso sintético o apanhava porque
+/// todos tinham `padding: 0`.
 #[derive(Clone, Copy, Default, Debug)]
 pub(crate) struct Coluna {
     pub min: f32,

@@ -212,3 +212,38 @@ fn o_atributo_width_classifica_e_o_css_ganha_lhe() {
         vec![(Some(40.0), true), (None, true)]
     );
 }
+
+// ── A moldura da percentagem: o termo que NÃO existe ─────────────────────────
+// Os três casos abaixo medem a mesma coluna `width:30%` de uma tabela de 600px
+// com padding a variar, e o Chrome responde 180 aos três. Existem porque o campo
+// que somava a moldura chegou a estar escrito, com a regra geral certa por trás
+// («uma percentagem de CSS mede a caixa de conteúdo») e o resultado errado: numa
+// tabela auto o Blink não conta a moldura. Nenhum outro caso deste ficheiro o
+// apanhava, porque todos têm `padding: 0`.
+
+#[test]
+fn a_percentagem_nao_soma_o_padding_em_content_box() {
+    iguais!(
+        larguras(r#"<table style="width:600px"><tr><td style="width:30%;padding:0 20px"><b></b></td><td><b></b></td></tr></table>"#, 2),
+        [180.0, 420.0]
+    );
+}
+
+#[test]
+fn a_percentagem_nao_muda_com_box_sizing() {
+    // Se a moldura entrasse na conta, `border-box` e `content-box` teriam de dar
+    // números diferentes. Dão o mesmo — é o par que prova que o termo não existe,
+    // em vez de existir com o sinal a anular-se.
+    iguais!(
+        larguras(r#"<table style="width:600px"><tr><td style="width:30%;padding:0 20px;box-sizing:border-box"><b></b></td><td><b></b></td></tr></table>"#, 2),
+        [180.0, 420.0]
+    );
+}
+
+#[test]
+fn o_padding_de_uma_coluna_auto_nao_entra_na_percentagem_da_vizinha() {
+    iguais!(
+        larguras(r#"<table style="width:600px"><tr><td style="width:30%"><b></b></td><td style="padding:0 25px"><b></b></td></tr></table>"#, 2),
+        [180.0, 420.0]
+    );
+}
