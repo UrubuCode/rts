@@ -53,6 +53,14 @@ pub fn initial(name: &str) -> Option<&'static str> {
         "word-spacing" => "0px",
         "-webkit-line-clamp" | "line-clamp" => "none",
         "column-width" => "auto",
+        // O inicial do `transform-origin` e o centro da caixa — e e exatamente o
+        // que o layout assume quando ninguem declara nada.
+        "transform-origin" => "50% 50%",
+        // Os quatro cantos (ver `style::radius`). O Chrome responde `0px`.
+        "border-top-left-radius" | "border-top-right-radius"
+        | "border-bottom-right-radius" | "border-bottom-left-radius"
+        | "border-start-start-radius" | "border-start-end-radius"
+        | "border-end-end-radius" | "border-end-start-radius" => "0px",
         "align-content" => "normal",
         "justify-self" => "auto",
         // As longhands de transition/animation — ver `style::timing`.

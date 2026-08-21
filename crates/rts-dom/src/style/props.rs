@@ -467,6 +467,22 @@ css_props! {
         /// `column-width` — largura ideal de uma coluna de texto. Guardada: não há
         /// fragmentação em colunas.
         [] column_width: Dimension;
+        /// Os quatro CANTOS de `border-radius`, cada um em px. Ver
+        /// `style::radius`: guardados e respondidos pelo computed, mas o paint
+        /// ainda pinta pelo campo unico `corner_radius` — a lista de display tem
+        /// um raio so por retangulo.
+        [anim] corner_tl: f32;
+        [anim] corner_tr: f32;
+        [anim] corner_br: f32;
+        [anim] corner_bl: f32;
+        /// `transform-origin` — o ponto em torno do qual o `transform` roda e
+        /// escala. Reusa [`crate::style::BgPosition`]: a gramatica e a mesma de
+        /// `background-position` (comprimento, percentagem ou keyword por eixo).
+        /// `None` = `50% 50%`, que e o que o layout ja assume hardcoded.
+        [] transform_origin: crate::style::BgPosition;
+        /// `text-decoration-color` — a cor do sublinhado/risco. `None` = a cor do
+        /// texto (o `currentColor` da spec), que e o que se pinta hoje.
+        [anim] text_decoration_color: Rgba;
         /// `pointer-events` — se este elemento RECEBE cliques. `None`/`Auto` =
         /// recebe. Herda, como na spec. É o único deste lote que tem consumidor à
         /// vista: o teste de acerto do DOM já existe, e ligá-lo é ler este campo

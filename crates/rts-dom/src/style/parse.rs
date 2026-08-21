@@ -189,6 +189,16 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             }
             "text-decoration" | "text-decoration-line" => {
                 css.text_decoration = crate::style::values::TextDecoration::parse(val);
+                // O SHORTHAND também traz a cor (`underline dotted red`), e o
+                // parser da linha já ignora os tokens que não são de linha — por
+                // isso a cor não tem onde ser lida a não ser aqui. `-line` não
+                // aceita cor, mas nenhum valor de linha parseia como cor, então
+                // partilhar o braço não engana nenhum dos dois.
+                if prop != "text-decoration-line" {
+                    if let Some(c) = val.split_whitespace().find_map(parse_color) {
+                        css.text_decoration_color = Some(c);
+                    }
+                }
             }
             "font-family" => css.font_family = parse_font_family(val),
             "font" => apply_font_shorthand(css, val),
@@ -264,7 +274,13 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "border-width" => css.border_width = parse_len(val),
             "border-style" => css.border_style = BorderStyle::parse(val),
             "border-color" => css.border_color = parse_color(val),
-            "border-radius" => css.corner_radius = parse_len(val),
+            // O campo UNICO continua a responder o que sempre respondeu (quem o
+            // le nao pode mudar de resposta por causa dos cantos); os quatro
+            // cantos sao escritos por cima, sem lhe tocar. Ver `style::radius`.
+            "border-radius" => {
+                css.corner_radius = parse_len(val);
+                crate::style::radius::apply_shorthand(css, val);
+            }
             // ── Bordas POR LADO: `border-top: 1px solid #ccc` e as 12 longhands.
             // Uma barra separadora é quase sempre um lado só; pintá-la com a borda
             // uniforme daria uma moldura fechada (ver `style::borders`).
@@ -408,6 +424,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             _ if crate::style::timing::try_apply(css, &prop, val) => {}
             _ if crate::style::logical::try_apply(css, &prop, val) => {}
             _ if crate::style::vocab::try_apply(css, &prop, val) => {}
+            _ if crate::style::radius::try_apply(css, &prop, val) => {}
             // RECONHECIDA e deliberadamente não modelada: conta noutra coluna,
             // para a coluna das desconhecidas continuar a ser a lista do que
             // falta fazer e não uma mistura com o que foi recusado.

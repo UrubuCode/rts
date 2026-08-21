@@ -48,6 +48,8 @@ pub mod lerp;
 pub mod text_metrics;
 pub mod parse;
 pub mod props;
+/// Os raios POR CANTO (`border-top-left-radius` e as sete companhias).
+pub mod radius;
 pub mod root_font;
 pub mod ruleindex;
 pub mod selector;

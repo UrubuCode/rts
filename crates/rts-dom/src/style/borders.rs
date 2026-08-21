@@ -160,9 +160,9 @@ fn split_longhand(prop: &str) -> Option<(SideName, &str)> {
     let rest = prop.strip_prefix("border-")?;
     let (side, what) = rest.split_once('-')?;
     // Só as três longhands reais. `border-top-left-radius` casaria a forma
-    // (`top` + resto) e ficaria engolido em silêncio; recusá-lo aqui deixa-o cair
-    // no contador de propriedade ignorada, que é o que diz o que falta implementar
-    // — o modelo tem UM raio para os quatro cantos.
+    // (`top` + resto) e ficaria engolido em silêncio — escrito no raio ÚNICO,
+    // arredondaria também os outros três cantos. A recusa continua certa, e agora
+    // o canto tem para onde ir: `style::radius` tem um campo por canto.
     matches!(what, "width" | "style" | "color").then_some(())?;
     Some((SideName::parse(side)?, what))
 }
@@ -174,9 +174,8 @@ pub fn apply_longhand(css: &mut ComputedStyle, prop: &str, val: &str) {
         "width" => set_side_width(css, side, parse_width_token(val)),
         "style" => set_side_style(css, side, BorderStyle::parse(val)),
         "color" => set_side_color(css, side, super::color::parse_color(val)),
-        // `border-top-left-radius` e afins caem aqui: o modelo tem UM raio para
-        // os quatro cantos, então um raio por canto seria um campo novo por uma
-        // propriedade que a folha real usa de forma quase sempre uniforme.
+        // Inalcançável: o `split_longhand` acima já recusou tudo o que não é uma
+        // das três. Os cantos são de `style::radius`, que tem um campo por canto.
         _ => {}
     }
 }
