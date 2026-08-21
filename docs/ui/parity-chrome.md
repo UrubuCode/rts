@@ -385,3 +385,36 @@ Quando toda a resposta certa mede pior que a errada, o que está a ser medido n�
 é o motor. A divergência está fixada num teste com o porquê escrito, e a
 condição que a desbloqueia é o harness carregar as imagens.
 
+## Os cabeçalhos deixam de tomar a linha inteira — a maior troca do dia, medida (2026-08-21)
+
+`padding:0` a fazer um inline virar bloco. Medido por elemento contra a base do
+commit anterior, quatro eixos sobre os 16 813:
+
+| eixo | casavam | casam | ganhos | perdidos | soma do erro |
+|---|---|---|---|---|---|
+| `y` | 2 176 | 2 176 | 0 | **0** | 30 953 508 → **29 967 488** |
+| `w` | 5 050 | 5 049 | 3 | 4 | 367 718 → **344 761** |
+| `h` | 14 740 | 14 838 | 110 | 12 | 91 832 → 94 022 |
+| `x` | 6 882 | 6 880 | 0 | 2 | 917 905 → 921 184 |
+
+**O `y` perde 986 020 px sem um único perdido**, que é o maior movimento
+registado neste eixo desde que a régua existe — 51 cabeçalhos a deixarem de
+ocupar uma linha inteira encurtam tudo o que vem abaixo. A largura perde 22 957
+px. E os dois eixos que sobem em soma sobem com ganhos: `h` troca 12 perdidos
+por 110 ganhos.
+
+**O custo, contado e não estimado.** Seis elementos deixaram de ter caixa
+nenhuma — os "não dispostos" passam de 23 para 29 — e são 2 `<span>` e 4 `<li>`.
+A causa está localizada e não é o `padding`: o `<ul>` da `hlist` passou
+corretamente a `display:inline`, e os seus `<li>`, que o Chrome dá como
+`inline-block` de 52x20, deixam de receber fragmento dentro de um pai inline.
+É um caminho que antes nunca era exercitado, porque o pai nunca era inline.
+
+Na régua de desenho isso vale **8 marcadores de lista em falta (787 contra 795,
+nenhum a mais)** — o custo visível, medido pelo que se pinta e não pelo que se
+calcula.
+
+Entra com a troca declarada: 986 mil px de erro de posição contra seis caixas e
+oito marcadores, com a causa das seis já nomeada e entregue como trabalho
+seguinte. O que não entraria era a mesma troca dentro de um número líquido.
+
