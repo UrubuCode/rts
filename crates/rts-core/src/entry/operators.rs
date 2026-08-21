@@ -158,6 +158,40 @@ pub fn remainder(left: u64, right: u64) -> u64 {
     })
 }
 
+/// `a % b` where the compiler already proved both operands are doubles.
+///
+/// # Why this exists beside [`remainder`], which computes the same thing
+///
+/// Not for the arithmetic — the last line of each is the same `%` on two
+/// `f64`, and that is deliberate so the two cannot drift about sign or about
+/// `NaN`. It exists for the SHAPE. [`remainder`] takes two tagged values,
+/// coerces them (which can read the heap and run a `valueOf`), consults the
+/// bigint path, and answers a tagged value; every one of those steps is
+/// unreachable once the operands are known to be doubles, and the site still
+/// pays two widenings, a narrowing and the thrown-value check that follows any
+/// entry point able to run user code.
+///
+/// This one takes and answers unboxed doubles, touches no context, and cannot
+/// throw — so no caller needs to ask whether it did.
+///
+/// # Why it is a call at all
+///
+/// Because the machine cannot do it. `crates/rts-cranelift`'s `NumOp` records
+/// that a double remainder is `fmod` on every target here, and that the
+/// identity which would avoid the call stops being exact past 2^53. A call is
+/// what the machine floor is for this operation — the same call a native
+/// program pays.
+///
+/// # No bigint path, and that is not an omission
+///
+/// A bigint is a reference, never a proven double, so no site that reaches
+/// here can be holding one. [`remainder`] keeps that branch because its
+/// operands are tagged and might be.
+#[rtse::entry]
+pub fn number_remainder(left: f64, right: f64) -> f64 {
+    left % right
+}
+
 /// The shared body of the four relational operators.
 ///
 /// # Why they are four entry points and not one with an operand

@@ -618,13 +618,33 @@ fn check_expr(expr: &Expr, flattened: &Flattened, known: &Numeric, surviving: &m
 /// operandos. `+` só concatena quando um dos lados não é número, e nenhum
 /// chamador chega aqui sem ter recusado esse caso.
 ///
-/// `%` continua fora pela razão acima: não há instrução de resto, então uma
-/// prova de `%` reivindica uma representação de máquina para um valor que chega
-/// encaixotado.
+/// # `%` ENTRA, e o que mudou não foi este arquivo
+///
+/// O parágrafo acima dizia que `%` ficava fora porque "não há instrução de
+/// resto, então uma prova de `%` reivindica uma representação de máquina para
+/// um valor que chega encaixotado". A primeira metade continua verdadeira e
+/// está provada em `rts_cranelift::ir::inst::NumOp`: não existe instrução
+/// exata para o resto de dois duplos em nenhum alvo daqui.
+///
+/// A segunda metade deixou de valer. `%` sobre dois duplos provados agora emite
+/// `RuntimeOp::NumberRemainder`, cuja assinatura é `(F64, F64) -> F64` — então
+/// o valor **não** chega encaixotado, e `stored` em `emit/expr.rs` pode confiar
+/// nesta prova sem deixar um `Repr::Tagged` sem alargar. Aquele desacordo é o
+/// bug que este comentário registrava: a aresta de retorno de um laço tentava
+/// passar o valor não-alargado para um parâmetro de bloco tipado `Repr::F64`, e
+/// `BuildError::ImplicitNarrowing` recusava.
+///
+/// Continua sendo uma chamada, e isso é o piso da máquina para esta operação e
+/// não uma lacuna — um programa nativo paga o mesmo `fmod`. O que se ganha não
+/// é o site: é tudo o que está **depois** dele. `rngState = (…) % m` num laço
+/// tornava `rngState` improvável, e com isso todo operador que o lesse.
+///
+/// A regra que faz isto ser seguro é a mesma dos outros quatro, e não é nova:
+/// todo chamador estabelece os dois lados antes de perguntar.
 fn arithmetic(op: BinaryOp) -> bool {
     matches!(
         op,
-        BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Add
+        BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Add | BinaryOp::Rem
     )
 }
 

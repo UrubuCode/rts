@@ -76,6 +76,13 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::Remainder => (CoreEntry::Remainder, {
             rts_core::entry::remainder as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
+        // `f64` in and `f64` out, where the row above is `u64` both ways. The
+        // cast is the check: the two entries compute the same arithmetic and
+        // differ only in shape, so a mix-up would be invisible everywhere
+        // except here.
+        RuntimeOp::NumberRemainder => (CoreEntry::NumberRemainder, {
+            rts_core::entry::number_remainder as extern "C" fn(f64, f64) -> f64 as *const u8
+        }),
         RuntimeOp::Less => (CoreEntry::Less, {
             rts_core::entry::less as extern "C" fn(u64, u64) -> bool as *const u8
         }),

@@ -147,7 +147,8 @@ pub use objects::{
 };
 pub use promise::{async_start, drain_microtasks, promise_await, promise_new, promise_settle, settled};
 pub use operators::{
-    divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
+    divide, greater, greater_equal, less, less_equal, loose_equals, multiply, number_remainder,
+    remainder, subtract,
 };
 pub use primitives::{add, number_to_string, same_value, strict_equals, to_boolean, to_boolean_in};
 pub use bigint_class::{bigint_new, negate};

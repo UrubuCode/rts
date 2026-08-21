@@ -134,10 +134,51 @@ pub enum RuntimeOp {
 
     /// `a % b`.
     ///
-    /// An entry point because `ToNumber` of a string reads the heap. The
-    /// operation once both operands are numbers is one instruction, and
-    /// proving that is what a type pass buys.
+    /// An entry point because `ToNumber` of a string reads the heap.
+    ///
+    /// The sentence that stood here — "the operation once both operands are
+    /// numbers is one instruction" — was **false**, and it is worth correcting
+    /// rather than quietly deleting because it is the reason `%` was left out
+    /// of the proven set for so long. There is no exact single instruction: a
+    /// double remainder is `fmod`, a library call on every target here, and
+    /// `crates/rts-cranelift`'s `NumOp` documents why the identity that would
+    /// avoid one is inexact past 2^53. What proving the operands buys is
+    /// [`RuntimeOp::NumberRemainder`], not an instruction.
     Remainder,
+
+    /// `a % b` where both operands are already proven doubles.
+    ///
+    /// # Why this is an entry point when the membership rule says otherwise
+    ///
+    /// The rule is that an entry point exists only where the operation touches
+    /// the heap, the operating system, or global mutable state — pure
+    /// computation is instructions. A double remainder is pure computation, so
+    /// by that rule it should be an instruction and not this.
+    ///
+    /// It cannot be. The machine layer establishes, in `NumOp`'s own
+    /// documentation, that no exact single instruction exists for it on any
+    /// target here. So this is not the failure the membership rule guards
+    /// against — an operation becoming a call where the machine could have done
+    /// it — it is the one case the rule does not cover: pure computation the
+    /// machine provably cannot express exactly.
+    ///
+    /// Stated here, where the decision is made, rather than as a footnote
+    /// somewhere else. Rule 3: a semantic rule is stated once.
+    ///
+    /// # What it buys over [`RuntimeOp::Remainder`]
+    ///
+    /// Both are a call. This one takes two **unboxed** doubles and answers an
+    /// unboxed double, so the site pays neither the two widenings nor the
+    /// narrowing, and — because it cannot run user code and therefore cannot
+    /// throw — none of the `__rts_take_thrown` check that follows every generic
+    /// operator.
+    ///
+    /// The larger win is not at the site at all. `emit/proven.rs` refused to
+    /// prove a local reassigned through `%`, which made every operator
+    /// downstream of that local generic too; measured 2026-08-20 on
+    /// `bench/monte_carlo_pi.ts`, that was 13 proven instructions against 16
+    /// generic calls in a body whose every local is `: number`.
+    NumberRemainder,
 
     /// `a < b`.
     ///
@@ -814,6 +855,7 @@ impl RuntimeOp {
         RuntimeOp::Multiply,
         RuntimeOp::Divide,
         RuntimeOp::Remainder,
+        RuntimeOp::NumberRemainder,
         RuntimeOp::Less,
         RuntimeOp::LessEqual,
         RuntimeOp::Greater,
@@ -918,6 +960,7 @@ impl RuntimeOp {
             RuntimeOp::Multiply => "__rts_multiply",
             RuntimeOp::Divide => "__rts_divide",
             RuntimeOp::Remainder => "__rts_remainder",
+            RuntimeOp::NumberRemainder => "__rts_number_remainder",
             RuntimeOp::Less => "__rts_less",
             RuntimeOp::LessEqual => "__rts_less_equal",
             RuntimeOp::Greater => "__rts_greater",
@@ -1019,6 +1062,11 @@ impl RuntimeOp {
             RuntimeOp::Multiply => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::Divide => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::Remainder => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            // Unboxed both ways, which is the whole of what it buys over the
+            // row above: the operands are already proven at every site that
+            // reaches it, and the answer of `fmod` over two doubles is a double
+            // whatever they were.
+            RuntimeOp::NumberRemainder => (vec![Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::Less => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::LessEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::Greater => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),

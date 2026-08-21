@@ -878,6 +878,11 @@ fn emit_binary_inner(
             // approximation of it: NaN !== NaN and +0 === -0 are what the
             // hardware comparison already answers.
             Some(Proven::Compare(cmp)) => return Ok(builder.compare(cmp, a, b)?),
+            // Still a call, and the operands go in unboxed exactly as they are.
+            // No `tagged` on either side and none on the answer: the signature
+            // declares `F64` in both positions, which is the whole difference
+            // from the generic row.
+            Some(Proven::NumberCall(op)) => return Ok(call(builder, ctx, op, &[a, b])?[0]),
             None => {}
         }
     }
@@ -1417,6 +1422,23 @@ enum Proven {
     /// `| 0`, because the `|` was `Call __rts_bit_or` and the `*` was already an
     /// instruction.
     Bits(BitOp),
+    /// A runtime call that both takes and answers PROVEN doubles.
+    ///
+    /// The odd member, and the reason it is a `Proven` variant rather than
+    /// being left on the generic path: what makes an operator "proven" here is
+    /// not that it becomes an instruction — it is that the operand proofs are
+    /// **spent** and a proof comes back out. `%` cannot become an instruction
+    /// (`rts_cranelift::ir::inst::NumOp` carries the proof that no exact one
+    /// exists) and can still do that.
+    ///
+    /// What the site saves against the generic call: two widenings, one
+    /// narrowing, and the thrown-value check — this entry cannot run user code,
+    /// so there is nothing to ask about afterwards.
+    ///
+    /// What it saves everywhere ELSE is larger, and is why this exists at all.
+    /// `emit/proven.rs` would not prove a local reassigned through `%`, so
+    /// every operator downstream of such a local went generic too.
+    NumberCall(RuntimeOp),
 }
 
 /// The instruction an operator becomes when both operands are proven doubles.
@@ -1429,10 +1451,13 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
         BinaryOp::Sub => Proven::Arith(NumOp::Sub),
         BinaryOp::Mul => Proven::Arith(NumOp::Mul),
         BinaryOp::Div => Proven::Arith(NumOp::Div),
-        // `%` has no machine instruction here: the code generator's numeric
-        // set is add, subtract, multiply and divide, and a remainder on
-        // doubles is a library call on most targets anyway. It stays a runtime
-        // call, which is correct rather than a gap.
+        // `%` stays a call — there is no exact instruction for a double
+        // remainder and `NumOp` in the machine layer carries why — but it is a
+        // call that SPENDS the proofs and hands one back, which is what lets
+        // `emit/proven.rs` keep proving a local that is reassigned through it.
+        // Before this line, one `%` in a loop made every operator downstream
+        // of that local generic as well.
+        BinaryOp::Rem => Proven::NumberCall(RuntimeOp::NumberRemainder),
         BinaryOp::Less => Proven::Compare(CmpOp::Lt),
         BinaryOp::LessEqual => Proven::Compare(CmpOp::Le),
         BinaryOp::Greater => Proven::Compare(CmpOp::Gt),
@@ -1561,6 +1586,11 @@ fn emit_guarded(
             let bits = builder.bitwise(bit, left, right)?;
             builder.to_f64(bits)?
         }
+        // The guards narrowed both operands to `F64`, which is exactly what
+        // this entry's signature asks for. It is still a call on this path —
+        // but so is the slow path below, and this one skips the coercion, the
+        // bigint branch and the thrown-value check that one pays.
+        Proven::NumberCall(op) => call(builder, ctx, op, &[left, right])?[0],
     };
     // `builder.compare` já responde `Repr::Bool`; alargar aqui era jogar fora a
     // única prova que este bloco produziu.
