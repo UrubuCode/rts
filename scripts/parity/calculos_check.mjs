@@ -125,7 +125,11 @@ console.log("TOTAL".padEnd(13) + String(T.n).padEnd(11) + String(T.tem).padEnd(7
 const candidatos = alvo.filter((r) => ["falta", "difere"].includes(r.nosso.estado) && r.veredicto === "spec");
 console.log("\n  " + candidatos.length + " candidatos: a spec manda e nós não fazemos, ou fazemos diferente");
 console.log("  " + alvo.filter((r) => r.veredicto === "quirk").length + " quirks do Blink — decisão de NÃO copiar, não é dívida");
-console.log("  " + alvo.filter((r) => r.nosso.estado === "desconhecido").length + " por apurar\n");
+console.log("  " + alvo.filter((r) => r.nosso.estado === "desconhecido").length + " por apurar");
+const executados = alvo.filter((r) => r.verificado === "executado").length;
+const pc = alvo.length ? (100 * executados / alvo.length).toFixed(0) : "0";
+console.log("  " + executados + " de " + alvo.length + " (" + pc + "%) foram EXECUTADOS;" +
+  " os outros afirmam o que o código PARECE fazer\n");
 
 if (tem("faltam") || area) {
   console.log("-- OS CANDIDATOS --");
