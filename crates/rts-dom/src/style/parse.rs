@@ -407,6 +407,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             // sítio óbvio para uma delas ficar de fora.
             _ if crate::style::timing::try_apply(css, &prop, val) => {}
             _ if crate::style::logical::try_apply(css, &prop, val) => {}
+            _ if crate::style::vocab::try_apply(css, &prop, val) => {}
             _ => {
                 crate::bump!(css_declarations_unknown);
                 crate::note!("propriedade-ignorada", prop.clone());

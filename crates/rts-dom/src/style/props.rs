@@ -425,6 +425,48 @@ css_props! {
         /// `flex-basis` — o tamanho BASE do item no eixo principal antes de
         /// grow/shrink (`auto` = usa width/conteúdo; `0%` = zero). `None` = auto.
         [] flex_basis: Dimension;
+        // ── Lote 2: reconhecidas e GUARDADAS; a geometria de cada uma está no
+        //    comentário do tipo, em `style::vocab`. Estão aqui e não noutro sítio
+        //    porque a tabela é a fonte única do que é uma propriedade — um campo
+        //    fora dela não teria merge, herança nem computed.
+        /// `align-content` — distribuição das LINHAS no eixo cruzado (flex-wrap /
+        /// grid). Reusa o vocabulário de [`JustifyContent`]. Guardada; o layout
+        /// ainda não a lê.
+        [] align_content: JustifyContent;
+        /// `justify-self` — posição do item no eixo inline da sua célula de grid.
+        /// Reusa [`AlignItems`], como o `grid_justify_items` ao lado. Guardada.
+        [] justify_self: AlignItems;
+        /// `font-stretch` em PERCENTAGEM (100 = normal). Guardada: o medidor de
+        /// texto não tem eixo de largura para aplicar.
+        [inh] font_stretch: f32;
+        /// `word-spacing` em px (`normal` = 0). Guardada: o avanço por espaço é
+        /// contado no fluxo inline, que ainda não pergunta por ela.
+        [inh] word_spacing: f32;
+        /// `text-overflow`. Guardada — ver [`crate::style::vocab::TextOverflow`].
+        [] text_overflow: crate::style::vocab::TextOverflow;
+        /// `text-wrap`. Guardada — ver [`crate::style::vocab::TextWrap`].
+        [inh] text_wrap: crate::style::vocab::TextWrap;
+        /// `object-fit`. Guardada — ver [`crate::style::vocab::ObjectFit`].
+        [] object_fit: crate::style::vocab::ObjectFit;
+        /// `object-position` — a mesma gramática de `background-position`.
+        [] object_position: crate::style::BgPosition;
+        /// `unicode-bidi`. Guardada e SEM efeito — não há algoritmo bidi.
+        [] unicode_bidi: crate::style::vocab::UnicodeBidi;
+        /// `hyphens`. Guardada e SEM efeito — não há dicionário de hifenização.
+        [inh] hyphens: crate::style::vocab::Hyphens;
+        /// `scrollbar-width`. Guardada; a largura da barra é do backend.
+        [] scrollbar_width: crate::style::vocab::ScrollbarWidth;
+        /// `caption-side`. Guardada; a colocação é do layout de tabela.
+        [inh] caption_side: crate::style::vocab::CaptionSide;
+        /// `zoom` como FATOR (1.0 = normal). Guardada: escalar a subárvore é uma
+        /// decisão de layout e de render ao mesmo tempo.
+        [] zoom: f32;
+        /// `-webkit-line-clamp` — nº máximo de linhas. `None` = sem limite.
+        /// Guardada; quem conta linhas é o fluxo inline.
+        [] line_clamp: i32;
+        /// `column-width` — largura ideal de uma coluna de texto. Guardada: não há
+        /// fragmentação em colunas.
+        [] column_width: Dimension;
         /// `align-self` — sobrepõe o `align-items` do container para ESTE item.
         /// `None` = `auto` (herda o do container).
         [] align_self: AlignItems;

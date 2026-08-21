@@ -394,7 +394,8 @@ impl ComputedStyle {
                     if w == Some(true) { "wrap" } else { "nowrap" }
                 ),
             },
-            _ => String::new(),
+            // O 2º lote responde do seu próprio módulo — ver `style::vocab`.
+            _ => super::vocab::get_property(self, n.as_str()).unwrap_or_default(),
         }
     }
 }
