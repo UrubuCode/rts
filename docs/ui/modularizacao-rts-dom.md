@@ -218,3 +218,88 @@ deixa a lógica em 521 linhas.
 A regra que sobrevive é a de partida: **medir o ficheiro antes de lhe aplicar um
 plano feito para outro.**
 
+---
+
+## As provas de uma extração, por ordem de força
+
+Nenhuma destas substitui as outras. Foram todas ganhas por terem falhado
+primeiro, e cada uma responde a uma pergunta que as anteriores não respondem.
+
+### 1. As fronteiras somam o total, sem resto
+
+Antes de cortar: cada linha do original cai numa fatia, e a soma das fatias é o
+total. **"Sem resto" é o que prova que nada caiu entre dois pedaços** — e num
+caso apanhou 14 linhas que se perdiam, que eram os comentários `// ── …` a
+dividir o ficheiro em secções. Uma guarda que contasse só funções não teria
+visto nada.
+
+### 2. Nenhuma fatia acaba a meio de um item
+
+Um corte entre um `#[test]` e o `fn` que ele anota compila até deixar de
+compilar: `expected item after attributes`. O script recusa antes de escrever.
+
+### 3. Reconstruir e comparar — e normalizar o fim de linha
+
+```bash
+git show HEAD:caminho/X.rs > /tmp/orig.rs
+cat parte1 parte2 parte3 > /tmp/reass.rs        # pela ordem ORIGINAL
+cmp /tmp/orig.rs /tmp/reass.rs                   # silencioso = idêntico
+```
+
+O `--numstat` prova que só se acrescentaram `mod` e `use`. **Isto prova outra
+coisa: que o conteúdo movido é o mesmo conteúdo** — nem um espaço reescrito, nem
+uma chave perdida, nem uma linha em branco a mais entre blocos.
+
+**A armadilha, que apanhou à primeira: a árvore está em CRLF e o `git show`
+responde LF.** O `cmp` cru acusa DIFERE em *todas* as linhas. Normalize as duas
+pontas. Este repositório já teve um falso drift de symbol table pela mesma
+razão, e quem usar a técnica num Windows sem isto conclui que perdeu o ficheiro.
+
+**Quando a ordem não é preservada** — uma concatenação alfabética de um ficheiro
+que não era alfabético — o `cmp` diz "diferente" sem nada estar errado. Aí a
+pergunta certa é o **multiconjunto de linhas** mais a contagem e o conjunto de
+nomes das funções: nada perdido, nada inventado. **Diga sempre qual usou.**
+
+**E a forma mais útil não é o binário "IGUAL": é "igual excepto N, e aqui
+estão".** Num passo deu três linhas, todas do mesmo tipo — três `pub(in …)`
+acrescentados —, e ver as três é o que permite dizer que o custo era o previsto
+em vez de esperar que fosse.
+
+### 4. O que NENHUMA delas prova
+
+**Que o item continua a ser visto por quem o usa.** Duas funções e um `enum`
+mudaram de ficheiro dentro do mesmo módulo, todas as guardas de texto passaram, e
+o build partiu-se: quem os usava ficou **irmão** e privado não chega a irmãos.
+O compilador disse; nenhuma prova de texto podia dizer.
+
+**E que o mesmo número de testes continua a ser compilado.** Um teste que deixa
+de ser compilado não falha — desaparece. Só a suite responde, e quando a árvore
+partilhada não compila, essa prova fica **em dívida declarada**, nunca inferida.
+
+**A extração garante que o texto é o mesmo; só o `cargo check` garante que ainda
+se vê; e só a suite garante que ainda corre.**
+
+### 5. Duas cegueiras do mesmo instrumento, com custos diferentes
+
+O chunker parte por blocos que fecham numa linha exactamente `    }`. **Não vê
+um `const`, um `static`, um `use` nem um `type`** — nenhum fecha assim. Um
+`const` ao nível do módulo foi absorvido pelo bloco seguinte e viajou para o
+ficheiro errado.
+
+É a mesma forma do defeito do contador de linhas deste documento, que não via
+`pub(crate) fn`: **o instrumento não vê uma forma e atribui o que ela contém a
+quem está ao lado.**
+
+A diferença está no custo, e é o argumento para correr a suite a cada passo em
+vez de só no fim: o contador errava **em silêncio** e o número saía com
+confiança; o chunker erra com um `E0425` que não deixa compilar. **Um
+instrumento que falha alto é de outra categoria.**
+
+### 6. Uma referência relativa não se reescreve — cria-se o nome no pai
+
+Um corpo movido que dizia `super::lengths::…` passa a ter outro `super`. **Não
+altere a linha** — isso é conteúdo movido a ser alterado, que é precisamente o
+que esta arrumação existe para não fazer. Ponha `use super::lengths;` no pai: o
+nome passa a existir e o corpo continua a dizer exactamente o que dizia. Uma
+linha no pai em vez de uma linha alterada no filho.
+
