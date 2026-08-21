@@ -679,3 +679,60 @@ por definição. Com o `tab-size` e o `background-image` são cinco seguidos.
 
 **A régua de elementos efectivos ordenou bem o que já está no estilo. O trabalho
 que resta a seguir não é ligar campos — é escrever consumidores.**
+
+## Contar a população errada — duas vezes no mesmo dia, em frentes independentes
+
+A pergunta *"quantos elementos têm esta propriedade?"* parece a pergunta do
+alcance e não é. Duas frentes bateram nisto no mesmo dia, sem se cruzarem.
+
+**No `white-space`**: a pré-condição foi determinada por grep de quem **lê** a
+propriedade. `WhiteSpace::Pre` tinha dois leitores, ambos a decidir `nowrap`.
+Quem produz o colapso é o `quebra.rs::wrap_text`, que nem sequer a consulta.
+
+**No `vertical-align`**: a contagem foi feita sobre quem **declara**
+`display: inline-block`.
+
+```
+inline-block declarados na página ...... 83   dos quais o lote toca 5
+nós que passam pelo caminho ........... 182   dos quais 149 são <a>
+```
+
+**36× de diferença, e as duas populações são quase disjuntas.** A população real
+é definida pelo nosso `is_inline_block()` — *"tem caixa e é inline por
+natureza"* — que apanha `<a>` e `<img>` sem `display` declarado. Isso não é um
+defeito: é o que faz um link com padding ter caixa. Mas quer dizer que **a
+população de um lote é definida pela nossa heurística, não pela propriedade**.
+
+**A pergunta é quem PRODUZ o efeito, ou quem PASSA pelo código. Nunca quem
+declara a propriedade** — e ambas só se respondem a partir do efeito para trás,
+instrumentando o caminho em vez de contar o estilo.
+
+### E a definição sozinha vira a maioria
+
+A mesma contagem, com dois critérios de *"tem linhas em fluxo"*:
+
+```
+contando filhos elemento ....... 48 regra / 35 exceção   (58% do lado da regra)
+contando só filhos INLINE ...... 33 regra / 50 exceção   (60% do lado da exceção)
+```
+
+**A maioria troca de lado.** A segunda é a certa — um `inline-block` que só
+contém blocos não tem linhas em fluxo — e reportar a primeira teria feito um
+atalho parecer viável por 58%.
+
+### O que isto fechou
+
+O lote do `baseline` revertido:
+
+```
+149 <a>        têm texto   →  precisam da linha interna  →  levaram strut a mais
+ 28 replaced   não têm     →  aresta inferior            →  já estavam certos
+```
+
+**149 contra 28 é a proporção da perda**, e bate com 1 ganho contra 23 perdidos.
+Um lote certo ao centésimo em três fixtures piorou a página porque **estava
+certo para 28 e errado para 149**, e as fixtures só tinham a família dos 28.
+
+O recorte que isto abre paga a contagem: um elemento *replaced* não precisa da
+capacidade nova — a spec manda a aresta inferior, que é o que já fazemos. **A
+parte cara do lote serve uma tag, não a família toda.**
