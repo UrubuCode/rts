@@ -5336,11 +5336,112 @@ fn wrap_runs(
     // havia whitespace no ORIGINAL desde a última palavra? (carrega entre runs)
     let mut pending_space = false;
 
-    for run in runs {
-        // WIDGET: uma "palavra" inquebrável de run.ww pontos, segmento próprio.
+    // -- O CLUSTER: a unidade que a linha move.
+    //
+    // Uma linha so pode quebrar numa OPORTUNIDADE DE QUEBRA, e no texto essa
+    // oportunidade e o whitespace. Entre dois runs colados -- `<span>[</span>`
+    // seguido de `<span>135</span>`, a marcacao de referencia do MediaWiki --
+    // nao existe nenhuma, e o Chrome desce o `[135]` inteiro para a linha
+    // seguinte. Decidir peca a peca partia-o ao meio: medido na Wikipedia, um
+    // `<a>` com fragmentos de 8px no canto direito da linha e 24px no inicio da
+    // seguinte, e a caixa dele passava a ser a uniao dos dois -- 752 de largura
+    // onde o Chrome da 21.
+    //
+    // Por isso as pecas sem oportunidade entre elas sao acumuladas aqui e a
+    // pergunta "cabe?" e feita ao conjunto, uma vez. Nao e uma regra nova: e a
+    // regra do CSS aplicada a unidade certa. Uma peca sozinha, que e o caso
+    // esmagador, comporta-se exatamente como antes.
+    struct Peca {
+        run: usize,
+        texto: String,
+        largura: f32,
+        atomico: Option<(NodeIdx, AtomicKind, f32, f32)>,
+    }
+    let mut cluster: Vec<Peca> = Vec::new();
+    let mut cluster_w = 0.0f32;
+    // havia whitespace ANTES do cluster? e esse whitespace veio de FORA do run
+    // que abre o cluster? (a segunda pergunta decide de quem e o vao -- ver o
+    // `lead_w` do `Segment`.)
+    let mut cluster_espaco = false;
+    let mut cluster_de_fora = false;
+    // o whitespace pendente veio de um run ANTERIOR (e nao de dentro deste)?
+    let mut espaco_de_fora = false;
+
+    macro_rules! fechar_cluster {
+        () => {
+            if !cluster.is_empty() {
+                let sep = cluster_espaco && !at_line_start;
+                let need = if sep { space_w(m) + cluster_w } else { cluster_w };
+                if !at_line_start && cur_w + need > max_w(lines.len()) {
+                    lines.push(std::mem::take(&mut cur));
+                    cur_w = 0.0;
+                    at_line_start = true;
+                }
+                // recalculado DEPOIS da quebra: um cluster que abre linha nao
+                // leva o espaco com ele.
+                let sep = cluster_espaco && !at_line_start;
+                let mut primeiro = true;
+                for peca in cluster.drain(..) {
+                    let run = &runs[peca.run];
+                    let com_espaco = primeiro && sep;
+                    let espaco = if com_espaco { space_w(m) } else { 0.0 };
+                    match peca.atomico {
+                        Some((a_idx, kind, ww, wh)) => {
+                            cur.push(Segment {
+                                text: String::new(),
+                                text_width: 0.0,
+                                color: run.color,
+                                bold: false,
+                                deco: 0,
+                                owners: run.owners.clone(),
+                                atomic: Some((a_idx, kind)),
+                                ww,
+                                wh,
+                                lead_w: espaco,
+                            });
+                            cur_w += ww + espaco;
+                        }
+                        None => {
+                            let vao = if com_espaco && cluster_de_fora { espaco } else { 0.0 };
+                            let mut texto = String::with_capacity(peca.texto.len() + 1);
+                            if com_espaco {
+                                texto.push(' ');
+                            }
+                            texto.push_str(&peca.texto);
+                            let largura = peca.largura + espaco;
+                            push_segment(&mut cur, run, &texto, largura, vao);
+                            cur_w += largura;
+                        }
+                    }
+                    primeiro = false;
+                    at_line_start = false;
+                }
+                cluster_w = 0.0;
+                cluster_espaco = false;
+                cluster_de_fora = false;
+            }
+        };
+    }
+    // acrescenta uma peca ao cluster corrente, abrindo-o se estiver vazio.
+    macro_rules! juntar {
+        ($peca:expr, $w:expr) => {{
+            if cluster.is_empty() {
+                cluster_espaco = pending_space;
+                cluster_de_fora = espaco_de_fora;
+            }
+            cluster.push($peca);
+            cluster_w += $w;
+            pending_space = false;
+            espaco_de_fora = false;
+        }};
+    }
+
+    for (i, run) in runs.iter().enumerate() {
+        // WIDGET: uma "palavra" inquebravel de run.ww pontos, segmento proprio.
         if let Some((a_idx, kind)) = run.atomic {
             // BREAK: entra na linha (para receber a sua caixa) e FECHA-A.
             if kind == AtomicKind::Break {
+                fechar_cluster!();
                 cur.push(Segment {
                     text: String::new(),
                     text_width: 0.0,
@@ -5357,11 +5458,13 @@ fn wrap_runs(
                 cur_w = 0.0;
                 at_line_start = true;
                 pending_space = false;
+                espaco_de_fora = false;
                 continue;
             }
-            // MARKER: largura zero, não quebra a linha, não consome o espaço
-            // pendente — só marca uma posição para quem lhe quiser a caixa.
+            // MARKER: largura zero, nao quebra a linha, nao consome o espaco
+            // pendente -- so marca uma posicao para quem lhe quiser a caixa.
             if kind == AtomicKind::Marker {
+                fechar_cluster!();
                 cur.push(Segment {
                     text: String::new(),
                     text_width: 0.0,
@@ -5376,133 +5479,112 @@ fn wrap_runs(
                 });
                 continue;
             }
-            let with_space = pending_space && !at_line_start;
-            let need = if with_space { space_w(m) + run.ww } else { run.ww };
-            if !at_line_start && cur_w + need > max_w(lines.len()) {
-                lines.push(std::mem::take(&mut cur));
-                cur_w = 0.0;
-                at_line_start = true;
-            }
-            // Recalculado DEPOIS da quebra: uma caixa atómica que abre linha não
-            // leva o espaço com ela. O vão entrava no `cur_w` e não no segmento,
-            // por isso a linha contava um espaço que a emissão não avançava nem
-            // pintava — e a caixa saía colada à palavra anterior.
-            let vao = if pending_space && !at_line_start { space_w(m) } else { 0.0 };
-            cur.push(Segment {
-                text: String::new(),
-                text_width: 0.0,
-                color: run.color,
-                bold: false,
-                deco: 0,
-                owners: run.owners.clone(),
-                atomic: Some((a_idx, kind)),
-                ww: run.ww,
-                wh: run.wh,
-                lead_w: vao,
-            });
-            cur_w += vao + run.ww;
-            at_line_start = false;
-            pending_space = false;
+            juntar!(
+                Peca {
+                    run: i,
+                    texto: String::new(),
+                    largura: run.ww,
+                    atomico: Some((a_idx, kind, run.ww, run.wh)),
+                },
+                run.ww
+            );
             continue;
         }
-        // FAST PATH: o run INTEIRO cabe na linha corrente.
+        // so whitespace: vira separador pendente e nao abre peca. Decidido ANTES
+        // de normalizar, porque um separador pendente faz a normalizacao
+        // devolver " " -- nao-vazio -- e o run deixaria de ser reconhecido como
+        // o separador que e.
+        if !run.text.is_empty() && run.text.trim().is_empty() {
+            fechar_cluster!();
+            pending_space = true;
+            espaco_de_fora = true;
+            continue;
+        }
+        if run.text.is_empty() {
+            continue;
+        }
+        // O espaco da frente e devido quando havia whitespace desde a ultima
+        // palavra, esteja ele no fim do run ANTERIOR ou no inicio deste.
+        if run.text.starts_with(char::is_whitespace) {
+            fechar_cluster!();
+            pending_space = true;
+            // NAO e vao: este espaco esta no texto DESTE run, logo pertence aos
+            // donos dele e vive dentro do segmento. So o espaco que vem de um
+            // run ANTERIOR e um vao. E a diferenca entre `<a> alvo</a>` e
+            // `antes <a>alvo</a>` -- o `::after` com `content:" (…)"` e o
+            // primeiro caso, e o espaco tem de sobreviver no texto.
+            espaco_de_fora = false;
+        }
+        // FAST PATH: o run inteiro e UMA peca quando nao tem whitespace dentro.
         //
-        // O scanner abaixo mede palavra por palavra — e medir texto é a única
-        // coisa que o layout pede ao backend, que com uma fonte real faz shaping
-        // em vez de multiplicar um contador de caracteres. Medido no medidor
-        // barato: `wrap-runs` era 38% de um relayout de página grande, com 11 000
-        // `text_width` por frame. Quando o run cabe (o caso comum: quase todo
-        // texto de página não quebra), uma medição responde por todas.
-        //
-        // Medir a string inteira também é o que um browser faz, então a largura
-        // resultante é MAIS fiel e não menos: soma de palavras ignora o que a
-        // fonte faz nas junções.
-        if run.atomic.is_none() {
-            // só whitespace: vira separador pendente e não abre segmento. Decidido
-            // ANTES de normalizar, porque um separador pendente faz a normalização
-            // devolver " " — não-vazio — e o run deixaria de ser reconhecido como
-            // o separador que é.
-            if !run.text.is_empty() && run.text.trim().is_empty() {
+        // Medir a string inteira e o que um browser faz, e e o que evita uma
+        // medicao por palavra: `wrap-runs` era 38% de um relayout de pagina
+        // grande, com 11 000 `text_width` por frame.
+        let miolo = run.text.trim();
+        if !miolo.contains(char::is_whitespace) {
+            let w = m.text_width(miolo, font_size, mono, run.bold);
+            let terminava_em_espaco = run.text.ends_with(char::is_whitespace);
+            juntar!(Peca { run: i, texto: miolo.to_string(), largura: w, atomico: None }, w);
+            if terminava_em_espaco {
+                fechar_cluster!();
                 pending_space = true;
-                continue;
+                espaco_de_fora = true;
             }
-            // O espaço da frente é devido quando havia whitespace desde a última
-            // palavra, esteja ele no fim do run ANTERIOR ou no início deste. A
-            // condição olhava só para o primeiro caso e o `collapse_ws` só para o
-            // segundo, por isso nenhum dos dois emitia o espaço de
-            // `antes <a>alvo</a>` nem o de `<a>alvo</a> depois`.
-            let leading =
-                (pending_space || run.text.starts_with(char::is_whitespace)) && !at_line_start;
-            let normalized = collapse_ws(&run.text, leading);
-            if normalized.is_empty() {
-                continue;
-            }
-            let w = m.text_width(&normalized, font_size, mono, run.bold);
-            // `at_line_start ||` estava aqui e fazia um run que NÃO CABE passar
-            // inteiro quando era o primeiro da linha — um parágrafo cujo texto
-            // vem num único nó (o caso comum de uma página real) nunca quebrava,
-            // saía numa linha de milhares de pontos e levava consigo a caixa de
-            // todos os inlines dentro dele. O scanner palavra-a-palavra abaixo já
-            // trata o início de linha corretamente (não quebra ANTES da primeira
-            // palavra), por isso a condição certa é só "cabe".
-            if cur_w + w <= max_w(lines.len()) {
-                let trailing_space = run.text.ends_with(char::is_whitespace);
-                // O vão só existe quando o espaço veio do run ANTERIOR. Se o
-                // whitespace é do texto deste run (`<a> alvo</a>`), o espaço é
-                // dele e conta para a sua caixa — que é o que o Chrome faz.
-                let vao = if leading && pending_space { space_w(m) } else { 0.0 };
-                push_segment(&mut cur, run, &normalized, w, vao);
-                cur_w += w;
-                at_line_start = false;
-                pending_space = trailing_space;
-                continue;
+            continue;
+        }
+        // FAST PATH 2 — o run INTEIRO cabe na linha corrente.
+        //
+        // Medir palavra a palavra custa uma medicao por palavra, e medir texto e
+        // a unica coisa que o layout pede ao backend: `wrap-runs` era 38% de um
+        // relayout de pagina grande, com 11 000 `text_width` por frame. Quando o
+        // run cabe todo, uma medicao responde por todas.
+        //
+        // So e seguro sob duas condicoes, e as duas sao sobre CLUSTERS: o run
+        // tem de ABRIR um (senao a sua primeira palavra pertence ao aglomerado
+        // que vem de tras e nao pode ser commitada sozinha) e tem de FECHAR um
+        // (senao a sua ultima palavra pode ainda vir a ter de descer com o run
+        // seguinte). Sem as duas, o caminho lento e o que responde certo.
+        let abre_cluster = cluster.is_empty();
+        let fecha_cluster = run.text.ends_with(char::is_whitespace);
+        if abre_cluster && fecha_cluster {
+            let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
+            if !normalizado.is_empty() {
+                let w = m.text_width(&normalizado, font_size, mono, run.bold);
+                if !at_line_start && cur_w + w <= max_w(lines.len()) {
+                    let vao = if pending_space && espaco_de_fora { space_w(m) } else { 0.0 };
+                    push_segment(&mut cur, run, &normalizado, w, vao);
+                    cur_w += w;
+                    at_line_start = false;
+                    pending_space = true;
+                    espaco_de_fora = true;
+                    continue;
+                }
             }
         }
-        // scanner ws/palavra preservando a fronteira original.
-        //
-        // `fora` guarda se JÁ havia espaço pendente à entrada do run: só então o
-        // espaço da primeira palavra pertence ao texto anterior e não aos donos
-        // deste segmento. O whitespace que o scanner encontra a seguir é interior
-        // ao run, logo é dos donos dele.
-        let mut fora = pending_space;
+        // scanner ws/palavra: cada whitespace FECHA o cluster (e uma
+        // oportunidade de quebra) e cada palavra abre o seguinte.
         let mut rest = run.text.as_str();
         while !rest.is_empty() {
             if rest.starts_with(char::is_whitespace) {
+                fechar_cluster!();
                 pending_space = true;
+                espaco_de_fora = false;
                 rest = rest.trim_start();
                 continue;
             }
             let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
             let word = &rest[..end];
             rest = &rest[end..];
-
             let ww = m.text_width(word, font_size, mono, run.bold);
-            let with_space = pending_space && !at_line_start;
-            let need = if with_space { space_w(m) + ww } else { ww };
-            if !at_line_start && cur_w + need > max_w(lines.len()) {
-                // não cabe: fecha a linha.
-                lines.push(std::mem::take(&mut cur));
-                cur_w = 0.0;
-                at_line_start = true;
-            }
-            let sep = pending_space && !at_line_start;
-            let piece_w = if sep { space_w(m) + ww } else { ww };
-            let mut piece = String::with_capacity(word.len() + usize::from(sep));
-            if sep {
-                piece.push(' ');
-            }
-            piece.push_str(word);
-            // O MESMO `push_segment` do fast path decide juntar ou abrir: a regra
-            // de fusão estava escrita duas vezes, e era ela que tinha de responder
-            // igual nos dois caminhos.
-            let vao = if sep && fora { space_w(m) } else { 0.0 };
-            push_segment(&mut cur, run, &piece, piece_w, vao);
-            cur_w += piece_w;
-            at_line_start = false;
-            pending_space = false;
-            fora = false;
+            juntar!(Peca { run: i, texto: word.to_string(), largura: ww, atomico: None }, ww);
+        }
+        if run.text.ends_with(char::is_whitespace) {
+            fechar_cluster!();
+            pending_space = true;
+            espaco_de_fora = true;
         }
     }
+    fechar_cluster!();
     if !cur.is_empty() {
         lines.push(cur);
     }
@@ -7294,6 +7376,258 @@ mod tests {
     /// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
     /// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
     const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";
+
+    /// SONDA TEMPORÁRIA (`#[ignore]`, corre com `--ignored`): despeja, para os
+    /// `<p>` da página real de paridade, quantas caixas de linha fazemos, a
+    /// largura somada dos segmentos e os DONOS de cada um. Não é um teste — não
+    /// afirma nada; existe para comparar com o Chrome no mesmo caminho.
+    /// A apagar quando a investigação do texto anónimo fechar.
+    /// SONDA TEMPORÁRIA (`#[ignore]`): quantas vezes o MESMO nó é unido em
+    /// `union_rect` num layout completo da página real, e com que retângulos.
+    /// Responde à pergunta "há duas passagens a partilhar a mesma DisplayList?"
+    /// com contagem, em vez de por leitura do código.
+    #[test]
+    #[ignore]
+    fn sonda_unioes_por_no_na_pagina_real() {
+        let html = match std::fs::read_to_string("../../scripts/parity/pagina.combinada.html") {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("sem a página de paridade: {e}");
+                return;
+            }
+        };
+        def_div();
+        let dom = parse_html_to_dom(&html);
+        let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        crate::inline_box::sonda::ligar();
+        let _lista = layout_document(&dom, &ctx);
+        let unioes = crate::inline_box::sonda::colher();
+        let mut por_no: std::collections::HashMap<NodeIdx, Vec<Rect>> = Default::default();
+        for (idx, r) in &unioes {
+            por_no.entry(*idx).or_default().push(*r);
+        }
+        let total = por_no.len();
+        // A assinatura de DUAS PASSAGENS sem ambiguidade é o fragmento
+        // REPETIDO: um inline de várias linhas tem fragmentos de larguras muito
+        // diferentes (a última linha é curta) e isso é legítimo, mas nunca
+        // produz DUAS VEZES o mesmo retângulo. Se o mesmo nó é unido com um
+        // retângulo idêntico mais do que uma vez, foi percorrido mais do que
+        // uma vez sobre a mesma lista.
+        let mut suspeitos: Vec<(NodeIdx, usize, f32, f32)> = Vec::new();
+        for (idx, rs) in &por_no {
+            let mut vistos: Vec<Rect> = Vec::new();
+            let mut repetidos = 0;
+            for r in rs {
+                if vistos.iter().any(|v| {
+                    (v.x - r.x).abs() < 0.01
+                        && (v.y - r.y).abs() < 0.01
+                        && (v.w - r.w).abs() < 0.01
+                        && (v.h - r.h).abs() < 0.01
+                }) {
+                    repetidos += 1;
+                } else {
+                    vistos.push(*r);
+                }
+            }
+            if repetidos > 0 {
+                let mx = rs.iter().fold(0.0f32, |a, r| a.max(r.w));
+                let mn = rs.iter().fold(f32::MAX, |a, r| a.min(r.w));
+                suspeitos.push((*idx, repetidos, mn, mx));
+            }
+        }
+        suspeitos.sort_by(|a, b| b.1.cmp(&a.1));
+        eprintln!(
+            "UNIOES total={} nos distintos={} nos com >1 uniao={}",
+            unioes.len(),
+            total,
+            por_no.values().filter(|v| v.len() > 1).count()
+        );
+        eprintln!("nos com FRAGMENTO REPETIDO (assinatura de duas passagens): {}", suspeitos.len());
+        for (idx, n, mn, mx) in suspeitos.iter().take(10) {
+            let tag = match &dom.node(*idx).kind {
+                NodeKind::Element { tag } => tag.clone(),
+                _ => "?".into(),
+            };
+            eprintln!("  {tag:8} repetidos={n:3} largura min={mn:.1} max={mx:.1}");
+        }
+        // distribuição do numero de fragmentos por no
+        let mut hist: std::collections::BTreeMap<usize, usize> = Default::default();
+        for v in por_no.values() {
+            *hist.entry(v.len().min(10)).or_default() += 1;
+        }
+        eprintln!("fragmentos por no (10 = 10 ou mais): {hist:?}");
+        // OS INCHADOS: inline cuja caixa FINAL e' larga como um paragrafo.
+        // Que fragmentos a produziram?
+        let geo = _lista.geometry();
+        let mut inchados = 0;
+        for (idx, r) in geo.rects.iter() {
+            let NodeKind::Element { tag } = &dom.node(*idx).kind else { continue };
+            if !matches!(tag.as_str(), "sup" | "a" | "span" | "cite" | "i" | "b" | "abbr") {
+                continue;
+            }
+            if r.w < 700.0 {
+                continue;
+            }
+            inchados += 1;
+            if inchados > 6 {
+                continue;
+            }
+            let vazio = Vec::new();
+            let frs = por_no.get(idx).unwrap_or(&vazio);
+            eprintln!("INCHADO {tag} final w={:.1} h={:.1} — {} fragmentos:", r.w, r.h, frs.len());
+            for f in frs.iter().take(8) {
+                eprintln!("    x={:.1} y={:.1} w={:.1} h={:.1}", f.x, f.y, f.w, f.h);
+            }
+        }
+        eprintln!("inline com caixa final >=700 de largura: {inchados}");
+    }
+
+    #[test]
+    #[ignore]
+    fn sonda_dump_de_paragrafos_da_pagina_real() {
+        let html = match std::fs::read_to_string("../../scripts/parity/pagina.combinada.html") {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("sem a página de paridade: {e}");
+                return;
+            }
+        };
+        def_div();
+        let dom = parse_html_to_dom(&html);
+        let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let lista = layout_document(&dom, &ctx);
+        // caminho estrutural no MESMO formato do dump (`tag[n]` por irmãos).
+        fn caminho(dom: &Dom, alvo: NodeIdx) -> String {
+            let mut pais: Vec<NodeIdx> = Vec::new();
+            fn acha(dom: &Dom, id: NodeIdx, alvo: NodeIdx, pilha: &mut Vec<NodeIdx>) -> bool {
+                pilha.push(id);
+                if id == alvo {
+                    return true;
+                }
+                for &c in &dom.node(id).children {
+                    if acha(dom, c, alvo, pilha) {
+                        return true;
+                    }
+                }
+                pilha.pop();
+                false
+            }
+            acha(dom, 0, alvo, &mut pais);
+            let mut out = String::new();
+            for (i, &n) in pais.iter().enumerate().skip(1) {
+                let NodeKind::Element { tag } = &dom.node(n).kind else { continue };
+                let pai = pais[i - 1];
+                let mut k = 0;
+                for &irmao in &dom.node(pai).children {
+                    if let NodeKind::Element { tag: t } = &dom.node(irmao).kind {
+                        if t == tag {
+                            k += 1;
+                        }
+                    }
+                    if irmao == n {
+                        break;
+                    }
+                }
+                if !out.is_empty() {
+                    out.push('/');
+                }
+                out.push_str(&format!("{tag}[{k}]"));
+            }
+            out
+        }
+        // todo o texto de uma subárvore, como o `collect_runs` o veria.
+        fn texto(dom: &Dom, id: NodeIdx, out: &mut String) {
+            match &dom.node(id).kind {
+                NodeKind::Text(t) => out.push_str(t),
+                NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
+                _ => {
+                    for &c in &dom.node(id).children {
+                        texto(dom, c, out);
+                    }
+                }
+            }
+        }
+        let geo = lista.geometry();
+        let mut n = 0;
+        for (idx, rect) in geo.rects.iter() {
+            if n >= 8 {
+                break;
+            }
+            let NodeKind::Element { tag } = &dom.node(*idx).kind else { continue };
+            if tag != "p" || rect.h < 60.0 {
+                continue;
+            }
+            let mut t = String::new();
+            texto(&dom, *idx, &mut t);
+            let colapsado: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
+            eprintln!(
+                "PARAGRAFO {}
+  caixa w={:.1} h={:.1}
+  caracteres (colapsados) {}
+  largura implicita = {:.0}
+  inicio: {:?}",
+                caminho(&dom, *idx),
+                rect.w,
+                rect.h,
+                colapsado.chars().count(),
+                colapsado.chars().count() as f32 * 0.5 * 14.125,
+                &colapsado.chars().take(90).collect::<String>(),
+            );
+            n += 1;
+        }
+    }
+
+    #[test]
+    fn referencia_nao_e_partida_ao_meio_por_uma_quebra_de_linha() {
+        // A marcação de referência da Wikipédia: `[`, `135`, `]` em spans
+        // separados, SEM espaço entre eles — não há ali oportunidade de quebra
+        // nenhuma, logo os três descem juntos em vez de o `[` ficar para trás.
+        let list = layout(
+            // A 16px/0,5 cada letra mede 8 e o espaço 8: quatro "aaaa" com os
+            // espaços ocupam 152 dos 200. O quinto "aaaa" mais o `[135]` são um
+            // aglomerado de 72 (não há espaço entre a palavra e a referência),
+            // que pede 8+72 e não cabe — desce INTEIRO, como no browser.
+            "<p style='width:200'>aaaa aaaa aaaa aaaa aaaa<span>[</span><span>135</span><span>]</span></p>",
+            600.0,
+        );
+        let t = all_texts(&list);
+        let y_de = |txt: &str| t.iter().find(|(s, _, _, _)| s == txt).map(|(_, _, y, _)| *y);
+        let (abre, num, fecha) = (y_de("["), y_de("135"), y_de("]"));
+        assert_eq!(abre, num, "o `[` não fica para trás do número: {t:?}");
+        assert_eq!(num, fecha, "nem o `]` para a frente: {t:?}");
+        // e o aglomerado desceu com a palavra a que está colado, deixando as
+        // quatro primeiras na linha de cima.
+        let primeira = t.first().map(|(_, _, y, _)| *y);
+        assert_ne!(abre, primeira, "o conjunto desceu de linha: {t:?}");
+        for (_, x, y, _) in &t {
+            if Some(*y) == abre {
+                assert!(*x < 200.0, "e não transborda a caixa: {t:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn sonda_fronteiras_inline_nao_devem_dar_linha_de_graca() {
+        // SONDA: o MESMO texto, uma vez solto e outra partido por fronteiras de
+        // elemento inline. O número de linhas tem de ser o mesmo — as fronteiras
+        // não acrescentam nem removem conteúdo.
+        let palavras: Vec<String> = (0..60).map(|i| format!("pal{i:02}")).collect();
+        let solto = palavras.join(" ");
+        let partido = palavras
+            .iter()
+            .map(|w| format!("<a>{w}</a>"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let linhas = |html: &str| -> usize {
+            let list = layout(&format!("<p style='width:400'>{html}</p>"), 600.0);
+            let mut ys: Vec<f32> = all_texts(&list).iter().map(|(_, _, y, _)| *y).collect();
+            ys.sort_by(f32::total_cmp);
+            ys.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+            ys.len()
+        };
+        let (a, b) = (linhas(&solto), linhas(&partido));
+        assert_eq!(a, b, "solto={a} linhas, partido por <a>={b} linhas");
+    }
 
     #[test]
     fn texto_corre_ao_lado_do_float_em_vez_de_descer() {

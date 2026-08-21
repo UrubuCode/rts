@@ -194,7 +194,35 @@ pub(crate) fn meia_entrelinha(altura_da_linha: f32, conteudo: f32) -> f32 {
 /// box dos border boxes dos seus fragmentos. Um `<a>` que quebra em duas linhas
 /// tem dois fragmentos e um retângulo que os contém aos dois — deliberadamente
 /// mais largo do que qualquer um deles, que é o que o browser também devolve.
+/// SONDA TEMPORÁRIA (só em `cfg(test)`): regista cada fragmento unido, para
+/// responder "quantas vezes o mesmo nó é unido, e com que retângulos". Não
+/// existe fora dos testes — a apagar quando a investigação do inchaço fechar.
+#[cfg(test)]
+pub(crate) mod sonda {
+    use super::{NodeIdx, Rect};
+    use std::cell::RefCell;
+    thread_local! {
+        static UNIOES: RefCell<Vec<(NodeIdx, Rect)>> = const { RefCell::new(Vec::new()) };
+        static LIGADA: RefCell<bool> = const { RefCell::new(false) };
+    }
+    pub(crate) fn ligar() {
+        LIGADA.with(|l| *l.borrow_mut() = true);
+        UNIOES.with(|u| u.borrow_mut().clear());
+    }
+    pub(crate) fn registar(idx: NodeIdx, r: Rect) {
+        if LIGADA.with(|l| *l.borrow()) {
+            UNIOES.with(|u| u.borrow_mut().push((idx, r)));
+        }
+    }
+    pub(crate) fn colher() -> Vec<(NodeIdx, Rect)> {
+        LIGADA.with(|l| *l.borrow_mut() = false);
+        UNIOES.with(|u| std::mem::take(&mut *u.borrow_mut()))
+    }
+}
+
 pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
+    #[cfg(test)]
+    sonda::registar(idx, fragment);
     if let Some(old) = list.node_rects.get_mut(&idx) {
         // Um placeholder reservado (`reserve_node_order`) é 0,0,0,0 e não é um
         // fragmento: uni-lo puxaria a caixa até à origem do documento.
@@ -269,5 +297,41 @@ mod tests {
         let idx = dom.resolve(ids[0]).unwrap();
         let r = list.geometry_now().rects.get(&idx).copied();
         assert!(r.is_none_or(|r| r.w == 0.0), "caixa inventada: {r:?}");
+    }
+}
+
+#[cfg(test)]
+mod quebra_de_linha {
+    use crate::table::tests::{geometria, rect};
+
+    /// Um aglomerado SEM whitespace desce inteiro para a linha seguinte.
+    ///
+    /// `<i>y</i><b>z</b>` não tem espaço entre os dois: em CSS não há ali
+    /// oportunidade de quebra nenhuma, e o browser move os dois juntos. Partir
+    /// o aglomerado punha o `y` no fim de uma linha e o `z` no início da outra,
+    /// e a caixa do pai — que é a UNIÃO dos fragmentos, e essa estava certa —
+    /// passava a ser um retângulo com a largura da linha inteira.
+    ///
+    /// É a forma exata do pior desvio de largura da Wikipédia: as referências
+    /// (`<sup class="mw-ref"><a><span>[1]</span></a></sup>`) saíam com 752x41
+    /// onde o Chrome dá 21x15. O que estava errado era o sítio do corte, não a
+    /// união.
+    ///
+    /// Medida com o `ApproxMeasurer`: 8px por carácter a 16px. "aaaaa" mede 40,
+    /// o espaço 8, e cada letra 8 — o aglomerado `yz` pede 8+16=24 sobre os 40
+    /// já postos, logo 64 numa caixa de 60: desce, e desce inteiro.
+    #[test]
+    fn aglomerado_sem_espacos_desce_inteiro_para_a_linha_seguinte() {
+        let (dom, list) =
+            geometria("<p style='width:60px'>aaaaa <sup><i>y</i><b>z</b></sup></p>", 800.0);
+        let i = rect(&dom, &list, "i", 0);
+        let b = rect(&dom, &list, "b", 0);
+        let sup = rect(&dom, &list, "sup", 0);
+        assert_eq!(i.y, b.y, "o aglomerado não é partido: i={i:?} b={b:?}");
+        assert!(i.x < b.x, "e mantém a ordem na mesma linha: i={i:?} b={b:?}");
+        assert!(
+            sup.w < 30.0,
+            "a caixa do pai é a do aglomerado, não a da linha: {sup:?}"
+        );
     }
 }
