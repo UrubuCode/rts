@@ -405,3 +405,34 @@ linhas" é absurdo à vista.
 Um `PASSA` não teria mostrado nada. **Um instrumento que imprime o número que
 mediu denuncia-se sozinho; um que imprime só o veredicto, não.**
 
+### 11. Listar os `super::` é um passo do MAPA, não uma surpresa
+
+Um corpo movido que diz `super::X` passa a ter outro `super`. **O texto continua
+certo e o significado muda** — é a cegueira que nenhuma guarda de texto vê, e só
+o compilador diz.
+
+**Duas ocorrências em cinco extrações**, e nas duas o remédio foi o mesmo: um
+`use super::{…}` **no pai**, para o nome passar a existir sem tocar numa linha do
+que se moveu. Numa delas foram 17 erros de uma só causa.
+
+A extração onde isto foi listado ANTES de cortar — *"sem um único `super::`,
+limpo"* — correu sem surpresas. A seguinte não listou e pagou. Portanto vai para
+o mapa, ao lado de contar linhas e contar testes:
+
+```bash
+grep -n 'super::' ficheiro.rs
+```
+
+### 12. Os tamanhos vêm do script, nunca da soma mental
+
+Três vezes num dia uma soma feita de cabeça saiu furada: "resolvido num único
+passo, 521 linhas" (eram 531), "a tabela fica em ~670" (eram 442), e um módulo
+anunciado com 393 que tinha 466.
+
+Nenhuma delas mudou uma decisão — mas duas eram optimistas, e uma optimista
+aceite sem verificar teria deixado um ficheiro acima do teto por engano ou
+declarado um desvio que não existe.
+
+**O passo em que os nove tamanhos bateram ao ±2 foi o único em que foram
+contados em vez de estimados.**
+
