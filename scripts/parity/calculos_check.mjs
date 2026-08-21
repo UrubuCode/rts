@@ -95,7 +95,24 @@ const cache = new Map();
 // mudar os dados para mover o número, que é o que o CLAUDE.md proíbe primeiro.
 // O defeito era da régua e é aqui que se arranja.
 const existeSimbolo = (simbolo, ficheiro) => {
-  if (!cache.has(ficheiro)) cache.set(ficheiro, readFileSync(ficheiro, "utf8"));
+  if (!cache.has(ficheiro)) {
+    // As linhas de `use`/`pub use` SAEM antes de se procurar, e esta é a
+    // conferência que faltava. Um ficheiro que reexporta o que os seus módulos
+    // definem contém o nome de cada símbolo numa linha de `use` — e um
+    // `includes` aceita-o. Um refactor que transformou um ficheiro de 9 987
+    // linhas no `mod.rs` dos seus módulos deixou 17 dessas linhas com ~40 nomes,
+    // e **76 apontadores passaram a mentir com a régua a atestá-los**: o
+    // ficheiro existe, o nome aparece lá, e o símbolo está noutro sítio.
+    //
+    // Uma reexportação não é uma definição. Um apontador que aterra nela manda
+    // o leitor para o ficheiro errado — que é pior que um apontador morto,
+    // porque o morto avisa.
+    const semUse = readFileSync(ficheiro, "utf8")
+      .split(/\r?\n/)
+      .filter((l) => !/^\s*(pub\s+)?use\s/.test(l))
+      .join("\n");
+    cache.set(ficheiro, semUse);
+  }
   const texto = cache.get(ficheiro);
   const m = /^([A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)$/.exec(simbolo);
   if (!m) return texto.includes(simbolo);
