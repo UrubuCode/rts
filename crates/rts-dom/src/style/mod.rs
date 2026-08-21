@@ -71,6 +71,10 @@ mod aplica;
 #[cfg(test)]
 mod afirmacoes_tests;
 #[cfg(test)]
+mod auditoria_lote_a;
+#[cfg(test)]
+mod auditoria_lote_b;
+#[cfg(test)]
 mod computed_tests;
 #[cfg(test)]
 mod sonda_efetivos;
