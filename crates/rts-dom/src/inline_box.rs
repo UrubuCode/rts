@@ -162,6 +162,32 @@ pub(crate) fn cria_caixa_de_bloco(css: &ComputedStyle) -> bool {
         || css.height.is_some()
 }
 
+/// A mesma pergunta que [`cria_caixa_de_bloco`], mas para um elemento cujo
+/// `display:inline` é DECLARADO — onde a resposta é diferente por causa do CSS
+/// e não por conveniência.
+///
+/// Numa caixa inline a margem vertical, a `width` e a `height` NÃO SE APLICAM
+/// (CSS 2.1 §10.3.1/§10.6.1). Perguntar `cria_caixa_de_bloco` a um
+/// `<h3 style="display:inline">` respondia `true` pela margem que a
+/// UA-stylesheet do `<h3>` lhe põe — uma propriedade que o próprio `display`
+/// acabou de tornar inoperante — e devolvia-o ao caminho de bloco, que é
+/// exatamente o que a declaração pedia para evitar.
+///
+/// A alternativa rejeitada era tirar a margem de `cria_caixa_de_bloco`: lá ela
+/// está certa, porque o chamador é um elemento que ainda pode ser de bloco.
+/// São duas perguntas, e o que as separa é o `display`.
+///
+/// O que fica são as propriedades que PINTAM uma superfície ou ocupam espaço na
+/// horizontal, e essas continuam a exigir `layout_block` para serem pintadas.
+pub(crate) fn cria_caixa_apesar_de_inline(css: &ComputedStyle) -> bool {
+    css.bg.is_some()
+        || css.gradient.is_some()
+        || css.box_shadow.is_some()
+        || css.padding.any_set()
+        || css.border_width.is_some()
+        || css.border_widths.any_set()
+}
+
 /// A altura da CAIXA de um elemento inline — que NÃO é a altura da linha.
 ///
 /// A distinção é a do CSS entre a caixa de linha e a caixa do inline: o
@@ -215,9 +241,220 @@ pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
     }
 }
 
+/// Pode a linha ser partida DENTRO de um aglomerado — isto é, no meio de uma
+/// palavra, onde o texto não oferece oportunidade de quebra?
+///
+/// É a resolução conjunta de `word-break` e `overflow-wrap` (o antigo
+/// `word-wrap`, que MDN dá como alias e o parser já mapeia para o mesmo campo).
+/// Resolvidas JUNTAS e num só valor porque é uma só pergunta para quem quebra:
+/// a alternativa — o `wrap_runs` receber as duas propriedades e voltar a
+/// combiná-las em cada aglomerado — punha a mesma regra em dois sítios, que é a
+/// duplicação que este motor já pagou várias vezes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum QuebraDentro {
+    /// `normal` — nunca. Uma palavra que não cabe transborda.
+    Nao,
+    /// `overflow-wrap: break-word|anywhere`, `word-break: break-word` — parte-se
+    /// só quando a palavra não cabe NEM numa linha inteira e vazia. Descer
+    /// primeiro e partir depois é o que o Chrome faz.
+    SePreciso,
+    /// `word-break: break-all` — parte-se assim que não cabe no que resta da
+    /// linha, sem esperar por oportunidade nenhuma.
+    Sempre,
+}
+
+/// A resolução, e a razão de `word-break` ganhar a `overflow-wrap`: `break-all`
+/// é estritamente mais agressivo, e a spec dá-lhe precedência sobre o
+/// `overflow-wrap` do mesmo elemento.
+///
+/// `keep-all` e `auto-phrase` respondem `Nao` — as duas são sobre onde partir
+/// texto CJK, e este motor mede por carácter sem análise de escrita. Mapeá-las
+/// para `Nao` é o comportamento certo em texto latino (que é todo o corpus) e é
+/// honesto no resto: não partir é o que `keep-all` pede.
+pub(crate) fn quebra_dentro(css: &ComputedStyle) -> QuebraDentro {
+    use crate::style::{OverflowWrap, WordBreak};
+    match css.word_break {
+        Some(WordBreak::BreakAll) => return QuebraDentro::Sempre,
+        // Legado: `word-break: break-word` é, por MDN, o mesmo que
+        // `overflow-wrap: break-word`. Aparece 15 vezes no corpus de 13 folhas —
+        // mais do que `break-all` — por isso não é um caso de canto.
+        Some(WordBreak::BreakWord) => return QuebraDentro::SePreciso,
+        _ => {}
+    }
+    match css.overflow_wrap {
+        // `anywhere` difere de `break-word` só no cálculo da largura MÍNIMA
+        // intrínseca (`min-content`), que este motor não distingue; na quebra da
+        // linha as duas fazem o mesmo, e é isso que aqui se decide.
+        Some(OverflowWrap::BreakWord | OverflowWrap::Anywhere) => QuebraDentro::SePreciso,
+        _ => QuebraDentro::Nao,
+    }
+}
+
+/// O maior prefixo de `texto` cuja largura cabe em `disp`, em bytes, com a sua
+/// largura medida. `(0, 0.0)` quando nem o primeiro carácter cabe.
+///
+/// Busca BINÁRIA sobre as fronteiras de carácter: uma varredura acumulativa
+/// custava uma medição por carácter e este caminho corre por palavra partida,
+/// não por página. Medir cada prefixo do início (em vez de somar larguras de
+/// glifos) é o que respeita kerning e ligaduras — a soma dos caracteres não é a
+/// largura da palavra em fonte proporcional.
+pub(crate) fn prefixo_que_cabe(
+    texto: &str,
+    disp: f32,
+    font_size: f32,
+    mono: bool,
+    bold: bool,
+    italic: bool,
+    m: &dyn TextMeasurer,
+) -> (usize, f32) {
+    if disp <= 0.0 {
+        return (0, 0.0);
+    }
+    // As fronteiras candidatas, excluindo o zero (prefixo vazio nunca é resposta
+    // útil) e incluindo o fim (o texto inteiro pode caber).
+    let cortes: Vec<usize> = texto
+        .char_indices()
+        .skip(1)
+        .map(|(i, _)| i)
+        .chain(std::iter::once(texto.len()))
+        .collect();
+    let (mut lo, mut hi) = (0usize, cortes.len());
+    let mut melhor = (0usize, 0.0f32);
+    while lo < hi {
+        let meio = (lo + hi) / 2;
+        let corte = cortes[meio];
+        let w = m.text_width(&texto[..corte], font_size, mono, bold, italic);
+        if w <= disp {
+            melhor = (corte, w);
+            lo = meio + 1;
+        } else {
+            hi = meio;
+        }
+    }
+    melhor
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::table::tests::{geometria, rect};
+    use crate::table::tests::{geometria, rect, textos};
+
+    /// A palavra que não cabe TRANSBORDA — `overflow-wrap: normal` é o inicial, e
+    /// esta é a metade da prova que fixa o antes.
+    #[test]
+    fn palavra_longa_sem_overflow_wrap_transborda_o_container() {
+        let (dom, list) = geometria(
+            "<div style='width:40px'><span>abcdefghijklmnopqrst</span></div>",
+            800.0,
+        );
+        let s = rect(&dom, &list, "span", 0);
+        assert!(
+            s.w > 40.0,
+            "sem overflow-wrap a palavra tem de sair da caixa: {s:?}"
+        );
+    }
+
+    /// E a MESMA com `overflow-wrap: break-word` fica dentro, em várias linhas.
+    #[test]
+    fn palavra_longa_com_break_word_parte_e_cabe_no_container() {
+        let (dom, list) = geometria(
+            "<div style='width:40px;overflow-wrap:break-word'>\
+             <span>abcdefghijklmnopqrst</span></div>",
+            800.0,
+        );
+        let s = rect(&dom, &list, "span", 0);
+        assert!(s.w <= 41.0, "a palavra partida cabe na caixa: {s:?}");
+        assert!(s.h > 20.0, "e ocupa mais do que uma linha: {s:?}");
+    }
+
+    /// O nome LEGADO faz o mesmo: `word-wrap` é alias de `overflow-wrap` (MDN), e
+    /// é a grafia que 8 das 13 folhas do corpus escrevem.
+    #[test]
+    fn word_wrap_legado_quebra_como_overflow_wrap() {
+        let (dom, list) = geometria(
+            "<div style='width:40px;word-wrap:break-word'>\
+             <span>abcdefghijklmnopqrst</span></div>",
+            800.0,
+        );
+        let s = rect(&dom, &list, "span", 0);
+        assert!(s.w <= 41.0, "o alias legado tem de quebrar igual: {s:?}");
+    }
+
+    /// `break-all` parte no meio de uma palavra CURTA — a que caberia sozinha na
+    /// linha seguinte e que por isso `break-word` deixaria descer inteira. É a
+    /// diferença entre os dois valores, e é o que este teste fixa.
+    #[test]
+    fn break_all_parte_uma_palavra_que_break_word_deixaria_descer() {
+        let estreito = "width:60px;font-size:16px";
+        let (d1, l1) = geometria(
+            &format!("<div style='{estreito};overflow-wrap:break-word'>aaaa <span>bbbb</span></div>"),
+            800.0,
+        );
+        let (d2, l2) = geometria(
+            &format!("<div style='{estreito};word-break:break-all'>aaaa <span>bbbb</span></div>"),
+            800.0,
+        );
+        let com_word = rect(&d1, &l1, "span", 0);
+        let com_all = rect(&d2, &l2, "span", 0);
+        assert!(
+            com_all.h > com_word.h,
+            "break-all reparte a palavra em duas linhas onde break-word a desce \
+             inteira: all={com_all:?} word={com_word:?}"
+        );
+    }
+
+    /// `keep-all` NÃO parte: é sobre texto CJK e, em texto latino, o que pede é
+    /// exatamente o comportamento inicial.
+    #[test]
+    fn keep_all_nao_parte_a_palavra() {
+        let (dom, list) = geometria(
+            "<div style='width:40px;word-break:keep-all'>\
+             <span>abcdefghijklmnopqrst</span></div>",
+            800.0,
+        );
+        let s = rect(&dom, &list, "span", 0);
+        assert!(s.w > 40.0, "keep-all tem de deixar transbordar: {s:?}");
+    }
+
+    /// A elipse só aparece quando as TRÊS condições se juntam: `ellipsis`,
+    /// transbordo escondido e linha que não quebra.
+    #[test]
+    fn elipse_aparece_so_com_ellipsis_overflow_hidden_e_nowrap() {
+        let conteudo = "uma frase bastante comprida para nao caber";
+        let completo = "width:80px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap";
+        let (_d, l) = geometria(&format!("<div style='{completo}'>{conteudo}</div>"), 800.0);
+        assert!(
+            textos(&l).iter().any(|t| t.ends_with('…')),
+            "com as três condições a linha acaba em reticências: {:?}",
+            textos(&l)
+        );
+
+        // e cada uma em falta desliga-a.
+        for faltando in [
+            "width:80px;overflow:hidden;white-space:nowrap",
+            "width:80px;text-overflow:ellipsis;white-space:nowrap",
+            "width:80px;text-overflow:ellipsis;overflow:hidden",
+        ] {
+            let (_d, l) = geometria(&format!("<div style='{faltando}'>{conteudo}</div>"), 800.0);
+            assert!(
+                !textos(&l).iter().any(|t| t.contains('…')),
+                "sem uma das condições não há elipse ({faltando}): {:?}",
+                textos(&l)
+            );
+        }
+    }
+
+    /// E a linha com elipse CABE na caixa: o orçamento tira a largura das
+    /// próprias reticências antes de cortar, senão elas ficavam de fora.
+    #[test]
+    fn a_linha_com_elipse_nao_transborda_a_caixa() {
+        let (dom, list) = geometria(
+            "<div style='width:80px;text-overflow:ellipsis;overflow:hidden;\
+             white-space:nowrap'><span>uma frase bastante comprida para nao caber</span></div>",
+            800.0,
+        );
+        let s = rect(&dom, &list, "span", 0);
+        assert!(s.w <= 81.0, "a linha cortada cabe na caixa: {s:?}");
+    }
 
     /// Um `<img width height>` sem pixels carregados OCUPA a sua caixa. É o que o
     /// browser faz enquanto a imagem não chegou da rede — e sem rede nunca chega,

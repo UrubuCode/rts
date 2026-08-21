@@ -310,3 +310,92 @@ fn um_inline_com_caixa_atomica_dentro_leva_a_largura_dela_mas_nao_a_altura() {
         t.h
     );
 }
+
+/// Um `display:inline` DECLARADO numa tag de bloco põe-na na linha: a caixa
+/// mede o seu texto, não a largura do contentor.
+///
+/// É a forma que os cabeçalhos das secções colapsáveis do MediaWiki usam, e
+/// sem ela o `<h3>` saía com os 752px do contentor da Wikipédia contra os ~55px
+/// que o Chrome mede — 38 `<h3>` e 482 `<li>` com esta forma exata no corpus de
+/// paridade, todos mais largos do que deviam, nenhum por outra razão.
+///
+/// O teste afirma o MECANISMO em isolamento: o `<h3>` só difere do `<span>` ao
+/// lado pela tag, e é por isso que os dois têm de medir o mesmo.
+#[test]
+fn display_inline_declarado_vence_a_tag_de_bloco() {
+    let (d, l) = geometria(
+        "<div style='width:400px'>\
+         <h3 id='h' style='display:inline'>abc</h3>\
+         <span id='s'>abc</span></div>",
+        800.0,
+    );
+    let h = rect(&d, &l, "#h", 0);
+    let s = rect(&d, &l, "#s", 0);
+    assert!(
+        h.w < 100.0,
+        "o h3 inline levou a largura do contentor: {}",
+        h.w
+    );
+    // O span é a referência: mesmo texto, mesmo fluxo — a única diferença que
+    // resta é o tamanho de fonte da UA-stylesheet do h3, que não afeta esta
+    // comparação porque o que se afirma é a ORDEM de grandeza, não o glifo.
+    assert!(
+        h.w >= s.w,
+        "h3 ({}) devia medir pelo menos o texto que o span mede ({})",
+        h.w,
+        s.w
+    );
+}
+
+/// E o inline declarado que CRIA caixa (fundo, padding) continua a ir pelo
+/// caminho de bloco, porque é quem pinta essa caixa. A regra que a correção
+/// acima introduz não podia levar esse caso com ela.
+#[test]
+fn display_inline_com_fundo_mantem_a_caixa_que_o_pinta() {
+    let (d, l) = geometria(
+        "<div style='width:400px'>\
+         <h3 id='h' style='display:inline; background:#900; padding:4px'>abc</h3></div>",
+        800.0,
+    );
+    let h = rect(&d, &l, "#h", 0);
+    assert!(h.w > 0.0 && h.h > 0.0, "perdeu a caixa: {:?}", h);
+}
+
+/// E o sentido INVERSO: um `<span style='display:block'>` abre bloco e ocupa o
+/// contentor, apesar de a tag ser inline.
+///
+/// É a metade que parte se a correção acima for um remendo por tag em vez de
+/// uma pergunta ao `display` — pela spec a tag decide só o valor INICIAL, e é o
+/// `display` computado que manda. Os dois testes existem em par por isso: um
+/// sozinho passa com a regra errada.
+#[test]
+fn display_block_declarado_vence_a_tag_inline() {
+    let (d, l) = geometria(
+        "<div style='width:400px'><span id='s' style='display:block'>abc</span></div>",
+        800.0,
+    );
+    let s = rect(&d, &l, "#s", 0);
+    assert!(
+        (s.w - 400.0).abs() < 0.5,
+        "o span display:block devia ocupar o contentor: {}",
+        s.w
+    );
+}
+
+/// A mesma regra numa tag de bloco que não é o `<h3>`: um `<div>` e um `<p>`
+/// com `display:inline` medem o seu texto.
+///
+/// O `<h3>` foi por onde o defeito apareceu, mas a família nos dumps de
+/// paridade tem 604 elementos e inclui `<div>`, `<li>` e `<p>` — se este teste
+/// precisar de uma linha nova por tag, a correção está no sítio errado.
+#[test]
+fn display_inline_vale_para_qualquer_tag_de_bloco() {
+    for tag in ["div", "p", "li", "h2"] {
+        let (d, l) = geometria(
+            &format!("<div style='width:400px'><{tag} id='b' style='display:inline'>abc</{tag}></div>"),
+            800.0,
+        );
+        let b = rect(&d, &l, "#b", 0);
+        assert!(b.w < 100.0, "<{tag}> inline levou a largura do pai: {}", b.w);
+    }
+}

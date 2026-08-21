@@ -2692,6 +2692,29 @@ fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
                 return true;
             }
             let css = dom.computed_style_idx(id);
+            // `display:inline` DECLARADO vence a tag. Sem esta pergunta, um
+            // `<h3 style="display:inline">` — a forma que o MediaWiki usa nos
+            // cabeçalhos das secções colapsáveis — caía no caminho de bloco e
+            // saía com os 752px do contentor em vez dos ~55px do seu texto.
+            // A condição anterior era `effective_display().is_some()`, que
+            // responde "há display declarado" e não "é de bloco": um display
+            // inline-level entrava por ela como qualquer outro.
+            // A alternativa rejeitada era filtrar por tag (tratar `h3`/`li` à
+            // parte): a tag não é o que decide isto, o display é, e uma lista
+            // de tags teria de crescer a cada página nova.
+            // Um inline com fundo/padding ainda precisa de `layout_block` para
+            // os pintar, e quem responde isso é
+            // `cria_caixa_apesar_de_inline` — não `cria_caixa_de_bloco`, que
+            // conta a margem que o `display:inline` acabou de tornar
+            // inoperante e devolveria o `<h3>` ao caminho de onde ele saiu.
+            if css.as_ref().and_then(|c| c.effective_display())
+                == Some(crate::style::DisplayKind::Inline)
+            {
+                return css
+                    .as_ref()
+                    .map(|c| crate::inline_box::cria_caixa_apesar_de_inline(c))
+                    .unwrap_or(false);
+            }
             css.as_ref().and_then(|c| c.effective_display()).is_some()
                 || crate::block::lookup(tag).is_some()
                 // INLINE-BLOCK de fato: um elemento inline (`<a>`/`<span>`/`<button>`)
@@ -2699,10 +2722,6 @@ fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
                 // layout_block p/ pintar essa caixa e respeitar o padding — senão o
                 // botão fica sem fundo/borda. (`has_box` cobre bg/pad/margin/border/
                 // radius/width; +height.)
-                // Uma tag inline só vira bloco quando o estilo CRIA caixa — ver
-                // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`.
-                // Uma tag inline só vira bloco quando o estilo CRIA caixa — ver
-                // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`.
                 // Uma tag inline só vira bloco quando o estilo CRIA caixa — ver
                 // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`.
                 || css.as_ref().map(|c| crate::inline_box::cria_caixa_de_bloco(c)).unwrap_or(false)
@@ -3719,13 +3738,32 @@ fn layout_children_vertical(
                 let explicit_block = effective
                     .map(|d| d != crate::style::DisplayKind::Inline)
                     .unwrap_or(false);
-                let block = replaced
-                    || effective.is_some()
-                    || crate::block::lookup(tag).is_some()
-                    || child_css
-                        .as_ref()
-                        .map(|c| c.has_box() || c.height.is_some())
-                        .unwrap_or(false);
+                // `display:inline` DECLARADO vence a tag e a UA-stylesheet: um
+                // `<h3 style="display:inline">` — a forma dos cabeçalhos
+                // colapsáveis do MediaWiki — é conteúdo de linha e mede o seu
+                // texto, não os 752px do contentor. `effective.is_some()`
+                // respondia "há display declarado", não "é de bloco", e por ela
+                // entrava também o inline.
+                // A pergunta que resta é `cria_caixa_apesar_de_inline` e não
+                // `has_box()`: esta última conta a margem e a `height` que o
+                // próprio `display:inline` torna inoperantes, e devolvia o
+                // elemento ao caminho de bloco de onde a declaração o tirou.
+                let inline_declarado = effective == Some(crate::style::DisplayKind::Inline);
+                let block = if inline_declarado {
+                    replaced
+                        || child_css
+                            .as_ref()
+                            .map(|c| crate::inline_box::cria_caixa_apesar_de_inline(c))
+                            .unwrap_or(false)
+                } else {
+                    replaced
+                        || effective.is_some()
+                        || crate::block::lookup(tag).is_some()
+                        || child_css
+                            .as_ref()
+                            .map(|c| c.has_box() || c.height.is_some())
+                            .unwrap_or(false)
+                };
                 let inline_block =
                     if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
                         !explicit_block
@@ -5472,7 +5510,20 @@ fn layout_inline_flow(
         banda_livre(exclusoes, y + i as f32 * lh, lh, x, content_w).1
     };
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
-    let lines = wrap_runs(&runs, &mut largura_da_linha, font_size, mono, ctx.measurer);
+    let lines = wrap_runs(
+        &runs,
+        &mut largura_da_linha,
+        font_size,
+        mono,
+        crate::inline_box::quebra_dentro(parent_css),
+        ctx.measurer,
+    );
+    // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque
+    // o que se corta é uma LINHA já formada. Ver [`aplicar_elipse`].
+    let lines = match elipse_pedida(parent_css, nowrap) {
+        true => aplicar_elipse(lines, content_w, font_size, mono, ctx.measurer),
+        false => lines,
+    };
     // `text-indent`: recuo da PRIMEIRA linha (MDN). ⚠️ CORTE: recua o início da
     // linha mas NÃO encurta a largura de quebra dela — a quebra já foi calculada
     // acima, e refazê-la só para a primeira linha exigia partir o `wrap_runs` em
@@ -6173,6 +6224,115 @@ fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32,
     });
 }
 
+/// As TRÊS condições de `text-overflow: ellipsis` — e são três porque com
+/// qualquer uma em falta o Chrome não põe reticências nenhumas.
+///
+/// 1. a propriedade pedida; 2. o transbordo ESCONDIDO (`visible` deixa o texto
+/// sair da caixa e não há nada a cortar); 3. a linha a NÃO quebrar — com quebra,
+/// o texto desce em vez de transbordar e a elipse nunca chega a ser devida.
+///
+/// ⚠️ CORTE declarado: o Chrome aplica-a também no eixo do bloco e em conteúdo
+/// que transborda por outras razões. Aqui é só a linha única horizontal, que é
+/// o que as 29 declarações `ellipsis` do corpus escrevem — todas num container
+/// com `overflow:hidden` e `white-space:nowrap`.
+fn elipse_pedida(css: &ComputedStyle, nowrap: bool) -> bool {
+    css.text_overflow == Some(crate::style::vocab::TextOverflow::Ellipsis)
+        && matches!(
+            css.overflow_x,
+            Some(crate::scrollbar::Overflow::Hidden | crate::scrollbar::Overflow::Auto)
+                | Some(crate::scrollbar::Overflow::Scroll)
+        )
+        && nowrap
+}
+
+/// Corta cada linha que transborda `content_w` e acrescenta-lhe `…`.
+///
+/// O orçamento é `content_w` MENOS a largura da própria elipse: o browser
+/// garante que as reticências ficam DENTRO da caixa, e cortar em `content_w` e
+/// depois somar o `…` punha-as de fora — o mesmo transbordo que isto existe
+/// para esconder, um carácter mais estreito.
+///
+/// Uma caixa atómica no ponto de corte é DESCARTADA em vez de encolhida: um
+/// `<img>` não tem prefixo, e escalá-lo para caber inventaria uma geometria que
+/// o Chrome não produz.
+fn aplicar_elipse(
+    lines: Vec<Vec<Segment>>,
+    content_w: f32,
+    font_size: f32,
+    mono: bool,
+    m: &dyn TextMeasurer,
+) -> Vec<Vec<Segment>> {
+    const ELIPSE: &str = "…";
+    lines
+        .into_iter()
+        .map(|line| {
+            let total: f32 = line
+                .iter()
+                .map(|s| s.lead_w + if s.atomic.is_some() { s.ww } else { s.text_width })
+                .sum();
+            if total <= content_w {
+                return line;
+            }
+            let w_elipse = m.text_width(ELIPSE, font_size, mono, false, false);
+            let orcamento = content_w - w_elipse;
+            let mut out: Vec<Segment> = Vec::with_capacity(line.len());
+            let mut acc = 0.0f32;
+            for mut seg in line {
+                let largura = if seg.atomic.is_some() {
+                    seg.ww
+                } else {
+                    seg.text_width
+                };
+                if acc + seg.lead_w + largura <= orcamento {
+                    acc += seg.lead_w + largura;
+                    out.push(seg);
+                    continue;
+                }
+                if seg.atomic.is_none() {
+                    let disp = orcamento - acc - seg.lead_w;
+                    let (n, w) = crate::inline_box::prefixo_que_cabe(
+                        &seg.text,
+                        disp,
+                        font_size,
+                        mono,
+                        seg.bold,
+                        seg.italic,
+                        m,
+                    );
+                    seg.text.truncate(n);
+                    seg.text.push_str(ELIPSE);
+                    seg.text_width = w + w_elipse;
+                    out.push(seg);
+                    return out;
+                }
+                // atómica a transbordar: cai fora, e a elipse vai para o texto
+                // que ficou — ou abre segmento próprio se a linha começa por ela.
+                break;
+            }
+            match out.last_mut() {
+                Some(last) if last.atomic.is_none() => {
+                    last.text.push_str(ELIPSE);
+                    last.text_width += w_elipse;
+                }
+                _ => out.push(Segment {
+                    text: ELIPSE.to_string(),
+                    text_width: w_elipse,
+                    color: 0,
+                    bold: false,
+                    italic: false,
+                    deco: 0,
+                    owners: Vec::new(),
+                    atomic: None,
+                    ww: 0.0,
+                    wh: 0.0,
+                    lead_w: 0.0,
+                }),
+            }
+            out
+        })
+        .collect()
+}
+
 fn wrap_runs(
     runs: &[InlineRun],
     // A largura disponível DA LINHA `i` — não uma largura só para todas. Um
@@ -6181,6 +6341,12 @@ fn wrap_runs(
     max_w: &mut dyn FnMut(usize) -> f32,
     font_size: f32,
     mono: bool,
+    // Pode partir-se DENTRO de um aglomerado? Vem do elemento que possui o
+    // fluxo, e não de cada run: `word-break`/`overflow-wrap` são herdadas e o
+    // corpus real escreve-as sempre no container (13 folhas, zero excepções).
+    // Guardá-las por run era a alternativa e custava um campo em cada `InlineRun`
+    // para responder o mesmo valor em todos eles.
+    quebra: crate::inline_box::QuebraDentro,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
@@ -6238,7 +6404,16 @@ fn wrap_runs(
                 } else {
                     cluster_w
                 };
-                if !at_line_start && cur_w + need > max_w(lines.len()) {
+                // `break-all` ENCHE a linha corrente antes de descer, e por isso
+                // salta a quebra prévia: descer primeiro e partir depois deixava
+                // à direita um vazio do tamanho da palavra, que é exatamente o
+                // que `break-all` existe para não deixar. Só vale para um
+                // aglomerado todo de texto — uma caixa atómica (um `<img>`, um
+                // widget) é inquebrável e continua a descer inteira.
+                let so_texto = cluster.iter().all(|p| p.atomico.is_none());
+                let enche_a_linha =
+                    quebra == crate::inline_box::QuebraDentro::Sempre && so_texto;
+                if !at_line_start && !enche_a_linha && cur_w + need > max_w(lines.len()) {
                     lines.push(std::mem::take(&mut cur));
                     cur_w = 0.0;
                     at_line_start = true;
@@ -6280,8 +6455,75 @@ fn wrap_runs(
                             }
                             texto.push_str(&peca.texto);
                             let largura = peca.largura + espaco;
-                            push_segment(&mut cur, run, &texto, largura, vao);
-                            cur_w += largura;
+                            // PARTIR DENTRO DA PALAVRA — o que `overflow-wrap` e
+                            // `word-break` ligam. A pergunta faz-se aqui, na
+                            // emissão de uma peça, porque é aqui que já se sabe
+                            // quanto resta da linha; fazê-la antes, sobre o
+                            // aglomerado inteiro, obrigava a uma segunda regra de
+                            // quebra ao lado da que já existe.
+                            let disponivel = max_w(lines.len());
+                            let partir = match quebra {
+                                crate::inline_box::QuebraDentro::Nao => false,
+                                // `break-word`: só quando a palavra não cabe NEM
+                                // numa linha vazia. Se cabe, ela já desceu inteira
+                                // na quebra prévia e parti-la seria errado.
+                                crate::inline_box::QuebraDentro::SePreciso => {
+                                    peca.largura > disponivel
+                                }
+                                crate::inline_box::QuebraDentro::Sempre => {
+                                    cur_w + largura > disponivel
+                                }
+                            };
+                            if partir {
+                                let mut resto = texto.as_str();
+                                let mut lead = vao;
+                                while !resto.is_empty() {
+                                    let disp = max_w(lines.len()) - cur_w;
+                                    let (mut n, mut w) = crate::inline_box::prefixo_que_cabe(
+                                        resto,
+                                        disp,
+                                        font_size,
+                                        mono,
+                                        run.bold,
+                                        run.italic,
+                                        m,
+                                    );
+                                    if n == 0 && at_line_start {
+                                        // Numa caixa mais estreita que um glifo,
+                                        // nada cabe e descer de linha não muda
+                                        // isso: sem um carácter forçado o laço
+                                        // não termina. Transbordar um carácter é
+                                        // o que o browser também faz.
+                                        n = resto.chars().next().map_or(0, char::len_utf8);
+                                        w = m.text_width(
+                                            &resto[..n],
+                                            font_size,
+                                            mono,
+                                            run.bold,
+                                            run.italic,
+                                        );
+                                    }
+                                    if n == 0 {
+                                        lines.push(std::mem::take(&mut cur));
+                                        cur_w = 0.0;
+                                        at_line_start = true;
+                                        continue;
+                                    }
+                                    push_segment(&mut cur, run, &resto[..n], w, lead);
+                                    lead = 0.0;
+                                    cur_w += w;
+                                    at_line_start = false;
+                                    resto = &resto[n..];
+                                    if !resto.is_empty() {
+                                        lines.push(std::mem::take(&mut cur));
+                                        cur_w = 0.0;
+                                        at_line_start = true;
+                                    }
+                                }
+                            } else {
+                                push_segment(&mut cur, run, &texto, largura, vao);
+                                cur_w += largura;
+                            }
                         }
                     }
                     primeiro = false;
