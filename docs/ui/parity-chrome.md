@@ -519,3 +519,45 @@ pergunta, não uma regressão desta.
 Entra com a troca declarada: 1,2 M px de posição contra 14 ícones a 2 px, com a
 família dos perdidos nomeada e o valor constante à vista.
 
+## A coluna de propriedades, auditada — e o que ela mistura (2026-08-21)
+
+Um agente apanhou que **1 882 das 1 910 divergências de `font-size` eram
+formatação** (`14.1251px` do Chrome contra `14.125056px` nosso) e levantou a
+pergunta certa: *quantas das outras colunas são artefacto do instrumento?*
+Corrigido o `font-size`, a coluna passou de 88,64% para **99,83%**, e as 28
+reais são todas elementos a que o Chrome não atribui `font-size` nenhum.
+
+**A resposta para o `display` é: não é artefacto, mas mistura três perguntas
+diferentes**, e só uma delas é um defeito de layout. As 734 divergências:
+
+| forma | n | a geometria desses elementos |
+|---|---:|---|
+| `none` → `inline` | 233 | **233 de 233 casam a 1px** |
+| `block` → `inline` | 365 | mediana de erro em `w`/`h`: **5,5 px** |
+| `flow-root` → `block` | 51 | mediana **0,0 px**, p90 7 |
+| `inline-flex` → `flex` | 25 | 15 de 25 casam |
+| `block` → `inline-block` | 25 | — |
+
+**Os 233 `none` → `inline` não custam um pixel**: são `<head>`, `<meta>`,
+`<script>` — a folha do agente-utilizador do Chrome dá-lhes `display:none` e nós
+não. É um defeito de `getComputedStyle`, não de layout, e é real para quem leia
+a propriedade por JS.
+
+**Os `flow-root` → `block` e `inline-flex` → `flex` são granularidade de nome**:
+a mediana de erro é **zero**. Não temos esses valores no enum computado, e o
+comportamento é o do valor equivalente.
+
+**E os 365 `block` → `inline` — 355 deles `<span>` — quase não são um defeito de
+`display`.** A mediana de erro em `w`/`h` é 5,5 px, que é a ordem de grandeza da
+nossa métrica de texto aproximada, e não a de uma caixa que devia ser bloco e é
+inline. É o que a auditoria de cobertura já tinha registado: **blockificamos no
+layout e não no estilo**, portanto a propriedade responde `inline` enquanto a
+geometria já faz o que deve.
+
+**Uma correção ao caminho até aqui, porque quase publiquei o contrário.** A
+primeira leitura foi binária — "15 de 365 casam a 1px, logo a geometria está
+errada" — e teria reportado 350 elementos como defeito de `display`. A magnitude
+diz outra coisa. **Um teste de tolerância responde "falha", não "falha porquê";
+para separar as duas causas é preciso a distribuição, não o binário.** É a mesma
+lição do eixo e da população, num terceiro sítio.
+
