@@ -137,11 +137,17 @@ mudança é precisamente o que ninguém consegue confirmar depois.
 E a indentação de 4 espaços foi mantida nos ficheiros de teste, de propósito:
 vários têm literais multi-linha em que o espaço à esquerda é **conteúdo**.
 
-### O portão passou: 16 813 elementos idênticos byte a byte
+### O portão passou nos quatro passos: 16 813 elementos idênticos byte a byte
 
-Três passos (`b91ae530`, `dc1ee62e`, `f6bbe566`), **5 974 → 1 619 linhas**, e o
-dump da página construído do commit final é **byte a byte igual** ao de antes do
-refactor. Nenhum dos 16 813 elementos mudou um pixel.
+Quatro passos (`b91ae530`, `dc1ee62e`, `f6bbe566`, `13d12217`), **5 974 linhas
+num ficheiro → 26 ficheiros, o maior com 488**, e o dump da página construído do
+commit final é **byte a byte igual** ao de antes do refactor. Nenhum dos 16 813
+elementos mudou um pixel.
+
+O `dom.rs` deixou de existir. `lib.rs` está intacto — nenhum utilizador do crate
+mudou uma linha. **33 itens de visibilidade em todo o refactor, todos
+`pub(in crate::dom)`: zero `pub`, zero `pub(crate)`, zero campos.** O plano
+original previa 54, e 44 desses eram uma necessidade que o próprio plano criava.
 
 Isso é o que uma arrumação tem de conseguir provar, e a suite não o prova: os
 604 testes dizem que o que eles cobrem continua igual; o dump diz que **a página
@@ -169,4 +175,3 @@ que era a mesma regra nas três.
 É a forma do defeito que o `layout.rs` tem **cinco vezes** — *"não é inline?"*
 onde a pergunta é *"é de bloco?"* erra para o lado errado, e por isso cada cópia
 falha sozinha e é corrigida sozinha, ao preço de um lote e uma medição cada.
-
