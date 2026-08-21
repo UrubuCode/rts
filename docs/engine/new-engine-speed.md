@@ -436,3 +436,244 @@ again the day there is one.
 The counter also started reporting one or two misses where it reported none,
 and the reason is that it now sees more: a write site is a cached site now, so
 its cold start counts. One miss per site over two million passes.
+
+---
+
+# 2026-08-21: the whole surface, three runtimes, and what the ruler turned out to be
+
+Everything above measures **arithmetic and property access**, which were the two
+areas that had been optimised. This measures the rest — calls, allocation,
+arrays, strings, collections, regular expressions, typed arrays and control
+flow — and its most reusable finding is not about the engine.
+
+Produced by `target/release/rts.exe run bench/analytic.ts`, against `node`
+v25.9.0 and `bun` 1.4.0 on the same machine, one process each, sequentially.
+Machine: AMD Ryzen 7 5700G (Zen 3, 8 cores, 3.8 GHz base). Tree at `617e2d5f`.
+
+## The instrument is noisier than most of the differences people want to read
+
+This is the finding to carry forward, and it invalidated a first pass of this
+same campaign.
+
+The **same binary**, run six times over `bench/analytic.ts`, on an idle machine:
+
+| row | min | max | spread |
+|---|---:|---:|---:|
+| `string index []` | 104.44 | 135.85 | **30.1 %** |
+| `string slice 16` | 179.99 | 224.09 | **24.5 %** |
+| `string indexOf 256` | 293.68 | 330.36 | 12.5 % |
+| `coll Map.has` | 45.00 | 49.78 | 10.6 % |
+| `arith int mul` | 14.33 | 14.58 | 1.7 % |
+
+A first pass over one A/B pair reported five regressions. Measured against the
+spread above, **four of them were the instrument**. The rows that vary are the
+ones that allocate, and the reason is in this file already: an allocation row is
+39-73 % collector, and the collector's cost depends on what the heap is holding,
+which depends on every case that ran before it in the same process.
+
+**So a row of `bench/analytic.ts` may not be compared between two builds without
+the same row's baseline-against-itself spread beside it.** Three pairs is the
+minimum, and the comparison is min-against-min with the spread quoted.
+
+There is a second band underneath that one, and it is not the harness.
+**Rebuilding `rts-core` moves several rows by 2-10 % in both directions, on
+paths the source change provably cannot reach.** Demonstrated with
+`entry_probe` (below): a change confined to symbol keys moved `array_new` by
++9.7 % and `add` by +4.0 %, neither of which touches a symbol. Nothing in that
+band is a result.
+
+### The worst case is `string split 16`, and it has a cause
+
+That row swings by a factor of **8.6 on the unchanged binary and 10.2 after** —
+978 to 8361 across fourteen baseline runs, 944 to 9608 across eleven. It is
+bimodal, not noisy: a cluster near 1000 and a cluster near 4000-9600, with
+nothing between.
+
+The cause is the calibration, and it is worth knowing because it applies to
+every allocating row. `measure` grows `n` by four until a case takes
+`TARGET_MS`, and it decides that from **one un-warmed run**, before the warmup
+and the best-of-three that produce the reported number. Five runs, printing the
+`n` calibration settled on:
+
+```
+n=16384  best=57.55 ms   ->  3512 ns/op
+n= 4096  best= 3.98 ms   ->   973 ns/op
+n=16384  best=39.57 ms   ->  2415 ns/op
+n=16384  best=171.98 ms  -> 10497 ns/op
+n= 4096  best= 4.38 ms   ->  1070 ns/op
+```
+
+When a collection lands inside the calibration run it reports over 40 ms, `n`
+stops at 4096, and the warmed runs then take 4 ms — ten times less than the
+measurement that chose the count. When calibration is clean, `n` grows to
+16384, and at four times the iterations the case genuinely does reach
+collections, so the per-operation number is four to ten times higher.
+
+**Both numbers are true of the `n` each used.** The row is not measuring a
+fixed cost, because `split` allocates and its cost per operation is not
+constant in `n`. The harness's own comment already knows non-linear cases
+exist — it grows by a factor rather than extrapolating for exactly that reason
+— and what it does not cover is that for such a case the REPORTED number
+depends on where calibration happened to stop.
+
+The cheapest honest repair is additive and changes no number: report the `n`
+each row settled on, so two runs that measured different things say so. Not
+done here, because changing the harness changes every figure in this file and
+that is a decision with an owner.
+
+## A second instrument, because of the first
+
+`crates/rts-core/examples/entry_probe.rs` calls the runtime entry points
+directly from Rust — no compiled code, no `performance.now()`, no console inside
+a timed region, every subject built once outside the loop, and the spread
+between rounds printed beside the minimum.
+
+It reproduces to **0.04-2 %** where `bench/analytic.ts` varies up to 30 %:
+
+```
+cargo run --release --example entry_probe -p rts-core
+```
+
+| operation | ns/op | reading |
+|---|---:|---|
+| `type_of(double)` | 2.50 | **the cost of reaching the runtime at all** |
+| `add(1.0, 2.0)` | 11.4 | a generic operator entry point |
+| `get_property` | 22.5 | the runtime property path — compiled code skips it via `CachedGet` |
+| `set_property` | 26.1 | the same, writing |
+| `object_new(2)` | 10.4 | allocation is not slow |
+| `array_new(4)` | 104 | 10x an object |
+| `closure_new` | 545 | 52x an object |
+| `instance_of` | 157 | **63x the boundary — the cost is inside the function** |
+
+The 2.50 ns settles a disagreement three separate investigations reached
+differently (2-3 ns against 5.3 ns). It also kills the reading that the table
+below is "how many runtime calls does this make": `Math.sqrt` and `Math.floor`
+are **not calls** — `emit/call.rs` lowers them to `FloatUnary` — so the 3.09 ns
+those rows report says nothing about a boundary.
+
+## Cost is not a sum. It is the longest carried chain, or the issue width.
+
+Measured on the same loop, varying only how many accumulator chains it carries:
+
+| | ns/iteration | cycles |
+|---|---:|---:|
+| 1 add | 1.140 | 5.0 |
+| 2 independent | 1.138 | 5.0 |
+| 4 independent | 1.367 | 6.0 |
+| 8 independent | **1.476** | 6.5 |
+| 4 **dependent** | 2.731 | 12.0 |
+
+Eight independent adds cost 29 % more than one. If costs added, they would cost
+eight times. What the machine charges is `max(longest loop-carried dependency,
+issue throughput)`.
+
+Cycles derived rather than counted: one **dependent** f64 add measures 0.683 ns,
+and Zen 3's documented `ADDSD` latency is 3 cycles, giving **228 ps/cycle
+(~4.4 GHz under boost)**. The 1.140 ns floor is then 5.0 cycles — and it is not
+three costs summed: `rts ir` shows both the accumulator and the counter as
+proven `F64` in `block1`, two independent 3-cycle chains, with the extra two
+cycles being the five block boundaries the loop body crosses.
+
+**The consequence for optimisation.** Removing a guard pays when the guarded
+value is **carried by the loop**, and buys nothing when it is not. Both halves
+were measured here:
+
+- **Pays.** `ToInt32` lowered a `divsd` (13-14 cycles) onto the carried chain.
+  Replacing it with a multiply by `2^-32` — bit-identical, see
+  `lower/body.rs` — plus letting `emit/proven.rs` claim `&`/`|`/`^` numeric so
+  the accumulator stops round-tripping through `Tagged`, took `arith int mul`
+  from 14.41 to **7.35 ns**.
+- **Does not.** Hoisting the loop-invariant `CachedGet` of a captured binding,
+  which an additive model says is pure waste: 35.53 / 40.96 with it against
+  35.51 / 34.24 without. The noise between repeats of one configuration is
+  larger than the difference between configurations.
+
+## What moved, and what it cost
+
+Seven changes, measured min-of-3-pairs against a kept `617e2d5f` binary, each
+gain larger than that row's own baseline spread:
+
+| row | before | after | |
+|---|---:|---:|---|
+| `arith int mul` | 14.41 | 7.35 | **-49 %** |
+| `arith int div` | 4.07 | 2.40 | **-41 %** |
+| `string indexOf 256` | 287.3 | 186.0 | **-35 %** |
+| `array push+pop` | 170.2 | 136.7 | -20 % |
+| `binary DataView getU32` | 43.4 | 35.3 | -19 % |
+| `call closure make+call` | 1719.9 | 1494.1 | -13 % |
+| `string parseInt` | 148.1 | 129.3 | -13 % |
+| `flow switch 8-way` | 4.26 | 3.82 | -10 % |
+| `binary subarray 64` | 264.4 | 241.0 | -9 % |
+| `array filter 16` / `map 16` | 202.2 / 200.8 | 187.3 / 187.6 | -7 % |
+| `prop in operator` | 83.9 | 79.0 | -6 % |
+| `binary Uint8Array write` | 29.2 | 27.6 | -6 % |
+| `array index read` | 15.5 | 14.8 | -5 % |
+| `arith int mod` | 5.29 | 5.05 | -5 % |
+| `string index []` | 105.2 | 100.6 | -4 % |
+| `array for-of 16` | 46.3 | 44.6 | -4 % |
+
+`binary alloc Uint8Array 64` is quoted apart because its baseline spread is
+larger than most rows' values: 1783-2406 across six runs, against 847-859 for
+every run after. The distributions do not overlap, which is the only form that
+comparison takes.
+
+**Regressions, stated.** `string charCodeAt` +6.8 % and `prop instanceof`
++6.2 %, both above their rows' spread. Neither is attributed to a code path, and
+what was ruled out is recorded rather than the conclusion guessed: for
+`instanceof` the emitted IR is **byte-identical** between the two binaries
+(1328 lines, zero differences), and the same runtime function measured through
+`entry_probe` moves +1.6 %. Both sit inside the 2-10 % rebuild band measured
+above. Three further rows — `json stringify` +4.8 %, `slice` +3.6 %,
+`parseFloat` +2.7 % — are within their own spread and are not results.
+
+**One change was written, measured and dropped.** Folding the bare-class-
+constructor test into the borrow that pushes a call's markers takes `called`
+from three context borrows before the jump to two, which is sound and reads
+better. It produced **no measurable win on any call row**, and cost 7.6 points
+on `instanceof`. Reasoned, not measured, with a measured cost: it is out.
+
+## A correctness defect found by measuring, not by reading
+
+`Context` declares 22 `Aside` side tables. `collect_cycle::release` cleared 21.
+The one it missed was `detached`, and that table is **read as a live fact** —
+`buffers::window` refuses a view whose cell is marked — so the next object to be
+handed a reclaimed cell index was born detached.
+
+80 000 iterations, each making a fresh `ArrayBuffer` and transferring it once,
+which the language always permits because each pass's buffer is a different
+object: `TypeError: ArrayBuffer is detached`, uncaught, on `617e2d5f`. Node runs
+the same program to completion, and so does the tree after one line.
+
+`collect_cycle`'s own module documentation predicts a forgotten table and calls
+it a leak. For a table that is read, it is corruption.
+
+## What this does not say
+
+- **Nothing about a program.** Every case runs one action in a loop with its
+  operands already in hand — the best case for caches and the worst for
+  representativeness. It says which actions are expensive, not how much of any
+  program they are.
+- **Nothing in the 2-10 % band on a single row.** See above.
+- Node's and bun's columns are not targets where they sit at their own floor:
+  both hoist loop-invariant work, so `toUpperCase`, `indexOf`, `slice` and
+  `instanceof` at 0.37/0.46 ns there are work removed from the loop, not cheap
+  work.
+
+## The work list, with the evidence already taken
+
+Ranked by measured size, not by expected ease:
+
+1. **`species::made` runs two full prototype-chain walks per `map`/`filter`/
+   `slice`/`concat` call** — measured at ~3.3 us of fixed cost per call, against
+   32 ns per element. `array_proto/species.rs`.
+2. **`closure_new` builds a `prototype` object for every callable**, which is
+   also a divergence: `(x=>x).prototype` is an object here and `undefined` in
+   node and bun, and `new (x=>x)()` does not throw. The four uncached property
+   writes it performs are ~1.4 us of the row's ~1.5.
+3. **`Inst::ElementLoad` is built, verified, lowered — and unreachable.** Its
+   only producer is gated on a condition that is a compile-time constant
+   `false`; `bench/analytic.ts` emits zero of them.
+4. **`for-of` allocates an empty array per loop ENTRY** to read its
+   `@@iterator`, and copies the source array. ~527 ns before the first element.
+5. **An inherited property read as a VALUE misses its cache forever** —
+   3 001 049 misses over 3 000 000 reads. `bench/analytic.ts` has no row for it.
