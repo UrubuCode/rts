@@ -55,9 +55,23 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
                                     });
                                     rules.push(rule);
                                 }
-                            } else if header.trim_start().starts_with("@layer")
-                                || header.trim_start().starts_with("@supports")
+                            } else if let Some(cond) =
+                                header.trim_start().strip_prefix("@supports")
                             {
+                                // AVALIADO (não transparente): era o único sítio
+                                // do motor onde aplicávamos regras que o Chrome
+                                // não aplica de todo — e uma folha real escreve
+                                // os DOIS ramos de um par exclusivo, contando
+                                // que o motor escolha um. Ver `supports.rs`,
+                                // incluindo o que "suportamos" quer dizer aqui.
+                                if super::supports::avalia(cond) {
+                                    for rule in parse_rules(inner_css) {
+                                        rules.push(rule);
+                                    }
+                                } else {
+                                    crate::bump!(css_supports_rejeitado);
+                                }
+                            } else if header.trim_start().starts_with("@layer") {
                                 // `@layer <nome> { ... }` / `@layer { ... }` (anônimo) e
                                 // `@supports (...) { ... }`: TRANSPARENTES para o matching.
                                 // As regras internas entram no nível atual (a precedência

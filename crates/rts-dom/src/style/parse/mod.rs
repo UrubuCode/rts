@@ -9,7 +9,6 @@ mod fundo_grelha;
 mod caixa;
 mod fluxo;
 
-use super::{aplica, color, lengths, props, stylesheet, values};
 pub(in crate::style::parse) use super::color::parse_color;
 pub(in crate::style::parse) use super::aplica::{set_edges, set_if, set_ou_limpa, set_side};
 pub(in crate::style::parse) use super::lengths::{

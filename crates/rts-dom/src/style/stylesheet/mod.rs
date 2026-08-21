@@ -332,10 +332,10 @@ impl PartialEq for Stylesheet {
 // dez nomes foram MEDIDOS (as duas formas: `super::X` e `super::{A, B}`), e
 // reimportá-los no PAI mantém-nos a resolver sem tocar no que se moveu.
 use super::{Combinator, CompoundSelector, Position, PseudoElement, SimpleSelector};
-use super::{parse, props, ruleindex, selector, vars};
+use super::{props, ruleindex, selector, vars};
 
 mod folha;
 mod regras;
+mod supports;
 
-pub use folha::*;
 pub use regras::*;
