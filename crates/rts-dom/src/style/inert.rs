@@ -70,6 +70,14 @@ pub fn is_inert(prop: &str) -> bool {
             | "text-security" | "forced-color-adjust" | "color-scheme"
             | "tap-highlight-color" | "-webkit-tap-highlight-color"
             | "font-smoothing" | "osx-font-smoothing" | "font-smooth"
+        // `text-size-adjust` manda o browser MÓVEL inflar o texto de uma página
+        // desenhada para desktop. É o exemplo puro de uma propriedade que só
+        // existe para desligar um comportamento que não temos: este motor não
+        // reflui por largura de ecrã nem tem fator de escala de texto, portanto
+        // `none`, `100%` e `auto` computam todos para a mesma página. Aparece em
+        // 6 das 13 folhas do corpus e só 7 vezes — o padrão de uma linha copiada
+        // do mesmo boilerplate de reset, não de uma decisão de desenho.
+            | "text-size-adjust"
             | "text-rendering" | "image-rendering" | "speak"
         // TIPOGRAFIA FINA: pedem ao motor de fontes coisas que o nosso medidor não
         // expõe (features OpenType, kerning, eixos variáveis). Ver

@@ -188,17 +188,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
                 };
             }
             "text-decoration" | "text-decoration-line" => {
-                css.text_decoration = crate::style::values::TextDecoration::parse(val);
-                // O SHORTHAND também traz a cor (`underline dotted red`), e o
-                // parser da linha já ignora os tokens que não são de linha — por
-                // isso a cor não tem onde ser lida a não ser aqui. `-line` não
-                // aceita cor, mas nenhum valor de linha parseia como cor, então
-                // partilhar o braço não engana nenhum dos dois.
-                if prop != "text-decoration-line" {
-                    if let Some(c) = val.split_whitespace().find_map(parse_color) {
-                        css.text_decoration_color = Some(c);
-                    }
-                }
+                apply_text_decoration(css, val, prop != "text-decoration-line")
             }
             "font-family" => css.font_family = parse_font_family(val),
             "font" => apply_font_shorthand(css, val),
@@ -442,6 +432,25 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
 
 /// Separa o sufixo `!important` (case-insensitive, com espaços) de um valor CSS.
 /// Devolve `(valor_sem_important, é_important)`. `"red !important"` → `("red", true)`.
+/// Aplica `text-decoration` / `text-decoration-line`. `com_cor` distingue os
+/// dois: o SHORTHAND também traz a cor (`underline dotted red`), e o parser da
+/// linha já ignora os tokens que não são de linha — por isso a cor não tem onde
+/// ser lida a não ser aqui. `-line` não aceita cor, mas nenhum valor de linha
+/// parseia como cor, então partilhar o corpo não engana nenhum dos dois.
+///
+/// É `pub(super)` porque `style::vocab` a chama para as grafias prefixadas
+/// (`-webkit-text-decoration`, 6 folhas do corpus), que nunca chegam ao `match`
+/// deste ficheiro — ele casa por literal e não vê o prefixo. Uma segunda cópia
+/// lá seria duas respostas à mesma pergunta, com a cor a ser lida só numa delas.
+pub(super) fn apply_text_decoration(css: &mut ComputedStyle, val: &str, com_cor: bool) {
+    css.text_decoration = crate::style::values::TextDecoration::parse(val);
+    if com_cor {
+        if let Some(c) = val.split_whitespace().find_map(parse_color) {
+            css.text_decoration_color = Some(c);
+        }
+    }
+}
+
 fn split_important(val: &str) -> (&str, bool) {
     let v = val.trim();
     // Acha `!important` no fim, tolerante a espaço entre `!` e `important` não — a

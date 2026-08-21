@@ -989,3 +989,100 @@ fn cor_de_decoracao_nao_declarada_e_a_cor_do_elemento() {
     // e o `el.style` continua vazio para o que o elemento não declarou.
     assert_eq!(s.get_property("text-decoration-color"), "");
 }
+
+// ── LOTE A do corpus alargado: `clip` e os aliases de fornecedor ─────────────
+
+#[test]
+fn clip_aceita_as_duas_sintaxes_de_rect_que_o_corpus_escreve() {
+    // Não é purismo de spec: as duas estão no corpus e vêm de autores diferentes.
+    // Com vírgulas é o que Bootstrap, Tailwind e Foundation emitem; sem vírgulas
+    // é o que MediaWiki e WhatsApp emitem. Reconhecer só uma delas deixava
+    // metade das 8 folhas por cobrir e a contagem diria o contrário.
+    use crate::style::vocab::Clip;
+    let virgulas = parse_inline("clip: rect(0, 0, 0, 0)");
+    let espacos = parse_inline("clip: rect(0 0 0 0)");
+    assert_eq!(virgulas.clip, espacos.clip, "a grafia não muda o valor");
+    assert!(matches!(virgulas.clip, Some(Clip::Rect { .. })));
+    // e o computed sai na forma do Chrome: vírgulas e unidade explícita.
+    assert_eq!(virgulas.get_property("clip"), "rect(0px, 0px, 0px, 0px)");
+}
+
+#[test]
+fn clip_guarda_auto_por_lado_e_comprimento_negativo() {
+    // `auto` num lado só (`rect(auto, 0, 0, auto)`) é legal e não é o mesmo que
+    // zero — quem vier a recortar precisa da diferença. E o retângulo pode
+    // começar ACIMA da caixa, o que é o motivo de o parser ser `parse_inset`:
+    // `parse_dimension` rejeita negativos e transformaria -5px num lado ausente.
+    let s = parse_inline("clip: rect(auto, 0, 0, auto)");
+    assert_eq!(s.get_property("clip"), "rect(auto, 0px, 0px, auto)");
+    let neg = parse_inline("clip: rect(-5px 0 0 0)");
+    assert_eq!(neg.get_property("clip"), "rect(-5px, 0px, 0px, 0px)");
+}
+
+#[test]
+fn clip_nao_declarado_computa_auto_e_o_style_inline_fica_vazio() {
+    // As duas semânticas opostas que `style::initial` documenta, nesta
+    // propriedade: o computed cai no inicial, o `el.style` não.
+    let s = parse_inline("color: red");
+    assert_eq!(s.computed_value("clip", None), "auto");
+    assert_eq!(s.get_property("clip"), "", "el.style só tem o que foi declarado");
+}
+
+#[test]
+fn sr_only_continua_escondido_sem_o_recorte_ser_aplicado() {
+    // Esta é a condição que autorizou guardar `clip` sem recortar, e por isso é
+    // um teste e não um comentário. Em TODAS as 8 folhas do corpus o
+    // `clip: rect(...)` vem ao lado de uma caixa de 1px com `overflow:hidden` —
+    // é a caixa que esconde, não o clip. Se um dia o layout deixar de honrar a
+    // altura de 1px, este teste cai e diz que o recorte passou a ser preciso.
+    let l = layout(
+        "<div style='position:absolute;width:1px;height:1px;overflow:hidden;\
+         clip:rect(0,0,0,0)'>texto para leitor de ecra</div>",
+        800.0,
+    );
+    let maior = itens(&l)
+        .iter()
+        .filter_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(rect.w.max(rect.h)),
+            _ => None,
+        })
+        .fold(0.0f32, f32::max);
+    assert!(maior <= 1.0, "a caixa do .sr-only tem de continuar em 1px, e não {maior}");
+}
+
+#[test]
+fn text_decoration_prefixada_responde_o_mesmo_que_a_nua() {
+    // 6 folhas escrevem `-webkit-text-decoration` ao lado da nua. O `match` do
+    // `parse` casa por literal e não vê o prefixo, por isso a prefixada ia para
+    // a lista de ignoradas. O que este teste fixa não é só "passou a ser
+    // reconhecida" — é que as duas grafias respondem o MESMO, incluindo a cor do
+    // shorthand, que era a metade fácil de esquecer numa segunda cópia do corpo.
+    let nua = parse_inline("text-decoration: underline red");
+    let webkit = parse_inline("-webkit-text-decoration: underline red");
+    let moz = parse_inline("-moz-text-decoration: underline red");
+    assert_eq!(nua.text_decoration, webkit.text_decoration);
+    assert_eq!(nua.text_decoration_color, webkit.text_decoration_color);
+    assert!(webkit.text_decoration_color.is_some(), "a cor do shorthand também");
+    assert_eq!(nua.text_decoration, moz.text_decoration);
+}
+
+#[test]
+fn text_decoration_line_continua_a_nao_ler_cor() {
+    // A distinção que a função partilhada tem de preservar: `-line` não aceita
+    // cor. Partilhar o corpo sem o parâmetro fá-lo-ia passar a aceitar, o que é
+    // uma regressão que nenhum teste anterior apanhava.
+    let s = parse_inline("text-decoration-line: underline red");
+    assert_eq!(s.text_decoration_color, None);
+}
+
+#[test]
+fn text_size_adjust_e_recusada_com_motivo_e_nao_ignorada() {
+    // Não tem campo de propósito: este motor não reflui por largura de ecrã, e
+    // `none`/`100%`/`auto` computam todos para a mesma página. Reconhecê-la
+    // faria a contagem subir sem um pixel mudar — a coluna das recusadas existe
+    // exatamente para essa diferença.
+    use crate::style::inert::is_inert;
+    assert!(is_inert("text-size-adjust"));
+    assert!(is_inert("-webkit-text-size-adjust"), "a forma que as folhas escrevem");
+    assert!(is_inert("-ms-text-size-adjust"));
+}

@@ -40,6 +40,7 @@ pub fn initial(name: &str) -> Option<&'static str> {
         // AQUI e não no `vocab` porque esta é a tabela dos iniciais — tê-los nos
         // dois sítios era a lista paralela que este ficheiro existe para evitar.
         "text-overflow" => "clip",
+        "clip" => "auto",
         "text-wrap" | "text-wrap-mode" => "wrap",
         "object-fit" => "fill",
         "object-position" => "50% 50%",

@@ -444,6 +444,10 @@ css_props! {
         [inh] word_spacing: f32;
         /// `text-overflow`. Guardada — ver [`crate::style::vocab::TextOverflow`].
         [] text_overflow: crate::style::vocab::TextOverflow;
+        /// `clip` — o retângulo de recorte de uma caixa posicionada. Guardada e
+        /// SEM recortar; [`crate::style::vocab::Clip`] tem a verificação de que
+        /// isso não deixa nenhum `.sr-only` do corpus visível.
+        [] clip: crate::style::vocab::Clip;
         /// `text-wrap`. Guardada — ver [`crate::style::vocab::TextWrap`].
         [inh] text_wrap: crate::style::vocab::TextWrap;
         /// `object-fit`. Guardada — ver [`crate::style::vocab::ObjectFit`].
