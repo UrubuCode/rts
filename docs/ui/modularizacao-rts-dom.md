@@ -555,3 +555,40 @@ provam que o texto é o mesmo; o `cargo check` prova que ainda se vê; a suite
 prova que ainda corre; **e a precedência não é provada por nenhum dos três —
 só por quem a preserva de propósito e o escreve.**
 
+---
+
+## O portão final: o `rts-dom` inteiro move ZERO pixels
+
+Todo o trabalho de arrumação do crate, medido de uma vez contra o dump de antes
+de o primeiro ficheiro ser tocado:
+
+```
+16 813 elementos IDENTICOS byte a byte
+```
+
+**Dezasseis ficheiros acima do teto passaram a dois**, e os dois são desvios
+declarados com a razão no cabeçalho:
+
+| | início | fim |
+|---|---|---|
+| `layout.rs` | 9 987 | **307** — o `mod.rs` de 19 módulos + 9 de teste |
+| `dom.rs` | 5 974 | **deixou de existir** — 26 ficheiros, o maior 488 |
+| `style/` | 9 ficheiros acima | **zero** acima |
+| `inline_box.rs` | 1 350 | 342 |
+| `table/`, `block`, `listitem`, `painteffects` | 5 acima | 12 ficheiros, o maior 439 |
+| `layout/bloco.rs` | — | 818 ⚠ é uma função de 807 |
+| `layout/vertical.rs` | — | 524 ⚠ fronteira preservada de propósito |
+
+**A contagem de testes bateu em cada passo** — 565 no início do dia, 609 no fim,
+e a diferença é toda de lotes de correção, nenhuma de arrumação.
+
+**Visibilidade em todo o crate: 145 itens** (33 no `dom`, 84 no `layout`, 28 no
+`style`), **todos `pub(in …)` com o alcance que já tinham. Zero `pub` novos,
+zero `pub(crate)` novos, e 24 campos** — os quatro de um tipo de exclusão de
+float e os vinte de dois tipos de fluxo inline.
+
+O número que mais diz não é nenhum destes: é que **nenhum campo foi aberto por
+uma escolha de plano**. A decisão de deixar as estruturas no pai foi tomada
+quatro vezes em quatro áreas por quatro raciocínios independentes, e nas quatro
+a conta deu o mesmo — a maior delas 1 anotação contra ~15.
+
