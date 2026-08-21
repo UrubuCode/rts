@@ -120,3 +120,78 @@ uma de texto livre, e essa é a raiz de quase todos os candidatos. Está tudo em
 Como sempre: isto é a lista de candidatos. **Quanto vale, e se entra, diz a
 régua de geometria** — medida por par, nunca por soma, que é o que um sinal
 misto exige.
+
+---
+
+## Verificado por PREVISÃO, e cinco correções
+
+A forma acima foi lida. Depois foi **corrida à mão sobre os 12 casos medidos no
+Chrome, e reproduz os 12 números exactamente.**
+
+    30% + duas auto(50..100), alvo 600
+      kMin 200, kPct 280, kSpec 280, kMax 380 -> todos < 600 -> kAboveMax
+      ramo auto: 220 x 100/200 = 110          ->  [180, 210, 210]
+      Chrome                                  ->  [180, 210, 210]
+
+    declarada 100 + duas auto, alvo 260
+      kMax 300 >= 260 -> kMaxGuess; 260 - kSpec(200) = 60; aumento 100; delta 30
+                                              ->  [100, 80, 80]   Chrome idem
+
+**É a verificação mais forte disponível sem compilar o Chromium**, e vale mais
+que "li e parece": um algoritmo que prevê doze números medidos não está a ser
+lido de qualquer maneira.
+
+### 1. A classe não é "largura declarada" — é `is_constrained`
+
+`Column::IsFixed() = is_constrained && !percent && max_inline_size`, e
+`is_constrained` é apenas *"esta coluna ou célula tem um `inline_size`
+não-auto"*. E os dois limites são `std::optional`: **uma coluna pode não ter
+nenhum dos dois.**
+
+### 2. `is_mergeable` não é o que estava escrito — e o registo não é uma falta
+
+Não é "uma coluna que nenhuma célula tocou". É um `<col>`/`<colgroup>` **sem
+largura e sem percentagem**, e as que sobram no fim são **cortadas fora**, não
+zeradas — o comentário da source é literal: *"Trim mergeable columns off the
+end"*.
+
+Do nosso lado o caso não é alcançável: **a grade conta colunas a partir das
+CÉLULAS**, portanto um `<col>` a mais não cria coluna nenhuma. Chegamos ao mesmo
+sítio por outro caminho — é **um não-trabalho identificado**, que é o segundo uso
+da source depois de "o que falta".
+
+### 3. Falta uma regra inteira: a normalização das percentagens
+
+Corre **antes** da distribuição e é **diferente por modo**:
+
+- tabela **auto**: corta por ordem de documento — `percent = 100 − acumulado`;
+- tabela **fixed**: escala todas proporcionalmente.
+
+O caso `60% + 60%` em 600 px dá `[360, 240]` no Chrome e não `[300, 300]`. **É
+assimétrico — a assinatura do corte por ordem**, e é o que prova qual dos dois
+ramos corre. O ramo `auto` é o que a nossa página real usa e **não tinha registo
+nenhum**.
+
+### 4. O caso exacto tem uma segunda metade que o desfaria sem ela
+
+Além de dar o máximo a cada coluna, **força o défice restante a zero**. Sem isso,
+a regra do "défice inteiro para a última que cresceu" voltava a estragar o que o
+caso exacto tinha acabado de proteger.
+
+**Não é herança do Netscape: é deliberado, e é para copiarmos.**
+
+### 5. Acima do máximo, a proporção é sobre `max_inline_size`
+
+Não sobre o aumento, e **nos dois ramos** — auto e fixo. Estava escrito só do
+ramo auto.
+
+### O que se confirmou tal como estava
+
+As declaradas só crescem acima do máximo quando o alvo é a largura da tabela; o
+colspan corre **a mesma função duas vezes**, uma sobre o mínimo e outra sobre o
+máximo, e **só levanta, nunca baixa** — o nosso espalha por igual.
+
+**E não há um único quirk neste caminho.** O candidato mais próximo é uma nota de
+legado que o LayoutNG já não faz; e "colunas de largura 0 tratam-se como auto" é
+compatibilidade **com todos os browsers**, não com um — essa copia-se.
+
