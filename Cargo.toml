@@ -105,6 +105,57 @@ zstd = "0.13.3"
 debug = 0
 incremental = true
 
+# Um binário de release que serve para RODAR, não para MEDIR.
+#
+# # O que foi medido, 2026-08-20, build limpo nesta máquina
+#
+#   release, -j 8 (o padrão daqui) ......... 9,4 min
+#   release, -j 16 ......................... 8,5 min   -10%
+#   este perfil, -j 8 ...................... 6,8 min   -28%
+#
+# O segundo número é o que decide a forma disto: DOBRAR os núcleos compra 10%,
+# porque o build não é limitado por largura. `cargo build --timings` conta 2 586 s
+# de CPU em 564 s de relógio — paralelismo efetivo de 4,6× com oito trabalhos — e
+# o que sobra é cauda serial. A cauda é o `codegen-units = 1`, que existe para
+# remover paralelismo DENTRO de cada crate em troca de código melhor.
+#
+# # Por que o release não é simplesmente enfraquecido
+#
+# Porque a troca foi medida também, e não é gratuita. O mesmo binário construído
+# com `lto = false, codegen-units = 16`, na execução:
+#
+#   bench/objbench.ts .... +20,8%     ← alocação, e é onde dói
+#   kernel (f64 puro) ..... +5,0%
+#   um laço com resto ..... +1,6%
+#   mc_noparam ............ -0,3%     (ruído)
+#
+# Vinte por cento em código que aloca é caro demais para um binário publicado. O
+# que este perfil faz é separar as duas necessidades em vez de escolher uma.
+#
+# # Quando usar, e quando NÃO
+#
+# `cargo build --profile fast` para ter um binário que funciona depressa: rodar
+# um programa, reproduzir um defeito, sacudir a suíte. NUNCA para um número —
+# a tabela acima é a razão, e o piso de honestidade chama um número medido num
+# build diferente do publicado de exatamente o que ele é.
+#
+# UMA ARESTA, e está escrita porque morde em silêncio: o AOT (`rts compile`)
+# procura o archive do runtime em `target/{debug,release}` e não em
+# `target/fast`, então um binário deste perfil não compila AOT. O JIT — `rts
+# run`, `rts test` — não toca no archive e funciona.
+#
+# VERIFICADO, e não assumido: `inherits` traz junto os overrides
+# `[profile.release.package.*]` logo abaixo, que são o que põe o Cranelift e o
+# `rts-codegen` em `opt-level = 3`. Se não trouxesse, este perfil produziria um
+# binário que COMPILA TypeScript devagar, que é o oposto do que ele é para.
+# Medido em `bench/rts_simple.ts` com `RTS_TIMING`: `front-end` +0,9%, `place`
+# -4,3% contra o release — ou seja, nada. Um perfil `fast` que não herdasse
+# isto seria descoberto por este número mudar.
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+
 [profile.release]
 # `z` (optimize for SIZE) stays the DEFAULT: the bulk of the binary is wgpu /
 # naga / egui / actix, none of which runs during a compile, and their size is

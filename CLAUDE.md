@@ -291,6 +291,28 @@ This rule exists because it was measured: a session spent more wall clock on
 repeated release builds than on the engineering, which also pushes toward
 guessing instead of checking, because checking became expensive.
 
+**When you need a real binary and not a number**, there is a third profile:
+
+```bash
+cargo build --profile fast          # 7m11s against 9m24s, same machine
+```
+
+Measured 2026-08-20 on a clean build. It is `release` with `lto = false` and
+`codegen-units = 16`, and the reason it exists is the shape of the cost: the
+build is **not** limited by width. `cargo build --timings` counts 2 586 s of
+CPU in 564 s of wall clock, so doubling the workers from 8 to 16 buys 10% —
+against 28% for dropping the setting that removes parallelism *inside* each
+crate.
+
+It is not for measuring, and that is not a style rule. The same tree built that
+way runs `bench/objbench.ts` **20.8% slower**; `kernel` 5% slower, a remainder
+loop 1.6%, `mc_noparam` unchanged. A number from a `fast` binary is a number
+about a build nobody ships.
+
+`rts compile` (AOT) does not work from it either — the runtime archive is
+looked up under `target/{debug,release}`, not `target/fast`. `rts run` and
+`rts test` do.
+
 ---
 
 ## MANDATORY: the honesty floor
