@@ -697,7 +697,12 @@ pub(super) fn check_instructions(
                 }
                 Inst::FloatArith(op, a, b) => {
                     check_proven_pair(func, inst_id, *a, *b, Domain::Float, errors);
-                    if *op == NumOp::Rem {
+                    // Same shape as the integer case above and for the same
+                    // reason: what makes the instruction legal is the
+                    // divisor's VALUE, which no representation records.
+                    if *op == NumOp::Rem
+                        && !crate::ir::fold::divisor_is_power_of_two(func, *b)
+                    {
                         errors.push(VerifyError::UnsafeRemainder {
                             inst: inst_id,
                             found: func.repr_of(*a),

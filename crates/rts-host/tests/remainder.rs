@@ -178,16 +178,51 @@ fn a_proven_remainder_loop_reaches_no_generic_operator() {
         );
     }
 
-    // And the positive half, because "no generic call" would also be true of a
-    // program that failed to compile the loop at all.
+    // And the remainder itself is no longer a call of ANY kind. This assertion
+    // said the opposite when it was written — it required
+    // `__rts_number_remainder` to be present, which was true and was the best
+    // available then. `4294967296` is a power of two, and dividing by one of
+    // those rounds nothing, so the machine has an exact five-instruction
+    // sequence for it and takes that instead.
     assert!(
-        ir.contains("__rts_number_remainder"),
-        "the remainder is still a call — there is no exact instruction for it — \
-         and this is the call it should be.\n\n{ir}"
+        !ir.contains("__rts_number_remainder"),
+        "`% 2^k` is exact as instructions, so not even the unboxed call should \
+         be left in this loop.\n\n{ir}"
     );
     assert!(
         ir.contains("Arith"),
         "the multiply and the add either side of it are instructions now.\n\n{ir}"
+    );
+}
+
+#[test]
+fn a_proven_remainder_by_an_odd_divisor_is_the_unboxed_call() {
+    // The divisor decides, not the operator. This is the same loop with `% 7`,
+    // where no exact instruction sequence exists — so the answer is the
+    // unboxed entry point, which is still far better than the generic one:
+    // no widening, no narrowing, no thrown-value check.
+    let ir = rts_host::describe::describe_source(
+        "
+        function step(): number {
+            let state = 1;
+            let i = 0;
+            while (i < 3) { state = (state * 31 + 7) % 7; i = i + 1; }
+            return state;
+        }
+        step();
+        ",
+    )
+    .expect("compiles");
+
+    assert!(
+        ir.contains("__rts_number_remainder"),
+        "7 is not a power of two, so the sequence would be inexact and the \
+         unboxed call is what is left.\n\n{ir}"
+    );
+    assert!(
+        !ir.contains("__rts_remainder\n") && !ir.contains("__rts_remainder "),
+        "but it must not fall all the way back to the GENERIC entry — the \
+         operands are still proven.\n\n{ir}"
     );
 }
 

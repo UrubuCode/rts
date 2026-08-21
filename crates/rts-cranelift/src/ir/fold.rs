@@ -148,6 +148,55 @@ pub(crate) fn divisor_cannot_trap(func: &Function, divisor: ValueId) -> bool {
     signed != 0 && signed != -1
 }
 
+/// Whether a float remainder's divisor makes the exact sequence available.
+///
+/// # The claim, and why it is not the one `NumOp` rejects
+///
+/// [`crate::ir::inst::NumOp`] records that `a - trunc(a / b) * b` is **not** an
+/// exact remainder in general: past 2^53 the division rounds and the identity
+/// stops answering what the language requires. That is true, and it is why the
+/// float domain does not admit a remainder outright.
+///
+/// It stops being true when the divisor is a power of two. Dividing by 2^k is
+/// an adjustment of the exponent and nothing else — every bit of the mantissa
+/// survives — so `a / b` is exact, `trunc` of it is exact, multiplying that
+/// back by 2^k is exact, and the subtraction is of two values within one `b` of
+/// each other. No step rounds, at any magnitude.
+///
+/// # Why `k >= 0`, which is the whole of the restriction
+///
+/// If `|b| < 1` then `a / b` can OVERFLOW — `b = 2^-1000` with a large `a`
+/// answers infinity, and the sequence then computes `inf - inf` where the true
+/// answer is zero. Requiring `|b| >= 1` makes `|a / b| <= |a|`, so nothing can
+/// overflow that was not already infinite.
+///
+/// This admits `% 4294967296`, `% 256`, `% 2` — the divisors a hash, a mask or
+/// a generator is written with. It excludes `% 0.5`, which keeps the call.
+///
+/// # What it does NOT settle
+///
+/// The sign of a zero result. `-8 % 4` is `-0` in the language and the sequence
+/// answers `+0`, so lowering finishes with a copy of the dividend's sign; that
+/// is a fact about the emitted code rather than about the divisor, so it lives
+/// there and not here.
+pub(crate) fn divisor_is_power_of_two(func: &Function, divisor: ValueId) -> bool {
+    let Some(&Inst::Const(id)) = defining_inst(func, divisor) else {
+        return false;
+    };
+    let Some(ConstDecl::Scalar {
+        repr: Repr::F64,
+        bits,
+    }) = func.constant(id)
+    else {
+        return false;
+    };
+    let value = f64::from_bits(bits.0).abs();
+    // `is_power_of_two` on the FLOAT, not on a cast: the mantissa must be zero
+    // and the value finite. `f64::EXP` arithmetic would say the same thing in a
+    // way a reader has to verify, so this asks the two questions directly.
+    value.is_finite() && value >= 1.0 && value.to_bits() & ((1u64 << 52) - 1) == 0
+}
+
 /// What a value was widened FROM, when it was widened at all.
 ///
 /// A query and not a fold: it emits nothing and decides nothing. It exists

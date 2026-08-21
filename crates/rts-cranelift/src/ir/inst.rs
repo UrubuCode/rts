@@ -49,16 +49,25 @@ pub enum CmpOp {
 /// about the operator's name.
 ///
 /// `Rem` over integers is `srem`, one instruction on every target here, so it
-/// meets the same bar `Add` does. `Rem` over floats is not: IEEE remainder is
-/// `fmod`, a library call on every target, and the identity
-/// `a - trunc(a / b) * b` that would avoid it is **not** exact — once `a / b`
-/// passes 2^53 the truncation loses the low bits and the answer differs from
-/// what the language requires. So the float domain does not get it, and
-/// [`super::builder::FuncBuilder::arith`] refuses it there by name rather than
-/// emitting something that is right for the inputs a test happens to use.
+/// meets the same bar `Add` does.
 ///
-/// That asymmetry is the point: an operator is admitted per domain, because
-/// what it costs and whether it is exact are both answered by the domain.
+/// Over floats it is admitted **per divisor**, which is one step finer than
+/// per domain and is the shape the arithmetic forces. IEEE remainder is `fmod`,
+/// a library call on every target, and the identity `a - trunc(a / b) * b` that
+/// would avoid it is **not** exact in general — once `a / b` passes 2^53 the
+/// division rounds and the answer stops being what the language requires.
+///
+/// It IS exact when the divisor is a power of two no smaller than one, because
+/// then dividing by it adjusts an exponent and rounds nothing.
+/// [`super::fold::divisor_is_power_of_two`] carries that argument step by step,
+/// including why `|b| >= 1` is load-bearing rather than tidy.
+/// [`super::builder::FuncBuilder::arith`] refuses every other divisor by name
+/// rather than emitting something that is right for the inputs a test happens
+/// to use.
+///
+/// That asymmetry is the point: an operator is admitted where it can be
+/// answered exactly, and the granularity of "where" is whatever the arithmetic
+/// says it is — a domain for the integer case, a divisor for this one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NumOp {
     /// Addition.

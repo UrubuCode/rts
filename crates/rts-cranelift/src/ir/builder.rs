@@ -1,4 +1,4 @@
-//! Building a function.
+﻿//! Building a function.
 //!
 //! The builder is where the layer's invariants become structural rather than
 //! advisory. It refuses at construction what the verifier would reject later,
@@ -52,24 +52,27 @@ pub enum BuildError {
     },
     /// A remainder was asked for where the machine cannot answer it totally.
     ///
-    /// Two shapes reach here, and they are one rule seen from two sides —
-    /// [`crate::ir::inst::NumOp::Rem`] is admitted per domain:
+    /// Two shapes reach here, and both are the divisor's doing â€”
+    /// [`crate::ir::inst::NumOp::Rem`] is admitted where it can be answered
+    /// exactly, and in neither domain is that everywhere:
     ///
-    /// - the float domain, where IEEE remainder is a library call and the
-    ///   identity that would avoid one is inexact past 2^53;
-    /// - the integer domain with a divisor that could be `0` or `-1`, either of
-    ///   which makes `srem` trap where the language requires a value.
+    /// - a float divisor that is not a power of two at least one, where the
+    ///   only forms available are a library call or an identity that stops
+    ///   being exact past 2^53;
+    /// - an integer divisor that could be `0` or `-1`, either of which makes
+    ///   `srem` trap where the language requires a value.
     ///
     /// Refused rather than approximated, because both alternatives produce a
     /// program that is right for the inputs a test uses and wrong later.
+    ///
+    /// There was a `domain_admits: bool` here, and it is gone rather than left
+    /// answering `true` everywhere: it meant "this domain admits a remainder at
+    /// all", which distinguished the two cases only while the float domain
+    /// admitted none. Now both do, for some divisor, and `found` already says
+    /// which domain a reader is in.
     UnsafeRemainder {
         /// What the operands were proven to be.
         found: Repr,
-        /// Whether the domain admits a remainder at all.
-        ///
-        /// `false` names the first shape above and `true` the second, so a
-        /// reader of the error does not have to infer which from `found`.
-        domain_admits: bool,
     },
     /// A branch argument would have to narrow to reach its target.
     ///
@@ -148,7 +151,7 @@ pub struct FuncBuilder<'a> {
     /// The protected regions currently open, outermost first.
     ///
     /// Rule 8. A client that had to place each block in a region itself would
-    /// eventually forget one, and forgetting does not fail — it produces a
+    /// eventually forget one, and forgetting does not fail â€” it produces a
     /// handler that silently does not catch what a nested block threw, which is
     /// a `catch` that reads correctly and never runs. So membership is derived
     /// from where building was when the block was made.
@@ -186,7 +189,7 @@ impl<'a> FuncBuilder<'a> {
     /// and a client deciding what a merge point should declare has to know what
     /// is arriving. Both are questions about a value this builder already
     /// answers internally; without asking, a caller either tracks it in
-    /// parallel — which is a second record of the same fact — or declares
+    /// parallel â€” which is a second record of the same fact â€” or declares
     /// everything generic and loses what it proved.
     pub fn repr_of(&self, value: ValueId) -> Repr {
         self.func.repr_of(value)
@@ -246,7 +249,7 @@ impl<'a> FuncBuilder<'a> {
     /// Arithmetic over two proven operands of identical representation.
     ///
     /// Integer and floating-point domains are distinguished by the operands, not
-    /// by the caller naming a domain — the representation already says which.
+    /// by the caller naming a domain â€” the representation already says which.
     pub fn arith(&mut self, op: NumOp, a: ValueId, b: ValueId) -> BuildResult<ValueId> {
         let repr = self.same_proven("arith", a, b)?;
         // Checked after `same_proven` so an ill-formed pair is still refused:
@@ -257,24 +260,23 @@ impl<'a> FuncBuilder<'a> {
         }
         if repr.is_integer() {
             // Rule 12: unproven behaviour fails safely. `srem` is partial, and
-            // the partiality is invisible in the representation — only the
+            // the partiality is invisible in the representation â€” only the
             // divisor's value settles it, so the check is here where the value
             // is still reachable rather than in the verifier, which sees the
             // same instruction with the same representations for a divisor that
             // traps and one that cannot.
             if op == NumOp::Rem && !super::fold::divisor_cannot_trap(&self.func, b) {
-                return Err(BuildError::UnsafeRemainder {
-                    found: repr,
-                    domain_admits: true,
-                });
+                return Err(BuildError::UnsafeRemainder { found: repr });
             }
             Ok(self.emit(Inst::IntArith(op, a, b), repr))
         } else if repr.is_float() {
-            if op == NumOp::Rem {
-                return Err(BuildError::UnsafeRemainder {
-                    found: repr,
-                    domain_admits: false,
-                });
+            // The float domain admits a remainder only where an EXACT sequence
+            // exists, which is when the divisor is a power of two no smaller
+            // than one â€” see `fold::divisor_is_power_of_two` for why that is
+            // the whole of the condition, and why the general identity this
+            // crate rejects is not the one being emitted.
+            if op == NumOp::Rem && !super::fold::divisor_is_power_of_two(&self.func, b) {
+                return Err(BuildError::UnsafeRemainder { found: repr });
             }
             Ok(self.emit(Inst::FloatArith(op, a, b), repr))
         } else {
@@ -289,7 +291,7 @@ impl<'a> FuncBuilder<'a> {
     ///
     /// Refused for anything but `F64`: an integer is already one and asking would
     /// hide a client that lost track of which domain it was in, and a tagged
-    /// value has to pass a guard first — rule 11, narrowing is never automatic.
+    /// value has to pass a guard first â€” rule 11, narrowing is never automatic.
     pub fn to_int32(&mut self, value: ValueId) -> BuildResult<ValueId> {
         let repr = self.repr_of(value);
         if repr != Repr::F64 {
@@ -388,7 +390,7 @@ impl<'a> FuncBuilder<'a> {
     /// find out that a value it is about to convert back is one it converted.
     /// Without it the round trip is invisible: a client that proved something,
     /// widened it because an expression is a value, and is then asked for the
-    /// proof again has to reconstruct it — which for a language layer means
+    /// proof again has to reconstruct it â€” which for a language layer means
     /// calling its own runtime to undo an instruction this layer emitted.
     ///
     /// Answers `None` for a block parameter, and for anything not widened. It
@@ -406,7 +408,7 @@ impl<'a> FuncBuilder<'a> {
     /// Reads one machine word from an address a value holds.
     ///
     /// Refuses anything but an `I64` operand, because an address is one and a
-    /// generic value is not — a tagged double reaching here would be loaded
+    /// generic value is not â€” a tagged double reaching here would be loaded
     /// from a bit pattern that is not a pointer, which is a fault the code
     /// generator cannot report and this refusal makes unwritable. See
     /// [`Inst::WordLoad`] for why this is not how the heap is read.
@@ -553,7 +555,7 @@ impl<'a> FuncBuilder<'a> {
     ///
     /// The value arrives generic, because what a property holds is not known
     /// where its layout is not. A caller that knows the layout should use a type
-    /// guard and an ordinary field read instead — fewer instructions, and a
+    /// guard and an ordinary field read instead â€” fewer instructions, and a
     /// proven representation at the end of it.
     pub fn cached_get(
         &mut self,
@@ -743,8 +745,8 @@ impl<'a> FuncBuilder<'a> {
     ) -> BuildResult<()> {
         // Asked BEFORE widening, so an operand already in the expected
         // representation is never boxed to be immediately unboxed. Where the
-        // client widened explicitly the widening stays — it may have a second
-        // use, and this is not a pass that can see one — but the test does not.
+        // client widened explicitly the widening stays â€” it may have a second
+        // use, and this is not a pass that can see one â€” but the test does not.
         let settled = super::fold::guard_answer(&self.func, input, expect);
 
         // Checked whether or not the test can fail. A success block that does
@@ -794,7 +796,7 @@ impl<'a> FuncBuilder<'a> {
     /// Calls a known function, binding what it returns.
     ///
     /// The results' representations come from the signature, so there is nowhere
-    /// to state them and nowhere to state them wrongly — the same reason a field
+    /// to state them and nowhere to state them wrongly â€” the same reason a field
     /// access takes no width.
     pub fn call(
         &mut self,
@@ -820,8 +822,8 @@ impl<'a> FuncBuilder<'a> {
     ///
     /// Refused for a function the registry never issued, for the same reason
     /// [`Self::call`] is: an id that names nothing would become an address that
-    /// names nothing, and the failure would surface at placement — far from the
-    /// line that caused it — or not at all.
+    /// names nothing, and the failure would surface at placement â€” far from the
+    /// line that caused it â€” or not at all.
     ///
     /// `Repr::I64` and not a reference. It is not a heap value, nothing
     /// collects it, and giving it a reference representation would enrol it in
@@ -929,7 +931,7 @@ impl<'a> FuncBuilder<'a> {
     /// Parks the frame until a promise settles, yielding what it carried.
     ///
     /// One node. Whether this costs a parked frame or a blocked thread is not
-    /// decided here and is not a client's concern — which is the difference from
+    /// decided here and is not a client's concern â€” which is the difference from
     /// the arrangement this replaces, where the call site had to know about
     /// spawning.
     pub fn await_(&mut self, promise: ValueId) -> ValueId {
@@ -945,7 +947,7 @@ impl<'a> FuncBuilder<'a> {
     ///
     /// The parent is the region already open, not a parameter. Nesting is the
     /// search order, and a client that could name a parent could name the wrong
-    /// one — which would send a throw to a handler that does not enclose it.
+    /// one â€” which would send a throw to a handler that does not enclose it.
     ///
     /// The handler and cleanup blocks must be created *before* this is called.
     /// A handler placed inside its own region would catch what it throws
@@ -955,7 +957,7 @@ impl<'a> FuncBuilder<'a> {
         let region = self.func.regions.declare(parent, handlers, cleanup);
         // The block building is currently in joins the region too. Without it,
         // a throw emitted before any new block is created would be planned as
-        // if it were outside — and "the first statement of a `try`" is not a
+        // if it were outside â€” and "the first statement of a `try`" is not a
         // corner case.
         self.func.set_block_region(self.block, region);
         self.open_regions.push(region);
@@ -971,7 +973,7 @@ impl<'a> FuncBuilder<'a> {
     ///
     /// # Panics
     ///
-    /// If no region is open — the same client bug `close_region` refuses.
+    /// If no region is open â€” the same client bug `close_region` refuses.
     pub fn set_region_return(&mut self, block: BlockId) {
         let region = *self
             .open_regions
@@ -985,7 +987,7 @@ impl<'a> FuncBuilder<'a> {
     /// # Panics
     ///
     /// If no region is open. That is a client bug rather than a program
-    /// condition — rule 7 — and the alternative is silently placing later
+    /// condition â€” rule 7 â€” and the alternative is silently placing later
     /// blocks in a region that has ended.
     pub fn close_region(&mut self) {
         self.open_regions
@@ -1003,7 +1005,7 @@ impl<'a> FuncBuilder<'a> {
     ///
     /// The value is widened if it is not already generic: this layer does not
     /// know what may be thrown, so what travels is the uniform form. Where it
-    /// lands is not decided here — it follows from the region the throwing block
+    /// lands is not decided here â€” it follows from the region the throwing block
     /// is in, which is why there is no destination to pass.
     pub fn throw(&mut self, tag: Tag, payload: ValueId) {
         let payload = self.widen_if_needed(payload);

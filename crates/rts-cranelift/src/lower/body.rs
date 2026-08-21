@@ -199,11 +199,42 @@ impl<'a> Body<'a> {
                     NumOp::Sub => builder.ins().fsub(x, y),
                     NumOp::Mul => builder.ins().fmul(x, y),
                     NumOp::Div => builder.ins().fdiv(x, y),
+                    // Reached only for a power-of-two divisor no smaller than
+                    // one — the builder and the verifier both refuse anything
+                    // else, and `fold::divisor_is_power_of_two` carries the
+                    // proof that every step below is exact under that
+                    // condition. NOT the general identity `NumOp` rejects.
+                    //
+                    //   q = x / d          exact: an exponent adjustment
+                    //   t = trunc(q)       toward zero, as the language says
+                    //   p = t * d          exact: |p| <= |x|, so no overflow
+                    //   r = x - p          exact: |x - p| < |d|
+                    //   fcopysign(r, x)    the ONE thing the algebra loses
+                    //
+                    // The last step is not a tidy-up. `-8 % 4` is `-0` in the
+                    // language, and `x - p` answers `+0` for every dividend
+                    // that is an exact multiple of the divisor — which is the
+                    // common case for a mask, not a corner. It costs one
+                    // instruction and is the difference between `-0` and `0`,
+                    // observable through `1 / r`.
                     NumOp::Rem => {
-                        return Err(LowerError::RemainderNotInDomain {
-                            inst: id,
-                            found: self.func.repr_of(*a),
-                        });
+                        // The third refusal, and it is not redundant with the
+                        // builder's: a representation that never went through
+                        // the builder reaches here, and the sequence below is
+                        // exact ONLY for the divisors that predicate admits.
+                        // Emitting it for any other is the approximation this
+                        // crate refuses to make.
+                        if !crate::ir::fold::divisor_is_power_of_two(self.func, *b) {
+                            return Err(LowerError::RemainderNotInDomain {
+                                inst: id,
+                                found: self.func.repr_of(*a),
+                            });
+                        }
+                        let q = builder.ins().fdiv(x, y);
+                        let t = builder.ins().trunc(q);
+                        let p = builder.ins().fmul(t, y);
+                        let r = builder.ins().fsub(x, p);
+                        builder.ins().fcopysign(r, x)
                     }
                 }
             }

@@ -1,13 +1,17 @@
-//! What a remainder is admitted to be, and what it is refused for.
+﻿//! What a remainder is admitted to be, and what it is refused for.
 //!
-//! `NumOp::Rem` is the first operator in this crate admitted **per domain**
-//! rather than outright, and every claim that asymmetry rests on is pinned
-//! here. Three of the four tests are refusals, which is the proportion the
-//! design implies: the instruction is total for one shape of operand and
-//! partial for the rest, and the partial cases are the ones a wrong answer
-//! would ship silently.
+//! `NumOp::Rem` is the first operator in this crate admitted **conditionally**
+//! rather than outright, and every claim that rests on is pinned here. The
+//! condition is finer than a domain: in the integer domain it is a divisor that
+//! cannot make `srem` trap, and in the float domain it is a divisor that makes
+//! the algebraic sequence exact. Both are questions about the divisor's VALUE,
+//! which is why neither can be settled by a representation.
 //!
-//! The refusals are asserted at all THREE layers on purpose — builder,
+//! Most of the tests are refusals, which is the proportion the design implies:
+//! the instruction is exact for a narrow shape of divisor and wrong for the
+//! rest, and the wrong cases are the ones that would ship silently.
+//!
+//! The refusals are asserted at all THREE layers on purpose â€” builder,
 //! verifier, lowering. Rule 7 asks for the builder and the verifier both,
 //! because the builder reports the mistake where it was made and the verifier
 //! catches a representation that never went through the builder. Lowering is
@@ -96,7 +100,7 @@ fn an_integer_remainder_by_a_settled_divisor_is_one_instruction() {
 }
 
 #[test]
-fn a_float_remainder_is_refused_because_no_exact_form_exists() {
+fn a_float_remainder_by_an_arbitrary_divisor_is_refused() {
     let types = TypeRegistry::new();
     let mut func = function(&[Repr::F64, Repr::F64], &[Repr::F64]);
     let (x, y) = (param(&func, 0), param(&func, 1));
@@ -105,23 +109,97 @@ fn a_float_remainder_is_refused_because_no_exact_form_exists() {
     let mut b = FuncBuilder::new(&mut func, &types, entry);
 
     match b.arith(NumOp::Rem, x, y) {
-        Err(BuildError::UnsafeRemainder {
-            found,
-            domain_admits,
-        }) => {
-            assert_eq!(found, Repr::F64);
-            assert!(
-                !domain_admits,
-                "the float domain does not admit a remainder at all — the refusal is \
-                 about the domain, not about this pair of operands"
-            );
-        }
+        Err(BuildError::UnsafeRemainder { found }) => assert_eq!(found, Repr::F64),
         other => panic!(
-            "a float remainder must be refused: IEEE remainder is a library call, and \
-             `a - trunc(a / b) * b` stops being exact once the quotient passes 2^53. \
-             Got {other:?}"
+            "a float remainder by a divisor nothing settled must be refused: IEEE \
+             remainder is a library call, and `a - trunc(a / b) * b` stops being exact \
+             once the quotient passes 2^53. Got {other:?}"
         ),
     }
+}
+
+/// Builds `x % <constant>` in the float domain and answers what the builder said.
+fn float_remainder_by(constant: f64) -> Result<cranelift_codegen::ir::Function, BuildError> {
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::F64], &[Repr::F64]);
+    let x = param(&func, 0);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let divisor = b.declare_const(ConstDecl::Scalar {
+        repr: Repr::F64,
+        bits: ScalarBits(constant.to_bits()),
+    });
+    let divisor = b.use_const(divisor);
+    let rest = b.arith(NumOp::Rem, x, divisor)?;
+    b.ret(&[rest]);
+    Ok(lower_and_verify(&func))
+}
+
+#[test]
+fn a_float_remainder_by_a_power_of_two_is_instructions_and_not_a_call() {
+    // The one divisor shape where the identity IS exact: dividing by 2^k
+    // adjusts an exponent and rounds nothing, so no step of the sequence can
+    // lose a bit at any magnitude.
+    //
+    // `4294967296` is not a decorative choice â€” it is the modulus every 32-bit
+    // LCG and every `x % 2^32` mask is written with, and it is what made this
+    // worth doing.
+    let lowered = float_remainder_by(4294967296.0).expect("a power of two is exact");
+
+    assert_eq!(
+        count(&lowered, "call"),
+        0,
+        "the whole point: `% 2^k` stops being a call into the runtime"
+    );
+    for (opcode, why) in [
+        ("fdiv", "the quotient, exact because the divisor is a power of two"),
+        ("trunc", "toward zero, which is what the language's remainder means"),
+        ("fmul", "back to the multiple of the divisor below the dividend"),
+        ("fsub", "the remainder itself"),
+        (
+            "fcopysign",
+            "the sign of a ZERO result, which the algebra loses: `-8 % 4` is `-0`",
+        ),
+    ] {
+        assert_eq!(count(&lowered, opcode), 1, "{opcode}: {why}");
+    }
+}
+
+#[test]
+fn the_float_divisors_that_are_not_powers_of_two_stay_refused() {
+    for (divisor, why) in [
+        (3.0, "not a power of two at all"),
+        (
+            0.5,
+            "a power of two BELOW one â€” `a / b` can overflow, and the sequence \
+             would answer infinity where the true remainder is zero",
+        ),
+        (0.0, "no exact form, and the language answers NaN"),
+        (f64::INFINITY, "not finite"),
+        (f64::NAN, "not finite"),
+        (
+            4294967297.0,
+            "one past a power of two, which is the case a sloppy bit test would let through",
+        ),
+    ] {
+        assert!(
+            matches!(
+                float_remainder_by(divisor),
+                Err(BuildError::UnsafeRemainder { .. })
+            ),
+            "{divisor} must be refused: {why}"
+        );
+    }
+}
+
+#[test]
+fn a_negative_power_of_two_divisor_is_admitted_because_the_sign_is_the_dividends() {
+    // `x % -4` and `x % 4` differ in nothing: the language gives the result the
+    // sign of the DIVIDEND. So the divisor's sign is irrelevant to exactness,
+    // and excluding it would refuse a case the sequence answers correctly.
+    let lowered = float_remainder_by(-4.0).expect("the divisor's sign does not affect exactness");
+    assert_eq!(count(&lowered, "call"), 0);
+    assert_eq!(count(&lowered, "trunc"), 1);
 }
 
 #[test]
@@ -134,17 +212,7 @@ fn an_integer_remainder_by_an_unsettled_divisor_is_refused() {
     let mut b = FuncBuilder::new(&mut func, &types, entry);
 
     match b.arith(NumOp::Rem, x, y) {
-        Err(BuildError::UnsafeRemainder {
-            found,
-            domain_admits,
-        }) => {
-            assert_eq!(found, Repr::I64);
-            assert!(
-                domain_admits,
-                "the integer domain does admit a remainder — what is unsettled here is \
-                 the divisor, which is a parameter and could be 0 or -1"
-            );
-        }
+        Err(BuildError::UnsafeRemainder { found }) => assert_eq!(found, Repr::I64),
         other => panic!(
             "`srem` traps on a zero divisor and on INT_MIN % -1, and a parameter could be \
              either. The language above answers NaN for the first and 0 for the second, so \
@@ -213,7 +281,7 @@ fn the_verifier_refuses_a_trapping_remainder_the_builder_never_saw() {
 #[test]
 fn lowering_refuses_a_float_remainder_rather_than_approximating_one() {
     // The third layer. Reaching it means the program was not verified, and the
-    // claim being pinned is that lowering still does not invent an answer —
+    // claim being pinned is that lowering still does not invent an answer â€”
     // there is no inexact identity emitted here as a convenience.
     let types = TypeRegistry::new();
     let mut func = function(&[Repr::F64, Repr::F64], &[Repr::F64]);
@@ -230,7 +298,7 @@ fn lowering_refuses_a_float_remainder_rather_than_approximating_one() {
             assert_eq!(found, Repr::F64);
         }
         other => panic!(
-            "lowering does not approximate — that is this crate's stated discipline, and a \
+            "lowering does not approximate â€” that is this crate's stated discipline, and a \
              float remainder is exactly where approximating would be tempting. Got {other:?}"
         ),
     }

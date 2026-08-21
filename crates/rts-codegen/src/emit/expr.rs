@@ -878,11 +878,24 @@ fn emit_binary_inner(
             // approximation of it: NaN !== NaN and +0 === -0 are what the
             // hardware comparison already answers.
             Some(Proven::Compare(cmp)) => return Ok(builder.compare(cmp, a, b)?),
-            // Still a call, and the operands go in unboxed exactly as they are.
-            // No `tagged` on either side and none on the answer: the signature
-            // declares `F64` in both positions, which is the whole difference
-            // from the generic row.
-            Some(Proven::NumberCall(op)) => return Ok(call(builder, ctx, op, &[a, b])?[0]),
+            // The machine FIRST, and the call only where it refuses. `%` by a
+            // power of two has an exact instruction sequence and the machine
+            // knows which divisors qualify — asking it rather than deciding
+            // here is rule 2: the language layer does not answer a machine
+            // question, and "is this divisor one my instructions can take" is
+            // squarely one.
+            //
+            // Measured 2026-08-20: the divisor is a power of two in the shapes
+            // that matter — a mask, a hash, an LCG — and LLVM performs this
+            // same reduction, which is why the native floor for
+            // bench/monte_carlo_pi.ts is 104 ms with the divisor visible and
+            // 218 ms with it hidden behind a `black_box`.
+            Some(Proven::NumberCall(op)) => {
+                return match builder.arith(NumOp::Rem, a, b) {
+                    Ok(instruction) => Ok(instruction),
+                    Err(_) => Ok(call(builder, ctx, op, &[a, b])?[0]),
+                };
+            }
             None => {}
         }
     }
@@ -1586,11 +1599,15 @@ fn emit_guarded(
             let bits = builder.bitwise(bit, left, right)?;
             builder.to_f64(bits)?
         }
-        // The guards narrowed both operands to `F64`, which is exactly what
-        // this entry's signature asks for. It is still a call on this path —
-        // but so is the slow path below, and this one skips the coercion, the
-        // bigint branch and the thrown-value check that one pays.
-        Proven::NumberCall(op) => call(builder, ctx, op, &[left, right])?[0],
+        // The guards narrowed both operands to `F64`, so the same question the
+        // unguarded path asks is available here: the machine first, the call
+        // where it refuses. A guarded `%` whose divisor is a literal power of
+        // two — `h = (h * 31 + c) % 256` over an unproven `h` — takes the
+        // instruction on the fast path and the call on the slow one.
+        Proven::NumberCall(op) => match builder.arith(NumOp::Rem, left, right) {
+            Ok(instruction) => instruction,
+            Err(_) => call(builder, ctx, op, &[left, right])?[0],
+        },
     };
     // `builder.compare` já responde `Repr::Bool`; alargar aqui era jogar fora a
     // única prova que este bloco produziu.
