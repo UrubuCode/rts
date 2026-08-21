@@ -303,3 +303,27 @@ que esta arrumação existe para não fazer. Ponha `use super::lengths;` no pai:
 nome passa a existir e o corpo continua a dizer exactamente o que dizia. Uma
 linha no pai em vez de uma linha alterada no filho.
 
+### 7. A contagem de anotações mede a QUALIDADE do corte
+
+Não é só um custo a pagar no fim: **é um sinal sobre a fronteira, disponível
+antes de entregar.**
+
+Num passo, a primeira tentativa foram quatro ficheiros e o `cargo check` pediu
+**nove** anotações. A contagem dos consumidores mostrou que as nove tinham o
+mesmo ficheiro de um lado — ele continha dois `impl` que consumiam de vizinhos
+diferentes. **Não era uma folha entre dois vizinhos: era uma fronteira a passar
+pelo meio de duas coisas.** Refeito em três, com cada `impl` do lado de quem ele
+usa, ficaram sete e o ficheiro do meio deixou de existir.
+
+**Se um pedaço precisa de muitas anotações, provavelmente está do lado errado da
+fronteira.** Vale a pena refazer o corte antes de as escrever.
+
+O mesmo raciocínio, em números, decidiu duas fronteiras noutro refactor: manter
+as definições no pai custava **1 anotação contra ~15**, porque descer os tipos
+levava os campos todos atrás.
+
+E a regra irmã: **anotar o item errado inventa uma fronteira que não existe.**
+Num caso havia duas funções com o mesmo nome em `impl` diferentes e só uma era
+chamada de fora; a outra foi revertida a privada em vez de ficar aberta "já que
+estava lá".
+
