@@ -113,6 +113,18 @@ function cliente(ws) {
 /// que faz os dois ficheiros casarem elemento a elemento.
 const EXTRATOR = `(() => {
   const PROPS = ["display", "position", "color", "background-color", "font-size"];
+  const BLOCO = /^(block|list-item|flow-root|table-cell|table-caption)$/;
+  // Um bloco cujo conteudo e SO texto e inline: nenhum descendente com display
+  // de bloco. E a unica forma de a altura da caixa contar as linhas DESTE
+  // elemento, que e o que a medida do avanco por caractere precisa.
+  const ehBlocoDeTexto = (el, cs) => {
+    if (!BLOCO.test(cs.display)) return false;
+    for (const d of el.querySelectorAll("*")) {
+      const dd = getComputedStyle(d).display;
+      if (dd !== "none" && BLOCO.test(dd)) return false;
+    }
+    return true;
+  };
   const linhas = [];
   const falhas = [];
   const pilha = [[document.documentElement, "html[1]"]];
@@ -124,6 +136,25 @@ const EXTRATOR = `(() => {
       const o = { p: caminho, tag: el.tagName.toLowerCase(),
                   x: r.x, y: r.y, w: r.width, h: r.height };
       for (const k of PROPS) o[k] = cs.getPropertyValue(k);
+      // CAMPOS EXTRA, so onde a pergunta faz sentido: "quantos caracteres cabem
+      // numa linha desta largura". Isso pede um bloco cujo conteudo seja texto
+      // corrido e mais nada — se houver um bloco la dentro, a altura ja nao
+      // conta linhas deste. O criterio existe por custo: 'innerText' forca
+      // layout, e pedi-lo aos 16 814 elementos tornava a extracao lenta e o
+      // ficheiro maior sem responder a mais nada. Quantos elementos passam nao
+      // esta medido — o campo 'chars' no dump e que o diz.
+      //
+      // 'chars' e o texto RENDERIZADO (o 'innerText' colapsa o whitespace e
+      // ignora o que esta escondido), que e o que o motor tem de quebrar em
+      // linhas — nao o 'textContent', que conta indentacao do HTML e texto de
+      // elementos com display:none.
+      if (ehBlocoDeTexto(el, cs)) {
+        const t = el.innerText.replace(/\\s+/g, " ").trim();
+        if (t) {
+          o.chars = t.length;
+          o.lh = cs.getPropertyValue("line-height");
+        }
+      }
       linhas.push(JSON.stringify(o));
     } catch (e) {
       falhas.push(JSON.stringify({ p: caminho, erro: String(e && e.message || e) }));
