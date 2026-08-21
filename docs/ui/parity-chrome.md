@@ -437,3 +437,26 @@ quatro `<a>` dentro dos `<li>` recuperados, a errar 3 px de altura — casavam
 enquanto o pai não tinha caixa, e passam a existir com a altura ligeiramente
 errada.
 
+### O `font:inherit` está certo e não move esta página — medido (2026-08-21)
+
+O lote do `font:inherit` (`copy_property` sem entrada para o shorthand) foi
+medido contra a base do commit anterior e o resultado é **zero em todos os
+eixos, com os dois dumps idênticos byte a byte**. Nem ganhos nem perdidos: a
+página não sabe que a correção existe.
+
+A razão, e desmente a previsão com que o lote foi proposto: na folha real os
+`<h3>` já resolvem `font-size: 19,2px`, o mesmo que o Chrome, porque
+`.mw-body .mw-heading3 h3` declara **`font-size: inherit`** — o longhand, que já
+funcionava. O `font: inherit` da outra regra era redundante aqui.
+
+Os 21,90 contra 18,72 que motivaram o lote vinham de um caso sintético montado
+sem essa segunda regra. **Era a mesma armadilha do `inline-block`, na mesma
+tarde**: um número de laboratório usado para prever o efeito numa página onde a
+folha real tem mais uma regra a dizer o contrário.
+
+A correção fica, porque é de spec e tem testes: um `font: inherit` numa folha
+sem o longhand ao lado continua a não fazer nada, e isso é um defeito
+independentemente de esta página o exercitar. O que não fica é a afirmação de
+que era a segunda causa dos 51 cabeçalhos — a altura deles já casava dentro de
+tolerância antes deste lote.
+
