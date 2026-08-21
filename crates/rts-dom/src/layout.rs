@@ -6076,7 +6076,30 @@ fn collect_runs(
                     _ => inherited_deco,
                 };
                 let mut owners = inherited_owners.to_vec();
-                let is_container = is_inline_text_container(dom, id);
+                // Um `display:inline` DECLARADO é dono dos seus fragmentos,
+                // mesmo quando `is_block_level` o marcou para pintura de caixa.
+                //
+                // `is_inline_text_container` pergunta `!is_block_level`, e essa
+                // responde `true` a um inline que declare padding — porque
+                // alguém tem de pintar esse padding. Só que "precisa de ser
+                // pintado como caixa" não é "não é conteúdo de linha": o
+                // elemento continua a fluir, os filhos continuam a receber as
+                // suas caixas (é o que se mede: 223 descendentes certos), e o
+                // único que ficava de fora era ele.
+                //
+                // É a hlist do MediaWiki, e bastava `padding:0` para a disparar:
+                // `.hlist ul{padding:0}` faz `padding.any_set()` responder
+                // "declarado" — que não é "cria caixa". 28 `<ul>` da página
+                // ficavam sem retângulo à volta de conteúdo já desenhado.
+                //
+                // A alternativa era ensinar `any_set()` a ignorar o zero. Está
+                // errada aqui por duas razões: o segundo seletor que atinge
+                // estes mesmos `<ul>` declara `padding:0.125em 0`, que não é
+                // zero e continuaria a perdê-los; e `any_set()` é lida por quem
+                // decide pintura, onde "declarado" é a pergunta certa.
+                let is_container = is_inline_text_container(dom, id)
+                    || css.as_ref().and_then(|c| c.effective_display())
+                        == Some(crate::style::DisplayKind::Inline);
                 if is_container {
                     owners.push(id);
                 }
