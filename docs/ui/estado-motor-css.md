@@ -609,3 +609,47 @@ descendentes de bloco. Portanto a amostra de 277 é enviesada para parágrafos
 simples, e um `<span>` dentro de um `<a>` dentro de um `<li>` — que é o grosso
 dos 8 856 que erram — **não entra nela**. Alargar essa amostra é o passo que
 falta antes de qualquer nova hipótese.
+
+---
+
+## Estado ao fim de 2026-08-21
+
+Medido com o binário do `HEAD` desse dia, mesma página e mesmo `chrome.jsonl`.
+
+| | manhã | fim do dia |
+|---|---:|---:|
+| erro de LARGURA da página | 804 k px | **360 k** |
+| erro de `y` (todos os pares) | 215,8 M px | **30,8 M** |
+| elementos que NÃO dispomos | 342 | **30** |
+| — o erro deles | 20,9% | **0,14%** |
+| o erro que é do que SE VÊ | 42,5% | **91,5%** |
+| declarações CSS reconhecidas | 76,1% | **97,9%** |
+| corpus de medição | 4 folhas | **13 folhas reais** |
+| testes do `rts-dom` | 376 | **565** |
+
+**A linha que mais interessa é a do meio.** De manhã, mais de metade do número
+era invisível — elementos sem área ou que não dispúnhamos, e cujo `y` a régua
+lia como zero. Hoje são 8,5%. **O número passou a medir sobretudo coisas que
+aparecem no ecrã**, que era o objetivo da régua nova.
+
+### O que se DESENHA está fechado
+
+    marcadores de lista   787 contra 787   — em falta 0, a mais 0
+    caracteres em falta   24 (18 `·` + 6 aspas)
+    caracteres a mais     73
+    sobre 153 124 do Chrome: 0,0% dos dois lados
+
+A quarta régua (`scripts/parity/regua_desenho.mjs`) mede isto, e nasceu porque
+as outras três só viam caixas: um marcador no sítio errado não move caixa
+nenhuma, e texto que falta ou sobra também não.
+
+### O que falta, com causa nomeada
+
+1. **A repartição de largura entre COLUNAS de tabela.** 70 px numa célula
+   propagam-se e produzem 545 px de deslocamento visível numa lista a jusante.
+   Sinal MISTO — 207 células largas demais contra 132 estreitas demais, em pares
+   na mesma linha —, portanto mede-se por par e nunca por soma.
+2. **O erro de POSIÇÃO dos elementos inline**, 1,2 M px, **sem causa** depois de
+   quatro hipóteses eliminadas (ver a secção própria).
+3. Pequenos e medidos: 24 caracteres (`·` e aspas), 5 px de reserva entre um
+   `ul` e um `li` inline, `opacity:0` num ancestral não tratado.
