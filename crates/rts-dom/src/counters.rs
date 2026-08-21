@@ -310,6 +310,117 @@ pub fn texto(snapshot: Option<&Snapshot>, nome: &str, estilo: ListStyleType) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Os textos PINTADOS de uma página — o helper vive no `pseudo.rs` porque
+    // é lá que a caixa gerada se resolve, e é reusado aqui em vez de copiado.
+    // Os testes ponta a ponta dos contadores pertencem a este lado: o que eles
+    // provam é a contagem, e é a contagem que mora neste ficheiro.
+    use crate::pseudo::tests::textos;
+
+    #[test]
+    fn counter_reset_e_increment_numeram_as_caixas_geradas() {
+        // O caso mínimo: um contador criado no contentor, incrementado em cada
+        // filho, impresso pelo `::before` desse filho. É o que faz `1 2 3` — e
+        // repare-se que o `counter-increment` está no ELEMENTO enquanto o
+        // `counter()` está no pseudo dele.
+        let t = textos(
+            "<style>ul{counter-reset:n} li{counter-increment:n} \
+             li::before{content:counter(n) \". \"}</style>\
+             <ul><li>a</li><li>b</li><li>c</li></ul>",
+        );
+        let numeros: Vec<&String> = t.iter().filter(|s| s.contains('.')).collect();
+        assert_eq!(
+            numeros,
+            // o espaço final do `content` é colapsado pelo fluxo inline, como
+            // no browser — o que se fixa aqui é o NÚMERO, não o espaçamento.
+            vec!["1.", "2.", "3."],
+            "os três itens numeram em ordem documental: {t:?}"
+        );
+    }
+
+    #[test]
+    fn o_reset_reinicia_a_contagem_em_cada_lista() {
+        // A prova de que o escopo do `counter-reset` existe: duas listas
+        // irmãs contam 1,2 cada uma, e não 1,2,3,4. Sem escopo (um contador
+        // global por nome) a segunda começaria no 3.
+        let t = textos(
+            "<style>ul{counter-reset:n} li{counter-increment:n} \
+             li::before{content:counter(n)}</style>\
+             <ul><li>a</li><li>b</li></ul><ul><li>c</li><li>d</li></ul>",
+        );
+        let n: Vec<String> = t
+            .iter()
+            .filter(|s| s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty())
+            .cloned()
+            .collect();
+        assert_eq!(n, vec!["1", "2", "1", "2"], "{t:?}");
+    }
+
+    #[test]
+    fn o_retrolink_de_citacao_multipla_da_a_b_c_como_na_wikipedia() {
+        // O CASO REAL, com o markup e as regras que a folha da Wikipédia usa —
+        // e o que estava a faltar: 152 letras isoladas que o Chrome pinta e nós
+        // não. O `counter-increment` está no PRÓPRIO `::before`, o que obriga a
+        // que as operações de um pseudo-elemento contem, e o `counter-reset`
+        // está no `<span>` que os envolve, o que obriga a que o escopo do
+        // pseudo (um filho) não vaze para o irmão seguinte errado.
+        let t = textos(
+            "<style>span[rel='mw:referencedBy']{counter-reset:mw-ref-linkback 0} \
+             span[rel='mw:referencedBy'] > a::before\
+             {counter-increment:mw-ref-linkback;content:counter(mw-ref-linkback,lower-alpha)}\
+             </style>\
+             <span rel='mw:referencedBy'><a></a><a></a><a></a></span>",
+        );
+        assert_eq!(t, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn a_regra_com_var_no_estilo_do_counter_perde_sem_apagar_a_que_ganha() {
+        // As TRÊS regras de retrolink da folha da Wikipédia, verbatim e na ordem
+        // do ficheiro. As duas primeiras não são cumpríveis aqui (o estilo vem
+        // dentro de `var()`, que só resolve por elemento) e a terceira é a que o
+        // Chrome também aplica, por ser a última de igual especificidade.
+        //
+        // O que este teste protege é a ORDEM em que se descarta: uma regra
+        // recusada não pode apagar o `content` de outra, e uma recusada DEPOIS
+        // não pode apagar o da que já tinha ganho. Sem isso, a folha real dava
+        // caixa nenhuma apesar de o mecanismo de contadores funcionar — que é o
+        // modo de falha mais caro, porque o teste sintético passa.
+        let t = textos(
+            "<style>\
+             span[rel='mw:referencedBy']{counter-reset:mw-ref-linkback 0}\
+             span[rel='mw:referencedBy'] > a::before{content:counter(mw-references,var(--cite-counter-style)) var(--cite-backlink-separator) counter(mw-ref-linkback,var(--cite-counter-style))}\
+             span[rel='mw:referencedBy'] > a::before{counter-increment:mw-ref-linkback}\
+             span[rel=\"mw:referencedBy\"] > a::before{font-weight:bold;font-style:italic;content:counter(mw-ref-linkback,lower-alpha)}\
+             </style>\
+             <span rel='mw:referencedBy'><a></a><a></a></span>",
+        );
+        assert_eq!(t, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn um_contador_que_ninguem_criou_vale_zero_e_nao_apaga_os_literais() {
+        // A spec manda o zero implícito da raiz. O que aqui se fixa é a segunda
+        // metade: os literais à volta sobrevivem. Devolver vazio faria o `[` e o
+        // `]` desaparecerem com o número.
+        let t = textos("<style>p::before{content:'[' counter(x) ']'}</style><p>oi</p>");
+        assert_eq!(t[0], "[0]");
+    }
+
+    #[test]
+    fn o_contador_do_ancestral_e_visivel_ao_pseudo_de_um_descendente() {
+        // O outro contador dos retrolinks: `mw-references` é incrementado no
+        // `<li>` e lido pelo `::before` de um `<a>` lá dentro, dois níveis
+        // abaixo. Uma varredura de IRMÃOS — que é como o `listitem.rs` numera —
+        // não responderia isto, e é a razão de este módulo existir.
+        let t = textos(
+            "<style>ol{counter-reset:r} li{counter-increment:r} \
+             li a::before{content:counter(r)}</style>\
+             <ol><li><span><a>x</a></span></li><li><span><a>y</a></span></li></ol>",
+        );
+        assert!(t.contains(&"1x".to_string()), "{t:?}");
+        assert!(t.contains(&"2y".to_string()), "{t:?}");
+    }
+
 
     #[test]
     fn a_lista_de_reset_leva_o_numero_do_nome_que_o_precede() {
