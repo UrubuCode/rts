@@ -138,12 +138,28 @@ pub fn apply_side_shorthand(css: &mut ComputedStyle, side: SideName, val: &str) 
 /// Largura de borda de um token: `thin`/`medium`/`thick` (os valores do Chrome:
 /// 1/3/5 px) ou um comprimento absoluto.
 pub fn parse_width_token(tok: &str) -> Option<f32> {
-    match tok.to_ascii_lowercase().as_str() {
-        "thin" => Some(1.0),
-        "medium" => Some(3.0),
-        "thick" => Some(5.0),
-        _ => super::lengths::parse_len_pub(tok),
+    let low = tok.trim().to_ascii_lowercase();
+    match low.as_str() {
+        "thin" => return Some(1.0),
+        "medium" => return Some(3.0),
+        "thick" => return Some(5.0),
+        _ => {}
     }
+    // ZERO é uma largura válida, e o `parse_len` recusa-a: o `parse_px` filtra
+    // `> 0`, portanto `border-width: 0` e `border-top-width: 0px` devolviam
+    // `None` e a declaração caía — o lado ficava `Unset` e herdava a borda
+    // uniforme, dando largura a um lado que o autor mandou apagar. É o mesmo
+    // defeito do shorthand multi-valor e da mesma origem, e aparece em toda
+    // forma `0 200px 100px 0`, que é como se escreve um triângulo.
+    //
+    // A correção fica AQUI e não no `parse_px`: aquele serve `width`/`height`,
+    // onde o filtro `> 0` distingue "não declarado" de "zero" para outros
+    // consumidores. Mudá-lo seria consertar uma borda e mexer no box model todo.
+    let num = low.trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%').trim();
+    if num.parse::<f32>().map(|n| n == 0.0).unwrap_or(false) {
+        return Some(0.0);
+    }
+    super::lengths::parse_len_pub(&low)
 }
 
 /// `true` se o nome é uma longhand de borda POR LADO
@@ -281,4 +297,94 @@ pub fn has_per_side(css: &ComputedStyle) -> bool {
         || css.border_right_color.is_some()
         || css.border_bottom_color.is_some()
         || css.border_left_color.is_some()
+}
+
+// ── Os shorthands de CAIXA: `border-width`, `border-style`, `border-color` ────
+
+/// Reparte 1 a 4 valores pelos quatro lados, na regra dos shorthands de caixa:
+/// 1 = todos; 2 = vertical / horizontal; 3 = topo / horizontal / baixo;
+/// 4 = topo / direita / baixo / esquerda. `None` se não há valores ou há mais
+/// de quatro (valor malformado — nada é escrito).
+///
+/// **Não é a regra dos cantos de raio**, que copiam a DIAGONAL — ver
+/// `style::radius`. As duas formas parecem-se e a diferença é silenciosa, por
+/// isso vivem em módulos separados com a regra escrita em cada um.
+fn quatro_lados(val: &str) -> Option<([String; 4], bool)> {
+    let t = super::lengths::split_top_ws(val);
+    let g = |i: usize| t[i].clone();
+    let lados = match t.len() {
+        1 => [g(0), g(0), g(0), g(0)],
+        2 => [g(0), g(1), g(0), g(1)],
+        3 => [g(0), g(1), g(2), g(1)],
+        4 => [g(0), g(1), g(2), g(3)],
+        _ => return None,
+    };
+    // O segundo membro diz se houve UM valor só — e portanto se o campo
+    // UNIFORME também deve ser escrito. Vem daqui em vez de ser recontado por
+    // quem chama: dois sítios a repartir o mesmo valor são dois sítios para
+    // discordarem sobre quantos valores ele tinha.
+    Some((lados, t.len() == 1))
+}
+
+/// A ordem em que `quatro_lados` devolve os lados.
+const ORDEM: [SideName; 4] = [SideName::Top, SideName::Right, SideName::Bottom, SideName::Left];
+
+/// `border-width: <1 a 4 larguras>`.
+///
+/// ## Porque isto existe: uma declaração de quatro valores era DESCARTADA
+///
+/// O braço do parse fazia `css.border_width = parse_len(val)`, e o `parse_len`
+/// lê UM comprimento — `border-width: 100px 0 0 159154.92px` devolvia `None` e a
+/// declaração caía inteira, em silêncio. Não é um caso de borda: é como se
+/// desenha um TRIÂNGULO em CSS (conteúdo 0x0, três lados a zero e um enorme, a
+/// caixa É a borda), e o gráfico de setores da Wikipédia faz isso. Medido: 201
+/// 954 px, **24,9% de todo o erro de largura da página**, em 36 elementos.
+///
+/// O consumidor por lado já estava certo ([`used_widths`]) — só nunca recebia os
+/// valores.
+///
+/// O campo UNIFORME (`border_width`) continua a ser escrito no caso de UM valor,
+/// que é o que ele sempre significou; com dois ou mais não há largura uniforme
+/// que o descreva, e escrever lá uma das quatro seria dar uma resposta errada a
+/// quem lê o campo em vez de nenhuma.
+pub fn apply_width_shorthand(css: &mut ComputedStyle, val: &str) {
+    let Some((v, uniforme)) = quatro_lados(val) else { return };
+    for (i, lado) in ORDEM.into_iter().enumerate() {
+        set_side_width(css, lado, parse_width_token(&v[i]));
+    }
+    if uniforme {
+        css.border_width = parse_width_token(&v[0]);
+    }
+}
+
+/// `border-style: <1 a 4 estilos>` — a mesma repartição, o mesmo motivo.
+///
+/// Vale por si mesmo e não só por simetria: um triângulo com as quatro larguras
+/// certas e sem estilo continua invisível E sem ocupar espaço, porque
+/// [`used_widths`] zera a largura de um lado que não pinta. Corrigir a largura
+/// sem corrigir o estilo não teria movido nada.
+pub fn apply_style_shorthand(css: &mut ComputedStyle, val: &str) {
+    let Some((v, uniforme)) = quatro_lados(val) else { return };
+    for (i, lado) in ORDEM.into_iter().enumerate() {
+        set_side_style(css, lado, BorderStyle::parse(&v[i]));
+    }
+    if uniforme {
+        css.border_style = BorderStyle::parse(&v[0]);
+    }
+}
+
+/// `border-color: <1 a 4 cores>` — idem.
+///
+/// ⚠️ Uma cor pode ter ESPAÇOS dentro (`rgb(0, 0, 0)` quando escrita com
+/// espaços, `rgb(0 0 0)`), e é por isso que a repartição usa o `split_top_ws`,
+/// que respeita parênteses: um `split_whitespace` transformaria uma cor em três
+/// lados.
+pub fn apply_color_shorthand(css: &mut ComputedStyle, val: &str) {
+    let Some((v, uniforme)) = quatro_lados(val) else { return };
+    for (i, lado) in ORDEM.into_iter().enumerate() {
+        set_side_color(css, lado, super::color::parse_color(&v[i]));
+    }
+    if uniforme {
+        css.border_color = super::color::parse_color(&v[0]);
+    }
 }

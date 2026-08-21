@@ -271,9 +271,9 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
             // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
             "border" => apply_border_shorthand(css, val),
-            "border-width" => css.border_width = parse_len(val),
-            "border-style" => css.border_style = BorderStyle::parse(val),
-            "border-color" => css.border_color = parse_color(val),
+            "border-width" => crate::style::borders::apply_width_shorthand(css, val),
+            "border-style" => crate::style::borders::apply_style_shorthand(css, val),
+            "border-color" => crate::style::borders::apply_color_shorthand(css, val),
             // O campo UNICO continua a responder o que sempre respondeu (quem o
             // le nao pode mudar de resposta por causa dos cantos); os quatro
             // cantos sao escritos por cima, sem lhe tocar. Ver `style::radius`.

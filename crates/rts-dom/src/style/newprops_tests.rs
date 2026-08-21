@@ -903,3 +903,75 @@ fn svg_e_contadores_sao_recusa_e_nao_lista_de_afazeres() {
     // e o que está ADIADO continua do lado das desconhecidas, de propósito.
     assert!(!is_inert("filter") && !is_inert("mask-size") && !is_inert("clip-path"));
 }
+
+// ── Os shorthands de caixa da borda (ver `style::borders`) ───────────────────
+
+#[test]
+fn border_width_de_quatro_valores_chega_aos_quatro_lados() {
+    // O defeito: o braço fazia `parse_len(val)`, que lê UM comprimento — quatro
+    // valores devolviam `None` e a declaração caía inteira, em silêncio.
+    let s = parse_inline("border-style: solid; border-width: 1px 2px 3px 4px");
+    assert_eq!(crate::style::borders::used_widths(&s), [1.0, 2.0, 3.0, 4.0]);
+}
+
+#[test]
+fn border_width_reparte_como_shorthand_de_caixa_e_nao_como_canto() {
+    // 2 valores = vertical / horizontal; 3 = topo / horizontal / baixo. É a regra
+    // da CAIXA — os cantos de `border-radius` copiam a DIAGONAL, e as duas formas
+    // parecem-se o suficiente para se trocarem sem ninguém notar.
+    let dois = parse_inline("border-style: solid; border-width: 5px 10px");
+    assert_eq!(crate::style::borders::used_widths(&dois), [5.0, 10.0, 5.0, 10.0]);
+    let tres = parse_inline("border-style: solid; border-width: 1px 2px 3px");
+    assert_eq!(crate::style::borders::used_widths(&tres), [1.0, 2.0, 3.0, 2.0]);
+    // e um valor só continua a escrever o campo UNIFORME, como sempre escreveu.
+    let um = parse_inline("border-width: 7px");
+    assert_eq!(um.border_width, Some(7.0));
+}
+
+#[test]
+fn border_style_e_color_multivalor_tambem_chegam_aos_lados() {
+    // Não é simetria: um triângulo com as larguras certas e sem estilo continua
+    // invisível E sem ocupar espaço, porque `used_widths` zera o lado que não
+    // pinta. Corrigir só a largura não teria movido nada.
+    let s = parse_inline("border-width: 10px; border-style: solid none solid none");
+    assert_eq!(crate::style::borders::used_widths(&s), [10.0, 0.0, 10.0, 0.0]);
+    let c = parse_inline("border-color: #ff0000 #00ff00");
+    assert_eq!(c.border_top_color, Some(0xFF0000FF));
+    assert_eq!(c.border_right_color, Some(0x00FF00FF));
+    assert_eq!(c.border_bottom_color, Some(0xFF0000FF));
+    // uma cor com ESPAÇOS dentro é UM valor, não três lados.
+    let rgb = parse_inline("border-color: rgb(1, 2, 3)");
+    assert_eq!(rgb.border_color, Some(0x010203FF));
+}
+
+#[test]
+fn triangulo_de_css_tem_o_tamanho_da_borda() {
+    // A forma que motivou isto: conteúdo 0x0, três lados a zero e um enorme — a
+    // caixa É a borda. É como a Wikipédia desenha um gráfico de setores, e a
+    // declaração inteira era descartada: 24,9% de todo o erro de largura da
+    // página em 36 elementos.
+    let s = parse_inline("width:0;height:0;border-style:solid;border-width:100px 0 0 200px");
+    assert_eq!(crate::style::borders::used_widths(&s), [100.0, 0.0, 0.0, 200.0]);
+    // e o box model soma-as: a caixa mede 200x100 com conteúdo nenhum.
+    let html = "<div style='background:#eee'>\
+                <div style='width:0;height:0;border-style:solid;border-width:100px 0 0 200px'></div>\
+                </div>";
+    let pai = first_solid(&layout(html, 1280.0)).expect("o pai pinta").0;
+    assert_eq!(pai.h, 100.0, "a altura do pai é a borda do triângulo");
+}
+
+#[test]
+fn largura_zero_e_uma_largura_declarada_e_nao_uma_ausencia() {
+    // Segundo defeito da mesma zona, encontrado a verificar o primeiro: o
+    // `parse_px` filtra `> 0`, portanto `border-width: 0` devolvia `None` e a
+    // declaração caía. O lado ficava por declarar e HERDAVA a borda uniforme —
+    // dando largura a um lado que o autor mandou apagar.
+    let s = parse_inline("border: 5px solid; border-top-width: 0");
+    assert_eq!(crate::style::borders::used_widths(&s)[0], 0.0, "o topo foi apagado");
+    assert_eq!(crate::style::borders::used_widths(&s)[2], 5.0, "o resto fica");
+    // e no shorthand, que é onde a forma do triângulo o traz.
+    let t = parse_inline("border: 5px solid; border-width: 0 200px 100px 0");
+    assert_eq!(crate::style::borders::used_widths(&t), [0.0, 200.0, 100.0, 0.0]);
+    // os keywords também: `parse_len` não os conhecia e caíam do mesmo modo.
+    assert_eq!(parse_inline("border-width: thick").border_width, Some(5.0));
+}
