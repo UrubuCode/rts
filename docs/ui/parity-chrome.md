@@ -351,3 +351,37 @@ E o erro total sobre os quatro eixos SUBIU 923 px em 30,87 milhões — 0,003%.
 Caixas mudaram de sítio, algumas ligeiramente para pior em `y`, e nenhuma que
 casava deixou de casar. É a razão de a régua ser a lista por elemento e não a
 soma: a soma teria dito "piorou".
+
+## As imagens fecham a largura, e a altura fica com uma divergência escrita (2026-08-21)
+
+Três lotes, cada um medido contra o anterior por elemento, mesma entrada e mesmo
+dump do Chrome.
+
+| lote | imagens que casam em `w` | soma do erro em `w` | perdidos |
+|---|---|---|---|
+| antes de tudo | 72 / 110 | 1 213 px | — |
+| não cortar pela largura do contentor | 77 / 110 | 330 px | **0** |
+| base da percentagem sem a margem própria | 77 / 110 | 186 px | **0** |
+| `auto` ≠ ausente, borda na caixa, razão dos atributos | **107 / 110** | **124 px** | **1** |
+
+As 30 imagens de `figure` que erravam 8 px passam todas a casar, e com elas os
+dois níveis de invólucro: 44 ganhos na página inteira, 30 `<img>`, 7 `<span>`,
+7 `<a>`. Na altura, 15 ganhos.
+
+**O único perdido, e porque entra assim mesmo.** Uma ligação de texto num
+parágrafo da mesma secção: 191x18 antes, 640x44 agora, contra 197x17 no Chrome.
+Não passou a ter uma geometria errada por uma regra nova — **re-quebrou**,
+porque a imagem ao lado ganhou os 2 px de borda que lhe faltavam e o parágrafo
+tem uma linha a mais. A quebra de linha desta página ainda assenta em métricas
+aproximadas, e um vizinho a ficar CERTO desloca quem estava certo por acidente.
+Um perdido contra 44 ganhos, com a causa medida e não deduzida.
+
+**A altura das miniaturas fica divergente por decisão.** Damos 169 onde o Chrome
+dá 252, e os 169 são os 167 da razão dos atributos mais as duas bordas. O 252 é
+o Chrome a cair num quadrado porque a imagem nunca carregou — o harness é
+offline. As três respostas defensáveis medem todas PIOR contra ele: 0 se se
+descartar o atributo sem o substituir, 150 pela CSS Images §5.3, 169 pela razão.
+Quando toda a resposta certa mede pior que a errada, o que está a ser medido não
+é o motor. A divergência está fixada num teste com o porquê escrito, e a
+condição que a desbloqueia é o harness carregar as imagens.
+
