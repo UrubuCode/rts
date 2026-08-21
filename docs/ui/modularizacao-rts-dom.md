@@ -327,3 +327,50 @@ Num caso havia duas funções com o mesmo nome em `impl` diferentes e só uma er
 chamada de fora; a outra foi revertida a privada em vez de ficar aberta "já que
 estava lá".
 
+### 8. Auditar um instrumento PELO COMPLEMENTO
+
+A pergunta certa a fazer a um scanner não é *"ele apanha X?"* — é:
+
+> **quais linhas o instrumento NÃO apanha?**
+
+Um scanner de itens de topo foi auditado assim: *quais linhas começam em coluna
+0 e não casam com o padrão?* Resposta: nenhuma. **Isso audita o instrumento sem
+depender do instrumento**, e é o único método que encontra o que não se sabe que
+se procura.
+
+As três cegueiras deste refactor sobreviveriam todas à pergunta direta: o
+contador que não via `pub(crate) fn`, o chunker que não vê um `const`, o
+verificador que contava elementos onde devia contar linhas. **Nenhuma sobrevive
+à pergunta pelo complemento.** Confirmar pelo padrão confirma o padrão.
+
+E a inversa vale como aviso: os cinco `macro_rules!` do `layout.rs` estão
+indentados dentro de funções e **fecham com `    }` a quatro espaços**. Um
+chunker de `    }` fecharia blocos falsos **no meio de uma função** — e onde os
+blocos são corpos de função, uma fronteira falsa não dá erro de compilação.
+
+### A regra 7, refinada: zero anotações não prova nada
+
+Muitas anotações denunciam um corte errado **quando aparecem por a fronteira
+atravessar algo que devia ficar inteiro**.
+
+**A recíproca é falsa.** Num caso, a alternativa a três anotações era juntar
+aritmética de matrizes com criação de texturas de GPU num ficheiro só: zero
+anotações, porque **a fronteira não existia**. Tudo no mesmo ficheiro nunca
+precisa de alcance.
+
+Três anotações para separar dois assuntos distintos são um preço; zero para os
+manter juntos é um custo disfarçado de poupança.
+
+### Onde a rede é fina, o corte é pequeno
+
+Nem todos os crates têm régua. O `rts-egui` tem **seis testes em 5 528 linhas**,
+cinco deles de aritmética de matrizes num só ficheiro — um "6 → 6" prova quase
+só que compila, e não há dump de página que cubra a pintura.
+
+Aí a reconstrução deixa de ser confirmação e passa a ser **a prova principal**,
+e entre um corte mais limpo e um corte mais pequeno escolhe-se o **mais
+pequeno**: quanto menos se mexe, menos há para correr mal.
+
+E quem entrega tem de dizer isto à cabeça, para o "verde" não ser lido com o
+peso que teria noutro crate.
+
