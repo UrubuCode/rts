@@ -46,6 +46,11 @@ const VEREDICTOS = ["spec", "quirk", "por-apurar"];
 // precisava do `white-space` do `<pre>` — e nos dois casos o número de elementos
 // estava certo e era inalcançável. A diferença entre os dois últimos valores é a
 // diferença entre uma linha e um lote, e é por isso que são valores separados.
+// "executado" sem data diz que foi verdade UMA VEZ. Dois registos foram
+// obsoletados no mesmo dia por lotes do próprio autor que os escrevera — se um
+// registo envelhece entre dois lotes com horas de intervalo, a verificação é uma
+// memória e não uma propriedade. Exigida em qualquer registo executado.
+const DATA = /^20[0-9]{2}-[01][0-9]-[0-3][0-9]$/;
 const PRECONDICOES = ["nenhuma", "consumidor-nao-le", "consumidor-nao-existe"];
 
 const problemas = [];
@@ -68,6 +73,8 @@ for (const f of readdirSync(DIR).filter((x) => x.endsWith(".jsonl"))) {
     vistos.add(r.id);
     if (!ESTADOS.includes(r.nosso && r.nosso.estado)) problemas.push(f + ":" + n + " estado inválido: " + (r.nosso && r.nosso.estado));
     if (!VEREDICTOS.includes(r.veredicto)) problemas.push(f + ":" + n + " veredicto inválido: " + r.veredicto);
+    if (r.verificado === "executado" && !DATA.test(r.data || ""))
+      problemas.push(f + ":" + n + " executado sem data válida: " + (r.data || "(nenhuma)") + "   (" + r.id + ")");
     if (r.precondicao !== undefined && !PRECONDICOES.includes(r.precondicao))
       problemas.push(f + ":" + n + " precondicao inválida: " + r.precondicao);
     // Um registo `tem` com uma pré-condição por cumprir é a contradição que esta
@@ -182,7 +189,11 @@ console.log("  " + alvo.filter((r) => r.nosso.estado === "desconhecido").length 
 const executados = alvo.filter((r) => r.verificado === "executado").length;
 const pc = alvo.length ? (100 * executados / alvo.length).toFixed(0) : "0";
 console.log("  " + executados + " de " + alvo.length + " (" + pc + "%) foram EXECUTADOS;" +
-  " os outros afirmam o que o código PARECE fazer\n");
+  " os outros afirmam o que o código PARECE fazer");
+const datas = alvo.filter((r) => r.data).map((r) => r.data).sort();
+if (datas.length) console.log("  verificados entre " + datas[0] + " e " + datas[datas.length - 1] +
+  " — um registo envelhece quando o código muda e ninguém volta ao mapa\n");
+else console.log("");
 
 const comPre = alvo.filter((r) => r.precondicao);
 if (comPre.length) {

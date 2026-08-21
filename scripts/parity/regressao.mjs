@@ -73,6 +73,12 @@ const erro = (a, b) => Math.max(...EIXOS.map((e) => Math.abs(a[e] - b[e])));
 
 const ganhos = [], perdidos = [], sumiram = [], surgiram = [];
 let comuns = 0, casavamAntes = 0, casamAgora = 0, erroAntes = 0, erroAgora = 0;
+// A contagem e a magnitude respondem coisas diferentes, e um lote real
+// separou-as: 36 células removeram 4 622px de erro e 35 acrescentaram 703 —
+// empate em contagem, 6,6 para 1 em magnitude. Lido só pelo binário, o lote
+// parecia neutro e era uma redução de um quarto. Contagem diz QUANTOS;
+// magnitude diz QUANTO. Nenhuma das duas sozinha decide um lote.
+let nMelhor = 0, nPior = 0, pxRemovido = 0, pxAcrescentado = 0;
 
 for (const [p, c] of chrome) {
   if (!naFamilia(c)) continue;
@@ -86,6 +92,9 @@ for (const [p, c] of chrome) {
   const ka = ea <= TOL, kb = eb <= TOL;
   if (ka) casavamAntes++;
   if (kb) casamAgora++;
+  const d = eb - ea;
+  if (d < -0.01) { nMelhor++; pxRemovido -= d; }
+  else if (d > 0.01) { nPior++; pxAcrescentado += d; }
   if (!ka && kb) ganhos.push({ p, tag: c.tag, ea });
   if (ka && !kb) perdidos.push({ p, tag: c.tag, eb, c, b });
 }
@@ -99,7 +108,11 @@ console.log(`  ${comuns} elementos presentes nas duas medições e no Chrome`);
 if (sumiram.length) console.log(`  ! ${sumiram.length} estavam na base e SUMIRAM do novo dump`);
 if (surgiram.length) console.log(`  + ${surgiram.length} não estavam na base e SURGIRAM`);
 console.log(`  casavam ${casavamAntes}  →  casam ${casamAgora}   (líquido ${casamAgora - casavamAntes >= 0 ? "+" : ""}${casamAgora - casavamAntes})`);
-console.log(`  soma do erro máximo: ${n2(erroAntes)}px  →  ${n2(erroAgora)}px\n`);
+console.log(`  soma do erro máximo: ${n2(erroAntes)}px  →  ${n2(erroAgora)}px`);
+const razao = pxAcrescentado > 0.01 ? (pxRemovido / pxAcrescentado).toFixed(1) : "∞";
+console.log(`  ${nMelhor} elementos removem ${n2(pxRemovido)}px de erro; ${nPior} acrescentam ${n2(pxAcrescentado)}px` +
+  `   (${razao} para 1 em magnitude)`);
+console.log(`  — a contagem diz quantos, a magnitude diz quanto; um empate na primeira pode ser 6 para 1 na segunda\n`);
 console.log(`  GANHOS   ${ganhos.length}`);
 console.log(`  PERDIDOS ${perdidos.length}${perdidos.length === 0 ? "   ← a lista vazia É a afirmação \"sem regressão\"" : "   ← NÃO é sem regressão"}`);
 
