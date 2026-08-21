@@ -232,3 +232,48 @@ O lado RTS usa `target/release/examples/run_fixture.exe`; **construir é
 obrigatório antes de medir**, e o relatório deve dizer com que binário foi
 tirado. Duas corridas em paralelo pisam-se: o `OUT` é fixo, e o binário fica
 bloqueado para relink enquanto uma corrida o tem aberto.
+
+## Uma conferência que se alimenta do que audita não confere nada
+
+Escrita em **2026-08-21**, depois de a mesma armadilha aparecer duas vezes no
+mesmo dia em ferramentas diferentes.
+
+`scripts/parity/regua.mjs` verifica que os irmãos de cada pai estão em ordem de
+documento. A primeira versão dessa verificação **re-derivava a ordem da mesma
+lista que devia auditar** — e uma sabotagem que ordenava os irmãos por nome
+passava com `exit 0` e números diferentes, em silêncio. A conferência não era
+falsa: era **tautológica**. Comparava a estrutura consigo própria.
+
+Substituída por um índice de ficheiro capturado na leitura, e verificada nos
+dois sentidos: limpa dá `exit 0`, sabotada dá `exit 1` com "773 pais com os
+irmãos fora da ordem do documento".
+
+**A regra: uma conferência só vale depois de a ter visto FALHAR.** Partir a
+coisa de propósito e exigir que ela grite é a única forma de saber. Um controlo
+que nunca falhou não é um controlo — é uma linha que passa.
+
+E o mesmo se aplica a testes. No dia em que isto foi escrito, uma fixture de um
+invariante do fluxo inline **passou nas três formas óbvias** do caso e só a
+quinta variante o reproduziu: o que distinguia não era a forma da árvore, era a
+PROVENIÊNCIA da caixa do filho (texto real contra conteúdo gerado por
+`::before`). Três testes verdes teriam certificado um motor partido.
+
+## Uma correção certa pode fazer o agregado SUBIR — cinco formas já vistas
+
+Além das três já registadas acima, duas formas novas apareceram em 2026-08-21, e
+as duas por população a mudar em vez de erro a mudar:
+
+- **Elementos que passam a EXISTIR trazem o erro deles para a conta.** Ao
+  corrigir o conteúdo gerado, 397 elementos voltaram à população visível e o
+  erro de `y` visível subiu 4,2% — com **100% do movimento atribuído ao
+  denominador** e 0 px de variação nos elementos comuns. Nada piorou.
+- **Elementos que deixam de existir levam o erro deles embora.** O caso
+  simétrico, e o mais perigoso: uma correção anterior anunciou −11,0% quando o
+  valor sobre a população comum era **−7,9%** — 32% do "ganho" era o denominador
+  a encolher, e 570 elementos que o Chrome desenha tinham deixado de ter caixa
+  sem que a lista de PERDIDOS o dissesse (nunca casavam a 1px, portanto não
+  podiam perder-se por essa régua).
+
+É por isso que `regua.mjs --base` imprime a MATRIZ DE TRANSIÇÕES entre classes
+com contagens brutas, e nunca um saldo: o saldo dizia "+286" onde a matriz diz
+"570 saíram, 284 entraram".
