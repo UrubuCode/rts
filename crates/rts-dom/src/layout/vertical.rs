@@ -51,6 +51,33 @@ fn excesso_de_margens(a: f32, b: f32) -> f32 {
     a + b - colapso_de_margens(a, b)
 }
 
+/// Quanto é que um bloco acabado de dispor faz o cursor avançar.
+///
+/// `altura` é a altura EXTERNA (margens dentro) e `topo`/`baixo` são as margens
+/// resolvidas. Quando a externa é exactamente a soma das duas, o conteúdo, o
+/// padding e a borda somaram ZERO — que é a condição de SELF-COLLAPSING do CSS
+/// 2.1 §8.3.1. Nesse caso a caixa não ocupa espaço nenhum e as suas duas
+/// margens colapsam uma com a outra: o cursor avança pela colapsada e não pela
+/// soma. Medido num Chrome real: um `<div style="margin:20px 0 30px">` vazio
+/// entre dois blocos injecta 30 e tem altura 0; nós injectávamos 50.
+///
+/// A condição é lida do que foi CALCULADO e não rededuzida do estilo, o que a
+/// torna certa de graça em dois casos que uma leitura de estilo erraria: um
+/// bloco que cresceu para conter um float deixa de casar, e um com borda ou
+/// padding também.
+///
+/// **O que ela ainda não sabe** é que uma caixa que estabelece um contexto de
+/// formatação próprio (`overflow` ≠ visible, `flow-root`) NÃO se atravessa,
+/// mesmo vazia. Isso é o lote do BFC; enquanto não houver, um `<div
+/// style="overflow:hidden">` vazio e sem altura colapsa aqui e não devia.
+fn avanco_do_cursor(altura: f32, topo: f32, baixo: f32) -> f32 {
+    if (altura - (topo + baixo)).abs() < 0.01 {
+        colapso_de_margens(topo, baixo)
+    } else {
+        altura
+    }
+}
+
 #[allow(unused_assignments)]
 pub(in crate::layout) fn layout_children_vertical(
     dom: &Dom,
@@ -160,7 +187,11 @@ pub(in crate::layout) fn layout_children_vertical(
                 flush_inline!(child_y);
                 child_y -= excesso_de_margens(prev_margin, fragment.margin_top);
                 emit_fragment(&fragment, list, content_x, child_y, content_w, avail_h);
-                child_y += fragment.size.1;
+                child_y += avanco_do_cursor(
+                    fragment.size.1,
+                    fragment.margin_top,
+                    fragment.margin_bottom,
+                );
                 prev_margin = fragment.margin_bottom;
                 continue;
             }
@@ -425,7 +456,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     ctx,
                     list,
                 );
-                child_y += h;
+                child_y += avanco_do_cursor(h, m, m_baixo);
                 prev_margin = m_baixo;
             }
             // INLINE-BLOCK (pill/botão solto): NÃO pinta agora — acumula na

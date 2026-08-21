@@ -70,6 +70,12 @@ const PAGINA: &str = r#"<!DOCTYPE html>
   <div class="b" id="c7c" style="clear:both;margin-top:10px"></div>
 </div>
 
+<div class="caso" id="c8">
+  <div class="b" id="c8a" style="margin-bottom:25px"></div>
+  <div id="c8e" style="margin-top:20px;margin-bottom:30px"></div>
+  <div class="b" id="c8b"></div>
+</div>
+
 </body></html>"#;
 
 /// Um pixel de tolerância — a mesma da régua de paridade. Estes casos são
@@ -127,7 +133,7 @@ fn o_colapso_entre_irmaos_usa_a_margem_de_baixo_do_anterior() {
 /// atravessa a si próprio. Fica dito porque um vermelho aqui pode ser deste
 /// mecanismo ou daquele, e a auditoria trata-os como dois registos.
 #[test]
-#[ignore = "Chrome 15, nos 25 - cadeia binaria E bloco vazio nao-colapsante somam-se. Lote B+C"]
+#[ignore = "Chrome 15, nos 25 - o lote do bloco vazio NAO o moveu (medido). Falta o acumulador. Lote C"]
 fn margens_adjacentes_colapsam_por_conjunto_e_nao_par_a_par() {
     let (ya, ha) = rel("c2", "c2a");
     let (yb, _) = rel("c2", "c2b");
@@ -186,7 +192,6 @@ fn a_margem_do_ultimo_filho_atravessa_o_pai_de_altura_auto() {
 /// Chrome: `#c5e` tem **altura 0** e o que ele injeta entre os dois vizinhos
 /// são **30** — `max(20, 30)` — e não `20 + 30`.
 #[test]
-#[ignore = "Chrome h=0 e 30 de intervalo, nos h=50 e 50 - nao ha self-collapsing. Lote B"]
 fn um_bloco_vazio_colapsa_a_propria_margem_sobre_si() {
     let (_, he) = rel("c5", "c5e");
     assert!(perto(he, 0.0), "altura do bloco vazio = {he} (Chrome: 0)");
@@ -242,5 +247,27 @@ fn um_bloco_com_clear_nao_desconta_a_margem_de_quem_ja_nao_e_adjacente() {
         perto(yc, yfl + hfl),
         "bloco com clear em {yc}; devia estar no fundo do float ({})",
         yfl + hfl
+    );
+}
+
+/// O bloco vazio com um vizinho de margem MAIOR: as três margens (25 de baixo do
+/// anterior, 20 e 30 do vazio) são adjacentes e colapsam como um CONJUNTO.
+///
+/// Chrome: 30 de intervalo — `max(25, 20, 30)`.
+///
+/// Este caso nasceu de uma limitação que eu tinha por aritmética e fui MEDIR: o
+/// lote do bloco vazio, sozinho, acerta apenas enquanto a margem de baixo do
+/// anterior não exceder as do vazio, porque o laço guarda UM valor e um conjunto
+/// não cabe num valor. É a mesma falta que o caso do conjunto nomeia, apanhada
+/// noutra forma — e é a guarda do lote dos acumuladores.
+#[test]
+#[ignore = "Chrome 30, nos 35 - um conjunto nao cabe no valor unico de prev_margin. Lote C"]
+fn o_bloco_vazio_colapsa_tambem_com_a_margem_do_vizinho_anterior() {
+    let (ya, ha) = rel("c8", "c8a");
+    let (yb, _) = rel("c8", "c8b");
+    let intervalo = yb - (ya + ha);
+    assert!(
+        perto(intervalo, 30.0),
+        "intervalo = {intervalo} (Chrome: 30 = max(25,20,30))"
     );
 }
