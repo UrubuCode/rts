@@ -24,33 +24,6 @@ pub trait TextMeasurer {
     /// fator`; o backend pode dar o valor exato da fonte.
     fn line_height(&self, size: f32) -> f32;
 
-    /// Quanto da `line_height(size)` fica ACIMA da linha de base — a ascent da
-    /// *content area*, sem meia-entrelinha (essa é do `line-height` de quem
-    /// pergunta, e soma-se por fora).
-    ///
-    /// **Por que o trait e não uma constante em quem alinha:** a repartição
-    /// ascent/descent é uma métrica da FONTE, e um backend que tem fonte sabe-a
-    /// exactamente. Enterrar uma fracção em `layout/linha_ib.rs` punha o número
-    /// no sítio que nunca poderá melhorá-lo — o mesmo argumento que já está
-    /// escrito no `line_height` aqui ao lado.
-    ///
-    /// **De onde vem o 0,79, e o que ele NÃO é.** Não veio do Blink: quando não
-    /// há fonte carregada, o Blink não tem número nenhum — `inline_box_state.cc`
-    /// faz `if (!font_data) return;` e a caixa simplesmente não contribui. Então
-    /// é calibração contra o Chrome, medida em 24 pontos (8 tamanhos de 10 a 48
-    /// px × `line-height` normal, 1 e 2), lendo a ascent com uma caixa
-    /// `inline-block` de altura ZERO — cujo topo assenta na linha de base, e
-    /// portanto o `y` dela É a ascent. **19 dos 24 saem ao pixel exacto e os
-    /// outros cinco erram 1 px.**
-    ///
-    /// Rejeitado 0,8235 (a razão ascent/(ascent+descent) da fonte real, deduzida
-    /// do `text-top`/`text-bottom` a 16 px): acerta o caso de onde saiu e falha
-    /// 21 dos 24, porque a nossa "content area" é a `line_height` normal e não a
-    /// soma das métricas — 0,79 é a fracção certa PARA ESTE modelo.
-    fn ascent(&self, size: f32) -> f32 {
-        self.line_height(size) * 0.79
-    }
-
     /// IDENTIDADE deste medidor: dois medidores com a mesma identidade têm de
     /// dar a mesma largura para o mesmo texto.
     ///
