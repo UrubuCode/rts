@@ -418,3 +418,22 @@ Entra com a troca declarada: 986 mil px de erro de posição contra seis caixas 
 oito marcadores, com a causa das seis já nomeada e entregue como trabalho
 seguinte. O que não entraria era a mesma troca dentro de um número líquido.
 
+### Correção: os 8 marcadores não eram desta série (2026-08-21)
+
+A secção acima diz que o lote do `padding` custou **8 marcadores de lista**.
+**Não custou.** O binário da base — `cb05b54b`, antes de todo o trabalho das
+imagens e dos cabeçalhos — mede exatamente o mesmo: 787 contra 795, 8 em falta,
+nenhum a mais. Os 8 são anteriores a tudo o que hoje foi medido, e ficaram
+atribuídos a um commit por não terem sido datados contra a base antes de o
+número ser escrito.
+
+É a régua de desenho a pagar a dívida que a régua de geometria já não tem: esta
+compara sempre contra um dump da base, aquela foi lida uma vez e comparada com
+a memória.
+
+**O custo real daquele lote eram as seis caixas, e voltaram todas**: os não
+dispostos passaram de 29 a 23, que é o número de antes. O que sobra dele são
+quatro `<a>` dentro dos `<li>` recuperados, a errar 3 px de altura — casavam
+enquanto o pai não tinha caixa, e passam a existir com a altura ligeiramente
+errada.
+
