@@ -204,8 +204,25 @@ pub(in crate::layout) fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f
     };
 
     let mut sum = 0.0f32;
-    let mut max = 0.0f32;
     let mut count: usize = 0;
+    // Fora de flex, o max-content NÃO é o maior filho: é o maior das LINHAS, e
+    // filhos inline consecutivos partilham uma. Era o `max` de todos, e por isso
+    // `<td><i></i><i></i></td>` com dois `inline-block` de 50 media 50 onde o
+    // Chrome mede 100 — a linha soma-os.
+    //
+    // Medido no Chrome com `width:max-content`:
+    //
+    //   dois inline-block de 50 ............ 100   (soma)
+    //   três inline-block de 50 ............ 150   (soma)
+    //   dois BLOCK de 50 .................... 50   (cada um a sua linha)
+    //   inline 50 + BLOCK 50 + inline 50 .... 50   (três corridas, máximo 50)
+    //   dois inline com <br> no meio ........ 50   (o <br> fecha a corrida)
+    //   texto "xy" + inline-block 50 ........ 66   (o texto entra na corrida)
+    //
+    // A quarta linha é a que prova que não basta somar tudo, e a quinta é a que
+    // obriga a olhar para o `<br>`: ele não é de bloco e mesmo assim quebra.
+    let mut linha = 0.0f32;
+    let mut maior = 0.0f32;
     for &child in &dom.node(id).children {
         // fora do fluxo não contribui para a largura intrínseca do container.
         if is_out_of_flow(dom, child) {
@@ -225,16 +242,42 @@ pub(in crate::layout) fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f
             count += 1;
         }
         sum += w;
-        max = max.max(w);
+        if fecha_a_corrida(dom, child) {
+            maior = maior.max(linha).max(w);
+            linha = 0.0;
+        } else {
+            linha += w;
+        }
     }
+    maior = maior.max(linha);
     let width = if is_row {
         // soma + gaps entre os itens.
         sum + (count.saturating_sub(1)) as f32 * gap
     } else {
-        max
+        maior
     };
     dom.intrinsic_width_put(key, width);
     width
+}
+
+/// `true` se este filho FECHA a corrida inline a que pertenceria — ou seja, se a
+/// linha do max-content acaba nele.
+///
+/// `is_block_level` sozinho não serve: ele responde `true` a um `inline-block`,
+/// porque um `inline-block` cria caixa e precisa do caminho de bloco para a
+/// pintar. Mas criar caixa e quebrar a linha são perguntas diferentes, e o
+/// `InlineBlock` é exatamente o valor que as separa — está escrito assim no
+/// cabeçalho do `is_inline_block`, e é a mesma família do "não é inline?" que
+/// esta árvore já pagou cinco vezes.
+///
+/// O `<br>` é o outro lado: não é de bloco, não cria caixa, e quebra na mesma.
+fn fecha_a_corrida(dom: &Dom, id: NodeIdx) -> bool {
+    if let NodeKind::Element { tag } = &dom.node(id).kind {
+        if tag == "br" {
+            return true;
+        }
+    }
+    is_block_level(dom, id) && !is_inline_block(dom, id)
 }
 
 /// A largura OUTER intrínseca de UM filho (max-content): seu `width` fixo (+ frame),
