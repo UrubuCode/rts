@@ -904,3 +904,77 @@ declaramos ter) antes de ser código.
   buraco nesta contagem. Medir isso pede instrumentar o `stylesheet.rs` para
   contar regras descartadas, e não foi feito.
 - **A cobertura fora desta folha.** Ver a §3.
+
+---
+
+## 6. Limites conhecidos — o que NÃO se implementa, e porquê
+
+Um limite escrito é reversível; um número forçado não. Esta secção existe para
+que uma resposta que hoje diverge da régua mude por decisão e não por acidente.
+
+### 6.1 A altura de uma imagem que nunca carrega (2026-08-21)
+
+**O caso.** As 110 imagens da Wikipédia trazem `width`/`height` no HTML e
+`.mw-file-element{height:auto}` no CSS. O harness de paridade corre OFFLINE por
+desenho, portanto nenhuma delas chega da rede.
+
+**O que cada lado responde**, na receita real (contentor 258px, `margin:3px`,
+`border:1px`, `max-width:calc(100% - (2 * 3px) - (2 * 1px))`, `<img>` de 250×167):
+
+| | largura | altura |
+|---|---|---|
+| Chrome (a régua) | 252 | **252** |
+| nós | 252 | **169** |
+
+A largura bate ao pixel. A altura diverge em 83px, e a divergência FICA.
+
+**Porque é que o Chrome dá um quadrado.** Reproduzido em quatro `<img>` de `src`
+morto, medido pelo nosso `chrome_extract.mjs`: sem CSS nenhum ele dá 250×167 (o
+atributo vale); com `height:auto` dá 250×250; com a receita completa dá 252×252.
+Ou seja `height:auto` anula o atributo `height` — um presentational hint perde
+para qualquer declaração —, a imagem fica sem altura e sem razão intrínseca
+**porque falhou a carregar**, e aí ele cai num quadrado.
+
+**Isso não é regra de CSS nenhuma.** É o que aquele browser faz com uma imagem
+partida. Copiá-lo seria acertar a régua contra um defeito de rede: numa página
+COM rede a razão vem dos pixels reais, o quadrado passa a ser a resposta errada,
+e ficaríamos errados nos dois lados.
+
+**As três respostas defensáveis são todas PIORES contra a régua do que o defeito
+que existia** — e é esse o argumento decisivo, não a preferência:
+
+| resposta | altura | erro vs 252 |
+|---|---|---|
+| o defeito de então (atributo sobrevive a `height:auto`) | 167 | 85 |
+| metade da correção (`auto` descarta o atributo, sem razão) | **0** | 252 |
+| CSS Images §5.3, *default sizing* (sem razão → 150) | 150 | 102 |
+| o que fazemos (razão dos atributos + bordas) | 169 | 83 |
+
+Quando toda a resposta certa mede pior do que a errada, o que está a ser medido
+não é o motor: é o harness não ter rede.
+
+**O que fazemos, e é de spec.** Os atributos `width` e `height` juntos dão ao
+elemento uma razão de aspecto (HTML, *dimension attributes* — o
+`aspect-ratio: auto w / h` que existe precisamente para dimensionar antes de a
+imagem chegar). Com ela, `height:auto` sobre um `<img width=250 height=167>`
+responde 167 pela razão, e não pelo atributo que acabou de ser descartado.
+
+Isto importa por uma razão que o número não mostra: **a metade defensável
+sozinha responderia ZERO**. Descartar o atributo é certo, e sem a razão que o
+substitui a imagem colapsa para as duas bordas — 252×2. As duas regras entram
+juntas ou não entram.
+
+**O que desbloqueia isto:** o harness carregar as imagens. Com pixels há razão
+intrínseca real, o Chrome deixa de cair no quadrado, e as respostas convergem
+sem que nada aqui mude.
+
+### 6.2 `<picture>` / `<source>` não são lidos (2026-08-21)
+
+Um `<source media=… srcset=… width=… height=…>` é ignorado: `source` existe
+apenas como elemento vazio e como caixa de largura zero no fluxo. O `<img>` de
+fallback é que dimensiona, e por isso o rodapé da Wikipédia mede 25×25 onde o
+Chrome mede 84×29 e 88×31 — os números do `<source>` que casa por `media`.
+
+Não é um defeito de dimensionamento; é a feature em falta. Fica em fila, e a
+condição é que o `media` seja avaliado a sério e não por heurística de "escolhe
+o primeiro".
