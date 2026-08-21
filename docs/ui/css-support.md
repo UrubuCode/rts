@@ -928,17 +928,45 @@ desenho, portanto nenhuma delas chega da rede.
 
 A largura bate ao pixel. A altura diverge em 83px, e a divergência FICA.
 
-**Porque é que o Chrome dá um quadrado.** Reproduzido em quatro `<img>` de `src`
-morto, medido pelo nosso `chrome_extract.mjs`: sem CSS nenhum ele dá 250×167 (o
-atributo vale); com `height:auto` dá 250×250; com a receita completa dá 252×252.
-Ou seja `height:auto` anula o atributo `height` — um presentational hint perde
-para qualquer declaração —, a imagem fica sem altura e sem razão intrínseca
-**porque falhou a carregar**, e aí ele cai num quadrado.
+**Porque é que o Chrome dá um quadrado — lido na source do Blink, não deduzido.**
+O que ele mede não é a nossa imagem: **é o ÍCONE de imagem partida**, que é
+quadrado.
 
-**Isso não é regra de CSS nenhuma.** É o que aquele browser faz com uma imagem
-partida. Copiá-lo seria acertar a régua contra um defeito de rede: numa página
-COM rede a razão vem dos pixels reais, o quadrado passa a ser a resposta errada,
-e ficaríamos errados nos dois lados.
+A cadeia, três ficheiros de `third_party/blink/renderer/core/`:
+
+1. `layout/layout_image_resource.cc`, `UseBrokenImage()` — falhado o
+   carregamento, o Blink **substitui o recurso** por um
+   `ImageResourceContent::CreateLoaded(BrokenImage(...))`. O `CreateLoaded` é o
+   detalhe que decide tudo: a partir dali `HasImage()` é `true` e o elemento tem
+   dimensões naturais **reais** — as do ícone.
+2. `layout/block_node.cc`, `GetReplacedAspectRatio()` — consulta a razão NATURAL
+   **antes** do `kAutoAndRatio` vindo dos atributos. Havendo razão natural, o
+   `aspect-ratio: auto 250/167` nunca chega a ser considerado.
+3. `layout/length_utils.cc`, `ComputeReplacedSizeInternal` — resolve a altura a
+   partir dessa razão.
+
+**Sem a source isto era inexplicável**: `getComputedStyle` responde
+`aspect-ratio: auto 250 / 167` na nossa `<img>`, e o valor está lá e é ignorado.
+
+**Quatro formas medidas com o nosso extractor**, e a quarta é a que fecha:
+
+    atributos 100/300, height:auto  ->  100x100
+    atributos 400/20,  height:auto  ->  400x400
+    só width=80 (sem ratio)         ->   80x80
+    height:60px + width:AUTO        ->   60x60   <- quadrado pelo OUTRO eixo
+
+Não é "a altura copia a largura": é **razão 1:1**, a do ícone.
+
+**A contraprova, que é o que fecha esta secção.** Com uma imagem que CARREGA —
+um GIF de 10×5 num `data:` URI — o mesmo `<img width=250 height=167
+style="height:auto">` dá **250×125**: a razão intrínseca real, nem a dos
+atributos nem o quadrado. É exatamente o que esta secção previa para o dia em
+que o harness tiver rede, agora **verificado em vez de previsto**.
+
+**Isso não é regra de CSS nenhuma**, e agora sabe-se porquê à letra: é o Blink a
+dimensionar um ícone de erro que ele desenha e nós não. Reproduzi-lo exigiria
+ter um ícone de imagem partida quadrado como recurso e deixá-lo governar o
+layout. A nossa resposta é a que o Chrome dá **assim que a imagem existe**.
 
 **As três respostas defensáveis são todas PIORES contra a régua do que o defeito
 que existia** — e é esse o argumento decisivo, não a preferência:
