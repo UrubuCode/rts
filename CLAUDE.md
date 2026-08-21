@@ -339,9 +339,27 @@ Before merge:
 
 ```bash
 cargo build --release
-cargo test --release --lib -p <each crate you touched>   # NAME them — see below
+cargo test --release --no-fail-fast -p <each crate you touched>   # NAME them, and see below
 target/release/rts.exe test          # if the change touches runtime/codegen/GC
 ```
+
+**`--no-fail-fast`, and `--lib` is not the whole crate.** Cargo runs a crate's
+test targets in NAME order and stops at the first that fails, so **how much
+coverage a red test hides is decided by the alphabet**. In `rts-codegen`, two
+stale fixtures in `tests/bridge.rs` stopped the run before `early_errors`,
+`language`, `regexp_patterns` and `test262` — **93 tests did not run for six
+days**, and nobody knew whether they passed. Had the red target been the last
+one, it would have hidden nothing.
+
+The same line is why `--lib` alone is not enough where a crate has a `tests/`
+directory: `rts-cranelift` has 67 unit tests and **230 integration tests**, and
+`--lib` reports the first number as if it were the answer.
+
+This is a different failure from a wrong number, and worse: a wrong number is
+corrected when someone compares it to reality, but **a suite that does not run
+produces nothing to compare** — and empty looks exactly like green at the place
+where anyone looks. The mechanism is not a broken tool; it is a correct tool
+that gives up early.
 
 **`cargo test --release --lib` with no `-p` is not a gate.** At the workspace
 root it tests the root `rts` package alone and answers `0 passed; 0 failed` —
