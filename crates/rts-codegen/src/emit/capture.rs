@@ -72,6 +72,204 @@ pub fn captured(body: &[Stmt], parameters: &[Name]) -> BTreeSet<Name> {
     resident
 }
 
+/// Of the names a function's environment holds, the ones bound at the
+/// function's OWN level.
+///
+/// # Why this is a second set and not a filter on the first
+///
+/// [`captured`] answers what the environment must have room for, and it is
+/// deliberately crude — this module's header says so, and says why: a name
+/// wrongly IN the environment costs one extra load, while a name wrongly out
+/// of it is two closures disagreeing about a variable.
+///
+/// That reasoning is sound for the environment's CONTENTS and does not carry
+/// to its BINDINGS, which is what this exists to separate. `Scope::for_function`
+/// binds every captured name at zero hops in the function's own layer, and
+/// `lookup` scans innermost-first — so a name declared inside a nested block,
+/// over-included by [`captured`], shadows the correct outer binding for the
+/// whole function.
+///
+/// Measured rather than reasoned about, 2026-08-21:
+///
+/// ```text
+/// let v = 1;
+/// function outer() { return v; }
+/// function run() { { let v = 10; function inner() { return v; } } return v; }
+/// ```
+///
+/// answered `undefined` where Node and Bun answer `1`. The final read resolved
+/// at zero hops into `run`'s own environment, which has a slot for `v` and was
+/// never written one — the block wrote its own object. Remove `inner` and the
+/// name stops being captured and the program is correct, which is what made it
+/// look like a closure defect rather than a scoping one.
+///
+/// # What counts as the own level
+///
+/// The candidates a caller already lists — parameters, `...rest`, imports, a
+/// named function expression's own name, `arguments` — plus what the body
+/// declares at its top level, plus `var` at ANY depth. The last is not an
+/// exception: a `var` inside a block IS a binding of the enclosing function,
+/// which is the whole difference between it and `let`.
+///
+/// A block-scoped declaration inside a nested block is what this leaves out,
+/// and `Scope::enter_environment` is what binds it — at zero hops in the
+/// block's own layer, for exactly as long as the block lasts.
+/// Of `captured`, the names that may be bound at the function's own level.
+///
+/// # Why this subtracts rather than intersects
+///
+/// The obvious form — keep the names this function declares at its own level —
+/// was written first and was WRONG, and the TS suite said so within the hour:
+/// 746 files passing became 700, with `Unbound("__rts_this")` at the front of
+/// the list.
+///
+/// Three names are forced into `captured` by [`super::function`] AFTER the
+/// walk, precisely because no walk can see them: a module publication reads a
+/// name from code emitted after the body, an arrow reads its enclosing `this`
+/// through `Scope::late_this` rather than through an `Ident`, and a derived
+/// constructor holds `this` in its own environment. None is DECLARED by any
+/// statement, so an intersection with what the body declares drops all three —
+/// and dropping `__rts_this` leaves every arrow with no `this` to reach.
+///
+/// So the question is asked the other way round. A captured name is own-level
+/// unless it is declared ONLY inside a nested block: a name nothing declares
+/// was forced in and belongs here, and a name declared at the top level or as
+/// a `var` belongs here whatever else is true of it.
+pub fn own_level(body: &[Stmt], candidates: &[Name], captured: &BTreeSet<Name>) -> BTreeSet<Name> {
+    let own = declared_at_own_level(body, candidates);
+    let mut elsewhere = BTreeSet::new();
+    for statement in body {
+        bound_by_a_block_environment(statement, &mut elsewhere);
+    }
+    captured
+        .iter()
+        .filter(|name| own.contains(name) || !elsewhere.contains(name))
+        .copied()
+        .collect()
+}
+
+/// The names some nested block will bind in an environment of its OWN.
+///
+/// # Why this is narrower than "declared inside a block", which is what it was
+///
+/// Only a [`StmtKind::Block`] gets an environment of its own, and only through
+/// `emit::stmt`'s arm for one, which asks `binding::block_layer` for exactly
+/// the block's top-level lexical names and hoisted functions. Every other body
+/// that LOOKS like a block does not: a `try` body, a `catch` body and a
+/// `finally` body are emitted by `emit::protect` straight into the enclosing
+/// scope, so what they declare lives in the FUNCTION's environment and needs
+/// the function's own zero-hop binding.
+///
+/// The first version of this asked "declared anywhere below the top level",
+/// and the TS suite answered: 746 files passing became 735, because
+/// `try { const pa = delayed(5); … }` had its `const` counted as bound
+/// elsewhere and then bound nowhere. `tests/async_fn_advanced.test.ts`
+/// reported `parallel_sum=0` where it expects 150 — three awaits that resolved
+/// to the initial values because the names they were assigned to had no
+/// binding the reads could find.
+///
+/// A name declared BOTH here and at the function's own level stays own-level:
+/// [`own_level`] keeps anything `declared_at_own_level` claims, and this only
+/// removes what nothing else claims.
+fn bound_by_a_block_environment(statement: &Stmt, found: &mut BTreeSet<Name>) {
+    if let StmtKind::Block(body) = &statement.kind {
+        for inner in body {
+            match &inner.kind {
+                StmtKind::Declare { kind, bindings } if kind.is_block_scoped() => {
+                    for binding in bindings {
+                        names_in_pattern(&binding.target, found);
+                    }
+                }
+                // `block_layer` adds a hoisted function's name for the same
+                // reason: the environment must hold a slot for it.
+                StmtKind::Function(function) => found.extend(function.name),
+                StmtKind::Class(class) => found.extend(class.name),
+                _ => {}
+            }
+        }
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => bound_by_a_block_environment(inner, found),
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                bound_by_a_block_environment(inner, found);
+            }
+        }
+        StmtChild::Binding(_)
+        | StmtChild::Expr(_)
+        | StmtChild::Function(_)
+        | StmtChild::Class(_) => {}
+    });
+}
+
+fn declared_at_own_level(body: &[Stmt], candidates: &[Name]) -> BTreeSet<Name> {
+    let mut found: BTreeSet<Name> = candidates.iter().copied().collect();
+    for statement in body {
+        // The body's own top level: every declaration here belongs to the
+        // function whatever its kind.
+        match &statement.kind {
+            StmtKind::Declare { bindings, .. } | StmtKind::Using { bindings, .. } => {
+                for binding in bindings {
+                    names_in_pattern(&binding.target, &mut found);
+                }
+            }
+            StmtKind::Function(function) => found.extend(function.name),
+            StmtKind::Class(class) => found.extend(class.name),
+            _ => {}
+        }
+        vars_at_any_depth(statement, &mut found);
+    }
+    found
+}
+
+/// The `var` names a statement introduces, however deeply nested.
+///
+/// Stops at a nested function, like everything else in this module: a `var`
+/// there belongs to that function and not to this one.
+fn vars_at_any_depth(statement: &Stmt, found: &mut BTreeSet<Name>) {
+    if let StmtKind::Declare { kind, bindings } = &statement.kind
+        && !kind.is_block_scoped()
+    {
+        for binding in bindings {
+            names_in_pattern(&binding.target, found);
+        }
+    }
+    // A `for (var i = …)` head, which is a declaration the walk below reports
+    // as a binding rather than as a statement.
+    if let StmtKind::For {
+        init: Some(ForInit::Declare { kind, bindings }),
+        ..
+    } = &statement.kind
+        && !kind.is_block_scoped()
+    {
+        for binding in bindings {
+            names_in_pattern(&binding.target, found);
+        }
+    }
+    if let StmtKind::ForEach {
+        target: crate::syntax::ForEachTarget::Declare { kind, target },
+        ..
+    } = &statement.kind
+        && !kind.is_block_scoped()
+    {
+        names_in_pattern(target, found);
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => vars_at_any_depth(inner, found),
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                vars_at_any_depth(inner, found);
+            }
+        }
+        // A binding is reported for the declaration handled above; taking it
+        // here as well would collect the block-scoped ones this must leave out.
+        StmtChild::Binding(_)
+        | StmtChild::Expr(_)
+        | StmtChild::Function(_)
+        | StmtChild::Class(_) => {}
+    });
+}
+
 /// Names assigned inside a `try` body or a `using` scope.
 ///
 /// These belong in the environment for exactly the reason a captured name does,

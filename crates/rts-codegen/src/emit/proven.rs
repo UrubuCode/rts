@@ -696,9 +696,37 @@ fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
             // `valueOf` runs user code, and this pass may not decide that a
             // call happens.
             _ if arithmetic(*op) => is_numeric(left, known) && is_numeric(right, known),
+            // `&`, `|` and `^` under the SAME guard, for the same reason: they
+            // convert whatever they are given, so a proved pair produces a
+            // number — an `i32`, which is a number — and an unproved operand
+            // might be an object whose `valueOf` runs user code.
+            //
+            // The comment that stood here said these "are not emitted yet, so
+            // claiming them would be claiming something untested", and that
+            // stopped being true: `emit/expr.rs`'s `proven_binary` answers
+            // `Proven::Bits` for all three, which is `ToInt32`, the machine's
+            // bitwise instruction, and `ToF64` back — no call, and an `F64`
+            // result. So the claim is now exactly as tested as the arithmetic
+            // arm above it.
+            //
+            // What this buys is not the operator, which was already an
+            // instruction. It is everything DOWNSTREAM: `is_numeric` answering
+            // `false` here left the assigned local unproved, so a loop carrying
+            // `a = (a * 3) | 0` carried `a` as `Tagged` and BOTH the `*` and the
+            // `|` acquired a guard, a widening and a cold generic call. It is
+            // the same argument `Proven::NumberCall` records for `%`.
+            //
+            // The three SHIFTS stay out, and their exclusion is not caution —
+            // it is that `proven_binary` deliberately leaves them as calls
+            // answering a generic value (the shift count needs masking, and
+            // `>>>` answers `ToUint32`, which does not fit `i32`). Claiming a
+            // number for a site that emits a `Tagged` result would ask for a
+            // narrowing on a loop's back edge, which is the refusal that shape
+            // of mistake produces.
+            BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
+                is_numeric(left, known) && is_numeric(right, known)
+            }
             // A comparison is a boolean, and `in`/`instanceof` are booleans.
-            // Bitwise operators and shifts produce numbers and are not emitted
-            // yet, so claiming them would be claiming something untested.
             _ => false,
         },
 

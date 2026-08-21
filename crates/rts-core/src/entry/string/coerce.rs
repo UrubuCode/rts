@@ -146,6 +146,33 @@ pub(super) fn is_regexp(value: u64) -> bool {
 /// `"null"` and `"undefined"`, which is what `ToString` says and what a
 /// substitution is. A symbol is still refused, because `ToString` refuses it.
 pub(super) fn text_arg(value: u64) -> Option<u64> {
+    // Already a bare text cell: `ToString(x)` is `x`, and answering so here is
+    // the short-circuit [`coerce_receiver`] has had all along and this did not.
+    // Without it, `"abcdef".indexOf("cd")` CLONED `"cd"`'s buffer — `to_text`
+    // below ends in `.cloned()` — and built a fresh region cell for it, on every
+    // call, to answer with a string the caller already handed in.
+    //
+    // Measured before this existed: `indexOf` on a 16-character string cost
+    // 299 ns against `charCodeAt`'s 89 on the same run, and ~210 ns of the
+    // difference was this conversion rather than the search — which is why the
+    // same call on a 256-character string cost only 22 ns more.
+    //
+    // Sound because a JavaScript string is immutable and has no identity a
+    // program can observe, which `Context::intern_value` states from the other
+    // direction. `text_at` compares the cell's TYPE against `text_type`, so a
+    // `new String("x")` wrapper is not one of these — it is an ordinary object
+    // carrying a `boxed` entry, and it still takes the path below, because its
+    // `toString` may be user code and the language says that runs.
+    let bare = with_current(|context| {
+        Value(value)
+            .as_slot()
+            .filter(|cell| context.text_at(*cell).is_some())
+            .map(|_| value)
+    });
+    if bare.is_some() {
+        return bare;
+    }
+
     let primitive = super::super::primitive::to_primitive(value, crate::coerce::Hint::String);
     if super::super::throw::in_flight() {
         return None;

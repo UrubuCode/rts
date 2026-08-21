@@ -830,6 +830,8 @@ fn class_scope(
         return Ok(Scope::for_function(
             scope.environment(),
             BTreeSet::new(),
+            // Nothing captured, so nothing to bind at zero hops.
+            &BTreeSet::new(),
             &scope.reachable(),
         ));
     }
@@ -884,7 +886,18 @@ fn class_scope(
         .into_iter()
         .map(|(name, hops)| (name, hops + 1))
         .collect();
-    Ok(Scope::for_function(Some(environment), held, &reachable))
+    // `held` IS the own level here, and the two sets being one is the point
+    // rather than a shortcut: every name in it was written into `environment`
+    // by the loops just above — `__rts_home`, `__rts_super`, the class's own
+    // name, each computed field's key. There is no nested block to
+    // over-include from, which is exactly the condition
+    // `capture::declared_at_own_level` exists to test for a function body.
+    Ok(Scope::for_function(
+        Some(environment),
+        held.clone(),
+        &held,
+        &reachable,
+    ))
 }
 
 /// `super.x` — the LOOKUP starts above the home object, but the receiver an

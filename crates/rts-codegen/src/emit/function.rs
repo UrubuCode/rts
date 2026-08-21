@@ -665,6 +665,11 @@ pub(super) fn emit_body(
     // returns from IT, and owes nothing to a `finally` written outside.
     let outer_returns = std::mem::take(&mut ctx.finally_returns);
     let outer_jumps = std::mem::take(&mut ctx.finally_jumps);
+    // AFTER every forced insertion above, never beside `capture::captured`.
+    // Three names reach `captured` from outside the walk — a publication, an
+    // arrow's `this`, a derived constructor's — and computing this earlier
+    // dropped all three. `capture::own_level` records what that cost.
+    let own_level = capture::own_level(body, &candidates, &captured);
     let result = emit_body_into(
         ctx,
         enclosing,
@@ -675,6 +680,12 @@ pub(super) fn emit_body(
         entry,
         &incoming,
         captured,
+        // Computed HERE, beside `captured` and from the same candidate list,
+        // because this is where that list exists. The two answer different
+        // questions — what the environment holds, and what is bound at this
+        // function's own level — and `capture::declared_at_own_level` says why
+        // they cannot be one set.
+        own_level,
         builds_environment,
         rest,
         late_this,
@@ -707,6 +718,11 @@ fn emit_body_into(
     entry: rts_cranelift::ir::BlockId,
     incoming: &[ValueId],
     captured: std::collections::BTreeSet<Name>,
+    // Of `captured`, the names bound at THIS function's own level. A separate
+    // set rather than a filter applied here, because the candidate list it is
+    // derived from lives in the caller — and because the two are genuinely
+    // different questions. See `capture::declared_at_own_level`.
+    own_level: std::collections::BTreeSet<Name>,
     builds_environment: bool,
     rest: Option<Name>,
     late_this: Option<Name>,
@@ -788,7 +804,7 @@ fn emit_body_into(
         false => incoming[THIS_PARAM],
     };
 
-    let mut scope = Scope::for_function(Some(environment), captured, &reachable);
+    let mut scope = Scope::for_function(Some(environment), captured, &own_level, &reachable);
     scope.set_this(receiver, captures_this);
     if let Some(name) = late_this {
         // DECLARED only where this function owns the name. A derived constructor

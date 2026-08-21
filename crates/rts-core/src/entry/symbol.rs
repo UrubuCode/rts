@@ -88,6 +88,34 @@ struct SymbolInfo {
     key: String,
     /// What `sym.description` and `sym.toString()` answer.
     description: Option<String>,
+    /// The NUMBER that key text interned to, once anything has asked.
+    ///
+    /// # Why this is not the same fact twice
+    ///
+    /// It is derived from `key`, and rule 3 of this crate's README says a number
+    /// space has one source — so this is filled by minting from
+    /// `context.interner`/`context.keys`, exactly as [`super::computed`] would,
+    /// and never by counting. What it removes is the DERIVING, not the
+    /// authority: the text cannot change after the symbol is minted, so the
+    /// answer cannot go stale.
+    ///
+    /// # What it costs to leave absent, measured
+    ///
+    /// Every symbol-keyed property access went through
+    /// `computed::property_key`, which cloned this `String`, converted the copy
+    /// to UTF-16 as a `Str`, and hashed that to reach a number the interner
+    /// already had — two heap allocations and a hash **per access**.
+    ///
+    /// The identical defect on the STRING-key path was found and fixed earlier,
+    /// and `computed::property_key`'s own comment records what it was worth
+    /// there: *"a read through a computed key cost 123x a read through a named
+    /// one, and two heap allocations per access were the difference"*. The
+    /// symbol path was left on the slow side of that fix.
+    ///
+    /// It is not a rare path. `instanceof` reads `@@hasInstance` on every
+    /// evaluation, every `for`-`of` reads `@@iterator`, and `split`/`replace`/
+    /// `match`/`search` each read their own protocol symbol per call.
+    key_id: Option<crate::object::Key>,
 }
 
 /// Every symbol the program has made, and what each is.
@@ -202,6 +230,37 @@ pub(super) fn key_text_of(context: &Context, value: u64) -> Option<String> {
     Some(context.symbol_of(value)?.key.clone())
 }
 
+/// The same answer as [`key_text_of`], as the NUMBER a property is filed under.
+///
+/// # Why both exist
+///
+/// Because they answer different questions and only one of them is on a hot
+/// path. `key_text_of` is asked where the TEXT is what the caller needs — the
+/// `Object.getOwnPropertySymbols` direction, and the enumeration filter. This is
+/// asked where a caller only ever wanted the number, which is every computed
+/// property access with a symbol key, and it is the one that ran per operation.
+///
+/// The memo lives on [`SymbolInfo`] and its documentation carries the
+/// measurement. Note that this cannot be folded into `key_text_of` by making
+/// that one memoise too: interning needs `&mut Context` and that one is handed
+/// `&Context`, which is not an accident — the callers that want text must not be
+/// able to mint a number as a side effect of reading one.
+pub(super) fn key_of(context: &mut Context, value: u64) -> Option<crate::object::Key> {
+    let number = Value(value).as_client(context.kinds.symbol)? as usize;
+    if let Some(found) = context.symbols.made.get(number)?.key_id {
+        return Some(found);
+    }
+    // The cold path, run at most once per symbol in a program's life. The clone
+    // is here rather than avoided because `intern` needs the context mutably
+    // while the text is borrowed out of it — the same borrow shape
+    // `Context::key_text_value` records, and paying it once is the whole point
+    // of the memo.
+    let text = crate::text::Str::from_str(&context.symbols.made[number].key);
+    let minted = crate::object::Key::Name(context.interner.intern(&text, &mut context.keys));
+    context.symbols.made[number].key_id = Some(minted);
+    Some(minted)
+}
+
 /// The symbol a key text names, the direction [`key_text_of`] does not run.
 ///
 /// Needed for `Object.getOwnPropertySymbols`: the shape only ever held the
@@ -267,7 +326,11 @@ pub(in crate::entry) fn unscopables_of(context: &mut Context, cell: u32) -> Opti
 /// A new symbol under a key nothing has used.
 fn mint(context: &mut Context, key: String, description: Option<String>) -> u64 {
     let number = context.symbols.made.len() as u64;
-    context.symbols.made.push(SymbolInfo { key, description });
+    context.symbols.made.push(SymbolInfo {
+        key,
+        description,
+        key_id: None,
+    });
     Value::from_client(context.kinds.symbol, number).bits()
 }
 
@@ -414,6 +477,7 @@ extern "C" fn make(_e: u64, _this: u64, description: u64, _a1: u64, _a2: u64, _a
         context.symbols.made.push(SymbolInfo {
             key: format!("{PREFIX}sym:{number}"),
             description: text,
+            key_id: None,
         });
         Value::from_client(context.kinds.symbol, number).bits()
     })

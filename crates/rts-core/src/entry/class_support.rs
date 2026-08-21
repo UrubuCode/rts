@@ -179,6 +179,25 @@ fn attributed(context: &mut Context, cell: u32, key: crate::object::Key, held: &
 /// looks up `valueOf` and calls it — itself. That recursed until the stack ran
 /// out, in four suite files, the moment this learned to convert.
 pub(in crate::entry) fn to_number(value: u64) -> f64 {
+    // A value that already IS a double is its own `ToNumber`, and answering so
+    // here costs a tag test where the three steps below cost three
+    // `with_current` round trips — a thread-local access, a `RefCell` flag
+    // written and restored, and a bounds-checked `Vec::last_mut`, each.
+    //
+    // Measured before this existed: `Math.imul` (two `f64` parameters) cost
+    // 66.4 ns against `Math.sign`'s (one) 50.4 on the same run — 16 ns for one
+    // more argument that needed no conversion at all.
+    //
+    // `Value::as_f64` is arithmetic on the word and reaches no heap
+    // (`value/mod.rs`), so this asks nothing the slow path would answer
+    // differently: `ToPrimitive` of a Number is that Number, a Number is not a
+    // symbol, and `as_number` of one decodes the same bits. It fires ONLY for a
+    // genuine unencoded double — an encoded `Int`, a string, a wrapper object
+    // and a symbol all still take the path below, because for those the answer
+    // is not identity and the middle step can run user code.
+    if let Some(already) = Value(value).as_f64() {
+        return already;
+    }
     let value = super::primitive::to_primitive(value, crate::coerce::Hint::Number);
     // A SYMBOL has no numeric form and the language says so with a `TypeError`,
     // not with `NaN`. The difference is the whole point of the rule: `NaN`

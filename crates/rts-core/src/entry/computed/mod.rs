@@ -90,9 +90,19 @@ pub(super) fn property_key(context: &mut Context, key: Value) -> Option<Key> {
     // asked first because `ToString` of a symbol is a `TypeError` in the
     // language — converting it here would give `o[Symbol.iterator]` a key the
     // spelling `o["Symbol(Symbol.iterator)"]` could also reach.
-    if let Some(text) = super::symbol::key_text_of(context, key.bits()) {
-        let text = crate::text::Str::from_str(&text);
-        return Some(Key::Name(context.interner.intern(&text, &mut context.keys)));
+    //
+    // Answered from the memo the symbol carries, which is what makes this a
+    // load rather than the clone-convert-hash it was: `key_text_of` handed back
+    // an owned `String`, `Str::from_str` built a UTF-16 copy of it, and the
+    // interner then hashed that copy to reach a number it already held — two
+    // heap allocations and a hash per access, for a key text that cannot change
+    // after the symbol is minted.
+    //
+    // This is the same fix, on the same function, that the comment below
+    // records for STRING keys and measures at 123x. The symbol arm was left on
+    // the slow side of it.
+    if let Some(found) = super::symbol::key_of(context, key.bits()) {
+        return Some(found);
     }
     // The common case, and the one that was measured: the key is ALREADY a
     // string, so there is nothing to convert — only to look up. Reached without

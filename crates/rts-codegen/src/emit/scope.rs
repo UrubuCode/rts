@@ -201,6 +201,7 @@ impl Scope {
     pub fn for_function(
         environment: Option<ValueId>,
         captured: BTreeSet<Name>,
+        own_level: &BTreeSet<Name>,
         enclosing: &[(Name, u32)],
     ) -> Self {
         let mut entries: Vec<(Name, Binding)> = enclosing
@@ -215,15 +216,32 @@ impl Scope {
                 )
             })
             .collect();
-        entries.extend(captured.iter().map(|name| {
-            (
-                *name,
-                Binding::InEnvironment {
-                    hops: 0,
-                    name: *name,
-                },
-            )
-        }));
+        // Only the names bound at this function's OWN level, never every name
+        // its environment has room for. The two sets differ because
+        // `capture::captured` is deliberately over-inclusive — a name declared
+        // in a nested block is counted, so the environment has a slot for it —
+        // and binding one of those here at zero hops would shadow the correct
+        // outer binding of the same spelling for the whole function.
+        //
+        // Measured 2026-08-21, before this filter existed: `{ let v = 10;
+        // function inner() { return v; } } return v;` inside a function whose
+        // enclosing scope also has a captured `v` answered `undefined` where
+        // Node and Bun answer `1`. The read resolved at zero hops into a slot
+        // the block never wrote, because the block wrote its OWN object.
+        //
+        // `capture::declared_at_own_level` carries what belongs here and why
+        // `var` at any depth is part of it while `let` in a block is not.
+        entries.extend(captured.iter().filter(|name| own_level.contains(name)).map(
+            |name| {
+                (
+                    *name,
+                    Binding::InEnvironment {
+                        hops: 0,
+                        name: *name,
+                    },
+                )
+            },
+        ));
         Scope {
             layers: vec![Layer {
                 entries,
@@ -756,7 +774,7 @@ mod tests {
         // The shape a `for (let …)` under a `try` produces: an enclosing
         // environment holds `t`, the function's own parameter is also `t`, and
         // the loop opens a record of its own for `w`.
-        let mut scope = Scope::for_function(Some(environment), BTreeSet::new(), &[(t, 1)]);
+        let mut scope = Scope::for_function(Some(environment), BTreeSet::new(), &BTreeSet::new(), &[(t, 1)]);
         scope.declare(t, parameter);
         let w = names.intern("w");
         scope.enter_environment(environment, &[w]);
@@ -778,7 +796,7 @@ mod tests {
         let outer = names.intern("outer");
         let (environment, _) = two_values();
 
-        let mut scope = Scope::for_function(Some(environment), BTreeSet::new(), &[(outer, 1)]);
+        let mut scope = Scope::for_function(Some(environment), BTreeSet::new(), &BTreeSet::new(), &[(outer, 1)]);
         let w = names.intern("w");
         scope.enter_environment(environment, &[w]);
 
