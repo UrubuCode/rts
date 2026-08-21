@@ -750,8 +750,25 @@ fn super_is_a_place_and_not_only_a_read() {
     // SWC hands `super.x` out as an `Expr` and `super.x = v` as a
     // `SimpleAssignTarget`. Only the first was bridged, so a method could read
     // through `super` and not assign through it.
-    let (assign, _) = only_expr("super.x = 1;");
-    let ExprKind::Assign { target, .. } = assign else {
+    // Written inside a method, because that is the only place the assignment is
+    // legal: `check/deep` refuses `super` anywhere else, and `early_errors.rs`
+    // asserts that refusal. The fixture said `super.x = 1;` at the top level of
+    // a module until the rule existed, and then said something the language
+    // does not allow.
+    let (kind, _) = only_statement("class C extends B { m() { super.x = 1; } }");
+    let StmtKind::Class(class) = kind else {
+        panic!("expected a class");
+    };
+    let ClassElement::Method(method) = &class.body[0] else {
+        panic!("expected a method");
+    };
+    let FunctionBody::Block(body) = &method.function.body else {
+        panic!("expected a block");
+    };
+    let StmtKind::Expr(expression) = &body[0].kind else {
+        panic!("expected an expression statement");
+    };
+    let ExprKind::Assign { target, .. } = &expression.kind else {
         panic!("expected an assignment");
     };
     let AssignTarget::Place(place) = target else {
@@ -799,7 +816,12 @@ fn a_private_member_is_not_the_property_of_the_same_letters() {
     let ClassKey::Private(declared) = &field.key else {
         panic!("expected a private key");
     };
-    assert_eq!(names.text(*declared), "@@#x");
+    // The `1` is the CLASS's number, not part of the spelling: a private name is
+    // resolved lexically, one scope per class body, and `0` is reserved for
+    // "outside any class". Interning by text alone made `class Box { #x = 7 }`
+    // and `class Sub extends Box { #x = 20 }` one field on one object — `20:20`
+    // where every other engine answers `7:20`. See `parse/mod.rs::private_name`.
+    assert_eq!(names.text(*declared), "@@#1#x");
 }
 
 #[test]
