@@ -513,3 +513,45 @@ E a distinção que a torna útil: **"está tudo vermelho" não é o mesmo que "
 está vermelho"**. Contar os erros da própria área separadamente é o que separa
 uma dívida declarada de uma desculpa.
 
+---
+
+## Cortar DENTRO de um item: o `impl` irmão
+
+Um `match` de 100 braços dentro de um método não se parte movendo braços para
+uma função livre — isso obriga a trocar `self` pelo parâmetro em cada linha, e
+**298 linhas alteradas não são um `move`**.
+
+O módulo irmão declara o **seu próprio `impl` do mesmo tipo**:
+
+```rust
+impl ComputedStyle {
+    pub(in crate::style::fmt) fn get_property_tempo(&self, n: &str) -> Option<String> {
+        Some(match n {
+            <os braços, VERBATIM>
+            _ => return None,
+        })
+    }
+}
+```
+
+Duas propriedades fazem-no funcionar: **o `self` continua a ser `self`**, e a
+profundidade de indentação é a mesma nos dois sítios (`impl` > `fn` > `match` >
+braço). O invólucro envolve **uma vez**, portanto nenhum corpo de braço muda.
+Resultado medido: 298 linhas movidas, **zero alteradas**.
+
+### E o que NENHUM portão de texto prova: a precedência
+
+**O texto ser idêntico não garante que se comporta igual.** Um braço que sai do
+`match` principal passa a ser alcançado **só se o `_` cair na cadeia de
+delegação** — portanto a ordem das delegações é semântica.
+
+Num passo, os três grupos novos tiveram de ficar **à frente** dos quatro
+delegados que já existiam, porque era aí que os braços estavam antes. **Trocar
+a ordem mudava o programa sem mudar uma linha**, e a reconstrução daria
+`DIFERENTES: 0` na mesma.
+
+É o limite da família toda de provas de texto, e junta-se aos outros três: elas
+provam que o texto é o mesmo; o `cargo check` prova que ainda se vê; a suite
+prova que ainda corre; **e a precedência não é provada por nenhum dos três —
+só por quem a preserva de propósito e o escreve.**
+
