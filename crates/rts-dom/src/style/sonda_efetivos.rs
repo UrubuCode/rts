@@ -25,6 +25,17 @@ fn campos(c: &ComputedStyle) -> Vec<(&'static str, bool)> {
         ("object-fit", c.object_fit.is_some()),
         ("object-position", c.object_position.is_some()),
         ("background-image url()", c.bg_image.as_deref().is_some_and(|u| u.contains("url("))),
+        // O ESQUEMA decide se e pintavel sem rede. O corpus nao tem rede: um
+        // `url(https://…)` regista a intencao e nao pinta pixel nenhum.
+        ("  url(data:) pintavel", c.bg_image.as_deref().is_some_and(|u| u.contains("url(\"data:") || u.contains("url(data:"))),
+        ("  url(remoto) precisa de rede", c.bg_image.as_deref().is_some_and(|u| {
+            let t = u.trim_start_matches("url(").trim_start_matches('"').trim_start_matches('\'');
+            u.contains("url(") && (t.starts_with("http") || t.starts_with("//"))
+        })),
+        ("  url(relativo)", c.bg_image.as_deref().is_some_and(|u| {
+            let t = u.trim_start_matches("url(").trim_start_matches('"').trim_start_matches('\'');
+            u.contains("url(") && !t.starts_with("http") && !t.starts_with("//") && !t.starts_with("data:")
+        })),
         ("background-position", c.bg_position.is_some()),
         ("background-size", c.bg_size.is_some()),
         ("background-repeat", c.bg_repeat.is_some()),

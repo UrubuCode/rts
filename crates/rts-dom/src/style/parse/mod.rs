@@ -35,7 +35,16 @@ pub fn parse_inline(style: &str) -> ComputedStyle {
 pub fn parse_inline_block(style: &str) -> DeclBlock {
     let _phase = crate::metrics::phases::scope("parse-decls");
     let mut block = DeclBlock::default();
-    for decl in style.split(';') {
+    // `split_top_level_semicolons` e nao `split(';')`: um `;` DENTRO de
+    // parenteses ou aspas nao separa declaracoes. O caso que o mostrou e o
+    // `url(data:image/png;base64,…)` — o split ingenuo cortava-o em
+    // `url(data:image/png` e deixava `base64,…)` a ser lido como uma
+    // declaracao propria. Medido no corpus: 134 `url()` com `;` la dentro, em
+    // 7 folhas, e ZERO data-URI chegava inteiro a um elemento.
+    //
+    // O partidor certo ja existia ao lado, usado pelo corpo das regras e pelos
+    // contadores; era so este caminho que nao o usava.
+    for decl in crate::style::stylesheet::split_top_level_semicolons(style) {
         let mut it = decl.splitn(2, ':');
         let (prop, val_raw) = match (it.next(), it.next()) {
             // ASSIMETRIA DELIBERADA: o nome de uma propriedade normal é

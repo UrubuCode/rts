@@ -48,19 +48,23 @@ fn vw_e_vh_sao_clampados_a_cem_mas_a_percentagem_nao() {
 }
 
 /// `estilo.computado.rem-na-propria-raiz` — um `rem` declarado NO PRÓPRIO
-/// `<html>` resolve contra a raiz do documento ANTERIOR.
+/// `<html>` já NÃO lê a raiz do documento anterior. **Corrigido.**
 ///
-/// O `root_font_size` é um thread-local escrito DEPOIS de a cascata resolver o
-/// `font-size` do `<html>`, portanto quando o `2rem` da raiz é resolvido ainda
-/// lá está o valor que o documento anterior deixou. O Chrome usa o font-size
-/// INICIAL do documento nesse caso (2 × 16 = 32px), precisamente para a
-/// resolução não depender de si própria.
+/// Era a fuga: o `root_font_size` é um thread-local escrito DEPOIS de a cascata
+/// resolver o `font-size` do `<html>`, portanto quando o `2rem` da raiz era
+/// resolvido ainda lá estava o valor que o documento anterior deixou — e o
+/// segundo documento respondia 20px em vez de 32.
 ///
-/// ⚠️ A alegação só é observável com DOIS documentos no mesmo thread, e é isso
-/// que a torna séria: o valor atravessa documentos. Uma bateria que meça várias
-/// páginas num só processo vê a página anterior mudar a seguinte.
+/// A correção está em `dom/cascade.rs` e tem a forma do Blink: **a raiz não tem
+/// raiz.** Enquanto o `<html>` é resolvido, a base do `rem` é o inicial e não o
+/// que está guardado.
+///
+/// ⚠️ O que esta asserção prova é que **a base deixou de vir do documento
+/// anterior** — os 32px são 2 × o inicial de 16. NÃO afirma o que o Chrome
+/// responde: isso seria uma alegação não medida dentro de um teste, que é a
+/// forma mais fácil de um palpite herdar a autoridade do `assert!` ao lado.
 #[test]
-fn rem_na_raiz_le_a_raiz_do_documento_anterior() {
+fn rem_na_raiz_nao_le_a_raiz_do_documento_anterior() {
     let a = parse_html_to_dom(
         "<html><head><style>html{font-size:10px}</style></head><body>x</body></html>",
     );
@@ -71,8 +75,8 @@ fn rem_na_raiz_le_a_raiz_do_documento_anterior() {
     );
     assert_eq!(
         font_size(&b, "html"),
-        "20px",
-        "2rem resolveu contra os 10px do documento ANTERIOR; o Chrome responde 32px"
+        "32px",
+        "2rem tem de resolver contra o inicial (16), não contra os 10px do documento anterior"
     );
 
     // E a FRONTEIRA da fuga, que é o que a impede de ser uma flakiness geral da
@@ -137,4 +141,33 @@ fn media_lista_por_virgula_usa_so_a_primeira_query() {
         "44px",
         "a MESMA lista, pela ordem inversa, aplica"
     );
+}
+
+/// Um `;` DENTRO de `url(…)` não separa declarações.
+///
+/// O `parse_inline_block` partia o bloco com um `split(';')` ingénuo, e um
+/// `url(data:image/png;base64,…)` saía cortado em `url(data:image/png` — com o
+/// resto, `base64,…)`, a ser lido como uma declaração própria. O partidor que
+/// respeita parênteses e aspas já existia ao lado, usado pelo corpo das regras
+/// e pelos contadores; era só este caminho que não o usava.
+///
+/// ⚠️ EFEITO MEDIDO no corpus: pequeno, e fica dito. Das 40 `url(data:)` da
+/// folha da Wikipédia apenas **2** trazem `;base64` — as outras 38 são
+/// `data:image/svg+xml,…` sem `;` e nunca foram afetadas. É correção de classe,
+/// não de pixels.
+#[test]
+fn um_ponto_e_virgula_dentro_de_url_nao_separa_declaracoes() {
+    use crate::style::parse::parse_inline;
+    assert_eq!(
+        parse_inline("background-image:url(data:image/png;base64,AAAA)").bg_image,
+        Some("url(data:image/png;base64,AAAA)".to_string())
+    );
+    assert_eq!(
+        parse_inline("background:url(data:image/png;base64,AAAA) no-repeat").bg_image,
+        Some("url(data:image/png;base64,AAAA)".to_string())
+    );
+    // E a declaração SEGUINTE continua a ser lida — o `;` verdadeiro separa.
+    let c = parse_inline("background-image:url(data:a;base64,A);color:red");
+    assert!(c.bg_image.is_some());
+    assert!(c.color.is_some(), "o `;` de topo tem de continuar a separar");
 }
