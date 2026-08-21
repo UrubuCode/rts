@@ -314,3 +314,40 @@ inteira. Isso aparece nas DUAS colunas ao mesmo tempo — 105 `original` de um
 lado, `origina`+`l` do outro — e não é texto em falta nem a mais. É por isso que
 a régua dá caracteres ao lado de palavras: a métrica ao caractere é imune ao
 sítio onde cada lado corta.
+
+## O corte de largura das imagens, medido por elemento (2026-08-21)
+
+A correção que deixou de encolher elementos replaced à largura do contentor
+(`d667cb8b`) foi medida com base isolada em `cb05b54b`, construída num worktree
+próprio, contra a mesma `pagina.combinada.html` e o mesmo dump do Chrome. Seis
+cortes, e a lista de PERDIDOS está vazia nos seis:
+
+| população | eixos | casavam | casam | ganhos | perdidos |
+|---|---|---|---|---|---|
+| toda a página (16 813) | x,y,w,h | 2 129 | 2 129 | 0 | **0** |
+| toda a página | w | 4 983 | 4 998 | 15 | **0** |
+| `<img>` (110) | w | 72 | **77** | 5 | **0** |
+| `<td>`/`<th>` (352) | w | 15 | 15 | 0 | **0** |
+
+A soma do erro de largura das imagens caiu de 1 213 px para **330 px** — 73% da
+família, com cinco imagens a passarem a casar e nenhuma a deixar de casar. Os
+15 ganhos da página inteira são essas cinco e os seus dois níveis de invólucro
+(`<a>` e `<span>`), o que é o que se espera de uma caixa que deixou de ser
+cortada.
+
+**Três coisas que o número diz e a história não dizia.**
+
+Eram **72 de 110** certas antes, e não 97: o 97 vinha de uma medição sobre outra
+entrada e foi repetido sem ser refeito.
+
+**As células de tabela não se mexeram — de todo.** A soma do erro é idêntica ao
+centésimo antes e depois (631 616,50 px), e o diagnóstico dizia que o ciclo
+"a imagem encolhe porque a célula é estreita, a célula é estreita porque a
+imagem encolheu" era o que tornava o efeito grande nesta página. Nesta página
+não era: o ciclo existe no caso mínimo que o reproduz, e as 352 células daqui
+não passam por ele. A afirmação fica reduzida ao que foi medido.
+
+E o erro total sobre os quatro eixos SUBIU 923 px em 30,87 milhões — 0,003%.
+Caixas mudaram de sítio, algumas ligeiramente para pior em `y`, e nenhuma que
+casava deixou de casar. É a razão de a régua ser a lista por elemento e não a
+soma: a soma teria dito "piorou".
