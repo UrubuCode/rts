@@ -866,37 +866,22 @@ fn emit_binary_inner(
     // in general BECAUSE it might concatenate, and proving both sides numeric
     // is precisely the evidence that it cannot.
     if builder.repr_of(a) == Repr::F64 && builder.repr_of(b) == Repr::F64 {
-        match proven_binary(op) {
-            Some(Proven::Arith(num)) => return Ok(builder.arith(num, a, b)?),
-            Some(Proven::Bits(bit)) => {
-                let left = builder.to_int32(a)?;
-                let right = builder.to_int32(b)?;
-                let bits = builder.bitwise(bit, left, right)?;
-                return Ok(builder.to_f64(bits)?);
-            }
-            // `===` on two numbers is IEEE equality, and that is not an
-            // approximation of it: NaN !== NaN and +0 === -0 are what the
-            // hardware comparison already answers.
-            Some(Proven::Compare(cmp)) => return Ok(builder.compare(cmp, a, b)?),
-            // The machine FIRST, and the call only where it refuses. `%` by a
-            // power of two has an exact instruction sequence and the machine
-            // knows which divisors qualify — asking it rather than deciding
-            // here is rule 2: the language layer does not answer a machine
-            // question, and "is this divisor one my instructions can take" is
-            // squarely one.
-            //
-            // Measured 2026-08-20: the divisor is a power of two in the shapes
-            // that matter — a mask, a hash, an LCG — and LLVM performs this
-            // same reduction, which is why the native floor for
-            // bench/monte_carlo_pi.ts is 104 ms with the divisor visible and
-            // 218 ms with it hidden behind a `black_box`.
-            Some(Proven::NumberCall(op)) => {
-                return match builder.arith(NumOp::Rem, a, b) {
-                    Ok(instruction) => Ok(instruction),
-                    Err(_) => Ok(call(builder, ctx, op, &[a, b])?[0]),
-                };
-            }
-            None => {}
+        // `===` on two numbers is IEEE equality, and that is not an
+        // approximation of it: NaN !== NaN and +0 === -0 are what the hardware
+        // comparison already answers. Which instruction each operator becomes
+        // is `proven_instruction`'s to say, here and in the guarded path both.
+        if let Some(instruction) = proven_binary(op) {
+            return match proven_instruction(builder, instruction, a, b) {
+                Ok(emitted) => Ok(emitted),
+                // Only a remainder the machine cannot answer exactly reaches
+                // here, and the unboxed call is what is left of it.
+                Err(_) => {
+                    let Some(Proven::NumberCall(entry)) = proven_binary(op) else {
+                        unreachable!("only a remainder can be refused by the machine")
+                    };
+                    Ok(call(builder, ctx, entry, &[a, b])?[0])
+                }
+            };
         }
     }
 
@@ -1421,6 +1406,7 @@ pub(super) fn value_list(
 }
 
 /// What a proven pair of doubles turns an operator into.
+#[derive(Clone, Copy)]
 enum Proven {
     /// A machine arithmetic instruction.
     Arith(NumOp),
@@ -1436,6 +1422,10 @@ enum Proven {
     /// instruction.
     Bits(BitOp),
     /// A runtime call that both takes and answers PROVEN doubles.
+    ///
+    /// (`Proven` is `Copy` because two paths ask the same value twice: the
+    /// instruction is attempted, and on the machine's refusal the operator is
+    /// consulted again for the call to fall back to.)
     ///
     /// The odd member, and the reason it is a `Proven` variant rather than
     /// being left on the generic path: what makes an operator "proven" here is
@@ -1498,6 +1488,46 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
 }
 
 
+/// What a [`Proven`] operator becomes over two operands already in `Repr::F64`.
+///
+/// # Why this is a function and not written at each of its two call sites
+///
+/// Because there are exactly two — the direct path in [`emit_binary_inner`],
+/// where both operands arrived proven, and the fast block of [`emit_guarded`],
+/// where a guard established it — and rule 3 says a semantic rule is stated
+/// once. Written twice, the two would drift: the guarded copy already had a
+/// remainder fallback the direct copy did not, which is the shape of that
+/// drift starting.
+///
+/// # The one refusal it can answer
+///
+/// `Err` means the MACHINE declined, which only [`Proven::NumberCall`] can
+/// provoke: a remainder whose divisor is not one the machine can answer
+/// exactly. Every caller's answer to that is the same call it would have made
+/// anyway, and each writes it, because the two callers reach their runtime
+/// operation differently.
+fn proven_instruction(
+    builder: &mut FuncBuilder,
+    instruction: Proven,
+    left: ValueId,
+    right: ValueId,
+) -> EmitResult<ValueId> {
+    Ok(match instruction {
+        Proven::Arith(num) => builder.arith(num, left, right)?,
+        Proven::Compare(cmp) => builder.compare(cmp, left, right)?,
+        Proven::Bits(bit) => {
+            let left = builder.to_int32(left)?;
+            let right = builder.to_int32(right)?;
+            let bits = builder.bitwise(bit, left, right)?;
+            builder.to_f64(bits)?
+        }
+        // The machine FIRST, and the call only where it refuses. `%` by a power
+        // of two has an exact instruction sequence, and which divisors qualify
+        // is the machine's question rather than this layer's — rule 2.
+        Proven::NumberCall(_) => builder.arith(NumOp::Rem, left, right)?,
+    })
+}
+
 /// An operator over operands nothing proved, taking the instruction when they
 /// turn out to be numbers.
 ///
@@ -1531,13 +1561,39 @@ fn emit_guarded(
     a: ValueId,
     b: ValueId,
 ) -> EmitResult<ValueId> {
-    let a = tagged(builder, a);
-    let b = tagged(builder, b);
+    // An operand ALREADY proven does not get a block of its own.
+    //
+    // `FuncBuilder::guard` folds the test away for one of these — it asks
+    // `fold::guard_answer` before widening, so nothing is boxed to be unboxed —
+    // but the folded form is still a `jump` into a block whose PARAMETER
+    // carries the value. That parameter is the problem: it is a different
+    // `ValueId` from the constant that reaches it, so every question the
+    // machine answers by looking at what defined a value stops working.
+    //
+    // Measured 2026-08-20: that is exactly why `bench/monte_carlo_pi.ts` did
+    // not move when `% 2^k` became instructions. Its `rngState` is module-
+    // scoped, so the operands arrive unproven and the `%` takes this path —
+    // where `fold::divisor_is_power_of_two` was handed a block parameter
+    // instead of the literal `4294967296` and refused.
+    //
+    // So a proven operand is used where it stands. The saving is not the
+    // guard, which was already folded; it is the block, the parameter, and the
+    // indirection that hid a constant from a layer built to look at constants.
+    let a_proven = builder.repr_of(a) == Repr::F64;
+    let b_proven = builder.repr_of(b) == Repr::F64;
 
-    let left_is_number = builder.create_block();
-    let left = builder.add_block_param(left_is_number, Repr::F64);
-    let both = builder.create_block();
-    let right = builder.add_block_param(both, Repr::F64);
+    // Both proven never reaches here through `emit_binary_inner`, which takes
+    // the direct form first. Handled anyway rather than assumed: the blocks
+    // below are only terminated by the guards, so a call with nothing left to
+    // guard would leave `slow` unterminated and the verifier would reject a
+    // function for a reason nowhere near the mistake.
+    if a_proven && b_proven {
+        return proven_instruction(builder, instruction, a, b);
+    }
+
+    let widened_a = tagged(builder, a);
+    let widened_b = tagged(builder, b);
+
     let slow = builder.create_block();
     let join = builder.create_block();
 
@@ -1565,13 +1621,14 @@ fn emit_guarded(
         },
     );
 
-    builder.guard(a, Repr::F64, (left_is_number, &[]), (slow, &[]))?;
-
+    // Each operand is narrowed only if something still has to be established
+    // about it. A proven one answers itself.
+    //
     // ONE value guarded twice is one guard. `x + x` hands the same SSA value
-    // to both sides, and an SSA value's contents cannot change — so inside
-    // `left_is_number`, which the first guard's success dominates, testing it
-    // again can only succeed. `x + x + x` emitted nine guards for three
-    // additions; three of them were this.
+    // to both sides, and an SSA value's contents cannot change — so inside the
+    // block the first guard's success dominates, testing it again can only
+    // succeed. `x + x + x` emitted nine guards for three additions; three of
+    // them were this.
     //
     // Scoped to ONE emission on purpose. The general form — remembering a
     // narrowed value across operators — is unsound as it stands and useless if
@@ -1580,35 +1637,38 @@ fn emit_guarded(
     // it, and a memo cleared at that join never survives to the next operator.
     // Carrying it would mean the join taking a parameter the slow path has no
     // value for.
-    builder.switch_to(left_is_number);
-    match a == b {
-        // Jumped to rather than skipped: `both` already exists and every block
-        // this builder creates must be terminated — the verifier says so, and
-        // it said so about the first attempt at this. Handing `left` across
-        // the edge is what makes the two operands one value.
-        true => builder.jump(both, &[left])?,
-        false => builder.guard(b, Repr::F64, (both, &[]), (slow, &[]))?,
-    }
-    builder.switch_to(both);
-    let fast = match instruction {
-        Proven::Arith(num) => builder.arith(num, left, right)?,
-        Proven::Compare(cmp) => builder.compare(cmp, left, right)?,
-        Proven::Bits(bit) => {
-            let left = builder.to_int32(left)?;
-            let right = builder.to_int32(right)?;
-            let bits = builder.bitwise(bit, left, right)?;
-            builder.to_f64(bits)?
+    let left = match a_proven {
+        true => a,
+        false => {
+            let narrowed = builder.create_block();
+            let param = builder.add_block_param(narrowed, Repr::F64);
+            builder.guard(widened_a, Repr::F64, (narrowed, &[]), (slow, &[]))?;
+            builder.switch_to(narrowed);
+            param
         }
-        // The guards narrowed both operands to `F64`, so the same question the
-        // unguarded path asks is available here: the machine first, the call
-        // where it refuses. A guarded `%` whose divisor is a literal power of
-        // two — `h = (h * 31 + c) % 256` over an unproven `h` — takes the
-        // instruction on the fast path and the call on the slow one.
-        Proven::NumberCall(op) => match builder.arith(NumOp::Rem, left, right) {
-            Ok(instruction) => instruction,
-            Err(_) => call(builder, ctx, op, &[left, right])?[0],
-        },
     };
+    let right = if b_proven {
+        b
+    } else if a == b {
+        // The same value, and `left` is what it narrowed to.
+        left
+    } else {
+        let narrowed = builder.create_block();
+        let param = builder.add_block_param(narrowed, Repr::F64);
+        builder.guard(widened_b, Repr::F64, (narrowed, &[]), (slow, &[]))?;
+        builder.switch_to(narrowed);
+        param
+    };
+
+    let fast = proven_instruction(builder, instruction, left, right)
+        .or_else(|_| -> EmitResult<ValueId> {
+            // Only `NumberCall` can refuse — a remainder whose divisor the
+            // machine cannot answer exactly — and the call is what is left.
+            let Proven::NumberCall(op) = instruction else {
+                unreachable!("only a remainder can be refused by the machine")
+            };
+            Ok(call(builder, ctx, op, &[left, right])?[0])
+        })?;
     // `builder.compare` já responde `Repr::Bool`; alargar aqui era jogar fora a
     // única prova que este bloco produziu.
     let fast = match boolean_join {
@@ -1619,7 +1679,10 @@ fn emit_guarded(
 
     builder.switch_to(slow);
     let (runtime, _) = runtime_binary(op).expect("every instruction has a runtime operation");
-    let answered = call(builder, ctx, runtime, &[a, b])?[0];
+    // The WIDENED operands, always: this path is the generic one, and its
+    // entry point takes JavaScript values. A proven operand that skipped the
+    // guard above still has to be boxed to be handed over here.
+    let answered = call(builder, ctx, runtime, &[widened_a, widened_b])?[0];
     // `!==` has no runtime operation of its own — deliberately, so that strict
     // equality is stated once — so the slow path is the equality call with the
     // answer inverted, exactly as the unspeculated path at [`emit_binary`]
