@@ -77,6 +77,21 @@ pub(super) fn lexical_read(
     match scope.lookup(name) {
         Some(Binding::Value(value)) => Ok(value),
         Some(Binding::InEnvironment { hops, name }) => {
+            // The value written a moment ago, when nothing at all has happened
+            // since. See `Ctx::last_captured_write` for the whole condition and
+            // why it is this narrow; the short of it is that the environment is
+            // an object this compiler made, so a store puts the value in the
+            // slot and a load takes it back out unchanged — and the window is
+            // closed by anything being emitted, so nothing can have run in
+            // between to make that untrue.
+            if let Some(written) = ctx.last_captured_write
+                && written.name == name
+                && written.hops == hops
+                && written.block == builder.current()
+                && builder.nothing_emitted_here()
+            {
+                return Ok(written.value);
+            }
             let environment = walk(builder, scope, ctx, hops)?;
             super::property::emit_read(builder, ctx, environment, name)
         }
@@ -136,7 +151,31 @@ pub(super) fn lexical_write(
     match scope.lookup(name) {
         Some(Binding::InEnvironment { hops, name }) => {
             let environment = walk(builder, scope, ctx, hops)?;
-            super::property::emit_write(builder, ctx, environment, name, value)
+            let stored = super::property::emit_write(builder, ctx, environment, name, value)?;
+            // What `emit_write` ANSWERED, never the `value` handed to it. The
+            // two are the same number and not the same value: a store widens
+            // its argument, so the answer is the tagged form and the argument
+            // may be anything — including a `Repr::I64` the emitter is using as
+            // an index, which cannot be widened at all.
+            //
+            // Remembering the argument is what the first version of this did,
+            // with a comment arguing they were interchangeable. They are not,
+            // and the cross-runtime gate said so within the hour:
+            // `claude-destructuring-lazy-iterator-pull` went from passing to
+            // `Place(Lower(CannotWiden { from: I64 }))`, because a later read
+            // answered the raw index where a JavaScript value was required.
+            //
+            // The join's parameter is the right thing for the same reason it is
+            // what a READ produces: both paths of the store carry the assigned
+            // value through it, in the one representation every consumer of a
+            // binding expects.
+            ctx.last_captured_write = Some(super::CapturedWrite {
+                name,
+                hops,
+                value: stored,
+                block: builder.current(),
+            });
+            Ok(stored)
         }
         Some(Binding::Value(_)) => {
             // A value binding is rebound rather than stored to, which is what

@@ -226,6 +226,26 @@ pub struct Program {
 /// indexes is built from the program's own text.
 pub const NO_COOKED: u32 = u32::MAX;
 
+/// A captured binding just written, and where the emitter was when it finished.
+///
+/// Read [`Ctx::last_captured_write`] for what this is for and why the window is
+/// as narrow as it is.
+#[derive(Clone, Copy)]
+pub struct CapturedWrite {
+    /// Which binding.
+    pub name: Name,
+    /// How many environments out it lives, as the write resolved it.
+    ///
+    /// Carried because the SAME spelling can name two bindings at two depths —
+    /// a `let` in a loop body shadowing one outside it — and forwarding across
+    /// that would answer the inner binding's value for the outer one's read.
+    pub hops: u32,
+    /// The value stored.
+    pub value: rts_cranelift::ir::ValueId,
+    /// The block the write's join landed in.
+    pub block: rts_cranelift::ir::BlockId,
+}
+
 /// What emission needs that is not the function being built.
 ///
 /// One struct rather than four parameters threaded through every emitter, and
@@ -234,6 +254,42 @@ pub const NO_COOKED: u32 = u32::MAX;
 /// declared-calls table outlive one function, because a compilation with two
 /// functions calling `__rts_add` must declare it once.
 pub struct Ctx<'a> {
+    /// The captured binding written last, and what was written into it.
+    ///
+    /// # What this is for
+    ///
+    /// `rngState = (…) % m;` followed by `if (rngState < 0)` reads back, from
+    /// the heap, a value the emitter is still holding. Measured 2026-08-21 on
+    /// `bench/monte_carlo_pi.ts`: the whole distance between that file and the
+    /// same algorithm written with locals is 69,6 ns an iteration, and every
+    /// nanosecond of it is the twelve reads and writes of one captured variable
+    /// at ~5,4 ns each. A read that does not have to happen is the cheapest one
+    /// available.
+    ///
+    /// # Why it is safe, and the exact condition
+    ///
+    /// A memo over memory is a wrong ANSWER when its invalidation is
+    /// incomplete, not a slow program — so this does not attempt to track what
+    /// invalidates it. It carries the block the write's join landed in, and is
+    /// spent only while the emitter is still standing at the top of that block
+    /// with nothing appended: [`FuncBuilder::nothing_emitted_here`]. Anything
+    /// at all having been emitted since, or control having moved to another
+    /// block, and the question is simply not asked.
+    ///
+    /// That is a narrow window and it is the right one. It admits exactly the
+    /// shape above — a write, then a read of the same name as the very next
+    /// thing — and nothing where an operator, a call or a branch could have run
+    /// user code in between.
+    ///
+    /// # Why only a CAPTURED binding
+    ///
+    /// Because the environment is an object this compiler created, holding
+    /// plain data properties. Storing into one puts the value in the slot and
+    /// does nothing else; there is no setter to transform it on the way in and
+    /// no getter to answer something different on the way back. That is not
+    /// true of an arbitrary object, which is why this is set from `binding.rs`
+    /// and never from `property.rs`.
+    pub last_captured_write: Option<CapturedWrite>,
     /// Whether a CLEANUP body is being emitted right now.
     ///
     /// A cleanup block has a shape the machine checks: it ends by handing
@@ -522,6 +578,7 @@ impl<'a> Ctx<'a> {
         types: &'a TypeRegistry,
     ) -> Self {
         Ctx {
+            last_captured_write: None,
             in_cleanup: false,
             in_static_method: false,
             in_field_initializer: false,
