@@ -277,3 +277,40 @@ as duas por população a mudar em vez de erro a mudar:
 É por isso que `regua.mjs --base` imprime a MATRIZ DE TRANSIÇÕES entre classes
 com contagens brutas, e nunca um saldo: o saldo dizia "+286" onde a matriz diz
 "570 saíram, 284 entraram".
+
+## Onde a régua de DESENHO erra — e um caso em que ela nos penaliza por acertar
+
+Escrito em **2026-08-21**, quando a quarta régua nasceu. Ela compara o texto
+PINTADO dos dois lados, e tem três formas de cegueira já medidas.
+
+**1. A árvore de acessibilidade não é um denominador.** Ela descreve a ÁRVORE,
+não o que sobrevive ao desenho. Mediu-se: reporta **493 marcadores de lista onde
+a página pinta 787** — 294 abaixo, 38%. Serve para saber que um pseudo-elemento
+existe e qual é o texto dele (que o DOM não sabe); não serve para contar nada.
+
+**2. O corpus do DOM é cego a conteúdo gerado.** Um `::before` tem
+`InlineTextBox` na AX e **nenhum nó de texto no DOM**. Trocar a coluna de
+palavras para o DOM mais do que DOBRA o "a mais" — 712 para 1 788 — e o topo da
+lista é `461x "↑"`, `416x "·"`, `64x "a"`, todos conteúdo gerado corretamente
+pintado. **Cada fonte é melhor numa metade**: o DOM no que falta (não parte as
+palavras no hífen), a AX no que sobra (vê `content`). Ficam as duas, com a
+divergência à vista.
+
+**3. E a que inverte o sinal: a shadow DOM.** Pintamos `"Pesquisar na
+Wikipédia"` — o placeholder do `<input>` — e **nenhuma das duas fontes o vê**,
+porque vive na shadow DOM. O Chrome pinta-o; nós também; a régua conta-o contra
+nós. **Nenhuma quantidade de trabalho no motor faz esse número descer.** Quem
+perseguir o "texto a mais" tem de descontar isto antes de começar, senão vai
+atrás de um defeito que é um acerto.
+
+**O caso que fecha a discussão sobre árbitros:** a palavra `Ferramentas` dá
+**AX 0, DOM 1, nós 2**. O Chrome pinta uma, nós pintamos duas — duplicação real
+nossa — e a AX não vê nenhuma. Uma fonte sozinha teria dito "não desenhamos" ou
+"desenhamos a mais" conforme qual se escolhesse.
+
+**E a fragmentação não é conteúdo.** O Chrome quebra a linha depois de um hífen
+e emite `sul-` e `americanos` como fragmentos separados; nós mantemos a palavra
+inteira. Isso aparece nas DUAS colunas ao mesmo tempo — 105 `original` de um
+lado, `origina`+`l` do outro — e não é texto em falta nem a mais. É por isso que
+a régua dá caracteres ao lado de palavras: a métrica ao caractere é imune ao
+sítio onde cada lado corta.
