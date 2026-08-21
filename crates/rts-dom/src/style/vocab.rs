@@ -23,7 +23,7 @@
 //! dois — que é a regra da casa para código novo em ficheiro já grande.
 
 use super::background::BgPosition;
-use super::lengths::{parse_dimension, parse_len_pub, split_top_ws};
+use super::lengths::{parse_dimension, split_top_ws};
 use super::props::ComputedStyle;
 use super::values::{AlignItems, Dimension, JustifyContent};
 
@@ -445,11 +445,13 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         "font-stretch" => css.font_stretch = parse_font_stretch(val),
         "zoom" => css.zoom = parse_zoom(val),
         "word-spacing" => {
-            // `normal` é 0 — a mesma convenção do `letter-spacing` ao lado.
+            // `normal` é 0, e o NEGATIVO vale — como no `letter-spacing` ao
+            // lado. Usava um parse de LARGURA, que recusa o sinal: duas
+            // propriedades irmãs respondiam ao contrário uma da outra.
             css.word_spacing = if val.trim().eq_ignore_ascii_case("normal") {
                 Some(0.0)
             } else {
-                parse_len_pub(val)
+                super::lengths::parse_signed_px(val)
             }
         }
         // `-webkit-line-clamp: <n>` — corta o bloco a n linhas. `none` = sem

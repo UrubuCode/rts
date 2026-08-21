@@ -85,17 +85,20 @@ pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     num(low.strip_suffix("px").unwrap_or(&low)).map(Dimension::Px)
 }
 
-/// Um offset de posicionamento (`top`/`left`/…): como [`parse_dimension`], MAS
-/// aceita valores NEGATIVOS em px (deslocar para fora é comum em badges/tooltips);
-/// as unidades relativas continuam ≥ 0 via parse_dimension.
+/// Um offset de posicionamento (`top`/`left`/…): um comprimento COM SINAL, em
+/// qualquer unidade. Deslocar para fora da caixa é o idioma de badges e
+/// tooltips, e a folha real escreve-o tanto em `px` como em `em`/`rem`/`%`.
+///
+/// Era um caminho de sinal PRÓPRIO que só sabia ler `px`/número puro, e por isso
+/// `bottom:-11px` passava enquanto `top:-1.65em` e `right:-.25rem` eram
+/// descartados em silêncio. Acertar numa unidade e falhar nas outras é pior do
+/// que recusar todas: quem lê a folha não tem como adivinhar a fronteira.
+///
+/// Agora é o [`parse_dimension_signed`] e mais nada — a decisão "esta
+/// propriedade aceita negativo" fica no NOME de quem se chama, e a leitura da
+/// unidade fica num sítio só.
 pub(crate) fn parse_inset(v: &str) -> Option<Dimension> {
-    let t = v.trim();
-    // negativo: só a forma px/número (o parse_dimension rejeita <0).
-    if t.starts_with('-') {
-        let num = t.strip_suffix("px").unwrap_or(t);
-        return num.trim().parse::<f32>().ok().map(Dimension::Px);
-    }
-    parse_dimension(t)
+    parse_dimension_signed(v)
 }
 
 /// Parseia o shorthand `gap: <row-gap> <column-gap>` → `(row_gap, column_gap)`.
@@ -118,14 +121,15 @@ pub(crate) fn parse_gap_pair(val: &str) -> (Option<Dimension>, Option<Dimension>
 /// - 2: `top/bottom` | `left/right` (vertical | horizontal)
 /// - 3: `top` | `left/right` | `bottom`
 /// - 4: `top` | `right` | `bottom` | `left` (horário)
-/// `allow_auto` habilita o keyword `auto` (margin). Tokens inválidos → Unset.
-pub(crate) fn parse_edges(val: &str, allow_auto: bool) -> Edges {
+/// A [`Caixa`] diz qual das duas é, e com isso o que `auto` e o sinal valem.
+/// Tokens inválidos para essa caixa → `Unset`.
+pub(crate) fn parse_edges(val: &str, caixa: Caixa) -> Edges {
     // Separa os lados respeitando PARÊNTESES — um `calc(0.25rem * 4)` (todo o
     // espaçamento do Tailwind v4) tem espaços INTERNOS que o `split_whitespace` cru
     // quebraria em 3 tokens inválidos, zerando o padding/margin da página inteira.
     let toks: Vec<Side> = split_top_ws(val)
         .iter()
-        .map(|t| parse_side(t, allow_auto))
+        .map(|t| parse_side(t, caixa))
         .collect();
     match toks.as_slice() {
         [a] => Edges::all(*a),
@@ -231,20 +235,76 @@ pub(crate) fn split_top_ws(v: &str) -> Vec<String> {
     out
 }
 
+/// Qual das duas caixas de espaçamento está a ser parseada. As duas fazem as
+/// MESMAS perguntas de unidade e respondem ao contrário em duas delas, e é por
+/// isso que é um nome de propriedade e não dois booleanos: `auto` e o sinal
+/// coincidem aqui por acaso — `margin` diz sim aos dois e `padding` não aos dois
+/// — e dois `bool` que valem sempre o mesmo convidam o próximo a passar um sem o
+/// outro.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Caixa {
+    /// `margin` — aceita `auto` e aceita comprimento negativo (o gutter `.row`
+    /// do Bootstrap é `margin-left:-15px`).
+    Margem,
+    /// `padding` — recusa `auto` e recusa negativo (CSS Box 3: o valor é
+    /// `<length-percentage [0,∞]>`).
+    Padding,
+}
+
+impl Caixa {
+    fn aceita_auto(self) -> bool {
+        self == Caixa::Margem
+    }
+    fn aceita_negativo(self) -> bool {
+        self == Caixa::Margem
+    }
+}
+
 /// Parseia UM lado de margin/padding: um COMPRIMENTO em qualquer unidade
-/// (px/%/em/rem/vw/vh — resolve tarde, como width), `auto` (se `allow_auto`), ou
-/// `Unset` se inválido. NEGATIVO permitido (margem negativa é o gutter `.row` do
-/// Bootstrap; padding negativo é clampado ≥ 0 no consumo do layout).
-pub(crate) fn parse_side(tok: &str, allow_auto: bool) -> Side {
+/// (px/%/em/rem/vw/vh — resolve tarde, como width), `auto` (só margem), ou
+/// `Unset` se inválido para aquela caixa.
+///
+/// O sinal é decidido AQUI, pela propriedade, e não lá em baixo pela unidade. Um
+/// `padding:-4px` era aceite e clampado a zero no layout, e as duas coisas não
+/// são a mesma: clampar CONSOME a declaração e apaga a que vinha antes, enquanto
+/// recusá-la — que é o que o browser faz com uma declaração inválida — deixa a
+/// anterior de pé.
+pub(crate) fn parse_side(tok: &str, caixa: Caixa) -> Side {
     let t = tok.trim();
-    if allow_auto && t.eq_ignore_ascii_case("auto") {
+    if caixa.aceita_auto() && t.eq_ignore_ascii_case("auto") {
         return Side::Auto;
     }
-    match parse_dimension_signed(t) {
+    let d = if caixa.aceita_negativo() {
+        parse_dimension_signed(t)
+    } else {
+        parse_dimension(t)
+    };
+    match d {
         // `auto` já foi tratado acima (só margin); um Auto aqui é inválido
         // (padding: auto não existe) — vira Unset, nunca `Len(Auto)`.
         Some(Dimension::Auto) | None => Side::Unset,
         Some(d) => Side::Len(d),
+    }
+}
+
+/// Escreve um lado SÓ se o valor for válido para aquela caixa.
+///
+/// Uma declaração inválida não é uma declaração a zero: o CSS manda deitá-la
+/// fora no parse, e o que estava declarado antes fica a valer. `parse_side`
+/// devolve `Unset` para o que recusa, e atribuir isso ao campo APAGA a
+/// declaração anterior — que é o contrário do que recusar significa.
+///
+/// Existe por causa do `padding` negativo, que passou a ser recusado neste lote:
+/// sem esta guarda, `padding-left:8px; padding-left:-4px` ficava sem padding
+/// nenhum, quando o browser mantém os 8px.
+///
+/// ⚠️ Cobre os lados de margin/padding e mais nada. O mesmo defeito existe em
+/// TODA a tabela — `color:red; color:xpto` responde preto, `width:100px;
+/// width:-5px` responde não-declarado — porque o dispatch atribui o resultado do
+/// parse sem perguntar se ele falhou. Isso é uma correção por si, noutro sítio.
+pub(crate) fn set_side(dst: &mut Side, novo: Side) {
+    if novo != Side::Unset {
+        *dst = novo;
     }
 }
 
@@ -293,6 +353,84 @@ pub(crate) fn parse_len(v: &str) -> Option<f32> {
     parse_px(&low)
 }
 
+
+#[cfg(test)]
+mod sinal_por_propriedade {
+    use crate::style::parse::parse_inline;
+    use crate::style::values::{Dimension, Side};
+
+    /// Um offset negativo vale em QUALQUER unidade, e não só em `px`.
+    ///
+    /// O `parse_inset` tratava o sinal à parte, com um caminho próprio que só
+    /// sabia ler `px`/número — por isso `top:-1.65em` e `right:-.25rem` eram
+    /// descartados enquanto `bottom:-11px` passava. Um por asserção porque o
+    /// defeito era exatamente esse: acertar numa unidade e falhar nas outras.
+    #[test]
+    fn offset_negativo_vale_em_qualquer_unidade() {
+        assert_eq!(parse_inline("bottom:-11px").inset_bottom, Some(Dimension::Px(-11.0)));
+        assert_eq!(parse_inline("top:-1.65em").inset_top, Some(Dimension::Em(-1.65)));
+        assert_eq!(parse_inline("right:-.25rem").inset_right, Some(Dimension::Rem(-0.25)));
+        assert_eq!(parse_inline("left:-50%").inset_left, Some(Dimension::Percent(-50.0)));
+    }
+
+    /// E a margem também — a forma relativa é a que a folha real escreve.
+    #[test]
+    fn margem_negativa_vale_em_qualquer_unidade() {
+        assert_eq!(
+            parse_inline("margin-top:-0.5em").margin.top,
+            Side::Len(Dimension::Em(-0.5))
+        );
+        assert_eq!(
+            parse_inline("margin-left:-3.2em").margin.left,
+            Side::Len(Dimension::Em(-3.2))
+        );
+        assert_eq!(
+            parse_inline("margin:-1px").margin.top,
+            Side::Len(Dimension::Px(-1.0))
+        );
+    }
+
+    /// O OUTRO lado da regra, e a metade sem a qual esta correção seria pior que
+    /// o defeito: as propriedades que a spec proíbe de ser negativas continuam a
+    /// recusar. A declaração cai, o que deixa a anterior a valer — que é o que o
+    /// browser faz.
+    #[test]
+    fn comprimento_negativo_continua_recusado_onde_a_spec_o_proibe() {
+        assert_eq!(parse_inline("width:-5px").width, None);
+        assert_eq!(parse_inline("height:-2em").height, None);
+        assert_eq!(parse_inline("min-width:-1rem").min_width, None);
+        assert_eq!(parse_inline("font-size:-12px").font_size, None);
+    }
+
+    /// `padding` é o caso que estava do lado errado: aceitava o negativo e
+    /// deixava o layout clampar a zero. Não é o mesmo — clampar CONSOME a
+    /// declaração e apaga a anterior, enquanto recusá-la deixa a anterior de pé.
+    #[test]
+    fn padding_negativo_e_recusado_e_nao_clampado() {
+        assert_eq!(parse_inline("padding-top:-4px").padding.top, Side::Unset);
+        assert_eq!(parse_inline("padding:-1em").padding.left, Side::Unset);
+        assert_eq!(
+            parse_inline("padding-left:8px;padding-left:-4px").padding.left,
+            Side::Len(Dimension::Px(8.0)),
+            "a declaração inválida tem de deixar a anterior a valer"
+        );
+    }
+
+    /// `word-spacing` aceita negativo (aperta o espaço entre palavras), como o
+    /// `letter-spacing` ao lado dele já aceitava.
+    #[test]
+    fn word_spacing_negativo_e_aceite_como_o_letter_spacing() {
+        assert_eq!(parse_inline("word-spacing:-2px").word_spacing, Some(-2.0));
+        assert_eq!(parse_inline("letter-spacing:-1px").letter_spacing, Some(-1.0));
+    }
+
+    /// E o `auto` continua a ser só da margem: `padding:auto` não existe.
+    #[test]
+    fn auto_continua_a_ser_so_da_margem() {
+        assert_eq!(parse_inline("margin-left:auto").margin.left, Side::Auto);
+        assert_eq!(parse_inline("padding-left:auto").padding.left, Side::Unset);
+    }
+}
 
 #[cfg(test)]
 mod palavras_chave_intrinsecas {

@@ -7,8 +7,8 @@
 
 use super::color::parse_color;
 use super::lengths::{
-    parse_dimension, parse_dimension_signed, parse_edges, parse_gap_pair, parse_inset, parse_len,
-    parse_px, parse_side, parse_signed_px, split_top_ws,
+    Caixa, parse_dimension, parse_dimension_signed, parse_edges, parse_gap_pair, parse_inset, parse_len,
+    parse_px, parse_side, parse_signed_px, set_side, split_top_ws,
 };
 use super::props::ComputedStyle;
 use super::stylesheet::DeclBlock;
@@ -296,26 +296,26 @@ pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) 
         "overflow-x" => css.overflow_x = crate::scrollbar::Overflow::parse_str(val),
         "overflow-y" => css.overflow_y = crate::scrollbar::Overflow::parse_str(val),
         // ── Box model: shorthand 1/2/3/4 valores + longhands por lado. ─────────
-        "padding" => css.padding = parse_edges(val, false),
-        "padding-top" => css.padding.top = parse_side(val, false),
-        "padding-right" => css.padding.right = parse_side(val, false),
-        "padding-bottom" => css.padding.bottom = parse_side(val, false),
-        "padding-left" => css.padding.left = parse_side(val, false),
+        "padding" => css.padding = parse_edges(val, Caixa::Padding),
+        "padding-top" => set_side(&mut css.padding.top, parse_side(val, Caixa::Padding)),
+        "padding-right" => set_side(&mut css.padding.right, parse_side(val, Caixa::Padding)),
+        "padding-bottom" => set_side(&mut css.padding.bottom, parse_side(val, Caixa::Padding)),
+        "padding-left" => set_side(&mut css.padding.left, parse_side(val, Caixa::Padding)),
         // Props LÓGICAS (Tailwind v4 usa `px-N`→padding-inline, `py-N`→padding-block
         // em TUDO): inline = left+right, block = top+bottom (modo horizontal LTR).
         "padding-inline" => {
-            let s = parse_side(val, false);
+            let s = parse_side(val, Caixa::Padding);
             css.padding.left = s;
             css.padding.right = s;
         }
         "padding-block" => {
-            let s = parse_side(val, false);
+            let s = parse_side(val, Caixa::Padding);
             css.padding.top = s;
             css.padding.bottom = s;
         }
         "padding-inline-start" | "padding-inline-end" => {
             // LTR: start=left, end=right. Sem distinguir aqui, aplica no lado certo.
-            let s = parse_side(val, false);
+            let s = parse_side(val, Caixa::Padding);
             if prop == "padding-inline-start" {
                 css.padding.left = s;
             } else {
@@ -323,25 +323,25 @@ pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) 
             }
         }
         // margin aceita `auto` (centralização); padding não.
-        "margin" => css.margin = parse_edges(val, true),
-        "margin-top" => css.margin.top = parse_side(val, true),
-        "margin-right" => css.margin.right = parse_side(val, true),
-        "margin-bottom" => css.margin.bottom = parse_side(val, true),
-        "margin-left" => css.margin.left = parse_side(val, true),
+        "margin" => css.margin = parse_edges(val, Caixa::Margem),
+        "margin-top" => set_side(&mut css.margin.top, parse_side(val, Caixa::Margem)),
+        "margin-right" => set_side(&mut css.margin.right, parse_side(val, Caixa::Margem)),
+        "margin-bottom" => set_side(&mut css.margin.bottom, parse_side(val, Caixa::Margem)),
+        "margin-left" => set_side(&mut css.margin.left, parse_side(val, Caixa::Margem)),
         "margin-inline" => {
-            let s = parse_side(val, true);
+            let s = parse_side(val, Caixa::Margem);
             css.margin.left = s;
             css.margin.right = s;
         }
         "margin-block" => {
-            let s = parse_side(val, true);
+            let s = parse_side(val, Caixa::Margem);
             css.margin.top = s;
             css.margin.bottom = s;
         }
         // LTR: start=left, end=right (o mesmo corte do `padding-inline-*` —
         // `direction:rtl` é aceite mas o layout não inverte; ver `style::text`).
         "margin-inline-start" | "margin-inline-end" => {
-            let s = parse_side(val, true);
+            let s = parse_side(val, Caixa::Margem);
             if prop == "margin-inline-start" {
                 css.margin.left = s;
             } else {
@@ -349,7 +349,7 @@ pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) 
             }
         }
         "margin-block-start" | "margin-block-end" => {
-            let s = parse_side(val, true);
+            let s = parse_side(val, Caixa::Margem);
             if prop == "margin-block-start" {
                 css.margin.top = s;
             } else {
