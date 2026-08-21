@@ -428,7 +428,14 @@ Reasoning in `docs/engine/architecture.md`.
 
 ## MANDATORY: file size and the commit gate
 
-Ceilings: **codegen ≤ 1000**, **engine ≤ 700**, **everything else ≤ 500**. A file
+Ceilings: **the two engine crates ≤ 1000**, **everything else ≤ 500** — as each
+crate's README states, and they are the binding text. This line said
+"engine ≤ 700" and that number appears in no README: `rts-cranelift` and
+`rts-codegen` both say 1000, `rts-core` and `rts-host` both say 500, and
+`rts-core`'s says *"the same ceiling as the rest of the workspace outside the two
+engine crates"*, which settles it. A summary that contradicts its sources sends
+work to a file that already complies — one file of 1 366 lines was on a list for
+that reason alone. A file
 that would pass its ceiling is split into a folder of cohesive modules. New code
 lands in a small focused module, never appended to something already oversized.
 
