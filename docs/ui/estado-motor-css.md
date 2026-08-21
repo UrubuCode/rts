@@ -132,9 +132,17 @@ somando 810 874 px de erro de largura**. As percentagens abaixo são desse total
 
 ---
 
-**1. O shorthand `border-width` com 1..4 valores é DESCARTADO.**
-**36 elementos, 201 954 px — 24,9% do erro de largura da página**, e é o maior
+**1. O shorthand `border-width` com 1..4 valores era DESCARTADO.**
+**36 elementos, 201 954 px — 24,9% do erro de largura da página**, e era o maior
 bloco único depois dos inline.
+
+> **Estado a 2026-08-21: correção NA ÁRVORE DE TRABALHO, POR MEDIR.**
+> `parse.rs` já chama `borders::apply_width_shorthand` em vez de `parse_len`.
+> **Ninguém mediu ainda o efeito**, e este número — 201 954 px — é o do estado
+> ANTERIOR. Quem confirmar: comparar por elemento contra um dump com `__fim`, e
+> ler as duas armadilhas do fim desta secção antes de olhar para o total. O
+> diagnóstico abaixo fica porque é o que diz onde procurar se a correção não
+> render os 201 954 px.
 
 Em `crates/rts-dom/src/style/parse.rs`, o braço
 `"border-width" => css.border_width = parse_len(val)` dentro de
@@ -149,11 +157,16 @@ O que torna isto o item 1 é o custo: as longhands por lado **já existem**
 (`layout.rs`, no sítio que chama `borders::used_widths`). Falta ligar o
 shorthand às quatro longhands. É parsing puro, sem tocar em layout.
 
-Sobrevive a um binário mais recente: repetido contra
-`scripts/parity/out/rts-novo.jsonl` (2026-08-21 00:38) dá **os mesmos 36
-elementos e os mesmos 201 954 px**. (Esse dump **não** foi usado para mais nada:
-tem 9 609 caminhos contra 16 813, um denominador encolhido em silêncio, que é
-exatamente o que a régua nos manda recusar.)
+**Sobrevive a um binário mais recente e a um corte diferente da população.**
+Repetido contra `scripts/parity/out/rts-novo.jsonl` (2026-08-21, dump completo,
+`__fim` a bater em 16 813): **os mesmos 36 elementos e os mesmos 201 954 px**,
+enquanto o erro de largura total do mesmo dump SUBIU de 810 874 para 825 799 px.
+Uma causa que não se move quando o agregado se move é uma causa medida, não uma
+correlação.
+
+*(Nota de método: a primeira leitura deste dump apanhou-o com 9 609 caminhos e
+foi registada como "denominador encolhido". Estava errada — o ficheiro estava a
+ser ESCRITO. Ver a armadilha do `__fim` em `parity-chrome.md`.)*
 
 **2. Um `<img>` contribui ZERO para a largura intrínseca.**
 24 `figure`, **28 548 px de largura a jusante (3,5%)** — e o pior bloco de erro
@@ -301,6 +314,14 @@ Estão em `docs/ui/parity-chrome.md` com detalhe. Em resumo:
   2026-08-21 — o `<br>` no `getBoundingClientRect`, e o rect de um inline ser a
   caixa da FONTE no Chrome e a caixa da LINHA em nós. Ambas em
   `docs/ui/parity-chrome.md`, com o que cada uma invalida.
+- **Uma correção CERTA pela spec pode AFASTAR o agregado.** O fix do espaço
+  inline (`036b858b`) aproximou os `<p>` do Chrome em 520 px com **zero
+  elementos perdidos**, e subiu o erro de largura total de 810 874 para
+  825 799 px. Enquanto as causas dominantes estiverem por corrigir, a régua é a
+  lista de perdidos por elemento e a família atacada — nunca o total.
+- **Um dump a meio de ser escrito parece um corpus mais pequeno**, e a diferença
+  é a linha `__fim`, não a contagem. Custou-me uma conclusão errada neste
+  documento, já corrigida.
 - **Um relatório pode ser mais velho que o dump que descreve.**
   `scripts/parity/out/relatorio.txt` (23:19) avisa de 278 caminhos repetidos e
   de uma linha por parsear; o `rts.jsonl` no disco (20:29) não tem nem uma coisa

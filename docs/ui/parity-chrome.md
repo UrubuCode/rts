@@ -87,6 +87,76 @@ desvio fosse do instrumento em toda a linha, a largura não podia estar exata.
 
 ---
 
+## Um dump A MEIO DE SER ESCRITO parece um corpus mais pequeno
+
+**O teste é a linha `__fim`, nunca a contagem de elementos.**
+
+Custou-se isto a 2026-08-21: uma leitura de `scripts/parity/out/rts-novo.jsonl`
+respondeu 9 609 caminhos contra os 16 813 do lado do Chrome, e foi registada
+como "denominador encolhido em silêncio" — a armadilha clássica desta página.
+**Era outra coisa:** a corrida estava a decorrer (leva ~10 minutos) e o ficheiro
+fechou depois com 16 813 caminhos e `__fim` a bater.
+
+Os dois casos produzem **exatamente o mesmo sintoma** — menos elementos do que
+se esperava — e são conclusões opostas: um invalida a medição, o outro só pede
+que se espere. A única coisa que os distingue é o rodapé que o extrator escreve
+no fim (`chrome_extract.mjs`, `{"__fim":1,"emitidos":N}`), porque um ficheiro
+truncado não o tem e um ficheiro completo tem-no com o total a bater.
+
+As duas réguas já o verificam, com severidades diferentes de propósito:
+`compare.mjs` **reporta** a ausência como problema de integridade e segue;
+`regressao.mjs` **atira** e recusa-se a comparar. Uma sonda escrita à mão sobre
+os dumps não tem nem uma coisa nem outra — se escrever uma, o `__fim` é a
+primeira linha de código, não a última.
+
+---
+
+## Uma correção CERTA pela spec pode AFASTAR o agregado
+
+Esta contradiz a intuição de toda a gente e é a razão pela qual o total não
+serve como régua enquanto as causas dominantes estiverem por corrigir.
+
+**O caso, medido:** o fix do espaço inline (o espaço que desaparecia em toda a
+fronteira de elemento inline), commit `036b858b`, binário de worktree isolado,
+mesmo `chrome.jsonl`. Está certo pela spec e **não perdeu um único elemento**.
+
+O que fez à família que atacava, e o que fez ao total:
+
+| | antes | depois |
+|---|---:|---:|
+| `<p>` — soma de `dh` contra o Chrome (n=165) | −6 608 px | **−6 088 px** |
+| soma do erro de LARGURA (todos os elementos) | 810 874 px | **825 799 px** |
+| soma do erro máximo (medição do `recon-y`) | 216,2 M px | **224,0 M px** |
+| `\|dw\|` dos inline | — | **+4,3%** |
+| elementos PERDIDOS | — | **0** |
+
+*(As duas primeiras linhas são reprodução independente sobre
+`scripts/parity/out/rts.jsonl` e `rts-novo.jsonl`; a terceira e a quarta são do
+`recon-y`, sobre a mesma mudança.)*
+
+**520 px de aproximação na família certa, +1,8% no agregado, zero perdidos.**
+
+A razão é mecânica: pôr o espaço de volta torna as caixas inline mais largas, e
+enquanto as causas dominantes ainda encolhem containers a montante — a
+`figure{display:table}` que fica com 10 px, os `ul` de dropdown colapsados — uma
+caixa mais larga dentro de um container demasiado estreito **afasta-se** mais do
+Chrome do que a caixa errada que lá estava. O agregado está a medir o erro dos
+OUTROS defeitos, não o desta correção.
+
+**A regra que fica:** enquanto as causas dominantes estiverem por corrigir, o
+agregado **não é a régua**. A régua são duas coisas, as duas por elemento:
+
+1. **a lista de PERDIDOS** — elementos que casavam antes e deixaram de casar. É
+   esta que autoriza ou proíbe o commit, e uma lista vazia é a única forma que a
+   afirmação "sem regressão" toma aqui;
+2. **a família que se estava a atacar**, medida sozinha e antes/depois.
+
+Um total que sobe com a lista de perdidos vazia é informação sobre o trabalho
+que FALTA, não sobre o trabalho que se fez. Um total que desce sem essas duas
+verificações não prova nada — pode ser uma família a melhorar e outra a partir-se.
+
+---
+
 ## O que estas réguas já apanharam
 
 Cada uma destas foi encontrada por medição, não por leitura de código, e
