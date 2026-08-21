@@ -436,3 +436,58 @@ declarado um desvio que não existe.
 **O passo em que os nove tamanhos bateram ao ±2 foi o único em que foram
 contados em vez de estimados.**
 
+---
+
+## Coordenar vários agentes na mesma árvore
+
+### O worktree isolado torna a árvore partilhada um não-problema
+
+Quando a árvore não compila por causa de outro lote, **não se espera e não se
+acumulam passos por verificar**:
+
+```bash
+git worktree add --detach $TMP/wt HEAD          # onde tudo compila
+cp -r <só os SEUS ficheiros> $TMP/wt/<mesmo caminho>
+cd $TMP/wt && CARGO_TARGET_DIR=$TMP/wt/target cargo test -p <crate>
+```
+
+Dá `check` e `test` reais **sobre o próprio trabalho**, sem depender de ninguém
+e sem tocar na árvore de ninguém. Dois lotes inteiros foram entregues assim com
+a árvore vermelha o tempo todo.
+
+**Com isto, a árvore partilhada deixa de ser um recurso disputado** — e a
+"janela" abaixo passa a ser uma conveniência em vez de uma dependência.
+
+### A janela é sobre a ÁRVORE, não sobre o risco do corte
+
+Uma regra dada aqui estava errada e produziu duas janelas abertas ao mesmo
+tempo: *"este corte é entre métodos inteiros, não precisa de janela"*. **A
+janela foi definida pelo risco do corte quando é sobre o build ficar
+inutilizável.** Um corte seguro parte o build na mesma enquanto está a ser
+escrito — um ficheiro a meio de mudar de sítio chega.
+
+**Qualquer extração grande abre janela.** O risco do corte decide outra coisa:
+quanto cuidado se põe no portão de reconstrução.
+
+### Um passo entregue fica CONGELADO até ao commit
+
+Em todos os passos foi dito "confirme o commit e siga", e **nunca o inverso**.
+Implícito não é regra: um agente entregou um passo, anunciou que seguia direto
+para o seguinte, e quando se foi commitar **o ficheiro partilhado já tinha as
+edições dos dois**. Foram num commit só.
+
+Não se perde prova — perde-se a **bisseção**: se algo estiver errado, não há
+commit intermédio onde parar.
+
+### Quem entrega diz o que mediu e o que NÃO mediu
+
+Três vezes a contagem de testes ficou por tirar porque a árvore não compilava.
+Nas três foi **declarada como dívida** e paga depois com número medido, nunca
+inferida — e uma vez o agente escreveu:
+
+> essa é justamente a que não aceito substituir por raciocínio
+
+E a distinção que a torna útil: **"está tudo vermelho" não é o mesmo que "o meu
+está vermelho"**. Contar os erros da própria área separadamente é o que separa
+uma dívida declarada de uma desculpa.
+
