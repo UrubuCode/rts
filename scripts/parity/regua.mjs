@@ -237,6 +237,95 @@ for (const [k, v] of [...porPai].sort((a, b) => b[1] - a[1]).slice(0, TOP)) {
   console.log(px(v).padStart(10), (c.tag + " " + c.display).padEnd(22), k.length > 76 ? "..." + k.slice(-72) : k);
 }
 
+// ------------------------------------------------- comparação com um --base
+//
+// Existe porque a régua nova tem um denominador que SE MOVE: a população
+// visível é a que tem caixa dos dois lados, e uma correção que faz um elemento
+// deixar de ter caixa tira-o do denominador — levando o erro dele consigo.
+//
+// Não é hipotético. Em 2026-08-21 a correção do NBSP foi anunciada como −11,0%
+// de erro visível, de boa-fé; sobre a população COMUM aos dois dumps é −7,9%, e
+// 32% do ganho vinha de 570 elementos que deixaram de ter caixa. O mesmo par de
+// medições mostrava a classe "não dispostos" a passar de 342 para 628, um +286
+// que era 570 perdidos contra 284 ganhos.
+//
+// As duas leituras que faltavam nesse dia são as duas que este modo imprime, e
+// nenhuma delas é uma opinião: a matriz de TRANSIÇÕES entre classes, e a soma
+// sobre a população comum ao lado da própria.
+
+const fBase = arg("base", null);
+let identidade = null;   // guardada para a auto-conferência
+if (fBase) {
+  const B = ler(fBase);
+  const classeB = new Map();
+  const paresB = [];
+  for (const [k, c] of C) {
+    const b = B.get(k);
+    if (!b) continue;
+    paresB.push(k);
+    const cz = semCaixa(c), bz = semCaixa(b);
+    classeB.set(k, cz && bz ? AMBOS_ZERO : bz ? NAO_DISPOSTO : cz ? SO_CHROME_ZERO : VISIVEL);
+  }
+
+  const nosDois = paresB.filter((k) => classe.has(k));
+  const ordem = [VISIVEL, NAO_DISPOSTO, AMBOS_ZERO, SO_CHROME_ZERO];
+
+  console.log(`\n=== CONTRA --base ${fBase} (${B.size}) ===`);
+  console.log(`pares em AMBAS as medições nossas: ${nosDois.length}`);
+
+  // A matriz. A diagonal é o que não mexeu e imprime-se também: sem ela não se
+  // vê que 570 numa célula fora da diagonal são 570 e não um saldo.
+  const mat = new Map();
+  for (const k of nosDois) {
+    const t = classeB.get(k) + " " + classe.get(k);
+    mat.set(t, (mat.get(t) || 0) + 1);
+  }
+  console.log("\ntransições de classe (base → agora), fora da diagonal:");
+  let mexeram = 0;
+  for (const de of ordem) for (const para of ordem) {
+    if (de === para) continue;
+    const n = mat.get(de + " " + para) || 0;
+    if (!n) continue;
+    mexeram += n;
+    console.log(String(n).padStart(7), ` ${nomes[de]}  →  ${nomes[para]}`);
+  }
+  if (!mexeram) console.log("      (nenhuma)");
+
+  // Populações próprias contra população comum.
+  const visB = nosDois.filter((k) => classeB.get(k) === VISIVEL);
+  const visA = nosDois.filter((k) => classe.get(k) === VISIVEL);
+  const comum = nosDois.filter((k) => classeB.get(k) === VISIVEL && classe.get(k) === VISIVEL);
+  const sairam = nosDois.filter((k) => classeB.get(k) === VISIVEL && classe.get(k) !== VISIVEL);
+  const entraram = nosDois.filter((k) => classeB.get(k) !== VISIVEL && classe.get(k) === VISIVEL);
+
+  const soma = (ks, M) => ks.reduce((a, k) => a + Math.abs(M.get(k).y - C.get(k).y), 0);
+  const propB = soma(visB, B), propA = soma(visA, R);
+  const comB = soma(comum, B), comA = soma(comum, R);
+  const levaram = soma(sairam, B), trouxeram = soma(entraram, R);
+
+  const delta = (de, para) => (de ? (((para - de) / de) * 100).toFixed(1) : "0.0") + "%";
+  console.log("\nerro de y VISÍVEL — a população própria de cada medição contra a comum:");
+  console.log(`  população PRÓPRIA de cada um   ${String(visB.length).padStart(6)} → ${String(visA.length).padStart(6)}   ` +
+    `${px(propB).padStart(14)} → ${px(propA).padStart(14)}   ${delta(propB, propA).padStart(7)}`);
+  console.log(`  população COMUM aos dois       ${String(comum.length).padStart(6)}            ` +
+    `${px(comB).padStart(14)} → ${px(comA).padStart(14)}   ${delta(comB, comA).padStart(7)}`);
+
+  const porDenominador = trouxeram - levaram;
+  const total = propA - propB;
+  console.log("\na diferença entre as duas leituras, atribuída:");
+  console.log(`  ${sairam.length} SAÍRAM da população visível e levaram ${px(levaram)} px de erro consigo`);
+  console.log(`  ${entraram.length} entraram e trouxeram ${px(trouxeram)} px`);
+  console.log(`  movimento do DENOMINADOR: ${px(porDenominador)} px de ${px(total)} ` +
+    `(${total ? ((porDenominador / total) * 100).toFixed(1) : "0.0"}% do que a leitura própria mostra)`);
+  console.log(`  erro genuinamente corrigido nos elementos comuns: ${px(comA - comB)} px`);
+  if (sairam.length) {
+    console.log("\nSAIR da população visível NÃO é o mesmo que melhorar: um elemento que");
+    console.log("deixa de ter caixa deixa de ser medido. Se o Chrome lhe dá área, é uma");
+    console.log("caixa PERDIDA — leia a matriz acima antes do sinal da percentagem.");
+  }
+  identidade = { propB, propA, comB, comA, levaram, trouxeram, nosDois: nosDois.length, mexeram, mat, ordem };
+}
+
 // ------------------------------------------------------- a sonda confere-se
 //
 // A prática vem do `css_coverage.mjs`, e nasceu de um instrumento que respondeu
@@ -298,6 +387,24 @@ diz(telescopioMau === 0,
 // grosseira; se exceder, está a contar herança como geração — a armadilha 1.
 diz(geracao <= novaTotal,
   `a geração local (${px(geracao)}) excede o erro visível (${px(novaTotal)}) — está a contar herança`);
+
+// O modo --base tem uma identidade exata, e é ela que impede a atribuição ao
+// denominador de ser uma estimativa: a população própria é a comum mais o que
+// entrou, e a da base é a comum mais o que saiu. Logo a variação própria tem de
+// valer, ao px, a variação nos comuns mais o movimento do denominador. Se não
+// valer, a repartição que a sonda imprime é inventada.
+if (identidade) {
+  const { propB, propA, comB, comA, levaram, trouxeram, nosDois, mat } = identidade;
+  diz(perto(propA, comA + trouxeram, 1),
+    `a população própria de agora (${px(propA)}) não é a comum mais o que entrou (${px(comA + trouxeram)})`);
+  diz(perto(propB, comB + levaram, 1),
+    `a população própria da base (${px(propB)}) não é a comum mais o que saiu (${px(comB + levaram)})`);
+  diz(perto(propA - propB, (comA - comB) + (trouxeram - levaram), 1),
+    "a atribuição ao denominador não fecha com a variação total");
+  const somaMat = [...mat.values()].reduce((a, b) => a + b, 0);
+  diz(somaMat === nosDois,
+    `a matriz de transições soma ${somaMat} e os pares em ambas as medições são ${nosDois}`);
+}
 
 // E as exclusões têm de ser reportáveis, não zero por acidente de leitura.
 diz(Number.isFinite(excl.paiNaoDisposto + excl.paiNaoVisivel + excl.paiSemPar + excl.filhoNaoVisivel),
