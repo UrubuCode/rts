@@ -964,6 +964,19 @@ sozinha responderia ZERO**. Descartar o atributo é certo, e sem a razão que o
 substitui a imagem colapsa para as duas bordas — 252×2. As duas regras entram
 juntas ou não entram.
 
+**Uma pista por confirmar, escrita ao lado do sintoma.** A mesma regra
+`.mw-file-element` declara também `height: revert-layer`, e **não implementamos
+`revert` nem `revert-layer`** (nem `initial` nem `unset` — só `inherit`, ver
+`style/inherit_kw.rs`). Não está provado que explique os 83px: `revert-layer`
+manda a propriedade voltar ao valor da camada de cascata anterior, e o que essa
+camada tem para `height` naquele elemento não foi apurado. Fica registado porque
+é a única pista nova sobre esta divergência desde que ela foi escrita, e porque
+descobri-la outra vez do zero custa mais do que lê-la aqui.
+
+Saber se é a causa exige o que `revert` exige para ser implementado: guardar de
+que CAMADA veio cada declaração, que o nosso modelo de cascata não guarda. É um
+trabalho de cascata, não de herança.
+
 **O que desbloqueia isto:** o harness carregar as imagens. Com pixels há razão
 intrínseca real, o Chrome deixa de cair no quadrado, e as respostas convergem
 sem que nada aqui mude.

@@ -39,6 +39,26 @@ pub fn copy_property(dst: &mut ComputedStyle, src: &ComputedStyle, name: &str) {
             dst.bg = src.bg;
             dst.gradient = src.gradient;
         }
+        // O SHORTHAND, e por isso cinco campos numa entrada só: `font` controla
+        // `font-style`, `font-variant`, `font-weight`, `font-stretch`,
+        // `font-size`, `line-height` e `font-family`, e um `font: inherit` que
+        // herdasse só o tamanho seria meia correção com cara de correção. Das
+        // sete, `variant` e `stretch` não existem no modelo — quando existirem,
+        // acrescentam-se aqui, e é esta linha que diz onde.
+        //
+        // Um uso na folha da Wikipédia, e atinge 51 elementos: a regra é
+        // `.mw-heading h1,…,h6{…font:inherit}`, e sem ela cada cabeçalho
+        // MULTIPLICA o tamanho do pai. A classe `mw-heading3` está no `<div>`,
+        // que fica com 117% de 16 = 18,72; o `<h3>` que herda isso mede 18,72, e
+        // o que NÃO herda aplica os seus 117% *sobre* os 18,72 e chega a 21,90.
+        // É essa multiplicação que o `font:inherit` existe para cortar.
+        "font" => {
+            dst.font_size = src.font_size;
+            dst.font_family = src.font_family.clone();
+            dst.bold = src.bold;
+            dst.italic = src.italic;
+            dst.line_height = src.line_height;
+        }
         "font-size" => dst.font_size = src.font_size,
         "font-family" => dst.font_family = src.font_family.clone(),
         "font-weight" => dst.bold = src.bold,
@@ -82,5 +102,61 @@ impl ComputedStyle {
         for nome in nomes.iter() {
             copy_property(self, parent, nome);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_property;
+    use crate::style::parse::parse_inline;
+
+    /// `font: inherit` copia os CINCO longhands que o shorthand controla, e não
+    /// só o tamanho.
+    ///
+    /// Um por asserção porque o defeito que isto fecha é exatamente o de herdar
+    /// um e esquecer os outros: `copy_property` não conhecia `font` de todo, o
+    /// `_ => {}` engolia-o, e o cabeçalho ficava com o tamanho multiplicado.
+    #[test]
+    fn font_inherit_copia_os_cinco_longhands_do_shorthand() {
+        let pai = parse_inline(
+            "font-size:18.72px;font-family:Georgia;font-weight:bold;\
+             font-style:italic;line-height:2",
+        );
+        let mut filho = parse_inline("font:inherit");
+        assert!(filho.font_size.is_none(), "o parse não escreve valor nenhum");
+        copy_property(&mut filho, &pai, "font");
+        assert_eq!(filho.font_size, pai.font_size, "font-size");
+        assert_eq!(filho.font_family, pai.font_family, "font-family");
+        assert_eq!(filho.bold, pai.bold, "font-weight");
+        assert_eq!(filho.italic, pai.italic, "font-style");
+        assert_eq!(filho.line_height, pai.line_height, "line-height");
+    }
+
+    /// E o `font-size:inherit` continua a copiar SÓ o tamanho: o shorthand não
+    /// pode alargar o longhand.
+    #[test]
+    fn font_size_inherit_nao_arrasta_a_familia_junto() {
+        let pai = parse_inline("font-size:18.72px;font-family:Georgia");
+        let mut filho = parse_inline("font-size:inherit");
+        copy_property(&mut filho, &pai, "font-size");
+        assert_eq!(filho.font_size, pai.font_size);
+        assert!(
+            filho.font_family.is_none(),
+            "o longhand herdou o que não é dele: {:?}",
+            filho.font_family
+        );
+    }
+
+    /// Uma propriedade que a lista NÃO conhece continua sem efeito, em vez de
+    /// falhar: é dívida documentada e o teste diz que é deliberada.
+    #[test]
+    fn uma_propriedade_fora_da_lista_fica_sem_efeito() {
+        let pai = parse_inline("padding:8px");
+        let mut filho = parse_inline("padding:inherit");
+        copy_property(&mut filho, &pai, "padding");
+        assert!(
+            !filho.padding.any_set(),
+            "o `padding:inherit` passou a funcionar sem ninguém o implementar"
+        );
     }
 }
