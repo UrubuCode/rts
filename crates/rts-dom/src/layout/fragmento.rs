@@ -180,7 +180,7 @@ fn costurar(
             child.fragment.origin.0 + child.dx,
             child.fragment.origin.1 + child.dy,
         );
-        let margem = child.margin_top;
+        let margem = (child.margin_top, child.margin_bottom);
         let ((_, altura), nova_margem) = layout_block_reusing(
             dom,
             child.node,
@@ -195,7 +195,10 @@ fn costurar(
             ctx,
             &mut own,
         );
-        if (altura - child.height).abs() > 0.001 || (nova_margem - child.margin_top).abs() > 0.001 {
+        if (altura - child.height).abs() > 0.001
+            || (nova_margem.0 - child.margin_top).abs() > 0.001
+            || (nova_margem.1 - child.margin_bottom).abs() > 0.001
+        {
             return None;
         }
         // O `layout_block_reusing` emitiu numa lista própria; o que interessa é a
@@ -218,6 +221,7 @@ fn costurar(
         origin: anterior.origin,
         size: anterior.size,
         margin_top: anterior.margin_top,
+        margin_bottom: anterior.margin_bottom,
     });
     dom.fragment_put(key, std::rc::Rc::clone(&fragment));
     Some(fragment)
@@ -262,11 +266,11 @@ pub(in crate::layout) fn layout_block_reusing(
     y: f32,
     avail_w: f32,
     avail_h: Option<f32>,
-    margem_de_topo: impl FnOnce() -> f32,
+    margens: impl FnOnce() -> (f32, f32),
     exclusoes: &[Exclusao],
     ctx: &LayoutCtx,
     list: &mut DisplayList,
-) -> ((f32, f32), f32) {
+) -> ((f32, f32), (f32, f32)) {
     // Um bloco ESTORVADO por um float não entra no cache de fragmentos, nem sai
     // dele: a chave é feita das constraints (largura, altura, viewport) e a
     // banda livre não é nenhuma delas. Sem esta recusa, o parágrafo ao lado da
@@ -279,13 +283,13 @@ pub(in crate::layout) fn layout_block_reusing(
         let size = layout_block(
             dom, id, x, y, avail_w, avail_h, None, None, false, exclusoes, ctx, list,
         );
-        return (size, margem_de_topo());
+        return (size, margens());
     }
     let key = fragment_key(dom, id, avail_w, avail_h, ctx);
     if let Some(fragment) = dom.fragment_get(key) {
         crate::bump!(fragment_hits);
         emit_fragment(&fragment, list, x, y, avail_w, avail_h);
-        return (fragment.size, fragment.margin_top);
+        return (fragment.size, (fragment.margin_top, fragment.margin_bottom));
     }
     // COSTURA: trocar no desenho anterior só a subárvore que ficou suja. Agora
     // que a saída é uma ÁRVORE, costurar é substituir uma REFERÊNCIA num vetor
@@ -294,8 +298,11 @@ pub(in crate::layout) fn layout_block_reusing(
     if let Some(fragment) = costurar(dom, id, key, ctx) {
         crate::bump!(fragment_patches);
         emit_fragment(&fragment, list, x, y, avail_w, avail_h);
-        return (fragment.size, fragment.margin_top);
+        return (fragment.size, (fragment.margin_top, fragment.margin_bottom));
     }
+    // Resolvidas AQUI e não dentro do literal: o `FnOnce` só se consome uma vez,
+    // e os dois campos precisam do mesmo par.
+    let margens_resolvidas = margens();
     crate::bump!(fragment_misses);
     let _phase = crate::metrics::phases::scope("fragment-build");
     // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
@@ -329,11 +336,12 @@ pub(in crate::layout) fn layout_block_reusing(
         children: std::mem::take(&mut own.children),
         origin: (x, y),
         size,
-        margin_top: margem_de_topo(),
+        margin_top: margens_resolvidas.0,
+        margin_bottom: margens_resolvidas.1,
     });
     dom.fragment_put(key, std::rc::Rc::clone(&fragment));
     fragment.emit_at(list, x, y, avail_w, avail_h);
-    (fragment.size, fragment.margin_top)
+    (fragment.size, (fragment.margin_top, fragment.margin_bottom))
 }
 
 /// Uma subárvore emitida por referência dentro de uma lista ou de outro
@@ -346,6 +354,7 @@ pub struct ChildRef {
     /// uma mudar ao refazê-lo, tudo abaixo desloca e a costura não serve.
     pub height: f32,
     pub margin_top: f32,
+    pub margin_bottom: f32,
     /// As CONSTRAINTS com que ele foi layoutado — as do CONTEÚDO do pai, não as
     /// do pai. Refazer um filho com a largura do container em vez da do conteúdo
     /// dá uma caixa larga demais pela soma do padding e da margem.
@@ -417,6 +426,13 @@ pub struct Fragment {
     /// `font-size` do contexto e um `ResolveCtx` — por filho, mil vezes por
     /// frame, para um valor que não muda enquanto o epoch do nó não muda.
     pub margin_top: f32,
+    /// A MARGEM DE BAIXO resolvida, para o colapso com o irmão SEGUINTE.
+    ///
+    /// Vive aqui pela mesma razão que a de topo — resolvê-la pede o estilo
+    /// computado e um `ResolveCtx` por filho — e entrou depois dela porque o
+    /// laço comparava a margem de CIMA do anterior com a de cima do seguinte:
+    /// o caminho rápido só podia devolver o que guardava.
+    pub margin_bottom: f32,
 }
 
 impl Fragment {
@@ -438,6 +454,7 @@ impl Fragment {
             node: self.node,
             height: self.size.1,
             margin_top: self.margin_top,
+            margin_bottom: self.margin_bottom,
             avail_w,
             avail_h,
             at: list.items.len(),

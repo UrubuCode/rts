@@ -6,6 +6,7 @@
 
 mod bloco;
 mod cache;
+mod colapso;
 mod dimensoes;
 mod flex;
 mod grid;

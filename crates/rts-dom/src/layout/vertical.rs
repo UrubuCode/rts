@@ -161,7 +161,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 child_y -= excesso_de_margens(prev_margin, fragment.margin_top);
                 emit_fragment(&fragment, list, content_x, child_y, content_w, avail_h);
                 child_y += fragment.size.1;
-                prev_margin = fragment.margin_top;
+                prev_margin = fragment.margin_bottom;
                 continue;
             }
         }
@@ -178,6 +178,23 @@ pub(in crate::layout) fn layout_children_vertical(
             .as_ref()
             .and_then(|c| c.float_side)
             .unwrap_or(crate::style::FloatSide::None);
+        // A clearance precisa de dois valores que o cursor sozinho não dá: o
+        // fundo do float, e o sítio onde o bloco ficaria SEM ele. Pelo CSS 2.1
+        // §9.5.2 a aresta de borda fica no MAIOR dos dois — e não no fundo do
+        // float MAIS a margem, que é o que somar as duas coisas dá.
+        //
+        // Os dois são `Option` e não um `max` incondicional sobre o cursor: a
+        // meio do laço `child_y` é o CURSOR e não uma aresta de borda, e
+        // compará-los é tomar o maior de duas coisas diferentes — com uma
+        // margem negativa isso devolvia o bloco para baixo em vez de o puxar
+        // para cima.
+        let mut clearance: Option<f32> = None;
+        // O cursor DEPOIS de o `clear` descarregar o fluxo inline e ANTES de o
+        // descer: é essa a base da posição hipotética. Guardá-lo antes do
+        // `flush_inline!` perdia a altura do texto acabado de descarregar, e o
+        // teste de equivalência do cache foi quem o disse — o mesmo bloco caía
+        // uma linha acima quando refeito do zero.
+        let mut y_sem_clearance: Option<f32> = None;
         // `clear` — o par do `float`: este filho começa ABAIXO dos floats
         // correntes. Fica ANTES do dispatch por tipo de caixa porque vale para
         // qualquer um deles: o caminho de bloco já fechava a linha de floats
@@ -191,6 +208,8 @@ pub(in crate::layout) fn layout_children_vertical(
             .unwrap_or(false)
         {
             flush_inline!(child_y);
+            clearance = fundo_dos_floats(&floats);
+            y_sem_clearance = Some(child_y);
             close_floats!(child_y);
         }
         let (child_block, child_inline_block) = match &dom.node(child).kind {
@@ -338,11 +357,23 @@ pub(in crate::layout) fn layout_children_vertical(
                 // [`Exclusao`] para os números do Chrome que o fixam.
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
-                let m = child_css
+                // As DUAS margens verticais do filho. A de baixo entrou aqui
+                // porque o colapso entre irmãos compara a margem de BAIXO do
+                // anterior com a de CIMA do seguinte (CSS 2.1 §8.3.1) e este
+                // laço guardava a de cima — com as margens assimétricas da
+                // UA-stylesheet (`h2`, `h3`, `ul`) o excesso descontado era
+                // sempre o errado. Medido num Chrome real: dois irmãos com
+                // `margin-bottom:30` e `margin-top:10` ficavam a 40 de
+                // intervalo onde o browser dá 30.
+                //
+                // O `margin_v` da UA só vale no lado que o AUTOR não declarou,
+                // lado a lado — é a mesma regra de `layout_block`, e escrevê-la
+                // aqui outra vez é uma cópia que um lote futuro deve juntar.
+                let (m, m_baixo) = child_css
                     .as_ref()
                     .map(|c| {
-                        // margem TOP do filho p/ o collapse (unidades relativas
-                        // resolvem contra o content deste container).
+                        // unidades relativas resolvem contra o content deste
+                        // container.
                         let r = ResolveCtx {
                             parent_content_w: content_w,
                             node_font_size: font_px(&c, font_size),
@@ -350,16 +381,38 @@ pub(in crate::layout) fn layout_children_vertical(
                             viewport_w: ctx.viewport_w,
                             viewport_h: ctx.viewport_h,
                         };
-                        let mv = if c.margin.top == crate::style::Side::Unset {
-                            c.margin_v.unwrap_or(0.0)
+                        let mv = c.margin_v.unwrap_or(0.0);
+                        let mv_topo = if c.margin.top == crate::style::Side::Unset {
+                            mv
                         } else {
                             0.0
                         };
-                        c.margin.top.resolve(&r).unwrap_or(0.0) + mv
+                        let mv_baixo = if c.margin.bottom == crate::style::Side::Unset {
+                            mv
+                        } else {
+                            0.0
+                        };
+                        (
+                            c.margin.top.resolve(&r).unwrap_or(0.0) + mv_topo,
+                            c.margin.bottom.resolve(&r).unwrap_or(0.0) + mv_baixo,
+                        )
                     })
-                    .unwrap_or(0.0);
-                // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
-                child_y -= excesso_de_margens(prev_margin, m);
+                    .unwrap_or((0.0, 0.0));
+                // A aresta de borda que este bloco teria sem floats: o cursor de
+                // antes da descida, menos o excesso colapsado, mais a própria
+                // margem de topo.
+                let base = y_sem_clearance.unwrap_or(child_y);
+                let mut aresta = base - excesso_de_margens(prev_margin, m) + m;
+                // CLEARANCE (CSS 2.1 §9.5.2): com `clear`, a aresta fica no
+                // MAIOR entre a hipotética e o fundo do float. Somar a margem
+                // por cima da descida era o defeito medido — o bloco ficava
+                // 10 px abaixo do fundo do float onde o Chrome o põe
+                // exactamente no fundo. Note-se que a auditoria previa o erro
+                // no sentido CONTRÁRIO.
+                if let Some(fundo) = clearance {
+                    aresta = aresta.max(fundo);
+                }
+                child_y = aresta - m;
                 let ((_, h), _) = layout_block_reusing(
                     dom,
                     child,
@@ -367,13 +420,13 @@ pub(in crate::layout) fn layout_children_vertical(
                     child_y,
                     content_w,
                     avail_h,
-                    || m,
+                    || (m, m_baixo),
                     &floats,
                     ctx,
                     list,
                 );
                 child_y += h;
-                prev_margin = m;
+                prev_margin = m_baixo;
             }
             // INLINE-BLOCK (pill/botão solto): NÃO pinta agora — acumula na
             // "linha de inline-blocks" corrente (irmãos consecutivos fluem LADO A
