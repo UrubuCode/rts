@@ -940,6 +940,23 @@ pub enum Dimension {
     Vw(f32),
     /// `vh` — `%` da altura da viewport (0..=100): `viewport_h * v/100`.
     Vh(f32),
+    /// `max-content` — a largura que o CONTEÚDO pede sem quebrar.
+    ///
+    /// Não é um comprimento: só se resolve com a árvore na mão, e por isso
+    /// [`resolve`](Dimension::resolve) responde `None` (como o `auto`) e quem a
+    /// calcula é o layout, que já tem `intrinsic_content_width` — a mesma função
+    /// que serve o shrink-to-fit do inline-block e do item flex. A variante
+    /// existe para o parse deixar de a DESCARTAR: `width:max-content` respondia
+    /// `None`, indistinguível de "não declarado", e o elemento tomava a largura
+    /// do pai. É o painel do menu da Wikipédia — 198,6px no Chrome, 56,2 aqui.
+    ///
+    /// `min-content` e `fit-content` NÃO entram, e não são aproximados a esta:
+    /// `min-content` é a maior palavra indivisível e `fit-content` precisa das
+    /// duas para o seu `min(max(min, disponível), max)`. A máquina que temos
+    /// calcula só o máximo. Responder max-content a um `min-content` erraria em
+    /// silêncio no sentido oposto ao que o nome promete, que é pior do que a
+    /// ausência — continuam descartados no parse, como hoje.
+    MaxContent,
     /// `calc(...)` linear reduzido no parse ([`CalcLen`]). Não cruza a ABI de
     /// faixas (`to_abi` → `-1`, corte documentado — o TS não empacota calc).
     Calc(CalcLen),
@@ -958,7 +975,11 @@ impl Dimension {
     /// negativas (`.row` gutters do Bootstrap) e offsets de posicionamento.
     pub fn resolve_signed(self, ctx: &ResolveCtx) -> Option<f32> {
         Some(match self {
-            Dimension::Auto => return None,
+            // Sem árvore não há conteúdo para medir: quem resolve `max-content` é
+            // o layout. Responder `None` aqui é o mesmo que o `auto` faz, e é o
+            // que faz um chamador sem contexto cair no seu caminho de fallback em
+            // vez de inventar um número.
+            Dimension::Auto | Dimension::MaxContent => return None,
             Dimension::Px(v) => v,
             Dimension::Percent(p) => ctx.parent_content_w * p / 100.0,
             Dimension::Em(e) => ctx.node_font_size * e,
@@ -1013,6 +1034,12 @@ impl Dimension {
             // calc não cabe na codificação de faixas — o TS lê `-1` (corte
             // documentado; calc resolve no layout, não cruza slots).
             Dimension::Calc(_) => return -1,
+            // `max-content` também não, e pela mesma razão de fundo: a faixa
+            // codifica uma unidade e um número, e isto não é nem uma nem outro.
+            // O TS lê `-1` — CORTE, e não o valor `auto`: quem o ler não sabe
+            // distinguir os dois, e a alternativa (uma faixa nova) obrigaria o
+            // lado TS a saber medir conteúdo, que é o que ele não pode fazer.
+            Dimension::MaxContent => return -1,
         };
         unit * DIM_RANGE + (val * 1000.0) as i64
     }

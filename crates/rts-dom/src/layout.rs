@@ -1294,7 +1294,31 @@ pub(crate) fn layout_block(
         // Vence width/min-max (o clamp no resolve flex é corte documentado).
         (fw - frame).max(0.0)
     } else {
-        let base = match css.width.and_then(|d| d.resolve(&resolve)) {
+        // `width: max-content` — a largura que o conteúdo PEDE, e nada a limita.
+        //
+        // É essa a diferença face ao shrink-to-fit logo abaixo, que é a mesma
+        // medição com `.min(disponível)` por cima: `max-content` transborda de
+        // propósito, o shrink-to-fit cede. Usar o ramo do shrink-to-fit seria
+        // dar a resposta certa por acaso sempre que coubesse, e a errada quando
+        // é precisamente o caso que a palavra-chave existe para exprimir.
+        //
+        // Sem esta linha, `width:max-content` chegava aqui como `None` (o parse
+        // descartava-o) e o elemento tomava a largura DO PAI: o painel do menu da
+        // Wikipédia media 56,2 onde o Chrome dá 198,6, e tudo lá dentro herdava
+        // o estrangulamento — 135 `<li>` a quebrar em linhas a mais.
+        //
+        // O `box-sizing` não entra: o valor medido JÁ é o conteúdo, ao contrário
+        // de um `width` declarado, onde `border-box` manda descontar o frame.
+        // Descontá-lo aqui tirava padding a um número que nunca o incluiu.
+        //
+        // O clamp de `min`/`max-width` abaixo continua a morder por cima, como
+        // manda a spec — e neste elemento o `max-width:200px` da mesma regra NÃO
+        // morde: o conteúdo pede 166,6. Se um dia bater nos 200, é sinal de que
+        // esta medição passou a calcular a mais.
+        let base = if css.width == Some(crate::style::Dimension::MaxContent) {
+            content_natural_width(dom, id, font_for_content, ctx)
+        } else {
+            match css.width.and_then(|d| d.resolve(&resolve)) {
             // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
             // então o content é `width - (padding_h + 2*border)`. Em content-box
             // (default), o `width` JÁ é o content.
@@ -1305,6 +1329,7 @@ pub(crate) fn layout_block(
             None if shrink_to_fit => content_natural_width(dom, id, font_for_content, ctx)
                 .min((avail_w - frame).max(0.0)),
             None => (avail_w - frame).max(0.0),
+            }
         };
         // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são
         // sobre a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao

@@ -1006,3 +1006,27 @@ Nenhum dos dois muda a GEOMETRIA, que é o que esta ronda foi buscar: as
 dimensões vêm dos atributos da `<source>` escolhida e não do candidato. Mudam
 qual ficheiro se carregaria — e este motor ainda não carrega nenhum por esta
 via. Quando carregar, é aqui que os dois entram.
+
+### 6.3 Um `position:absolute` com `width:auto` toma a largura do pai (2026-08-21)
+
+Pela spec ele encolhe ao conteúdo (*shrink-to-fit*); nós damos-lhe a largura do
+containing block. **Não entrou** com o `width:max-content` porque o elemento onde
+foi encontrado — `.vector-dropdown-content` do menu da Wikipédia — declara
+`max-content`, e com essa palavra-chave implementada fica certo pelos DOIS
+caminhos: uma medição ali não distingue qual dos dois o corrigiu.
+
+Aparecerá sozinho no dia em que houver um absoluto **sem** `width` declarada, e
+nessa altura tem número próprio. O sintoma será o mesmo: um painel, um menu ou um
+tooltip com a largura do que está por baixo dele em vez da do seu texto.
+
+### 6.4 `min-content` e `fit-content` não são lidos (2026-08-21)
+
+`width:max-content` funciona; as outras duas palavras-chave intrínsecas continuam
+descartadas no parse, e é deliberado. `intrinsic_content_width` calcula o MÁXIMO
+do conteúdo — `min-content` é a maior palavra indivisível, e `fit-content` precisa
+das duas para o seu `min(max(min, disponível), max)`.
+
+Mapeá-las para `max-content` seria dar a um `min-content` a resposta oposta à que
+o nome promete, em silêncio. Duas ocorrências de `fit-content` na folha da
+Wikipédia, nenhuma de `min-content`. O que as desbloqueia é uma medição de mínimo
+intrínseco, que hoje não existe.
