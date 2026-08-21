@@ -241,7 +241,9 @@ thread_local! {
 /// nunca pode ser uma expressão com efeito colateral.
 #[macro_export]
 macro_rules! bump {
-    ($field:ident) => { $crate::bump!($field, 1) };
+    ($field:ident) => {
+        $crate::bump!($field, 1)
+    };
     ($field:ident, $n:expr) => {{
         #[cfg(feature = "metrics")]
         $crate::metrics::counters::add(|m| m.$field = m.$field.wrapping_add($n as u64));
@@ -287,8 +289,16 @@ mod tests {
     /// absoluto misturaria o parse do arquivo anterior com o layout deste.
     #[test]
     fn delta_isola_o_intervalo() {
-        let a = DomMetrics { cascade_runs: 10, block_calls: 4, ..Default::default() };
-        let b = DomMetrics { cascade_runs: 25, block_calls: 4, ..Default::default() };
+        let a = DomMetrics {
+            cascade_runs: 10,
+            block_calls: 4,
+            ..Default::default()
+        };
+        let b = DomMetrics {
+            cascade_runs: 25,
+            block_calls: 4,
+            ..Default::default()
+        };
         let d = b.delta(&a);
         assert_eq!(d.cascade_runs, 15);
         assert_eq!(d.block_calls, 0);
@@ -297,7 +307,10 @@ mod tests {
     /// Linhas em zero somem — o relatório mostra o que aconteceu, não o catálogo.
     #[test]
     fn relatorio_omite_contadores_zerados() {
-        let m = DomMetrics { cascade_runs: 3, ..Default::default() };
+        let m = DomMetrics {
+            cascade_runs: 3,
+            ..Default::default()
+        };
         let r = m.report();
         assert!(r.contains("CASCADE completa executada"));
         assert!(!r.contains("layout_block"));

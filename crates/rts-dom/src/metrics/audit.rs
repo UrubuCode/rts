@@ -77,15 +77,24 @@ pub struct AuditReport {
 
 impl AuditReport {
     pub fn bugs(&self) -> usize {
-        self.findings.iter().filter(|f| f.severity == Severity::Bug).count()
+        self.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Bug)
+            .count()
     }
 
     pub fn leaks(&self) -> usize {
-        self.findings.iter().filter(|f| f.severity == Severity::Leak).count()
+        self.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Leak)
+            .count()
     }
 
     pub fn page_issues(&self) -> usize {
-        self.findings.iter().filter(|f| f.severity == Severity::Page).count()
+        self.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Page)
+            .count()
     }
 
     /// Relatório legível. Achados iguais são agrupados por categoria com um
@@ -235,7 +244,10 @@ pub fn audit(dom: &Dom) -> AuditReport {
                 severity: Severity::Bug,
                 kind: "atributo-em-nao-elemento",
                 node: Some(idx),
-                detail: format!("nó {idx} não é elemento e tem {} atributos", node.attrs.len()),
+                detail: format!(
+                    "nó {idx} não é elemento e tem {} atributos",
+                    node.attrs.len()
+                ),
             });
         }
         if matches!(node.kind, NodeKind::Text(_) | NodeKind::Comment(_))
@@ -245,7 +257,10 @@ pub fn audit(dom: &Dom) -> AuditReport {
                 severity: Severity::Bug,
                 kind: "folha-com-filhos",
                 node: Some(idx),
-                detail: format!("nó de texto/comentário {idx} tem {} filhos", node.children.len()),
+                detail: format!(
+                    "nó de texto/comentário {idx} tem {} filhos",
+                    node.children.len()
+                ),
             });
         }
         for (i, a) in node.attrs.iter().enumerate() {
@@ -371,7 +386,11 @@ pub fn audit(dom: &Dom) -> AuditReport {
         }
         if let Some(cl) = node.attr("class") {
             for c in cl.split_whitespace() {
-                if !class_index.get(c).map(|b| b.contains(&idx)).unwrap_or(false) {
+                if !class_index
+                    .get(c)
+                    .map(|b| b.contains(&idx))
+                    .unwrap_or(false)
+                {
                     r.findings.push(Finding {
                         severity: Severity::Bug,
                         kind: "no-com-classe-fora-do-indice",
@@ -408,7 +427,10 @@ pub fn audit(dom: &Dom) -> AuditReport {
             severity: Severity::Bug,
             kind: "tabela-paralela-dessincronizada",
             node: None,
-            detail: format!("layout_epochs tem {} entradas para {n} nós", dom.layout_epoch_len()),
+            detail: format!(
+                "layout_epochs tem {} entradas para {n} nós",
+                dom.layout_epoch_len()
+            ),
         });
     }
 

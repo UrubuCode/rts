@@ -19,6 +19,10 @@
 //! `u64` (extern "C") através de [`register`]; a camada ergonômica
 //! (`Document`/`Element`) é TS. Depende só de `rts-engine`.
 
+/// INTENT de layout por-tag (egui-free): `BlockDef` (display/indent/prefix/flags),
+/// o registro (`defineBlock`/`defineInline`) e os códigos de display. O DOM diz
+/// "esta tag é um bloco vertical / inline-flow"; o renderer decide como pintar.
+pub mod block;
 mod dom;
 /// Hasher rápido para as chaves INTERNAS (índices de nó, chaves de cache de
 /// layout): nenhuma delas vem de fora do processo, e o SipHash da `std` cobra
@@ -26,27 +30,23 @@ mod dom;
 pub mod fasthash;
 mod html;
 mod inline_box;
-/// CONTEÚDO GERADO (`::before`/`::after`): resolução da caixa que a cascata manda
-/// existir, sem que ela entre na árvore de nós.
-pub mod pseudo;
-/// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
-/// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
-/// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
-pub mod style;
-/// INTENT de layout por-tag (egui-free): `BlockDef` (display/indent/prefix/flags),
-/// o registro (`defineBlock`/`defineInline`) e os códigos de display. O DOM diz
-/// "esta tag é um bloco vertical / inline-flow"; o renderer decide como pintar.
-pub mod block;
-/// Store de `Dom`s vivos por handle — a fonte única da verdade. A ABI headless e
-/// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
-/// mutações pela fachada `document` mudam o que a janela pinta.
-pub mod store;
 /// Motor de LAYOUT (egui-free): calcula a geometria (x,y,w,h) de cada nó via box
 /// model + fluxo normal e emite uma `DisplayList` plana. Decisão 2026-06-27:
 /// "processar tudo no DOM, o egui só lê e exibe" — o backend NÃO decide layout,
 /// só pinta a display-list. Medição de texto via trait `TextMeasurer` (o backend
 /// implementa; reimplementar largura de glifo aqui é a armadilha do roadmap).
 pub mod layout;
+/// CONTEÚDO GERADO (`::before`/`::after`): resolução da caixa que a cascata manda
+/// existir, sem que ela entre na árvore de nós.
+pub mod pseudo;
+/// Store de `Dom`s vivos por handle — a fonte única da verdade. A ABI headless e
+/// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
+/// mutações pela fachada `document` mudam o que a janela pinta.
+pub mod store;
+/// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
+/// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
+/// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
+pub mod style;
 
 /// `display: list-item` — o MARCADOR de um `<li>` (ponto, círculo, quadrado,
 /// número). Separado do `layout.rs` porque a numeração é uma pergunta que
@@ -93,8 +93,7 @@ pub mod scrollbar;
 /// passa o teto de linhas com folga; ver o cabeçalho para o que fica de fora.
 pub mod painteffects;
 
-pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
-
+pub use dom::{Attr, Dom, Node, NodeId, NodeIdx, NodeKind, parse_html_to_dom};
 
 /// Prelude `.ts` da FACHADA DOM ergonômica (`document` global + `Element`, com a
 /// API/nomes do browser) sobre os primitivos do namespace `rts:dom`. Incluído via

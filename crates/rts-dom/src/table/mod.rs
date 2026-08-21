@@ -96,7 +96,11 @@ impl TableStyle {
         // `border-spacing` nenhum a resolver, e resolvê-lo para o deitar fora
         // deixaria o leitor à espera de que ele contasse para alguma coisa.
         if css.border_collapse == Some(crate::style::BorderCollapse::Collapse) {
-            return TableStyle { spacing_h: 0.0, spacing_v: 0.0, fixed: Self::fixo(css) };
+            return TableStyle {
+                spacing_h: 0.0,
+                spacing_v: 0.0,
+                fixed: Self::fixo(css),
+            };
         }
         let (h, v) = match css.border_spacing {
             Some(s) => (
@@ -115,7 +119,11 @@ impl TableStyle {
                 (a, a)
             }
         };
-        TableStyle { spacing_h: h, spacing_v: v, fixed: Self::fixo(css) }
+        TableStyle {
+            spacing_h: h,
+            spacing_v: v,
+            fixed: Self::fixo(css),
+        }
     }
 
     fn fixo(css: &ComputedStyle) -> bool {
@@ -133,7 +141,12 @@ fn display_of(dom: &Dom, id: NodeIdx) -> Option<DisplayKind> {
 /// nosso DOM (o parser não o cria), por isso as linhas podem estar tanto dentro
 /// de um grupo como soltas — os dois casos caem no mesmo laço.
 fn collect(dom: &Dom, table: NodeIdx) -> Grid {
-    let mut g = Grid { rows: Vec::new(), groups: Vec::new(), outros: Vec::new(), cols: 0 };
+    let mut g = Grid {
+        rows: Vec::new(),
+        groups: Vec::new(),
+        outros: Vec::new(),
+        cols: 0,
+    };
     // `ocupado[coluna]` = quantas linhas ainda faltam para o `rowspan` que passa
     // por ali terminar. É o que faz uma célula da linha de baixo saltar a coluna
     // que a de cima ainda ocupa — sem isto, `rowspan` desalinha tudo o que vem
@@ -170,7 +183,13 @@ fn collect(dom: &Dom, table: NodeIdx) -> Grid {
             }
             Some(DisplayKind::TableRow) => {
                 fechar_anonima!();
-                add_row(dom, Some(child), &celulas_de(dom, child), &mut g, &mut ocupado);
+                add_row(
+                    dom,
+                    Some(child),
+                    &celulas_de(dom, child),
+                    &mut g,
+                    &mut ocupado,
+                );
             }
             Some(DisplayKind::TableRowGroup) => {
                 fechar_anonima!();
@@ -254,7 +273,12 @@ fn add_row(
         for o in &mut ocupado[col..col + colspan] {
             *o = rowspan;
         }
-        cells.push(Cell { node: c, col, colspan, rowspan });
+        cells.push(Cell {
+            node: c,
+            col,
+            colspan,
+            rowspan,
+        });
         col += colspan;
     }
     g.cols = g.cols.max(col);
@@ -307,7 +331,11 @@ fn medir_colunas(
     let mut medidas = Vec::new();
     for row in &g.rows {
         for c in &row.cells {
-            medidas.push((c.col, c.colspan, widths::cell_min_max(dom, c.node, font, ctx)));
+            medidas.push((
+                c.col,
+                c.colspan,
+                widths::cell_min_max(dom, c.node, font, ctx),
+            ));
         }
     }
     widths::colunas_min_max(&medidas, g.cols, spacing)
@@ -335,7 +363,18 @@ pub(crate) fn layout_table(
     // tabela. Ficam fora do algoritmo de colunas de propósito — não têm coluna.
     for &o in &g.outros {
         let (_, h) = crate::layout::layout_block(
-            dom, o, content_x, y, content_w, None, None, None, false, &[], ctx, list,
+            dom,
+            o,
+            content_x,
+            y,
+            content_w,
+            None,
+            None,
+            None,
+            false,
+            &[],
+            ctx,
+            list,
         );
         y += h;
     }
@@ -364,7 +403,10 @@ pub(crate) fn layout_table(
         }
         widths::resolve_fixo(&declaradas, disponivel)
     } else {
-        widths::resolve_colunas(&medir_colunas(dom, &g, font_size, ctx, ts.spacing_h), disponivel)
+        widths::resolve_colunas(
+            &medir_colunas(dom, &g, font_size, ctx, ts.spacing_h),
+            disponivel,
+        )
     };
 
     // x de cada coluna, uma vez só (todas as linhas partilham).
@@ -392,9 +434,8 @@ pub(crate) fn layout_table(
                 continue;
             }
             let w = largura_de(c.col, c.colspan);
-            let (_, h) = crate::layout::measure_block(
-                dom, c.node, w, None, Some(w), None, false, ctx,
-            );
+            let (_, h) =
+                crate::layout::measure_block(dom, c.node, w, None, Some(w), None, false, ctx);
             if c.rowspan <= 1 {
                 alturas[ri] = alturas[ri].max(h);
             } else {
@@ -433,10 +474,20 @@ pub(crate) fn layout_table(
             }
             let w = largura_de(c.col, c.colspan);
             let fim = (ri + c.rowspan - 1).min(g.rows.len() - 1);
-            let h: f32 = alturas[ri..=fim].iter().sum::<f32>()
-                + (fim - ri) as f32 * ts.spacing_v;
+            let h: f32 = alturas[ri..=fim].iter().sum::<f32>() + (fim - ri) as f32 * ts.spacing_v;
             crate::layout::layout_block(
-                dom, c.node, col_x[c.col], y, w, Some(h), Some(w), Some(h), false, &[], ctx, list,
+                dom,
+                c.node,
+                col_x[c.col],
+                y,
+                w,
+                Some(h),
+                Some(w),
+                Some(h),
+                false,
+                &[],
+                ctx,
+                list,
             );
         }
         // Uma linha ANÓNIMA não tem nó: não há caixa a registar nem fundo a
@@ -479,7 +530,9 @@ fn pinta_caixa(
     filhos_antes: usize,
     list: &mut DisplayList,
 ) {
-    let Some(css) = dom.computed_style_idx(id) else { return };
+    let Some(css) = dom.computed_style_idx(id) else {
+        return;
+    };
     if !css.has_box() {
         return;
     }

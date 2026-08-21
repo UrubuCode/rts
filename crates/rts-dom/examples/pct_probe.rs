@@ -23,10 +23,13 @@ impl layout::TextMeasurer for Medidor {
     /// responde a pergunta que separa as duas explicações possíveis para a nossa
     /// página ser mais alta — medimos o texto largo de mais (e portanto
     /// quebramos linhas a mais) ou produzimos altura a mais por linha.
-    fn text_width(&self, text: &str, size: f32, _mono: bool, _bold: bool) -> f32 {
+    fn text_width(&self, text: &str, size: f32, _mono: bool, _bold: bool, _italic: bool) -> f32 {
         static F: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
         let f = *F.get_or_init(|| {
-            std::env::var("RTS_TW").ok().and_then(|v| v.parse().ok()).unwrap_or(0.5)
+            std::env::var("RTS_TW")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.5)
         });
         text.chars().count() as f32 * size * f
     }
@@ -38,7 +41,10 @@ impl layout::TextMeasurer for Medidor {
     fn line_height(&self, size: f32) -> f32 {
         static F: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
         size * *F.get_or_init(|| {
-            std::env::var("RTS_LH").ok().and_then(|v| v.parse().ok()).unwrap_or(1.3)
+            std::env::var("RTS_LH")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1.3)
         })
     }
 }
@@ -49,7 +55,11 @@ fn main() {
         .unwrap_or_else(|| "scripts/parity/pagina.combinada.html".to_string());
     let fonte = std::fs::read_to_string(&caminho).expect("ler a página");
     let dom = rts_dom::parse_html_to_dom(&fonte);
-    let ctx = layout::LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &Medidor };
+    let ctx = layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &Medidor,
+    };
     let lista = layout::layout_document(&dom, &ctx);
 
     let mut ultimo_texto_y = 0.0f32;
@@ -100,12 +110,17 @@ fn dump_caminhos(
 ) {
     use rts_dom::NodeKind;
     if let Some(r) = geo.rects.get(&idx) {
-        out.push_str(&format!("{caminho}	{:.2}	{:.2}	{:.2}	{:.2}
-", r.x, r.y, r.w, r.h));
+        out.push_str(&format!(
+            "{caminho}	{:.2}	{:.2}	{:.2}	{:.2}
+",
+            r.x, r.y, r.w, r.h
+        ));
     }
     let mut contas: std::collections::BTreeMap<String, usize> = Default::default();
     for &f in &dom.node(idx).children {
-        let NodeKind::Element { tag } = &dom.node(f).kind else { continue };
+        let NodeKind::Element { tag } = &dom.node(f).kind else {
+            continue;
+        };
         let n = contas.entry(tag.clone()).or_insert(0);
         *n += 1;
         dump_caminhos(dom, geo, f, format!("{caminho}/{tag}[{n}]"), out);

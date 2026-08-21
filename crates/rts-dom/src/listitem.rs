@@ -107,10 +107,16 @@ pub(crate) fn emit_marker(
                     radius: d / 2.0,
                 }),
                 // `square` é o mesmo rect sem raio — a única diferença.
-                ListStyleType::Square => {
-                    list.items.push(DisplayItem::SolidRect { rect, color, radius: crate::layout::Corners::ZERO })
-                }
-                _ => list.items.push(DisplayItem::SolidRect { rect, color, radius: crate::layout::Corners::same(d / 2.0) }),
+                ListStyleType::Square => list.items.push(DisplayItem::SolidRect {
+                    rect,
+                    color,
+                    radius: crate::layout::Corners::ZERO,
+                }),
+                _ => list.items.push(DisplayItem::SolidRect {
+                    rect,
+                    color,
+                    radius: crate::layout::Corners::same(d / 2.0),
+                }),
             }
         }
         _ => {
@@ -119,7 +125,9 @@ pub(crate) fn emit_marker(
             // que o browser faz e o que torna uma lista longa legível.
             let n = ordinal(dom, id);
             let text = format!("{}.", counter_text(kind, n));
-            let w = ctx.measurer.text_width(&text, font_size, false, false);
+            let w = ctx
+                .measurer
+                .text_width(&text, font_size, false, false, false);
             list.items.push(DisplayItem::Text {
                 x: borda_direita - w,
                 y: content_y,
@@ -128,6 +136,10 @@ pub(crate) fn emit_marker(
                 size: font_size,
                 mono: false,
                 bold: false,
+            // o MARCADOR de lista (bullet/número) não é conteúdo do autor: no
+            // browser herda o estilo do `<li>`, mas nada aqui lho passa ainda —
+            // fica regular, como já ficava o peso na linha acima.
+            italic: false,
                 letter_spacing: 0.0,
                 decoration: 0,
             });
@@ -150,7 +162,7 @@ fn largura_marcador(
         }
         _ => {
             let t = format!("{}.", counter_text(kind, ordinal(dom, id)));
-            ctx.measurer.text_width(&t, font_size, false, false)
+            ctx.measurer.text_width(&t, font_size, false, false, false)
         }
     }
 }
@@ -188,7 +200,10 @@ fn tipo_da_ua(dom: &Dom, id: NodeIdx) -> ListStyleType {
 /// (`<ol start=5>`) numerar certo.
 fn ordinal(dom: &Dom, id: NodeIdx) -> i64 {
     let node = dom.node(id);
-    if let Some(v) = node.attr("value").and_then(|v| v.trim().parse::<i64>().ok()) {
+    if let Some(v) = node
+        .attr("value")
+        .and_then(|v| v.trim().parse::<i64>().ok())
+    {
         return v;
     }
     let Some(parent) = node.parent else { return 1 };
@@ -199,7 +214,9 @@ fn ordinal(dom: &Dom, id: NodeIdx) -> i64 {
         .unwrap_or(1);
 
     let children = &dom.node(parent).children;
-    let Some(pos) = children.iter().position(|&c| c == id) else { return start };
+    let Some(pos) = children.iter().position(|&c| c == id) else {
+        return start;
+    };
     // Conta para TRÁS: cada irmão anterior que também é item de lista vale 1, e
     // um `value` explícito num deles REINICIA a contagem a partir dali (é o que
     // o HTML manda, e é o que faz a varredura poder parar cedo).
@@ -208,7 +225,11 @@ fn ordinal(dom: &Dom, id: NodeIdx) -> i64 {
         if !is_list_item(dom, sib) {
             continue;
         }
-        if let Some(v) = dom.node(sib).attr("value").and_then(|v| v.trim().parse::<i64>().ok()) {
+        if let Some(v) = dom
+            .node(sib)
+            .attr("value")
+            .and_then(|v| v.trim().parse::<i64>().ok())
+        {
             return v + n + 1;
         }
         n += 1;
@@ -234,7 +255,9 @@ fn counter_text(kind: ListStyleType, n: i64) -> String {
     match kind {
         ListStyleType::LowerAlpha => alphabetic(n, b'a'),
         ListStyleType::UpperAlpha => alphabetic(n, b'A'),
-        ListStyleType::LowerRoman => roman(n).map(|s| s.to_lowercase()).unwrap_or_else(|| n.to_string()),
+        ListStyleType::LowerRoman => roman(n)
+            .map(|s| s.to_lowercase())
+            .unwrap_or_else(|| n.to_string()),
         ListStyleType::UpperRoman => roman(n).unwrap_or_else(|| n.to_string()),
         _ => n.to_string(),
     }
@@ -266,9 +289,19 @@ fn roman(n: i64) -> Option<String> {
         return None;
     }
     const TAB: &[(i64, &str)] = &[
-        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
     ];
     let mut n = n;
     let mut out = String::new();

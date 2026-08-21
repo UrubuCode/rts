@@ -76,7 +76,9 @@ impl ComputedStyle {
     /// PAI. Chamado pela passada de herança, depois de ela copiar o que herda por
     /// omissão — a ordem importa: `inherit` é explícito e vence.
     pub(crate) fn apply_inherit_keyword(&mut self, parent: &ComputedStyle) {
-        let Some(nomes) = self.inherit_props.clone() else { return };
+        let Some(nomes) = self.inherit_props.clone() else {
+            return;
+        };
         for nome in nomes.iter() {
             copy_property(self, parent, nome);
         }

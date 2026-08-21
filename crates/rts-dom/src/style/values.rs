@@ -299,19 +299,34 @@ pub struct Edges {
 impl Edges {
     /// Todos os 4 lados com o mesmo valor (shorthand de 1 valor).
     pub fn all(v: Side) -> Edges {
-        Edges { top: v, right: v, bottom: v, left: v }
+        Edges {
+            top: v,
+            right: v,
+            bottom: v,
+            left: v,
+        }
     }
     /// `true` se algum lado está especificado (≠ Unset) — gatilho de `has_box`.
     pub fn any_set(&self) -> bool {
-        self.top != Side::Unset || self.right != Side::Unset
-            || self.bottom != Side::Unset || self.left != Side::Unset
+        self.top != Side::Unset
+            || self.right != Side::Unset
+            || self.bottom != Side::Unset
+            || self.left != Side::Unset
     }
     /// Sobrepõe os lados ESPECIFICADOS de `other` sobre `self` (Unset não apaga).
     pub fn merge_over(&mut self, other: &Edges) {
-        if other.top != Side::Unset { self.top = other.top; }
-        if other.right != Side::Unset { self.right = other.right; }
-        if other.bottom != Side::Unset { self.bottom = other.bottom; }
-        if other.left != Side::Unset { self.left = other.left; }
+        if other.top != Side::Unset {
+            self.top = other.top;
+        }
+        if other.right != Side::Unset {
+            self.right = other.right;
+        }
+        if other.bottom != Side::Unset {
+            self.bottom = other.bottom;
+        }
+        if other.left != Side::Unset {
+            self.left = other.left;
+        }
     }
     /// Valor horizontal efetivo (left+right) RESOLVIDO com o contexto do layout
     /// (unidades relativas contam; auto/unset = 0 — o `auto` é resolvido à parte).
@@ -473,7 +488,7 @@ impl DisplayKind {
             | DisplayKind::Inline
             | DisplayKind::InlineBlock
             | DisplayKind::Grid => 1, // wrap
-            DisplayKind::Flex => 2,                            // horizontal (lado a lado)
+            DisplayKind::Flex => 2, // horizontal (lado a lado)
             DisplayKind::None => -1,
         }
     }
@@ -603,7 +618,10 @@ impl GridTrack {
         // essa — um `minmax(0,1fr)` é uma trilha `1fr` cujo mínimo é zero, e o
         // mínimo zero é o que ela já faria. Só quando os dois lados são
         // comprimentos é que o par importa, e aí a trilha é limitada.
-        if let Some(inner) = low.strip_prefix("minmax(").and_then(|s| s.strip_suffix(')')) {
+        if let Some(inner) = low
+            .strip_prefix("minmax(")
+            .and_then(|s| s.strip_suffix(')'))
+        {
             let parts: Vec<&str> = inner.splitn(2, ',').collect();
             if parts.len() == 2 {
                 let max = GridTrack::parse_one(parts[1])?;
@@ -616,7 +634,10 @@ impl GridTrack {
             }
         }
         // fit-content(x) → x fixo (aproximação).
-        if let Some(inner) = low.strip_prefix("fit-content(").and_then(|s| s.strip_suffix(')')) {
+        if let Some(inner) = low
+            .strip_prefix("fit-content(")
+            .and_then(|s| s.strip_suffix(')'))
+        {
             return GridTrack::parse_one(inner);
         }
         super::lengths::parse_dimension_pub(v).map(GridTrack::Fixed)
@@ -634,7 +655,10 @@ impl GridTrack {
         for tok in split_top_level(v) {
             let t = tok.trim();
             let low = t.to_ascii_lowercase();
-            if let Some(inner) = low.strip_prefix("repeat(").and_then(|s| s.strip_suffix(')')) {
+            if let Some(inner) = low
+                .strip_prefix("repeat(")
+                .and_then(|s| s.strip_suffix(')'))
+            {
                 // repeat(N, tracks) — N vezes as trilhas internas.
                 let mut parts = inner.splitn(2, ',');
                 let count = parts.next().unwrap_or("").trim();
@@ -663,15 +687,25 @@ fn split_top_level(s: &str) -> Vec<String> {
     let mut cur = String::new();
     for ch in s.chars() {
         match ch {
-            '(' => { depth += 1; cur.push(ch); }
-            ')' => { depth -= 1; cur.push(ch); }
+            '(' => {
+                depth += 1;
+                cur.push(ch);
+            }
+            ')' => {
+                depth -= 1;
+                cur.push(ch);
+            }
             c if c.is_whitespace() && depth == 0 => {
-                if !cur.is_empty() { out.push(std::mem::take(&mut cur)); }
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
             }
             c => cur.push(c),
         }
     }
-    if !cur.is_empty() { out.push(cur); }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
     out
 }
 

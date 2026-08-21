@@ -7,8 +7,8 @@
 //! a propriedade — o de `background` pinta mesmo o fundo, que era o sintoma que
 //! começou este trabalho.
 
-use crate::layout::{layout_document, ApproxMeasurer, DisplayItem, DisplayList, LayoutCtx, Rect};
-use crate::style::{parse_inline, BgRepeat, BgSize, BorderStyle, Dimension};
+use crate::layout::{ApproxMeasurer, DisplayItem, DisplayList, LayoutCtx, Rect, layout_document};
+use crate::style::{BgRepeat, BgSize, BorderStyle, Dimension, parse_inline};
 
 /// Layout determinístico (medidor aproximado, viewport fixo) — o mesmo arranjo
 /// dos testes de `layout.rs`, para poder afirmar o que foi PINTADO.
@@ -20,10 +20,19 @@ use crate::style::{parse_inline, BgRepeat, BgSize, BorderStyle, Dimension};
 fn layout(html: &str, vw: f32) -> DisplayList {
     crate::block::define(
         "div",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let dom = crate::parse_html_to_dom(html);
-    let ctx = LayoutCtx { viewport_w: vw, viewport_h: 600.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: vw,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
     layout_document(&dom, &ctx)
 }
 
@@ -107,7 +116,10 @@ fn border_bottom_pinta_uma_barra_e_nao_uma_moldura() {
     // Uma linha separadora: a barra fica no fundo da caixa, com a largura dela e
     // a espessura declarada. Uma moldura (o item Border) seria o comportamento
     // errado — quatro lados onde a página pediu um.
-    let list = layout("<div style='border-bottom:2px solid #cccccc;height:40px'>x</div>", 600.0);
+    let list = layout(
+        "<div style='border-bottom:2px solid #cccccc;height:40px'>x</div>",
+        600.0,
+    );
     let planos = itens(&list);
     let bars: Vec<(Rect, u32)> = planos
         .iter()
@@ -121,7 +133,11 @@ fn border_bottom_pinta_uma_barra_e_nao_uma_moldura() {
     assert_eq!(bars.len(), 1, "uma barra só: {planos:?}");
     assert_eq!(bars[0].0.h, 2.0);
     assert_eq!(bars[0].0.w, 600.0);
-    assert!(!planos.iter().any(|it| matches!(it, DisplayItem::Border { .. })));
+    assert!(
+        !planos
+            .iter()
+            .any(|it| matches!(it, DisplayItem::Border { .. }))
+    );
 }
 
 #[test]
@@ -132,7 +148,11 @@ fn longhand_por_lado_vence_a_borda_uniforme() {
     let sides = crate::style::borders::resolved_sides(&css);
     assert_eq!(sides[0].color, 0x0000FFFF);
     assert_eq!(sides[2].color, 0xFF0000FF);
-    assert!(sides.iter().all(|s| s.width == 1.0 && s.style == BorderStyle::Solid));
+    assert!(
+        sides
+            .iter()
+            .all(|s| s.width == 1.0 && s.style == BorderStyle::Solid)
+    );
 }
 
 #[test]
@@ -149,7 +169,10 @@ fn border_top_none_desliga_o_lado_sem_apagar_os_outros() {
 fn outline_pinta_por_fora_e_nao_ocupa_espaco() {
     // A caixa mantém a largura do container (o outline não entra no box model) e
     // o anel sai maior do que ela.
-    let list = layout("<div style='background:#111111;outline:2px solid #00ff00'>x</div>", 600.0);
+    let list = layout(
+        "<div style='background:#111111;outline:2px solid #00ff00'>x</div>",
+        600.0,
+    );
     let (box_rect, _) = first_solid(&list).unwrap();
     let ring = itens(&list)
         .iter()
@@ -158,8 +181,14 @@ fn outline_pinta_por_fora_e_nao_ocupa_espaco() {
             _ => None,
         })
         .expect("o outline pinta um anel");
-    assert_eq!(box_rect.w, 600.0, "o outline não encolhe nem alarga a caixa");
-    assert!(ring.w > box_rect.w && ring.x < box_rect.x, "o anel é por fora: {ring:?}");
+    assert_eq!(
+        box_rect.w, 600.0,
+        "o outline não encolhe nem alarga a caixa"
+    );
+    assert!(
+        ring.w > box_rect.w && ring.x < box_rect.x,
+        "o anel é por fora: {ring:?}"
+    );
 }
 
 #[test]
@@ -265,7 +294,10 @@ fn text_indent_recua_a_primeira_linha() {
 #[test]
 fn flex_flow_expande_direcao_e_wrap() {
     let css = parse_inline("flex-flow: column wrap");
-    assert_eq!(css.flex_direction, Some(crate::style::FlexDirection::Column));
+    assert_eq!(
+        css.flex_direction,
+        Some(crate::style::FlexDirection::Column)
+    );
     assert_eq!(css.flex_wrap, Some(true));
 }
 
@@ -286,8 +318,6 @@ fn a_cascade_mescla_lado_a_lado_a_largura_de_borda() {
     assert_eq!(base.border_widths.top.px(), Some(4.0));
     assert_eq!(base.border_widths.bottom.px(), Some(1.0));
 }
-
-
 
 #[test]
 fn background_com_imagem_e_repeat_ainda_pinta_a_cor() {
@@ -310,8 +340,14 @@ fn valores_logicos_e_recentes_das_keywords_sao_aceites() {
     // lógicas `inline-start`/`inline-end`, e `word-break` tem `auto-phrase`.
     // Recusá-los mandava a declaração para o balde de "propriedade ignorada",
     // que é o contador que diz o que ainda falta — poluí-lo esconde trabalho real.
-    assert_eq!(parse_inline("clear: inline-start").get_property("clear"), "left");
-    assert_eq!(parse_inline("word-break: auto-phrase").get_property("word-break"), "auto-phrase");
+    assert_eq!(
+        parse_inline("clear: inline-start").get_property("clear"),
+        "left"
+    );
+    assert_eq!(
+        parse_inline("word-break: auto-phrase").get_property("word-break"),
+        "auto-phrase"
+    );
 }
 
 #[test]
@@ -321,7 +357,12 @@ fn line_height_sem_unidade_chega_ao_layout() {
     // do medidor (20,8) e o parágrafo inteiro fica com o espaçamento errado.
     crate::block::define(
         "p",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let texto = "palavra ".repeat(40);
     let ys = |decl: &str| -> Vec<f32> {
@@ -335,7 +376,10 @@ fn line_height_sem_unidade_chega_ao_layout() {
             .collect()
     };
     let com = ys("line-height:1.625");
-    assert!(com.len() > 2, "o texto tem de quebrar em várias linhas: {com:?}");
+    assert!(
+        com.len() > 2,
+        "o texto tem de quebrar em várias linhas: {com:?}"
+    );
     assert_eq!(com[1] - com[0], 26.0);
     // `em` é relativo ao font-size do próprio elemento: mesmo número que o
     // multiplicador. Era ignorado por completo antes (caía em 20,8).
@@ -356,7 +400,12 @@ fn line_height_normal_e_o_mesmo_que_nao_declarar() {
     // a mesma propriedade com duas alturas conforme fosse escrita.
     crate::block::define(
         "p",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let texto = "palavra ".repeat(40);
     let delta = |decl: &str| -> f32 {
@@ -373,7 +422,10 @@ fn line_height_normal_e_o_mesmo_que_nao_declarar() {
     assert_eq!(delta("line-height:normal"), delta(""));
     // e o computed reporta `normal`, que é o único valor de line-height que o
     // browser não resolve para px.
-    assert_eq!(parse_inline("line-height: normal").get_property("line-height"), "normal");
+    assert_eq!(
+        parse_inline("line-height: normal").get_property("line-height"),
+        "normal"
+    );
 }
 
 #[test]
@@ -383,7 +435,6 @@ fn line_height_negativo_e_recusado() {
     assert_eq!(parse_inline("line-height: -1.5").line_height, None);
     assert_eq!(parse_inline("line-height: -10px").line_height, None);
 }
-
 
 #[test]
 fn propriedade_herdada_declarada_no_body_chega_aos_descendentes() {
@@ -396,14 +447,23 @@ fn propriedade_herdada_declarada_no_body_chega_aos_descendentes() {
         dom.computed_style_idx(idx).unwrap_or_default()
     };
     let por_regra = css("<style>body{line-height:1.6;color:#ff0000}</style><body><p>x</p></body>");
-    assert_eq!(por_regra.line_height, Some(crate::style::LineHeight::Mult(1.6)));
+    assert_eq!(
+        por_regra.line_height,
+        Some(crate::style::LineHeight::Mult(1.6))
+    );
     assert_eq!(por_regra.color, Some(0xFF0000FF));
     // e pelo `style=""` do próprio body, que é outro caminho até ao mesmo campo.
     let por_inline = css("<html><body style='line-height:1.6'><p>x</p></body></html>");
-    assert_eq!(por_inline.line_height, Some(crate::style::LineHeight::Mult(1.6)));
+    assert_eq!(
+        por_inline.line_height,
+        Some(crate::style::LineHeight::Mult(1.6))
+    );
     // um ancestral qualquer serve — o `body` não tem nada de especial na cascade.
     let por_div = css("<style>div{line-height:1.6}</style><div><p>x</p></div>");
-    assert_eq!(por_div.line_height, Some(crate::style::LineHeight::Mult(1.6)));
+    assert_eq!(
+        por_div.line_height,
+        Some(crate::style::LineHeight::Mult(1.6))
+    );
 }
 
 #[test]
@@ -421,12 +481,22 @@ fn body_implicito_faz_a_regra_do_body_chegar_a_um_fragmento_sem_as_tres_tags() {
         "<style>body{color:#ff0000;line-height:1.6}</style><div><p>x</p></div>",
     );
     // as duas tags existem mesmo, e não só por efeito na cascade.
-    assert!(dom.query("html").is_some(), "o <html> implícito tem de estar na árvore");
-    assert!(dom.query("body").is_some(), "o <body> implícito tem de estar na árvore");
+    assert!(
+        dom.query("html").is_some(),
+        "o <html> implícito tem de estar na árvore"
+    );
+    assert!(
+        dom.query("body").is_some(),
+        "o <body> implícito tem de estar na árvore"
+    );
     // e o descendente HERDA o que foi declarado nelas.
     let p = dom.resolve(dom.query("p").unwrap()).unwrap();
     let css = dom.computed_style_idx(p).unwrap_or_default();
-    assert_eq!(css.color, Some(0xFF0000FF), "a cor declarada em body{{}} herda");
+    assert_eq!(
+        css.color,
+        Some(0xFF0000FF),
+        "a cor declarada em body{{}} herda"
+    );
     assert_eq!(css.line_height, Some(crate::style::LineHeight::Mult(1.6)));
 }
 
@@ -447,8 +517,6 @@ fn line_height_normal_bate_com_as_alturas_do_chrome() {
     assert_eq!(lh(32.0), 36.0);
 }
 
-
-
 #[test]
 fn borda_por_lado_entra_na_geometria_da_caixa() {
     // Os números são do Chrome, via `tests/css/claude-border-lados`: um <div> de
@@ -456,8 +524,11 @@ fn borda_por_lado_entra_na_geometria_da_caixa() {
     // Antes, a largura da borda era um escalar aplicado aos quatro lados, e uma
     // `border-bottom: 5px` alargava a caixa nos quatro ou em nenhum.
     let caixa = |decl: &str| -> Rect {
-        let html = format!("<div style='width:200px;height:20px;background:#eeeeee;{decl}'>x</div>");
-        first_solid(&layout(&html, 1280.0)).expect("a caixa pinta um fundo").0
+        let html =
+            format!("<div style='width:200px;height:20px;background:#eeeeee;{decl}'>x</div>");
+        first_solid(&layout(&html, 1280.0))
+            .expect("a caixa pinta um fundo")
+            .0
     };
     assert_eq!(caixa("border-top:10px solid #000").h, 30.0);
     assert_eq!(caixa("border-top:10px solid #000").w, 200.0);
@@ -478,15 +549,28 @@ fn lado_sem_estilo_nao_ocupa_espaco() {
     // ser zero, por mais que o autor declare 30px. É a mesma regra que já decidia
     // a PINTURA — o layout e o render tinham de concordar sobre a mesma caixa.
     let caixa = |decl: &str| -> Rect {
-        let html = format!("<div style='width:200px;height:20px;background:#eeeeee;{decl}'>x</div>");
-        first_solid(&layout(&html, 1280.0)).expect("a caixa pinta um fundo").0
+        let html =
+            format!("<div style='width:200px;height:20px;background:#eeeeee;{decl}'>x</div>");
+        first_solid(&layout(&html, 1280.0))
+            .expect("a caixa pinta um fundo")
+            .0
     };
     let r = caixa("border-top:10px solid #000;border-right-width:30px");
-    assert_eq!((r.w, r.h), (200.0, 30.0), "o lado sem estilo não ocupa nada");
+    assert_eq!(
+        (r.w, r.h),
+        (200.0, 30.0),
+        "o lado sem estilo não ocupa nada"
+    );
     // e o shorthand curto DEPOIS de um lado sobrepõe-no (ordem da cascade),
     // enquanto o lado depois do curto vence só naquele lado.
-    assert_eq!(caixa("border:6px solid #000;border-left:20px solid #000").w, 226.0);
-    assert_eq!(caixa("border-left:20px solid #000;border:6px solid #000").w, 212.0);
+    assert_eq!(
+        caixa("border:6px solid #000;border-left:20px solid #000").w,
+        226.0
+    );
+    assert_eq!(
+        caixa("border-left:20px solid #000;border:6px solid #000").w,
+        212.0
+    );
 }
 
 // ── Longhands de `transition-*` / `animation-*` (ver `style::timing`) ─────────
@@ -522,7 +606,9 @@ fn cubic_bezier_com_espacos_chega_inteira_pela_longhand() {
     // O shorthand parte o valor por espaços e por isso perde uma curva escrita
     // com espaço depois da vírgula — a forma que toda ferramenta emite. Pela
     // longhand o valor inteiro vai para o parser da curva.
-    let s = parse_inline("transition-duration:.2s; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1)");
+    let s = parse_inline(
+        "transition-duration:.2s; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1)",
+    );
     assert_eq!(
         s.transition.unwrap().easing,
         crate::anim::Easing::CubicBezier(0.4, 0.0, 0.2, 1.0)
@@ -617,7 +703,10 @@ fn inset_shorthand_segue_a_ordem_da_caixa() {
     assert_eq!(quatro.inset_left, Some(Dimension::Px(4.0)));
     // e o eixo sozinho toca só os dois lados dele.
     let eixo = parse_inline("inset-inline: 5px");
-    assert_eq!((eixo.inset_left, eixo.inset_right), (Some(Dimension::Px(5.0)), Some(Dimension::Px(5.0))));
+    assert_eq!(
+        (eixo.inset_left, eixo.inset_right),
+        (Some(Dimension::Px(5.0)), Some(Dimension::Px(5.0)))
+    );
     assert_eq!(eixo.inset_top, None);
 }
 
@@ -658,11 +747,24 @@ fn eixos_de_background_position_escrevem_o_mesmo_campo_do_shorthand() {
 fn font_stretch_computa_em_percentagem() {
     // O computed do Chrome responde a percentagem mesmo quando o autor escreveu
     // o keyword — é a definição da spec, não uma conversão nossa.
-    assert_eq!(parse_inline("font-stretch: condensed").font_stretch, Some(75.0));
+    assert_eq!(
+        parse_inline("font-stretch: condensed").font_stretch,
+        Some(75.0)
+    );
     assert_eq!(parse_inline("font-stretch: 87.5%").font_stretch, Some(87.5));
-    assert_eq!(parse_inline("font-stretch: condensed").get_property("font-stretch"), "75%");
-    assert_eq!(parse_inline("color:red").computed_value("font-stretch", None), "100%");
-    assert_eq!(parse_inline("color:red").get_property("font-stretch"), "", "el.style vazio");
+    assert_eq!(
+        parse_inline("font-stretch: condensed").get_property("font-stretch"),
+        "75%"
+    );
+    assert_eq!(
+        parse_inline("color:red").computed_value("font-stretch", None),
+        "100%"
+    );
+    assert_eq!(
+        parse_inline("color:red").get_property("font-stretch"),
+        "",
+        "el.style vazio"
+    );
 }
 
 #[test]
@@ -733,7 +835,10 @@ fn propriedade_recusada_nao_conta_como_desconhecida() {
     assert!(is_inert("will-change"));
     assert!(is_inert("page-break-inside"));
     assert!(is_inert("scroll-behavior"));
-    assert!(is_inert("-webkit-appearance"), "o prefixo não muda a resposta");
+    assert!(
+        is_inert("-webkit-appearance"),
+        "o prefixo não muda a resposta"
+    );
     assert!(is_inert("-moz-user-select"));
     // e o que é trabalho por fazer continua do outro lado da linha.
     assert!(!is_inert("filter"), "pintura por decidir NÃO é recusa");
@@ -746,11 +851,23 @@ fn pointer_events_e_guardado_e_herda() {
     // Tem campo (e não entrou na lista de recusadas) porque o teste de acerto do
     // DOM já existe: ligá-lo é ler este campo. Até lá o clique atravessa na mesma.
     use crate::style::vocab::PointerEvents;
-    assert_eq!(parse_inline("pointer-events: none").pointer_events, Some(PointerEvents::None));
-    assert_eq!(parse_inline("pointer-events: none").get_property("pointer-events"), "none");
-    assert_eq!(parse_inline("color: red").computed_value("pointer-events", None), "auto");
+    assert_eq!(
+        parse_inline("pointer-events: none").pointer_events,
+        Some(PointerEvents::None)
+    );
+    assert_eq!(
+        parse_inline("pointer-events: none").get_property("pointer-events"),
+        "none"
+    );
+    assert_eq!(
+        parse_inline("color: red").computed_value("pointer-events", None),
+        "auto"
+    );
     // um valor de SVG que não modelamos não é guardado como se fosse outro.
-    assert_eq!(parse_inline("pointer-events: visiblePainted").pointer_events, None);
+    assert_eq!(
+        parse_inline("pointer-events: visiblePainted").pointer_events,
+        None
+    );
 }
 
 // ── Raios POR CANTO (ver `style::radius`) ────────────────────────────────────
@@ -763,7 +880,10 @@ fn canto_declarado_sozinho_nao_arredonda_os_outros() {
     let s = parse_inline("border-top-left-radius: 8px");
     assert_eq!(s.corner_tl, Some(8.0));
     assert_eq!(s.corner_tr, None);
-    assert_eq!(s.corner_radius, None, "o raio único NÃO é tocado por um canto");
+    assert_eq!(
+        s.corner_radius, None,
+        "o raio único NÃO é tocado por um canto"
+    );
 }
 
 #[test]
@@ -772,8 +892,10 @@ fn border_radius_continua_a_responder_o_que_respondia() {
     // resposta diferente. O shorthand escreve os quatro cantos POR CIMA disso.
     let s = parse_inline("border-radius: 6px");
     assert_eq!(s.corner_radius, Some(6.0), "o campo único, como sempre");
-    assert_eq!((s.corner_tl, s.corner_tr, s.corner_br, s.corner_bl),
-               (Some(6.0), Some(6.0), Some(6.0), Some(6.0)));
+    assert_eq!(
+        (s.corner_tl, s.corner_tr, s.corner_br, s.corner_bl),
+        (Some(6.0), Some(6.0), Some(6.0), Some(6.0))
+    );
 }
 
 #[test]
@@ -781,11 +903,25 @@ fn shorthand_de_cantos_copia_o_canto_diagonalmente_oposto() {
     // A regra dos cantos NÃO é a dos shorthands de caixa: com dois valores, o
     // segundo vale para os dois cantos da DIAGONAL, não para os adjacentes.
     let dois = parse_inline("border-radius: 1px 2px");
-    assert_eq!((dois.corner_tl, dois.corner_tr, dois.corner_br, dois.corner_bl),
-               (Some(1.0), Some(2.0), Some(1.0), Some(2.0)));
+    assert_eq!(
+        (
+            dois.corner_tl,
+            dois.corner_tr,
+            dois.corner_br,
+            dois.corner_bl
+        ),
+        (Some(1.0), Some(2.0), Some(1.0), Some(2.0))
+    );
     let tres = parse_inline("border-radius: 1px 2px 3px");
-    assert_eq!((tres.corner_tl, tres.corner_tr, tres.corner_br, tres.corner_bl),
-               (Some(1.0), Some(2.0), Some(3.0), Some(2.0)));
+    assert_eq!(
+        (
+            tres.corner_tl,
+            tres.corner_tr,
+            tres.corner_br,
+            tres.corner_bl
+        ),
+        (Some(1.0), Some(2.0), Some(3.0), Some(2.0))
+    );
     let quatro = parse_inline("border-radius: 1px 2px 3px 4px");
     assert_eq!(quatro.corner_bl, Some(4.0));
 }
@@ -798,17 +934,25 @@ fn cantos_logicos_caem_nos_cantos_fisicos_em_ltr() {
         "border-start-start-radius: 1px; border-start-end-radius: 2px; \
          border-end-end-radius: 3px; border-end-start-radius: 4px",
     );
-    assert_eq!((s.corner_tl, s.corner_tr, s.corner_br, s.corner_bl),
-               (Some(1.0), Some(2.0), Some(3.0), Some(4.0)));
+    assert_eq!(
+        (s.corner_tl, s.corner_tr, s.corner_br, s.corner_bl),
+        (Some(1.0), Some(2.0), Some(3.0), Some(4.0))
+    );
 }
 
 #[test]
 fn canto_eliptico_fica_pelo_raio_horizontal() {
     // Um canto do CSS são DOIS raios; o modelo tem um número por canto. Fica o
     // horizontal, e o teste fixa isso em vez de o deixar por descobrir.
-    assert_eq!(parse_inline("border-top-left-radius: 10px 20px").corner_tl, Some(10.0));
+    assert_eq!(
+        parse_inline("border-top-left-radius: 10px 20px").corner_tl,
+        Some(10.0)
+    );
     // e a parte depois da `/` no shorthand é a vertical — descartada igual.
-    assert_eq!(parse_inline("border-radius: 5px / 15px").corner_tl, Some(5.0));
+    assert_eq!(
+        parse_inline("border-radius: 5px / 15px").corner_tl,
+        Some(5.0)
+    );
 }
 
 #[test]
@@ -816,7 +960,11 @@ fn computed_de_um_canto_responde_o_canto() {
     let s = parse_inline("border-radius: 6px");
     assert_eq!(s.get_property("border-top-left-radius"), "6px");
     let vazio = parse_inline("color: red");
-    assert_eq!(vazio.get_property("border-top-left-radius"), "", "el.style é vazio");
+    assert_eq!(
+        vazio.get_property("border-top-left-radius"),
+        "",
+        "el.style é vazio"
+    );
     assert_eq!(vazio.computed_value("border-top-left-radius", None), "0px");
 }
 
@@ -831,9 +979,18 @@ fn transform_origin_guarda_o_ponto_e_o_inicial_e_o_centro() {
     let s = parse_inline("transform-origin: left top");
     let p = s.transform_origin.expect("o ponto é guardado");
     assert_eq!((p.x, p.y), (Percent(0.0), Percent(0.0)));
-    assert_eq!(parse_inline("transform-origin: 10px 20px").transform_origin.unwrap().x, Px(10.0));
+    assert_eq!(
+        parse_inline("transform-origin: 10px 20px")
+            .transform_origin
+            .unwrap()
+            .x,
+        Px(10.0)
+    );
     // o inicial é o centro — o mesmo ponto que o layout já assume.
-    assert_eq!(parse_inline("color:red").computed_value("transform-origin", None), "50% 50%");
+    assert_eq!(
+        parse_inline("color:red").computed_value("transform-origin", None),
+        "50% 50%"
+    );
 }
 
 #[test]
@@ -841,12 +998,21 @@ fn text_decoration_color_vem_da_longhand_e_do_shorthand() {
     // A longhand, e também o shorthand: `underline dotted red` traz a cor junto,
     // e o parser da LINHA ignora os tokens que não são de linha — sem este ramo
     // a cor não tinha por onde entrar.
-    assert_eq!(parse_inline("text-decoration-color: #ff0000").text_decoration_color, Some(0xFF0000FF));
+    assert_eq!(
+        parse_inline("text-decoration-color: #ff0000").text_decoration_color,
+        Some(0xFF0000FF)
+    );
     let s = parse_inline("text-decoration: underline dotted #00ff00");
     assert_eq!(s.text_decoration_color, Some(0x00FF00FF));
-    assert_eq!(s.text_decoration, Some(crate::style::values::TextDecoration::Underline));
+    assert_eq!(
+        s.text_decoration,
+        Some(crate::style::values::TextDecoration::Underline)
+    );
     // `text-decoration-line` NÃO aceita cor (é a longhand da linha, e mais nada).
-    assert_eq!(parse_inline("text-decoration-line: underline").text_decoration_color, None);
+    assert_eq!(
+        parse_inline("text-decoration-line: underline").text_decoration_color,
+        None
+    );
 }
 
 // ── Propriedades individuais de transformação e aliases do WebKit ────────────
@@ -860,9 +1026,16 @@ fn rotate_individual_pinta_pelo_mesmo_transform_do_shorthand() {
     assert_eq!(s.transform.expect("cria a transformação").rot_deg, 45.0);
     // as outras componentes ficam NEUTRAS — e o neutro da escala é 1, não 0.
     let t = s.transform.unwrap();
-    assert_eq!((t.sx, t.sy), (1.0, 1.0), "um Default de zeros encolheria a caixa a nada");
+    assert_eq!(
+        (t.sx, t.sy),
+        (1.0, 1.0),
+        "um Default de zeros encolheria a caixa a nada"
+    );
     // `turn` e `rad` também, pelo mesmo parser de ângulo do shorthand.
-    assert_eq!(parse_inline("rotate: 0.5turn").transform.unwrap().rot_deg, 180.0);
+    assert_eq!(
+        parse_inline("rotate: 0.5turn").transform.unwrap().rot_deg,
+        180.0
+    );
     // `scale` com um valor vale para os dois eixos.
     let e = parse_inline("scale: 2").transform.unwrap();
     assert_eq!((e.sx, e.sy), (2.0, 2.0));
@@ -920,9 +1093,15 @@ fn border_width_reparte_como_shorthand_de_caixa_e_nao_como_canto() {
     // da CAIXA — os cantos de `border-radius` copiam a DIAGONAL, e as duas formas
     // parecem-se o suficiente para se trocarem sem ninguém notar.
     let dois = parse_inline("border-style: solid; border-width: 5px 10px");
-    assert_eq!(crate::style::borders::used_widths(&dois), [5.0, 10.0, 5.0, 10.0]);
+    assert_eq!(
+        crate::style::borders::used_widths(&dois),
+        [5.0, 10.0, 5.0, 10.0]
+    );
     let tres = parse_inline("border-style: solid; border-width: 1px 2px 3px");
-    assert_eq!(crate::style::borders::used_widths(&tres), [1.0, 2.0, 3.0, 2.0]);
+    assert_eq!(
+        crate::style::borders::used_widths(&tres),
+        [1.0, 2.0, 3.0, 2.0]
+    );
     // e um valor só continua a escrever o campo UNIFORME, como sempre escreveu.
     let um = parse_inline("border-width: 7px");
     assert_eq!(um.border_width, Some(7.0));
@@ -934,7 +1113,10 @@ fn border_style_e_color_multivalor_tambem_chegam_aos_lados() {
     // invisível E sem ocupar espaço, porque `used_widths` zera o lado que não
     // pinta. Corrigir só a largura não teria movido nada.
     let s = parse_inline("border-width: 10px; border-style: solid none solid none");
-    assert_eq!(crate::style::borders::used_widths(&s), [10.0, 0.0, 10.0, 0.0]);
+    assert_eq!(
+        crate::style::borders::used_widths(&s),
+        [10.0, 0.0, 10.0, 0.0]
+    );
     let c = parse_inline("border-color: #ff0000 #00ff00");
     assert_eq!(c.border_top_color, Some(0xFF0000FF));
     assert_eq!(c.border_right_color, Some(0x00FF00FF));
@@ -951,7 +1133,10 @@ fn triangulo_de_css_tem_o_tamanho_da_borda() {
     // declaração inteira era descartada: 24,9% de todo o erro de largura da
     // página em 36 elementos.
     let s = parse_inline("width:0;height:0;border-style:solid;border-width:100px 0 0 200px");
-    assert_eq!(crate::style::borders::used_widths(&s), [100.0, 0.0, 0.0, 200.0]);
+    assert_eq!(
+        crate::style::borders::used_widths(&s),
+        [100.0, 0.0, 0.0, 200.0]
+    );
     // e o box model soma-as: a caixa mede 200x100 com conteúdo nenhum.
     let html = "<div style='background:#eee'>\
                 <div style='width:0;height:0;border-style:solid;border-width:100px 0 0 200px'></div>\
@@ -967,11 +1152,22 @@ fn largura_zero_e_uma_largura_declarada_e_nao_uma_ausencia() {
     // declaração caía. O lado ficava por declarar e HERDAVA a borda uniforme —
     // dando largura a um lado que o autor mandou apagar.
     let s = parse_inline("border: 5px solid; border-top-width: 0");
-    assert_eq!(crate::style::borders::used_widths(&s)[0], 0.0, "o topo foi apagado");
-    assert_eq!(crate::style::borders::used_widths(&s)[2], 5.0, "o resto fica");
+    assert_eq!(
+        crate::style::borders::used_widths(&s)[0],
+        0.0,
+        "o topo foi apagado"
+    );
+    assert_eq!(
+        crate::style::borders::used_widths(&s)[2],
+        5.0,
+        "o resto fica"
+    );
     // e no shorthand, que é onde a forma do triângulo o traz.
     let t = parse_inline("border: 5px solid; border-width: 0 200px 100px 0");
-    assert_eq!(crate::style::borders::used_widths(&t), [0.0, 200.0, 100.0, 0.0]);
+    assert_eq!(
+        crate::style::borders::used_widths(&t),
+        [0.0, 200.0, 100.0, 0.0]
+    );
     // os keywords também: `parse_len` não os conhecia e caíam do mesmo modo.
     assert_eq!(parse_inline("border-width: thick").border_width, Some(5.0));
 }
@@ -982,10 +1178,16 @@ fn cor_de_decoracao_nao_declarada_e_a_cor_do_elemento() {
     // a cor já RESOLVIDA. O inicial não cabia na tabela de `style::initial`
     // porque não é uma constante: é o valor de outra propriedade deste nó.
     let s = parse_inline("color: #0000ff; text-decoration-line: underline");
-    assert_eq!(s.computed_value("text-decoration-color", None), "rgb(0, 0, 255)");
+    assert_eq!(
+        s.computed_value("text-decoration-color", None),
+        "rgb(0, 0, 255)"
+    );
     // declarada, vence o declarado.
     let d = parse_inline("color: #0000ff; text-decoration-color: #ff0000");
-    assert_eq!(d.computed_value("text-decoration-color", None), "rgb(255, 0, 0)");
+    assert_eq!(
+        d.computed_value("text-decoration-color", None),
+        "rgb(255, 0, 0)"
+    );
     // e o `el.style` continua vazio para o que o elemento não declarou.
     assert_eq!(s.get_property("text-decoration-color"), "");
 }
@@ -1025,7 +1227,11 @@ fn clip_nao_declarado_computa_auto_e_o_style_inline_fica_vazio() {
     // propriedade: o computed cai no inicial, o `el.style` não.
     let s = parse_inline("color: red");
     assert_eq!(s.computed_value("clip", None), "auto");
-    assert_eq!(s.get_property("clip"), "", "el.style só tem o que foi declarado");
+    assert_eq!(
+        s.get_property("clip"),
+        "",
+        "el.style só tem o que foi declarado"
+    );
 }
 
 #[test]
@@ -1047,7 +1253,10 @@ fn sr_only_continua_escondido_sem_o_recorte_ser_aplicado() {
             _ => None,
         })
         .fold(0.0f32, f32::max);
-    assert!(maior <= 1.0, "a caixa do .sr-only tem de continuar em 1px, e não {maior}");
+    assert!(
+        maior <= 1.0,
+        "a caixa do .sr-only tem de continuar em 1px, e não {maior}"
+    );
 }
 
 #[test]
@@ -1062,7 +1271,10 @@ fn text_decoration_prefixada_responde_o_mesmo_que_a_nua() {
     let moz = parse_inline("-moz-text-decoration: underline red");
     assert_eq!(nua.text_decoration, webkit.text_decoration);
     assert_eq!(nua.text_decoration_color, webkit.text_decoration_color);
-    assert!(webkit.text_decoration_color.is_some(), "a cor do shorthand também");
+    assert!(
+        webkit.text_decoration_color.is_some(),
+        "a cor do shorthand também"
+    );
     assert_eq!(nua.text_decoration, moz.text_decoration);
 }
 
@@ -1083,7 +1295,10 @@ fn text_size_adjust_e_recusada_com_motivo_e_nao_ignorada() {
     // exatamente para essa diferença.
     use crate::style::inert::is_inert;
     assert!(is_inert("text-size-adjust"));
-    assert!(is_inert("-webkit-text-size-adjust"), "a forma que as folhas escrevem");
+    assert!(
+        is_inert("-webkit-text-size-adjust"),
+        "a forma que as folhas escrevem"
+    );
     assert!(is_inert("-ms-text-size-adjust"));
 }
 
@@ -1096,13 +1311,21 @@ fn filter_e_clip_path_chegam_crus_ao_paint() {
     let s = parse_inline("filter: blur(4px) brightness(0.8)");
     assert_eq!(s.filter.as_deref(), Some("blur(4px) brightness(0.8)"));
     let c = parse_inline("clip-path: polygon(50% 0%, 100% 100%, 0% 100%)");
-    assert_eq!(c.clip_path.as_deref(), Some("polygon(50% 0%, 100% 100%, 0% 100%)"));
+    assert_eq!(
+        c.clip_path.as_deref(),
+        Some("polygon(50% 0%, 100% 100%, 0% 100%)")
+    );
     // O prefixo `-webkit-` está ao lado do nome padrão: a folha real declara os
     // dois na mesma regra, e reconhecer só um deixava a metade escrita primeiro
     // a decidir o resultado.
-    assert_eq!(parse_inline("-webkit-filter: invert(1)").filter.as_deref(), Some("invert(1)"));
     assert_eq!(
-        parse_inline("-webkit-clip-path: inset(10px)").clip_path.as_deref(),
+        parse_inline("-webkit-filter: invert(1)").filter.as_deref(),
+        Some("invert(1)")
+    );
+    assert_eq!(
+        parse_inline("-webkit-clip-path: inset(10px)")
+            .clip_path
+            .as_deref(),
         Some("inset(10px)")
     );
 }
@@ -1115,10 +1338,22 @@ fn grid_line_aceita_as_quatro_formas_que_o_corpus_escreve() {
     // uma linha com NOME, que é a razão para `GridLine` não ter variante para
     // isso — ver o cabeçalho do módulo.
     use crate::style::grid_lines::GridLine;
-    assert_eq!(parse_inline("grid-column-start: auto").grid_column_start, Some(GridLine::Auto));
-    assert_eq!(parse_inline("grid-column-start: 7").grid_column_start, Some(GridLine::Line(7)));
-    assert_eq!(parse_inline("grid-column-end: -1").grid_column_end, Some(GridLine::Line(-1)));
-    assert_eq!(parse_inline("grid-row-end: span 2").grid_row_end, Some(GridLine::Span(2)));
+    assert_eq!(
+        parse_inline("grid-column-start: auto").grid_column_start,
+        Some(GridLine::Auto)
+    );
+    assert_eq!(
+        parse_inline("grid-column-start: 7").grid_column_start,
+        Some(GridLine::Line(7))
+    );
+    assert_eq!(
+        parse_inline("grid-column-end: -1").grid_column_end,
+        Some(GridLine::Line(-1))
+    );
+    assert_eq!(
+        parse_inline("grid-row-end: span 2").grid_row_end,
+        Some(GridLine::Span(2))
+    );
 }
 
 #[test]
@@ -1129,10 +1364,16 @@ fn linha_zero_nao_e_uma_linha_de_grid() {
     use crate::style::grid_lines::GridLine;
     assert_eq!(parse_inline("grid-column-start: 0").grid_column_start, None);
     // e um `span 0` também não: um item ocupa pelo menos uma pista.
-    assert_eq!(parse_inline("grid-column-end: span 0").grid_column_end, None);
+    assert_eq!(
+        parse_inline("grid-column-end: span 0").grid_column_end,
+        None
+    );
     // `span3` sem separador não é um span — é lixo, e lixo não vira `Span(3)`.
     assert_eq!(parse_inline("grid-column-end: span3").grid_column_end, None);
-    assert_eq!(parse_inline("grid-row: span 1 / span 1").grid_row_start, Some(GridLine::Span(1)));
+    assert_eq!(
+        parse_inline("grid-row: span 1 / span 1").grid_row_start,
+        Some(GridLine::Span(1))
+    );
 }
 
 #[test]
@@ -1171,7 +1412,11 @@ fn grid_column_nao_declarado_computa_auto_e_nao_polui_o_style_inline() {
     // do documento é exatamente o erro que aquele cabeçalho descreve.
     let s = parse_inline("color: red");
     assert_eq!(s.computed_value("grid-column-start", None), "auto");
-    assert_eq!(s.get_property("grid-column"), "", "el.style só tem o declarado");
+    assert_eq!(
+        s.get_property("grid-column"),
+        "",
+        "el.style só tem o declarado"
+    );
     // declarada uma ponta só, o shorthand responde as duas.
     let d = parse_inline("grid-column-start: 2");
     assert_eq!(d.get_property("grid-column"), "2 / auto");
@@ -1206,13 +1451,19 @@ fn background_clip_guarda_as_quatro_caixas_incluindo_text() {
         parse_inline("background-clip: padding-box").background_clip,
         Some(BackgroundClip::PaddingBox)
     );
-    assert_eq!(parse_inline("background-clip: text").background_clip, Some(BackgroundClip::Text));
+    assert_eq!(
+        parse_inline("background-clip: text").background_clip,
+        Some(BackgroundClip::Text)
+    );
     // a grafia prefixada é a que as folhas escrevem para o valor `text`.
     assert_eq!(
         parse_inline("-webkit-background-clip: text").background_clip,
         Some(BackgroundClip::Text)
     );
-    assert_eq!(parse_inline("color: red").computed_value("background-clip", None), "border-box");
+    assert_eq!(
+        parse_inline("color: red").computed_value("background-clip", None),
+        "border-box"
+    );
 }
 
 #[test]
@@ -1226,7 +1477,10 @@ fn os_dois_blend_mode_partilham_o_vocabulario_mas_nao_o_campo() {
     assert_eq!(s.mix_blend_mode, Some(BlendMode::Multiply));
     assert_eq!(s.background_blend_mode, Some(BlendMode::Screen));
     // as 16 do corpus são aceites, e um valor que não existe não vira outro.
-    assert_eq!(parse_inline("mix-blend-mode: luminosity").mix_blend_mode, Some(BlendMode::Luminosity));
+    assert_eq!(
+        parse_inline("mix-blend-mode: luminosity").mix_blend_mode,
+        Some(BlendMode::Luminosity)
+    );
     assert_eq!(parse_inline("mix-blend-mode: plusma").mix_blend_mode, None);
 }
 
@@ -1235,11 +1489,15 @@ fn text_shadow_reusa_a_sombra_de_caixa_mas_sem_spread() {
     // O reúso é a decisão do lote; o corte é que `text-shadow` NÃO tem spread. O
     // parser de caixa lê um quarto comprimento como spread, e guardá-lo aqui
     // seria inventar um valor que a spec desta propriedade não define.
-    let s = parse_inline("text-shadow: 1px 2px 3px 4px red").text_shadow.unwrap();
+    let s = parse_inline("text-shadow: 1px 2px 3px 4px red")
+        .text_shadow
+        .unwrap();
     assert_eq!((s.dx, s.dy, s.blur), (1.0, 2.0, 3.0));
     assert_eq!(s.spread, 0.0, "text-shadow não tem spread");
     // e a forma normal, que é a que as folhas escrevem.
-    let n = parse_inline("text-shadow: 0 1px 2px rgba(0,0,0,0.5)").text_shadow.unwrap();
+    let n = parse_inline("text-shadow: 0 1px 2px rgba(0,0,0,0.5)")
+        .text_shadow
+        .unwrap();
     assert_eq!((n.dx, n.dy, n.blur), (0.0, 1.0, 2.0));
     assert!(parse_inline("text-shadow: none").text_shadow.is_none());
 }
@@ -1250,7 +1508,10 @@ fn text_shadow_computa_com_a_cor_a_frente_como_o_chrome() {
     // escreveu no fim. Responder pela ordem do autor era o desvio fácil.
     let s = parse_inline("text-shadow: 2px 2px rgb(255, 0, 0)");
     assert_eq!(s.get_property("text-shadow"), "rgb(255, 0, 0) 2px 2px 0px");
-    assert_eq!(parse_inline("color: red").computed_value("text-shadow", None), "none");
+    assert_eq!(
+        parse_inline("color: red").computed_value("text-shadow", None),
+        "none"
+    );
 }
 
 #[test]
@@ -1258,11 +1519,196 @@ fn a_cauda_de_pintura_nao_muda_um_pixel_hoje() {
     // O que este lote NÃO promete, fixado ao lado do que promete. Nenhuma das
     // quatro tem consumidor: se um dia o pintor as ler, este teste cai — e é
     // esse o sinal, não uma defesa do estado atual.
-    let sem = layout("<div style='width:50px;height:10px;background:#ff0000'>a</div>", 800.0);
+    let sem = layout(
+        "<div style='width:50px;height:10px;background:#ff0000'>a</div>",
+        800.0,
+    );
     let com = layout(
         "<div style='width:50px;height:10px;background:#ff0000;background-clip:content-box;\
          mix-blend-mode:multiply;background-blend-mode:screen;text-shadow:1px 1px 2px #000'>a</div>",
         800.0,
     );
     assert_eq!(format!("{:?}", itens(&sem)), format!("{:?}", itens(&com)));
+}
+
+// ── LOTE D: o resto da cauda de pintura e a máscara ─────────────────────────
+
+#[test]
+fn background_origin_reusa_as_caixas_do_clip_mas_recusa_text() {
+    // Reusa o tipo em vez de um enum gémeo — mas a spec não define `text` aqui,
+    // e aceitá-lo guardaria uma caixa que esta propriedade não tem.
+    use crate::style::painting::BackgroundClip;
+    assert_eq!(
+        parse_inline("background-origin: content-box").background_origin,
+        Some(BackgroundClip::ContentBox)
+    );
+    assert_eq!(
+        parse_inline("background-origin: text").background_origin,
+        None
+    );
+    // e o `clip` continua a aceitá-lo: são campos distintos com um tipo comum.
+    assert_eq!(
+        parse_inline("background-clip: text").background_clip,
+        Some(BackgroundClip::Text)
+    );
+}
+
+#[test]
+fn as_camadas_da_mascara_reusam_a_gramatica_do_fundo() {
+    // `mask-size`/`-position`/`-repeat` têm a MESMA gramática das de fundo, e é
+    // o parser de fundo que as lê. Um segundo parser divergiria do primeiro à
+    // primeira correção.
+    let s = parse_inline("mask-size: cover; mask-position: 50% 50%; mask-repeat: no-repeat");
+    assert_eq!(s.get_property("mask-size"), "cover");
+    assert_eq!(s.get_property("mask-position"), "50% 50%");
+    assert_eq!(s.get_property("mask-repeat"), "no-repeat");
+    // a grafia prefixada é a que as folhas escrevem.
+    assert_eq!(
+        parse_inline("-webkit-mask-size: contain").get_property("mask-size"),
+        "contain"
+    );
+}
+
+#[test]
+fn guardar_as_camadas_da_mascara_nao_mexe_na_supressao_de_fundo() {
+    // A condição que o lote tinha de verificar antes de entrar: quem decide
+    // suprimir o fundo é `layout::deve_suprimir_fundo`, que lê APENAS
+    // `mask_image`. Uma caixa com `mask-size` e sem `mask-image` continua a
+    // pintar o fundo — o contrário seria um fundo a desaparecer sem máscara.
+    let com_tamanho = layout(
+        "<div style='width:50px;height:10px;background:#ff0000;mask-size:cover'>a</div>",
+        800.0,
+    );
+    let simples = layout(
+        "<div style='width:50px;height:10px;background:#ff0000'>a</div>",
+        800.0,
+    );
+    assert_eq!(
+        format!("{:?}", itens(&simples)),
+        format!("{:?}", itens(&com_tamanho))
+    );
+    assert!(
+        first_solid(&com_tamanho).is_some(),
+        "o fundo continua pintado"
+    );
+}
+
+#[test]
+fn tab_size_guarda_a_contagem_e_recusa_o_comprimento() {
+    // `tab-size` aceita um número (caracteres) OU um comprimento (largura), e os
+    // dois não cabem no mesmo `f32` sem perder qual é qual. Só o número entra;
+    // um comprimento devolve `None` em vez de ser guardado como se fosse contagem.
+    assert_eq!(parse_inline("tab-size: 4").tab_size, Some(4.0));
+    assert_eq!(parse_inline("tab-size: 4px").tab_size, None);
+    assert_eq!(
+        parse_inline("color: red").computed_value("tab-size", None),
+        "8"
+    );
+}
+
+#[test]
+fn scrollbar_color_exige_as_duas_cores() {
+    // A spec pede polegar E calha. `auto` e uma cor sozinha não são guardados:
+    // deduzir a calha a partir do polegar daria uma cor que o autor não escreveu.
+    let s = parse_inline("scrollbar-color: rgb(255, 0, 0) rgb(0, 0, 255)");
+    assert_eq!(
+        s.get_property("scrollbar-color"),
+        "rgb(255, 0, 0) rgb(0, 0, 255)"
+    );
+    assert_eq!(parse_inline("scrollbar-color: auto").scrollbar_color, None);
+    assert_eq!(parse_inline("scrollbar-color: red").scrollbar_color, None);
+}
+
+#[test]
+fn text_fill_color_e_underline_offset_sao_guardados_sem_pintar() {
+    // As duas caudas do texto. `-webkit-text-fill-color` é a outra metade do
+    // idioma do texto com gradiente; quem pinta texto lê `color`, não esta.
+    let s = parse_inline("-webkit-text-fill-color: rgb(0, 128, 0)");
+    assert_eq!(s.get_property("-webkit-text-fill-color"), "rgb(0, 128, 0)");
+    assert_eq!(
+        parse_inline("text-underline-offset: 3px").get_property("text-underline-offset"),
+        "3px"
+    );
+    // `auto` é o inicial, e um `Option` já o exprime sem variante extra.
+    assert_eq!(
+        parse_inline("text-underline-offset: auto").text_underline_offset,
+        None
+    );
+    assert_eq!(
+        parse_inline("text-decoration-style: wavy").get_property("text-decoration-style"),
+        "wavy"
+    );
+}
+
+#[test]
+fn print_color_adjust_e_recusada_pelo_mesmo_motivo_que_os_page_break() {
+    // Não há impressão nenhuma. Vai para a coluna das recusadas, não para a das
+    // implementadas — a diferença é o que impede a contagem de subir sem um
+    // pixel mudar.
+    use crate::style::inert::is_inert;
+    assert!(is_inert("print-color-adjust"));
+    assert!(
+        is_inert("-webkit-print-color-adjust"),
+        "a grafia que as folhas escrevem"
+    );
+    assert!(is_inert("color-adjust"), "o nome antigo");
+}
+
+// ── LOTE E: aliases de fornecedor e as duas sintaxes antigas de flexbox ─────
+
+#[test]
+fn prefixo_de_fornecedor_cai_na_propriedade_nua() {
+    // 16 nomes do corpus são o mesmo nome com um prefixo. A tentativa sem
+    // prefixo é a ÚLTIMA do `parse`, e por isso resolve-os todos sem uma
+    // segunda lista de aliases a dessincronizar da primeira.
+    use crate::style::values::BorderStyle;
+    assert_eq!(parse_inline("-webkit-box-sizing: border-box").border_box, Some(true));
+    assert!(parse_inline("-webkit-box-shadow: 0 2px 4px #000").box_shadow.is_some());
+    assert_eq!(parse_inline("-moz-column-gap: 8px").gap, Some(Dimension::Px(8.0)));
+    assert!(parse_inline("-ms-transform: scale(2)").transform.is_some());
+    assert!(parse_inline("-o-transform: scale(2)").transform.is_some());
+    // e os quatro prefixos, não só os dois que `vocab`/`timing` já cortavam.
+    assert_eq!(parse_inline("-o-object-fit: cover").get_property("object-fit"), "cover");
+    // uma que não existe continua a não existir: a tentativa não inventa nomes.
+    assert_eq!(parse_inline("-webkit-nao-existe: 1").get_property("nao-existe"), "");
+    let _ = BorderStyle::Solid;
+}
+
+#[test]
+fn flexbox_moderna_prefixada_e_alias_mas_a_de_2009_nao_e() {
+    // A distinção que decidiu o lote. `-webkit-flex-direction` é a MODERNA com
+    // um prefixo — mesmo nome, mesmo valor, alias puro. `-webkit-box-direction`
+    // e `-ms-flex-direction` são as sintaxes de 2009/2012, com semântica
+    // diferente: traduzi-las por prefixo daria valores errados em silêncio.
+    use crate::style::values::FlexDirection;
+    assert_eq!(
+        parse_inline("-webkit-flex-direction: column").flex_direction,
+        Some(FlexDirection::Column)
+    );
+    // a antiga é RECUSADA com motivo, não aplicada e não desconhecida.
+    use crate::style::inert::is_inert;
+    assert!(is_inert("-ms-flex-direction"), "sintaxe de 2012");
+    assert!(is_inert("-ms-flex"), "e o shorthand dela");
+    assert!(is_inert("-webkit-box-flex"), "sintaxe de 2009");
+    assert!(is_inert("-webkit-box-ordinal-group"));
+    // e o corte tem de deixar a MODERNA em paz — é o risco todo desta função.
+    assert!(!is_inert("flex"), "a moderna nua NÃO é recusada");
+    assert!(!is_inert("flex-direction"));
+    assert!(!is_inert("-webkit-flex-grow"), "nem a moderna prefixada");
+}
+
+#[test]
+fn a_antiga_que_o_vocab_ja_traduzia_continua_a_ser_traduzida() {
+    // `box-orient`/`box-pack`/`box-align` são de 2009 mas o `style::vocab` já as
+    // mapeava nos campos de hoje, e ele corre ANTES do `inert` na cadeia. O
+    // grupo novo das recusadas não pode ter-lhes roubado o caminho.
+    use crate::style::values::FlexDirection;
+    assert_eq!(
+        parse_inline("-webkit-box-orient: vertical").flex_direction,
+        Some(FlexDirection::Column)
+    );
+    assert_eq!(
+        parse_inline("-webkit-box-pack: justify").justify,
+        Some(crate::style::values::JustifyContent::SpaceBetween)
+    );
 }

@@ -32,6 +32,9 @@
 /// estão separados pelo MOTIVO, que é a única coisa que esta lista acrescenta ao
 /// nome.
 pub fn is_inert(prop: &str) -> bool {
+    if flexbox_de_2009(prop) {
+        return true;
+    }
     // O prefixo de fornecedor não muda a resposta de nenhuma delas.
     let p = prop
         .strip_prefix("-webkit-")
@@ -45,6 +48,9 @@ pub fn is_inert(prop: &str) -> bool {
         "page-break-after" | "page-break-before" | "page-break-inside"
             | "break-after" | "break-before" | "break-inside"
             | "orphans" | "widows" | "page"
+        // `print-color-adjust` (e o nome antigo `color-adjust`) mandam o browser
+        // NÃO cortar os fundos ao imprimir. Mesmo grupo, mesma razão.
+            | "print-color-adjust" | "color-adjust"
         // COMPOSIÇÃO E DESEMPENHO: todas dizem ao browser COMO organizar camadas e
         // trabalho, não o que desenhar. Um motor sem camadas de composição nem
         // renderização preguiçosa não tem o que fazer com a informação — e é por
@@ -114,4 +120,39 @@ pub fn is_inert(prop: &str) -> bool {
         // tem a noção de "discreta" para ligar.
             | "transition-behavior"
     )
+}
+
+/// As duas sintaxes ANTIGAS de flexbox: a de 2009 (`-webkit-box-*`) e a de 2012
+/// (`-ms-flex*`). 15 nomes, 353 declarações no corpus — a maior entrada isolada
+/// da lista do que faltava.
+///
+/// ## Porque é recusa e não alias
+///
+/// A tentação é tratá-las como o `-webkit-box-shadow`: tirar o prefixo e
+/// reentregar. **Não são o mesmo nome com um prefixo — são propriedades
+/// diferentes com semântica diferente.** `-ms-flex-pack: justify` significa
+/// `justify-content: space-between`; `-webkit-box-flex: 1` não tem as três
+/// partes do `flex` moderno; `-ms-flex: 1` e `flex: 1` divergem no `flex-basis`
+/// implícito. Traduzi-las por prefixo daria valores errados em silêncio, que é
+/// pior que a ausência — e traduzi-las a sério é reimplementar duas gramáticas
+/// obsoletas.
+///
+/// ## Porque isso não custa nada na prática
+///
+/// Quem escreve estas escreve SEMPRE a moderna a seguir, na mesma regra: é o que
+/// um autoprefixer emite, e a ordem é deliberada para a moderna ganhar em quem a
+/// entende. Recusar a antiga e aplicar a moderna dá exatamente o resultado que o
+/// autor desenhou. É por isso que esta função existe ANTES do corte do prefixo
+/// em [`is_inert`]: `-ms-flex` tem de ser recusado sem que `flex` — a moderna,
+/// que é aplicada — seja arrastado com ele.
+fn flexbox_de_2009(prop: &str) -> bool {
+    if let Some(resto) = prop.strip_prefix("-webkit-box-") {
+        return matches!(
+            resto,
+            "flex" | "orient" | "direction" | "align" | "pack" | "ordinal-group" | "lines"
+        );
+    }
+    // `-ms-flex` e tudo o que começa por `-ms-flex-`. O nome nu (`flex`) e as
+    // longhands modernas prefixadas (`-webkit-flex-grow`) não passam por aqui.
+    prop == "-ms-flex" || prop.starts_with("-ms-flex-")
 }

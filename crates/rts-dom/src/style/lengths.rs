@@ -34,7 +34,10 @@ pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     }
     // `calc(...)` — expressão linear reduzida no parse (resolve tarde).
     let low_full = v.to_ascii_lowercase();
-    if let Some(inner) = low_full.strip_prefix("calc(").and_then(|r| r.strip_suffix(')')) {
+    if let Some(inner) = low_full
+        .strip_prefix("calc(")
+        .and_then(|r| r.strip_suffix(')'))
+    {
         return super::calc::parse_calc_dim(inner);
     }
     // (sufixo, construtor, clamp_max) — `%`/`vw`/`vh` em 0..=100; resto sem teto.
@@ -117,9 +120,24 @@ pub(crate) fn parse_edges(val: &str, allow_auto: bool) -> Edges {
         .collect();
     match toks.as_slice() {
         [a] => Edges::all(*a),
-        [v, h] => Edges { top: *v, right: *h, bottom: *v, left: *h },
-        [t, h, b] => Edges { top: *t, right: *h, bottom: *b, left: *h },
-        [t, r, b, l] => Edges { top: *t, right: *r, bottom: *b, left: *l },
+        [v, h] => Edges {
+            top: *v,
+            right: *h,
+            bottom: *v,
+            left: *h,
+        },
+        [t, h, b] => Edges {
+            top: *t,
+            right: *h,
+            bottom: *b,
+            left: *h,
+        },
+        [t, r, b, l] => Edges {
+            top: *t,
+            right: *r,
+            bottom: *b,
+            left: *l,
+        },
         _ => Edges::default(), // 0 ou >4: ignora (robustez).
     }
 }
@@ -253,7 +271,12 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
 pub(crate) fn parse_len(v: &str) -> Option<f32> {
     let low = v.trim().to_ascii_lowercase();
     if let Some(n) = low.strip_suffix("rem") {
-        return n.trim().parse::<f32>().ok().filter(|x| *x > 0.0).map(|x| x * 16.0);
+        return n
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .filter(|x| *x > 0.0)
+            .map(|x| x * 16.0);
     }
     parse_px(&low)
 }

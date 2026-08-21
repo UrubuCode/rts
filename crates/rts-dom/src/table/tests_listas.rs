@@ -14,7 +14,10 @@ fn ol_numera_os_itens_a_partir_de_um() {
     let (dom, list) = geometria("<ol><li>um</li><li>dois</li><li>três</li></ol>", 800.0);
     let t = textos(&list);
     for esperado in ["1.", "2.", "3."] {
-        assert!(t.iter().any(|s| s == esperado), "faltou o marcador {esperado} em {t:?}");
+        assert!(
+            t.iter().any(|s| s == esperado),
+            "faltou o marcador {esperado} em {t:?}"
+        );
     }
     // O marcador do primeiro item fica à esquerda do content-box dele.
     let li = rect(&dom, &list, "li", 0);
@@ -26,7 +29,11 @@ fn ol_numera_os_itens_a_partir_de_um() {
             _ => None,
         })
         .expect("marcador 1.");
-    assert!(x_marcador < li.x, "marcador em {x_marcador}, item em {}", li.x);
+    assert!(
+        x_marcador < li.x,
+        "marcador em {x_marcador}, item em {}",
+        li.x
+    );
 }
 
 #[test]
@@ -65,11 +72,21 @@ fn ul_desenha_um_bullet_por_item_dentro_do_recuo() {
             _ => None,
         })
         .collect();
-    assert_eq!(bullets.len(), 2, "esperados 2 bullets, vieram {}", bullets.len());
+    assert_eq!(
+        bullets.len(),
+        2,
+        "esperados 2 bullets, vieram {}",
+        bullets.len()
+    );
     let ul = rect(&dom, &list, "ul", 0);
     let li = rect(&dom, &list, "li", 0);
     for b in &bullets {
-        assert!(b.x + b.w <= li.x + 0.5, "bullet invade o texto: {} vs {}", b.x + b.w, li.x);
+        assert!(
+            b.x + b.w <= li.x + 0.5,
+            "bullet invade o texto: {} vs {}",
+            b.x + b.w,
+            li.x
+        );
         assert!(b.x >= ul.x - 0.5, "bullet fora da caixa da lista");
     }
 }
@@ -83,8 +100,14 @@ fn li_com_display_trocado_nao_e_mais_item_de_lista() {
         800.0,
     );
     let t = textos(&list);
-    assert!(!t.iter().any(|s| s == "2."), "o `flex` não devia contar: {t:?}");
-    assert!(t.iter().any(|s| s == "1."), "o item que sobrou é o 1: {t:?}");
+    assert!(
+        !t.iter().any(|s| s == "2."),
+        "o `flex` não devia contar: {t:?}"
+    );
+    assert!(
+        t.iter().any(|s| s == "1."),
+        "o item que sobrou é o 1: {t:?}"
+    );
 }
 
 /// `list-style-position: inside` põe o marcador DENTRO da caixa de conteúdo, e
@@ -109,8 +132,19 @@ fn list_style_position_muda_o_lado_do_marcador_e_nao_a_caixa() {
     let li_fora = rect(&d1, &l1, "li", 0);
     let li_dentro = rect(&d2, &l2, "li", 0);
 
-    assert!(fora.x + fora.w <= li_fora.x + 0.5, "outside devia ficar fora do conteúdo");
-    assert!(dentro.x >= li_dentro.x - 0.5, "inside devia ficar dentro do conteúdo");
+    assert!(
+        fora.x + fora.w <= li_fora.x + 0.5,
+        "outside devia ficar fora do conteúdo"
+    );
+    assert!(
+        dentro.x >= li_dentro.x - 0.5,
+        "inside devia ficar dentro do conteúdo"
+    );
     // A caixa do item é a MESMA nos dois: o marcador nunca ocupa espaço de fluxo.
-    assert!((li_fora.w - li_dentro.w).abs() < 0.5, "a caixa mudou: {} vs {}", li_fora.w, li_dentro.w);
+    assert!(
+        (li_fora.w - li_dentro.w).abs() < 0.5,
+        "a caixa mudou: {} vs {}",
+        li_fora.w,
+        li_dentro.w
+    );
 }

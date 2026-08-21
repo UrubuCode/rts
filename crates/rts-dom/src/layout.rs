@@ -79,11 +79,21 @@ pub struct Corners {
 }
 
 impl Corners {
-    pub const ZERO: Corners = Corners { tl: 0.0, tr: 0.0, br: 0.0, bl: 0.0 };
+    pub const ZERO: Corners = Corners {
+        tl: 0.0,
+        tr: 0.0,
+        br: 0.0,
+        bl: 0.0,
+    };
 
     /// Os quatro iguais — o que um `radius: f32` queria dizer.
     pub fn same(r: f32) -> Corners {
-        Corners { tl: r, tr: r, br: r, bl: r }
+        Corners {
+            tl: r,
+            tr: r,
+            br: r,
+            bl: r,
+        }
     }
 
     /// Algum canto arredonda?
@@ -128,24 +138,53 @@ pub enum DisplayItem {
     /// Os outros três itens com `radius: f32` (`Shadow`, `GradientRect`,
     /// `Border`) continuam com um valor só: mudá-los é a fatia seguinte, e
     /// enquanto não for feita respondem exatamente o que respondiam.
-    SolidRect { rect: Rect, color: u32, radius: Corners },
+    SolidRect {
+        rect: Rect,
+        color: u32,
+        radius: Corners,
+    },
     /// SOMBRA de caixa (`box-shadow`): pintada ATRÁS da caixa. `dx`/`dy` deslocam,
     /// `blur` amacia a borda, `spread` cresce/encolhe o rect, `color` é a cor (com
     /// alpha). O backend usa o blur real do egui (`epaint::Shadow`).
-    Shadow { rect: Rect, dx: f32, dy: f32, blur: f32, spread: f32, color: u32, radius: f32 },
+    Shadow {
+        rect: Rect,
+        dx: f32,
+        dy: f32,
+        blur: f32,
+        spread: f32,
+        color: u32,
+        radius: f32,
+    },
     /// Retângulo com GRADIENTE LINEAR (`background: linear-gradient(...)`). Interpola
     /// `c0`→`c1` ao longo do ângulo `angle_deg` (0=para cima, 90=para a direita, como
     /// o CSS). O backend pinta como mesh de 4 vértices coloridos. `radius` arredonda
     /// (aproximado — o mesh não recorta os cantos; suficiente p/ heros/botões).
-    GradientRect { rect: Rect, c0: u32, c1: u32, angle_deg: f32, radius: f32 },
+    GradientRect {
+        rect: Rect,
+        c0: u32,
+        c1: u32,
+        angle_deg: f32,
+        radius: f32,
+    },
     /// Borda (contorno) de uma caixa, espessura `width`, na cor dada.
-    Border { rect: Rect, width: f32, color: u32, radius: f32 },
+    Border {
+        rect: Rect,
+        width: f32,
+        color: u32,
+        radius: f32,
+    },
     /// IMAGEM (`<img>` / background-image) — um bitmap RGBA8 já decodificado. O
     /// `pixels_handle` é um Buffer no HandleTable com `img_w*img_h*4` bytes RGBA
     /// (a partir do offset `pixels_off`); o backend sobe como textura e pinta no
     /// `rect` (escalando). Decodificação/download acontecem ANTES (no browser .ts,
     /// via fetchBytes+imgdec); o rts-dom só carrega o handle+dims — segue wasm-safe.
-    Image { rect: Rect, pixels_handle: u64, pixels_off: u32, img_w: u32, img_h: u32 },
+    Image {
+        rect: Rect,
+        pixels_handle: u64,
+        pixels_off: u32,
+        img_w: u32,
+        img_h: u32,
+    },
     /// PIXELS que o próprio documento carrega (um `<canvas>` que o programa
     /// pintou), RGBA8, `w*h*4` bytes.
     ///
@@ -154,7 +193,12 @@ pub enum DisplayItem {
     /// decodificou — e esta CARREGA os bytes, porque quem pintou foi o programa
     /// e o desenho não tem outro dono. Um `Rc` para que passar a lista adiante
     /// não copie a imagem.
-    Pixels { rect: Rect, data: std::rc::Rc<Vec<u8>>, w: u32, h: u32 },
+    Pixels {
+        rect: Rect,
+        data: std::rc::Rc<Vec<u8>>,
+        w: u32,
+        h: u32,
+    },
     /// Texto numa posição (canto superior-esquerdo). `mono` escolhe a família
     /// monoespaçada. `letter_spacing` = espaço extra entre glifos (px). `decoration`
     /// = linha decorativa (0=nenhuma, 1=underline, 2=line-through, 3=overline). O
@@ -171,6 +215,10 @@ pub enum DisplayItem {
         size: f32,
         mono: bool,
         bold: bool,
+        /// `font-style: italic`/`oblique`. Um bit à parte do `bold` e não um
+        /// "peso" — no browser são dois eixos independentes (`<em><strong>` é
+        /// bold-italic), e colapsá-los num só perderia essa combinação.
+        italic: bool,
         letter_spacing: f32,
         decoration: u8,
     },
@@ -293,7 +341,8 @@ fn collect_geometry(fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
         }
         collect_geometry(&child.fragment, dx + child.dx, dy + child.dy, out);
     }
-    out.hit_order.extend_from_slice(&fragment.hit_order[next.min(fragment.hit_order.len())..]);
+    out.hit_order
+        .extend_from_slice(&fragment.hit_order[next.min(fragment.hit_order.len())..]);
     for region in fragment.scroll_regions.iter() {
         let mut region = *region;
         if moved {
@@ -341,7 +390,11 @@ impl DisplayList {
     /// Quantos itens esta lista pinta ao todo.
     pub fn total_items(&self) -> usize {
         self.items.len()
-            + self.children.iter().map(|c| c.fragment.total_items()).sum::<usize>()
+            + self
+                .children
+                .iter()
+                .map(|c| c.fragment.total_items())
+                .sum::<usize>()
     }
 
     /// A geometria COMPLETA desta lista: os retângulos próprios mais os das
@@ -376,7 +429,8 @@ impl DisplayList {
             }
             collect_geometry(&child.fragment, child.dx, child.dy, &mut g);
         }
-        g.hit_order.extend_from_slice(&self.hit_order[next.min(self.hit_order.len())..]);
+        g.hit_order
+            .extend_from_slice(&self.hit_order[next.min(self.hit_order.len())..]);
         g
     }
 
@@ -395,9 +449,9 @@ impl DisplayList {
         let g = self.geometry();
         if !g.hit_order.is_empty() {
             return g.hit_order.iter().rev().copied().find(|&idx| {
-                g.rects.get(&idx).is_some_and(|r| {
-                    x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
-                })
+                g.rects
+                    .get(&idx)
+                    .is_some_and(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
             });
         }
         let mut best: Option<(NodeIdx, f32)> = None;
@@ -421,7 +475,13 @@ pub trait TextMeasurer {
     /// Largura em pontos de `text` renderizado em `size` (mono ou proporcional,
     /// regular ou `bold`). O peso importa: a fonte bold é mais larga — medir regular
     /// e pintar bold faz o texto estourar a linha (quebra a mais).
-    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32;
+    ///
+    /// `italic` entra pelo mesmo argumento e NÃO porque tenhamos um fator para
+    /// ele: um medidor com fonte de verdade (o do egui, que mede a galley)
+    /// responde a largura real da família itálica, e recusar-lhe o bit seria
+    /// pedir-lhe a largura do texto errado. O `ApproxMeasurer`, que não tem
+    /// fonte, ignora-o e diz porquê na sua implementação.
+    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, italic: bool) -> f32;
     /// Altura de UMA linha em `size` (line-height). Aproximação aceitável: `size *
     /// fator`; o backend pode dar o valor exato da fonte.
     fn line_height(&self, size: f32) -> f32;
@@ -449,7 +509,14 @@ pub trait TextMeasurer {
 pub struct ApproxMeasurer;
 
 impl TextMeasurer for ApproxMeasurer {
-    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32 {
+    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, _italic: bool) -> f32 {
+        // `_italic` é IGNORADO de propósito, e a alternativa rejeitada foi
+        // multiplicar por um fator: um itálico real é mais estreito ou mais
+        // largo conforme a fonte, e não há aqui uma única medição contra o
+        // Chrome que diga qual — ao contrário do 1,06 do bold e do 0,5498 do
+        // mono, que o corpus calibrou. Um fator inventado seria um erro com
+        // aparência de precisão. Quando houver medição, o número vai para
+        // `style::text_metrics` ao lado dos outros.
         // Os avanços vivem em `style::text_metrics`, com a medição contra o
         // Chrome que os calibrou — o mono era 0.6 e o Chrome mede 0.5498.
         let mut per = if mono {
@@ -621,8 +688,20 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         }
         // o containing block da raiz é a VIEWPORT: `height:100%` no <html> resolve
         // contra a altura da janela (base do `h-100` de páginas reais).
-        let (_, h) =
-            layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, Some(ctx.viewport_h), None, None, false, &[], ctx, &mut list);
+        let (_, h) = layout_block(
+            dom,
+            child,
+            0.0,
+            cursor_y,
+            ctx.viewport_w,
+            Some(ctx.viewport_h),
+            None,
+            None,
+            false,
+            &[],
+            ctx,
+            &mut list,
+        );
         cursor_y += h;
     }
     list.content_height = cursor_y;
@@ -642,7 +721,9 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
     // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
     out_of_flow.sort_by_key(|&id| {
-        dom.computed_style_idx(id).and_then(|c| c.z_index).unwrap_or(0)
+        dom.computed_style_idx(id)
+            .and_then(|c| c.z_index)
+            .unwrap_or(0)
     });
     // O rect do containing block de cada abs é lido do `node_rects` JÁ preenchido
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
@@ -786,7 +867,20 @@ fn layout_out_of_flow(
         (None, Some(b)) => cb.y + cb.h - h - b,
         (None, None) => cb.y,
     };
-    layout_block(dom, id, x, y, cb.w, Some(cb.h), None, None, true, &[], ctx, list);
+    layout_block(
+        dom,
+        id,
+        x,
+        y,
+        cb.w,
+        Some(cb.h),
+        None,
+        None,
+        true,
+        &[],
+        ctx,
+        list,
+    );
 }
 
 /// Resolve um offset de posicionamento (`top`/`left`/…): px SEM clamp (negativo
@@ -902,8 +996,16 @@ pub fn emit_scrollbar_in(
         let max_off = (region.content_h - v.h).max(1.0);
         let thumb_y = (offset_y / max_off).clamp(0.0, 1.0) * (track_h - thumb_h);
         let bx = v.x + v.w - bar_w;
-        list.items.push(DisplayItem::SolidRect { rect: Rect::new(bx, v.y, bar_w, track_h), color: track_color, radius: Corners::ZERO });
-        list.items.push(DisplayItem::SolidRect { rect: Rect::new(bx, v.y + thumb_y, bar_w, thumb_h), color: thumb_color, radius: Corners::same(radius) });
+        list.items.push(DisplayItem::SolidRect {
+            rect: Rect::new(bx, v.y, bar_w, track_h),
+            color: track_color,
+            radius: Corners::ZERO,
+        });
+        list.items.push(DisplayItem::SolidRect {
+            rect: Rect::new(bx, v.y + thumb_y, bar_w, thumb_h),
+            color: thumb_color,
+            radius: Corners::same(radius),
+        });
     }
     // barra HORIZONTAL (borda inferior da div).
     if need_x {
@@ -913,8 +1015,16 @@ pub fn emit_scrollbar_in(
         let max_off = (region.content_w - v.w).max(1.0);
         let thumb_x = (offset_x / max_off).clamp(0.0, 1.0) * (track_w - thumb_w);
         let by = v.y + v.h - bar_w;
-        list.items.push(DisplayItem::SolidRect { rect: Rect::new(v.x, by, track_w, bar_w), color: track_color, radius: Corners::ZERO });
-        list.items.push(DisplayItem::SolidRect { rect: Rect::new(v.x + thumb_x, by, thumb_w, bar_w), color: thumb_color, radius: Corners::same(radius) });
+        list.items.push(DisplayItem::SolidRect {
+            rect: Rect::new(v.x, by, track_w, bar_w),
+            color: track_color,
+            radius: Corners::ZERO,
+        });
+        list.items.push(DisplayItem::SolidRect {
+            rect: Rect::new(v.x + thumb_x, by, thumb_w, bar_w),
+            color: thumb_color,
+            radius: Corners::same(radius),
+        });
     }
 }
 
@@ -1037,7 +1147,18 @@ pub(crate) fn layout_block(
                 if matches!(itype.as_str(), "submit" | "button" | "reset") {
                     return layout_button(dom, id, &css, x, y, ctx, list);
                 }
-                return layout_input(dom, id, &css, x, y, avail_w, avail_h, forced_outer_w, ctx, list);
+                return layout_input(
+                    dom,
+                    id,
+                    &css,
+                    x,
+                    y,
+                    avail_w,
+                    avail_h,
+                    forced_outer_w,
+                    ctx,
+                    list,
+                );
             }
             // `<img>` com pixels decodificados: emite a imagem no rect (tamanho do CSS
             // width/height, senão o natural da imagem). Void — sem filhos.
@@ -1077,7 +1198,7 @@ pub(crate) fn layout_block(
             }
             let size = DEFAULT_FONT_SIZE;
             let lh = ctx.measurer.line_height(size);
-            let tw = ctx.measurer.text_width(t, size, false, false);
+            let tw = ctx.measurer.text_width(t, size, false, false, false);
             list.items.push(DisplayItem::Text {
                 x,
                 y,
@@ -1086,6 +1207,7 @@ pub(crate) fn layout_block(
                 size,
                 mono: false,
                 bold: false,
+                italic: false,
                 letter_spacing: 0.0,
                 decoration: 0,
             });
@@ -1115,8 +1237,16 @@ pub(crate) fn layout_block(
     // `margin-top: 0` explícito ANULA o default da UA naquele lado (era o brand
     // do cover descendo 16px apesar do `h3 { margin-top: 0 }` do Bootstrap).
     let margin_v_extra = css.margin_v.unwrap_or(0.0);
-    let mv_top = if m.top == crate::style::Side::Unset { margin_v_extra } else { 0.0 };
-    let mv_bottom = if m.bottom == crate::style::Side::Unset { margin_v_extra } else { 0.0 };
+    let mv_top = if m.top == crate::style::Side::Unset {
+        margin_v_extra
+    } else {
+        0.0
+    };
+    let mv_bottom = if m.bottom == crate::style::Side::Unset {
+        margin_v_extra
+    } else {
+        0.0
+    };
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0) + mv_top;
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0) + mv_bottom;
     let pad_left = p.left.resolve(&resolve).unwrap_or(0.0).max(0.0);
@@ -1172,19 +1302,26 @@ pub(crate) fn layout_block(
             Some(w) => w,
             // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
             // senão (fluxo block normal) → ocupa a largura disponível.
-            None if shrink_to_fit => {
-                content_natural_width(dom, id, font_for_content, ctx).min((avail_w - frame).max(0.0))
-            }
+            None if shrink_to_fit => content_natural_width(dom, id, font_for_content, ctx)
+                .min((avail_w - frame).max(0.0)),
             None => (avail_w - frame).max(0.0),
         };
         // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são
         // sobre a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao
         // content quando border-box; em content-box já são do content.
         let mnw = css.min_width.and_then(|d| d.resolve(&resolve)).map(|v| {
-            if border_box { (v - (padding_h + border_h)).max(0.0) } else { v }
+            if border_box {
+                (v - (padding_h + border_h)).max(0.0)
+            } else {
+                v
+            }
         });
         let mxw = css.max_width.and_then(|d| d.resolve(&resolve)).map(|v| {
-            if border_box { (v - (padding_h + border_h)).max(0.0) } else { v }
+            if border_box {
+                (v - (padding_h + border_h)).max(0.0)
+            } else {
+                v
+            }
         });
         crate::style::clamp_size(base, mnw, mxw)
     };
@@ -1238,8 +1375,12 @@ pub(crate) fn layout_block(
     // filhos — eles transbordam e a div rola. Nesse caso layoutamos os filhos com a
     // largura NATURAL do conteúdo (intrinsic), não a do container. (overflow-y já não
     // comprime: o vertical empilha e a altura é a soma — só precisamos do clip+barra.)
-    let ov_x = css.overflow_x.unwrap_or(crate::scrollbar::Overflow::Visible);
-    let ov_y = css.overflow_y.unwrap_or(crate::scrollbar::Overflow::Visible);
+    let ov_x = css
+        .overflow_x
+        .unwrap_or(crate::scrollbar::Overflow::Visible);
+    let ov_y = css
+        .overflow_y
+        .unwrap_or(crate::scrollbar::Overflow::Visible);
     let scrolls_x = ov_x.scrollable() || ov_x == crate::scrollbar::Overflow::Hidden;
     // A inflação vale para o eixo do FLUXO HORIZONTAL, que é onde a compressão
     // aconteceria (o flex encolhe os itens até caberem). Nos demais layouts ela
@@ -1263,7 +1404,13 @@ pub(crate) fn layout_block(
     // COLUMN o usa como referência do eixo principal (justify/margin-auto).
     let frame_v = pad_top + pad_bottom + border_v;
     let explicit_content_h = resolve_height(css.height, avail_h, &resolve)
-        .map(|h| if border_box { (h - frame_v).max(0.0) } else { h })
+        .map(|h| {
+            if border_box {
+                (h - frame_v).max(0.0)
+            } else {
+                h
+            }
+        })
         // `aspect-ratio`: sem height explícito, a altura vem da largura / razão. Só
         // quando há largura resolvida (content_w) e uma razão > 0.
         .or_else(|| {
@@ -1288,26 +1435,57 @@ pub(crate) fn layout_block(
     // efetiva; sem isso o filho `height:100%` resolvia contra o conteúdo e
     // inflava). Calculado ANTES de layoutar os filhos (a resolução do `%` do
     // filho é top-down; a spec exige o CB conhecido).
-    let mnh_pre = resolve_height(css.min_height, avail_h, &resolve)
-        .map(|v| if border_box { (v - frame_v).max(0.0) } else { v });
-    let mxh_pre = resolve_height(css.max_height, avail_h, &resolve)
-        .map(|v| if border_box { (v - frame_v).max(0.0) } else { v });
+    let mnh_pre = resolve_height(css.min_height, avail_h, &resolve).map(|v| {
+        if border_box {
+            (v - frame_v).max(0.0)
+        } else {
+            v
+        }
+    });
+    let mxh_pre = resolve_height(css.max_height, avail_h, &resolve).map(|v| {
+        if border_box {
+            (v - frame_v).max(0.0)
+        } else {
+            v
+        }
+    });
     let avail_children = explicit_content_h.or(mxh_pre);
 
     // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
     // atuam no Y e align-items no X (stretch = ocupar a largura, o default).
     let is_column = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
-    let is_flex = display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
+    let is_flex =
+        display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     let content_h = match display {
         // flex column (com ou sem wrap — multi-coluna do wrap é corte documentado).
-        _ if is_flex && is_column => {
-            layout_children_column(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list)
-        }
+        _ if is_flex && is_column => layout_children_column(
+            dom,
+            id,
+            content_x,
+            content_y,
+            children_w,
+            avail_children,
+            &css,
+            font_size,
+            ctx,
+            list,
+        ),
         // horizontal (flex-row sem wrap): lado a lado, encolhe pra caber, não quebra.
-        d if d == crate::block::DISPLAY_HORIZONTAL => {
-            layout_children_horizontal(dom, id, content_x, content_y, scroll_children_w, avail_children, &css, font_size, false, None, ctx, list)
-        }
+        d if d == crate::block::DISPLAY_HORIZONTAL => layout_children_horizontal(
+            dom,
+            id,
+            content_x,
+            content_y,
+            scroll_children_w,
+            avail_children,
+            &css,
+            font_size,
+            false,
+            None,
+            ctx,
+            list,
+        ),
         // GRID REAL: track-sizing (px/fr/auto/%) + auto-placement row-by-row +
         // alinhamento de célula (align-items/justify-items). Só quando é
         // `display:grid` de fato; senão o wrap horizontal (inline-block flow).
@@ -1316,18 +1494,52 @@ pub(crate) fn layout_block(
         // grid porque uma `<table>` que o autor não tocou tem eixo vertical e
         // cairia no empilhamento de blocos, descendo por `<tr>` como se fossem
         // `<div>` — que é exatamente o que a página real mostrava.
-        _ if used == Some(crate::style::DisplayKind::Table) => {
-            crate::table::layout_table(dom, id, content_x, content_y, children_w, &css, font_size, ctx, list)
-        }
+        _ if used == Some(crate::style::DisplayKind::Table) => crate::table::layout_table(
+            dom, id, content_x, content_y, children_w, &css, font_size, ctx, list,
+        ),
         _ if css.effective_display() == Some(crate::style::DisplayKind::Grid) => {
-            layout_children_grid(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list)
+            layout_children_grid(
+                dom,
+                id,
+                content_x,
+                content_y,
+                children_w,
+                avail_children,
+                &css,
+                font_size,
+                ctx,
+                list,
+            )
         }
         // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
-        d if d == crate::block::DISPLAY_WRAP => {
-            layout_children_horizontal(dom, id, content_x, content_y, scroll_children_w, avail_children, &css, font_size, true, None, ctx, list)
-        }
+        d if d == crate::block::DISPLAY_WRAP => layout_children_horizontal(
+            dom,
+            id,
+            content_x,
+            content_y,
+            scroll_children_w,
+            avail_children,
+            &css,
+            font_size,
+            true,
+            None,
+            ctx,
+            list,
+        ),
         // vertical (block): empilha.
-        _ => layout_children_vertical(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, exclusoes, ctx, list),
+        _ => layout_children_vertical(
+            dom,
+            id,
+            content_x,
+            content_y,
+            children_w,
+            avail_children,
+            &css,
+            font_size,
+            exclusoes,
+            ctx,
+            list,
+        ),
     };
     // MARCADOR do item de lista. Emitido DEPOIS dos filhos e com o content-box já
     // conhecido, e não desloca coisa nenhuma: `list-style-position: outside` (o
@@ -1429,32 +1641,51 @@ pub(crate) fn layout_block(
         let mut at = box_index;
         // SOMBRA primeiro (atrás de tudo): box-shadow.
         if let Some(sh) = css.box_shadow {
-            insert_item(list, at, filhos_antes_da_caixa, DisplayItem::Shadow {
-                rect: box_rect,
-                dx: sh.dx,
-                dy: sh.dy,
-                blur: sh.blur,
-                spread: sh.spread,
-                color: cor(sh.color),
-                radius,
-            });
+            insert_item(
+                list,
+                at,
+                filhos_antes_da_caixa,
+                DisplayItem::Shadow {
+                    rect: box_rect,
+                    dx: sh.dx,
+                    dy: sh.dy,
+                    blur: sh.blur,
+                    spread: sh.spread,
+                    color: cor(sh.color),
+                    radius,
+                },
+            );
             at += 1;
         }
         // FUNDO: gradiente (se houver) OU cor sólida — a menos que uma MÁSCARA
         // dê a forma da caixa (ver `deve_suprimir_fundo`).
         let fundo = !deve_suprimir_fundo(&css);
         if let Some(g) = css.gradient.filter(|_| fundo) {
-            insert_item(list, at, filhos_antes_da_caixa, DisplayItem::GradientRect {
-                rect: box_rect,
-                c0: cor(g.c0),
-                c1: cor(g.c1),
-                angle_deg: g.angle_deg,
-                radius,
-            });
+            insert_item(
+                list,
+                at,
+                filhos_antes_da_caixa,
+                DisplayItem::GradientRect {
+                    rect: box_rect,
+                    c0: cor(g.c0),
+                    c1: cor(g.c1),
+                    angle_deg: g.angle_deg,
+                    radius,
+                },
+            );
             at += 1;
         } else if let Some(color) = css.bg.filter(|_| fundo) {
             let color = cor(color);
-            insert_item(list, at, filhos_antes_da_caixa, DisplayItem::SolidRect { rect: box_rect, color, radius: cantos });
+            insert_item(
+                list,
+                at,
+                filhos_antes_da_caixa,
+                DisplayItem::SolidRect {
+                    rect: box_rect,
+                    color,
+                    radius: cantos,
+                },
+            );
             at += 1;
         }
         for item in border_items(&css, box_rect, radius, op, fx) {
@@ -1468,8 +1699,8 @@ pub(crate) fn layout_block(
     // emitido depois da caixa, EndClip no fim), (2) registra a ScrollRegion p/ o
     // backend gerenciar o offset + pintar as barras. `hidden` também recorta (corta o
     // excesso, sem barra). `visible` não faz nada (transborda, como hoje).
-    let clips = ov_x != crate::scrollbar::Overflow::Visible
-        || ov_y != crate::scrollbar::Overflow::Visible;
+    let clips =
+        ov_x != crate::scrollbar::Overflow::Visible || ov_y != crate::scrollbar::Overflow::Visible;
     if clips {
         let content_rect = Rect::new(content_x, content_y, content_w, content_h);
         // BeginClip no índice onde os FILHOS começam (logo após os itens de caixa que
@@ -1482,8 +1713,14 @@ pub(crate) fn layout_block(
             // o índice do clip quando uma borda por lado entra em jogo.
             css.box_shadow.is_some() as usize
                 + (css.gradient.is_some() || css.bg.is_some()) as usize
-                + border_items(&css, box_rect, css.corner_radius.unwrap_or(0.0), 1.0,
-                    crate::painteffects::FilterMatriz::IDENTIDADE).len()
+                + border_items(
+                    &css,
+                    box_rect,
+                    css.corner_radius.unwrap_or(0.0),
+                    1.0,
+                    crate::painteffects::FilterMatriz::IDENTIDADE,
+                )
+                .len()
         } else {
             0
         };
@@ -1501,7 +1738,9 @@ pub(crate) fn layout_block(
                 filhos_antes: list.children.len(),
             },
         );
-        list.items.push(DisplayItem::EndClip { filhos_dentro: list.children.len() });
+        list.items.push(DisplayItem::EndClip {
+            filhos_dentro: list.children.len(),
+        });
         if std::env::var_os("RTS_CLIP_DEBUG").is_some() && content_w <= 2.0 {
             let filhos: Vec<(usize, f32)> = list.children.iter().map(|c| (c.at, c.dy)).collect();
             eprintln!(
@@ -1556,7 +1795,9 @@ pub(crate) fn layout_block(
                     filhos_antes: filhos_antes_da_caixa,
                 },
             );
-            list.items.push(DisplayItem::EndClip { filhos_dentro: list.children.len() });
+            list.items.push(DisplayItem::EndClip {
+                filhos_dentro: list.children.len(),
+            });
         }
     }
 
@@ -1743,10 +1984,20 @@ fn costurar(
     let (antiga, anterior) = dom.last_fragment_of(id)?;
     // Só o epoch do nó pode diferir: viewport, constraints, estilo global e
     // animação mudam o desenho inteiro, não uma parte dele.
-    if (antiga.tree, antiga.avail_w, antiga.avail_h, antiga.viewport_w, antiga.viewport_h)
-        != (key.tree, key.avail_w, key.avail_h, key.viewport_w, key.viewport_h)
-        || (antiga.style_epoch, antiga.anim_epoch, antiga.measurer)
-            != (key.style_epoch, key.anim_epoch, key.measurer)
+    if (
+        antiga.tree,
+        antiga.avail_w,
+        antiga.avail_h,
+        antiga.viewport_w,
+        antiga.viewport_h,
+    ) != (
+        key.tree,
+        key.avail_w,
+        key.avail_h,
+        key.viewport_w,
+        key.viewport_h,
+    ) || (antiga.style_epoch, antiga.anim_epoch, antiga.measurer)
+        != (key.style_epoch, key.anim_epoch, key.measurer)
     {
         return None;
     }
@@ -1773,7 +2024,10 @@ fn costurar(
         // mais o deslocamento com que entrou aqui. Somar à origem do PAI daria
         // uma posição sem sentido — foi o que o teste de equivalência mostrou,
         // com o texto reaparecendo em (0,16) em vez de (12, 67.4).
-        let origem = (child.fragment.origin.0 + child.dx, child.fragment.origin.1 + child.dy);
+        let origem = (
+            child.fragment.origin.0 + child.dx,
+            child.fragment.origin.1 + child.dy,
+        );
         let margem = child.margin_top;
         let ((_, altura), nova_margem) = layout_block_reusing(
             dom,
@@ -1895,10 +2149,28 @@ fn layout_block_reusing(
     // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
     // e a única forma de saber isso é não misturá-los com os dos irmãos.
     let mut own = DisplayList::default();
-    let size = layout_block(dom, id, x, y, avail_w, avail_h, None, None, false, &[], ctx, &mut own);
+    let size = layout_block(
+        dom,
+        id,
+        x,
+        y,
+        avail_w,
+        avail_h,
+        None,
+        None,
+        false,
+        &[],
+        ctx,
+        &mut own,
+    );
     let fragment = std::rc::Rc::new(Fragment {
         node: id,
-        rects: std::rc::Rc::new(own.node_rects.iter().map(|(idx, rect)| (*idx, *rect)).collect()),
+        rects: std::rc::Rc::new(
+            own.node_rects
+                .iter()
+                .map(|(idx, rect)| (*idx, *rect))
+                .collect(),
+        ),
         hit_order: std::rc::Rc::new(std::mem::take(&mut own.hit_order)),
         scroll_regions: std::mem::take(&mut own.scroll_regions),
         items: std::rc::Rc::new(std::mem::take(&mut own.items)),
@@ -2034,7 +2306,11 @@ impl Fragment {
     /// Quantos itens este fragmento pinta, contando as subárvores que ele reusa.
     pub fn total_items(&self) -> usize {
         self.items.len()
-            + self.children.iter().map(|c| c.fragment.total_items()).sum::<usize>()
+            + self
+                .children
+                .iter()
+                .map(|c| c.fragment.total_items())
+                .sum::<usize>()
     }
 }
 
@@ -2060,7 +2336,13 @@ fn walk_items(
         if let DisplayItem::BeginClip { filhos_antes, .. } = item {
             while next_child < *filhos_antes && next_child < children.len() {
                 let c = &children[next_child];
-                walk_items(&c.fragment.items, &c.fragment.children, dx + c.dx, dy + c.dy, f);
+                walk_items(
+                    &c.fragment.items,
+                    &c.fragment.children,
+                    dx + c.dx,
+                    dy + c.dy,
+                    f,
+                );
                 next_child += 1;
             }
         }
@@ -2070,13 +2352,25 @@ fn walk_items(
         };
         while next_child < teto.min(children.len()) && children[next_child].at <= i {
             let c = &children[next_child];
-            walk_items(&c.fragment.items, &c.fragment.children, dx + c.dx, dy + c.dy, f);
+            walk_items(
+                &c.fragment.items,
+                &c.fragment.children,
+                dx + c.dx,
+                dy + c.dy,
+                f,
+            );
             next_child += 1;
         }
         f(item, dx, dy);
     }
     for c in &children[next_child..] {
-        walk_items(&c.fragment.items, &c.fragment.children, dx + c.dx, dy + c.dy, f);
+        walk_items(
+            &c.fragment.items,
+            &c.fragment.children,
+            dx + c.dx,
+            dy + c.dy,
+            f,
+        );
     }
 }
 
@@ -2206,7 +2500,9 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
     // max-content: o clamp pela linha é do chamador, e aplicá-lo aqui devolvia o
     // que coubesse em vez do que se quer.
     if let Some(css) = dom.computed_style_idx(id) {
-        if let Some((w, _)) = crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, ctx) {
+        if let Some((w, _)) =
+            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, ctx)
+        {
             dom.intrinsic_width_put(key, w);
             return w;
         }
@@ -2215,7 +2511,11 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
     // folha de texto puro → largura do texto.
     let own_text = collect_text(dom, id);
     let only_text = !dom.node(id).children.is_empty()
-        && dom.node(id).children.iter().all(|&c| matches!(dom.node(c).kind, NodeKind::Text(_)));
+        && dom
+            .node(id)
+            .children
+            .iter()
+            .all(|&c| matches!(dom.node(c).kind, NodeKind::Text(_)));
     if (dom.node(id).children.is_empty() || only_text) && !own_text.trim().is_empty() {
         let css = dom.computed_style_idx(id);
         let mono = css
@@ -2233,7 +2533,10 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
         // ao conteúdo ficava com a largura do texto SEM espaçamento e o texto
         // transbordava dela.
         let ls = css.as_ref().and_then(|c| c.letter_spacing).unwrap_or(0.0);
-        let width = ctx.measurer.text_width(&own_text, font, mono, bold)
+        // o mesmo raciocínio do peso vale para o estilo: medir com a família
+        // errada muda a largura natural e com ela o sítio onde a linha quebra.
+        let italic = italico(css.as_deref(), tag_de(dom, id), false);
+        let width = ctx.measurer.text_width(&own_text, font, mono, bold, italic)
             + crate::style::spacing_width(own_text.chars().count(), ls);
         dom.intrinsic_width_put(key, width);
         return width;
@@ -2250,7 +2553,8 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
 
     // o EIXO em que os filhos se dispõem decide SOMA vs MAX.
     let display = css_display(dom, id);
-    let is_row = display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
+    let is_row =
+        display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     let gap = if is_row {
         let resolve = ResolveCtx {
             parent_content_w: ctx.viewport_w,
@@ -2295,7 +2599,12 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
 
 /// A largura OUTER intrínseca de UM filho (max-content): seu `width` fixo (+ frame),
 /// senão a intrínseca do seu conteúdo (+ frame). Texto → largura do texto.
-pub(crate) fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutCtx) -> f32 {
+pub(crate) fn intrinsic_outer_width(
+    dom: &Dom,
+    id: NodeIdx,
+    parent_font: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     match &dom.node(id).kind {
         NodeKind::Element { .. } => {
             // metadata (head/style/script) não conta.
@@ -2326,7 +2635,10 @@ pub(crate) fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ct
             // flex com um filho assim ocupava a linha toda e empurrava o irmão
             // para a linha de baixo, que é a origem dos 120px de desvio do `<h1>`
             // da Wikipédia.
-            if let Some(w) = crate::style::dimensao_absoluta(css.width.unwrap_or(crate::style::Dimension::Auto), &resolve) {
+            if let Some(w) = crate::style::dimensao_absoluta(
+                css.width.unwrap_or(crate::style::Dimension::Auto),
+                &resolve,
+            ) {
                 return if border_box {
                     w + css.margin.resolve_h_intrinseco(&resolve)
                 } else {
@@ -2336,7 +2648,7 @@ pub(crate) fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ct
             // senão: a intrínseca do conteúdo + frame.
             intrinsic_content_width(dom, id, f, ctx) + frame
         }
-        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false, false),
+        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false, false, false),
         _ => 0.0,
     }
 }
@@ -2424,7 +2736,9 @@ fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
                 return false;
             }
             // é inline-com-box (tem caixa mas é tag inline) → inline-block.
-            css.as_ref().map(|c| crate::inline_box::cria_caixa_de_bloco(c)).unwrap_or(false)
+            css.as_ref()
+                .map(|c| crate::inline_box::cria_caixa_de_bloco(c))
+                .unwrap_or(false)
         }
         _ => false,
     }
@@ -2466,6 +2780,34 @@ fn decoration_code(css: &ComputedStyle) -> u8 {
 /// só não é pintado. Zerar o alpha é como isso se exprime numa display list que
 /// não tem grupos de compositing, e a propriedade ser HERDADA faz o resto: os
 /// descendentes chegam ao seu próprio layout já com ela posta.
+/// `font-style: italic` resolvido para uma tag: o CSS computado vence, e a
+/// UA-stylesheet responde quando ninguém declarou; `herdado` é o último recurso.
+///
+/// A consulta à UA passa por [`crate::block::lookup_inline`] — a TABELA que
+/// regista `<i>` e `<em>` como `FLAG_ITALIC` — e não por um `match` sobre o
+/// nome da tag. A alternativa rejeitada era exatamente esse `match`: o motor de
+/// layout não nomeia tags HTML, a UA-stylesheet é que as nomeia, e é ela quem
+/// muda quando o default de uma tag muda.
+///
+/// Sem este ramo, um `<em>` sem regra de autor não fica itálico nenhum — o mapa
+/// da UA não tinha, até aqui, UM ÚNICO leitor em todo o motor.
+/// O nome da tag de um nó, ou `None` se for texto. Existe para o [`italico`]
+/// poder consultar a UA-stylesheet sem que quem chama tenha de desmontar o nó.
+fn tag_de(dom: &Dom, id: NodeIdx) -> Option<&str> {
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } => Some(tag.as_str()),
+        _ => None,
+    }
+}
+
+fn italico(css: Option<&crate::style::ComputedStyle>, tag: Option<&str>, herdado: bool) -> bool {
+    if let Some(v) = css.and_then(|c| c.italic) {
+        return v;
+    }
+    let ua = tag.is_some_and(|t| crate::block::lookup_inline(t) & crate::block::FLAG_ITALIC != 0);
+    ua || herdado
+}
+
 fn cor_visivel(css: &crate::style::ComputedStyle, cor: u32) -> u32 {
     if css.visibility == Some(crate::style::values::Visibility::Hidden) {
         cor & 0xFFFF_FF00
@@ -2534,11 +2876,24 @@ fn layout_svg_placeholder(
     };
     // razão de aspecto do viewBox ("0 0 W H" → W/H).
     let vb_ratio = node.attr("viewBox").and_then(|vb| {
-        let n: Vec<f32> = vb.split_whitespace().filter_map(|s| s.parse().ok()).collect();
-        if n.len() == 4 && n[3] > 0.0 { Some(n[2] / n[3]) } else { None }
+        let n: Vec<f32> = vb
+            .split_whitespace()
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        if n.len() == 4 && n[3] > 0.0 {
+            Some(n[2] / n[3])
+        } else {
+            None
+        }
     });
-    let css_w = css.width.and_then(|d| d.resolve(&resolve)).filter(|w| *w > 0.0);
-    let css_h = css.height.and_then(|d| resolve_height(Some(d), None, &resolve)).filter(|h| *h > 0.0);
+    let css_w = css
+        .width
+        .and_then(|d| d.resolve(&resolve))
+        .filter(|w| *w > 0.0);
+    let css_h = css
+        .height
+        .and_then(|d| resolve_height(Some(d), None, &resolve))
+        .filter(|h| *h > 0.0);
     let w0 = css_w.or_else(|| attr_px("width"));
     let h0 = css_h.or_else(|| attr_px("height"));
     // resolve (w, h): ambos dados usa-os; só um + viewBox deriva o outro; nada →
@@ -2608,7 +2963,9 @@ fn layout_image(
     // O item de pintura, esse, PRECISA de pixels: uma caixa reservada com nada
     // dentro é o que o browser mostra enquanto a imagem não chega, e é a mesma
     // doutrina do `<canvas>` logo abaixo.
-    if let Some((handle, off, iw, ih)) = dom.image_of(id).filter(|(h, _, iw, ih)| *h != 0 && *iw != 0 && *ih != 0)
+    if let Some((handle, off, iw, ih)) = dom
+        .image_of(id)
+        .filter(|(h, _, iw, ih)| *h != 0 && *iw != 0 && *ih != 0)
     {
         list.items.push(DisplayItem::Image {
             rect,
@@ -2618,7 +2975,10 @@ fn layout_image(
             img_h: ih,
         });
     }
-    Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
+    Some((
+        w + margin_left + margin_right,
+        h + margin_top + margin_bottom,
+    ))
 }
 
 /// Layout de um `<canvas>`: a caixa dos atributos `width`/`height` (o padrão do
@@ -2652,8 +3012,16 @@ fn layout_canvas(
             .filter(|v| *v >= 0.0)
     };
     // 300×150 é o default do HTML para um canvas sem dimensões.
-    let w = css.width.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("width")).unwrap_or(300.0);
-    let h = css.height.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("height")).unwrap_or(150.0);
+    let w = css
+        .width
+        .and_then(|d| d.resolve(&resolve))
+        .or_else(|| attr_px("width"))
+        .unwrap_or(300.0);
+    let h = css
+        .height
+        .and_then(|d| d.resolve(&resolve))
+        .or_else(|| attr_px("height"))
+        .unwrap_or(150.0);
     let m = &css.margin;
     let margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
     let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
@@ -2662,14 +3030,26 @@ fn layout_canvas(
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
     if let Some(color) = css.bg {
-        list.items.push(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO });
+        list.items.push(DisplayItem::SolidRect {
+            rect,
+            color,
+            radius: Corners::ZERO,
+        });
     }
     if let Some((data, pw, ph)) = dom.pixel_data_of(id) {
         if pw > 0 && ph > 0 {
-            list.items.push(DisplayItem::Pixels { rect, data, w: pw, h: ph });
+            list.items.push(DisplayItem::Pixels {
+                rect,
+                data,
+                w: pw,
+                h: ph,
+            });
         }
     }
-    Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
+    Some((
+        w + margin_left + margin_right,
+        h + margin_top + margin_bottom,
+    ))
 }
 
 /// Layout de um `<input type=submit/button/reset>`: BOTÃO estilo UA — caixa
@@ -2686,7 +3066,7 @@ fn layout_button(
 ) -> (f32, f32) {
     let font = font_px(css, DEFAULT_FONT_SIZE - 3.0);
     let label = dom.node(id).attr("value").unwrap_or("").to_string();
-    let tw = ctx.measurer.text_width(&label, font, false, false);
+    let tw = ctx.measurer.text_width(&label, font, false, false, false);
     let lh = ctx.measurer.line_height(font);
     let (pad_h, pad_v) = (12.0, 5.0);
     let w = tw + 2.0 * pad_h;
@@ -2716,6 +3096,7 @@ fn layout_button(
         size: font,
         mono: false,
         bold: false,
+        italic: false,
         letter_spacing: 0.0,
         decoration: 0,
     });
@@ -2763,10 +3144,17 @@ fn medida_do_input(
     // UA veste um campo — no browser são 13x13 e mais nada, por isso os defaults
     // do frame são ZERO para eles (o CSS do autor continua a mandar).
     let quadrado = matches!(
-        dom.node(id).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(),
+        dom.node(id)
+            .attr("type")
+            .map(|t| t.to_ascii_lowercase())
+            .as_deref(),
         Some("checkbox") | Some("radio")
     );
-    let (pad_ua_h, pad_ua_v, borda_ua) = if quadrado { (0.0, 0.0, 0.0) } else { (4.0, 3.0, 1.0) };
+    let (pad_ua_h, pad_ua_v, borda_ua) = if quadrado {
+        (0.0, 0.0, 0.0)
+    } else {
+        (4.0, 3.0, 1.0)
+    };
     let pad_left = p.left.resolve(&resolve).unwrap_or(pad_ua_h).max(0.0);
     let pad_right = p.right.resolve(&resolve).unwrap_or(pad_ua_h).max(0.0);
     let pad_top = p.top.resolve(&resolve).unwrap_or(pad_ua_v).max(0.0);
@@ -2778,7 +3166,11 @@ fn medida_do_input(
     let content_w = if let Some(fw) = forced_outer_w {
         (fw - frame).max(0.0)
     } else if let Some(w) = css.width.and_then(|d| d.resolve(&resolve)) {
-        if border_box { (w - (padding_h + 2.0 * border)).max(0.0) } else { w }
+        if border_box {
+            (w - (padding_h + 2.0 * border)).max(0.0)
+        } else {
+            w
+        }
     } else if quadrado {
         CAIXA_DE_MARCA
     } else {
@@ -2790,8 +3182,18 @@ fn medida_do_input(
     // Wikipédia declaram `height:100%` e vinham com a largura da viewport de
     // altura, oito deles, o pior rácio de erro da página inteira.
     let content_h = resolve_height(css.height, avail_h, &resolve)
-        .map(|h| if border_box { (h - (pad_top + pad_bottom + 2.0 * border)).max(0.0) } else { h })
-        .unwrap_or(if quadrado { CAIXA_DE_MARCA } else { ctx.measurer.line_height(font) });
+        .map(|h| {
+            if border_box {
+                (h - (pad_top + pad_bottom + 2.0 * border)).max(0.0)
+            } else {
+                h
+            }
+        })
+        .unwrap_or(if quadrado {
+            CAIXA_DE_MARCA
+        } else {
+            ctx.measurer.line_height(font)
+        });
     MedidaDoInput {
         content_w,
         content_h,
@@ -2849,8 +3251,20 @@ fn layout_input(
     list: &mut DisplayList,
 ) -> (f32, f32) {
     let med = medida_do_input(dom, id, css, avail_w, avail_h, forced_outer_w, ctx);
-    let MedidaDoInput { content_w, content_h, pad_left, pad_top, padding_v, padding_h,
-        border, margin_left, margin_top, margin_h, margin_v, font } = med;
+    let MedidaDoInput {
+        content_w,
+        content_h,
+        pad_left,
+        pad_top,
+        padding_v,
+        padding_h,
+        border,
+        margin_left,
+        margin_top,
+        margin_h,
+        margin_v,
+        font,
+    } = med;
     let pad_bottom = padding_v - pad_top;
     let margin_right = margin_h - margin_left;
     let margin_bottom = margin_v - margin_top;
@@ -2887,7 +3301,11 @@ fn layout_input(
     // campo com `opacity: 0` não o pinta.
     let opacidade = css.opacity.unwrap_or(1.0);
     let bg = apply_opacity(css.bg.unwrap_or(0xFFFFFFFF), opacidade);
-    list.items.push(DisplayItem::SolidRect { rect: box_rect, color: bg, radius: cantos });
+    list.items.push(DisplayItem::SolidRect {
+        rect: box_rect,
+        color: bg,
+        radius: cantos,
+    });
     // Borda: sempre desenha (o input tem contorno por padrão). Cor do CSS ou cinza.
     // Se o campo tem foco, realça a borda (azul), como o browser.
     let focused = dom.focused_input() == Some(id);
@@ -2898,7 +3316,12 @@ fn layout_input(
     };
     let border_color = apply_opacity(border_color, opacidade);
     let bw = if border > 0.0 { border } else { 1.0 };
-    list.items.push(DisplayItem::Border { rect: box_rect, width: bw, color: border_color, radius });
+    list.items.push(DisplayItem::Border {
+        rect: box_rect,
+        width: bw,
+        color: border_color,
+        radius,
+    });
 
     // Texto: o valor digitado, ou o placeholder apagado. Posicionado no content-box.
     let text_x = x + margin_left + bw + pad_left;
@@ -2918,6 +3341,7 @@ fn layout_input(
             size: font,
             mono: false,
             bold: false,
+            italic: false,
             letter_spacing: 0.0,
             decoration: 0,
         });
@@ -2925,9 +3349,13 @@ fn layout_input(
     // Cursor: barrinha vertical após o texto do VALOR (não do placeholder), só com foco.
     if focused {
         let val = dom.input_value(id);
-        let caret_x = text_x + ctx.measurer.text_width(&val, font, false, false) + 1.0;
+        let caret_x = text_x + ctx.measurer.text_width(&val, font, false, false, false) + 1.0;
         let caret = Rect::new(caret_x, text_y, 1.5, line_h.min(content_h.max(line_h)));
-        list.items.push(DisplayItem::SolidRect { rect: caret, color: 0x111111FF, radius: Corners::ZERO });
+        list.items.push(DisplayItem::SolidRect {
+            rect: caret,
+            color: 0x111111FF,
+            radius: Corners::ZERO,
+        });
     }
 
     (
@@ -2942,7 +3370,10 @@ fn layout_input(
 /// COMPLETO e pintar só o conteúdo visível (`<body>`). `<html>`/`<body>` SÃO
 /// renderáveis (transparentes — fluxo block normal dos filhos).
 pub(crate) fn is_non_rendered_tag(tag: &str) -> bool {
-    matches!(tag, "head" | "title" | "meta" | "link" | "base" | "style" | "script")
+    matches!(
+        tag,
+        "head" | "title" | "meta" | "link" | "base" | "style" | "script"
+    )
 }
 
 /// O código de `display` de um nó: o CSS (`display:` parseado) VENCE; se não
@@ -2961,7 +3392,9 @@ fn css_display(dom: &Dom, id: NodeIdx) -> i64 {
             // 2) default da tag: defineBlock (UA-stylesheet do TS) tem prioridade;
             // senão as tags HTML block conhecidas (div/p/…) são vertical; o resto
             // também cai em vertical (default seguro para um container).
-            crate::block::lookup(tag).map(|d| d.display).unwrap_or(crate::block::DISPLAY_VERTICAL)
+            crate::block::lookup(tag)
+                .map(|d| d.display)
+                .unwrap_or(crate::block::DISPLAY_VERTICAL)
         }
         _ => crate::block::DISPLAY_VERTICAL,
     }
@@ -2991,7 +3424,9 @@ fn ua_list_indent(dom: &Dom, id: NodeIdx, p: &crate::style::Edges) -> f32 {
 }
 
 pub(crate) fn used_display(dom: &Dom, id: NodeIdx) -> Option<crate::style::DisplayKind> {
-    let NodeKind::Element { tag } = &dom.node(id).kind else { return None };
+    let NodeKind::Element { tag } = &dom.node(id).kind else {
+        return None;
+    };
     if let Some(css) = dom.computed_style_idx(id) {
         if let Some(k) = css.effective_display() {
             return Some(k);
@@ -3028,7 +3463,8 @@ fn resolve_height(
         // (largura) em vez de 800-560 (altura). Reconstrói a soma no eixo certo.
         crate::style::Dimension::Calc(c) => {
             let h = avail_h?;
-            let v = c.px + h * c.pct / 100.0
+            let v = c.px
+                + h * c.pct / 100.0
                 + ctx.node_font_size * c.em
                 + ctx.root_font_size * c.rem
                 + ctx.viewport_w * c.vw / 100.0
@@ -3061,7 +3497,8 @@ fn em_contexto_inline(dom: &Dom, parent: NodeIdx, child: NodeIdx) -> bool {
         }
         _ => false,
     };
-    irmaos[..pos].iter().rev().any(|&c| e_inline(c)) || irmaos[pos + 1..].iter().any(|&c| e_inline(c))
+    irmaos[..pos].iter().rev().any(|&c| e_inline(c))
+        || irmaos[pos + 1..].iter().any(|&c| e_inline(c))
 }
 
 /// Retorna se um whitespace entre irmãos deve participar do contexto inline. O
@@ -3069,7 +3506,9 @@ fn em_contexto_inline(dom: &Dom, parent: NodeIdx, child: NodeIdx) -> bool {
 /// blocos/floats não cria uma linha visual; whitespace adjacente a texto/inline sim.
 fn whitespace_is_inline_separator(dom: &Dom, parent: NodeIdx, child: NodeIdx) -> bool {
     let children = &dom.node(parent).children;
-    let Some(pos) = children.iter().position(|&c| c == child) else { return false };
+    let Some(pos) = children.iter().position(|&c| c == child) else {
+        return false;
+    };
     let is_inline_candidate = |idx: NodeIdx| match &dom.node(idx).kind {
         NodeKind::Text(t) => !t.trim().is_empty(),
         NodeKind::Element { tag } => {
@@ -3203,7 +3642,16 @@ fn layout_children_vertical(
                 // exclusões vão com o grupo — é a travessia de camada que o
                 // comentário de `layout_inline_flow` justifica.
                 $y = layout_inline_flow(
-                    dom, id, &inline_group, content_x, $y, content_w, css, font_size, &floats, ctx,
+                    dom,
+                    id,
+                    &inline_group,
+                    content_x,
+                    $y,
+                    content_w,
+                    css,
+                    font_size,
+                    &floats,
+                    ctx,
                     list,
                 );
                 inline_group.clear();
@@ -3253,7 +3701,12 @@ fn layout_children_vertical(
         // sempre, mas um inline-block ou um texto com `clear` não fechava nada e
         // acabava por cima do float. Os três valores agem como `both` (ver
         // `style::text::Clear` para porquê).
-        if child_css.as_ref().and_then(|c| c.clear).map(|c| c.clears()).unwrap_or(false) {
+        if child_css
+            .as_ref()
+            .and_then(|c| c.clear)
+            .map(|c| c.clears())
+            .unwrap_or(false)
+        {
             flush_inline!(child_y);
             close_floats!(child_y);
         }
@@ -3269,14 +3722,21 @@ fn layout_children_vertical(
                 let block = replaced
                     || effective.is_some()
                     || crate::block::lookup(tag).is_some()
-                    || child_css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false);
-                let inline_block = if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
-                    !explicit_block
-                } else if crate::block::lookup(tag).is_some() || explicit_block {
-                    false
-                } else {
-                    child_css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false)
-                };
+                    || child_css
+                        .as_ref()
+                        .map(|c| c.has_box() || c.height.is_some())
+                        .unwrap_or(false);
+                let inline_block =
+                    if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
+                        !explicit_block
+                    } else if crate::block::lookup(tag).is_some() || explicit_block {
+                        false
+                    } else {
+                        child_css
+                            .as_ref()
+                            .map(|c| c.has_box() || c.height.is_some())
+                            .unwrap_or(false)
+                    };
                 (block, inline_block)
             }
             _ => (false, false),
@@ -3312,13 +3772,34 @@ fn layout_children_vertical(
                     top = f;
                     (bx, bw) = banda_livre(&floats, top, h, content_x, content_w);
                 }
-                let x = if side == crate::style::FloatSide::Left { bx } else { bx + bw - w };
-                layout_block(dom, child, x, top, content_w, avail_h, None, None, true, &[], ctx, list);
+                let x = if side == crate::style::FloatSide::Left {
+                    bx
+                } else {
+                    bx + bw - w
+                };
+                layout_block(
+                    dom,
+                    child,
+                    x,
+                    top,
+                    content_w,
+                    avail_h,
+                    None,
+                    None,
+                    true,
+                    &[],
+                    ctx,
+                    list,
+                );
                 floats.push(Exclusao {
                     top,
                     bottom: top + h,
                     side,
-                    edge: if side == crate::style::FloatSide::Left { x + w } else { x },
+                    edge: if side == crate::style::FloatSide::Left {
+                        x + w
+                    } else {
+                        x
+                    },
                 });
                 prev_margin = 0.0; // float quebra a sequência de collapse
             }
@@ -3330,7 +3811,9 @@ fn layout_children_vertical(
                 // [`Exclusao`] para os números do Chrome que o fixam.
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
-                let m = child_css.as_ref().map(|c| {
+                let m = child_css
+                    .as_ref()
+                    .map(|c| {
                         // margem TOP do filho p/ o collapse (unidades relativas
                         // resolvem contra o content deste container).
                         let r = ResolveCtx {
@@ -3351,7 +3834,16 @@ fn layout_children_vertical(
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
                 child_y -= excesso_de_margens(prev_margin, m);
                 let ((_, h), _) = layout_block_reusing(
-                    dom, child, content_x, child_y, content_w, avail_h, || m, &floats, ctx, list,
+                    dom,
+                    child,
+                    content_x,
+                    child_y,
+                    content_w,
+                    avail_h,
+                    || m,
+                    &floats,
+                    ctx,
+                    list,
                 );
                 child_y += h;
                 prev_margin = m;
@@ -3367,7 +3859,9 @@ fn layout_children_vertical(
             // existe — inline-blocks IRMÃOS sem texto à volta, os botões do
             // google. Sem esta distinção um `<span>` com fundo no meio de um
             // parágrafo fechava o fluxo e abria linha nova.
-            NodeKind::Element { .. } if child_inline_block && em_contexto_inline(dom, id, child) => {
+            NodeKind::Element { .. }
+                if child_inline_block && em_contexto_inline(dom, id, child) =>
+            {
                 flush_ib!(child_y);
                 inline_group.push(child);
             }
@@ -3376,8 +3870,17 @@ fn layout_children_vertical(
                 // continua a acumular os inline-blocks IRMÃOS na mesma corrida).
                 if !inline_group.is_empty() {
                     child_y = layout_inline_flow(
-                        dom, id, &inline_group, content_x, child_y, content_w, css, font_size,
-                        &floats, ctx, list,
+                        dom,
+                        id,
+                        &inline_group,
+                        content_x,
+                        child_y,
+                        content_w,
+                        css,
+                        font_size,
+                        &floats,
+                        ctx,
+                        list,
                     );
                     inline_group.clear();
                 }
@@ -3472,7 +3975,20 @@ fn layout_inline_block_line(
                 Some(crate::style::VerticalAlign::Bottom) => line_h - h,
                 _ => 0.0,
             };
-            layout_block(dom, child, x, cy + dy, content_w, avail_h, None, None, true, &[], ctx, list);
+            layout_block(
+                dom,
+                child,
+                x,
+                cy + dy,
+                content_w,
+                avail_h,
+                None,
+                None,
+                true,
+                &[],
+                ctx,
+                list,
+            );
             x += w;
         }
         cy += line_h;
@@ -3524,8 +4040,14 @@ pub(crate) fn border_items(
         // separador (um lado só) precisa.
         let bars = [
             (Rect::new(x, y, w, sides[0].width), sides[0]),
-            (Rect::new(x + w - sides[1].width, y, sides[1].width, h), sides[1]),
-            (Rect::new(x, y + h - sides[2].width, w, sides[2].width), sides[2]),
+            (
+                Rect::new(x + w - sides[1].width, y, sides[1].width, h),
+                sides[1],
+            ),
+            (
+                Rect::new(x, y + h - sides[2].width, w, sides[2].width),
+                sides[2],
+            ),
             (Rect::new(x, y, sides[3].width, h), sides[3]),
         ];
         for (rect, side) in bars {
@@ -3563,7 +4085,8 @@ pub(crate) fn border_items(
             ),
             width: ow,
             // `outline-color` ausente = `currentColor` (a cor do texto).
-            color: fx.aplicar_com_opacidade(css.outline_color.or(css.color).unwrap_or(0x000000FF), op),
+            color: fx
+                .aplicar_com_opacidade(css.outline_color.or(css.color).unwrap_or(0x000000FF), op),
             // O outline é sempre RETANGULAR aqui (o Chrome moderno segue o
             // border-radius) — ver `style::borders`.
             radius: 0.0,
@@ -3621,7 +4144,9 @@ fn banda_livre(ex: &[Exclusao], y: f32, altura: f32, content_x: f32, content_w: 
 /// O fundo do float mais baixo — para onde desce quem tem `clear`, e onde o
 /// container fecha para os conter.
 fn fundo_dos_floats(ex: &[Exclusao]) -> Option<f32> {
-    ex.iter().map(|e| e.bottom).fold(None, |a: Option<f32>, b| Some(a.map_or(b, |a| a.max(b))))
+    ex.iter()
+        .map(|e| e.bottom)
+        .fold(None, |a: Option<f32>, b| Some(a.map_or(b, |a| a.max(b))))
 }
 
 /// O `float` computado de um nó-elemento (None p/ não-elemento/sem estilo).
@@ -3660,7 +4185,13 @@ struct FlexItem {
 /// (resolvida como o width — respeita box-sizing) + margens; `auto`/ausente →
 /// width/conteúdo ([`child_outer_width`]). O `.col` do Bootstrap tem basis `0%`
 /// → a base é só o frame (e o grow distribui o espaço).
-fn flex_base_outer(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, ctx: &LayoutCtx) -> f32 {
+fn flex_base_outer(
+    dom: &Dom,
+    id: NodeIdx,
+    container_w: f32,
+    parent_font: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     let css = dom.computed_style_idx(id).unwrap_or_default();
     let font = font_px(&css, parent_font);
     let resolve = ResolveCtx {
@@ -3681,10 +4212,7 @@ fn flex_base_outer(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, c
     if css.border_box.unwrap_or(false) {
         basis + margin_h // border-box: a basis JÁ é a caixa (pad+borda inclusos)
     } else {
-        basis
-            + margin_h
-            + 2.0 * css.border_width.unwrap_or(0.0)
-            + css.padding.resolve_h(&resolve)
+        basis + margin_h + 2.0 * css.border_width.unwrap_or(0.0) + css.padding.resolve_h(&resolve)
     }
 }
 
@@ -3722,9 +4250,19 @@ fn layout_children_horizontal(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let gap = css.gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0);
-    let row_gap = css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0);
-    let justify = css.justify.unwrap_or(crate::style::JustifyContent::FlexStart);
+    let gap = css
+        .gap
+        .and_then(|d| d.resolve(&resolve))
+        .unwrap_or(0.0)
+        .max(0.0);
+    let row_gap = css
+        .row_gap
+        .and_then(|d| d.resolve(&resolve))
+        .unwrap_or(0.0)
+        .max(0.0);
+    let justify = css
+        .justify
+        .unwrap_or(crate::style::JustifyContent::FlexStart);
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     // `0` = sem height explícito (o cross-size da linha usa o max dos itens).
     let container_cross_h = container_content_h.unwrap_or(0.0);
@@ -3755,7 +4293,9 @@ fn layout_children_horizontal(
             if text.trim().is_empty() {
                 continue;
             }
-            let w = ctx.measurer.text_width(&text, font_size, false, false);
+            let w = ctx
+                .measurer
+                .text_width(&text, font_size, false, false, false);
             let h = crate::inline_box::altura_da_linha(css, font_size, ctx.measurer);
             items.push(FlexItem {
                 node: child,
@@ -3773,7 +4313,15 @@ fn layout_children_horizontal(
         }
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let base = flex_base_outer(dom, child, content_w, font_size, ctx);
-        let h = child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx);
+        let h = child_outer_height(
+            dom,
+            child,
+            content_w,
+            container_content_h,
+            css,
+            font_size,
+            ctx,
+        );
         items.push(FlexItem {
             node: child,
             base,
@@ -3853,7 +4401,14 @@ fn layout_children_horizontal(
         for it in line.iter_mut() {
             if !it.is_text && (it.main - it.base).abs() > 0.5 {
                 let (_, h) = measure_block(
-                    dom, it.node, content_w, container_content_h, Some(it.main), None, true, ctx,
+                    dom,
+                    it.node,
+                    content_w,
+                    container_content_h,
+                    Some(it.main),
+                    None,
+                    true,
+                    ctx,
                 );
                 it.h = h;
             }
@@ -3889,7 +4444,11 @@ fn layout_children_horizontal(
                 && it.can_stretch
                 && !it.is_text
                 && line_h > it.h;
-            let off_cross = if stretches { 0.0 } else { align_offset(item_align, line_h, it.h) };
+            let off_cross = if stretches {
+                0.0
+            } else {
+                align_offset(item_align, line_h, it.h)
+            };
             let item_y = line_y + off_cross;
             if it.is_text {
                 let text = collect_text(dom, it.node);
@@ -3902,6 +4461,7 @@ fn layout_children_horizontal(
                     size: font_size,
                     mono: false,
                     bold: css.bold.unwrap_or(false),
+                    italic: italico(Some(&css), tag_de(dom, it.node), false),
                     letter_spacing: css.letter_spacing.unwrap_or(0.0),
                     decoration: decoration_code(css),
                 });
@@ -3910,8 +4470,18 @@ fn layout_children_horizontal(
                 // width); stretch impõe a altura da linha.
                 let forced_h = if stretches { Some(line_h) } else { None };
                 layout_block(
-                    dom, it.node, x, item_y, content_w, container_content_h,
-                    Some(it.main), forced_h, true, &[], ctx, list,
+                    dom,
+                    it.node,
+                    x,
+                    item_y,
+                    content_w,
+                    container_content_h,
+                    Some(it.main),
+                    forced_h,
+                    true,
+                    &[],
+                    ctx,
+                    list,
                 );
             }
             x += it.main;
@@ -3962,8 +4532,18 @@ fn layout_children_grid(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let col_gap = css.gap.or(css.row_gap).and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0);
-    let row_gap = css.row_gap.or(css.gap).and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0);
+    let col_gap = css
+        .gap
+        .or(css.row_gap)
+        .and_then(|d| d.resolve(&resolve))
+        .unwrap_or(0.0)
+        .max(0.0);
+    let row_gap = css
+        .row_gap
+        .or(css.gap)
+        .and_then(|d| d.resolve(&resolve))
+        .unwrap_or(0.0)
+        .max(0.0);
 
     // ── COLUNAS: resolve as trilhas ──────────────────────────────────────────────
     // Sem grid-template-columns explícito → 1 coluna 1fr (o container-do-logo do
@@ -4013,7 +4593,9 @@ fn layout_children_grid(
     // A largura INTRÍNSECA por coluna — só medida quando alguma trilha é
     // intrínseca, porque medir custa uma travessia por item e a esmagadora
     // maioria das grades é só `fr` e px.
-    let precisa_medir = col_tracks.iter().any(|t| matches!(t, crate::style::GridTrack::Auto));
+    let precisa_medir = col_tracks
+        .iter()
+        .any(|t| matches!(t, crate::style::GridTrack::Auto));
     let conteudo: Option<Vec<f32>> = precisa_medir.then(|| {
         let mut w = vec![0.0f32; ncols];
         for c in &cells {
@@ -4029,7 +4611,13 @@ fn layout_children_grid(
         }
         w
     });
-    let col_sizes = resolve_tracks(&col_tracks, content_w, col_gap, conteudo.as_deref(), &resolve);
+    let col_sizes = resolve_tracks(
+        &col_tracks,
+        content_w,
+        col_gap,
+        conteudo.as_deref(),
+        &resolve,
+    );
     // Uma linha DECLARADA pela matriz existe mesmo sem item nela (ela ainda empurra
     // as linhas seguintes pelo gap), daí o max com `areas.rows`.
     let nrows = cells
@@ -4057,21 +4645,31 @@ fn layout_children_grid(
     let mut content_row_h = vec![0.0f32; nrows];
     for cell in &cells {
         let cw = span_size(&col_sizes, cell.c0, cell.c1, col_gap);
-        let (_, h) = measure_block(dom, cell.child, cw, container_content_h, None, None, true, ctx);
+        let (_, h) = measure_block(
+            dom,
+            cell.child,
+            cw,
+            container_content_h,
+            None,
+            None,
+            true,
+            ctx,
+        );
         let each = h / cell.rows() as f32;
         for r in cell.r0..cell.r1.min(nrows) {
             content_row_h[r] = content_row_h[r].max(each);
         }
     }
     let auto_row = css.grid_auto_rows;
-    let has_explicit_row_track = |r: usize| {
-        explicit_rows.get(r).is_some() || auto_row.is_some()
-    };
+    let has_explicit_row_track = |r: usize| explicit_rows.get(r).is_some() || auto_row.is_some();
     let mut row_sizes: Vec<f32> = (0..nrows)
         .map(|r| {
             let track = explicit_rows.get(r).copied().or(auto_row);
             match track {
-                Some(crate::style::GridTrack::Fixed(d)) => resolve_height(Some(d), container_content_h, &resolve).unwrap_or(content_row_h[r]),
+                Some(crate::style::GridTrack::Fixed(d)) => {
+                    resolve_height(Some(d), container_content_h, &resolve)
+                        .unwrap_or(content_row_h[r])
+                }
                 _ => content_row_h[r], // Auto/None/Fr → conteúdo por ora (ajuste abaixo)
             }
         })
@@ -4084,7 +4682,10 @@ fn layout_children_grid(
     if let Some(ch) = container_content_h {
         let auto_rows: Vec<usize> = (0..nrows).filter(|&r| !has_explicit_row_track(r)).collect();
         if !auto_rows.is_empty() {
-            let fixed: f32 = (0..nrows).filter(|r| has_explicit_row_track(*r)).map(|r| row_sizes[r]).sum();
+            let fixed: f32 = (0..nrows)
+                .filter(|r| has_explicit_row_track(*r))
+                .map(|r| row_sizes[r])
+                .sum();
             let total_gap = (nrows.saturating_sub(1)) as f32 * row_gap;
             let free = (ch - fixed - total_gap).max(0.0);
             let each = free / auto_rows.len() as f32;
@@ -4095,7 +4696,9 @@ fn layout_children_grid(
     }
 
     // ── POSICIONA cada item na sua célula ────────────────────────────────────────
-    let justify = css.grid_justify_items.unwrap_or(crate::style::AlignItems::Stretch);
+    let justify = css
+        .grid_justify_items
+        .unwrap_or(crate::style::AlignItems::Stretch);
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     // x acumulado de cada coluna, y de cada linha.
     let mut col_x = vec![content_x; ncols + 1];
@@ -4123,7 +4726,20 @@ fn layout_children_grid(
         // pinta o item: stretch no eixo → forced size; senão shrink-to-fit.
         let forced_w = if stretch_x { None } else { Some(iw) };
         let forced_h = if stretch_y { Some(cell_h) } else { None };
-        layout_block(dom, child, x, y, cell_w, Some(cell_h), forced_w, forced_h, !stretch_x, &[], ctx, list);
+        layout_block(
+            dom,
+            child,
+            x,
+            y,
+            cell_w,
+            Some(cell_h),
+            forced_w,
+            forced_h,
+            !stretch_x,
+            &[],
+            ctx,
+            list,
+        );
     }
     // altura total = soma das linhas + gaps.
     let total_h: f32 = row_sizes.iter().sum::<f32>() + (nrows.saturating_sub(1)) as f32 * row_gap;
@@ -4186,7 +4802,13 @@ fn place_grid_items(
         match name.and_then(|n| areas.and_then(|a| a.area(&n))) {
             Some(a) => {
                 mark(&mut taken, a.r0, a.c0, a.r1, a.c1);
-                cells.push(GridCell { child, r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1.min(ncols) });
+                cells.push(GridCell {
+                    child,
+                    r0: a.r0,
+                    c0: a.c0,
+                    r1: a.r1,
+                    c1: a.c1.min(ncols),
+                });
             }
             None => auto.push(child),
         }
@@ -4203,7 +4825,13 @@ fn place_grid_items(
         }
         let (r, c) = (cursor / ncols, cursor % ncols);
         mark(&mut taken, r, c, r + 1, c + 1);
-        cells.push(GridCell { child, r0: r, c0: c, r1: r + 1, c1: c + 1 });
+        cells.push(GridCell {
+            child,
+            r0: r,
+            c0: c,
+            r1: r + 1,
+            c1: c + 1,
+        });
         cursor += 1;
     }
     cells
@@ -4259,7 +4887,11 @@ fn resolve_tracks(
         sizes[i] = match t {
             T::Fixed(d) => dim(d),
             T::Bounded { min, .. } => dim(min),
-            T::Auto => conteudo.and_then(|c| c.get(i)).copied().unwrap_or(0.0).max(0.0),
+            T::Auto => conteudo
+                .and_then(|c| c.get(i))
+                .copied()
+                .unwrap_or(0.0)
+                .max(0.0),
             T::Fr(f) => {
                 sum_fr += f.max(0.0);
                 0.0
@@ -4359,7 +4991,9 @@ fn layout_children_column(
         .and_then(|d| d.resolve(&resolve))
         .unwrap_or(0.0)
         .max(0.0);
-    let justify = css.justify.unwrap_or(crate::style::JustifyContent::FlexStart);
+    let justify = css
+        .justify
+        .unwrap_or(crate::style::JustifyContent::FlexStart);
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
 
     // ── PASSO 1: mede a altura outer desejada de cada filho + margens auto ───────
@@ -4398,12 +5032,33 @@ fn layout_children_column(
             });
             continue;
         }
-        let h = child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx);
+        let h = child_outer_height(
+            dom,
+            child,
+            content_w,
+            container_content_h,
+            css,
+            font_size,
+            ctx,
+        );
         let (mt_auto, mb_auto, grow) = dom
             .computed_style_idx(child)
-            .map(|c| (c.margin.top.is_auto(), c.margin.bottom.is_auto(), c.flex_grow.unwrap_or(0.0)))
+            .map(|c| {
+                (
+                    c.margin.top.is_auto(),
+                    c.margin.bottom.is_auto(),
+                    c.flex_grow.unwrap_or(0.0),
+                )
+            })
             .unwrap_or((false, false, 0.0));
-        items.push(ColItem { node: child, h, is_text: false, mt_auto, mb_auto, grow });
+        items.push(ColItem {
+            node: child,
+            h,
+            is_text: false,
+            mt_auto,
+            mb_auto,
+            grow,
+        });
     }
     if items.is_empty() {
         return 0.0;
@@ -4413,7 +5068,9 @@ fn layout_children_column(
     let n = items.len();
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
     let total_gap = (n.saturating_sub(1)) as f32 * main_gap;
-    let free = container_content_h.map(|ch| ch - sum_h - total_gap).unwrap_or(0.0);
+    let free = container_content_h
+        .map(|ch| ch - sum_h - total_gap)
+        .unwrap_or(0.0);
     // FLEX-GROW no eixo principal (css-flexbox §9.7): quando há espaço livre
     // positivo e algum item tem flex-grow, cada um cresce em proporção
     // `grow / soma_dos_grows * free` — dando ALTURA aos containers que os filhos
@@ -4429,11 +5086,20 @@ fn layout_children_column(
         }
     }
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
-    let free = container_content_h.map(|ch| ch - sum_h - total_gap).unwrap_or(0.0);
-    let auto_count: usize = items.iter().map(|it| it.mt_auto as usize + it.mb_auto as usize).sum();
+    let free = container_content_h
+        .map(|ch| ch - sum_h - total_gap)
+        .unwrap_or(0.0);
+    let auto_count: usize = items
+        .iter()
+        .map(|it| it.mt_auto as usize + it.mb_auto as usize)
+        .sum();
     // margin:auto no eixo main absorve TODO o espaço livre (o justify vira no-op) —
     // spec css-flexbox §8.1. Sem autos, o justify distribui.
-    let auto_size = if free > 0.0 && auto_count > 0 { free / auto_count as f32 } else { 0.0 };
+    let auto_size = if free > 0.0 && auto_count > 0 {
+        free / auto_count as f32
+    } else {
+        0.0
+    };
     let (leading, between) = if auto_count > 0 {
         (0.0, 0.0)
     } else {
@@ -4459,6 +5125,7 @@ fn layout_children_column(
                 size: font_size,
                 mono: false,
                 bold: css.bold.unwrap_or(false),
+                italic: italico(Some(&css), tag_de(dom, it.node), false),
                 letter_spacing: css.letter_spacing.unwrap_or(0.0),
                 decoration: decoration_code(css),
             });
@@ -4470,7 +5137,14 @@ fn layout_children_column(
                 content_x
             } else {
                 let (w, _) = measure_block(
-                    dom, it.node, content_w, container_content_h, None, None, true, ctx,
+                    dom,
+                    it.node,
+                    content_w,
+                    container_content_h,
+                    None,
+                    None,
+                    true,
+                    ctx,
                 );
                 let free_x = (content_w - w).max(0.0);
                 content_x + align_offset(align, content_w, content_w - free_x)
@@ -4483,7 +5157,20 @@ fn layout_children_column(
             } else {
                 (container_content_h, None)
             };
-            layout_block(dom, it.node, child_x, y, content_w, avail, None, forced_h, !stretch, &[], ctx, list);
+            layout_block(
+                dom,
+                it.node,
+                child_x,
+                y,
+                content_w,
+                avail,
+                None,
+                forced_h,
+                !stretch,
+                &[],
+                ctx,
+                list,
+            );
         }
         y += it.h;
         if it.mb_auto {
@@ -4518,10 +5205,18 @@ fn justify_offsets(j: crate::style::JustifyContent, free: f32, n: usize) -> (f32
         J::FlexEnd => (free, 0.0),
         J::Center => (free / 2.0, 0.0),
         J::SpaceBetween => {
-            if n > 1 { (0.0, free / (n - 1) as f32) } else { (0.0, 0.0) }
+            if n > 1 {
+                (0.0, free / (n - 1) as f32)
+            } else {
+                (0.0, 0.0)
+            }
         }
         J::SpaceAround => {
-            if n >= 1 { (free / (2 * n) as f32, free / n as f32) } else { (0.0, 0.0) }
+            if n >= 1 {
+                (free / (2 * n) as f32, free / n as f32)
+            } else {
+                (0.0, 0.0)
+            }
         }
         J::SpaceEvenly => (free / (n + 1) as f32, free / (n + 1) as f32),
     }
@@ -4560,14 +5255,17 @@ fn child_outer_height(
         // caixa real, porque um inline blockificado (item de flex) tem uma.
         NodeKind::Element { tag } if !is_non_rendered_tag(tag) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
-            let (_, outer_h) = measure_block(dom, id, container_w, container_h, None, None, true, ctx);
+            let (_, outer_h) =
+                measure_block(dom, id, container_w, container_h, None, None, true, ctx);
             outer_h
         }
         // A MESMA altura que o fluxo dará a esta linha — medir com o default do
         // medidor enquanto o pai declara `line-height` fazia a medida do
         // cross-axis discordar da pintura, que é o erro que este comentário
         // acima diz que a verificação adversarial já apanhou uma vez.
-        NodeKind::Text(_) => crate::inline_box::altura_da_linha(parent_css, parent_font, ctx.measurer),
+        NodeKind::Text(_) => {
+            crate::inline_box::altura_da_linha(parent_css, parent_font, ctx.measurer)
+        }
         _ => 0.0,
     }
 }
@@ -4575,7 +5273,13 @@ fn child_outer_height(
 /// Largura OUTER que um filho QUER (sem pintar), para decidir a quebra de linha no
 /// modo wrap. Bloco com `width`: esse width (+ frame); sem width: largura natural
 /// do conteúdo (+ frame); texto solto: a largura do texto.
-fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, ctx: &LayoutCtx) -> f32 {
+fn child_outer_width(
+    dom: &Dom,
+    id: NodeIdx,
+    container_w: f32,
+    parent_font: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     match &dom.node(id).kind {
         // QUALQUER elemento renderável, e não só os de nível bloco: um `<span>`
         // BLOCKIFICADO (item de flex, float) tem largura natural como qualquer
@@ -4599,14 +5303,12 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
             // Em border-box, o `width` declarado JÁ é a caixa (outer sem margin) —
             // não soma pad/border de novo; só a margin. Em content-box, soma o frame.
             match css.width.and_then(|d| d.resolve(&resolve)) {
-                Some(w) if css.border_box.unwrap_or(false) => {
-                    w + css.margin.resolve_h(&resolve)
-                }
+                Some(w) if css.border_box.unwrap_or(false) => w + css.margin.resolve_h(&resolve),
                 Some(w) => w + frame,
                 None => content_natural_width(dom, id, font, ctx) + frame,
             }
         }
-        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false, false),
+        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false, false, false),
         _ => 0.0,
     }
 }
@@ -4626,7 +5328,19 @@ fn layout_inline_line(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    layout_inline_flow(dom, id, &[id], x, y, content_w, parent_css, font_size, &[], ctx, list)
+    layout_inline_flow(
+        dom,
+        id,
+        &[id],
+        x,
+        y,
+        content_w,
+        parent_css,
+        font_size,
+        &[],
+        ctx,
+        list,
+    )
 }
 
 /// O FLUXO INLINE RICO (P4): um GRUPO de irmãos inline consecutivos (nós de texto
@@ -4684,21 +5398,42 @@ fn layout_inline_flow(
         == filhos_com_conteudo;
     let cor_base = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
     if dono_inteiro {
-        runs.extend(pseudo_run(dom, dono, crate::style::PseudoElement::Before, cor_base));
+        runs.extend(pseudo_run(
+            dom,
+            dono,
+            crate::style::PseudoElement::Before,
+            cor_base,
+            parent_css.italic.unwrap_or(false),
+        ));
     }
     for &id in group {
         runs.extend(collect_runs(dom, id, parent_css, content_w, ctx));
     }
     if dono_inteiro {
-        runs.extend(pseudo_run(dom, dono, crate::style::PseudoElement::After, cor_base));
+        runs.extend(pseudo_run(
+            dom,
+            dono,
+            crate::style::PseudoElement::After,
+            cor_base,
+            parent_css.italic.unwrap_or(false),
+        ));
     }
     // Um MARKER (elemento inline vazio) não conta como conteúdo: um `<span></span>`
     // sozinho num bloco não cria linha nenhuma no browser, e criá-la aqui mudaria
     // a altura do bloco — o oposto de "acrescenta geometria, não muda a pintura".
-    if runs
-        .iter()
-        .all(|r| r.text.trim().is_empty() && !matches!(r.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced | AtomicKind::Block | AtomicKind::Break))))
-    {
+    if runs.iter().all(|r| {
+        r.text.trim().is_empty()
+            && !matches!(
+                r.atomic,
+                Some((
+                    _,
+                    AtomicKind::Widget
+                        | AtomicKind::Replaced
+                        | AtomicKind::Block
+                        | AtomicKind::Break
+                ))
+            )
+    }) {
         return y;
     }
     let mono = parent_css
@@ -4777,7 +5512,18 @@ fn layout_inline_flow(
         // altura da linha: o texto (lh) ou o widget mais alto nela.
         let line_h = line
             .iter()
-            .filter(|s| matches!(s.atomic, Some((_, AtomicKind::Widget | AtomicKind::Replaced | AtomicKind::Block | AtomicKind::Break))))
+            .filter(|s| {
+                matches!(
+                    s.atomic,
+                    Some((
+                        _,
+                        AtomicKind::Widget
+                            | AtomicKind::Replaced
+                            | AtomicKind::Block
+                            | AtomicKind::Break
+                    ))
+                )
+            })
             .map(|s| s.wh)
             .fold(lh, f32::max);
         // A CAIXA de cada inline desta linha: a content area da fonte, centrada na
@@ -4826,7 +5572,9 @@ fn layout_inline_flow(
                             // linha não tem containing block de altura definida, e
                             // é isso que faz `height:%` valer `auto` — como no
                             // browser.
-                            layout_input(dom, a_idx, &wcss, seg_x, cy, seg.ww, None, None, ctx, list);
+                            layout_input(
+                                dom, a_idx, &wcss, seg_x, cy, seg.ww, None, None, ctx, list,
+                            );
                         }
                     }
                     AtomicKind::Replaced => {
@@ -4845,8 +5593,18 @@ fn layout_inline_flow(
                         // `layout_block` da corrida de inline-blocks irmãos —
                         // não um segundo emissor — só que o x/y vem do fluxo.
                         layout_block(
-                            dom, a_idx, seg_x, cy, seg.ww.max(1.0), None, None, None, true, &[],
-                            ctx, list,
+                            dom,
+                            a_idx,
+                            seg_x,
+                            cy,
+                            seg.ww.max(1.0),
+                            None,
+                            None,
+                            None,
+                            true,
+                            &[],
+                            ctx,
+                            list,
                         );
                     }
                     AtomicKind::Marker | AtomicKind::Break => {}
@@ -4889,6 +5647,7 @@ fn layout_inline_flow(
                 size: font_size,
                 mono,
                 bold: seg.bold,
+                italic: seg.italic,
                 letter_spacing: ls,
                 decoration: seg.deco,
             });
@@ -4947,6 +5706,9 @@ struct InlineRun {
     text: String,
     color: u32,
     bold: bool,
+    /// `font-style: italic` do span que contém este texto. Eixo INDEPENDENTE do
+    /// `bold` — `<em><strong>` é bold-italic e um único bit não o exprimiria.
+    italic: bool,
     /// decoração do RUN (0=none 1=underline 2=line-through) — vem do <a>/<span>
     /// que contém o texto, não do bloco pai (um <a> sublinha só o seu texto).
     deco: u8,
@@ -4982,6 +5744,8 @@ fn pseudo_run(
     // A cor já resolvida do contexto — a caixa gerada herda-a quando não
     // declara `color`.
     cor_herdada: u32,
+    // idem para o itálico: a caixa gerada herda o estilo do elemento.
+    herdado_italico: bool,
 ) -> Option<InlineRun> {
     let caixa = dom.pseudo_box(id, pe)?;
     crate::bump!(inline_runs);
@@ -4989,6 +5753,9 @@ fn pseudo_run(
         text: caixa.texto,
         color: cor_visivel(&caixa.css, caixa.css.color.unwrap_or(cor_herdada)),
         bold: caixa.css.bold.unwrap_or(false),
+        // a caixa gerada é do PRÓPRIO elemento: nenhuma tag nova entra, por isso
+        // a UA não tem aqui nada a dizer — só o CSS do pseudo e o que herdou.
+        italic: caixa.css.italic.unwrap_or(herdado_italico),
         deco: decoration_code(&caixa.css),
         owners: vec![id],
         atomic: None,
@@ -5051,6 +5818,7 @@ fn collect_runs(
         decoration_code(parent_css),
         parent_css.text_transform,
         parent_css.bold.unwrap_or(false),
+        parent_css.italic.unwrap_or(false),
         &[],
         &mut runs,
     );
@@ -5065,6 +5833,7 @@ fn collect_runs(
         inherited_deco: u8,
         inherited_tt: Option<crate::style::TextTransform>,
         inherited_bold: bool,
+        inherited_italic: bool,
         inherited_owners: &[NodeIdx],
         out: &mut Vec<InlineRun>,
     ) {
@@ -5079,6 +5848,7 @@ fn collect_runs(
                     text,
                     color: inherited_color,
                     bold: inherited_bold,
+                    italic: inherited_italic,
                     deco: inherited_deco,
                     owners: inherited_owners.to_vec(),
                     atomic: None,
@@ -5117,6 +5887,7 @@ fn collect_runs(
                         text: String::new(),
                         color: inherited_color,
                         bold: false,
+                        italic: false,
                         deco: 0,
                         owners,
                         atomic: Some((id, AtomicKind::Widget)),
@@ -5137,6 +5908,7 @@ fn collect_runs(
                         text: String::new(),
                         color: inherited_color,
                         bold: false,
+                        italic: false,
                         deco: 0,
                         owners,
                         atomic: Some((id, AtomicKind::Break)),
@@ -5160,6 +5932,7 @@ fn collect_runs(
                         text: String::new(),
                         color: inherited_color,
                         bold: false,
+                        italic: false,
                         deco: 0,
                         owners,
                         atomic: Some((id, AtomicKind::Replaced)),
@@ -5181,6 +5954,7 @@ fn collect_runs(
                         text: String::new(),
                         color: inherited_color,
                         bold: false,
+                        italic: false,
                         deco: 0,
                         owners: std::mem::take(&mut owners),
                         atomic: Some((id, AtomicKind::Block)),
@@ -5192,9 +5966,13 @@ fn collect_runs(
                 // a cor/text-transform/peso/decoração DESTE inline (se declarar)
                 // vence p/ os filhos (o <a> sublinha só o próprio texto).
                 let css = dom.computed_style_idx(id);
-                let color = css.as_ref().and_then(|c| c.color).unwrap_or(inherited_color);
+                let color = css
+                    .as_ref()
+                    .and_then(|c| c.color)
+                    .unwrap_or(inherited_color);
                 let tt = css.as_ref().and_then(|c| c.text_transform).or(inherited_tt);
                 let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(inherited_bold);
+                let italic = italico(css.as_deref(), Some(tag), inherited_italic);
                 let deco = match css.as_deref().map(decoration_code) {
                     Some(d) if d != 0 => d,
                     _ => inherited_deco,
@@ -5209,11 +5987,23 @@ fn collect_runs(
                 // inteiro é tratado em `layout_inline_flow`, que é onde ele se
                 // sabe dono; os dois casos não se sobrepõem.
                 let before = out.len();
-                out.extend(pseudo_run(dom, id, crate::style::PseudoElement::Before, color));
+                out.extend(pseudo_run(
+                    dom,
+                    id,
+                    crate::style::PseudoElement::Before,
+                    color,
+                    italic,
+                ));
                 for &c in &dom.node(id).children {
-                    walk(dom, ctx, avail_w, c, color, deco, tt, bold, &owners, out);
+                    walk(dom, ctx, avail_w, c, color, deco, tt, bold, italic, &owners, out);
                 }
-                out.extend(pseudo_run(dom, id, crate::style::PseudoElement::After, color));
+                out.extend(pseudo_run(
+                    dom,
+                    id,
+                    crate::style::PseudoElement::After,
+                    color,
+                    italic,
+                ));
                 // Um inline VAZIO (`<source>`, `<br>`, `<span></span>`) não gerou run
                 // e ficaria sem caixa. O marker dá-lhe a posição na linha sem lhe dar
                 // largura nem altura próprias — que é a caixa que o browser reporta.
@@ -5223,6 +6013,7 @@ fn collect_runs(
                         text: String::new(),
                         color: inherited_color,
                         bold: false,
+                        italic: false,
                         deco: 0,
                         owners,
                         atomic: Some((id, AtomicKind::Marker)),
@@ -5249,7 +6040,7 @@ fn inline_widget_size(
     if matches!(itype, "submit" | "button" | "reset") {
         let font = font_px(&css, DEFAULT_FONT_SIZE - 3.0);
         let label = dom.node(id).attr("value").unwrap_or("").to_string();
-        let tw = ctx.measurer.text_width(&label, font, false, false);
+        let tw = ctx.measurer.text_width(&label, font, false, false, false);
         let lh = ctx.measurer.line_height(font);
         return (tw + 24.0 + 6.0, lh + 10.0 + 4.0); // espelha layout_button
     }
@@ -5271,6 +6062,7 @@ struct Segment {
     text_width: f32,
     color: u32,
     bold: bool,
+    italic: bool,
     deco: u8,
     owners: Vec<NodeIdx>,
     atomic: Option<(NodeIdx, AtomicKind)>,
@@ -5350,6 +6142,7 @@ fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32,
         if last.atomic.is_none()
             && last.color == run.color
             && last.bold == run.bold
+            && last.italic == run.italic
             && last.deco == run.deco
             && last.owners == run.owners
         {
@@ -5370,6 +6163,7 @@ fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32,
         text_width: width,
         color: run.color,
         bold: run.bold,
+        italic: run.italic,
         deco: run.deco,
         owners: run.owners.clone(),
         atomic: None,
@@ -5395,7 +6189,7 @@ fn wrap_runs(
     // chamada, mesmo quando o fast path respondia sozinho.
     let mut space_w_memo: Option<f32> = None;
     let mut space_w = |m: &dyn TextMeasurer| -> f32 {
-        *space_w_memo.get_or_insert_with(|| m.text_width(" ", font_size, mono, false))
+        *space_w_memo.get_or_insert_with(|| m.text_width(" ", font_size, mono, false, false))
     };
     let mut lines: Vec<Vec<Segment>> = Vec::new();
     let mut cur: Vec<Segment> = Vec::new();
@@ -5439,7 +6233,11 @@ fn wrap_runs(
         () => {
             if !cluster.is_empty() {
                 let sep = cluster_espaco && !at_line_start;
-                let need = if sep { space_w(m) + cluster_w } else { cluster_w };
+                let need = if sep {
+                    space_w(m) + cluster_w
+                } else {
+                    cluster_w
+                };
                 if !at_line_start && cur_w + need > max_w(lines.len()) {
                     lines.push(std::mem::take(&mut cur));
                     cur_w = 0.0;
@@ -5460,6 +6258,7 @@ fn wrap_runs(
                                 text_width: 0.0,
                                 color: run.color,
                                 bold: false,
+                                italic: false,
                                 deco: 0,
                                 owners: run.owners.clone(),
                                 atomic: Some((a_idx, kind)),
@@ -5470,7 +6269,11 @@ fn wrap_runs(
                             cur_w += ww + espaco;
                         }
                         None => {
-                            let vao = if com_espaco && cluster_de_fora { espaco } else { 0.0 };
+                            let vao = if com_espaco && cluster_de_fora {
+                                espaco
+                            } else {
+                                0.0
+                            };
                             let mut texto = String::with_capacity(peca.texto.len() + 1);
                             if com_espaco {
                                 texto.push(' ');
@@ -5515,6 +6318,7 @@ fn wrap_runs(
                     text_width: 0.0,
                     color: run.color,
                     bold: false,
+                    italic: false,
                     deco: 0,
                     owners: run.owners.clone(),
                     atomic: Some((a_idx, AtomicKind::Break)),
@@ -5538,6 +6342,7 @@ fn wrap_runs(
                     text_width: 0.0,
                     color: run.color,
                     bold: false,
+                    italic: false,
                     deco: 0,
                     owners: run.owners.clone(),
                     atomic: Some((a_idx, AtomicKind::Marker)),
@@ -5590,9 +6395,17 @@ fn wrap_runs(
         // grande, com 11 000 `text_width` por frame.
         let miolo = run.text.trim();
         if !miolo.contains(char::is_whitespace) {
-            let w = m.text_width(miolo, font_size, mono, run.bold);
+            let w = m.text_width(miolo, font_size, mono, run.bold, run.italic);
             let terminava_em_espaco = run.text.ends_with(char::is_whitespace);
-            juntar!(Peca { run: i, texto: miolo.to_string(), largura: w, atomico: None }, w);
+            juntar!(
+                Peca {
+                    run: i,
+                    texto: miolo.to_string(),
+                    largura: w,
+                    atomico: None
+                },
+                w
+            );
             if terminava_em_espaco {
                 fechar_cluster!();
                 pending_space = true;
@@ -5617,9 +6430,13 @@ fn wrap_runs(
         if abre_cluster && fecha_cluster {
             let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
             if !normalizado.is_empty() {
-                let w = m.text_width(&normalizado, font_size, mono, run.bold);
+                let w = m.text_width(&normalizado, font_size, mono, run.bold, run.italic);
                 if !at_line_start && cur_w + w <= max_w(lines.len()) {
-                    let vao = if pending_space && espaco_de_fora { space_w(m) } else { 0.0 };
+                    let vao = if pending_space && espaco_de_fora {
+                        space_w(m)
+                    } else {
+                        0.0
+                    };
                     push_segment(&mut cur, run, &normalizado, w, vao);
                     cur_w += w;
                     at_line_start = false;
@@ -5643,8 +6460,16 @@ fn wrap_runs(
             let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
             let word = &rest[..end];
             rest = &rest[end..];
-            let ww = m.text_width(word, font_size, mono, run.bold);
-            juntar!(Peca { run: i, texto: word.to_string(), largura: ww, atomico: None }, ww);
+            let ww = m.text_width(word, font_size, mono, run.bold, run.italic);
+            juntar!(
+                Peca {
+                    run: i,
+                    texto: word.to_string(),
+                    largura: ww,
+                    atomico: None
+                },
+                ww
+            );
         }
         if run.text.ends_with(char::is_whitespace) {
             fechar_cluster!();
@@ -5662,6 +6487,7 @@ fn wrap_runs(
             text_width: 0.0,
             color: 0,
             bold: false,
+            italic: false,
             deco: 0,
             owners: Vec::new(),
             atomic: None,
@@ -5677,13 +6503,19 @@ fn wrap_runs(
 /// normal`): acumula palavras separadas por espaço; quando a próxima não cabe,
 /// fecha a linha e começa outra. Uma palavra maior que `max_w` fica sozinha na
 /// linha (não quebra no meio da palavra — `overflow-wrap:normal`).
-fn wrap_text(text: &str, max_w: f32, font_size: f32, mono: bool, m: &dyn TextMeasurer) -> Vec<String> {
+fn wrap_text(
+    text: &str,
+    max_w: f32,
+    font_size: f32,
+    mono: bool,
+    m: &dyn TextMeasurer,
+) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current = String::new();
     let mut current_w = 0.0f32;
-    let space_w = m.text_width(" ", font_size, mono, false);
+    let space_w = m.text_width(" ", font_size, mono, false, false);
     for word in text.split_whitespace() {
-        let word_w = m.text_width(word, font_size, mono, false);
+        let word_w = m.text_width(word, font_size, mono, false, false);
         if current.is_empty() {
             current.push_str(word);
             current_w = word_w;
@@ -5766,15 +6598,62 @@ mod tests {
     fn itens_equivalentes(a: &DisplayItem, b: &DisplayItem) -> bool {
         use DisplayItem as D;
         match (a, b) {
-            (D::SolidRect { rect: ra, color: ca, radius: da }, D::SolidRect { rect: rb, color: cb, radius: db }) => {
-                rects_equivalentes(ra, rb) && ca == cb && cantos_equivalentes(da, db)
-            }
-            (D::Border { rect: ra, width: wa, color: ca, radius: da }, D::Border { rect: rb, width: wb, color: cb, radius: db }) => {
-                rects_equivalentes(ra, rb) && (wa - wb).abs() < TOL && ca == cb && (da - db).abs() < TOL
+            (
+                D::SolidRect {
+                    rect: ra,
+                    color: ca,
+                    radius: da,
+                },
+                D::SolidRect {
+                    rect: rb,
+                    color: cb,
+                    radius: db,
+                },
+            ) => rects_equivalentes(ra, rb) && ca == cb && cantos_equivalentes(da, db),
+            (
+                D::Border {
+                    rect: ra,
+                    width: wa,
+                    color: ca,
+                    radius: da,
+                },
+                D::Border {
+                    rect: rb,
+                    width: wb,
+                    color: cb,
+                    radius: db,
+                },
+            ) => {
+                rects_equivalentes(ra, rb)
+                    && (wa - wb).abs() < TOL
+                    && ca == cb
+                    && (da - db).abs() < TOL
             }
             (
-                D::Text { x: xa, y: ya, text: ta, color: ca, size: sa, mono: ma, bold: ba, letter_spacing: la, decoration: dea },
-                D::Text { x: xb, y: yb, text: tb, color: cb, size: sb, mono: mb, bold: bb, letter_spacing: lb, decoration: deb },
+                D::Text {
+                    x: xa,
+                    y: ya,
+                    text: ta,
+                    color: ca,
+                    size: sa,
+                    mono: ma,
+                    bold: ba,
+                    italic: ia,
+                    letter_spacing: la,
+                    decoration: dea,
+                },
+                D::Text {
+                    x: xb,
+                    y: yb,
+                    text: tb,
+                    color: cb,
+                    size: sb,
+                    mono: mb,
+                    bold: bb,
+                    italic: ib,
+                    letter_spacing: lb,
+                    decoration: deb,
+                },
             ) => {
                 (xa - xb).abs() < TOL
                     && (ya - yb).abs() < TOL
@@ -5783,6 +6662,7 @@ mod tests {
                     && (sa - sb).abs() < TOL
                     && ma == mb
                     && ba == bb
+                    && ia == ib
                     && (la - lb).abs() < TOL
                     && dea == deb
             }
@@ -5808,7 +6688,11 @@ mod tests {
         let dom = parse_html_to_dom(
             "<div style='overflow-y:auto; padding-left:40px; padding-right:40px'>               <div id='meio' style='width:100%'>                 <div style='width:3000px'>conteudo bem mais largo que a caixa</div>               </div>             </div>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let lista = layout_document(&dom, &ctx);
         let meio = dom.resolve(dom.query("#meio").unwrap()).unwrap();
         let rect = lista.geometry().rects[&meio];
@@ -5825,7 +6709,10 @@ mod tests {
             .copied()
             .find(|c| matches!(dom.node(*c).kind, NodeKind::Element { .. }))
             .expect("o filho largo");
-        assert!(geo.rects[&largo].w > 2900.0, "o filho largo mantém a largura dele");
+        assert!(
+            geo.rects[&largo].w > 2900.0,
+            "o filho largo mantém a largura dele"
+        );
     }
 
     /// SEQUÊNCIA LONGA de mutações sorteadas: o reuso tem de bater com o cálculo
@@ -5841,12 +6728,18 @@ mod tests {
         let mut dom = parse_html_to_dom(
             "<style>.a{padding:4px}.b{margin:2px}.t{font-size:14px}</style>             <main id='root'>               <div class='a'><p class='t'>um</p><p>dois</p></div>               <div class='b'><span>tres</span> quatro <b>cinco</b></div>               <ul id='l'><li>x</li><li>y</li></ul>             </main>",
         );
-        let ctx = LayoutCtx { viewport_w: 500.0, viewport_h: 400.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 500.0,
+            viewport_h: 400.0,
+            measurer: &ApproxMeasurer,
+        };
         let raiz = dom.query("#root").unwrap();
         let lista = dom.query("#l").unwrap();
         let mut semente = 0x2545_F491_4F6C_DD1Du64;
         let mut sorteia = move |n: u64| {
-            semente = semente.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            semente = semente
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (semente >> 33) % n
         };
         let mut vivos: Vec<crate::dom::NodeId> = dom.query_all("p, li, span, b");
@@ -5898,7 +6791,12 @@ mod tests {
                 zero.materialized().len(),
                 "passo {passo}: nº de itens diverge"
             );
-            for (i, (a, b)) in reusado.materialized().iter().zip(&zero.materialized()).enumerate() {
+            for (i, (a, b)) in reusado
+                .materialized()
+                .iter()
+                .zip(&zero.materialized())
+                .enumerate()
+            {
                 assert!(
                     itens_equivalentes(a, b),
                     "passo {passo}, item {i}:
@@ -5922,7 +6820,11 @@ mod tests {
         let mut dom = parse_html_to_dom(
             "<style>.card{padding:8px;margin:4px}.t{font-size:18px}.hi{color:#ff0000}</style>             <main id='root'>               <div class='card'><h3 class='t'>Um titulo</h3><p>texto de exemplo aqui</p></div>               <div class='card'><h3 class='t'>Outro</h3><p>mais texto <b>em negrito</b> junto</p></div>               <ul id='lista'><li>a</li><li>b</li><li>c</li></ul>             </main>",
         );
-        let ctx = LayoutCtx { viewport_w: 640.0, viewport_h: 480.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 640.0,
+            viewport_h: 480.0,
+            measurer: &ApproxMeasurer,
+        };
         let alvo = dom.query("p").unwrap();
         let card = dom.query(".card").unwrap();
         let lista = dom.query("#lista").unwrap();
@@ -5940,7 +6842,12 @@ mod tests {
                 recalculado.materialized().len(),
                 "quantidade de itens diverge no passo {passo}"
             );
-            for (i, (a, b)) in cacheado.materialized().iter().zip(&recalculado.materialized()).enumerate() {
+            for (i, (a, b)) in cacheado
+                .materialized()
+                .iter()
+                .zip(&recalculado.materialized())
+                .enumerate()
+            {
                 assert!(
                     itens_equivalentes(a, b),
                     "item {i} diverge no passo {passo}:
@@ -5952,14 +6859,31 @@ mod tests {
                 (cacheado.content_height - recalculado.content_height).abs() < TOL,
                 "altura divergente no passo {passo}"
             );
-            let mut a: Vec<_> = cacheado.geometry().rects.iter().map(|(i, r)| (*i, *r)).collect();
-            let mut b: Vec<_> = recalculado.geometry().rects.iter().map(|(i, r)| (*i, *r)).collect();
+            let mut a: Vec<_> = cacheado
+                .geometry()
+                .rects
+                .iter()
+                .map(|(i, r)| (*i, *r))
+                .collect();
+            let mut b: Vec<_> = recalculado
+                .geometry()
+                .rects
+                .iter()
+                .map(|(i, r)| (*i, *r))
+                .collect();
             a.sort_by_key(|(idx, _)| *idx);
             b.sort_by_key(|(idx, _)| *idx);
-            assert_eq!(a.len(), b.len(), "nº de retângulos diverge no passo {passo}");
+            assert_eq!(
+                a.len(),
+                b.len(),
+                "nº de retângulos diverge no passo {passo}"
+            );
             for ((ia, ra), (ib, rb)) in a.iter().zip(&b) {
                 assert_eq!(ia, ib, "nós diferentes no passo {passo}");
-                assert!(rects_equivalentes(ra, rb), "rect de {ia} diverge no passo {passo}");
+                assert!(
+                    rects_equivalentes(ra, rb),
+                    "rect de {ia} diverge no passo {passo}"
+                );
             }
             *passo += 1;
         };
@@ -5989,18 +6913,32 @@ mod tests {
     #[test]
     fn cache_de_layout_reusa_e_invalida() {
         let mut dom = parse_html_to_dom("<div id='a'><p>um</p></div>");
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let first = layout_cached(&dom, &ctx);
         let again = layout_cached(&dom, &ctx);
-        assert!(std::rc::Rc::ptr_eq(&first, &again), "nada mudou: a lista é a mesma");
+        assert!(
+            std::rc::Rc::ptr_eq(&first, &again),
+            "nada mudou: a lista é a mesma"
+        );
 
         let alvo = dom.query("#a").unwrap();
         dom.set_text(alvo, "outro");
         let after = layout_cached(&dom, &ctx);
-        assert!(!std::rc::Rc::ptr_eq(&first, &after), "o texto mudou: lista nova");
+        assert!(
+            !std::rc::Rc::ptr_eq(&first, &after),
+            "o texto mudou: lista nova"
+        );
 
         // Viewport diferente também é outro layout.
-        let narrow = LayoutCtx { viewport_w: 300.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let narrow = LayoutCtx {
+            viewport_w: 300.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let small = layout_cached(&dom, &narrow);
         assert!(!std::rc::Rc::ptr_eq(&after, &small));
     }
@@ -6010,15 +6948,98 @@ mod tests {
     fn def_div() {
         crate::block::define(
             "div",
-            crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
         );
+    }
+
+    /// Os itens de texto de um layout, como `(texto, itálico)`. Serve às provas
+    /// do `font-style` — o que se pergunta é quais palavras saem inclinadas.
+    fn textos_italicos(html: &str) -> Vec<(String, bool)> {
+        crate::block::install_ua_defaults();
+        let list = layout(html, 800.0);
+        list.materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text { text, italic, .. } => Some((text.to_string(), *italic)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn em_produz_texto_italico() {
+        // A UA-stylesheet regista `<em>` como FLAG_ITALIC; sem regra de autor
+        // nenhuma, é ela a única fonte da resposta.
+        let itens = textos_italicos("<p><em>enfase</em></p>");
+        assert!(
+            itens.iter().any(|(t, i)| t.contains("enfase") && *i),
+            "o <em> devia sair itálico: {itens:?}"
+        );
+    }
+
+    #[test]
+    fn texto_sem_font_style_nao_e_italico() {
+        let itens = textos_italicos("<p>direito</p>");
+        assert!(
+            itens.iter().all(|(_, i)| !*i),
+            "sem font-style nada é itálico: {itens:?}"
+        );
+    }
+
+    #[test]
+    fn font_style_normal_no_filho_desliga_o_italico() {
+        // Regra de AUTOR vence a UA — e vence no sentido de DESLIGAR, que é o
+        // caso que um `unwrap_or(ua)` mal escrito perderia.
+        let itens = textos_italicos("<p><em style='font-style:normal'>direito</em></p>");
+        assert!(
+            itens.iter().any(|(t, i)| t.contains("direito") && !*i),
+            "font-style:normal no <em> devia desligar: {itens:?}"
+        );
+    }
+
+    #[test]
+    fn italico_do_pai_e_herdado_pelo_filho() {
+        let itens = textos_italicos("<p style='font-style:italic'><span>herdado</span></p>");
+        assert!(
+            itens.iter().any(|(t, i)| t.contains("herdado") && *i),
+            "o span devia herdar o itálico do <p>: {itens:?}"
+        );
+    }
+
+    #[test]
+    fn italico_e_negrito_sao_eixos_independentes() {
+        // `font-weight:bold` + `<em>` é bold-italic: colapsar os dois bits num
+        // só perderia esta combinação, que é o que a família "bold-italic" do
+        // egui existe para pintar.
+        //
+        // O peso vem de uma regra de AUTOR e não de um `<b>` de propósito: o
+        // negrito da UA-stylesheet NÃO é lido por ninguém (o mesmo defeito que
+        // este lote corrige para o itálico, ainda por corrigir para o peso), e
+        // um `<b>` aqui faria o teste falhar por uma razão que não é a que ele
+        // pergunta.
+        crate::block::install_ua_defaults();
+        let list = layout("<p><em style='font-weight:bold'>ambos</em></p>", 800.0);
+        let achou = list.materialized().iter().any(|it| {
+            matches!(it, DisplayItem::Text { text, bold, italic, .. }
+                if text.contains("ambos") && *bold && *italic)
+        });
+        assert!(achou, "<em><b> devia sair negrito E itálico");
     }
 
     /// Layout determinístico com medidor aproximado e viewport fixo.
     fn layout(html: &str, vw: f32) -> DisplayList {
         def_div();
         let dom = parse_html_to_dom(html);
-        let ctx = LayoutCtx { viewport_w: vw, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: vw,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         layout_document(&dom, &ctx)
     }
 
@@ -6030,7 +7051,11 @@ mod tests {
         );
         let card = dom.query("#card").unwrap();
         let card_idx = dom.resolve(card).unwrap();
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
 
         let first = layout_document(&dom, &ctx);
         let _warm = layout_document(&dom, &ctx);
@@ -6050,14 +7075,21 @@ mod tests {
         );
         let text = dom.query("#text").unwrap();
         let text_idx = dom.resolve(text).unwrap();
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
 
         let before = layout_document(&dom, &ctx).geometry().rects[&text_idx].w;
         let _warm = layout_document(&dom, &ctx);
         dom.set_text(text, "uma linha de texto bem mais comprida");
         let after = layout_document(&dom, &ctx).geometry().rects[&text_idx].w;
 
-        assert!(after > before, "a largura intrínseca deve acompanhar o novo texto");
+        assert!(
+            after > before,
+            "a largura intrínseca deve acompanhar o novo texto"
+        );
     }
 
     #[test]
@@ -6069,7 +7101,11 @@ mod tests {
         let dom = parse_html_to_dom(
             "<div id=pai style='padding:50px'><div id=filho style='height:20px'>x</div></div>",
         );
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let pai = dom.query("#pai").unwrap();
         let filho = dom.query("#filho").unwrap();
@@ -6089,7 +7125,11 @@ mod tests {
     #[test]
     fn elemento_inline_recebe_bounding_rect() {
         let dom = parse_html_to_dom("<div><span id='s'>texto</span></div>");
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let span = dom.query("#s").unwrap();
         let span_idx = dom.resolve(span).unwrap();
@@ -6105,12 +7145,28 @@ mod tests {
     #[test]
     fn link_no_meio_do_paragrafo_tem_caixa_na_sua_fatia_da_linha() {
         let dom = parse_html_to_dom("<p>antes <a id='l'>link</a> depois</p>");
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
-        let r = *list.geometry().rects.get(&idx).expect("o <a> devia ter caixa");
-        assert!(r.x > 0.0, "começa depois do texto que o antecede: x={}", r.x);
-        assert!(r.w > 0.0 && r.w < 800.0, "largura da sua fatia, não a do <p>: w={}", r.w);
+        let r = *list
+            .geometry()
+            .rects
+            .get(&idx)
+            .expect("o <a> devia ter caixa");
+        assert!(
+            r.x > 0.0,
+            "começa depois do texto que o antecede: x={}",
+            r.x
+        );
+        assert!(
+            r.w > 0.0 && r.w < 800.0,
+            "largura da sua fatia, não a do <p>: w={}",
+            r.w
+        );
         assert!(r.h > 0.0);
     }
 
@@ -6121,15 +7177,31 @@ mod tests {
     fn link_partido_em_duas_linhas_tem_caixa_que_contem_as_duas() {
         let texto = "palavra ".repeat(40);
         let dom = parse_html_to_dom(&format!("<p><a id='l'>{texto}</a></p>"));
-        let ctx = LayoutCtx { viewport_w: 200.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 200.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
-        let r = *list.geometry().rects.get(&idx).expect("o <a> devia ter caixa");
+        let r = *list
+            .geometry()
+            .rects
+            .get(&idx)
+            .expect("o <a> devia ter caixa");
         // várias linhas: a altura é a soma delas, muito acima de uma linha só.
         let uma_linha = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
-        assert!(r.h > uma_linha * 2.0, "devia abranger várias linhas: h={}", r.h);
+        assert!(
+            r.h > uma_linha * 2.0,
+            "devia abranger várias linhas: h={}",
+            r.h
+        );
         // e a união é larga como a coluna, não como o último fragmento.
-        assert!(r.w > 100.0, "a união abrange a largura da coluna: w={}", r.w);
+        assert!(
+            r.w > 100.0,
+            "a união abrange a largura da coluna: w={}",
+            r.w
+        );
     }
 
     /// Um `<img>` inline é um REPLACED element: tem caixa própria com a largura e
@@ -6138,10 +7210,18 @@ mod tests {
     #[test]
     fn img_inline_tem_caixa_propria_dos_atributos() {
         let dom = parse_html_to_dom("<p>antes <img id='i' width='40' height='30'> depois</p>");
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#i").unwrap()).unwrap();
-        let r = *list.geometry().rects.get(&idx).expect("o <img> devia ter caixa");
+        let r = *list
+            .geometry()
+            .rects
+            .get(&idx)
+            .expect("o <img> devia ter caixa");
         assert_eq!((r.w, r.h), (40.0, 30.0));
         assert!(r.x > 0.0, "está depois do texto que o antecede: x={}", r.x);
     }
@@ -6153,12 +7233,23 @@ mod tests {
         let dom = parse_html_to_dom(
             "<p>antes <picture><source id='s'><img width='40' height='30'></picture></p>",
         );
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#s").unwrap()).unwrap();
-        let r = *list.geometry().rects.get(&idx).expect("o <source> devia ter caixa");
+        let r = *list
+            .geometry()
+            .rects
+            .get(&idx)
+            .expect("o <source> devia ter caixa");
         assert_eq!(r.w, 0.0, "um inline vazio não tem largura");
-        assert!(r.x > 0.0 && r.h > 0.0, "mas tem posição e altura de linha: {r:?}");
+        assert!(
+            r.x > 0.0 && r.h > 0.0,
+            "mas tem posição e altura de linha: {r:?}"
+        );
     }
 
     /// Um inline vazio SOZINHO num bloco não inventa uma linha: o bloco continua
@@ -6166,13 +7257,15 @@ mod tests {
     /// "mudar o layout".
     #[test]
     fn inline_vazio_sozinho_nao_cria_linha() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let com = layout_document(&parse_html_to_dom("<div><span></span></div>"), &ctx);
         let sem = layout_document(&parse_html_to_dom("<div></div>"), &ctx);
         assert_eq!(com.content_height, sem.content_height);
     }
-
-
 
     /// Um inline com CAIXA (fundo/padding) no meio de um parágrafo continua na
     /// linha: o parágrafo tem a altura de uma linha, não de três. Era o que
@@ -6180,7 +7273,11 @@ mod tests {
     /// fechava o fluxo inline e abria linha nova.
     #[test]
     fn inline_com_caixa_nao_parte_a_linha() {
-        let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1280.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let linhas = |html: &str| {
             let dom = parse_html_to_dom(html);
             let list = layout_document(&dom, &ctx);
@@ -6195,9 +7292,11 @@ mod tests {
             ys.len()
         };
         assert_eq!(linhas("<p>antes <span>simples</span> depois</p>"), 1);
-        assert_eq!(linhas("<p>antes <span style='background:#eee'>com caixa</span> depois</p>"), 1);
+        assert_eq!(
+            linhas("<p>antes <span style='background:#eee'>com caixa</span> depois</p>"),
+            1
+        );
     }
-
 
     /// O `line-height` declarado vale em QUALQUER contexto, não só no fluxo
     /// inline: o mesmo parágrafo dentro de um `display:flex` respondia a altura
@@ -6206,12 +7305,20 @@ mod tests {
     /// `line-height:2` tem 32px de altura, esteja onde estiver.
     #[test]
     fn line_height_declarado_vale_tambem_dentro_de_flex() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let altura = |html: &str| {
             let dom = parse_html_to_dom(html);
             let list = layout_document(&dom, &ctx);
             let idx = dom.resolve(dom.query("#alvo").unwrap()).unwrap();
-            list.geometry().rects.get(&idx).expect("o alvo devia ter caixa").h
+            list.geometry()
+                .rects
+                .get(&idx)
+                .expect("o alvo devia ter caixa")
+                .h
         };
         let sem = altura("<div id='alvo' style='display:flex'>uma linha</div>");
         let com = altura("<div id='alvo' style='display:flex; line-height:2'>uma linha</div>");
@@ -6228,7 +7335,11 @@ mod tests {
     /// da Wikipédia) e perdia a sua própria cor pelo caminho.
     #[test]
     fn span_filho_de_flex_tem_caixa_propria() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let dom = parse_html_to_dom(
             "<div style='display:flex'><span id='a'>um</span><span id='b'>dois</span></div>",
         );
@@ -6236,11 +7347,16 @@ mod tests {
         let geo = list.geometry();
         let caixa = |sel: &str| {
             let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-            *geo.rects.get(&idx).unwrap_or_else(|| panic!("{sel} devia ter caixa"))
+            *geo.rects
+                .get(&idx)
+                .unwrap_or_else(|| panic!("{sel} devia ter caixa"))
         };
         let (a, b) = (caixa("#a"), caixa("#b"));
         assert!(a.w > 0.0 && a.h > 0.0, "o primeiro tem tamanho: {a:?}");
-        assert!(b.x >= a.x + a.w, "o segundo à direita do primeiro: {a:?} {b:?}");
+        assert!(
+            b.x >= a.x + a.w,
+            "o segundo à direita do primeiro: {a:?} {b:?}"
+        );
     }
 
     /// A cor de um `<span>` filho de flex é a DELE, não a do container — o mesmo
@@ -6256,13 +7372,16 @@ mod tests {
         assert_eq!(texts[0].3, 0xFF0000FF, "a cor do span, não a do container");
     }
 
-
     /// `<br>` fecha a linha: o texto depois dele começa uma linha nova, e o
     /// próprio `<br>` tem posição e altura de linha com largura zero — é o que o
     /// browser reporta. Antes não quebrava nada: as duas linhas saíam como uma.
     #[test]
     fn br_quebra_a_linha_e_tem_a_sua_caixa() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let dom = parse_html_to_dom("<div>antes<br id='b'>depois</div>");
         let list = layout_document(&dom, &ctx);
         let mut ys: Vec<f32> = Vec::new();
@@ -6275,7 +7394,11 @@ mod tests {
         ys.dedup_by(|a, b| (*a - *b).abs() < 0.5);
         assert_eq!(ys.len(), 2, "duas linhas, não uma: {ys:?}");
         let idx = dom.resolve(dom.query("#b").unwrap()).unwrap();
-        let r = *list.geometry().rects.get(&idx).expect("o <br> devia ter caixa");
+        let r = *list
+            .geometry()
+            .rects
+            .get(&idx)
+            .expect("o <br> devia ter caixa");
         assert_eq!(r.w, 0.0);
         assert!(r.h > 0.0, "altura de linha: {r:?}");
     }
@@ -6289,23 +7412,37 @@ mod tests {
     /// `line-height: 26px` — 3 032 `<a>` na Wikipédia, ~24 500px de excesso.
     #[test]
     fn caixa_do_inline_e_a_altura_da_fonte_nao_a_da_linha() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
-        let dom = parse_html_to_dom(
-            "<div style='line-height:3'>antes <a id='l'>link</a> depois</div>",
-        );
+        let dom =
+            parse_html_to_dom("<div style='line-height:3'>antes <a id='l'>link</a> depois</div>");
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
-        let r = *list.geometry().rects.get(&idx).expect("o <a> devia ter caixa");
+        let r = *list
+            .geometry()
+            .rects
+            .get(&idx)
+            .expect("o <a> devia ter caixa");
         assert_eq!(r.h, fonte, "a altura da FONTE, não os 48 da linha");
         // meia-entrelinha: (48 − 18) / 2 = 15 acima.
-        assert_eq!(r.y, (3.0 * DEFAULT_FONT_SIZE - fonte) / 2.0, "centrado na linha: {r:?}");
+        assert_eq!(
+            r.y,
+            (3.0 * DEFAULT_FONT_SIZE - fonte) / 2.0,
+            "centrado na linha: {r:?}"
+        );
     }
-
 
     #[test]
     fn tmp_a() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         for html in [
             "<div style='line-height:1.625'>t <a id='x'>link</a> f</div>",
             "<div style='line-height:1.625'><a id='x'>link</a></div>",
@@ -6330,14 +7467,22 @@ mod tests {
     /// lhes tocava — eles nunca lá chegavam.
     #[test]
     fn radius_sozinho_nao_tira_o_elemento_do_fluxo_inline() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
         let dom = parse_html_to_dom(
             "<div style='line-height:2'>t <a id='x' style='border-radius:2px'>link</a> f</div>",
         );
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
-        let r = *list.geometry().rects.get(&idx).expect("o <a> devia ter caixa");
+        let r = *list
+            .geometry()
+            .rects
+            .get(&idx)
+            .expect("o <a> devia ter caixa");
         // Se tivesse sido blockificado, a altura seria a da LINHA (32) e o x seria
         // zero (caixa própria a começar na margem do bloco).
         assert_eq!(r.h, fonte, "altura da fonte, logo continua inline: {r:?}");
@@ -6353,7 +7498,11 @@ mod tests {
     /// Nós dávamos-lhe os 528, e era o maior erro de altura da página inteira.
     #[test]
     fn inline_a_volta_de_uma_imagem_mantem_a_altura_da_fonte() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
         let dom = parse_html_to_dom(
             "<div><span id='s'><a id='a'><img id='i' width='300' height='200'></a></span></div>",
@@ -6362,7 +7511,9 @@ mod tests {
         let geo = list.geometry();
         let caixa = |sel: &str| {
             let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-            *geo.rects.get(&idx).unwrap_or_else(|| panic!("{sel} sem caixa"))
+            *geo.rects
+                .get(&idx)
+                .unwrap_or_else(|| panic!("{sel} sem caixa"))
         };
         let (img, a, span) = (caixa("#i"), caixa("#a"), caixa("#s"));
         assert_eq!((img.w, img.h), (300.0, 200.0), "a imagem tem a sua caixa");
@@ -6373,18 +7524,25 @@ mod tests {
         assert_eq!(a.y, (200.0 - fonte) / 2.0, "meia-entrelinha: {a:?}");
     }
 
-
     /// Um `checkbox`/`radio` é um quadradinho de 13x13, não um campo de texto de
     /// 190x26 — e a medida que o fluxo RESERVA na linha é a mesma que a emissão
     /// pinta, porque agora as duas perguntam à mesma função.
     #[test]
     fn checkbox_e_um_quadrado_e_nao_um_campo_de_texto() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let caixa = |html: &str| {
             let dom = parse_html_to_dom(html);
             let list = layout_document(&dom, &ctx);
             let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
-            *list.geometry().rects.get(&idx).expect("o input devia ter caixa")
+            *list
+                .geometry()
+                .rects
+                .get(&idx)
+                .expect("o input devia ter caixa")
         };
         // Tolerância e não igualdade: 13 é o tamanho intrínseco, mas chega aqui
         // por uma cadeia de contas em f32 e sai 13.000001 conforme o que a
@@ -6396,11 +7554,20 @@ mod tests {
                 "{quem} devia ser um quadrado de 13: {r:?}"
             );
         };
-        quadrado(caixa("<div>a <input id='x' type='checkbox'> b</div>"), "o checkbox");
-        quadrado(caixa("<div>a <input id='x' type='radio'> b</div>"), "o radio");
+        quadrado(
+            caixa("<div>a <input id='x' type='checkbox'> b</div>"),
+            "o checkbox",
+        );
+        quadrado(
+            caixa("<div>a <input id='x' type='radio'> b</div>"),
+            "o radio",
+        );
         // o campo de texto continua a ser um campo de texto.
         let t = caixa("<div>a <input id='x' type='text'> b</div>");
-        assert!(t.w > 100.0, "campo de texto mantém a largura de campo: {t:?}");
+        assert!(
+            t.w > 100.0,
+            "campo de texto mantém a largura de campo: {t:?}"
+        );
     }
 
     /// `height: %` num `<input>` mede-se contra a ALTURA do containing block, não
@@ -6409,7 +7576,11 @@ mod tests {
     /// da viewport de altura: o pior rácio de erro da página inteira.
     #[test]
     fn altura_percentual_de_input_mede_se_no_eixo_vertical() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let dom = parse_html_to_dom(
             "<div style='height:400px'><input id='x' type='checkbox' style='height:100%'></div>",
         );
@@ -6418,7 +7589,6 @@ mod tests {
         let r = *list.geometry().rects.get(&idx).expect("sem caixa");
         assert_eq!(r.h, 400.0, "100% da ALTURA do pai, não da largura: {r:?}");
     }
-
 
     /// `display:none` num ANCESTRAL remove a subárvore inteira do layout — e um
     /// `position:absolute` lá dentro não é exceção.
@@ -6430,7 +7600,11 @@ mod tests {
     /// para um controlo invisível.
     #[test]
     fn absolute_dentro_de_display_none_nao_tem_caixa() {
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let dom = parse_html_to_dom(
             "<div style='position:relative;height:400px'>               <div style='display:none;position:relative'>                 <i id='x' style='position:absolute;height:100%'>a</i>               </div>             </div>",
         );
@@ -6447,7 +7621,11 @@ mod tests {
         );
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#y").unwrap()).unwrap();
-        let r = *list.geometry().rects.get(&idx).expect("este devia ter caixa");
+        let r = *list
+            .geometry()
+            .rects
+            .get(&idx)
+            .expect("este devia ter caixa");
         assert_eq!(r.h, 400.0, "100% da altura do containing block: {r:?}");
     }
 
@@ -6456,7 +7634,11 @@ mod tests {
         let dom = parse_html_to_dom(
             "<style>#back { position:absolute; left:0; top:0; width:200px; height:200px; z-index:10 } #front { position:absolute; left:0; top:0; width:100px; height:100px; z-index:0 }</style><div id='back'></div><div id='front'></div>",
         );
-        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let back = dom.resolve(dom.query("#back").unwrap()).unwrap();
         assert_eq!(list.hit_test(50.0, 50.0), Some(back));
@@ -6485,9 +7667,9 @@ mod tests {
         list.materialized()
             .iter()
             .filter_map(|it| match it {
-                DisplayItem::Text { text, x, y, color, .. } => {
-                    Some((text.to_string(), *x, *y, *color))
-                }
+                DisplayItem::Text {
+                    text, x, y, color, ..
+                } => Some((text.to_string(), *x, *y, *color)),
                 _ => None,
             })
             .collect()
@@ -6535,16 +7717,29 @@ mod tests {
         assert_eq!(texts[0], 0.0); // primeiro no topo
         // uma linha do medidor aproximado: 16 × 1.125.
         let uma_linha = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
-        assert!(texts[1] >= uma_linha, "segundo bloco abaixo do primeiro (y={})", texts[1]);
+        assert!(
+            texts[1] >= uma_linha,
+            "segundo bloco abaixo do primeiro (y={})",
+            texts[1]
+        );
     }
 
     #[test]
     fn fundo_vem_antes_do_texto_filho_no_zorder() {
         // O SolidRect (fundo) deve estar ANTES do Text na lista (pinta atrás).
         let list = layout("<div style='background:#222222; padding:8'>oi</div>", 600.0);
-        let i_rect = list.materialized().iter().position(|it| matches!(it, DisplayItem::SolidRect { .. }));
-        let i_text = list.materialized().iter().position(|it| matches!(it, DisplayItem::Text { .. }));
-        assert!(i_rect < i_text, "fundo (idx {i_rect:?}) deve vir antes do texto (idx {i_text:?})");
+        let i_rect = list
+            .materialized()
+            .iter()
+            .position(|it| matches!(it, DisplayItem::SolidRect { .. }));
+        let i_text = list
+            .materialized()
+            .iter()
+            .position(|it| matches!(it, DisplayItem::Text { .. }));
+        assert!(
+            i_rect < i_text,
+            "fundo (idx {i_rect:?}) deve vir antes do texto (idx {i_text:?})"
+        );
     }
 
     #[test]
@@ -6562,7 +7757,10 @@ mod tests {
             "<div style='background:#111111; padding:14; border-width:2; border-style:solid; margin:6'>z</div>",
             600.0,
         );
-        let txt = all_texts(&list).first().map(|(_, x, y, _)| (*x, *y)).expect("texto");
+        let txt = all_texts(&list)
+            .first()
+            .map(|(_, x, y, _)| (*x, *y))
+            .expect("texto");
         assert_eq!(txt.0, 22.0); // x = margin(6)+border(2)+padding(14)
         assert_eq!(txt.1, 22.0); // y idem
         // a caixa (fundo) NÃO inclui a margin: começa em (6,6).
@@ -6595,11 +7793,21 @@ mod tests {
         // stat-card: era isto que o egui colapsava; agora o layout do DOM resolve.)
         crate::block::define(
             "row",
-            crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 },
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
         );
         crate::block::define(
             "div",
-            crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
         );
         let dom = parse_html_to_dom(
             "<row>\
@@ -6608,18 +7816,34 @@ mod tests {
                <div style='background:#333;width:30%'>c</div>\
              </row>",
         );
-        let ctx = LayoutCtx { viewport_w: 900.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 900.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let rects: Vec<Rect> = all_rects(&list);
         assert_eq!(rects.len(), 3);
         // mesmo Y (lado a lado, não empilhado).
-        assert!(rects.iter().all(|r| r.y == rects[0].y), "todos no mesmo topo: {rects:?}");
+        assert!(
+            rects.iter().all(|r| r.y == rects[0].y),
+            "todos no mesmo topo: {rects:?}"
+        );
         // X crescente: card 2 à direita do 1, card 3 à direita do 2.
-        assert!(rects[0].x < rects[1].x && rects[1].x < rects[2].x, "X crescente: {rects:?}");
+        assert!(
+            rects[0].x < rects[1].x && rects[1].x < rects[2].x,
+            "X crescente: {rects:?}"
+        );
         // cada caixa 30% de 900 = 270 (a % resolve contra o content do <row>).
-        assert!(rects.iter().all(|r| (r.w - 270.0).abs() < 1.0), "largura ~270: {rects:?}");
+        assert!(
+            rects.iter().all(|r| (r.w - 270.0).abs() < 1.0),
+            "largura ~270: {rects:?}"
+        );
         // o 2º começa onde o 1º termina (sem sobrepor): x[1] ≈ x[0] + w[0].
-        assert!((rects[1].x - (rects[0].x + rects[0].w)).abs() < 1.0, "encostados: {rects:?}");
+        assert!(
+            (rects[1].x - (rects[0].x + rects[0].w)).abs() < 1.0,
+            "encostados: {rects:?}"
+        );
     }
 
     #[test]
@@ -6627,9 +7851,33 @@ mod tests {
         // REGRESSÃO (bug visto na tela): 3 cards width:32% COM filhos (<p>) num <row>
         // largo — o ÚLTIMO não pode esticar até a borda. Cada um = 32% da largura,
         // o resto fica vazio à direita (como no navegador). p=wrap pra bater o real.
-        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("p", crate::block::BlockDef { display: 1, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "row",
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "p",
+            crate::block::BlockDef {
+                display: 1,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let dom = parse_html_to_dom(
             "<row>\
                <div style='background:#111;width:32%'><p>256</p><p>testes</p></div>\
@@ -6637,20 +7885,35 @@ mod tests {
                <div style='background:#333;width:32%'><p>5</p><p>fases</p></div>\
              </row>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::SolidRect { rect, .. } => Some(*rect),
-            _ => None,
-        }).collect();
+        let rects: Vec<Rect> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
         assert_eq!(rects.len(), 3);
         // TODOS com a MESMA largura = 32% de 1000 = 320 (o 3º NÃO estica).
         for (i, r) in rects.iter().enumerate() {
-            assert!((r.w - 320.0).abs() < 1.0, "card[{i}] devia ter 320 (32%), tem {}: {rects:?}", r.w);
+            assert!(
+                (r.w - 320.0).abs() < 1.0,
+                "card[{i}] devia ter 320 (32%), tem {}: {rects:?}",
+                r.w
+            );
         }
         // o último termina BEM antes da borda (3×320=960 < 1000), sobra vazio.
         let last = rects[2];
-        assert!(last.x + last.w <= 1000.0, "último não passa da borda: {last:?}");
+        assert!(
+            last.x + last.w <= 1000.0,
+            "último não passa da borda: {last:?}"
+        );
     }
 
     #[test]
@@ -6658,61 +7921,122 @@ mod tests {
         // box-sizing:border-box: width:32% INCLUI padding+border → a CAIXA é 32%,
         // 3 cards = 96% (cabem, sobra ~4%). Sem border-box (content-box) cada caixa
         // seria 32%+frame e estouraria. Prova a propriedade real do CSS.
-        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "row",
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let dom = parse_html_to_dom(
             "<style>.card{box-sizing:border-box;width:32%;padding:14;border-width:2;background:#1a2030}</style>\
              <row>\
                <div class='card'>a</div><div class='card'>b</div><div class='card'>c</div>\
              </row>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::SolidRect { rect, .. } => Some(*rect),
-            _ => None,
-        }).collect();
+        let rects: Vec<Rect> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
         assert_eq!(rects.len(), 3);
         // cada CAIXA = 32% de 1000 = 320 (border-box: o width É a caixa inteira).
         for (i, r) in rects.iter().enumerate() {
-            assert!((r.w - 320.0).abs() < 1.0, "card[{i}] caixa=320 (border-box): {rects:?}");
+            assert!(
+                (r.w - 320.0).abs() < 1.0,
+                "card[{i}] caixa=320 (border-box): {rects:?}"
+            );
         }
         // 3×320=960 < 1000: cabem com folga (sobra ~40 = 4%).
         let last = rects[2];
         assert!(last.x + last.w <= 1000.0, "cabem todos: {rects:?}");
-        assert!(1000.0 - (last.x + last.w) >= 30.0, "sobra espaço à direita: {rects:?}");
+        assert!(
+            1000.0 - (last.x + last.w) >= 30.0,
+            "sobra espaço à direita: {rects:?}"
+        );
     }
 
     #[test]
     fn min_max_width_clamp() {
         // VALIDADO no Chrome: used_width = clamp(min, width, max) (#1751).
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let cases = [
-            ("width:500px;max-width:300px", 300.0),  // max limita
-            ("width:50px;min-width:200px", 200.0),   // min eleva
+            ("width:500px;max-width:300px", 300.0), // max limita
+            ("width:50px;min-width:200px", 200.0),  // min eleva
             ("width:1000px;max-width:400px;min-width:100px", 400.0), // clamp
-            ("width:600px;max-width:50%", 400.0),    // % de 800
+            ("width:600px;max-width:50%", 400.0),   // % de 800
         ];
         for (style, expected) in cases {
             let dom = parse_html_to_dom(&format!("<div id=\"t\" style=\"{style}\">x</div>"));
             let t = dom.query("#t").unwrap();
-            let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+            let ctx = LayoutCtx {
+                viewport_w: 800.0,
+                viewport_h: 600.0,
+                measurer: &ApproxMeasurer,
+            };
             let rect = bounding_rect(&dom, dom.resolve(t).unwrap(), &ctx).unwrap();
-            assert!((rect.w - expected).abs() < 1.0, "{style}: w={} esperado {expected}", rect.w);
+            assert!(
+                (rect.w - expected).abs() < 1.0,
+                "{style}: w={} esperado {expected}",
+                rect.w
+            );
         }
     }
 
     #[test]
     fn min_max_height_clamp() {
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         // height:500 max-height:200 → caixa de 200.
-        let dom = parse_html_to_dom("<div id=\"t\" style=\"height:500px;max-height:200px;width:100px\">x</div>");
+        let dom = parse_html_to_dom(
+            "<div id=\"t\" style=\"height:500px;max-height:200px;width:100px\">x</div>",
+        );
         let t = dom.query("#t").unwrap();
-        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 600.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let rect = bounding_rect(&dom, dom.resolve(t).unwrap(), &ctx).unwrap();
         assert!((rect.h - 200.0).abs() < 1.0, "max-height: h={}", rect.h);
         // min-height:300 num conteúdo pequeno → caixa de 300.
-        let dom2 = parse_html_to_dom("<div id=\"t\" style=\"min-height:300px;width:100px\">x</div>");
+        let dom2 =
+            parse_html_to_dom("<div id=\"t\" style=\"min-height:300px;width:100px\">x</div>");
         let t2 = dom2.query("#t").unwrap();
         let rect2 = bounding_rect(&dom2, dom2.resolve(t2).unwrap(), &ctx).unwrap();
         assert!(rect2.h >= 300.0, "min-height: h={}", rect2.h);
@@ -6721,13 +8045,23 @@ mod tests {
     #[test]
     fn text_align_desloca_o_texto() {
         // text-align center/right desloca o texto pelo espaço livre (#1749).
-        let dom = parse_html_to_dom("<style>#c{text-align:center;width:400px}#r{text-align:right;width:400px}</style><div id=\"c\">x</div><div id=\"r\">y</div>");
-        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let dom = parse_html_to_dom(
+            "<style>#c{text-align:center;width:400px}#r{text-align:right;width:400px}</style><div id=\"c\">x</div><div id=\"r\">y</div>",
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 600.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let texts: Vec<(String, f32)> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::Text { text, x, .. } => Some((text.to_string(), *x)),
-            _ => None,
-        }).collect();
+        let texts: Vec<(String, f32)> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text { text, x, .. } => Some((text.to_string(), *x)),
+                _ => None,
+            })
+            .collect();
         // "x" (1 char, ~8px = 16×0.5) centrado em 400 → x ≈ (400-8)/2 = 196.
         let cx = texts.iter().find(|(t, _)| t == "x").unwrap().1;
         assert!((cx - 196.0).abs() < 2.0, "center: {cx}");
@@ -6744,13 +8078,27 @@ mod tests {
             "<div><svg id=logo width=272 height=92 viewBox='0 0 272 92'></svg></div>\
              <svg id=ico width=24 height=24></svg>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let r = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let logo = r("#logo");
-        assert!((logo.w - 272.0).abs() < 1.0 && (logo.h - 92.0).abs() < 1.0, "logo: {}x{}", logo.w, logo.h);
+        assert!(
+            (logo.w - 272.0).abs() < 1.0 && (logo.h - 92.0).abs() < 1.0,
+            "logo: {}x{}",
+            logo.w,
+            logo.h
+        );
         let ico = r("#ico");
-        assert!((ico.w - 24.0).abs() < 1.0 && (ico.h - 24.0).abs() < 1.0, "ico: {}x{}", ico.w, ico.h);
+        assert!(
+            (ico.w - 24.0).abs() < 1.0 && (ico.h - 24.0).abs() < 1.0,
+            "ico: {}x{}",
+            ico.w,
+            ico.h
+        );
     }
 
     #[test]
@@ -6760,17 +8108,26 @@ mod tests {
             "<div style='display:grid;grid-template-columns:200px 1fr 2fr;width:620px'>\
              <div id=a>A</div><div id=b>B</div><div id=c>C</div></div>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let rect = |sel: &str| {
             let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
             list.geometry().rects[&idx]
         };
-        let a = rect("#a"); let b = rect("#b"); let c = rect("#c");
+        let a = rect("#a");
+        let b = rect("#b");
+        let c = rect("#c");
         assert!((a.w - 200.0).abs() < 1.0, "col px: {}", a.w);
         assert!((b.w - 140.0).abs() < 1.0, "col 1fr: {}", b.w); // (620-200)/3
         assert!((c.w - 280.0).abs() < 1.0, "col 2fr: {}", c.w); // 2×140
-        assert!((b.x - 200.0).abs() < 1.0 && (c.x - 340.0).abs() < 1.0, "posições");
+        assert!(
+            (b.x - 200.0).abs() < 1.0 && (c.x - 340.0).abs() < 1.0,
+            "posições"
+        );
     }
 
     #[test]
@@ -6785,16 +8142,41 @@ mod tests {
              <div id=b style='grid-area:conteudo'>conteudo</div>\
              <div id=a style='grid-area:lado'>lado</div></div>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let rect = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let rect =
+            |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let a = rect("#a");
         let b = rect("#b");
-        assert!((a.y - b.y).abs() < 1.0, "mesma linha: a.y={} b.y={}", a.y, b.y);
-        assert!(b.x > a.x, "conteudo à direita do lado: a.x={} b.x={}", a.x, b.x);
+        assert!(
+            (a.y - b.y).abs() < 1.0,
+            "mesma linha: a.y={} b.y={}",
+            a.y,
+            b.y
+        );
+        assert!(
+            b.x > a.x,
+            "conteudo à direita do lado: a.x={} b.x={}",
+            a.x,
+            b.x
+        );
         // a ordem do DOM tem o conteúdo PRIMEIRO — a matriz é que manda, não ela.
-        assert!((a.x - 0.0).abs() < 1.0 && (a.w - 200.0).abs() < 1.0, "lado: x={} w={}", a.x, a.w);
-        assert!((b.x - 200.0).abs() < 1.0 && (b.w - 400.0).abs() < 1.0, "conteudo: x={} w={}", b.x, b.w);
+        assert!(
+            (a.x - 0.0).abs() < 1.0 && (a.w - 200.0).abs() < 1.0,
+            "lado: x={} w={}",
+            a.x,
+            a.w
+        );
+        assert!(
+            (b.x - 200.0).abs() < 1.0 && (b.w - 400.0).abs() < 1.0,
+            "conteudo: x={} w={}",
+            b.x,
+            b.w
+        );
     }
 
     #[test]
@@ -6810,16 +8192,29 @@ mod tests {
              <div id=l style='grid-area:lado'>l</div>\
              <div id=c style='grid-area:conteudo'>c</div></div>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let rect = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let rect =
+            |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let t = rect("#t");
         let l = rect("#l");
         let c = rect("#c");
-        assert!((t.w - 624.0).abs() < 1.0, "topo cobre as 2 colunas + gap: {}", t.w);
+        assert!(
+            (t.w - 624.0).abs() < 1.0,
+            "topo cobre as 2 colunas + gap: {}",
+            t.w
+        );
         assert!(l.y > t.y, "lado abaixo do topo: t.y={} l.y={}", t.y, l.y);
         assert!((l.y - c.y).abs() < 1.0, "lado e conteudo na mesma linha");
-        assert!((c.x - 224.0).abs() < 1.0, "conteudo após 200px + 24 de gap: {}", c.x);
+        assert!(
+            (c.x - 224.0).abs() < 1.0,
+            "conteudo após 200px + 24 de gap: {}",
+            c.x
+        );
     }
 
     #[test]
@@ -6831,13 +8226,27 @@ mod tests {
              grid-template-areas:'x x'\">\
              <div id=n style='grid-area:x'>n</div><div id=s>s</div></div>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let rect = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let rect =
+            |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let n = rect("#n");
         let s = rect("#s");
-        assert!((n.w - 400.0).abs() < 1.0, "nomeado ocupa as 2 colunas: {}", n.w);
-        assert!(s.y > n.y, "sem nome vai para a linha seguinte: n.y={} s.y={}", n.y, s.y);
+        assert!(
+            (n.w - 400.0).abs() < 1.0,
+            "nomeado ocupa as 2 colunas: {}",
+            n.w
+        );
+        assert!(
+            s.y > n.y,
+            "sem nome vai para a linha seguinte: n.y={} s.y={}",
+            n.y,
+            s.y
+        );
         assert!((s.x - 0.0).abs() < 1.0, "e para a 1ª coluna livre: {}", s.x);
     }
 
@@ -6849,11 +8258,19 @@ mod tests {
             "<div style='display:grid;align-items:center;height:240px'>\
              <div id=logo style='height:92px'>x</div></div>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#logo").unwrap()).unwrap();
         let r = list.geometry().rects[&idx];
-        assert!((r.y - 74.0).abs() < 2.0, "y centralizado: {} (esperado 74=(240-92)/2)", r.y);
+        assert!(
+            (r.y - 74.0).abs() < 2.0,
+            "y centralizado: {} (esperado 74=(240-92)/2)",
+            r.y
+        );
         assert!((r.h - 92.0).abs() < 2.0, "altura preservada: {}", r.h);
     }
 
@@ -6866,12 +8283,19 @@ mod tests {
              <div id=c style='height:calc(100% - 560px);background:#eee'>x</div>\
              </div>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let c = dom.query("#c").unwrap();
         let idx = dom.resolve(c).unwrap();
-        assert!((list.geometry().rects[&idx].h - 240.0).abs() < 2.0,
-            "calc height: {} (esperado 240 = 800-560)", list.geometry().rects[&idx].h);
+        assert!(
+            (list.geometry().rects[&idx].h - 240.0).abs() < 2.0,
+            "calc height: {} (esperado 240 = 800-560)",
+            list.geometry().rects[&idx].h
+        );
     }
 
     #[test]
@@ -6884,12 +8308,20 @@ mod tests {
              <div style='flex-grow:1'><div id=alvo style='height:100%;background:#00f'>x</div></div>\
              </div>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let alvo = dom.query("#alvo").unwrap();
         let idx = dom.resolve(alvo).unwrap();
         let r = list.geometry().rects[&idx];
-        assert!((r.h - 740.0).abs() < 2.0, "altura do filho 100%: {} (esperado 740)", r.h);
+        assert!(
+            (r.h - 740.0).abs() < 2.0,
+            "altura do filho 100%: {} (esperado 740)",
+            r.h
+        );
         assert!((r.y - 60.0).abs() < 2.0, "y do filho: {}", r.y);
     }
 
@@ -6903,57 +8335,119 @@ mod tests {
              <span style='position:absolute;top:0px;right:0px;width:30px;height:30px;background:#00f'>i</span>\
              </div>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         // o span azul: canto direito da caixa (x=100, w=400 → 500) menos a largura.
-        let sp = list.materialized().iter().find_map(|it| match it {
-            DisplayItem::SolidRect { rect, color, .. } if *color == 0x0000FFFF => Some(*rect),
-            _ => None,
-        }).expect("span absolute");
-        assert!((sp.x - 470.0).abs() < 2.0, "x do abs: {} (esperado ~470 = 100+400-30)", sp.x);
-        assert!(sp.y.abs() < 2.0 || (sp.y - 0.0).abs() < 2.0, "y do abs: {}", sp.y);
+        let sp = list
+            .materialized()
+            .iter()
+            .find_map(|it| match it {
+                DisplayItem::SolidRect { rect, color, .. } if *color == 0x0000FFFF => Some(*rect),
+                _ => None,
+            })
+            .expect("span absolute");
+        assert!(
+            (sp.x - 470.0).abs() < 2.0,
+            "x do abs: {} (esperado ~470 = 100+400-30)",
+            sp.x
+        );
+        assert!(
+            sp.y.abs() < 2.0 || (sp.y - 0.0).abs() < 2.0,
+            "y do abs: {}",
+            sp.y
+        );
     }
 
     #[test]
     fn link_ua_azul_sublinhado_por_run() {
         // `<a>` sem CSS de autor: cor azul default + underline (deco=1) SÓ no seu
         // texto — o texto adjacente do parágrafo fica preto e sem decoração.
-        crate::block::define("p", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "p",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let dom = parse_html_to_dom("<p>antes <a href=x>link</a> depois</p>");
-        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 600.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let segs: Vec<(String, u32, u8)> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::Text { text, color, decoration, .. } => {
-                Some((text.to_string(), *color, *decoration))
-            }
-            _ => None,
-        }).collect();
-        let link = segs.iter().find(|(t, ..)| t.contains("link")).expect("run do link");
+        let segs: Vec<(String, u32, u8)> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text {
+                    text,
+                    color,
+                    decoration,
+                    ..
+                } => Some((text.to_string(), *color, *decoration)),
+                _ => None,
+            })
+            .collect();
+        let link = segs
+            .iter()
+            .find(|(t, ..)| t.contains("link"))
+            .expect("run do link");
         assert_eq!(link.1, 0x0000EEFF, "link azul");
         assert_eq!(link.2, 1, "link sublinhado");
         // o texto ao redor (preto, sem deco) é um segmento SEPARADO.
-        assert!(segs.iter().any(|(t, c, d)| t.contains("antes") && *c == 0x000000FF && *d == 0));
+        assert!(
+            segs.iter()
+                .any(|(t, c, d)| t.contains("antes") && *c == 0x000000FF && *d == 0)
+        );
     }
 
     #[test]
     fn line_height_e_text_transform() {
         // line-height do CSS respeitado + text-transform aplicado (#1749). Usa <div>
         // (sem margin default da UA, ao contrário de <p>) p/ isolar o line-height.
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
-        let dom = parse_html_to_dom("<style>div{line-height:3;text-transform:uppercase}</style><div>oi</div><div>tchau</div>");
-        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        let dom = parse_html_to_dom(
+            "<style>div{line-height:3;text-transform:uppercase}</style><div>oi</div><div>tchau</div>",
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 600.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let texts: Vec<(String, f32)> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::Text { text, y, .. } => Some((text.to_string(), *y)),
-            _ => None,
-        }).collect();
+        let texts: Vec<(String, f32)> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text { text, y, .. } => Some((text.to_string(), *y)),
+                _ => None,
+            })
+            .collect();
         // uppercase aplicado.
         assert!(texts.iter().any(|(t, _)| t == "OI"));
         assert!(texts.iter().any(|(t, _)| t == "TCHAU"));
         // line-height:3 = 3×16 = 48px entre as linhas (div sem margin).
         let y_oi = texts.iter().find(|(t, _)| t == "OI").unwrap().1;
         let y_tchau = texts.iter().find(|(t, _)| t == "TCHAU").unwrap().1;
-        assert!((y_tchau - y_oi - 48.0).abs() < 5.0, "line-height: {y_oi} → {y_tchau}");
+        assert!(
+            (y_tchau - y_oi - 48.0).abs() < 5.0,
+            "line-height: {y_oi} → {y_tchau}"
+        );
     }
 
     #[test]
@@ -6962,7 +8456,15 @@ mod tests {
         // precisar de defineBlock. `display:none` some. É o motor lendo o display DO
         // CSS. (`<div>` é block via a UA-stylesheet `ua.ts` em produção; nos testes
         // unitários — sem o prelude TS — registramos o default à mão.)
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let dom = parse_html_to_dom(
             "<style>row{display:flex} hide{display:none} \
                     .c{width:30%;background:#111}</style>\
@@ -6971,18 +8473,35 @@ mod tests {
              </row>\
              <hide>invisível</hide>",
         );
-        let ctx = LayoutCtx { viewport_w: 900.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 900.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::SolidRect { rect, .. } => Some(*rect),
-            _ => None,
-        }).collect();
+        let rects: Vec<Rect> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
         assert_eq!(rects.len(), 3, "3 cards (o <hide> display:none não pinta)");
         // display:flex do CSS → lado a lado (X crescente, mesmo Y).
-        assert!(rects[0].x < rects[1].x && rects[1].x < rects[2].x, "lado a lado: {rects:?}");
-        assert!(rects.iter().all(|r| r.y == rects[0].y), "mesma linha: {rects:?}");
+        assert!(
+            rects[0].x < rects[1].x && rects[1].x < rects[2].x,
+            "lado a lado: {rects:?}"
+        );
+        assert!(
+            rects.iter().all(|r| r.y == rects[0].y),
+            "mesma linha: {rects:?}"
+        );
         // display:none → o texto "invisível" NÃO está na lista.
-        let has_invisivel = list.materialized().iter().any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
+        let has_invisivel = list
+            .materialized()
+            .iter()
+            .any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
         assert!(!has_invisivel, "display:none não renderiza o conteúdo");
     }
 
@@ -6991,36 +8510,78 @@ mod tests {
         // margin_v (UA-stylesheet) separa blocos no VERTICAL mas NÃO empurra no
         // eixo horizontal (como `margin: Npx 0` do navegador para h1/p). Dois
         // parágrafos com margin_v: o 2º começa mais abaixo, mas ambos em x=0.
-        crate::block::define("p", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "p",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         crate::style::define_style("p", crate::style::SLOT_MARGIN_V, 16);
         let dom = parse_html_to_dom("<p>um</p><p>dois</p>");
-        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 600.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let texts: Vec<(f32, f32)> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::Text { x, y, .. } => Some((*x, *y)),
-            _ => None,
-        }).collect();
+        let texts: Vec<(f32, f32)> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text { x, y, .. } => Some((*x, *y)),
+                _ => None,
+            })
+            .collect();
         assert_eq!(texts.len(), 2);
         // X: ambos em 0 (margin VERTICAL não desloca horizontal).
         assert_eq!(texts[0].0, 0.0, "1º texto em x=0: {texts:?}");
-        assert_eq!(texts[1].0, 0.0, "2º texto em x=0 (margin não empurrou): {texts:?}");
+        assert_eq!(
+            texts[1].0, 0.0,
+            "2º texto em x=0 (margin não empurrou): {texts:?}"
+        );
         // Y: o 2º bem abaixo (margin colapsado entre eles + altura da linha).
-        assert!(texts[1].1 > texts[0].1 + 20.0, "2º empilhado abaixo: {texts:?}");
+        assert!(
+            texts[1].1 > texts[0].1 + 20.0,
+            "2º empilhado abaixo: {texts:?}"
+        );
     }
 
     #[test]
     fn bounding_rect_dos_cards() {
         // getBoundingClientRect: o border-box de cada nó-bloco. Os 3 cards (flex,
         // 32% border-box) têm os MESMOS rects que o dump mostra (x=20/322/624, w=302).
-        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "row",
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let dom = parse_html_to_dom(
             "<style>.card{box-sizing:border-box;width:32%;padding:14;border-width:2;background:#1a2030}</style>\
              <row>\
                <div class='card' id='a'>1</div><div class='card' id='b'>2</div><div class='card' id='c'>3</div>\
              </row>",
         );
-        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 1000.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         // resolve os NodeIdx dos 3 cards e mede cada um.
         let a = dom.resolve(dom.query("#a").unwrap()).unwrap();
         let b = dom.resolve(dom.query("#b").unwrap()).unwrap();
@@ -7033,7 +8594,10 @@ mod tests {
         assert!((rb.w - 320.0).abs() < 1.0);
         assert!((rc.w - 320.0).abs() < 1.0);
         assert_eq!(ra.x, 0.0); // (sem padding no body de teste, x começa em 0)
-        assert!(rb.x > ra.x && rc.x > rb.x, "X crescente: {ra:?} {rb:?} {rc:?}");
+        assert!(
+            rb.x > ra.x && rc.x > rb.x,
+            "X crescente: {ra:?} {rb:?} {rc:?}"
+        );
         assert_eq!(ra.y, rb.y); // mesma linha (flex)
     }
 
@@ -7041,8 +8605,20 @@ mod tests {
     fn bounding_rect_none_para_texto() {
         // texto/inline não tem rect próprio (a API só dá rect de elemento-bloco).
         let dom = parse_html_to_dom("<p>oi</p>");
-        crate::block::define("p", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
-        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        crate::block::define(
+            "p",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 600.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let p = dom.resolve(dom.query("p").unwrap()).unwrap();
         // o <p> (bloco) TEM rect.
         assert!(bounding_rect(&dom, p, &ctx).is_some());
@@ -7053,23 +8629,49 @@ mod tests {
 
     /// Helper: layout de um HTML num row flex e os rects (x ordenado) dos N cards.
     fn flex_card_rects(style: &str, n_cards: usize, vw: f32) -> Vec<Rect> {
-        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "row",
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         // flex-shrink:0 nos cards: estes testes validam JUSTIFY (inclusive em
         // overflow real, como o Chrome foi medido); sem o 0, o shrink default=1
         // (agora implementado!) encolheria os itens e não haveria overflow.
-        let mut html = format!("<style>row{{display:flex;{style}}} .c{{width:100px;flex-shrink:0;background:#111}}</style><row>");
+        let mut html = format!(
+            "<style>row{{display:flex;{style}}} .c{{width:100px;flex-shrink:0;background:#111}}</style><row>"
+        );
         for i in 0..n_cards {
             html.push_str(&format!("<div class='c' id='c{i}'>x</div>"));
         }
         html.push_str("</row>");
         let dom = parse_html_to_dom(&html);
-        let ctx = LayoutCtx { viewport_w: vw, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: vw,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let mut rects: Vec<Rect> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::SolidRect { rect, .. } => Some(*rect),
-            _ => None,
-        }).collect();
+        let mut rects: Vec<Rect> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
         rects.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
         rects
     }
@@ -7109,8 +8711,24 @@ mod tests {
     fn flex_grow_distribui_o_espaco() {
         // O GRID do Bootstrap: `.col { flex: 1 0 0% }` — 3 colunas dividem o
         // container igualmente (base 0, grow distribui TUDO).
-        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "row",
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let list = layout(
             "<style>row{display:flex} .col{flex:1 0 0%;background:#111}</style>\
              <row><div class='col'>a</div><div class='col'>b</div><div class='col'>c</div></row>",
@@ -7136,15 +8754,34 @@ mod tests {
     fn flex_shrink_encolhe_em_overflow() {
         // shrink DEFAULT = 1 (fiel ao CSS): 2 itens de 400 em 600 encolhem para
         // 300 cada; com shrink:0 no primeiro, ele mantém 400 e o outro cede.
-        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "row",
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let list = layout(
             "<style>row{display:flex} .c{width:400px;background:#111}</style>\
              <row><div class='c'>a</div><div class='c'>b</div></row>",
             600.0,
         );
         let r = all_rects(&list);
-        assert!((r[0].w - 300.0).abs() < 0.5, "shrink default encolhe: {r:?}");
+        assert!(
+            (r[0].w - 300.0).abs() < 0.5,
+            "shrink default encolhe: {r:?}"
+        );
         assert!((r[1].w - 300.0).abs() < 0.5, "{r:?}");
         let l2 = layout(
             "<style>row{display:flex} .fix{width:400px;flex-shrink:0;background:#111} .c{width:400px;background:#222}</style>\
@@ -7153,15 +8790,34 @@ mod tests {
         );
         let r2 = all_rects(&l2);
         assert!((r2[0].w - 400.0).abs() < 0.5, "shrink:0 nao cede: {r2:?}");
-        assert!((r2[1].w - 200.0).abs() < 0.5, "o flexivel cede tudo: {r2:?}");
+        assert!(
+            (r2[1].w - 200.0).abs() < 0.5,
+            "o flexivel cede tudo: {r2:?}"
+        );
     }
 
     #[test]
     fn flex_order_e_align_self() {
         // `order` reordena visualmente (menor primeiro); `align-self` vence o
         // align-items do container; STRETCH real estica o item sem height.
-        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "row",
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let list = layout(
             "<style>row{display:flex;height:100px;align-items:flex-start}\
               .a{order:2;width:100px;height:20px;background:#111}\
@@ -7174,7 +8830,10 @@ mod tests {
         let r = all_rects(&list);
         assert!((r[0].x - 0.0).abs() < 0.5, ".s primeiro (order 0): {r:?}");
         assert!((r[1].x - 100.0).abs() < 0.5, ".b no meio (order 1): {r:?}");
-        assert!((r[2].x - 200.0).abs() < 0.5, ".a por ultimo (order 2): {r:?}");
+        assert!(
+            (r[2].x - 200.0).abs() < 0.5,
+            ".a por ultimo (order 2): {r:?}"
+        );
         // align-self:stretch do .s (sem height): estica até a linha (100) — o
         // align-items:flex-start do container é VENCIDO pelo align-self.
         assert!((r[0].h - 100.0).abs() < 0.5, "stretch estica: {r:?}");
@@ -7188,7 +8847,12 @@ mod tests {
     fn flex_justify_overflow() {
         // 3 cards de 100 em 200 (overflow real = -100). VALIDADO contra Chrome
         // (flex-shrink:0): os space-* caem para flex-start → x = 0, 100, 200.
-        for jc in ["space-between", "space-around", "space-evenly", "flex-start"] {
+        for jc in [
+            "space-between",
+            "space-around",
+            "space-evenly",
+            "flex-start",
+        ] {
             let r = flex_card_rects(&format!("justify-content:{jc}"), 3, 200.0);
             assert!((r[0].x - 0.0).abs() < 0.5, "{jc} overflow→start: {r:?}");
             assert!((r[1].x - 100.0).abs() < 0.5, "{jc}: {r:?}");
@@ -7196,7 +8860,10 @@ mod tests {
         }
         // center em overflow: leading = free/2 = -50 → x = -50, 50, 150 (Chrome).
         let r = flex_card_rects("justify-content:center", 3, 200.0);
-        assert!((r[0].x + 50.0).abs() < 0.5, "center overflow leading=-50: {r:?}");
+        assert!(
+            (r[0].x + 50.0).abs() < 0.5,
+            "center overflow leading=-50: {r:?}"
+        );
         assert!((r[2].x - 150.0).abs() < 0.5, "{r:?}");
     }
 
@@ -7204,38 +8871,90 @@ mod tests {
     fn flex_align_center_usa_altura_do_container() {
         // VALIDADO no Chrome: bar height:80, cards height:40, align-items:center
         // → cards em y=20 (centrados na altura DO CONTAINER, não na linha de 40).
-        crate::block::define("bar", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "bar",
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let dom = parse_html_to_dom(
             "<style>bar{display:flex;align-items:center;height:80px} .c{width:100px;height:40px;background:#ff0000}</style>\
              <bar><div class='c'>a</div><div class='c'>b</div></bar>",
         );
-        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 600.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let ys: Vec<f32> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::SolidRect { rect, .. } => Some(rect.y),
-            _ => None,
-        }).collect();
-        assert!(ys.iter().all(|&y| (y - 20.0).abs() < 0.5), "cards centrados em y=20: {ys:?}");
+        let ys: Vec<f32> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(rect.y),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            ys.iter().all(|&y| (y - 20.0).abs() < 0.5),
+            "cards centrados em y=20: {ys:?}"
+        );
     }
 
     #[test]
     fn flex_align_items_center() {
         // 1 card baixo + 1 alto: com align-items:center o baixo desce metade da folga.
-        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
-        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "row",
+            crate::block::BlockDef {
+                display: 2,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let dom = parse_html_to_dom(
             "<style>row{display:flex;align-items:center} .a{height:20px;width:50px;background:#111111} .b{height:60px;width:50px;background:#222222}</style>\
              <row><div class='a' id='a'>x</div><div class='b' id='b'>y</div></row>",
         );
-        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 600.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
-        let rects: Vec<(f32, f32)> = list.materialized().iter().filter_map(|it| match it {
-            DisplayItem::SolidRect { rect, .. } => Some((rect.x, rect.y)),
-            _ => None,
-        }).collect();
+        let rects: Vec<(f32, f32)> = list
+            .materialized()
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some((rect.x, rect.y)),
+                _ => None,
+            })
+            .collect();
         // ordena por x: o card 'a' (baixo, x menor) deve ter y MAIOR que o 'b' (alto).
-        let mut s = rects.clone(); s.sort_by(|p, q| p.0.partial_cmp(&q.0).unwrap());
+        let mut s = rects.clone();
+        s.sort_by(|p, q| p.0.partial_cmp(&q.0).unwrap());
         assert!(s[0].1 > s[1].1, "card baixo centralizado desce: {s:?}");
     }
 
@@ -7246,11 +8965,21 @@ mod tests {
         // conteúdo (shrink-to-fit), não estica para a largura toda.
         crate::block::define(
             "tags",
-            crate::block::BlockDef { display: 1, indent: 0.0, prefix: 0, flags: 0 },
+            crate::block::BlockDef {
+                display: 1,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
         );
         crate::block::define(
             "badge",
-            crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
         );
         // 4 badges; numa largura estreita (200) eles não cabem todos numa linha.
         let dom = parse_html_to_dom(
@@ -7261,15 +8990,25 @@ mod tests {
                <badge style='background:#444;padding:6'>egui</badge>\
              </tags>",
         );
-        let ctx = LayoutCtx { viewport_w: 200.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let ctx = LayoutCtx {
+            viewport_w: 200.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
         let list = layout_document(&dom, &ctx);
         let rects: Vec<Rect> = all_rects(&list);
         assert_eq!(rects.len(), 4);
         // shrink-to-fit: nenhum badge ocupa a largura toda (200) — cada um é estreito.
-        assert!(rects.iter().all(|r| r.w < 150.0), "badges estreitos (conteúdo): {rects:?}");
+        assert!(
+            rects.iter().all(|r| r.w < 150.0),
+            "badges estreitos (conteúdo): {rects:?}"
+        );
         // QUEBROU linha: há pelo menos 2 valores distintos de Y (não todos na mesma linha).
         let ys: std::collections::BTreeSet<i32> = rects.iter().map(|r| r.y as i32).collect();
-        assert!(ys.len() >= 2, "deve haver quebra de linha (Ys distintos): {rects:?}");
+        assert!(
+            ys.len() >= 2,
+            "deve haver quebra de linha (Ys distintos): {rects:?}"
+        );
         // o primeiro badge começa no canto (x=0).
         assert_eq!(rects[0].x, 0.0);
     }
@@ -7365,7 +9104,10 @@ mod tests {
             600.0,
         );
         let r2 = all_rects(&l2);
-        assert!(r2[1].h < 40.0, "height %% com pai auto = altura natural: {r2:?}");
+        assert!(
+            r2[1].h < 40.0,
+            "height %% com pai auto = altura natural: {r2:?}"
+        );
     }
 
     #[test]
@@ -7373,7 +9115,10 @@ mod tests {
         // padding: 1rem = 16px (root 16, o default de browser) — o `p-3` do
         // Bootstrap; margem NEGATIVA puxa (os gutters `.row` usam margin -12px).
         let list = layout("<div style='background:#111; padding:1rem'>x</div>", 600.0);
-        let tx = all_texts(&list).first().map(|(_, x, y, _)| (*x, *y)).unwrap();
+        let tx = all_texts(&list)
+            .first()
+            .map(|(_, x, y, _)| (*x, *y))
+            .unwrap();
         assert_eq!(tx, (16.0, 16.0), "texto após o padding de 1rem = 16px");
         // margem negativa: o segundo bloco com margin-top:-10 SOBE sobre o primeiro.
         let l2 = layout(
@@ -7402,7 +9147,15 @@ mod tests {
         // P4 (o coracao): <p>texto <a>link</a>, fim</p> flui numa UNICA linha —
         // antes cada filho virava linha propria (o footer do cover saia em 5
         // linhas). A pontuacao NAO ganha espaco (fiel ao fonte: "Bootstrap, by").
-        crate::block::define("p", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define(
+            "p",
+            crate::block::BlockDef {
+                display: 0,
+                indent: 0.0,
+                prefix: 0,
+                flags: 0,
+            },
+        );
         let list = layout(
             "<p style='color:#ffffff'>Cover template for <a style='color:#ff0000'>Bootstrap</a>, by <a style='color:#00ff00'>mdo</a>.</p>",
             600.0,
@@ -7410,13 +9163,23 @@ mod tests {
         let texts: Vec<(String, f32, f32, u32)> = all_texts(&list);
         // TODOS os segmentos na MESMA linha (y igual).
         let y0 = texts[0].2;
-        assert!(texts.iter().all(|(_, _, y, _)| *y == y0), "uma linha so: {texts:?}");
+        assert!(
+            texts.iter().all(|(_, _, y, _)| *y == y0),
+            "uma linha so: {texts:?}"
+        );
         // os segmentos avancam em x (fluem lado a lado) e preservam a cor do span.
         assert!(texts.len() >= 4, "segmentos por cor: {texts:?}");
-        assert!(texts.windows(2).all(|w| w[1].1 > w[0].1), "x crescente: {texts:?}");
+        assert!(
+            texts.windows(2).all(|w| w[1].1 > w[0].1),
+            "x crescente: {texts:?}"
+        );
         assert_eq!(texts[1].3, 0xFF0000FF, "cor do link preservada");
         // a virgula gruda no link (segmento seguinte comeca com ',' sem espaco).
-        assert!(texts[2].0.starts_with(','), "pontuacao sem espaco: {:?}", texts[2].0);
+        assert!(
+            texts[2].0.starts_with(','),
+            "pontuacao sem espaco: {:?}",
+            texts[2].0
+        );
     }
 
     #[test]
@@ -7430,8 +9193,16 @@ mod tests {
         );
         let r = all_rects(&list);
         assert_eq!(r.len(), 4);
-        assert_eq!((r[1].x, r[1].y), (0.0, 0.0), "left encosta na esquerda: {r:?}");
-        assert_eq!((r[2].x, r[2].y), (450.0, 0.0), "right encosta na direita (600-150)");
+        assert_eq!(
+            (r[1].x, r[1].y),
+            (0.0, 0.0),
+            "left encosta na esquerda: {r:?}"
+        );
+        assert_eq!(
+            (r[2].x, r[2].y),
+            (450.0, 0.0),
+            "right encosta na direita (600-150)"
+        );
         // ⚠️ MUDOU, e a mudança é a correção: este bloco começava em y=40 — o
         // modelo antigo empurrava para baixo do float tudo o que não fosse
         // float. Pelo CSS a caixa de bloco ao lado de um float NÃO desce nem
@@ -7439,14 +9210,20 @@ mod tests {
         // Chrome, na Wikipédia: a `<figure>` com `float:right` fica em y=5877 e
         // o `<p>` seguinte em y=5869, ACIMA do topo do float, com a largura
         // cheia da coluna. Ver [`Exclusao`].
-        assert_eq!(r[3].y, 0.0, "o não-float sobrepõe-se ao float, não desce: {r:?}");
+        assert_eq!(
+            r[3].y, 0.0,
+            "o não-float sobrepõe-se ao float, não desce: {r:?}"
+        );
         // ⚠️ DIVERGÊNCIA CONHECIDA que este teste PINA de propósito: pelo CSS
         // um float só faz o pai crescer num BFC ou com clearfix. Aqui cresce
         // sempre. Foi decidido manter neste lote — mexer nisso muda a altura de
         // todo o contentor com float. Não "corrigir" por acidente.
         // Era 60 (= 40 + 20) porque o bloco de 20 era EMPURRADO para baixo dos
         // floats; agora sobrepõe-se a eles e o pai mede o float mais alto.
-        assert_eq!(r[0].h, 40.0, "pai contem os floats: o mais alto mede 40: {r:?}");
+        assert_eq!(
+            r[0].h, 40.0,
+            "pai contem os floats: o mais alto mede 40: {r:?}"
+        );
     }
 
     /// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
@@ -7467,7 +9244,11 @@ mod tests {
             600.0,
         );
         let t = all_texts(&list);
-        let y_de = |txt: &str| t.iter().find(|(s, _, _, _)| s == txt).map(|(_, _, y, _)| *y);
+        let y_de = |txt: &str| {
+            t.iter()
+                .find(|(s, _, _, _)| s == txt)
+                .map(|(_, _, y, _)| *y)
+        };
         let (abre, num, fecha) = (y_de("["), y_de("135"), y_de("]"));
         assert_eq!(abre, num, "o `[` não fica para trás do número: {t:?}");
         assert_eq!(num, fecha, "nem o `]` para a frente: {t:?}");
@@ -7537,7 +9318,10 @@ mod tests {
         assert!(cruzam.len() >= 2, "várias linhas ao lado do float: {t:?}");
         for (txt, x, y, _) in &cruzam {
             let largura = txt.chars().count() as f32 * 16.0 * crate::style::PROP_ADVANCE;
-            assert!(*x + largura <= 400.5, "linha em y={y} invade o float: {txt:?} x={x}");
+            assert!(
+                *x + largura <= 400.5,
+                "linha em y={y} invade o float: {txt:?} x={x}"
+            );
         }
     }
 
@@ -7555,12 +9339,20 @@ mod tests {
         let t = all_texts(&list);
         let acima: Vec<_> = t.iter().filter(|(_, _, y, _)| *y < 30.0).collect();
         let abaixo: Vec<_> = t.iter().filter(|(_, _, y, _)| *y >= 30.0).collect();
-        assert!(!acima.is_empty() && !abaixo.is_empty(), "linhas dos dois lados: {t:?}");
+        assert!(
+            !acima.is_empty() && !abaixo.is_empty(),
+            "linhas dos dois lados: {t:?}"
+        );
         let largura = |v: &Vec<&(String, f32, f32, u32)>| {
             let ch = 16.0 * crate::style::PROP_ADVANCE;
-            v.iter().map(|(s, _, _, _)| s.chars().count() as f32 * ch).fold(0.0, f32::max)
+            v.iter()
+                .map(|(s, _, _, _)| s.chars().count() as f32 * ch)
+                .fold(0.0, f32::max)
         };
-        assert!(largura(&acima) <= 300.5, "linha ao lado do float é curta: {acima:?}");
+        assert!(
+            largura(&acima) <= 300.5,
+            "linha ao lado do float é curta: {acima:?}"
+        );
         assert!(
             largura(&abaixo) > 300.5,
             "abaixo do float a linha volta à largura toda: {abaixo:?}"
@@ -7581,7 +9373,10 @@ mod tests {
         let cruzam: Vec<_> = t.iter().filter(|(_, _, y, _)| *y < 100.0).collect();
         assert!(!cruzam.is_empty(), "há texto ao lado do float: {t:?}");
         for (txt, x, y, _) in &cruzam {
-            assert!(*x >= 150.0, "linha em y={y} começa depois do float: {txt:?} x={x}");
+            assert!(
+                *x >= 150.0,
+                "linha em y={y} começa depois do float: {txt:?} x={x}"
+            );
         }
     }
 
@@ -7650,27 +9445,44 @@ mod tests {
             "<style>.oculto{visibility:hidden}</style>             <div class='oculto' style='height:50px;background:#ff0000'>invisível</div>             <div style='height:20px'>depois</div>",
         );
         let m = ApproxMeasurer;
-        let ctx = LayoutCtx { viewport_w: 400.0, viewport_h: 300.0, measurer: &m };
+        let ctx = LayoutCtx {
+            viewport_w: 400.0,
+            viewport_h: 300.0,
+            measurer: &m,
+        };
         let lista = layout_document(&dom, &ctx);
         let itens = lista.materialized();
         // o segundo bloco começa DEPOIS dos 50px do primeiro: o espaço ficou.
         let segundo = dom.query_all("div")[1];
-        let y = lista.rect_of(dom.resolve(segundo).unwrap()).map(|r| r.y).unwrap_or(0.0);
-        assert!(y >= 50.0, "o elemento oculto tem de ocupar o espaço dele (y={y})");
+        let y = lista
+            .rect_of(dom.resolve(segundo).unwrap())
+            .map(|r| r.y)
+            .unwrap_or(0.0);
+        assert!(
+            y >= 50.0,
+            "o elemento oculto tem de ocupar o espaço dele (y={y})"
+        );
         // e nada do que ele pinta tem alpha.
         for item in &itens {
             match item {
                 DisplayItem::SolidRect { color, .. } if (color >> 8) == 0xFF0000 => {
-                    assert_eq!(color & 0xFF, 0, "o fundo de um elemento oculto não é pintado");
+                    assert_eq!(
+                        color & 0xFF,
+                        0,
+                        "o fundo de um elemento oculto não é pintado"
+                    );
                 }
                 DisplayItem::Text { text, color, .. } if text.contains("invisível") => {
-                    assert_eq!(color & 0xFF, 0, "o texto de um elemento oculto não é pintado");
+                    assert_eq!(
+                        color & 0xFF,
+                        0,
+                        "o texto de um elemento oculto não é pintado"
+                    );
                 }
                 _ => {}
             }
         }
     }
-
 
     /// Um `<input>` com `opacity: 0` não pinta fundo nem borda.
     ///
@@ -7681,14 +9493,23 @@ mod tests {
     /// lista de pintura inteiramente corretos.
     #[test]
     fn input_com_opacidade_zero_nao_pinta_fundo_nem_borda() {
-        let dom = parse_html_to_dom("<input id='oculto' style='opacity:0;width:200px;height:100px'>");
+        let dom =
+            parse_html_to_dom("<input id='oculto' style='opacity:0;width:200px;height:100px'>");
         let m = ApproxMeasurer;
-        let ctx = LayoutCtx { viewport_w: 400.0, viewport_h: 300.0, measurer: &m };
+        let ctx = LayoutCtx {
+            viewport_w: 400.0,
+            viewport_h: 300.0,
+            measurer: &m,
+        };
         let lista = layout_document(&dom, &ctx);
         for item in lista.materialized() {
             match item {
                 DisplayItem::SolidRect { color, .. } | DisplayItem::Border { color, .. } => {
-                    assert_eq!(color & 0xFF, 0, "um input invisível não pinta (cor #{color:08X})");
+                    assert_eq!(
+                        color & 0xFF,
+                        0,
+                        "um input invisível não pinta (cor #{color:08X})"
+                    );
                 }
                 _ => {}
             }
@@ -7710,7 +9531,11 @@ mod tests {
             );
             let dom = parse_html_to_dom(&html);
             let m = ApproxMeasurer;
-            let ctx = LayoutCtx { viewport_w: 400.0, viewport_h: 300.0, measurer: &m };
+            let ctx = LayoutCtx {
+                viewport_w: 400.0,
+                viewport_h: 300.0,
+                measurer: &m,
+            };
             let lista = layout_document(&dom, &ctx);
             for item in lista.materialized() {
                 if let DisplayItem::SolidRect { color, .. } = item {
@@ -7731,7 +9556,11 @@ mod tests {
             "<div style='background-color:#404244;width:20px;height:20px'></div>",
         );
         let m = ApproxMeasurer;
-        let ctx = LayoutCtx { viewport_w: 400.0, viewport_h: 300.0, measurer: &m };
+        let ctx = LayoutCtx {
+            viewport_w: 400.0,
+            viewport_h: 300.0,
+            measurer: &m,
+        };
         let lista = layout_document(&dom, &ctx);
         let pintou = lista
             .materialized()
@@ -7740,4 +9569,3 @@ mod tests {
         assert!(pintou, "sem máscara, o fundo declarado é pintado");
     }
 }
-

@@ -28,7 +28,7 @@
 
 use super::parse::parse_inline_block;
 use super::props::ComputedStyle;
-use super::selector::{compound_matches, ComplexSelector, PseudoClass, Selector};
+use super::selector::{ComplexSelector, PseudoClass, Selector, compound_matches};
 
 /// A condição de um bloco `@media`, avaliada contra o VIEWPORT (fase 2 — antes
 /// o bloco inteiro era pulado). V1 honesta: só `min-width`/`max-width` (px, e
@@ -55,11 +55,15 @@ impl MediaQuery {
         let mut q = MediaQuery::default();
         for term in first.split(" and ") {
             let t = term.trim().to_ascii_lowercase();
-            if t.is_empty() || t == "screen" || t == "all" || t == "only screen" || t == "only all" {
+            if t.is_empty() || t == "screen" || t == "all" || t == "only screen" || t == "only all"
+            {
                 continue; // keywords neutros
             }
             // `(feature: valor)`
-            let inner = t.strip_prefix('(').and_then(|s| s.strip_suffix(')')).unwrap_or(&t);
+            let inner = t
+                .strip_prefix('(')
+                .and_then(|s| s.strip_suffix(')'))
+                .unwrap_or(&t);
             let Some((feat, val)) = inner.split_once(':') else {
                 q.always_false = true; // `not`, `print`, feature sem valor…
                 continue;
@@ -218,8 +222,16 @@ impl RuleDecls {
     pub fn estimated_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
             + (self.normal.len() + self.important.len()) * std::mem::size_of::<super::props::Decl>()
-            + self.custom.iter().map(|(k, v)| k.capacity() + v.capacity()).sum::<usize>()
-            + self.pending.iter().map(|(k, v, _)| k.capacity() + v.capacity()).sum::<usize>()
+            + self
+                .custom
+                .iter()
+                .map(|(k, v)| k.capacity() + v.capacity())
+                .sum::<usize>()
+            + self
+                .pending
+                .iter()
+                .map(|(k, v, _)| k.capacity() + v.capacity())
+                .sum::<usize>()
     }
 }
 
@@ -341,7 +353,9 @@ impl Stylesheet {
     ) -> std::cell::RefMut<'_, Vec<usize>> {
         self.ensure_rule_index();
         let mut scratch = self.candidate_scratch.borrow_mut();
-        self.index.borrow().candidates_into(tag, id, classes, &mut scratch);
+        self.index
+            .borrow()
+            .candidates_into(tag, id, classes, &mut scratch);
         scratch
     }
 
@@ -381,7 +395,11 @@ impl Stylesheet {
                 // Antes do último, o alcance depende do combinador que o segue:
                 // descendente/filho desce na subárvore, irmão sai dela — e sair
                 // dela é o caso que a invalidação por subárvore NÃO cobre.
-                let next = if i + 1 < n { sel.combinators.get(i) } else { None };
+                let next = if i + 1 < n {
+                    sel.combinators.get(i)
+                } else {
+                    None
+                };
                 reach = reach.max(match next {
                     None => HoverReach::SelfOnly,
                     Some(super::Combinator::Descendant | super::Combinator::Child) => {
@@ -474,7 +492,10 @@ impl Stylesheet {
         }
         use super::props::Decl;
         let fora = |d: &Decl| {
-            matches!(d, Decl::position(Some(super::Position::Absolute | super::Position::Fixed)))
+            matches!(
+                d,
+                Decl::position(Some(super::Position::Absolute | super::Position::Fixed))
+            )
         };
         let answer = self.rules.iter().any(|r| {
             r.decls.normal.iter().any(fora)
@@ -551,7 +572,10 @@ impl Stylesheet {
         let base = self.rules.len() as u32;
         for (i, rule) in parse_rules(&css_without_kf).into_iter().enumerate() {
             crate::bump!(css_rules);
-            self.rules.push(Rule { order: base + i as u32, ..rule });
+            self.rules.push(Rule {
+                order: base + i as u32,
+                ..rule
+            });
         }
         // As regras mudaram: o que foi derivado delas não vale mais.
         *self.hover_reach.borrow_mut() = None;
@@ -574,7 +598,9 @@ impl Stylesheet {
             let name = after[..brace].trim().to_string();
             // acha o `}` que fecha o bloco (contando aninhamento, pois cada stop tem `{}`).
             let body_start = at + "@keyframes".len() + brace + 1;
-            let Some(body_end) = find_matching_brace(&rest[body_start..]) else { break };
+            let Some(body_end) = find_matching_brace(&rest[body_start..]) else {
+                break;
+            };
             let body = &rest[body_start..body_start + body_end];
             if !name.is_empty() {
                 crate::bump!(css_keyframes);
@@ -771,7 +797,10 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         // (`@supports`/`@font-face`/…) são pulados com chaves casadas;
         // `@import`/`@charset` (sem corpo) pulam até o `;`. `@keyframes` nunca
         // chega aqui (extraído antes em append_css).
-        let ws = css[i..].find(|c: char| !c.is_whitespace()).map(|r| i + r).unwrap_or(css.len());
+        let ws = css[i..]
+            .find(|c: char| !c.is_whitespace())
+            .map(|r| i + r)
+            .unwrap_or(css.len());
         if css[ws..].starts_with('@') {
             let brace_rel = css[ws..].find('{');
             let semi_rel = css[ws..].find(';');
@@ -822,7 +851,9 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
             continue;
         }
         // Acha o `{` que abre o bloco de declarações.
-        let Some(brace) = css[i..].find('{').map(|r| i + r) else { break };
+        let Some(brace) = css[i..].find('{').map(|r| i + r) else {
+            break;
+        };
         let selectors_raw = css[i..brace].trim();
         // Acha o `}` que fecha; sem fechar, vai até o fim (tolerante).
         let close = css[brace + 1..].find('}').map(|r| brace + 1 + r);
@@ -902,7 +933,9 @@ fn find_matching_brace(s: &str) -> Option<usize> {
 fn content_do_corpo(body: &str) -> Option<crate::pseudo::Content> {
     let mut achado = None;
     for decl in split_top_level_semicolons(body) {
-        let Some((nome, valor)) = decl.split_once(':') else { continue };
+        let Some((nome, valor)) = decl.split_once(':') else {
+            continue;
+        };
         if !nome.trim().eq_ignore_ascii_case("content") {
             continue;
         }
@@ -943,7 +976,9 @@ fn parse_keyframe_body(body: &str) -> crate::anim::Keyframes {
     loop {
         let Some(brace) = rest.find('{') else { break };
         let selector = rest[..brace].trim();
-        let Some(close_rel) = find_matching_brace(&rest[brace + 1..]) else { break };
+        let Some(close_rel) = find_matching_brace(&rest[brace + 1..]) else {
+            break;
+        };
         let decl_body = &rest[brace + 1..brace + 1 + close_rel];
         let decls = parse_inline_block(decl_body);
         // o seletor de stop pode ser uma lista: `0%, 50%`.
@@ -956,7 +991,11 @@ fn parse_keyframe_body(body: &str) -> crate::anim::Keyframes {
         }
         rest = &rest[brace + 1 + close_rel + 1..];
     }
-    stops.sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap_or(std::cmp::Ordering::Equal));
+    stops.sort_by(|a, b| {
+        a.offset
+            .partial_cmp(&b.offset)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     crate::anim::Keyframes { stops }
 }
 
@@ -969,7 +1008,11 @@ fn parse_keyframe_offset(s: &str) -> Option<f32> {
     if s.eq_ignore_ascii_case("to") {
         return Some(1.0);
     }
-    s.strip_suffix('%')?.trim().parse::<f32>().ok().map(|p| (p / 100.0).clamp(0.0, 1.0))
+    s.strip_suffix('%')?
+        .trim()
+        .parse::<f32>()
+        .ok()
+        .map(|p| (p / 100.0).clamp(0.0, 1.0))
 }
 
 /// Resolve uma declaração PENDENTE (`prop: …var()…`) contra as custom props do

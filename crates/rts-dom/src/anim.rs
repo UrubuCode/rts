@@ -44,8 +44,14 @@ impl Easing {
             _ => {}
         }
         // cubic-bezier(...) e steps(...).
-        if let Some(args) = low.strip_prefix("cubic-bezier(").and_then(|s| s.strip_suffix(')')) {
-            let n: Vec<f32> = args.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+        if let Some(args) = low
+            .strip_prefix("cubic-bezier(")
+            .and_then(|s| s.strip_suffix(')'))
+        {
+            let n: Vec<f32> = args
+                .split(',')
+                .filter_map(|p| p.trim().parse().ok())
+                .collect();
             if n.len() == 4 {
                 return Some(Easing::CubicBezier(n[0], n[1], n[2], n[3]));
             }
@@ -157,7 +163,11 @@ impl TransitionSpec {
             }
             // senão: nome de propriedade / `all` — ignorado (transiciona tudo).
         }
-        duration_ms.map(|d| TransitionSpec { duration_ms: d, delay_ms, easing })
+        duration_ms.map(|d| TransitionSpec {
+            duration_ms: d,
+            delay_ms,
+            easing,
+        })
     }
 
     /// O progresso `t` ∈ [0,1] (já amaciado pela easing) num instante `elapsed_ms`
@@ -391,7 +401,13 @@ mod tests {
     #[test]
     fn easing_endpoints() {
         // toda easing leva 0→0 e 1→1.
-        for e in [Easing::Linear, Easing::Ease, Easing::EaseIn, Easing::EaseOut, Easing::EaseInOut] {
+        for e in [
+            Easing::Linear,
+            Easing::Ease,
+            Easing::EaseIn,
+            Easing::EaseOut,
+            Easing::EaseInOut,
+        ] {
             assert!((e.apply(0.0)).abs() < 0.01, "{e:?} em 0");
             assert!((e.apply(1.0) - 1.0).abs() < 0.01, "{e:?} em 1");
         }
@@ -407,7 +423,10 @@ mod tests {
         // cor: preto → branco no meio = cinza.
         assert_eq!(lerp_color(0x000000FF, 0xFFFFFFFF, 0.5), 0x808080FF);
         // dimensão px.
-        assert_eq!(lerp_dimension(Dimension::Px(0.0), Dimension::Px(20.0), 0.25), Dimension::Px(5.0));
+        assert_eq!(
+            lerp_dimension(Dimension::Px(0.0), Dimension::Px(20.0), 0.25),
+            Dimension::Px(5.0)
+        );
     }
 
     #[test]
@@ -426,7 +445,10 @@ mod tests {
     #[test]
     fn easing_parse() {
         assert_eq!(Easing::parse("ease-in-out"), Some(Easing::EaseInOut));
-        assert!(matches!(Easing::parse("cubic-bezier(0.1, 0.2, 0.3, 0.4)"), Some(Easing::CubicBezier(..))));
+        assert!(matches!(
+            Easing::parse("cubic-bezier(0.1, 0.2, 0.3, 0.4)"),
+            Some(Easing::CubicBezier(..))
+        ));
         assert_eq!(Easing::parse("steps(4)"), Some(Easing::Steps(4)));
         assert_eq!(Easing::parse("nope"), None);
     }

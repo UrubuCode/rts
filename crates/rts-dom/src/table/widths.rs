@@ -57,7 +57,10 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
         // que não cabe é ignorada pelo browser, não respeitada com o texto a
         // transbordar.
         let piso = min_content(dom, id, font, ctx, false) + frame;
-        return MinMax { min: w.max(piso), max: w.max(piso) };
+        return MinMax {
+            min: w.max(piso),
+            max: w.max(piso),
+        };
     }
     let min = min_content(dom, id, font, ctx, false) + frame;
     MinMax {
@@ -87,10 +90,7 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
 /// comprimento absoluto. A percentagem responde `None` e o porquê está em
 /// [`crate::style::dimensao_absoluta`], que é onde a regra vive desde que o
 /// mesmo defeito apareceu uma segunda vez, no dimensionamento do flex.
-fn largura_absoluta(
-    d: Option<crate::style::Dimension>,
-    resolve: &ResolveCtx,
-) -> Option<f32> {
+fn largura_absoluta(d: Option<crate::style::Dimension>, resolve: &ResolveCtx) -> Option<f32> {
     crate::style::dimensao_absoluta(d?, resolve)
 }
 
@@ -104,7 +104,10 @@ fn largura_de_atributo(dom: &Dom, id: NodeIdx) -> Option<f32> {
     if v.ends_with('%') {
         return None;
     }
-    v.trim_end_matches("px").parse::<f32>().ok().filter(|w| *w > 0.0)
+    v.trim_end_matches("px")
+        .parse::<f32>()
+        .ok()
+        .filter(|w| *w > 0.0)
 }
 
 /// A largura que uma célula DECLARA — pelo CSS ou pelo atributo `width` — ou
@@ -133,7 +136,13 @@ pub(crate) fn largura_declarada(
     };
     let frame = css.padding.resolve_h(&resolve) + 2.0 * css.border_width.unwrap_or(0.0);
     largura_absoluta(css.width, &resolve)
-        .map(|w| if css.border_box.unwrap_or(false) { w } else { w + frame })
+        .map(|w| {
+            if css.border_box.unwrap_or(false) {
+                w
+            } else {
+                w + frame
+            }
+        })
         .or_else(|| largura_de_atributo(dom, id))
 }
 
@@ -159,10 +168,10 @@ fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: b
             if sem_quebra {
                 // Espaços colapsados mas nenhuma quebra: mede-se o texto todo.
                 let junto = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                return ctx.measurer.text_width(&junto, font, false, false);
+                return ctx.measurer.text_width(&junto, font, false, false, false);
             }
             t.split_whitespace()
-                .map(|p| ctx.measurer.text_width(p, font, false, false))
+                .map(|p| ctx.measurer.text_width(p, font, false, false, false))
                 .fold(0.0f32, f32::max)
         }
         NodeKind::Element { tag } => {
@@ -187,7 +196,11 @@ fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: b
             // Uma caixa REPLACED (imagem) não encolhe abaixo da sua largura, e um
             // `width` explícito também não: nos dois casos o mínimo é a largura.
             if let Some(w) = largura_absoluta(css.width, &resolve) {
-                return w + if css.border_box.unwrap_or(false) { 0.0 } else { frame };
+                return w + if css.border_box.unwrap_or(false) {
+                    0.0
+                } else {
+                    frame
+                };
             }
             // O `white-space` é herdado, por isso lê-se o do próprio nó em vez de
             // se propagar o do pai pela recursão: um descendente que volte a
@@ -323,7 +336,10 @@ pub(crate) fn resolve_colunas(cols: &[MinMax], disponivel: f32) -> Vec<f32> {
             return vec![q; cols.len()];
         }
         let sobra = disponivel - total_max;
-        return cols.iter().map(|c| c.max + sobra * (c.max / total_max)).collect();
+        return cols
+            .iter()
+            .map(|c| c.max + sobra * (c.max / total_max))
+            .collect();
     }
     let folga_total = total_max - total_min;
     let a_dividir = disponivel - total_min;
@@ -383,7 +399,11 @@ mod tests {
     fn colspan_so_levanta_colunas_nunca_as_baixa() {
         // Duas colunas já com 100 cada, e um cabeçalho colspan=2 que só quer 50.
         let cols = colunas_min_max(
-            &[(0, 1, mm(100.0, 100.0)), (1, 1, mm(100.0, 100.0)), (0, 2, mm(50.0, 50.0))],
+            &[
+                (0, 1, mm(100.0, 100.0)),
+                (1, 1, mm(100.0, 100.0)),
+                (0, 2, mm(50.0, 50.0)),
+            ],
             2,
             0.0,
         );

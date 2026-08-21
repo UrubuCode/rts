@@ -134,7 +134,9 @@ pub(crate) fn replaced_inline_size(
 /// esse valor sai das MÉTRICAS DA FONTE e não de uma constante.
 pub(crate) fn altura_da_linha(css: &ComputedStyle, font_size: f32, m: &dyn TextMeasurer) -> f32 {
     let normal = m.line_height(font_size);
-    css.line_height.map(|l| l.resolve(font_size, normal)).unwrap_or(normal)
+    css.line_height
+        .map(|l| l.resolve(font_size, normal))
+        .unwrap_or(normal)
 }
 
 /// Este estilo cria uma caixa que precisa de LAYOUT DE BLOCO?
@@ -243,7 +245,11 @@ mod tests {
             </figure>";
         let (dom, list) = geometria(html, 800.0);
         let fig = rect(&dom, &list, "figure", 0);
-        assert!(fig.w >= 252.0, "a figura encolheu a {} em volta de uma imagem de 252", fig.w);
+        assert!(
+            fig.w >= 252.0,
+            "a figura encolheu a {} em volta de uma imagem de 252",
+            fig.w
+        );
     }
 
     /// Sem pixels a caixa existe mas NADA é pintado: uma reserva vazia é o que o
@@ -294,13 +300,18 @@ mod quebra_de_linha {
     /// já postos, logo 64 numa caixa de 60: desce, e desce inteiro.
     #[test]
     fn aglomerado_sem_espacos_desce_inteiro_para_a_linha_seguinte() {
-        let (dom, list) =
-            geometria("<p style='width:60px'>aaaaa <sup><i>y</i><b>z</b></sup></p>", 800.0);
+        let (dom, list) = geometria(
+            "<p style='width:60px'>aaaaa <sup><i>y</i><b>z</b></sup></p>",
+            800.0,
+        );
         let i = rect(&dom, &list, "i", 0);
         let b = rect(&dom, &list, "b", 0);
         let sup = rect(&dom, &list, "sup", 0);
         assert_eq!(i.y, b.y, "o aglomerado não é partido: i={i:?} b={b:?}");
-        assert!(i.x < b.x, "e mantém a ordem na mesma linha: i={i:?} b={b:?}");
+        assert!(
+            i.x < b.x,
+            "e mantém a ordem na mesma linha: i={i:?} b={b:?}"
+        );
         assert!(
             sup.w < 30.0,
             "a caixa do pai é a do aglomerado, não a da linha: {sup:?}"

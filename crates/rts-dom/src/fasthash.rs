@@ -100,7 +100,11 @@ mod tests {
     fn indices_vizinhos_espalham() {
         let hashes: std::collections::HashSet<u64> =
             (0usize..1000).map(|i| hash_of(&i) >> 56).collect();
-        assert!(hashes.len() > 100, "só {} baldes altos distintos", hashes.len());
+        assert!(
+            hashes.len() > 100,
+            "só {} baldes altos distintos",
+            hashes.len()
+        );
     }
 
     #[test]

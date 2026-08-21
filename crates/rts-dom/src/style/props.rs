@@ -458,6 +458,25 @@ css_props! {
         /// animável antes daquela seria a que não pinta a ganhar uma capacidade
         /// que a que pinta não tem.
         [] text_shadow: BoxShadow;
+        /// O resto da cauda de pintura, tudo sem consumidor (ver
+        /// `style::painting`): `background_origin` reusa o tipo do `clip` menos
+        /// o `text`; `text_fill_color` é a cor do glifo no WebKit, e quem pinta
+        /// texto lê `color`; `text_underline_offset` e `text_decoration_style`
+        /// não cabem no código de decoração de 0 a 3 do layout; `tab_size` não
+        /// é lido pelo medidor, que trata `\t` como espaço; `scrollbar_color`
+        /// é do backend, como a `scrollbar_width` ao lado.
+        [] background_origin: crate::style::painting::BackgroundClip;
+        [] text_decoration_style: crate::style::painting::TextDecorationStyle;
+        [anim] text_fill_color: Rgba;
+        [] text_underline_offset: Dimension;
+        [inh] tab_size: f32;
+        [] scrollbar_color: crate::style::painting::ScrollbarColor;
+        /// As três camadas da MÁSCARA que faltavam ao lado do `mask_image`.
+        /// Guardadas e sem efeito: `layout::deve_suprimir_fundo` lê apenas o
+        /// `mask_image`, e continua a ler só esse.
+        [] mask_size: crate::style::BgSize;
+        [] mask_position: crate::style::BgPosition;
+        [] mask_repeat: crate::style::BgRepeat;
         /// As quatro extremidades da COLOCAÇÃO POR LINHA de grid. Guardadas e
         /// sem geometria: os itens continuam a ser colocados por ordem de
         /// documento. Ver `style::grid_lines`, que tem o ponto de enxerto e a

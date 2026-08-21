@@ -19,7 +19,11 @@ pub enum SimpleSelector {
     Universal,
     /// `[attr]` / `[attr=v]` / `[attr^=v]` / `[attr$=v]` / `[attr*=v]` / `[attr~=v]`
     /// / `[attr|=v]`. Especificidade 10 (como classe).
-    Attr { name: String, op: AttrOp, value: String },
+    Attr {
+        name: String,
+        op: AttrOp,
+        value: String,
+    },
     /// Pseudo-classe (`:first-child`, `:hover`, `:not(...)`, `:lang(x)`, …). A
     /// especificidade NÃO é fixa em 10: `:not`/`:is` tomam a do argumento e
     /// `:where` vale zero — por isso delega em [`PseudoClass::specificity`].
@@ -171,9 +175,11 @@ impl PseudoClass {
     fn specificity(&self) -> u32 {
         match self {
             PseudoClass::Where(_) => 0,
-            PseudoClass::Not(list) | PseudoClass::Is(list) => {
-                list.iter().map(ComplexSelector::specificity).max().unwrap_or(0)
-            }
+            PseudoClass::Not(list) | PseudoClass::Is(list) => list
+                .iter()
+                .map(ComplexSelector::specificity)
+                .max()
+                .unwrap_or(0),
             _ => ESPEC_CLASSE,
         }
     }
@@ -303,7 +309,11 @@ impl SimpleSelector {
                 SimpleSelector::Attr { name, value, .. } => name.capacity() + value.capacity(),
                 SimpleSelector::Pseudo(pc) => match pc {
                     PseudoClass::Lang(s) => s.capacity(),
-                    _ => pc.sub_selectors().iter().map(ComplexSelector::estimated_bytes).sum(),
+                    _ => pc
+                        .sub_selectors()
+                        .iter()
+                        .map(ComplexSelector::estimated_bytes)
+                        .sum(),
                 },
                 SimpleSelector::Universal => 0,
             }
@@ -410,7 +420,10 @@ impl ComplexSelector {
                 .iter()
                 .map(|c| {
                     std::mem::size_of::<CompoundSelector>()
-                        + c.parts.iter().map(SimpleSelector::estimated_bytes).sum::<usize>()
+                        + c.parts
+                            .iter()
+                            .map(SimpleSelector::estimated_bytes)
+                            .sum::<usize>()
                 })
                 .sum::<usize>()
     }
@@ -443,7 +456,9 @@ impl ComplexSelector {
                 // implícito da spec. Recusá-lo perdia a regra que uma folha
                 // escreve para dar `box-sizing` a tudo, pseudos incluídos.
                 if compounds.is_empty() {
-                    compounds.push(CompoundSelector { parts: vec![SimpleSelector::Universal] });
+                    compounds.push(CompoundSelector {
+                        parts: vec![SimpleSelector::Universal],
+                    });
                 }
                 // `None` = é um `::` que não geramos (`::marker`, `::selection`).
                 // A regra é descartada em vez de perder o pseudo-elemento: sem
@@ -481,7 +496,11 @@ impl ComplexSelector {
         if compounds.is_empty() || pending_combinator.is_some() {
             return None;
         }
-        Some(ComplexSelector { compounds, combinators, pseudo_element })
+        Some(ComplexSelector {
+            compounds,
+            combinators,
+            pseudo_element,
+        })
     }
 
     /// Peso da cascade: a tripla (ids, classes, tags) empacotada — ver
@@ -490,7 +509,11 @@ impl ComplexSelector {
         // O pseudo-elemento pesa como uma TAG, não como uma classe (Selectors
         // L4 §17: conta para o componente C). É o que faz `p::before` vencer
         // `::before` e perder para `.x::before`.
-        let base = if self.pseudo_element.is_some() { ESPEC_TAG } else { 0 };
+        let base = if self.pseudo_element.is_some() {
+            ESPEC_TAG
+        } else {
+            0
+        };
         self.compounds
             .iter()
             .flat_map(|c| c.parts.iter())
@@ -521,7 +544,8 @@ fn parse_compound(s: &str) -> Option<(CompoundSelector, &str)> {
         // VALIDAÇÃO (Selectors L4 §4.2): um type/universal (tag ou `*`) só pode ser o
         // PRIMEIRO simples do compound. `p*`/`*p`/`p.x*`/`a:hover b` (tipo após pseudo)
         // são inválidos → o browser descarta a regra. Rejeitamos (None).
-        if matches!(simple, SimpleSelector::Tag(_) | SimpleSelector::Universal) && !parts.is_empty() {
+        if matches!(simple, SimpleSelector::Tag(_) | SimpleSelector::Universal) && !parts.is_empty()
+        {
             return None;
         }
         parts.push(simple);
@@ -567,7 +591,10 @@ fn parse_attr_selector(s: &str) -> Option<(SimpleSelector, &str)> {
     // acha o operador (=, ^=, $=, *=, ~=, |=) ou só presença.
     let (name, op, value) = if let Some(eq) = inner.find('=') {
         let (before, after) = inner.split_at(eq);
-        let value = after[1..].trim().trim_matches(|c| c == '"' || c == '\'').to_string();
+        let value = after[1..]
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .to_string();
         let (name, op) = match before.chars().last() {
             Some('^') => (&before[..before.len() - 1], AttrOp::Prefix),
             Some('$') => (&before[..before.len() - 1], AttrOp::Suffix),
@@ -599,10 +626,16 @@ fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
     let after_colon = &s[1..];
     // `:nth-child(...)`/`:nth-of-type(...)` — captura o argumento entre parênteses.
     for (nome, por_tipo) in [("nth-child(", false), ("nth-of-type(", true)] {
-        let Some(rest) = after_colon.strip_prefix(nome) else { continue };
+        let Some(rest) = after_colon.strip_prefix(nome) else {
+            continue;
+        };
         let close = rest.find(')')?;
         let (a, b) = parse_nth(&rest[..close])?;
-        let pc = if por_tipo { PseudoClass::NthOfType(a, b) } else { PseudoClass::NthChild(a, b) };
+        let pc = if por_tipo {
+            PseudoClass::NthOfType(a, b)
+        } else {
+            PseudoClass::NthChild(a, b)
+        };
         return Some((SimpleSelector::Pseudo(pc), &rest[close + 1..]));
     }
     // As FUNCIONAIS de lista de seletores. O argumento pode conter parênteses
@@ -615,7 +648,9 @@ fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
         ("matches", Funcional::Is),
         ("where", Funcional::Where),
     ] {
-        let Some(rest) = strip_func_name(after_colon, nome) else { continue };
+        let Some(rest) = strip_func_name(after_colon, nome) else {
+            continue;
+        };
         let (arg, after) = take_balanced_paren(rest)?;
         let partes = split_top_level_commas(arg);
         let mut lista = Vec::with_capacity(partes.len());
@@ -640,7 +675,10 @@ fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
     }
     if let Some(rest) = strip_func_name(after_colon, "lang") {
         let (arg, after) = take_balanced_paren(rest)?;
-        let lang = arg.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase();
+        let lang = arg
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .to_ascii_lowercase();
         if lang.is_empty() {
             return None;
         }
@@ -821,8 +859,9 @@ where
         SimpleSelector::Universal => true,
         SimpleSelector::Tag(t) => t == tag,
         SimpleSelector::Id(i) => id == Some(i.as_str()),
-        SimpleSelector::Class(c) => class_attr
-            .is_some_and(|raw| raw.split_whitespace().any(|class| class == c)),
+        SimpleSelector::Class(c) => {
+            class_attr.is_some_and(|raw| raw.split_whitespace().any(|class| class == c))
+        }
         SimpleSelector::Attr { name, op, value } => attr(name)
             .map(|actual| attr_op_matches(*op, actual, value))
             .unwrap_or(false),

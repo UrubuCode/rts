@@ -31,7 +31,7 @@
 //! resto é o mesmo que o shorthand já fazia com o nome da propriedade.
 
 use super::props::ComputedStyle;
-use crate::anim::{parse_direction, parse_time_ms, AnimationSpec, Easing, TransitionSpec};
+use crate::anim::{AnimationSpec, Easing, TransitionSpec, parse_direction, parse_time_ms};
 
 /// Os valores iniciais de `transition-*` da spec: duração 0 (= não transiciona),
 /// sem delay, `ease`. Um spec de duração 0 é inerte — `progress` devolve 1 de
@@ -86,7 +86,10 @@ fn first_item(val: &str) -> &str {
 pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     // O prefixo de fornecedor é só um alias: `-webkit-transition` é `transition`.
     // Aceitá-los aqui evita treze braços a mais no `match` do parse.
-    let name = prop.strip_prefix("-webkit-").or_else(|| prop.strip_prefix("-moz-")).unwrap_or(prop);
+    let name = prop
+        .strip_prefix("-webkit-")
+        .or_else(|| prop.strip_prefix("-moz-"))
+        .unwrap_or(prop);
     match name {
         // Os shorthands prefixados — os sem prefixo têm braço próprio no parse e
         // nunca chegam aqui.
@@ -94,13 +97,17 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         "animation" => css.animation = AnimationSpec::parse(val),
 
         "transition-duration" => {
-            let Some(ms) = parse_time_ms(first_item(val)) else { return true };
+            let Some(ms) = parse_time_ms(first_item(val)) else {
+                return true;
+            };
             let mut t = transition_or_initial(css);
             t.duration_ms = ms;
             css.transition = Some(t);
         }
         "transition-delay" => {
-            let Some(ms) = parse_time_ms(first_item(val)) else { return true };
+            let Some(ms) = parse_time_ms(first_item(val)) else {
+                return true;
+            };
             let mut t = transition_or_initial(css);
             t.delay_ms = ms;
             css.transition = Some(t);
@@ -109,7 +116,9 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // parte por espaços e por isso perde `cubic-bezier(.4, 0, .2, 1)`, que tem
         // espaço depois das vírgulas. Pela longhand a curva chega inteira.
         "transition-timing-function" => {
-            let Some(e) = Easing::parse(first_item(val)) else { return true };
+            let Some(e) = Easing::parse(first_item(val)) else {
+                return true;
+            };
             let mut t = transition_or_initial(css);
             t.easing = e;
             css.transition = Some(t);
@@ -128,23 +137,33 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             let n = first_item(val);
             let mut a = animation_or_initial(css);
             // `none` é o inicial e não nomeia nenhum `@keyframes`.
-            a.name = if n.eq_ignore_ascii_case("none") { String::new() } else { n.to_string() };
+            a.name = if n.eq_ignore_ascii_case("none") {
+                String::new()
+            } else {
+                n.to_string()
+            };
             css.animation = Some(a);
         }
         "animation-duration" => {
-            let Some(ms) = parse_time_ms(first_item(val)) else { return true };
+            let Some(ms) = parse_time_ms(first_item(val)) else {
+                return true;
+            };
             let mut a = animation_or_initial(css);
             a.duration_ms = ms;
             css.animation = Some(a);
         }
         "animation-delay" => {
-            let Some(ms) = parse_time_ms(first_item(val)) else { return true };
+            let Some(ms) = parse_time_ms(first_item(val)) else {
+                return true;
+            };
             let mut a = animation_or_initial(css);
             a.delay_ms = ms;
             css.animation = Some(a);
         }
         "animation-timing-function" => {
-            let Some(e) = Easing::parse(first_item(val)) else { return true };
+            let Some(e) = Easing::parse(first_item(val)) else {
+                return true;
+            };
             let mut a = animation_or_initial(css);
             a.easing = e;
             css.animation = Some(a);
@@ -163,7 +182,9 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             css.animation = Some(a);
         }
         "animation-direction" => {
-            let Some(d) = parse_direction(first_item(val)) else { return true };
+            let Some(d) = parse_direction(first_item(val)) else {
+                return true;
+            };
             let mut a = animation_or_initial(css);
             a.direction = d;
             css.animation = Some(a);

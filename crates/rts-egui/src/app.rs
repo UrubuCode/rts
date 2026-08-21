@@ -209,6 +209,21 @@ fn install_ui_fonts(ctx: &egui::Context) {
         "C:/Windows/Fonts/segoeuib.ttf", // Segoe UI Bold (Windows)
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     ];
+    // ITÁLICO e BOLD-ITÁLICO: ficheiros de fonte PRÓPRIOS, e é essa a razão de
+    // existirem aqui. A alternativa rejeitada foi inclinar os glifos da regular
+    // por transformação — um oblique sintético não é o que o Chrome pinta (a
+    // Segoe UI Italic tem desenhos de letra diferentes, não a mesma letra
+    // torcida), e teria a aparência de estar certo enquanto a paridade dizia o
+    // contrário. Sem estes ficheiros, `font-style: italic` não tem glifos e a
+    // resposta honesta é pintar regular (ver `familia_ou`).
+    let italic = [
+        "C:/Windows/Fonts/segoeuii.ttf", // Segoe UI Italic (Windows)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+    ];
+    let bold_italic = [
+        "C:/Windows/Fonts/segoeuiz.ttf", // Segoe UI Bold Italic (Windows)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+    ];
     let mut load = |paths: &[&str], name: &str, family: egui::FontFamily| -> bool {
         for p in paths {
             if let Ok(bytes) = std::fs::read(p) {
@@ -220,12 +235,36 @@ fn install_ui_fonts(ctx: &egui::Context) {
         }
         false
     };
-    let got_prop = load(&proportional, "ui-sans", egui::FontFamily::Proportional);
+    load(&proportional, "ui-sans", egui::FontFamily::Proportional);
     load(&monospace, "ui-mono", egui::FontFamily::Monospace);
     load(&bold, "ui-bold", egui::FontFamily::Name("bold".into()));
-    if got_prop {
-        ctx.set_fonts(fonts);
+    load(&italic, "ui-italic", egui::FontFamily::Name("italic".into()));
+    load(&bold_italic, "ui-bold-italic", egui::FontFamily::Name("bold-italic".into()));
+    drop(load);
+    // Uma família NOMEADA que o render peça e não exista faz o egui entrar em
+    // pânico ao montar a fonte — e o render pede "italic"/"bold-italic" sempre
+    // que o CSS o diz, num sistema que pode não ter os ficheiros. Então garante-se
+    // que as três existem, caindo na proporcional (regular) quando o ficheiro
+    // falta: o texto sai DIREITO, que é a recusa honesta, e não inclinado à
+    // força nem a rebentar o processo.
+    for nome in ["bold", "italic", "bold-italic"] {
+        let familia = egui::FontFamily::Name(nome.into());
+        let vazia = fonts.families.get(&familia).map_or(true, |v| v.is_empty());
+        if vazia {
+            let base = fonts
+                .families
+                .get(&egui::FontFamily::Proportional)
+                .cloned()
+                .unwrap_or_default();
+            fonts.families.insert(familia, base);
+        }
     }
+    // `set_fonts` deixou de estar preso ao `got_prop`: as famílias nomeadas acima
+    // só chegam ao contexto por aqui, e sem elas um sistema sem Segoe UI pedia
+    // "italic" a um contexto que nunca o ouviu — o pânico que o bloco anterior
+    // evita. Quando nada carregou, isto instala as fontes default do egui, que é
+    // exatamente o que o contexto já tinha.
+    ctx.set_fonts(fonts);
 }
 
 /// `egui::Context` + `egui_winit::State` para uma janela (comum aos dois backends).

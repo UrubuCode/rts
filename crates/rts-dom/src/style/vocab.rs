@@ -175,15 +175,29 @@ impl Clip {
                 super::lengths::parse_inset(&toks[i])
             }
         };
-        Some(Clip::Rect { top: lado(0), right: lado(1), bottom: lado(2), left: lado(3) })
+        Some(Clip::Rect {
+            top: lado(0),
+            right: lado(1),
+            bottom: lado(2),
+            left: lado(3),
+        })
     }
 
     /// O que `getComputedStyle` responde. O Chrome imprime sempre a forma COM
     /// vírgulas e com a unidade explícita, mesmo quando o autor escreveu `0`.
     pub fn css(self) -> String {
-        let Clip::Rect { top, right, bottom, left } = self else { return "auto".to_string() };
+        let Clip::Rect {
+            top,
+            right,
+            bottom,
+            left,
+        } = self
+        else {
+            return "auto".to_string();
+        };
         let d = |v: Option<Dimension>| {
-            v.map(super::fmt_values::fmt_dim).unwrap_or_else(|| "auto".to_string())
+            v.map(super::fmt_values::fmt_dim)
+                .unwrap_or_else(|| "auto".to_string())
         };
         format!("rect({}, {}, {}, {})", d(top), d(right), d(bottom), d(left))
     }
@@ -277,20 +291,27 @@ fn parse_zoom(v: &str) -> Option<f32> {
 pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     // O prefixo de fornecedor é um alias do mesmo nome — exceto onde o valor
     // também difere, e nenhuma deste lote é desse caso.
-    let name = prop.strip_prefix("-webkit-").or_else(|| prop.strip_prefix("-moz-")).unwrap_or(prop);
+    let name = prop
+        .strip_prefix("-webkit-")
+        .or_else(|| prop.strip_prefix("-moz-"))
+        .unwrap_or(prop);
     match name {
         // ── COM EFEITO REAL: caem em mecanismos que já são consumidos ──────────
         // Os dois eixos de `background-position` em separado. O campo é o mesmo
         // que o shorthand escreve, portanto o render já os pinta.
         "background-position-x" => {
             let mut p = css.bg_position.unwrap_or_default();
-            let Some(x) = parse_dimension_or_keyword(val, true) else { return true };
+            let Some(x) = parse_dimension_or_keyword(val, true) else {
+                return true;
+            };
             p.x = x;
             css.bg_position = Some(p);
         }
         "background-position-y" => {
             let mut p = css.bg_position.unwrap_or_default();
-            let Some(y) = parse_dimension_or_keyword(val, false) else { return true };
+            let Some(y) = parse_dimension_or_keyword(val, false) else {
+                return true;
+            };
             p.y = y;
             css.bg_position = Some(p);
         }
@@ -387,16 +408,24 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // 10 no browser (o shorthand substitui). Uma folha que declare as duas
         // formas no mesmo elemento e rara; uma que declare so uma sai certa.
         "rotate" => {
-            let Some(d) = super::effects::parse_angle_deg(&val.trim()) else { return true };
-            let mut t = css.transform.unwrap_or_else(super::effects::Transform::identity);
+            let Some(d) = super::effects::parse_angle_deg(&val.trim()) else {
+                return true;
+            };
+            let mut t = css
+                .transform
+                .unwrap_or_else(super::effects::Transform::identity);
             t.rot_deg += d;
             css.transform = Some(t);
         }
         "scale" => {
             let t2 = split_top_ws(val);
-            let Some(sx) = t2.first().and_then(|s| s.parse::<f32>().ok()) else { return true };
+            let Some(sx) = t2.first().and_then(|s| s.parse::<f32>().ok()) else {
+                return true;
+            };
             let sy = t2.get(1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(sx);
-            let mut t = css.transform.unwrap_or_else(super::effects::Transform::identity);
+            let mut t = css
+                .transform
+                .unwrap_or_else(super::effects::Transform::identity);
             t.sx *= sx;
             t.sy *= sy;
             css.transform = Some(t);
@@ -462,23 +491,45 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
         "pointer-events" => opt(css.pointer_events.map(|v| v.css())),
         "transform-origin" => css
             .transform_origin
-            .map(|p| format!("{} {}", super::fmt_values::fmt_dim(p.x), super::fmt_values::fmt_dim(p.y)))
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    super::fmt_values::fmt_dim(p.x),
+                    super::fmt_values::fmt_dim(p.y)
+                )
+            })
             .unwrap_or_default(),
-        "text-decoration-color" => {
-            css.text_decoration_color.map(super::fmt_values::fmt_color).unwrap_or_default()
-        }
+        "text-decoration-color" => css
+            .text_decoration_color
+            .map(super::fmt_values::fmt_color)
+            .unwrap_or_default(),
         // O computado de `font-stretch` é a PERCENTAGEM, mesmo quando o autor
         // escreveu o keyword — é o que o Chrome responde.
-        "font-stretch" => css.font_stretch.map(|v| format!("{v}%")).unwrap_or_default(),
+        "font-stretch" => css
+            .font_stretch
+            .map(|v| format!("{v}%"))
+            .unwrap_or_default(),
         "zoom" => css.zoom.map(|v| format!("{v}")).unwrap_or_default(),
-        "word-spacing" => css.word_spacing.map(|v| format!("{v}px")).unwrap_or_default(),
+        "word-spacing" => css
+            .word_spacing
+            .map(|v| format!("{v}px"))
+            .unwrap_or_default(),
         "-webkit-line-clamp" | "line-clamp" => {
             css.line_clamp.map(|n| n.to_string()).unwrap_or_default()
         }
-        "column-width" => css.column_width.map(super::fmt_values::fmt_dim).unwrap_or_default(),
+        "column-width" => css
+            .column_width
+            .map(super::fmt_values::fmt_dim)
+            .unwrap_or_default(),
         "object-position" => css
             .object_position
-            .map(|p| format!("{} {}", super::fmt_values::fmt_dim(p.x), super::fmt_values::fmt_dim(p.y)))
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    super::fmt_values::fmt_dim(p.x),
+                    super::fmt_values::fmt_dim(p.y)
+                )
+            })
             .unwrap_or_default(),
         _ => return None,
     };

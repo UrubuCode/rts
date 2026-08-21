@@ -43,7 +43,8 @@ fn fundo(html: &str) -> u32 {
 /// `invert`): o fundo chega à lista já invertido.
 #[test]
 fn invert_chega_ao_fundo_da_caixa() {
-    let c = fundo("<div style='background:#000000; filter:invert(1); width:40px; height:40px'>x</div>");
+    let c =
+        fundo("<div style='background:#000000; filter:invert(1); width:40px; height:40px'>x</div>");
     assert_eq!(c, 0xFFFF_FFFF, "preto invertido é branco");
 }
 
@@ -51,8 +52,14 @@ fn invert_chega_ao_fundo_da_caixa() {
 /// do parse só reconhecesse um, este era o teste que o dizia.
 #[test]
 fn o_prefixo_webkit_pinta_igual() {
-    let padrao = fundo_w("<div style='background:#336699; filter:grayscale(1); width:9px; height:9px'>x</div>", 9.0);
-    let webkit = fundo_w("<div style='background:#336699; -webkit-filter:grayscale(1); width:9px; height:9px'>x</div>", 9.0);
+    let padrao = fundo_w(
+        "<div style='background:#336699; filter:grayscale(1); width:9px; height:9px'>x</div>",
+        9.0,
+    );
+    let webkit = fundo_w(
+        "<div style='background:#336699; -webkit-filter:grayscale(1); width:9px; height:9px'>x</div>",
+        9.0,
+    );
     assert_eq!(padrao, webkit);
 }
 
@@ -67,12 +74,20 @@ fn a_borda_tambem_e_filtrada() {
     let cores: Vec<u32> = itens(html)
         .iter()
         .filter_map(|i| match i {
-            DisplayItem::SolidRect { color, .. } | DisplayItem::Border { color, .. } => Some(*color),
+            DisplayItem::SolidRect { color, .. } | DisplayItem::Border { color, .. } => {
+                Some(*color)
+            }
             _ => None,
         })
         .collect();
-    assert!(cores.contains(&0xFFFF_FFFF), "a borda preta invertida: {cores:02X?}");
-    assert!(cores.contains(&0x0000_00FF), "o fundo branco invertido: {cores:02X?}");
+    assert!(
+        cores.contains(&0xFFFF_FFFF),
+        "a borda preta invertida: {cores:02X?}"
+    );
+    assert!(
+        cores.contains(&0x0000_00FF),
+        "o fundo branco invertido: {cores:02X?}"
+    );
 }
 
 /// A regra da casa, ao nível da lista: uma cadeia com `blur` deixa a caixa
@@ -83,7 +98,10 @@ fn uma_cadeia_com_blur_nao_muda_um_pixel() {
     let com = fundo(
         "<div style='background:#336699; filter:blur(4px) brightness(1.5); width:40px; height:40px'>x</div>",
     );
-    assert_eq!(sem, com, "o brightness da cadeia não pode ser aplicado sozinho");
+    assert_eq!(
+        sem, com,
+        "o brightness da cadeia não pode ser aplicado sozinho"
+    );
 }
 
 /// `filter` numa caixa sem filtro nenhum não pode mexer em nada — a condição
@@ -101,7 +119,8 @@ fn uma_caixa_sem_filter_pinta_o_que_pintava() {
 /// à mesma origem da caixa.
 #[test]
 fn inset_emite_um_clip_no_rect_certo() {
-    let html = "<div style='background:#336699; clip-path:inset(10px); width:100px; height:60px'>x</div>";
+    let html =
+        "<div style='background:#336699; clip-path:inset(10px); width:100px; height:60px'>x</div>";
     let clip = itens(html)
         .into_iter()
         .find_map(|i| match i {
@@ -118,9 +137,13 @@ fn inset_emite_um_clip_no_rect_certo() {
 /// denunciasse nada.
 #[test]
 fn o_clip_abre_antes_do_fundo_da_caixa() {
-    let html = "<div style='background:#336699; clip-path:inset(5px); width:100px; height:60px'>x</div>";
+    let html =
+        "<div style='background:#336699; clip-path:inset(5px); width:100px; height:60px'>x</div>";
     let itens = itens(html);
-    let clip = itens.iter().position(|i| matches!(i, DisplayItem::BeginClip { .. })).unwrap();
+    let clip = itens
+        .iter()
+        .position(|i| matches!(i, DisplayItem::BeginClip { .. }))
+        .unwrap();
     let bg = itens
         .iter()
         .position(|i| matches!(i, DisplayItem::SolidRect { color, .. } if *color == 0x3366_99FF))
@@ -134,7 +157,9 @@ fn o_clip_abre_antes_do_fundo_da_caixa() {
 fn polygon_nao_abre_clip() {
     let html = "<div style='background:#336699; clip-path:polygon(50% 0%, 100% 100%, 0% 100%); width:100px; height:60px'>x</div>";
     assert!(
-        !itens(html).iter().any(|i| matches!(i, DisplayItem::BeginClip { .. })),
+        !itens(html)
+            .iter()
+            .any(|i| matches!(i, DisplayItem::BeginClip { .. })),
         "um polygon não deve recortar",
     );
 }

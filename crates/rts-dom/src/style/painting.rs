@@ -121,6 +121,42 @@ kw!(BlendMode {
     "luminosity" => BlendMode::Luminosity,
 });
 
+/// `text-decoration-style` — a forma da linha de decoração.
+///
+/// GUARDADA, SEM PINTURA: o `layout::decoration_code` reduz a decoração a um
+/// código de 0 a 3 (nenhuma/underline/line-through/overline) e a lista de
+/// display não tem onde levar a forma. Uma linha ondulada pede ao pintor um
+/// traçado que o `DisplayItem::Text` não descreve.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum TextDecorationStyle {
+    Solid,
+    Double,
+    Dotted,
+    Dashed,
+    Wavy,
+}
+
+/// `scrollbar-color: <polegar> <calha> | auto` — as duas cores de uma barra de
+/// rolagem.
+///
+/// GUARDADA, SEM PINTURA: a barra é desenhada pelo backend (ver
+/// `crate::scrollbar`), com as cores dele. É a mesma razão pela qual
+/// `scrollbar-width` já estava guardada em `style::vocab` — a largura e a cor
+/// são a mesma decisão, e ficam do mesmo lado da fronteira.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ScrollbarColor {
+    pub polegar: Rgba,
+    pub calha: Rgba,
+}
+
+kw!(TextDecorationStyle {
+    "solid" => TextDecorationStyle::Solid,
+    "double" => TextDecorationStyle::Double,
+    "dotted" => TextDecorationStyle::Dotted,
+    "dashed" => TextDecorationStyle::Dashed,
+    "wavy" => TextDecorationStyle::Wavy,
+});
+
 /// `text-shadow: <dx> <dy> [blur] [cor]` — a primeira sombra da lista.
 ///
 /// **Reusa [`BoxShadow`] em vez de um segundo tipo de sombra**, que é a decisão
@@ -158,6 +194,33 @@ fn fmt_shadow(s: BoxShadow) -> String {
     )
 }
 
+/// `tab-size: <número> | <comprimento>`. O número conta CARACTERES de espaço e o
+/// comprimento é uma largura; guardar os dois no mesmo `f32` perderia a
+/// diferença, por isso só o número entra — que é a forma que as folhas do
+/// corpus escrevem (`tab-size: 4`). Um comprimento devolve `None` em vez de ser
+/// guardado como se fosse uma contagem.
+fn parse_tab_size(v: &str) -> Option<f32> {
+    let t = v.trim();
+    if t.ends_with(|c: char| c.is_ascii_alphabetic()) || t.ends_with('%') {
+        return None;
+    }
+    t.parse::<f32>().ok().filter(|n| *n >= 0.0)
+}
+
+/// `scrollbar-color: <polegar> <calha>`. `auto` (e qualquer forma com menos de
+/// duas cores) devolve `None`: a spec exige as duas, e inventar a segunda a
+/// partir da primeira daria uma calha que o autor não escreveu.
+fn parse_scrollbar_color(v: &str) -> Option<ScrollbarColor> {
+    let toks = super::lengths::split_top_ws(v);
+    if toks.len() != 2 {
+        return None;
+    }
+    Some(ScrollbarColor {
+        polegar: super::color::parse_color(&toks[0])?,
+        calha: super::color::parse_color(&toks[1])?,
+    })
+}
+
 /// Tenta aplicar uma propriedade deste lote. `false` = o nome não é de nenhuma.
 pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     // O prefixo de fornecedor é um alias puro em todas as deste módulo: o
@@ -170,6 +233,54 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         .unwrap_or(prop);
     match name {
         "background-clip" => css.background_clip = BackgroundClip::parse(val),
+        // `background-origin` tem as MESMAS três caixas de `background-clip`
+        // menos o `text` — a spec não o define aqui. Reusa o tipo em vez de um
+        // enum gémeo, e rejeita o `text` explicitamente: aceitá-lo guardaria uma
+        // caixa que esta propriedade não tem.
+        "background-origin" => {
+            css.background_origin =
+                BackgroundClip::parse(val).filter(|v| *v != BackgroundClip::Text)
+        }
+        "text-decoration-style" => css.text_decoration_style = TextDecorationStyle::parse(val),
+        // `-webkit-text-fill-color` é a cor de PREENCHIMENTO do glifo, e no
+        // WebKit ganha ao `color` quando ambas estão postas. Guardada sem
+        // consumidor: quem pinta texto lê `color`. É a outra metade do idioma do
+        // texto com gradiente — ver a nota em `BackgroundClip`.
+        "text-fill-color" => css.text_fill_color = super::color::parse_color(val),
+        // `text-underline-offset: auto | <comprimento>`. `auto` = não declarado:
+        // é o inicial, e um campo `Option` já o exprime sem uma variante extra.
+        "text-underline-offset" => {
+            css.text_underline_offset = if val.trim().eq_ignore_ascii_case("auto") {
+                None
+            } else {
+                super::lengths::parse_inset(val)
+            }
+        }
+        // `tab-size: <número> | <comprimento>` — a largura de um TAB. Guardada
+        // sem consumidor: o medidor de texto trata `\t` como um espaço.
+        "tab-size" => css.tab_size = parse_tab_size(val),
+        "scrollbar-color" => css.scrollbar_color = parse_scrollbar_color(val),
+        // As três da MÁSCARA que faltavam ao lado do `mask-image`. Reusam os
+        // parsers de `background-*`: a spec define-lhes a MESMA gramática, e um
+        // segundo parser de posição/tamanho/repetição divergiria do primeiro à
+        // primeira correção.
+        //
+        // GUARDADAS, SEM MÁSCARA: o que o `mask-image` faz hoje é suprimir o
+        // fundo da caixa (`layout::deve_suprimir_fundo`), para um ícone não sair
+        // como quadrado cheio. Essa função lê APENAS `mask_image` — verificado,
+        // não assumido —, portanto guardar estas três não muda o que se pinta.
+        "mask-size" => css.mask_size = super::BgSize::parse(val),
+        "mask-position" => css.mask_position = super::BgPosition::parse(val),
+        "mask-repeat" => css.mask_repeat = super::BgRepeat::parse(val),
+        // O shorthand `mask: <image> …`. Só a imagem é lida, que é a única parte
+        // com consumidor; as outras camadas caem nos campos acima quando vierem
+        // escritas à parte. Reusar `parse_background` seria tentador e está
+        // errado: aquele resolve `background-color`, que a máscara não tem.
+        "mask" => {
+            if let Some(tok) = val.split_whitespace().find(|t| t.starts_with("url(")) {
+                css.mask_image = Some(tok.to_string());
+            }
+        }
         "mix-blend-mode" => css.mix_blend_mode = BlendMode::parse(val),
         "background-blend-mode" => css.background_blend_mode = BlendMode::parse(val),
         "text-shadow" => css.text_shadow = parse_text_shadow(val),
@@ -183,14 +294,80 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
 /// cabeçalho de `style::initial`.
 pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
     let s = match name {
-        "background-clip" => css.background_clip.map(|v| v.css()).unwrap_or_default().to_string(),
-        "mix-blend-mode" => css.mix_blend_mode.map(|v| v.css()).unwrap_or_default().to_string(),
-        "background-blend-mode" => {
-            css.background_blend_mode.map(|v| v.css()).unwrap_or_default().to_string()
-        }
+        "background-clip" => css
+            .background_clip
+            .map(|v| v.css())
+            .unwrap_or_default()
+            .to_string(),
+        "mix-blend-mode" => css
+            .mix_blend_mode
+            .map(|v| v.css())
+            .unwrap_or_default()
+            .to_string(),
+        "background-blend-mode" => css
+            .background_blend_mode
+            .map(|v| v.css())
+            .unwrap_or_default()
+            .to_string(),
         // O Chrome serializa a sombra com a COR À FRENTE, mesmo quando o autor a
         // escreveu no fim (`2px 2px red` → `rgb(255, 0, 0) 2px 2px 0px`).
         "text-shadow" => css.text_shadow.map(fmt_shadow).unwrap_or_default(),
+        "background-origin" => css
+            .background_origin
+            .map(|v| v.css())
+            .unwrap_or_default()
+            .to_string(),
+        "text-decoration-style" => css
+            .text_decoration_style
+            .map(|v| v.css())
+            .unwrap_or_default()
+            .to_string(),
+        "-webkit-text-fill-color" | "text-fill-color" => css
+            .text_fill_color
+            .map(super::fmt_values::fmt_color)
+            .unwrap_or_default(),
+        "text-underline-offset" => css
+            .text_underline_offset
+            .map(super::fmt_values::fmt_dim)
+            .unwrap_or_default(),
+        "tab-size" => css.tab_size.map(|n| n.to_string()).unwrap_or_default(),
+        "scrollbar-color" => css
+            .scrollbar_color
+            .map(|c| {
+                format!(
+                    "{} {}",
+                    super::fmt_values::fmt_color(c.polegar),
+                    super::fmt_values::fmt_color(c.calha)
+                )
+            })
+            .unwrap_or_default(),
+        // As da máscara respondem pelos mesmos formatadores das de fundo, que é
+        // a outra metade do reúso da gramática.
+        "mask-position" => css
+            .mask_position
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    super::fmt_values::fmt_dim(p.x),
+                    super::fmt_values::fmt_dim(p.y)
+                )
+            })
+            .unwrap_or_default(),
+        "mask-repeat" => css
+            .mask_repeat
+            .map(|r| r.css().to_string())
+            .unwrap_or_default(),
+        "mask-size" => match css.mask_size {
+            None => String::new(),
+            Some(super::BgSize::Auto) => "auto".into(),
+            Some(super::BgSize::Cover) => "cover".into(),
+            Some(super::BgSize::Contain) => "contain".into(),
+            Some(super::BgSize::Len(w, h)) => format!(
+                "{} {}",
+                super::fmt_values::fmt_dim(w),
+                super::fmt_values::fmt_dim(h)
+            ),
+        },
         _ => return None,
     };
     Some(s)

@@ -46,7 +46,11 @@ pub struct Timing {
 
 impl Run {
     pub fn timing(&self) -> Timing {
-        let mut ms: Vec<f64> = self.samples.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
+        let mut ms: Vec<f64> = self
+            .samples
+            .iter()
+            .map(|d| d.as_secs_f64() * 1000.0)
+            .collect();
         ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let n = ms.len();
         let at = |q: f64| -> f64 {
@@ -61,7 +65,11 @@ impl Run {
             p50: at(0.5),
             p95: at(0.95),
             max: ms.last().copied().unwrap_or(0.0),
-            avg: if n == 0 { 0.0 } else { ms.iter().sum::<f64>() / n as f64 },
+            avg: if n == 0 {
+                0.0
+            } else {
+                ms.iter().sum::<f64>() / n as f64
+            },
             total: ms.iter().sum(),
         }
     }
@@ -127,7 +135,10 @@ impl Run {
             ));
         }
         if c.measure_calls > 0 {
-            lines.push(format!("measure_block do cache: {:.1}%", pct(c.measure_hits, c.measure_calls)));
+            lines.push(format!(
+                "measure_block do cache: {:.1}%",
+                pct(c.measure_hits, c.measure_calls)
+            ));
         }
         if c.intrinsic_calls > 0 {
             lines.push(format!(
@@ -184,7 +195,11 @@ impl Run {
 }
 
 pub fn pct(part: u64, total: u64) -> f64 {
-    if total == 0 { 0.0 } else { part as f64 * 100.0 / total as f64 }
+    if total == 0 {
+        0.0
+    } else {
+        part as f64 * 100.0 / total as f64
+    }
 }
 
 /// Compara os CONTADORES de um cenário com os de um baseline, POR ITERAÇÃO, e
@@ -208,7 +223,9 @@ pub fn diff_counters(
     let (ni, bi) = (now_iters.max(1) as f64, base_iters.max(1) as f64);
     let base_rows = base.rows();
     for (i, (_, label, key, value)) in now.rows().iter().enumerate() {
-        let Some((_, _, base_key, before)) = base_rows.get(i) else { continue };
+        let Some((_, _, base_key, before)) = base_rows.get(i) else {
+            continue;
+        };
         debug_assert_eq!(base_key, key);
         let (a, b) = (*before as f64 / bi, *value as f64 / ni);
         if (a - b).abs() < 1e-9 {

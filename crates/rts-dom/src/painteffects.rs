@@ -96,7 +96,11 @@ impl FilterMatriz {
         for i in 0..3 {
             o[i] = (0..3).map(|k| outra.m[i][k] * self.o[k]).sum::<f32>() + outra.o[i];
         }
-        FilterMatriz { m, o, a: self.a * outra.a }
+        FilterMatriz {
+            m,
+            o,
+            a: self.a * outra.a,
+        }
     }
 
     /// Aplica a uma cor `0xRRGGBBAA`.
@@ -167,7 +171,10 @@ fn funcao_para_matriz(nome: &str, arg: &str) -> Option<FilterMatriz> {
     match nome {
         "brightness" => {
             let a = numero(arg)?;
-            Some(FilterMatriz { m: lerp_identidade([[0.0; 3]; 3], 1.0 - a), ..ident })
+            Some(FilterMatriz {
+                m: lerp_identidade([[0.0; 3]; 3], 1.0 - a),
+                ..ident
+            })
         }
         "contrast" => {
             let a = numero(arg)?;
@@ -190,7 +197,10 @@ fn funcao_para_matriz(nome: &str, arg: &str) -> Option<FilterMatriz> {
         }
         "grayscale" => {
             let a = numero(arg)?;
-            Some(FilterMatriz { m: lerp_identidade([LUM, LUM, LUM], a), ..ident })
+            Some(FilterMatriz {
+                m: lerp_identidade([LUM, LUM, LUM], a),
+                ..ident
+            })
         }
         "sepia" => {
             let a = numero(arg)?;
@@ -199,7 +209,10 @@ fn funcao_para_matriz(nome: &str, arg: &str) -> Option<FilterMatriz> {
                 [0.349, 0.686, 0.168],
                 [0.272, 0.534, 0.131],
             ];
-            Some(FilterMatriz { m: lerp_identidade(sepia, a), ..ident })
+            Some(FilterMatriz {
+                m: lerp_identidade(sepia, a),
+                ..ident
+            })
         }
         "saturate" => {
             let s = numero(arg)?;
@@ -240,7 +253,10 @@ fn funcao_para_matriz(nome: &str, arg: &str) -> Option<FilterMatriz> {
         }
         "opacity" => {
             let a = numero(arg)?;
-            Some(FilterMatriz { a: a.clamp(0.0, 1.0), ..ident })
+            Some(FilterMatriz {
+                a: a.clamp(0.0, 1.0),
+                ..ident
+            })
         }
         _ => None,
     }
@@ -258,7 +274,12 @@ fn numero(arg: &str) -> Option<f32> {
         return None;
     }
     if let Some(p) = t.strip_suffix('%') {
-        return p.trim().parse::<f32>().ok().map(|v| v / 100.0).filter(|v| *v >= 0.0);
+        return p
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|v| v / 100.0)
+            .filter(|v| *v >= 0.0);
     }
     t.parse::<f32>().ok().filter(|v| *v >= 0.0)
 }
@@ -267,7 +288,12 @@ fn numero(arg: &str) -> Option<f32> {
 /// graus (`hue-rotate(90)`), que é o que os browsers aceitam.
 fn graus(arg: &str) -> Option<f32> {
     let t = arg.trim();
-    for (suf, fator) in [("deg", 1.0), ("grad", 0.9), ("turn", 360.0), ("rad", 180.0 / std::f32::consts::PI)] {
+    for (suf, fator) in [
+        ("deg", 1.0),
+        ("grad", 0.9),
+        ("turn", 360.0),
+        ("rad", 180.0 / std::f32::consts::PI),
+    ] {
         if let Some(n) = t.strip_suffix(suf) {
             return n.trim().parse::<f32>().ok().map(|v| v * fator);
         }
@@ -480,9 +506,15 @@ mod tests {
     fn a_cadeia_aplica_na_ordem_de_leitura() {
         let cinza = 0x8080_80FF;
         // clarear primeiro passa de 1,0 e o inverso satura em 0.
-        assert_eq!((filtro("brightness(2) invert(1)").aplicar(cinza) >> 24) & 0xFF, 0);
+        assert_eq!(
+            (filtro("brightness(2) invert(1)").aplicar(cinza) >> 24) & 0xFF,
+            0
+        );
         // inverter primeiro dá 0,498, e o dobro disso quase satura por cima.
-        assert_eq!((filtro("invert(1) brightness(2)").aplicar(cinza) >> 24) & 0xFF, 254);
+        assert_eq!(
+            (filtro("invert(1) brightness(2)").aplicar(cinza) >> 24) & 0xFF,
+            254
+        );
     }
 
     /// O cinzento de um vermelho, invertido, é o inverso do cinzento dele — a
@@ -500,7 +532,10 @@ mod tests {
     #[test]
     fn blur_na_cadeia_recusa_a_cadeia_toda() {
         let f = filtro("blur(4px) brightness(1.5)");
-        assert!(f.e_identidade(), "cadeia com blur tem de deixar a cor intacta");
+        assert!(
+            f.e_identidade(),
+            "cadeia com blur tem de deixar a cor intacta"
+        );
         assert!(filtro("drop-shadow(0 1px 2px rgba(0,0,0,.4))").e_identidade());
         assert!(filtro("blur(4px)").e_identidade());
     }
@@ -540,7 +575,12 @@ mod tests {
         }
     }
 
-    const CAIXA: Rect = Rect { x: 10.0, y: 20.0, w: 100.0, h: 50.0 };
+    const CAIXA: Rect = Rect {
+        x: 10.0,
+        y: 20.0,
+        w: 100.0,
+        h: 50.0,
+    };
 
     #[test]
     fn inset_de_um_valor_encolhe_os_quatro_lados() {

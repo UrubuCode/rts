@@ -41,7 +41,13 @@ pub fn lerp_dimension(a: Dimension, b: Dimension, t: f32) -> Dimension {
             vw: lerp_f32(x.vw, y.vw, t),
             vh: lerp_f32(x.vh, y.vh, t),
         }),
-        _ => if t < 0.5 { a } else { b }, // unidades diferentes → discreto
+        _ => {
+            if t < 0.5 {
+                a
+            } else {
+                b
+            }
+        } // unidades diferentes → discreto
     }
 }
 
@@ -51,7 +57,13 @@ pub fn lerp_dimension(a: Dimension, b: Dimension, t: f32) -> Dimension {
 fn lerp_side(a: Side, b: Side, t: f32) -> Side {
     match (a, b) {
         (Side::Len(x), Side::Len(y)) => Side::Len(lerp_dimension(x, y, t)),
-        _ => if t < 0.5 { a } else { b },
+        _ => {
+            if t < 0.5 {
+                a
+            } else {
+                b
+            }
+        }
     }
 }
 
@@ -68,7 +80,13 @@ impl AnimValue for Option<Rgba> {
         match (*a, *b) {
             (None, None) => None,
             (Some(x), Some(y)) => Some(lerp_color(x, y, t)),
-            (x, y) => if t < 0.5 { x } else { y },
+            (x, y) => {
+                if t < 0.5 {
+                    x
+                } else {
+                    y
+                }
+            }
         }
     }
 }
@@ -91,7 +109,13 @@ impl AnimValue for Option<Dimension> {
         match (*a, *b) {
             (None, None) => None,
             (Some(x), Some(y)) => Some(lerp_dimension(x, y, t)),
-            (x, y) => if t < 0.5 { x } else { y },
+            (x, y) => {
+                if t < 0.5 {
+                    x
+                } else {
+                    y
+                }
+            }
         }
     }
 }

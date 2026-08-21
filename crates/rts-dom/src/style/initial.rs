@@ -45,6 +45,14 @@ pub fn initial(name: &str) -> Option<&'static str> {
         "background-clip" => "border-box",
         "mix-blend-mode" | "background-blend-mode" => "normal",
         "text-shadow" => "none",
+        "background-origin" => "padding-box",
+        "text-decoration-style" => "solid",
+        "text-underline-offset" => "auto",
+        "tab-size" => "8",
+        "scrollbar-color" => "auto",
+        "mask-size" => "auto",
+        "mask-position" => "0% 0%",
+        "mask-repeat" => "repeat",
         // As seis da colocação por linha (ver `style::grid_lines`). O shorthand
         // não está aqui: a forma computada dele é a única do módulo que não foi
         // medida contra o Chrome, e pôr um palpite na TABELA DOS MEDIDOS era
@@ -67,15 +75,20 @@ pub fn initial(name: &str) -> Option<&'static str> {
         // que o layout assume quando ninguem declara nada.
         "transform-origin" => "50% 50%",
         // Os quatro cantos (ver `style::radius`). O Chrome responde `0px`.
-        "border-top-left-radius" | "border-top-right-radius"
-        | "border-bottom-right-radius" | "border-bottom-left-radius"
-        | "border-start-start-radius" | "border-start-end-radius"
-        | "border-end-end-radius" | "border-end-start-radius" => "0px",
+        "border-top-left-radius"
+        | "border-top-right-radius"
+        | "border-bottom-right-radius"
+        | "border-bottom-left-radius"
+        | "border-start-start-radius"
+        | "border-start-end-radius"
+        | "border-end-end-radius"
+        | "border-end-start-radius" => "0px",
         "align-content" => "normal",
         "justify-self" => "auto",
         // As longhands de transition/animation — ver `style::timing`.
-        "transition-duration" | "transition-delay" | "animation-duration"
-        | "animation-delay" => "0s",
+        "transition-duration" | "transition-delay" | "animation-duration" | "animation-delay" => {
+            "0s"
+        }
         "transition-timing-function" | "animation-timing-function" => "ease",
         "transition-property" => "all",
         "animation-name" => "none",
@@ -108,14 +121,27 @@ pub fn initial(name: &str) -> Option<&'static str> {
         "cursor" => "auto",
         "vertical-align" => "baseline",
         // Box model.
-        "padding-top" | "padding-right" | "padding-bottom" | "padding-left"
-        | "padding-inline-start" | "padding-inline-end" => "0px",
+        "padding-top"
+        | "padding-right"
+        | "padding-bottom"
+        | "padding-left"
+        | "padding-inline-start"
+        | "padding-inline-end" => "0px",
         "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => "0px",
-        "border-width" | "border-top-width" | "border-right-width" | "border-bottom-width"
+        "border-width"
+        | "border-top-width"
+        | "border-right-width"
+        | "border-bottom-width"
         | "border-left-width" => "0px",
-        "border-style" | "border-top-style" | "border-right-style" | "border-bottom-style"
+        "border-style"
+        | "border-top-style"
+        | "border-right-style"
+        | "border-bottom-style"
         | "border-left-style" => "none",
-        "border-color" | "border-top-color" | "border-right-color" | "border-bottom-color"
+        "border-color"
+        | "border-top-color"
+        | "border-right-color"
+        | "border-bottom-color"
         | "border-left-color" => "rgb(0, 0, 0)",
         "border-radius" => "0px",
         "outline-width" => "0px",
@@ -185,10 +211,17 @@ impl ComputedStyle {
         // decoração declarada responde `rgb(0, 0, 255)`; nós respondíamos vazio.
         if matches!(
             name,
-            "text-decoration-color" | "border-color" | "outline-color" | "caret-color"
-                | "column-rule-color" | "text-emphasis-color"
+            "text-decoration-color"
+                | "border-color"
+                | "outline-color"
+                | "caret-color"
+                | "column-rule-color"
+                | "text-emphasis-color"
         ) {
-            return self.color.map(super::fmt_values::fmt_color).unwrap_or_default();
+            return self
+                .color
+                .map(super::fmt_values::fmt_color)
+                .unwrap_or_default();
         }
         if name == "display" {
             // A UA-stylesheet é a dona desta resposta e já existe — duplicar

@@ -110,10 +110,15 @@ pub fn apply_shorthand(css: &mut ComputedStyle, val: &str) {
 
 /// Tenta aplicar uma longhand de canto. `false` = o nome não é de nenhuma.
 pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
-    let Some(sufixo) = prop.strip_prefix("border-").and_then(|r| r.strip_suffix("-radius")) else {
+    let Some(sufixo) = prop
+        .strip_prefix("border-")
+        .and_then(|r| r.strip_suffix("-radius"))
+    else {
         return false;
     };
-    let Some(canto) = Corner::parse(sufixo) else { return false };
+    let Some(canto) = Corner::parse(sufixo) else {
+        return false;
+    };
     set(css, canto, primeiro_raio(val));
     true
 }
@@ -122,9 +127,15 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
 /// declarou — o inicial vive em `style::initial`, como o de todas). `None` = o
 /// nome não é de um canto.
 pub fn get_property(css: &ComputedStyle, prop: &str) -> Option<String> {
-    let sufixo = prop.strip_prefix("border-").and_then(|r| r.strip_suffix("-radius"))?;
+    let sufixo = prop
+        .strip_prefix("border-")
+        .and_then(|r| r.strip_suffix("-radius"))?;
     let canto = Corner::parse(sufixo)?;
     // O canto responde o que o canto tem; se só o shorthand foi declarado, foi
     // ele que escreveu os quatro, portanto a resposta já está no campo do canto.
-    Some(get(css, canto).map(|v| format!("{v}px")).unwrap_or_default())
+    Some(
+        get(css, canto)
+            .map(|v| format!("{v}px"))
+            .unwrap_or_default(),
+    )
 }

@@ -61,7 +61,9 @@ pub struct RuleIndex {
 /// nenhum, Universal. (A PRIMEIRA classe/id que aparecer basta como âncora: o nó
 /// precisa TÊ-LA para casar, então é uma condição necessária suficiente p/ o bucket.)
 fn key_of(sel: &ComplexSelector) -> Key {
-    let Some(target) = sel.compounds.last() else { return Key::Universal };
+    let Some(target) = sel.compounds.last() else {
+        return Key::Universal;
+    };
     let mut tag: Option<&str> = None;
     for part in &target.parts {
         match part {

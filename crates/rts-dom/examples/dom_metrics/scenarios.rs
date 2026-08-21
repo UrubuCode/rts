@@ -8,7 +8,7 @@
 use crate::report::Run;
 use rts_dom::layout::{ApproxMeasurer, LayoutCtx, TextMeasurer};
 use rts_dom::metrics;
-use rts_dom::{parse_html_to_dom, Dom, NodeId, NodeKind};
+use rts_dom::{Dom, NodeId, NodeKind, parse_html_to_dom};
 use std::time::Instant;
 
 /// Medidor que CONTA as medições além de responder. `text_width` é o único
@@ -22,7 +22,11 @@ pub struct CountingMeasurer {
 
 impl CountingMeasurer {
     pub fn new() -> Self {
-        Self { inner: ApproxMeasurer, widths: 0.into(), lines: 0.into() }
+        Self {
+            inner: ApproxMeasurer,
+            widths: 0.into(),
+            lines: 0.into(),
+        }
     }
     fn take(&self) -> (u64, u64) {
         let v = (self.widths.get(), self.lines.get());
@@ -33,9 +37,9 @@ impl CountingMeasurer {
 }
 
 impl TextMeasurer for CountingMeasurer {
-    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32 {
+    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, italic: bool) -> f32 {
         self.widths.set(self.widths.get() + 1);
-        self.inner.text_width(text, size, mono, bold)
+        self.inner.text_width(text, size, mono, bold, italic)
     }
     fn line_height(&self, size: f32) -> f32 {
         self.lines.set(self.lines.get() + 1);
@@ -44,7 +48,11 @@ impl TextMeasurer for CountingMeasurer {
 }
 
 pub fn ctx<'a>(m: &'a CountingMeasurer, w: f32, h: f32) -> LayoutCtx<'a> {
-    LayoutCtx { viewport_w: w, viewport_h: h, measurer: m }
+    LayoutCtx {
+        viewport_w: w,
+        viewport_h: h,
+        measurer: m,
+    }
 }
 
 /// Roda `f` `iters` vezes, guardando o tempo de CADA iteração (p95 e máximo só
@@ -108,7 +116,9 @@ fn biggest_container(dom: &Dom) -> Option<NodeId> {
     let mut best: Option<(usize, usize)> = None;
     for idx in 0..dom.nodes.len() {
         if matches!(dom.node(idx).kind, NodeKind::Element { .. })
-            && best.map(|(_, n)| dom.node(idx).children.len() > n).unwrap_or(true)
+            && best
+                .map(|(_, n)| dom.node(idx).children.len() > n)
+                .unwrap_or(true)
         {
             best = Some((idx, dom.node(idx).children.len()));
         }
@@ -177,7 +187,11 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     runs.push(run("classe inerte + frame", "frame", iters, m, || {
         flip0 = !flip0;
         if let Some(t) = leaf1 {
-            dom.set_attr(t, "class", if flip0 { "rts-classe-inexistente" } else { "" });
+            dom.set_attr(
+                t,
+                "class",
+                if flip0 { "rts-classe-inexistente" } else { "" },
+            );
         }
         std::hint::black_box(rts_dom::layout::layout_cached(&dom, &ctx(m, vw, vh)));
     }));
@@ -291,13 +305,21 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     // que os índices podem servir — a de cima tem `div` (tag) e cai na varredura.
     let classe = (0..dom.nodes.len())
         .find_map(|i| {
-            dom.node(i).attr("class").and_then(|c| c.split_whitespace().next().map(str::to_string))
+            dom.node(i)
+                .attr("class")
+                .and_then(|c| c.split_whitespace().next().map(str::to_string))
         })
         .unwrap_or_else(|| "nao-existe".into());
     let sel_classe = format!(".{classe}");
-    runs.push(run("querySelectorAll .classe", "consulta", iters, m, || {
-        std::hint::black_box(dom.query_all(&sel_classe));
-    }));
+    runs.push(run(
+        "querySelectorAll .classe",
+        "consulta",
+        iters,
+        m,
+        || {
+            std::hint::black_box(dom.query_all(&sel_classe));
+        },
+    ));
     let first_id = (0..dom.nodes.len())
         .find_map(|i| dom.node(i).attr("id").map(str::to_string))
         .unwrap_or_else(|| "nao-existe".into());
@@ -363,14 +385,18 @@ pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
     let mut exemplos: Vec<String> = Vec::new();
 
     for idx in 0..dom.nodes.len() {
-        let rts_dom::NodeKind::Element { tag } = &dom.node(idx).kind else { continue };
+        let rts_dom::NodeKind::Element { tag } = &dom.node(idx).kind else {
+            continue;
+        };
         let css = dom.computed_style_idx(idx);
         let display = css.as_ref().and_then(|c| c.effective_display());
         match geo.rects.get(&idx) {
             Some(r) if r.w > 0.5 && r.h > 0.5 => com_caixa += 1,
             Some(_) => {
                 zerados += 1;
-                *por_motivo.entry(format!("caixa 0×0 ({tag}, display {display:?})")).or_default() += 1;
+                *por_motivo
+                    .entry(format!("caixa 0×0 ({tag}, display {display:?})"))
+                    .or_default() += 1;
             }
             None => {
                 sem_caixa += 1;
@@ -422,7 +448,10 @@ pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
         D::Border { .. } => bordas += 1,
         D::Text { text, x, y, .. } => {
             if textos.len() < 10 && !text.trim().is_empty() {
-                textos.push(format!("({x:.0},{y:.0}) {:?}", text.chars().take(40).collect::<String>()));
+                textos.push(format!(
+                    "({x:.0},{y:.0}) {:?}",
+                    text.chars().take(40).collect::<String>()
+                ));
             }
         }
         _ => {}
@@ -435,8 +464,12 @@ pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
         if mostradas >= 14 {
             break;
         }
-        let rts_dom::NodeKind::Element { tag } = &dom.node(idx).kind else { continue };
-        let Some(r) = geo.rects.get(&idx) else { continue };
+        let rts_dom::NodeKind::Element { tag } = &dom.node(idx).kind else {
+            continue;
+        };
+        let Some(r) = geo.rects.get(&idx) else {
+            continue;
+        };
         if r.w < 1.0 || r.h < 1.0 {
             continue;
         }
@@ -491,7 +524,10 @@ pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
             );
         }
     }
-    println!("      itens pintados: {retangulos} retângulos, {bordas} bordas, {} textos", textos.len());
+    println!(
+        "      itens pintados: {retangulos} retângulos, {bordas} bordas, {} textos",
+        textos.len()
+    );
     // ORDEM de pintura: um fundo que venha DEPOIS do texto apaga o texto.
     println!("      ordem (primeiros 22):");
     let mut n = 0usize;
@@ -503,18 +539,29 @@ pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
         let descricao = match item {
             D::SolidRect { rect, color, .. } => format!(
                 "rect ({:.0},{:.0}) {:.0}x{:.0} #{color:08X}",
-                rect.x + dx, rect.y + dy, rect.w, rect.h
+                rect.x + dx,
+                rect.y + dy,
+                rect.w,
+                rect.h
             ),
             D::Border { rect, color, .. } => {
                 format!("borda ({:.0},{:.0}) #{color:08X}", rect.x + dx, rect.y + dy)
             }
-            D::Text { x, y, text, color, .. } => format!(
+            D::Text {
+                x, y, text, color, ..
+            } => format!(
                 "texto ({:.0},{:.0}) #{color:08X} {:?}",
                 x + dx,
                 y + dy,
                 text.chars().take(24).collect::<String>()
             ),
-            D::BeginClip { rect, .. } => format!("clip ({:.0},{:.0}) {:.0}x{:.0}", rect.x + dx, rect.y + dy, rect.w, rect.h),
+            D::BeginClip { rect, .. } => format!(
+                "clip ({:.0},{:.0}) {:.0}x{:.0}",
+                rect.x + dx,
+                rect.y + dy,
+                rect.w,
+                rect.h
+            ),
             D::EndClip { .. } => "fim-clip".to_string(),
             outro => format!("{outro:?}").chars().take(40).collect(),
         };
@@ -580,9 +627,11 @@ pub fn verificar_equivalencia(
         }
         for (i, (a, b)) in reusado.iter().zip(&zero).enumerate() {
             if !item_equivalente(a, b, TOL) {
-                return Err(format!("passo {passo}, item {i}:
+                return Err(format!(
+                    "passo {passo}, item {i}:
       reuso: {a:?}
-      zero:  {b:?}"));
+      zero:  {b:?}"
+                ));
             }
             conferidos += 1;
         }
@@ -598,30 +647,103 @@ pub fn verificar_equivalencia(
 /// divergência falsa num `BeginClip` de página real (17.599998 contra
 /// 17.599976, dois centésimos de milésimo de pixel). Um verificador que dá
 /// alarme falso é pior que nenhum: ensina a ignorá-lo.
-fn item_equivalente(a: &rts_dom::layout::DisplayItem, b: &rts_dom::layout::DisplayItem, tol: f32) -> bool {
+fn item_equivalente(
+    a: &rts_dom::layout::DisplayItem,
+    b: &rts_dom::layout::DisplayItem,
+    tol: f32,
+) -> bool {
     use rts_dom::layout::DisplayItem as D;
     let perto = |x: f32, y: f32| (x - y).abs() < tol;
     let rects = |ra: &rts_dom::layout::Rect, rb: &rts_dom::layout::Rect| {
         perto(ra.x, rb.x) && perto(ra.y, rb.y) && perto(ra.w, rb.w) && perto(ra.h, rb.h)
     };
     match (a, b) {
-        (D::Text { x: xa, y: ya, text: ta, color: ca, .. }, D::Text { x: xb, y: yb, text: tb, color: cb, .. }) => {
-            perto(*xa, *xb) && perto(*ya, *yb) && ta == tb && ca == cb
-        }
-        (D::SolidRect { rect: ra, color: ca, .. }, D::SolidRect { rect: rb, color: cb, .. })
-        | (D::Border { rect: ra, color: ca, .. }, D::Border { rect: rb, color: cb, .. })
-        | (D::Shadow { rect: ra, color: ca, .. }, D::Shadow { rect: rb, color: cb, .. }) => {
-            rects(ra, rb) && ca == cb
-        }
-        (D::GradientRect { rect: ra, c0: a0, c1: a1, .. }, D::GradientRect { rect: rb, c0: b0, c1: b1, .. }) => {
-            rects(ra, rb) && a0 == b0 && a1 == b1
-        }
-        (D::Image { rect: ra, pixels_handle: ha, .. }, D::Image { rect: rb, pixels_handle: hb, .. }) => {
-            rects(ra, rb) && ha == hb
-        }
-        (D::BeginClip { rect: ra, node: na, .. }, D::BeginClip { rect: rb, node: nb, .. }) => {
-            rects(ra, rb) && na == nb
-        }
+        (
+            D::Text {
+                x: xa,
+                y: ya,
+                text: ta,
+                color: ca,
+                ..
+            },
+            D::Text {
+                x: xb,
+                y: yb,
+                text: tb,
+                color: cb,
+                ..
+            },
+        ) => perto(*xa, *xb) && perto(*ya, *yb) && ta == tb && ca == cb,
+        (
+            D::SolidRect {
+                rect: ra,
+                color: ca,
+                ..
+            },
+            D::SolidRect {
+                rect: rb,
+                color: cb,
+                ..
+            },
+        )
+        | (
+            D::Border {
+                rect: ra,
+                color: ca,
+                ..
+            },
+            D::Border {
+                rect: rb,
+                color: cb,
+                ..
+            },
+        )
+        | (
+            D::Shadow {
+                rect: ra,
+                color: ca,
+                ..
+            },
+            D::Shadow {
+                rect: rb,
+                color: cb,
+                ..
+            },
+        ) => rects(ra, rb) && ca == cb,
+        (
+            D::GradientRect {
+                rect: ra,
+                c0: a0,
+                c1: a1,
+                ..
+            },
+            D::GradientRect {
+                rect: rb,
+                c0: b0,
+                c1: b1,
+                ..
+            },
+        ) => rects(ra, rb) && a0 == b0 && a1 == b1,
+        (
+            D::Image {
+                rect: ra,
+                pixels_handle: ha,
+                ..
+            },
+            D::Image {
+                rect: rb,
+                pixels_handle: hb,
+                ..
+            },
+        ) => rects(ra, rb) && ha == hb,
+        (
+            D::BeginClip {
+                rect: ra, node: na, ..
+            },
+            D::BeginClip {
+                rect: rb, node: nb, ..
+            },
+        ) => rects(ra, rb) && na == nb,
         (D::EndClip { .. }, D::EndClip { .. }) => true,
         _ => false,
     }

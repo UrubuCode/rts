@@ -32,9 +32,12 @@ use super::values::Dimension;
 /// `"inset-inline-start"` → `"inset-left"`, `"border-block-end-width"` →
 /// `"border-bottom-width"`. `None` quando o nome não tem eixo lógico nenhum.
 fn to_physical(prop: &str) -> Option<String> {
-    for (logico, fisico) in
-        [("inline-start", "left"), ("inline-end", "right"), ("block-start", "top"), ("block-end", "bottom")]
-    {
+    for (logico, fisico) in [
+        ("inline-start", "left"),
+        ("inline-end", "right"),
+        ("block-start", "top"),
+        ("block-end", "bottom"),
+    ] {
         if let Some(i) = prop.find(logico) {
             let mut out = String::with_capacity(prop.len());
             out.push_str(&prop[..i]);
@@ -89,7 +92,11 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
                 return true;
             }
             let a = parse_inset(&toks[0]);
-            let b = if toks.len() > 1 { parse_inset(&toks[1]) } else { a };
+            let b = if toks.len() > 1 {
+                parse_inset(&toks[1])
+            } else {
+                a
+            };
             if eixo == "inline" {
                 css.inset_left = a;
                 css.inset_right = b;
@@ -101,7 +108,9 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         }
     }
 
-    let Some(fisico) = to_physical(prop) else { return false };
+    let Some(fisico) = to_physical(prop) else {
+        return false;
+    };
 
     // `inset-inline-start` → o offset do lado físico.
     if let Some(side) = fisico.strip_prefix("inset-") {

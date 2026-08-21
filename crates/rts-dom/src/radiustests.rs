@@ -34,7 +34,11 @@ fn um_canto_declarado_sozinho_arredonda_so_esse_canto() {
         0xABCDEFFF,
     );
     assert_eq!(c.tl, 8.0, "o canto declarado: {c:?}");
-    assert_eq!((c.tr, c.br, c.bl), (0.0, 0.0, 0.0), "os outros três não mexem: {c:?}");
+    assert_eq!(
+        (c.tr, c.br, c.bl),
+        (0.0, 0.0, 0.0),
+        "os outros três não mexem: {c:?}"
+    );
 }
 
 /// `border-radius: 2px 2px 0 0` — a forma do cabeçalho de cartão do Bootstrap —
@@ -65,7 +69,10 @@ fn um_border_radius_de_um_valor_continua_a_arredondar_os_quatro() {
 /// backend recortar o retângulo ao visível.
 #[test]
 fn sem_declaracao_os_quatro_cantos_sao_zero() {
-    let c = cantos("<div style='background:#abcdef; width:50px; height:50px'>x</div>", 0xABCDEFFF);
+    let c = cantos(
+        "<div style='background:#abcdef; width:50px; height:50px'>x</div>",
+        0xABCDEFFF,
+    );
     assert_eq!(c, Corners::ZERO);
     assert!(!c.any(), "sem raio não há canto arredondado");
 }
@@ -84,6 +91,24 @@ fn any_pergunta_pelos_quatro_cantos_e_nao_pelo_primeiro() {
     assert!(Corners::same(1.0).any());
     // O canto que arredonda é o ÚLTIMO: quem responder pelo primeiro diz que não
     // há raio e recorta um desenho arredondado.
-    assert!(Corners { tl: 0.0, tr: 0.0, br: 0.0, bl: 3.0 }.any(), "o último canto conta");
-    assert!(Corners { tl: 0.0, tr: 2.0, br: 0.0, bl: 0.0 }.any(), "o segundo canto conta");
+    assert!(
+        Corners {
+            tl: 0.0,
+            tr: 0.0,
+            br: 0.0,
+            bl: 3.0
+        }
+        .any(),
+        "o último canto conta"
+    );
+    assert!(
+        Corners {
+            tl: 0.0,
+            tr: 2.0,
+            br: 0.0,
+            bl: 0.0
+        }
+        .any(),
+        "o segundo canto conta"
+    );
 }

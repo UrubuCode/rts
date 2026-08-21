@@ -125,16 +125,37 @@ fn calc_atom(t: &[char], p: &mut usize) -> Option<CalcVal> {
     while matches!(t.get(*p), Some(c) if c.is_ascii_alphabetic() || *c == '%') {
         *p += 1;
     }
-    let unit: String = t[ustart..*p].iter().collect::<String>().to_ascii_lowercase();
+    let unit: String = t[ustart..*p]
+        .iter()
+        .collect::<String>()
+        .to_ascii_lowercase();
     use crate::style::CalcLen;
     Some(match unit.as_str() {
         "" => CalcVal::Num(num),
-        "px" => CalcVal::Len(CalcLen { px: num, ..Default::default() }),
-        "%" => CalcVal::Len(CalcLen { pct: num, ..Default::default() }),
-        "em" => CalcVal::Len(CalcLen { em: num, ..Default::default() }),
-        "rem" => CalcVal::Len(CalcLen { rem: num, ..Default::default() }),
-        "vw" => CalcVal::Len(CalcLen { vw: num, ..Default::default() }),
-        "vh" => CalcVal::Len(CalcLen { vh: num, ..Default::default() }),
+        "px" => CalcVal::Len(CalcLen {
+            px: num,
+            ..Default::default()
+        }),
+        "%" => CalcVal::Len(CalcLen {
+            pct: num,
+            ..Default::default()
+        }),
+        "em" => CalcVal::Len(CalcLen {
+            em: num,
+            ..Default::default()
+        }),
+        "rem" => CalcVal::Len(CalcLen {
+            rem: num,
+            ..Default::default()
+        }),
+        "vw" => CalcVal::Len(CalcLen {
+            vw: num,
+            ..Default::default()
+        }),
+        "vh" => CalcVal::Len(CalcLen {
+            vh: num,
+            ..Default::default()
+        }),
         _ => return None, // unidade desconhecida (ch/vmin/…): calc inválido
     })
 }
