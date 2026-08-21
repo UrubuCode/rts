@@ -22,7 +22,7 @@
 //!   quando as linhas não têm altura própria, que é o caso normal.
 
 mod grid;
-mod widths;
+pub(in crate::table) mod widths;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -154,7 +154,7 @@ fn medir_colunas(
     font: f32,
     ctx: &LayoutCtx,
     spacing: f32,
-) -> Vec<widths::MinMax> {
+) -> Vec<widths::Coluna> {
     let mut medidas = Vec::new();
     for row in &g.rows {
         for c in &row.cells {
