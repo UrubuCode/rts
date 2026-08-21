@@ -34,6 +34,16 @@ Corpus: MediaWiki, Google, WhatsApp Web landing e app. Por ocorrências, as
 desconhecidas que pesam: `filter` 114, `-webkit-filter` 94, `content` 87,
 `clip-path` 59, `-webkit-clip-path` 50, `mask-size` 27, `backdrop-filter` 18.
 
+**Esta contagem é anterior a 2026-08-21 e não foi re-medida.** Nesse dia
+`filter`/`-webkit-filter` e `clip-path`/`-webkit-clip-path` passaram a ter campo
+e a pintar (§4.5), portanto saem das desconhecidas — são ~317 das 622
+ocorrências dessa coluna. Os números acima ficam como estão em vez de serem
+corrigidos por subtração: a coluna mede-se correndo a sonda, e um número
+estimado no lugar de um medido é a coisa que estas três colunas existem para
+evitar. Fica também dito que parte do que sai é **recusa** e não pintura — o
+`blur` e o `polygon` contarão como reconhecidos sem mudar um pixel, por decisão
+tomada e escrita em §4.5.
+
 **As três colunas existem porque sem a do meio o total não mede nada:** um
 `will-change`, que nunca vai ter efeito, somava com um `object-fit`, que é
 trabalho por fazer.
@@ -205,6 +215,8 @@ estrutural.
 | `box-shadow` | **a primeira** sombra da lista | listas de sombras; `inset` |
 | `background` | cor sólida **ou** um `linear-gradient` | `url(...)` é **ignorado**; `radial-gradient`, `background-size/position/repeat/attachment/clip` (109 ocorrências somadas), múltiplas camadas |
 | `opacity` | multiplica o alpha das cores do próprio elemento | grupo de compositing (um subárvore a 0.5 desenha cada caixa a 0.5, não o conjunto) |
+| `filter` | as funções que são matriz de cor (`brightness`, `contrast`, `invert`, `grayscale`, `sepia`, `saturate`, `hue-rotate`, `opacity`), exatas, sobre as cores próprias da caixa | `blur` e `drop-shadow` **recusados com motivo** (§4.5); não alcança descendentes — mesmo limite do `opacity`; a cadeia é tudo-ou-nada |
+| `clip-path` | `inset()` sem `round`, como recorte retangular real | `polygon`/`circle`/`ellipse`/`path` e `inset` com raio **recusados** — o recorte é AABB (§4.5) |
 | `display` | `block`, `flex`, `inline`/`inline-block`, `grid`, `none`, `flow-root`→block | `inline` e `inline-block` colapsam no MESMO modo (wrap): não há distinção entre fluxo inline e caixa inline-block. Faltam `table*`, `list-item`, `contents`, `inline-grid` distinto |
 | `position` | `static`/`absolute`/`fixed` com containing block = ancestral posicionado mais próximo (`containing_block_rect`, layout.rs:585) | **`relative` não desloca**: `Position::Relative` não aparece uma única vez em `layout.rs`, portanto `top/left` num `position:relative` não têm efeito. `sticky` parseia e comporta-se como estático |
 | `float` | floats consecutivos partilham a linha | `clear` **não existe** (37 ocorrências — o 2.º maior buraco padrão da folha); não há float a envolver texto de vários parágrafos |
@@ -524,8 +536,11 @@ Falta: `background-image: url()` **[A]**, `background-size`/`-position`/
 `color-scheme` **[A]** (6), `accent-color` **[N]**, `mix-blend-mode` **[N]**.
 
 ### Efeitos
-Falta: `filter` **[A]** (12 ocorrências), `backdrop-filter` **[N]**,
-`clip-path` **[A]**, `mask`/`mask-image`/`mask-size`/`-position`/`-repeat`
+`filter` e `clip-path` deixaram de faltar em 2026-08-21, em parte e com a outra
+parte recusada com motivo — ver §4.5, que é onde a divisão está escrita.
+
+Falta: `backdrop-filter` **[N]**,
+`mask`/`mask-image`/`mask-size`/`-position`/`-repeat`
 **[A]** — e é a **maior contagem única da folha** (112 `-webkit-mask-image` +
 26 `-webkit-mask-size` + 14 `mask-image` + …), ver §3 para porque isso *não* a
 torna a maior prioridade; `text-shadow` **[A]**; `transform-origin`,
@@ -727,17 +742,63 @@ modernas, e a Wikipédia, que a usa muito, usa-a como grelha de dados onde o
 resultado errado ainda se lê. É caro **e** adiável — a combinação que justifica
 adiar.
 
-### 4.5 Máscaras e `filter` — MÉDIO, e são do backend, não do layout
+### 4.5 Máscaras e `filter` — DECIDIDO em 2026-08-21, e a decisão foi partir em dois
 
-`mask-image`, `filter`, `clip-path` e `backdrop-filter` não mudam geometria:
-mudam como um retângulo já colocado é pintado. Não tocam no `layout.rs`. O preço
-está todo do outro lado — no `DisplayItem` e no backend egui/wgpu, que hoje
-sabe pintar retângulo, gradiente de 4 vértices, borda, texto e imagem, e teria
-de saber compor com um canal alfa vindo de outra imagem. Isso mesmo se aplica ao
-grupo de compositing que falta ao `opacity`, e as duas coisas partilham o
-mecanismo: renderizar uma subárvore para fora do ecrã e compor o resultado.
+Esta secção dizia que as três custavam menos feitas de uma vez, e o que a
+implementação mostrou foi o contrário: **elas não são uma família, são duas.**
+Uma metade é aritmética de cor e sai exata sem tocar no backend; a outra precisa
+do elemento já rasterizado e não existe num motor imediato. Juntá-las era o que
+fazia a estimativa parecer uniforme.
 
-Implementar as três de uma vez custa menos do que uma de cada vez.
+**O que PINTA hoje** (`crates/rts-dom/src/painteffects.rs`, consumido em
+`layout.rs` no mesmo sítio que o `opacity`):
+
+- `filter` com `brightness`, `contrast`, `invert`, `grayscale`, `sepia`,
+  `saturate`, `hue-rotate` e `opacity`. Cada uma é uma matriz 3×3 sobre RGB mais
+  um deslocamento — o §8 da Filter Effects 1 define-as literalmente assim, em
+  sRGB. Sobre uma cor sólida, uma borda, um gradiente ou uma sombra, isto **não
+  é uma aproximação, é a definição**.
+- `clip-path: inset()` sem `round`, como um `BeginClip`/`EndClip` — o recorte do
+  egui é um retângulo alinhado aos eixos, e um `inset()` reto é exatamente isso.
+
+**O que está RECUSADO, com o motivo** (não é trabalho por decidir; é decisão
+tomada):
+
+| recusado | porquê |
+|---|---|
+| `filter: blur()` | precisa do elemento **já rasterizado** para o reprocessar. O egui pinta direto no buffer do frame e não expõe render target por elemento; o `blur` do `epaint::Shadow` desfoca uma sombra que ele próprio gera, não conteúdo alheio. É um pass de wgpu com readback, não uma mudança de display list. |
+| `filter: drop-shadow()` | segue a silhueta **alpha** do elemento, que uma lista de retângulos não conhece. Coincidiria com `box-shadow` só em caixas opacas — e onde a folha real o usa é sobre ícones com alpha. |
+| `clip-path: polygon()/circle()/ellipse()/path()`, e `inset()` com `round` | o recorte é AABB. Recortar pela caixa envolvente deixaria um losango quadrado: um desenho errado com aparência de certo. |
+| `filter` sobre `Image`/`Pixels` | `Shape::image` do egui só aceita `tint: Color32`, que é multiplicativo. `grayscale` é mistura de canais e não se exprime como tint. |
+| `backdrop-filter` | filtra o que está POR BAIXO do elemento — o mesmo readback do `blur`, sobre conteúdo que nem sequer é deste elemento. |
+
+**A decisão que alguém vai querer "melhorar", e não deve:** a cadeia é
+tudo-ou-nada. Perante `filter: blur(4px) brightness(1.2)`, aplicar só o
+`brightness` daria um elemento nítido e mais claro — que não é o pedido nem o
+anterior, é um terceiro desenho que ninguém escreveu. Uma função não suportada
+recusa a cadeia inteira e o elemento fica **com o mesmo `u32` de antes**. Há um
+teste com esse nome.
+
+**`mask-*` já estava resolvido antes disto**, e por outra via: `mask_image`
+guarda a url crua e `deve_suprimir_fundo` não pinta o fundo de uma caixa com
+máscara. Um ícone com `background-color` + `mask-image` sem a máscara não é um
+glifo, é um quadrado cheio — foi assim que a Wikipédia ganhou blocos cinzentos.
+É substituto, não semântica final, e o campo diz isso.
+
+**Nada disto está em `style/inert.rs`, e não pode estar.** Aquele módulo é
+por PROPRIEDADE e a sua própria regra é que nada lá guarda campo nem muda
+pintura; `filter` e `clip-path` têm campo e pintam. Além disso a recusa aqui é
+por FUNÇÃO — `blur` sim, `invert` não — que um predicado sobre o nome da
+propriedade não consegue exprimir. O sítio da decisão é o cabeçalho de
+`painteffects.rs`, onde ela é tomada.
+
+**O que continua a valer da estimativa antiga:** o grupo de compositing. O
+`filter` alcança as cores próprias da caixa e não os descendentes — um
+`filter: invert(1)` numa div com texto inverte o fundo e não o texto —, que é
+exatamente o mesmo limite que o `opacity` tem. As duas partilham o mecanismo em
+falta: renderizar uma subárvore para fora do ecrã e compor o resultado. É esse
+mecanismo que traz `blur`, `drop-shadow` e o `opacity` de grupo juntos, e aí sim
+de uma vez.
 
 ### 4.6 `position: relative` — BARATO, e falha em silêncio
 
