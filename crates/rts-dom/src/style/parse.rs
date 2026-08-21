@@ -33,7 +33,25 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
     for decl in style.split(';') {
         let mut it = decl.splitn(2, ':');
         let (prop, val_raw) = match (it.next(), it.next()) {
-            (Some(p), Some(v)) => (p.trim().to_ascii_lowercase(), v.trim()),
+            // ASSIMETRIA DELIBERADA: o nome de uma propriedade normal é
+            // case-insensitive (`COLOR` = `color`) — é para isso que a
+            // minusculação existe — mas o nome de uma CUSTOM PROPERTY é
+            // case-SENSITIVE por spec (CSS Variables §2), logo `--A` e `--a`
+            // são duas variáveis. Minusculá-lo em bloco gravava `--Mhs7de` como
+            // `--mhs7de`, e o `var(--Mhs7de)` — que vive no VALOR, e o valor
+            // nunca é minusculado — não encontrava nada: a declaração inteira
+            // caía. No `google.css` são 80 dos 91 nomes, incluindo o
+            // `body{font-size:var(--Mhs7de)}` de que todo o documento herda.
+            // Não uniformizar isto de volta.
+            (Some(p), Some(v)) => {
+                let p = p.trim();
+                let p = if p.starts_with("--") {
+                    p.to_string()
+                } else {
+                    p.to_ascii_lowercase()
+                };
+                (p, v.trim())
+            }
             _ => continue,
         };
         crate::bump!(css_declarations);
@@ -141,7 +159,7 @@ pub(super) fn apply_text_decoration(css: &mut ComputedStyle, val: &str, com_cor:
 /// inline não havia como repetir a tentativa sem repetir os braços — e a
 /// alternativa, uma segunda lista com os nomes que são alias puro, era mais uma
 /// coisa a dessincronizar da primeira.
-fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
+pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     match prop {
         "color" => css.color = parse_color(val),
         "background-color" => css.bg = parse_color(val),

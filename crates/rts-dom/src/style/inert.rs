@@ -55,6 +55,17 @@ pub fn is_inert(prop: &str) -> bool {
         // trabalho, não o que desenhar. Um motor sem camadas de composição nem
         // renderização preguiçosa não tem o que fazer com a informação — e é por
         // isso que ignorá-las é correto, e não uma dívida.
+        // `backdrop-filter` — RECUSADA em 2026-08-21 com número medido, e não
+        // por ser difícil. Precisa de um grupo de compositing (ler o que já está
+        // desenhado ATRÁS do elemento, filtrá-lo, recompor), e a caracterização
+        // custou 3 a 4 passes de GPU por elemento por frame. O número que decidiu
+        // é o outro lado: ZERO elementos precisam dela nas duas páginas
+        // testadas. `docs/ui/css-support.md` §4.5.1 tem a medição.
+        //
+        // Está aqui e não na lista do que falta porque a diferença entre as duas
+        // colunas é uma decisão tomada: 23 declarações em 3 folhas que continuam
+        // a não pintar, agora com um motivo escrito em vez de um silêncio.
+            | "backdrop-filter"
             | "will-change" | "contain" | "contain-intrinsic-size"
             | "contain-intrinsic-width" | "contain-intrinsic-height"
             | "content-visibility" | "isolation" | "backface-visibility"
@@ -76,6 +87,13 @@ pub fn is_inert(prop: &str) -> bool {
             | "text-security" | "forced-color-adjust" | "color-scheme"
             | "tap-highlight-color" | "-webkit-tap-highlight-color"
             | "font-smoothing" | "osx-font-smoothing" | "font-smooth"
+        // `-webkit-touch-callout` desliga o menu de toque-longo do iOS e
+        // `-ms-overflow-style` escolhe a barra de rolagem do IE. As duas pedem a
+        // um HOST que não é este que mude um comportamento que ele não tem.
+            | "touch-callout" | "overflow-style"
+        // `-ms-interpolation-mode` é o `image-rendering` do IE — mesmo grupo,
+        // mesmo motivo, e o nome nu está na linha abaixo.
+            | "interpolation-mode"
         // `text-size-adjust` manda o browser MÓVEL inflar o texto de uma página
         // desenhada para desktop. É o exemplo puro de uma propriedade que só
         // existe para desligar um comportamento que não temos: este motor não

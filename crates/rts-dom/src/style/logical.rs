@@ -108,9 +108,56 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         }
     }
 
+    // As DIMENSÕES lógicas: `inline-size` é a largura e `block-size` a altura,
+    // em escrita horizontal — o mesmo corte LTR-horizontal que o resto do módulo
+    // assume e que o cabeçalho diz por extenso.
+    //
+    // Reentrega ao `parse` com o nome FÍSICO em vez de escrever o campo aqui: a
+    // largura tem keywords, percentagens e `calc()` que aquele braço já sabe
+    // ler, e uma segunda leitura divergia dele à primeira correção.
+    // Os nomes ANTIGOS do WebKit para a caixa lógica: `-webkit-margin-end` é o
+    // que hoje se chama `margin-inline-end`. Chegam aqui já sem o prefixo (o
+    // `parse` corta-o na última tentativa), e sem esta linha `margin-end` não
+    // tem eixo lógico nenhum para traduzir e cai como desconhecida.
+    let antigo = match prop {
+        "margin-start" => Some("margin-inline-start"),
+        "margin-end" => Some("margin-inline-end"),
+        "padding-start" => Some("padding-inline-start"),
+        "padding-end" => Some("padding-inline-end"),
+        "border-start" => Some("border-inline-start"),
+        "border-end" => Some("border-inline-end"),
+        _ => None,
+    };
+    if let Some(moderno) = antigo {
+        return try_apply(css, moderno, val);
+    }
+
+    let dimensao = match prop {
+        "inline-size" => Some("width"),
+        "block-size" => Some("height"),
+        "min-inline-size" => Some("min-width"),
+        "min-block-size" => Some("min-height"),
+        "max-inline-size" => Some("max-width"),
+        "max-block-size" => Some("max-height"),
+        _ => None,
+    };
+    if let Some(fisico) = dimensao {
+        return super::parse::aplica_declaracao(css, fisico, val);
+    }
+
     let Some(fisico) = to_physical(prop) else {
         return false;
     };
+
+    // O resto da CAIXA lógica, pela mesma reentrega. O `parse` tinha
+    // `padding-inline-start/end` e `margin-block-start/end` por literal mas não
+    // as outras metades das mesmas famílias: `padding-block-end` caía como
+    // desconhecida ao lado de uma `margin-block-end` que funcionava. Traduzir o
+    // eixo e reentregar fecha as quatro famílias sem um braço por nome — e sem
+    // a assimetria poder voltar.
+    if fisico.starts_with("padding-") || fisico.starts_with("margin-") {
+        return super::parse::aplica_declaracao(css, &fisico, val);
+    }
 
     // `inset-inline-start` → o offset do lado físico.
     if let Some(side) = fisico.strip_prefix("inset-") {

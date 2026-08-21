@@ -149,6 +149,62 @@ pub struct ScrollbarColor {
     pub calha: Rgba,
 }
 
+/// `background-attachment` — se o fundo rola com o conteúdo, com a viewport
+/// (`fixed`) ou com o container de rolagem (`local`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum BackgroundAttachment {
+    Scroll,
+    Fixed,
+    Local,
+}
+
+/// `box-decoration-break` — a borda e o fundo de uma caixa inline partida em
+/// duas linhas: repetidos em cada fragmento (`clone`) ou cortados como se a
+/// caixa fosse uma só (`slice`, o inicial).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum BoxDecorationBreak {
+    Slice,
+    Clone,
+}
+
+/// `line-break` — a rigidez das regras de quebra de linha em CJK.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum LineBreak {
+    Auto,
+    Loose,
+    Normal,
+    Strict,
+    Anywhere,
+}
+
+/// `text-decoration-skip-ink` — se o sublinhado se interrompe onde passa por uma
+/// descendente (o `g`, o `p`). GUARDADA SEM PINTURA: o sublinhado deste motor é
+/// um código de 0 a 3 no `DisplayItem::Text`, sem geometria por glifo onde a
+/// interrupção pudesse ser calculada.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum SkipInk {
+    Auto,
+    None,
+    All,
+}
+
+kw!(BackgroundAttachment {
+    "scroll" => BackgroundAttachment::Scroll,
+    "fixed" => BackgroundAttachment::Fixed,
+    "local" => BackgroundAttachment::Local,
+});
+kw!(BoxDecorationBreak {
+    "slice" => BoxDecorationBreak::Slice,
+    "clone" => BoxDecorationBreak::Clone,
+});
+kw!(LineBreak {
+    "auto" => LineBreak::Auto,
+    "loose" => LineBreak::Loose,
+    "normal" => LineBreak::Normal,
+    "strict" => LineBreak::Strict,
+    "anywhere" => LineBreak::Anywhere,
+});
+kw!(SkipInk { "auto" => SkipInk::Auto, "none" => SkipInk::None, "all" => SkipInk::All });
 kw!(TextDecorationStyle {
     "solid" => TextDecorationStyle::Solid,
     "double" => TextDecorationStyle::Double,
@@ -242,6 +298,34 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
                 BackgroundClip::parse(val).filter(|v| *v != BackgroundClip::Text)
         }
         "text-decoration-style" => css.text_decoration_style = TextDecorationStyle::parse(val),
+        // `text-decoration-thickness: auto | from-font | <comprimento>`. Como o
+        // `text-underline-offset` ao lado: `auto` é o inicial e o `Option` já o
+        // diz. `from-font` pede à fonte uma métrica que o medidor não expõe, e
+        // guardá-la como um comprimento seria inventar um número — cai em `None`.
+        "text-decoration-thickness" => {
+            css.text_decoration_thickness = match val.trim().to_ascii_lowercase().as_str() {
+                "auto" | "from-font" => None,
+                _ => super::lengths::parse_inset(val),
+            }
+        }
+        // `caret-color` — a cor do cursor de texto. GUARDADA SEM PINTURA, e o
+        // consumidor está mais perto do que o das outras: quem desenha o cursor
+        // é o campo editável do DOM, que hoje usa a cor do texto.
+        "caret-color" => css.caret_color = super::color::parse_color(val),
+        // `background-attachment` — se o fundo rola com o conteúdo. GUARDADA SEM
+        // EFEITO: `fixed` pede um fundo preso à viewport, e o pintor de fundo
+        // desenha sempre no retângulo do elemento.
+        "background-attachment" => css.background_attachment = BackgroundAttachment::parse(val),
+        // `box-decoration-break` — o que acontece à borda/fundo de uma caixa
+        // inline PARTIDA por uma quebra de linha. GUARDADA SEM EFEITO: o fluxo
+        // inline pinta cada fragmento com a caixa inteira (que é `clone`), e não
+        // tem a noção de "a mesma caixa continuada" para fazer `slice`.
+        "box-decoration-break" => css.box_decoration_break = BoxDecorationBreak::parse(val),
+        // `line-break` — a rigidez das regras de quebra em CJK. GUARDADA SEM
+        // EFEITO: o quebrador de linha deste motor parte em espaços, e as quatro
+        // variantes só se distinguem umas das outras num texto CJK.
+        "line-break" => css.line_break = LineBreak::parse(val),
+        "text-decoration-skip-ink" => css.text_decoration_skip_ink = SkipInk::parse(val),
         // `-webkit-text-fill-color` é a cor de PREENCHIMENTO do glifo, e no
         // WebKit ganha ao `color` quando ambas estão postas. Guardada sem
         // consumidor: quem pinta texto lê `color`. É a outra metade do idioma do
@@ -331,6 +415,20 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
             .map(super::fmt_values::fmt_dim)
             .unwrap_or_default(),
         "tab-size" => css.tab_size.map(|n| n.to_string()).unwrap_or_default(),
+        "background-attachment" => {
+            css.background_attachment.map(|v| v.css()).unwrap_or_default().to_string()
+        }
+        "box-decoration-break" => {
+            css.box_decoration_break.map(|v| v.css()).unwrap_or_default().to_string()
+        }
+        "line-break" => css.line_break.map(|v| v.css()).unwrap_or_default().to_string(),
+        "text-decoration-skip-ink" => {
+            css.text_decoration_skip_ink.map(|v| v.css()).unwrap_or_default().to_string()
+        }
+        "caret-color" => css.caret_color.map(super::fmt_values::fmt_color).unwrap_or_default(),
+        "text-decoration-thickness" => {
+            css.text_decoration_thickness.map(super::fmt_values::fmt_dim).unwrap_or_default()
+        }
         "scrollbar-color" => css
             .scrollbar_color
             .map(|c| {

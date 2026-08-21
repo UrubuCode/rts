@@ -53,6 +53,23 @@ pub fn initial(name: &str) -> Option<&'static str> {
         "mask-size" => "auto",
         "mask-position" => "0% 0%",
         "mask-repeat" => "repeat",
+        "background-attachment" => "scroll",
+        "box-decoration-break" => "slice",
+        "line-break" => "auto",
+        "text-decoration-skip-ink" => "auto",
+        "text-decoration-thickness" => "auto",
+        // O inicial de `caret-color` é `auto`, que o Chrome NÃO resolve para uma
+        // cor — ao contrário do `currentColor` de `text-decoration-color`.
+        "caret-color" => "auto",
+        "grid-auto-flow" => "row",
+        "grid-auto-columns" => "auto",
+        // As lógicas reentregam ao nome físico, mas o computado é perguntado
+        // por ESTE nome e tem de responder — o físico tem inicial próprio.
+        "inline-size" | "block-size" => "auto",
+        "min-inline-size" | "min-block-size" => "auto",
+        "max-inline-size" | "max-block-size" => "none",
+        "padding-block-start" | "padding-block-end" => "0px",
+        "margin-inline-start" | "margin-inline-end" => "0px",
         // As seis da colocação por linha (ver `style::grid_lines`). O shorthand
         // não está aqui: a forma computada dele é a única do módulo que não foi
         // medida contra o Chrome, e pôr um palpite na TABELA DOS MEDIDOS era

@@ -104,6 +104,50 @@ fn parse_shorthand(val: &str) -> (Option<GridLine>, Option<GridLine>) {
     (start, end)
 }
 
+/// `grid-auto-flow` — a direção em que a colocação automática preenche a grelha,
+/// e se ela volta atrás para tapar buracos (`dense`).
+///
+/// GUARDADA, SEM GEOMETRIA, e é a que descreve LITERALMENTE o que este motor já
+/// faz: colocar os itens por ordem, numa direção. Só que a direção é fixa e esta
+/// propriedade não a muda — quem colocar os itens é que a lê. O `dense` é o
+/// mesmo mecanismo com uma segunda passada a tapar buracos.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct GridAutoFlow {
+    /// `column` = preenche coluna a coluna. `row` (o inicial) = linha a linha.
+    pub coluna: bool,
+    pub dense: bool,
+}
+
+impl GridAutoFlow {
+    /// `row | column | dense | row dense | column dense`, em qualquer ordem — a
+    /// spec não a fixa, e as folhas escrevem `row dense` e `column dense`.
+    pub fn parse(v: &str) -> Option<GridAutoFlow> {
+        let low = v.trim().to_ascii_lowercase();
+        let mut f = GridAutoFlow { coluna: false, dense: false };
+        let mut viu_eixo = false;
+        for t in low.split_whitespace() {
+            match t {
+                "row" => viu_eixo = true,
+                "column" => {
+                    f.coluna = true;
+                    viu_eixo = true;
+                }
+                "dense" => f.dense = true,
+                // Um token que não é da gramática invalida a declaração inteira,
+                // em vez de dar um `row` que o autor não escreveu.
+                _ => return None,
+            }
+        }
+        (viu_eixo || f.dense).then_some(f)
+    }
+
+    /// O Chrome imprime `row` mesmo quando o autor o omitiu (`dense` → `row dense`).
+    pub fn css(self) -> String {
+        let eixo = if self.coluna { "column" } else { "row" };
+        if self.dense { format!("{eixo} dense") } else { eixo.to_string() }
+    }
+}
+
 /// Tenta aplicar uma das seis. `false` = o nome não é de nenhuma delas.
 pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     match prop {
@@ -121,6 +165,17 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             css.grid_row_start = s;
             css.grid_row_end = e;
         }
+        "grid-auto-flow" => css.grid_auto_flow = GridAutoFlow::parse(val),
+        // `grid-auto-columns` — o tamanho das colunas IMPLÍCITAS. `grid-auto-rows`
+        // não está aqui porque já tem braço próprio no `parse` e é CONSUMIDA
+        // pelo layout; esta é a metade que faltava, com o mesmo tipo.
+        "grid-auto-columns" => css.grid_auto_columns = super::GridTrack::parse_one(val),
+        // `grid-gap` é o nome ANTIGO de `gap` — alias puro, e a folha que o
+        // escreve escreve-o sozinho. Reentrega ao `parse`, que já sabe expandir
+        // o par; uma segunda expansão aqui divergia da primeira.
+        "grid-gap" => return super::parse::aplica_declaracao(css, "gap", val),
+        "grid-column-gap" => return super::parse::aplica_declaracao(css, "column-gap", val),
+        "grid-row-gap" => return super::parse::aplica_declaracao(css, "row-gap", val),
         _ => return false,
     }
     true
@@ -142,6 +197,7 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
             (None, None) => String::new(),
             (s, e) => shorthand_css(s, e),
         },
+        "grid-auto-flow" => css.grid_auto_flow.map(|v| v.css()).unwrap_or_default(),
         "grid-row" => match (css.grid_row_start, css.grid_row_end) {
             (None, None) => String::new(),
             (s, e) => shorthand_css(s, e),

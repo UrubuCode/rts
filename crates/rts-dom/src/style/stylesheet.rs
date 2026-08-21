@@ -1046,3 +1046,10 @@ fn strip_css_comments(css: &str) -> String {
     out.push_str(rest);
     out
 }
+
+// Testes da herança e da resolução de `var()` por elemento. Num ficheiro à
+// parte (via `#[path]`) e não num `mod` de `style/mod.rs`: este ficheiro já
+// está no seu teto de linhas e `mod.rs` está a ser editado noutra frente.
+#[cfg(test)]
+#[path = "vars_cascade_tests.rs"]
+mod vars_cascade_tests;

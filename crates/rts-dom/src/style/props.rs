@@ -477,6 +477,37 @@ css_props! {
         [] mask_size: crate::style::BgSize;
         [] mask_position: crate::style::BgPosition;
         [] mask_repeat: crate::style::BgRepeat;
+        /// O fim da cauda, tudo sem consumidor (ver `style::painting`).
+        /// `background_attachment` — o pintor desenha sempre no retângulo do
+        /// elemento; `box_decoration_break` — o fluxo inline não tem a noção de
+        /// "a mesma caixa continuada"; `line_break` — o quebrador parte em
+        /// espaços e as variantes só se distinguem em CJK;
+        /// `text_decoration_skip_ink`/`text_decoration_thickness` — a decoração
+        /// é um código de 0 a 3 no `DisplayItem::Text`, sem geometria por glifo.
+        /// `caret_color` é a que tem o consumidor mais perto: quem desenha o
+        /// cursor é o campo editável, que hoje usa a cor do texto.
+        [] background_attachment: crate::style::painting::BackgroundAttachment;
+        [] box_decoration_break: crate::style::painting::BoxDecorationBreak;
+        [inh] line_break: crate::style::painting::LineBreak;
+        [inh] text_decoration_skip_ink: crate::style::painting::SkipInk;
+        [] text_decoration_thickness: Dimension;
+        [inh] caret_color: Rgba;
+        /// `grid-auto-flow` — a direção da colocação automática. Guardada; ver
+        /// `style::grid_lines` para o ponto de enxerto no layout.
+        [] grid_auto_flow: crate::style::grid_lines::GridAutoFlow;
+        /// `grid-auto-columns` — o tamanho das COLUNAS implícitas.
+        ///
+        /// Reusa [`crate::style::GridTrack`], que é o tipo que
+        /// `grid-auto-rows` — a irmã, JÁ consumida pelo layout — usa desde
+        /// sempre, e que já sabe ler `1fr`, `minmax(0, 1fr)`, `min-content` e
+        /// `fit-content()`. Uma primeira versão desta guardou a string CRUA por
+        /// eu supor que a gramática não tinha tipo neste motor; tinha, ao lado,
+        /// no campo gémeo. Guardar cru teria sido um segundo modelo de trilha
+        /// dentro da mesma tabela.
+        ///
+        /// GUARDADA e não efetiva, ao contrário da irmã: o layout dimensiona as
+        /// colunas por `grid-template-columns` e nunca cria colunas implícitas.
+        [] grid_auto_columns: crate::style::GridTrack;
         /// As quatro extremidades da COLOCAÇÃO POR LINHA de grid. Guardadas e
         /// sem geometria: os itens continuam a ser colocados por ordem de
         /// documento. Ver `style::grid_lines`, que tem o ponto de enxerto e a

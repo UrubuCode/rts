@@ -326,6 +326,18 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
                 css.align_content = Some(a);
             }
         }
+        // `place-items: <align> <justify>` — o par que `place-content` e
+        // `place-self` já expandem ao lado, sobre os campos que o container usa
+        // para os ITENS. Um valor só vale para os dois eixos.
+        "place-items" => {
+            let t = split_top_ws(val);
+            if let Some(a) = t.first().and_then(|s| AlignItems::parse(s)) {
+                css.align_items = Some(a);
+            }
+            if let Some(j) = t.last().and_then(|s| AlignItems::parse(s)) {
+                css.grid_justify_items = Some(j);
+            }
+        }
         "place-self" => {
             let t = split_top_ws(val);
             if let Some(a) = t.first().and_then(|s| AlignItems::parse(s)) {
