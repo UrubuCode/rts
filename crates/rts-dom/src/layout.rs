@@ -55,6 +55,7 @@ mod replaced;
 mod bloco;
 mod fragmento;
 mod vertical;
+mod linha_ib;
 use self::coluna::{align_offset, justify_offsets, layout_children_column};
 use self::flex::layout_children_horizontal;
 use self::grid::layout_children_grid;
@@ -74,6 +75,7 @@ pub use self::fragmento::{ChildRef, Fragment};
 pub(crate) use self::fragmento::insert_item;
 use self::fragmento::{KeyBase, emit_fragment, layout_block_reusing};
 use self::vertical::layout_children_vertical;
+use self::linha_ib::layout_inline_block_line;
 
 pub use self::display::{Corners, DisplayItem, DisplayList, Geometry, Rect, ScrollRegion};
 pub use self::medida::{ApproxMeasurer, TextMeasurer};
