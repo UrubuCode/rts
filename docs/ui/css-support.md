@@ -12,6 +12,52 @@ sobre a arquitetura do crate; a única pergunta aqui é *cobertura*.
 
 ---
 
+## O número de cobertura em vigor (2026-08-21)
+
+**Leia esta secção antes das seguintes.** Tudo o que vem a seguir foi medido a
+2026-08-18 com o instrumento antigo (`python scripts/css_coverage.py`, uma folha
+só) e continua aqui porque a análise por área ainda vale. **Os totais, não.**
+
+A sonda em vigor é outra, cobre quatro folhas reais e é a que se cita:
+
+```bash
+node scripts/parity/css_coverage.mjs
+```
+
+| coluna | propriedades | declarações |
+|---|---:|---:|
+| **reconhecidas** | 186 de 278 (66,9%) | 19 363 de 20 578 (94,1%) |
+| **recusadas com motivo** (`style/inert.rs`) | 64 | 593 |
+| **desconhecidas** — o que falta fazer | 28 | 622 |
+
+Corpus: MediaWiki, Google, WhatsApp Web landing e app. Por ocorrências, as
+desconhecidas que pesam: `filter` 114, `-webkit-filter` 94, `content` 87,
+`clip-path` 59, `-webkit-clip-path` 50, `mask-size` 27, `backdrop-filter` 18.
+
+**As três colunas existem porque sem a do meio o total não mede nada:** um
+`will-change`, que nunca vai ter efeito, somava com um `object-fit`, que é
+trabalho por fazer.
+
+**Duas armadilhas de denominador**, e é por causa delas que a sonda é um
+ficheiro e não um comando: (1) `pagina.combinada.html` **já embute**
+`pagina.css`, e contar os dois dá tudo a dobrar — reconhece-se porque os totais
+saem todos pares; (2) o motor reconhece nomes por **forma** e não só por
+literal (as doze longhands `border-<lado>-<...>`, `style/radius.rs`,
+`style/logical.rs`), e uma varredura por literais mandaria implementar doze
+propriedades que já existem.
+
+**Uma terceira, ainda por corrigir na sonda:** `content` conta como desconhecida
+(87 declarações) e **está implementado** — `style/stylesheet.rs::content_do_corpo`
+→ `pseudo::parse_content`, um caminho próprio em vez de um braço do `match` de
+`parse.rs`, que é de onde a sonda extrai os nomes. **186/278 é um limite
+inferior.**
+
+Isto substitui a linha "68 de 363 propriedades usadas" que circulava em
+`docs/ui/estado-motor-css.md`: não era reproduzível e ninguém sabia que
+instrumento a produzira.
+
+---
+
 ## Proveniência dos números
 
 **Tudo o que segue foi medido em 2026-08-18, na branch `fix/net-tls-download`,
@@ -286,6 +332,15 @@ correr é o que o atualiza; até lá, é isto que o número diz e não mais.
 | 105 | geometria, causas várias (abaixo) |
 | 14 | outros valores de estilo |
 
+**Este número de `line-height` SOBREVIVE à armadilha de instrumento de
+2026-08-21, e a razão importa.** `docs/ui/parity-chrome.md` regista que o rect
+de um inline é a caixa da FONTE no Chrome e a caixa da LINHA em nós, e que por
+isso os +2,51 px médios em 8 757 caixas inline da página real **não** provam
+nada sobre `line-height`. Os 68 desvios aqui vêm de outro sítio: fixturas
+pequenas com esperado medido, onde o que se compara é a altura de um bloco de
+texto e não a soma de caixas inline. É exatamente a segunda fonte que aquele
+aviso manda usar. **Não fundir os dois números.**
+
 **O `line-height` inicial é, sozinho, cinco fixturas.** Estas falham *só* por
 ele e passariam com esse número corrigido:
 `background-shorthand` (7/7 desvios), `especificidade` (7/7),
@@ -509,12 +564,18 @@ Falta: `cursor` **[A]** (10), `pointer-events` **[A]**, `user-select` **[A]**,
 
 ## 3. A prioridade, saída da medição
 
+**Números de 2026-08-18, sobre UMA folha. Superados** — os que valem estão na
+§"O número de cobertura em vigor" no topo, com quatro folhas e três colunas.
+Esta tabela mantém-se pela ordem por ocorrências, que continua a informar; os
+totais não devem ser citados.
+
 Contagem de ocorrências em `pagina.css` (método e limites na §"Proveniência").
 **125 propriedades padrão distintas usadas, 65 reconhecidas; 1 264 de 1 624
 ocorrências cobertas (77%).**
 
 As não reconhecidas, por ocorrências (tabela completa via
-`python scripts/css_coverage.py pagina.css`):
+`python scripts/css_coverage.py pagina.css`; a sonda em vigor é
+`node scripts/parity/css_coverage.mjs`):
 
 | ocorr | propriedade | nota |
 |---:|---|---|
@@ -583,7 +644,30 @@ elemento que não aparece.
 Esta secção é a razão de o documento existir: a lista de §3 ordena por
 benefício, e sem o preço ao lado não é uma ordem, é um desejo.
 
-### 4.1 `::before`/`::after` + `content` — CARO, e é uma mudança de arquitetura
+### 4.1 `::before`/`::after` + `content` — FEITO (a análise abaixo é histórica)
+
+**Implementado. Verificado em 2026-08-21** em
+`crates/rts-dom/src/pseudo.rs`, com testes
+(`before_com_content_acrescenta_uma_caixa_antes_do_conteudo`,
+`after_vem_depois_do_conteudo`, `before_nao_muda_a_arvore_de_nos`) e
+especificidade em `style/selector_tests.rs`.
+
+**Das duas saídas que a análise abaixo põe, foi tomada a segunda**: a caixa é
+anexa ao nó e **nada é acrescentado à árvore** — `dom.query("::before")`
+responde `None`, e é isso que `before_nao_muda_a_arvore_de_nos` pina. Por isso
+a "mudança de arquitetura" que o título anunciava não chegou a ser paga.
+
+Os limites reais, em `pseudo::parse_content`: aceita strings e `attr()`;
+**recusa `url()`, `counter()`, `open-quote` e um identificador solto**. E
+`p::before span` não parseia — um pseudo-elemento não tem descendentes. O
+`::marker` das listas foi por outro caminho (`listitem.rs`), pelo que a
+amortização entre os dois que o texto abaixo previa **não se realizou**.
+
+Nota para quem ler a sonda de cobertura: `content` continua a aparecer nas
+"desconhecidas" porque é parseado fora do `match` de `parse.rs`. É um limite da
+sonda, não uma falta.
+
+O que segue é a análise de custo original, mantida por explicar a decisão:
 
 Um pseudo-elemento é uma **caixa que não está na árvore do DOM**. Hoje todo o
 motor assume o contrário: `NodeIdx` indexa a árvore, `node_rects` mapeia

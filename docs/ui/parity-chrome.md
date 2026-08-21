@@ -56,6 +56,37 @@ morreu com número, e isso poupou a hora seguinte.
 
 ---
 
+## Onde a RÉGUA erra — armadilhas do instrumento, não do motor
+
+Estas não são defeitos a corrigir no `rts-dom`. São sítios onde os dois lados
+medem coisas diferentes, e onde uma diferença no dump **não é** um desvio.
+Ambas confirmadas em **2026-08-21**, sobre `scripts/parity/out/chrome.jsonl` e
+`rts.jsonl` (2026-08-18), `pagina.combinada.html`, viewport 1280x800.
+
+**`<br>` e `<wbr>`: o Chrome dá-lhes `getBoundingClientRect` 0×0.** São 11 dos
+36 elementos em que o Chrome responde 0×0 e nós entregamos uma caixa. O nosso
+número é a caixa de linha, que é um facto de layout legítimo. **Não corrigir**,
+e não contar estes 11 como erro. (Quem chama o `getBoundingClientRect` é
+`scripts/parity/chrome_extract.mjs`.)
+
+**O rect de um inline é a caixa da FONTE no Chrome e a caixa da LINHA em nós** —
+levantado pelo `recon-y`. Consequência direta e cara: os **+2,51 px médios em
+8 757 caixas inline NÃO são um defeito de `line-height`.** São as duas réguas a
+medirem coisas diferentes, e uma campanha inteira pode ser gasta a "corrigir" um
+`line-height` que já está certo.
+
+A forma correta de fazer uma afirmação sobre `line-height` é outra: **contar
+LINHAS em blocos de texto puro** — quantas linhas cada bloco tem em cada lado —
+e não somar diferenças de altura de caixas inline. Um número sobre `line-height`
+que venha da segunda fonte não vale, por mais elementos que agregue.
+
+**Um contraste que mostra que os dois lados não estão sistematicamente
+desalinhados:** os 165 `<p>` da página têm largura **exata** — 165 de 165 dentro
+de 1 px — e no entanto somam 6 608 px a MENOS de altura que o Chrome. Se o
+desvio fosse do instrumento em toda a linha, a largura não podia estar exata.
+
+---
+
 ## O que estas réguas já apanharam
 
 Cada uma destas foi encontrada por medição, não por leitura de código, e
@@ -66,7 +97,7 @@ nenhuma teria sido encontrada a olhar para a janela:
 | um `<span>` de acessibilidade (`1px`, `overflow:hidden`) recortava a página inteira | 30 325 dos 30 528 itens dentro de um clip |
 | `minmax(0,59.25rem)` tratado como o máximo | a largura errada era 948px = 59.25rem × 16, exatamente |
 | um `<span>` filho de flex não tinha caixa | 345 dos 351 blocos sem caixa eram a mesma família |
-| a caixa de um inline era a da LINHA e não a da fonte | 8px de excesso × 3 032 `<a>` |
+| a caixa de um inline era a da LINHA e não a da fonte | 8px de excesso × 3 032 `<a>` (defeito real, corrigido; **não confundir** com a armadilha de instrumento do mesmo nome acima — aquela é o que SOBRA depois desta correção, e não é para corrigir) |
 | um inline com fundo abria linha própria | a página tinha 130 577px onde o Chrome tem 69 930 |
 | `<input>` com `opacity:0` pintava fundo branco opaco | a janela ficava BRANCA com a lista de pintura correta |
 | propriedades herdadas declaradas em `body` desapareciam | não havia `<body>` na árvore para a regra casar |
