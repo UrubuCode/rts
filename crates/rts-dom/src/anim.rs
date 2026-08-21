@@ -373,7 +373,7 @@ impl AnimationSpec {
     }
 }
 
-fn parse_direction(tok: &str) -> Option<AnimDirection> {
+pub fn parse_direction(tok: &str) -> Option<AnimDirection> {
     Some(match tok.to_ascii_lowercase().as_str() {
         "normal" => AnimDirection::Normal,
         "reverse" => AnimDirection::Reverse,

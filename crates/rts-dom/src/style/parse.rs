@@ -401,6 +401,12 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             // Uma propriedade que nenhum braço reconhece é CSS que a página
             // escreveu e o motor ignora em silêncio. Contá-la é o que transforma
             // "o layout não bate com o Chrome" numa lista de nomes a implementar.
+            // GRUPOS de propriedades resolvidos por módulo, antes de desistir. Um
+            // grupo aqui em vez de treze braços literais mantém a lista de nomes
+            // do lado de quem os aplica — uma segunda lista neste `match` era o
+            // sítio óbvio para uma delas ficar de fora.
+            _ if crate::style::timing::try_apply(css, &prop, val) => {}
+            _ if crate::style::logical::try_apply(css, &prop, val) => {}
             _ => {
                 crate::bump!(css_declarations_unknown);
                 crate::note!("propriedade-ignorada", prop.clone());

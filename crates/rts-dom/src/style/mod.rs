@@ -40,6 +40,8 @@ pub mod grid_areas;
 pub mod inherit_kw;
 pub mod initial;
 pub mod lengths;
+/// `inset*` e as bordas lógicas (`-inline-`/`-block-`) — ver o módulo.
+pub mod logical;
 pub mod lerp;
 pub mod text_metrics;
 pub mod parse;
@@ -51,6 +53,8 @@ pub mod stylesheet;
 /// As propriedades de TABELA e a posição do marcador de lista — ver o módulo.
 pub mod tables;
 pub mod text;
+/// As longhands de `transition-*`/`animation-*` — ver o módulo.
+pub mod timing;
 pub mod values;
 pub(crate) mod vars;
 

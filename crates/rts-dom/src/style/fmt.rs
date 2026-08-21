@@ -157,10 +157,53 @@ impl ComputedStyle {
             "opacity" => self.opacity.map(|v| format!("{v}")).unwrap_or_default(),
             "aspect-ratio" => self.aspect_ratio.map(|r| format!("{r}")).unwrap_or_default(),
             "z-index" => self.z_index.map(|z| format!("{z}")).unwrap_or_default(),
-            "transition" | "transition-duration" => self
+            "transition" => self
                 .transition
                 .map(|t| format!("all {}s {}s", t.duration_ms / 1000.0, t.delay_ms / 1000.0))
                 .unwrap_or_default(),
+            // As longhands respondem O SEU valor, não o shorthand inteiro:
+            // `transition-duration` respondia `all 0.3s 0s`, que não é um valor
+            // válido da propriedade que foi perguntada. Sem transição declarada o
+            // browser devolve o INICIAL (`0s`), não vazio.
+            "transition-duration" => {
+                fmt_seconds(self.transition.map(|t| t.duration_ms).unwrap_or(0.0))
+            }
+            "transition-delay" => {
+                fmt_seconds(self.transition.map(|t| t.delay_ms).unwrap_or(0.0))
+            }
+            "transition-timing-function" => {
+                fmt_easing(self.transition.map(|t| t.easing).unwrap_or(crate::anim::Easing::Ease))
+            }
+            // O modelo transiciona `all` e não guarda a lista declarada — ver
+            // `style::timing`. Responder `all` é o que ele faz de facto.
+            "transition-property" => {
+                if self.transition.is_some() { "all".into() } else { "none".into() }
+            }
+            "animation-name" => self
+                .animation
+                .as_ref()
+                .map(|a| if a.name.is_empty() { "none".to_string() } else { a.name.clone() })
+                .unwrap_or_else(|| "none".into()),
+            "animation-duration" => {
+                fmt_seconds(self.animation.as_ref().map(|a| a.duration_ms).unwrap_or(0.0))
+            }
+            "animation-delay" => {
+                fmt_seconds(self.animation.as_ref().map(|a| a.delay_ms).unwrap_or(0.0))
+            }
+            "animation-timing-function" => fmt_easing(
+                self.animation.as_ref().map(|a| a.easing).unwrap_or(crate::anim::Easing::Ease),
+            ),
+            "animation-iteration-count" => match self.animation.as_ref().map(|a| a.iterations) {
+                Some(None) => "infinite".into(),
+                Some(Some(n)) => format!("{n}"),
+                None => "1".into(),
+            },
+            "animation-direction" => match self.animation.as_ref().map(|a| a.direction) {
+                Some(crate::anim::AnimDirection::Reverse) => "reverse".into(),
+                Some(crate::anim::AnimDirection::Alternate) => "alternate".into(),
+                Some(crate::anim::AnimDirection::AlternateReverse) => "alternate-reverse".into(),
+                _ => "normal".into(),
+            },
             "letter-spacing" => self
                 .letter_spacing
                 .map(|v| if v == 0.0 { "normal".to_string() } else { format!("{v}px") })
@@ -356,3 +399,27 @@ impl ComputedStyle {
     }
 }
 
+
+/// Milissegundos → o formato em que o browser responde um tempo de CSS: segundos
+/// com sufixo `s` e sem zeros à direita (`300` → `"0.3s"`). `format!("{}")` num
+/// `f32` já corta os zeros, por isso não há tabela de casas decimais aqui.
+fn fmt_seconds(ms: f32) -> String {
+    format!("{}s", ms / 1000.0)
+}
+
+/// [`Easing`] → o texto da propriedade. As curvas nomeadas voltam pelo nome; a
+/// `cubic-bezier`/`steps` voltam pela forma funcional, que é o que o browser faz
+/// (ele NÃO reduz `cubic-bezier(.25,.1,.25,1)` a `ease`, e imitar essa redução
+/// seria inventar uma equivalência que a spec não promete).
+fn fmt_easing(e: crate::anim::Easing) -> String {
+    use crate::anim::Easing;
+    match e {
+        Easing::Linear => "linear".into(),
+        Easing::Ease => "ease".into(),
+        Easing::EaseIn => "ease-in".into(),
+        Easing::EaseOut => "ease-out".into(),
+        Easing::EaseInOut => "ease-in-out".into(),
+        Easing::CubicBezier(a, b, c, d) => format!("cubic-bezier({a}, {b}, {c}, {d})"),
+        Easing::Steps(n) => format!("steps({n})"),
+    }
+}
