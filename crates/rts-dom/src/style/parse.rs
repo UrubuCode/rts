@@ -114,6 +114,13 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "mask-image" | "-webkit-mask-image" => {
                 css.mask_image = Some(val.trim().to_string())
             }
+            // `filter` e `clip-path` guardados CRUS, para o paint. O prefixo
+            // `-webkit-` está ao lado do nome padrão porque a folha real declara
+            // os dois na mesma regra, e reconhecer só um deixaria a metade que a
+            // página escreveu primeiro a decidir o resultado. Ver os campos em
+            // `props.rs` para o motivo de não serem tipados aqui.
+            "filter" | "-webkit-filter" => css.filter = Some(val.trim().to_string()),
+            "clip-path" | "-webkit-clip-path" => css.clip_path = Some(val.trim().to_string()),
             "background-repeat" => css.bg_repeat = crate::style::BgRepeat::parse(val),
             "background-position" => css.bg_position = crate::style::BgPosition::parse(val),
             "background-size" => css.bg_size = crate::style::BgSize::parse(val),
@@ -415,6 +422,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             _ if crate::style::logical::try_apply(css, &prop, val) => {}
             _ if crate::style::vocab::try_apply(css, &prop, val) => {}
             _ if crate::style::radius::try_apply(css, &prop, val) => {}
+            _ if crate::style::grid_lines::try_apply(css, &prop, val) => {}
             // RECONHECIDA e deliberadamente não modelada: conta noutra coluna,
             // para a coluna das desconhecidas continuar a ser a lista do que
             // falta fazer e não uma mistura com o que foi recusado.

@@ -41,6 +41,11 @@ pub fn initial(name: &str) -> Option<&'static str> {
         // dois sítios era a lista paralela que este ficheiro existe para evitar.
         "text-overflow" => "clip",
         "clip" => "auto",
+        // As seis da colocação por linha (ver `style::grid_lines`). O shorthand
+        // não está aqui: a forma computada dele é a única do módulo que não foi
+        // medida contra o Chrome, e pôr um palpite na TABELA DOS MEDIDOS era
+        // exatamente o que o cabeçalho deste ficheiro proíbe.
+        "grid-column-start" | "grid-column-end" | "grid-row-start" | "grid-row-end" => "auto",
         "text-wrap" | "text-wrap-mode" => "wrap",
         "object-fit" => "fill",
         "object-position" => "50% 50%",

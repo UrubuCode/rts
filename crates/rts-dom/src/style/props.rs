@@ -444,6 +444,15 @@ css_props! {
         [inh] word_spacing: f32;
         /// `text-overflow`. Guardada — ver [`crate::style::vocab::TextOverflow`].
         [] text_overflow: crate::style::vocab::TextOverflow;
+        /// As quatro extremidades da COLOCAÇÃO POR LINHA de grid. Guardadas e
+        /// sem geometria: os itens continuam a ser colocados por ordem de
+        /// documento. Ver `style::grid_lines`, que tem o ponto de enxerto e a
+        /// razão para conviverem com o `grid_area` (colocação por NOME) em vez
+        /// de uma delas se sobrepor à outra aqui.
+        [] grid_column_start: crate::style::grid_lines::GridLine;
+        [] grid_column_end: crate::style::grid_lines::GridLine;
+        [] grid_row_start: crate::style::grid_lines::GridLine;
+        [] grid_row_end: crate::style::grid_lines::GridLine;
         /// `clip` — o retângulo de recorte de uma caixa posicionada. Guardada e
         /// SEM recortar; [`crate::style::vocab::Clip`] tem a verificação de que
         /// isso não deixa nenhum `.sr-only` do corpus visível.
@@ -562,6 +571,17 @@ css_props! {
         /// sem a máscara não é um glifo, é um quadrado cheio que o browser nunca
         /// mostra — e foi assim que a Wikipédia ganhou blocos cinzentos.
         [] mask_image: String;
+        /// `filter` / `-webkit-filter` — a lista de funções, CRUA. Pedido pelo
+        /// lado do paint, e cru de propósito: só um subconjunto das funções é
+        /// exprimível no backend, e a decisão de qual é dele. Tipá-la aqui
+        /// obrigaria a modelar formas que nunca chegam a ser desenhadas — o
+        /// oposto do que a tabela serve, que é uma decisão num sítio só. Mesmo
+        /// molde do `mask_image` acima. 208 declarações na folha real.
+        [] filter: String;
+        /// `clip-path` / `-webkit-clip-path` — a forma de recorte, CRUA, pelo
+        /// mesmo motivo: `polygon()`, `inset()` e `circle()` são geometrias
+        /// diferentes e quem as sabe desenhar é o consumidor. 109 declarações.
+        [] clip_path: String;
         /// `background-repeat`. Aceite e serializado (sem imagem pintada, não há
         /// o que repetir ainda).
         [] bg_repeat: crate::style::BgRepeat;

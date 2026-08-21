@@ -37,6 +37,7 @@ pub mod effects;
 pub mod fmt;
 pub mod fmt_values;
 pub mod grid_areas;
+pub mod grid_lines;
 pub mod inherit_kw;
 pub mod initial;
 /// As propriedades reconhecidas e deliberadamente não modeladas — ver o módulo.

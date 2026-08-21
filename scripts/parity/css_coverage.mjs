@@ -54,16 +54,26 @@ const D = 'E:/rts/crates/rts-dom/src/style/';
 const known = new Set();
 // braços literais do match, em parse.rs (12 espaços) e nos módulos novos (8).
 const aliasable = new Set();
-for (const [f, ind] of [['parse.rs', 12], ['timing.rs', 8], ['vocab.rs', 8]]) {
+// O terceiro campo diz se o módulo TIRA o prefixo de fornecedor antes de casar.
+// Era deduzido de `f !== 'parse.rs'`, o que valia enquanto os módulos ligados
+// por `_ if` fossem só o `timing` e o `vocab` — que tiram. `grid_lines` não
+// tira (nenhuma folha escreve `-webkit-grid-column`), e herdar o `true` por ser
+// um módulo faria a sonda dar por reconhecidos seis nomes prefixados que o
+// motor recusa. É a mesma classe de erro que o `-ms-` em falta no `inert`:
+// a sonda a afirmar uma capacidade em vez de a ler.
+for (const [f, ind, prefixado] of [
+  ['parse.rs', 12, false],
+  ['timing.rs', 8, true],
+  ['vocab.rs', 8, true],
+  ['grid_lines.rs', 8, false],
+]) {
   for (const line of fs.readFileSync(D + f, 'utf8').split('\n')) {
     const ind2 = line.length - line.trimStart().length;
     if (ind2 !== ind) continue;
     const m = line.trimStart().match(/^((?:"[a-zA-Z-]+"\s*\|\s*)*"[a-zA-Z-]+")\s*=>/);
-    if (m) for (const q of m[1].match(/"[^"]+"/g)) { const nm = q.slice(1, -1); known.add(nm); if (f !== 'parse.rs') aliasable.add(nm); }
+    if (m) for (const q of m[1].match(/"[^"]+"/g)) { const nm = q.slice(1, -1); known.add(nm); if (prefixado) aliasable.add(nm); }
   }
 }
-// os prefixos de fornecedor que timing/vocab aceitam como alias.
-// SO timing.rs e vocab.rs tiram o prefixo de fornecedor; parse.rs nao tira.
 for (const p of aliasable) { known.add('-webkit-' + p); known.add('-moz-' + p); }
 // borders::is_longhand (guarda por FORMA) e logical (tradução de eixo).
 for (const s of ['top', 'right', 'bottom', 'left']) {

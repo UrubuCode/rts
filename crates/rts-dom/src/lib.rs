@@ -83,6 +83,11 @@ pub mod metrics;
 /// (egui) lê e aplica — o motor não conhece o egui.
 pub mod scrollbar;
 
+/// `filter` e `clip-path` reduzidos ao que uma display list sabe fazer EXATO —
+/// e a recusa explícita do resto. Módulo à parte de `layout.rs` porque este já
+/// passa o teto de linhas com folga; ver o cabeçalho para o que fica de fora.
+pub mod painteffects;
+
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 
 
