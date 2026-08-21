@@ -968,13 +968,28 @@ juntas ou não entram.
 intrínseca real, o Chrome deixa de cair no quadrado, e as respostas convergem
 sem que nada aqui mude.
 
-### 6.2 `<picture>` / `<source>` não são lidos (2026-08-21)
+### 6.2 `<picture>`: o `media` é lido, os descritores do `srcset` não (2026-08-21)
 
-Um `<source media=… srcset=… width=… height=…>` é ignorado: `source` existe
-apenas como elemento vazio e como caixa de largura zero no fluxo. O `<img>` de
-fallback é que dimensiona, e por isso o rodapé da Wikipédia mede 25×25 onde o
-Chrome mede 84×29 e 88×31 — os números do `<source>` que casa por `media`.
+Um `<img>` dentro de um `<picture>` passa a ser dimensionado pelo `<source>`
+escolhido: percorrem-se os `<source>` na ordem do documento, salta-se quem
+declara um `media` que não casa com o viewport, e ganha o primeiro que sobra —
+os seus `width`/`height` passam a ser os do elemento. Sem nenhum que case,
+responde o `<img>` de fallback. É por isso que o rodapé da Wikipédia mede agora
+84×29 e 88×31 como o Chrome, em vez dos 25×25 do fallback.
 
-Não é um defeito de dimensionamento; é a feature em falta. Fica em fila, e a
-condição é que o `media` seja avaliado a sério e não por heurística de "escolhe
-o primeiro".
+O `media` é avaliado pelo MESMO `MediaQuery` que serve os blocos `@media`. Isso
+não é só reuso: é o que impede que `min-width` signifique duas coisas no motor,
+e traz junto a honestidade dele — uma feature que não sabemos ler (§4.8) torna a
+query sempre-falsa, portanto uma `<source>` com `orientation` é SALTADA em vez de
+escolhida por engano.
+
+**O que ficou de fora, dito em vez de aproximado:**
+
+- **os descritores `w`/`x` do `srcset`** — qual candidato para qual densidade ou
+  largura;
+- **o `type`** — saltar uma `<source>` cujo formato não saberíamos descodificar.
+
+Nenhum dos dois muda a GEOMETRIA, que é o que esta ronda foi buscar: as
+dimensões vêm dos atributos da `<source>` escolhida e não do candidato. Mudam
+qual ficheiro se carregaria — e este motor ainda não carrega nenhum por esta
+via. Quando carregar, é aqui que os dois entram.

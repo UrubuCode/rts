@@ -44,6 +44,50 @@ pub(crate) enum AtomicKind {
     Block,
 }
 
+/// O `<source>` de um `<picture>` que vale para ESTE `<img>`, se houver um.
+///
+/// O algoritmo do HTML é: percorrer os `<source>` na ordem do documento, saltar
+/// os que declaram um `media` que não casa, e ficar com o primeiro que sobra; se
+/// nenhum sobra, é o `<img>` que responde. Os atributos `width`/`height` da
+/// `<source>` escolhida passam a ser os do elemento — é por isso que o rodapé da
+/// Wikipédia mede 84×29 no Chrome e não os 25×25 que o `<img>` declara.
+///
+/// O `media` é avaliado pelo MESMO `MediaQuery` que serve os blocos `@media`, e
+/// não por uma leitura própria: é a mesma condição escrita na mesma gramática, e
+/// um segundo avaliador seria um segundo sítio onde `min-width` pode divergir.
+/// Herda também a sua honestidade — uma feature que ele não suporta torna a
+/// query sempre-falsa, portanto uma `<source>` que peça `orientation` é saltada
+/// em vez de escolhida por engano.
+///
+/// **Fica de fora, e é dito em vez de aproximado:** os descritores `w`/`x` do
+/// `srcset` (qual candidato para qual densidade) e o `type` (saltar um formato
+/// que não sabemos descodificar). Nenhum dos dois muda a GEOMETRIA — que é o que
+/// esta função existe para responder — porque as dimensões vêm dos atributos da
+/// `<source>` e não do candidato; mudam qual ficheiro se carregaria, e este
+/// motor ainda não carrega nenhum por esta via.
+fn fonte_de_picture(dom: &Dom, img: NodeIdx, viewport_w: f32) -> Option<NodeIdx> {
+    let pai = dom.node(img).parent?;
+    let crate::dom::NodeKind::Element { tag } = &dom.node(pai).kind else {
+        return None;
+    };
+    if tag != "picture" {
+        return None;
+    }
+    dom.node(pai).children.iter().copied().find(|&f| {
+        let crate::dom::NodeKind::Element { tag } = &dom.node(f).kind else {
+            return false;
+        };
+        if tag != "source" {
+            return false;
+        }
+        // Sem `media` a `<source>` casa sempre; é a forma que serve só para
+        // oferecer outro formato ou outra densidade.
+        dom.node(f).attr("media").is_none_or(|m| {
+            crate::style::stylesheet::MediaQuery::parse(m).matches(viewport_w)
+        })
+    })
+}
+
 /// Tamanho de um replaced element inline, ou `None` se a tag não é replaced.
 ///
 /// A ordem — CSS, depois atributo HTML, depois o natural da imagem — é a da
@@ -82,7 +126,9 @@ pub(crate) fn replaced_inline_size(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let node = dom.node(id);
+    // Dentro de um `<picture>`, quem dá as dimensões é o `<source>` ESCOLHIDO —
+    // o `<img>` é só o fallback de quem não sabe escolher.
+    let node = dom.node(fonte_de_picture(dom, id, ctx.viewport_w).unwrap_or(id));
     let attr_px = |name: &str| -> Option<f32> {
         node.attr(name).and_then(|v| {
             let v = v.trim().trim_end_matches("px").trim();
@@ -751,6 +797,71 @@ mod tests {
         assert!((img.h - 169.0).abs() < 0.5, "167 + as duas bordas: {}", img.h);
     }
 
+    /// Dentro de um `<picture>`, é o `<source>` escolhido que dá as dimensões — e
+    /// a escolha depende do VIEWPORT.
+    ///
+    /// É o rodapé da Wikipédia, ao pixel: com o viewport de 1280 o
+    /// `media="(min-width: 500px)"` casa e a caixa é a do `<source>` (84×29, que
+    /// é o que o Chrome mede); com 400 não casa, e responde o `<img>` de
+    /// fallback. O mesmo documento, duas respostas, que é o que `<picture>` é.
+    #[test]
+    fn o_source_escolhido_do_picture_da_as_dimensoes_e_o_viewport_decide() {
+        let html = "<picture>            <source media='(min-width: 500px)' srcset='/b.svg' width='84' height='29'>            <img src='/a.svg' width='25' height='25'></picture>";
+        let (d1, l1) = geometria(html, 1280.0);
+        let largo = rect(&d1, &l1, "img", 0);
+        assert!(
+            (largo.w - 84.0).abs() < 0.5 && (largo.h - 29.0).abs() < 0.5,
+            "o source que casa tem de mandar: {largo:?}"
+        );
+        let (d2, l2) = geometria(html, 400.0);
+        let estreito = rect(&d2, &l2, "img", 0);
+        assert!(
+            (estreito.w - 25.0).abs() < 0.5 && (estreito.h - 25.0).abs() < 0.5,
+            "sem source que case, responde o <img>: {estreito:?}"
+        );
+    }
+
+    /// Um `media` que o avaliador NÃO SABE ler salta a `<source>` em vez de a
+    /// escolher por engano.
+    ///
+    /// É a honestidade que o `MediaQuery` já tem — uma feature desconhecida torna
+    /// a query sempre-falsa — e vale a pena fixá-la aqui: a alternativa (ignorar
+    /// o `media` que não se entende) escolhia uma caixa que o browser não teria
+    /// escolhido, e o erro ficava silencioso.
+    #[test]
+    fn um_media_que_nao_sabemos_avaliar_salta_a_source() {
+        let html = "<picture>            <source media='(orientation: landscape)' srcset='/b.svg' width='84' height='29'>            <img src='/a.svg' width='25' height='25'></picture>";
+        let (dom, list) = geometria(html, 1280.0);
+        let img = rect(&dom, &list, "img", 0);
+        assert!(
+            (img.w - 25.0).abs() < 0.5,
+            "uma condição que não entendemos não pode ganhar: {img:?}"
+        );
+    }
+
+    /// Uma `<source>` SEM `media` casa sempre — é a forma que só oferece outro
+    /// formato — e a PRIMEIRA que casa é a que ganha, na ordem do documento.
+    #[test]
+    fn a_primeira_source_que_casa_ganha_e_sem_media_casa_sempre() {
+        let html = "<picture>            <source media='(min-width: 5000px)' srcset='/x.svg' width='10' height='10'>            <source srcset='/b.svg' width='84' height='29'>            <source srcset='/c.svg' width='99' height='99'>            <img src='/a.svg' width='25' height='25'></picture>";
+        let (dom, list) = geometria(html, 1280.0);
+        let img = rect(&dom, &list, "img", 0);
+        assert!(
+            (img.w - 84.0).abs() < 0.5,
+            "a primeira que casa é a segunda source: {img:?}"
+        );
+    }
+
+    /// Um `<img>` FORA de um `<picture>` não é afetado: um `<source>` que não é
+    /// irmão dele não lhe diz respeito.
+    #[test]
+    fn uma_source_fora_do_picture_nao_dimensiona_a_imagem() {
+        let html = "<div>            <source srcset='/b.svg' width='84' height='29'>            <img src='/a.svg' width='25' height='25'></div>";
+        let (dom, list) = geometria(html, 1280.0);
+        let img = rect(&dom, &list, "img", 0);
+        assert!((img.w - 25.0).abs() < 0.5, "{img:?}");
+    }
+
     /// Um `<img>` que não declara dimensão nenhuma e não tem pixels continua sem
     /// caixa. O par com os testes acima é o que prova que a caixa vem do que se
     /// DECLARA, e não de o elemento ser um `<img>`.
@@ -1039,4 +1150,6 @@ mod inline_declarado_e_dono {
         );
     }
 }
+
+
 
