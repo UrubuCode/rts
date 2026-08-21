@@ -133,7 +133,6 @@ fn o_colapso_entre_irmaos_usa_a_margem_de_baixo_do_anterior() {
 /// atravessa a si próprio. Fica dito porque um vermelho aqui pode ser deste
 /// mecanismo ou daquele, e a auditoria trata-os como dois registos.
 #[test]
-#[ignore = "Chrome 15, nos 25 - o lote do bloco vazio NAO o moveu (medido). Falta o acumulador. Lote C"]
 fn margens_adjacentes_colapsam_por_conjunto_e_nao_par_a_par() {
     let (ya, ha) = rel("c2", "c2a");
     let (yb, _) = rel("c2", "c2b");
@@ -261,7 +260,6 @@ fn um_bloco_com_clear_nao_desconta_a_margem_de_quem_ja_nao_e_adjacente() {
 /// não cabe num valor. É a mesma falta que o caso do conjunto nomeia, apanhada
 /// noutra forma — e é a guarda do lote dos acumuladores.
 #[test]
-#[ignore = "Chrome 30, nos 35 - um conjunto nao cabe no valor unico de prev_margin. Lote C"]
 fn o_bloco_vazio_colapsa_tambem_com_a_margem_do_vizinho_anterior() {
     let (ya, ha) = rel("c8", "c8a");
     let (yb, _) = rel("c8", "c8b");

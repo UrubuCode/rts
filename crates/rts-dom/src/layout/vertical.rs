@@ -21,45 +21,45 @@ use super::*;
 // as macros de estado (close_floats!/flush_inline!) escrevem no cursor a cada
 // fechamento — a ÚLTIMA atribuição (no flush final) é estruturalmente morta, o
 // que dispara unused_assignments sem haver bug.
-/// As duas margens adjacentes colapsadas numa só, pela regra do CSS 2.1 §8.3.1.
+/// O CONJUNTO de margens adjacentes ainda aberto, como o Blink o guarda
+/// (`MarginStrut`): o MAIOR dos positivos e o MENOR dos negativos, somados uma
+/// só vez no fim.
 ///
-/// Não é `max(a, b)`: essa é a regra apenas quando as DUAS são positivas.
-/// - as duas ≥ 0 → a maior;
-/// - as duas < 0 → a mais negativa (a que puxa mais);
-/// - uma de cada sinal → a SOMA, e é por isso que uma margem negativa cancela
-///   uma positiva em vez de ser ignorada por ela.
-fn colapso_de_margens(a: f32, b: f32) -> f32 {
-    if a >= 0.0 && b >= 0.0 {
-        a.max(b)
-    } else if a < 0.0 && b < 0.0 {
-        a.min(b)
+/// Substituiu a cadeia binária `colapso(colapso(a, b), c)`, que **não é
+/// associativa com sinais mistos** e por isso respondia conforme a ordem:
+/// (+10, −5, +20) dá 20 par a par e **15** pelo conjunto, que é o que um Chrome
+/// real responde. Um par cabia num `f32`; um conjunto não, e era essa a falta —
+/// não a fórmula do par, que estava certa.
+type Strut = (f32, f32);
+
+/// Junta mais uma margem ao conjunto. Cada sinal vai para o seu lado: um
+/// positivo só compete com positivos, um negativo só com negativos.
+///
+/// É aqui e no [`strut_colapsado`] que vivem as três formas da regra do CSS
+/// 2.1 §8.3.1, que antes eram um `colapso_de_margens(a, b)` binário: duas
+/// positivas dão a maior (o `max` daqui), duas negativas dão a mais negativa (o
+/// `min`), e uma de cada sinal dá a SOMA — que é o `pos + neg` do outro. É por
+/// isso que uma margem negativa CANCELA uma positiva em vez de ser ignorada
+/// por ela.
+fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
+    if m >= 0.0 {
+        (pos.max(m), neg)
     } else {
-        a + b
+        (pos, neg.min(m))
     }
 }
 
-/// Quanto é que a soma das duas margens excede a colapsada — o que há a
-/// descontar ao cursor, já que cada bloco traz a sua margem dentro da altura.
-///
-/// A forma antiga era `min(a, b)`, que dá o mesmo resultado enquanto as duas
-/// forem positivas e o resultado ERRADO assim que uma é negativa: com `a = 0` e
-/// `b = -10px` descontava −10, ou seja SOMAVA 10 ao cursor, e a margem negativa
-/// que devia puxar o bloco para cima empurrava-o para baixo. É o `margin-top`
-/// negativo dos gutters `.row` do Bootstrap, e a razão de um teste que o pinava
-/// ter começado a falhar.
-fn excesso_de_margens(a: f32, b: f32) -> f32 {
-    a + b - colapso_de_margens(a, b)
+/// O valor colapsado do conjunto — e é aqui que os dois sinais se encontram,
+/// UMA vez. Com (+10, −5, +20) dá 20 − 5 = 15.
+fn strut_colapsado((pos, neg): Strut) -> f32 {
+    pos + neg
 }
 
-/// Quanto é que um bloco acabado de dispor faz o cursor avançar.
-///
-/// `altura` é a altura EXTERNA (margens dentro) e `topo`/`baixo` são as margens
-/// resolvidas. Quando a externa é exactamente a soma das duas, o conteúdo, o
-/// padding e a borda somaram ZERO — que é a condição de SELF-COLLAPSING do CSS
-/// 2.1 §8.3.1. Nesse caso a caixa não ocupa espaço nenhum e as suas duas
-/// margens colapsam uma com a outra: o cursor avança pela colapsada e não pela
-/// soma. Medido num Chrome real: um `<div style="margin:20px 0 30px">` vazio
-/// entre dois blocos injecta 30 e tem altura 0; nós injectávamos 50.
+/// `true` se a caixa se ATRAVESSA a si própria (self-collapsing, CSS 2.1
+/// §8.3.1): a altura externa é exactamente a soma das duas margens, logo o
+/// conteúdo, o padding e a borda somaram zero. Medido num Chrome real: um
+/// `<div style="margin:20px 0 30px">` vazio entre dois blocos injecta 30 e tem
+/// altura 0; nós injectávamos 50.
 ///
 /// A condição é lida do que foi CALCULADO e não rededuzida do estilo, o que a
 /// torna certa de graça em dois casos que uma leitura de estilo erraria: um
@@ -70,12 +70,8 @@ fn excesso_de_margens(a: f32, b: f32) -> f32 {
 /// formatação próprio (`overflow` ≠ visible, `flow-root`) NÃO se atravessa,
 /// mesmo vazia. Isso é o lote do BFC; enquanto não houver, um `<div
 /// style="overflow:hidden">` vazio e sem altura colapsa aqui e não devia.
-fn avanco_do_cursor(altura: f32, topo: f32, baixo: f32) -> f32 {
-    if (altura - (topo + baixo)).abs() < 0.01 {
-        colapso_de_margens(topo, baixo)
-    } else {
-        altura
-    }
+fn atravessa_se(altura: f32, topo: f32, baixo: f32) -> bool {
+    (altura - (topo + baixo)).abs() < 0.01
 }
 
 #[allow(unused_assignments)]
@@ -98,12 +94,19 @@ pub(in crate::layout) fn layout_children_vertical(
     // container — só o nó e o epoch dele mudam.
     let key_base = KeyBase::new(dom, content_w, avail_h, ctx);
     // MARGIN-COLLAPSE: as margens verticais de blocos ADJACENTES colapsam numa
-    // só, não somam. Como o `outer_h` de cada bloco já inclui a sua margem dos
-    // dois lados, ao empilhar dois blocos a soma conta
-    // `margin_bottom_anterior + margin_top_atual`; subtrai-se o excesso para
-    // ficar a colapsada ([`colapso_de_margens`]). `prev_margin` guarda a margem
-    // do último bloco posto.
-    let mut prev_margin = 0.0f32;
+    // só, não somam — e colapsam TODAS DE UMA VEZ, não duas a duas. São por
+    // isso dois valores e não um:
+    //
+    // `borda` é onde acabou a última caixa que ocupou espaço (a aresta de baixo
+    // dela, sem a margem), e `strut` é o conjunto de margens adjacentes aberto
+    // desde então. A aresta de topo do bloco seguinte é
+    // `borda + strut_colapsado(strut)` — uma SOMA, e não a subtração de um
+    // excesso, que é o que permite ao conjunto ter mais de dois membros.
+    //
+    // A invariante que liga isto ao resto do laço: `child_y` — o cursor que o
+    // fluxo inline e os floats usam — é sempre `borda + strut_colapsado(strut)`.
+    let mut borda = content_y;
+    let mut strut: Strut = (0.0, 0.0);
     // ── FLOATS COMO EXCLUSÕES: cada float colocado deixa uma faixa vertical
     // ocupada de um dos lados, e o conteúdo seguinte CONTORNA-A em vez de descer
     // abaixo dela. Ver [`Exclusao`] para a medição no Chrome que fixa o modelo.
@@ -138,7 +141,8 @@ pub(in crate::layout) fn layout_children_vertical(
                     dom, &ib_run, content_x, $y, content_w, avail_h, css, ctx, list,
                 );
                 ib_run.clear();
-                prev_margin = 0.0;
+                borda = $y;
+                strut = (0.0, 0.0);
             }
         };
     }
@@ -165,7 +169,9 @@ pub(in crate::layout) fn layout_children_vertical(
                     list,
                 );
                 inline_group.clear();
-                prev_margin = 0.0; // texto quebra a sequência de margin-collapse
+                // texto quebra a sequência de margin-collapse
+                borda = $y;
+                strut = (0.0, 0.0);
             }
         };
     }
@@ -185,14 +191,18 @@ pub(in crate::layout) fn layout_children_vertical(
             if let Some(fragment) = dom.fragment_get(key) {
                 crate::bump!(fragment_hits);
                 flush_inline!(child_y);
-                child_y -= excesso_de_margens(prev_margin, fragment.margin_top);
+                let (topo, baixo) = (fragment.margin_top, fragment.margin_bottom);
+                let com_topo = junta_ao_strut(strut, topo);
+                let aresta = borda + strut_colapsado(com_topo);
+                child_y = aresta - topo;
                 emit_fragment(&fragment, list, content_x, child_y, content_w, avail_h);
-                child_y += avanco_do_cursor(
-                    fragment.size.1,
-                    fragment.margin_top,
-                    fragment.margin_bottom,
-                );
-                prev_margin = fragment.margin_bottom;
+                if atravessa_se(fragment.size.1, topo, baixo) {
+                    strut = junta_ao_strut(com_topo, baixo);
+                } else {
+                    borda = aresta + (fragment.size.1 - topo - baixo);
+                    strut = junta_ao_strut((0.0, 0.0), baixo);
+                }
+                child_y = borda + strut_colapsado(strut);
                 continue;
             }
         }
@@ -220,12 +230,10 @@ pub(in crate::layout) fn layout_children_vertical(
         // margem negativa isso devolvia o bloco para baixo em vez de o puxar
         // para cima.
         let mut clearance: Option<f32> = None;
-        // O cursor DEPOIS de o `clear` descarregar o fluxo inline e ANTES de o
-        // descer: é essa a base da posição hipotética. Guardá-lo antes do
-        // `flush_inline!` perdia a altura do texto acabado de descarregar, e o
-        // teste de equivalência do cache foi quem o disse — o mesmo bloco caía
-        // uma linha acima quando refeito do zero.
-        let mut y_sem_clearance: Option<f32> = None;
+        // (a referência de onde a aresta é medida é a `borda`, que o
+        // `flush_inline!` do próprio `clear` acaba de pôr no cursor e que o
+        // `close_floats!` a seguir NÃO move. Existia um `y_sem_clearance` só
+        // para isso, e o conjunto tornou-o redundante.)
         // `clear` — o par do `float`: este filho começa ABAIXO dos floats
         // correntes. Fica ANTES do dispatch por tipo de caixa porque vale para
         // qualquer um deles: o caminho de bloco já fechava a linha de floats
@@ -240,7 +248,6 @@ pub(in crate::layout) fn layout_children_vertical(
         {
             flush_inline!(child_y);
             clearance = fundo_dos_floats(&floats);
-            y_sem_clearance = Some(child_y);
             close_floats!(child_y);
         }
         let (child_block, child_inline_block) = match &dom.node(child).kind {
@@ -378,7 +385,9 @@ pub(in crate::layout) fn layout_children_vertical(
                         x
                     },
                 });
-                prev_margin = 0.0; // float quebra a sequência de collapse
+                // float quebra a sequência de collapse
+                borda = child_y;
+                strut = (0.0, 0.0);
             }
             NodeKind::Element { .. } if child_block && !child_inline_block => {
                 flush_inline!(child_y);
@@ -429,11 +438,10 @@ pub(in crate::layout) fn layout_children_vertical(
                         )
                     })
                     .unwrap_or((0.0, 0.0));
-                // A aresta de borda que este bloco teria sem floats: o cursor de
-                // antes da descida, menos o excesso colapsado, mais a própria
-                // margem de topo.
-                let base = y_sem_clearance.unwrap_or(child_y);
-                let mut aresta = base - excesso_de_margens(prev_margin, m) + m;
+                // A aresta de topo deste bloco: onde a última caixa acabou,
+                // mais o conjunto de margens adjacentes já com a dele dentro.
+                let com_topo = junta_ao_strut(strut, m);
+                let mut aresta = borda + strut_colapsado(com_topo);
                 // CLEARANCE (CSS 2.1 §9.5.2): com `clear`, a aresta fica no
                 // MAIOR entre a hipotética e o fundo do float. Somar a margem
                 // por cima da descida era o defeito medido — o bloco ficava
@@ -456,8 +464,15 @@ pub(in crate::layout) fn layout_children_vertical(
                     ctx,
                     list,
                 );
-                child_y += avanco_do_cursor(h, m, m_baixo);
-                prev_margin = m_baixo;
+                if atravessa_se(h, m, m_baixo) {
+                    // Não ocupou espaço: a `borda` fica onde estava e a margem
+                    // de baixo entra no MESMO conjunto que a de cima.
+                    strut = junta_ao_strut(com_topo, m_baixo);
+                } else {
+                    borda = aresta + (h - m - m_baixo);
+                    strut = junta_ao_strut((0.0, 0.0), m_baixo);
+                }
+                child_y = borda + strut_colapsado(strut);
             }
             // INLINE-BLOCK (pill/botão solto): NÃO pinta agora — acumula na
             // "linha de inline-blocks" corrente (irmãos consecutivos fluem LADO A
@@ -496,7 +511,8 @@ pub(in crate::layout) fn layout_children_vertical(
                     inline_group.clear();
                 }
                 ib_run.push(child);
-                prev_margin = 0.0;
+                borda = child_y;
+                strut = (0.0, 0.0);
             }
             // Whitespace estrutural continua no DOM, mas não cria uma linha entre
             // blocos/floats. Quando está perto de texto/inline, entra no grupo e o
