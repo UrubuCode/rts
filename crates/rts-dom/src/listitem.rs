@@ -64,7 +64,7 @@ pub(crate) fn emit_marker(
     // baixa é a camada de imagem), e desenhar o bullet por baixo de uma imagem
     // que vai chegar seria pior do que não desenhar: o autor que pôs uma imagem
     // não quer o ponto. Sai sem marcador, e fica dito.
-    if css.list_style_image.is_some() {
+    if tem_imagem(css) {
         return;
     }
     let color = css.color.unwrap_or(0x0000_00FF);
@@ -145,6 +145,36 @@ pub(crate) fn emit_marker(
             });
         }
     }
+}
+
+/// `true` se o autor pôs uma IMAGEM no lugar do marcador.
+///
+/// A pergunta não é "o campo está preenchido": `list-style-image: none` é uma
+/// declaração como qualquer outra e o parser guarda-a como `Some("none")`, que
+/// é a string que `getComputedStyle` deve devolver. `none` **não é uma imagem**
+/// — é o autor a dizer que não há nenhuma, e o marcador do `type` continua a
+/// valer.
+///
+/// **Isto apagava todos os marcadores de `<ol>` da Wikipédia.** A folha tem uma
+/// regra de `ol` nu com `list-style-image:none` — a linha de reset mais banal
+/// que existe — e o `is_some()` lia-a como "há imagem" e saía sem desenhar. O
+/// Chrome pinta 457 números na lista de referências e nós pintávamos zero, com
+/// a numeração inteira a funcionar por trás: `<ol><li>` sozinho numerava, e o
+/// mesmo `<ol>` sob a folha real não.
+///
+/// **A alternativa rejeitada, e porquê:** guardar `None` no parser quando o
+/// valor é `none`. Corrige a mesma coisa e num sítio só, mas muda a resposta do
+/// OUTRO leitor — `style::fmt` devolve este campo ao `getComputedStyle`, onde
+/// o valor inicial da propriedade *é* a string `"none"` e apagá-lo daria `""`.
+/// São duas perguntas diferentes sobre o mesmo campo ("que string devolves" e
+/// "há imagem para desenhar"), e só a segunda é desta camada. Se o campo vier a
+/// ganhar um tipo próprio — um `Option<Url>` em vez de uma string crua — as
+/// duas juntam-se ali e esta função desaparece; enquanto for `String`, é aqui
+/// que a pergunta se responde, porque é aqui que ela é feita.
+fn tem_imagem(css: &ComputedStyle) -> bool {
+    css.list_style_image
+        .as_deref()
+        .is_some_and(|v| !v.trim().eq_ignore_ascii_case("none"))
 }
 
 /// A largura que o marcador ocupa — o que o `inside` precisa de saber para o
@@ -398,6 +428,82 @@ mod tests {
         }
     }
 
+    /// Os textos pintados — o que prova que o marcador textual existe.
+    fn textos(html: &str) -> Vec<String> {
+        let (_, list) = crate::table::tests::geometria(html, 600.0);
+        list.materialized()
+            .iter()
+            .filter_map(|i| match i {
+                DisplayItem::Text { text, .. } => Some(text.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `list-style-image: none` NÃO é uma imagem — o marcador do `type` continua
+    /// a ser desenhado.
+    ///
+    /// Este teste vale os 457 números que faltavam na página da Wikipédia. A
+    /// folha dela tem `ol{…;list-style-image:none}`, e essa linha sozinha
+    /// apagava o marcador de TODOS os `<ol>` do documento — com a numeração a
+    /// funcionar por trás, que é o que tornava o defeito invisível: um `<ol>`
+    /// isolado numerava, e por isso nenhum teste o apanhava.
+    ///
+    /// As três formas em que uma folha real escreve isto estão aqui, porque foi
+    /// a variação entre elas que fez a busca demorar: a longa, a longa herdada
+    /// do `<ol>` para o `<li>`, e o shorthand com dois `none`.
+    #[test]
+    fn list_style_image_none_nao_apaga_o_marcador() {
+        for (nome, html) in [
+            ("<ol> nu", "<ol><li>aa</li><li>bb</li></ol>"),
+            (
+                "image:none no ol (a regra da Wikipédia)",
+                "<style>ol{list-style-image:none}</style><ol><li>aa</li><li>bb</li></ol>",
+            ),
+            (
+                "image:none no li",
+                "<style>ol li{list-style-image:none}</style><ol><li>aa</li><li>bb</li></ol>",
+            ),
+        ] {
+            let t = textos(html);
+            assert!(
+                t.contains(&"1.".to_string()) && t.contains(&"2.".to_string()),
+                "{nome}: os marcadores deviam estar lá — {t:?}"
+            );
+        }
+    }
+
+    /// `list-style: none none` continua a apagar o marcador — pelo TYPE.
+    ///
+    /// A folha da Wikipédia escreve-o assim em `.plainlist ol` e no índice, e é
+    /// a forma que mais se parece com a que se acabou de corrigir. Aqui o
+    /// marcador tem MESMO de desaparecer, e por outra razão: o primeiro `none`
+    /// é um `list-style-type` válido. Se a correção de cima tivesse sido feita
+    /// no shorthand em vez de na pergunta sobre a imagem, este caso passava a
+    /// desenhar bullets onde a página não os tem.
+    #[test]
+    fn list_style_none_none_continua_a_apagar_pelo_type() {
+        let t = textos("<style>ol{list-style:none none}</style><ol><li>aa</li></ol>");
+        assert!(!t.contains(&"1.".to_string()), "{t:?}");
+        let (_, list) =
+            crate::table::tests::geometria("<style>ul{list-style:none none}</style><ul><li>aa</li></ul>", 600.0);
+        assert_eq!(bullets(&list).len(), 0);
+    }
+
+    /// E o outro lado da mesma regra, que é o que impede a correção de ser um
+    /// `is_some()` trocado por `true`: uma imagem A SÉRIO continua a substituir
+    /// o marcador. Sem esta metade, "não apagar com `none`" e "nunca apagar"
+    /// passariam os dois no teste de cima.
+    #[test]
+    fn uma_imagem_a_serio_continua_a_substituir_o_marcador() {
+        let t = textos("<style>ol{list-style-image:url(p.png)}</style><ol><li>aa</li></ol>");
+        assert!(!t.contains(&"1.".to_string()), "{t:?}");
+        // e o bullet do `<ul>` também não é desenhado por baixo da imagem.
+        let (_, list) =
+            crate::table::tests::geometria("<style>ul{list-style-image:url(p.png)}</style><ul><li>aa</li></ul>", 600.0);
+        assert_eq!(bullets(&list).len(), 0);
+    }
+
     #[test]
     fn romano_cobre_os_subtrativos() {
         assert_eq!(roman(4).unwrap(), "IV");
@@ -556,3 +662,4 @@ mod tests {
             .collect()
     }
 }
+
