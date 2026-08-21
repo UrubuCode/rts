@@ -156,7 +156,47 @@ fn rustup_rust_lld() -> Option<PathBuf> {
     }
 
     let candidate = PathBuf::from(path);
-    candidate.is_file().then_some(candidate)
+    (candidate.is_file() && can_launch(&candidate)).then_some(candidate)
+}
+
+/// Whether a discovered linker can actually be started.
+///
+/// # Why existing on disk is not enough
+///
+/// `rust-lld` in a rustup toolchain is dynamically linked against
+/// `@rpath/libLLVM.dylib`, and on 2026-08-20 the `macos-latest` runner shipped
+/// a toolchain where that dylib is not present. The binary is there, it is
+/// executable, and it dies in `dyld` before `main`. Everything above answered
+/// `is_file()` and handed it back, so `rts compile` chose a linker that cannot
+/// run and the AOT smoke test failed on every macOS build for three days —
+/// with `release`, `cross-runtime`, `ts-suite` and the whole Benchmarks
+/// workflow skipped behind it.
+///
+/// # What counts as "can be started", and why it is the exit STATUS
+///
+/// Not the exit code's value: a linker invoked with `--version` and nothing to
+/// link may answer non-zero for reasons that have nothing to do with whether it
+/// works. What separates the two cases is whether the process exited AT ALL.
+/// A `dyld` failure kills it with a signal, so `status.code()` is `None` —
+/// which is exactly what the failing runner reported: *"failed for target
+/// aarch64-apple-darwin (status=None, stdout='', stderr='dyld[45755]: Library
+/// not loaded'"*.
+///
+/// # Why this does not weaken the rust-lld preference
+///
+/// The preference above stays, and its reason with it: rust-lld shares the
+/// compiler's LLVM version and reads bitcode the platform linker rejects. This
+/// only stops an rust-lld that cannot start from WINNING that preference, which
+/// lets discovery fall through to PATH — where the platform linker is, and
+/// where the archive it will be handed has already had its bitcode stripped by
+/// the root `build.rs`.
+fn can_launch(path: &Path) -> bool {
+    match Command::new(path).arg("--version").output() {
+        Ok(output) => output.status.code().is_some(),
+        // Could not be spawned at all: missing, not executable, wrong
+        // architecture. Indistinguishable from absent, and treated as absent.
+        Err(_) => false,
+    }
 }
 
 fn rustc_sysroot_rust_lld(layout: &ToolchainLayout) -> Option<PathBuf> {
@@ -167,7 +207,10 @@ fn rustc_sysroot_rust_lld(layout: &ToolchainLayout) -> Option<PathBuf> {
         .join(&layout.target.triple)
         .join("bin")
         .join(expected_binary_name("rust-lld"));
-    if target_candidate.is_file() {
+    // Same `can_launch` gate as the rustup path, and for the same reason: this
+    // is the SAME binary reached by a second route, so a check on one route and
+    // not the other would let the broken one back in through the other door.
+    if target_candidate.is_file() && can_launch(&target_candidate) {
         return Some(target_candidate);
     }
 
@@ -178,7 +221,7 @@ fn rustc_sysroot_rust_lld(layout: &ToolchainLayout) -> Option<PathBuf> {
         .join(host)
         .join("bin")
         .join(expected_binary_name("rust-lld"));
-    host_candidate.is_file().then_some(host_candidate)
+    (host_candidate.is_file() && can_launch(&host_candidate)).then_some(host_candidate)
 }
 
 fn rustc_sysroot() -> Option<PathBuf> {
@@ -206,4 +249,49 @@ fn rustc_host_triple() -> Option<String> {
         .find_map(|line| line.strip_prefix("host: "))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_linker_that_is_not_there_cannot_be_launched() {
+        // The spawn itself fails. Indistinguishable from absent, and the point
+        // of the test is that it answers `false` rather than panicking — a
+        // probe that propagated the error would turn a missing linker into a
+        // failed compile instead of a fall-through to the next candidate.
+        assert!(!can_launch(Path::new(
+            "definitely-not-a-linker-on-this-machine"
+        )));
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_program_cannot_be_launched() {
+        // The case the macOS runner produced, as close as it can be reproduced
+        // portably: a real, readable file at a real path that is not something
+        // the operating system will start. `is_file()` answers TRUE for it,
+        // which is exactly why `is_file()` was the wrong question.
+        let path = std::env::temp_dir().join("rts_linker_probe_not_a_program");
+        std::fs::write(&path, b"this is not an executable").expect("write the fixture");
+        let answer = can_launch(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            !answer,
+            "a file that exists and cannot be started must not be chosen as the linker"
+        );
+    }
+
+    #[test]
+    fn a_real_program_can_be_launched_even_when_it_answers_non_zero() {
+        // The other half, and the one that says the probe is not merely
+        // rejecting everything: what is asked is whether the process EXITED,
+        // not whether it liked its arguments. `rustc --version` is a program
+        // every machine building this repository has.
+        //
+        // If this fails, the probe has become strict enough to reject a working
+        // linker, which would send macOS to the platform linker forever and
+        // lose the bitcode handling the preference exists for.
+        assert!(can_launch(Path::new("rustc")));
+    }
 }
