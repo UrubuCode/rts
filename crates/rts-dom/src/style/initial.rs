@@ -36,6 +36,33 @@ use super::props::ComputedStyle;
 /// chamador, que é quem tem o elemento na mão.
 pub fn initial(name: &str) -> Option<&'static str> {
     Some(match name {
+        // Os iniciais do lote de propriedades novas (ver `style::vocab`). Estão
+        // AQUI e não no `vocab` porque esta é a tabela dos iniciais — tê-los nos
+        // dois sítios era a lista paralela que este ficheiro existe para evitar.
+        "text-overflow" => "clip",
+        "text-wrap" | "text-wrap-mode" => "wrap",
+        "object-fit" => "fill",
+        "object-position" => "50% 50%",
+        "unicode-bidi" => "normal",
+        "hyphens" => "manual",
+        "scrollbar-width" => "auto",
+        "caption-side" => "top",
+        "pointer-events" => "auto",
+        "font-stretch" => "100%",
+        "zoom" => "1",
+        "word-spacing" => "0px",
+        "-webkit-line-clamp" | "line-clamp" => "none",
+        "column-width" => "auto",
+        "align-content" => "normal",
+        "justify-self" => "auto",
+        // As longhands de transition/animation — ver `style::timing`.
+        "transition-duration" | "transition-delay" | "animation-duration"
+        | "animation-delay" => "0s",
+        "transition-timing-function" | "animation-timing-function" => "ease",
+        "transition-property" => "all",
+        "animation-name" => "none",
+        "animation-iteration-count" => "1",
+        "animation-direction" => "normal",
         // Cor e fundo. O `rgba(0, 0, 0, 0)` do fundo é `transparent` na forma
         // que o Chrome imprime — não a palavra.
         "color" => "rgb(0, 0, 0)",

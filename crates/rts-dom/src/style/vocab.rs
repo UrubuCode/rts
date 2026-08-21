@@ -294,36 +294,45 @@ fn parse_dimension_or_keyword(v: &str, horizontal: bool) -> Option<Dimension> {
     Some(Dimension::Percent(pct))
 }
 
-/// O valor COMPUTADO das propriedades deste lote, por nome. `None` = o nome não é
-/// deste lote (o `fmt` continua a decidir o que responder).
+/// O valor de uma propriedade deste lote tal como o elemento a DECLAROU. `None`
+/// = o nome não é deste lote; `Some("")` = é, mas não foi declarada.
+///
+/// Vazio, e não o valor inicial, porque este é o mesmo caminho que serve
+/// `el.style.x` — que responde `""` para o que não está no `style=""` daquele
+/// elemento. Quem cai no inicial é `computed_value`, contra a tabela de
+/// `style::initial`, que é onde os iniciais vivem TODOS. Uma primeira versão
+/// respondia o inicial aqui e teria feito `el.style.objectFit` responder `fill`
+/// em todo o elemento do documento — o mesmo erro que o cabeçalho de
+/// `style::initial` documenta.
 pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
     let s = match name {
-        "text-overflow" => css.text_overflow.map(|v| v.css().to_string()).unwrap_or_else(|| "clip".into()),
-        "text-wrap" => css.text_wrap.map(|v| v.css().to_string()).unwrap_or_else(|| "wrap".into()),
-        "object-fit" => css.object_fit.map(|v| v.css().to_string()).unwrap_or_else(|| "fill".into()),
-        "unicode-bidi" => css.unicode_bidi.map(|v| v.css().to_string()).unwrap_or_else(|| "normal".into()),
-        "hyphens" => css.hyphens.map(|v| v.css().to_string()).unwrap_or_else(|| "manual".into()),
-        "scrollbar-width" => {
-            css.scrollbar_width.map(|v| v.css().to_string()).unwrap_or_else(|| "auto".into())
-        }
-        "caption-side" => css.caption_side.map(|v| v.css().to_string()).unwrap_or_else(|| "top".into()),
-        "pointer-events" => {
-            css.pointer_events.map(|v| v.css().to_string()).unwrap_or_else(|| "auto".into())
-        }
-        // O computed de `font-stretch` é a percentagem, mesmo quando o autor
+        "text-overflow" => opt(css.text_overflow.map(|v| v.css())),
+        "text-wrap" => opt(css.text_wrap.map(|v| v.css())),
+        "object-fit" => opt(css.object_fit.map(|v| v.css())),
+        "unicode-bidi" => opt(css.unicode_bidi.map(|v| v.css())),
+        "hyphens" => opt(css.hyphens.map(|v| v.css())),
+        "scrollbar-width" => opt(css.scrollbar_width.map(|v| v.css())),
+        "caption-side" => opt(css.caption_side.map(|v| v.css())),
+        "pointer-events" => opt(css.pointer_events.map(|v| v.css())),
+        // O computado de `font-stretch` é a PERCENTAGEM, mesmo quando o autor
         // escreveu o keyword — é o que o Chrome responde.
-        "font-stretch" => format!("{}%", css.font_stretch.unwrap_or(100.0)),
-        "zoom" => format!("{}", css.zoom.unwrap_or(1.0)),
-        "word-spacing" => format!("{}px", css.word_spacing.unwrap_or(0.0)),
+        "font-stretch" => css.font_stretch.map(|v| format!("{v}%")).unwrap_or_default(),
+        "zoom" => css.zoom.map(|v| format!("{v}")).unwrap_or_default(),
+        "word-spacing" => css.word_spacing.map(|v| format!("{v}px")).unwrap_or_default(),
         "-webkit-line-clamp" | "line-clamp" => {
-            css.line_clamp.map(|n| n.to_string()).unwrap_or_else(|| "none".into())
+            css.line_clamp.map(|n| n.to_string()).unwrap_or_default()
         }
-        "column-width" => css.column_width.map(super::fmt_values::fmt_dim).unwrap_or_else(|| "auto".into()),
+        "column-width" => css.column_width.map(super::fmt_values::fmt_dim).unwrap_or_default(),
         "object-position" => css
             .object_position
             .map(|p| format!("{} {}", super::fmt_values::fmt_dim(p.x), super::fmt_values::fmt_dim(p.y)))
-            .unwrap_or_else(|| "50% 50%".into()),
+            .unwrap_or_default(),
         _ => return None,
     };
     Some(s)
+}
+
+/// Um keyword declarado → a sua string; não declarado → `""`.
+fn opt(v: Option<&'static str>) -> String {
+    v.unwrap_or_default().to_string()
 }

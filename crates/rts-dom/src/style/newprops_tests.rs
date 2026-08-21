@@ -580,9 +580,13 @@ fn computed_de_uma_longhand_responde_o_valor_dela() {
     assert_eq!(s.get_property("transition-timing-function"), "ease-in");
     // sem nada declarado, o computed é o INICIAL da spec, não vazio.
     let vazio = parse_inline("color: red");
-    assert_eq!(vazio.get_property("transition-duration"), "0s");
-    assert_eq!(vazio.get_property("animation-name"), "none");
-    assert_eq!(vazio.get_property("animation-iteration-count"), "1");
+    // O `get_property` é também o `el.style.x`, que responde vazio para o que o
+    // elemento não declarou; quem cai no INICIAL é o `computed_value`. São dois
+    // consumidores com semânticas opostas — ver o cabeçalho de `style::initial`.
+    assert_eq!(vazio.get_property("transition-duration"), "");
+    assert_eq!(vazio.computed_value("transition-duration", None), "0s");
+    assert_eq!(vazio.computed_value("animation-name", None), "none");
+    assert_eq!(vazio.computed_value("animation-iteration-count", None), "1");
 }
 
 // ── Propriedades LÓGICAS: `inset*` e bordas `-inline-`/`-block-` ─────────────
@@ -657,7 +661,8 @@ fn font_stretch_computa_em_percentagem() {
     assert_eq!(parse_inline("font-stretch: condensed").font_stretch, Some(75.0));
     assert_eq!(parse_inline("font-stretch: 87.5%").font_stretch, Some(87.5));
     assert_eq!(parse_inline("font-stretch: condensed").get_property("font-stretch"), "75%");
-    assert_eq!(parse_inline("color:red").get_property("font-stretch"), "100%");
+    assert_eq!(parse_inline("color:red").computed_value("font-stretch", None), "100%");
+    assert_eq!(parse_inline("color:red").get_property("font-stretch"), "", "el.style vazio");
 }
 
 #[test]
@@ -679,9 +684,9 @@ fn keywords_do_lote_voltam_pelo_computed() {
     assert_eq!(s.get_property("unicode-bidi"), "isolate");
     // sem declaração, cada uma responde o INICIAL da spec.
     let vazio = parse_inline("color: red");
-    assert_eq!(vazio.get_property("text-overflow"), "clip");
-    assert_eq!(vazio.get_property("object-fit"), "fill");
-    assert_eq!(vazio.get_property("-webkit-line-clamp"), "none");
+    assert_eq!(vazio.computed_value("text-overflow", None), "clip");
+    assert_eq!(vazio.computed_value("object-fit", None), "fill");
+    assert_eq!(vazio.computed_value("-webkit-line-clamp", None), "none");
 }
 
 #[test]
@@ -715,4 +720,35 @@ fn word_spacing_normal_e_zero() {
     // parser de comprimento e desaparecia.
     assert_eq!(parse_inline("word-spacing: normal").word_spacing, Some(0.0));
     assert_eq!(parse_inline("word-spacing: 4px").word_spacing, Some(4.0));
+}
+
+// ── Lote 3: reconhecidas-e-não-modeladas, e `pointer-events` ────────────────
+
+#[test]
+fn propriedade_recusada_nao_conta_como_desconhecida() {
+    // A coluna das desconhecidas é a lista do que falta fazer. `will-change` não
+    // falta — foi recusada, e por um motivo escrito. Misturar as duas fazia a
+    // lista mentir sobre o tamanho do trabalho.
+    use crate::style::inert::is_inert;
+    assert!(is_inert("will-change"));
+    assert!(is_inert("page-break-inside"));
+    assert!(is_inert("scroll-behavior"));
+    assert!(is_inert("-webkit-appearance"), "o prefixo não muda a resposta");
+    assert!(is_inert("-moz-user-select"));
+    // e o que é trabalho por fazer continua do outro lado da linha.
+    assert!(!is_inert("filter"), "pintura por decidir NÃO é recusa");
+    assert!(!is_inert("clip-path"));
+    assert!(!is_inert("object-fit"), "essa está implementada");
+}
+
+#[test]
+fn pointer_events_e_guardado_e_herda() {
+    // Tem campo (e não entrou na lista de recusadas) porque o teste de acerto do
+    // DOM já existe: ligá-lo é ler este campo. Até lá o clique atravessa na mesma.
+    use crate::style::vocab::PointerEvents;
+    assert_eq!(parse_inline("pointer-events: none").pointer_events, Some(PointerEvents::None));
+    assert_eq!(parse_inline("pointer-events: none").get_property("pointer-events"), "none");
+    assert_eq!(parse_inline("color: red").computed_value("pointer-events", None), "auto");
+    // um valor de SVG que não modelamos não é guardado como se fosse outro.
+    assert_eq!(parse_inline("pointer-events: visiblePainted").pointer_events, None);
 }
