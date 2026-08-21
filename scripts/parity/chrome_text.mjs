@@ -184,6 +184,42 @@ const censo = await c.envia("Runtime.evaluate", {
 }, sessionId);
 const marcComputados = censo?.result?.value ?? null;
 
+// O CENSO DO TEXTO, pela mesma razão que o dos marcadores existe.
+//
+// O corpo deste ficheiro lê o texto da árvore de acessibilidade, e a AX já foi
+// apanhada a subcontar 294 marcadores. Nada garante que não subconte texto
+// também — e a régua atribui-nos 712 palavras "a mais" que ninguém explicou.
+// Este censo conta os caracteres que o DOM REALMENTE desenha (um `Range` por nó
+// de texto, com caixa), independente da AX. Se os dois discordarem muito, a
+// diferença é do instrumento e não do motor, e quem lê o relatório tem de o ver
+// ANTES de corrigir seja o que for.
+const censoTexto = await c.envia("Runtime.evaluate", {
+  returnByValue: true,
+  expression: `(() => {
+    const it = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let chars = 0, nos = 0, ocultos = 0;
+    const r = document.createRange();
+    for (let n = it.nextNode(); n; n = it.nextNode()) {
+      const t = n.nodeValue;
+      if (!t || !t.trim()) continue;
+      r.selectNodeContents(n);
+      if (r.getClientRects().length === 0) { ocultos++; continue; }
+      // Ter caixa NÃO é o mesmo que pintar: um \`visibility:hidden\` mantém a
+      // caixa e não desenha glifo nenhum, e o mesmo vale para \`opacity:0\` e
+      // para o conteúdo saltado por \`content-visibility\`. Contá-los era o
+      // sobre-conto deste censo — a versão simétrica do erro que ele veio medir.
+      const pai = n.parentElement;
+      if (pai && pai.checkVisibility && !pai.checkVisibility({
+        visibilityProperty: true, opacityProperty: true, contentVisibilityAuto: true,
+      })) { ocultos++; continue; }
+      nos++;
+      for (const ch of t) if (!/\s/.test(ch)) chars++;
+    }
+    return { chars, nos, ocultos };
+  })()`,
+}, sessionId);
+const txtComputado = censoTexto?.result?.value ?? null;
+
 await c.envia("DOM.enable", {}, sessionId);
 await c.envia("Accessibility.enable", {}, sessionId);
 const ax = await c.envia("Accessibility.getFullAXTree", {}, sessionId);
@@ -245,6 +281,10 @@ const rodape = JSON.stringify({
   // Os que computam marcador mas não geram caixa (antepassado `display:none`).
   // Contados e NÃO somados — a régua tem de poder ver que foram excluídos.
   marcadoresOcultos: marcComputados?.ocultos ?? null,
+  // O texto que o DOM desenha, contado fora da AX (ver o censo acima).
+  textoCaracteres: txtComputado?.chars ?? null,
+  textoNos: txtComputado?.nos ?? null,
+  textoNosOcultos: txtComputado?.ocultos ?? null,
 });
 writeFileSync(saida, [cabecalho, ...linhas, rodape].join("\n") + "\n");
 
