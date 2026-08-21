@@ -73,6 +73,8 @@ mod afirmacoes_tests;
 #[cfg(test)]
 mod computed_tests;
 #[cfg(test)]
+mod sonda_efetivos;
+#[cfg(test)]
 mod newprops_tests;
 #[cfg(test)]
 mod selector_tests;
