@@ -45,6 +45,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     // estilo e geometria
     ("computedProperty", computed_property),
     ("boundingRect", bounding_rect),
+    ("boundingRectAll", bounding_rect_all),
     // pixels (o `<canvas>` e o `<img>` compartilham o mesmo caminho)
     ("setPixels", set_pixels),
 ];
@@ -235,6 +236,52 @@ extern "C" fn bounding_rect(_e: u64, _t: u64, doc: u64, n: u64, which: u64, _c: 
     })
     .unwrap_or(0.0);
     num(v as f64)
+}
+
+/// `boundingRectAll(doc, ids, saida)` — as caixas de MUITOS nós numa chamada.
+///
+/// `ids` é um `Float64Array` com um `NodeId` da ABI por posição; `saida` é um
+/// `Float32Array` com espaço para `4 * ids.length` (x, y, w, h por nó, na mesma
+/// ordem). Responde quantos nós foram escritos.
+///
+/// # Porque uma lista, quando `boundingRect` já responde uma componente
+///
+/// Porque cada `boundingRect` faz um `layout_document` inteiro (13,7 ms na
+/// Wikipédia), e quem quer a árvore toda paga isso uma vez por COMPONENTE. Este
+/// faz o layout uma vez para a lista inteira — medido no extrator de paridade
+/// sobre a Wikipédia (16 813 elementos), 9m21s para 9,7s, com o dump a sair
+/// byte a byte igual. A alternativa rejeitada foi guardar o
+/// `DisplayList` no `Dom`: mais rápida ainda e com uma pergunta de invalidação
+/// que ninguém responde hoje, e uma caixa que não reflete o DOM é uma medição
+/// errada e não uma medição rápida.
+///
+/// # Porque BUFFERS e não um array
+///
+/// Pela mesma razão que `querySelectorAll` cruza como `count`+`at(i)`: este
+/// crate não constrói valores compostos do runtime. Um buffer de números já é um
+/// bloco de bytes dos dois lados, então nada é construído — e 16 mil elementos
+/// cruzam a fronteira duas vezes em vez de 67 mil.
+extern "C" fn bounding_rect_all(_e: u64, _t: u64, doc: u64, ids: u64, out: u64, _c: u64) -> u64 {
+    let bytes = rts_core::entry::with_runtime(|c| rts_core::entry::bytes_of(c, ids));
+    let Some(bytes) = bytes else { return int(0) };
+    let mut nodes: Vec<NodeId> = Vec::with_capacity(bytes.len() / 8);
+    for chunk in bytes.chunks_exact(8) {
+        let v = f64::from_le_bytes(chunk.try_into().unwrap_or([0; 8]));
+        // `-1` (nó nenhum) e um id de outra árvore caem os dois no mesmo sítio:
+        // `resolve` falha e a caixa sai a zeros, como no singular.
+        nodes.push(NodeId::from_abi(v as i64).unwrap_or(NodeId {
+            generation: u32::MAX,
+            idx: u32::MAX,
+        }));
+    }
+    let comps = rts_dom::store::with_dom(handle(doc), |d| d.bounding_components_many(&nodes))
+        .unwrap_or_default();
+    let mut raw: Vec<u8> = Vec::with_capacity(comps.len() * 4);
+    for v in &comps {
+        raw.extend_from_slice(&v.to_le_bytes());
+    }
+    let written = rts_core::entry::with_runtime(|c| rts_core::entry::write_bytes(c, out, 0, &raw));
+    int((written / 16) as i64)
 }
 
 /// `setPixels(doc, node, buffer, w, h)` — os PIXELS de um nó de imagem.

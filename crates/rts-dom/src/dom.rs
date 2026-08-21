@@ -1154,6 +1154,44 @@ impl Dom {
         }
     }
 
+    /// As quatro componentes da caixa de MUITOS nós de uma vez, na ordem
+    /// `x, y, w, h` por nó pedido.
+    ///
+    /// Existe porque `bounding_component` faz um `layout_document` INTEIRO por
+    /// chamada, e isso é linear no documento: medido a 13,7 ms por chamada na
+    /// Wikipédia (16 813 elementos). O extrator de paridade pede quatro
+    /// componentes por elemento, ou seja ~67 mil layouts completos do mesmo
+    /// documento imutável — os 9m21s que a extração de paridade custava eram
+    /// isto, e não o layout, que precisa de correr uma vez. Com esta: 9,7s, e o
+    /// dump a sair byte a byte igual ao de antes.
+    ///
+    /// **Não é um cache, de propósito.** O layout é feito AQUI DENTRO, nesta
+    /// chamada, e não sobrevive a ela: não há estado entre chamadas que possa
+    /// ficar velho depois de uma mutação. Um `DisplayList` guardado no `Dom`
+    /// seria mais rápido para todos os consumidores e traria a pergunta de
+    /// invalidação para um sítio que hoje não a tem — e uma geometria que não
+    /// reflete o DOM não é uma medição mais rápida, é outra medição.
+    ///
+    /// Um id que não resolve responde `0.0` nas quatro, que é exatamente o que
+    /// `bounding_component` responde no mesmo caso.
+    pub fn bounding_components_many(&self, ids: &[NodeId]) -> Vec<f32> {
+        let (vw, vh) = self.viewport.get();
+        let ctx = crate::layout::LayoutCtx {
+            viewport_w: vw,
+            viewport_h: vh,
+            measurer: &crate::layout::ApproxMeasurer,
+        };
+        let list = crate::layout::layout_document(self, &ctx);
+        let mut out = Vec::with_capacity(ids.len() * 4);
+        for &id in ids {
+            match self.resolve(id).and_then(|idx| list.rect_of(idx)) {
+                Some(r) => out.extend_from_slice(&[r.x, r.y, r.w, r.h]),
+                None => out.extend_from_slice(&[0.0, 0.0, 0.0, 0.0]),
+            }
+        }
+        out
+    }
+
     /// A geração desta árvore (para o render/ABI compor `NodeId` versionados).
     pub fn generation(&self) -> u32 {
         self.generation
@@ -5031,6 +5069,37 @@ mod tests {
             .map(|&k| dom.node_name(k).unwrap())
             .collect();
         assert_eq!(names, vec!["b", "i", "u"]); // ordem preservada, i não foi pro fim
+    }
+
+    #[test]
+    fn geometria_em_lote_responde_o_mesmo_que_a_singular() {
+        // O que se pina NÃO é que o layout está certo — é que pedir as caixas de
+        // uma vez dá o MESMO que pedi-las uma a uma. É a única coisa que separa
+        // "o extrator de paridade ficou rápido" de "o extrator de paridade
+        // passou a medir outra coisa", e a diferença entre as duas seria um
+        // número de paridade a melhorar sem ninguém ter corrigido layout.
+        let dom = parse_html_to_dom(
+            "<style>.a{width:100px;height:30px;margin:5px}</style>\
+             <div class=\"a\">um</div><p>dois<span>três</span></p><div><div>n</div></div>",
+        );
+        let ids: Vec<NodeId> = dom.query_all("div, p, span");
+        assert!(ids.len() >= 5, "a fixture tem de ter elementos para comparar");
+        let lote = dom.bounding_components_many(&ids);
+        for (i, &id) in ids.iter().enumerate() {
+            for k in 0..4i64 {
+                assert_eq!(
+                    lote[i * 4 + k as usize],
+                    dom.bounding_component(id, k),
+                    "nó {i}, componente {k}"
+                );
+            }
+        }
+        // E um id que não resolve responde zeros nas quatro, como a singular.
+        let morto = NodeId {
+            generation: u32::MAX,
+            idx: u32::MAX,
+        };
+        assert_eq!(dom.bounding_components_many(&[morto]), vec![0.0; 4]);
     }
 
     #[test]
