@@ -4,6 +4,7 @@
 //   node scripts/parity/regua_desenho.mjs --base=out/paint-base.jsonl
 //   node scripts/parity/regua_desenho.mjs --sabotagem=sem-setas    # a auto-conferência
 //   node scripts/parity/regua_desenho.mjs --sabotagem=chrome-menos-marcadores
+//   node scripts/parity/regua_desenho.mjs --sabotagem=chrome-menos-marcadores-137
 //
 // ## A pergunta que as outras três não fazem
 //
@@ -307,6 +308,18 @@ const SABOTAGENS_CHROME = {
     injetado: Math.min(302, fim.marcadoresPintados ?? 0),
     alvo: "marcadores",
   }),
+  // A MESMA sabotagem com um número que NÃO é o da fenda da AX, e existe por
+  // uma razão que só apareceu ao conferir a conferência: injetar exatamente 302
+  // leva o valor sabotado a coincidir com o que a AX reporta (493), portanto
+  // "a régua usou o valor sabotado" e "a régua leu a AX por engano" produzem o
+  // MESMO número e nenhuma asserção os distingue. 137 não coincide com nada, e
+  // é este o modo que prova que a asserção apanha uma régua cega.
+  "chrome-menos-marcadores-137": ({ fc, fim }) => ({
+    fc,
+    fim: { ...fim, marcadoresPintados: Math.max(0, (fim.marcadoresPintados ?? 0) - 137) },
+    injetado: Math.min(137, fim.marcadoresPintados ?? 0),
+    alvo: "marcadores",
+  }),
   // Perda difusa no corpus do Chrome — "a extração trouxe menos página do que a
   // página tem", que é a mesma classe de defeito noutra métrica.
   "chrome-perde-1pc": ({ fc, fim }) => ({
@@ -454,12 +467,19 @@ if (marcC === null) {
 }
 console.log(`  nós: ${marcR}` +
             ` (${bullets.length} disc, ${aneis.length} circle, ${textuais.length} textuais)`);
+// Os dois números REPORTADOS, ao alcance da conferência.
+//
+// Ela compara o que esta secção IMPRIME, e não uma recontagem própria — se
+// alguém trocar aqui `marcC` por `marcAX`, a conferência tem de o ver. Uma
+// asserção que re-derivasse os números da mesma fonte que audita seria
+// tautológica, que é a crítica que já matou uma sabotagem neste ficheiro.
+let faltamM = 0, sobramM = 0;
 // A REGRA DOS ABSOLUTOS, que esta secção era a única a não aplicar. O líquido
 // de -167 era -457 e +294 a cancelarem-se, e as duas metades são trabalhos
 // diferentes: uma é desenho em falta, a outra seria desenho a apagar.
 if (marcC !== null) {
-  const faltamM = Math.max(0, marcC - marcR);
-  const sobramM = Math.max(0, marcR - marcC);
+  faltamM = Math.max(0, marcC - marcR);
+  sobramM = Math.max(0, marcR - marcC);
   console.log(`  líquido: ${marcR - marcC >= 0 ? "+" : ""}${marcR - marcC}` +
               `   |   em falta: ${faltamM}   |   a mais: ${sobramM}`);
 }
@@ -561,26 +581,37 @@ if (SABOTAGEM && ladoSabotado === "nosso") {
   // o que foi injetado. Um instrumento que reagisse na mesma direção nos dois
   // casos estaria a medir outra coisa.
   if (alvoChrome === "marcadores") {
-    // A DIVERGÊNCIA ABSOLUTA, e não "o que nos falta".
+    // QUANTO a divergência TEM de se mover — derivado, não escolhido.
     //
-    // Custou uma falha em falso descobri-lo, e é a mesma regra que este ficheiro
-    // documenta no cabeçalho: quando os dois lados passaram a bater ao número
-    // (787 contra 787), tirar 302 ao Chrome deixou de aumentar o que nos falta e
-    // passou a aumentar o que temos a mais. A asserção olhava só para uma das
-    // metades, portanto via zero e dizia que a régua estava cega — quando o que
-    // estava cega era a asserção. O módulo move-se nos dois regimes.
+    // A primeira versão exigia que ela encolhesse pelo menos o injetado, e isso
+    // é insatisfazível quando o défice real é MENOR que a injeção: com 8 em
+    // falta, tirar 302 ao Chrome só pode fechar 8. Deu alarme falso contra o
+    // dump já corrigido — a régua via a sabotagem, cega estava a asserção.
+    //
+    // `min(injetado, divergência)` foi a correção proposta e NÃO serve, pela
+    // razão oposta: com os dois lados a bater (divergência 0) o mínimo é 0, a
+    // asserção vira `movimento >= 0` e uma régua COMPLETAMENTE CEGA passa. Ou
+    // seja, desligava-se exatamente no regime em que hoje vivemos.
+    //
+    // Exigir um MOVIMENTO MÍNIMO também não serve, e isto custou uma conferência
+    // da conferência a descobrir: uma régua cega (a ler a AX em vez do valor
+    // sabotado) reporta uma divergência CONSTANTE de 294, que por ser grande
+    // satisfaz qualquer limiar de movimento. Passava com voo cego.
+    //
+    // O que se exige é a IGUALDADE com o valor que uma régua correta reportaria,
+    // derivado do défice limpo (relido do ficheiro, que a sabotagem não toca) e
+    // da injeção. Não é re-derivar pelo caminho auditado: é comparar o que a
+    // secção IMPRIMIU com o que a entrada por corromper implica.
     const limpoC = carregar(F_CHROME, "chrome").fim.marcadoresPintados ?? 0;
-    const divLimpo = Math.abs(limpoC - marcR);
-    const divAgora = Math.abs((marcC ?? 0) - marcR);
-    const faltamMLimpo = divLimpo, faltamM = divAgora;
+    const dLimpo = limpoC - marcR;
+    const divLimpo = Math.abs(dLimpo);
+    const divAgora = faltamM + sobramM; // o que a secção IMPRIMIU
+    const esperado = Math.abs(dLimpo - injetadoChrome);
     console.log(`  sabotagem "${SABOTAGEM}" (lado do Chrome): divergência ABSOLUTA de` +
-                ` marcadores passou de ${divLimpo} para ${divAgora} (injetado ${injetadoChrome})`);
-    // A NULA cai aqui com `injetado = 0`, e a asserção é a mesma: exigir que a
-    // régua veja pelo menos o injetado é impossível de satisfazer quando não se
-    // injetou nada. `exit 1` é o resultado CORRETO — é o teste do próprio teste,
-    // e não precisa de um ramo próprio para o ser.
-    exige(injetadoChrome > 0 && Math.abs(faltamM - faltamMLimpo) >= injetadoChrome,
-      "a régua VÊ um denominador do Chrome abaixo do real — o defeito que esta secção teve");
+                ` marcadores passou de ${divLimpo} para ${divAgora}` +
+                ` (injetado ${injetadoChrome}, esperado ${esperado})`);
+    exige(injetadoChrome > 0 && divAgora === esperado,
+      "a régua reporta EXATAMENTE a divergência que o denominador sabotado implica");
   } else {
     const pcLimpo = conta(palavras(fragChrome(carregar(F_CHROME, "chrome").linhas)));
     const faltamLimpo = soma(diferenca(pcLimpo, pr));
@@ -592,7 +623,7 @@ if (SABOTAGEM && ladoSabotado === "nosso") {
   }
 } else {
   console.log("  (corra com --sabotagem=sem-setas|perde-1pc|troca|nula para provar que dispara");
-  console.log("   do NOSSO lado, e --sabotagem=chrome-menos-marcadores|chrome-perde-1pc|chrome-nula");
+  console.log("   do NOSSO lado, e --sabotagem=chrome-menos-marcadores[-137]|chrome-perde-1pc|chrome-nula");
   console.log("   para o lado do Chrome — uma conferência que só audita metade não audita)");
 }
 
