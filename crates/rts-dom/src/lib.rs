@@ -67,6 +67,11 @@ mod flowtests;
 #[cfg(test)]
 mod radiustests;
 
+/// `filter` e `clip-path` do estilo até à display list — a LIGAÇÃO, que os
+/// testes de `painteffects` (a aritmética) não veem.
+#[cfg(test)]
+mod filtertests;
+
 /// Motor de ANIMAÇÃO (#1776): interpolação de [`style::ComputedStyle`] no tempo +
 /// curvas de easing. Núcleo comum de `transition` (2 pontos) e `@keyframes` (N).
 /// Egui-free; o tick por frame é dirigido pelo loop de render.
