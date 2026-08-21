@@ -66,6 +66,11 @@ mod flowtests;
 #[cfg(test)]
 mod flextests;
 
+/// O INVARIANTE DA UNIÃO de um inline: a caixa do pai contém a dos fragmentos.
+/// Módulo próprio porque o que fixa é uma propriedade da árvore, não um valor.
+#[cfg(test)]
+mod uniontests;
+
 /// Os testes do RAIO POR CANTO: o que a display list carrega e o que o backend
 /// pode recortar. Módulo próprio porque não são fluxo nem tabela — o que fixam é
 /// a caixa pintada.

@@ -5470,6 +5470,7 @@ fn layout_inline_flow(
         runs.extend(pseudo_run(
             dom,
             dono,
+            &[dono],
             crate::style::PseudoElement::Before,
             cor_base,
             parent_css.italic.unwrap_or(false),
@@ -5482,6 +5483,7 @@ fn layout_inline_flow(
         runs.extend(pseudo_run(
             dom,
             dono,
+            &[dono],
             crate::style::PseudoElement::After,
             cor_base,
             parent_css.italic.unwrap_or(false),
@@ -5810,9 +5812,17 @@ struct InlineRun {
 /// particular ele quebra linha, herda e é medido pelo mesmo caminho do resto —
 /// nada disto precisou de um segundo caminho.
 ///
-/// `owners` recebe o elemento ORIGINANTE: no browser a caixa gerada está DENTRO
-/// da caixa do elemento e um clique nela atinge o elemento. Como o pseudo não
-/// tem `NodeIdx`, é a única resposta possível — e é a certa.
+/// `donos` é a CADEIA inline inteira terminada no elemento originante, e não só
+/// ele. No browser a caixa gerada está dentro da caixa do elemento e um clique
+/// nela atinge o elemento — mas também está dentro de cada inline que o
+/// envolve, exatamente como o texto normal está.
+///
+/// Isto já esteve errado, e o sintoma era invisível até o resto ficar certo:
+/// com `owners: vec![id]` um `<span><a></a></span>` em que todo o conteúdo do
+/// `<a>` vem de `a::before` deixava o `<span>` sem geometria NENHUMA, porque
+/// nada lhe chamava `union_rect`. Na Wikipédia eram os 397 retrolinks da lista
+/// de referências. Um fragmento gerado é um fragmento: conta para a união dos
+/// ancestrais como qualquer outro, e é `uniontests.rs` que o fixa.
 ///
 /// CORTE DECLARADO: só o texto e as propriedades que um run carrega (cor, peso,
 /// decoração) chegam à pintura. `background`, `padding`, `border` e `width` do
@@ -5822,6 +5832,8 @@ struct InlineRun {
 fn pseudo_run(
     dom: &Dom,
     id: NodeIdx,
+    // A cadeia inline que envolve o originante, ele incluído e por último.
+    donos: &[NodeIdx],
     pe: crate::style::PseudoElement,
     // A cor já resolvida do contexto — a caixa gerada herda-a quando não
     // declara `color`.
@@ -5839,7 +5851,7 @@ fn pseudo_run(
         // a UA não tem aqui nada a dizer — só o CSS do pseudo e o que herdou.
         italic: caixa.css.italic.unwrap_or(herdado_italico),
         deco: decoration_code(&caixa.css),
-        owners: vec![id],
+        owners: donos.to_vec(),
         atomic: None,
         ww: 0.0,
         wh: 0.0,
@@ -6108,9 +6120,20 @@ fn collect_runs(
                 // inteiro é tratado em `layout_inline_flow`, que é onde ele se
                 // sabe dono; os dois casos não se sobrepõem.
                 let before = out.len();
+                // A cadeia que o fragmento gerado herda. `owners` só contém
+                // `id` quando ele é container inline; um `inline-block` com
+                // `::before` continua a ser dono da sua própria caixa gerada.
+                let donos_do_pseudo = if owners.last() == Some(&id) {
+                    owners.clone()
+                } else {
+                    let mut v = owners.clone();
+                    v.push(id);
+                    v
+                };
                 out.extend(pseudo_run(
                     dom,
                     id,
+                    &donos_do_pseudo,
                     crate::style::PseudoElement::Before,
                     color,
                     italic,
@@ -6121,6 +6144,7 @@ fn collect_runs(
                 out.extend(pseudo_run(
                     dom,
                     id,
+                    &donos_do_pseudo,
                     crate::style::PseudoElement::After,
                     color,
                     italic,
