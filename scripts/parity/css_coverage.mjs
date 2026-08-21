@@ -62,29 +62,145 @@ import fs from 'fs';
 // diz se a web escreve aquilo.
 const D = 'E:/rts/crates/rts-dom/src/style/';
 const known = new Set();
-// braços literais do match, em parse.rs (12 espaços) e nos módulos novos (8).
-const aliasable = new Set();
-// O terceiro campo diz se o módulo TIRA o prefixo de fornecedor antes de casar.
-// Era deduzido de `f !== 'parse.rs'`, o que valia enquanto os módulos ligados
-// por `_ if` fossem só o `timing` e o `vocab` — que tiram. `grid_lines` não
-// tira (nenhuma folha escreve `-webkit-grid-column`), e herdar o `true` por ser
-// um módulo faria a sonda dar por reconhecidos seis nomes prefixados que o
-// motor recusa. É a mesma classe de erro que o `-ms-` em falta no `inert`:
-// a sonda a afirmar uma capacidade em vez de a ler.
-for (const [f, ind, prefixado] of [
-  ['parse.rs', 12, false],
-  ['timing.rs', 8, true],
-  ['vocab.rs', 8, true],
-  ['grid_lines.rs', 8, false],
-]) {
-  for (const line of fs.readFileSync(D + f, 'utf8').split('\n')) {
-    const ind2 = line.length - line.trimStart().length;
-    if (ind2 !== ind) continue;
-    const m = line.trimStart().match(/^((?:"[a-zA-Z-]+"\s*\|\s*)*"[a-zA-Z-]+")\s*=>/);
-    if (m) for (const q of m[1].match(/"[^"]+"/g)) { const nm = q.slice(1, -1); known.add(nm); if (prefixado) aliasable.add(nm); }
+
+// ── EXTRAÇÃO DOS NOMES RECONHECIDOS ─────────────────────────────────────────
+//
+// ## Porque isto não pode olhar para a INDENTAÇÃO
+//
+// A versão anterior lia os braços do `match` filtrando por um número fixo de
+// espaços à esquerda (`['parse.rs', 12]`). Isso mediu bem até ao dia em que o
+// ficheiro foi reformatado e a função extraída: os braços passaram de 12 para 8
+// espaços e a sonda respondeu **103/364 (28,3%) em vez de 211/364, e 12,9% de
+// declarações em vez de 96,8%** — sem uma linha do motor ter mudado. Um
+// instrumento que responde ao ESTILO do ficheiro não mede o motor.
+//
+// O critério passou a ser a PROFUNDIDADE DE CHAVETAS, que é a estrutura do
+// código e não a sua apresentação: `rustfmt` pode mover o texto à vontade, mas
+// não pode mudar quantas chavetas estão abertas num ponto.
+//
+// ## Porque não basta apanhar todo o `"x" =>` do ficheiro
+//
+// `=>` em Rust só aparece em braços de match e em macros, o que faria dele um
+// bom sinal — se não houvesse matches ANINHADOS. `vocab.rs` tem
+// `"box-orient" => { … match val { "vertical" => … } }`, e `painting.rs` tem os
+// `kw!(BlendMode { "multiply" => … })`. Apanhar tudo daria `vertical`,
+// `multiply` e `solid` como propriedades CSS reconhecidas — a sonda a inventar
+// cobertura.
+//
+// A regra que resolve os dois: dentro da função de despacho, os braços que
+// interessam são os do match MAIS EXTERIOR, e esses são todos os que estão na
+// profundidade MÍNIMA. A mínima é calculada a partir do próprio ficheiro, não
+// escrita aqui — se a função ganhar um nível de aninhamento amanhã, a sonda
+// acompanha sozinha.
+
+/// O corpo de `fn <nome>` — do `{` de abertura até à chaveta que o fecha.
+function corpoDaFuncao(src, nome) {
+  // Procura literal em vez de expressão regular: o padrão viveria num template
+  // literal, onde `\b` e `\s` são escapes da STRING antes de chegarem à regex —
+  // e uma regex que se transforma em `fns+nome` silenciosamente não encontra
+  // nada e faz a sonda responder zero com ar de resposta.
+  const at = src.indexOf(`fn ${nome}`);
+  if (at < 0) {
+    throw new Error(
+      `css_coverage: fn ${nome} não encontrada — a sonda está a medir uma fonte que mudou de forma`
+    );
+  }
+  let i = src.indexOf('{', at);
+  let d = 0;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '{') d++;
+    else if (src[j] === '}') { d--; if (d === 0) return src.slice(i + 1, j); }
+  }
+  throw new Error(`css_coverage: fn ${nome} sem fecho`);
+}
+
+function bracosComCorpo(corpo) {
+  const limpo = corpo.replace(/\/\/[^\n]*/g, '');
+  const achados = [];
+  let d = 0;
+  const re = /(?:"[a-zA-Z-]+"\s*\|\s*)*"[a-zA-Z-]+"\s*=>/g;
+  let pos = 0;
+  while (pos < limpo.length) {
+    const c = limpo[pos];
+    if (c === '{') { d++; pos++; continue; }
+    if (c === '}') { d--; pos++; continue; }
+    if (c === '"') {
+      re.lastIndex = pos;
+      const m = re.exec(limpo);
+      if (m && m.index === pos) { achados.push([d, pos, re.lastIndex, m[0]]); pos = re.lastIndex; continue; }
+      const fim = limpo.indexOf('"', pos + 1);
+      pos = fim < 0 ? limpo.length : fim + 1;
+      continue;
+    }
+    pos++;
+  }
+  if (!achados.length) return [];
+  const min = Math.min(...achados.map(([d]) => d));
+  const doTopo = achados.filter(([d]) => d === min);
+  return doTopo.map(([, ini, fim, txt], k) => ({
+    nomes: txt.match(/"[^"]+"/g).map(q => q.slice(1, -1)),
+    corpo: limpo.slice(fim, k + 1 < doTopo.length ? doTopo[k + 1][1] : limpo.length),
+  }));
+}
+
+/// Só os NOMES dos braços do match exterior. Uma vista de `bracosComCorpo` e não
+/// uma segunda varredura: as duas perguntas ("que nomes" e "que campos") têm de
+/// concordar sobre o que é um braço, senão a cobertura e a classificação por
+/// consumidor discordam sobre a mesma propriedade.
+function bracosDoMatchExterior(corpo) {
+  return bracosComCorpo(corpo).flatMap(b => b.nomes);
+}
+// A função de despacho de cada módulo, e se ele TIRA o prefixo de fornecedor
+// antes de casar. O nome da função é estrutura; a indentação não era.
+const FONTES = [
+  ['parse.rs', 'aplica_declaracao'],
+  ['timing.rs', 'try_apply'],
+  ['vocab.rs', 'try_apply'],
+  ['grid_lines.rs', 'try_apply'],
+  ['painting.rs', 'try_apply'],
+];
+for (const [f, fn] of FONTES) {
+  const nomes = bracosDoMatchExterior(corpoDaFuncao(fs.readFileSync(D + f, 'utf8'), fn));
+  if (!nomes.length) throw new Error(`css_coverage: ${f}::${fn} não deu braço nenhum`);
+  for (const n of nomes) known.add(n);
+}
+
+// ── PREFIXOS DE FORNECEDOR ──────────────────────────────────────────────────
+//
+// Já não há uma lista de quais módulos "tiram o prefixo": `parse.rs` faz uma
+// ÚLTIMA tentativa com o nome sem prefixo, e essa tentativa reentra em toda a
+// cadeia. A regra do motor passou a ser uma só — **se o nome nu é reconhecido,
+// o prefixado também é** — e é essa que a sonda lê.
+//
+// Com uma exceção, que o motor tem explícita e a sonda tem de ter igual: as
+// duas sintaxes ANTIGAS de flexbox não são aliases (`-ms-flex-pack: justify` é
+// `justify-content: space-between`), e `inert::flexbox_de_2009` recusa-as antes
+// do corte do prefixo. Dá-las por reconhecidas seria a sonda a contar como feito
+// aquilo que o motor recusa de propósito.
+const PREFIXOS = ['-webkit-', '-moz-', '-ms-', '-o-'];
+/// A exceção é SÓ a família `-ms-flex*`, e a razão é a ORDEM da cadeia do motor.
+///
+/// `inert::flexbox_de_2009` também nomeia `-webkit-box-*`, mas essas não
+/// precisam de exceção aqui e pô-las seria um falso negativo: metade delas
+/// (`box-orient`, `box-pack`, `box-align`) é traduzida pelo `style::vocab`, que
+/// corre ANTES do `inert` — o motor reconhece-as. A outra metade (`box-flex`,
+/// `box-direction`, `box-ordinal-group`) não tem nome nu reconhecido, portanto
+/// já não entra por esta porta.
+///
+/// A `-ms-flex*` é diferente porque o nome nu É reconhecido: `flex`,
+/// `flex-direction` e `flex-wrap` estão todos no `parse`. Sem esta exceção a
+/// sonda daria `-ms-flex-pack` por coberto — e o motor recusa-o de propósito,
+/// porque `-ms-flex-pack: justify` é `justify-content: space-between` e traduzir
+/// por prefixo daria o valor errado em silêncio.
+function ehFlexboxDe2009(prop) {
+  return prop === '-ms-flex' || prop.startsWith('-ms-flex-');
+}
+for (const p of [...known]) {
+  for (const pre of PREFIXOS) {
+    const c = pre + p;
+    if (!ehFlexboxDe2009(c)) known.add(c);
   }
 }
-for (const p of aliasable) { known.add('-webkit-' + p); known.add('-moz-' + p); }
 // borders::is_longhand (guarda por FORMA) e logical (tradução de eixo).
 for (const s of ['top', 'right', 'bottom', 'left']) {
   known.add('border-' + s);
@@ -264,20 +380,13 @@ for (const p of TODOS.filter(p => p.includes('/style/'))) {
 
 // NOME CSS → campos que ele escreve, lido dos corpos dos braços do `match`.
 const camposDoNome = new Map();
-for (const [f, ind] of [['parse.rs', 12], ['timing.rs', 8], ['vocab.rs', 8], ['grid_lines.rs', 8]]) {
-  const linhas = fs.readFileSync(D + f, 'utf8').split('\n');
-  for (let i = 0; i < linhas.length; i++) {
-    const l = linhas[i];
-    if (l.length - l.trimStart().length !== ind) continue;
-    const m = l.trimStart().match(/^((?:"[a-zA-Z-]+"\s*\|\s*)*"[a-zA-Z-]+")\s*=>/);
-    if (!m) continue;
-    // o CORPO do braço: até à linha seguinte com a mesma indentação.
-    let corpo = l;
-    for (let j = i + 1; j < linhas.length; j++) {
-      const lj = linhas[j];
-      if (lj.trim() && lj.length - lj.trimStart().length <= ind) break;
-      corpo += '\n' + lj;
-    }
+// A MESMA extração dos nomes (profundidade de chavetas), agora com o corpo de
+// cada braço. Isto era por indentação fixa e partiu-se com a mesma reformatação
+// que partiu a outra leitura — duas regras diferentes para ler a mesma coisa é
+// o defeito que este ficheiro passou o dia a corrigir noutros sítios.
+for (const [f, fn] of FONTES) {
+  for (const braco of bracosComCorpo(corpoDaFuncao(fs.readFileSync(D + f, 'utf8'), fn))) {
+    const corpo = braco.corpo;
     const escreve = new Set([...corpo.matchAll(/css\.([a-z_0-9]+)/g)].map(x => x[1]).filter(c => CAMPOS.has(c)));
     // DELEGACAO: um braco pode nao escrever campo nenhum e chamar quem escreve
     // (`apply_border_shorthand(css, val)`). Segue-se a chamada, com fecho dentro
@@ -295,8 +404,7 @@ for (const [f, ind] of [['parse.rs', 12], ['timing.rs', 8], ['vocab.rs', 8], ['g
         for (const g of chamaFn.get(f) || []) if (unica(g) && !vistas.has(g)) fila.push(g);
       }
     }
-    for (const q of m[1].match(/"[^"]+"/g)) {
-      const nm = q.slice(1, -1);
+    for (const nm of braco.nomes) {
       if (!camposDoNome.has(nm)) camposDoNome.set(nm, new Set());
       for (const c of escreve) camposDoNome.get(nm).add(c);
     }
@@ -318,16 +426,69 @@ for (const [mod, nomes] of [
     for (const c of escreve) camposDoNome.get(nm).add(c);
   }
 }
-// Prefixos de fornecedor: o mesmo campo do nome nu.
-for (const p of aliasable)
-  for (const pre of ['-webkit-', '-moz-'])
-    if (camposDoNome.has(p)) camposDoNome.set(pre + p, camposDoNome.get(p));
+// Prefixos de fornecedor: escrevem o MESMO campo do nome nu, porque é
+// literalmente a mesma função que os aplica (ver `PREFIXOS` acima).
+for (const p of [...camposDoNome.keys()])
+  for (const pre of PREFIXOS)
+    if (!ehFlexboxDe2009(pre + p)) camposDoNome.set(pre + p, camposDoNome.get(p));
 
 /** 'efetiva' | 'guardada' | 'indeterminada' (sem campo de tabela conhecido). */
 function consumo(prop) {
   const cs = camposDoNome.get(prop);
   if (!cs || cs.size === 0) return 'indeterminada';
   return [...cs].some(c => efetivos.has(c)) ? 'efetiva' : 'guardada';
+}
+
+// ── VERIFICAÇÃO DA PRÓPRIA SONDA ────────────────────────────────────────────
+//
+// Casos conhecidos, afirmados antes de a sonda medir seja o que for. Existem
+// porque a extração já falhou de TRÊS maneiras diferentes num só dia — a
+// indentação mudou, um módulo novo não estava na lista, um `-ms-` faltava no
+// corte do prefixo — e das três vezes o sintoma foi o mesmo: **um número mais
+// baixo, com ar de resposta.** Uma sonda que responde 28,3% em vez de 66,8% por
+// se ter partido é pior que uma sonda que não corre, porque a primeira é
+// citável.
+//
+// Cada linha é uma FORMA de reconhecimento diferente. Se uma delas cair, o
+// defeito está aqui e não no motor, e é isso que a mensagem tem de dizer — um
+// `assert` mudo mandaria procurar no sítio errado.
+for (const [prop, porque] of [
+  ['display', 'braço literal do match principal (parse.rs)'],
+  ['border-bottom-color', 'família por FORMA (borders::is_longhand)'],
+  ['content', 'caminho próprio, fora do match (stylesheet.rs)'],
+  ['border-top-left-radius', 'família por FORMA (style/radius.rs)'],
+  ['inset-inline-start', 'tradução de eixo lógico (style/logical.rs)'],
+  ['object-fit', 'módulo ligado por `_ if` (style/vocab.rs)'],
+  ['grid-column-start', 'módulo ligado por `_ if` (style/grid_lines.rs)'],
+  ['background-clip', 'módulo ligado por `_ if` (style/painting.rs)'],
+  ['transition-duration', 'módulo ligado por `_ if` (style/timing.rs)'],
+  ['-webkit-box-shadow', 'prefixo de fornecedor sobre um nome nu conhecido'],
+]) {
+  if (!known.has(prop)) {
+    throw new Error(
+      `css_coverage: \`${prop}\` devia ser reconhecida (${porque}) e não está.
+` +
+      `  A SONDA está partida, não o motor — a extração deixou de ver esta forma.`
+    );
+  }
+}
+// E o reverso, que é onde uma extração larga demais se esconde: um valor de
+// keyword não é uma propriedade. Se `vertical` aparecer aqui, a leitura passou
+// a apanhar braços de matches ANINHADOS e a cobertura está inflacionada.
+for (const naoDeviaSer of ['vertical', 'multiply', 'ellipsis', 'border-box', 'wavy']) {
+  if (known.has(naoDeviaSer)) {
+    throw new Error(
+      `css_coverage: \`${naoDeviaSer}\` é um VALOR e está a contar como propriedade.
+` +
+      `  A extração apanhou um match aninhado — a cobertura sai inflacionada.`
+    );
+  }
+}
+// E a recusa deliberada continua a ser recusa, não cobertura.
+for (const recusada of ['-ms-flex', '-ms-flex-pack']) {
+  if (known.has(recusada)) {
+    throw new Error(`css_coverage: \`${recusada}\` é recusada pelo motor e a sonda dá-a por coberta.`);
+  }
 }
 
 // as recusadas explicitamente (style/inert.rs), contadas a PARTE.
@@ -451,6 +612,55 @@ console.log(`  EFETIVAS  (lidas por quem desenha):   ${String(porConsumo.efetiva
 console.log(`  GUARDADAS (parseadas, ninguem as le): ${String(porConsumo.guardada.length).padStart(3)} propriedades, ${soma(porConsumo.guardada)} declaracoes`);
 if (porConsumo.indeterminada.length)
   console.log(`  INDETERMINADAS (sem campo na tabela): ${String(porConsumo.indeterminada.length).padStart(3)} propriedades, ${soma(porConsumo.indeterminada)} declaracoes`);
+
+// ── CASOS DE CONTROLO: a sonda confere-se a si mesma antes de imprimir ──────
+//
+// Esta sonda ja respondeu, com ar de numero, 12,9% em vez de 96,8% (uma
+// reformatacao mudou a indentacao e a leitura dos bracos deixou de ver as
+// entradas), 111 de 117 campos efetivos (a superficie dentro do fecho) e 142
+// propriedades "sem campo na tabela" (a leitura da tabela partida). Nenhuma
+// dessas corridas falhou: todas imprimiram um relatorio inteiro.
+//
+// O metodo que apanhou as quatro foi sempre o mesmo — conferir contra casos
+// conhecidos ANTES de aceitar o numero. Isto e esse metodo dentro do
+// instrumento, para nao depender de alguem se lembrar de o fazer.
+//
+// As afirmacoes sao de duas familias, e a distincao importa:
+//   * INVARIANTES DE ESTRUTURA (quantos campos, que forma tem a reparticao) —
+//     so quebram se a LEITURA partir.
+//   * CASOS EFETIVOS conhecidos (`display`, `color`, `border-bottom-color`) —
+//     propriedades que o motor le desde sempre em `layout.rs`. Se uma delas sair
+//     de "efetiva", partiu a analise de consumo, nao o motor.
+//
+// NAO se afirma que alguma propriedade e GUARDADA. `font-style` era guardada de
+// manha e foi ligada a tarde (`6eab4185`): um controlo desses transformaria uma
+// melhoria do motor num erro da sonda, que e o oposto do que ela serve.
+{
+  const falhas = [];
+  const diz = (cond, msg) => { if (!cond) falhas.push(msg); };
+
+  diz(CAMPOS.size >= 80,
+    `a tabela de props.rs deu so ${CAMPOS.size} campos — a leitura da tabela partiu`);
+  diz(efetivos.size >= 40,
+    `so ${efetivos.size} campos efetivos — o fecho a partir de quem desenha partiu`);
+  for (const p of ['display', 'color', 'background-color', 'width', 'border-bottom-color'])
+    diz(known.has(p) && consumo(p) === 'efetiva',
+      `'${p}' devia ser EFETIVA e saiu '${known.has(p) ? consumo(p) : 'nao reconhecida'}'`);
+  diz(known.has('content'),
+    `'content' e servida por caminho proprio (stylesheet.rs) e deixou de ser lida`);
+  diz(porConsumo.indeterminada.length <= 8,
+    `${porConsumo.indeterminada.length} propriedades sem campo na tabela — eram 3; ` +
+    `a ligacao nome->campo partiu`);
+  diz(porConsumo.efetiva.length > porConsumo.guardada.length + porConsumo.indeterminada.length,
+    `a reparticao inverteu-se (${porConsumo.efetiva.length} efetivas contra ` +
+    `${porConsumo.guardada.length}+${porConsumo.indeterminada.length}) — sintoma da leitura partida`);
+
+  if (falhas.length) {
+    console.error('\n*** A SONDA NAO SE CONFERE — os numeros acima NAO valem ***');
+    for (const f of falhas) console.error('  - ' + f);
+    process.exitCode = 1;
+  }
+}
 const nin = rows.filter(([p]) => !known.has(p) && inert.has(p));
 console.log(`RECUSADAS com motivo (style/inert.rs): ${nin.length} propriedades, ${nin.reduce((a, [, n]) => a + n, 0)} declaracoes`);
 const falta = rows.filter(([p]) => !known.has(p) && !inert.has(p));
