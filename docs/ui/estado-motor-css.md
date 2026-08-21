@@ -653,3 +653,67 @@ nenhuma, e texto que falta ou sobra também não.
    quatro hipóteses eliminadas (ver a secção própria).
 3. Pequenos e medidos: 24 caracteres (`·` e aspas), 5 px de reserva entre um
    `ul` e um `li` inline, `opacity:0` num ancestral não tratado.
+
+---
+
+## Segunda sessão do dia: treze lotes, uma regressão declarada
+
+Todos medidos por elemento contra a base do lote anterior, mesma entrada e mesmo
+dump do Chrome, com `scripts/parity/regressao.mjs`.
+
+| | ao retomar | ao fechar |
+|---|---|---|
+| imagens que casam em largura | 72 / 110 | **109 / 110** |
+| erro de `x` | 918 125 px | **835 389 px** |
+| erro de `w` | 371 001 px | **277 793 px** |
+| erro de `y` | 30,95 M px | **29,56 M px** |
+| elementos sem caixa | 23 | 23 |
+| testes em `rts-dom` | 565 | **590** |
+
+**Uma única regressão em todo o dia, e está declarada:** quatro `<a>` a errar
+3 px de altura, em troca de seis elementos que voltaram a ter caixa. Casavam
+enquanto o pai não existia.
+
+### O que foi corrigido, por ordem de efeito
+
+1. **`width:max-content` descartado no parse** — oito `<div>`, **1 882 ganhos**.
+   O painel do menu tomava a largura do pai e estrangulava ~135 `<li>` a 22 px.
+2. **`padding:0` a fazer um inline virar bloco** — os 51 cabeçalhos deixaram de
+   ocupar a linha inteira: **−986 020 px em `y`, sem um perdido**.
+3. **`inline-block` contado como display de bloco** — os `<li>` da `hlist`
+   ficavam sem caixa nenhuma.
+4. **Quatro regras dos elementos replaced** — não cortar pela largura do
+   contentor, a base da percentagem sem a margem própria, `auto` distinto de
+   ausente, a borda na caixa, e a razão de aspecto vinda dos atributos.
+5. **`<picture>`/`<source>`**, com o `media` avaliado pelo mesmo `MediaQuery`
+   dos blocos `@media`.
+6. **`font:inherit`** — certo por spec, **zero efeito nesta página**, medido.
+
+### O que o dia ensinou sobre MEDIR, que vale mais que a lista acima
+
+**A régua julga pela população e pelo eixo.** Pelo tuplo `x,y,w,h`, a correção
+das imagens dava 0 de 110 antes e 0 de 110 depois, porque a mediana do erro em
+`y` são milhares de pixels. Por `--eixos w`: 72 → 107. `regressao.mjs` aceita
+agora `--tags` e `--eixos` por causa disto.
+
+**Um número sintético prevê o mecanismo, nunca o efeito.** Duas frentes foram
+escolhidas com números de laboratório e as duas desmentidas pela página: o
+`inline-block` prometia 738 px por elemento e são 2 032 px no total, dois deles
+a valerem 1 757; o `font:inherit` prometia mover os 51 cabeçalhos e não moveu
+nada, porque a folha real já tem o longhand ao lado.
+
+**A causa raramente está onde o sintoma se vê.** A triagem apontava
+`<li> +2,6k de altura`; a causa estava dois níveis acima, numa palavra-chave que
+o parse deitava fora. Quem fosse atrás do sintoma teria afinado alturas de lista
+o dia inteiro.
+
+**Um custo tem de ser DATADO contra a base antes de ser atribuído.** Oito
+marcadores de lista foram dados como custo de um commit; medidos com o binário
+da base, já lá estavam antes de tudo. A régua de geometria compara sempre contra
+um dump da base; a de desenho tinha de ser lida duas vezes, e não foi.
+
+**Quando toda a resposta certa mede pior que a errada, o medido não é o motor.**
+A altura das miniaturas: 0 pela spec pura, 150 pela CSS Images §5.3, 169 pela
+razão dos atributos — todas piores contra um Chrome que cai num quadrado porque
+a imagem nunca carregou. Ficou escrita como limite, não forçada como número.
+
