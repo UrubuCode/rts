@@ -58,6 +58,10 @@ pub enum Peca {
     /// `attr(nome)` — o valor do atributo do elemento ORIGINANTE (não da caixa,
     /// que não tem atributos). Ausente resolve para string vazia, como na spec.
     Attr(String),
+    /// `counter(nome)` / `counter(nome, estilo)` — o valor do contador de
+    /// documento visível a esta caixa, escrito no sistema de numeração dado
+    /// (`decimal` por omissão). Ver [`crate::counters`], que é quem o calcula.
+    Contador(String, crate::style::ListStyleType),
 }
 
 /// Parseia o valor de uma declaração `content`.
@@ -71,9 +75,15 @@ pub enum Peca {
 /// - `url(...)` — gera uma caixa SUBSTITUÍDA (uma imagem), que não é texto e
 ///   precisa do caminho de imagem do layout, com carregamento e tamanho
 ///   intrínseco. Medido na folha da Wikipédia: 6 das 100 regras.
-/// - `counter(...)` — precisa de contadores de documento (`counter-reset` e
-///   `counter-increment` propagados na ordem da árvore), que o motor não tem.
-///   4 das 100 regras.
+/// - `counters(...)` — o PLURAL, que junta a pilha de escopos com um separador.
+///   Zero ocorrências nas quatro folhas do corpus (`pagina.css`, `google.css`,
+///   `wa.css`, `wa-app.css`), contra oito do singular. Recusado por nome e não
+///   por acidente de parse, para não ser confundido com o singular e pintar um
+///   número sem os antepassados.
+/// - `var(...)` — o valor de uma custom property só se resolve POR ELEMENTO, e
+///   o `content` é parseado uma vez ao ler a folha. Duas das oito ocorrências de
+///   `counter()` da folha da Wikipédia estão nesta forma; ambas perdem a cascata
+///   para uma regra posterior com o estilo literal, que é o que se pinta.
 /// - `open-quote`/`close-quote` — dependem de `quotes` e do nível de aninhamento.
 ///
 /// Em todos, gerar uma caixa vazia seria pior do que não gerar: reservaria
@@ -100,11 +110,42 @@ pub fn parse_content(valor: &str) -> Option<Content> {
             }
             pecas.push(Peca::Attr(nome));
             resto = &depois[fecha + 1..];
+        } else if let Some(depois) = tira_prefixo_sem_caso(resto, "counter(") {
+            let fecha = depois.find(')')?;
+            let (nome, estilo) = counter_args(&depois[..fecha])?;
+            pecas.push(Peca::Contador(nome, estilo));
+            resto = &depois[fecha + 1..];
         } else {
-            return None; // url(), counter(), open-quote, um identificador solto…
+            return None; // url(), counters(), open-quote, um identificador solto…
         }
     }
     (!pecas.is_empty()).then_some(Content::Pecas(pecas))
+}
+
+/// Os argumentos de `counter(…)`: o nome e o sistema de numeração.
+///
+/// `None` recusa a declaração inteira, e é o que acontece com
+/// `counter(x, var(--y))`: o primeiro `)` do texto fecha o `var`, o segundo
+/// argumento chega partido e nenhum `ListStyleType` o reconhece. É o
+/// comportamento que se quer — descartar a declaração deixa a cascata escolher
+/// outra regra, enquanto adivinhar `decimal` pintaria um estilo que a folha não
+/// pediu.
+///
+/// Um estilo que não conhecemos também recusa, em vez de cair em `decimal`: a
+/// spec manda o *fallback*, mas aqui `decimal` seria um NÚMERO onde a folha
+/// pediu letras — um erro com aparência de acerto, que é o que esta casa não
+/// entrega.
+fn counter_args(args: &str) -> Option<(String, crate::style::ListStyleType)> {
+    let mut it = args.splitn(2, ',');
+    let nome = it.next()?.trim();
+    if nome.is_empty() || nome.contains(char::is_whitespace) {
+        return None;
+    }
+    let estilo = match it.next() {
+        None => crate::style::ListStyleType::Decimal,
+        Some(s) => crate::style::ListStyleType::parse(&s.trim().to_ascii_lowercase())?,
+    };
+    Some((nome.to_string(), estilo))
 }
 
 /// `s` sem o prefixo `pref`, comparado sem distinguir maiúsculas.
@@ -158,7 +199,17 @@ fn string_css(s: &str) -> Option<(String, &str)> {
 }
 
 /// Materializa o texto de um [`Content`] contra o elemento originante.
-pub fn texto_de(content: &Content, attr: &impl Fn(&str) -> Option<String>) -> Option<String> {
+///
+/// `contadores` é a fotografia dos contadores ativos nesta caixa, calculada em
+/// ordem documental por [`crate::counters`]. `None` significa "esta página não
+/// declara contadores" e não "o contador vale zero" — a diferença não se vê no
+/// resultado (ambos dão o zero implícito da spec) mas vê-se no custo: sem
+/// contadores na folha, a passagem documental não corre de todo.
+pub fn texto_de(
+    content: &Content,
+    attr: &impl Fn(&str) -> Option<String>,
+    contadores: Option<&crate::counters::Snapshot>,
+) -> Option<String> {
     let Content::Pecas(pecas) = content else {
         return None;
     };
@@ -170,6 +221,9 @@ pub fn texto_de(content: &Content, attr: &impl Fn(&str) -> Option<String>) -> Op
             // folha que escreve `content: "[" attr(x) "]"` ainda quer os
             // colchetes quando `x` não existe.
             Peca::Attr(nome) => out.push_str(&attr(nome).unwrap_or_default()),
+            Peca::Contador(nome, estilo) => {
+                out.push_str(&crate::counters::texto(contadores, nome, *estilo))
+            }
         }
     }
     Some(out)
@@ -385,16 +439,130 @@ mod tests {
         assert_eq!(parse_content("none"), Some(Content::Nenhum));
         assert_eq!(parse_content("normal"), Some(Content::Nenhum));
         assert_eq!(parse_content("url(seta.png)"), None);
-        assert_eq!(parse_content("counter(item)"), None);
+        // `counter()` (singular) DEIXOU de estar nesta lista — é o que este
+        // trabalho acrescentou. O plural continua nela, e a linha abaixo é o que
+        // impede que ele passe a ser aceite por acidente de prefixo: `counters(`
+        // começa por `counter` e um `starts_with` desatento aceitá-lo-ia,
+        // pintando "3" onde a folha pediu "1.2.3".
+        assert_eq!(parse_content("counters(item, '.')"), None);
+        // E o estilo dentro de `var()`: a declaração inteira cai, para a cascata
+        // poder escolher outra regra em vez de nós inventarmos `decimal`.
+        assert_eq!(parse_content("counter(x, var(--y))"), None);
+        assert_eq!(parse_content("counter(x, esquisito)"), None);
+    }
+
+    #[test]
+    fn counter_reset_e_increment_numeram_as_caixas_geradas() {
+        // O caso mínimo: um contador criado no contentor, incrementado em cada
+        // filho, impresso pelo `::before` desse filho. É o que faz `1 2 3` — e
+        // repare-se que o `counter-increment` está no ELEMENTO enquanto o
+        // `counter()` está no pseudo dele.
+        let t = textos(
+            "<style>ul{counter-reset:n} li{counter-increment:n} \
+             li::before{content:counter(n) \". \"}</style>\
+             <ul><li>a</li><li>b</li><li>c</li></ul>",
+        );
+        let numeros: Vec<&String> = t.iter().filter(|s| s.contains('.')).collect();
+        assert_eq!(
+            numeros,
+            // o espaço final do `content` é colapsado pelo fluxo inline, como
+            // no browser — o que se fixa aqui é o NÚMERO, não o espaçamento.
+            vec!["1.", "2.", "3."],
+            "os três itens numeram em ordem documental: {t:?}"
+        );
+    }
+
+    #[test]
+    fn o_reset_reinicia_a_contagem_em_cada_lista() {
+        // A prova de que o escopo do `counter-reset` existe: duas listas
+        // irmãs contam 1,2 cada uma, e não 1,2,3,4. Sem escopo (um contador
+        // global por nome) a segunda começaria no 3.
+        let t = textos(
+            "<style>ul{counter-reset:n} li{counter-increment:n} \
+             li::before{content:counter(n)}</style>\
+             <ul><li>a</li><li>b</li></ul><ul><li>c</li><li>d</li></ul>",
+        );
+        let n: Vec<String> = t
+            .iter()
+            .filter(|s| s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty())
+            .cloned()
+            .collect();
+        assert_eq!(n, vec!["1", "2", "1", "2"], "{t:?}");
+    }
+
+    #[test]
+    fn o_retrolink_de_citacao_multipla_da_a_b_c_como_na_wikipedia() {
+        // O CASO REAL, com o markup e as regras que a folha da Wikipédia usa —
+        // e o que estava a faltar: 152 letras isoladas que o Chrome pinta e nós
+        // não. O `counter-increment` está no PRÓPRIO `::before`, o que obriga a
+        // que as operações de um pseudo-elemento contem, e o `counter-reset`
+        // está no `<span>` que os envolve, o que obriga a que o escopo do
+        // pseudo (um filho) não vaze para o irmão seguinte errado.
+        let t = textos(
+            "<style>span[rel='mw:referencedBy']{counter-reset:mw-ref-linkback 0} \
+             span[rel='mw:referencedBy'] > a::before\
+             {counter-increment:mw-ref-linkback;content:counter(mw-ref-linkback,lower-alpha)}\
+             </style>\
+             <span rel='mw:referencedBy'><a></a><a></a><a></a></span>",
+        );
+        assert_eq!(t, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn a_regra_com_var_no_estilo_do_counter_perde_sem_apagar_a_que_ganha() {
+        // As TRÊS regras de retrolink da folha da Wikipédia, verbatim e na ordem
+        // do ficheiro. As duas primeiras não são cumpríveis aqui (o estilo vem
+        // dentro de `var()`, que só resolve por elemento) e a terceira é a que o
+        // Chrome também aplica, por ser a última de igual especificidade.
+        //
+        // O que este teste protege é a ORDEM em que se descarta: uma regra
+        // recusada não pode apagar o `content` de outra, e uma recusada DEPOIS
+        // não pode apagar o da que já tinha ganho. Sem isso, a folha real dava
+        // caixa nenhuma apesar de o mecanismo de contadores funcionar — que é o
+        // modo de falha mais caro, porque o teste sintético passa.
+        let t = textos(
+            "<style>\
+             span[rel='mw:referencedBy']{counter-reset:mw-ref-linkback 0}\
+             span[rel='mw:referencedBy'] > a::before{content:counter(mw-references,var(--cite-counter-style)) var(--cite-backlink-separator) counter(mw-ref-linkback,var(--cite-counter-style))}\
+             span[rel='mw:referencedBy'] > a::before{counter-increment:mw-ref-linkback}\
+             span[rel=\"mw:referencedBy\"] > a::before{font-weight:bold;font-style:italic;content:counter(mw-ref-linkback,lower-alpha)}\
+             </style>\
+             <span rel='mw:referencedBy'><a></a><a></a></span>",
+        );
+        assert_eq!(t, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn um_contador_que_ninguem_criou_vale_zero_e_nao_apaga_os_literais() {
+        // A spec manda o zero implícito da raiz. O que aqui se fixa é a segunda
+        // metade: os literais à volta sobrevivem. Devolver vazio faria o `[` e o
+        // `]` desaparecerem com o número.
+        let t = textos("<style>p::before{content:'[' counter(x) ']'}</style><p>oi</p>");
+        assert_eq!(t[0], "[0]");
+    }
+
+    #[test]
+    fn o_contador_do_ancestral_e_visivel_ao_pseudo_de_um_descendente() {
+        // O outro contador dos retrolinks: `mw-references` é incrementado no
+        // `<li>` e lido pelo `::before` de um `<a>` lá dentro, dois níveis
+        // abaixo. Uma varredura de IRMÃOS — que é como o `listitem.rs` numera —
+        // não responderia isto, e é a razão de este módulo existir.
+        let t = textos(
+            "<style>ol{counter-reset:r} li{counter-increment:r} \
+             li a::before{content:counter(r)}</style>\
+             <ol><li><span><a>x</a></span></li><li><span><a>y</a></span></li></ol>",
+        );
+        assert!(t.contains(&"1x".to_string()), "{t:?}");
+        assert!(t.contains(&"2y".to_string()), "{t:?}");
     }
 
     #[test]
     fn content_concatena_string_e_attr() {
         let c = parse_content(r#""[" attr(data-x) "]""#).unwrap();
         let attr = |n: &str| (n == "data-x").then(|| "oi".to_string());
-        assert_eq!(texto_de(&c, &attr).unwrap(), "[oi]");
+        assert_eq!(texto_de(&c, &attr, None).unwrap(), "[oi]");
         // atributo ausente é string vazia, e os literais ficam.
         let vazio = |_: &str| None;
-        assert_eq!(texto_de(&c, &vazio).unwrap(), "[]");
+        assert_eq!(texto_de(&c, &vazio, None).unwrap(), "[]");
     }
 }

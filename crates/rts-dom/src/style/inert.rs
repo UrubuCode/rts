@@ -114,9 +114,14 @@ pub fn is_inert(prop: &str) -> bool {
         // propriedade sem a regra seria prometer a metade que não serve para nada.
             | "container-type" | "container-name" | "container"
             | "anchor-name" | "position-anchor"
-        // CONTADORES E ASPAS: só têm efeito através de `content`, que é de outro
-        // dono. Um contador que ninguém imprime é estado sem leitor — e imprimi-lo
-        // é a tarefa do `content`, não desta.
+        // CONTADORES E ASPAS: continuam fora do `ComputedStyle`, mas o motivo
+        // mudou. `counter-reset`/`counter-increment` JÁ TÊM leitor — o
+        // `crate::counters` lê-os do corpo cru da regra, porque a resposta deles
+        // é por documento e não por nó, e guardá-los em cada `ComputedStyle`
+        // daria dois `Vec` por elemento para servir umas dezenas. Estarem aqui
+        // significa "não é propriedade computada", não "é ignorado".
+        //
+        // `counter-set` e `quotes` são o caso antigo, e esses sim: ninguém os lê.
             | "counter-reset" | "counter-increment" | "counter-set" | "quotes"
         // SVG: não há motor de SVG, e não é para haver nesta campanha. É a
         // recusa mais fácil de justificar com a própria sonda: reconhecer as ~300

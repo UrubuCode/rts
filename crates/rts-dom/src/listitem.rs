@@ -251,7 +251,7 @@ fn is_list_item(dom: &Dom, id: NodeIdx) -> bool {
 /// volta como o próprio número em decimal. É o que o CSS manda
 /// (`counter-style` faz *fallback* para `decimal`), e evita a única alternativa
 /// possível, que seria devolver vazio e perder o item da vista.
-fn counter_text(kind: ListStyleType, n: i64) -> String {
+pub(crate) fn counter_text(kind: ListStyleType, n: i64) -> String {
     match kind {
         ListStyleType::LowerAlpha => alphabetic(n, b'a'),
         ListStyleType::UpperAlpha => alphabetic(n, b'A'),

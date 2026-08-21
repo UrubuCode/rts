@@ -289,7 +289,9 @@ pub struct ComplexSelector {
 }
 
 /// Os pseudo-elementos que geram caixa aqui.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+// `Hash` porque a tabela de contadores é indexada por `(nó, pseudo)`: a caixa
+// gerada não tem `NodeIdx` próprio, e o par é a única chave que a identifica.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum PseudoElement {
     /// `::before` — caixa gerada ANTES do conteúdo do elemento.
     Before,

@@ -553,8 +553,14 @@ Uma `<table>` hoje cai no fluxo de blocos.
 
 ### Listas
 Falta: `list-style`, `list-style-type` (3), `list-style-position`,
-`list-style-image`, `::marker`, `counter-reset`/`counter-increment` (2) e
-`counter()`. Uma `<ol>` não numera.
+`list-style-image` e `::marker`. Uma `<ol>` não numera pelo mecanismo de
+`::marker` — numera por `listitem.rs`, que é outro caminho.
+
+`counter-reset`/`counter-increment` (2) e `counter()` **passaram a funcionar**:
+ver `crates/rts-dom/src/counters.rs`. São calculados numa passagem em ordem
+documental, memoizada por revisão, e só corrida quando a folha declara algum
+contador. O plural `counters()` continua de fora, e o módulo diz o número que o
+justifica: zero ocorrências nas quatro folhas do corpus.
 
 ### Animação e transição
 Temos os shorthands; faltam **os longhands** (`transition-property` 9,
@@ -673,7 +679,8 @@ responde `None`, e é isso que `before_nao_muda_a_arvore_de_nos` pina. Por isso
 a "mudança de arquitetura" que o título anunciava não chegou a ser paga.
 
 Os limites reais, em `pseudo::parse_content`: aceita strings e `attr()`;
-**recusa `url()`, `counter()`, `open-quote` e um identificador solto**. E
+**recusa `url()`, `counters()` (o plural), `var()` e `open-quote`**; `counter()`
+no singular é aceite desde a implementação dos contadores. E
 `p::before span` não parseia — um pseudo-elemento não tem descendentes. O
 `::marker` das listas foi por outro caminho (`listitem.rs`), pelo que a
 amortização entre os dois que o texto abaixo previa **não se realizou**.

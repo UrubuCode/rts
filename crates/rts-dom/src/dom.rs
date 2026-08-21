@@ -304,6 +304,19 @@ pub struct Dom {
     /// A revisão estrutural em que o `base_memo` foi preenchido.
     base_memo_revision: std::cell::Cell<u64>,
     base_memo_viewport: std::cell::Cell<(u32, u32)>,
+    /// Memo da tabela de CONTADORES do documento (ver [`crate::counters`]).
+    ///
+    /// É por DOCUMENTO e não por nó, porque a resposta de um nó depende de tudo
+    /// o que veio antes dele em ordem documental — memoizar por nó guardaria n
+    /// cópias de uma travessia que se faz uma vez. Invalidado pelas mesmas duas
+    /// chaves que o `base_memo`: a revisão estrutural (a árvore mudou de ordem)
+    /// e o epoch de estilo (as regras mudaram).
+    ///
+    /// `None` = ainda não calculada nesta revisão; uma página sem contadores
+    /// calcula uma tabela VAZIA e volta a acertar o memo, em vez de refazer a
+    /// pergunta por cada pseudo-elemento.
+    counter_memo: std::cell::RefCell<Option<std::rc::Rc<crate::counters::Tabela>>>,
+    counter_memo_revision: std::cell::Cell<(u64, u64)>,
     /// Cache derivado de medições de bloco feitas em listas descartáveis durante
     /// flex/grid/inline-block/out-of-flow. É limpo em qualquer mutação visual para
     /// não reutilizar tamanho sob estilo ou conteúdo stale.
@@ -424,6 +437,8 @@ impl Dom {
             memo_style_epoch: std::cell::Cell::new(crate::style::props::style_epoch()),
             base_memo: std::cell::RefCell::new(Vec::new()),
             base_memo_revision: std::cell::Cell::new(u64::MAX),
+            counter_memo: std::cell::RefCell::new(None),
+            counter_memo_revision: std::cell::Cell::new((u64::MAX, u64::MAX)),
             base_memo_viewport: std::cell::Cell::new((0, 0)),
             layout_measure_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
             intrinsic_width_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
@@ -1553,9 +1568,12 @@ impl Dom {
             |sel| self.matches_complex(idx, sel),
         );
         let content = content?;
-        let texto = crate::pseudo::texto_de(&content, &|nome: &str| {
-            self.nodes[idx].attr(nome).map(str::to_string)
-        })?;
+        let contadores = self.document_counters();
+        let texto = crate::pseudo::texto_de(
+            &content,
+            &|nome: &str| self.nodes[idx].attr(nome).map(str::to_string),
+            contadores.get(&(idx, pe)),
+        )?;
         let decls = self.stylesheet.declarations_from(&matched, None);
         // Herda do originante e só depois aplica o que o pseudo declara — a
         // ordem inversa perderia a herança para qualquer propriedade que o
@@ -1570,6 +1588,69 @@ impl Dom {
             return None;
         }
         Some(crate::pseudo::PseudoBox { texto, css })
+    }
+
+    /// A tabela de CONTADORES do documento, calculada uma vez por revisão.
+    ///
+    /// Numa página que não declare `counter-reset`/`counter-increment` isto é
+    /// uma tabela vazia e a travessia nem corre — a guarda é a mesma ideia do
+    /// `has_generated_content()` que abre o `pseudo_box`, e pela mesma razão:
+    /// três das quatro folhas do corpus não têm contador nenhum.
+    fn document_counters(&self) -> std::rc::Rc<crate::counters::Tabela> {
+        let chave = (self.revision, crate::style::props::style_epoch());
+        if self.counter_memo_revision.get() == chave {
+            if let Some(t) = self.counter_memo.borrow().as_ref() {
+                return std::rc::Rc::clone(t);
+            }
+        }
+        let tabela = if self.stylesheet.has_counters() {
+            crate::counters::calcula(self, &|idx, pe| self.counter_ops(idx, pe))
+        } else {
+            crate::counters::Tabela::default()
+        };
+        let tabela = std::rc::Rc::new(tabela);
+        *self.counter_memo.borrow_mut() = Some(std::rc::Rc::clone(&tabela));
+        self.counter_memo_revision.set(chave);
+        tabela
+    }
+
+    /// As operações de contador de um elemento (`pe: None`) ou de um dos seus
+    /// pseudo-elementos, já resolvidas pela cascata.
+    ///
+    /// O `style=""` inline NÃO é consultado: `counter-increment` num atributo de
+    /// estilo não aparece em nenhuma das quatro folhas do corpus, e lê-lo
+    /// exigiria parsear o atributo por nó nesta passagem — o custo por elemento
+    /// que a guarda de `has_counters` existe para evitar. Fica dito por ser um
+    /// corte e não um esquecimento.
+    fn counter_ops(
+        &self,
+        idx: NodeIdx,
+        pe: Option<crate::style::PseudoElement>,
+    ) -> Option<std::rc::Rc<crate::counters::Ops>> {
+        let NodeKind::Element { tag } = &self.nodes[idx].kind else {
+            return None;
+        };
+        let classes: Vec<&str> = self.nodes[idx]
+            .attr("class")
+            .map(|c| c.split_whitespace().collect())
+            .unwrap_or_default();
+        let vw = self.viewport.get().0;
+        let id_attr = self.nodes[idx].attr("id");
+        let matched = match pe {
+            None => self
+                .stylesheet
+                .matched_for_node(vw, tag, id_attr, &classes, |sel| {
+                    self.matches_complex(idx, sel)
+                }),
+            Some(pe) => {
+                self.stylesheet
+                    .matched_for_pseudo(vw, tag, id_attr, &classes, pe, |sel| {
+                        self.matches_complex(idx, sel)
+                    })
+                    .0
+            }
+        };
+        self.stylesheet.counters_from(&matched)
     }
 
     /// Núcleo da cascade — computa o ALVO-BASE de um nó (SEM a camada de animação; o

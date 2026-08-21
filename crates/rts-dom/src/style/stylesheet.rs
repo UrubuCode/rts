@@ -153,6 +153,14 @@ pub struct Rule {
     /// que as declarações o são: `a::before, b::before { content:"x" }` é uma
     /// regra por seletor e as duas partilham o valor.
     pub content: Option<std::rc::Rc<crate::pseudo::Content>>,
+    /// `counter-reset`/`counter-increment` declarados, quando os há.
+    ///
+    /// Fora do `decls` pela razão do `content` — não são propriedades do
+    /// `ComputedStyle` — mas ao contrário dele são lidas de QUALQUER regra e não
+    /// só das de pseudo-elemento: na folha da Wikipédia o `counter-increment`
+    /// que numera os retrolinks está num `::before`, e o que numera as
+    /// referências está num `<li>` comum.
+    pub counters: Option<std::rc::Rc<crate::counters::Ops>>,
 }
 
 /// Um bloco de declarações separado nas DUAS camadas de importância da cascade
@@ -701,6 +709,36 @@ impl Stylesheet {
         (MatchedRules { rules }, content)
     }
 
+    /// As operações de contador VENCEDORAS entre as regras que casaram.
+    ///
+    /// Vence a última na ordem da cascata que declara alguma — como qualquer
+    /// declaração, e ao contrário do que a intuição de "contador" sugere: dois
+    /// `counter-increment` que casem o mesmo elemento não somam, o mais
+    /// específico substitui o outro.
+    ///
+    /// Serve tanto o elemento (via [`matched_for_node`](Self::matched_for_node))
+    /// como o pseudo (via [`matched_for_pseudo`](Self::matched_for_pseudo)) — é
+    /// a mesma pergunta sobre o mesmo conjunto, e ter duas funções para ela era
+    /// o segundo mecanismo que este trabalho existe para não criar.
+    pub fn counters_from(
+        &self,
+        matched: &MatchedRules,
+    ) -> Option<std::rc::Rc<crate::counters::Ops>> {
+        matched
+            .rules
+            .iter()
+            .rev()
+            .find_map(|(_, _, i)| self.rules[*i].counters.clone())
+    }
+
+    /// `true` se alguma regra desta folha declara contadores.
+    ///
+    /// A guarda que faz a passagem documental custar ZERO numa página sem
+    /// contadores — que é o caso de três das quatro folhas do corpus.
+    pub fn has_counters(&self) -> bool {
+        self.rules.iter().any(|r| r.counters.is_some())
+    }
+
     /// `true` se alguma regra desta folha gera conteúdo. É a guarda que impede
     /// o layout de perguntar por caixas geradas numa página que não tem
     /// nenhuma: a pergunta é por elemento e a resposta seria sempre "não".
@@ -871,6 +909,13 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         // pseudo-elemento: numa folha real são umas dezenas de regras em
         // milhares, e varrer o corpo de todas custaria em cada página.
         let content = std::cell::OnceCell::new();
+        // Os contadores são lidos de TODA regra e não só das de pseudo-elemento
+        // (o `counter-increment` que numera as referências está num `<li>`), mas
+        // o `parse_ops` sai num `contains("counter-")` antes de dividir o corpo,
+        // que é o mesmo corte barato que o `content` obtém pela guarda do
+        // pseudo. `Rc` porque `a, b { counter-increment:x }` é uma regra por
+        // seletor e as duas partilham o valor.
+        let counters = crate::counters::parse_ops(body).map(std::rc::Rc::new);
         // A vírgula que separa a LISTA é a de topo. `split(',')` cru cortava
         // dentro de `:is(.a, .b)` e de `[data-x="a,b"]`, produzindo dois pedaços
         // que não parseiam — a regra desaparecia e a contagem de recusadas
@@ -888,6 +933,7 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
                     order: 0,
                     media: None,
                     content,
+                    counters: counters.clone(),
                 });
             } else if !sel_str.trim().is_empty() {
                 // Um seletor que o parser recusa é uma regra que a página tem e o
@@ -949,7 +995,7 @@ fn content_do_corpo(body: &str) -> Option<crate::pseudo::Content> {
 }
 
 /// Divide um corpo de declarações nos `;` de topo (fora de aspas e parênteses).
-fn split_top_level_semicolons(s: &str) -> Vec<&str> {
+pub(crate) fn split_top_level_semicolons(s: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let (mut par, mut inicio) = (0i32, 0usize);
     let mut aspa: Option<char> = None;

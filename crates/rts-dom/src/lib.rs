@@ -39,6 +39,9 @@ pub mod layout;
 /// CONTEÚDO GERADO (`::before`/`::after`): resolução da caixa que a cascata manda
 /// existir, sem que ela entre na árvore de nós.
 pub mod pseudo;
+/// CONTADORES de CSS (`counter-reset`/`counter-increment`) e o valor que
+/// `counter()` lê dentro de um `content`.
+pub mod counters;
 /// Store de `Dom`s vivos por handle — a fonte única da verdade. A ABI headless e
 /// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
 /// mutações pela fachada `document` mudam o que a janela pinta.
