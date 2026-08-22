@@ -193,6 +193,7 @@ already documents for itself. This harness inherits them deliberately.
 | [`hot-path-hygiene.md`](hot-path-hygiene.md) | four things a hot path was doing that nothing asked it to | done, measured |
 | [`startup.md`](startup.md) | where the 19.9 ms of `rts run empty.ts` goes | attributed; three items fixed |
 | [`the-missing-pass.md`](the-missing-pass.md) | what the absent IR pass costs a loop | measured; `ToInt32`-of-a-constant is 3.08 ns |
+| [`object-model.md`](object-model.md) | is the Hermes-shaped object model the limit, or the surroundings | **keep it** — the model's removable cost is 3–8 ns of ~90 |
 | [`element-load.md`](element-load.md) | can the dead bounded-load fast path for arrays simply be switched on | **no** — it drops the array's only root |
 
 ---
