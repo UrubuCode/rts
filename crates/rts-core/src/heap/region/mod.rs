@@ -310,13 +310,46 @@ impl Region {
     /// that never asks for shards must not be able to accidentally pay for them.
     pub fn sharded(cells: u32, index: u32, selector_bits: u32) -> Self {
         let reserved = cells.saturating_mul(GROWTH_CEILING);
-        // Reserved, then filled to the starting bound. `reserve_exact` claims
-        // the whole span in one allocation so that no later `resize` can move
-        // it; only the first `cells` worth is written, and the rest costs
-        // address space rather than memory.
-        let mut words = Vec::new();
-        words.reserve_exact(words_for(reserved));
-        words.resize(words_for(cells), 0);
+        // Claimed ZEROED in one allocation, then shortened to the starting
+        // bound. `vec![0; n]` is specialised to `alloc_zeroed`, which for a
+        // block this size asks the operating system for demand-zero pages and
+        // **never writes them**; `truncate` lowers the length without moving or
+        // freeing anything, so the capacity — and therefore `Region::base`, and
+        // therefore every address compiled code has already computed — is
+        // exactly what the allocation returned.
+        //
+        // # Why not `reserve_exact` then `resize`, which is what this was
+        //
+        // Because `Vec::resize` with a zero fill is a `memset`, and it was
+        // running over eight megabytes of memory the operating system had just
+        // handed over — which is necessarily already zero, or one process could
+        // read another's. Measured by `bench/isolated/src/bin/region_start.rs`,
+        // release, 2026-08-21, per construction:
+        //
+        // | | ns |
+        // |---|---:|
+        // | `reserve_exact` + `resize(start, 0)` | **1 515 547** |
+        // | `vec![0; reserved]` + `truncate(start)` | **37 814** |
+        // | `reserve_exact` alone, no fill | 22 356 |
+        //
+        // **1.5 ms of every `rts run`**, against a whole-process budget of about
+        // 7 ms above the shell's spawn floor. The remaining 15 µs over the bare
+        // reservation is `truncate` and the allocator's own bookkeeping.
+        //
+        // # What this does NOT change
+        //
+        // The reservation, and the reason for it: growth may not move the base,
+        // because the base is an immediate in the compiled code — `growth.rs`
+        // states that and rejects `realloc`, a second region and an explicit
+        // `VirtualAlloc` each with a reason. All of that is unchanged. What
+        // changed is only that the starting window is not written twice.
+        //
+        // It does not make the memory free either. An untouched reserved page
+        // still has no physical page behind it, exactly as before; a page the
+        // program allocates into is faulted in on first touch, exactly as
+        // before. The saving is the *redundant* write, not the memory.
+        let mut words = vec![0u64; words_for(reserved)];
+        words.truncate(words_for(cells));
         Region {
             words,
             next: 0,

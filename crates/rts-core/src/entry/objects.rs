@@ -541,7 +541,14 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
     // from before its own iteration's write. That pair is what the next step
     // has to explain; the cell number is deliberately in the line so the two
     // halves can be matched rather than assumed to be the same object.
-    if std::env::var_os("RTS_CACHE_WHY").is_some() && context.resolves % 20_000 <= 1 {
+    // The counter first and the switch second, which is the order that was
+    // reversed here: `&&` evaluates left to right, so reading the environment
+    // first meant every by-name property write paid for it — 172 ns, measured
+    // by `bench/isolated/src/bin/env_probe.rs` — and the modulo that would have
+    // short-circuited it never ran. `switches::cache_why` now costs one load,
+    // so the order matters far less; it is still written this way round because
+    // the cheap test belongs on the left whatever the right one costs.
+    if context.resolves % 20_000 <= 1 && super::switches::cache_why() {
         eprintln!(
             "rts-why put cell {slot} {:?} -> {ty} now {:?}",
             was,

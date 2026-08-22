@@ -47,7 +47,7 @@ use super::super::native::Native;
 use super::super::objects::undefined_of;
 use super::super::rooted::Rooted;
 use super::super::{functions, throw, with_current};
-use super::{built, staged};
+use super::built;
 use crate::value::Value;
 
 /// What an array's prototype holds that takes a callback.
@@ -325,8 +325,24 @@ extern "C" fn reduce(_e: u64, this: u64, callback: u64, initial: u64, _a2: u64, 
 ///
 /// `None` for a receiver that is not an array, which is what every method here
 /// answers `undefined` for rather than aborting.
+///
+/// # Why [`super::borrowed`] and not [`staged`]
+///
+/// It was `staged`, which **copies the whole element vector** — that is what
+/// `staged` is for, and its doc says so: a method that calls user code has to
+/// drop the borrow before calling, so it takes a snapshot. This one calls
+/// nothing. It reads a length and returns a `usize`, so the borrow ends inside
+/// this function on its own.
+///
+/// The cost of getting it wrong is proportional to the array and invisible in a
+/// small one: `xs.map(f)` on sixteen elements copied sixteen words, and on a
+/// hundred thousand it copied a hundred thousand — once per call, to ask a
+/// question the `Vec` answers from its header. `super::borrowed` exists three
+/// functions below `staged` for exactly this distinction, and its own
+/// documentation names the same mistake ("copying a thousand-element array to
+/// answer whether it contains a number is the whole cost of the answer").
 pub(super) fn len_of(this: u64) -> Option<usize> {
-    with_current(|context| staged(context, this).map(|(_, elements)| elements.len()))
+    with_current(|context| Some(super::borrowed(context, this)?.len()))
 }
 
 /// The element at a position RIGHT NOW, or `None` if there is none there.

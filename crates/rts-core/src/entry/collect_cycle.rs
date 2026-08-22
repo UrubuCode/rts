@@ -78,7 +78,7 @@ use super::Context;
 /// answer wearing a collection's clothes.
 pub fn collect(context: &mut Context, stack_low: usize) -> usize {
     let Some(stack_high) = context.stack_high else {
-        if std::env::var_os("RTS_GC_DEBUG").is_some() {
+        if super::switches::gc_debug() {
             eprintln!("rts-gc REFUSED: no stack bound installed");
         }
         return 0;
@@ -97,7 +97,7 @@ pub fn collect(context: &mut Context, stack_low: usize) -> usize {
     let stack_roots = roots.len();
     let marks = super::trace::mark(context, &roots);
     let freed = sweep(context, &marks);
-    if std::env::var_os("RTS_GC_DEBUG").is_some() {
+    if super::switches::gc_debug() {
         eprintln!(
             "rts-gc roots {stack_roots} live {} freed {freed}",
             context.region.live_refs().len()

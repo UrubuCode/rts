@@ -90,7 +90,7 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
             // what a cache is. What this exists to catch is the site that
             // misses forever, so it reports the reason and the key rather than
             // a count, and stops after twenty so a real program stays readable.
-            if (context.resolves <= 20 || context.resolves % 200_000 == 0) && std::env::var_os("RTS_CACHE_DEBUG").is_some() {
+            if (context.resolves <= 20 || context.resolves % 200_000 == 0) && super::switches::cache_debug() {
                 let named = u32::try_from(key)
                     .ok()
                     .and_then(|number| context.keys.key(number))
@@ -174,7 +174,7 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
         // the read reports shape ["x"] on every sample while the program answers
         // correctly, which says the read resolves against a type older than the
         // transition the write took.
-        if std::env::var_os("RTS_CACHE_WHY").is_some() && (context.resolves <= 3 || context.resolves % 20_000 == 0) {
+        if (context.resolves <= 3 || context.resolves % 20_000 == 0) && super::switches::cache_why() {
             let held: Vec<String> = context
                 .shapes
                 .properties(shape)
@@ -481,7 +481,7 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         // outside is a count. This resolver has ten ways to decline and finding
         // out which took a rebuild the first time it was needed.
         let report = |why: &str| -> i64 {
-            if std::env::var_os("RTS_CHAIN_DEBUG").is_some() {
+            if super::switches::chain_debug() {
                 eprintln!("rts-chain refused: {why}");
             }
             -1

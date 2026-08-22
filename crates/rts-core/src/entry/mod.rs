@@ -95,6 +95,7 @@ mod regex;
 pub mod roots;
 mod rooted;
 pub(super) mod string;
+mod switches;
 mod symbol;
 mod text;
 mod throw;
@@ -942,59 +943,21 @@ impl Context {
         kinds: crate::value::Kinds,
         region: crate::heap::Region,
     ) -> Self {
+        // Read before the region moves into the struct below.
+        //
+        // Every `Aside` is built at the region's width, and every one of them
+        // indexes BY CELL: a reference is `(cell << selector_bits) | region`, so
+        // a table built at the wrong width would index by a number that is not a
+        // cell and two objects would collide in it. The promise machine is
+        // numbered by the region for a neighbouring reason —
+        // `Delivery::Elsewhere` compares scheduler numbers to decide whether a
+        // settled promise's waiters are this thread's, and every thread calling
+        // itself zero makes that comparison a constant.
+        //
+        // Both are zero for a single region, which is what makes [`Self::new`]
+        // able to delegate here rather than keep a second field list.
         let bits = region.selector_bits();
-        Context {
-            // Every `Aside` is rebuilt at the region's width rather than taken
-            // from `new`'s single-region default. They index by cell, and the
-            // cell is a reference with the region bits shifted off — so a table
-            // built at the wrong width would index by a number that is not a
-            // cell, and two objects would collide in it.
-            // Numbered by the region for the same reason: `Delivery::Elsewhere`
-            // compares scheduler numbers to decide whether a settled promise's
-            // waiters are this thread's, and every thread calling itself zero
-            // makes that comparison a constant.
-            promises: promise::Machine::in_region(region.index()),
-            prototypes: Aside::in_region(bits),
-            proto_types: Aside::in_region(bits),
-            callables: Aside::in_region(bits),
-            proxies: Aside::in_region(bits),
-            cursors: Aside::in_region(bits),
-            spill_of: Aside::in_region(bits),
-            bound: Aside::in_region(bits),
-            collections: Aside::in_region(bits),
-            generators: Aside::in_region(bits),
-            helpers: Aside::in_region(bits),
-            yielded: None,
-            resuming: Vec::new(),
-            driving: Vec::new(),
-            frames: Vec::new(),
-            function_names: Vec::new(),
-            buffer_of: Aside::in_region(bits),
-            detached: Aside::in_region(bits),
-            views: Aside::in_region(bits),
-            regexes: Aside::in_region(bits),
-            accessors: Aside::in_region(bits),
-            derived: Aside::in_region(bits),
-            class_constructors: Aside::in_region(bits),
-            boxed: Aside::in_region(bits),
-            foreign: Aside::in_region(bits),
-            deaths: Vec::new(),
-            next_death: 1,
-            dying: Vec::new(),
-            integrity: Aside::in_region(bits),
-            attributes: Aside::in_region(bits),
-            array_elements: Aside::in_region(bits),
-            region,
-            ..Context::new(singletons, kinds)
-        }
-    }
-
-    /// A context with a heap of its own.
-    ///
-    /// For the runtime's own tests and for anything that is not running
-    /// compiled code. Anything that IS must use [`Self::over`], because the
-    /// region's base is a constant inside the code.
-    pub fn new(singletons: Singletons, kinds: crate::value::Kinds) -> Self {
+        let region_index = region.index();
         let mut types = rts_cranelift::types::TypeRegistry::new();
         // One word: where the text is. Declared before anything else so its
         // number is stable across contexts, which a test comparing two of them
@@ -1008,56 +971,57 @@ impl Context {
             cells: Slab::new(),
             arrays: Slab::new(),
             bigints: Slab::new(),
-            spill_of: Aside::new(),
+            spill_of: Aside::in_region(bits),
             shapes: ShapeTree::new(),
             keys: KeyRegistry::new(),
             interner: Interner::new(),
-            // A capacity fixed at construction, because growing moves the base
-            // and every reference compiled code holds was turned into an
-            // address against the old one. Growing is the collector's job.
-            region: crate::heap::Region::with_capacity(1 << 16),
+            // Handed in rather than made here. Its base is a number baked into
+            // compiled code, so a context that built its own would be a second
+            // heap that nothing compiled could reach — see [`Self::new`], which
+            // supplies one for a caller that is not running compiled code.
+            region,
             types,
             shape_of_type: Vec::new(),
             text_type,
             spill_type,
-            callables: Aside::new(),
-            proxies: Aside::new(),
-            cursors: Aside::new(),
-            prototypes: Aside::new(),
-            proto_types: Aside::new(),
-            array_elements: Aside::new(),
-            accessors: Aside::new(),
-            derived: Aside::new(),
-            class_constructors: Aside::new(),
-            boxed: Aside::new(),
-            foreign: Aside::new(),
+            callables: Aside::in_region(bits),
+            proxies: Aside::in_region(bits),
+            cursors: Aside::in_region(bits),
+            prototypes: Aside::in_region(bits),
+            proto_types: Aside::in_region(bits),
+            array_elements: Aside::in_region(bits),
+            accessors: Aside::in_region(bits),
+            derived: Aside::in_region(bits),
+            class_constructors: Aside::in_region(bits),
+            boxed: Aside::in_region(bits),
+            foreign: Aside::in_region(bits),
             deaths: Vec::new(),
             next_death: 1,
             dying: Vec::new(),
-            integrity: Aside::new(),
-            attributes: Aside::new(),
+            integrity: Aside::in_region(bits),
+            attributes: Aside::in_region(bits),
             pending_arguments: Vec::new(),
             pending_counts: Vec::new(),
             new_targets: Vec::new(),
-            bound: Aside::new(),
+            bound: Aside::in_region(bits),
             callees: Vec::new(),
             pending_call_name: None,
             buffers: Slab::new(),
-            buffer_of: Aside::new(),
-            detached: Aside::new(),
-            views: Aside::new(),
-            collections: Aside::new(),
-            generators: Aside::new(),
-            helpers: Aside::new(),
+            buffer_of: Aside::in_region(bits),
+            detached: Aside::in_region(bits),
+            views: Aside::in_region(bits),
+            collections: Aside::in_region(bits),
+            generators: Aside::in_region(bits),
+            helpers: Aside::in_region(bits),
             yielded: None,
             resuming: Vec::new(),
             driving: Vec::new(),
             frames: Vec::new(),
             function_names: Vec::new(),
-            regexes: Aside::new(),
+            regexes: Aside::in_region(bits),
             regexp_prototype: None,
             classes: Vec::new(),
-            promises: promise::Machine::in_region(0),
+            promises: promise::Machine::in_region(region_index),
             symbols: symbol::Symbols::new(),
             globals: None,
             string_prototype: None,
@@ -1094,6 +1058,41 @@ impl Context {
             kinds,
             stack_high: None,
         }
+    }
+
+    /// A context with a heap of its own.
+    ///
+    /// For the runtime's own tests and for anything that is not running
+    /// compiled code. Anything that IS must use [`Self::over`], because the
+    /// region's base is a constant inside the code.
+    ///
+    /// # Why this delegates instead of holding its own field list
+    ///
+    /// It held one, and [`Self::over`] finished with
+    /// `..Context::new(singletons, kinds)` to borrow it. Rust evaluates that
+    /// base expression in full before moving the fields it keeps, so **every
+    /// `Context::over` built a whole second region and dropped it** — 64 MiB
+    /// reserved, 8 MiB of it written, and freed, on every `rts run`, in
+    /// addition to the one the host had already made.
+    ///
+    /// The writing is gone too, and separately: `Region::sharded` reached the
+    /// starting bound with `resize(_, 0)`, a `memset` over memory the operating
+    /// system had just handed over already zeroed. It uses `alloc_zeroed` now.
+    /// That one is measured — `docs/codegen/startup.md` — and the two together
+    /// are most of the 2.47 ms `rts run empty.ts` lost.
+    ///
+    /// The two lists had also drifted into being one list written twice: the
+    /// only difference was that `over` re-stated twenty-two `Aside`s to give
+    /// them the region's width, and `Aside::new()` is defined as
+    /// `Aside::in_region(0)` — so the override was passing zero where zero was
+    /// already there for the single-region case, and the real width for the
+    /// sharded one. Passing the region to one constructor says the same thing
+    /// once.
+    pub fn new(singletons: Singletons, kinds: crate::value::Kinds) -> Self {
+        // A capacity fixed at construction, because growing moves the base and
+        // every reference compiled code holds was turned into an address
+        // against the old one. Growing is the collector's job.
+        Self::over(singletons, kinds, crate::heap::Region::with_capacity(1 << 16))
     }
 
 }
