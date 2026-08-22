@@ -82,6 +82,30 @@ use prefix;
 /// the head of a 477 ns operation.
 pub(super) const HAS_INSTANCE: &str = concat!(prefix!(), "hasInstance");
 
+/// The five protocols a string method offers its argument before falling back
+/// to the built-in scan, spelled at COMPILE time for [`HAS_INSTANCE`]'s reason.
+///
+/// `"abc".split(",")` asks the separator for a `Symbol.split` before scanning
+/// anything, and `replace`, `match`, `matchAll` and `search` each ask their own
+/// — see `super::string::pattern::hooked`, which is the one caller. So this is
+/// asked once per call of five of the most-used methods on `String.prototype`,
+/// and every one of those calls used to `format!` its name into a fresh `String`
+/// on the way in.
+///
+/// Named constants rather than `concat!` at each call site so that the
+/// **prefix** stays in one place: `prefix!` defines [`PREFIX`] as well, and a
+/// spelling written out here with `"@@"` in it is the third copy this module's
+/// own documentation says must not exist.
+pub(super) const SPLIT: &str = concat!(prefix!(), "split");
+/// `Symbol.replace`'s key text. See [`SPLIT`].
+pub(super) const REPLACE: &str = concat!(prefix!(), "replace");
+/// `Symbol.match`'s key text. See [`SPLIT`].
+pub(super) const MATCH: &str = concat!(prefix!(), "match");
+/// `Symbol.matchAll`'s key text. See [`SPLIT`].
+pub(super) const MATCH_ALL: &str = concat!(prefix!(), "matchAll");
+/// `Symbol.search`'s key text. See [`SPLIT`].
+pub(super) const SEARCH: &str = concat!(prefix!(), "search");
+
 /// What a symbol is, beside its number.
 struct SymbolInfo {
     /// The key text this symbol names a property with.
@@ -299,9 +323,29 @@ pub(in crate::entry) fn value_of_key_text(context: &Context, text: &str) -> Opti
 /// third; throwing is the stated gap the rest of this crate has, and answering
 /// `None` sends the caller to the built-in behaviour, which is what a program
 /// with an ordinary pattern expects.
-pub(in crate::entry) fn method_of(context: &mut Context, value: u64, name: &str) -> Option<u64> {
+///
+/// # The key arrives prefixed
+///
+/// `key` arrives ALREADY PREFIXED — [`SPLIT`] and its four siblings, or
+/// [`HAS_INSTANCE`] — rather than as the bare protocol name.
+///
+/// It used to take `"split"` and build `"@@split"` with `format!` on every call,
+/// which is one `String` allocation per `String.prototype.split`, `.replace`,
+/// `.match`, `.matchAll` and `.search`, for text that is fixed at compile time.
+/// The constants above are what that `format!` becomes, and the reasoning is
+/// [`HAS_INSTANCE`]'s, which had the same defect and records what removing it
+/// was measured against.
+///
+/// Taking the prefixed form rather than prefixing here is what makes the
+/// improvement unrepresentable to undo: there is no longer a `format!` in this
+/// function for a caller to reach.
+pub(in crate::entry) fn method_of(context: &mut Context, value: u64, key: &str) -> Option<u64> {
+    debug_assert!(
+        key.starts_with(PREFIX),
+        "method_of takes a prefixed spelling — {key} is a bare protocol name"
+    );
     let cell = Value(value).as_slot()?;
-    let key = context.well_known(&format!("{PREFIX}{name}"));
+    let key = context.well_known(key);
     let found = super::objects::read_property(context, cell, key)?;
     let held = found.as_slot()?;
     context.callable_at(held).is_some().then(|| found.bits())

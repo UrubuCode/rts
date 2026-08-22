@@ -154,7 +154,7 @@ extern "C" fn search(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
     let Some(this) = super::coerce_receiver(this) else {
         return super::refused();
     };
-    if let Some(answered) = hooked(this, pattern, "search", None) {
+    if let Some(answered) = hooked(this, pattern, super::super::symbol::SEARCH, None) {
         return answered;
     }
     with_current(|context| {
@@ -180,7 +180,7 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
     let Some(this) = super::coerce_receiver(this) else {
         return super::refused();
     };
-    if let Some(answered) = hooked(this, pattern, "match", None) {
+    if let Some(answered) = hooked(this, pattern, super::super::symbol::MATCH, None) {
         return answered;
     }
     let collected = with_current(|context| {
@@ -269,7 +269,7 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
     let Some(this) = super::coerce_receiver(this) else {
         return super::refused();
     };
-    if let Some(answered) = hooked(this, pattern, "matchAll", None) {
+    if let Some(answered) = hooked(this, pattern, super::super::symbol::MATCH_ALL, None) {
         return answered;
     }
     let collected = with_current(|context| {

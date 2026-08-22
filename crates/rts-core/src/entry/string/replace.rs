@@ -59,7 +59,7 @@ fn replaced(this: u64, pattern: u64, with: u64, every: bool) -> u64 {
     // `replace` in requiring a global pattern, not in which protocol it asks.
     // See [`super::pattern::hooked`] for why asking comes before deciding the
     // argument is a pattern at all.
-    if let Some(answered) = super::pattern::hooked(this, pattern, "replace", Some(with)) {
+    if let Some(answered) = super::pattern::hooked(this, pattern, super::super::symbol::REPLACE, Some(with)) {
         return answered;
     }
     let collected = with_current(|context| {

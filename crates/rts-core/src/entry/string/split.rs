@@ -67,7 +67,7 @@ extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a
     // `Symbol.split` FIRST, before anything decides the separator is text —
     // see [`super::pattern::hooked`] for why the order is the specification's
     // and not a preference.
-    if let Some(answered) = super::pattern::hooked(this, separator, "split", Some(limit)) {
+    if let Some(answered) = super::pattern::hooked(this, separator, super::super::symbol::SPLIT, Some(limit)) {
         return answered;
     }
     // `ToUint32(limit)` — and the `ToPrimitive` it starts with, which is why it
