@@ -78,13 +78,13 @@ pub(super) fn lexical_read(
         Some(Binding::Value(value)) => Ok(value),
         Some(Binding::InEnvironment { hops, name }) => {
             // The value written a moment ago, when nothing at all has happened
-            // since. See `Ctx::last_captured_write` for the whole condition and
+            // since. See `body_state::BodyState::last_captured_write` for the whole
             // why it is this narrow; the short of it is that the environment is
             // an object this compiler made, so a store puts the value in the
             // slot and a load takes it back out unchanged — and the window is
             // closed by anything being emitted, so nothing can have run in
             // between to make that untrue.
-            if let Some(written) = ctx.last_captured_write
+            if let Some(written) = ctx.body.last_captured_write
                 && written.name == name
                 && written.hops == hops
                 && written.block == builder.current()
@@ -169,7 +169,7 @@ pub(super) fn lexical_write(
             // what a READ produces: both paths of the store carry the assigned
             // value through it, in the one representation every consumer of a
             // binding expects.
-            ctx.last_captured_write = Some(super::CapturedWrite {
+            ctx.body.last_captured_write = Some(super::CapturedWrite {
                 name,
                 hops,
                 value: stored,

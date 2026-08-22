@@ -55,6 +55,7 @@
 //! rather than a rumour. `PLAN.md` §E has the order and why.
 
 mod binding;
+mod body_state;
 mod call;
 mod capture;
 mod choice;
@@ -228,7 +229,8 @@ pub const NO_COOKED: u32 = u32::MAX;
 
 /// A captured binding just written, and where the emitter was when it finished.
 ///
-/// Read [`Ctx::last_captured_write`] for what this is for and why the window is
+/// Read [`body_state::BodyState::last_captured_write`] for what this is for,
+/// why it lives on the body rather than on `Ctx`, and why the window is
 /// as narrow as it is.
 #[derive(Clone, Copy)]
 pub struct CapturedWrite {
@@ -289,7 +291,6 @@ pub struct Ctx<'a> {
     /// no getter to answer something different on the way back. That is not
     /// true of an arbitrary object, which is why this is set from `binding.rs`
     /// and never from `property.rs`.
-    pub last_captured_write: Option<CapturedWrite>,
     /// Whether a CLEANUP body is being emitted right now.
     ///
     /// A cleanup block has a shape the machine checks: it ends by handing
@@ -528,15 +529,20 @@ pub struct Ctx<'a> {
     /// to the function it was declared as is a fact about the entire tree, and
     /// nothing smaller than that can answer it without guessing. See `inline`.
     inlinable: std::collections::BTreeMap<Name, std::rc::Rc<inline::Inlinable>>,
-    /// Where THIS body's throw flag lives, asked once at its entry.
+    /// What THIS body knows about throws: where its flag lives, and which
+    /// re-raise block each protected region already has.
     ///
-    /// Scoped exactly as `numeric` and `flattened` are, and for a harder
-    /// reason than theirs: it is an SSA value of one function, so a nested
-    /// function emitted in the middle of an outer one would otherwise read a
-    /// value defined in a function it is not in. `None` means the check falls
-    /// back to the call, which is what a body with no entry block of its own
-    /// gets. See `expr::raise_if_thrown`.
-    thrown_flag: Option<rts_cranelift::ir::ValueId>,
+    /// Scoped exactly as `numeric` and `flattened` are, and for a harder reason
+    /// than theirs: both facts in it are handles into ONE `FuncBuilder`, so a
+    /// nested function emitted in the middle of an outer one would otherwise
+    /// name something from a function it is not in.
+    ///
+    /// It was one field — the flag alone — and the re-raise memo was about to
+    /// be added beside it with the same four save-and-restore sites to keep in
+    /// step by hand. `body_throw` is what stops a fifth site from saving one and
+    /// forgetting the other; see the module for what each half did the last time
+    /// it leaked across a function boundary.
+    pub(super) body: body_state::BodyState,
     /// Whether an `await` in the body being emitted PARKS this frame.
     ///
     /// True inside a plain `async function` — whose body is put through
@@ -578,7 +584,6 @@ impl<'a> Ctx<'a> {
         types: &'a TypeRegistry,
     ) -> Self {
         Ctx {
-            last_captured_write: None,
             in_cleanup: false,
             in_static_method: false,
             in_field_initializer: false,
@@ -608,7 +613,7 @@ impl<'a> Ctx<'a> {
             module_specifier: None,
             math_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
-            thrown_flag: None,
+            body: body_state::BodyState::default(),
             async_parks: false,
             proven_element: None,
             element_run: None,

@@ -653,7 +653,7 @@ pub(super) fn emit_body(
     // rather than replaced: the inner body defines its own at its own entry,
     // and reading the outer function's here would name a value defined in a
     // function this one is not in.
-    let outer_flag = ctx.thrown_flag.take();
+    let outer_throw = ctx.body.enter_nested();
     // The `finally` targets, for the same reason and with a sharper failure. A
     // `return` inside a `try` jumps to a block that runs the `finally` — and
     // that block belongs to the function the `try` is in. A nested function
@@ -697,7 +697,7 @@ pub(super) fn emit_body(
     ctx.numeric = outer_numeric;
     ctx.flattened = outer_flattened;
     ctx.claims = outer_claims;
-    ctx.thrown_flag = outer_flag;
+    ctx.body.leave_nested(outer_throw);
     ctx.finally_returns = outer_returns;
     ctx.finally_jumps = outer_jumps;
     result?;
@@ -757,7 +757,7 @@ fn emit_body_into(
     if !super::suspends::body_suspends(body) {
         let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::ThrownAddress);
         let flag = builder.call(ctx.funcs, asked, &[])?[0];
-        ctx.thrown_flag = Some(flag);
+        ctx.body.flag = Some(flag);
     }
 
     let handed = incoming[ENVIRONMENT_PARAM];

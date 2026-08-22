@@ -643,7 +643,7 @@ pub(super) fn raise_if_thrown(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitR
     // without an entry of its own has no address to load from, and answering
     // that case with the call it always used is what keeps the two spellings
     // agreeing about the same word. See `RuntimeOp::ThrownAddress`.
-    let flag = match ctx.thrown_flag {
+    let flag = match ctx.body.flag {
         Some(address) => builder.word_load(address)?,
         None => {
             let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::Thrown);
@@ -657,6 +657,25 @@ pub(super) fn raise_if_thrown(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitR
     let zero = builder.use_const(zero);
     let raised = builder.compare(CmpOp::Ne, flag, zero)?;
 
+    // The re-raise is SHARED among every check in the same protected region,
+    // and built the first time that region asks. It was one per site, and in
+    // `bench/analytic.ts` that was 1 069 copies of the identical three lines —
+    // a block header, a call to `__rts_take_thrown`, and a `Throw` — which is
+    // 20% of every basic block in the file.
+    //
+    // Sound because the block reads NOTHING from the site that branches to it:
+    // no parameters, and its only instruction is a call with no arguments. So
+    // there is no value that has to dominate anything, and two sites reaching
+    // one copy cannot disagree about what it computes.
+    //
+    // The region is the key and not an optimisation detail. Where a `Throw`
+    // lands is decided by the region its block is in — which is what the
+    // sentence that used to be here was about: "created while the protected
+    // region is open, so the machine places them in it, which is what makes the
+    // re-raise land in this function's handler rather than leaving the
+    // function." Sharing one block between a site inside a `try` and a site
+    // outside it would route the outer one into a handler that never protected
+    // it. `BodyState::reraise_in` holds that argument.
     // Created while the protected region is open, so the machine places them in
     // it — which is what makes the re-raise below land in this function's
     // handler rather than leaving the function.

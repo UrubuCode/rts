@@ -5039,3 +5039,56 @@ fn symbol_unscopables_hides_a_property_a_with_would_otherwise_find() {
     // the fix from being "arrays unscope everything".
     holds("let out = null; with ([1, 2, 3]) { out = join(\"-\"); } return out === \"1-2-3\";");
 }
+
+/// A captured write inside a nested function does not leak its memo outward.
+///
+/// `emit/body_state.rs` memoises the last captured write so that `s = s + x`
+/// followed by a read of `s` does not go back to the heap. It holds a `ValueId`
+/// AND a `BlockId` — both handles into one `FuncBuilder` — and for as long as it
+/// lived on `Ctx` it was never saved around a nested function. A write inside an
+/// arrow left a memo naming the arrow's block and the arrow's value, and
+/// emission carried on in the enclosing body still holding it; the guard is
+/// "same block, nothing emitted here", and block numbers are per function, so a
+/// collision is one number matching another.
+///
+/// This program is the one that found it, and it FAILED TO COMPILE with
+/// `Place(Lower(CannotWiden { from: I64 }))` — the read answered a raw integer
+/// from another function where a JavaScript value was required.
+#[test]
+fn a_captured_write_inside_a_callback_does_not_leak_into_the_outer_body() {
+    let answer = run(
+        "let ran = 0; \
+         try { [1, 2, 3].forEach(x => { ran = ran + 1; if (x === 2) throw new Error('stop'); }); } \
+         catch (e) {} \
+         return ran === 2 ? 1 : 0;",
+    );
+    assert_eq!(
+        tags::decode_double(answer),
+        1.0,
+        "the callback runs twice before throwing, so `ran` is 2 — and `ran` must \
+         be read from the environment, not from a memo the arrow left behind"
+    );
+}
+
+/// The same defect in the shape that regressed rather than the one that failed.
+///
+/// Which programs collide depends on block numbering, so the defect moves when
+/// anything shifts it: sharing the re-raise block made THIS program stop
+/// compiling while the one above started working. Neither was evidence about
+/// the sharing. Both are pinned so a future numbering change cannot quietly
+/// trade one for the other again.
+#[test]
+fn a_captured_string_written_in_a_callback_survives_the_catch_that_follows() {
+    let answer = run(
+        "let s = ''; \
+         try { ['a', 'b'].forEach(x => { s = s + x; if (x === 'b') throw new Error('z'); }); } \
+         catch (e) { s = s + '!'; } \
+         return s === 'ab!' ? 1 : 0;",
+    );
+    assert_eq!(
+        tags::decode_double(answer),
+        1.0,
+        "'ab!' — both elements appended, then the catch appends its own; any \
+         other answer is a read served from another function's memo"
+    );
+}

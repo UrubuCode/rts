@@ -59,7 +59,7 @@ pub(super) fn generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
     // function is not refused by anything — it happened to name a `FuncAddr`
     // here, and every generator in the suite loaded the callee's address as if
     // it were the flag.
-    let outer_flag = ctx.thrown_flag.take();
+    let outer_throw = ctx.body.enter_nested();
 
     // The address of the body as it will be PLACED, which is the rewritten form
     // — the host redeclares this identifier once the rewrite has told it the
@@ -71,7 +71,7 @@ pub(super) fn generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
     operands.extend(arguments);
     let made = expr::call(&mut builder, ctx, RuntimeOp::GeneratorNew, &operands)?[0];
     builder.ret(&[made]);
-    ctx.thrown_flag = outer_flag;
+    ctx.body.leave_nested(outer_throw);
     ctx.pending.push((id, func));
     Ok(id)
 }
@@ -123,7 +123,7 @@ pub(super) fn async_generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId
     let mut builder = FuncBuilder::new(&mut func, &types, entry);
     // Taken for the reason [`generator`] takes it: this is its own function, and
     // an SSA value defined in another one is not a value here.
-    let outer_flag = ctx.thrown_flag.take();
+    let outer_throw = ctx.body.enter_nested();
 
     // The generator object, made by the wrapper this one stacks on: the frame is
     // parked exactly as a synchronous generator's is.
@@ -140,7 +140,7 @@ pub(super) fn async_generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId
     let key = super::property::key_constant(&mut builder, ctx, named);
     expr::call(&mut builder, ctx, RuntimeOp::SetProperty, &[made, key, itself])?;
     builder.ret(&[made]);
-    ctx.thrown_flag = outer_flag;
+    ctx.body.leave_nested(outer_throw);
     ctx.pending.push((id, func));
     Ok(id)
 }
@@ -186,7 +186,7 @@ pub(super) fn async_function(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId>
     // function is not refused by anything — it happened to name a `FuncAddr`
     // here, and every generator in the suite loaded the callee's address as if
     // it were the flag.
-    let outer_flag = ctx.thrown_flag.take();
+    let outer_throw = ctx.body.enter_nested();
     // The address of the body as it will be PLACED — the rewritten form, for
     // the reason [`generator`] states. The body is not called: `AsyncStart`
     // builds its frame, drives it as far as the first `await`, and answers the
@@ -197,7 +197,7 @@ pub(super) fn async_function(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId>
     operands.extend(arguments);
     let made = expr::call(&mut builder, ctx, RuntimeOp::AsyncStart, &operands)?[0];
     builder.ret(&[made]);
-    ctx.thrown_flag = outer_flag;
+    ctx.body.leave_nested(outer_throw);
     ctx.pending.push((id, func));
     Ok(id)
 }
