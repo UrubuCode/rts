@@ -218,8 +218,38 @@ either.
 
 That this is the lever is not a guess: `.cargo/config.toml` already carries the
 measurement. Delay-loading **`opengl32.dll` alone took `rts --version` from 78 ms
-to 14 ms.** The same treatment for the rest of the GUI and networking set is the
-single largest startup item that does not touch the engine at all.
+to 14 ms.**
+
+### `opengl32` is not on that list any more, and this is what closed the question
+
+`plan.md` recorded that "there is **no delay-load directory in the current PE at
+all** — the `opengl32` entry is a no-op today", which reads as a lost 64 ms
+waiting to be recovered. It is not. The PE was read directly, 2026-08-22, and
+both halves matter:
+
+| data directory | state |
+|---|---|
+| `DelayImport` (index 13) | **absent** |
+| `Import` (index 1) | present, 560 bytes → 27 descriptors |
+
+and `opengl32.dll` **is not among the 27**. So there is nothing to delay-load:
+the linker was asked to defer a DLL this binary no longer imports statically,
+found no imports from it, and emitted no directory — which is exactly what an
+inert `/DELAYLOAD` looks like from outside, and is the *good* outcome rather than
+the bad one. The 64 ms is already gone; it is not sitting there to be collected a
+second time.
+
+The flags themselves are being applied, which is what makes the reading
+conclusive rather than ambiguous: `SizeOfStackReserve` is `0x4000000` — the 64
+MiB the `/STACK` argument on the same `rustflags` line asks for. A configuration
+that was not reaching the linker would have neither.
+
+**What remains is the twelve-DLL GUI and networking set, and it is settled
+against** for the reason `plan.md` states with evidence: seven of them are in
+`KnownDLLs` and mapped from a boot-time section object, and a wider `/DELAYLOAD`
+list crashed the unit-test binary with `STATUS_STACK_OVERFLOW` and then
+`STATUS_ILLEGAL_INSTRUCTION`. That is a measured refusal, not an unexplored
+lever.
 
 ## What bun proves
 

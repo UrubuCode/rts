@@ -56,6 +56,27 @@ RUST_MIN_STACK = "16777216"
 # NOT VERIFIABLE HERE: the glow fallback itself needs an old GPU to engage, so
 # only the wgpu/dx12 path was exercised (two window examples opened and ran).
 # The delay-load stub covers direct imports, which is how glutin calls in.
+#
+# ESTADO EM 2026-08-22: A FLAG NAO FAZ NADA, E ISSO E A BOA NOTICIA.
+#
+# O PE de `target/release/rts.exe` foi lido directamente. Nao tem directoria de
+# delay-import nenhuma (data directory 13, ausente), o que a primeira leitura
+# tomou por "a flag deixou de aplicar" e por 64 ms a recuperar. Nao e isso: a
+# directoria de IMPORT tem 27 descritores e `opengl32.dll` NAO esta entre eles.
+# Nao ha nada para adiar. O linker foi mandado adiar uma DLL que este binario ja
+# nao importa estaticamente, nao encontrou importacoes dela, e nao emitiu
+# directoria — que e exactamente o aspecto de uma `/DELAYLOAD` inerte vista de
+# fora, e e o desfecho bom e nao o mau. Os 64 ms ja foram; nao estao ali a
+# espera de serem colhidos outra vez.
+#
+# As flags DESTA linha estao a ser aplicadas, e e isso que torna a leitura
+# conclusiva em vez de ambigua: `SizeOfStackReserve` no mesmo PE e 0x4000000 —
+# os 64 MiB que o `/STACK` abaixo pede. Uma configuracao que nao chegasse ao
+# linker nao teria nem uma coisa nem outra.
+#
+# A entrada FICA. Custa nada, e o dia em que alguem voltar a ligar uma dependencia
+# que importe `opengl32` estaticamente e o dia em que ela volta a valer 64 ms —
+# sem isto, esse dia passa despercebido.
 [target.x86_64-pc-windows-msvc]
 rustflags = [
     "-C", "link-arg=/DELAYLOAD:opengl32.dll",
