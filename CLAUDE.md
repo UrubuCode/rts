@@ -89,11 +89,25 @@ seven services over real CLDR data, not a table of English — plus what
 
 `crates/rts-host/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-15: 754 of the 808 `*.test.ts` files pass**, by
-`target/release/rts.exe test`, one process per file. It was 756 of 799 on
-08-10, 626 of 797 on 08-09 and 535 of 818 at the start of 08-08, through
-generators, `yield*`, `Proxy`, native iterators, `export *`, a catchable throw,
-the bare `rts` specifier, stack traces, variadic natives and wrapper objects.
+claimed. **2026-08-22: 746 of the 808 `*.test.ts` files pass** (3 008 of 3 074
+assertions), by `target/release/rts.exe test`. It was 754 of 808 on 08-15, 756
+of 799 on 08-10, 626 of 797 on 08-09 and 535 of 818 at the start of 08-08,
+through generators, `yield*`, `Proxy`, native iterators, `export *`, a catchable
+throw, the bare `rts` specifier, stack traces, variadic natives and wrapper
+objects.
+
+**The share fell by eight between 08-15 and 08-22 and this line does not claim
+to know why.** What it can say is what the drop is NOT: each of the 62 failing
+files was re-run against a kept binary of the tree at `97f66385`, and **all 62
+fail there too** — 13 on an assertion and 49 on an uncaught exception. So none
+of them is a regression from the optimisation work of 08-21, and the comparison
+is per file rather than net, which is the only form the claim takes here.
+
+The corpus itself did not move (808 both times), so the eight are files that
+stopped passing somewhere in the ninety commits between the two measurements —
+or on 08-15's own machine state. `node_fs`, `node_dns`, `node_tls`, `node_dgram`,
+`net_*`, `tls_*` and `gpu_compute` are 36 of the 62, which is where to look
+first.
 
 **The share fell between 08-10 and 08-14 and nothing here claims to know why.**
 The corpus grew by nine files and there were commits between the two
