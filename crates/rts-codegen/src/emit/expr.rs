@@ -549,10 +549,22 @@ pub(super) fn call(
 /// # Why after nearly every operation and not only after a call
 ///
 /// Because nearly every one of them can run user code. `a + b` calls `valueOf`;
-/// a property read calls a getter; a comparison coerces. Listing the ones that
-/// cannot would be a list to get wrong, and getting it wrong means a throw that
-/// vanishes — so the two operations that ARE the check are the only exceptions,
-/// and they are excluded because including them recurses forever.
+/// a property read calls a getter; a comparison coerces.
+///
+/// **This paragraph used to say that listing the ones that cannot "would be a
+/// list to get wrong", and that the two operations which ARE the check were
+/// therefore the only exceptions.** The premise was right and the conclusion was
+/// not: getting it wrong does mean a throw that vanishes, which is an argument
+/// for writing the list carefully and asserting it, not for refusing to write
+/// it. Three places in this tree already asserted an exemption the code did not
+/// implement — `runtime/mod.rs`'s own text on `NumberRemainder`, this file
+/// further down, and `rts-host/tests/remainder.rs` — so the list existed in
+/// prose and disagreed with the compiler, which is the worse of the two states.
+///
+/// It is `runtime::raising::CANNOT_RAISE` now: eight operations, each naming
+/// the `rts-core` body it was read against, each closed under reading, and each
+/// asserted to still exist by `rts-host`. Everything not on it raises, which is
+/// the conservative default.
 ///
 /// # What it costs
 ///
@@ -584,7 +596,22 @@ pub(super) fn call(
 /// dominates this engine, since `type_of` costs 2.83 ns called from Rust
 /// (`rts-core/examples/entry_cost.rs`) and 26 ns from compiled code.
 fn check_for_throw(builder: &mut FuncBuilder, ctx: &mut Ctx, op: RuntimeOp) -> EmitResult<()> {
+    // Two exemptions, and they are exemptions for different reasons — see
+    // `runtime::raising`, which holds both lists and says why they are kept
+    // apart rather than merged into one predicate.
+    //
+    // These two ARE the check. Asking after them asks the question the call was
+    // asking, forever.
     if matches!(op, RuntimeOp::Thrown | RuntimeOp::TakeThrown) {
+        return Ok(());
+    }
+    // And these cannot fill the slot at all. The paragraph above used to say
+    // listing them "would be a list to get wrong" — it is a list now, it is
+    // eight entries long, every one names the `rts-core` body it was read
+    // against, and `rts-host` asserts each still exists. What made it writable
+    // is that the cost of being wrong in each direction was priced rather than
+    // assumed: `runtime::raising`'s module doc.
+    if !op.can_raise() {
         return Ok(());
     }
     raise_if_thrown(builder, ctx)

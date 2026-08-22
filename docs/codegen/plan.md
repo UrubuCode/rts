@@ -172,7 +172,47 @@ Deliverable is a `docs/codegen/*.md` with the decomposition, per rule 7 (one que
 
 **Two things not to do inside it.** Do not bound `trace::edges_of` by the shape: `trace.rs:141-158` walks `width−1` because the last slot holds the overflow block's **address**, and `shape_of` is unreliable as a "has a shape" predicate because `context.rs:108-111` grows `shape_of_type` with `resize(…, shape)`, filling intervening indices with the shape being recorded. Both make the collector follow a non‑value. Do not move `length`'s non‑enumerability out of `set_length`: it is the single funnel that records it (`array.rs:688-691`, `object_global/arrays.rs:174-176`, `array_proto/mod.rs:584-590` all say so), and bypassing it makes `Object.keys(arr)` and `for‑in` wrong.
 
-### S5. Declare which entry points cannot raise ★ rank 6
+### S5. Declare which entry points cannot raise ★ rank 6 — **LANDED 2026-08-22**
+
+**Done, and the ranking above was derived from the wrong number.** This was rank
+6 because the site-level prize is 0.1–0.6 ns per removed check. Nobody had
+counted what the check costs the **compiler**, and that is where it is large.
+
+Measured over `bench/analytic.ts` by `rts ir`, per file, before and after:
+
+| | before | after | |
+|---|---:|---:|---|
+| basic blocks | 6 164 | 5 456 | −11.5% |
+| throw checks | 1 423 | 1 069 | **−24.9%** |
+| IR lines | 26 839 | 23 641 | −11.9% |
+
+Eight operations removed a quarter of every throw check in the file. The reason
+that matters more than the nanoseconds: `RTS_TIMING=1` on the same file puts
+135.8 ms in `machine-compile` against 19.7 ms in this layer's lowering, so **87%
+of compiling a program is the code generator**, and what it is handed is blocks.
+
+The list is `rts-codegen/src/runtime/raising.rs` — a new module rather than an
+append, because `runtime/mod.rs` is 1 407 lines and already past the 1 000-line
+ceiling. It holds two lists kept deliberately apart: `CANNOT_RAISE` (eight
+operations, each naming the `rts-core` body it was read against) and
+`IS_THE_CHECK` (`Thrown`/`TakeThrown`, exempt from *asking*, not from raising).
+
+Beyond the three the plan named, five more were verified closed by reading:
+`RunningFunction`, `SetCallName`, `MarkDerived`, `MarkClassConstructor`,
+`ElementsBase`. `KeyNumber` was examined and **rejected** — it calls
+`to_primitive`, which runs a user `toString`.
+
+Pinned three ways: unit tests in `raising.rs`, two assertions in
+`rts-host/src/entries.rs` (each exempt operation still resolves and still agrees
+about its shape; the two lists cannot merge), and
+`rts-host/tests/remainder.rs::the_unboxed_remainder_carries_no_thrown_value_check`,
+which reads the callee number out of the IR legend and asserts no `WordLoad`
+follows that call. **What none of them can check** is whether the runtime body on
+the other end still refrains from throwing — that is a human reading eight
+bodies, which is why the list is short.
+
+The original entry follows, unchanged.
+
 
 **Agreement:** codequality (`nonraising-entry-points`, not refuted) + strings (`string-literal-without-a-call`, whose corrected cause independently observes that `StringConst` carries a throw check it can never need).
 
@@ -189,6 +229,88 @@ Deliverable is a `docs/codegen/*.md` with the decomposition, per rule 7 (one que
 - **(I)** `bench/isolated/src/bin/throw_check.rs`: a call plus a thread‑local load/compare/never‑taken‑branch against a bare call, on and off a dependency chain.
 
 **Cost, stated plainly:** a false `can_raise() == false` is a **swallowed throw** — a caught exception silently becoming a wrong answer. The two facts must be asserted against each other in rts‑host, never hand‑written twice.
+
+### S5b. The constant pool was 94% duplicates — **LANDED 2026-08-22**
+
+**Not on any list before this, and found by counting rather than by reasoning.**
+`bench/analytic.ts` declared **3 417 constant-pool rows holding 202 distinct
+values**. A single trivial body carried eleven separate declarations of the
+integer `0`. `Function::push_const` appended unconditionally, so every call site
+that wanted a zero minted its own row.
+
+Nothing downstream merged them either, and `target/mod.rs:1065-1067` says why in
+its own words: Cranelift's default `opt_level` is `none`, which gates out the
+whole egraph mid-end — **there is no GVN**. A duplicate declared here stays a
+duplicate all the way to the register allocator.
+
+The fix is a `HashMap<ConstDecl, ConstId>` beside the pool in
+`rts-cranelift/src/ir/func.rs`, under machine-layer rule 8 — derive what a client
+would otherwise have to remember. The alternative was a memo per emitter, and
+`emit/` has nineteen `declare_const` call sites that would each have kept a
+different one. The pool stays a `Vec` in declaration order because rule 13 says
+what a person diffs is ordered deterministically; the map is the lookup, not a
+second source of the content.
+
+| `bench/analytic.ts` | before | after | |
+|---|---:|---:|---|
+| pool rows | 3 417 | 856 | −75% |
+| `Inst::Const` | 3 428 | 3 074 | −10.3% |
+| IR lines, with S5 | 26 839 | 21 434 | **−20.1%** |
+
+**856 and not 202, and the difference is not a shortfall.** `ConstId` indexes a
+*function's* pool, so dedup is necessarily per function and the file has 94 of
+them. 202 was the count of distinct values across the whole compilation, which no
+per-function handle could ever reach.
+
+**What it does NOT do**, stated because the row above invites the wrong reading:
+it does not collapse the instructions. Each `use_const` still emits its own
+`Inst::Const`, and it must — a value has to dominate its uses, so one
+materialization cannot be shared across blocks that do not dominate each other.
+The `Inst::Const` count fell 10.3% only because S5 deleted the blocks those
+constants lived in. Sharing materializations is a dominance analysis and a
+separate change.
+
+### What S5 and S5b together are worth in wall clock, and it is not 20%
+
+That paragraph said this was unmeasured. It is measured now, and the answer is
+**much smaller than the IR reduction**, which is the number worth carrying
+because it is the one that would have been guessed wrong.
+
+The instrument had to be built first: `bench/analytic.ts` runs for 27 seconds, so
+its compile time is invisible beside it, and `rts ir` never machine-compiles at
+all. What was measured instead is 101 generated bodies (`a * j + b) % 7` in a
+short loop, so the program compiles a lot and runs in nothing), with
+**`RTS_CRANELIFT_JOBS=1`** — the parallel pool's scheduling noise is larger than
+the whole effect, and with it on, five pairs disagreed about the sign.
+
+Serial, five interleaved pairs, medians, same machine, 2026-08-22:
+
+| | baseline | after | |
+|---|---:|---:|---|
+| `cpu lowering` (this layer) | 6.031 ms | 5.688 ms | −5.7% |
+| `machine-compile` (Cranelift) | 44.562 ms | 42.789 ms | −4.0% |
+| **`place` (the phase)** | **51.841 ms** | **50.081 ms** | **−3.4%** |
+
+**All five pairs moved the same way on `place`**, which is what makes a 3.4%
+claim reportable at all — the medians alone would not be, at this spread.
+
+**So the hypothesis that motivated the work was wrong in its size.** The
+reasoning was: 87% of placement is the code generator, the code generator is
+handed blocks, therefore removing 11.5% of the blocks and 20% of the IR buys
+something near that. It buys 3.4%. The blocks removed are the smallest ones in
+the program — two instructions and a terminator — and a deduplicated constant is
+an `iconst` the register allocator was already rematerialising. **Cranelift's
+cost is not linear in block count**, and this is the measurement that says so.
+
+Which does not make the change wrong; it makes the *ranking argument* wrong. What
+S5 actually fixed is a rule the code contradicted in three places, and it did it
+without costing a nanosecond anywhere. The 3.4% is a bonus, and it is stated as
+3.4% rather than as "20% less IR" precisely because the second sentence is true
+and would be read as the first.
+
+On a single small body — `hello.ts`, one function, no pool — the same pair
+measures `machine-compile` 0.764 → 0.689 ms and `place` 1.214 → 1.113 ms over
+nine interleaved pairs. Same direction, same order of magnitude.
 
 ### S6. Sink the dead `Widen` off the fast path of every guarded operator ★ rank 7
 

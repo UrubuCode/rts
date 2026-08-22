@@ -488,43 +488,6 @@ pub(crate) fn machine_entry(entry: RtEntry) -> *const u8 {
     }
 }
 
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_operation_the_compiler_names_is_the_one_the_runtime_defines() {
-        // Checked for ALL of them rather than for what some program happened to
-        // call, because the failure this catches is in the operation nobody
-        // exercised yet: the compiler states a symbol and a shape by hand, the
-        // runtime derives both from a Rust signature, and until this existed
-        // nothing compared them.
-        //
-        // A symbol skew is loud — a missing symbol at placement. A shape skew is
-        // not: the call is laid out to the compiler's answer and the callee
-        // reads its arguments to a different one, which is a corrupt call that
-        // links and runs.
-        for op in RuntimeOp::ALL {
-            agree(*op).unwrap_or_else(|error| {
-                panic!("{op:?} does not match what the runtime defines: {error:?}")
-            });
-        }
-    }
-
-    #[test]
-    fn the_two_lists_are_the_same_length() {
-        // `entry_of` is exhaustive over `RuntimeOp`, so an operation added to
-        // the compiler cannot be forgotten here. The other direction has no
-        // such check: an entry point added to the runtime and never named by
-        // the language is legal — it is simply unused — but the counts being
-        // equal is what says that is not the case today, so a divergence is
-        // visible rather than assumed.
-        assert_eq!(
-            RuntimeOp::ALL.len(),
-            rts_core::entry::CORE_ENTRY_COUNT,
-            "the compiler names {} operations and the runtime numbers {}",
-            RuntimeOp::ALL.len(),
-            rts_core::entry::CORE_ENTRY_COUNT
-        );
-    }
-}
+mod agreement;

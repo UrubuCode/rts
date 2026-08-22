@@ -37,6 +37,10 @@
 //! and the machine emits them itself. A language layer naming them would be
 //! reaching past the boundary to do work the machine already does.
 
+mod raising;
+
+pub use raising::{CANNOT_RAISE, IS_THE_CHECK};
+
 use rts_cranelift::ir::{FuncId, FuncRegistry, Signature};
 use rts_cranelift::repr::Repr;
 

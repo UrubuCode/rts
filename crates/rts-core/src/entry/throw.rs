@@ -30,6 +30,46 @@
 //! A cleanup that throws while unwinding IS such a state, and it is named in
 //! [`record`]: the second value replaces the first, which is what JavaScript
 //! says a `finally` that throws does to the exception it was unwinding.
+//!
+//! # The alternative this refused now EXISTS in the code generator
+//!
+//! [`thrown`] calls it "an exception table and a personality routine, which is a
+//! campaign", and when that was written the campaign would have started from
+//! nothing. It would not now: Cranelift 0.131 — the version this workspace
+//! builds against — carries `ir::exception_table` and the `try_call` /
+//! `try_call_indirect` instructions, where a call names its normal successor
+//! block and a set of catch destinations keyed by tag, and the compiled function
+//! carries the metadata to find them.
+//!
+//! Read against what this file does, `try_call` is the same shape one level
+//! down: `Inst::Call` followed by a load, a compare and a branch is a
+//! hand-rolled `try_call` whose exception table is one entry wide and lives in a
+//! thread-local instead of beside the code. The mechanism is not exotic and it
+//! is no longer absent.
+//!
+//! **It is still not proposed, and the reason is not inertia.** Three things
+//! would have to be true and none has been checked:
+//!
+//! 1. **A native has to be able to raise into it.** The throw is recorded by a
+//!    Rust function in this crate, and `try_call` catches what the *unwinder*
+//!    delivers. Rust panics do not cross an `extern "C"` boundary usefully and
+//!    this crate raises without panicking on purpose, so something would have to
+//!    carry a throw from a native body into an unwind — which is a second
+//!    mechanism beside the slot, not a replacement for it.
+//! 2. **x64 Windows in particular.** The engine's only shipping target unwinds
+//!    through SEH, and whether Cranelift's exception support covers it here was
+//!    not verified. Machine rule 12: unproven behaviour fails safely, and an
+//!    unverified unwinder fails as a silently uncaught throw.
+//! 3. **It has to be worth it where the check actually is.** What the check
+//!    costs at a site is 0.1 to 0.6 ns (measured, `rts-codegen`'s
+//!    `emit/expr.rs`). What it costs the *compiler* is larger and is the real
+//!    argument — but `rts-codegen`'s `runtime::raising` collects a quarter of it
+//!    by deleting checks that were never needed, which is a list of eight
+//!    operations rather than an unwinder.
+//!
+//! So this is recorded as a **named, now-available** alternative with three open
+//! questions, not as work. What would reopen it is a measurement showing the
+//! remaining checks dominate something, and (2) answered.
 
 use super::{Context, with_current};
 

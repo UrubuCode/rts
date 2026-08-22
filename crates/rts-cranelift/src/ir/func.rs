@@ -100,6 +100,35 @@ pub struct Function {
     blocks: Vec<BlockData>,
     insts: Vec<InstData>,
     consts: Vec<ConstDecl>,
+    /// Where each declared constant already sits, so declaring one twice
+    /// answers the first handle instead of appending a second row.
+    ///
+    /// # Why a second structure over the same data
+    ///
+    /// The pool has to stay a `Vec` in declaration order: `ConstId` indexes it,
+    /// lowering walks it, and the text a person reads prints it — rule 13 says
+    /// anything compared between builds is ordered deterministically, and a hash
+    /// map's order is not. So this is the lookup and `consts` is the sequence,
+    /// which is the usual pairing rather than two sources of one fact: nothing
+    /// reads this map for content, only for a handle into the other.
+    ///
+    /// # What it removes
+    ///
+    /// Measured 2026-08-22 over `bench/analytic.ts` before this existed: **3 417
+    /// pool rows holding 202 distinct values.** Every literal `0` a throw check
+    /// compared against, every `undefined` a block answered, was its own row and
+    /// its own `Inst::Const`. Rule 8 — derive what a client would otherwise have
+    /// to remember — is the argument for putting it here rather than asking
+    /// every emitter to keep its own memo: they would each keep a different one,
+    /// and `emit/` has nineteen `declare_const` call sites.
+    ///
+    /// # What it does NOT remove
+    ///
+    /// The instructions. Each `use_const` still emits its own `Inst::Const`, and
+    /// it must: a value has to dominate its uses, so one materialization cannot
+    /// be shared across blocks that do not dominate each other. This collapses
+    /// the pool, not the SSA.
+    const_at: std::collections::HashMap<ConstDecl, ConstId>,
     caches: u32,
     block_regions: Vec<Option<RegionId>>,
     positions: Vec<crate::fault::Position>,
@@ -120,6 +149,7 @@ impl Function {
             blocks: Vec::new(),
             insts: Vec::new(),
             consts: Vec::new(),
+            const_at: std::collections::HashMap::new(),
             caches: 0,
             block_regions: Vec::new(),
             positions: Vec::new(),
@@ -211,8 +241,18 @@ impl Function {
     }
 
     /// Declares a constant and returns its handle.
+    ///
+    /// Declaring the same constant twice answers the same handle. A constant is
+    /// immutable and identified by its content — nothing here can write through
+    /// a `ConstId`, and no consumer distinguishes two rows holding the same
+    /// declaration — so a second row would differ from the first in nothing but
+    /// its number. See [`Function::const_at`] for what that was costing.
     pub fn push_const(&mut self, decl: ConstDecl) -> ConstId {
+        if let Some(already) = self.const_at.get(&decl) {
+            return *already;
+        }
         let id = ConstId(self.consts.len() as u32);
+        self.const_at.insert(decl.clone(), id);
         self.consts.push(decl);
         id
     }
@@ -271,5 +311,85 @@ impl Function {
         let id = ValueId(self.values.len() as u32);
         self.values.push(ValueData { repr, origin });
         id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::consts::ScalarBits;
+
+    fn empty() -> Function {
+        Function::new(Signature::default())
+    }
+
+    fn zero() -> ConstDecl {
+        ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: ScalarBits(0),
+        }
+    }
+
+    #[test]
+    fn one_constant_declared_twice_is_one_row() {
+        // A constant is immutable and identified by its content, so a second row
+        // holding the same declaration differs from the first in nothing but its
+        // number — and the numbers are what lowering walks and what the reader
+        // reads. `bench/analytic.ts` carried 3 417 rows for 202 distinct values
+        // before this held.
+        let mut func = empty();
+        let first = func.push_const(zero());
+        let again = func.push_const(zero());
+
+        assert_eq!(first, again, "the same declaration is the same handle");
+        assert_eq!(
+            func.consts.len(),
+            1,
+            "and the pool holds it once, not once per site that asked"
+        );
+    }
+
+    #[test]
+    fn two_constants_that_differ_in_representation_are_two_rows() {
+        // The bits alone do not identify a constant. `Repr` is what says how
+        // they are read, so merging on bits would hand a site an integer where
+        // it declared a double — the same eight bytes meaning two things.
+        let mut func = empty();
+        let integer = func.push_const(zero());
+        let floating = func.push_const(ConstDecl::Scalar {
+            repr: Repr::F64,
+            bits: ScalarBits(0),
+        });
+
+        assert_ne!(
+            integer, floating,
+            "identical bits under different representations are different constants"
+        );
+        assert_eq!(func.consts.len(), 2);
+    }
+
+    #[test]
+    fn the_pool_stays_in_declaration_order() {
+        // Rule 13: anything a person compares between builds is ordered
+        // deterministically. The memo is a hash map and the pool is not — this
+        // is the assertion that says which of the two `ConstId` indexes.
+        let mut func = empty();
+        let first = func.push_const(zero());
+        let second = func.push_const(ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: ScalarBits(7),
+        });
+        let first_again = func.push_const(zero());
+
+        assert_eq!(first, ConstId(0));
+        assert_eq!(second, ConstId(1));
+        assert_eq!(first_again, ConstId(0), "a repeat does not move anything");
+        assert_eq!(
+            func.constant(ConstId(1)),
+            Some(&ConstDecl::Scalar {
+                repr: Repr::I64,
+                bits: ScalarBits(7)
+            })
+        );
     }
 }

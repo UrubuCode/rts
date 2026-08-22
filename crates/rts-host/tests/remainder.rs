@@ -227,6 +227,76 @@ fn a_proven_remainder_by_an_odd_divisor_is_the_unboxed_call() {
 }
 
 #[test]
+fn the_unboxed_remainder_carries_no_thrown_value_check() {
+    // The comment above has claimed "no thrown-value check" since this file was
+    // written, and for as long as it did the emitter emitted one anyway:
+    // `check_for_throw` exempted only the two operations that ARE the check, so
+    // `__rts_number_remainder` — whose whole body is `left % right` — was
+    // followed by a load, a compare, a branch and two basic blocks that could
+    // not fire. Three places in the tree asserted the exemption in prose and
+    // none implemented it, which is the state CLAUDE.md's "never leave a rule
+    // the code contradicts" is about.
+    //
+    // This is the assertion that makes the comment true, and it is structural:
+    // no timing, no threshold, nothing that can go noisy.
+    let ir = rts_host::describe::describe_source(
+        "
+        function step(): number {
+            let state = 1;
+            let i = 0;
+            while (i < 3) { state = state % 7; i = i + 1; }
+            return state;
+        }
+        step();
+        ",
+    )
+    .expect("compiles");
+
+    assert!(
+        ir.contains("__rts_number_remainder"),
+        "the loop must still reach the unboxed entry, or this test is asserting \
+         the absence of a check after a call that is not there.\n\n{ir}"
+    );
+
+    // Not `!ir.contains("__rts_take_thrown")`. That was the first form of this
+    // assertion and it is wrong: `step()` is itself a call and `step` is read
+    // from the global object, and BOTH of those raise, so the program is full
+    // of legitimate checks. What must be absent is a check on the ONE call this
+    // exemption is about, so the question has to be asked per site.
+    //
+    // The IR text names callees by number and prints a legend at the top, so the
+    // number is read from the legend rather than assumed — the funcs are
+    // numbered in the order the body reaches them and that order is not stable
+    // across an edit to the program above.
+    let numbered = ir
+        .lines()
+        .find(|line| line.contains("__rts_number_remainder"))
+        .and_then(|line| line.split_whitespace().find(|word| word.starts_with("FuncId(")))
+        .expect("the legend names the unboxed remainder")
+        .to_owned();
+
+    let lines: Vec<&str> = ir.lines().collect();
+    let calls: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.contains("Call {") && line.contains(&format!("callee: {numbered}")))
+        .map(|(at, _)| at)
+        .collect();
+    assert!(!calls.is_empty(), "the legend named it, so a site calls it\n\n{ir}");
+
+    for at in calls {
+        let next = lines.get(at + 1).copied().unwrap_or("");
+        assert!(
+            !next.contains("WordLoad"),
+            "a throw check follows the unboxed remainder at line {at}: `{next}`. \
+             Its whole runtime body is `left % right` — it cannot fill the throw \
+             slot, so `runtime::raising::CANNOT_RAISE` states the check is dead \
+             code here.\n\n{ir}"
+        );
+    }
+}
+
+#[test]
 fn an_unproven_remainder_still_reaches_the_generic_operator() {
     // The other side of the same claim, and the one that says the proof is
     // applied where it holds rather than everywhere. A parameter is not
