@@ -143,12 +143,27 @@ use growth::words_for;
 ///
 /// # What this does NOT fix
 ///
-/// The cliff. It moves to the sixteenth property, and an object with more of
-/// them pays exactly what the eighth used to. The fix that removes it rather
-/// than moving it is making the overflow addressable so `cache_resolve` can
-/// answer for it — the storage already exists (`spill_of`), and what is
-/// missing is the machine's half. Fifteen is what a one-line change buys until
-/// then, chosen with the trade above on the table.
+/// The cliff. It moves to the **fifteenth** property — slot 14 — and an object
+/// with more of them pays exactly what the eighth used to. This said "the
+/// sixteenth" and was off by one: `entry::cache` computes the reachable width as
+/// `width_of − 1`, because the last slot holds the overflow block's address
+/// rather than a property. Corrected 2026-08-22.
+///
+/// The fix that removes it rather than moving it is making the overflow
+/// addressable so `cache_resolve` can answer for it — the storage already exists
+/// (`spill_of`), and what is missing is the machine's half. Fifteen is what a
+/// one-line change buys until then, chosen with the trade above on the table.
+///
+/// **And a cached STORE cannot reach the overflow even when a read can**, which
+/// this note did not say. `entry::cache` resolves a store with `Reaches::Cell`
+/// and answers −1 for any slot past the cell, because the lowering stores at
+/// `address + offset` with no indirection — answering with an overflow offset
+/// would write into the receiver's own cell at another property's position. That
+/// regression shipped once (`b9df2d9d`). Measured exposure, 2026-08-22:
+/// `RTS_CACHE_CENSUS=1` over 400 `tests/*.test.ts` fires that reason three times
+/// in two files, neither in a loop, and zero times in `bench/analytic.ts` and
+/// `bench/objbench.ts`. Dormant, and worth a fourth cache word rather than a
+/// second meaning for an existing one, whenever it is closed.
 ///
 /// # E por que não trinta e um, que é o próximo passo alinhado
 ///

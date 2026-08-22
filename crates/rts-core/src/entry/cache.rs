@@ -397,7 +397,27 @@ pub fn census_report(context: &Context) -> Option<String> {
     };
 
     let mut out = String::new();
-    let _ = writeln!(out, "rts-cache census: {total} misses, {} sites", by_site.len());
+    // REFUSALS, not misses, and the difference is the whole value of the line.
+    //
+    // `explain` is called only on a `return -1` path — every successful resolve
+    // at the four sites below it bypasses the census entirely. So a site that
+    // re-resolves two hundred thousand times and succeeds every time reported
+    // `0 misses, 0 sites`, which reads as "the cache is perfect" and means "the
+    // cache was asked and answered". Three separate investigations reached a
+    // wrong conclusion through this line before one of them read `explain`.
+    //
+    // `context.resolves` is the number that separates the two, and it already
+    // exists: it is incremented at the first statement of `resolve`, before any
+    // early return, so it counts every ENTRY into the resolver.
+    // `crates/rts-core/src/entry/mod.rs` already calls it "the ONE number that
+    // separates 'the cache works' from 'the cache is a slower way of calling'".
+    // It was simply never printed.
+    let _ = writeln!(
+        out,
+        "rts-cache census: {} resolver entries, {total} refused, {} sites",
+        context.resolves,
+        by_site.len()
+    );
 
     let mut reasons: Vec<_> = by_reason.into_iter().collect();
     reasons.sort_by_key(|&(_, count)| std::cmp::Reverse(count));

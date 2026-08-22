@@ -511,6 +511,23 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
     // transition, so the object arrives at a different shape and every site
     // that remembered the old one stops recognising it. Which is what a
     // shape is for.
+    //
+    // **That last paragraph is only true for a write that GROWS the shape**, and
+    // the qualifier was missing. Thirty lines above, a write to a property the
+    // object already has stores the value into the existing slot without
+    // consulting the repr at all — so a shape can claim `F64` while the slot
+    // holds a reference, and no transition is taken. Nothing reads the
+    // difference today (both representations are 64 bits, and the collector
+    // walks slots conservatively rather than by declared repr), which is why
+    // this is a stale promise rather than a live bug.
+    //
+    // Recorded 2026-08-22 rather than fixed here, because the fix is a decision
+    // and not an edit: `rts-cranelift`'s rule 11 says widening is exact and
+    // narrowing never is, and choosing `F64` from one observed value is
+    // narrowing at run time. The candidate is to make this site — and its twin
+    // in `entry::array` — write `Tagged`, which costs the shape tree one
+    // discriminator it currently uses for nothing. See
+    // `docs/codegen/object-model.md` §4.
     let observed = if Value(value).numeric().is_some() {
         Repr::F64
     } else {

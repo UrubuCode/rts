@@ -162,7 +162,7 @@ Deliverable is a `docs/codegen/*.md` with the decomposition, per rule 7 (one que
 - the elements `Vec` malloc (`array.rs:50` `to_vec`) and the `Slab::insert` (`array.rs:115`)
 - `alloc_or_die` (`array.rs:166`) — and on the free‑list path `Region::alloc` writes **fifteen zero words** per cell (`region/mod.rs:452-454`)
 - `set_length` (`array.rs:683-707`): `refuses_key_write` **three times** (`objects.rs:462`, `:486`, `array.rs:700`), each an `integrity_at` + an `attributes_at` linear find; `reconcile_length` (`objects.rs:1137-1163`) re‑deriving the length key and re‑reaching the elements to compare a length the caller just read; a shape `slot_of`; and a `set_attributes` whose first record mallocs a `Vec` (`integrity.rs:198-202`)
-- **the sweep**: `collect_cycle::release` (`collect_cycle.rs:139-235`) runs ~26 `Aside::remove` calls plus `weak::clear_freed`, `finalize::queue_freed` and `region.free` **per freed cell**. `RTS_GC_DEBUG=1` over 200 000 allocations reports 3–6 cycles at `freed ~63 670` each — so in steady state there is one `release` per free‑list `alloc`, and it is several times the work of the allocation.
+- **the sweep**: `collect_cycle::release` (`collect_cycle.rs:139-235`) runs **22** `Aside::remove` calls (counted, not estimated) plus `weak::clear_freed`, `finalize::queue_freed` and `region.free` **per freed cell**. `RTS_GC_DEBUG=1` over 200 000 allocations reports 3–6 cycles at `freed ~63 670` each — so in steady state there is one `release` per free‑list `alloc`, and it is several times the work of the allocation.
 
 **Rows.** `alloc array literal 4` 231.34, `call varargs 3` 253.36, `coll Object.keys 4` 308.09, `binary subarray 64` 294.13, `array map 16` / `filter 16` (a fresh array per call), `string split 16` 4799.01 (eight pieces), `regex exec+group` 2268.25 (`array_new` + the match object), `json stringify small` 5014.88 (`own_keys` builds one per object).
 
@@ -224,8 +224,10 @@ The engine **does** have hidden classes, and they work. `ShapeTree::transitions`
 
 **Where the object model's cost really is**, in order:
 
-1. **`allocate_for_target` runs a full prototype‑chain property read on every `new`** — `functions.rs:889-902`: `well_known("prototype")` (a six‑name scan, `context.rs:380`), `objects::read_property` walking the chain (`objects.rs:585-618`, ~6 FxHashMap probes across `own_property` and `tree.rs:279-291`, with `owned_slots` recomputing `width_of`/`type_of`/`shape_of` at `objects.rs:956-961`), then `typed_as` (`context.rs:71-72`, a **linear** `known.iter().find`), then `alloc_after_collecting`, then `set_prototype`. The file's own comment records `new C()` at **597 ns** before an earlier round of this work (`functions.rs:882-887`). → **L3** below.
-2. **Allocation and sweep bookkeeping** — §S4. `release` runs ~26 `Aside::remove` per freed cell, once per free‑list `alloc` in steady state.
+1. **`allocate_for_target` resolves the prototype on every `new`** — `functions.rs:889-902`: `well_known("prototype")` (a six‑name scan, `context.rs:380`), `objects::read_property` (`objects.rs:585-618`), then `typed_as` (`context.rs:71-72`), then `alloc_after_collecting`, then `set_prototype`. The file's own comment records `new C()` at **597 ns** before an earlier round of this work (`functions.rs:882-887`). → **L3** below.
+
+   **Corrected 2026-08-22, twice and independently** (`docs/codegen/object-model.md` §5): this line said "a full prototype‑chain property read … ~6 FxHashMap probes". It does **not** walk the chain. `closure_new` eagerly `put`s a `prototype` on every function (`functions.rs:113-115`), so it is an **own** property found on the first link — one `own_property`, **3** probes. Verified from the other side too: `Object.getOwnPropertyNames(Callee)` answers `["prototype","name","length"]`. And `typed_as` is not a "linear find" in any meaningful sense — the prototype is in hand from the line above, so `known.iter().find` scans a list of one, which its own comment at `context.rs:905-909` says. Both corrections **shrink** the prize this item was written to justify, which is why they are recorded rather than quietly dropped.
+2. **Allocation and sweep bookkeeping** — §S4. `release` runs 22 `Aside::remove` per freed cell, once per free‑list `alloc` in steady state.
 3. **The write barrier** — already fixed in the tree, needs measuring (§0).
 4. **The per‑property guard and the header re‑store** — §S7(b).
 
@@ -330,7 +332,7 @@ rts‑core's globals are already built on first read (`entry/global.rs:81-184`, 
 - **§S1a**, the ~16 ns of the call tax nobody has attributed.
 - **§S3's frequency table** — which `well_known` names are actually hot, from a counter, not from five people's intuitions.
 - **§S4's four‑number decomposition** of array construction.
-- **§S3/§S8: `crates/rts-core/src/entry/collect_cycle.rs:139-235`.** Nothing measured `release`. In steady state it runs once per allocation, does ~26 `Aside::remove` calls plus `weak::clear_freed` and `finalize::queue_freed`, and it is amortised into every allocating row in the table. It was found three times as a *correction* and never as a candidate. **(C)** an `examples/` loop is enough to price it.
+- **§S3/§S8: `crates/rts-core/src/entry/collect_cycle.rs:139-235`.** Nothing measured `release`. In steady state it runs once per allocation, does 22 `Aside::remove` calls plus `weak::clear_freed` and `finalize::queue_freed`, and it is amortised into every allocating row in the table. It was found three times as a *correction* and never as a candidate. **(C)** an `examples/` loop is enough to price it.
 
 ---
 
