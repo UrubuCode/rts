@@ -15,6 +15,14 @@ three runtimes on one machine within the same ten minutes:
 Machine: Windows 11 Pro 26200, the same one for all three. Numbers are
 nanoseconds per action, best of the harness's own calibrated repeats.
 
+**`97f66385` is a parent of this branch, not its tip.** These numbers were taken
+against that commit, and against the changes that now sit on top of it; the
+branch has since been rebased onto ninety commits of `rts-dom` and parity work
+which touch none of the crates measured here. The *attribution* therefore stands
+— it is a before/after of one change set, measured with both binaries in hand —
+but the absolute figures describe a tree that no longer exists exactly.
+Re-measure before quoting an absolute number.
+
 ---
 
 ## Read this before reading the table
