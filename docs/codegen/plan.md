@@ -268,7 +268,11 @@ Already fixed in the working tree: `over` (`entry/mod.rs:940-1060`) now holds th
 
 **One hazard the candidate missed:** register both specifiers of a secondary name in **one** `declare_module_lazy` call. `modules.rs:165` uses `std::ptr::fn_addr_eq` to decide identity, and two independent coercions of one `fn` item are not guaranteed equal — two separate registrations would break `require('sys') === require('util')`, the invariant `lib.rs:167-172` protects.
 
-**A free finding beside it:** `events::namespace` is **not memoised** (`events.rs:126-142` allocates a fresh namespace and prototype per call) and `process/mod.rs:192` calls it a second time — so `events` is built twice on every startup.
+**A free finding beside it — LANDED 2026-08-22, and it was worse than this line said.** `events::namespace` is **not memoised** (it allocates a fresh namespace and installs three natives per call), and there are **three** callers, not two: `lib.rs`, `process/mod.rs` and `readline.rs`. So `node:events` was built three times on every startup.
+
+The prototype half already *was* memoised — `make_prototype` records by name and returns what it recorded — and the prototype is the only thing the two extra callers wanted; both walked `namespace` → `EventEmitter` → `prototype` to reach it. So the fix is not a memo on `namespace` but `events::emitter_prototype`, the memoised half, called directly by the two.
+
+That form is also **more** robust than what it replaced, which is why it was taken. `process/mod.rs` refuses `make_prototype(context, "EventEmitter", &[])` for a stated reason: an empty member list wins the name and registers a prototype with no methods, so `node:events` finds it later, never installs its own, and every emitter in the program silently loses `on`. `emitter_prototype` passes the **real** table — the same one `namespace` passes — so whichever of the two runs first installs the same surface and the other gets it back. The comment's request to be "independent of that order" is now satisfied rather than merely ordered correctly today.
 
 **THE EXPERIMENT:** **(S)** a temporary `eprintln!` in `Context::module_at` (`modules.rs:156`) naming the specifier it builds. `rts run empty.ts` must print `assert`, `dns`, `path` and must **not** print `os`, `crypto`, `http2`. Then count the win the same way it was counted: a `.ts` file walking `process.getBuiltinModule("node:assert")` with `Object.getOwnPropertyNames`, before and after.
 

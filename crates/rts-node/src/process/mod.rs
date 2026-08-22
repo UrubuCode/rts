@@ -190,9 +190,14 @@ pub fn namespace(context: &mut Context) -> u64 {
     // and never install its methods — every emitter in the program silently
     // without `on`. `lib.rs` orders the two so that cannot happen today; asking
     // `events` to build its own surface makes it independent of that order.
-    let emitters = crate::events::namespace(context);
-    let constructor = rts_core::entry::get_member(context, emitters, "EventEmitter");
-    let prototype = rts_core::entry::get_member(context, constructor, "prototype");
+    //
+    // It used to ask for the whole NAMESPACE and walk `EventEmitter` →
+    // `prototype`, which built a second `node:events` namespace object and three
+    // natives on every startup for one property read — `namespace` is not
+    // memoized, `make_prototype` is. `emitter_prototype` is that same surface
+    // reached by the memoized half, and it passes the real method table, so the
+    // independence this comment asks for is unchanged.
+    let prototype = crate::events::emitter_prototype(context);
     rts_core::entry::set_prototype_in(context, namespace, prototype);
     // `EventEmitter`'s storage, which its constructor would otherwise have
     // installed: without it `on` writes a listener array onto `undefined` and

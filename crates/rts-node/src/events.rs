@@ -123,6 +123,36 @@ const METHODS: &[(&str, Provided)] = &[
     ("setMaxListeners", set_max_listeners),
 ];
 
+/// What every emitter in the program inherits from, without building a
+/// namespace to reach it.
+///
+/// # Why this exists rather than `namespace(context)` at three call sites
+///
+/// `node:process` and `node:readline` both want exactly one thing from
+/// `node:events`: the prototype `EventEmitter` carries. Both used to ask for the
+/// whole namespace and walk `EventEmitter` → `prototype` to get it, and
+/// [`namespace`] is **not** memoized — it builds a fresh namespace object and
+/// installs three natives on it every time it is called. So the surface was
+/// built three times on every startup and two of them were thrown away after one
+/// property read.
+///
+/// This is the memoized half. `make_prototype` records by name and returns what
+/// it recorded (`rts-core`'s `modules.rs`), so the second and third caller pay a
+/// table lookup instead of a namespace.
+///
+/// # Why it is safe where `make_prototype(context, "EventEmitter", &[])` is not
+///
+/// `node:process`'s own comment records the hazard: a call with an **empty**
+/// member list wins the name and registers a prototype with no methods on it, so
+/// `node:events` finds it later and never installs `on`. This passes the real
+/// [`METHODS`] table, which is the same argument [`namespace`] passes — so
+/// whichever of the two runs first installs the same surface, and the other gets
+/// it back. That is what makes the callers independent of install order rather
+/// than merely ordered correctly today.
+pub fn emitter_prototype(context: &mut Context) -> u64 {
+    rts_core::entry::make_prototype(context, "EventEmitter", METHODS)
+}
+
 /// The namespace `node:events` is.
 pub fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] = &[
@@ -136,7 +166,7 @@ pub fn namespace(context: &mut Context) -> u64 {
     // NOT enough: `new` over a native keeps the object it made, so every
     // emitter came back with no prototype and no `on` at all — which the
     // agent's own tests did not reach and a fixture calling `emit` did.
-    let prototype = rts_core::entry::make_prototype(context, "EventEmitter", METHODS);
+    let prototype = emitter_prototype(context);
     let constructor = rts_core::entry::get_member(context, namespace, "EventEmitter");
     rts_core::entry::put_member(context, constructor, "prototype", prototype);
     namespace

@@ -101,9 +101,10 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("moveCursor", move_cursor),
     ];
     let namespace = entry::make_namespace(context, members);
-    let event_emitter_namespace = crate::events::namespace(context);
-    let emitter_ctor = entry::get_member(context, event_emitter_namespace, "EventEmitter");
-    let emitter_prototype = entry::get_member(context, emitter_ctor, "prototype");
+    // The memoized half of `node:events`, not the namespace: this wants only the
+    // prototype, and `events::namespace` builds a fresh namespace object and
+    // three natives every call. See `events::emitter_prototype`.
+    let emitter_prototype = crate::events::emitter_prototype(context);
     let interface_prototype = entry::make_prototype(context, "Interface", INTERFACE_METHODS);
     entry::set_prototype_in(context, interface_prototype, emitter_prototype);
     namespace
