@@ -298,6 +298,9 @@ fn parse_aspect_ratio(v: &str) -> Option<f32> {
 /// Valores não suportados (table, …) → `None` (cai no default da tag).
 fn parse_display(v: &str) -> Option<DisplayKind> {
     match v.trim().to_ascii_lowercase().as_str() {
+        // `flow-root` computa como `block` NA CAIXA; o que a distingue vive no
+        // campo `flow_root`, levantado pelo braço de `display` — aqui não há
+        // `css` à mão. Ver `style/props/tabela.rs`.
         "block" | "flow-root" => Some(DisplayKind::Block),
         "flex" | "inline-flex" => Some(DisplayKind::Flex),
         "inline" => Some(DisplayKind::Inline),

@@ -100,6 +100,19 @@ css_props! {
         /// `width - pad - border`). `None`/`Some(false)` = `content-box` (default
         /// CSS: `width` é só o content, pad/border somam por fora). É o que faz 3
         /// cards de 32% caberem.
+        /// `display: flow-root` — a caixa é de bloco E estabelece um contexto de
+        /// formatação de bloco. Um `bool` ao lado do `display` em vez de uma
+        /// variante de [`DisplayKind`], e a razão é medida: a variante obrigava
+        /// a tratar o caso novo em `table/grid.rs`, `layout/vertical.rs`,
+        /// `layout/bloco.rs` e `layout/caixa.rs` — quatro ficheiros fora deste
+        /// crate-módulo, dois deles de outra gente. O campo à parte diz a mesma
+        /// coisa sem partir um único `match` exaustivo, que é o mesmo arranjo
+        /// que o `border_box` acima já faz para o `box-sizing`.
+        ///
+        /// **A distinção é o único conteúdo da palavra**: `flow-root` existe
+        /// para dizer "sou um contexto de formatação", e sem este campo o parse
+        /// aceitava-a e deitava fora a única coisa que a separa de `block`.
+        [] flow_root: bool;
         [] border_box: bool;
         /// `display` parseado do CSS (block/flex/inline/none). `None` = não
         /// declarado (o layout usa o default da tag via `block::lookup`). Combina

@@ -155,6 +155,11 @@ impl ComputedStyle {
             "right" => self.inset_right.map(fmt_dim).unwrap_or_default(),
             "bottom" => self.inset_bottom.map(fmt_dim).unwrap_or_default(),
             "left" => self.inset_left.map(fmt_dim).unwrap_or_default(),
+            // O `flow-root` computa como `block` na CAIXA mas o browser
+            // responde `flow-root` — a palavra é o valor computado, não um
+            // atalho para `block`. Sem esta linha, o campo existia e o
+            // `getComputedStyle` continuava a mentir.
+            "display" if self.flow_root == Some(true) => "flow-root".into(),
             "display" => self
                 .display
                 .map(|d| display_css(d).to_string())

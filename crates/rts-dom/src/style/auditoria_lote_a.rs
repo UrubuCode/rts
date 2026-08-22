@@ -137,3 +137,28 @@ fn margin_inherit_e_capturado_e_depois_descartado() {
         "e o `copy_property` não sabe copiar `margin`, portanto nada acontece"
     );
 }
+
+/// `caixa.contentor.flow-root-perde-o-significado` — a palavra deixou de ser
+/// deitada fora no parse.
+///
+/// `flow-root` existe para dizer "sou uma caixa de bloco que ESTABELECE um
+/// contexto de formatação", e era mapeada para `DisplayKind::Block` sem mais —
+/// a única coisa que a distingue de `block` desaparecia ali.
+///
+/// O campo é um `bool` ao lado do `display`, e não uma variante nova: a variante
+/// obrigava a tratar o caso em quatro ficheiros fora do `style/`, dois deles de
+/// outros agentes. É o mesmo arranjo que o `border_box` já faz para o
+/// `box-sizing`.
+#[test]
+fn flow_root_guarda_o_que_o_distingue_de_block() {
+    use crate::style::DisplayKind;
+    let c = parse_inline("display:flow-root");
+    assert_eq!(c.display, Some(DisplayKind::Block), "a CAIXA é de bloco");
+    assert_eq!(c.flow_root, Some(true), "e o que o distingue fica guardado");
+    // O `block` simples não levanta o campo — é a metade que prova que o teste
+    // mede a distinção e não a presença da declaração.
+    assert_eq!(parse_inline("display:block").flow_root, None);
+    // E o computado responde a palavra, como o browser.
+    assert_eq!(c.computed_value("display", None), "flow-root");
+    assert_eq!(parse_inline("display:block").computed_value("display", None), "block");
+}

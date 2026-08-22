@@ -13,7 +13,17 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         // incluir padding+border (3 cards de 32% cabem). Default content-box.
         "box-sizing" => set_if(&mut css.border_box, Some(val.eq_ignore_ascii_case("border-box"))),
         // `display` — o eixo/fluxo dos filhos, do CSS (não mais só do defineBlock).
-        "display" => set_if(&mut css.display, parse_display(val)),
+        "display" => {
+            set_if(&mut css.display, parse_display(val));
+            // A distinção que o `DisplayKind` não carrega: `flow-root` é uma
+            // caixa de bloco que ESTABELECE um contexto de formatação, e essa é
+            // a única coisa que a separa de `block`. O parse aceitava a palavra
+            // e deitava fora o significado dela.
+            set_if(
+                &mut css.flow_root,
+                val.trim().eq_ignore_ascii_case("flow-root").then_some(true),
+            );
+        }
         // `flex-wrap` — combina com display:flex para promover a FlexWrap.
         "flex-wrap" => set_if(&mut css.flex_wrap, Some(val.eq_ignore_ascii_case("wrap"))),
         // ── Flexbox: alinhamento + gap + direção ──────────────────────────────
