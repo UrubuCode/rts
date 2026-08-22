@@ -459,7 +459,7 @@ impl<'a> Body<'a> {
                 // code produced, from one predicate instead of a second copy of
                 // its field-lookup.
                 let region = crate::ir::Region::Shared;
-                let kind = crate::gc::barrier_for(inst, heap.types, region);
+                let kind = crate::gc::barrier_for(inst, heap.types, region, heap.bases.regions());
                 let barrier = kind != crate::gc::BarrierKind::None;
 
                 let reference = self.value(*object);
@@ -1069,7 +1069,9 @@ impl<'a> Body<'a> {
             crate::mem::HeaderLayout::TYPE_OFFSET,
             carried,
         );
-        self.emit_barrier_at(builder, block, reference, written)?;
+        if self.regions_can_cross() {
+            self.emit_barrier_at(builder, block, reference, written)?;
+        }
 
         let hit_args = self.block_args(&hit.args);
         let hit_target = self.blocks[&hit.block];
@@ -1172,13 +1174,34 @@ impl<'a> Body<'a> {
         Ok(builder.ins().call(reference, args))
     }
 
+    /// Whether a store in this heap can make one region point at another.
+    ///
+    /// Forwards to [`crate::gc::crossing_is_possible`], which owns the rule and
+    /// says why one region cannot point at another when there is no other. This
+    /// is a lookup of the region count and nothing else — deciding here would be
+    /// the flag `gc::barrier` refuses to have.
+    ///
+    /// Answers `true` when there is no heap at all, which is the conservative
+    /// direction and also unreachable: a store that got this far has already
+    /// resolved [`Capability::Memory`].
+    fn regions_can_cross(&self) -> bool {
+        match self.heap.as_ref() {
+            Some(heap) => crate::gc::crossing_is_possible(heap.bases.regions()),
+            None => true,
+        }
+    }
+
     /// Emits the barrier a reference store owes the collector.
     ///
-    /// Unconditionally, for every store into a traced field. That is more than
-    /// strictly necessary — a store into an object no other thread can reach
-    /// makes nothing visible anywhere new, and could skip it — but deciding that
-    /// needs to know the object's region, and a reference does not carry one.
-    /// The ownership annotation that would answer it does not exist yet.
+    /// For every store into a traced field, in a heap where a crossing is
+    /// possible at all — [`crate::gc::crossing_is_possible`] is the one case
+    /// that is elided and why that case is arithmetic rather than a judgement.
+    ///
+    /// Otherwise unconditional. That is more than strictly necessary — a store
+    /// into an object no other thread can reach makes nothing visible anywhere
+    /// new, and could skip it — but deciding that needs to know the object's
+    /// region, and a reference does not carry one. The ownership annotation that
+    /// would answer it does not exist yet.
     ///
     /// So the direction of the error is chosen deliberately. A barrier that was
     /// not needed costs a call. A barrier that was needed and skipped produces a

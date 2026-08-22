@@ -111,15 +111,28 @@ wrong, the layer computes it instead of offering an API to declare it.
 Two live examples. Root sets are derived from liveness — there is no entry point
 through which a client could report its own set, because a discipline that must
 hold at every allocation in every program will not hold. Write barriers are
-derived from what a field is and where its object lives — there is no flag on a
-store and no place to pass `false`, because a missed barrier produces a
-use-after-free that reproduces rarely and explains nothing.
+derived from what a field is, where its object lives, and **how many regions the
+heap has** — there is no flag on a store and no place to pass `false`, because a
+missed barrier produces a use-after-free that reproduces rarely and explains
+nothing.
+
+The third fact is the newest and the one most likely to be mistaken for a
+loophole, so it is stated here rather than only in `gc/barrier.rs`: a barrier
+reports exactly one thing, a reference crossing from one region into another, and
+under `mem::Addressing::Single` there is no second region for it to cross into.
+The elision is therefore arithmetic and not a judgement about which stores look
+safe — and it is derived in `gc::crossing_is_possible`, in the one place, so it
+remains something a client cannot decline or forget. `BarrierKind` gaining a
+second non-`None` variant is what invalidates it, and that function's own
+documentation says so.
 
 ### 9. Effects are declared, never inferred
 
 An operation that allocates receives the safepoint that implies. An operation
-that stores a reference receives its barrier. The caller does not remember to
-ask, and the caller cannot decline.
+that stores a reference receives its barrier, wherever one can report anything —
+see rule 8 for the heap that makes a crossing unrepresentable. The caller does
+not remember to ask, and the caller cannot decline in either direction: it can no
+more force a barrier than suppress one.
 
 Corollary: no hidden flag that changes emitted behaviour underneath the
 abstraction. The code generator offers one that silently rewrites a signature

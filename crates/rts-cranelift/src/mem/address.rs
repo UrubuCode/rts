@@ -99,6 +99,23 @@ impl RegionBases {
         &self.addressing
     }
 
+    /// How many regions this heap has.
+    ///
+    /// One for [`Addressing::Single`], and `1 << selector_bits` for
+    /// [`Addressing::Sharded`] — the count the mask can express, which is what
+    /// [`Self::sharded`] took and turned into bits.
+    ///
+    /// Asked by [`crate::gc::crossing_is_possible`], which is the whole reason
+    /// it is a number rather than a match at the two places that want it: a
+    /// store can only make one region point at another when there is another,
+    /// and that is a fact about the heap rather than about any store.
+    pub fn regions(&self) -> u32 {
+        match &self.addressing {
+            Addressing::Single { .. } => 1,
+            Addressing::Sharded { selector_bits, .. } => 1 << selector_bits,
+        }
+    }
+
     /// How far apart consecutive slots are.
     pub fn stride(&self) -> u32 {
         match &self.addressing {
