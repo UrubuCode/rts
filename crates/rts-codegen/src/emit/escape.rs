@@ -48,8 +48,8 @@
 //! Two positions keep a candidate alive: a read `o.k` and a write `o.k = v`,
 //! both with `k` among the literal's own keys. **Every other position a name can
 //! appear in kills it**, including ones this file has never considered — the
-//! general path kills any bare identifier it reaches, and a node whose children
-//! the shared walker does not descend into kills every candidate outright.
+//! general path kills any bare identifier it reaches, whatever the surrounding
+//! node turns out to be.
 //!
 //! That direction is chosen rather than convenient. A local wrongly kept is a
 //! program that still allocates; a local wrongly replaced is an object that a
@@ -64,13 +64,27 @@
 //! one description; what this file adds is which *position* a child sits in,
 //! which the walker deliberately does not say.
 //!
-//! Three places where the shared walker does not descend are handled by killing
-//! every candidate rather than by writing the missing traversal: a template, a
-//! tagged template, and `super`. Its comment says the emitter refuses those, and
-//! for the template that is **no longer true** — `emit/template.rs` emits one.
-//! Fixing the walker is a change to `capture.rs`, which is where it belongs and
-//! is not this file's to make; what this file owes is not to depend on the
-//! stale claim.
+//! That coupling has already cost something once, and the shape of it is worth
+//! keeping. Four nodes — a template, a tagged template, and the two `super`
+//! forms — used to be handled here by discarding **every** candidate in the
+//! enclosing body, under a comment saying the shared walker did not descend into
+//! them. It was true when written. `capture.rs` then taught `walk_expr` to
+//! descend into all four (a name mentioned only inside a substitution was not
+//! being counted as captured, so `` function f() { return `${x}`; } `` failed to
+//! compile), and the arm here was not revisited — so **a single backtick
+//! anywhere in a function body disabled scalar replacement for that whole
+//! body**, for a reason that had stopped existing.
+//!
+//! The four are ordinary nodes now: a substitution is a value position, so
+//! `` `${o.a}` `` keeps a candidate and `` `${o}` `` kills it, which is right —
+//! an object interpolated whole escapes into `ToString`. A tagged template is
+//! handled beside `Call`, because `` o.m`…` `` hands `o` over as a receiver
+//! exactly as `o.m()` does.
+//!
+//! The rule that survives: a claim here about what another file does is a
+//! coupling that will go stale, so state it where it can be checked and treat a
+//! blanket kill as a **debt**, not a safety property. It is safe, and it was
+//! costing a whole optimisation.
 //!
 //! # The ordering rule
 //!
@@ -619,19 +633,6 @@ fn scan_expr(expr: &Expr, depth: u32, state: &mut Escaping, allow_member: bool) 
             }
         }
 
-        // The shared walker does not descend into these four. Its comment says
-        // the emitter refuses them, and that is stale for at least the template
-        // — `emit/template.rs` emits one. Rather than write the traversal it is
-        // missing, nothing survives a body containing one: a node whose children
-        // this analysis cannot see must not leave a candidate alive.
-        ExprKind::Template { .. }
-        | ExprKind::TaggedTemplate { .. }
-        | ExprKind::SuperMember { .. }
-        | ExprKind::SuperCall { .. } => {
-            state.everything = true;
-            return;
-        }
-
         _ => {}
     }
 
@@ -660,6 +661,36 @@ fn scan_expr(expr: &Expr, depth: u32, state: &mut Escaping, allow_member: bool) 
                         scan_expr(value, depth, state, true)
                     }
                 }
+            }
+            return;
+        }
+
+        // A tagged template is a call written in another alphabet: `t`o.a`` is
+        // `t(strings, o.a)`, and `o.m`…`` hands `o` over as the receiver exactly
+        // as `o.m()` does. So the tag is scanned with reads disallowed and the
+        // substitutions are values, which is the `Call` arm above with the
+        // arguments spelled differently.
+        //
+        // # Why this is here at all
+        //
+        // This node, `Template`, `SuperMember` and `SuperCall` used to share one
+        // arm that set `state.everything` — discarding every candidate in the
+        // enclosing body — under the comment "the shared walker does not descend
+        // into these four". That was true when it was written and stopped being
+        // true: `capture.rs`'s `walk_expr` descends into all four now, and says
+        // so in its own comment, because a name mentioned only inside a
+        // substitution was not being counted as captured.
+        //
+        // What the stale arm cost is out of proportion to the node: **a single
+        // backtick anywhere in a function body disabled scalar replacement for
+        // the whole body**, so an object literal that would have vanished
+        // allocated instead — and a template literal is not a rare construct.
+        ExprKind::TaggedTemplate {
+            tag, expressions, ..
+        } => {
+            scan_expr(tag, depth, state, false);
+            for expression in expressions {
+                scan_expr(expression, depth, state, true);
             }
             return;
         }
@@ -737,6 +768,19 @@ fn scan_expr(expr: &Expr, depth: u32, state: &mut Escaping, allow_member: bool) 
             // object being `o` ITSELF is what the line above kills.
             | ExprKind::Member { .. }
             | ExprKind::Index { .. }
+            // Every substitution of a template is a value: `` `${o.a}` `` reads
+            // the property and converts it, while `` `${o}` `` reaches `o` as a
+            // bare name and the line above kills it. That is the right answer
+            // for both — an object interpolated whole escapes into `ToString`.
+            | ExprKind::Template { .. }
+            // `super[k]`: the receiver is `this`, which is not a name this pass
+            // tracks, so the only child is the computed key and it is a value.
+            | ExprKind::SuperMember { .. }
+            // `super(o.a)`: the arguments are values, and unlike `Call` and
+            // `Array` the walker does reach into a spread here — its arm takes
+            // `argument.expression()` — so `super(...o)` still reaches `o` as a
+            // bare name and is killed.
+            | ExprKind::SuperCall { .. }
     );
     walk_expr(expr, &mut |child| match child {
         Child::Expr(inner) => scan_expr(inner, depth, state, children_are_values),
@@ -886,6 +930,47 @@ mod tests {
     #[test]
     fn returning_the_object_hands_it_to_a_caller_that_can_still_read_it() {
         assert!(replaced("let o = {a: 1}; return o;").is_empty());
+    }
+
+    #[test]
+    fn a_template_elsewhere_in_the_body_does_not_cost_the_body_its_replacement() {
+        // A template, a tagged template and both `super` forms used to set
+        // `everything`, discarding every candidate in the enclosing body,
+        // because `capture::walk_expr` did not descend into them. It does now.
+        // What that cost was out of all proportion to the node: one backtick
+        // anywhere in a function turned scalar replacement off for the whole
+        // function, and `o` here is not mentioned in the template at all.
+        assert_eq!(
+            replaced("let o = {a: 1}; let s = `x${1}y`; return o.a + s.length;"),
+            ["o"]
+        );
+        assert_eq!(
+            replaced("let o = {a: 1}; let s = tag`x${1}y`; return o.a + s;"),
+            ["o"]
+        );
+    }
+
+    #[test]
+    fn interpolating_a_property_reads_the_property_and_not_the_object() {
+        // The distinction the blanket kill could not draw, and the reason
+        // treating these as ordinary nodes is better than descending
+        // conservatively: a substitution is a value position, so one of these
+        // survives and the other must not.
+        assert_eq!(replaced("let o = {a: 1}; return `${o.a}`;"), ["o"]);
+        assert!(replaced("let o = {a: 1}; return `${o}`;").is_empty());
+    }
+
+    #[test]
+    fn a_tagged_template_hands_its_receiver_over_exactly_as_a_method_call_does() {
+        // ``o.m`…` `` is `o.m` called with `o` as the receiver, so the tag is a
+        // callee and not a plain read — the same rule the `Call` arm states, and
+        // the reason a tagged template is handled beside it rather than through
+        // the value-position flag.
+        assert!(replaced("let o = {a: 1}; return o.a`x`;").is_empty());
+        // A substitution, by contrast, is an ordinary argument.
+        assert_eq!(replaced("let o = {a: 1}; return tag`x${o.a}`;"), ["o"]);
+        // And spreading the object itself still reaches it as a bare name.
+        assert!(replaced("let o = {a: 1}; return tag`x${o}`;").is_empty());
     }
 
     #[test]
