@@ -76,6 +76,14 @@ const PAGINA: &str = r#"<!DOCTYPE html>
   <div class="b" id="c8b"></div>
 </div>
 
+<div class="caso" id="b1"><div id="b1p" style="padding-top:1px"><div class="b" id="b1f" style="margin-top:40px"></div></div><div class="b" id="b1n"></div></div>
+<div class="caso" id="b2"><div id="b2p" style="float:left;width:200px"><div class="b" id="b2f" style="margin-top:40px"></div></div><div class="b" id="b2n" style="clear:both"></div></div>
+<div class="caso" id="b3"><div id="b3p" style="display:flex;flex-direction:column"><div class="b" id="b3f" style="margin-top:40px"></div></div><div class="b" id="b3n"></div></div>
+<div class="caso" id="b4"><div id="b4p" style="display:inline-block;width:200px"><div class="b" id="b4f" style="margin-top:40px"></div></div></div>
+<div class="caso" id="b5"><div id="b5p" style="display:flow-root"><div class="b" id="b5f" style="margin-top:40px"></div></div><div class="b" id="b5n"></div></div>
+<div class="caso" id="b6"><div id="b6p" style="border-bottom:1px solid #000"><div class="b" id="b6f" style="margin-top:40px;margin-bottom:40px"></div></div><div class="b" id="b6n"></div></div>
+<div class="caso" id="b7"><div id="b7p"><div class="b" id="b7f" style="margin-top:40px;margin-bottom:40px"></div></div><div class="b" id="b7n" style="margin-top:10px"></div></div>
+
 </body></html>"#;
 
 /// Um pixel de tolerância — a mesma da régua de paridade. Estes casos são
@@ -268,4 +276,113 @@ fn o_bloco_vazio_colapsa_tambem_com_a_margem_do_vizinho_anterior() {
         perto(intervalo, 30.0),
         "intervalo = {intervalo} (Chrome: 30 = max(25,20,30))"
     );
+}
+
+// ── AS BARREIRAS AO COLAPSO PAI/FILHO ───────────────────────────────────────
+//
+// Sete casos medidos no mesmo dump que os oito de cima, e existem por uma razão
+// que o caso do `overflow:hidden` sozinho não consegue dar: ele diz que HÁ uma
+// barreira e não diz que há DUAS, uma por lado. O `b6` é o que discrimina —
+// uma borda só em baixo deixa a margem de cima escapar e prende a de baixo.
+//
+// Um lote que tratasse a barreira como uma decisão da caixa inteira passava no
+// caso do `overflow` e falhava a página. É a diferença entre um caso que
+// confirma e um caso que pode desmentir.
+
+/// Um `padding-top` de um único pixel já barra: a margem do filho não atravessa
+/// e o pai cresce em vez de descer.
+///
+/// Chrome: pai em y=1 com 61 de altura, filho em 42.
+#[test]
+fn um_padding_de_um_pixel_barra_o_colapso_do_primeiro_filho() {
+    let (yp, hp) = rel("b1", "b1p");
+    let (yf, _) = rel("b1", "b1f");
+    assert!(perto(yp, 1.0) && perto(hp, 61.0), "pai y={yp} h={hp} (Chrome: 1 / 61)");
+    assert!(perto(yf, 42.0), "filho y={yf} (Chrome: 42)");
+}
+
+/// Um float estabelece contexto de formatação próprio: nada colapsa através dele.
+///
+/// Chrome: pai em y=1 com 60 de altura.
+#[test]
+fn um_float_barra_o_colapso_atraves_do_pai() {
+    let (yp, hp) = rel("b2", "b2p");
+    assert!(perto(yp, 1.0) && perto(hp, 60.0), "pai y={yp} h={hp} (Chrome: 1 / 60)");
+}
+
+/// Um pai flex não tem colapso de margens de todo — os filhos são itens de flex.
+///
+/// Chrome: pai em y=1 com 60 de altura.
+///
+/// Passa de graça e continuará a passar: `layout_children_vertical` só é
+/// chamada no ramo vertical, portanto um pai flex nunca chega ao código que o
+/// lote do pai/filho vai mexer. Fica como guarda dessa afirmação.
+#[test]
+fn um_pai_flex_nao_colapsa_com_os_filhos() {
+    let (yp, hp) = rel("b3", "b3p");
+    assert!(perto(yp, 1.0) && perto(hp, 60.0), "pai y={yp} h={hp} (Chrome: 1 / 60)");
+}
+
+/// Um `inline-block` estabelece contexto próprio.
+///
+/// Chrome: pai em y=1 com 60 de altura.
+#[test]
+fn um_inline_block_barra_o_colapso_atraves_do_pai() {
+    let (yp, hp) = rel("b4", "b4p");
+    assert!(perto(yp, 1.0) && perto(hp, 60.0), "pai y={yp} h={hp} (Chrome: 1 / 60)");
+}
+
+/// `display:flow-root` existe SÓ para estabelecer um contexto de formatação —
+/// é a única coisa que a palavra significa.
+///
+/// Chrome: pai em y=1 com 60 de altura.
+///
+/// **Passa hoje por VACUIDADE, e o comentário anterior creditava isso a uma
+/// dependência que não existe.** Dizia que passaria quando a linha do
+/// `style/parse` entrasse; a linha entrou (`27af61c4`) e o teste **já estava
+/// verde antes dela**. Passa porque nada escapa do pai, portanto não há nada
+/// para barrar — e não porque saibamos distinguir um `flow-root`.
+///
+/// O que a correcção do `style/` mudou é outra coisa, e é o que serve ao lote
+/// do pai/filho: a distinção NÃO está no `DisplayKind`, que continua a mapear
+/// `block` e `flow-root` para o mesmo valor, e passou a viver num campo
+/// próprio, `ComputedStyle::flow_root`. **É esse campo que a barreira tem de
+/// ler**, e é por isso que este teste passa de vacuidade a portão no dia em que
+/// a margem começar a escapar.
+#[test]
+fn flow_root_barra_o_colapso_atraves_do_pai() {
+    let (yp, hp) = rel("b5", "b5p");
+    assert!(perto(yp, 1.0) && perto(hp, 60.0), "pai y={yp} h={hp} (Chrome: 1 / 60)");
+}
+
+/// **O caso que discrimina: uma borda só em baixo barra só em baixo.**
+///
+/// Chrome: o pai DESCE para y=41 — a margem de cima do filho atravessou-o — e
+/// fica com 61 de altura, que são os 20 do filho mais os 40 da margem de baixo
+/// que a borda prendeu, mais o pixel da borda. O irmão seguinte fica em 102.
+///
+/// Um lote que decidisse a barreira pela caixa e não pelo lado passaria em
+/// todos os outros seis e falharia neste.
+#[test]
+#[ignore = "Chrome pai y=41 h=61 e seguinte 102, nos y=1 - a margem de cima nao escapa. Lote D"]
+fn uma_borda_so_em_baixo_barra_so_a_margem_de_baixo() {
+    let (yp, hp) = rel("b6", "b6p");
+    let (yn, _) = rel("b6", "b6n");
+    assert!(perto(yp, 41.0), "pai y={yp} (Chrome: 41 — a margem de cima escapou)");
+    assert!(perto(hp, 61.0), "pai h={hp} (Chrome: 61 — a de baixo ficou presa)");
+    assert!(perto(yn, 102.0), "seguinte y={yn} (Chrome: 102)");
+}
+
+/// Sem barreira nenhuma, as DUAS margens atravessam o pai.
+///
+/// Chrome: pai em y=41 com **20** de altura — nem a de cima nem a de baixo lá
+/// estão — e o irmão seguinte em 101, que é `41 + 20 + max(40, 10)`.
+#[test]
+#[ignore = "Chrome pai y=41 h=20 e seguinte 101, nos y=1 h=100 - nenhuma das duas escapa. Lote D"]
+fn sem_barreira_as_duas_margens_atravessam_o_pai() {
+    let (yp, hp) = rel("b7", "b7p");
+    let (yn, _) = rel("b7", "b7n");
+    assert!(perto(yp, 41.0), "pai y={yp} (Chrome: 41)");
+    assert!(perto(hp, 20.0), "pai h={hp} (Chrome: 20 — as duas margens saíram)");
+    assert!(perto(yn, 101.0), "seguinte y={yn} (Chrome: 101 = 41+20+max(40,10))");
 }
