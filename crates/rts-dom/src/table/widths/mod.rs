@@ -109,7 +109,7 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
         // Ainda assim não pode ficar ABAIXO do mínimo do conteúdo: uma largura
         // que não cabe é ignorada pelo browser, não respeitada com o texto a
         // transbordar.
-        let piso = min_content(dom, id, font, ctx, false) + frame;
+        let piso = min_content(dom, id, font, ctx, false);
         return Coluna {
             min: w.max(piso),
             max: w.max(piso),
@@ -117,7 +117,11 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
             restringida,
         };
     }
-    let min = min_content(dom, id, font, ctx, false) + frame;
+    // Sem somar `frame`: o `min_content` de um elemento já inclui a moldura DELE,
+    // e somá-la aqui contava o padding da célula duas vezes. Ficou invisível
+    // enquanto uma célula com `width` declarado devolvia a largura e voltava
+    // atrás — o caminho que somava duas vezes só era percorrido pelas outras.
+    let min = min_content(dom, id, font, ctx, false);
     Coluna {
         min,
         percentagem,
@@ -278,15 +282,52 @@ fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: b
             let frame = css.padding.resolve_h(&resolve)
                 + css.margin.resolve_h(&resolve)
                 + 2.0 * css.border_width.unwrap_or(0.0);
-            // Uma caixa REPLACED (imagem) não encolhe abaixo da sua largura, e um
-            // `width` explícito também não: nos dois casos o mínimo é a largura.
-            if let Some(w) = largura_absoluta(css.width, &resolve) {
-                return w + if css.border_box.unwrap_or(false) {
+            // Uma caixa REPLACED não encolhe abaixo da sua largura — e esta linha
+            // dizia-o num comentário enquanto o código só o cumpria quando a
+            // largura vinha do CSS. Uma `<img>` com o tamanho nos ATRIBUTOS, ou
+            // vindo dos pixels decodificados, respondia ZERO.
+            //
+            // O custo estava na página real e não num caso de canto: a miniatura
+            // de uma navbox do MediaWiki vive numa célula com
+            // `width:1px;padding:0 0 0 2px`, e o `.max(piso)` que existe para
+            // levantar uma largura declarada que não cabe **não levantava nada,
+            // porque o piso era zero**. A coluna ficava com 5px onde o Chrome dá
+            // 154, e as duas vizinhas absorviam os 149 — uma larga demais e outra
+            // estreita demais, no mesmo par.
+            //
+            // Pergunta-se ao ÚNICO sítio onde o tamanho de um replaced se decide,
+            // que é o mesmo que o `intrinsic_content_width` já consulta para o
+            // MÁXIMO. Escrever a regra outra vez aqui criava o segundo sítio que
+            // aquele ficheiro recusa criar, e as duas cópias divergiriam no dia
+            // em que uma delas aprendesse `<picture>`.
+            //
+            // A largura disponível é INFINITA porque um replaced não tem
+            // min-content diferente do max-content: ele não quebra. Passar a
+            // largura da viewport devolveria o que coubesse nela, que é outra
+            // pergunta.
+            if let Some((w, _)) =
+                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, ctx)
+            {
+                return w + frame;
+            }
+            // Um `width` explícito é um PISO e não um teto, e a diferença é o
+            // defeito inteiro. Isto respondia a largura declarada e **voltava
+            // atrás sem visitar os filhos** — uma célula com `width:1px`
+            // respondia 1px por muito que lá dentro estivesse, e quem a chamava
+            // fazia `declarada.max(piso)` contra um piso que era a própria
+            // declaração. O mínimo do conteúdo nunca entrava na conta.
+            //
+            // Guarda-se a declaração e continua-se a medir; o máximo dos dois é a
+            // resposta, mais abaixo. É também o que o browser faz: uma largura
+            // que não cabe é ignorada, não respeitada com o conteúdo a
+            // transbordar.
+            let declarada = largura_absoluta(css.width, &resolve).map(|w| {
+                w + if css.border_box.unwrap_or(false) {
                     0.0
                 } else {
                     frame
-                };
-            }
+                }
+            });
             // O `white-space` é herdado, por isso lê-se o do próprio nó em vez de
             // se propagar o do pai pela recursão: um descendente que volte a
             // `normal` PODE quebrar, e arrastar a bandeira para baixo negar-lhe-ia
@@ -311,7 +352,7 @@ fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: b
                     m = m.max(w);
                 }
             }
-            m.max(linha) + frame
+            (m.max(linha) + frame).max(declarada.unwrap_or(0.0))
         }
         _ => 0.0,
     }

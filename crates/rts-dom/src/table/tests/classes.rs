@@ -385,3 +385,30 @@ fn uma_largura_declarada_de_um_pixel_e_levantada_ate_a_imagem() {
         [446.0, 154.0]
     );
 }
+
+// ── O predicado que decide se uma caixa fecha a corrida ──────────────────────
+// Estes dois existem para pôr o `em_linha` à prova em vez de o assumir. A
+// pergunta que ele responde não é "esta caixa é inline?" mas "esta caixa
+// partilha a linha com as irmãs?" — e um `inline-block` responde SIM às duas,
+// por razões diferentes. O par abaixo separa-as: se o predicado errasse, o
+// primeiro caso mediria 50 em vez de 100.
+
+#[test]
+fn numa_celula_nowrap_os_inline_block_somam_se() {
+    // Sem quebra possível, os dois ficam na mesma linha: o mínimo é 50+50.
+    iguais!(
+        larguras(r#"<table style="width:60px;border-spacing:0"><tr><td style="white-space:nowrap"><i></i><i></i></td><td><b></b></td></tr></table>"#, 2),
+        [100.0, 100.0]
+    );
+}
+
+#[test]
+fn um_bloco_no_meio_quebra_a_linha_mesmo_com_nowrap() {
+    // O contraste que dá sentido ao teste anterior: um `display:block` fecha a
+    // corrida, e o mínimo volta a ser o MAIOR dos dois e não a soma. O `nowrap`
+    // não junta o que o fluxo de bloco separa.
+    iguais!(
+        larguras(r#"<table style="width:60px;border-spacing:0"><tr><td style="white-space:nowrap"><i></i><div style="display:block"><i></i></div></td><td><b></b></td></tr></table>"#, 2),
+        [50.0, 100.0]
+    );
+}
