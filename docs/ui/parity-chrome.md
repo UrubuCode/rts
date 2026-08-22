@@ -736,3 +736,70 @@ certo para 28 e errado para 149**, e as fixtures só tinham a família dos 28.
 O recorte que isto abre paga a contagem: um elemento *replaced* não precisa da
 capacidade nova — a spec manda a aresta inferior, que é o que já fazemos. **A
 parte cara do lote serve uma tag, não a família toda.**
+
+## O caminho do `vertical-align` não tem população — medido, e é o fim da frente
+
+Três lotes tentaram corrigir a linha de base de um `inline-block`. O terceiro
+não chegou a ser commitado, e é o que responde.
+
+**Cinco fixtures batem com o Chrome, incluindo uma construída para
+discriminar** — dois itens, um com texto e `line-height: 2`, outro vazio, que
+falharia com a fórmula errada e não falha com esta. **E a página piora
+783 617 px em `y`.**
+
+O que isolou a causa foi correr o mesmo lote com a contribuição do strut posta
+a zero:
+
+```
+HEAD                25 728 966
+lote COM strut      26 512 583      +783 617
+lote SEM strut      25 728 966      ← IDÊNTICO ao HEAD, ao pixel
+```
+
+**Idêntico, não aproximado.** Duas conclusões que não deixam margem: o
+alinhamento pela base é um **no-op** nesta página, e **todo** o custo é o strut.
+
+E a contagem diz porquê:
+
+```
+corridas com 1 item ...... 391
+corridas com 2 itens .....   1
+```
+
+**Uma corrida com dois itens em toda a página.** Numa corrida de um item, a
+altura da linha é `ascent + descent = h` seja qual for a repartição — o
+`vertical-align` decide onde uma caixa assenta **em relação às outras da mesma
+linha**, e com uma caixa por linha não há relação nenhuma para decidir.
+
+**É o mesmo argumento que já tinha invalidado as fixtures**, agora à escala da
+página: um caso com um item só não separa hipóteses, e 391 casos com um item só
+também não.
+
+### O que fica sabido
+
+- **este caminho não tem lote para dar**: a população do `vertical-align` dentro
+  do `layout_inline_block_line` é um elemento;
+- **o strut está certo nas fixtures e errado na página** — a leitura por medir é
+  que o Chrome só tem caixa de linha onde há um contexto de formatação inline, e
+  as nossas 391 corridas de um item podem não ser isso;
+- **a pergunta seguinte é outra e é maior**: porque temos 391 corridas de um item
+  onde o Chrome tem linhas com vários. Isso é a formação das corridas, e é a
+  mesma fronteira do `<button>` flex que estica.
+
+### E o que se guarda do lote revertido
+
+A fórmula certa, verificada em cinco `line-height` com erro **constante** de
++0,22 contra um fator que diverge até 8,92:
+
+```
+com linhas em fluxo  ->  ascent = ascent(fonte) + meia-entrelinha
+sem linhas em fluxo  ->  ascent = h,  descent = 0
+```
+
+A proporção `ascent/lh` **não é constante em `lh`**: a meia-entrelinha reparte-se
+acima e abaixo e a razão tende para 0,5. Um fator aplicado ao `line-height`
+acerta com `lh` normal e diverge com todos os outros.
+
+**Três tentativas, e o custo caiu em cada uma**: a primeira custou um commit e
+um revert, a segunda uma fórmula errada apanhada antes de escrever, a terceira
+só uma medição.
