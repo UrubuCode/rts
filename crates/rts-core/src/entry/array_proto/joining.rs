@@ -91,26 +91,44 @@ pub(super) extern "C" fn join(
     // `["a", hi, lo, "b"].join("")` answered a two-unit string where the
     // language says four. `split("")` already produced the right pieces; it
     // was putting them back that lost them.
-    let parts: Vec<Vec<u16>> = elements
-        .iter()
-        .map(|held| {
-            if empty.contains(held) {
-                return Vec::new();
-            }
-            let held = super::super::primitive::to_primitive(*held, crate::coerce::Hint::String);
-            with_current(|context| super::super::text::to_text(context, Value(held)))
-                .map(|text| text.units().collect())
-                .unwrap_or_default()
-        })
-        .collect();
-
+    // Written STRAIGHT INTO the answer, one buffer, rather than into a
+    // `Vec<Vec<u16>>` that is concatenated afterwards.
+    //
+    // That shape cost one heap allocation per element — a sixteen-element join
+    // made seventeen `Vec`s to produce one string — and bought nothing: the
+    // pieces were never inspected, reordered or measured, only appended in the
+    // order they were produced. `extend` over `Str::units` appends from the
+    // iterator with no intermediate, which is the technique
+    // `super::super::json::write` already uses for the same reason.
+    //
+    // The interleaving is safe for the reason the two-stage shape exists at all:
+    // `to_primitive` may run a user `toString`, so it runs OUTSIDE every borrow,
+    // and the borrow taken to read the text opens and closes inside one
+    // iteration. `joined` is an ordinary Rust `Vec` on the stack frame, not a
+    // borrow, so carrying it across those calls is not the re-entrancy this
+    // module's neighbours guard against.
+    //
+    // # What the order guarantees, and what it does not
+    //
+    // The separator is written for every position after the first, INCLUDING
+    // one whose element is `undefined`, `null` or a hole — `[1,,3].join("-")` is
+    // `"1--3"`. Emitting it before the element rather than after is what keeps
+    // that true without a second pass to trim a trailing one.
     let between: Vec<u16> = between.units().collect();
     let mut joined: Vec<u16> = Vec::new();
-    for (at, part) in parts.iter().enumerate() {
+    for (at, held) in elements.iter().enumerate() {
         if at > 0 {
             joined.extend_from_slice(&between);
         }
-        joined.extend_from_slice(part);
+        if empty.contains(held) {
+            continue;
+        }
+        let held = super::super::primitive::to_primitive(*held, crate::coerce::Hint::String);
+        with_current(|context| {
+            if let Some(text) = super::super::text::to_text(context, Value(held)) {
+                joined.extend(text.units());
+            }
+        });
     }
 
     with_current(|context| context.intern_value(Str::from_utf16(&joined)).bits())
