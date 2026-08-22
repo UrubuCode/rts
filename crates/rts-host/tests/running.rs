@@ -5040,6 +5040,113 @@ fn symbol_unscopables_hides_a_property_a_with_would_otherwise_find() {
     holds("let out = null; with ([1, 2, 3]) { out = join(\"-\"); } return out === \"1-2-3\";");
 }
 
+// ---------------------------------------------------------------------------
+// One re-raise block per protected region.
+//
+// A throw is recorded rather than unwound, so every call that can raise is
+// followed by a load, a compare and a branch to a block that takes the value
+// back and re-raises it. That block has no parameters and reads nothing from the
+// site, so `emit/body_throw.rs` shares one among every check in the same
+// region — 1 069 identical copies in `bench/analytic.ts` became 96, one per
+// function.
+//
+// What makes the sharing sound is that the region is the key, and what these
+// pin is exactly that: where a re-raise lands is decided by the region its block
+// is in, so two sites that are NOT in the same region must not reach one copy.
+// ---------------------------------------------------------------------------
+
+/// A `try` inside a `try` catches its own throw, not the outer one's handler.
+///
+/// The sharpest thing the region key protects. Both `throw`s are re-raised by
+/// the same mechanism from checks in the same function; if one block served
+/// both, the inner throw would be routed into whichever handler that block was
+/// built under and the wrong `catch` would run — silently, with a plausible
+/// value.
+#[test]
+fn a_nested_try_does_not_reuse_the_outer_regions_re_raise() {
+    let answer = run(
+        "let log = ''; \
+         try { \
+           try { JSON.parse('{'); } catch (e) { log = log + 'i'; } \
+           JSON.parse('['); \
+           log = log + 'X'; \
+         } catch (e) { log = log + 'o'; } \
+         return log === 'io' ? 1 : 0;",
+    );
+    assert_eq!(
+        tags::decode_double(answer),
+        1.0,
+        "the inner throw must reach the inner catch and the outer the outer; \
+         'X' in the log means the second parse did not raise at all"
+    );
+}
+
+/// Two checks in the SAME region do share, and the sharing is invisible.
+///
+/// The other half: sharing must not change which handler runs or how many times
+/// a `finally` executes. Three raising calls in one `try` branch to one block.
+#[test]
+fn many_checks_in_one_region_still_run_the_handler_once() {
+    let answer = run(
+        "let ran = 0; let caught = 0; \
+         try { JSON.parse('{'); JSON.parse('['); JSON.parse('}'); } \
+         catch (e) { caught = caught + 1; } \
+         finally { ran = ran + 1; } \
+         return caught === 1 && ran === 1 ? 1 : 0;",
+    );
+    assert_eq!(
+        tags::decode_double(answer),
+        1.0,
+        "one throw, one catch, one finally — sharing the re-raise must not \
+         multiply either"
+    );
+}
+
+/// A function written inside a `try` builds its own re-raise, not the outer
+/// body's.
+///
+/// The memo holds `BlockId`s, which belong to one `FuncBuilder`. An inner body
+/// that inherited the outer body's would branch to a block of another function
+/// — the failure `emit/function.rs` records for `finally_jumps`, where the
+/// builder panics with "block belongs to this function". This is the ordinary
+/// code that reaches it.
+#[test]
+fn a_function_defined_inside_a_try_does_not_inherit_its_re_raise_block() {
+    let answer = run(
+        "let out = ''; \
+         try { \
+           const inner = () => { try { JSON.parse('{'); } catch (e) { return 'in'; } return 'no'; }; \
+           out = inner(); \
+         } catch (e) { out = 'outer'; } \
+         return out === 'in' ? 1 : 0;",
+    );
+    assert_eq!(
+        tags::decode_double(answer),
+        1.0,
+        "the arrow's own try must catch its own throw; 'outer' means the inner \
+         body re-raised into the enclosing function's handler"
+    );
+}
+
+/// A throw with no `try` anywhere still leaves the function.
+///
+/// `None` — no region open — is a key like any other in the memo, and this is
+/// the case that says the shared block for it still returns rather than being
+/// swallowed by a handler that does not exist.
+#[test]
+fn a_throw_outside_every_region_still_escapes_the_function() {
+    let answer = run(
+        "function raises() { JSON.parse('{'); return 'NOT REACHED'; } \
+         try { raises(); return 0; } catch (e) { return 1; }",
+    );
+    assert_eq!(
+        tags::decode_double(answer),
+        1.0,
+        "the callee has no region of its own, so its check must re-raise out of \
+         it and be caught by the caller's try"
+    );
+}
+
 /// A captured write inside a nested function does not leak its memo outward.
 ///
 /// `emit/body_state.rs` memoises the last captured write so that `s = s + x`

@@ -676,17 +676,30 @@ pub(super) fn raise_if_thrown(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitR
     // function." Sharing one block between a site inside a `try` and a site
     // outside it would route the outer one into a handler that never protected
     // it. `BodyState::reraise_in` holds that argument.
-    // Created while the protected region is open, so the machine places them in
-    // it — which is what makes the re-raise below land in this function's
-    // handler rather than leaving the function.
-    let unwinding = builder.create_block();
+    // The ORDER below is the order this function always had, and that is not
+    // incidental. An earlier draft of the sharing created the block, switched
+    // into it, emitted the re-raise, switched back, and only then terminated the
+    // block it had left — so the block being built sat without a terminator
+    // while another was filled. It compiled, and it broke a program HEAD
+    // compiles: `['a','b'].forEach(x => { s = s + x; if (x === 'b') throw … })`
+    // inside a `try` reached Cranelift's verifier with "uses value from
+    // non-dominating inst". So: terminate first, then fill, exactly as before.
+    let region = builder.innermost_open_region();
     let carrying_on = builder.create_block();
-    builder.branch(raised, (unwinding, &[]), (carrying_on, &[]))?;
-
-    builder.switch_to(unwinding);
-    let taken = ctx.calls.declare(ctx.funcs, RuntimeOp::TakeThrown);
-    let value = builder.call(ctx.funcs, taken, &[])?[0];
-    builder.throw(super::protect::JS_THROW, value);
+    match ctx.body.reraise_in(region) {
+        // Already built for this region by an earlier check. Nothing to emit —
+        // this is the whole of what the sharing does.
+        Some(built) => builder.branch(raised, (built, &[]), (carrying_on, &[]))?,
+        None => {
+            let made = builder.create_block();
+            builder.branch(raised, (made, &[]), (carrying_on, &[]))?;
+            builder.switch_to(made);
+            let taken = ctx.calls.declare(ctx.funcs, RuntimeOp::TakeThrown);
+            let value = builder.call(ctx.funcs, taken, &[])?[0];
+            builder.throw(super::protect::JS_THROW, value);
+            ctx.body.remember_reraise(region, made);
+        }
+    }
 
     builder.switch_to(carrying_on);
     Ok(())

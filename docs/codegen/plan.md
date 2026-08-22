@@ -230,6 +230,91 @@ The original entry follows, unchanged.
 
 **Cost, stated plainly:** a false `can_raise() == false` is a **swallowed throw** — a caught exception silently becoming a wrong answer. The two facts must be asserted against each other in rts‑host, never hand‑written twice.
 
+### S5c. One re-raise block per region, and the emitter bug it uncovered — **LANDED 2026-08-22**
+
+Two changes and one bug, and the bug is the part worth reading.
+
+**(a) The re-raise block was built per SITE.** Every check that follows a call
+that can raise branches to a block holding three lines — a header, a call to
+`__rts_take_thrown`, and a `Throw`. `bench/analytic.ts` held **1 069 identical
+copies**, 20% of every basic block in the file.
+
+Sound to share because the block reads NOTHING from the site: no parameters, and
+its only instruction is a call with no arguments. The key is the **region**,
+because where a `Throw` lands is decided by the region its block is in — the
+reason `raise_if_thrown` always created the block with the region still open.
+`emit/body_state.rs` holds that argument. 1 069 → **96**, one per function.
+
+**(b) Three `hit` blocks in `property.rs` were forwarding a value to
+themselves.** `cached_get` prepends the value it found to whatever the hit
+`BlockCall` carries — which is why the hit target must have `Repr::Tagged` first.
+The emitter still built a block whose only parameter was that value and whose
+only instruction was a jump handing it to `join`. Pointing the terminator at
+`join` removes 403 of the 1 072 blocks that held nothing but a `Jump`.
+
+| `bench/analytic.ts` | before | after | |
+|---|---:|---:|---|
+| IR lines | 21 434 | 17 407 | −18.8% |
+| basic blocks | 5 456 | 4 010 | −26.5% |
+| re-raise blocks | 1 069 | 96 | **−91%** |
+
+Against the figures before S5 and S5b: **26 839 → 17 407 lines and 6 164 → 4 010
+blocks, −35% each.**
+
+#### The bug, which is worth more than the block count
+
+Sharing the re-raise block shifted block numbering, and **a program HEAD compiles
+stopped compiling**: `['a','b'].forEach(x => { s = s + x; if (x === 'b') throw … })`
+inside a `try`. Two programs that HEAD *cannot* compile started working. None of
+those three was evidence about the change. All three were one pre-existing
+defect.
+
+`Ctx::last_captured_write` memoises a captured binding's last written value so
+that `s = s + x` followed by a read of `s` does not go back to the heap — worth
+69.6 ns an iteration on `bench/monte_carlo_pi.ts`, and its window is deliberately
+one block wide. It holds a `ValueId` **and** a `BlockId`, both handles into one
+`FuncBuilder`, and **it was never saved or restored around a nested function.**
+
+So a write inside an arrow left a memo naming the arrow's block and the arrow's
+value, and emission carried on in the enclosing body still holding it. The guard
+is "same block, nothing emitted here", and `BlockId`s are per function — a
+collision is not exotic, it is one number matching another. What comes out is a
+read answering a value from a function it is not in, and the symptom is
+`Place(Lower(CannotWiden { from: I64 }))`, which `emit/binding.rs` already
+records as this field's failure mode for a *different* mistake.
+
+It is the **third** instance of one defect class in this file's history: the
+`thrown_flag` that made every generator load a callee's address, the
+`finally_jumps` that made the builder panic with "block belongs to this
+function", and this. The fix is not a fourth save-and-restore site to keep in
+step by hand — it is `emit/body_state.rs`, one field holding every fact that
+belongs to one `FuncBuilder`, taken and restored as a unit.
+
+**It fixes a test**: `running.rs::a_throw_from_a_callback_stops_the_native_that_called_it`
+went from FAILED to ok, and it is a fix rather than a shift — the cause was
+found, and the program compiles with the memo enabled.
+
+**Still open, and this is the honest edge**: the memo's window is per block and
+nothing says how many blocks may collide *within* one function. Nothing found
+such a case, and nothing looked for one.
+
+#### What the IR still holds that nobody has removed
+
+**744 blocks still contain nothing but a `Jump`**, 572 of them reached from a
+`Branch`. They are the `carrying_on` of a throw check that turned out to have
+nothing after it — which is not knowable when the block is created, so it cannot
+be fixed the way (b) was. Removing them is a CFG pass that threads edges past
+empty forwarding blocks and then compacts the block list, and compacting means
+renumbering `BlockId`s — which `RegionTree` also stores, for handlers and
+cleanups. A mistake there is a silently uncaught throw. It is a separate change
+with its own gate.
+
+**334 `Const` instructions are duplicates within one block.** Small. Sharing more
+than that needs dominance, and the entry block dominates everything — but a
+constant materialized once in the entry block is live across the whole function,
+which trades IR size for register pressure, and `opt_level = none` means
+Cranelift will not undo it. Not attempted; not measured either way.
+
 ### S5b. The constant pool was 94% duplicates — **LANDED 2026-08-22**
 
 **Not on any list before this, and found by counting rather than by reasoning.**

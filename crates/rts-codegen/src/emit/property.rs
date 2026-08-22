@@ -80,8 +80,6 @@ pub(super) fn emit_read(
 
     let as_reference = builder.create_block();
     let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
-    let hit = builder.create_block();
-    let found = builder.add_block_param(hit, UNPROVEN);
     let slow = builder.create_block();
     let join = builder.create_block();
     let result = builder.add_block_param(join, UNPROVEN);
@@ -95,10 +93,19 @@ pub(super) fn emit_read(
 
     builder.switch_to(as_reference);
     let cache = builder.declare_cache();
-    builder.cached_get(narrowed, key, cache, (hit, &[]), (slow, &[]))?;
-
-    builder.switch_to(hit);
-    builder.jump(join, &[found])?;
+    // Straight to the join, with no `hit` block in between.
+    //
+    // There was one: a block whose only parameter was the value the cache
+    // found and whose only instruction was a jump handing that same value to
+    // `join`. It could go because the machine already does the handing —
+    // `cached_get` prepends the found value to whatever the hit `BlockCall`
+    // carries, which is why the hit target must have `Repr::Tagged` first and
+    // why the args here are empty. `join`'s one parameter IS that shape, so the
+    // forwarding block was passing a value to itself.
+    //
+    // Three sites in this file did it and they were 403 of the 1 072 blocks in
+    // `bench/analytic.ts` that held nothing but a `Jump`.
+    builder.cached_get(narrowed, key, cache, (join, &[]), (slow, &[]))?;
 
     builder.switch_to(slow);
     let key_value = key_constant(builder, ctx, property);
@@ -144,8 +151,6 @@ pub(super) fn emit_read_indirect(
 
     let as_reference = builder.create_block();
     let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
-    let hit = builder.create_block();
-    let found = builder.add_block_param(hit, UNPROVEN);
     let slow = builder.create_block();
     let join = builder.create_block();
     let result = builder.add_block_param(join, UNPROVEN);
@@ -159,10 +164,10 @@ pub(super) fn emit_read_indirect(
 
     builder.switch_to(as_reference);
     let cache = builder.declare_cache();
-    builder.cached_get_indirect(narrowed, key, cache, (hit, &[]), (slow, &[]))?;
-
-    builder.switch_to(hit);
-    builder.jump(join, &[found])?;
+    // No `hit` block, for the reason [`emit_read`] states: the machine prepends
+    // the found value itself, so a block that received it and passed it on was
+    // handing a value to itself.
+    builder.cached_get_indirect(narrowed, key, cache, (join, &[]), (slow, &[]))?;
 
     builder.switch_to(slow);
     let key_value = key_constant(builder, ctx, property);
@@ -197,7 +202,6 @@ pub(super) fn emit_write(
 
     let as_reference = builder.create_block();
     let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
-    let stored = builder.create_block();
     let slow = builder.create_block();
     let join = builder.create_block();
     let result = builder.add_block_param(join, UNPROVEN);
@@ -211,13 +215,15 @@ pub(super) fn emit_write(
 
     builder.switch_to(as_reference);
     let cache = builder.declare_cache();
-    builder.cached_set(narrowed, key, cache, value, (stored, &[]), (slow, &[]))?;
-
     // An assignment is an expression, and what it produces is the value that was
     // assigned — the same on both paths, which is why the join carries it rather
     // than each path answering separately.
-    builder.switch_to(stored);
-    builder.jump(join, &[value])?;
+    //
+    // It is carried straight from here. There was a `stored` block whose only
+    // instruction was `jump(join, &[value])`, and unlike the two reads above
+    // this one needs the argument written out: `cached_set` has no found value
+    // to prepend, so its hit `BlockCall` carries what the caller puts in it.
+    builder.cached_set(narrowed, key, cache, value, (join, &[value]), (slow, &[]))?;
 
     builder.switch_to(slow);
     let key_value = key_constant(builder, ctx, property);

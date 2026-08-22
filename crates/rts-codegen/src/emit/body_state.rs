@@ -1,11 +1,10 @@
-//! What one function body knows about throws, and why the two facts are one
-//! field.
+//! What the emitter knows about the body it is in, and why it is one field.
 //!
 //! # The hazard this type exists to make unrepresentable
 //!
-//! Both things here name something that belongs to **one** `FuncBuilder`: an
-//! SSA value and a block. A nested function is emitted in the middle of an outer
-//! one, with its own builder, so either of them read across that boundary names
+//! Everything here names something that belongs to **one** `FuncBuilder`: SSA
+//! values and blocks. A nested function is emitted in the middle of an outer
+//! one, with its own builder, so any of them read across that boundary names
 //! something from a function the emitter is not in.
 //!
 //! Neither failure is caught by a type. The value one has already happened and
@@ -26,7 +25,8 @@
 //! whose key is either — belongs here for the same reason, and gets the scoping
 //! for free rather than getting its own site to forget.
 
-use rts_cranelift::ir::ValueId;
+use rts_cranelift::RegionId;
+use rts_cranelift::ir::{BlockId, ValueId};
 
 /// The facts that belong to the body currently being emitted.
 #[derive(Default)]
@@ -64,9 +64,49 @@ pub(crate) struct BodyState {
     /// what a body with no entry block of its own gets. See
     /// `expr::raise_if_thrown`.
     pub(super) flag: Option<ValueId>,
+    /// The block that re-raises, once per protected region that asked for one.
+    ///
+    /// See [`BodyState::reraise_in`] for why one per region rather than one per
+    /// body or one per site.
+    reraise: Vec<(Option<RegionId>, BlockId)>,
 }
 
 impl BodyState {
+    /// The re-raise block already built for this region, if there is one.
+    ///
+    /// # Why one per region and not one per body
+    ///
+    /// The block's terminator is a `Throw`, and where a throw lands is decided
+    /// by the region the throwing block is in — that is the whole reason
+    /// `raise_if_thrown` creates its block while the region is open. Two sites
+    /// inside the same `try` re-raise into the same handler; a site inside it
+    /// and a site outside it do not. So the region is exactly the key, and
+    /// `None` — no region open — is a key like any other, because every block
+    /// outside every region routes alike.
+    ///
+    /// A `RegionId` is minted fresh by each `open_region`, so a region that
+    /// closes and reopens is a different key and cannot collide with itself.
+    ///
+    /// # Why sharing is sound at all
+    ///
+    /// The block takes no parameters and reads nothing from the site that
+    /// branches to it: it calls `__rts_take_thrown` and throws what came back.
+    /// So there is no value that has to dominate anything, and two sites
+    /// branching to one copy cannot disagree about what it computes — which is
+    /// what made 1 069 identical copies of it in `bench/analytic.ts` pure
+    /// duplication rather than specialisation.
+    pub(super) fn reraise_in(&self, region: Option<RegionId>) -> Option<BlockId> {
+        self.reraise
+            .iter()
+            .find(|(held, _)| *held == region)
+            .map(|(_, block)| *block)
+    }
+
+    /// Records the re-raise block built for a region.
+    pub(super) fn remember_reraise(&mut self, region: Option<RegionId>, block: BlockId) {
+        self.reraise.push((region, block));
+    }
+
     /// Takes both facts away for the duration of a nested function, answering
     /// what to hand back to [`BodyState::leave_nested`].
     ///

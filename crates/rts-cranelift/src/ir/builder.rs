@@ -229,6 +229,35 @@ impl<'a> FuncBuilder<'a> {
             .is_empty()
     }
 
+    /// Which protected region a block created right now would land in, if any.
+    ///
+    /// # Why a client is allowed to ask, when rule 8 says it should not have to
+    ///
+    /// It is not asking so it can place a block — [`FuncBuilder::create_block`]
+    /// still does that, and there is still no way to decline or override it.
+    /// This answers a different question: **whether two blocks created at two
+    /// moments would be interchangeable.**
+    ///
+    /// A client that emits the same parameterless block over and over — a
+    /// re-raise, a trap, a common cleanup — can share one instead, but only
+    /// among sites that would have produced the same thing, and what decides
+    /// that is the region, because the region is what a terminator in the block
+    /// is routed by. A client cannot compute the answer itself: `open_regions`
+    /// is private and the nesting is this type's business.
+    ///
+    /// So the shape is the same as rule 8's: the machine keeps deciding, and
+    /// exposes the decision it took rather than the mechanism. Answering `None`
+    /// means a block created now belongs to no region, which is itself a key a
+    /// client may share on — every block outside every region routes alike.
+    ///
+    /// Rejected: handing back the whole open stack. A `RegionId` already
+    /// determines its ancestors through [`crate::unwind::RegionTree`], so the
+    /// stack is the same key spelled longer, and a client comparing stacks would
+    /// be re-deriving nesting this type owns.
+    pub fn innermost_open_region(&self) -> Option<RegionId> {
+        self.open_regions.last().copied()
+    }
+
     /// Appends an empty block, in whatever region is open.
     pub fn create_block(&mut self) -> BlockId {
         let block = self.func.push_block();
