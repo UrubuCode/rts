@@ -360,9 +360,34 @@ impl Region {
         // changed is only that the starting window is not written twice.
         //
         // It does not make the memory free either. An untouched reserved page
-        // still has no physical page behind it, exactly as before; a page the
-        // program allocates into is faulted in on first touch, exactly as
-        // before. The saving is the *redundant* write, not the memory.
+        // still has no physical page behind it, and a page the program
+        // allocates into is faulted in on first touch. The saving is the
+        // *redundant* write, not the memory.
+        //
+        // # Where the fault moved to, and the measurement that settled it
+        //
+        // "exactly as before" stood in that last sentence and was **wrong**, so
+        // it is corrected here rather than deleted. Before this change the
+        // `resize` memset TOUCHED the first eight megabytes, so those pages were
+        // resident before the program started; now they are not, and the first
+        // write into each is a fault the program pays instead of the startup.
+        // That is a real transfer of work from one place to another, and the
+        // honest question is whether the program pays more than the startup
+        // saved.
+        //
+        // It does not. Measured 2026-08-22, same session, alternated, a loop of
+        // three million `new Callee()`: the tree WITH this change runs at
+        // 104.99 / 103.11 / 98.51 ns per allocation against the tree without it
+        // at 112.41 / 103.57 / 106.37. Faster, or level — the faults are spread
+        // one page at a time across a program that is doing other work, where
+        // the memset was eight megabytes in one blocking run before anything
+        // could start.
+        //
+        // The reason this correction exists at all: `bench/analytic.ts` reported
+        // `alloc class instance` at 108 against a table saying 90.89, which read
+        // as a 20% regression and had this exact mechanism ready to explain it.
+        // The A/B above is what refuted it — both binaries measure ~105 today,
+        // and the 90.89 is a different day. See `docs/codegen/measurements.md`.
         let mut words = vec![0u64; words_for(reserved)];
         words.truncate(words_for(cells));
         Region {

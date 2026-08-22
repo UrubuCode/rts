@@ -154,8 +154,27 @@ allocation returned.
 
 Nothing about the reservation changed, and the memory is not free now either: an
 untouched reserved page still has no physical page behind it, and a page the
-program allocates into is still faulted in on first touch. What went is the
+program allocates into is faulted in on first touch. What went is the
 *redundant* write.
+
+**But the faults did move, and this document said they did not.** Before the
+change, the `resize` memset touched the first 8 MiB, so those pages were resident
+before the program started. Now they are not, and a program that allocates pays
+a fault per page that startup used to have paid in one blocking run.
+
+That transfer had to be priced rather than assumed, because it is exactly the
+shape of an optimisation that moves a cost instead of removing one. Measured
+2026-08-22, same session, alternated, three million `new Callee()`:
+
+```
+without the change (97f66385)   112.41   103.57   106.37 ns/alloc
+with it                         104.99   103.11    98.51
+```
+
+**Level or faster.** A fault taken one page at a time inside a program that is
+doing other work costs less than eight megabytes of memset taken all at once
+before anything can start. The startup keeps its 1.5 ms and the program pays
+nothing for it.
 
 The invariant that makes this safe was already pinned:
 `growing_does_not_move_the_base_compiled_code_was_given` asserts `region.base()`

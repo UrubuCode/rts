@@ -23,6 +23,39 @@ which touch none of the crates measured here. The *attribution* therefore stands
 but the absolute figures describe a tree that no longer exists exactly.
 Re-measure before quoting an absolute number.
 
+### An absolute here is not comparable across days. Only a same-session A/B is.
+
+This was tested rather than assumed, on 2026-08-22, and the test is worth
+repeating before anyone reads a row as a regression.
+
+`alloc class instance` re-measured at **108–110 ns** against the 90.89 in the
+table below — a 20% rise, on a tree whose only changes since were meant to make
+allocation *cheaper*. That reads as a regression, and there was a plausible
+mechanism for it: the region stopped pre-touching its first 8 MiB when the
+zero-fill became `alloc_zeroed` (`startup.md`), so a program that allocates could
+be paying page faults it used to have paid for at startup.
+
+**It is not a regression, and that mechanism is not happening.** The same loop,
+run isolated, alternated, same session:
+
+```
+target/baseline.exe  (97f66385)   112.41   103.57   106.37
+HEAD                              104.99   103.11    98.51
+```
+
+The tree that was supposed to have regressed is **faster**. The 90.89 and the
+108 are the same code on a different day.
+
+Two rules follow, and they bind every number in this tree:
+
+1. **Never compare an absolute across sessions.** Machine state moves rows by
+   20% — more than most of the optimisations in `plan.md` are worth. A row that
+   looks worse than a table from last week is evidence of nothing.
+2. **Always keep the other binary.** `cargo build --release && cp
+   target/release/rts.exe target/baseline.exe` before the first edit. The A/B
+   above cost one minute and settled in three runs what a week of comparing
+   against a stale table could not have settled at all.
+
 ---
 
 ## Read this before reading the table
