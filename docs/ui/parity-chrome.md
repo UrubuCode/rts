@@ -803,3 +803,15 @@ acerta com `lh` normal e diverge com todos os outros.
 **Três tentativas, e o custo caiu em cada uma**: a primeira custou um commit e
 um revert, a segunda uma fórmula errada apanhada antes de escrever, a terceira
 só uma medição.
+
+**A implementação foi revertida inteira, o `TextMeasurer::ascent()` incluído** —
+ele era separável e commitável, mas ficou sem consumidor quando a frente
+fechou, e um campo que ninguém lê é o órfão que este documento já critica noutro
+sítio. O que ele continha está aqui: a constante `0,79` como aproximação da
+ascent da **content area** (nunca do `line-height`), a calibração de 24 pontos,
+o `0,8235` rejeitado, e a condição que fecha a dívida — um backend com fonte
+real sobrepõe-na.
+
+**E o código revertido não era código por acabar: era código completo com uma
+medição contra ele.** Quem lhe fizer `git show` vai vê-lo compilar e passar
+cinco fixtures. É isso que precisa de saber antes de o ressuscitar.
