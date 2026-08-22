@@ -34,6 +34,12 @@ dist-ssr
 # at the workspace root, so anchoring costs nothing and stops the pattern from
 # claiming source that happens to share the name.
 /target
+# `bench/isolated/` is its own cargo root (an empty `[workspace]` table in its
+# manifest), so it has a build directory of its own that the anchored `/target`
+# above cannot reach. Anchored for the same reason that one is: naming the path
+# rather than the directory keeps the pattern from claiming a source directory
+# somewhere else that happens to be called `target`.
+/bench/isolated/target
 debug_*
 .claude/settings.local.json
 

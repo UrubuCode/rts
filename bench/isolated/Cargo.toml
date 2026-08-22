@@ -1,0 +1,37 @@
+# Isolated optimization experiments.
+#
+# # Why this is not a workspace member
+#
+# An experiment exists to answer one question before the engine is touched, and
+# the answer has to arrive in seconds. A member of the RTS workspace inherits
+# `lto = "thin"` and `codegen-units = 1` and links against crates that take
+# minutes, which is exactly the loop `CLAUDE.md` forbids under "iteration
+# speed". So this is a standalone package, excluded at the root, with no
+# dependencies at all: `cargo run --release --bin <name>` here is a few seconds.
+#
+# # Why the profile is release with lto off
+#
+# Because the question is always "does this shape of code cost less than that
+# shape", and both shapes are compiled the same way. A debug number is not a
+# number (CLAUDE.md), and full LTO would take longer without changing which of
+# two shapes wins — there is one crate, so there is nothing to link across.
+[package]
+name = "rts-isolated"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[profile.release]
+opt-level = 3
+lto = false
+codegen-units = 1
+debug = false
+panic = "abort"
+
+[dependencies]
+
+# An empty workspace table, so this package is its own root rather than a
+# member of the RTS workspace. The alternative — `exclude` at the root — puts
+# a fact about this directory in a file that has no other reason to mention it.
+[workspace]

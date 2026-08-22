@@ -1,6 +1,6 @@
 # The documentation
 
-Four places, and a rule for each. The rule is the point: this tree was thirty
+Five places, and a rule for each. The rule is the point: this tree was thirty
 loose spec files with overlapping and partly-stale content, and the failure was
 not any one document — it was that nothing said where a new one belonged, so
 every new one went next to the others and the pile grew.
@@ -11,6 +11,7 @@ docs/
   guides/      how to do a thing
   reference/   surfaces we implement against, that we do not own
   ui/          the graphical engine
+  codegen/     what an action costs, and what was tried about it
 ```
 
 ---
@@ -28,6 +29,19 @@ wants the steps.
 **`reference/`** — a surface someone else defined that we implement against.
 Node's module APIs. We do not own these and cannot change them; the document
 records what the surface *is*, not what we decided.
+
+**`codegen/`** — a question about **speed** that was settled, with the experiment
+that settled it. Kept apart from `engine/` by one test: a document that would
+still be true with every number in it deleted belongs there, and a document that
+is *about* the numbers belongs here. Its own `README.md` carries the rules that
+make a speed claim admissible — the first of which is that an optimization is
+proven in `bench/isolated/` **before** the engine is touched — and they are
+binding for any change justified by speed, in any crate.
+
+A refuted candidate gets a document here exactly like a successful one, and for
+a better reason: the successful one is visible in the code, and the refuted one
+is invisible, so without the document the next person spends the same day
+rediscovering that the answer is no.
 
 **`ui/`** — the graphical engine, which has its own frozen plan and its own
 phases. Kept apart because its direction is decided separately.
