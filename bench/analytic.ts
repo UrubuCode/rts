@@ -707,8 +707,32 @@ function measure(c: Case): Row {
     // Growing by a factor rather than by extrapolation: a case whose cost is
     // not linear in `n` (an array that grows, a string that accumulates) would
     // have the extrapolation overshoot by orders of magnitude.
+    //
+    // # Why the factor is two and was four
+    //
+    // The factor is the OVERSHOOT. With four, the first count to clear
+    // `TARGET_MS` lands anywhere in [40, 160) ms, so the three timed runs that
+    // follow cost 120 to 480 ms and average about 440 ms per case. With two the
+    // window is [40, 80) and the average halves.
+    //
+    // Precision does not pay for it, and that is the whole argument: what sets
+    // precision is `TARGET_MS` — the floor of the measurement window — and both
+    // factors clear the same floor. Four buys a *longer* window than asked for,
+    // at random, depending on where the threshold happens to fall.
+    //
+    // Measured 2026-08-23, this file at 90 cases: **32 s at four, 26 s at two**.
+    // Of 91 rows, ONE moved by more than 8% between the two factors — and the
+    // same harness compared against ITSELF across two runs moves four. The
+    // change is below the noise it would have to beat to be visible.
+    //
+    // The one row that moved is `string concat 2`, which is the class this
+    // function's first paragraph names: its cost is not linear in `n`, so its
+    // ns/op genuinely depends on the count, and both numbers are correct for
+    // the count they were taken at. Two is the better factor for those as well,
+    // because the count it settles on is nearer the smallest one that clears the
+    // floor and therefore varies less between runs.
     while (ms < TARGET_MS && n < 1 << 26) {
-      n = n * 4;
+      n = n * 2;
       ms = timeOnce(c, n);
     }
     for (let w = 0; w < WARMUP; w++) ms = timeOnce(c, n);
