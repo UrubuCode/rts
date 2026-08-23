@@ -846,6 +846,27 @@ pub enum RuntimeOp {
     /// for the reason [`RuntimeOp::NewTarget`] records: the discriminant is the
     /// position in `ALL`.
     SloppyThis,
+
+    /// `a ** b` over two operands already proven to be doubles.
+    ///
+    /// **Appended**, for the reason [`RuntimeOp::SloppyThis`] records above: the
+    /// discriminant is the position in [`RuntimeOp::ALL`], so a variant placed
+    /// beside `Exponent` where it belongs by subject would hand every operation
+    /// after it a different symbol.
+    ///
+    /// # Why an entry point and not an instruction
+    ///
+    /// There is no exponentiation instruction on any target here — `powf` is a
+    /// library function — so this is the one case the membership rule does not
+    /// cover, the same one [`RuntimeOp::NumberRemainder`] documents: pure
+    /// computation the machine provably cannot express.
+    ///
+    /// What it buys over [`RuntimeOp::Exponent`] is the two widenings, the
+    /// narrowing, the thrown-value check, and — inside the runtime — a bigint
+    /// check and a `ToPrimitive`, both of which a `Repr::F64` operand proves
+    /// unnecessary. Measured at 35.22 ns before it existed, four times the next
+    /// most expensive arithmetic row in `bench/analytic.ts`.
+    NumberExponent,
 }
 
 impl RuntimeOp {
@@ -946,6 +967,7 @@ impl RuntimeOp {
         RuntimeOp::ImportMeta,
         RuntimeOp::ModuleImport,
         RuntimeOp::SloppyThis,
+        RuntimeOp::NumberExponent,
     ];
 
     /// The linker name the runtime must define.
@@ -1046,6 +1068,7 @@ impl RuntimeOp {
             RuntimeOp::ImportMeta => "__rts_import_meta",
             RuntimeOp::ModuleImport => "__rts_module_import",
             RuntimeOp::SloppyThis => "__rts_sloppy_this",
+            RuntimeOp::NumberExponent => "__rts_number_exponent",
         }
     }
 
@@ -1071,6 +1094,10 @@ impl RuntimeOp {
             // reaches it, and the answer of `fmod` over two doubles is a double
             // whatever they were.
             RuntimeOp::NumberRemainder => (vec![Repr::F64, Repr::F64], vec![Repr::F64]),
+            // Unboxed both ways, for the reason the row above states: the
+            // operands are proven at every site that reaches it, and the answer
+            // of `powf` over two doubles is a double whatever they were.
+            RuntimeOp::NumberExponent => (vec![Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::Less => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::LessEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::Greater => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),

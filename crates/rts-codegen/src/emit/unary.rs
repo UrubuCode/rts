@@ -88,16 +88,48 @@ pub fn emit_unary(
             expr::emit_binary(builder, ctx, BinaryOp::Mul, value, one)
         }
 
-        // `~` is `ToInt32` then complement, and `ToInt32` is a truncation with
-        // its own rules for infinities and for values past 2^31 — a conversion
-        // the runtime does not define. Emitting an integer complement of a
-        // double would be wrong for every operand that is not already a small
-        // integer, and wrong silently.
-        // `ToInt32` then complement. The truncation has its own rules for
-        // infinities and for values past 2^31, which is why it is the
-        // runtime.s and not an integer instruction emitted here.
+        // `~` is `ToInt32` then complement.
+        //
+        // # The reason this was a call is gone, and it said so twice
+        //
+        // The comment here read "`ToInt32` is a truncation with its own rules
+        // for infinities and for values past 2^31 — a conversion the runtime
+        // does not define", and then said it again in a second, truncated
+        // paragraph ("which is why it is the runtime.s and not an integer
+        // instruction emitted here"). A rule written twice is a rule that will
+        // be written differently, and here it was also written STALE: the
+        // premise stopped being true when `Inst::ToInt32` arrived, which is the
+        // same instruction that made `&`, `|` and `^` reachable. Its own
+        // documentation carries why the code generator's conversions could not
+        // be used and this one could.
+        //
+        // # Why `^ -1` and not a complement instruction
+        //
+        // `BitOp` has no `Not`, and it does not need one: complementing every
+        // bit of a two's-complement integer IS exclusive-or with all ones, on
+        // every width and every target. Adding a variant for it would be a
+        // second spelling of an operation the machine already performs — and
+        // `-1` as an `I32` is exactly all ones.
+        //
+        // Measured before this, `analytic.ts`: `int not` 9.99 ns against 6.75
+        // for `int and`, `int or` and `int xor` — the same conversion pair
+        // around a call instead of around an instruction.
+        //
+        // The call stays for anything not proven, which is what `emit_binary`'s
+        // guarded path does for the binary bitwise operators and what rule 5
+        // asks for: what cannot be proven becomes generic, visibly.
         UnaryOp::BitNot => {
             let value = emit_expr(builder, scope, ctx, operand)?;
+            if builder.repr_of(value) == rts_cranelift::repr::Repr::F64 {
+                let bits = builder.to_int32(value)?;
+                let ones = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                    repr: rts_cranelift::repr::Repr::I32,
+                    bits: rts_cranelift::ir::ScalarBits(u32::MAX as u64),
+                });
+                let ones = builder.use_const(ones);
+                let flipped = builder.bitwise(rts_cranelift::ir::BitOp::Xor, bits, ones)?;
+                return Ok(builder.to_f64(flipped)?);
+            }
             Ok(expr::call(builder, ctx, RuntimeOp::BitNot, &[value])?[0])
         }
         // Answers a string, which the runtime makes — and which of the eight

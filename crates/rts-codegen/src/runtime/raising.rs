@@ -83,6 +83,12 @@ pub const CANNOT_RAISE: &[RuntimeOp] = &[
     // check that follows every generic operator" — while the emitter emitted it
     // anyway. Closed.
     RuntimeOp::NumberRemainder,
+    // `exponentiate(base, power)` on two unboxed doubles: two `is_nan` tests
+    // and `powf`. `entry/bitwise.rs`. Closed — and it is worth naming what it
+    // does NOT do, because the generic `exponent` beside it does both: no
+    // bigint check and no `ToPrimitive`, which is exactly what a `Repr::F64`
+    // operand proves unnecessary.
+    RuntimeOp::NumberExponent,
     // A thread-local xorshift and no context borrow. `entry/math.rs`, `draw`.
     // Closed.
     RuntimeOp::MathRandom,
@@ -170,7 +176,7 @@ mod tests {
         // fails here rather than silently in a program that catches nothing.
         assert_eq!(
             CANNOT_RAISE.len(),
-            8,
+            9,
             "CANNOT_RAISE changed — each entry must name the rts-core body it \
              was read against, and rts-host asserts the symbol still exists"
         );

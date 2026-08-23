@@ -123,6 +123,91 @@ bench("arith", "compare int", (n) => {
   for (let i = 0; i < n; i++) if (i < n) a++;
   return a;
 });
+// ---------------------------------------------------------------------------
+// EVERY operator the language spells, whether or not anyone expects it to be
+// slow.
+//
+// This block exists because of what its absence cost. There was no shift row
+// here until 2026-08-23, and `<<`/`>>` were runtime calls while `&`/`|`/`^` next
+// to them were instructions — a 5x gap that nothing could see, because the way
+// you find out an operator is a call is by measuring it against one that is not.
+//
+// So the rule this block encodes: **an operator with no row is an operator
+// nobody can find out about.** Coverage is the instrument; the rows that come
+// out flat are not waste, they are the controls that make the others readable.
+// `int shr unsigned` earned its place that way within a day — it is code that
+// did not change, and it moved 3.5% between two binaries, which is what said the
+// per-row differences beside it were layout rather than the change.
+// ---------------------------------------------------------------------------
+bench("arith", "int sub", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a = (a - 1) | 0;
+  return a;
+});
+bench("arith", "float sub", (n) => {
+  let a = 1e9;
+  for (let i = 0; i < n; i++) a = a - 1.25;
+  return a | 0;
+});
+bench("arith", "float div", (n) => {
+  let a = 1e30;
+  for (let i = 0; i < n; i++) a = a / 1.0000001;
+  return a | 0;
+});
+bench("arith", "exponent", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a = (a + 2 ** 3) | 0;
+  return a;
+});
+bench("arith", "int and", (n) => {
+  let a = -1;
+  for (let i = 0; i < n; i++) a = a & 255;
+  return a;
+});
+bench("arith", "int or", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a = a | 1;
+  return a;
+});
+bench("arith", "int xor", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a = a ^ 3;
+  return a;
+});
+bench("arith", "int not", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a = ~a;
+  return a;
+});
+bench("arith", "negate", (n) => {
+  let a = 1.5;
+  for (let i = 0; i < n; i++) a = -a;
+  return a | 0;
+});
+bench("arith", "unary plus", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a = (a + +i) | 0;
+  return a;
+});
+bench("arith", "logical not", (n) => {
+  let a = 0;
+  let f = false;
+  for (let i = 0; i < n; i++) {
+    f = !f;
+    if (f) a++;
+  }
+  return a;
+});
+bench("arith", "strict equals int", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) if (i === n) a++;
+  return a;
+});
+bench("arith", "loose equals int", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) if (i == n) a++;
+  return a;
+});
 bench("arith", "Math.sqrt", (n) => {
   let a = 0;
   for (let i = 0; i < n; i++) a += Math.sqrt(i);

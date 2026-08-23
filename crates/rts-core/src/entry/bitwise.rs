@@ -234,6 +234,36 @@ pub(super) fn exponentiate(base: f64, power: f64) -> f64 {
     base.powf(power)
 }
 
+/// `a ** b` over two operands already proven to be doubles.
+///
+/// # What it buys over [`exponent`]
+///
+/// Both are a call — there is no exponentiation instruction on any target here,
+/// and `powf` is a library function. This one takes two **unboxed** doubles and
+/// answers an unboxed double, so the site pays neither the two widenings nor the
+/// narrowing, and — because it cannot run user code and therefore cannot throw —
+/// none of the `__rts_take_thrown` check that follows every generic operator.
+///
+/// The two things it skips inside are the larger half. [`exponent`] asks
+/// `bigint_class::binary` first, inside a context borrow, because `2n ** 3n` is
+/// a bigint operation; and then `operands` runs `ToPrimitive`, which reads the
+/// heap and can call a user `valueOf`. **A `Repr::F64` is the proof that neither
+/// applies**: a bigint is a reference, so no site that reaches here can be
+/// holding one, and a double needs no coercion.
+///
+/// Measured before this existed, `bench/analytic.ts`: `arith exponent` at
+/// 35.22 ns, four times the next most expensive arithmetic row and twenty times
+/// `float mul`.
+///
+/// This is [`super::operators::number_remainder`]'s shape exactly, and for the
+/// same reason — see `RuntimeOp::NumberRemainder` for why an operator that
+/// cannot become an instruction can still spend its operands' proofs and hand
+/// one back.
+#[rtse::entry]
+pub fn number_exponent(base: f64, power: f64) -> f64 {
+    exponentiate(base, power)
+}
+
 /// `a ** b`.
 #[rtse::entry]
 pub fn exponent(left: u64, right: u64) -> u64 {

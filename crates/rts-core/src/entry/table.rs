@@ -44,7 +44,8 @@ use super::array::{ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KE
 use super::math::MATH_RANDOM_ENTRY;
 use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
 use super::bitwise::{
-    BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
+    BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY,
+    NUMBER_EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
     SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
 };
 use super::chain::{GET_PROTOTYPE_ENTRY, SET_PROTOTYPE_ENTRY};
@@ -587,6 +588,30 @@ pub enum CoreEntry {
     /// records. The shapes are the entire difference: the arithmetic is one
     /// `%` on two `f64` in both, written once and delegated to from here.
     NumberRemainder = 89,
+
+    /// `a ** b` over two operands already proven to be doubles.
+    ///
+    /// The same shape as [`NumberRemainder`](CoreEntry::NumberRemainder) one row
+    /// up, and it faces the same two questions this list exists to force.
+    ///
+    /// The ENTRY-level question — this is pure computation, which the module
+    /// header says is instructions — has the same answer: no target here has an
+    /// exponentiation instruction, `powf` is a library function, so the rule's
+    /// premise does not hold.
+    ///
+    /// Reusing `Exponent` was REJECTED for the reason that row records: one
+    /// number would mean two shapes, tagged both ways for one caller and unboxed
+    /// both ways for the other. And here the two do NOT compute the same thing
+    /// even inside — the generic one asks `bigint_class::binary` and then runs
+    /// `ToPrimitive`, and this one does neither, because a `Repr::F64` operand
+    /// is the proof that neither applies.
+    ///
+    /// The LIST-level argument: `bench/analytic.ts` measured `arith exponent` at
+    /// 35.22 ns, four times the next most expensive arithmetic row and twenty
+    /// times `float mul`. The alternative to a row here was `**` never leaving
+    /// the generic path — and, as with `%`, a local reassigned through it being
+    /// unprovable, which makes everything downstream of it unprovable too.
+    NumberExponent = 90,
 }
 
 /// How many entry points exist.
@@ -594,7 +619,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 90;
+pub const CORE_ENTRY_COUNT: usize = 91;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -689,6 +714,7 @@ impl CoreEntry {
         CoreEntry::EvalDirect,
         CoreEntry::WithHas,
         CoreEntry::NumberRemainder,
+        CoreEntry::NumberExponent,
     ];
 
     /// The number a call site holds.
@@ -755,6 +781,7 @@ impl CoreEntry {
             CoreEntry::HasProperty => HAS_PROPERTY_ENTRY,
             CoreEntry::WithHas => WITH_HAS_ENTRY,
             CoreEntry::NumberRemainder => NUMBER_REMAINDER_ENTRY,
+            CoreEntry::NumberExponent => NUMBER_EXPONENT_ENTRY,
             CoreEntry::ArrayNew => ARRAY_NEW_ENTRY,
             CoreEntry::DeleteProperty => DELETE_PROPERTY_ENTRY,
             CoreEntry::OwnKeys => OWN_KEYS_ENTRY,
@@ -992,7 +1019,7 @@ mod tests {
         // Reusing `Remainder` was REJECTED: one number would mean two shapes,
         // tagged both ways for one caller and unboxed both ways for the other.
         assert!(
-            CORE_ENTRY_COUNT <= 90,
+            CORE_ENTRY_COUNT <= 91,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

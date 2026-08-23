@@ -111,7 +111,8 @@ pub use array_proto::arguments_at;
 pub use arguments::arguments_object;
 pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
 pub use bitwise::{
-    bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right, shift_right_unsigned,
+    bit_and, bit_not, bit_or, bit_xor, exponent, number_exponent, shift_left, shift_right,
+    shift_right_unsigned,
 };
 pub use computed::{delete_property, get_indexed, has_property, key_number, set_indexed, with_has};
 pub use functions::{

@@ -1552,12 +1552,45 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
         // Before this line, one `%` in a loop made every operator downstream
         // of that local generic as well.
         BinaryOp::Rem => Proven::NumberCall(RuntimeOp::NumberRemainder),
+        // `**` for the same reason and by the same mechanism. There is no
+        // exponentiation instruction on any target here, so it stays a call —
+        // but a call that SPENDS the proofs and hands one back, which is what
+        // lets `emit/proven.rs` keep proving a local reassigned through it.
+        //
+        // What the site saves against the generic entry: two widenings, one
+        // narrowing and the thrown-value check. What the RUNTIME saves is
+        // larger — `__rts_exponent` asks `bigint_class::binary` inside a
+        // context borrow and then runs `ToPrimitive`, and a `Repr::F64` is the
+        // proof that neither applies. 35.22 ns before this line.
+        BinaryOp::Exponent => Proven::NumberCall(RuntimeOp::NumberExponent),
         BinaryOp::Less => Proven::Compare(CmpOp::Lt),
         BinaryOp::LessEqual => Proven::Compare(CmpOp::Le),
         BinaryOp::Greater => Proven::Compare(CmpOp::Gt),
         BinaryOp::GreaterEqual => Proven::Compare(CmpOp::Ge),
         BinaryOp::StrictEqual => Proven::Compare(CmpOp::Eq),
         BinaryOp::StrictNotEqual => Proven::Compare(CmpOp::Ne),
+
+        // `==` and `!=` are the SAME instruction, once both operands are proven
+        // doubles, and this is not an approximation of the loose comparison —
+        // it is what the specification says it becomes.
+        //
+        // `IsLooselyEqual(x, y)` branches on the types of its operands, and the
+        // arm for two Numbers is `Number::equal(x, y)`: the identical operation
+        // `IsStrictlyEqual` performs. Everything that makes `==` notorious —
+        // `null == undefined`, `"1" == 1`, an object's `valueOf` running — lives
+        // in the arms this path has already ruled out by proving both sides are
+        // doubles.
+        //
+        // The two cases worth naming, because they are the ones an approximation
+        // would get wrong and `CmpOp::Eq` gets right: `NaN == NaN` is FALSE and
+        // `+0 == -0` is TRUE, in loose and strict equality alike, and an IEEE
+        // compare answers both that way.
+        //
+        // Measured before this line, `analytic.ts`: `loose equals int` 8.73 ns
+        // against `strict equals int` 1.53 — the same comparison, 5.7 times the
+        // price, because one had a table row here and the other did not.
+        BinaryOp::LooseEqual => Proven::Compare(CmpOp::Eq),
+        BinaryOp::LooseNotEqual => Proven::Compare(CmpOp::Ne),
 
         // The bitwise operators, which are pure computation over two doubles
         // and were runtime calls until this line. `ToInt32` is what made them
@@ -1647,7 +1680,38 @@ fn proven_instruction(
         // The machine FIRST, and the call only where it refuses. `%` by a power
         // of two has an exact instruction sequence, and which divisors qualify
         // is the machine's question rather than this layer's — rule 2.
-        Proven::NumberCall(_) => builder.arith(NumOp::Rem, left, right)?,
+        //
+        // WHICH operation, and this arm discarded it. It read
+        // `Proven::NumberCall(_) => builder.arith(NumOp::Rem, ...)`, which was
+        // correct for exactly as long as the remainder was the only member of
+        // the variant — and stopped being correct the moment `**` joined it, in
+        // the same change that added it.
+        //
+        // What it did is worth writing down, because it is what a silent wrong
+        // answer looks like: `2 ** 9` was RIGHT and `3 ** 2` answered 1. Nine is
+        // not a power of two, so the machine refused and the call happened; two
+        // is, so the machine accepted and computed `3 % 2`. The operator with
+        // the smaller, rounder operands was the one that broke.
+        //
+        // Caught by `running.rs::exponent_is_right_associative`, which asserts
+        // `2 ** 3 ** 2 == 512` and got 2.
+        Proven::NumberCall(RuntimeOp::NumberRemainder) => {
+            builder.arith(NumOp::Rem, left, right)?
+        }
+        // Everything else in this variant is a call and nothing but a call.
+        // `**` has no instruction on any target here — `powf` is a library
+        // function — so there is no machine attempt to make, and offering one
+        // would be asking the machine about an operation it was never asked to
+        // express.
+        //
+        // `Err` from this function still means "the machine declined", and the
+        // callers still answer it with the call they would have made. This arm
+        // simply never produces one.
+        Proven::NumberCall(_) => {
+            return Err(super::EmitError::Unsupported {
+                construct: "a proven-number call the machine has no instruction for",
+            });
+        }
     })
 }
 
@@ -1880,6 +1944,12 @@ fn runtime_binary(op: BinaryOp) -> Option<(RuntimeOp, bool)> {
         BinaryOp::Mul => (RuntimeOp::Multiply, false),
         BinaryOp::Div => (RuntimeOp::Divide, false),
         BinaryOp::Rem => (RuntimeOp::Remainder, false),
+        // The generic exponentiation, which is what the guarded path falls back
+        // to when an operand is not a proven double — the same pairing `Rem`
+        // has one line up, and the same rule that put the shifts and the loose
+        // equalities here: this table and `proven_binary` must agree about which
+        // operators the guarded path can take.
+        BinaryOp::Exponent => (RuntimeOp::Exponent, false),
         BinaryOp::Less => (RuntimeOp::Less, false),
         BinaryOp::LessEqual => (RuntimeOp::LessEqual, false),
         BinaryOp::Greater => (RuntimeOp::Greater, false),
@@ -1905,6 +1975,16 @@ fn runtime_binary(op: BinaryOp) -> Option<(RuntimeOp, bool)> {
         // `>>>` is in NEITHER, which is what keeps them agreeing about it.
         BinaryOp::Shl => (RuntimeOp::ShiftLeft, false),
         BinaryOp::Shr => (RuntimeOp::ShiftRight, false),
+        // The loose pair, and they are here for the same reason the shifts are:
+        // `proven_binary` names them, so the guarded path emits an instruction
+        // on the fast side and needs THIS call on the slow one. Adding a row
+        // there and not here is what fired the `expect` below on `1 << 0`.
+        //
+        // `LooseEquals` is a different entry point from `StrictEquals` and not a
+        // flag on it: the whole of `==` is the arms for operands that are not
+        // both numbers, and the slow path is exactly where those arrive.
+        BinaryOp::LooseEqual => (RuntimeOp::LooseEquals, false),
+        BinaryOp::LooseNotEqual => (RuntimeOp::LooseEquals, true),
         BinaryOp::StrictEqual => (RuntimeOp::StrictEquals, false),
         BinaryOp::StrictNotEqual => (RuntimeOp::StrictEquals, true),
         _ => return None,

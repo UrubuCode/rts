@@ -749,7 +749,28 @@ fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
             // proof. So the fast path this arm needed exists, and the claim is
             // exactly as strong as the one `+x` makes: it holds where
             // `is_numeric` holds, and the call answers everywhere else.
-            UnaryOp::Plus | UnaryOp::Negate => is_numeric(operand, known),
+            //
+            // `~x` joined them on 2026-08-23, and it is the same claim a third
+            // time: `emit_unary` answers `Repr::F64` where the operand is
+            // already one — `ToInt32`, an exclusive-or with all ones, `ToF64` —
+            // and the call answers Tagged everywhere else.
+            //
+            // The arm is `is_numeric(operand)` and not `true`, even though `~`
+            // ALWAYS produces a number whatever it is given (`~"3"` is `-4`).
+            // The claim this pass makes is about a REPRESENTATION and not about
+            // the language, and the representation is `F64` only where the fast
+            // path is taken. Claiming it unconditionally is the defect the
+            // paragraph above records from the other side: `stored` would trust
+            // the proof, skip the widening, and the back edge would fail
+            // `ImplicitNarrowing` against a header declared `Repr::F64`.
+            //
+            // This arm is why the emission change alone did nothing. Measured
+            // with the fast path in and this line out: `a = ~a` in a loop still
+            // emitted `__rts_bit_not`, zero `Bitwise` and zero `ToInt32`,
+            // because the analysis had already decided `a` was not numeric and
+            // widened it at every store — so the operand was never `F64` when
+            // `emit_unary` looked. Two tables, one answer.
+            UnaryOp::Plus | UnaryOp::Negate | UnaryOp::BitNot => is_numeric(operand, known),
             _ => false,
         },
 

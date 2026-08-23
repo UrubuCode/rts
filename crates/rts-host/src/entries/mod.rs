@@ -83,6 +83,13 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::NumberRemainder => (CoreEntry::NumberRemainder, {
             rts_core::entry::number_remainder as extern "C" fn(f64, f64) -> f64 as *const u8
         }),
+        // The same shape beside the generic `Exponent` below, and the cast is
+        // the check for the same reason: the two compute the same arithmetic and
+        // differ only in what they take, so a mix-up would be invisible
+        // everywhere except here.
+        RuntimeOp::NumberExponent => (CoreEntry::NumberExponent, {
+            rts_core::entry::number_exponent as extern "C" fn(f64, f64) -> f64 as *const u8
+        }),
         RuntimeOp::Less => (CoreEntry::Less, {
             rts_core::entry::less as extern "C" fn(u64, u64) -> bool as *const u8
         }),
