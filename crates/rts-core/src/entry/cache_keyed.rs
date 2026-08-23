@@ -50,13 +50,13 @@ pub fn cache_resolve_keyed(object: u64, key: u64, cache: i64) -> i64 {
     // opens the context itself, and holding it across that call is the re-entry
     // panic `functions.rs` records as "a deadlock this repository has already
     // paid for once".
-    let Some(number) = with_current(|context| {
+    let Some((number, cell)) = with_current(|context| {
         let cell = Value(key).as_slot()?;
         // Text only. `key_of_text_cell` answers `None` for a cell that is not a
         // string, which is what keeps a symbol — also a cell — out of here
         // rather than a second test that could disagree with the first.
         match context.key_of_text_cell(cell)? {
-            crate::object::Key::Name(named) => Some(named.index() as u32),
+            crate::object::Key::Name(named) => Some((named.index() as u32, cell)),
             // A string that spells a canonical index still resolves to a NAME
             // here, so this arm is not the `o["0"]` case — it is the shape of
             // `Key` being wider than what a text cell can produce. Refused
@@ -77,8 +77,23 @@ pub fn cache_resolve_keyed(object: u64, key: u64, cache: i64) -> i64 {
     // moment the word is there, a collection that ran without this cell in its
     // root set could free the string a site is now comparing against. See
     // `Context::remembered_keys` for what that costs.
+    //
+    // Marked by CELL rather than by value bits, and the difference is measured:
+    // a `HashSet<u64>` here cost **11.3 ns of a 43 ns miss** (2026-08-23), which
+    // was more than the key resolution above it. A miss writes this every time,
+    // so what it must be is a store, not a hash.
+    //
+    // Already checked before storing: the mark is set once and read every miss,
+    // so a load and a predicted branch beat dirtying a cache line that already
+    // holds what it should.
     with_current(|context| {
-        context.remembered_keys.insert(key);
+        let at = cell as usize;
+        if context.remembered_keys.len() <= at {
+            context.remembered_keys.resize(at + 1, false);
+        }
+        if !context.remembered_keys[at] {
+            context.remembered_keys[at] = true;
+        }
     });
 
     // Only after the layout resolved, and that order is the invariant: the

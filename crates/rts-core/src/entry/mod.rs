@@ -831,7 +831,21 @@ pub struct Context {
     /// One cell per distinct string a keyed site has been handed, which is
     /// bounded by the program's property names — the same bound the interner
     /// already accepts for holding every key text forever.
-    pub(super) remembered_keys: std::collections::HashSet<u64>,
+    ///
+    /// # Why a dense `Vec<bool>` and not a `HashSet<u64>`
+    ///
+    /// It WAS a set, and the set cost **11.3 ns of a 43 ns miss** — measured
+    /// 2026-08-23 by removing the insert from a release build, on one site with
+    /// an alternating key so every read resolves. A miss writes this every
+    /// time, and hashing a `u64` with SipHash to reach a bucket is most of what
+    /// a miss then does.
+    ///
+    /// Indexed by the key string.s CELL, which the resolver has already decoded,
+    /// so marking one is a bounds check and a store. The same shape
+    /// `Aside` uses for every other per-cell fact in this crate, and for the
+    /// same reason: a cell number is dense and hashing a dense number is work
+    /// that buys nothing.
+    pub(super) remembered_keys: Vec<bool>,
     /// The nine strings `typeof` can answer, each built at most once.
     ///
     /// # Why a cache rather than building the answer
@@ -1069,7 +1083,7 @@ impl Context {
             well_known_keys: [None; CACHED_KEYS.len()],
             well_known_texts: [None; CACHED_TEXTS.len()],
             key_texts_as_values: std::collections::HashMap::new(),
-            remembered_keys: std::collections::HashSet::new(),
+            remembered_keys: Vec::new(),
             literals: Vec::new(),
             type_names: [None; TYPE_NAMES.len()],
             external: Vec::new(),
