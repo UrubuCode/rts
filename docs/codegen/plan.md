@@ -230,6 +230,47 @@ The original entry follows, unchanged.
 
 **Cost, stated plainly:** a false `can_raise() == false` is a **swallowed throw** — a caught exception silently becoming a wrong answer. The two facts must be asserted against each other in rts‑host, never hand‑written twice.
 
+### S5e. Sharing constants makes the program SLOWER — **MEASURED AND REJECTED 2026-08-23**
+
+**Two changes were written, measured, and thrown away, and the number is worth
+more than either would have been.** Both reduced IR instruction count by sharing
+a constant instead of materializing it twice. Both made `bench/monte_carlo_pi.ts`
+slower, by 9 of 9 interleaved pairs each.
+
+| | IR effect | `monte_carlo_pi` | verdict |
+|---|---|---|---|
+| fold `Widen(Const(F64))` → a tagged `Const` | `Widen` 403 → 241 | 795 → 814 ms, **+2.4%**, 9 of 9 | rejected |
+| memoize `use_const` per block | `Const` 1 840 → 1 580 | 801 → 810 ms, **+1.1%**, 9 of 9 | rejected |
+
+Both directions were unambiguous — on the first, the ranges are nearly disjoint
+(the old binary's slowest run beat the new one's fastest but one).
+
+**The cause is the same for both: sharing a constant lengthens a live range.**
+Two separate `iconst`s let Cranelift's register allocator place each where it is
+used and rematerialize it; one shared value has to be kept in a register or
+spilled across everything between its definition and its last use. The allocator
+is better at making constants than this layer is at sharing them.
+
+**So "fewer IR instructions" is not the objective, and this section exists to say
+so out loud.** `docs/codegen/plan.md` §S5b already found that removing 974 cheap
+`iconst`s bought at most 2% of compile time; this finds that *sharing* them costs
+runtime. The two together retire the whole "make the IR smaller by CSE-ing
+constants" family. What is left of IR size as a goal is what it always was —
+compile time — and that is small.
+
+**The one shipped change in this family is neutral, and was re-measured to check
+it.** `BodyState::zero` hoists the throw check's zero to the function entry — a
+longer live range than either rejected change. Measured the same way, HEAD
+against a build with it disabled: **4 pairs to 5, medians 809 vs 805 ms, 0.5%**.
+No signal. It survives because an `iconst 0` is what a register allocator
+rematerializes for free (`xor reg, reg`), where an arbitrary `F64` bit pattern is
+a ten-byte `movabs` it would rather not keep alive.
+
+**The experiment to repeat before proposing any of this again:** the ruler must
+be a PROGRAM, interleaved, at least nine pairs, and reported by pair count rather
+than by medians. Compile-time numbers and IR line counts both said these changes
+were good. They were not.
+
 ### S5d. The throw check's zero, and S6 — **LANDED 2026-08-23**
 
 Two changes that look alike and are not: one is IR size, the other is the fast
