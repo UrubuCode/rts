@@ -43,6 +43,23 @@ pub use table::{EntryImports, EntryTable};
 use crate::ir::Signature;
 use crate::repr::{RefKind, Repr};
 
+/// Where a keyed read's site keeps the key it last saw, in bytes from its cell.
+///
+/// Public because it is a **contract**, not a detail: the lowering of
+/// [`crate::ir::inst::Terminator::CachedGetKeyed`] compares this word and
+/// [`RtEntry::CacheResolveKeyed`]'s implementation — which lives in another
+/// crate — writes it. Rule 6 names this case: a constant two sides must agree
+/// about is published rather than repeated.
+///
+/// The other three words a cached read uses are literals at their one use site,
+/// and deliberately so: nothing outside this crate reads them. This one is the
+/// only word of a cell whose position crosses the boundary.
+///
+/// Word six, which the cold image writes as padding. A site's kind decides what
+/// its words mean and every site gets the same eight, so putting the key here
+/// costs no other kind of site anything.
+pub const CACHE_KEY_OFFSET: i32 = 48;
+
 /// An operation the runtime performs on the program's behalf.
 ///
 /// Numbered explicitly. The numbers are the cache's keys, so they are a fact
@@ -124,6 +141,23 @@ pub enum RtEntry {
     /// with the pair above for the reason they are written out from each other.
     CacheResolveIndirect = 8,
 
+    /// Where a property is, for a site whose KEY is only known at run time.
+    ///
+    /// A fourth name, and this one is not a matter of what it may answer — the
+    /// other three take a key NUMBER the compilation resolved, and this takes
+    /// the operand itself, in the generic form, because the site was never told
+    /// which property it reads. Its signature differs for that reason, which is
+    /// what makes it a separate entry rather than a fourth caller of the first.
+    ///
+    /// Two obligations, and the second is why the machine cannot state this
+    /// alone: it fills the layout and the offset like [`Self::CacheResolve`],
+    /// **and** it writes the key it was handed into the cell, unchanged. A
+    /// resolver that wrote a normalised key would answer correctly once and then
+    /// be refused forever by a comparison against the raw operand — a cache that
+    /// never hits and never lies, which is the failure that looks like nothing
+    /// at all. See [`crate::ir::inst::Terminator::CachedGetKeyed`].
+    CacheResolveKeyed = 9,
+
     /// Throws a value that no handler in this function catches.
     ///
     /// Only for the escaping case. Where a handler *is* in this function, the
@@ -148,6 +182,7 @@ impl RtEntry {
         RtEntry::CacheResolve,
         RtEntry::CacheResolveStore,
         RtEntry::CacheResolveIndirect,
+        RtEntry::CacheResolveKeyed,
     ];
 
     /// How many entry points exist.
@@ -174,6 +209,7 @@ impl RtEntry {
             RtEntry::CacheResolve => "rts_cache_resolve",
             RtEntry::CacheResolveStore => "rts_cache_resolve_store",
             RtEntry::CacheResolveIndirect => "rts_cache_resolve_indirect",
+            RtEntry::CacheResolveKeyed => "rts_cache_resolve_keyed",
         }
     }
 
@@ -248,6 +284,17 @@ impl RtEntry {
                 ..Signature::default()
             },
 
+            // The receiver, the KEY AS A VALUE, and the cell. The middle operand
+            // is what makes this a fourth entry rather than a fourth caller: the
+            // three above take a key number the compilation resolved, and this
+            // one is handed the operand itself because nothing resolved it.
+            RtEntry::CacheResolveKeyed => Signature {
+                params: vec![Repr::Ref(RefKind::Opaque), Repr::Tagged, Repr::I64],
+                returns: vec![Repr::I64],
+                convention: crate::abi::Convention::Foreign,
+                ..Signature::default()
+            },
+
             // The tag and the value. Nothing comes back: this is the escaping
             // case, so control leaves the function and does not return to it.
             RtEntry::Throw => Signature {
@@ -270,6 +317,29 @@ mod tests {
                 entry.index(),
                 position,
                 "the numbers are the cache's keys, so a gap or a swap is a bug"
+            );
+        }
+    }
+
+    #[test]
+    fn a_number_below_the_count_always_names_a_listed_entry_point() {
+        // The test above compares each listed entry against its own position,
+        // which cannot notice an entry that was never listed: leave one out and
+        // the remaining ones still sit at their own indices. That is not
+        // hypothetical — `CacheResolveKeyed` was added to the enum and to
+        // `symbol()` and omitted here, the numbering test stayed green, and the
+        // failure arrived as an out-of-bounds panic in `target::declare`, which
+        // sizes its table by `COUNT` and indexes it by the discriminant.
+        //
+        // This asks the question the other one cannot: does every number the
+        // table will be indexed by name something. It only works while the
+        // numbering is dense, which is exactly the invariant the pair enforces
+        // together.
+        for number in 0..RtEntry::COUNT {
+            assert!(
+                RtEntry::ALL.iter().any(|entry| entry.index() == number),
+                "nothing in ALL has index {number}, so a table sized by COUNT \
+                 has a hole a lowering can still index into"
             );
         }
     }

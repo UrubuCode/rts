@@ -801,6 +801,61 @@ pub enum Terminator {
         miss: BlockCall,
     },
 
+    /// Reads a property whose KEY is only known at run time.
+    ///
+    /// # Why this is a third terminator and not a mode of [`Self::CachedGet`]
+    ///
+    /// Rule 10, the same argument [`Self::CachedGetIndirect`] makes, and here it
+    /// is not even a matter of cost: the key of the other two is a
+    /// [`crate::shape::Key`], a number fixed while compiling, and this one's is
+    /// a `ValueId`. They are different domains, not two settings of one.
+    ///
+    /// # What is compared, and why it is the RAW value
+    ///
+    /// The remembered word is the operand's own 64 bits — the tagged value the
+    /// site was handed — and **not** the property key it resolves to. That is
+    /// the whole point. Resolving a string operand to a key means reaching the
+    /// context, hopping to the string's payload and reading its memo, which is
+    /// ~11 ns measured (`cargo run --release --example entry_cost -p rts-core`,
+    /// 2026-08-23: `o[k]` 31.55 against `o[key number]` 20.24). A hit that had
+    /// to resolve first could never beat that floor; comparing the bits does not
+    /// touch the context at all.
+    ///
+    /// Sound in the one direction that matters: **equal bits mean the same
+    /// key**, because the same reference is the same string and the same number
+    /// bits are the same number. Unequal bits for an equal key — two distinct
+    /// string cells spelling `"a"`, or `0` against `-0` — take the miss path,
+    /// which is slower and still correct. A cache is allowed to be pessimistic
+    /// and is never allowed to be wrong.
+    ///
+    /// # Why the remembered key needs no cold value of its own
+    ///
+    /// It shares a cell with [`Self::CachedGet`], whose first word starts at a
+    /// layout no object has. Both comparisons must pass, so a site that has
+    /// never resolved is refused by the header before its key word — which
+    /// starts at zero — is ever consulted. That matters because zero is a
+    /// perfectly ordinary operand: a client whose singleton numbering puts
+    /// `undefined` there writes `o[undefined]` as exactly those bits.
+    ///
+    /// # What this layer does not know
+    ///
+    /// What makes two keys the same, what a key resolves to, and whether the
+    /// answer may live outside the cell. It compares two numbers and loads at a
+    /// remembered offset; the resolver decides everything else, exactly as it
+    /// does for the other two.
+    CachedGetKeyed {
+        /// The object read.
+        object: ValueId,
+        /// The key, as a value the program computed.
+        key: ValueId,
+        /// Where this site keeps what it last saw.
+        cache: crate::ir::CacheId,
+        /// Entered with the value, when both the layout and the key match.
+        hit: BlockCall,
+        /// Entered when either does not.
+        miss: BlockCall,
+    },
+
     /// Ends a cleanup, handing control back to whatever is unwinding.
     ///
     /// A cleanup is not jumped to. It is copied into each path that needs it,
@@ -834,100 +889,6 @@ pub enum Terminator {
     Trap(TrapCode),
 }
 
-impl Terminator {
-    /// The blocks control may reach from here.
-    pub fn successors(&self) -> Vec<BlockId> {
-        match self {
-            Terminator::Jump(call) => vec![call.block],
-            Terminator::Branch {
-                then_block,
-                else_block,
-                ..
-            } => {
-                vec![then_block.block, else_block.block]
-            }
-            Terminator::Guard { ok, fail, .. } | Terminator::GuardType { ok, fail, .. } => {
-                vec![ok.block, fail.block]
-            }
-            Terminator::CachedGet { hit, miss, .. }
-            | Terminator::CachedGetIndirect { hit, miss, .. }
-            | Terminator::CachedSet { hit, miss, .. } => {
-                vec![hit.block, miss.block]
-            }
-            // A throw has no successor in this function's graph. Where it lands
-            // is decided by the region tree, and may be in a caller; calling it
-            // an edge here would claim a transfer this block does not perform.
-            Terminator::Return(_)
-            | Terminator::Throw { .. }
-            | Terminator::TailCall { .. }
-            | Terminator::TailCallIndirect { .. }
-            | Terminator::CleanupDone
-            | Terminator::Trap(_) => Vec::new(),
-        }
-    }
-
-    /// The values this terminator reads, including branch arguments.
-    pub fn operands(&self) -> Vec<ValueId> {
-        let mut operands = Vec::new();
-        match self {
-            Terminator::Jump(call) => operands.extend_from_slice(&call.args),
-            Terminator::Branch {
-                cond,
-                then_block,
-                else_block,
-            } => {
-                operands.push(*cond);
-                operands.extend_from_slice(&then_block.args);
-                operands.extend_from_slice(&else_block.args);
-            }
-            Terminator::Guard {
-                input, ok, fail, ..
-            } => {
-                operands.push(*input);
-                operands.extend_from_slice(&ok.args);
-                operands.extend_from_slice(&fail.args);
-            }
-            Terminator::GuardType {
-                object, ok, fail, ..
-            } => {
-                operands.push(*object);
-                operands.extend_from_slice(&ok.args);
-                operands.extend_from_slice(&fail.args);
-            }
-            Terminator::CachedGet {
-                object, hit, miss, ..
-            }
-            | Terminator::CachedGetIndirect {
-                object, hit, miss, ..
-            } => {
-                operands.push(*object);
-                operands.extend_from_slice(&hit.args);
-                operands.extend_from_slice(&miss.args);
-            }
-            Terminator::CachedSet {
-                object,
-                value,
-                hit,
-                miss,
-                ..
-            } => {
-                operands.push(*object);
-                operands.push(*value);
-                operands.extend_from_slice(&hit.args);
-                operands.extend_from_slice(&miss.args);
-            }
-            Terminator::Return(values) => operands.extend_from_slice(values),
-            Terminator::TailCall { args, .. } => operands.extend_from_slice(args),
-            Terminator::TailCallIndirect { callee, args, .. } => {
-                operands.push(*callee);
-                operands.extend_from_slice(args);
-            }
-            Terminator::Throw { payload, .. } => operands.push(*payload),
-            Terminator::CleanupDone | Terminator::Trap(_) => {}
-        }
-        operands
-    }
-}
 
 /// An instruction together with the values it defines.
 #[derive(Clone, PartialEq, Eq, Debug)]

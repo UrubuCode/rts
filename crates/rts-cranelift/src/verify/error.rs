@@ -189,6 +189,21 @@ pub enum VerifyError {
         found: Repr,
     },
 
+    /// A keyed cached read was handed a key that is not in the generic form.
+    ///
+    /// The site remembers the key's raw bits and recognises the next one by
+    /// comparing them, which is only sound while every operand reaching it is
+    /// encoded identically. A proven double and its tagged spelling are two bit
+    /// patterns for one key: a site fed both would miss on every alternation
+    /// while still answering correctly, so the defect would show up as a
+    /// performance mystery rather than as a failure.
+    CachedKeyNotGeneric {
+        /// Where the read is.
+        from: BlockId,
+        /// What the key was.
+        found: Repr,
+    },
+
     /// A handler does not receive the thrown value.
     ///
     /// A handler that did not receive it would have to find it somewhere else,

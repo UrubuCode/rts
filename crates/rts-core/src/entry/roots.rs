@@ -174,6 +174,13 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // collection between two calls would hand the second one a freed cell
     // rather than merely rebuild something.
     words.extend(context.key_texts_as_values.values().copied());
+    // And every key a keyed read site has REMEMBERED, which is a different set
+    // from the one above and has to be rooted for a sharper reason: nothing
+    // traces a cache cell, so a collected key string would leave a site
+    // comparing the operand's bits against a cell some later allocation now
+    // owns — equal bits, a different key, and the old property's offset served
+    // as the answer. See `Context::remembered_keys`.
+    words.extend(context.remembered_keys.iter().copied());
     // Only the ones a program has actually named: a module registered lazily
     // has no object yet, and there is nothing to keep alive until it does.
     words.extend(context.modules.iter().filter_map(|held| held.namespace));

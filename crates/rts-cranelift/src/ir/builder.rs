@@ -650,6 +650,61 @@ impl<'a> FuncBuilder<'a> {
         Ok(())
     }
 
+    /// Reads a property whose key the program computed.
+    ///
+    /// The same block shape as [`Self::cached_get`] and a separate name for the
+    /// reason rule 10 gives — but here the two are not even the same domain:
+    /// that one's key is a number fixed while compiling and this one's is a
+    /// value. There is no flag that could turn one into the other.
+    ///
+    /// Refuses a key that is not in the generic form, because the site
+    /// recognises the next key by comparing raw bits and two spellings of one
+    /// key would never match. [`Terminator::CachedGetKeyed`] states why the
+    /// comparison is on the bits rather than on a resolved key.
+    pub fn cached_get_keyed(
+        &mut self,
+        object: ValueId,
+        key: ValueId,
+        cache: crate::ir::CacheId,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let found = self.func.repr_of(object);
+        if !matches!(found, Repr::Ref(_)) {
+            return Err(BuildError::WrongDomain {
+                operation: "cached_get_keyed",
+                found,
+            });
+        }
+
+        let key_repr = self.func.repr_of(key);
+        if key_repr != Repr::Tagged {
+            return Err(BuildError::WrongDomain {
+                operation: "cached_get_keyed key",
+                found: key_repr,
+            });
+        }
+
+        let hit_params = self.block_param_reprs(hit.0);
+        if hit_params.first() != Some(&Repr::Tagged) {
+            return Err(BuildError::GuardTargetMissingValue { target: hit.0 });
+        }
+
+        let hit_call = self.block_call_from(hit.0, hit.1, 1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::CachedGetKeyed {
+                object,
+                key,
+                cache,
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
     /// Reads a property that the site may have last found in a different cell.
     ///
     /// The same domain and the same block shape as [`Self::cached_get`], and a

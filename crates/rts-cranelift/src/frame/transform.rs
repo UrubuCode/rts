@@ -586,6 +586,22 @@ impl<'a> Rewrite<'a> {
                 self.rewrite_block_call(block, hit);
                 self.rewrite_block_call(block, miss);
             }
+            // The keyed form rewrites BOTH, and that is the whole difference
+            // from the two above: its key is an ordinary value a park may have
+            // spilled, where theirs is a number fixed while compiling and has
+            // nothing in a frame to move.
+            Terminator::CachedGetKeyed {
+                object,
+                key,
+                hit,
+                miss,
+                ..
+            } => {
+                *object = self.use_value(block, *object);
+                *key = self.use_value(block, *key);
+                self.rewrite_block_call(block, hit);
+                self.rewrite_block_call(block, miss);
+            }
             Terminator::CachedSet {
                 object,
                 value,

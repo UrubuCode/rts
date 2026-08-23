@@ -468,6 +468,14 @@ pub(crate) fn machine_entry(entry: RtEntry) -> *const u8 {
             rts_core::entry::cache_resolve_indirect as extern "C" fn(u64, i64, i64) -> i64
                 as *const u8
         }
+        // A fourth, and the only one whose SIGNATURE differs: the middle operand
+        // is the key as a value rather than as a number, because the site was
+        // handed one and never told which property it reads. The cast written
+        // out here is what makes that a compile error rather than a corrupt call
+        // if either side ever changes its mind.
+        RtEntry::CacheResolveKeyed => {
+            rts_core::entry::cache_resolve_keyed as extern "C" fn(u64, u64, i64) -> i64 as *const u8
+        }
         RtEntry::WriteBarrier => {
             rts_core::entry::write_barrier as extern "C" fn(u64, u64) as *const u8
         }

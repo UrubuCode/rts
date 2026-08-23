@@ -116,6 +116,98 @@ pub(super) fn emit_read(
     Ok(result)
 }
 
+/// Reads a property whose key the program computed.
+///
+/// The same three blocks [`emit_read`] uses, and the same slow path the site
+/// had before this existed — so what changed is that a warm site stops making
+/// the call, not what the call does.
+///
+/// # What was measured, and against what
+///
+/// `o[k]` with a string key cost **36 ns** against **3 ns** for `o.a`, on
+/// `target/release/rts.exe`, 2026-08-23, over 3 M iterations. The whole of that
+/// gap is this call: the computed path emitted `Call __rts_get_indexed` and no
+/// cache at all, so the site could not remember anything and every read paid the
+/// borrow, five receiver probes and a key resolution.
+///
+/// # Why the key is not resolved here
+///
+/// It could be, and a resolved key would be a smaller word to compare. It is not
+/// because resolving is the expensive half: reaching the string's payload and
+/// reading its memo is ~11 ns measured, so a hit that resolved first could never
+/// beat that floor. The machine compares the operand's own bits instead, and
+/// `rts_cranelift::ir::inst::Terminator::CachedGetKeyed` carries why that is
+/// sound in the one direction that matters.
+///
+/// # What is left on the slow path, on purpose
+///
+/// Everything that is not "a named property of this receiver's own layout": an
+/// array element, a typed array's byte, a string's character, an inherited
+/// property, an accessor, a proxy. Each of those is answered correctly by
+/// `GetIndexed` and none of them is something a layout can locate, so the
+/// resolver refuses and the site takes this path forever — one load and one
+/// predicted branch slower than before, which is the price of the fast case.
+pub(super) fn emit_read_keyed(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    receiver: ValueId,
+    key: ValueId,
+) -> EmitResult<ValueId> {
+    // A key the emitter has PROVEN to be a number never takes this path, and
+    // the reason is a measurement rather than tidiness. `a[i]` is an array
+    // element, an element is not a property of any layout, so the resolver
+    // refuses every time — and the site then pays a load, a compare and a call
+    // that cannot succeed before falling through to the read it was already
+    // doing. Measured 2026-08-23, `keys[i & 3]`: **16.0 ns became 23.7** with
+    // this arm missing, a 48% regression on the commonest computed read there
+    // is.
+    //
+    // Asked before the widening, because widening is what destroys the proof:
+    // once it is `Tagged` nothing here can tell a number from a name. Rule 5 of
+    // this crate's README, in the direction it is usually read backwards — what
+    // IS proven is what lets a site opt out.
+    //
+    // A number that is not proven still reaches the cache and still misses
+    // forever. That case is stated in the commit rather than fixed here: fixing
+    // it needs a site that can remember it was refused, which is a machine
+    // capability that does not exist.
+    if matches!(builder.repr_of(key), Repr::F64 | Repr::I32 | Repr::I64) {
+        let receiver = tagged(builder, receiver);
+        let key = tagged(builder, key);
+        return Ok(call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0]);
+    }
+
+    let receiver = tagged(builder, receiver);
+    // Generic, and the verifier refuses anything else: the site recognises the
+    // next key by comparing raw bits, so a proven double and its tagged
+    // spelling would be two keys where the program wrote one.
+    let key = tagged(builder, key);
+
+    let as_reference = builder.create_block();
+    let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
+    let slow = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, UNPROVEN);
+
+    builder.guard(
+        receiver,
+        Repr::Ref(RefKind::Opaque),
+        (as_reference, &[]),
+        (slow, &[]),
+    )?;
+
+    builder.switch_to(as_reference);
+    let cache = builder.declare_cache();
+    builder.cached_get_keyed(narrowed, key, cache, (join, &[]), (slow, &[]))?;
+
+    builder.switch_to(slow);
+    let answered = call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0];
+    builder.jump(join, &[answered])?;
+
+    builder.switch_to(join);
+    Ok(result)
+}
+
 /// Reads a property the site may last have found on something the receiver
 /// inherits from.
 ///

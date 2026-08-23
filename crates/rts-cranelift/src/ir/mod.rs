@@ -28,6 +28,7 @@ pub(crate) mod fold;
 pub mod func;
 pub mod funcs;
 pub mod inst;
+pub mod terminator;
 pub mod text;
 
 pub use builder::{BuildError, BuildResult, FuncBuilder};

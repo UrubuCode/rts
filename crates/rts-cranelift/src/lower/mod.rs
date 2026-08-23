@@ -39,6 +39,7 @@
 //! object, so a type guard reads it there. The two guards compose.
 
 mod body;
+mod cached_keyed;
 mod cleanup;
 mod error;
 mod memory;

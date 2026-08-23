@@ -43,6 +43,7 @@ mod bigints;
 mod bitwise;
 mod buffer;
 mod cache;
+mod cache_keyed;
 mod chain;
 mod class_support;
 mod collect_cycle;
@@ -175,6 +176,7 @@ pub use finalize::{
 };
 pub use barrier::write_barrier;
 pub use cache::{cache_resolve, cache_resolve_indirect, cache_resolve_store, census_report};
+pub use cache_keyed::cache_resolve_keyed;
 pub use chain::{get_prototype, set_prototype};
 pub use clone::deep_copy;
 pub use current::with_context;
@@ -803,6 +805,33 @@ pub struct Context {
     /// cell per name the interner already refused to forget, rather than a new
     /// class of retention.
     pub(super) key_texts_as_values: std::collections::HashMap<crate::object::Key, u64>,
+
+    /// Every key word a keyed read site has remembered.
+    ///
+    /// # What breaks without it
+    ///
+    /// A keyed site recognises its next key by comparing the operand's raw
+    /// bits against a word in its cell, and those bits are a REFERENCE to a
+    /// string. Nothing traces a cache cell, so the string could be collected,
+    /// its cell handed to an unrelated allocation, and the next `o[k]` through
+    /// that site would compare equal bits for a different key and read the old
+    /// property's offset. A silently wrong value, and the hardest kind: it
+    /// needs a collection to land between two reads of one site.
+    ///
+    /// # Why a set of its own rather than [`Self::key_texts_as_values`]
+    ///
+    /// That one is keyed by `Key` and holds ONE cell per key — the string an
+    /// enumeration hands back. Two different string cells can spell one key,
+    /// and it is the cell a site was actually handed that has to survive, not
+    /// the canonical one. Reusing it would root the wrong cell and look
+    /// correct.
+    ///
+    /// # What it retains
+    ///
+    /// One cell per distinct string a keyed site has been handed, which is
+    /// bounded by the program's property names — the same bound the interner
+    /// already accepts for holding every key text forever.
+    pub(super) remembered_keys: std::collections::HashSet<u64>,
     /// The nine strings `typeof` can answer, each built at most once.
     ///
     /// # Why a cache rather than building the answer
@@ -1040,6 +1069,7 @@ impl Context {
             well_known_keys: [None; CACHED_KEYS.len()],
             well_known_texts: [None; CACHED_TEXTS.len()],
             key_texts_as_values: std::collections::HashMap::new(),
+            remembered_keys: std::collections::HashSet::new(),
             literals: Vec::new(),
             type_names: [None; TYPE_NAMES.len()],
             external: Vec::new(),

@@ -239,7 +239,12 @@ pub fn emit_expr(
                 return super::property::emit_read(builder, ctx, receiver, name);
             }
             let key = emit_expr(builder, scope, ctx, index)?;
-            Ok(call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0])
+            // Through a cache, which this site had none of: a literal key took
+            // the inline cache above and a computed one called the runtime every
+            // time, which is 36 ns against 3. `emit_read_keyed` keeps the very
+            // same call as its miss path, so nothing this used to answer is
+            // answered differently — only faster when the key repeats.
+            super::property::emit_read_keyed(builder, ctx, receiver, key)
         }
         ExprKind::Object { properties } => super::object::emit_object(builder, scope, ctx, properties),
         ExprKind::Array { elements } => emit_array(builder, scope, ctx, elements),

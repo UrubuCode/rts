@@ -1102,7 +1102,7 @@ impl<'a> Body<'a> {
 
     /// The address of where a site keeps what it last saw.
 
-    fn cache_address(
+    pub(super) fn cache_address(
         &mut self,
         builder: &mut FunctionBuilder,
         block: BlockId,
@@ -1125,7 +1125,7 @@ impl<'a> Body<'a> {
     }
 
     /// Calls a runtime entry point from a terminator.
-    fn call_entry_at(
+    pub(super) fn call_entry_at(
         &mut self,
         builder: &mut FunctionBuilder,
         block: BlockId,

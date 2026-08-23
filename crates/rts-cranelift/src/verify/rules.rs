@@ -121,6 +121,27 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 check_block_call(func, from, miss, 0, errors);
             }
 
+            // The same four checks, plus the one the other two cannot need: the
+            // KEY has to be in the generic form. A cache that remembers raw bits
+            // and compares them is only sound if every operand reaching it is
+            // encoded the same way — a proven double and its tagged spelling are
+            // different bit patterns for one key, so a site fed both would miss
+            // forever while looking like it worked.
+            Terminator::CachedGetKeyed {
+                object,
+                key,
+                cache,
+                hit,
+                miss,
+            } => {
+                check_cached_get(func, from, *object, *cache, hit, errors);
+                check_block_call(func, from, miss, 0, errors);
+                let found = func.repr_of(*key);
+                if found != Repr::Tagged {
+                    errors.push(VerifyError::CachedKeyNotGeneric { from, found });
+                }
+            }
+
             Terminator::Throw { payload, .. } => {
                 let repr = func.repr_of(*payload);
                 if repr != Repr::Tagged {
