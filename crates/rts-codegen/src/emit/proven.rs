@@ -716,16 +716,37 @@ fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
             // `|` acquired a guard, a widening and a cold generic call. It is
             // the same argument `Proven::NumberCall` records for `%`.
             //
-            // The three SHIFTS stay out, and their exclusion is not caution —
-            // it is that `proven_binary` deliberately leaves them as calls
-            // answering a generic value (the shift count needs masking, and
-            // `>>>` answers `ToUint32`, which does not fit `i32`). Claiming a
-            // number for a site that emits a `Tagged` result would ask for a
-            // narrowing on a loop's back edge, which is the refusal that shape
-            // of mistake produces.
-            BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
-                is_numeric(left, known) && is_numeric(right, known)
-            }
+            // `<<` and `>>` JOINED THEM on 2026-08-23, and the paragraph that
+            // stood here is the reason they had to: it said "the three SHIFTS
+            // stay out, and their exclusion is not caution — it is that
+            // `proven_binary` deliberately leaves them as calls answering a
+            // generic value". That premise died in the commit that made them
+            // instructions. `proven_binary` answers `Proven::Shift`, which is
+            // `ToInt32`, the machine's shift, and `ToF64` back — an `F64`
+            // result, exactly like the three above.
+            //
+            // Leaving this arm alone made that commit HALF-LANDED, and the
+            // benchmark said so: `arith int shl` measured 17.11 ns against 6.31
+            // for `arith int and`, two loops of the same shape, one carrying its
+            // accumulator as `F64` and the other as `Tagged`. The emission was
+            // the instruction; the analysis had already widened the local at
+            // every store, so the operand was never proven when the emitter
+            // looked. It is the third time this pair of tables has disagreed —
+            // `proven_binary` against `runtime_binary` for the shifts, this
+            // against the emission for `~`, and now this against the emission
+            // for the shifts.
+            //
+            // `>>>` STAYS OUT, and now that is the only exclusion left and it is
+            // the real one: its result is `ToUint32`, which does not fit the
+            // proven `i32` the other two carry, so `proven_binary` answers
+            // nothing for it and the site emits a `Tagged` value. Claiming a
+            // number for it would ask for a narrowing on a loop's back edge —
+            // the `ImplicitNarrowing` refusal, a program that does not compile.
+            BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr => is_numeric(left, known) && is_numeric(right, known),
             // A comparison is a boolean, and `in`/`instanceof` are booleans.
             _ => false,
         },
