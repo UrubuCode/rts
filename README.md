@@ -73,20 +73,20 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `23bf1c5`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `27ad667`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 21 ms | 44 ms | 42 ms | 34 ms | **22 ms** | **0.93×** | **1.96×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 296 ms | 447 ms | 439 ms | 673 ms | **656 ms** | **0.45×** | **0.68×** |
-| …the same RTS run, vs JS using native `Math.random` | 67 ms | 188 ms | 142 ms | 665 ms | **662 ms** | **0.10×** | **0.28×** |
-| π Machin f64 (RTS only) | — | — | — | 17 ms | **10 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 252 ms | **250 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 36 ms | **27 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 127 ms | **117 ms** | — | — |
-| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 36 ms | **22 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 317 ms | **316 ms** | — | — |
-| one loop, state as a local / captured / property | 196 ms | 288 ms | 261 ms | 184 ms | **168 ms** | **1.16×** | **1.71×** |
+| Hello/startup | 30 ms | 66 ms | 60 ms | 48 ms | **30 ms** | **1.02×** | **2.22×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 419 ms | 629 ms | 627 ms | 955 ms | **949 ms** | **0.44×** | **0.66×** |
+| …the same RTS run, vs JS using native `Math.random` | 91 ms | 256 ms | 204 ms | 939 ms | **922 ms** | **0.10×** | **0.28×** |
+| π Machin f64 (RTS only) | — | — | — | 23 ms | **13 ms** | — | — |
+| 3M objects allocated (RTS only) | — | — | — | 342 ms | **337 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 46 ms | **36 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 168 ms | **153 ms** | — | — |
+| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 47 ms | **26 ms** | — | — |
+| string indexing, input doubled four times (RTS only) | — | — | — | 451 ms | **439 ms** | — | — |
+| one loop, state as a local / captured / property | 271 ms | 396 ms | 316 ms | 257 ms | **235 ms** | **1.16×** | **1.69×** |
 
 _Updated: 2026-08-23 — run locally with `powershell -File bench/benchmark.ps1`_
 
