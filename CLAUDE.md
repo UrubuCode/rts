@@ -327,6 +327,14 @@ about a build nobody ships.
 looked up under `target/{debug,release}`, not `target/fast`. `rts run` and
 `rts test` do.
 
+**Its second use is the merge gate's test step, and that is where it pays most.**
+`cargo test --profile fast` over the four engine crates is **5m07s against ~30
+minutes** for the same command under `--release`, same verdict both ways. The
+next section carries the measurement and why a profile cannot change the answer
+to the question those tests ask. The number above — 7m11s against 9m24s for a
+binary — is the *small* half of what this profile is worth: a binary is one link
+and the tests are forty-one.
+
 ---
 
 ## MANDATORY: the honesty floor
@@ -353,9 +361,48 @@ Before merge:
 
 ```bash
 cargo build --release
-cargo test --release --no-fail-fast -p <each crate you touched>   # NAME them, and see below
+cargo test --profile fast --no-fail-fast -p <each crate you touched>   # NAME them, and see below
 target/release/rts.exe test          # if the change touches runtime/codegen/GC
 ```
+
+**`--profile fast` and NOT `--release`, and the difference is 25 minutes.**
+Measured 2026-08-23, same four crates, same tree, same verdict — `309 passed;
+3 failed` both ways:
+
+| | wall clock |
+|---|---:|
+| `cargo test --release` | **~30 min** |
+| `cargo test --profile fast` | **5 min 07 s** |
+
+The cost is not the tests, it is the LINK. `[profile.release]` carries
+`lto = "thin"` and `codegen-units = 1`, and **every test target is its own
+binary** that inherits both — 41 files across `tests/` in the four gated crates,
+so 41 thin-LTO links of the whole engine. That is why the binary alone builds in
+1m21s and its tests take thirty. `fast` is the same profile with `lto = false`
+and `codegen-units = 16`.
+
+**Why this is safe for a gate and not for a number.** `fast` differs from
+`release` in optimization quality only; the per-package `opt-level = 3`
+overrides, `debug-assertions`, and everything a test can observe are inherited
+unchanged. Cargo also forces unwinding for test targets, so `panic = "abort"`
+never applied to them either way. Checked rather than assumed: **no test in the
+gated crates does AOT or names a `target/…` path** — `exhaustion.rs`
+re-invokes `current_exe()` and `test262.rs` invokes `git`, both profile-agnostic.
+
+**What it is still NOT for**, and the ITERATION SPEED section already says both:
+a `fast` binary runs `bench/objbench.ts` 20.8% slower, and `rts compile` cannot
+find the runtime archive under `target/fast`. So: **`fast` answers "is it
+correct", `release` answers "how fast is it".** A benchmark number from a `fast`
+binary is a number about a build nobody ships.
+
+**And the limit worth stating, because this repository has already paid it once.**
+A green suite is not proof that two builds are the same program. The
+`single_pass` register allocator passed all 800 `*.test.ts` files and segfaulted
+the largest program in this workspace, every run — the corpus is small files and
+the defect needed a big one. So the release build above the test line stays, and
+`target/release/rts.exe test` stays: what `--profile fast` replaces is the Rust
+unit and integration tests, which are the part that costs thirty minutes and asks
+a question the profile cannot change the answer to.
 
 **`--no-fail-fast`, and `--lib` is not the whole crate.** Cargo runs a crate's
 test targets in NAME order and stops at the first that fails, so **how much
@@ -375,7 +422,8 @@ produces nothing to compare** — and empty looks exactly like green at the plac
 where anyone looks. The mechanism is not a broken tool; it is a correct tool
 that gives up early.
 
-**`cargo test --release --lib` with no `-p` is not a gate.** At the workspace
+**`cargo test --lib` with no `-p` is not a gate**, whichever profile it runs
+under. At the workspace
 root it tests the root `rts` package alone and answers `0 passed; 0 failed` —
 green, and measuring nothing. It stood here bare and passed as a check for as
 long as nobody read the count. Naming the four crates of a codegen change

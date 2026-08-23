@@ -224,7 +224,7 @@ Each PR (foundation or module):
 ```bash
 cargo build --release -p rts-runtime         # rebuild AOT staticlib (moved symbols)
 cargo build --release
-cargo test --release --lib
+cargo test --profile fast --no-fail-fast -p <each crate touched>
 target/release/rts.exe test                  # TS suite (if runtime/codegen/GC touched)
 ```
 Explicit-regression discipline: the `rts:fs`/`rts:os` surface change (open decision
