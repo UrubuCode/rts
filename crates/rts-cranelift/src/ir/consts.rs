@@ -1,22 +1,56 @@
 //! Constants.
 //!
-//! Five kinds, kept apart because they differ in lifetime, in how they are
-//! materialized, and in whether the collector must know about them. Collapsing
-//! them into one leaves nowhere to say "this constant is a reference", which
-//! then becomes a special case at every use.
+//! One kind: a value that fits in a register. Whether it becomes an immediate or
+//! a load is not a client's decision — it follows from the representation and
+//! from the target's instruction encodings, and is settled during lowering.
 //!
-//! Whether a constant becomes an immediate or a load from a data section is not
-//! a client's decision. It follows from the kind and from the target's
-//! instruction encodings, and is settled during lowering.
+//! # There were five, and four had no producer
+//!
+//! `Bytes`, `Text`, `Symbol` and `StaticRef` were all in this enum and all
+//! unreachable: nothing in the workspace built one, and `lower_const` answered
+//! `NotYetLowered { needs: Capability::Memory }` for every one of them. Rule 6
+//! says a structure with no producer is a gap rather than a feature, and this
+//! crate's README records that it has shipped three such structures before and
+//! found each of them by looking rather than by the build.
+//!
+//! Three of the four carried documentation describing behaviour the code did not
+//! have — `Bytes` said it was "deduplicated by content across the whole
+//! compilation", `StaticRef` said it "is reported as a root when live across a
+//! safepoint" — which is rule 4's own failure mode: documentation that is not
+//! enforced degrades into documentation that is wrong.
+//!
+//! **And each of the four was refused by its own would-be client, in writing.**
+//! `Text` is the one a language layer would want for a string literal, and
+//! `rts-codegen`'s `emit/mod.rs` states the decision against it: putting the
+//! bytes in the compiled image "would make the text part of the code", so a
+//! literal is referred to by an index into a table the host seeds instead —
+//! the same shape as the two agreements that already exist. `Symbol` addresses a
+//! function by string where the registry already numbers it, which is what
+//! `Inst::FuncAddr` exists to do and what its documentation calls "the wrong
+//! mechanism anyway".
+//!
+//! So the four are gone rather than implemented. What that buys beyond a smaller
+//! enum is that **lowering a constant can no longer fail**: `lower_const` is
+//! total, and a whole `NotYetLowered` path stops existing.
+//!
+//! What brings one back is a client that needs it, arriving with the lowering
+//! that makes it mean something — not the declaration on its own.
 
 use crate::repr::Repr;
-use crate::types::TypeId;
 
 /// A scalar constant's bits, interpreted according to its representation.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct ScalarBits(pub u64);
 
 /// A declared constant.
+///
+/// # Why an enum with one variant
+///
+/// Because the question it answers has more than one possible answer, and the
+/// day a second kind arrives it arrives here. A struct would be the same data
+/// with the shape of the decision erased, and every construction site would then
+/// have to change back. Sixty sites spell `ConstDecl::Scalar { .. }` today; the
+/// name is what says which kind of constant they mean.
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum ConstDecl {
     /// A value that fits in a register.
@@ -26,85 +60,52 @@ pub enum ConstDecl {
         /// Its bits.
         bits: ScalarBits,
     },
-
-    /// Immutable bytes in a data section.
-    ///
-    /// Deduplicated by content across the whole compilation, not per function:
-    /// this is where identical literals stop costing once each.
-    Bytes {
-        /// The content.
-        bytes: Vec<u8>,
-        /// Required alignment.
-        align: u32,
-    },
-
-    /// Immutable text, held apart from arbitrary bytes so that string handling
-    /// can intern it without the byte path needing to know what text is.
-    Text(String),
-
-    /// The address of a symbol.
-    Symbol(SymbolRef),
-
-    /// A reference to immutable, statically placed storage.
-    ///
-    /// Its storage never moves and is never reclaimed, so reading it needs no
-    /// barrier. It is still a reference in every other respect: it takes part in
-    /// representation merges, it carries a barrier when written into something
-    /// mutable, and it is reported as a root when live across a safepoint.
-    /// Declaring that once, here, is what keeps every consumer of a reference
-    /// uniform instead of special-casing this one.
-    StaticRef {
-        /// The content the reference designates.
-        content: Box<ConstDecl>,
-        /// The aggregate layout that content follows.
-        ty: TypeId,
-    },
 }
-
-/// Names a symbol resolved when the compilation is linked or installed.
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
-pub struct SymbolRef(pub String);
 
 impl ConstDecl {
     /// The representation a value materialized from this constant has.
     pub fn repr(&self) -> Repr {
         match self {
             ConstDecl::Scalar { repr, .. } => *repr,
-            ConstDecl::Bytes { .. } | ConstDecl::Text(_) => Repr::Ref(crate::repr::RefKind::Bytes),
-            ConstDecl::Symbol(_) => Repr::I64,
-            ConstDecl::StaticRef { ty, .. } => Repr::Ref(crate::repr::RefKind::Aggregate(*ty)),
         }
-    }
-
-    /// Whether the collector must be able to find a value materialized from this
-    /// constant.
-    pub fn is_gc_relevant(&self) -> bool {
-        self.repr().is_gc_relevant()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repr::RefKind;
 
     #[test]
-    fn a_symbol_address_is_an_integer_not_a_reference() {
-        let c = ConstDecl::Symbol(SymbolRef("entry".into()));
-        assert_eq!(c.repr(), Repr::I64);
-        assert!(
-            !c.is_gc_relevant(),
-            "the collector does not trace code addresses"
-        );
+    fn identical_declarations_are_the_same_constant() {
+        // What `Function::push_const` keys its pool on, and therefore the
+        // property that makes deduplication mean anything. Stated here because
+        // it is a property of this type rather than of the pool.
+        let one = ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: ScalarBits(7),
+        };
+        let same = ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: ScalarBits(7),
+        };
+        assert_eq!(one, same);
     }
 
     #[test]
-    fn a_static_reference_is_traced_like_any_other() {
-        let c = ConstDecl::StaticRef {
-            content: Box::new(ConstDecl::Text("literal".into())),
-            ty: TypeId(0),
+    fn the_same_bits_under_two_representations_are_two_constants() {
+        // The bits alone do not identify a constant, and merging on them would
+        // hand a site an integer where it declared a double — the same eight
+        // bytes meaning two different things.
+        let integer = ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: ScalarBits(0),
         };
-        assert_eq!(c.repr(), Repr::Ref(RefKind::Aggregate(TypeId(0))));
-        assert!(c.is_gc_relevant());
+        let floating = ConstDecl::Scalar {
+            repr: Repr::F64,
+            bits: ScalarBits(0),
+        };
+        assert_ne!(integer, floating);
+        assert_eq!(integer.repr(), Repr::I64);
+        assert_eq!(floating.repr(), Repr::F64);
     }
 }

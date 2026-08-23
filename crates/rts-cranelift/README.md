@@ -240,6 +240,30 @@ no lowering — one of the structures with no producer this crate has shipped
 before — and it would have been the wrong mechanism anyway, since it addresses
 by string what the registry already numbers.
 
+**Five more were found the same way on 2026-08-23, by auditing every variant of
+`Inst` and `ConstDecl` for a producer**, which is the search that paragraph
+should have prompted and did not:
+
+- `ConstDecl::Bytes`, `Text`, `Symbol` and `StaticRef` — none built anywhere,
+  all four answered `NotYetLowered` in `lower_const`, and three carried
+  documentation describing behaviour the code did not have. Deleted. What it
+  buys past a smaller enum is that **lowering a constant can no longer fail**:
+  `lower_const` is total and answers a `Value` rather than a `Result`.
+- `Inst::Narrow` — no producer, and its verification was weaker than rule 11.
+  `verify` recorded which *representation* a guard proved for a block, never
+  which *value*, so a narrow of some other tagged value in that block passed and
+  would have reinterpreted a pointer's bits as a double. Deleted rather than
+  strengthened: `Terminator::Guard` hands the narrowed value to its success
+  block as a parameter, which IS the narrowing, and a second spelling of it is
+  what let the weaker check exist. `ir/inst.rs`'s own header already said
+  narrowing "is only reachable through `Terminator::Guard`" — that sentence is
+  now true.
+
+The rule this leaves, and it is rule 6 read as an instruction rather than as a
+prohibition: **audit for producers, do not wait for the build to find them.**
+`#![deny(dead_code)]` does not fire on a public enum variant, which is why every
+one of these shipped.
+
 Calls exist now, and they arrived last on purpose. A call is inseparable from the
 convention it uses, from the safepoint it implies, and from where the frame is
 when control leaves — so every one of those was built and tested first. Choosing

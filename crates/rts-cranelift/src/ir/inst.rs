@@ -228,8 +228,17 @@ pub enum Inst {
     /// Emitted as pure instructions, never a call, so that a redundant pair
     /// around an already-uniform value folds away entirely.
     Widen(ValueId),
-    /// Narrows a generic value whose representation a guard has established.
-    Narrow(ValueId, Repr),
+    //
+    // There was an `Inst::Narrow(ValueId, Repr)` here, and it is gone rather
+    // than fixed. Rule 11 says narrowing is reachable only through a guard, and
+    // the guard is a TERMINATOR precisely so that its failure path cannot be
+    // omitted — `Terminator::Guard` hands the narrowed value to its success
+    // block as a parameter, which IS the narrowing. A separate instruction was
+    // a second way to spell it, it had no producer in this workspace, and its
+    // check was weaker than the rule: `verify` recorded which REPRESENTATION a
+    // guard proved for a block, never which VALUE, so a narrow of some other
+    // tagged value in that block passed. See the deleting commit for what that
+    // would have computed.
 
     /// An operation on operands whose representation is not proven.
     Generic(GenericOp, ValueId, ValueId),
@@ -505,7 +514,6 @@ impl Inst {
             }
 
             Inst::Widen(v)
-            | Inst::Narrow(v, _)
             | Inst::ToInt32(v)
             | Inst::ToF64(v)
             | Inst::FloatUnary(_, v) => vec![*v],

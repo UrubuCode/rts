@@ -132,12 +132,6 @@ pub enum VerifyError {
         found: Repr,
     },
 
-    /// A narrowing appears outside a guard's success path.
-    UnguardedNarrowing {
-        /// The instruction.
-        inst: InstId,
-    },
-
     /// A return does not match the function's signature.
     ReturnArity {
         /// Where the return is.

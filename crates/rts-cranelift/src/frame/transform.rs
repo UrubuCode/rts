@@ -734,7 +734,6 @@ fn replace_operands(inst: &mut Inst, replacements: &[ValueId]) {
         | Inst::FuncAddr { .. } => {}
 
         Inst::Widen(v)
-        | Inst::Narrow(v, _)
         | Inst::ToInt32(v)
         | Inst::ToF64(v)
         | Inst::WordLoad { address: v }

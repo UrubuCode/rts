@@ -174,7 +174,7 @@ impl<'a> Body<'a> {
         let produced = match inst {
             Inst::Const(decl) => {
                 let decl = self.func.constant(*decl).expect("constant belongs here");
-                self.lower_const(builder, id, decl)?
+                self.lower_const(builder, decl)
             }
 
             Inst::IntArith(op, a, b) => {
@@ -391,10 +391,6 @@ impl<'a> Body<'a> {
                 builder.ins().load(types::I64, flags, at, 0)
             }
 
-            Inst::Narrow(v, to) => {
-                let raw = self.value(*v);
-                value::narrow(builder, raw, *to)?
-            }
 
             // One comparison against a constant word. A singleton has exactly
             // one encoding, so nothing is loaded and no NaN case arises: the
@@ -589,26 +585,23 @@ impl<'a> Body<'a> {
         Ok(())
     }
 
-    fn lower_const(
-        &self,
-        builder: &mut FunctionBuilder,
-        id: crate::ir::InstId,
-        decl: &ConstDecl,
-    ) -> Result<Value, LowerError> {
+    /// Materializes a declared constant, which cannot fail.
+    ///
+    /// The signature says so, and it did not always: this answered a `Result`
+    /// because four of the five `ConstDecl` variants lived in a data section
+    /// this lowering has no module for. None of the four had a producer, all
+    /// four are gone (see `ir::consts`), and what is left is a scalar — an
+    /// immediate the code generator always has an encoding for.
+    fn lower_const(&self, builder: &mut FunctionBuilder, decl: &ConstDecl) -> Value {
         match decl {
             ConstDecl::Scalar {
                 repr,
                 bits: ScalarBits(bits),
-            } => Ok(match repr {
+            } => match repr {
                 Repr::F32 => builder.ins().f32const(f32::from_bits(*bits as u32)),
                 Repr::F64 => builder.ins().f64const(f64::from_bits(*bits)),
                 other => builder.ins().iconst(machine_type(*other), *bits as i64),
-            }),
-            // Everything else lives in a data section, which needs a module.
-            _ => Err(LowerError::NotYetLowered {
-                inst: id,
-                needs: Capability::Memory,
-            }),
+            },
         }
     }
 

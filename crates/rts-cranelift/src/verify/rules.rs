@@ -4,7 +4,7 @@
 //! finds. They are kept separate so that a rule can be read, and argued with, on
 //! its own.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use super::error::VerifyError;
 use crate::ir::inst::NumOp;
@@ -672,9 +672,7 @@ pub(super) fn check_instructions(
     types: &TypeRegistry,
     errors: &mut Vec<VerifyError>,
 ) {
-    let narrowing_allowed = guard_success_blocks(func);
-
-    for (block_id, block) in func.blocks() {
+    for (_, block) in func.blocks() {
         for &inst_id in &block.insts {
             let Some(data) = func.inst(inst_id) else {
                 continue;
@@ -795,17 +793,6 @@ pub(super) fn check_instructions(
                     }
                 }
 
-                Inst::Narrow(value, _) => {
-                    if !narrowing_allowed.contains_key(&block_id) {
-                        errors.push(VerifyError::UnguardedNarrowing { inst: inst_id });
-                    }
-                    if func.repr_of(*value) != Repr::Tagged {
-                        errors.push(VerifyError::WrongDomain {
-                            inst: inst_id,
-                            found: func.repr_of(*value),
-                        });
-                    }
-                }
 
                 Inst::Generic(_, a, b) => {
                     for &operand in [a, b] {
@@ -953,16 +940,6 @@ fn check_field(
 
 /// Blocks reachable only through a guard's success edge, with what that guard
 /// established.
-fn guard_success_blocks(func: &Function) -> HashMap<BlockId, Repr> {
-    let mut blocks = HashMap::new();
-    for (_, block) in func.blocks() {
-        if let Some(Terminator::Guard { expect, ok, .. }) = &block.terminator {
-            blocks.insert(ok.block, *expect);
-        }
-    }
-    blocks
-}
-
 /// Returns match the signature.
 pub(super) fn check_returns(func: &Function, errors: &mut Vec<VerifyError>) {
     let expected = &func.signature.returns;

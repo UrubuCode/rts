@@ -31,7 +31,7 @@ pub mod inst;
 pub mod text;
 
 pub use builder::{BuildError, BuildResult, FuncBuilder};
-pub use consts::{ConstDecl, ScalarBits, SymbolRef};
+pub use consts::{ConstDecl, ScalarBits};
 pub use entity::{BlockId, CacheId, ConstId, InstId, ValueId};
 pub use func::{Function, Signature, ValueData, ValueOrigin};
 pub use funcs::{FuncDecl, FuncId, FuncRegistry, SigId};
