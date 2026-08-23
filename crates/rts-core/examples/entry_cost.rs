@@ -19,7 +19,10 @@
 
 use std::time::Instant;
 
-use rts_core::entry::{Context, type_of, with_context};
+use rts_core::entry::{
+    Context, get_indexed, get_property, make_object, make_string, member_key, put_member, type_of,
+    with_context, with_runtime,
+};
 use rts_core::value::{Kinds, Singletons, Value};
 
 fn main() {
@@ -62,6 +65,36 @@ fn main() {
             sink = sink.wrapping_add(type_of(number));
         }
         report("type_of, cached", at, each, sink);
+
+        // ---------------------------------------------------------------
+        // What `o[k]` costs, decomposed, with no compiled code in sight.
+        //
+        // `bench/analytic.ts` cannot separate these: a computed read there is
+        // one runtime call and the number is the whole of it. Here each layer
+        // is asked on its own, which is the only way to say WHICH layer is the
+        // cost rather than that the total is high.
+        // ---------------------------------------------------------------
+        let (object, key_cell, key_number) = with_runtime(|context| {
+            let object = make_object(context);
+            put_member(context, object, "a", Value::from_f64(1.0).bits());
+            let key_cell = make_string(context, "a");
+            let key_number = i64::from(member_key(context, "a"));
+            (object, key_cell, key_number)
+        });
+
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..each {
+            sink = sink.wrapping_add(get_indexed(object, key_cell));
+        }
+        report("o[k], string key", at, each, sink);
+
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..each {
+            sink = sink.wrapping_add(get_property(object, key_number));
+        }
+        report("o[key number]", at, each, sink);
     });
 }
 

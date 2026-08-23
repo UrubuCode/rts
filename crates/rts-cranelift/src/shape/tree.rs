@@ -87,7 +87,30 @@ pub struct ShapeTree {
     /// is the whole reason a shape identifies anything.
     transitions: HashMap<(Option<ShapeId>, Key, Repr), ShapeId>,
     /// Property positions, for the layouts something has looked one up in.
-    indexes: HashMap<ShapeId, HashMap<Key, u32>>,
+    ///
+    /// # Why a `Vec` and not a map keyed by the shape
+    ///
+    /// Because a `ShapeId` is **dense** — it is `ShapeId(self.nodes.len())`, so
+    /// the numbers are 0, 1, 2, … with no gaps — and hashing a dense number to
+    /// find a position is paying for a search that has an answer by arithmetic.
+    ///
+    /// It was `HashMap<ShapeId, HashMap<Key, u32>>`, and [`Self::slot_of`] paid
+    /// **three hash probes** for one property read: `contains_key(&shape)`, then
+    /// `self.indexes[&shape]` hashing the same shape again, then `get(&key)` on
+    /// the inner map. Two of the three asked the same question about a number
+    /// that indexes an array.
+    ///
+    /// `None` at a position means the layout exists and nobody has looked a
+    /// property up in it yet; the vector is grown to fit rather than sized in
+    /// advance, because a program that never reads a property of a shape should
+    /// not pay for its index.
+    indexes: Vec<Option<HashMap<Key, u32>>>,
+    /// The empty layout's index, which is always empty and has no position.
+    ///
+    /// Beside the vector rather than in it because [`ShapeTree::root`] is
+    /// `ShapeId(u32::MAX)` — a sentinel, since the empty layout is not a node —
+    /// and a vector long enough to hold that subscript is four billion entries.
+    root_index: Option<HashMap<Key, u32>>,
     /// The registered aggregate each layout became, for the ones that needed one.
     types: HashMap<ShapeId, TypeId>,
 }
@@ -278,16 +301,46 @@ impl ShapeTree {
 
     /// Property positions for a layout, built on first use and kept.
     fn index_of(&mut self, shape: ShapeId) -> &HashMap<Key, u32> {
-        if !self.indexes.contains_key(&shape) {
+        // Grown to fit rather than probed for. A `ShapeId` is dense, so "does
+        // this layout have an index yet" is a bounds check and an `is_none`,
+        // where it used to be a hash of the shape — twice, once to ask and once
+        // to take. See the field for what that cost.
+        //
+        // THE ROOT IS THE EXCEPTION and it has to be named. `ShapeTree::root` is
+        // `ShapeId(u32::MAX)`, a sentinel rather than a position — the empty
+        // layout is not a node, which is what `parent_key` records. Indexing by
+        // it asks for a vector of four billion entries: the first build of this
+        // died with "memory allocation of 137438953472 bytes failed", which is
+        // the sentinel being read as a subscript.
+        //
+        // It is answered from a field of its own rather than by reserving a
+        // position, because the alternative is a vector whose length is
+        // `u32::MAX` and whose every entry but two is `None`.
+        if shape == self.root() {
+            if self.root_index.is_none() {
+                self.root_index = Some(HashMap::default());
+            }
+            return self
+                .root_index
+                .as_ref()
+                .expect("the empty layout was just filled");
+        }
+        let at = shape.index();
+        if self.indexes.len() <= at {
+            self.indexes.resize_with(at + 1, || None);
+        }
+        if self.indexes[at].is_none() {
             let index = self
                 .properties(shape)
                 .into_iter()
                 .enumerate()
                 .map(|(position, (key, _))| (key, position as u32))
                 .collect();
-            self.indexes.insert(shape, index);
+            self.indexes[at] = Some(index);
         }
-        &self.indexes[&shape]
+        self.indexes[at]
+            .as_ref()
+            .expect("the position was just filled")
     }
 
     fn node(&self, shape: ShapeId) -> Option<&Node> {
