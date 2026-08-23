@@ -83,6 +83,31 @@ bench("arith", "int mod", (n) => {
   for (let i = 0; i < n; i++) a += i % 7;
   return a;
 });
+// The three shifts, and they are three rows rather than one because they do not
+// cost the same thing and the difference is the point: `<<` and `>>` become
+// instructions where the operands are proven doubles, and `>>>` cannot — its
+// result is `ToUint32`, which does not fit the proven `I32` the other two carry.
+//
+// There was NO shift row here at all until 2026-08-23, and that is why a 5x gap
+// sat unseen: `(x << 3) >> 1` cost 1727 ms over 20 000 000 iterations against
+// 341 ms for `(x & 255) | 1` in the same loop, because the shifts were runtime
+// calls and the bitwise operators next to them were instructions. A row that
+// does not exist measures nothing.
+bench("arith", "int shl", (n) => {
+  let a = 1;
+  for (let i = 0; i < n; i++) a = (a << 3) | 0;
+  return a;
+});
+bench("arith", "int shr", (n) => {
+  let a = -1;
+  for (let i = 0; i < n; i++) a = (a >> 1) | 0;
+  return a;
+});
+bench("arith", "int shr unsigned", (n) => {
+  let a = -1;
+  for (let i = 0; i < n; i++) a = (a >>> 1) | 0;
+  return a;
+});
 bench("arith", "float add", (n) => {
   let a = 0.5;
   for (let i = 0; i < n; i++) a = a + 1.25;

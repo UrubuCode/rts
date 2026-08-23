@@ -1495,6 +1495,23 @@ enum Proven {
     /// `| 0`, because the `|` was `Call __rts_bit_or` and the `*` was already an
     /// instruction.
     Bits(BitOp),
+    /// The same, for the two shifts whose count the language masks first.
+    ///
+    /// A separate variant rather than a flag on [`Proven::Bits`] because it is
+    /// one more step and the table above could not carry it — which is what its
+    /// own comment said, and what kept `<<` and `>>` runtime calls while `&`,
+    /// `|` and `^` became instructions in the same expression.
+    ///
+    /// Measured before this existed, 20 000 000 iterations of the same loop
+    /// shape: `(x << 3) >> 1` cost **1 727 ms** against **341 ms** for
+    /// `(x & 255) | 1`. Five times, or about 35 ns per shift, for an operator
+    /// the machine has had an instruction for all along — `BitOp::Shl` and
+    /// `BitOp::Shr` were in `rts-cranelift` with no producer anywhere.
+    ///
+    /// `>>>` is NOT here and that is not an oversight: its result is `ToUint32`,
+    /// so a proven `I32` carrying it would report a negative number where the
+    /// language says a large positive one. It stays a call.
+    Shift(BitOp),
     /// A runtime call that both takes and answers PROVEN doubles.
     ///
     /// (`Proven` is `Copy` because two paths ask the same value twice: the
@@ -1551,12 +1568,25 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
         BinaryOp::BitXor => Proven::Bits(BitOp::Xor),
 
         // `<<` and `>>` need the shift count masked to five bits before the
-        // instruction, which is one more step than this table can carry, and
-        // `>>>` answers a value outside `i32` for a negative operand — its
-        // result is `ToUint32`, so widening a proven `I32` would report a
-        // negative number where the language says a large positive one. All
-        // three stay calls, and each stays for a stated reason rather than
-        // because nobody looked.
+        // instruction. That used to be "one more step than this table can
+        // carry", and the table grew a variant instead: `Proven::Shift` is
+        // `Proven::Bits` plus the mask, which is one `Bitwise(And, count, 31)`.
+        //
+        // The masking rule is the language's, and it is the same for both:
+        // `ToInt32` the left, `ToUint32` the right, take the low five bits of
+        // the count. `ToInt32` and `ToUint32` produce the SAME thirty-two bits
+        // and differ only in how they are read, and the low five of those are
+        // the same bits either way — so one conversion serves both, which is
+        // why this needs no `ToUint32` the machine does not have.
+        BinaryOp::Shl => Proven::Shift(BitOp::Shl),
+        BinaryOp::Shr => Proven::Shift(BitOp::Shr),
+
+        // `>>>` stays a call, and this is the half of the old comment that
+        // survives unchanged: its result is `ToUint32`, so a proven `I32`
+        // carrying it would report a negative number where the language says a
+        // large positive one. The obstacle there is the RESULT's type rather
+        // than a missing step, which is why one of the three moved and one did
+        // not.
         _ => return None,
     })
 }
@@ -1593,6 +1623,25 @@ fn proven_instruction(
             let left = builder.to_int32(left)?;
             let right = builder.to_int32(right)?;
             let bits = builder.bitwise(bit, left, right)?;
+            builder.to_f64(bits)?
+        }
+        Proven::Shift(bit) => {
+            let left = builder.to_int32(left)?;
+            let right = builder.to_int32(right)?;
+            // The count, masked to five bits, which is what the language says
+            // and not what the machine happens to do. Cranelift's shifts take
+            // their count modulo the type's width, so this `and` is very likely
+            // folded away — but "very likely" is a claim about a backend, and
+            // rule 12 says unproven behaviour fails safely. Emitting the mask
+            // makes the IR say what JavaScript means; letting the backend say
+            // it would make the meaning depend on which backend.
+            let mask = builder.declare_const(ConstDecl::Scalar {
+                repr: Repr::I32,
+                bits: ScalarBits(31),
+            });
+            let mask = builder.use_const(mask);
+            let count = builder.bitwise(BitOp::And, right, mask)?;
+            let bits = builder.bitwise(bit, left, count)?;
             builder.to_f64(bits)?
         }
         // The machine FIRST, and the call only where it refuses. `%` by a power
@@ -1842,6 +1891,20 @@ fn runtime_binary(op: BinaryOp) -> Option<(RuntimeOp, bool)> {
         BinaryOp::BitAnd => (RuntimeOp::BitAnd, false),
         BinaryOp::BitOr => (RuntimeOp::BitOr, false),
         BinaryOp::BitXor => (RuntimeOp::BitXor, false),
+        // The two shifts, for the same reason and by the same rule: this table
+        // and `proven_binary` must agree about which operators the guarded path
+        // can take, because that path emits the instruction on the fast side
+        // and THIS call on the slow one.
+        //
+        // They disagreed for exactly one build. `proven_binary` learned `<<`
+        // and `>>` and this did not, and the guarded path's
+        // `expect("every instruction has a runtime operation")` fired on
+        // `1 << 0` — which is the invariant working, and is why that `expect`
+        // is an `expect` and not a silent fallback.
+        //
+        // `>>>` is in NEITHER, which is what keeps them agreeing about it.
+        BinaryOp::Shl => (RuntimeOp::ShiftLeft, false),
+        BinaryOp::Shr => (RuntimeOp::ShiftRight, false),
         BinaryOp::StrictEqual => (RuntimeOp::StrictEquals, false),
         BinaryOp::StrictNotEqual => (RuntimeOp::StrictEquals, true),
         _ => return None,
