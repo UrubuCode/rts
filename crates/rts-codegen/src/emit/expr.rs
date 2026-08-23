@@ -650,11 +650,26 @@ pub(super) fn raise_if_thrown(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitR
             builder.call(ctx.funcs, asked, &[])?[0]
         }
     };
-    let zero = builder.declare_const(ConstDecl::Scalar {
-        repr: Repr::I64,
-        bits: ScalarBits(0),
-    });
-    let zero = builder.use_const(zero);
+    // The body's own zero where it has one, and a fresh one where it does not.
+    //
+    // It was always fresh, and that was 1 066 `Inst::Const` in
+    // `bench/analytic.ts` — a third of every constant in the file, all of them
+    // the same number, one per check. `BodyState::zero` says why the entry
+    // block is the right place for it and why the cost is not new.
+    //
+    // The fallback is not dead: a body that PARKS has neither, for the reason
+    // `emit/function.rs` states, and this is the same shape as `flag`'s
+    // fallback two statements up rather than a second rule.
+    let zero = match ctx.body.zero {
+        Some(held) => held,
+        None => {
+            let declared = builder.declare_const(ConstDecl::Scalar {
+                repr: Repr::I64,
+                bits: ScalarBits(0),
+            });
+            builder.use_const(declared)
+        }
+    };
     let raised = builder.compare(CmpOp::Ne, flag, zero)?;
 
     // The re-raise is SHARED among every check in the same protected region,
@@ -1650,9 +1665,6 @@ fn emit_guarded(
         return proven_instruction(builder, instruction, a, b);
     }
 
-    let widened_a = tagged(builder, a);
-    let widened_b = tagged(builder, b);
-
     let slow = builder.create_block();
     let join = builder.create_block();
 
@@ -1701,7 +1713,7 @@ fn emit_guarded(
         false => {
             let narrowed = builder.create_block();
             let param = builder.add_block_param(narrowed, Repr::F64);
-            builder.guard(widened_a, Repr::F64, (narrowed, &[]), (slow, &[]))?;
+            builder.guard(a, Repr::F64, (narrowed, &[]), (slow, &[]))?;
             builder.switch_to(narrowed);
             param
         }
@@ -1714,7 +1726,7 @@ fn emit_guarded(
     } else {
         let narrowed = builder.create_block();
         let param = builder.add_block_param(narrowed, Repr::F64);
-        builder.guard(widened_b, Repr::F64, (narrowed, &[]), (slow, &[]))?;
+        builder.guard(b, Repr::F64, (narrowed, &[]), (slow, &[]))?;
         builder.switch_to(narrowed);
         param
     };
@@ -1741,6 +1753,32 @@ fn emit_guarded(
     // The WIDENED operands, always: this path is the generic one, and its
     // entry point takes JavaScript values. A proven operand that skipped the
     // guard above still has to be boxed to be handed over here.
+    //
+    // Widened HERE, inside the slow block, and that is the whole of this
+    // change. The two `tagged` calls used to sit above the guards, in the block
+    // the FAST path runs through — so every pass of a loop paid for a value
+    // whose only consumer is this call, on the path it does not take. Widening
+    // an `F64` is a bitcast, an `iconst(CANONICAL_NAN)`, an `fcmp` and a
+    // `select` (`lower/value.rs`): a GPR/XMM domain crossing and a cmov.
+    //
+    // Nothing removes it for us. `target/mod.rs` records that Cranelift's
+    // default `opt_level` is `none`, which gates out the whole egraph mid-end —
+    // no GVN, no LICM, no sinking. A value computed on the fast path and used
+    // only on the slow one stays exactly where it was put.
+    //
+    // Sound because `a` and `b` dominate this block: they were defined before
+    // the block the guards were emitted in, and every path here goes through
+    // one of those guards.
+    //
+    // And passing the RAW operand to `guard` above is not a second change — it
+    // emits the same IR or better. `FuncBuilder::guard` calls
+    // `fold::guard_answer` before widening and `widen_if_needed` after, so the
+    // widening still happens where it is needed; what changes is that the fold
+    // now sees the operand rather than a `Widen` of it, which is the same
+    // "indirection that hid a constant from a layer built to look at constants"
+    // this function's own comment names further up.
+    let widened_a = tagged(builder, a);
+    let widened_b = tagged(builder, b);
     let answered = call(builder, ctx, runtime, &[widened_a, widened_b])?[0];
     // `!==` has no runtime operation of its own — deliberately, so that strict
     // equality is stated once — so the slow path is the equality call with the

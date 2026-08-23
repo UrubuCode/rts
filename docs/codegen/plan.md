@@ -230,6 +230,71 @@ The original entry follows, unchanged.
 
 **Cost, stated plainly:** a false `can_raise() == false` is a **swallowed throw** — a caught exception silently becoming a wrong answer. The two facts must be asserted against each other in rts‑host, never hand‑written twice.
 
+### S5d. The throw check's zero, and S6 — **LANDED 2026-08-23**
+
+Two changes that look alike and are not: one is IR size, the other is the fast
+path. Landed together and measured apart, because a single number covering both
+would have hidden that each moved a different ruler.
+
+**(a) The zero every throw check compares against was declared per site.**
+`bench/analytic.ts` emitted **1 066 `Inst::Const` of the integer zero**, a third
+of every constant in the file. `Function::push_const` already collapses the pool
+to one row, but each site still materialized its own — a value must dominate its
+uses, so a pool row cannot be shared. The entry block dominates every block, so
+one value there can be. It sits in `BodyState::zero`, under the same condition as
+`flag`: **absent for a body that PARKS**, because `frame::resumable_form` rewrites
+a suspending function around every suspension and a constant is as much an SSA
+value of the pre-rewrite function as an address is.
+
+| `bench/analytic.ts` | before | after | |
+|---|---:|---:|---|
+| `Inst::Const` | 3 074 | 2 100 | −31.7% |
+| IR lines | 17 407 | 16 435 | −5.6% |
+
+**What it bought in wall clock: at most ~2%, and probably nothing.** Twelve
+interleaved pairs, `RTS_CRANELIFT_JOBS=1`, 101 bodies: `place` medians 37.935 →
+37.256 ms, **9 of 12 pairs** in that direction. The spread inside each binary is
+larger than the difference; the pair count is the only thing that makes it
+reportable at all. Consistent with what S5b already established — removing cheap
+`iconst`s does not move Cranelift much.
+
+**(b) S6, and it moves a different ruler.** `emit/expr.rs` computed
+`tagged(a)`/`tagged(b)` **before** the guards, in the block the FAST path runs
+through, for a value whose only consumer is the runtime call on the slow path.
+Widening an `F64` is a bitcast, an `iconst(CANONICAL_NAN)`, an `fcmp` and a
+`select` — a GPR/XMM domain crossing and a cmov, per iteration. Nothing removes
+it: `opt_level = none` gates out the whole egraph mid-end, so there is no GVN, no
+LICM and no sinking.
+
+The plan's structural experiment is what it promised: `rts ir` on
+`function f(n){let a=0;for(let i=0;i<n;i++)a+=1;return a}` — **one `Widen` in the
+loop header before, zero after**, with the widening now in the slow block.
+
+**It changes no IR line count** (403 → 403 — moved, not removed), and the plan's
+own prediction that it was "high confidence free, low confidence it moves a row"
+is half right. Measured per program, interleaved:
+
+| | HEAD | after | |
+|---|---:|---:|---|
+| `bench/monte_carlo_pi.ts` | 815 ms | 796 ms | **−2.3%, 5 of 5 pairs, ranges disjoint** |
+| `bench/objbench.ts` | 314 ms | 297 ms | 2 of 3, noisy |
+| `bench/pi_machin.ts` | 54 ms | 55 ms | flat — see below |
+
+`monte_carlo_pi.ts` is the right ruler and not a lucky one: this function's own
+comment already names it as the file whose operands arrive unproven, because
+`rngState` is module-scoped. Every `novo` run beat every `head` run, which is a
+stronger claim than the medians.
+
+`pi_machin.ts` measures nothing here — 54 ms is mostly process start, so a loop
+effect cannot show through it. Stated rather than counted as a null result.
+
+**And passing the raw operand to `guard` is not a second change.**
+`FuncBuilder::guard` calls `fold::guard_answer` before widening and
+`widen_if_needed` after, so the widening still happens where it is needed. What
+changes is that the fold now sees the operand instead of a `Widen` of it — the
+same "indirection that hid a constant from a layer built to look at constants"
+this function's own comment names further up.
+
 ### S5c. One re-raise block per region, and the emitter bug it uncovered — **LANDED 2026-08-22**
 
 Two changes and one bug, and the bug is the part worth reading.

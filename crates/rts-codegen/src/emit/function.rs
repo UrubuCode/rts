@@ -758,6 +758,19 @@ fn emit_body_into(
         let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::ThrownAddress);
         let flag = builder.call(ctx.funcs, asked, &[])?[0];
         ctx.body.flag = Some(flag);
+        // And the zero every one of those checks compares the flag against.
+        // One instruction here instead of one per check, for the reason the
+        // paragraph above gives about the address and for one more: the entry
+        // block dominates every block in the function, so a value put here
+        // reaches every site that wants it. See `BodyState::zero`.
+        //
+        // Under the same condition, and not by habit — a constant is as much an
+        // SSA value of the pre-rewrite function as the address is.
+        let declared = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: rts_cranelift::repr::Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(0),
+        });
+        ctx.body.zero = Some(builder.use_const(declared));
     }
 
     let handed = incoming[ENVIRONMENT_PARAM];

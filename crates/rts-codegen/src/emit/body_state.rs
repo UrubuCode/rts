@@ -64,6 +64,39 @@ pub(crate) struct BodyState {
     /// what a body with no entry block of its own gets. See
     /// `expr::raise_if_thrown`.
     pub(super) flag: Option<ValueId>,
+    /// The integer zero every throw check compares against, materialized once
+    /// at this body's entry.
+    ///
+    /// # Why it is worth a field
+    ///
+    /// The check is a load, a compare against zero, and a branch, and it is
+    /// emitted after every call that can raise. The zero was declared and
+    /// materialized at each of them: **1 066 `Inst::Const` in
+    /// `bench/analytic.ts`**, a third of every constant the file emits, all of
+    /// them the same number. `ir::Function::push_const` already collapses the
+    /// pool to one row, but each site still emits its own instruction — a value
+    /// has to dominate its uses, so the pool cannot share the materialization.
+    ///
+    /// The entry block dominates every block in the function, so one value
+    /// there does.
+    ///
+    /// # Why this costs no more than what is already accepted
+    ///
+    /// It is one more value live across the whole body, and `flag` — asked at
+    /// the same place, for the same checks — already is. Nothing new is being
+    /// traded: the same sites read both, so wherever the register allocator
+    /// keeps one it can keep the other, and an integer zero is the cheapest
+    /// thing it can ever have to spill and reload.
+    ///
+    /// # Why it is gated on the same condition as `flag`
+    ///
+    /// `None` for a body that PARKS. `frame::resumable_form` rewrites a
+    /// suspending function around every suspension, so a value defined at entry
+    /// and read after a `yield` is not the value it was — which cost 37
+    /// generator files in one run when `flag` learned it. A constant is no
+    /// different from an address here: both are SSA values of the pre-rewrite
+    /// function.
+    pub(super) zero: Option<ValueId>,
     /// The block that re-raises, once per protected region that asked for one.
     ///
     /// See [`BodyState::reraise_in`] for why one per region rather than one per
