@@ -269,9 +269,31 @@ impl Context {
         }
         let slot = self.region.field(reference, 0)? as u32;
         let text = self.cells.at(Slot(slot)).ok()?;
-        Some(crate::object::Key::Name(
-            self.interner.intern(text, &mut self.keys),
-        ))
+        // The memo the text carries, before the interner is asked. Without it
+        // this hashes the string on EVERY access, which made a property read
+        // cost three nanoseconds per character of the name — see `Str::key` for
+        // the measurement and for why the memo lives on the text rather than on
+        // the cell.
+        //
+        // `KeyRegistry::key` rather than a cast: it answers `None` for a number
+        // the registry never issued, so a memo that could not possibly be right
+        // falls through to the honest resolution instead of inventing a key.
+        // Nothing can put a wrong number there today — `remember_key` is the
+        // only writer and it writes what `intern` just answered — and the check
+        // costs a comparison, which is the right price for keeping that true.
+        if let Some(number) = text.remembered_key()
+            && let Some(found) = self.keys.key(number)
+        {
+            return Some(crate::object::Key::Name(found));
+        }
+        let minted = self.interner.intern(text, &mut self.keys);
+        // Through the shared reference the borrow above already holds: `intern`
+        // wants `self.interner` and `self.keys` mutably while `text` is borrowed
+        // out of `self.cells`, which Rust allows because they are different
+        // fields — and asking for the slab mutably to write this back would not
+        // be. `Str::key` is a `Cell` for exactly that reason.
+        text.remember_key(minted.index() as u32);
+        Some(crate::object::Key::Name(minted))
     }
 
     /// The string cell for a text that is a property KEY, built at most once.

@@ -131,17 +131,112 @@ impl Iterator for Units<'_> {
 impl ExactSizeIterator for Units<'_> {}
 
 /// A string.
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+/// # Why `PartialEq`, `Eq` and `Hash` are written out
+///
+/// Because [`Str::key`] must not take part in any of them. It is a memo of
+/// something derived from the text, so two strings that are equal are equal
+/// whether or not either has been asked for its key yet — and a derived `Hash`
+/// that included it would put the same text in two buckets depending on whether
+/// anything had looked at it.
+///
+/// This is the shape V8 uses for the same field: a string's hash is computed
+/// lazily into its header and is not part of what makes two strings the same.
+#[derive(Clone, Debug)]
 pub struct Str {
     repr: Repr,
+    /// The property key this text resolves to, remembered after the first ask.
+    ///
+    /// Zero means "not asked yet"; anything else is the key's number plus one.
+    ///
+    /// # What it is for
+    ///
+    /// `o[k]` where `k` is a string reaches `Context::key_of_text_cell`, which
+    /// ended in `interner.intern(text, …)` — **a hash of the text, on every
+    /// access**. That made a property read cost three nanoseconds per character
+    /// of the NAME, which is not a thing a property read has any business doing.
+    /// Measured 2026-08-23, before this field existed:
+    ///
+    /// | read | ns |
+    /// |---|---:|
+    /// | `o.a`, a literal key | 28 |
+    /// | `o[k]`, one character | 115 |
+    /// | `o[k]`, 64 characters | 331 |
+    /// | `o[k]`, 256 characters | 891 |
+    ///
+    /// # Why it lives here and not on the cell
+    ///
+    /// A string is a region CELL pointing at this `Str` in a slab, and the first
+    /// attempt put the memo in one of the cell's payload slots. It was reverted
+    /// on a diagnosis that turned out to be **wrong**, and the correction is
+    /// recorded rather than quietly dropped: the corruption blamed on it —
+    /// `typeof ks.map` answering `"unknown"` after sixty thousand allocations —
+    /// happens on a CLEAN tree in a debug build, and is documented in
+    /// `docs/engine/property-keys.md` as a separate, pre-existing defect.
+    ///
+    /// So the argument for this placement is not "the other one broke". It is
+    /// that a payload slot already has two owners — the collector walks it as a
+    /// possible reference, and a shape assigns properties to slots — while a
+    /// `Str` has none. It is allocated and freed with the string it belongs to,
+    /// so a memo on it cannot outlive its text and cannot be reached by a scan.
+    /// It is the same place V8 keeps a string's hash and JavaScriptCore keeps a
+    /// `StringImpl`'s.
+    ///
+    /// # Why a `Cell`
+    ///
+    /// Because resolving happens through a shared reference: `key_of_text_cell`
+    /// holds the text out of `Context::cells` while it borrows the interner and
+    /// the key registry mutably, which are different fields of the same struct.
+    /// Asking for the slab mutably instead would collide with that borrow —
+    /// the same shape `symbol::key_of` records for its own memo.
+    key: std::cell::Cell<u32>,
+}
+
+impl PartialEq for Str {
+    fn eq(&self, other: &Self) -> bool {
+        self.repr == other.repr
+    }
+}
+
+impl Eq for Str {}
+
+impl std::hash::Hash for Str {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.repr.hash(state);
+    }
 }
 
 impl Str {
+    /// A string over a representation, with no key resolved yet.
+    ///
+    /// Every construction goes through here so that the memo has exactly one
+    /// initial value and a thirteenth construction site cannot forget it.
+    fn of(repr: Repr) -> Self {
+        Str {
+            repr,
+            key: std::cell::Cell::new(0),
+        }
+    }
+
+    /// The property key this text was last resolved to, if it has been.
+    pub(crate) fn remembered_key(&self) -> Option<u32> {
+        match self.key.get() {
+            0 => None,
+            found => Some(found - 1),
+        }
+    }
+
+    /// Remembers the key this text resolves to.
+    ///
+    /// Sound because a `Str` is immutable once built: nothing here can make the
+    /// text disagree with the key it was resolved to, which is the same argument
+    /// that lets a string cell carry its own length.
+    pub(crate) fn remember_key(&self, number: u32) {
+        self.key.set(number + 1);
+    }
+
     /// The empty string.
     pub fn empty() -> Self {
-        Str {
-            repr: Repr::Latin1(Vec::new()),
-        }
+        Str::of(Repr::Latin1(Vec::new()))
     }
 
     /// A string from Rust text.
@@ -160,18 +255,12 @@ impl Str {
         // This runs on every string a program creates: every piece a `split`
         // produces, every result of a `replace`, every key `JSON.parse` reads.
         if text.is_ascii() {
-            return Str {
-                repr: Repr::Latin1(text.as_bytes().to_vec()),
-            };
+            return Str::of(Repr::Latin1(text.as_bytes().to_vec()));
         }
         if text.chars().all(|c| (c as u32) < 256) {
-            return Str {
-                repr: Repr::Latin1(text.chars().map(|c| c as u8).collect()),
-            };
+            return Str::of(Repr::Latin1(text.chars().map(|c| c as u8).collect()));
         }
-        Str {
-            repr: Repr::Utf16(text.encode_utf16().collect()),
-        }
+        Str::of(Repr::Utf16(text.encode_utf16().collect()))
     }
 
     /// A string from bytes that are already one code unit each.
@@ -192,9 +281,7 @@ impl Str {
     /// same bytes, on every `toUpperCase`, every `slice` and every other
     /// method that builds narrow text.
     pub fn owning_latin1(bytes: Vec<u8>) -> Self {
-        Str {
-            repr: Repr::Latin1(bytes),
-        }
+        Str::of(Repr::Latin1(bytes))
     }
 
     /// A string from UTF-16 code units, narrowing when they all fit.
@@ -203,13 +290,9 @@ impl Str {
     /// surrogate, and refusing one would refuse a value the language produces.
     pub fn from_utf16(units: &[u16]) -> Self {
         if units.iter().all(|unit| *unit < 256) {
-            return Str {
-                repr: Repr::Latin1(units.iter().map(|unit| *unit as u8).collect()),
-            };
+            return Str::of(Repr::Latin1(units.iter().map(|unit| *unit as u8).collect()));
         }
-        Str {
-            repr: Repr::Utf16(units.to_vec()),
-        }
+        Str::of(Repr::Utf16(units.to_vec()))
     }
 
     /// How it is stored.
@@ -375,17 +458,13 @@ impl Str {
                 let mut bytes = Vec::with_capacity(left.len() + right.len());
                 bytes.extend_from_slice(left);
                 bytes.extend_from_slice(right);
-                Str {
-                    repr: Repr::Latin1(bytes),
-                }
+                Str::of(Repr::Latin1(bytes))
             }
             _ => {
                 let mut units = Vec::with_capacity(self.len() + other.len());
                 units.extend(self.units());
                 units.extend(other.units());
-                Str {
-                    repr: Repr::Utf16(units),
-                }
+                Str::of(Repr::Utf16(units))
             }
         }
     }
@@ -490,9 +569,7 @@ mod tests {
     #[test]
     fn equality_does_not_depend_on_how_a_string_was_built() {
         let narrow = Str::from_str("a");
-        let wide = Str {
-            repr: Repr::Utf16(vec![b'a' as u16]),
-        };
+        let wide = Str::of(Repr::Utf16(vec![b'a' as u16]));
 
         assert_ne!(narrow.repr(), wide.repr(), "stored differently");
         assert!(

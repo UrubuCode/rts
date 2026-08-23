@@ -365,13 +365,18 @@ impl Writer {
             // researched rather than guessed — V8 caches the hash in the
             // string's own header and internalizes key strings so lookup
             // compares pointers; SpiderMonkey canonicalizes to atoms and added a
-            // cache of recently-atomized strings for exactly this. The first
-            // attempt here put the memo in a region cell's payload SLOT and
-            // corrupted memory (`typeof ks.map` answered `"unknown"` after
-            // 60 000 allocations), because a payload slot belongs to the
-            // collector's walk and to the shape's slot assignment. The right
-            // home is the `Str` in the slab, which is this engine's analogue of
-            // the string header.
+            // cache of recently-atomized strings for exactly this.
+            //
+            // LANDED as `Str::key`, and the escalation with name length is gone:
+            // a 256-character key went from 798 ns to 63, a one-character key
+            // from 104 to 63, and a literal read stayed at 26.
+            //
+            // THIS LOOP moved much less — 4 160 ns to 3 891 — and the reason is
+            // worth writing down here rather than being rediscovered: `own_keys`
+            // hands back FRESH string cells, so the memo is cold on every call.
+            // The key resolution is no longer the cost; building the key strings
+            // is. That is the next question for this file, and it is a different
+            // one.
             let held = super::super::computed::get_indexed(value, name);
             let key = with_current(|context| super::super::text::to_text(context, Value(name)));
             let Some(key) = key else {
