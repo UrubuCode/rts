@@ -17,6 +17,29 @@
 
 set -uo pipefail
 
+# COR DESLIGADA NOS TRES, e isto e correccao e nao arrumacao.
+#
+# Este arnes compara stdout BYTE A BYTE. O Bun e o Node colorem a saida do
+# `console.log` quando acham que devem, e nao concordam na grafia dos escapes:
+# para o mesmo `10` o Bun escreve `\e[0m\e[33m10\e[0m` e o Node escreve
+# `\e[33m10\e[39m`. O `rts` nao colore nada.
+#
+# Entao com cor ligada o arnes reporta `bun_node_diverge` — "os dois runtimes de
+# referencia discordam um do outro" — para tudo o que imprima um numero, e a
+# percentagem cai sem que nada no motor tenha mudado. MEDIDO 2026-08-23 numa
+# sessao com `FORCE_COLOR=3` no ambiente: 830 de 1513 e 355 divergencias, contra
+# 1174 e 2 na mesma arvore com a cor desligada. Duas corridas inteiras gastas a
+# perseguir uma regressao que nao existia.
+#
+# `NO_COLOR` e a convencao que os tres respeitam; `FORCE_COLOR=0` e o que anula
+# um `FORCE_COLOR` herdado, que e o caso que aconteceu — uma variavel do TERMINAL
+# a decidir o resultado de um ruler.
+#
+# Exportado aqui e nao em cada invocacao, porque o ponto e que NENHUM caminho
+# deste script possa esquecer-se.
+export NO_COLOR=1
+export FORCE_COLOR=0
+
 FIXTURES_DIR="${FIXTURES_DIR:-tests/cross-runtime}"
 REPORT_FILE="${REPORT_FILE:-/tmp/cross_runtime_report.json}"
 

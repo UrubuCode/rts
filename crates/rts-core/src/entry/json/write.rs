@@ -335,6 +335,43 @@ impl Writer {
             // this machine, which is to say it bought nothing and cost a second
             // path through this loop. Whatever the ~800 ns per member is, it is
             // not this.
+            //
+            // # FOUND, 2026-08-23, and it is not a JSON problem
+            //
+            // The per-member cost is ~480 ns, not 800 — the earlier figure came
+            // from dividing a fixed cost by a member count. Measured by varying
+            // the shape instead of the count:
+            //
+            //   JSON.stringify(42)          225 ns    the floor for any call
+            //   JSON.stringify({})          695 ns    +470 just for being an object
+            //   JSON.stringify({a:1})      1417 ns
+            //   JSON.stringify({a..h})     4763 ns    ~480 per member
+            //   JSON.stringify([1,2,3,4])   778 ns    ~74 per ELEMENT
+            //
+            // An array element and an object member write the same number, and
+            // the member costs six to ten times the element. The whole
+            // difference is the KEY, and the key's cost is not here either:
+            //
+            //   o.a  + o.b  + o.c  + o.d     (literal keys)     39 ns
+            //   o[k] x4, k from Object.keys (string keys)     1086 ns
+            //
+            // Twenty-seven times, and it SCALES WITH THE LENGTH OF THE NAME —
+            // 115 ns for a one-character key, 331 for 64 characters, 891 for
+            // 256. That is `Context::key_of_text_cell`, which ends in
+            // `interner.intern(text, …)`: a HASH OF THE TEXT on every access.
+            //
+            // So this loop is not slow; reading a property by a string is, and
+            // this loop does it once per member. The fix belongs there and is
+            // researched rather than guessed — V8 caches the hash in the
+            // string's own header and internalizes key strings so lookup
+            // compares pointers; SpiderMonkey canonicalizes to atoms and added a
+            // cache of recently-atomized strings for exactly this. The first
+            // attempt here put the memo in a region cell's payload SLOT and
+            // corrupted memory (`typeof ks.map` answered `"unknown"` after
+            // 60 000 allocations), because a payload slot belongs to the
+            // collector's walk and to the shape's slot assignment. The right
+            // home is the `Str` in the slab, which is this engine's analogue of
+            // the string header.
             let held = super::super::computed::get_indexed(value, name);
             let key = with_current(|context| super::super::text::to_text(context, Value(name)));
             let Some(key) = key else {
