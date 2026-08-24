@@ -389,31 +389,32 @@ pub fn emit_for_each(
     // `WrongDomain` at emission, which refuses the whole program rather than
     // this loop. Rule 5 of this crate's README is the shape: what cannot be
     // proven becomes generic, visibly. Here that means keeping `ElementAt`.
-    // # This is never true today, and saying so is the point
+    // # Why the bound's representation is no longer the question
     //
-    // `bound` is what `property::emit_read` answered for `length`, and that is
-    // `emit::UNPROVEN` — `Repr::Tagged` — always and by construction. So the
-    // second conjunct cannot hold, no run is ever hoisted, `ElementsBase` is
-    // never called and `Inst::ElementLoad` is never emitted. Verified with
-    // `rts ir` over the twelve `bench/*.ts` and every `array_*`/`for_of*` test:
-    // **59 files, zero hoists**, 2026-08-23.
+    // It was `builder.repr_of(bound) == Repr::F64`, and that could never hold:
+    // `bound` is what `property::emit_read` answered for `length`, which is
+    // `emit::UNPROVEN` — `Repr::Tagged` — always and by construction. So no run
+    // was ever hoisted, `ElementsBase` was never called, and `ElementLoad` was
+    // never emitted. Verified with `rts ir` over the twelve `bench/*.ts` and
+    // every `array_*`/`for_of*` test: **59 files, zero hoists**, 2026-08-23.
     //
-    // The comment above describes what SHOULD refuse a hoist. What actually
-    // refuses every one of them is this, and a reader deserves to know which is
-    // which before spending a day on the instruction downstream.
+    // The fix is not to narrow the bound. Narrowing is only reachable through a
+    // guard (machine rule 11), and a guard's failure path would need a second
+    // copy of the whole loop body — against a throw check that already accounts
+    // for ~32% of every instruction emitted.
     //
-    // What it needs is a `length` this layer has proven. `Guard` narrowing the
-    // generic read to `F64` is rule 11's shape and the failure path keeps
-    // `ElementAt` — but that emits the loop body twice, and the throw check
-    // already accounts for ~32% of every instruction emitted, so the trade has
-    // to be measured before it is taken.
-    let hoistable = !super::suspends::body_suspends(std::slice::from_ref(body))
-        && builder.repr_of(bound) == rts_cranelift::repr::Repr::F64;
+    // So the count is ASKED FOR in the form the instruction takes:
+    // `ElementsCount` answers a proven `I32`. Machine rule 10 from the other
+    // side — an operation does not take both a proven and a generic operand, so
+    // the way to get a proven one is a separate operation. The loop's own test
+    // keeps using the generic `bound`; the two are read from one array before
+    // the loop and cannot disagree.
+    let hoistable = !super::suspends::body_suspends(std::slice::from_ref(body));
     let outer_run = match hoistable {
         false => ctx.set_element_run(None),
         true => {
             let base = super::expr::call(builder, ctx, crate::runtime::RuntimeOp::ElementsBase, &[enumerated])?[0];
-            let count = builder.to_int32(bound)?;
+            let count = super::expr::call(builder, ctx, crate::runtime::RuntimeOp::ElementsCount, &[enumerated])?[0];
             ctx.set_element_run(Some((base, count)))
         }
     };

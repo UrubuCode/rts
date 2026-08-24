@@ -35,6 +35,7 @@
 mod accessor;
 mod alloc;
 mod array;
+mod array_run;
 mod arguments;
 mod array_proto;
 mod barrier;
@@ -106,7 +107,8 @@ mod uri;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
-pub use array::{array_new, array_of, element_at, elements_base, enumerate_keys, own_keys};
+pub use array::{array_new, array_of, element_at, enumerate_keys, own_keys};
+pub use array_run::{elements_base, elements_count};
 pub use math::math_random;
 pub use array_proto::arguments_at;
 pub use arguments::arguments_object;
