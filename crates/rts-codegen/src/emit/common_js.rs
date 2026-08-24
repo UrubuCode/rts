@@ -103,19 +103,47 @@ pub fn emit_prologue(
     // publishes, and one that only writes `module.exports` needs `module` to
     // have something in it.
     let wants_exports = wanted.contains(&exports_name) || wanted.contains(&module_name);
-    if wants_exports {
-        let size = integer(builder, 1);
-        let object = super::expr::call(builder, ctx, RuntimeOp::ObjectNew, &[size])?[0];
-        if wanted.contains(&exports_name) && !declared.contains(&exports_name) {
-            super::binding::declare(builder, scope, ctx, exports_name, object)?;
-        }
-        if wanted.contains(&module_name) && !declared.contains(&module_name) {
+    let exports_object = match wants_exports {
+        false => None,
+        true => {
             let size = integer(builder, 1);
-            let holder = super::expr::call(builder, ctx, RuntimeOp::ObjectNew, &[size])?[0];
-            let key = key_of(builder, ctx, "exports");
-            super::expr::call(builder, ctx, RuntimeOp::SetProperty, &[holder, key, object])?;
-            super::binding::declare(builder, scope, ctx, module_name, holder)?;
+            let object = super::expr::call(builder, ctx, RuntimeOp::ObjectNew, &[size])?[0];
+            if wanted.contains(&exports_name) && !declared.contains(&exports_name) {
+                super::binding::declare(builder, scope, ctx, exports_name, object)?;
+            }
+            if wanted.contains(&module_name) && !declared.contains(&module_name) {
+                let size = integer(builder, 1);
+                let holder = super::expr::call(builder, ctx, RuntimeOp::ObjectNew, &[size])?[0];
+                let key = key_of(builder, ctx, "exports");
+                super::expr::call(builder, ctx, RuntimeOp::SetProperty, &[holder, key, object])?;
+                super::binding::declare(builder, scope, ctx, module_name, holder)?;
+            }
+            Some(object)
         }
+    };
+
+    // Published HERE as well as after the body, and the reason is `return`.
+    //
+    // A CommonJS module may exit early — Node wraps one in a function, so a
+    // top-level `return` is an early exit rather than a syntax error, and this
+    // engine parses it that way (`parse/mod.rs`). A body that returns has no
+    // reachable point left for the epilogue to emit into, so a module whose
+    // last act is `if (!supported) return;` would publish NOTHING and every
+    // `require` of it would answer an empty namespace.
+    //
+    // Publishing the object at entry fixes that for the shape the corpus
+    // writes, because `exports.a = …` MUTATES this object: whatever the body
+    // put on it is there afterwards, published or not. The divergence it does
+    // not fix is stated rather than papered over — a module that REPLACES
+    // `module.exports` and then returns early publishes the original object,
+    // since nothing runs to notice the replacement.
+    // The value itself and not a read of the binding: a body that mentions only
+    // `module` never binds `exports`, and reading a name that is not there would
+    // refuse the module rather than publish it.
+    if let Some(object) = exports_object {
+        let own = ctx.literal(specifier);
+        let own = integer(builder, u64::from(own));
+        super::expr::call(builder, ctx, RuntimeOp::ModulePublishCommon, &[own, object])?;
     }
 
     let require_name = named(ctx, "require");

@@ -309,7 +309,22 @@ fn es_syntax() -> Syntax {
         export_default_from: false,
         import_attributes: true,
         allow_super_outside_method: false,
-        allow_return_outside_function: false,
+        // `return` at the top of a module PARSES, because in this engine a
+        // module is also a CommonJS module and Node wraps a CommonJS module in a
+        // function — where `return` is an early exit and not a syntax error.
+        // `emit/common_js.rs` has the decision this follows from: there is no
+        // per-file choice between the two systems here, so the grammar cannot
+        // make one either.
+        //
+        // What it costs is stated rather than hidden: a program that meant to
+        // be an ES module and wrote a stray top-level `return` is now accepted
+        // where the specification refuses it. That is the wrong direction to be
+        // wrong in for a linter and the right one for a runtime — and it is
+        // measured against test262 in this crate's PLAN, not assumed.
+        //
+        // It is worth 96 files of Node's own suite, which died on
+        // `Return statement is not allowed here` before reaching an assertion.
+        allow_return_outside_function: true,
         auto_accessors: false,
         explicit_resource_management: true,
     })

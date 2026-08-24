@@ -45,10 +45,13 @@
 //!
 //! # Not implemented, by name
 //!
-//! - **`throws`, `doesNotThrow`** — both are defined by catching what `fn()`
-//!   raises. A throw inside `fn` exits the process before this native resumes,
-//!   so there is nothing to catch and nothing to inspect. Not approximable:
-//!   answering "it threw" without having seen a throw is a fabricated result.
+//! - ~~**`throws`, `doesNotThrow`**~~ — they exist, in [`throws`]. The reason
+//!   given here was *"a throw inside `fn` exits the process before this native
+//!   resumes"*, and it stopped being true when a raise became a recorded slot
+//!   every call site checks. The entry is kept rather than deleted because the
+//!   sentence it corrects is the useful part: what blocked them was a mechanism,
+//!   and a refusal outlives the mechanism that justified it unless someone goes
+//!   back to look.
 //! - **`rejects`, `doesNotReject`** — need two things this surface lacks: a
 //!   rejection reason read from a promise, and a promise that settles LATER.
 //!   `entry::settled` mints an already-settled promise and there is no deferred
@@ -89,6 +92,7 @@
 
 mod checks;
 mod equality;
+mod throws;
 mod values;
 
 use rts_core::entry::{self, Context, Provided};
@@ -175,6 +179,8 @@ fn table(strict: bool, skip_prototype: bool) -> Vec<(&'static str, Provided)> {
         ("doesNotMatch", checks::does_not_match),
         ("fail", checks::fail),
         ("ifError", checks::if_error),
+        ("throws", throws::throws),
+        ("doesNotThrow", throws::does_not_throw),
     ]
 }
 
