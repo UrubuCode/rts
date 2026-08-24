@@ -371,6 +371,13 @@ pub fn install(context: &mut Context) {
     // `test/common/index.js` requires this specifier on the way in, so every
     // file of that suite died at load with "cannot find module" — a missing
     // NAME reported where a missing feature would be looked for.
+    // `node:stream/web` sao as classes WHATWG que os globais ja instalaram —
+    // a MESMA classe sob a segunda porta que o Node lhe da, nao um segundo
+    // conjunto. Ver `stream/web.rs`.
+    let web = stream::web_namespace(context);
+    rts_core::entry::declare_module(context, "node:stream/web", web);
+    rts_core::entry::declare_module(context, "stream/web", web);
+
     let types = rts_core::entry::get_member(context, util_namespace, "types");
     rts_core::entry::declare_module(context, "node:util/types", types);
     rts_core::entry::declare_module(context, "util/types", types);

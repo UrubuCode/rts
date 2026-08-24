@@ -16,7 +16,7 @@
 [![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-77.8%25-yellowgreen?style=flat-square)](the spec removed 2026-08-03 (see git history))
 <!-- CROSS_RUNTIME_BADGE_END -->
 <!-- NODE_SUITE_BADGE_START -->
-[![Node test suite](https://img.shields.io/badge/Node%20test%20suite-46.0%25-orange?style=flat-square)](scripts/node_tests/README.md)
+[![Node test suite](https://img.shields.io/badge/Node%20test%20suite-51.8%25-yellow?style=flat-square)](scripts/node_tests/README.md)
 <!-- NODE_SUITE_BADGE_END -->
 
 </div>
@@ -51,41 +51,44 @@ _Updated: 2026-08-24 — [how to add a fixture](the spec removed 2026-08-03 (see
 As bibliotecas `node:` medidas contra **a suíte de testes do próprio Node** (`test/parallel`), um processo por ficheiro, sem tradução nenhuma.
 
 ```
-[▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱] 46.0%   1629/3541 ficheiros passando
+[▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱] 51.8%   1641/3167 ficheiros passando
 ```
 
 | Metric | Value |
 |---|---|
-| **Compatibilidade** | **46.0%** (1629/3541) |
-| ✅ Sai com 0 | 1629 |
-| ❌ Asserção falhou | 565 |
-| 💥 Exceção não apanhada | 1334 |
-| ⏱️ Não terminou | 13 |
+| **Compatibilidade** | **51.8%** (1641/3167) |
+| ✅ Sai com 0 | 1641 |
+| ❌ Asserção falhou | 593 |
+| 💥 Exceção não apanhada | 921 |
+| ⏱️ Não terminou | 12 |
+| ➖ Fora da conta | 374 |
+
+Os 374 de fora leem os módulos **internos** do Node (`internal/…`, `_http_common`) ou pedem `--expose-gc`: o próprio Node só os corre com uma flag, e nenhum runtime de terceiros os pode passar. Ficam contados à parte porque as duas alternativas mentem — somá-los às falhas afirma que há centenas de bibliotecas por fazer, apagá-los esconde que 10% do corpus nunca foi uma pergunta sobre isto.
 
 **Por grupo** (os dez maiores). O grupo é o prefixo do ficheiro na suíte — a forma como o Node os agrupa, não uma classificação nossa: `test-worker-*` é `worker_threads` e `test-child-*` é `child_process`.
 
 | Grupo | % | ok/total |
 |---|---|---|
-| `test-http-*` | **64.7%** | 242/374 |
-| `test-http2-*` | **98.8%** | 248/251 |
-| `test-fs-*` | **29.0%** | 69/238 |
-| `test-tls-*` | **90.6%** | 173/191 |
-| `test-stream-*` | **32.7%** | 56/171 |
-| `test-net-*` | **56.8%** | 83/146 |
-| `test-worker-*` | **11.5%** | 15/131 |
-| `test-child-*` | **11.3%** | 12/106 |
-| `test-crypto-*` | **100.0%** | 99/99 |
-| `test-process-*` | **30.2%** | 26/86 |
+| `test-http-*` | **76.6%** | 268/350 |
+| `test-http2-*` | **100.0%** | 222/222 |
+| `test-fs-*` | **32.3%** | 70/217 |
+| `test-tls-*` | **91.0%** | 162/178 |
+| `test-stream-*` | **37.8%** | 62/164 |
+| `test-net-*` | **69.1%** | 94/136 |
+| `test-worker-*` | **14.6%** | 18/123 |
+| `test-child-*` | **13.3%** | 13/98 |
+| `test-crypto-*` | **100.0%** | 94/94 |
+| `test-process-*` | **31.0%** | 26/84 |
 
 **As causas mais frequentes** — uma mensagem repetida é um nome em falta, não N problemas
 
 | Ficheiros | Mensagem |
 |---|---|
-| 287 | `Error: cannot find module "…" — nothing registered that specifier` |
-| 185 | `TypeError: Cannot read properties of undefined (reading '…')` |
-| 180 | `AssertionError [strictEqual] #N: Expected values to be strictly equal:` |
-| 162 | `TypeError: getCallSite is not a function` |
-| 140 | `AssertionError [throws] #N: Missing expected exception.` |
+| 327 | `le os modulos internos do Node` |
+| 202 | `TypeError: Cannot read properties of undefined (reading '…')` |
+| 197 | `AssertionError [strictEqual] #N: Expected values to be strictly equal:` |
+| 146 | `AssertionError [throws] #N: Missing expected exception.` |
+| 63 | `rts: uncaught '…' event: an object` |
 
 _Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
 <!-- NODE_SUITE_STATS_END -->

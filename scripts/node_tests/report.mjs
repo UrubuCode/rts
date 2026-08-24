@@ -15,8 +15,14 @@ const rows = readFileSync(tsv, 'utf8')
     return { mod, name, status, detail };
   });
 
+// `skipped` esta na lista para ser CONTADO e fora do denominador para nao ser
+// medido: um teste que le os modulos internos do Node nao e uma pergunta sobre
+// esta implementacao. Somar aos falhados afirmaria que ha centenas de
+// bibliotecas por fazer; apagar da lista esconderia que 9% do corpus nunca foi
+// uma pergunta.
 const KINDS = ['ok', 'fail', 'error', 'timeout'];
-const zero = () => Object.fromEntries(KINDS.map((k) => [k, 0]));
+const COUNTED = [...KINDS, 'skipped'];
+const zero = () => Object.fromEntries(COUNTED.map((k) => [k, 0]));
 const byMod = new Map();
 for (const r of rows) {
   if (!byMod.has(r.mod)) byMod.set(r.mod, zero());
@@ -37,19 +43,23 @@ const pad = (s, n) => String(s).padEnd(n);
 const num = (s, n) => String(s).padStart(n);
 const line = (name, c) =>
   pad(name, 18) + num(c.pct.toFixed(1), 7) + num(c.ok, 7) +
-  num(c.fail, 7) + num(c.error, 7) + num(c.timeout, 6);
+  num(c.fail, 7) + num(c.error, 7) + num(c.timeout, 6) + num(c.skipped, 7);
 
 console.log('');
-console.log(`${pad('modulo', 18)}${num('%', 7)}${num('ok', 7)}${num('fail', 7)}${num('erro', 7)}${num('t/o', 6)}`);
-console.log('-'.repeat(52));
+console.log(`${pad('modulo', 18)}${num('%', 7)}${num('ok', 7)}${num('fail', 7)}${num('erro', 7)}${num('t/o', 6)}${num('fora', 7)}`);
+console.log('-'.repeat(59));
 // So os modulos com mais de dois ficheiros na tabela larga: um modulo de um
 // ficheiro so responde 0% ou 100% e enche a tabela de linhas que nao dizem
 // nada. Os outros continuam no JSON e no total.
 for (const r of table) if (r.ran > 2) console.log(line(r.mod, r));
-console.log('-'.repeat(52));
+console.log('-'.repeat(59));
 console.log(line('TOTAL', { ...total, pct: pct(total) }));
 console.log('');
 console.log(`${total.ok} de ${ran(total)} ficheiros saem com 0.`);
+console.log(
+  `${total.skipped} ficheiros FORA da conta: leem os modulos internos do Node, ` +
+  `que so o proprio Node expoe com --expose-internals.`,
+);
 
 // A LISTA DE TRABALHO. O que interessa numa percentagem baixa nao e a
 // percentagem, e quais sao as poucas causas por tras de muitos ficheiros: uma

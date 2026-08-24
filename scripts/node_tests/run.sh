@@ -59,6 +59,28 @@ one() {
   name="$(basename "$f")"
   name="${name%.*}"
   mod="$(echo "$name" | sed -E 's/^test-([a-z0-9]+).*/\1/')"
+
+  # Um teste que pede `internal/…`, `_http_common` e companhia le os modulos
+  # INTERNOS do Node, que o proprio Node so expoe com `--expose-internals`. Nao
+  # ha runtime de terceiros que os possa passar: nao sao superficie publica,
+  # sao o interior da implementacao que o teste esta a espreitar.
+  #
+  # Fora do denominador e contados a parte, porque a alternativa distorce nos
+  # DOIS sentidos: some-los as falhas afirma que ha 310 bibliotecas por fazer, e
+  # apaga-los da lista esconde que 9% do corpus nunca foi uma pergunta sobre
+  # nos. O mesmo se aplica ao punhado que pede flags do V8.
+  if grep -qE "require\(['\"](internal/|_http_|_stream_|_tls_)|from ['\"](internal/|_http_)|--expose-internals|--allow-natives-syntax" "$f" 2>/dev/null; then
+    printf '%s\t%s\t%s\t%s\n' "$mod" "$name" "skipped" "le os modulos internos do Node"
+    return
+  fi
+  # E o mesmo argumento para `global.gc`: nao e superficie publica, e o coletor
+  # exposto por `--expose-gc` para o proprio Node se testar a si mesmo. Um teste
+  # que o chama esta a pedir uma coleccao SINCRONA e determinista — nao a
+  # perguntar se uma biblioteca funciona.
+  if grep -qE "(global|globalThis)\.gc\(|--expose-gc" "$f" 2>/dev/null; then
+    printf '%s\t%s\t%s\t%s\n' "$mod" "$name" "skipped" "precisa de --expose-gc"
+    return
+  fi
   # Corrido a partir do diretorio do ficheiro: a suite escreve e le caminhos
   # relativos ao seu proprio lugar, e uma corrida a partir da raiz do repo
   # mediria a nossa escolha de diretorio em vez do teste.

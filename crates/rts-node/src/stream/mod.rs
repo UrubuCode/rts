@@ -64,9 +64,14 @@
 //!
 //! # Not implemented, by name
 //!
-//! `stream/web` (WHATWG `ReadableStream`/`WritableStream`/`TransformStream`
-//! — a separate, already-ambient ArrayBuffer-backed API this crate does not
-//! reach from here), `stream/promises`, `stream/consumers`, `compose`,
+//! ~~`stream/web`~~ — it exists, in [`web`], and the entry is kept because the
+//! reason given for refusing it was wrong in an instructive way: *"a separate,
+//! already-ambient ArrayBuffer-backed API this crate does not reach from
+//! here"*. Already-ambient was the answer, not the obstacle — the classes are
+//! GLOBALS, so reaching them is a read of the global object, and what was
+//! missing was the NAME over an implementation that already existed.
+//!
+//! `stream/promises`, `stream/consumers`, `compose`,
 //! `isErrored`/`isReadable`, `addAbortSignal`,
 //! `setDefaultHighWaterMark`, `Readable.fromWeb`/`toWeb`,
 //! `Writable.fromWeb`/`toWeb`, `Duplex.from`/`fromWeb`/`toWeb`, `.wrap()`,
@@ -87,9 +92,16 @@ mod duplex;
 mod flowing;
 mod readable;
 mod util;
+mod web;
 mod writable;
 
 use rts_core::entry::{self, Context, Provided};
+
+/// The namespace `node:stream/web` is — see `web.rs` for why it is a
+/// re-export of the globals rather than a second set of classes.
+pub fn web_namespace(context: &mut Context) -> u64 {
+    web::namespace(context)
+}
 
 /// The namespace `node:stream` is.
 pub fn namespace(context: &mut Context) -> u64 {

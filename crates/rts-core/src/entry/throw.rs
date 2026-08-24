@@ -470,6 +470,42 @@ pub fn declare_function_names(context: &mut Context, names: Vec<(u64, String, u3
 ///
 /// A native has no name here, so it does not appear: what a program can act on
 /// is its own frames.
+/// The names on the call stack, innermost first.
+///
+/// # Why a host surface needs the frames as DATA
+///
+/// Because `util.getCallSite()` answers objects a program reads fields off,
+/// where [`stack_text`] answers the rendered `at …` block an `Error` carries.
+/// One list, two shapes: this is the same `context.callees` walk, exposed
+/// rather than re-derived, for the reason [`stack_text`] records — a second
+/// record of one fact disagrees the first time either forgets to pop.
+///
+/// An unnamed function contributes nothing, exactly as in the printed trace: a
+/// label a program cannot search for is worse than a gap.
+///
+/// **What it does not carry is a POSITION**, and the caller must say so rather
+/// than fill one in. The machine records a source position per instruction and
+/// nothing maps an address back to one at run time — `rts_cranelift::observe`'s
+/// question. A zero here would be a line number a program could act on.
+pub fn call_frames() -> Vec<String> {
+    with_current(|context| {
+        context
+            .callees
+            .iter()
+            .rev()
+            .filter_map(|callee| {
+                let cell = crate::value::Value(*callee).as_slot()?;
+                let (code, _) = context.callable_at(cell)?;
+                context
+                    .function_names
+                    .iter()
+                    .find(|(at, name, _)| *at == code && !name.is_empty())
+                    .map(|(_, name, _)| name.clone())
+            })
+            .collect()
+    })
+}
+
 pub(in crate::entry) fn stack_text(context: &Context) -> String {
     let mut lines = String::new();
     for callee in context.callees.iter().rev() {

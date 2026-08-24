@@ -38,6 +38,15 @@ thread_local! {
     /// it true. `0` until installed, which no member can observe since
     /// [`install`] runs while the namespace is built.
     static TOP_LEVEL: Cell<u64> = const { Cell::new(0) };
+
+    /// `AsyncResource.prototype`, minted once by [`install`].
+    ///
+    /// Held for the reason written at the store: `make_prototype` decides
+    /// "two modules registered different tables" by the caller's FILE, so
+    /// asking for it again from here panicked. It is also the stronger
+    /// invariant — one object, so every instance shares the prototype a
+    /// program's `instanceof` compares against.
+    static PROTOTYPE: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The id counter. Process-wide: ids are compared across threads in a program
@@ -56,7 +65,18 @@ const METHODS: &[(&str, Provided)] = &[
 
 /// Links the prototype and mints the top-level resource object.
 pub(super) fn install(context: &mut Context, namespace: u64) {
-    super::attach(context, namespace, "AsyncResource", METHODS);
+    // Kept, and not re-made in `construct`. `make_prototype` is keyed by NAME
+    // and guards against two modules registering different tables under one —
+    // and it decides "two modules" by the CALLER'S FILE, so this file asking for
+    // the same table `mod.rs` already registered read as a collision and
+    // PANICKED. Twelve files of Node's own `async_hooks` suite died that way,
+    // measured 2026-08-24, and the panic message is what named the cause.
+    //
+    // Holding the object is the fix rather than silencing the guard: there is
+    // one prototype, minted once, and every instance is linked to that same
+    // one — which is what `resource instanceof AsyncResource` asks.
+    let prototype = super::attach(context, namespace, "AsyncResource", METHODS);
+    PROTOTYPE.with(|held| held.set(prototype));
     let placeholder = rts_core::entry::make_object(context);
     TOP_LEVEL.with(|held| held.set(placeholder));
 }
@@ -84,7 +104,7 @@ pub(super) extern "C" fn construct(
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let inherited = current_id();
     let (instance, label, trigger) = rts_core::entry::with_runtime(|context| {
-        let prototype = rts_core::entry::make_prototype(context, "AsyncResource", METHODS);
+        let prototype = PROTOTYPE.with(Cell::get);
         let instance = match rts_core::entry::is_object(context, this) {
             true => this,
             false => rts_core::entry::make_instance(context, prototype),

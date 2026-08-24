@@ -188,7 +188,7 @@ pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 pub use throw::{
-    declare_function_names, make_named_error, pending, take_thrown, throw, throw_type_error,
+    call_frames, declare_function_names, make_named_error, pending, take_thrown, throw, throw_type_error,
     throw_value, thrown, thrown_address,
 };
 

@@ -197,7 +197,14 @@ jobs:
               `| ✅ Sai com 0 | ${t.ok} |\n` +
               `| ❌ Asserção falhou | ${t.fail} |\n` +
               `| 💥 Exceção não apanhada | ${t.error} |\n` +
-              `| ⏱️ Não terminou | ${t.timeout} |\n\n` +
+              `| ⏱️ Não terminou | ${t.timeout} |\n` +
+              `| ➖ Fora da conta | ${t.skipped} |\n\n` +
+              `Os ${t.skipped} de fora leem os módulos **internos** do Node ` +
+              `(\`internal/…\`, \`_http_common\`) ou pedem \`--expose-gc\`: o próprio ` +
+              `Node só os corre com uma flag, e nenhum runtime de terceiros os ` +
+              `pode passar. Contados à parte porque as duas alternativas mentem — ` +
+              `somá-los às falhas afirma que há centenas de bibliotecas por fazer, ` +
+              `apagá-los esconde que 10% do corpus nunca foi uma pergunta sobre isto.\n\n` +
               `**Por grupo** (os dez maiores). O grupo é o prefixo do ficheiro na ` +
               `suíte — a forma como o Node os agrupa, não uma classificação nossa: ` +
               `\`test-worker-*\` é \`worker_threads\` e \`test-child-*\` é \`child_process\`.\n\n` +

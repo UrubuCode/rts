@@ -164,6 +164,7 @@
 //!   fabricated value.
 
 mod args;
+mod call_site;
 mod equal;
 mod inspect;
 mod legacy;
@@ -200,7 +201,15 @@ pub fn namespace(context: &mut Context) -> u64 {
         // document calls this out as the module's one real name collision.
         ("debug", wrap::debuglog),
     ];
-    let namespace = entry::make_namespace(context, members);
+    // As duas grafias de `getCallSite` juntam-se aqui e não à lista acima
+    // porque são um membro sob dois nomes: `call_site::MEMBERS` diz isso uma
+    // vez, onde duas linhas soltas diriam duas.
+    let members: Vec<(&str, Provided)> = members
+        .iter()
+        .copied()
+        .chain(call_site::MEMBERS.iter().copied())
+        .collect();
+    let namespace = entry::make_namespace(context, &members);
     // `inspect` is built apart from the list because it carries members of its
     // own, and `make_namespace` installs plain callables.
     let inspector = entry::make_callable(context, inspect::inspect);

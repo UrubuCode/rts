@@ -126,8 +126,9 @@ fn attach(
     namespace: u64,
     name: &'static str,
     methods: &[(&str, Provided)],
-) {
+) -> u64 {
     let prototype = rts_core::entry::make_prototype(context, name, methods);
     let constructor = rts_core::entry::get_member(context, namespace, name);
     rts_core::entry::put_member(context, constructor, "prototype", prototype);
+    prototype
 }
