@@ -38,7 +38,7 @@ JS spec compatibility validated against **Bun** and **Node** over 1513 standalon
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1513 |
 
-_Updated: 2026-08-23 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
+_Updated: 2026-08-24 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
@@ -73,22 +73,22 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `f764a23`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `11c44ed`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 28 ms | 61 ms | 56 ms | 47 ms | **30 ms** | **0.91×** | **2.00×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 431 ms | 784 ms | 764 ms | 1.08 s | **1.10 s** | **0.39×** | **0.72×** |
-| …the same RTS run, vs JS using native `Math.random` | 88 ms | 266 ms | 213 ms | 1.08 s | **1.10 s** | **0.08×** | **0.24×** |
-| π Machin f64 (RTS only) | — | — | — | 22 ms | **13 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 331 ms | **327 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 45 ms | **36 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 176 ms | **158 ms** | — | — |
+| Hello/startup | 26 ms | 60 ms | 56 ms | 47 ms | **30 ms** | **0.85×** | **1.98×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 431 ms | 786 ms | 762 ms | 1.09 s | **1.08 s** | **0.40×** | **0.72×** |
+| …the same RTS run, vs JS using native `Math.random` | 88 ms | 268 ms | 214 ms | 1.08 s | **1.07 s** | **0.08×** | **0.25×** |
+| π Machin f64 (RTS only) | — | — | — | 23 ms | **13 ms** | — | — |
+| 3M objects allocated (RTS only) | — | — | — | 330 ms | **335 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 45 ms | **35 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 170 ms | **161 ms** | — | — |
 | two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 49 ms | **28 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 617 ms | **650 ms** | — | — |
-| one loop, state as a local / captured / property | 262 ms | 532 ms | 435 ms | 216 ms | **196 ms** | **1.34×** | **2.71×** |
+| string indexing, input doubled four times (RTS only) | — | — | — | 686 ms | **669 ms** | — | — |
+| one loop, state as a local / captured / property | 263 ms | 532 ms | 435 ms | 217 ms | **196 ms** | **1.34×** | **2.71×** |
 
-_Updated: 2026-08-23 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-08-24 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 
