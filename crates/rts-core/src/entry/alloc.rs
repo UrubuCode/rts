@@ -69,7 +69,12 @@ pub(super) fn alloc_after_collecting(context: &mut Context, size: u32, ty: u32) 
     // deep the call that ran out of room was nested.
     let anchor = 0u64;
     let stack_low = &anchor as *const u64 as usize;
-    super::collect_cycle::collect(context, stack_low);
+    // Captured HERE and not inside the collector: this frame is the one that
+    // took `stack_low`, so whatever its own prologue saved sits above that
+    // address and the stack walk finds it. The collector's prologue saves
+    // below it, where the walk does not reach — see `registers.rs`.
+    let registers = super::registers::callee_saved();
+    super::collect_cycle::collect(context, stack_low, &registers);
 
     if let Some(cell) = context.region.alloc(size, ty) {
         return Some(cell);
@@ -131,7 +136,12 @@ pub(super) fn alloc_spanning_or_die(context: &mut Context, size: u32, ty: u32) -
     }
     let anchor = 0u64;
     let stack_low = &anchor as *const u64 as usize;
-    super::collect_cycle::collect(context, stack_low);
+    // Captured HERE and not inside the collector: this frame is the one that
+    // took `stack_low`, so whatever its own prologue saved sits above that
+    // address and the stack walk finds it. The collector's prologue saves
+    // below it, where the walk does not reach — see `registers.rs`.
+    let registers = super::registers::callee_saved();
+    super::collect_cycle::collect(context, stack_low, &registers);
     if let Some(cell) = context.region.alloc_spanning(size, ty) {
         return cell;
     }

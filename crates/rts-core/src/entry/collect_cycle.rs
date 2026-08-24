@@ -76,7 +76,15 @@ use super::Context;
 /// honesty floor asks for: a cycle that cannot see the stack half of the root
 /// set would free something the stack alone still names, which is a wrong
 /// answer wearing a collection's clothes.
-pub fn collect(context: &mut Context, stack_low: usize) -> usize {
+/// `registers` is what [`super::registers::callee_saved`] answered **in the
+/// caller's own frame**, beside the local `stack_low` points at. It is a
+/// parameter rather than a call from inside this function for the reason that
+/// module documents: this function's own prologue has already overwritten the
+/// registers by the time its body runs, and pushed their old contents *below*
+/// `stack_low`, where the walk above does not reach. Capturing here would
+/// therefore report the collector's own values and miss exactly the ones that
+/// matter.
+pub fn collect(context: &mut Context, stack_low: usize, registers: &[Slot]) -> usize {
     let Some(stack_high) = context.stack_high else {
         if super::switches::gc_debug() {
             eprintln!("rts-gc REFUSED: no stack bound installed");
@@ -93,6 +101,13 @@ pub fn collect(context: &mut Context, stack_low: usize) -> usize {
         // halves of `scan_stack`'s contract.
         roots.extend(unsafe { super::roots::scan_stack(stack_low, stack_high) });
     }
+    // The other half of the same question, and NOT a subset of the walk above:
+    // a value live only in a callee-saved register is at no address in
+    // `stack_low..stack_high`, so the walk cannot see it. Captured by the
+    // CALLER, in the frame that took `stack_low` — `registers.rs` says why it
+    // cannot be captured here, and has the program that proved any of this
+    // reachable.
+    roots.extend_from_slice(registers);
 
     let stack_roots = roots.len();
     let marks = super::trace::mark(context, &roots);
@@ -271,7 +286,12 @@ mod tests {
         let low = buffer.as_ptr() as usize;
         let high = low + core::mem::size_of_val(&buffer);
         context.stack_high = Some(high);
-        collect(context, low)
+        // No registers, for the reason the comment above gives about the
+        // fixed buffer: what a live register holds is real stack garbage this
+        // test does not control, and a FIXED free count cannot take a
+        // conservative root set it did not choose. What registers contribute
+        // is pinned by `registers.rs`'s own tests instead.
+        collect(context, low, &[])
     }
 
     #[test]
@@ -282,7 +302,11 @@ mod tests {
         let low = buffer.as_ptr() as usize;
 
         assert_eq!(context.stack_high, None);
-        assert_eq!(collect(&mut context, low), 0, "the refusal, not a smaller run");
+        assert_eq!(
+            collect(&mut context, low, &[]),
+            0,
+            "the refusal, not a smaller run"
+        );
         assert!(context.region.type_of(orphan).is_some(), "nothing touched it");
     }
 

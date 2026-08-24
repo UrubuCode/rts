@@ -92,6 +92,7 @@ mod primitives;
 mod promise;
 mod proxy;
 mod reflect;
+mod registers;
 mod regex;
 pub mod roots;
 mod rooted;

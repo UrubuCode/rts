@@ -109,7 +109,11 @@ pub(super) fn queue_freed(context: &mut Context, cell: u32) {
 /// set [`Context::stack_high`] — see `collect_cycle::collect` for why a cycle
 /// that cannot see the stack refuses instead of running smaller.
 pub fn collect_now(stack_low: usize) -> usize {
-    super::with_current(|context| super::collect_cycle::collect(context, stack_low))
+    // Captured before `with_current`, for the reason `registers.rs` gives: the
+    // capture must happen in a frame at or above the one `stack_low` names, and
+    // every frame entered after this line saves below it.
+    let registers = super::registers::callee_saved();
+    super::with_current(|context| super::collect_cycle::collect(context, stack_low, &registers))
 }
 
 /// Runs what the sweep queued, and answers how many ran.
