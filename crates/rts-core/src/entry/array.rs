@@ -631,6 +631,53 @@ pub fn element_at(array: u64, index: u64) -> u64 {
     })
 }
 
+/// Where an array's elements START, as a machine address.
+///
+/// # What the caller is taking on
+///
+/// That the run does not MOVE while it holds this. The elements are a `Vec`,
+/// and pushing to one reallocates — so an address handed out here is good only
+/// for as long as nothing grows that array.
+///
+/// The one caller is `rts-codegen`'s `for-of` desugaring, and it is safe there
+/// for a reason nothing else can borrow: the array is the copy `iterate` just
+/// made, no program can name it, and the loop only reads. `iterate` copies
+/// deliberately — its own documentation says a body that pushes to the original
+/// must not walk its own additions — and that same copy is what makes the
+/// address stable.
+///
+/// # That caller does not fire, and this says so rather than implying otherwise
+///
+/// `foreach.rs` hoists only when the loop's bound is a proven double, and the
+/// bound is a property read, which that layer always answers generically. The
+/// condition is unsatisfiable by construction, so this is never called and
+/// `Inst::ElementLoad` is never emitted — `rts ir` over 59 files (the benches
+/// and every `array_*`/`for_of*` test), 2026-08-23: **zero**.
+///
+/// Not a producer-less structure, which rule 9 would forbid: the producer is
+/// written and refused by one predicate. It needs a PROVEN `length`, and until
+/// then every `for-of` pays [`element_at`] per element.
+///
+/// **Do not price that gap by differencing a `for-of` that reads its binding
+/// against one that ignores it.** The binding is pushed unconditionally, so the
+/// call is in both arms and cancels; the difference measures an unbox, not a
+/// load.
+///
+/// Answers `0` for anything that is not an array, which the caller must treat
+/// as "no run": zero elements, so a bounded read of it is refused by its own
+/// bound before the address is ever used.
+#[rtse::entry]
+pub fn elements_base(array: u64) -> i64 {
+    with_current(|context| {
+        let Some(cell) = Value(array).as_slot() else {
+            return 0;
+        };
+        match context.elements_at(cell) {
+            Some(elements) => elements.as_ptr() as i64,
+            None => 0,
+        }
+    })
+}
 
 /// Writes an array's `length` as an ordinary property.
 ///

@@ -158,12 +158,6 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ElementsBase => (CoreEntry::ElementsBase, {
             rts_core::entry::elements_base as extern "C" fn(u64) -> i64 as *const u8
         }),
-        // The other half of the pair, and the cast is the check: the base comes
-        // back as an ADDRESS and the count as a proven `i32`, so a mix-up would
-        // be a bound read as an address or the reverse.
-        RuntimeOp::ElementsCount => (CoreEntry::ElementsCount, {
-            rts_core::entry::elements_count as extern "C" fn(u64) -> i32 as *const u8
-        }),
         RuntimeOp::ThrownAddress => (CoreEntry::ThrownAddress, {
             rts_core::entry::thrown_address as extern "C" fn() -> i64 as *const u8
         }),

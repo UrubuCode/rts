@@ -229,29 +229,6 @@ pub fn emit_expr(
                 let key = tagged(builder, position);
                 return Ok(call(builder, ctx, RuntimeOp::ElementAt, &[receiver, key])?[0]);
             }
-            // The same read where a COUNTED loop recognised the walk instead of
-            // a desugaring building it. The run is hoisted the same way and the
-            // load is the same instruction; what differs is that nothing here
-            // established the receiver is an array or that the element is not a
-            // hole, so the emitted read checks both. See
-            // `counted::checked_element_read`, which carries why each compare is
-            // a compare rather than a claim.
-            if let (ExprKind::Ident(array), ExprKind::Ident(at)) = (&object.kind, &index.kind)
-                && let Some((base, count)) = ctx.checked_element(*array, *at)
-            {
-                let position = emit_expr(builder, scope, ctx, index)?;
-                if builder.repr_of(position) == Repr::F64 {
-                    let receiver = emit_expr(builder, scope, ctx, object)?;
-                    let key = tagged(builder, position);
-                    return super::counted::checked_element_read(
-                        builder, ctx, receiver, key, position, base, count,
-                    );
-                }
-                // The counter stayed generic, so there is no proven index to
-                // bound a load with. Falls through to the ordinary path rather
-                // than asking anyway, which would be `WrongDomain` at emission
-                // and would refuse the whole program over one read.
-            }
             // Receiver first, then the key: `a()[b()]` runs `a` before `b`.
             let receiver = emit_expr(builder, scope, ctx, object)?;
             // A key written as a literal is a key the COMPILER knows, so it can

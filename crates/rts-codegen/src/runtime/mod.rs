@@ -355,8 +355,6 @@ pub enum RuntimeOp {
     /// array is the copy `Iterate` made, nothing can name it, and the loop only
     /// reads — so the run cannot move while the address is held.
     ElementsBase,
-    /// How many elements a proven array holds, as a proven integer.
-    ElementsCount,
 
     /// Where this thread's throw flag lives, as a machine address.
     ///
@@ -910,7 +908,6 @@ impl RuntimeOp {
         RuntimeOp::Thrown,
         RuntimeOp::ElementAt,
         RuntimeOp::ElementsBase,
-        RuntimeOp::ElementsCount,
         RuntimeOp::ThrownAddress,
         RuntimeOp::TakeThrown,
         RuntimeOp::RunningFunction,
@@ -1013,7 +1010,6 @@ impl RuntimeOp {
             RuntimeOp::ThrownAddress => "__rts_thrown_address",
             RuntimeOp::ElementAt => "__rts_element_at",
             RuntimeOp::ElementsBase => "__rts_elements_base",
-            RuntimeOp::ElementsCount => "__rts_elements_count",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::RunningFunction => "__rts_running_function",
             RuntimeOp::EvalDirect => "__rts_eval_direct",
@@ -1164,7 +1160,6 @@ impl RuntimeOp {
             RuntimeOp::ThrownAddress => (vec![], vec![Repr::I64]),
             RuntimeOp::ElementAt => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::ElementsBase => (vec![UNPROVEN], vec![Repr::I64]),
-            RuntimeOp::ElementsCount => (vec![UNPROVEN], vec![Repr::I32]),
             RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),
             RuntimeOp::RunningFunction => (vec![], vec![UNPROVEN]),
             // The source and the environment, both ordinary values — the second

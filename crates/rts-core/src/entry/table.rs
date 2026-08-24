@@ -70,8 +70,7 @@ use super::eval_scope::EVAL_DIRECT_ENTRY;
 use super::promise::ASYNC_START_ENTRY;
 use super::dynamic_module::{IMPORT_META_ENTRY, MODULE_IMPORT_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
-use super::array::ELEMENT_AT_ENTRY;
-use super::array_run::{ELEMENTS_BASE_ENTRY, ELEMENTS_COUNT_ENTRY};
+use super::array::{ELEMENTS_BASE_ENTRY, ELEMENT_AT_ENTRY};
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ADDRESS_ENTRY, THROWN_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
@@ -613,28 +612,6 @@ pub enum CoreEntry {
     /// the generic path — and, as with `%`, a local reassigned through it being
     /// unprovable, which makes everything downstream of it unprovable too.
     NumberExponent = 90,
-
-    /// How many elements a proven array.s run holds, as a proven integer.
-    ///
-    /// Moved to 91 on 2026-08-23 for the `for-of` hoist, and this row is the
-    /// first whose LIST-level argument comes with a measurement instead of a
-    /// hope. `Inst::ElementLoad` had NO producer in any program in this
-    /// repository — `rts ir` over 59 files, zero — because the hoist required a
-    /// proven bound and the bound is a property read, which is generic by
-    /// construction. This row is what makes the count proven without narrowing,
-    /// and with it every `for-of` over an array reads an element with an
-    /// instruction instead of a crossing: **9.67 to 7.00 ns per element**,
-    /// release, 3 M elements.
-    ///
-    /// The alternative was not a shorter list. It was a `Guard` narrowing the
-    /// generic bound, whose failure path needs a SECOND copy of every `for-of`
-    /// body — against a throw check that already accounts for ~32% of every
-    /// instruction emitted.
-    ///
-    /// Reusing [`Self::ElementsBase`] was rejected: one `extern "C"` return, and
-    /// one number meaning both an ADDRESS and a BOUND is the second meaning this
-    /// list exists to keep out — a mix-up would read a count as a pointer.
-    ElementsCount = 91,
 }
 
 /// How many entry points exist.
@@ -642,7 +619,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 92;
+pub const CORE_ENTRY_COUNT: usize = 91;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -738,7 +715,6 @@ impl CoreEntry {
         CoreEntry::WithHas,
         CoreEntry::NumberRemainder,
         CoreEntry::NumberExponent,
-        CoreEntry::ElementsCount,
     ];
 
     /// The number a call site holds.
@@ -779,7 +755,6 @@ impl CoreEntry {
             CoreEntry::ThrownAddress => THROWN_ADDRESS_ENTRY,
             CoreEntry::ElementAt => ELEMENT_AT_ENTRY,
             CoreEntry::ElementsBase => ELEMENTS_BASE_ENTRY,
-            CoreEntry::ElementsCount => ELEMENTS_COUNT_ENTRY,
             CoreEntry::RunningFunction => RUNNING_FUNCTION_ENTRY,
             CoreEntry::GeneratorNew => GENERATOR_NEW_ENTRY,
             CoreEntry::GeneratorYield => GENERATOR_YIELD_ENTRY,
@@ -1044,7 +1019,7 @@ mod tests {
         // Reusing `Remainder` was REJECTED: one number would mean two shapes,
         // tagged both ways for one caller and unboxed both ways for the other.
         assert!(
-            CORE_ENTRY_COUNT <= 92,
+            CORE_ENTRY_COUNT <= 91,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );
