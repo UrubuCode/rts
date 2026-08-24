@@ -305,10 +305,20 @@ pub fn emit_for(
     // The header owns a scope: `for (let i = …)` introduces `i` outside the
     // body and it does not survive the loop.
     scope.enter();
+    // `for (let i = 0; i < a.length; i++)` reads elements by number, and that is
+    // one crossing per element unless the run is hoisted. Everything that
+    // decides whether this loop is that shape, and whether its body could move
+    // the run underneath it, lives in `counted` — this only brackets the body
+    // with what it answered.
+    let outer = super::counted::hoist_walk(builder, scope, ctx, init, test, update, body)?;
+
     let result = emit_for_inner(builder, scope, ctx, loops, init, test, update, body, label);
+
+    ctx.check_element_read(outer.0, outer.1);
     scope.leave();
     result
 }
+
 
 #[allow(clippy::too_many_arguments)]
 fn emit_for_inner(

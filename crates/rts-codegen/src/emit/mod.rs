@@ -60,6 +60,7 @@ mod call;
 mod capture;
 mod choice;
 mod class;
+mod counted;
 mod delegate;
 mod destructure;
 mod escape;
@@ -563,6 +564,14 @@ pub struct Ctx<'a> {
     /// One pair and not a set, because the only producer is a `for-of` and it
     /// proves exactly the pair it minted. See `Ctx::prove_element_read`.
     proven_element: Option<(Name, Name)>,
+    /// The pair a COUNTED loop recognised, which is a weaker claim than the one
+    /// above and is kept apart for that reason: `proven_element` means the
+    /// desugaring established every fact by construction, and this means only
+    /// that the loop has a hoisted run whose validity the emitted read still has
+    /// to check. One field for both would make which claim was made depend on
+    /// who set it last.
+    checked_element: Option<(Name, Name)>,
+    checked_run: Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)>,
     /// The base address and element count of that pair, hoisted out of the
     /// loop, when the loop is one that may hold them.
     ///
@@ -616,6 +625,8 @@ impl<'a> Ctx<'a> {
             body: body_state::BodyState::default(),
             async_parks: false,
             proven_element: None,
+            checked_element: None,
+            checked_run: None,
             element_run: None,
         }
     }
@@ -737,6 +748,32 @@ impl<'a> Ctx<'a> {
     /// Whether this read is that pair.
     pub(super) fn is_proven_element(&self, array: Name, index: Name) -> bool {
         self.proven_element == Some((array, index))
+    }
+
+    /// Records that `array[index]` is a counted walk with a hoisted run, and
+    /// answers the previous pair so a caller can restore it. Nested loops need
+    /// the restore for the reason `prove_element_read` states.
+    pub(super) fn check_element_read(
+        &mut self,
+        pair: Option<(Name, Name)>,
+        run: Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)>,
+    ) -> (Option<(Name, Name)>, Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)>) {
+        (
+            std::mem::replace(&mut self.checked_element, pair),
+            std::mem::replace(&mut self.checked_run, run),
+        )
+    }
+
+    /// Whether this read is that pair, and the run it may use.
+    pub(super) fn checked_element(
+        &self,
+        array: Name,
+        index: Name,
+    ) -> Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)> {
+        match self.checked_element == Some((array, index)) {
+            true => self.checked_run,
+            false => None,
+        }
     }
 
     /// The hoisted base and count for that pair, when the loop could hoist them.
