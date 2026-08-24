@@ -224,6 +224,41 @@ fn extended(base: &Path, specifier: &str) -> Option<PathBuf> {
     candidates.into_iter().find(|candidate| candidate.is_file())
 }
 
+/// A canonical path with Windows's verbatim prefix taken off.
+///
+/// # Why every canonicalisation here goes through this
+///
+/// `Path::canonicalize` answers the extended-length form on Windows —
+/// `\\?\C:\a\b` — which is a real path and which nothing outside the OS expects
+/// to see. It leaks into three things a PROGRAM reads: the specifier a module is
+/// registered under, `__filename`/`__dirname`, and `import.meta.url`.
+///
+/// The third is what made this a defect rather than an ugliness. [`file_url`]
+/// turns the backslashes into slashes, so the prefix became `file:////?/C:/…` —
+/// an empty authority, a path of `//`, and everything after the `?` read as a
+/// QUERY. `new URL(import.meta.url).pathname` answered `"/"`, and
+/// `module.createRequire(import.meta.url)` answered `undefined` because it could
+/// not get a file path back out of it. Measured 2026-08-24 against Node's own
+/// suite: 49 files died on `require is not a function`, every one of them
+/// through `common/index.mjs`, whose first line is exactly that call.
+///
+/// Stripped HERE, at the one place a canonical path is made, rather than at each
+/// of the three readers — three strippers are three chances for one of them to
+/// be forgotten, which is how this arrived in the first place.
+fn plain(path: PathBuf) -> PathBuf {
+    let text = path.display().to_string();
+    // `\\?\UNC\server\share` is a UNC path, and its plain form keeps the two
+    // leading backslashes: dropping the whole prefix would name a local
+    // directory called `server`.
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) => PathBuf::from(rest),
+        None => path,
+    }
+}
+
 /// The path a relative specifier names, from the file that wrote it.
 fn resolve(from: &Path, specifier: &str) -> PathBuf {
     let base = from.parent().unwrap_or(Path::new("."));
@@ -239,7 +274,7 @@ fn resolve(from: &Path, specifier: &str) -> PathBuf {
     // spellings of one file compiled twice would run its side effects twice and
     // give it two namespaces, and `import { x } from` each would answer two
     // different `x`.
-    joined.canonicalize().unwrap_or(joined)
+    plain(joined.canonicalize().unwrap_or(joined))
 }
 
 /// Reads the whole graph reachable from `entry`, dependencies first.
@@ -257,7 +292,7 @@ fn resolve(from: &Path, specifier: &str) -> PathBuf {
 /// running one of the two modules against a namespace that is still empty,
 /// which would answer `undefined` for a name that is genuinely there.
 pub fn load(entry: &Path) -> Result<Vec<Loaded>, HostError> {
-    let start = entry.canonicalize().unwrap_or_else(|_| entry.to_owned());
+    let start = plain(entry.canonicalize().unwrap_or_else(|_| entry.to_owned()));
     let mut ordered = Vec::new();
     let mut state = HashMap::new();
     visit(&start, &mut ordered, &mut state)?;

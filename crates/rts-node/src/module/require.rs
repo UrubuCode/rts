@@ -55,7 +55,7 @@
 //!   to a handler), so an unresolvable specifier answers `undefined` from
 //!   `require` and from `require.resolve`.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use rts_core::entry;
 
@@ -68,7 +68,10 @@ const BASE: f64 = 0.0;
 /// `module.createRequire(filename)`.
 ///
 /// `filename` is a file, not a directory — Node's argument is the module's own
-/// path or URL — so what is captured is its parent.
+/// path or URL — and the FILE is what is captured, because that is what the
+/// host's resolver takes as a referrer. It used to be the parent directory,
+/// beside a copy of the loader's join-and-canonicalise rule; see [`resolved`]
+/// for what that copy cost the day the loader's rule changed.
 pub(super) extern "C" fn create_require(
     _e: u64,
     _this: u64,
@@ -89,11 +92,7 @@ pub(super) extern "C" fn create_require(
     if !path.is_absolute() {
         return entry::undefined_value();
     }
-    let base = path
-        .parent()
-        .unwrap_or(&path)
-        .display()
-        .to_string();
+    let base = path.display().to_string();
 
     let environment = entry::with_runtime(|context| {
         let held = entry::make_string(context, &base);
@@ -161,7 +160,9 @@ extern "C" fn resolve_paths(
         return entry::undefined_value();
     };
     let mut directories = Vec::new();
-    let mut here = Some(base.as_path());
+    // The captured value is the referrer FILE, so the search starts at its
+    // directory — Node's `require.resolve.paths` is rooted where the module is.
+    let mut here = base.parent();
     while let Some(directory) = here {
         // A `node_modules` directory does not nest inside itself in a lookup —
         // Node skips one it is already inside rather than proposing
@@ -194,32 +195,30 @@ fn base_of(environment: u64) -> Option<PathBuf> {
 /// One function so that `require` and `require.resolve` cannot answer two
 /// different things — the divergence Node itself documents as the invariant
 /// between them.
+///
+/// # Why it asks the host rather than working the path out
+///
+/// It used to join the request onto the captured directory and canonicalise it,
+/// with a comment saying it did so "exactly as `graph.rs` canonicalises". That
+/// is a rule written in two places, and the second one stopped agreeing the day
+/// the loader began stripping Windows's verbatim `\?` prefix: this side
+/// produced a key nothing had registered, and `require` answered `undefined` —
+/// which is precisely what the comment existed to prevent, and could not,
+/// because a promise to stay in step is not a mechanism for staying in step.
+///
+/// `rts_core::entry::resolve_specifier` is the loader's own answer, reached
+/// through the hook a dynamic `import()` already resolves through. Now there is
+/// one rule and one place it lives.
 fn resolved(environment: u64, request: u64) -> Option<String> {
     let text = entry::with_runtime(|context| entry::string_in(context, request))?;
     if text.starts_with("node:") || super::is_provided(&text) {
         return Some(text);
     }
-    let relative = text.starts_with("./") || text.starts_with("../");
-    if !relative && !Path::new(&text).is_absolute() {
-        // A bare specifier names a package in `node_modules`, which nothing
-        // compiled this program from — `graph.rs` leaves every non-relative
-        // specifier to the host table, and the host table has only what it
-        // registered.
-        return None;
-    }
-    let base = base_of(environment)?;
-    let joined = match relative {
-        true => base.join(&text),
-        false => PathBuf::from(&text),
-    };
-    // Canonicalised exactly as `graph.rs` canonicalises when it builds the key,
-    // including its fallback to the uncanonicalised path — two spellings of one
-    // file are one module, and a key produced by a different rule would miss.
+    let from = base_of(environment)?.display().to_string();
+    // The host's answer, and the text as written when it has none: a bare
+    // specifier is not a path, and the loader leaves those alone too.
     Some(
-        joined
-            .canonicalize()
-            .unwrap_or(joined)
-            .display()
-            .to_string(),
+        entry::with_runtime(|context| entry::resolve_specifier(context, &from, &text))
+            .unwrap_or(text),
     )
 }

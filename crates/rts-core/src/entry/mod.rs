@@ -134,7 +134,9 @@ pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, ge
 pub use global::{global_get, global_get_unbound, global_object, global_set, sloppy_this};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use common_js::{module_publish_common, require_function};
-pub use dynamic_module::{Resolver, declare_module_meta, declare_resolver, import_meta, module_import};
+pub use dynamic_module::{
+    Resolver, declare_module_meta, declare_resolver, import_meta, module_import, resolve_specifier,
+};
 pub use modules::{
     module_publish_all,
     Provided, boolean_value, buffer_class, canonical_encoding, decode_base64, decode_bytes, declare_global,

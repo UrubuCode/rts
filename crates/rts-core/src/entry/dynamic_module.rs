@@ -44,6 +44,26 @@ pub fn declare_resolver(context: &mut Context, resolver: Resolver) {
     context.resolver = Some(resolver);
 }
 
+/// What `(referrer, specifier)` names, through the host's own resolver.
+///
+/// # Why a surface crate needs to reach this
+///
+/// Because the specifier table is keyed by what the LOADER produced, and any
+/// other way of arriving at that key is a second resolver that must agree with
+/// the first. `rts-node`'s `createRequire` reproduced the loader's rule —
+/// join, canonicalise — and its own comment said it had to match "exactly".
+/// It stopped matching the day the loader started stripping Windows's verbatim
+/// `\\?\` prefix: `require` looked up a key nothing had registered and answered
+/// `undefined`, which is the failure that rule was written to prevent and could
+/// not prevent by being written down.
+///
+/// `None` where the host has no answer — a bare or `node:` specifier is not a
+/// path, and the caller uses the text as written, which is the same rule the
+/// loader applies.
+pub fn resolve_specifier(context: &Context, from: &str, specifier: &str) -> Option<String> {
+    context.resolver.and_then(|resolve| resolve(from, specifier))
+}
+
 /// Records the object `import.meta` answers for one module.
 ///
 /// # Why the host builds the object rather than describing it
