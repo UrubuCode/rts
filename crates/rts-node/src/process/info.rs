@@ -104,6 +104,69 @@ fn identity(context: &mut entry::Context, namespace: u64) {
     let typescript = entry::make_string(context, "transform");
     entry::put_member(context, features, "typescript", typescript);
     entry::put_member(context, namespace, "features", features);
+    config(context, namespace);
+}
+
+/// `process.config` — what was compiled in, and only what is true of THIS build.
+///
+/// # Why this exists rather than being one more absent name
+///
+/// Because a program does not read it to learn about a build system, it reads
+/// it to decide whether a feature is there: `!!process.config.variables
+/// .v8_enable_i18n_support` is how Node's own test harness asks "does `Intl`
+/// work", and every file in that suite reads it on the way in. Absent, the
+/// object is `undefined` and the question dies with a `TypeError` naming a
+/// property instead of a feature — measured 2026-08-24, on all twenty files of
+/// `test-path-*` and `test-querystring-*` at once.
+///
+/// # What each value is, and why none of them is a guess
+///
+/// The names are Node's, because they are what a program reads. The ANSWERS are
+/// about this engine, and each is a fact somewhere else in the tree:
+/// `v8_enable_i18n_support` is 1 because `Intl` is real here over CLDR data,
+/// `openssl_quic` is 0 because there is no QUIC, `asan` is 0 because nothing
+/// builds under it, and `node_shared_openssl` is 0 because there is no OpenSSL
+/// to share. `target_arch` repeats `process.arch`, which is the same fact and
+/// therefore read from the same place rather than spelled twice.
+///
+/// What is NOT here is the rest of Node's hundred-odd variables. A build flag
+/// for a subsystem this engine does not contain has no true answer, and
+/// answering `0` for one would be indistinguishable, to the program asking,
+/// from "compiled without it" — which is a claim rather than an absence.
+///
+/// `target_defaults` is an empty object and not missing: `process.config
+/// .target_defaults.cflags` is read by tooling, and an absent parent throws
+/// where an empty one answers `undefined` — the same difference this whole
+/// function is about.
+fn config(context: &mut entry::Context, namespace: u64) {
+    let arch_name = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "x86" => "ia32",
+        "aarch64" => "arm64",
+        other => other,
+    };
+    let variables = entry::make_object(context);
+    for (name, value) in [
+        ("v8_enable_i18n_support", 1.0),
+        ("openssl_quic", 0.0),
+        ("node_shared_openssl", 0.0),
+        ("asan", 0.0),
+    ] {
+        let held = entry::make_number(value);
+        entry::put_member(context, variables, name, held);
+    }
+    for name in ["host_arch", "target_arch"] {
+        let held = entry::make_string(context, arch_name);
+        entry::put_member(context, variables, name, held);
+    }
+    let debug = entry::boolean_value(cfg!(debug_assertions));
+    entry::put_member(context, variables, "node_debug", debug);
+
+    let config = entry::make_object(context);
+    entry::put_member(context, config, "variables", variables);
+    let defaults = entry::make_object(context);
+    entry::put_member(context, config, "target_defaults", defaults);
+    entry::put_member(context, namespace, "config", config);
 }
 
 /// `pid`, `ppid`, `title`.

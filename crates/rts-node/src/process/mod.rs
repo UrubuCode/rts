@@ -114,10 +114,12 @@
 //! half a mechanism).
 //!
 //! **POSIX-only, absent on Windows rather than fabricated**: `ppid`,
-//! `umask`, `getuid`, `geteuid`, `getgid`, `getegid`. Each is a `libc` call
+//! `getuid`, `geteuid`, `getgid`, `getegid`. Each is a `libc` call
 //! with no Windows equivalent reachable without a new dependency, and Node
 //! itself refuses most of them there. (`kill` and `cpuUsage` used to be on
-//! this list; both are cross-platform now — see the reuse-check note.)
+//! this list; both are cross-platform now — see the reuse-check note. `umask`
+//! left it too: Windows has no file-mode mask, so 0 is the TRUE answer there
+//! rather than a fabricated one, and it is what Node itself answers.)
 
 mod clock;
 mod info;
@@ -167,9 +169,11 @@ pub fn namespace(context: &mut Context) -> u64 {
     // Absent, not stubbed: see the module doc's POSIX paragraph. A member that
     // exists and answers nothing reads as "implemented and broken"; an absent
     // one reads as what it is.
+    // `umask` is on BOTH: Windows has no mask, so Node answers 0 there and so
+    // does this. See its Windows arm for why 0 is an answer and not a stub.
+    members.push(("umask", lifecycle::umask as Provided));
     #[cfg(unix)]
     members.extend_from_slice(&[
-        ("umask", lifecycle::umask),
         ("getuid", lifecycle::getuid),
         ("geteuid", lifecycle::geteuid),
         ("getgid", lifecycle::getgid),

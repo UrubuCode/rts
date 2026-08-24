@@ -414,6 +414,31 @@ pub(super) extern "C" fn umask(
     entry::make_number(previous as f64)
 }
 
+/// `process.umask([mask])` on Windows — always 0, which is what Node answers.
+///
+/// Not a stub, and the distinction is the one this module's header draws.
+/// Windows has no file-mode creation mask, so nothing is masked, and 0 is the
+/// true answer rather than a placeholder — Node on Windows answers exactly this
+/// (checked: `process.umask()` is 0 before and after `process.umask(0o022)`).
+/// A SET is accepted and does nothing, again as Node does, because refusing it
+/// would break the line every Node test suite opens with.
+///
+/// It was absent here, and that cost the whole of Node's own corpus: its
+/// `test/common/index.js` calls it unconditionally on the way in, so every
+/// file died with `process.umask is not a function` before reaching its first
+/// assertion.
+#[cfg(not(unix))]
+pub(super) extern "C" fn umask(
+    _e: u64,
+    _this: u64,
+    _mask: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    entry::make_number(0.0)
+}
+
 /// `process.getuid()` — POSIX only.
 #[cfg(unix)]
 pub(super) extern "C" fn getuid(
