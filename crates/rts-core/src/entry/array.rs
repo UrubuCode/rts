@@ -646,6 +646,23 @@ pub fn element_at(array: u64, index: u64) -> u64 {
 /// must not walk its own additions — and that same copy is what makes the
 /// address stable.
 ///
+/// # That caller does not fire, and this says so rather than implying otherwise
+///
+/// `foreach.rs` hoists only when the loop's bound is a proven double, and the
+/// bound is a property read, which that layer always answers generically. The
+/// condition is unsatisfiable by construction, so this is never called and
+/// `Inst::ElementLoad` is never emitted — `rts ir` over 59 files (the benches
+/// and every `array_*`/`for_of*` test), 2026-08-23: **zero**.
+///
+/// Not a producer-less structure, which rule 9 would forbid: the producer is
+/// written and refused by one predicate. It needs a PROVEN `length`, and until
+/// then every `for-of` pays [`element_at`] per element.
+///
+/// **Do not price that gap by differencing a `for-of` that reads its binding
+/// against one that ignores it.** The binding is pushed unconditionally, so the
+/// call is in both arms and cancels; the difference measures an unbox, not a
+/// load.
+///
 /// Answers `0` for anything that is not an array, which the caller must treat
 /// as "no run": zero elements, so a bounded read of it is refused by its own
 /// bound before the address is ever used.

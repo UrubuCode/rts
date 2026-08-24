@@ -331,6 +331,23 @@ pub enum Inst {
     /// of the structures-with-no-producer this crate's rule 6 forbids and has
     /// shipped before.
     ///
+    /// # And this instruction is in that position itself right now
+    ///
+    /// Stated here because the paragraph above makes the opposite easy to
+    /// assume. The client that builds this is `rts-codegen`'s `for-of`
+    /// desugaring, and **it has never built one in a real program**: it hoists
+    /// only when the loop's bound is a proven double, and the bound is a
+    /// property read, which that layer always answers generically. Verified with
+    /// `rts ir` over 59 files — twelve benches and every array and `for-of`
+    /// test — on 2026-08-23: zero.
+    ///
+    /// So the builder, the verifier rule and the lowering below are exercised by
+    /// this crate's own tests and by nothing else. That is a gap in the CLIENT
+    /// rather than dead code here — rule 6 asks whether a live path reaches it,
+    /// and one is written and refused by a predicate, not absent. But a reader
+    /// deciding what this instruction costs should know that no measurement of
+    /// it exists, and that the obvious way to take one measures something else.
+    ///
     /// # What the client is asserting, and what this cannot check
     ///
     /// That `base` addresses `length` readable words for as long as this
