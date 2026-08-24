@@ -68,6 +68,7 @@ use super::generator::{DELEGATE_STEP_ENTRY, GENERATOR_NEW_ENTRY, GENERATOR_YIELD
 use super::arguments::ARGUMENTS_OBJECT_ENTRY;
 use super::eval_scope::EVAL_DIRECT_ENTRY;
 use super::promise::ASYNC_START_ENTRY;
+use super::common_js::{MODULE_PUBLISH_COMMON_ENTRY, REQUIRE_FUNCTION_ENTRY};
 use super::dynamic_module::{IMPORT_META_ENTRY, MODULE_IMPORT_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
 use super::array::{ELEMENTS_BASE_ENTRY, ELEMENT_AT_ENTRY};
@@ -612,6 +613,26 @@ pub enum CoreEntry {
     /// the generic path — and, as with `%`, a local reassigned through it being
     /// unprovable, which makes everything downstream of it unprovable too.
     NumberExponent = 90,
+
+    /// The `require` a CommonJS module is given — [`super::require_function`].
+    ///
+    /// The heap clause and the identity one: it mints a closure over the
+    /// module's own specifier, and two modules must get two of them or `"./x"`
+    /// resolves from whichever file happened to call. Distinct from
+    /// [`CoreEntry::ModuleNamespace`] because that reads a specifier the
+    /// compiler resolved, and this answers a FUNCTION the program may pass
+    /// around and call with a specifier it computed.
+    RequireFunction = 91,
+
+    /// What a CommonJS module left in `module.exports` —
+    /// [`super::module_publish_common`].
+    ///
+    /// The third clause: it writes the specifier table, which is global mutable
+    /// state no instruction can reach. Distinct from
+    /// [`CoreEntry::ModulePublish`] because that publishes one NAME and this
+    /// publishes one VALUE that may replace the whole namespace — the difference
+    /// between the two module systems, stated where they meet.
+    ModulePublishCommon = 92,
 }
 
 /// How many entry points exist.
@@ -619,7 +640,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 91;
+pub const CORE_ENTRY_COUNT: usize = 93;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -715,6 +736,8 @@ impl CoreEntry {
         CoreEntry::WithHas,
         CoreEntry::NumberRemainder,
         CoreEntry::NumberExponent,
+        CoreEntry::RequireFunction,
+        CoreEntry::ModulePublishCommon,
     ];
 
     /// The number a call site holds.
@@ -808,6 +831,8 @@ impl CoreEntry {
             CoreEntry::NewTarget => NEW_TARGET_ENTRY,
             CoreEntry::ImportMeta => IMPORT_META_ENTRY,
             CoreEntry::ModuleImport => MODULE_IMPORT_ENTRY,
+            CoreEntry::RequireFunction => REQUIRE_FUNCTION_ENTRY,
+            CoreEntry::ModulePublishCommon => MODULE_PUBLISH_COMMON_ENTRY,
             CoreEntry::MarkDerived => MARK_DERIVED_ENTRY,
             CoreEntry::MarkClassConstructor => MARK_CLASS_CONSTRUCTOR_ENTRY,
             CoreEntry::SetCallName => SET_CALL_NAME_ENTRY,
@@ -1019,7 +1044,7 @@ mod tests {
         // Reusing `Remainder` was REJECTED: one number would mean two shapes,
         // tagged both ways for one caller and unboxed both ways for the other.
         assert!(
-            CORE_ENTRY_COUNT <= 91,
+            CORE_ENTRY_COUNT <= 93,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

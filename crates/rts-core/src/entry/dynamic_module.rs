@@ -71,6 +71,7 @@ pub fn declare_module_meta(context: &mut Context, specifier: &str, meta: u64) {
         build: None,
         provided: false,
         meta: Some(meta),
+        common: None,
     });
 }
 

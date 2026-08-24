@@ -206,6 +206,33 @@ index.
 The name is matched once, while compiling. It never appears on the path that
 emits code, and never in the emitted code at all except as debug information.
 
+### CommonJS is not a third population
+
+`require`, `module`, `exports`, `__filename` and `__dirname` are bound in every
+module that mentions them, and a file may use them beside `import` and `export`.
+There is no per-file decision between the two systems — no extension rule, no
+`"type"` in a `package.json`, no refusal.
+
+That is affordable here for a reason specific to this engine, and it would not
+be in Node. The split exists because the two systems disagree about
+*evaluation*: an ES module is linked and hoisted before it runs, a CommonJS one
+executes at the first `require`. `rts-host`'s `graph.rs` already collects the
+whole graph and emits every file into ONE compilation, dependencies first — so
+there is one evaluation model, and the thing the split protects against does not
+arise.
+
+What is left of the difference is where a module's exports come from, and both
+answers live on the one specifier table: `export` publishes names into the
+namespace, `module.exports` publishes a VALUE beside it. `require` answers the
+value when there is one and the namespace otherwise, which is what makes
+`require` of an ES module and `import` of a CommonJS one both work. See
+`rts-core/src/entry/common_js.rs` and `rts-codegen/src/emit/common_js.rs`.
+
+**The divergence to know about**: a UMD bundle's `typeof module !== "undefined"`
+sniff now takes the CommonJS branch in every file, where an ES module elsewhere
+would fall through to the global one. It is the branch that works here —
+`module.exports` is published — and it is the answer Node gives the same file.
+
 ---
 
 ## Reading order

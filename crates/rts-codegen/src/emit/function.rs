@@ -498,6 +498,17 @@ pub(super) fn emit_body(
             });
         }
     }
+    // The CommonJS five, for the reason the imports one line up are candidates:
+    // they are bound at entry and read from inside a nested function — a
+    // `module.exports = function () { return require("./x") }` is the ordinary
+    // way the whole Node corpus is written, and a name nothing lists as a
+    // candidate is a plain local no closure can reach.
+    //
+    // Listed only when the body is a module's and mentions them, so an ES
+    // module and every ordinary function pay nothing.
+    if module.is_some() {
+        candidates.extend(super::common_js::mentioned(body, ctx));
+    }
     // `arguments` the same way, and for the same reason one line up: it is bound
     // at entry and an ARROW inside reads the enclosing function's. Without it in
     // the candidate list the arrow finds nothing reachable — which is exactly
@@ -889,6 +900,26 @@ fn emit_body_into(
         super::module::emit_import(&mut builder, &mut scope, ctx, import)?;
     }
 
+    // `module`, `exports`, `require`, `__filename`, `__dirname` — beside the
+    // imports because they are the same kind of thing: declarations of this
+    // module's scope that the program did not write. Bound before the hoists
+    // below, and skipping any name the body declares itself, so a program's own
+    // `var require = …` is the one that survives.
+    if let Some(specifier) = module {
+        let declared = own_declarations(body);
+        let (filename, dirname) = ctx.module_paths.clone().unwrap_or_default();
+        super::common_js::emit_prologue(
+            &mut builder,
+            &mut scope,
+            ctx,
+            body,
+            specifier,
+            &filename,
+            &dirname,
+            &declared,
+        )?;
+    }
+
     // `...rest` is declared like any other parameter, from an array the runtime
     // builds — out of the vector when the caller allocated one, and out of the
     // four slots when it did not. Which of those happened is not decided here,
@@ -981,6 +1012,11 @@ fn emit_body_into(
         && let Some(specifier) = module
     {
         super::module::emit_publications(&mut builder, &scope, ctx, specifier, publications)?;
+        // And what the body left in `module.exports`, in the same place and for
+        // the same reason: a module that assigns it on its last line publishes
+        // that, not what it held halfway through.
+        let declared = own_declarations(body);
+        super::common_js::emit_epilogue(&mut builder, &scope, ctx, body, specifier, &declared)?;
     }
     if !terminated {
         // A derived constructor answers its `this`, not `undefined`. That is
@@ -1123,6 +1159,29 @@ fn collect_vars_stmt(statement: &Stmt, into: &mut Vec<Name>) {
 /// Declared directly into the current (function) layer, which is why this must
 /// run before [`Scope::enter`] is called for anything — a `var` inside a block
 /// still has to land outside it.
+/// Every name a body's own top level declares, however it declares it.
+///
+/// What it is for: the CommonJS prologue must not bind a name the program
+/// binds. A module that writes `const require = createRequire(import.meta.url)`
+/// gets its own, and a second binding under the same name in the same layer is
+/// not a shadow but a bug — `Scope::declare` pushes an entry per call, and which
+/// of the two a read finds is decided by the order they were pushed.
+///
+/// The three kinds are asked separately because the emitter binds them at three
+/// different moments: `var` and functions are hoisted before the first
+/// statement, and `let`/`const`/`class` are bound where they are written.
+fn own_declarations(body: &[Stmt]) -> Vec<Name> {
+    let mut names = Vec::new();
+    collect_vars(body, &mut names);
+    names.extend(binding::lexical_names(body));
+    let mut hoisted = std::collections::BTreeSet::new();
+    for statement in body {
+        super::capture::declared_by_statement(statement, &mut hoisted);
+    }
+    names.extend(hoisted);
+    names
+}
+
 pub fn hoist_vars(
     builder: &mut FuncBuilder,
     scope: &mut Scope,

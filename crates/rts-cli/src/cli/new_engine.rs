@@ -46,6 +46,18 @@ fn imports_a_file(source: &str) -> bool {
         // that is a change to measure on its own rather than to smuggle in
         // beside a feature.
         || source.contains("import.meta")
+        // And CommonJS, for BOTH halves at once. A `require("./x")` names a file
+        // exactly as an `import` does, and the four names beside it need what
+        // `import.meta` needs: a module compiled alone has no specifier, and
+        // `require`, `module`, `exports` and `__filename` are all bound from one.
+        // Without this line a file that only writes `module.exports = …` was
+        // compiled as a script, got no binding, and died on `module is not
+        // defined` — the same fault as `import.meta`, through a third spelling.
+        || source.contains("require(")
+        || source.contains("module.exports")
+        || source.contains("exports.")
+        || source.contains("__filename")
+        || source.contains("__dirname")
 }
 
 /// Compiles and runs `path` through the new engine, on a thread with the

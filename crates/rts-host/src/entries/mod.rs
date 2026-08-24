@@ -216,6 +216,15 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ModuleImport => (CoreEntry::ModuleImport, {
             rts_core::entry::module_import as extern "C" fn(u64, i64) -> u64 as *const u8
         }),
+        // One literal index in, a callable out — the cast is what says so, and
+        // is why a `require` whose environment shape drifted would fail here
+        // rather than in a compiled program.
+        RuntimeOp::RequireFunction => (CoreEntry::RequireFunction, {
+            rts_core::entry::require_function as extern "C" fn(i64) -> u64 as *const u8
+        }),
+        RuntimeOp::ModulePublishCommon => (CoreEntry::ModulePublishCommon, {
+            rts_core::entry::module_publish_common as extern "C" fn(i64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::ModulePublish => (CoreEntry::ModulePublish, {
             rts_core::entry::module_publish as extern "C" fn(i64, i64, u64) -> u64 as *const u8
         }),

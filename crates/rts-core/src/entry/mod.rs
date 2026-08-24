@@ -47,6 +47,7 @@ mod cache_keyed;
 mod chain;
 mod class_support;
 mod collect_cycle;
+mod common_js;
 mod context;
 mod clone;
 mod buffers;
@@ -132,6 +133,7 @@ pub use eval_scope::{
 pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
 pub use global::{global_get, global_get_unbound, global_set, sloppy_this};
 pub use iterate::{array_append, array_append_all, iterate};
+pub use common_js::{module_publish_common, require_function};
 pub use dynamic_module::{Resolver, declare_module_meta, declare_resolver, import_meta, module_import};
 pub use modules::{
     module_publish_all,

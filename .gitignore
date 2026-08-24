@@ -126,3 +126,9 @@ paridade/
 # a partir do par HTML/CSS, pesam megabytes e mudam a cada corrida. O que se
 # versiona é o gerador, não a saída dele.
 scripts/parity/*.combinada.html
+
+# A suite de testes do proprio Node, clonada para medir as libs node: contra a
+# regua que o Bun usa. Milhares de ficheiros de outro repositorio: o que se
+# versiona e o que os corre, nunca eles. Diretorio com ponto de proposito — e
+# assim que o walker do `rts test` o ignora, em vez de o contar como corpus.
+.node-suite/

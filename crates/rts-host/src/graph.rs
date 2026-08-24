@@ -109,7 +109,18 @@ pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
     // EVALUATED with the rest of the graph, dependencies first, where the
     // language evaluates it at the `import()` call. A program whose dynamic
     // import is behind a condition runs its body anyway.
-    for specifier in rts_codegen::emit::dynamic_specifiers(&parsed.body) {
+    //
+    // And a `require("./x")` names one too, for the identical reason: a module
+    // reached only that way is still a file this program is made of, and it has
+    // to be in the ONE compilation or its exports are cells the requiring module
+    // cannot touch. Asked of the SAME walk, which is why the forms are a
+    // parameter rather than a second function — two walks over one tree are two
+    // chances for a node to be visited by one and skipped by the other.
+    let wanted = rts_codegen::emit::Wanted {
+        dynamic_import: true,
+        require: Some(scratch.intern("require")),
+    };
+    for specifier in rts_codegen::emit::specifiers(&parsed.body, wanted) {
         if is_relative(&specifier) {
             found.push(specifier);
         }
@@ -173,6 +184,52 @@ fn file_url(path: &Path) -> String {
     }
 }
 
+/// The candidates for a specifier written without an extension, or a directory.
+///
+/// # Why this is a LIST now, and how it keeps the property the one candidate had
+///
+/// The rule above used to be "`./x`, and then `./x.ts` — one candidate, not a
+/// cascade", and its reason was that a resolver trying four extensions picks a
+/// file the program did not name, invisibly. That reason survives; what changed
+/// is that `require("./x")` is written by every CommonJS program there is, and
+/// `.js` is what it means.
+///
+/// So the property is kept by a different mechanism: **an ambiguity is an
+/// error, not a preference.** If two candidates exist, nothing is chosen — the
+/// caller falls back to the literal name, which does not exist, and the loader
+/// reports the file it could not read. Nobody gets a silent pick between
+/// `x.ts` and `x.js`.
+///
+/// `index` is here for the same reason `.js` is: `require("./lib")` naming
+/// `lib/index.js` is not an extension guess, it is what the specifier means in
+/// the corpus this serves. It is only tried when the name IS a directory, so it
+/// can never collide with the file candidates.
+fn extended(base: &Path, specifier: &str) -> Option<PathBuf> {
+    let named = base.join(specifier);
+    if named.is_dir() {
+        let inside: Vec<PathBuf> = ["index.ts", "index.js", "index.mjs", "index.cjs"]
+            .iter()
+            .map(|name| named.join(name))
+            .filter(|candidate| candidate.is_file())
+            .collect();
+        return match inside.as_slice() {
+            [only] => Some(only.clone()),
+            _ => None,
+        };
+    }
+    let found: Vec<PathBuf> = ["ts", "js", "mjs", "cjs"]
+        .iter()
+        .map(|extension| base.join(format!("{specifier}.{extension}")))
+        .filter(|candidate| candidate.is_file())
+        .collect();
+    match found.as_slice() {
+        [only] => Some(only.clone()),
+        // Zero, or two that would both match. Both answer "not this one": the
+        // first has nothing to offer and the second must not choose.
+        _ => None,
+    }
+}
+
 /// The path a relative specifier names, from the file that wrote it.
 fn resolve(from: &Path, specifier: &str) -> PathBuf {
     let base = from.parent().unwrap_or(Path::new("."));
@@ -180,15 +237,9 @@ fn resolve(from: &Path, specifier: &str) -> PathBuf {
     // What the program wrote, and then the one candidate: `./x` before `./x.ts`.
     // Written this way round so a file that genuinely has no extension still
     // wins over a `.ts` beside it — the program named that one.
-    let joined = match named.exists() {
+    let joined = match named.is_file() {
         true => named,
-        false => {
-            let with_ts = base.join(format!("{specifier}.ts"));
-            match with_ts.exists() {
-                true => with_ts,
-                false => named,
-            }
-        }
+        false => extended(base, specifier).unwrap_or(named),
     };
     // Canonicalised so that `./a.ts` and `../dir/a.ts` are the SAME module. Two
     // spellings of one file compiled twice would run its side effects twice and
@@ -373,6 +424,17 @@ pub(crate) fn front_end(
         .map(|(file, program)| rts_codegen::emit::Unit {
             specifier: file.specifier.clone(),
             items: &program.body,
+            // `__filename` and `__dirname`, decided HERE because where a file
+            // is, is this crate's question — the emitter binds two strings and
+            // parses no path, which is what keeps one resolver in the program.
+            paths: (
+                file.path.display().to_string(),
+                file.path
+                    .parent()
+                    .unwrap_or(&file.path)
+                    .display()
+                    .to_string(),
+            ),
         })
         .collect();
 

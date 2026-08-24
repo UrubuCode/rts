@@ -81,11 +81,22 @@ numbering) are wired and asserted there rather than assumed anywhere.
 be here — "arithmetic, comparisons, `if`, loops, objects and property access" —
 now understates it by a long way. Classes with inheritance and private fields,
 closures, `try`/`catch`/`finally` across calls, `async`/`await` over real timers
-and sockets, modules, template literals, regular expressions, destructuring,
+and sockets, modules — **both systems, in any file** — template literals,
+regular expressions, destructuring,
 spread, `for-of`, and the built-ins a program reaches by name: the `Error`
 family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, `Intl` — its
 seven services over real CLDR data, not a table of English — plus what
 `node:` provides.
+
+**CommonJS is not a second module system here, and there is no per-file
+choice.** `require`, `module`, `exports`, `__filename` and `__dirname` are bound
+in every module that mentions them, beside `import` and `export` in the same
+file if that is what the file writes. No extension rule, no `"type"` in a
+`package.json`, no refusal — which is affordable because `graph.rs` already
+emits every file of a program into ONE compilation, dependencies first, so the
+evaluation difference the split exists to protect against does not arise.
+`docs/engine/architecture.md` has the design and the one divergence it costs: a
+UMD bundle's `typeof module` sniff now takes the CommonJS branch everywhere.
 
 `crates/rts-host/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than

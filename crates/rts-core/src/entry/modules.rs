@@ -85,6 +85,17 @@ pub struct Registered {
     /// must say so rather than answer an empty object. See
     /// [`super::dynamic_module::import_meta`].
     pub meta: Option<u64>,
+    /// What the module last left in `module.exports`, if it is a CommonJS one.
+    ///
+    /// Beside the namespace rather than in a table of its own, for the reason
+    /// [`module_publish`] gives: a specifier resolves to ONE entry, and a second
+    /// table keyed by specifier is a second answer to what a module is.
+    ///
+    /// `None` for a module that never mentions `module` or `exports`, and that
+    /// absence is load-bearing — it is what makes `require` of an ES module
+    /// answer the namespace its `export`s published rather than an empty
+    /// object. See [`super::common_js`].
+    pub common: Option<u64>,
 }
 
 /// The text of a specifier the compiler passed as a literal index.
@@ -136,6 +147,7 @@ pub(in crate::entry) fn namespace_for(context: &mut Context, specifier: String) 
             build: None,
             provided: false,
             meta: None,
+            common: None,
         }),
     }
     made
@@ -199,6 +211,7 @@ pub fn declare_module(context: &mut Context, specifier: &str, namespace: u64) {
             build: None,
             provided: true,
             meta: None,
+            common: None,
         }),
     }
 }
@@ -255,6 +268,7 @@ pub fn declare_module_lazy(context: &mut Context, specifiers: &[&str], build: Bu
                 build: Some(build),
                 provided: true,
                 meta: None,
+                common: None,
             }),
         }
     }

@@ -195,6 +195,11 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // the only holder, and a module whose meta was collected would answer a
     // freed cell the next time it read `import.meta.url`.
     words.extend(context.modules.iter().filter_map(|held| held.meta));
+    // And what a CommonJS module left in `module.exports`. The table is the only
+    // holder once the module's own frame is gone, so without this line a
+    // `require` of a module the program stopped naming answers a freed cell —
+    // the same fault the two lines above prevent, for the third field.
+    words.extend(context.modules.iter().filter_map(|held| held.common));
     words.extend(
         context
             .classes

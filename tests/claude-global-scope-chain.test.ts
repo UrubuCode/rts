@@ -79,8 +79,14 @@ describe("cadeia de escopo termina no objeto global", () => {
   test("nome ausente lança ReferenceError na LEITURA", () => {
     expect(missRead).toBe("ReferenceError:naoExisteNoRead is not defined");
   });
-  test("sniff UMD compila e responde global", () => {
-    expect(umd).toBe("global");
+  // Respondia "global" e passou a responder "cjs" quando o motor ganhou
+  // CommonJS: `module` e agora um binding de todo modulo, entao o sniff que
+  // todo bundle UMD abre encontra o que procura. E o que o Node responde ao
+  // correr o mesmo ficheiro como CommonJS, e e o ramo que aqui funciona de
+  // facto — `module.exports` e publicado. A expectativa antiga descrevia um
+  // motor sem o outro sistema de modulos, nao uma regra da linguagem.
+  test("sniff UMD compila e escolhe o ramo CommonJS", () => {
+    expect(umd).toBe("cjs");
   });
   test("&& curto-circuita: direito não é avaliado", () => {
     expect(scAnd).toBe("n");

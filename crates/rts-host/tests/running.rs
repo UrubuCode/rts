@@ -5198,4 +5198,133 @@ fn a_captured_string_written_in_a_callback_survives_the_catch_that_follows() {
         "'ab!' — both elements appended, then the catch appends its own; any \
          other answer is a read served from another function's memo"
     );
+}
+
+/// CommonJS runs, and a module reached only by `require` is in the graph.
+///
+/// What it pins is the whole path at once, because every piece of it is new and
+/// each fails silently on its own: the loader following a `require("./x")`
+/// edge, the emitter binding the five names, the runtime publishing
+/// `module.exports` beside the namespace, and `require` reading it back. It
+/// also pins the extension rule — `require("./cjs_lib")` with no extension
+/// naming a `.js` file — which is the change that let a corpus written for
+/// Node resolve at all.
+#[test]
+fn a_commonjs_module_requires_another_and_gets_what_it_exported() {
+    use std::io::Write;
+
+    let dir = std::env::temp_dir().join("rts_commonjs");
+    std::fs::create_dir_all(&dir).expect("a directory to write fixtures in");
+    let write = |name: &str, source: &str| {
+        let path = dir.join(name);
+        let mut file = std::fs::File::create(&path).expect("a fixture file");
+        file.write_all(source.as_bytes()).expect("written");
+        path
+    };
+
+    // Two shapes of export, because they answer differently: filling `exports`
+    // leaves a namespace of names, and REPLACING `module.exports` leaves one
+    // value that a namespace could not hold.
+    write("cjs_lib.js", "exports.greet = function (who) { return 'ola ' + who; };
+");
+    write("cjs_fn.js", "module.exports = function double(n) { return n * 2; };
+");
+    let entry = write(
+        "cjs_entry.js",
+        "import { test, expect } from \"rts:test\";
+         const lib = require(\"./cjs_lib\");
+         const double = require(\"./cjs_fn.js\");
+         test(\"required\", () => expect(lib.greet('a') + double(21)).toBe('ola a42'));
+         test(\"named\", () => expect(typeof __filename + typeof require).toBe('stringfunction'));
+",
+    );
+
+    rts_std::test::reset();
+    let mut program = rts_host::compile_graph(&entry).expect("the graph compiles");
+    program.run();
+    let reported = rts_std::test::record();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
+    assert_eq!(reported.len(), 2, "the fixture registers two tests");
+    assert!(
+        failed.is_empty(),
+        "a required module answers what it exported, both ways round: {failed:?}"
+    );
+}
+
+/// The two module systems in one file, and each reading the other's module.
+///
+/// The decision this pins is that there is no per-file choice between them —
+/// see `docs/engine/architecture.md`. An `import` and a `require` sit in one
+/// body; an ES module is `require`d and answers its namespace; a CommonJS one
+/// is `import`ed and its `module.exports` arrives as the default.
+#[test]
+fn import_and_require_reach_each_other_inside_one_program() {
+    use std::io::Write;
+
+    let dir = std::env::temp_dir().join("rts_commonjs_mixed");
+    std::fs::create_dir_all(&dir).expect("a directory to write fixtures in");
+    let write = |name: &str, source: &str| {
+        let path = dir.join(name);
+        let mut file = std::fs::File::create(&path).expect("a fixture file");
+        file.write_all(source.as_bytes()).expect("written");
+        path
+    };
+
+    write("mixed_esm.ts", "export const two = 2;
+export default 'padrao';
+");
+    write("mixed_cjs.js", "module.exports = { four: 4 };
+");
+    let entry = write(
+        "mixed_entry.ts",
+        "import { test, expect } from \"rts:test\";
+         import { two } from \"./mixed_esm\";
+         import held from \"./mixed_cjs\";
+         const required = require(\"./mixed_esm\");
+         test(\"require of an es module\", () => expect(required.two + required.default).toBe('2padrao'));
+         test(\"import of a commonjs module\", () => expect(held.four + two).toBe(6));
+",
+    );
+
+    rts_std::test::reset();
+    let mut program = rts_host::compile_graph(&entry).expect("the graph compiles");
+    program.run();
+    let reported = rts_std::test::record();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
+    assert_eq!(reported.len(), 2, "the fixture registers two tests");
+    assert!(failed.is_empty(), "each system reads the other's module: {failed:?}");
+}
+
+/// A program's own `require` is the one it declared.
+///
+/// The prologue binds five names, and a name the program declares itself must
+/// not be one of them — a second binding of one spelling in one layer is not a
+/// shadow, it is two entries where a read finds whichever was pushed last.
+#[test]
+fn a_declared_name_wins_over_the_commonjs_binding() {
+    use std::io::Write;
+
+    let dir = std::env::temp_dir().join("rts_commonjs_declared");
+    std::fs::create_dir_all(&dir).expect("a directory to write fixtures in");
+    let path = dir.join("declared_entry.ts");
+    let mut file = std::fs::File::create(&path).expect("a fixture file");
+    file.write_all(
+        b"import { test, expect } from \"rts:test\";
+\
+          const require = (what: string) => 'meu:' + what;
+\
+          const module = { exports: 7 };
+\
+          test(\"declared\", () => expect(require('x') + module.exports).toBe('meu:x7'));
+",
+    )
+    .expect("written");
+
+    rts_std::test::reset();
+    let mut program = rts_host::compile_graph(&path).expect("the graph compiles");
+    program.run();
+    let reported = rts_std::test::record();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
+    assert_eq!(reported.len(), 1, "the fixture registers one test");
+    assert!(failed.is_empty(), "the program's own bindings answer: {failed:?}");
 }

@@ -59,6 +59,7 @@ mod body_state;
 mod call;
 mod capture;
 mod choice;
+mod common_js;
 mod class;
 mod delegate;
 mod destructure;
@@ -94,7 +95,7 @@ mod unary;
 mod with_scope;
 mod wrap;
 
-pub use dynamic::dynamic_specifiers;
+pub use dynamic::{Wanted, dynamic_specifiers, specifiers};
 pub use eval::emit_eval_program;
 pub use expr::emit_expr;
 pub use loops::Loops;
@@ -516,6 +517,20 @@ pub struct Ctx<'a> {
     /// expressions and may sit inside any nested function, several emissions
     /// below the one place that knows which file is being compiled.
     pub module_specifier: Option<String>,
+    /// The file the module came from, and the directory holding it — what
+    /// `__filename` and `__dirname` answer.
+    ///
+    /// Beside the specifier because it is the same fact from the host, and on
+    /// the context for the same reason: both names may be read from inside any
+    /// nested function. They come DOWN rather than being derived from the
+    /// specifier here, because where a file is, is the host's question — this
+    /// crate deriving it would be a second path resolver in the language layer,
+    /// disagreeing with `graph.rs` the first time a path was spelled oddly.
+    ///
+    /// `None` for a script and for a caller with nothing to say, which binds the
+    /// two names to the empty string rather than refusing: a program reading
+    /// `__dirname` where nothing knows one gets an answer it can test.
+    pub module_paths: Option<(String, String)>,
     /// Whether `Math` still refers to the primordial the runtime installed.
     ///
     /// Proved over the whole program before anything is emitted — see
@@ -611,6 +626,7 @@ impl<'a> Ctx<'a> {
             class_fields: types::Classes::default(),
             globals: std::collections::BTreeSet::new(),
             module_specifier: None,
+            module_paths: None,
             math_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
             body: body_state::BodyState::default(),
@@ -1014,6 +1030,11 @@ pub struct Unit<'a> {
     pub specifier: String,
     /// Its parsed body.
     pub items: &'a [crate::syntax::ModuleItem],
+    /// What `__filename` answers, and what `__dirname` does.
+    ///
+    /// The host's, for the reason [`Ctx::module_paths`] gives. A caller with
+    /// nothing to say passes two empty strings, which is what a script gets.
+    pub paths: (String, String),
 }
 
 /// Every module of one program, emitted into one compilation.
@@ -1052,6 +1073,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
                 }
             }
         }
+        ctx.module_paths = Some(unit.paths.clone());
         entries.push(emit_unit(
             &body,
             &imports,

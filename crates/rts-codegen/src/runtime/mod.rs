@@ -833,6 +833,29 @@ pub enum RuntimeOp {
     /// host's, reached through the hook `rts-core` holds for exactly this.
     ModuleImport,
 
+    /// The `require` a module is given, rooted at the module that asked.
+    ///
+    /// An entry point because it mints a closure over the module's specifier,
+    /// which is the runtime's to allocate and hold. The argument is which
+    /// literal carries this module's own specifier — the same thing
+    /// [`RuntimeOp::ImportMeta`] and [`RuntimeOp::ModuleImport`] cross with, and
+    /// for the same reason: `"./x"` means different files in two directories.
+    ///
+    /// A FUNCTION rather than a per-call read of the table, because `require` is
+    /// a value a program passes around and calls with a specifier it computed.
+    /// Lowering only the direct `require("literal")` call would leave every
+    /// other use of the name unbound, which is the shape this crate refuses.
+    RequireFunction,
+
+    /// What a CommonJS module left in `module.exports`, published.
+    ///
+    /// The write half of the table [`RuntimeOp::ModuleBinding`] reads, and
+    /// distinct from [`RuntimeOp::ModulePublish`] because that publishes one
+    /// NAME while this publishes one VALUE standing for the whole module:
+    /// `module.exports = function () {}` is a module whose exports are not a set
+    /// of names at all, and a namespace cannot hold it.
+    ModulePublishCommon,
+
     /// The `this` a NON-STRICT function was entered with, substituted.
     ///
     /// `OrdinaryCallBindThis` replaces `undefined` and `null` with the global
@@ -966,6 +989,8 @@ impl RuntimeOp {
         RuntimeOp::NewTarget,
         RuntimeOp::ImportMeta,
         RuntimeOp::ModuleImport,
+        RuntimeOp::RequireFunction,
+        RuntimeOp::ModulePublishCommon,
         RuntimeOp::SloppyThis,
         RuntimeOp::NumberExponent,
     ];
@@ -1067,6 +1092,8 @@ impl RuntimeOp {
             RuntimeOp::NewTarget => "__rts_new_target",
             RuntimeOp::ImportMeta => "__rts_import_meta",
             RuntimeOp::ModuleImport => "__rts_module_import",
+            RuntimeOp::RequireFunction => "__rts_require_function",
+            RuntimeOp::ModulePublishCommon => "__rts_module_publish_common",
             RuntimeOp::SloppyThis => "__rts_sloppy_this",
             RuntimeOp::NumberExponent => "__rts_number_exponent",
         }
@@ -1208,6 +1235,8 @@ impl RuntimeOp {
             // The specifier is a VALUE because `import(name)` computes it; the
             // referrer is a literal index because the compiler knows it.
             RuntimeOp::ModuleImport => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::RequireFunction => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::ModulePublishCommon => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
             // The receiver in, the receiver or the global object out: nothing
             // is proved about either, so both sides are unproven.
             RuntimeOp::SloppyThis => (vec![UNPROVEN], vec![UNPROVEN]),
