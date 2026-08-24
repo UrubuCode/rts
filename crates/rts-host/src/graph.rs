@@ -186,48 +186,42 @@ fn file_url(path: &Path) -> String {
 
 /// The candidates for a specifier written without an extension, or a directory.
 ///
-/// # Why this is a LIST now, and how it keeps the property the one candidate had
+/// # Why this became an ORDER, and what the old rule was protecting
 ///
-/// The rule above used to be "`./x`, and then `./x.ts` — one candidate, not a
-/// cascade", and its reason was that a resolver trying four extensions picks a
-/// file the program did not name, invisibly. That reason survives; what changed
-/// is that `require("./x")` is written by every CommonJS program there is, and
-/// `.js` is what it means.
+/// The rule was "`./x`, and then `./x.ts` — one candidate, not a cascade",
+/// because a resolver that tries several picks a file the program did not name,
+/// and which one it picked is invisible until two of them exist. That fear is
+/// real and the answer to it is not a shorter list, it is a WRITTEN one: the
+/// order below is the rule, a program with both `x.ts` and `x.js` gets `x.ts`,
+/// and that sentence is testable where "the resolver decides" is not.
 ///
-/// So the property is kept by a different mechanism: **an ambiguity is an
-/// error, not a preference.** If two candidates exist, nothing is chosen — the
-/// caller falls back to the literal name, which does not exist, and the loader
-/// reports the file it could not read. Nobody gets a silent pick between
-/// `x.ts` and `x.js`.
+/// An intermediate version refused an ambiguity outright — two candidates, no
+/// answer — and it is worth recording why that lost, because it looked stricter
+/// and therefore safer. Node's own `test/common/` holds an `index.js` and an
+/// `index.mjs`, and so does a large share of real packages: those are not two
+/// spellings of one module, they are the two entry points a package publishes.
+/// Refusing them refuses the corpus this exists to run, and calls a deliberate
+/// pair an accident.
 ///
-/// `index` is here for the same reason `.js` is: `require("./lib")` naming
-/// `lib/index.js` is not an extension guess, it is what the specifier means in
-/// the corpus this serves. It is only tried when the name IS a directory, so it
-/// can never collide with the file candidates.
+/// `.ts` leads because this repository's own suite is TypeScript and every
+/// relative import in it omits the extension. `.js` follows because that is
+/// what `require("./x")` means everywhere else.
 fn extended(base: &Path, specifier: &str) -> Option<PathBuf> {
     let named = base.join(specifier);
-    if named.is_dir() {
-        let inside: Vec<PathBuf> = ["index.ts", "index.js", "index.mjs", "index.cjs"]
+    // A directory names the file inside it, which is what `require("./lib")`
+    // means in the corpus this serves. Tried only when the name IS a directory,
+    // so it can never collide with the file candidates below.
+    let candidates: Vec<PathBuf> = match named.is_dir() {
+        true => ["index.ts", "index.js", "index.cjs", "index.mjs"]
             .iter()
             .map(|name| named.join(name))
-            .filter(|candidate| candidate.is_file())
-            .collect();
-        return match inside.as_slice() {
-            [only] => Some(only.clone()),
-            _ => None,
-        };
-    }
-    let found: Vec<PathBuf> = ["ts", "js", "mjs", "cjs"]
-        .iter()
-        .map(|extension| base.join(format!("{specifier}.{extension}")))
-        .filter(|candidate| candidate.is_file())
-        .collect();
-    match found.as_slice() {
-        [only] => Some(only.clone()),
-        // Zero, or two that would both match. Both answer "not this one": the
-        // first has nothing to offer and the second must not choose.
-        _ => None,
-    }
+            .collect(),
+        false => ["ts", "js", "cjs", "mjs"]
+            .iter()
+            .map(|extension| base.join(format!("{specifier}.{extension}")))
+            .collect(),
+    };
+    candidates.into_iter().find(|candidate| candidate.is_file())
 }
 
 /// The path a relative specifier names, from the file that wrote it.

@@ -362,6 +362,23 @@ pub(in crate::entry) fn ensure(context: &mut Context, name: &str) {
     }
 }
 
+/// The global object, as a value a host can hand to a program.
+///
+/// # Why a host needs this at all
+///
+/// Because a host installs names *on* it — `declare_global` — but Node also
+/// publishes the object itself under a second name (`global`), and that is a
+/// fact about Node rather than about a global object. Answering the value here
+/// keeps the one object one object: a host minting an ordinary object to stand
+/// in for it would make `global === globalThis` false, which is a line real
+/// programs write.
+pub fn global_object(context: &mut Context) -> u64 {
+    match holder(context) {
+        Some(cell) => crate::value::Value::from_slot(cell).bits(),
+        None => super::objects::undefined_of(context),
+    }
+}
+
 /// The object the provided names are properties of, made once.
 pub(in crate::entry) fn holder(context: &mut Context) -> Option<u32> {
     if let Some(made) = context.globals {

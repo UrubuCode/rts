@@ -131,7 +131,7 @@ pub use eval_scope::{
     EvalCompiler, declare_eval_compiler, environment_names, eval_direct,
 };
 pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
-pub use global::{global_get, global_get_unbound, global_set, sloppy_this};
+pub use global::{global_get, global_get_unbound, global_object, global_set, sloppy_this};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use common_js::{module_publish_common, require_function};
 pub use dynamic_module::{Resolver, declare_module_meta, declare_resolver, import_meta, module_import};

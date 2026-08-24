@@ -265,6 +265,16 @@ pub fn install(context: &mut Context) {
     }
     let buffer_class = rts_core::entry::buffer_class(context);
     rts_core::entry::declare_global(context, "Buffer", buffer_class);
+    // `global` — Node's older name for the global object, and the SAME object,
+    // which is what a program tests when it writes `global === globalThis`. It
+    // is here rather than in `rts-core` because it is Node's spelling and not
+    // the language's: `globalThis` is what the specification names.
+    //
+    // Node's own test harness reads it on its first line, so a corpus written
+    // against Node dies at load without it — measured against
+    // `test/common/index.js`, which is what found this.
+    let global = rts_core::entry::global_object(context);
+    rts_core::entry::declare_global(context, "global", global);
     // `Blob` and `File` are globals in Node, and this crate already had both —
     // whole, with `slice` as a real view and the three async readers — sitting
     // inside `node:buffer` where only an import could reach them. Minted here
@@ -352,6 +362,18 @@ pub fn install(context: &mut Context) {
     let promises = rts_core::entry::get_member(context, files, "promises");
     rts_core::entry::declare_module(context, "node:fs/promises", promises);
     rts_core::entry::declare_module(context, "fs/promises", promises);
+
+    // `node:util/types` the same way, and the same object `util` carries as
+    // `types`: `require("util/types").isDate === require("util").types.isDate`
+    // is a line a program can write, and two objects would make it false.
+    //
+    // Absent until now, and the corpus that found it is Node's own: its
+    // `test/common/index.js` requires this specifier on the way in, so every
+    // file of that suite died at load with "cannot find module" — a missing
+    // NAME reported where a missing feature would be looked for.
+    let types = rts_core::entry::get_member(context, util_namespace, "types");
+    rts_core::entry::declare_module(context, "node:util/types", types);
+    rts_core::entry::declare_module(context, "util/types", types);
 
     // `node:timers/promises` is a module of its OWN, and this is the one place
     // in this function where that is true of a `x/y` specifier: it exports
