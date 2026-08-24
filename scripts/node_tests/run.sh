@@ -16,7 +16,13 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SUITE="$ROOT/.node-suite"
 SRC="$SUITE/node/test/parallel"
-RTS="${RTS_BIN:-$ROOT/target/release/rts.exe}"
+# O `.exe` primeiro porque e onde isto foi escrito, e o nome sem extensao a
+# seguir: em Linux e macOS o binario chama-se `rts`, e o arnes corre no CI.
+RTS="${RTS_BIN:-}"
+if [ -z "$RTS" ]; then
+  RTS="$ROOT/target/release/rts.exe"
+  [ -x "$RTS" ] || RTS="$ROOT/target/release/rts"
+fi
 TIMEOUT="${TIMEOUT:-10}"
 # Deixa quatro cores de fora: cada trabalho e um processo que compila antes de
 # correr, e saturar a maquina faz o `timeout` disparar por espera em vez de por

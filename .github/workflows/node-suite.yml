@@ -1,0 +1,237 @@
+name: Node Test Suite
+
+# A terceira régua: a suíte de testes do PRÓPRIO Node, corrida contra o rts.
+# `*.test.ts` pergunta se um programa faz o que diz; a paridade cross-runtime
+# pergunta se este motor e um motor real concordam sobre o mesmo programa; esta
+# pergunta se as bibliotecas `node:` fazem o que a suíte do Node exige delas —
+# que é a régua que o Bun usa para saber quando uma lib está de facto definida.
+#
+# Reutilizável, como `cross-runtime.yml`: quem chama já compilou o binário e
+# passa a versão do artefacto, para nada recompilar aqui.
+#
+# NÃO corre em cada push, e isso é uma decisão e não um esquecimento: são 3 543
+# ficheiros, um processo cada, e no runner de 4 núcleos isso são dezenas de
+# minutos. Correr semanalmente (ou à mão) mede a mesma coisa sem pôr essa espera
+# à frente de cada pull request — e a percentagem move-se em semanas, não em
+# commits.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Artifact version tag produced by the build job"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Artifact version tag to download (deixe vazio para compilar aqui)"
+        required: false
+        type: string
+
+permissions:
+  contents: write   # README badge auto-update
+
+jobs:
+  node-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Reporta, não bloqueia: uma percentagem que cai é trabalho a fazer, não uma
+    # merge a impedir. O mesmo que o `cross-runtime.yml` faz e pela mesma razão.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Só as libs de RUNTIME que o binário carrega — nada compila aqui.
+      # `libasound2` porque o binário linka `cpal`; sem ela o rts não arranca e
+      # 100% dos ficheiros contam como erro, publicando um 0% falso.
+      - name: Install runtime deps (ALSA)
+        run: |
+          set -e
+          for i in 1 2 3; do sudo apt-get update && break || sleep 5; done
+          for i in 1 2 3; do sudo apt-get install -y libasound2t64 && break || sleep 5; done
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download rts binary
+        if: inputs.version != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: rts-${{ inputs.version }}-Linux-X64
+          path: dl
+
+      - name: Stage binary
+        if: inputs.version != ''
+        run: |
+          set -e
+          mkdir -p target/release
+          # De `dl` e não de `bin`: `bin/` tem o `rts.exe` de Windows commitado,
+          # e apanhá-lo aqui daria "Exec format error" — a mesma nota que o
+          # `cross-runtime.yml` carrega.
+          f=$(find dl -type f | head -1)
+          cp "$f" target/release/rts
+          chmod +x target/release/rts
+
+      # Sem `version` (dispatch manual a partir de um branch): compila. É o único
+      # caminho aqui que gasta tempo de compilação, e existe para se poder medir
+      # um branch sem esperar por um release.
+      - name: Build rts (manual dispatch without a version)
+        if: inputs.version == ''
+        uses: ./.github/actions/setup-rust
+
+      - name: Cargo build --release
+        if: inputs.version == ''
+        run: cargo build --release
+
+      # O binário TEM de arrancar antes de se medir seja o que for. Sem esta
+      # guarda, uma lib em falta faz 3 543 ficheiros falharem por igual e publica
+      # 0% como se fosse uma regressão do motor.
+      - name: Verify rts starts (guard vs false 0%)
+        run: |
+          set -e
+          miss=$(ldd target/release/rts 2>&1 | grep -i "not found" || true)
+          if [ -n "$miss" ]; then echo "::error::rts com libs faltando:"; echo "$miss"; exit 1; fi
+          echo 'console.log(1+2)' > /tmp/smoke.ts
+          out=$(target/release/rts run /tmp/smoke.ts)
+          [ "$out" = "3" ] || { echo "::error::rts nao inicia (out='$out')"; exit 1; }
+
+      # Uma TAG e não `main`: a suíte do Node muda todos os dias, e uma
+      # percentagem contra um alvo móvel não é comparável consigo mesma na semana
+      # seguinte. A tag está escrita no `fetch.sh`.
+      - name: Fetch Node's test suite
+        run: bash scripts/node_tests/fetch.sh
+
+      # `JOBS: 3` num runner de 4 núcleos, de propósito: cada trabalho é um
+      # processo que COMPILA antes de correr, e saturar a máquina faz o `timeout`
+      # disparar por espera na fila em vez de por ciclo infinito — o que
+      # reportaria `t/o` para um ficheiro que nem tinha começado. `TIMEOUT: 20`
+      # pela mesma razão, o dobro do local.
+      - name: Run the suite
+        id: suite
+        run: |
+          RTS_BIN=target/release/rts \
+          REPORT=$GITHUB_WORKSPACE/.github/node_suite_report.json \
+          JOBS=3 TIMEOUT=20 \
+          bash scripts/node_tests/run.sh
+        continue-on-error: true
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: node-suite-report
+          path: .github/node_suite_report.json
+
+      - name: Update README with the Node-suite %
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = process.env.GITHUB_WORKSPACE + '/.github/node_suite_report.json';
+            if (!fs.existsSync(path)) {
+              core.info('sem relatorio — o README fica como estava');
+              return;
+            }
+            const report = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const t = report.total;
+
+            // A guarda que o badge de paridade aprendeu à sua própria custa: um
+            // 0% quase nunca é o motor, é o instrumento. Publicar um deixaria o
+            // número bom anterior ser substituído por um artefacto de CI.
+            if (!t || !t.ran || t.ok === 0) {
+              core.warning(`recusado: ok=${t && t.ok} de ran=${t && t.ran} — o README fica como estava`);
+              return;
+            }
+
+            // Numero para comparar, texto para escrever. Uma percentagem
+            // formatada e uma string, e `"5.0" >= 95` compara com coercao — a
+            // cor sairia certa por acidente e errada no dia em que alguem
+            // acrescentasse um limiar.
+            const value = t.pct;
+            const pct = value.toFixed(1);
+            let color = 'red';
+            if (value >= 95) color = 'brightgreen';
+            else if (value >= 85) color = 'green';
+            else if (value >= 70) color = 'yellowgreen';
+            else if (value >= 50) color = 'yellow';
+            else if (value >= 30) color = 'orange';
+
+            const badge = `[![Node test suite](https://img.shields.io/badge/Node%20test%20suite-${pct}%25-${color}?style=flat-square)](scripts/node_tests/README.md)`;
+
+            const segs = 20;
+            const filled = Math.round((t.ok / t.ran) * segs);
+            const bar = '▰'.repeat(filled) + '▱'.repeat(segs - filled);
+            const today = new Date().toISOString().slice(0, 10);
+
+            // As dez maiores por número de ficheiros. A tabela inteira são mais
+            // de sessenta linhas, e um README que ninguém rola até ao fim não
+            // publicou nada.
+            const top = report.modules
+              .filter((m) => m.ran >= 20)
+              .slice(0, 10)
+              .map((m) => `| \`test-${m.mod}-*\` | **${m.pct.toFixed(1)}%** | ${m.ok}/${m.ran} |`)
+              .join('\n');
+
+            // As causas, e não só o número. Numa percentagem destas o que
+            // interessa é que uma mensagem repetida 278 vezes é UM nome em
+            // falta, não 278 problemas — é isso que faz disto uma lista de
+            // trabalho em vez de um placar.
+            const causes = (report.causes || [])
+              .slice(0, 5)
+              .map((c) => `| ${c.count} | \`${c.message.replace(/\|/g, '\\|').slice(0, 70)}\` |`)
+              .join('\n');
+
+            const stats = `## 🟢 Node test suite\n\n` +
+              `As bibliotecas \`node:\` medidas contra **a suíte de testes do próprio Node** ` +
+              `(\`test/parallel\`), um processo por ficheiro, sem tradução nenhuma.\n\n` +
+              `\`\`\`\n` +
+              `[${bar}] ${pct}%   ${t.ok}/${t.ran} ficheiros passando\n` +
+              `\`\`\`\n\n` +
+              `| Metric | Value |\n|---|---|\n` +
+              `| **Compatibilidade** | **${pct}%** (${t.ok}/${t.ran}) |\n` +
+              `| ✅ Sai com 0 | ${t.ok} |\n` +
+              `| ❌ Asserção falhou | ${t.fail} |\n` +
+              `| 💥 Exceção não apanhada | ${t.error} |\n` +
+              `| ⏱️ Não terminou | ${t.timeout} |\n\n` +
+              `**Por grupo** (os dez maiores). O grupo é o prefixo do ficheiro na ` +
+              `suíte — a forma como o Node os agrupa, não uma classificação nossa: ` +
+              `\`test-worker-*\` é \`worker_threads\` e \`test-child-*\` é \`child_process\`.\n\n` +
+              `| Grupo | % | ok/total |\n|---|---|---|\n${top}\n\n` +
+              `**As causas mais frequentes** — uma mensagem repetida é um nome em falta, não N problemas\n\n` +
+              `| Ficheiros | Mensagem |\n|---|---|\n${causes}\n\n` +
+              `_Updated: ${today} — [como isto é medido](scripts/node_tests/README.md)_\n`;
+
+            let readme = fs.readFileSync('README.md', 'utf8');
+            const before = readme;
+            readme = readme.replace(
+              /<!-- NODE_SUITE_BADGE_START -->[\s\S]*?<!-- NODE_SUITE_BADGE_END -->/,
+              `<!-- NODE_SUITE_BADGE_START -->\n${badge}\n<!-- NODE_SUITE_BADGE_END -->`,
+            );
+            readme = readme.replace(
+              /<!-- NODE_SUITE_STATS_START -->[\s\S]*?<!-- NODE_SUITE_STATS_END -->/,
+              `<!-- NODE_SUITE_STATS_START -->\n${stats}\n<!-- NODE_SUITE_STATS_END -->`,
+            );
+            if (readme === before) {
+              core.info('README sem alteracoes');
+              return;
+            }
+            fs.writeFileSync('README.md', readme);
+
+            const { execSync } = require('child_process');
+            execSync('git config user.name "github-actions[bot]"');
+            execSync('git config user.email "41898282+github-actions[bot]@users.noreply.github.com"');
+            execSync('git add README.md .github/node_suite_report.json');
+            // `--quiet --exit-code` responde 1 quando HÁ diferença; sem a
+            // guarda, um `git commit` sem nada em stage falha o step inteiro.
+            try {
+              execSync('git diff --cached --quiet');
+              core.info('nada para commitar');
+              return;
+            } catch {}
+            execSync(`git commit -m "docs: auto-update Node test suite % (${pct}%)"`);
+            execSync('git push');

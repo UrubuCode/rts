@@ -218,6 +218,19 @@ jobs:
       issues: write
       pull-requests: write
 
+  # A suíte do PRÓPRIO Node, no agendamento e não em cada push: são 3 543
+  # ficheiros, um processo cada, e no runner isso são dezenas de minutos. A
+  # percentagem move-se em semanas — pô-la à frente de cada pull request custava
+  # a espera toda para medir o mesmo número.
+  node-suite:
+    if: github.event_name == 'schedule'
+    needs: [version, build]
+    uses: ./.github/workflows/node-suite.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    permissions:
+      contents: write
+
   release:
     # Only create a release on push to main (not on PRs or dispatch).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
