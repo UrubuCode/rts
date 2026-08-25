@@ -317,6 +317,41 @@ impl Context {
     /// identity: `===` compares text, and there is no operation that can tell
     /// two equal strings apart. So one cell per distinct key is not a
     /// deduplication a program can notice.
+    /// The one string cell a key's text lives in, named by the KEY itself.
+    ///
+    /// The second door onto the same table [`Context::key_text_value`] fills, and
+    /// it exists because the first one is reached the long way round. A shape
+    /// already holds its properties AS keys, so enumeration had the number in
+    /// hand, converted it to text, and handed the text to a function whose first
+    /// act is to hash it back into the number.
+    ///
+    /// Measured 2026-08-25 by ADDING one extra round trip per key rather than by
+    /// removing the only one — an idempotent call, so the answer cannot change
+    /// and what moves is the cost alone: `Object.keys` of an eight-property
+    /// object went from 2 023 ns to 2 488, which is **58 ns per key** for the
+    /// text and its hash.
+    ///
+    /// Two doors rather than one that takes an enum, for the reason
+    /// `functions::call` and `call_counted` are two: a caller holding text has
+    /// no key and a caller holding a key has no text, and neither should have to
+    /// manufacture the other to ask.
+    pub(super) fn key_value(&mut self, key: rts_cranelift::shape::Key) -> u64 {
+        let named = crate::object::Key::Name(key);
+        if let Some(held) = self.key_texts_as_values.get(&named) {
+            return *held;
+        }
+        // A key the interner does not know has no text to put on the heap. It
+        // cannot happen for a key that came out of a shape — the interner is
+        // what minted it — and answering `undefined` is what the callers of this
+        // already do for a property that turns out not to be there.
+        let Some(text) = self.interner.text(key).cloned() else {
+            return super::objects::undefined_of(self);
+        };
+        let value = self.intern_value(text).bits();
+        self.key_texts_as_values.insert(named, value);
+        value
+    }
+
     pub(super) fn key_text_value(&mut self, text: &Str) -> u64 {
         let key = crate::object::Key::Name(self.interner.intern(text, &mut self.keys));
         if let Some(held) = self.key_texts_as_values.get(&key) {

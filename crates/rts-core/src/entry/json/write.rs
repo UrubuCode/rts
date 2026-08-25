@@ -54,6 +54,104 @@ pub(super) enum Shape {
 }
 
 /// What a value is, answered inside the caller's borrow and carried out of it.
+
+/// The properties of an object a shape walk alone can serialise, in order.
+///
+/// # Why this exists beside the general path
+///
+/// Because the general path reaches an object through the doors a JavaScript
+/// PROGRAM uses, and for a plain object every one of them is a detour.
+/// `own_keys` allocates a JavaScript array on the heap and a string cell per
+/// key, the loop clones that array's elements into a Rust `Vec`, and each
+/// member is then read by `get_indexed`, which walks the prototype chain by a
+/// key it re-derives from the text. To serialise `{a:1,…,h:8}` — forty
+/// characters — that is one heap array, eight key lookups by text and eight
+/// chain walks.
+///
+/// Measured 2026-08-25, `target/release/rts.exe`: `Object.keys` of an
+/// eight-property object costs 2 023 ns and `JSON.stringify` of the same object
+/// 4 046 — so producing the key list is **half of stringify**, before a single
+/// character is written.
+///
+/// # The four refusals, and none of them is caution
+///
+/// Each is a case where the general path does something this cannot see:
+///
+/// - a **proxy** answers `ownKeys` by running a handler, so it has no shape to
+///   walk;
+/// - an **accessor** must run its getter, which is observable, and its position
+///   in the enumeration is ranked separately (`ranked_accessors`) rather than
+///   living in the layout;
+/// - **elements** come first in enumeration order and are not shape properties
+///   at all, so a shape walk would silently drop them;
+/// - a **non-enumerable** property is skipped by `Object.keys` and by this, and
+///   answering that question per key is what the general path calls
+///   `integrity::enumerable` for — asked here too, so the two agree.
+///
+/// # What it deliberately does NOT return
+///
+/// The values. Only keys, which are numbers, because a JavaScript reference
+/// held in a Rust `Vec` is invisible to the collector — the hazard the general
+/// path's `external::hold_current` exists for, and which cost 31 wrong results
+/// per 300 000 calls before it did. Each member is read inside its own borrow,
+/// one at a time, exactly as the general path reads it.
+fn plain_properties(
+    context: &mut Context,
+    cell: u32,
+) -> Option<Vec<rts_cranelift::shape::Key>> {
+    if context.proxy_at(cell).is_some() {
+        return None;
+    }
+    if !context.ranked_accessors(cell).is_empty() {
+        return None;
+    }
+    if context.elements_at(cell).is_some() {
+        return None;
+    }
+    let ty = context.region.type_of(cell)?;
+    let shape = context.shape_of(ty)?;
+    let mut keys = Vec::new();
+    for (key, _) in context.shapes.properties(shape) {
+        if !super::super::integrity::enumerable(context, cell, key) {
+            continue;
+        }
+        // By reference, and the borrow ends before `enumerable` needs the
+        // context again — a clone here would be one per key per call, which is
+        // the allocation this path exists to remove.
+        let (symbol, indexed) = match context.interner.text(key) {
+            Some(text) => (
+                super::super::symbol::is_symbol_key(text),
+                crate::object::as_array_index(text).is_some(),
+            ),
+            None => return None,
+        };
+        // A symbol-keyed property is not enumerated, and its key lives in a
+        // RESERVED NAME SPACE rather than in a variant of its own. Asked through
+        // the same predicate `key_texts` asks, which is the one place that
+        // encoding is known — a second spelling of it here is how the two would
+        // come to disagree about what a symbol looks like.
+        //
+        // Written after a first version tested `text().is_none()`, which is
+        // wrong in the direction that ships: a symbol key HAS text, so the check
+        // passed and `{ a: 1, [Symbol("s")]: 2 }` serialised as
+        // `{"a":1,"@@sym:14":2}` — the engine's internal spelling, in valid
+        // JSON, against node and bun answering `{"a":1}`.
+        if symbol {
+            continue;
+        }
+        // An ARRAY-INDEX key is refused rather than handled, because
+        // enumeration puts those first and in ascending numeric order while a
+        // shape holds them in insertion order. `array::ordered` is that rule and
+        // this does not restate it: an object with one such key takes the
+        // general path, which already applies it.
+        if indexed {
+            return None;
+        }
+        keys.push(key);
+    }
+    Some(keys)
+}
+
 pub(super) fn shape_of(context: &Context, value: u64) -> Shape {
     // The wrapper's primitive, before anything else is asked. Without it a
     // `new Number(5)` reached `Shape::Object` and serialised as `{}` — the
@@ -269,6 +367,21 @@ impl Writer {
         if !self.enter(cell, depth) {
             return self.ascii("null");
         }
+        // A plain object serialised straight off its shape, with no key list on
+        // the heap and no read by text. `plain_properties` says which objects
+        // those are and why the four it refuses are refusals of substance.
+        //
+        // Not attempted at all when a list replacer is in force: that names the
+        // members and their order itself, so the object's own enumeration is not
+        // consulted — a fast path over the shape would answer the wrong members
+        // rather than the same ones faster.
+        if !matches!(self.replacer, Replacer::List(_))
+            && let Some(keys) = with_current(|context| plain_properties(context, cell))
+        {
+            self.plain(value, keys, depth);
+            self.leave();
+            return;
+        }
         // The runtime's own enumeration, which is what `Object.keys` and
         // `for-in` walk. A second walk of the layout here would be a second
         // answer to "what order", and the two would drift the first time one
@@ -418,6 +531,64 @@ impl Writer {
         super::super::external::release_current(anchor);
         self.ascii("}");
         self.leave();
+    }
+
+    /// The members of a plain object, read one at a time off its layout.
+    ///
+    /// Mirrors the general loop in [`Self::object`] step for step — the throw
+    /// check, the hooks before the key is written, the `Absent` skip that keeps
+    /// a trailing comma from happening, the separator — and differs only in
+    /// where the key and the value come from. Written as its own function so
+    /// that the difference is the only thing a reader has to compare, rather
+    /// than a second copy of the whole rule to keep in agreement with the first.
+    ///
+    /// `keys` holds numbers, never references, so nothing here is invisible to
+    /// the collector while an allocation happens. That is why the general path's
+    /// `external::hold_current` has no counterpart in this one: there is no
+    /// heap array to keep alive, because none was made.
+    fn plain(&mut self, value: u64, keys: Vec<rts_cranelift::shape::Key>, depth: usize) {
+        self.ascii("{");
+        let mut written = false;
+        for key in keys {
+            if super::super::throw::in_flight() {
+                break;
+            }
+            // Both in ONE borrow: the member is an own data property of an
+            // object `plain_properties` proved has no accessors and no proxy, so
+            // reading it runs nothing and can allocate nothing — which is what
+            // makes taking the text alongside it safe here and not in the
+            // general loop.
+            let Some((text, held)) = with_current(|context| {
+                let text = context.interner.text(key).cloned()?;
+                let found = super::super::objects::own_property(
+                    context,
+                    Value(value).as_slot()?,
+                    crate::object::Key::Name(key),
+                )?;
+                Some((text, found.bits()))
+            }) else {
+                continue;
+            };
+            let held = self.hooked(value, held, HookKey::Named(key));
+            if with_current(|context| matches!(shape_of(context, held), Shape::Absent)) {
+                continue;
+            }
+            if written {
+                self.ascii(",");
+            }
+            written = true;
+            self.newline(depth + 1);
+            self.quoted(&text);
+            self.ascii(":");
+            if !self.indent.is_empty() {
+                self.ascii(" ");
+            }
+            self.write(held, depth + 1);
+        }
+        if written {
+            self.newline(depth);
+        }
+        self.ascii("}");
     }
 
     /// Whether this cell may be descended into.
@@ -642,6 +813,13 @@ pub(super) enum HookKey {
     Given(u64),
     /// An array member's position, ToString'd only if a hook is reached.
     Index(usize),
+    /// A property the shape walk named, resolved to its one cell only if a hook
+    /// is actually reached.
+    ///
+    /// The plain-object path never materialises a key otherwise — not building
+    /// them is the whole of what it saves — so this variant is what keeps a
+    /// `toJSON` seeing exactly the value the general path would have shown it.
+    Named(rts_cranelift::shape::Key),
 }
 
 impl HookKey {
@@ -656,6 +834,7 @@ impl HookKey {
             HookKey::Index(at) => context
                 .intern_value(crate::coerce::number_to_string(at as f64))
                 .bits(),
+            HookKey::Named(key) => context.key_value(key),
         }
     }
 }
