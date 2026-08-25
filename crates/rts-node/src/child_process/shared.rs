@@ -39,6 +39,20 @@ pub(super) fn text_in(context: &entry::Context, value: u64) -> Option<String> {
     }
 }
 
+/// The text of a value that IS a string, and `None` for anything else.
+///
+/// # Why this is not [`text`] with a check bolted on
+///
+/// Because they answer different questions. [`text`] COERCES — which is right
+/// for `spawn(command)`, where a program handing a number named a program with
+/// a numeric name. This asks whether the program wrote a string at all, which
+/// is what an option carrying two types needs: `shell: true` and
+/// `shell: "/bin/sh"` mean different things, and coercion collapses them into
+/// the path `"true"`.
+pub(super) fn text_of_string(value: u64) -> Option<String> {
+    entry::with_runtime(|context| entry::string_in(context, value))
+}
+
 /// A string value.
 pub(super) fn string(text: &str) -> u64 {
     entry::with_runtime(|context| entry::make_string(context, text))

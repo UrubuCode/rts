@@ -181,7 +181,11 @@ jobs:
             // interessa é que uma mensagem repetida 278 vezes é UM nome em
             // falta, não 278 problemas — é isso que faz disto uma lista de
             // trabalho em vez de um placar.
+            // Os `skipped` já têm coluna própria: reaparecerem aqui como
+            // "causa" faria a maior entrada da lista de trabalho ser a única
+            // coisa da lista que não é trabalho.
             const causes = (report.causes || [])
+              .filter((c) => !/le os modulos internos|expose-gc/.test(c.message))
               .slice(0, 5)
               .map((c) => `| ${c.count} | \`${c.message.replace(/\|/g, '\\|').slice(0, 70)}\` |`)
               .join('\n');

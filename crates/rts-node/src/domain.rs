@@ -116,7 +116,12 @@ const METHODS: &[(&str, Provided)] = &[
 
 /// The namespace `node:domain` is.
 pub fn namespace(context: &mut entry::Context) -> u64 {
-    let members: &[(&str, Provided)] = &[("create", create)];
+    // `createDomain` is the same function under the older name, which is what
+    // Node has too — checked rather than assumed: `typeof
+    // require('domain').createDomain` answers `'function'` there. Answering one
+    // spelling and refusing the other reports a naming history as a missing
+    // feature.
+    let members: &[(&str, Provided)] = &[("create", create), ("createDomain", create)];
     let namespace = entry::make_namespace(context, members);
     let event_emitter = entry::make_prototype(context, "EventEmitter", &[]);
     let prototype = entry::make_prototype(context, "Domain", METHODS);

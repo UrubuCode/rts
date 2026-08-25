@@ -39,7 +39,17 @@ pub(super) fn spec_of(file: &str, args: Vec<String>, options: u64) -> Spec {
             if value == absent || value == super::shared::bool_value(false) {
                 return Spec { program: file.to_owned(), args, cwd };
             }
-            let shell_path = option_text(options, "shell").unwrap_or_else(default_shell);
+            // `shell: true` means "the default shell" and `shell: "/bin/sh"`
+            // means that path — one key, two types, which is Node's design and
+            // the trap in it. Reading it as TEXT answered `"true"` for the
+            // boolean, so a program that wrote `{ shell: true }` spawned a file
+            // called `true` with `cmd`'s arguments: it produced nothing, exited
+            // 0, and looked like a shell that had run and printed nothing.
+            // Found by `exec`, which shells out for everything.
+            let shell_path = match super::shared::text_of_string(value) {
+                Some(path) => path,
+                None => default_shell(),
+            };
             let joined = std::iter::once(file.to_owned()).chain(args).collect::<Vec<_>>().join(" ");
             let shell_args = shell_command_args(&joined);
             Spec { program: shell_path, args: shell_args, cwd }

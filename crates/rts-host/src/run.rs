@@ -453,6 +453,18 @@ fn run_region(
         // timer — from inside one.
         loop {
             rts_core::entry::drain_microtasks();
+            // A throw the program never caught ENDS it, exactly as it does in
+            // Node — before the loop asks a source for anything. Without this
+            // the loop kept turning on behalf of work the program is no longer
+            // in a position to observe: a spawned child kept the process alive
+            // after its own script had already died, so the report was a
+            // timeout where the truth was an uncaught exception. Found by
+            // `test-child-process-destroy`, which throws on a `Symbol.dispose`
+            // this engine does not have and then waits forever on a `cat` it
+            // can no longer kill.
+            if rts_core::entry::thrown() != 0 {
+                break;
+            }
             let Some(wait) = rts_core::entry::pump_sources() else {
                 break;
             };

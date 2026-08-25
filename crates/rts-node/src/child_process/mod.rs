@@ -68,9 +68,11 @@
 //!   [`capture`]'s doc.
 
 mod capture;
+mod exec;
 mod command;
 mod shared;
 mod spawn_async;
+mod stdio;
 mod sync_ops;
 
 use rts_core::entry::{Context, Provided};
@@ -81,7 +83,7 @@ pub use spawn_async::source;
 /// The namespace `node:child_process` is.
 pub fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] =
-        &[("spawnSync", sync_ops::spawn_sync), ("execSync", sync_ops::exec_sync), ("execFileSync", sync_ops::exec_file_sync), ("spawn", spawn_async::spawn)];
+        &[("spawnSync", sync_ops::spawn_sync), ("execSync", sync_ops::exec_sync), ("execFileSync", sync_ops::exec_file_sync), ("spawn", spawn_async::spawn), ("exec", exec::exec), ("execFile", exec::exec_file)];
     let namespace = rts_core::entry::make_namespace(context, members);
     // `ChildProcess` — exported for `instanceof` parity, per the reference
     // doc's §2.1: real Node does not document a meaningful direct
