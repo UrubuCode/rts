@@ -712,20 +712,80 @@ impl<'a> Body<'a> {
         );
 
         let cell = self.cache_address(builder, block, cache)?;
-        let remembered = builder.ins().load(
-            types::I64,
-            cranelift_codegen::ir::MemFlags::trusted(),
-            cell,
-            0,
-        );
-        let recognized = builder.ins().icmp(IntCC::Equal, header, remembered);
 
+        // Where the property is, and from which base — as PARAMETERS, because
+        // three predecessors now answer them: either remembered entry, and the
+        // resolver. Loading them from fixed words instead would mean the second
+        // entry could only ever be read by duplicating everything below.
         let read = builder.create_block();
-        let ask = builder.create_block();
-        builder.ins().brif(recognized, read, &[], ask, &[]);
+        let offset = builder.append_block_param(read, types::I64);
+        let indirect = builder.append_block_param(read, types::I64);
 
-        // Not recognized: ask once, and the answer is written where the load
-        // below will find it.
+        let load_word = |builder: &mut FunctionBuilder, at: i32| {
+            builder.ins().load(
+                types::I64,
+                cranelift_codegen::ir::MemFlags::trusted(),
+                cell,
+                at,
+            )
+        };
+
+        // A site remembers TWO layouts, in words 0-2 and 3-5. One was what a
+        // cell held until 2026-08-25, and a site reached by two layouts
+        // overwrote its own entry on every access: measured at 100 009 resolver
+        // entries over 100 000 accesses, none of them refused. Every one
+        // succeeded — the cache was being asked, not failing.
+        //
+        // Two rather than the conventional four because a read entry is three
+        // words and the cell is eight, sized to one cache line. Four needs a
+        // second line, which every monomorphic site would pay for to help the
+        // few. `rts-core`'s `cache::remember` writes the pair and states the
+        // same trade from the side that fills it.
+        let second = builder.create_block();
+        let ask = builder.create_block();
+        let first_hit = builder.create_block();
+        let second_hit = builder.create_block();
+
+        let remembered = load_word(builder, 0);
+        let recognized = builder.ins().icmp(IntCC::Equal, header, remembered);
+        builder.ins().brif(recognized, first_hit, &[], second, &[]);
+
+        builder.switch_to_block(first_hit);
+        let first_offset = load_word(builder, 8);
+        let first_indirect = load_word(builder, 16);
+        builder.ins().jump(
+            read,
+            &[
+                cranelift_codegen::ir::BlockArg::Value(first_offset),
+                cranelift_codegen::ir::BlockArg::Value(first_indirect),
+            ],
+        );
+
+        // The second entry, off the fast path on purpose: a monomorphic site —
+        // which the majority are — reaches its answer through one compare and
+        // one branch that is perfectly predicted, exactly as before.
+        builder.switch_to_block(second);
+        let alternate = load_word(builder, 24);
+        let recognized_alternate = builder.ins().icmp(IntCC::Equal, header, alternate);
+        builder
+            .ins()
+            .brif(recognized_alternate, second_hit, &[], ask, &[]);
+
+        builder.switch_to_block(second_hit);
+        let second_offset = load_word(builder, 32);
+        let second_indirect = load_word(builder, 40);
+        builder.ins().jump(
+            read,
+            &[
+                cranelift_codegen::ir::BlockArg::Value(second_offset),
+                cranelift_codegen::ir::BlockArg::Value(second_indirect),
+            ],
+        );
+
+        // Neither: ask once, and the answer is written where the load below will
+        // find it. The resolver fills the FIRST entry always, demoting whatever
+        // stood there into the second, so the resolved path re-reads words one
+        // and two and never the alternate.
         builder.switch_to_block(ask);
         let key_value = builder.ins().iconst(types::I64, i64::from(key.0));
         let resolved = self.call_entry_at(
@@ -740,13 +800,24 @@ impl<'a> Body<'a> {
             .icmp_imm(IntCC::SignedGreaterThanOrEqual, answer, 0);
         let miss_args = self.block_args(&miss.args);
         let miss_target = self.blocks[&miss.block];
+        let resolved_hit = builder.create_block();
         builder
             .ins()
-            .brif(found, read, &[], miss_target, &miss_args);
+            .brif(found, resolved_hit, &[], miss_target, &miss_args);
 
-        // Where the property is, read once, whichever path arrived here.
+        builder.switch_to_block(resolved_hit);
+        let resolved_offset = load_word(builder, 8);
+        let resolved_indirect = load_word(builder, 16);
+        builder.ins().jump(
+            read,
+            &[
+                cranelift_codegen::ir::BlockArg::Value(resolved_offset),
+                cranelift_codegen::ir::BlockArg::Value(resolved_indirect),
+            ],
+        );
+
         // Where the property is, read once, whichever path arrived here — and
-        // from WHICH base, which is the third word.
+        // from WHICH base, which is the third word of whichever entry answered.
         //
         // Zero means the cell asked about, which is every ordinary read. A byte
         // offset means the answer is in the object's overflow, and that offset
@@ -761,18 +832,6 @@ impl<'a> Body<'a> {
         // overflow. An overflow is per object, so its address has to come from
         // the object.
         builder.switch_to_block(read);
-        let offset = builder.ins().load(
-            types::I64,
-            cranelift_codegen::ir::MemFlags::trusted(),
-            cell,
-            8,
-        );
-        let indirect = builder.ins().load(
-            types::I64,
-            cranelift_codegen::ir::MemFlags::trusted(),
-            cell,
-            16,
-        );
         let direct = builder.create_block();
         let through = builder.create_block();
         let based = builder.create_block();

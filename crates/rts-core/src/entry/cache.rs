@@ -72,9 +72,71 @@ enum Reaches {
     Overflow,
 }
 
+/// Records an answer in a read site's cell, keeping the one it displaces.
+///
+/// # Why a site remembers two layouts and not one
+///
+/// A cell used to hold exactly one — the header at word zero, the offset at word
+/// one — so a site reached by two layouts overwrote its own entry on every
+/// access and never converged. Measured 2026-08-25 on a site alternating between
+/// `{a,b}` and `{b,a}`: **100 009 resolver entries over 100 000 accesses, 0 of
+/// them refused**. Every one SUCCEEDED. The cache was not failing to answer, it
+/// was being asked every time, which is a monomorphic inline cache meeting
+/// polymorphic code.
+///
+/// So the displaced entry moves to words three, four and five instead of being
+/// dropped, and the machine compares against both. An alternating site then
+/// misses twice and hits from then on.
+///
+/// # Why those three words, and why only for a read
+///
+/// They are free HERE and nowhere else. A read site's resolver has only ever
+/// written words zero through two; words three through five carry meaning for
+/// `cache_resolve_indirect`, and `cache_resolve_store` reaches this function
+/// with [`Reaches::Cell`] and lowers to a site that reads neither. Demoting for
+/// a store would therefore write words its own lowering gives a different
+/// reading — the shape of the regression `b9df2d9d` already shipped — so the
+/// caller passes `duplex` and only [`cache_resolve`] passes it true.
+///
+/// # Why two and not four
+///
+/// Four entries is the conventional size and does not fit: a read entry is three
+/// words, the cell is eight, and it is sixty-four bytes because that is one
+/// cache line. Four would need a second line on every access including the
+/// monomorphic ones, which are the overwhelming majority — a cost paid by every
+/// site to help the few. Two fits in the line already paid for.
+///
+/// # Safety
+///
+/// `cell` is the address of the eight-word cell this compilation allocated for
+/// this site and keeps alive for as long as the code is. The lowering passes it
+/// and then loads from it, so writing it here is the contract rather than an
+/// intrusion.
+unsafe fn remember(cell: *mut i64, header: i64, offset: i64, base: i64, duplex: bool) {
+    unsafe {
+        // Only when it held a DIFFERENT layout. Demoting an equal one would
+        // fill both entries with one answer and leave the site monomorphic
+        // while looking polymorphic; demoting the cold `-1` would put a value
+        // in entry one that word three's own coldness already covers.
+        let held = cell.read();
+        if duplex && held != header && held != -1 {
+            cell.add(3).write(held);
+            cell.add(4).write(cell.add(1).read());
+            cell.add(5).write(cell.add(2).read());
+        }
+        cell.write(header);
+        cell.add(1).write(offset);
+        cell.add(2).write(base);
+    }
+}
+
 fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
     with_current(|context| {
         context.resolves += 1;
+        // Only a READ site's cell has words three through five free; see
+        // `remember`. A store reaches here with `Reaches::Cell` and lowers to a
+        // site that reads neither.
+        let duplex = reaches == Reaches::Overflow;
         let explain = |why: &'static str, context: &mut Context| {
             // The census, when one was asked for. Counted before the sampled
             // line below and independently of it: the sampling answers "what
@@ -149,10 +211,7 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
                 + i64::from(super::TEXT_LENGTH_SLOT) * i64::from(rts_cranelift::mem::SLOT_BYTES);
             // SAFETY: the cell this site declared, as everywhere else here.
             unsafe {
-                let cell = cache as *mut i64;
-                cell.write(remembered as i64);
-                cell.add(1).write(offset);
-                cell.add(2).write(0);
+                remember(cache as *mut i64, remembered as i64, offset, 0, duplex);
             }
             return offset;
         }
@@ -310,10 +369,7 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
                 + i64::from(width) * i64::from(rts_cranelift::mem::SLOT_BYTES);
             // SAFETY: the cell this site declared, as everywhere else here.
             unsafe {
-                let cell = cache as *mut i64;
-                cell.write(remembered as i64);
-                cell.add(1).write(offset);
-                cell.add(2).write(through);
+                remember(cache as *mut i64, remembered as i64, offset, through, duplex);
             }
             return offset;
         }
@@ -330,13 +386,10 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
         // is. The lowering passes it and then loads from it, so writing it here
         // is the contract rather than an intrusion.
         unsafe {
-            let cell = cache as *mut i64;
-            cell.write(remembered as i64);
-            cell.add(1).write(offset);
             // Zero: the answer is in the cell asked about. Written rather than
             // assumed, because this site may have been resolved before against
             // an object that HAD overflowed.
-            cell.add(2).write(0);
+            remember(cache as *mut i64, remembered as i64, offset, 0, duplex);
         }
         offset
     })
