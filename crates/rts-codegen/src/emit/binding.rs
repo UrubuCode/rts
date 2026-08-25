@@ -75,6 +75,20 @@ pub(super) fn lexical_read(
         return dead_zone(builder, ctx, name);
     }
     match scope.lookup(name) {
+        // A read never answers `Repr::I32`, and that invariant is what let the
+        // integer representation be added without teaching a third case to every
+        // consumer of a value. `int32.rs` has the whole argument; the short of it
+        // is that this widening meets a bitwise operator's own narrowing and the
+        // machine folds both away, so it is paid only where the use is NOT a
+        // bitwise one — which is outside the loop this exists for.
+        //
+        // Decided by the REPRESENTATION rather than by asking `ctx` what the
+        // name holds. There is one table saying which bindings are integers and
+        // it is the one `stored` already consulted; asking a second time here is
+        // how two answers to one question start.
+        Some(Binding::Value(value)) if builder.repr_of(value) == rts_cranelift::repr::Repr::I32 => Ok(builder
+            .to_f64(value)
+            .expect("the representation was just read as I32")),
         Some(Binding::Value(value)) => Ok(value),
         Some(Binding::InEnvironment { hops, name }) => {
             // The value written a moment ago, when nothing at all has happened

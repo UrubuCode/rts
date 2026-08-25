@@ -1396,6 +1396,23 @@ pub(super) fn number_constant(builder: &mut FuncBuilder, value: f64) -> ValueId 
 /// since two paths writing different representations into one name is a program
 /// the machine refuses to build.
 pub fn stored(builder: &mut FuncBuilder, ctx: &Ctx, name: Name, value: ValueId) -> ValueId {
+    if ctx.holds_int32(name) && builder.repr_of(value) == Repr::F64 {
+        // The binding's representation IS the integer one, so this is where the
+        // value enters it. Free wherever it matters: the value reaching here is
+        // the `to_f64` a bitwise operator ended with, and the machine folds
+        // `ToInt32(ToF64(x))` back to `x` before lowering — so the pair this
+        // looks like it forms with `binding::read` costs nothing inside a loop
+        // and one conversion each way at its edges.
+        //
+        // Guarded on `F64` rather than trusted, because `to_int32` refuses
+        // anything else and a proof that turned out not to hold would otherwise
+        // be a refused program rather than a slower one. `int32::analyse` admits
+        // only names `holds_number` already proved, so the guard is expected to
+        // be redundant — it is here so that being wrong is survivable.
+        return builder
+            .to_int32(value)
+            .expect("a proven-numeric binding holds Repr::F64");
+    }
     if ctx.holds_number(name) {
         value
     } else {

@@ -649,6 +649,9 @@ pub(super) fn emit_body(
     // already proved is not a second opinion — it is nothing to speculate
     // about, and `analyse` drops it so `Ctx::holds_number` stays the one
     // answer to whether a name holds a number.
+    // After `numeric` is final, because every question it asks about an operand
+    // is one that pass answers, and asking mid-fixpoint would read a shrinking set.
+    let integers = super::int32::analyse(body, &numeric, &captured);
     let claims = super::types::analyse(body, parameter_claims, &numeric);
     // The count of what a PROOF made redundant is the difference, and it is
     // taken here because `Facts` no longer holds what it dropped.
@@ -658,6 +661,7 @@ pub(super) fn emit_body(
     ctx.census.record(&claims, parameter_claims.len(), 0);
 
     let outer_numeric = std::mem::replace(&mut ctx.numeric, numeric);
+    let outer_integers = std::mem::replace(&mut ctx.integers, integers);
     let outer_claims = std::mem::replace(&mut ctx.claims, claims);
     let outer_flattened = std::mem::replace(&mut ctx.flattened, flattened);
     // The one that is an SSA VALUE and not a table, which is why it is taken
@@ -706,6 +710,7 @@ pub(super) fn emit_body(
         publications,
     );
     ctx.numeric = outer_numeric;
+    ctx.integers = outer_integers;
     ctx.flattened = outer_flattened;
     ctx.claims = outer_claims;
     ctx.body.leave_nested(outer_throw);

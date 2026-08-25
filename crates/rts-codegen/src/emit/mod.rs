@@ -82,6 +82,7 @@ mod optional;
 mod primordial;
 mod property;
 mod protect;
+mod int32;
 mod proven;
 mod regex;
 mod scope;
@@ -468,6 +469,13 @@ pub struct Ctx<'a> {
     /// supplying it would be supplying an answer about something it has not
     /// looked at.
     numeric: Numeric,
+    /// Which of those hold a 32-bit integer rather than an arbitrary double.
+    ///
+    /// A refinement of `numeric` and never independent of it: `int32::analyse`
+    /// admits only names that pass already proved, because an unproven name is
+    /// widened at every store and `to_int32` on a tagged value would be a
+    /// narrowing without a guard. Owned and scoped exactly as `numeric` is.
+    integers: crate::emit::int32::Int32,
     /// Which locals hold an object that never has to be allocated.
     ///
     /// Owned and scoped exactly as `numeric` is, and for the same reason: it is
@@ -619,6 +627,7 @@ impl<'a> Ctx<'a> {
             literals: Vec::new(),
             templates: Vec::new(),
             numeric: Numeric::default(),
+            integers: crate::emit::int32::Int32::default(),
             flattened: escape::Flattened::default(),
             claims: types::Facts::default(),
             census: types::Census::default(),
@@ -721,6 +730,15 @@ impl<'a> Ctx<'a> {
     /// representation instead of being widened at every store.
     pub fn holds_number(&self, name: Name) -> bool {
         self.numeric.holds_number(name)
+    }
+
+    /// Whether a binding's machine representation is the 32-bit integer one.
+    ///
+    /// Spent in exactly two places, both in `expr.rs` — `stored` narrows into it
+    /// and `binding::read` widens back out — so that no third case had to be
+    /// learned anywhere else. `int32.rs` has why that pair is not a no-op.
+    pub fn holds_int32(&self, name: Name) -> bool {
+        self.integers.holds_int32(name)
     }
 
     /// Records that a name this emitter MINTED holds a number.

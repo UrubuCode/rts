@@ -666,7 +666,7 @@ fn target_holds_number(target: &AssignTarget, known: &Numeric) -> bool {
 }
 
 /// Whether an expression certainly produces a number.
-fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
+pub(super) fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
     match &expr.kind {
         ExprKind::Literal(Literal::Number(_)) => true,
         ExprKind::Ident(name) => known.holds_number(*name),
