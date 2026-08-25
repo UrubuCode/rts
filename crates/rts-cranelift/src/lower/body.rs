@@ -278,6 +278,70 @@ impl<'a> Body<'a> {
             }
 
             Inst::ToInt32(v) => {
+                // # The fast path, and why it is a BRANCH where this was
+                // deliberately branch-free
+                //
+                // `fcvt_to_sint_sat(i64, x)` already truncates toward zero and
+                // already answers zero for NaN, and `ireduce` to `i32` already
+                // takes the low 32 bits — which IS the modulo and the wrap into
+                // signed. So for every `x` the conversion represents exactly,
+                // the whole of ToInt32 is those two instructions and the five
+                // below are computing a reduction that `ireduce` then does
+                // again.
+                //
+                // "Represents exactly" is `|x| < 2^63`, and outside it the two
+                // instructions are WRONG rather than imprecise: `+inf`
+                // saturates to `i64::MAX`, whose low 32 bits are `-1`, where
+                // the language says zero. That is the guard, and it is a
+                // compare against `2^63` on the absolute value. NaN and both
+                // infinities answer `false` to it and take the exact path,
+                // which handles them — so the fast path never sees a value it
+                // cannot represent, rather than being trusted not to.
+                //
+                // The branch-free form was chosen so those three needed no case
+                // of their own, and that is still a real property; what it cost
+                // was not visible until it was measured. Measured 2026-08-25,
+                // `bench/analytic.ts` under `target/release/rts.exe`, ns/op,
+                // the exact sequence alone against this lowering:
+                //
+                //   int and  6.76 -> 3.28    int sub   7.53 -> 4.07
+                //   int or   6.74 -> 3.34    int mul   7.44 -> 4.02
+                //   int xor  6.81 -> 3.27    int shl  13.67 -> 6.56
+                //   int not  6.77 -> 3.28    int shr  13.66 -> 6.52
+                //
+                // Roughly half, across every integer and bitwise operator the
+                // language spells, because this sequence sits on the dependency
+                // chain a loop carries and its cost is latency. The branch does
+                // not: it predicts, and the compare runs beside the conversion.
+                //
+                // That last sentence is the one worth checking rather than
+                // believing, so it was: the same rows with the fast path
+                // UNGUARDED — wrong for the three values above, and built only
+                // to answer this — came out at 3.38, 3.27, 3.34, 3.34, 3.96,
+                // 3.98, 6.55, 6.59. The guarded figures straddle them in both
+                // directions, which is what says the compare and the branch are
+                // beside the chain rather than cheap on it.
+                //
+                // What the numbers do NOT say: each is one operator in a loop
+                // with its operand already in hand, which is `analytic.ts`'s
+                // own stated limit. None of them is a claim about a program.
+                let raw = self.value(*v);
+                let magnitude = builder.ins().fabs(raw);
+                let ceiling = builder.ins().f64const(9223372036854775808.0);
+                let representable = builder.ins().fcmp(FloatCC::LessThan, magnitude, ceiling);
+
+                let quick = builder.create_block();
+                let exact = builder.create_block();
+                let joined = builder.create_block();
+                builder.append_block_param(joined, types::I32);
+                builder.ins().brif(representable, quick, &[], exact, &[]);
+
+                builder.switch_to_block(quick);
+                let quick_wide = builder.ins().fcvt_to_sint_sat(types::I64, raw);
+                let quick_narrow = builder.ins().ireduce(types::I32, quick_wide);
+                builder.ins().jump(joined, &[quick_narrow.into()]);
+
+                builder.switch_to_block(exact);
                 // Truncate, bring inside 2^32, convert, and let the reduce do
                 // the modulo. Branch-free, and each step is here because the
                 // language asks for it:
@@ -312,7 +376,6 @@ impl<'a> Body<'a> {
                 // either zero or `|t| >= 1`, and `1 * 2^-32` is `2^-32` — 990
                 // binades above where subnormals begin. Zero, both infinities
                 // and NaN are unchanged by either spelling, signs included.
-                let raw = self.value(*v);
                 let truncated = builder.ins().trunc(raw);
                 let scale = builder.ins().f64const(4294967296.0);
                 // Written as the quotient rather than as `2.3283064365386963e-10`
@@ -325,7 +388,11 @@ impl<'a> Body<'a> {
                 let carried = builder.ins().fmul(whole, scale);
                 let inside = builder.ins().fsub(truncated, carried);
                 let wide = builder.ins().fcvt_to_sint_sat(types::I64, inside);
-                builder.ins().ireduce(types::I32, wide)
+                let exact_narrow = builder.ins().ireduce(types::I32, wide);
+                builder.ins().jump(joined, &[exact_narrow.into()]);
+
+                builder.switch_to_block(joined);
+                builder.block_params(joined)[0]
             }
 
             Inst::FloatUnary(op, v) => {
