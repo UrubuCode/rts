@@ -443,6 +443,7 @@ fn named_error(name: &str, message: &str) {
 /// about traces rather than about functions.
 pub fn declare_function_names(context: &mut Context, names: Vec<(u64, String, u32, bool)>) {
     context.function_names = names;
+    context.index_functions_by_code();
 }
 
 /// The call stack, in the shape Node and Bun print it.

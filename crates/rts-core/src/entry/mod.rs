@@ -225,7 +225,7 @@ use crate::value::Singletons;
 pub const TEXT_LENGTH_SLOT: u32 = 1;
 
 /// The names the runtime asks for BY NAME on a path that runs per operation.
-pub const CACHED_KEYS: [&str; 6] = [
+pub const CACHED_KEYS: [&str; 8] = [
     "length",
     "prototype",
     "byteLength",
@@ -233,6 +233,15 @@ pub const CACHED_KEYS: [&str; 6] = [
     "buffer",
     // Asked of every object value `JSON.stringify` reaches.
     "toJSON",
+    // Both written by `functions::closure_new`, which runs once per CLOSURE and
+    // not once per function — an arrow made inside a loop reaches it every
+    // iteration. `name` is stamped on every callable there is and `constructor`
+    // on every constructible one, so between them they were two `Str::from_str`
+    // and two hashes per closure for an answer that cannot change within a run.
+    // Measured 2026-08-25: the whole `name`/`length` block was 417 ns of a
+    // 514 ns closure.
+    "name",
+    "constructor",
 ];
 
 /// The strings the runtime builds as VALUES on a path that runs per operation.
@@ -525,6 +534,11 @@ pub struct Context {
     /// a callable holds, and filled by the host after placement for the reason
     /// `frames` is: the addresses do not exist until then.
     function_names: Vec<(u64, String, u32, bool)>,
+    /// `function_names` indexed by code address — DERIVED, never a second source.
+    ///
+    /// See `Context::index_functions_by_code`, which is the only thing that
+    /// writes it and states what it is worth.
+    function_by_code: std::collections::HashMap<u64, (rts_cranelift::shape::Key, u32, bool)>,
     regexes: Aside<regex::Regexp>,
     /// What every regular expression inherits from, once one exists.
     ///
@@ -1073,6 +1087,7 @@ impl Context {
             driving: Vec::new(),
             frames: Vec::new(),
             function_names: Vec::new(),
+            function_by_code: std::collections::HashMap::new(),
             regexes: Aside::in_region(bits),
             regexp_prototype: None,
             classes: Vec::new(),

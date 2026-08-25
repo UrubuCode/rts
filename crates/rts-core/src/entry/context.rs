@@ -352,6 +352,57 @@ impl Context {
         value
     }
 
+    /// Rebuilds the by-address index of [`Context::function_names`].
+    ///
+    /// # Why an index and not a second table
+    ///
+    /// `function_names` stays the authority — this is DERIVED from it, and it is
+    /// rebuilt whenever that is replaced or extended so the two cannot drift.
+    /// Everything in it is a number, deliberately: an interned key rather than
+    /// the `String`, so nothing here has to be kept alive by a collection and
+    /// nothing has to be cloned to be read.
+    ///
+    /// # What it is worth
+    ///
+    /// `closure_new` runs once per CLOSURE and not once per function, so an
+    /// arrow written inside a loop reached it every iteration — and what it did
+    /// there was walk `function_names` linearly, clone a `String` out of it, and
+    /// convert that to UTF-16 to hash it. The walk alone was measured at 0.42 ns
+    /// per entry on 2026-08-25: 733.7 ns with two functions in the table against
+    /// 817.6 with two hundred, which is a cost that grows with the size of the
+    /// PROGRAM rather than with what it does.
+    ///
+    /// The name is interned HERE, once per function, so the hot path holds a
+    /// number and reads the text — when it needs it at all — out of the cache
+    /// `key_value` already keeps and `roots` already scans.
+    /// What the emitter recorded about the function compiled at `code`.
+    ///
+    /// The interned name key, the arity, and whether `new` may reach it. `None`
+    /// for an address nothing described — `rts-napi` and `eval` mint callables
+    /// the emitter never saw, and every caller here treats that as "assume the
+    /// permissive answer" rather than as an error.
+    pub(super) fn described_at(
+        &self,
+        code: u64,
+    ) -> Option<(rts_cranelift::shape::Key, u32, bool)> {
+        self.function_by_code.get(&code).copied()
+    }
+
+    pub(super) fn index_functions_by_code(&mut self) {
+        let described: Vec<(u64, Str, u32, bool)> = self
+            .function_names
+            .iter()
+            .map(|(at, name, arity, constructs)| {
+                (*at, Str::from_str(name), *arity, *constructs)
+            })
+            .collect();
+        self.function_by_code.clear();
+        for (at, name, arity, constructs) in described {
+            let key = self.interner.intern(&name, &mut self.keys);
+            self.function_by_code.insert(at, (key, arity, constructs));
+        }
+    }
+
     pub(super) fn key_text_value(&mut self, text: &Str) -> u64 {
         let key = crate::object::Key::Name(self.interner.intern(text, &mut self.keys));
         if let Some(held) = self.key_texts_as_values.get(&key) {

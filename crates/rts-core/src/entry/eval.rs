@@ -221,6 +221,11 @@ pub fn adopt(addition: Addition) {
         }
         context.frames.extend(addition.frames);
         context.function_names.extend(addition.function_names);
+        // The index is DERIVED, so extending the table without rebuilding it
+        // would leave a callable minted by `eval` invisible to `closure_new` —
+        // which answers by keeping its `prototype`, so the symptom would be a
+        // silently wrong `arrow.prototype` only inside evaluated code.
+        context.index_functions_by_code();
     });
 }
 

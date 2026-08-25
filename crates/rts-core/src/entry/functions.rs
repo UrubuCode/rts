@@ -101,11 +101,12 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // scans of the same table for one address; the second was added when
         // `prototype` stopped being unconditional and merging them was cheaper
         // than repeating the walk.
-        let described = context
-            .function_names
-            .iter()
-            .find(|(at, _, _, _)| *at == code as u64)
-            .map(|(_, name, arity, constructs)| (name.clone(), *arity, *constructs));
+        // Through the by-address INDEX, not by walking `function_names`. The
+        // walk was linear in the size of the program — 0.42 ns per entry,
+        // measured 2026-08-25 — and it cloned a `String` out of the table on
+        // every hit, for a name that cannot change within a run. The index
+        // answers an interned key instead, which is a number.
+        let described = context.described_at(code as u64);
         // A CONSTRUCTIBLE function gets a `prototype` object, because `new`
         // reads one. An arrow and a method do not get one, and that is the
         // language rather than an optimisation: `(() => {}).prototype` is
@@ -176,7 +177,21 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // made, where this costs a lookup only.
         if let Some((name, arity, _)) = described {
             let key = context.well_known("name");
-            let text = context.intern_value(crate::text::Str::from_str(&name)).bits();
+            // `key_text_value` and NOT `intern_value`, which despite its name
+            // does not intern: its own documentation says it "inserts into the
+            // slab and calls the allocator", so a name built here was a fresh
+            // CELL per closure — and a cell is what the next collection has to
+            // walk, not merely what costs time. The same function's name is the
+            // same text every time it is made, so the first closure allocates it
+            // and every one after reads the cache.
+            //
+            // That cache is `key_texts_as_values`, which `roots` already scans
+            // (`roots.rs`), so nothing new has to be kept alive. A second table
+            // keyed by code address was the alternative and is worse for exactly
+            // that reason: it would be a third answer to "which strings does the
+            // runtime hold", and one more thing to remember at the day there is
+            // a moving collector.
+            let text = context.key_value(name);
             super::objects::put(context, cell, key, text);
             // `hidden` and not `introspective`, which is a KNOWN divergence
             // rather than an oversight: `SetFunctionName` says
@@ -192,11 +207,15 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // emitter to DEFINE the name instead, which is an entry point that
             // does not exist; changing only this half trades a wrong descriptor
             // for a dead program.
-            super::native::hidden(context, cell, key);
-            let key = context.well_known("length");
+            let length_key = context.well_known("length");
             let count = Value::from_f64(f64::from(arity)).bits();
-            super::objects::put(context, cell, key, count);
-            super::native::hidden(context, cell, key);
+            super::objects::put(context, cell, length_key, count);
+            // ONE reach into the attribute table for both, and the reach is what
+            // costs: it is indexed by cell and grows to reach one it has never
+            // held anything for, so two calls paid that growth twice on a cell
+            // that is always fresh here. Measured 2026-08-25, the pair was 98 ns
+            // of a 514 ns closure.
+            super::native::hidden_many(context, cell, &[key, length_key]);
         }
         super::external::release(context, held);
         made
