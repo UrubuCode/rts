@@ -136,7 +136,7 @@ pub(super) fn emit_object(
                 if let PropertyKey::Named(name) = key {
                     ctx.lend_name(*name);
                 }
-                let value = super::function::emit_closure(builder, scope, ctx, function)?;
+                let value = super::function::emit_closure_method(builder, scope, ctx, function)?;
                 let _ = ctx.take_lent_name();
                 (key, value)
             }
@@ -156,7 +156,7 @@ pub(super) fn emit_object(
                     let spelled = accessor_name(ctx, *name, is_getter);
                     ctx.lend_name(spelled);
                 }
-                let closure = super::function::emit_closure(builder, scope, ctx, function)?;
+                let closure = super::function::emit_closure_method(builder, scope, ctx, function)?;
                 match key {
                     PropertyKey::Named(name) => {
                         define_accessor(builder, ctx, object, *name, closure, is_getter)?;

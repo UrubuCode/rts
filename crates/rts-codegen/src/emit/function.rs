@@ -93,7 +93,63 @@ pub fn emit_closure(
     ctx: &mut Ctx,
     function: &Function,
 ) -> EmitResult<ValueId> {
-    emit_closure_with(builder, scope, ctx, function, None, Definition::Expression)
+    emit_closure_with(
+        builder,
+        scope,
+        ctx,
+        function,
+        None,
+        Definition::Expression,
+        Constructs::Maybe,
+    )
+}
+
+/// The same, for a METHOD — of a class body or of an object literal.
+///
+/// A method is not a constructor. `({ m() {} }).m.prototype` is `undefined` and
+/// `new obj.m()` is a `TypeError`, which is the specification's own distinction:
+/// a method definition has no `[[Construct]]`, so it never gets the `prototype`
+/// object that having one requires.
+///
+/// A named entry rather than a flag on [`emit_closure`], because the three call
+/// sites that want it — a class method, and an object literal's shorthand and
+/// getter/setter forms — are naming a language rule, and the file already spells
+/// that difference this way for a declaration and for a late `this`.
+pub fn emit_closure_method(
+    builder: &mut FuncBuilder,
+    scope: &Scope,
+    ctx: &mut Ctx,
+    function: &Function,
+) -> EmitResult<ValueId> {
+    emit_closure_with(
+        builder,
+        scope,
+        ctx,
+        function,
+        None,
+        Definition::Expression,
+        Constructs::Never,
+    )
+}
+
+/// Whether a function may be reached by `new`, which decides whether it is given
+/// a `prototype` object at all.
+///
+/// # Why the language answers this and the runtime does not
+///
+/// The runtime sees a code address and an environment. Whether that address came
+/// from an arrow, a method, or a declaration is a fact about the SOURCE, and this
+/// is the only layer that has it. `closure_new` used to build a `prototype` and a
+/// `constructor` back-link for every function there is, which is wrong for two of
+/// the three — measured against Node on 2026-08-25: `arrow.prototype` answered an
+/// object where the language says `undefined`, and `new arrow()` did not throw.
+#[derive(Clone, Copy, PartialEq)]
+enum Constructs {
+    /// A method definition. Never constructible, whatever it is written over.
+    Never,
+    /// Anything else — subject to the arrow test below, which is the other half
+    /// of the same question and is asked where `captures_this` is already read.
+    Maybe,
 }
 
 /// The same, for a function DECLARATION.
@@ -107,7 +163,15 @@ pub fn emit_closure_declared(
     ctx: &mut Ctx,
     function: &Function,
 ) -> EmitResult<ValueId> {
-    emit_closure_with(builder, scope, ctx, function, None, Definition::Declaration)
+    emit_closure_with(
+        builder,
+        scope,
+        ctx,
+        function,
+        None,
+        Definition::Declaration,
+        Constructs::Maybe,
+    )
 }
 
 /// The same, for a body that holds `this` rather than being handed it.
@@ -122,7 +186,15 @@ pub fn emit_closure_binding_this_late(
     function: &Function,
     held: Name,
 ) -> EmitResult<ValueId> {
-    emit_closure_with(builder, scope, ctx, function, Some(held), Definition::Expression)
+    emit_closure_with(
+        builder,
+        scope,
+        ctx,
+        function,
+        Some(held),
+        Definition::Expression,
+        Constructs::Maybe,
+    )
 }
 
 /// All three, differing only in whether `this` is held and in how the function
@@ -134,7 +206,33 @@ fn emit_closure_with(
     function: &Function,
     late_this: Option<Name>,
     definition: Definition,
+    constructs: Constructs,
 ) -> EmitResult<ValueId> {
+    // Two more forms are not constructors, and both are read off the tree the
+    // caller already handed over rather than asked of it: a caller saying
+    // `Constructs::Maybe` is saying "not a method", and the rest is syntax.
+    //
+    // An ARROW — `captures_this` is the flag that says it is one, which this
+    // struct's own documentation calls "the one thing arrows actually change".
+    //
+    // An ASYNC function, but NOT an async generator, and the asymmetry is the
+    // language's: `async function f(){}` has no `prototype`, while
+    // `async function* g(){}` has one, because what a generator's `prototype`
+    // is for is the object its iterator inherits from rather than construction.
+    // Verified against Node on 2026-08-25, all four forms — a plain generator
+    // keeps one too.
+    //
+    // **This half cannot fire yet, and that is stated rather than left to be
+    // rediscovered.** An async or generator function reaches `closure_new` at a
+    // WRAPPER's address, which is not the one recorded here, so the runtime's
+    // lookup misses and it falls back to keeping the `prototype`. The same miss
+    // is why `(async function af(){}).name` and `.length` answer `undefined`
+    // today where Node answers `"af"` and `2` — one defect with three symptoms,
+    // measured 2026-08-25. Whoever registers the wrapper's address gets this
+    // condition already correct instead of having to find it again.
+    let constructs = constructs == Constructs::Maybe
+        && !function.captures_this
+        && !(function.is_async && !function.is_generator);
     // An ARROW reads `this` as a NAME, from the environment the enclosing
     // function put it in. `Scope::late_this` is the mechanism — it already
     // exists for a derived constructor, where `this` is also a name rather than
@@ -160,7 +258,7 @@ fn emit_closure_with(
         }
         false => late_this,
     };
-    let id = emit_function(ctx, scope, function, late_this, definition)?;
+    let id = emit_function(ctx, scope, function, late_this, definition, constructs)?;
 
     // The address is not a number known here — it is a relocation the
     // destination fills in, which is the whole reason the machine had to grow
@@ -185,6 +283,7 @@ fn emit_function(
     function: &Function,
     late_this: Option<Name>,
     definition: Definition,
+    constructs: bool,
 ) -> EmitResult<FuncId> {
     // Two refusals and not one, because they are two constructs and the
     // measurement that ranks this crate's gaps counts by this string. Merged,
@@ -336,7 +435,7 @@ fn emit_function(
         .or(lent)
         .map(|name| ctx.names.text(name).to_owned())
         .unwrap_or_default();
-    ctx.function_names.push((id, text, arity));
+    ctx.function_names.push((id, text, arity, constructs));
     ctx.pending.push((id, emitted));
     if function.is_generator {
         // The body is not called here and is not called by the caller either:

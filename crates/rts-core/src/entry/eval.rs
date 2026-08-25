@@ -158,7 +158,7 @@ pub struct Addition {
     /// What a parked frame looks like, per generator body it placed.
     pub frames: Vec<super::FrameShape>,
     /// What each function it placed is called, by the address it went to.
-    pub function_names: Vec<(u64, String, u32)>,
+    pub function_names: Vec<(u64, String, u32, bool)>,
 }
 
 /// Reads the numbering a second compilation must agree with.

@@ -196,7 +196,7 @@ impl Function {
 fn rendering(context: &mut Context, this: u64) -> Option<String> {
     let cell = Value(this).as_slot()?;
     let (code, _) = context.callable_at(cell)?;
-    let compiled = context.function_names.iter().any(|(at, _, _)| *at == code);
+    let compiled = context.function_names.iter().any(|(at, _, _, _)| *at == code);
     let key = context.well_known("name");
     let name = super::objects::read_property(context, cell, key)
         .and_then(|value| value.as_slot())

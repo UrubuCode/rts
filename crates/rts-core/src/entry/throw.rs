@@ -441,7 +441,7 @@ fn named_error(name: &str, message: &str) {
 /// only the NAMED ones, and a stack trace was the reason — so the trace is
 /// where that filter lives now: an empty name prints no line, which is a rule
 /// about traces rather than about functions.
-pub fn declare_function_names(context: &mut Context, names: Vec<(u64, String, u32)>) {
+pub fn declare_function_names(context: &mut Context, names: Vec<(u64, String, u32, bool)>) {
     context.function_names = names;
 }
 
@@ -515,8 +515,8 @@ pub fn call_frames() -> Vec<String> {
                         context
                             .function_names
                             .iter()
-                            .find(|(at, _, _)| *at == code)
-                            .map(|(_, name, _)| name.clone())
+                            .find(|(at, _, _, _)| *at == code)
+                            .map(|(_, name, _, _)| name.clone())
                     });
                 named.unwrap_or_default()
             })
@@ -537,10 +537,10 @@ pub(in crate::entry) fn stack_text(context: &Context) -> String {
         // searched for is worse than a gap in the trace, which is why this
         // filter was the table's membership rule until `f.length` needed the
         // unnamed ones in it too.
-        if let Some((_, name, _)) = context
+        if let Some((_, name, _, _)) = context
             .function_names
             .iter()
-            .find(|(at, name, _)| *at == code && !name.is_empty())
+            .find(|(at, name, _, _)| *at == code && !name.is_empty())
         {
             lines.push_str("\n    at ");
             lines.push_str(name);

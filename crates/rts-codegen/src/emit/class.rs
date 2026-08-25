@@ -349,7 +349,7 @@ pub(super) fn emit_class(
                     };
                     ctx.lend_name(spelled);
                 }
-                let closure = function::emit_closure(builder, &inner, ctx, &method.function)?;
+                let closure = function::emit_closure_method(builder, &inner, ctx, &method.function)?;
                 ctx.in_static_method = enclosing;
                 let target = if method.is_static { constructor } else { prototype };
                 // An accessor is not written as a property: it is a pair of

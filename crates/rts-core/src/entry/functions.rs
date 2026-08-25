@@ -96,14 +96,43 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // outside the heap is holding this", built for `rts-napi`; a second
         // one for a scoped hold would be two answers to one question.
         let held = super::external::hold(context, made);
-        // Every function gets a `prototype` object, because `new` reads one
-        // and a function that could not be constructed with would be a
-        // different kind of function. Made here rather than on demand:
-        // `F.prototype.m = …` before any `new F()` is the ordinary way to
-        // write a method, so it has to exist first.
+        // Looked up ONCE, here, and read twice below — for the name and arity,
+        // and for whether this function may be constructed with. It was two
+        // scans of the same table for one address; the second was added when
+        // `prototype` stopped being unconditional and merging them was cheaper
+        // than repeating the walk.
+        let described = context
+            .function_names
+            .iter()
+            .find(|(at, _, _, _)| *at == code as u64)
+            .map(|(_, name, arity, constructs)| (name.clone(), *arity, *constructs));
+        // A CONSTRUCTIBLE function gets a `prototype` object, because `new`
+        // reads one. An arrow and a method do not get one, and that is the
+        // language rather than an optimisation: `(() => {}).prototype` is
+        // `undefined`, `({ m() {} }).m.prototype` is `undefined`, and `new`
+        // on either is a `TypeError`. This built one for every function there
+        // was, so all four answered wrongly — verified against Node on
+        // 2026-08-25, which is also where the cost went: `prototype` is one of
+        // the two allocations and two of the four `hidden` calls a closure paid
+        // for, and two thirds of the functions in ordinary code are arrows or
+        // methods.
+        //
+        // A function this table does not describe keeps the `prototype`, which
+        // is the safe direction: `rts-napi` and `eval` mint callables the
+        // emitter never saw, and refusing `new` on one of those would break a
+        // working program where an extra object only costs.
+        //
+        // Made here rather than on demand: `F.prototype.m = …` before any
+        // `new F()` is the ordinary way to write a method, so it has to exist
+        // first. Laziness would need the property-read path to materialise it,
+        // which is a second answer to what a callable's own keys are.
+        let constructs = described.as_ref().is_none_or(|(_, _, yes)| *yes);
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
-        if let Some(prototype) = super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty) {
+        if let Some(prototype) = constructs
+            .then(|| super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty))
+            .flatten()
+        {
             // The same hazard one line later, and held for the same reason:
             // `put` may need an overflow block, which allocates, which may
             // collect — and until the write lands, this object is named only by
@@ -145,12 +174,7 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // kept in agreement with it. Widening `ClosureNew` to carry them was
         // the alternative: it costs two more operands on every closure ever
         // made, where this costs a lookup only.
-        let described = context
-            .function_names
-            .iter()
-            .find(|(at, _, _)| *at == code as u64)
-            .map(|(_, name, arity)| (name.clone(), *arity));
-        if let Some((name, arity)) = described {
+        if let Some((name, arity, _)) = described {
             let key = context.well_known("name");
             let text = context.intern_value(crate::text::Str::from_str(&name)).bits();
             super::objects::put(context, cell, key, text);
