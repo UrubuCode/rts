@@ -44,8 +44,9 @@ pub(super) extern "C" fn uptime(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u6
 ///
 /// With an argument, the DIFFERENCE from it, which is the only form Node
 /// documents as meaningful. The argument is accepted only when it really is an
-/// array: a number or a string there would otherwise read as `[0, 0]` and turn
-/// a diff into an absolute reading that looks plausible.
+/// array of two: a number or a string there would otherwise read as `[0, 0]`
+/// and turn a diff into an absolute reading that looks plausible, which is what
+/// this did before `super::validate::time_tuple` refused it out loud.
 pub(super) extern "C" fn hrtime_call(
     _e: u64,
     _this: u64,
@@ -54,6 +55,9 @@ pub(super) extern "C" fn hrtime_call(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    if !super::validate::time_tuple(previous) {
+        return entry::undefined_value();
+    }
     let elapsed = started().elapsed();
     let mut seconds = elapsed.as_secs() as i64;
     let mut nanos = i64::from(elapsed.subsec_nanos());

@@ -63,6 +63,30 @@ impl Kind {
             Kind::BrotliDecompress => "BrotliDecompress",
         }
     }
+
+    /// Whether this codec is Brotli.
+    ///
+    /// Asked by the option check, not by the codec: Brotli takes a `params`
+    /// table and has no `level`, `windowBits`, `memLevel` or `strategy`, so
+    /// applying zlib's ranges to `brotliCompressSync(x, { level: 20 })` would
+    /// refuse a call Node accepts and ignores. One question here beats the
+    /// four-way `matches!` each of those checks would otherwise carry.
+    pub(super) fn is_brotli(self) -> bool {
+        matches!(self, Kind::BrotliCompress | Kind::BrotliDecompress)
+    }
+
+    /// Whether this codec READS a compressed stream rather than writing one.
+    ///
+    /// The one option whose legal range depends on the direction:
+    /// `windowBits: 0` means "take it from the stream header" to a
+    /// decompressor and is refused outright by a compressor
+    /// (`test-zlib-zero-windowBits.js` asserts both halves).
+    pub(super) fn decompresses(self) -> bool {
+        matches!(
+            self,
+            Kind::Inflate | Kind::InflateRaw | Kind::Gunzip | Kind::Unzip | Kind::BrotliDecompress
+        )
+    }
 }
 
 /// The tuning knobs this module actually acts on.

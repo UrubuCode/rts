@@ -121,11 +121,22 @@ const client2 = createConnection(boundPort, "127.0.0.1");
 const client2Type = typeof client2;
 
 // --- errors -----------------------------------------------------------------
+// Lido de `.code` e nao de `.message`, e a mudanca vale a explicacao: estes tres
+// erros nomeavam-se DENTRO do texto da mensagem, que era uma convencao nossa. O
+// Node poe o codigo numa propriedade `.code` e escreve na mensagem a frase que
+// descreve o problema — `assert.throws(fn, { code: "ERR_SOCKET_BAD_PORT" })` e
+// como a suite dele verifica isto. Estas linhas fixavam a nossa forma antiga.
 let badPortErr = "";
-try { new Socket().connect(70000); } catch (e: any) { badPortErr = e.message; }
+try { new Socket().connect(70000); } catch (e: any) { badPortErr = e.code; }
+
+// `connect("texto")` e um caminho de IPC no Node, que este motor nao tem. Um
+// nome recusado e a regra deste repositorio para uma superficie ausente: falha
+// na chamada em vez de falhar mais tarde ligada a nada.
+let pathErr = "";
+try { new Socket().connect("localhost"); } catch (e: any) { pathErr = e.code; }
 
 let missingArgsErr = "";
-try { new Socket().connect("localhost"); } catch (e: any) { missingArgsErr = e.message; }
+try { new Socket().connect(); } catch (e: any) { missingArgsErr = e.code; }
 
 // An unimplemented option is refused, not ignored.
 let ipcErr = "";
@@ -227,10 +238,13 @@ describe("node:net Socket", () => {
     expect(clientConnecting).toBe(true);
   });
   test("a bad port throws ERR_SOCKET_BAD_PORT", () => {
-    expect(badPortErr.indexOf("ERR_SOCKET_BAD_PORT") >= 0).toBe(true);
+    expect(badPortErr).toBe("ERR_SOCKET_BAD_PORT");
   });
-  test("connect with no port throws ERR_MISSING_ARGS", () => {
-    expect(missingArgsErr.indexOf("ERR_MISSING_ARGS") >= 0).toBe(true);
+  test("connect with no argument throws ERR_MISSING_ARGS", () => {
+    expect(missingArgsErr).toBe("ERR_MISSING_ARGS");
+  });
+  test("an IPC path is refused by name, not ignored", () => {
+    expect(pathErr).toBe("ERR_INVALID_ARG_VALUE");
   });
   test("the unimplemented fd option is refused, not ignored", () => {
     expect(fdErr.indexOf("ERR_INVALID_ARG_VALUE") >= 0).toBe(true);

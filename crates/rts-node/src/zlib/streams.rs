@@ -104,6 +104,20 @@ fn class_prototype(context: &mut Context, kind: Kind) -> Option<(u64, u64)> {
 /// is the question `stream/common.rs`'s `self_or_new` asks for the same
 /// reason.
 fn create(kind: Kind, this: u64, options: u64) -> u64 {
+    // FIRST, and outside everything else: `createGzip({ chunkSize: 0 })` is a
+    // throw in Node (`test-zlib-failed-init.js`), and a stream built before
+    // the check would already have a row in [`TABLE`] and a `Transform` parent
+    // constructed — state to unwind for an object no program will receive.
+    // Raised out here rather than inside the borrow that found it, because
+    // raising takes a borrow of its own.
+    let checked = entry::with_runtime(|context| options::settings(context, kind, options));
+    let settings = match checked {
+        Ok(settings) => settings,
+        Err(refusal) => {
+            refusal.raise();
+            return entry::undefined_value();
+        }
+    };
     let prepared = entry::with_runtime(|context| {
         let (constructor, prototype) = class_prototype(context, kind)?;
         let instance = match entry::is_object(context, this) {
@@ -123,7 +137,10 @@ fn create(kind: Kind, this: u64, options: u64) -> u64 {
     entry::call(constructor, instance, options, absent, absent, absent);
     let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
     entry::with_runtime(|context| {
-        let settings = options::settings(context, options);
+        // The settings checked above, reused rather than read again: two reads
+        // of one options object are two chances to disagree about it, and the
+        // program may have mutated it inside the `Transform` constructor call
+        // that runs between them.
         let sink = Sink::new(kind, &settings);
         with_table(|table| {
             table.insert(id, Live { kind, settings, sink: Some(sink), written: 0 });

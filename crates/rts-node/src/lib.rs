@@ -31,6 +31,7 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+mod errors;
 pub mod assert;
 pub mod async_hooks;
 pub mod buffer;
@@ -377,6 +378,14 @@ pub fn install(context: &mut Context) {
     let web = stream::web_namespace(context);
     rts_core::entry::declare_module(context, "node:stream/web", web);
     rts_core::entry::declare_module(context, "stream/web", web);
+
+    // `node:stream/promises` — as MESMAS duas operacoes de `node:stream`, a
+    // responder promessas. Uma camada e nao uma segunda implementacao, senao
+    // "este fluxo acabou?" passa a ter duas respostas que discordam na primeira
+    // vez que uma delas souber de um erro que a outra nao soube.
+    let stream_promises = stream::promises_namespace(context);
+    rts_core::entry::declare_module(context, "node:stream/promises", stream_promises);
+    rts_core::entry::declare_module(context, "stream/promises", stream_promises);
 
     let types = rts_core::entry::get_member(context, util_namespace, "types");
     rts_core::entry::declare_module(context, "node:util/types", types);

@@ -143,56 +143,19 @@ fn init(context: &mut entry::Context, instance: u64) {
     set_value(context, instance, "_destroy", destroy_fn);
 }
 
-/// `socket.connect(port[, host][, connectListener])` — the option-object and
-/// path overloads (`docs/reference/node/net.md` §2) are not read; see the
-/// module doc's own "not implemented" section.
+/// `socket.connect(port[, host][, connectListener])` and
+/// `socket.connect(options[, connectListener])` — the path (IPC) overload
+/// (`docs/reference/node/net.md` §2) is refused; see the module doc's own
+/// "not implemented" section and [`target`].
 pub(super) extern "C" fn connect(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64 {
     registry::pump();
     let absent = entry::undefined_value();
-    // `connect("localhost")` — a lone non-numeric, non-object first
-    // argument — is Node's `ERR_MISSING_ARGS`: the overload set is
-    // `(port[, host][, cb])` or `(options[, cb])`, and a bare string is
-    // neither (there is no port to default it into). Checked before the
-    // overload split below, which used to fold this into the SAME branch as
-    // an options object with no `port` (defaulting to `0` and returning
-    // silently) — a `TypeError` Node actually raises, answered as a no-op.
-    let is_plain_string = entry::text_of(a).is_some() && super::common::number_arg(a).is_none();
-    if is_plain_string {
-        entry::throw_type_error(
-            "ERR_MISSING_ARGS: The \"options\" or \"port\" argument must be specified",
-        );
+    let Some((port, host, listener)) = target(a, b, c) else {
+        // A refusal is a throw already REGISTERED plus a return — see
+        // `validate`'s own doc. `this` rather than `undefined` because the
+        // returned value is never read once a throw is pending, and the
+        // chaining shape of every other exit from this function is `this`.
         return this;
-    }
-    let (port, host, listener) = match super::common::number_arg(a) {
-        Some(port) if port > 65535.0 || port < 0.0 => {
-            entry::throw_type_error(&format!(
-                "ERR_SOCKET_BAD_PORT: Port should be >= 0 and < 65536. Received {}.",
-                port as i64
-            ));
-            return this;
-        }
-        Some(port) => {
-            // The type test, not `ToString`. `text_of` converts, so an absent
-            // second argument answered `Some("undefined")` — `connect(port)`
-            // then looked up a host by that name, failed to resolve, and emitted
-            // an `'error'` nothing handled. The overload test below inherited the
-            // same wrong answer, so `connect(port, listener)` lost its listener.
-            let host = entry::with_runtime(|context| entry::string_in(context, b));
-            let listener = if host.is_some() { c } else { b };
-            (
-                port as u16,
-                host.unwrap_or_else(|| "localhost".to_owned()),
-                listener,
-            )
-        }
-        None => {
-            let (port, host) = entry::with_runtime(|context| {
-                let port = super::common::option_num(context, a, "port").unwrap_or(0.0);
-                let host = super::common::option_text(context, a, "host").unwrap_or_else(|| "localhost".to_owned());
-                (port, host)
-            });
-            (port as u16, host, b)
-        }
     };
     if port == 0 {
         return this;
@@ -234,6 +197,98 @@ pub(super) extern "C" fn connect(_e: u64, this: u64, a: u64, b: u64, c: u64, _d:
         }
     });
     this
+}
+
+/// Which of `connect`'s overloads was written, with every argument checked.
+///
+/// `None` means a refusal is already registered and the caller must return —
+/// see [`super::validate`]'s doc for why that is the shape, and why nothing
+/// here raises from inside a runtime borrow.
+///
+/// The order of the checks is Node's own and matters: `connect()` and
+/// `connect({})` both answer `ERR_MISSING_ARGS` naming all three spellings,
+/// because at that point no argument has been supplied to have a type wrong;
+/// only once a `port` IS present does it become a candidate for
+/// `ERR_INVALID_ARG_TYPE`/`ERR_SOCKET_BAD_PORT`.
+fn target(a: u64, b: u64, c: u64) -> Option<(u16, String, u64)> {
+    let absent = entry::undefined_value();
+    if a == absent {
+        crate::errors::missing_args(&["options", "port", "path"]);
+        return None;
+    }
+    // Read once, under one borrow: which overload this is, and — if it is the
+    // options form — every field the checks below need. Reading them one at a
+    // time would be four borrows for one call, and a check between two of them
+    // would be the nested borrow that aborts an `extern "C"` frame.
+    let shape = entry::with_runtime(|context| {
+        if entry::number_of(a).is_some() {
+            return Shape::Port;
+        }
+        if let Some(text) = entry::string_in(context, a) {
+            return Shape::Text(text);
+        }
+        if !entry::is_object(context, a) {
+            // A boolean, `null`, a symbol: Node reads a non-object first
+            // argument as the port and lets `validatePort` name what is wrong
+            // with it, which is why this is not its own refusal here.
+            return Shape::Port;
+        }
+        let port = entry::get_member(context, a, "port");
+        let path = entry::get_member(context, a, "path");
+        let hints = entry::get_member(context, a, "hints");
+        // Two statements and not one: `get_member` takes the context uniquely
+        // and `string_in` takes it shared, so nesting the calls is a borrow
+        // conflict rather than a style choice.
+        let named = entry::get_member(context, a, "host");
+        let host = entry::string_in(context, named);
+        Shape::Options { port, path, hints, host }
+    });
+    match shape {
+        Shape::Options { port, path, hints, host } => {
+            if !super::validate::stream_options(a) || !super::validate::hints(hints) {
+                return None;
+            }
+            if path != absent {
+                // IPC is not implemented (module doc), and the option is
+                // refused by name rather than ignored — an ignored `path` would
+                // silently connect somewhere else, or nowhere.
+                crate::errors::invalid_arg_value("options.path", path, "is not supported");
+                return None;
+            }
+            if port == absent {
+                crate::errors::missing_args(&["options", "port", "path"]);
+                return None;
+            }
+            let port = super::validate::port("options.port", port)?;
+            Some((port, host.unwrap_or_else(|| "localhost".to_owned()), b))
+        }
+        // A string that reads as a number is a port; one that does not is a
+        // pipe/socket PATH, which is Node's own `isPipeName` split. The path
+        // form is refused for the reason the options form's `path` is.
+        Shape::Text(text) if super::validate::port_text(&text).is_none() => {
+            crate::errors::invalid_arg_value("path", a, "is not supported");
+            None
+        }
+        Shape::Port | Shape::Text(_) => {
+            let port = super::validate::port("port", a)?;
+            // The type TEST, not `ToString`. `text_of` converts, so an absent
+            // second argument answered `Some("undefined")` — `connect(port)`
+            // then looked up a host by that name, failed to resolve, and emitted
+            // an `'error'` nothing handled. The overload test below inherited the
+            // same wrong answer, so `connect(port, listener)` lost its listener.
+            let host = entry::with_runtime(|context| entry::string_in(context, b));
+            let listener = if host.is_some() { c } else { b };
+            Some((port, host.unwrap_or_else(|| "localhost".to_owned()), listener))
+        }
+    }
+}
+
+/// Which overload [`target`] is looking at, plus the option fields it read
+/// while it still held the borrow.
+enum Shape {
+    Port,
+    Text(String),
+    Options { port: u64, path: u64, hints: u64, host: Option<String> },
 }
 
 /// Reads until EOF/error, pushing each chunk — never calls into JS itself;
@@ -363,8 +418,18 @@ extern "C" fn address(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) ->
 /// `socket.setTimeout(timeout, callback?)` — recorded, never enforced; no
 /// idle-timer mechanism exists here (the same gap `fs/watch.rs` names for
 /// anything that would need one). Named rather than silently honored.
+///
+/// The ARGUMENTS are checked even though the value is not acted on, and that is
+/// deliberate: a program that writes `setTimeout('100')` has a bug Node reports
+/// and we would otherwise store as the number `0`, so the gap in enforcement
+/// would have been compounded by a gap in reporting.
 extern "C" fn set_timeout(_e: u64, this: u64, timeout: u64, callback: u64, _c: u64, _d: u64) -> u64 {
-    let ms = entry::number_of(timeout).unwrap_or(0.0);
+    let Some(ms) = super::validate::msecs("msecs", timeout) else {
+        return this;
+    };
+    if !super::validate::optional_callback("callback", callback) {
+        return this;
+    }
     entry::with_runtime(|context| super::common::set_num(context, this, "timeout", ms));
     let absent = entry::undefined_value();
     if callback != absent {

@@ -74,7 +74,7 @@ fn string_option(options: u64, name: &str) -> Option<String> {
 /// failed" `undefined` every other member of this module reserves for a
 /// genuine failure.
 pub(super) extern "C" fn glob_sync(_e: u64, _this: u64, pattern: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(pattern_text) = super::text(pattern) else {
+    let Some(pattern_text) = super::validate::path("pattern", pattern) else {
         return entry::undefined_value();
     };
     let cwd = string_option(options, "cwd").unwrap_or_else(|| ".".to_string());

@@ -90,15 +90,15 @@ pub fn namespace(context: &mut Context) -> u64 {
     blob::install(context, namespace);
 
     let constants = entry::make_object(context);
-    let max_length = entry::make_number(MAX_LENGTH as f64);
+    let max_length = entry::make_number(MAX_LENGTH);
     entry::put_member(context, constants, "MAX_LENGTH", max_length);
-    let max_string_length = entry::make_number(MAX_STRING_LENGTH as f64);
+    let max_string_length = entry::make_number(MAX_STRING_LENGTH);
     entry::put_member(context, constants, "MAX_STRING_LENGTH", max_string_length);
     entry::put_member(context, namespace, "constants", constants);
 
-    let k_max_length = entry::make_number(MAX_LENGTH as f64);
+    let k_max_length = entry::make_number(MAX_LENGTH);
     entry::put_member(context, namespace, "kMaxLength", k_max_length);
-    let k_string_max_length = entry::make_number(MAX_STRING_LENGTH as f64);
+    let k_string_max_length = entry::make_number(MAX_STRING_LENGTH);
     entry::put_member(context, namespace, "kStringMaxLength", k_string_max_length);
     // Mutable in Node, and mutable here for free: an own data property on the
     // namespace object is what `buffer.INSPECT_MAX_BYTES = 10` assigns to.
@@ -114,11 +114,18 @@ pub fn namespace(context: &mut Context) -> u64 {
 /// This engine picks its own ceiling rather than copying a V8 build's — see
 /// reference §7. `i32::MAX` is the widest byte count a proven-integer index
 /// can represent exactly.
-const MAX_LENGTH: i64 = i32::MAX as i64;
+///
+/// Read from `rts-core` rather than written again here, and that is not tidying:
+/// this constant is what a program is TOLD (`buffer.constants.MAX_LENGTH`) and
+/// `Buffer`'s own `validate::size` is what ENFORCES it. Two spellings of one
+/// number means `Buffer.alloc(buffer.kMaxLength)` can be refused by the very
+/// engine that published it — which is exactly what
+/// `test-buffer-over-max-length.js` computes its argument from.
+const MAX_LENGTH: f64 = entry::BUFFER_MAX_LENGTH;
 
 /// Same reasoning as [`MAX_LENGTH`] — this engine's UTF-8 `Str` cells have no
 /// narrower ceiling of their own, so the two share one number.
-const MAX_STRING_LENGTH: i64 = i32::MAX as i64;
+const MAX_STRING_LENGTH: f64 = entry::BUFFER_MAX_LENGTH;
 
 /// `buffer.atob(data)` — base64 to a binary string, one code unit per byte.
 /// Invalid base64 answers `""` (no-throw stand-in); real Node throws a

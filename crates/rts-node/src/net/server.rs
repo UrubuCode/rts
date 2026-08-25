@@ -127,16 +127,11 @@ extern "C" fn listen(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64
         entry::throw_type_error("ERR_SERVER_ALREADY_LISTEN: Listen method has been called more than once without closing.");
         return this;
     }
-    let port = super::common::number_arg(a).unwrap_or(0.0) as u16;
-    // Asked with the type TEST and not with `ToString`. `text_of` converts, so
-    // it answers `Some("undefined")` for an argument that was never passed —
-    // which made `listen(port)` bind to a host literally named "undefined", fail
-    // to resolve, and emit an `'error'` nothing handled. It also made the
-    // overload test below always take the `(port, host, callback)` branch, so
-    // `listen(port, callback)` lost its callback.
-    let named = entry::with_runtime(|context| entry::string_in(context, b));
-    let host = named.clone().unwrap_or_else(|| "0.0.0.0".to_owned());
-    let callback = if named.is_some() { c } else { b };
+    let Some((port, host, callback)) = bind_target(a, b, c) else {
+        // A refusal is a throw already REGISTERED plus a return — see
+        // `validate`'s own doc.
+        return this;
+    };
     if callback != absent {
         let once_fn = entry::with_runtime(|context| entry::get_member(context, this, "once"));
         if once_fn != absent {
@@ -167,6 +162,83 @@ extern "C" fn listen(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64
         }),
     });
     this
+}
+
+/// Where `listen` was asked to bind, with every argument checked.
+///
+/// `None` means a refusal is already registered and the caller must return —
+/// see [`super::validate`]'s doc for the shape and for why nothing here raises
+/// from inside a runtime borrow.
+///
+/// Three overloads reach here: `listen([callback])` (a random port, which is
+/// what `listen()` means and what half of Node's own suite opens with),
+/// `listen(port[, host][, callback])`, and `listen(options[, callback])`. The
+/// handle form is still absent, per the module doc.
+fn bind_target(a: u64, b: u64, c: u64) -> Option<(u16, String, u64)> {
+    let absent = entry::undefined_value();
+    let any_port = "0.0.0.0".to_owned();
+    if a == absent {
+        return Some((0, any_port, absent));
+    }
+    // `listen(callback)` — the port is left to the OS. It used to fall into the
+    // port branch below, which read the function as port `0` correctly and then
+    // lost the callback entirely, because the callback slot was only ever read
+    // from `b`.
+    if is_callable(a) {
+        return Some((0, any_port, a));
+    }
+    let options = entry::with_runtime(|context| {
+        if entry::string_in(context, a).is_some() || !entry::is_object(context, a) {
+            return None;
+        }
+        // One statement per read: `get_member` takes the context uniquely and
+        // `string_in` takes it shared, so nesting them is a borrow conflict.
+        let port = entry::get_member(context, a, "port");
+        let path = entry::get_member(context, a, "path");
+        let named = entry::get_member(context, a, "host");
+        let host = entry::string_in(context, named);
+        Some((port, path, host))
+    });
+    if let Some((port, path, host)) = options {
+        if path != absent {
+            // IPC is not implemented (module doc); refused by name rather than
+            // ignored, which would bind a TCP port the program never asked for.
+            crate::errors::invalid_arg_value("options.path", path, "is not supported");
+            return None;
+        }
+        if port == absent {
+            crate::errors::invalid_arg_value("options", a, "must have the property \"port\" or \"path\"");
+            return None;
+        }
+        let port = super::validate::port("options.port", port)?;
+        return Some((port, host.unwrap_or(any_port), b));
+    }
+    // A non-numeric STRING is a path, not a bad port. `listen('/tmp/x.sock')`
+    // is Node's IPC form, and running it through the port validator reported
+    // `port should be >= 0 and < 65536. Received /pipe/node-test.sock` — an
+    // error that names the wrong argument and sends a reader looking for a
+    // number they never wrote. The port validator accepts a numeric string
+    // (`'8080'`), so what falls through here is exactly the path form.
+    //
+    // Refused rather than bound to a TCP port nobody asked for: IPC is not
+    // implemented (see this module's doc), and an absent surface fails at the
+    // call.
+    let text = entry::with_runtime(|context| entry::string_in(context, a));
+    let is_path = text.is_some_and(|held| held.trim().parse::<f64>().is_err());
+    if is_path {
+        crate::errors::invalid_arg_value("path", a, "is not supported");
+        return None;
+    }
+    let port = super::validate::port("port", a)?;
+    // Asked with the type TEST and not with `ToString`. `text_of` converts, so
+    // it answers `Some("undefined")` for an argument that was never passed —
+    // which made `listen(port)` bind to a host literally named "undefined", fail
+    // to resolve, and emit an `'error'` nothing handled. It also made the
+    // overload test always take the `(port, host, callback)` branch, so
+    // `listen(port, callback)` lost its callback.
+    let named = entry::with_runtime(|context| entry::string_in(context, b));
+    let callback = if named.is_some() { c } else { b };
+    Some((port, named.unwrap_or(any_port), callback))
 }
 
 fn accept_loop(id: u64, listener: TcpListener, stop: Arc<AtomicBool>) {

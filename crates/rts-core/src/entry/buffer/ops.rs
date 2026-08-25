@@ -12,13 +12,25 @@
 //! borrow opens, because that helper (and [`super::super::class_support::to_number`]
 //! beneath it) takes one of its own: calling it from inside an open borrow is
 //! the second-borrow abort every native here is written to avoid.
+//!
+//! # What is next door
+//!
+//! The `Buffer.*` statics moved to [`super::statics`] when Node's argument
+//! refusals took this file past the crate's 500-line ceiling — see that module
+//! for the seam. The helpers below are shared by both halves rather than copied,
+//! which is why three of them are `pub(in crate::entry)` and the rest are not.
+//! What an argument has to BE is [`super::validate`]; this file decides only
+//! what to do once it is.
 
 use super::super::buffers::element::Kind;
-use super::super::buffers::{View, as_count, optional_number, range, view_of, window, window_mut};
-use super::super::modules::undefined_value;
+use super::super::buffers::{
+    View, as_count, optional_number, range, undefined, view_of, window, window_mut,
+};
+use super::super::errors;
 use super::super::objects::undefined_of;
 use super::super::{Context, native, with_current};
 use super::codec;
+use super::validate::{self, Shape};
 use crate::value::Value;
 
 /// A new `Buffer` instance, owning a copy of these bytes.
@@ -54,7 +66,7 @@ fn instance_over(context: &mut Context, view: View) -> u64 {
 
 /// The bytes a value carries as source data: a `Uint8Array`/`Buffer`'s window,
 /// a string encoded per `encoding`, or a JS array of numbers.
-fn source_bytes(context: &Context, value: u64, encoding: &str) -> Option<Vec<u8>> {
+pub(in crate::entry) fn source_bytes(context: &Context, value: u64, encoding: &str) -> Option<Vec<u8>> {
     if let Some(view) = view_of(context, value) {
         return window(context, &view).map(<[u8]>::to_vec);
     }
@@ -88,7 +100,7 @@ fn encoding_arg(context: &Context, value: u64) -> String {
 
 /// A byte, a string's encoded bytes, or a view's bytes — what
 /// [`fill`]/[`index_of`]/[`includes`] search for or write.
-fn pattern_of(context: &Context, value: u64, encoding: &str) -> Vec<u8> {
+pub(in crate::entry) fn pattern_of(context: &Context, value: u64, encoding: &str) -> Vec<u8> {
     match Value(value).as_slot() {
         Some(cell) => {
             if let Some(text) = context.text_at(cell) {
@@ -104,129 +116,17 @@ fn pattern_of(context: &Context, value: u64, encoding: &str) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// Statics
-// ---------------------------------------------------------------------------
-
-/// `Buffer.alloc(size, fill?, encoding?)`.
-///
-/// A negative `size` throws `RangeError` — Node's own answer — rather than
-/// going through [`as_count`]'s zero-clamp. `as_count` clamping is right for an
-/// offset or a length that can legitimately end up past the end of something and
-/// mean "nothing left"; a negative *allocation size* is not that, it is a
-/// program telling itself it wants -1 bytes, and answering an empty buffer
-/// let it believe that worked. `.length` silently reading 0 instead of the
-/// error a caller may be checking for (`node_buffer_allocneg.test.ts` does) is
-/// the wrong-answer-over-throw case rule 8's neighbourhood exists to avoid.
-pub(in crate::entry) fn alloc(size: f64, fill: u64, encoding: u64) -> u64 {
-    if size.is_finite() && size < 0.0 {
-        super::super::throw::range_error("The value is out of range. It must be >= 0.");
-        return undefined_value();
-    }
-    with_current(|context| {
-        let length = as_count(size);
-        let absent = undefined_of(context);
-        let pattern = if fill == absent {
-            Vec::new()
-        } else {
-            let enc = encoding_arg(context, encoding);
-            pattern_of(context, fill, &enc)
-        };
-        let bytes = repeated(&pattern, length);
-        made(context, &bytes)
-    })
-}
-
-/// `Buffer.allocUnsafe(size)` — zero-filled here (see the module doc).
-///
-/// Same negative-size refusal as [`alloc`], for the same reason.
-pub(in crate::entry) fn alloc_unsafe(size: f64) -> u64 {
-    if size.is_finite() && size < 0.0 {
-        super::super::throw::range_error("The value is out of range. It must be >= 0.");
-        return undefined_value();
-    }
-    with_current(|context| made(context, &vec![0u8; as_count(size)]))
-}
-
-/// `Buffer.from(source, encodingOrOffset?)`.
-pub(in crate::entry) fn from(source: u64, encoding_or_offset: u64) -> u64 {
-    with_current(|context| {
-        let enc = encoding_arg(context, encoding_or_offset);
-        let bytes = source_bytes(context, source, &enc).unwrap_or_default();
-        made(context, &bytes)
-    })
-}
-
-/// `Buffer.concat(list, totalLength?)`.
-pub(in crate::entry) fn concat(list: u64, total_length: u64) -> u64 {
-    let total_length = optional_number(total_length);
-    with_current(|context| {
-        let mut joined = Vec::new();
-        if let Some(cell) = Value(list).as_slot()
-            && let Some(elements) = context.elements_at(cell).cloned()
-        {
-            for element in elements {
-                if let Some(bytes) = source_bytes(context, element, "utf8") {
-                    joined.extend_from_slice(&bytes);
-                }
-            }
-        }
-        if let Some(wanted) = total_length {
-            joined.resize(as_count(wanted), 0);
-        }
-        made(context, &joined)
-    })
-}
-
-/// `Buffer.byteLength(source, encoding?)`.
-pub(in crate::entry) fn byte_length(source: u64, encoding: u64) -> f64 {
-    with_current(|context| {
-        let enc = encoding_arg(context, encoding);
-        source_bytes(context, source, &enc).map(|bytes| bytes.len() as f64).unwrap_or(0.0)
-    })
-}
-
-/// `Buffer.isBuffer(value)` — whether it is a view at all (see the module
-/// doc: nothing this runtime hands back that is not one).
-pub(in crate::entry) fn is_buffer(value: u64) -> bool {
-    with_current(|context| view_of(context, value).is_some())
-}
-
-/// `Buffer.isEncoding(name)`.
-pub(in crate::entry) fn is_encoding(encoding: u64) -> bool {
-    with_current(|context| {
-        super::super::text::to_text(context, Value(encoding))
-            .and_then(|text| text.to_rust())
-            .is_some_and(|text| codec::canonical_encoding(&text).is_some())
-    })
-}
-
-/// Bytewise comparison, shared by the static and the instance `compare`.
-pub(in crate::entry) fn compare_values(a: u64, b: u64) -> f64 {
-    with_current(|context| {
-        let a = view_of(context, a).and_then(|view| window(context, &view)).map(<[u8]>::to_vec).unwrap_or_default();
-        let b = view_of(context, b).and_then(|view| window(context, &view)).map(<[u8]>::to_vec).unwrap_or_default();
-        match a.cmp(&b) {
-            std::cmp::Ordering::Less => -1.0,
-            std::cmp::Ordering::Equal => 0.0,
-            std::cmp::Ordering::Greater => 1.0,
-        }
-    })
-}
-
-/// `pattern` repeated/truncated to exactly `length` bytes.
-fn repeated(pattern: &[u8], length: usize) -> Vec<u8> {
-    if pattern.is_empty() {
-        return vec![0u8; length];
-    }
-    (0..length).map(|index| pattern[index % pattern.len()]).collect()
-}
-
-// ---------------------------------------------------------------------------
 // Instance methods
 // ---------------------------------------------------------------------------
 
 /// `buf.toString(encoding?, start?, end?)`.
 pub(in crate::entry) fn to_string(this: u64, encoding: u64, start: u64, end: u64) -> u64 {
+    // The encoding is the only argument Node refuses here: `start` and `end` are
+    // defined to clamp, so `buf.toString('utf8', 0, 99)` is an answer and not a
+    // mistake. `buf.toString('nope')` is `ERR_UNKNOWN_ENCODING`.
+    let Some(enc) = validate::encoding(encoding) else {
+        return undefined();
+    };
     let start = optional_number(start);
     let end = optional_number(end);
     with_current(|context| {
@@ -234,24 +134,53 @@ pub(in crate::entry) fn to_string(this: u64, encoding: u64, start: u64, end: u64
         let Some(view) = view_of(context, this) else { return absent };
         let Some(bytes) = window(context, &view) else { return absent };
         let (first, last) = range(bytes.len(), start, end);
-        let enc = encoding_arg(context, encoding);
         let text = codec::decode(&bytes[first..last], &enc);
         context.intern_value(crate::text::Str::from_str(&text)).bits()
     })
 }
 
 /// `buf.write(string, offset?, length?, encoding?)`.
+///
+/// # The two-argument form, and why a string `offset` is not always one
+///
+/// `buf.write(string, encoding)` is legal — Node reads a string second argument
+/// as the encoding. What it does NOT allow is that shorthand with anything after
+/// it: `buf.write('o', '1', 'ascii')` and `buf.write('test', 'utf8', 0)` are both
+/// `ERR_INVALID_ARG_TYPE`, because the caller has now given an encoding twice or
+/// a length after an offset that is not one. Both are in `test-buffer-alloc.js`,
+/// and both used to be accepted here — the string coerced to an offset of 0 and
+/// the write silently landed at the start of the buffer.
 pub(in crate::entry) fn write(this: u64, string: u64, offset: u64, length: u64, encoding: u64) -> f64 {
-    let offset = optional_number(offset);
-    let length = optional_number(length);
+    let Some(count) = validate::bytes("source", this) else { return 0.0 };
+    let Shape::Text(text) = validate::shape_of(string) else {
+        errors::invalid_arg_type("string", "string", string);
+        return 0.0;
+    };
+    let shorthand = matches!(validate::shape_of(offset), Shape::Text(_));
+    let (offset, encoding) = match shorthand {
+        true => {
+            let trailing = !matches!(validate::shape_of(length), Shape::Absent)
+                || !matches!(validate::shape_of(encoding), Shape::Absent);
+            if trailing {
+                errors::invalid_arg_type("offset", "number", offset);
+                return 0.0;
+            }
+            (undefined(), offset)
+        }
+        false => (offset, encoding),
+    };
+    let Some(enc) = validate::encoding(encoding) else { return 0.0 };
+    let Some(start) = validate::offset("offset", offset, count) else { return 0.0 };
+    let cap = match validate::shape_of(length) {
+        Shape::Absent => count - start,
+        _ => match validate::offset("length", length, count - start) {
+            Some(length) => length,
+            None => return 0.0,
+        },
+    };
     with_current(|context| {
         let Some(view) = view_of(context, this) else { return 0.0 };
-        let Some(cell) = Value(string).as_slot() else { return 0.0 };
-        let Some(text) = context.text_at(cell).and_then(|text| text.to_rust()) else { return 0.0 };
-        let enc = encoding_arg(context, encoding);
         let bytes = codec::encode(&text, &enc).unwrap_or_default();
-        let start = as_count(offset.unwrap_or(0.0)).min(view.count());
-        let cap = length.map(as_count).unwrap_or(view.count() - start);
         let count = bytes.len().min(cap).min(view.count() - start);
         if let Some(destination) = window_mut(context, &view) {
             destination[start..start + count].copy_from_slice(&bytes[..count]);
@@ -284,15 +213,52 @@ pub(in crate::entry) fn windowed(this: u64, begin: u64, end: u64) -> u64 {
 }
 
 /// `buf.equals(other)`.
+///
+/// `"otherBuffer"` is what Node calls the argument here and not `"target"` —
+/// the same object in a different member's documentation, and the tests compare
+/// the sentence.
+/// The refusal is `compare`'s and is not repeated here: a second
+/// [`validate::bytes`] would classify the same two values again, and asking
+/// [`super::super::throw::in_flight`] afterwards is the rule this crate's README
+/// states for exactly this — a native that called something which may have
+/// raised checks before it believes the answer. `0.0` means *equal* and is also
+/// what a refused compare answers, so believing it would make
+/// `buf.equals('abc')` report `true` on its way out.
 pub(in crate::entry) fn equals(this: u64, other: u64) -> bool {
-    compare_values(this, other) == 0.0
+    let ordering = super::statics::compare_values(this, other, "source", "otherBuffer");
+    !super::super::throw::in_flight() && ordering == 0.0
 }
 
 /// `buf.copy(target, targetStart?, sourceStart?, sourceEnd?)`.
+///
+/// The three bounds go through [`validate::offset`] rather than [`range`]'s
+/// clamping, and that is the difference `test-buffer-copy.js` asserts: a
+/// NEGATIVE `targetStart` is `ERR_OUT_OF_RANGE` in Node, where `range` would
+/// read it as counting from the end and copy somewhere the caller did not ask
+/// for. `<=` the length rather than `<`: an empty copy at the very end is legal.
 pub(in crate::entry) fn copy(this: u64, target: u64, target_start: u64, source_start: u64, source_end: u64) -> f64 {
-    let target_start = optional_number(target_start);
-    let source_start = optional_number(source_start);
-    let source_end = optional_number(source_end);
+    // One check at a time, and each returns: two raised in the same expression
+    // would leave the SECOND in flight, and the slot holds one throw — a program
+    // catching `copy(target, -1, -1)` would be told about the argument it did
+    // not ask about first.
+    let Some(source_len) = validate::bytes("source", this) else { return 0.0 };
+    let Some(target_len) = validate::bytes("target", target) else { return 0.0 };
+    let Some(target_at) = validate::offset("targetStart", target_start, target_len) else {
+        return 0.0;
+    };
+    let Some(source_at) = validate::offset("sourceStart", source_start, source_len) else {
+        return 0.0;
+    };
+    let source_to = match validate::shape_of(source_end) {
+        Shape::Absent => source_len,
+        _ => match validate::offset("sourceEnd", source_end, source_len) {
+            Some(at) => at,
+            None => return 0.0,
+        },
+    };
+    let target_start = Some(target_at as f64);
+    let source_start = Some(source_at as f64);
+    let source_end = Some(source_to as f64);
     with_current(|context| {
         let Some(source) = view_of(context, this) else { return 0.0 };
         let Some(destination) = view_of(context, target) else { return 0.0 };
@@ -388,26 +354,45 @@ pub(in crate::entry) fn to_json(this: u64) -> u64 {
 // ---------------------------------------------------------------------------
 
 /// One element, read at a byte offset.
-pub(in crate::entry) fn read_num(this: u64, offset: f64, kind: Kind, little: bool) -> f64 {
+///
+/// An offset that is not a number, not an integer, or does not leave room for
+/// the element is refused rather than answered. It used to answer `NaN`, which
+/// is the wrong answer twice over: `NaN` is also what a legitimate read of a
+/// float can produce, so a program could not tell a bad offset from bad data.
+pub(in crate::entry) fn read_num(this: u64, offset: u64, kind: Kind, little: bool) -> f64 {
+    let Some(count) = validate::bytes("buffer", this) else { return f64::NAN };
+    let Some(at) = validate::element_offset("offset", offset, count, kind.size()) else {
+        return f64::NAN;
+    };
     with_current(|context| {
         let Some(view) = view_of(context, this) else { return f64::NAN };
         let Some(bytes) = window(context, &view) else { return f64::NAN };
-        super::super::buffers::element::read(bytes, as_count(offset), kind, little).unwrap_or(f64::NAN)
+        super::super::buffers::element::read(bytes, at, kind, little).unwrap_or(f64::NAN)
     })
 }
 
 /// One element, written at a byte offset. Answers `offset + the element's
-/// width`, which is what Node's writes answer on success — and, here, always:
-/// an out-of-range write is dropped rather than thrown, the stand-in this
-/// layer states everywhere it cannot raise.
-pub(in crate::entry) fn write_num(this: u64, value: f64, offset: f64, kind: Kind, little: bool) -> f64 {
+/// width`, which is what Node's writes answer.
+///
+/// The VALUE is range-checked as well as the offset, and that is not the same
+/// question: `buf.writeUInt8(256)` fits the buffer perfectly and is still
+/// refused, because the byte stored would be `0` — the codec wraps by design
+/// (see `buffers::element`) and a silent wrap is what
+/// `test-buffer-writeuint.js` is written to catch.
+pub(in crate::entry) fn write_num(this: u64, value: f64, offset: u64, kind: Kind, little: bool) -> f64 {
+    let Some(count) = validate::bytes("buffer", this) else { return 0.0 };
+    let Some(at) = validate::element_offset("offset", offset, count, kind.size()) else {
+        return 0.0;
+    };
+    if !validate::fits(kind, value) {
+        return 0.0;
+    }
     with_current(|context| {
-        let at = as_count(offset);
         if let Some(view) = view_of(context, this)
             && let Some(bytes) = window_mut(context, &view)
         {
             super::super::buffers::element::write(bytes, at, kind, value, little);
         }
-        offset + kind.size() as f64
+        (at + kind.size()) as f64
     })
 }

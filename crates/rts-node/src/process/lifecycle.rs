@@ -15,11 +15,17 @@ pub(super) extern "C" fn cwd(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, 
 
 /// `process.chdir(directory)`.
 ///
-/// Node throws `ENOENT`/`ENOTDIR` when the directory is not usable. A native
-/// here cannot throw — `assert.rs`'s module doc records why — so a failure is
-/// reported on stderr and the call answers `undefined`, exactly as it does on
-/// success. A caller cannot distinguish the two; `process.cwd()` afterwards
-/// can, and that is the divergence rather than a silent success.
+/// A non-string argument is Node's `ERR_INVALID_ARG_TYPE` and is now RAISED —
+/// the doc that stood here said a native cannot throw, which stopped being true
+/// when `crate::errors` arrived; see `super::validate::directory`.
+///
+/// What is still not raised is the FAILURE: Node throws `ENOENT`/`ENOTDIR` when
+/// the directory is well-named but not usable, and this reports that on stderr
+/// and answers `undefined`, exactly as it does on success. A caller cannot
+/// distinguish the two; `process.cwd()` afterwards can. Left as it is rather
+/// than fixed in passing, because the errno an OS refusal carries has no reader
+/// here yet and inventing one per call site is the duplication `crate::errors`
+/// exists to prevent.
 pub(super) extern "C" fn chdir(
     _e: u64,
     _this: u64,
@@ -29,10 +35,7 @@ pub(super) extern "C" fn chdir(
     _a3: u64,
 ) -> u64 {
     let absent = entry::undefined_value();
-    // `string_in` asks whether the argument IS a string. `text_of` would
-    // happily hand back `"undefined"` and try to enter a directory of that name.
-    let Some(path) = entry::with_runtime(|context| entry::string_in(context, directory)) else {
-        eprintln!("rts: process.chdir: expected a string path");
+    let Some(path) = super::validate::directory(directory) else {
         return absent;
     };
     if let Err(error) = std::env::set_current_dir(&path) {
@@ -54,7 +57,13 @@ pub(super) extern "C" fn chdir(
 /// intact, and nothing they schedule afterwards will ever run — matching Node's
 /// own documented "synchronous work only" rule for that event.
 pub(super) extern "C" fn exit(_e: u64, _this: u64, code: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let status = status_for(code);
+    let Some(status) = status_for(code) else {
+        // A refused code raises, and a raise must not be followed by the exit
+        // it was raised to prevent: the program's own `catch` — or the
+        // uncaught-exception path, which ends with a failing status anyway —
+        // decides what happens next.
+        return entry::undefined_value();
+    };
     let reported = entry::make_number(f64::from(status));
     super::emit("exit", reported);
     // The streams here are unbuffered writes through `Write`, but a `console`
@@ -78,25 +87,30 @@ pub(super) extern "C" fn abort(
     std::process::abort();
 }
 
-/// The status `exit` will end with.
+/// The status `exit` will end with, or `None` when the argument was refused and
+/// a throw is already registered.
 ///
 /// An explicit argument wins over `process.exitCode`, which is Node's rule. The
 /// argument is read BEFORE anything else and no borrow is held across the exit.
-fn status_for(code: u64) -> i32 {
+///
+/// The two paths are checked differently ON PURPOSE. An explicit argument goes
+/// through `super::validate::exit_code`, which RAISES what Node raises. A
+/// stored `exitCode` cannot: it is a plain data property (nothing in this crate
+/// can install a setter — see the module doc's own note), so a bad value was
+/// written long before `exit` was called and there is no call left to refuse.
+/// `1` is what it becomes, because `0` would report SUCCESS for a program that
+/// could not say what it meant, which is the worst shape a wrong answer takes.
+fn status_for(code: u64) -> Option<i32> {
     let absent = entry::undefined_value();
     if code != absent {
-        // A code that is neither a number nor an integer-shaped string is a
-        // program error: Node throws, and a throw there ends the process with a
-        // failing status. `0` would report SUCCESS for a program that could not
-        // say what it meant, which is the worst shape a wrong answer takes.
-        return integer_of(code).unwrap_or(1);
+        return super::validate::exit_code(code);
     }
     let stored = entry::with_runtime(|context| {
         entry::get_member(context, super::object(), "exitCode")
     });
     match stored == absent {
-        true => 0,
-        false => integer_of(stored).unwrap_or(1),
+        true => Some(0),
+        false => Some(integer_of(stored).unwrap_or(1)),
     }
 }
 
@@ -287,13 +301,11 @@ pub(super) extern "C" fn kill(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    let Some(target) = entry::number_of(pid) else {
-        eprintln!("rts: process.kill: expected a numeric pid");
-        return entry::boolean_value(false);
+    let Some(target) = super::validate::pid(pid) else {
+        return entry::undefined_value();
     };
-    let Some(number) = signal_number(signal) else {
-        eprintln!("rts: process.kill: unknown signal");
-        return entry::boolean_value(false);
+    let Some(number) = super::validate::signal(signal) else {
+        return entry::undefined_value();
     };
     // SAFETY: `kill` reads two scalars and touches nothing this process owns.
     let answered = unsafe { libc::kill(target as libc::pid_t, number) };
@@ -318,14 +330,19 @@ pub(super) extern "C" fn kill(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    let Some(target) = entry::number_of(pid) else {
-        eprintln!("rts: process.kill: expected a numeric pid");
-        return entry::boolean_value(false);
+    let Some(target) = super::validate::pid(pid) else {
+        return entry::undefined_value();
     };
-    let absent = entry::undefined_value();
-    // `0` is the explicit existence check; an absent argument defaults to
-    // `SIGTERM`, which this platform has no softer analogue for.
-    let is_probe = signal != absent && entry::number_of(signal) == Some(0.0);
+    // Validated on this platform too, even though nothing is delivered: a
+    // misspelled signal name is a bug in the program either way, and refusing
+    // it only on POSIX would make the two platforms disagree about which
+    // programs are correct.
+    let Some(number) = super::validate::signal(signal) else {
+        return entry::undefined_value();
+    };
+    // `0` is the explicit existence check; anything else — `SIGTERM` included,
+    // this platform having no softer analogue — terminates.
+    let is_probe = number == 0;
     unsafe extern "system" {
         fn OpenProcess(access: u32, inherit: i32, pid: u32) -> isize;
         fn TerminateProcess(handle: isize, exit_code: u32) -> i32;
@@ -348,41 +365,6 @@ pub(super) extern "C" fn kill(
         ok != 0
     };
     entry::boolean_value(answered)
-}
-
-/// A signal argument as a number: absent is `SIGTERM`, a number is itself, a
-/// name is looked up.
-///
-/// The table is written against `libc`'s constants rather than the numbers,
-/// because `SIGUSR1` is 10 on Linux and 30 on macOS — a literal table would be
-/// right on one of them.
-#[cfg(unix)]
-fn signal_number(signal: u64) -> Option<i32> {
-    let absent = entry::undefined_value();
-    if signal == absent {
-        return Some(libc::SIGTERM);
-    }
-    if let Some(number) = entry::number_of(signal) {
-        return Some(number as i32);
-    }
-    let name = entry::with_runtime(|context| entry::string_in(context, signal))?;
-    match name.as_str() {
-        "SIGHUP" => Some(libc::SIGHUP),
-        "SIGINT" => Some(libc::SIGINT),
-        "SIGQUIT" => Some(libc::SIGQUIT),
-        "SIGABRT" => Some(libc::SIGABRT),
-        "SIGKILL" => Some(libc::SIGKILL),
-        "SIGALRM" => Some(libc::SIGALRM),
-        "SIGTERM" => Some(libc::SIGTERM),
-        "SIGUSR1" => Some(libc::SIGUSR1),
-        "SIGUSR2" => Some(libc::SIGUSR2),
-        "SIGPIPE" => Some(libc::SIGPIPE),
-        "SIGCONT" => Some(libc::SIGCONT),
-        "SIGSTOP" => Some(libc::SIGSTOP),
-        // Refused rather than guessed: an unrecognised name delivering
-        // `SIGTERM` would terminate a process the program only meant to poke.
-        _ => None,
-    }
 }
 
 /// The lock `umask`'s read needs — POSIX has no way to peek at the mask, only

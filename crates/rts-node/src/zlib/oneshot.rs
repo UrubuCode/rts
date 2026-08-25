@@ -21,13 +21,38 @@
 //! (which reads as success — the `process.exit` defect exactly) or a truthy
 //! value carrying the reason. `if (err)` works; `err instanceof Error` and
 //! `err.code` do not, and that is named here rather than found at run time.
+//!
+//! # A BAD ARGUMENT throws, on both forms
+//!
+//! The paragraph above is about a codec that failed on real bytes. An argument
+//! that is not bytes at all is a different answer, and it is Node's: a
+//! synchronous throw, from `gunzip(1, cb)` exactly as from `gunzipSync(1)`,
+//! before the callback is ever reached (`test-zlib-invalid-input.js` asserts
+//! the async form throws rather than reporting). So the check runs once, in
+//! [`prepare`], and both forms raise the same refusal.
 
 use rts_core::entry::{self, Provided};
 
-use super::codec::{self, Kind};
-use super::options;
+use super::codec::{self, Kind, Settings};
+use super::options::{self, Refusal};
 
-/// One buffer through one codec, `undefined` on failure.
+/// The input and the settings of one convenience call, or the first thing
+/// wrong with them.
+///
+/// One function for both forms because they accept exactly the same arguments;
+/// two would be two places for the answer to "what does `gzip` take" to drift,
+/// and the sync/async split is about WHEN the result is delivered.
+fn prepare(kind: Kind, buffer: u64, options: u64) -> Result<(Vec<u8>, Settings), Refusal> {
+    entry::with_runtime(|context| {
+        let Some(input) = options::input_bytes(context, buffer) else {
+            return Err(Refusal::Input("buffer", buffer));
+        };
+        let settings = options::settings(context, kind, options)?;
+        Ok((input, settings))
+    })
+}
+
+/// One buffer through one codec, `undefined` on a codec failure.
 ///
 /// `undefined` and NOT an empty `Buffer` — an empty buffer is a legitimate
 /// result (`gunzipSync` of the gzip of `""` IS empty), so answering it for a
@@ -35,16 +60,21 @@ use super::options;
 /// once, in `brotliDecompressSync` and `unzipSync`, which ignored their
 /// codec's error and answered whatever the output vector happened to hold.
 fn sync_call(kind: Kind, buffer: u64, options: u64) -> u64 {
-    entry::with_runtime(|context| {
-        let Some(input) = options::input_bytes(context, buffer) else {
-            return entry::undefined_in(context);
-        };
-        let settings = options::settings(context, options);
-        match codec::one_shot(kind, &input, &settings) {
-            Some(bytes) => entry::make_buffer(context, &bytes),
-            None => entry::undefined_in(context),
+    let prepared = prepare(kind, buffer, options);
+    let (input, settings) = match prepared {
+        Ok(pair) => pair,
+        // Raised HERE and not inside `prepare`: raising builds an `Error` and
+        // throws it, which takes its own borrow, and doing that from inside
+        // the borrow that found the mistake aborts the process.
+        Err(refusal) => {
+            refusal.raise();
+            return entry::undefined_value();
         }
-    })
+    };
+    match codec::one_shot(kind, &input, &settings) {
+        Some(bytes) => entry::with_runtime(|context| entry::make_buffer(context, &bytes)),
+        None => entry::undefined_value(),
+    }
 }
 
 /// The same, then `callback(error, result)`.
@@ -52,8 +82,21 @@ fn callback_call(kind: Kind, buffer: u64, options: u64, callback: u64) -> u64 {
     // OUTSIDE any borrow: this takes its own, and every `entry::call` below is
     // an ambient entry point that would abort inside one.
     let (options, callback) = options::options_and_callback(options, callback);
-    let result = sync_call(kind, buffer, options);
     let absent = entry::undefined_value();
+    // Checked before the codec runs and before the callback exists as far as
+    // this call is concerned: a refused argument THROWS, and invoking the
+    // callback afterwards would run it with a throw already pending.
+    let (input, settings) = match prepare(kind, buffer, options) {
+        Ok(pair) => pair,
+        Err(refusal) => {
+            refusal.raise();
+            return absent;
+        }
+    };
+    let result = match codec::one_shot(kind, &input, &settings) {
+        Some(bytes) => entry::with_runtime(|context| entry::make_buffer(context, &bytes)),
+        None => absent,
+    };
     if callback == absent {
         return absent;
     }
@@ -92,29 +135,41 @@ convenience!(brotli_decompress_sync, brotli_decompress, Kind::BrotliDecompress);
 
 /// `zlib.crc32(data, value?)`.
 ///
-/// `undefined` for a `data` that is not a string or a byte view, and for a
-/// `value` that is present but not a number or outside the unsigned 32-bit
-/// range — the two cases Node raises `ERR_INVALID_ARG_TYPE`/`ERR_OUT_OF_RANGE`
-/// for. Coercing them instead would answer a checksum of something the caller
-/// never passed.
+/// Throws for a `data` that is not a string or a byte view, and for a `value`
+/// that is present but not a number or outside the unsigned 32-bit range —
+/// Node's `ERR_INVALID_ARG_TYPE` and `ERR_OUT_OF_RANGE`, which
+/// `test-zlib-crc32.js` asserts by code for six kinds of bad `data` and four
+/// of bad `value`. Coercing instead would answer a checksum of something the
+/// caller never passed, and answering `undefined` — what this did — is a
+/// number-shaped hole a program only finds later.
 extern "C" fn crc32(_e: u64, _this: u64, data: u64, value: u64, _c: u64, _d: u64) -> u64 {
-    entry::with_runtime(|context| {
+    let prepared = entry::with_runtime(|context| {
         let absent = entry::undefined_in(context);
         let Some(bytes) = options::input_bytes(context, data) else {
-            return absent;
+            return Err(Refusal::Input("data", data));
         };
-        let seed = match value == absent {
-            true => 0.0,
-            false => match entry::number_of(value) {
-                Some(number) => number,
-                None => return absent,
-            },
-        };
-        if !(0.0..=4_294_967_295.0).contains(&seed) || seed.fract() != 0.0 {
-            return absent;
+        if value == absent {
+            return Ok((bytes, 0));
         }
-        entry::make_number(f64::from(codec::crc32(&bytes, seed as u32)))
-    })
+        let Some(seed) = entry::number_of(value) else {
+            return Err(Refusal::OptionType("value", value));
+        };
+        // The fractional test is part of the RANGE and not a separate refusal:
+        // Node's `validateUint32` reports `2.5` the same way it reports `-1`,
+        // because a CRC seed is 32 bits and half of one is not a smaller seed.
+        if !(0.0..=4_294_967_295.0).contains(&seed) || seed.fract() != 0.0 {
+            return Err(Refusal::OptionRange("value", ">= 0 and <= 4294967295", value));
+        }
+        Ok((bytes, seed as u32))
+    });
+    match prepared {
+        Ok((bytes, seed)) => entry::make_number(f64::from(codec::crc32(&bytes, seed))),
+        // Outside the borrow above, for the reason `sync_call` states.
+        Err(refusal) => {
+            refusal.raise();
+            entry::undefined_value()
+        }
+    }
 }
 
 /// Every member this file provides, for the namespace.

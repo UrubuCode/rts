@@ -71,7 +71,11 @@
 //! GLOBALS, so reaching them is a read of the global object, and what was
 //! missing was the NAME over an implementation that already existed.
 //!
-//! `stream/promises`, `stream/consumers`, `compose`,
+//! ~~`stream/promises`~~ — it exists, in [`promises`]: one promise minted per
+//! call and settled by the callback form's own listeners, which is what keeps
+//! "did this stream finish" a question with one answer.
+//!
+//! `stream/consumers`, `compose`,
 //! `isErrored`/`isReadable`, `addAbortSignal`,
 //! `setDefaultHighWaterMark`, `Readable.fromWeb`/`toWeb`,
 //! `Writable.fromWeb`/`toWeb`, `Duplex.from`/`fromWeb`/`toWeb`, `.wrap()`,
@@ -90,12 +94,21 @@
 mod common;
 mod duplex;
 mod flowing;
+mod promises;
 mod readable;
 mod util;
 mod web;
 mod writable;
 
 use rts_core::entry::{self, Context, Provided};
+
+/// The namespace `node:stream/promises` is — the same two operations as
+/// `node:stream`, answering promises instead of taking callbacks. See
+/// [`promises`] for why it is a layer over `util` rather than a second
+/// implementation.
+pub fn promises_namespace(context: &mut Context) -> u64 {
+    entry::make_namespace(context, promises::MEMBERS)
+}
 
 /// The namespace `node:stream/web` is — see `web.rs` for why it is a
 /// re-export of the globals rather than a second set of classes.

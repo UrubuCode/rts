@@ -97,7 +97,11 @@ impl Kind {
     ///
     /// `None` for the floats and for `Raw`, which is what routes the write to
     /// bit-pattern conversion instead of to modular wrapping.
-    const fn integer(self) -> Option<(u32, bool)> {
+    /// Also read by `buffer::validate`, which refuses a `writeUInt8(256)` where
+    /// this module would silently wrap it. One set of widths, two readers: a
+    /// bound written out again beside the validator would disagree with the
+    /// codec the first time either grew a kind.
+    pub(in crate::entry) const fn integer(self) -> Option<(u32, bool)> {
         match self {
             Kind::Int8 => Some((8, true)),
             Kind::Uint8 | Kind::Uint8Clamped => Some((8, false)),

@@ -56,8 +56,10 @@ pub(super) extern "C" fn read_file(_e: u64, _this: u64, path: u64, encoding: u64
     } else {
         (encoding, callback)
     };
-    let Some(path_text) = super::text(path) else {
-        invoke2(callback, node_error("ENOENT", "ENOENT: no such file or directory, open"), absent);
+    if !super::validate::callback(callback) {
+        return absent;
+    }
+    let Some(path_text) = super::validate::path("path", path) else {
         return absent;
     };
     match std::fs::read(&path_text) {
@@ -85,7 +87,13 @@ pub(super) extern "C" fn read_file(_e: u64, _this: u64, path: u64, encoding: u64
 pub(super) extern "C" fn write_file(_e: u64, _this: u64, path: u64, data: u64, callback: u64, a3: u64) -> u64 {
     let absent = entry::undefined_value();
     let callback = if callback == absent { a3 } else { callback };
-    let (Some(path_text), Some(data_text)) = (super::text(path), super::text(data)) else {
+    if !super::validate::callback(callback) {
+        return absent;
+    }
+    let Some(path_text) = super::validate::path("file", path) else {
+        return absent;
+    };
+    let Some(data_text) = super::text(data) else {
         invoke2(callback, node_error("ENOENT", "ENOENT: no such file or directory, open"), absent);
         return absent;
     };
@@ -103,8 +111,13 @@ pub(super) extern "C" fn write_file(_e: u64, _this: u64, path: u64, data: u64, c
 /// `fs.stat(path, callback)`.
 pub(super) extern "C" fn stat(_e: u64, _this: u64, path: u64, callback: u64, _a2: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
-    let Some(path_text) = super::text(path) else {
-        invoke2(callback, node_error("ENOENT", "ENOENT: no such file or directory, stat"), absent);
+    // `makeStatsCallback` in Node, and the reason `test-fs-makeStatsCallback.js`
+    // exists: a non-function second argument is refused BEFORE the stat runs,
+    // rather than being called as one afterwards.
+    if !super::validate::callback(callback) {
+        return absent;
+    }
+    let Some(path_text) = super::validate::path("path", path) else {
         return absent;
     };
     match super::stats::stat_result(&path_text, true) {
@@ -121,6 +134,13 @@ pub(super) extern "C" fn stat(_e: u64, _this: u64, path: u64, callback: u64, _a2
 /// `fs.exists(path, callback)` — Node's one callback with no error slot:
 /// `callback(boolean)`.
 pub(super) extern "C" fn exists(_e: u64, _this: u64, path: u64, callback: u64, _a2: u64, _a3: u64) -> u64 {
+    if !super::validate::callback(callback) {
+        return entry::undefined_value();
+    }
+    // The PATH is deliberately not validated: `fs.exists` is the one member
+    // whose whole answer is a boolean, and Node answers `false` for a path it
+    // cannot even read rather than throwing — the same rule `existsSync`
+    // already follows here.
     let found = super::text(path).is_some_and(|path| std::path::Path::new(&path).exists());
     invoke1(callback, entry::boolean_value(found));
     entry::undefined_value()
@@ -131,7 +151,13 @@ pub(super) extern "C" fn exists(_e: u64, _this: u64, path: u64, callback: u64, _
 pub(super) extern "C" fn access(_e: u64, _this: u64, path: u64, mode: u64, a2: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
     let callback = if a2 != absent { a2 } else { mode };
-    let found = super::text(path).is_some_and(|path| std::path::Path::new(&path).exists());
+    if !super::validate::callback(callback) {
+        return absent;
+    }
+    let Some(path_text) = super::validate::path("path", path) else {
+        return absent;
+    };
+    let found = std::path::Path::new(&path_text).exists();
     match found {
         true => invoke2(callback, entry::null_value(), absent),
         false => invoke2(callback, node_error("ENOENT", "ENOENT: no such file or directory, access"), absent),
@@ -143,8 +169,10 @@ pub(super) extern "C" fn access(_e: u64, _this: u64, path: u64, mode: u64, a2: u
 pub(super) extern "C" fn readdir(_e: u64, _this: u64, path: u64, callback: u64, a2: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
     let callback = if with_runtime(|context| entry::is_callable_in(context, callback)) { callback } else { a2 };
-    let Some(path_text) = super::text(path) else {
-        invoke2(callback, node_error("ENOENT", "ENOENT: no such file or directory, scandir"), absent);
+    if !super::validate::callback(callback) {
+        return absent;
+    }
+    let Some(path_text) = super::validate::path("path", path) else {
         return absent;
     };
     match std::fs::read_dir(&path_text) {

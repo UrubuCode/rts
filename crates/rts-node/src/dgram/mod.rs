@@ -32,14 +32,28 @@
 //! polling loop that calls any dgram method) observes every event queued in
 //! between at that call.
 //!
+//! # What is REFUSED, and where that is decided
+//!
+//! [`args`] holds it: the socket type `createSocket` accepts, and the six-way
+//! overload `send` accepts. Both used to accept everything —
+//! `createSocket(1)` built a working `udp4` socket and `send(23, port, host)`
+//! sent the two bytes `"23"` — because both read their arguments with
+//! `entry::text_in`, which is `ToString` and answers for every value there is.
+//! Node refuses both by code (`ERR_SOCKET_BAD_TYPE`,
+//! `ERR_INVALID_ARG_TYPE`), and a wrong answer that runs is the failure this
+//! repository ranks worst. Everything raised is `crate::errors`', never spelled
+//! here.
+//!
 //! # Not implemented, by name
 //!
 //! **`connect`/`disconnect`/`remoteAddress`** — `connect()` narrows a UDP
 //! socket to one peer; `std::net::UdpSocket::connect` supports it and this
 //! module wires it, so `remoteAddress()` reads `peer_addr()` — both are
 //! implemented, named here because the doc lists them as a pair with
-//! `send()`'s connected-socket overload, which is NOT implemented: `send`
-//! here always takes an explicit port/address. **`setMulticastInterface`** —
+//! `send()`'s connected-socket overload, which IS implemented now that the
+//! full signature is read: a `send` with no port goes to the connected peer,
+//! and a `send` WITH one on a connected socket is
+//! `ERR_SOCKET_DGRAM_IS_CONNECTED`. **`setMulticastInterface`** —
 //! `std::net::UdpSocket` has no interface-by-name/index setter, and adding
 //! one needs `libc`/`windows-sys`, outside this crate's current dependency
 //! set. **`addSourceSpecificMembership`/`dropSourceSpecificMembership`** —
@@ -71,6 +85,7 @@
 //! rejects a non-function there before ever calling it) rather than
 //! silently discarding it.
 
+mod args;
 mod bufsize;
 mod registry;
 
@@ -153,19 +168,27 @@ extern "C" fn create_socket(e: u64, _this: u64, a: u64, callback: u64, _c: u64, 
 /// both call, following the pattern every other class in this crate uses.
 extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     registry::pump();
-    let (kind, reuse_raw, recv_buf, send_buf, lookup, receive_block_list, send_block_list) = entry::with_runtime(|context| {
-        let text = entry::text_in(context, options);
-        match text {
-            Some(kind) => (kind, entry::undefined_in(context), None, None, entry::undefined_in(context), entry::undefined_in(context), entry::undefined_in(context)),
-            None => {
-                let kind = option_text(context, options, "type").unwrap_or_else(|| "udp4".to_owned());
+    // The type first, and a refusal ends the call: Node has no default here —
+    // `createSocket()` with nothing, with `1`, with `['udp4']` or with `{}` is
+    // `ERR_SOCKET_BAD_TYPE` every time. This defaulted to `udp4` instead, so a
+    // program that asked for something impossible got a working IPv4 socket
+    // and found out at the first datagram, if ever.
+    let Some(kind) = args::socket_kind(options) else {
+        crate::errors::socket_bad_type();
+        return entry::undefined_value();
+    };
+    let bag = entry::with_runtime(|context| entry::string_in(context, options).is_none());
+    let (reuse_raw, recv_buf, send_buf, lookup, receive_block_list, send_block_list) = entry::with_runtime(|context| {
+        match bag {
+            false => (entry::undefined_in(context), None, None, entry::undefined_in(context), entry::undefined_in(context), entry::undefined_in(context)),
+            true => {
                 let reuse = option_value(context, options, "reuseAddr");
                 let recv_buf = option_num(context, options, "recvBufferSize");
                 let send_buf = option_num(context, options, "sendBufferSize");
                 let lookup = option_value(context, options, "lookup");
                 let receive_block_list = option_value(context, options, "receiveBlockList");
                 let send_block_list = option_value(context, options, "sendBlockList");
-                (kind, reuse, recv_buf, send_buf, lookup, receive_block_list, send_block_list)
+                (reuse, recv_buf, send_buf, lookup, receive_block_list, send_block_list)
             }
         }
     });
@@ -203,6 +226,10 @@ extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: 
         set_bool(context, instance, "__udp6", is_udp6);
         set_bool(context, instance, "__reuseAddr", reuse_addr);
         set_bool(context, instance, "__bound", false);
+        // Read by `send` to decide whether a destination is an argument or a
+        // mistake; kept on the instance rather than in the registry because a
+        // socket has one before it has a row there.
+        set_bool(context, instance, "__connected", false);
         if receive_block_list != entry::undefined_in(context) {
             set_value(context, instance, "__receiveBlockList__", receive_block_list);
         }
@@ -332,6 +359,7 @@ extern "C" fn connect(_e: u64, this: u64, port: u64, address: u64, callback: u64
     });
     match result {
         Ok(()) => {
+            entry::with_runtime(|context| set_bool(context, this, "__connected", true));
             if callback != absent {
                 entry::call(callback, absent, absent, absent, absent, absent);
             }
@@ -368,6 +396,7 @@ extern "C" fn disconnect(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64)
             let _ = socket.connect(wildcard);
         }
     });
+    entry::with_runtime(|context| set_bool(context, this, "__connected", false));
     absent
 }
 
@@ -388,20 +417,22 @@ extern "C" fn close(_e: u64, this: u64, callback: u64, _b: u64, _c: u64, _d: u64
     absent
 }
 
-/// `socket.send(msg, port?, address?, callback?)` — the offset/length overload
-/// (buffer-only) is not read; see the module doc.
-extern "C" fn send(_e: u64, this: u64, msg: u64, port: u64, address: u64, callback: u64) -> u64 {
+/// `socket.send(msg, [offset, length,] [port,] [address,] [callback])` — every
+/// overload, resolved and checked by [`args::send_call`].
+///
+/// Validation runs BEFORE the implicit bind below, which is Node's order and
+/// matters: a refused call must not leave a socket bound that the program
+/// never asked to bind.
+extern "C" fn send(_e: u64, this: u64, a: u64, b: u64, c: u64, d: u64) -> u64 {
     registry::pump();
     let absent = entry::undefined_value();
+    let Some(call) = args::send_call(get_bool(this, "__connected"), a, b, c, d) else {
+        return absent;
+    };
     if !get_bool(this, "__bound") {
         bind(0, this, entry::make_number(0.0), absent, absent, 0);
     }
-    let bytes = entry::text_of(msg)
-        .and_then(|text| entry::encode_text(&text, "utf8"))
-        .or_else(|| entry::with_runtime(|context| entry::bytes_of(context, msg)))
-        .unwrap_or_default();
-    let port_num = entry::number_of(port);
-    let target_host = entry::text_of(address);
+    let args::SendCall { bytes, port: port_num, address: target_host, callback } = call;
     // A destination refused by `sendBlockList` — Node delivers this as a
     // callback error / `'error'` event, never a synchronous throw (the
     // module doc's own note on why this test can only assert "did not throw
@@ -432,7 +463,7 @@ extern "C" fn send(_e: u64, this: u64, msg: u64, port: u64, address: u64, callba
         match port_num {
             Some(port) => {
                 let host = target_host.unwrap_or_else(|| if get_bool_static(&entry.instance) { "::1".to_owned() } else { "127.0.0.1".to_owned() });
-                socket.send_to(&bytes, (host.as_str(), port as u16)).map(|_| ()).map_err(|error| error.to_string())
+                socket.send_to(&bytes, (host.as_str(), port)).map(|_| ()).map_err(|error| error.to_string())
             }
             // No port: the socket must already be connected via `connect()`.
             None => socket.send(&bytes).map(|_| ()).map_err(|error| error.to_string()),

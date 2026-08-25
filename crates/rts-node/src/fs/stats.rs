@@ -92,8 +92,10 @@ predicate!(is_socket, super::dirent::TYPE_SOCKET);
 /// `TypeError` rather than Node's own). Follows a symlink at the final
 /// component, matching Node.
 pub(super) extern "C" fn stat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = super::text(path) else {
-        entry::throw_type_error("ENOENT: no such file or directory, stat");
+    // No `ENOENT` beside the refusal: `validate::path` has already registered
+    // the `ERR_INVALID_ARG_TYPE` throw, and a second raise for one call would
+    // leave whichever landed last as the error a program sees.
+    let Some(path) = super::validate::path("path", path) else {
         return entry::undefined_value();
     };
     match fetch(&path, true) {
@@ -109,8 +111,8 @@ pub(super) extern "C" fn stat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2
 /// symlink at the final path component (reports the link itself). Same raise
 /// on failure.
 pub(super) extern "C" fn lstat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = super::text(path) else {
-        entry::throw_type_error("ENOENT: no such file or directory, lstat");
+    // See `stat_sync` for why the refusal raises alone.
+    let Some(path) = super::validate::path("path", path) else {
         return entry::undefined_value();
     };
     match fetch(&path, false) {

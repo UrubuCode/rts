@@ -119,9 +119,17 @@ fn open_for_write(path: &str, flags: Option<&str>) -> std::io::Result<std::fs::F
 /// no other reason to keep.
 pub(super) extern "C" fn create_write_stream(_e: u64, _this: u64, path: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
-    let Some(path_text) = super::text(path) else {
+    let Some(path_text) = super::validate::path("path", path) else {
         return absent;
     };
+    // `start` is REFUSED when it is not an integer even though this stream
+    // does not honour it (see the doc above): the two are separate promises.
+    // Node's `{ start: '4' }` is a `ERR_INVALID_ARG_TYPE` before any file is
+    // opened, and answering a working stream for it would be a wrong answer to
+    // a question the caller asked correctly-shaped.
+    if !super::validate::option_integer(options, "start") {
+        return absent;
+    }
     let flags = entry::with_runtime(|context| entry::get_member(context, options, "flags"));
     let flags_text = entry::text_of(flags);
     let Ok(file) = open_for_write(&path_text, flags_text.as_deref()) else {
@@ -235,11 +243,19 @@ const READ_STREAM_METHODS: &[(&str, Provided)] = &[("on", on_override), ("addLis
 /// `fs.createReadStream(path, options?)`. `start`/`end`/`fd`/`autoClose` are
 /// not read — see [`create_write_stream`]'s doc for the same call on the
 /// write side; content is always the whole file, per [`ensure_started`].
-pub(super) extern "C" fn create_read_stream(_e: u64, _this: u64, path: u64, _options: u64, _a2: u64, _a3: u64) -> u64 {
+/// `start`/`end` are still TYPE-CHECKED, which is a different promise from
+/// honouring them: see the refusal in the body.
+pub(super) extern "C" fn create_read_stream(_e: u64, _this: u64, path: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
-    let Some(path_text) = super::text(path) else {
+    let Some(path_text) = super::validate::path("path", path) else {
         return absent;
     };
+    // Refused for the reason `create_write_stream` states, and for both keys:
+    // `test-fs-non-number-arguments-throw.js` passes `{ start: 4, end: '6' }`
+    // as well as the other way round.
+    if !super::validate::option_integer(options, "start") || !super::validate::option_integer(options, "end") {
+        return absent;
+    }
     let readable_ctor = entry::with_runtime(|context| stream_member(context, "Readable"));
     let instance = entry::construct(readable_ctor, absent, absent, absent, absent);
     entry::with_runtime(|context| {

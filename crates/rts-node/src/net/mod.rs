@@ -45,8 +45,11 @@
 //! # Not implemented, by name
 //!
 //! **IPC** (Unix-domain sockets, Windows named pipes) — every `path`-based
-//! overload of `connect`/`createConnection`/`server.listen` is refused
-//! (silently, this crate's convention), TCP-only throughout. **Happy
+//! overload of `connect`/`createConnection`/`server.listen` is refused, TCP-only
+//! throughout. Refused OUT LOUD now (`ERR_INVALID_ARG_VALUE`, `validate`'s own
+//! doc explains the shape): it used to be silent, this crate's convention for a
+//! gap it could not report, and a silently ignored `path` connects somewhere
+//! else or nowhere at all. **Happy
 //! Eyeballs / `autoSelectFamily`** and its four getter/setter pairs
 //! (`getDefaultAutoSelectFamily`, …) — needs `node:dns`'s `lookup()`, a
 //! cross-module dependency out of scope here. `fd`/`onread`/`signal` socket
@@ -56,8 +59,10 @@
 //! `dropMaxConnection` enforcement — the properties exist and are settable,
 //! nothing reads them. `'lookup'` event. `socket.bufferSize` (deprecated
 //! alias; use `writable.writableLength`, which this module's inherited
-//! `Writable` half already tracks correctly). `server.listen(handle)`/
-//! `listen(options)` — only `(port[, host][, callback])`. `server[Symbol.
+//! `Writable` half already tracks correctly). `server.listen(handle)` — the
+//! `(port[, host][, callback])` and `(options[, callback])` forms are both read
+//! now, and both refuse a bad port by Node's own code (see `validate`).
+//! `server[Symbol.
 //! asyncDispose]`. `reusePort`/`ipv6Only`/`exclusive`/`backlog` listen
 //! options — `std::net::TcpListener::bind` takes none of them.
 //! `setKeepAlive`'s OS-level effect — see `socket.rs`'s own note; the value
@@ -71,6 +76,7 @@ mod registry;
 mod server;
 mod socket;
 mod socket_address;
+mod validate;
 
 use rts_core::entry::{self, Provided};
 

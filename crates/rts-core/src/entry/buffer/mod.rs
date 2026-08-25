@@ -33,9 +33,22 @@
 //! # The codecs live in [`codec`], moved rather than copied
 //!
 //! See that module's doc — `rts-node::buffer` no longer has one of its own.
+//!
+//! # What an argument has to be, and why that is [`validate`] and not here
+//!
+//! Every member above used to accept anything and answer something: a negative
+//! size clamped to zero, a string where a `Buffer` was wanted compared as empty,
+//! an offset past the end read as `NaN`. Node refuses all three with a specific
+//! `code`, and **17 files of its own suite died on "Missing expected
+//! exception"** because of it (measured 2026-08-24). The checks are one module
+//! rather than a line per member because the same three questions are asked
+//! fourteen times over — see [`validate`], which also documents the borrow rule
+//! that decides their shape.
 
 pub(in crate::entry) mod codec;
 pub(in crate::entry) mod ops;
+pub(in crate::entry) mod statics;
+pub(in crate::entry) mod validate;
 
 use super::buffers::element::Kind;
 use super::buffers::uint8_array;
@@ -51,45 +64,52 @@ impl Buffer {
     const poolSize: f64 = 8192.0;
 
     /// `Buffer.alloc(size, fill?, encoding?)`.
+    ///
+    /// `size` crosses as a raw value and not as an `f64`, and every offset below
+    /// does the same: the coercion the attribute would insert answers `NaN` for
+    /// `Buffer.alloc('x')`, which is a *range* mistake where Node reports a
+    /// *type* one — and `undefined` and `0` become indistinguishable, so
+    /// `Buffer.alloc()` would allocate nothing instead of being refused. See
+    /// [`validate`].
     #[stat]
-    fn alloc(size: f64, fill: u64, encoding: u64) -> u64 {
-        ops::alloc(size, fill, encoding)
+    fn alloc(size: u64, fill: u64, encoding: u64) -> u64 {
+        statics::alloc(size, fill, encoding)
     }
 
     /// `Buffer.allocUnsafe(size)`.
     #[stat]
-    fn alloc_unsafe(size: f64) -> u64 {
-        ops::alloc_unsafe(size)
+    fn alloc_unsafe(size: u64) -> u64 {
+        statics::alloc_unsafe(size)
     }
 
     /// `Buffer.from(source, encodingOrOffset?)`.
     #[stat]
     fn from(source: u64, encoding_or_offset: u64) -> u64 {
-        ops::from(source, encoding_or_offset)
+        statics::from(source, encoding_or_offset)
     }
 
     /// `Buffer.concat(list, totalLength?)`.
     #[stat]
     fn concat(list: u64, total_length: u64) -> u64 {
-        ops::concat(list, total_length)
+        statics::concat(list, total_length)
     }
 
     /// `Buffer.byteLength(source, encoding?)`.
     #[stat]
     fn byte_length(source: u64, encoding: u64) -> f64 {
-        ops::byte_length(source, encoding)
+        statics::byte_length(source, encoding)
     }
 
     /// `Buffer.isBuffer(value)`.
     #[stat]
     fn is_buffer(value: u64) -> bool {
-        ops::is_buffer(value)
+        statics::is_buffer(value)
     }
 
     /// `Buffer.isEncoding(name)`.
     #[stat]
     fn is_encoding(encoding: u64) -> bool {
-        ops::is_encoding(encoding)
+        statics::is_encoding(encoding)
     }
 
     /// `Buffer.compare(a, b)`. Named apart from the instance method below —
@@ -97,7 +117,7 @@ impl Buffer {
     #[stat]
     #[js("compare")]
     fn compare_static(a: u64, b: u64) -> f64 {
-        ops::compare_values(a, b)
+        statics::compare_values(a, b, "buf1", "buf2")
     }
 
     /// `buf.toString(encoding?, start?, end?)`.
@@ -127,7 +147,7 @@ impl Buffer {
 
     /// `buf.compare(target)`.
     fn compare(this: u64, other: u64) -> f64 {
-        ops::compare_values(this, other)
+        statics::compare_values(this, other, "source", "target")
     }
 
     /// `buf.copy(target, targetStart?, sourceStart?, sourceEnd?)`.
@@ -157,84 +177,114 @@ impl Buffer {
     }
 
     /// `buf.readUInt8(offset?)`.
-    fn read_u_int8(this: u64, offset: f64) -> f64 {
+    fn read_u_int8(this: u64, offset: u64) -> f64 {
         ops::read_num(this, offset, Kind::Uint8, true)
     }
 
     /// `buf.writeUInt8(value, offset?)`.
-    fn write_u_int8(this: u64, value: f64, offset: f64) -> f64 {
+    fn write_u_int8(this: u64, value: f64, offset: u64) -> f64 {
         ops::write_num(this, value, offset, Kind::Uint8, true)
     }
 
     /// `buf.readUInt16LE(offset?)`.
     #[js("readUInt16LE")]
-    fn read_u_int16_le(this: u64, offset: f64) -> f64 {
+    fn read_u_int16_le(this: u64, offset: u64) -> f64 {
         ops::read_num(this, offset, Kind::Uint16, true)
     }
 
     /// `buf.readUInt16BE(offset?)`.
     #[js("readUInt16BE")]
-    fn read_u_int16_be(this: u64, offset: f64) -> f64 {
+    fn read_u_int16_be(this: u64, offset: u64) -> f64 {
         ops::read_num(this, offset, Kind::Uint16, false)
     }
 
     /// `buf.writeUInt16LE(value, offset?)`.
     #[js("writeUInt16LE")]
-    fn write_u_int16_le(this: u64, value: f64, offset: f64) -> f64 {
+    fn write_u_int16_le(this: u64, value: f64, offset: u64) -> f64 {
         ops::write_num(this, value, offset, Kind::Uint16, true)
     }
 
     /// `buf.writeUInt16BE(value, offset?)`.
     #[js("writeUInt16BE")]
-    fn write_u_int16_be(this: u64, value: f64, offset: f64) -> f64 {
+    fn write_u_int16_be(this: u64, value: f64, offset: u64) -> f64 {
         ops::write_num(this, value, offset, Kind::Uint16, false)
+    }
+
+    /// `buf.readUInt32LE(offset?)`.
+    ///
+    /// The four `UInt32` members were the hole in this family and not a
+    /// deliberate omission: `Kind::Uint32` has always been in the codec, the
+    /// declarations were simply absent, and `test-buffer-readuint.js` iterates
+    /// `['UInt8', 'UInt16BE', 'UInt16LE', 'UInt32BE', 'UInt32LE']` — so it died
+    /// calling `undefined` before it could reach a single argument check.
+    #[js("readUInt32LE")]
+    fn read_u_int32_le(this: u64, offset: u64) -> f64 {
+        ops::read_num(this, offset, Kind::Uint32, true)
+    }
+
+    /// `buf.readUInt32BE(offset?)`.
+    #[js("readUInt32BE")]
+    fn read_u_int32_be(this: u64, offset: u64) -> f64 {
+        ops::read_num(this, offset, Kind::Uint32, false)
+    }
+
+    /// `buf.writeUInt32LE(value, offset?)`.
+    #[js("writeUInt32LE")]
+    fn write_u_int32_le(this: u64, value: f64, offset: u64) -> f64 {
+        ops::write_num(this, value, offset, Kind::Uint32, true)
+    }
+
+    /// `buf.writeUInt32BE(value, offset?)`.
+    #[js("writeUInt32BE")]
+    fn write_u_int32_be(this: u64, value: f64, offset: u64) -> f64 {
+        ops::write_num(this, value, offset, Kind::Uint32, false)
     }
 
     /// `buf.readInt32LE(offset?)`.
     #[js("readInt32LE")]
-    fn read_int32_le(this: u64, offset: f64) -> f64 {
+    fn read_int32_le(this: u64, offset: u64) -> f64 {
         ops::read_num(this, offset, Kind::Int32, true)
     }
 
     /// `buf.readInt32BE(offset?)`.
     #[js("readInt32BE")]
-    fn read_int32_be(this: u64, offset: f64) -> f64 {
+    fn read_int32_be(this: u64, offset: u64) -> f64 {
         ops::read_num(this, offset, Kind::Int32, false)
     }
 
     /// `buf.writeInt32LE(value, offset?)`.
     #[js("writeInt32LE")]
-    fn write_int32_le(this: u64, value: f64, offset: f64) -> f64 {
+    fn write_int32_le(this: u64, value: f64, offset: u64) -> f64 {
         ops::write_num(this, value, offset, Kind::Int32, true)
     }
 
     /// `buf.writeInt32BE(value, offset?)`.
     #[js("writeInt32BE")]
-    fn write_int32_be(this: u64, value: f64, offset: f64) -> f64 {
+    fn write_int32_be(this: u64, value: f64, offset: u64) -> f64 {
         ops::write_num(this, value, offset, Kind::Int32, false)
     }
 
     /// `buf.readFloatLE(offset?)`.
     #[js("readFloatLE")]
-    fn read_float_le(this: u64, offset: f64) -> f64 {
+    fn read_float_le(this: u64, offset: u64) -> f64 {
         ops::read_num(this, offset, Kind::Float32, true)
     }
 
     /// `buf.writeFloatLE(value, offset?)`.
     #[js("writeFloatLE")]
-    fn write_float_le(this: u64, value: f64, offset: f64) -> f64 {
+    fn write_float_le(this: u64, value: f64, offset: u64) -> f64 {
         ops::write_num(this, value, offset, Kind::Float32, true)
     }
 
     /// `buf.readDoubleLE(offset?)`.
     #[js("readDoubleLE")]
-    fn read_double_le(this: u64, offset: f64) -> f64 {
+    fn read_double_le(this: u64, offset: u64) -> f64 {
         ops::read_num(this, offset, Kind::Float64, true)
     }
 
     /// `buf.writeDoubleLE(value, offset?)`.
     #[js("writeDoubleLE")]
-    fn write_double_le(this: u64, value: f64, offset: f64) -> f64 {
+    fn write_double_le(this: u64, value: f64, offset: u64) -> f64 {
         ops::write_num(this, value, offset, Kind::Float64, true)
     }
 }

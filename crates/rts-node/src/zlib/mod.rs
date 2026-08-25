@@ -35,10 +35,19 @@
 //! `entry::make_buffer` — the real `Buffer` class `rts-core` builds, so
 //! `Buffer.isBuffer(zlib.gzipSync(x))` is `true`.
 //!
-//! # No throw, and what stands in for it
+//! # A BAD ARGUMENT throws; a failed CODEC still does not
 //!
-//! Nothing on this crate's host surface throws (see `crypto/kdf.rs`'s doc).
-//! So:
+//! The two are different answers and this module gives both. An argument Node
+//! refuses — a `buffer` that is not one of the `InputType`s, an option outside
+//! its documented range, a `params` value that is not a number — is raised
+//! through `crate::errors` with Node's own code, from `options.rs`'s
+//! `Refusal`, synchronously, on the `*Sync` and callback forms alike. That is
+//! new: every one of them used to be answered with `undefined`, which is
+//! indistinguishable from a codec that ran and failed, and twelve of Node's
+//! own zlib files die on *"Missing expected exception"* because of it.
+//!
+//! What still does not throw is a codec that was given real bytes and could
+//! not process them. So:
 //!
 //! - a `*Sync` function answers **`undefined`** on failure. NEVER an empty
 //!   `Buffer`: an empty buffer is a legitimate result — the gzip of `""`
@@ -91,8 +100,10 @@
 //!   adapters have no dictionary entry point.
 //! - **`windowBits`, `memLevel`, `strategy`**. Same reason: not settable
 //!   through the `write::` adapters this module's single codec path is built
-//!   on. Passing them is a no-op rather than an error, which is stated here
-//!   because it cannot be reported there.
+//!   on. A LEGAL value for one of them is a no-op, which is stated here
+//!   because it cannot be reported there — but an ILLEGAL one is refused with
+//!   Node's `ERR_OUT_OF_RANGE`, because "this engine ignores the option
+//!   anyway" is not a reason to accept a program Node rejects.
 //! - **`flush`, and `flush(kind)`'s `kind` argument.** The only flush
 //!   constant acted on is `finishFlush: Z_SYNC_FLUSH`, which selects the
 //!   documented "return partial data on a truncated stream" behaviour (§4).

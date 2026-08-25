@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Mutex;
 
-use super::text;
+use super::{text, validate};
 
 /// The open-file table `openSync` allocates into and every other fd-based
 /// member here reads.
@@ -53,7 +53,7 @@ pub(super) fn with_file<T>(fd: i64, body: impl FnOnce(&mut std::fs::File) -> T) 
 /// `undefined` on failure, not a negative "errno" number: a negative fd is a
 /// plausible-looking wrong value the same way `""` would be for a read.
 pub(super) extern "C" fn open_sync(_e: u64, _this: u64, path: u64, flags: u64, _mode: u64, _a3: u64) -> u64 {
-    let Some(path) = text(path) else {
+    let Some(path) = validate::path("path", path) else {
         return rts_core::entry::undefined_value();
     };
     let flags = text(flags).unwrap_or_else(|| "r".to_string());
@@ -103,9 +103,9 @@ pub(super) extern "C" fn open_sync(_e: u64, _this: u64, path: u64, flags: u64, _
 
 /// `fs.closeSync(fd)`.
 pub(super) extern "C" fn close_sync(_e: u64, _this: u64, fd: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    if let Some(fd) = super::number(fd) {
+    if let Some(fd) = validate::fd(fd) {
         with_table(|table| {
-            table.remove(&(fd as i64));
+            table.remove(&fd);
         });
     }
     rts_core::entry::undefined_value()
@@ -114,10 +114,10 @@ pub(super) extern "C" fn close_sync(_e: u64, _this: u64, fd: u64, _a1: u64, _a2:
 /// `fs.fstatSync(fd)` — same `Stats`-shaped object [`super::stats::build`]
 /// gives the path-based forms.
 pub(super) extern "C" fn fstat_sync(_e: u64, _this: u64, fd: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(fd) = super::number(fd) else {
+    let Some(fd) = validate::fd(fd) else {
         return rts_core::entry::undefined_value();
     };
-    let metadata = with_table(|table| table.get(&(fd as i64)).and_then(|file| file.metadata().ok()));
+    let metadata = with_table(|table| table.get(&fd).and_then(|file| file.metadata().ok()));
     match metadata {
         Some(metadata) => super::stats::build(&metadata),
         None => rts_core::entry::undefined_value(),
@@ -126,9 +126,9 @@ pub(super) extern "C" fn fstat_sync(_e: u64, _this: u64, fd: u64, _a1: u64, _a2:
 
 /// `fs.fsyncSync(fd)`.
 pub(super) extern "C" fn fsync_sync(_e: u64, _this: u64, fd: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    if let Some(fd) = super::number(fd) {
+    if let Some(fd) = validate::fd(fd) {
         with_table(|table| {
-            if let Some(file) = table.get(&(fd as i64)) {
+            if let Some(file) = table.get(&fd) {
                 let _ = file.sync_all();
             }
         });
@@ -149,13 +149,16 @@ pub(super) extern "C" fn fdatasync_sync(_e: u64, _this: u64, fd: u64, _a1: u64, 
 
 /// `fs.ftruncateSync(fd, len?)` — default `len = 0`.
 pub(super) extern "C" fn ftruncate_sync(_e: u64, _this: u64, fd: u64, len: u64, _a2: u64, _a3: u64) -> u64 {
-    if let Some(fd) = super::number(fd) {
-        let len = super::number(len).unwrap_or(0.0).max(0.0) as u64;
-        with_table(|table| {
-            if let Some(file) = table.get(&(fd as i64)) {
-                let _ = file.set_len(len);
-            }
-        });
-    }
+    let Some(fd) = validate::fd(fd) else {
+        return rts_core::entry::undefined_value();
+    };
+    let Some(len) = validate::length("len", len) else {
+        return rts_core::entry::undefined_value();
+    };
+    with_table(|table| {
+        if let Some(file) = table.get(&fd) {
+            let _ = file.set_len(len);
+        }
+    });
     rts_core::entry::undefined_value()
 }

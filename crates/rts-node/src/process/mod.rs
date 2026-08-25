@@ -125,6 +125,7 @@ mod clock;
 mod info;
 mod lifecycle;
 mod streams;
+mod validate;
 
 use rts_core::entry::{Context, Provided};
 use std::cell::Cell;

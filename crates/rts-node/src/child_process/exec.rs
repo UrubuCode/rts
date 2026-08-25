@@ -46,7 +46,7 @@ pub(super) extern "C" fn exec(_e: u64, _this: u64, command: u64, second: u64, th
     let options = with_shell(options);
     let absent = entry::undefined_value();
     let child = super::spawn_async::spawn(absent, absent, command, absent, options, absent);
-    collect(child, callback)
+    collect(child, callback, options)
 }
 
 /// `execFile(file[, args][, options][, callback])`.
@@ -65,7 +65,7 @@ pub(super) extern "C" fn exec_file(_e: u64, _this: u64, file: u64, args: u64, th
     };
     let (options, callback) = split(second, third);
     let child = super::spawn_async::spawn(absent, absent, file, arguments, options, absent);
-    collect(child, callback)
+    collect(child, callback, options)
 }
 
 /// Which of two arguments is the options object and which is the callback.
@@ -113,7 +113,35 @@ fn with_shell(options: u64) -> u64 {
 /// when a child is finished — all of which [`super::spawn_async`] already has.
 /// What is here instead is the smallest thing that cannot be expressed as data:
 /// a native that installs listeners.
-fn collect(child: u64, callback: u64) -> u64 {
+fn collect(child: u64, callback: u64, options: u64) -> u64 {
+    // TEXT by default, which is what makes `exec` different from `spawn` for a
+    // program watching the stream: Node documents `encoding: 'utf8'` as
+    // `exec`'s default and applies it to the child's stdio, so
+    // `child.stdout.on('data', d => typeof d)` answers `'string'` there and
+    // `'object'` under a bare `spawn`. `'buffer'` is Node's way of asking for
+    // the raw chunks back, and it is the one value that means "do not decode".
+    let encoding = entry::with_runtime(|context| match entry::is_object(context, options) {
+        // Read into a local first: `get_member` takes the context mutably and
+        // `string_in` shares it, so nesting the two is a borrow conflict —
+        // the same note `net`'s option reader carries.
+        true => {
+            let held = entry::get_member(context, options, "encoding");
+            entry::string_in(context, held)
+        }
+        false => None,
+    })
+    .unwrap_or_else(|| String::from("utf8"));
+    if encoding != "buffer" {
+        for member in ["stdout", "stderr"] {
+            entry::with_runtime(|context| {
+                let stream = entry::get_member(context, child, member);
+                if entry::is_object(context, stream) {
+                    let held = entry::make_string(context, &encoding);
+                    entry::put_member(context, stream, "__encoding", held);
+                }
+            });
+        }
+    }
     let absent = entry::undefined_value();
     if child == absent || callback == absent {
         return child;

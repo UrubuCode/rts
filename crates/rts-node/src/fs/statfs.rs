@@ -78,7 +78,7 @@ fn query(_path: &str) -> Option<Stat> {
 /// is read but not honored — this module has no `BigInt` constructor
 /// reachable from a native, same gap [`super::stats`] states for `Date`.
 pub(super) extern "C" fn statfs_sync(_e: u64, _this: u64, path: u64, _options: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = super::text(path) else {
+    let Some(path) = super::validate::path("path", path) else {
         return entry::undefined_value();
     };
     let Some(stat) = query(&path) else {

@@ -80,7 +80,7 @@ pub(super) extern "C" fn read_file_sync(e: u64, this: u64, path: u64, encoding: 
     if encoding != absent {
         return super::basic::read_file_sync(e, this, path, encoding, a2, a3);
     }
-    let Some(path) = super::text(path) else {
+    let Some(path) = super::validate::path("path", path) else {
         return undefined_value();
     };
     match std::fs::read(&path) {
@@ -94,11 +94,16 @@ pub(super) extern "C" fn read_file_sync(e: u64, this: u64, path: u64, encoding: 
 /// this does not accept. Answers the number of bytes read, `undefined` on a
 /// bad `fd`.
 pub(super) extern "C" fn read_sync(_e: u64, _this: u64, fd: u64, buffer: u64, options: u64, _a3: u64) -> u64 {
-    let Some(fd) = super::number(fd) else {
+    let Some(fd) = super::validate::fd(fd) else {
         return undefined_value();
     };
-    let fd = fd as i64;
-    let window_len = with_runtime(|context| bytes_of(context, buffer)).map(|b| b.len()).unwrap_or(0);
+    // A `buffer` that is not a window is refused rather than read as an empty
+    // one: `readSync(fd, 4, …)` used to answer `0` bytes read, which is what a
+    // caller at end-of-file also gets. `test-fs-read-type.js` is the file that
+    // says the two must not be the same answer.
+    let Some(window_len) = super::validate::buffer("buffer", buffer) else {
+        return undefined_value();
+    };
     let offset = option_number(options, "offset").unwrap_or(0.0).max(0.0) as usize;
     let length =
         option_number(options, "length").unwrap_or_else(|| window_len.saturating_sub(offset) as f64).max(0.0) as usize;
@@ -124,11 +129,14 @@ pub(super) extern "C" fn read_sync(_e: u64, _this: u64, fd: u64, buffer: u64, op
 /// position?, encoding?)`) is not implemented: `buffer` here is always read
 /// as a `Uint8Array`/`DataView` window via `bytes_of`.
 pub(super) extern "C" fn write_sync(_e: u64, _this: u64, fd: u64, buffer: u64, options: u64, _a3: u64) -> u64 {
-    let Some(fd) = super::number(fd) else {
+    let Some(fd) = super::validate::fd(fd) else {
         return undefined_value();
     };
-    let fd = fd as i64;
     let Some(data) = with_runtime(|context| bytes_of(context, buffer)) else {
+        // The read and the refusal are the same question asked once: calling
+        // `validate::buffer` first would copy the window twice for every
+        // successful write, and it answers `None` on exactly this condition.
+        let _refused = super::validate::buffer("buffer", buffer);
         return undefined_value();
     };
     let offset = option_number(options, "offset").unwrap_or(0.0).max(0.0) as usize;
@@ -155,10 +163,9 @@ pub(super) extern "C" fn write_sync(_e: u64, _this: u64, fd: u64, buffer: u64, o
 /// only, matching `readv(2)`'s single starting offset. Answers the total
 /// bytes read across all buffers.
 pub(super) extern "C" fn readv_sync(_e: u64, _this: u64, fd: u64, buffers: u64, position: u64, _a3: u64) -> u64 {
-    let Some(fd) = super::number(fd) else {
+    let Some(fd) = super::validate::fd(fd) else {
         return undefined_value();
     };
-    let fd = fd as i64;
     let position = super::number(position);
     let mut total = 0usize;
     for (index, item) in array_items(buffers).into_iter().enumerate() {
@@ -192,10 +199,9 @@ pub(super) extern "C" fn readv_sync(_e: u64, _this: u64, fd: u64, buffers: u64, 
 /// `buffers` in order, `position` (if given) seeking before the FIRST one
 /// only, matching `writev(2)`. Answers the total bytes written.
 pub(super) extern "C" fn writev_sync(_e: u64, _this: u64, fd: u64, buffers: u64, position: u64, _a3: u64) -> u64 {
-    let Some(fd) = super::number(fd) else {
+    let Some(fd) = super::validate::fd(fd) else {
         return undefined_value();
     };
-    let fd = fd as i64;
     let position = super::number(position);
     let mut total = 0usize;
     for (index, item) in array_items(buffers).into_iter().enumerate() {

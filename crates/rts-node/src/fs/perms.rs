@@ -35,7 +35,7 @@
 
 use rts_core::entry;
 
-use super::{fd, number, text};
+use super::{fd, number, validate};
 
 // ---------------------------------------------------------------- chown ---
 
@@ -58,14 +58,31 @@ fn chown_impl(path: &str, uid: i64, gid: i64, nofollow: bool) -> bool {
 
 /// `fs.chownSync(path, uid, gid)`.
 pub(super) extern "C" fn chown_sync(_e: u64, _this: u64, path: u64, uid: u64, gid: u64, _a3: u64) -> u64 {
-    if let (Some(path), Some(uid), Some(gid)) = (text(path), number(uid), number(gid)) {
-        #[cfg(unix)]
-        super::record(chown_impl(&path, uid as i64, gid as i64, false));
-        #[cfg(not(unix))]
-        {
-            let _ = (path, uid, gid);
-            super::record(false);
-        }
+    apply_path_chown(path, uid, gid, false)
+}
+
+/// The body `chownSync` and `lchownSync` share, one `nofollow` apart.
+///
+/// Each argument is refused on its own rule and in Node's own order — path,
+/// then uid, then gid — because `test-fs-chown-type-check.js` asserts a refusal
+/// for a bad uid while the path is VALID, which the single combined `if let`
+/// tuple this replaced answered by silently doing nothing.
+fn apply_path_chown(path: u64, uid: u64, gid: u64, nofollow: bool) -> u64 {
+    let Some(path) = validate::path("path", path) else {
+        return entry::undefined_value();
+    };
+    let Some(uid) = validate::id("uid", uid) else {
+        return entry::undefined_value();
+    };
+    let Some(gid) = validate::id("gid", gid) else {
+        return entry::undefined_value();
+    };
+    #[cfg(unix)]
+    super::record(chown_impl(&path, uid, gid, nofollow));
+    #[cfg(not(unix))]
+    {
+        let _ = (path, uid, gid, nofollow);
+        super::record(false);
     }
     entry::undefined_value()
 }
@@ -73,35 +90,33 @@ pub(super) extern "C" fn chown_sync(_e: u64, _this: u64, path: u64, uid: u64, gi
 /// `fs.lchownSync(path, uid, gid)` — like `chownSync`, without following a
 /// symlink at the final path component.
 pub(super) extern "C" fn lchown_sync(_e: u64, _this: u64, path: u64, uid: u64, gid: u64, _a3: u64) -> u64 {
-    if let (Some(path), Some(uid), Some(gid)) = (text(path), number(uid), number(gid)) {
-        #[cfg(unix)]
-        super::record(chown_impl(&path, uid as i64, gid as i64, true));
-        #[cfg(not(unix))]
-        {
-            let _ = (path, uid, gid);
-            super::record(false);
-        }
-    }
-    entry::undefined_value()
+    apply_path_chown(path, uid, gid, true)
 }
 
 /// `fs.fchownSync(fd, uid, gid)`.
 pub(super) extern "C" fn fchown_sync(_e: u64, _this: u64, fd_value: u64, uid: u64, gid: u64, _a3: u64) -> u64 {
-    if let (Some(fd_value), Some(uid), Some(gid)) = (number(fd_value), number(uid), number(gid)) {
-        #[cfg(unix)]
-        {
-            use std::os::unix::io::AsRawFd;
-            let ok = fd::with_file(fd_value as i64, |file| {
-                unsafe { libc::fchown(file.as_raw_fd(), uid as libc::uid_t, gid as libc::gid_t) == 0 }
-            })
-            .unwrap_or(false);
-            super::record(ok);
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = (fd_value, uid, gid);
-            super::record(false);
-        }
+    let Some(fd_value) = validate::fd(fd_value) else {
+        return entry::undefined_value();
+    };
+    let Some(uid) = validate::id("uid", uid) else {
+        return entry::undefined_value();
+    };
+    let Some(gid) = validate::id("gid", gid) else {
+        return entry::undefined_value();
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let ok = fd::with_file(fd_value, |file| {
+            unsafe { libc::fchown(file.as_raw_fd(), uid as libc::uid_t, gid as libc::gid_t) == 0 }
+        })
+        .unwrap_or(false);
+        super::record(ok);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (fd_value, uid, gid);
+        super::record(false);
     }
     entry::undefined_value()
 }
@@ -126,19 +141,27 @@ fn apply_fchmod(file: &std::fs::File, mode: u32) -> bool {
 
 /// `fs.fchmodSync(fd, mode)`.
 pub(super) extern "C" fn fchmod_sync(_e: u64, _this: u64, fd_value: u64, mode: u64, _a2: u64, _a3: u64) -> u64 {
-    if let (Some(fd_value), Some(mode)) = (number(fd_value), number(mode)) {
-        let ok = fd::with_file(fd_value as i64, |file| apply_fchmod(file, mode as u32)).unwrap_or(false);
-        super::record(ok);
-    }
+    let Some(fd_value) = validate::fd(fd_value) else {
+        return entry::undefined_value();
+    };
+    let Some(mode) = validate::mode("mode", mode) else {
+        return entry::undefined_value();
+    };
+    let ok = fd::with_file(fd_value, |file| apply_fchmod(file, mode)).unwrap_or(false);
+    super::record(ok);
     entry::undefined_value()
 }
 
 /// `fs.lchmodSync(path, mode)` — see the module doc for the macOS/BSD-only
 /// (and never-Windows) support this actually has.
 pub(super) extern "C" fn lchmod_sync(_e: u64, _this: u64, path: u64, mode: u64, _a2: u64, _a3: u64) -> u64 {
-    if let (Some(path), Some(mode)) = (text(path), number(mode)) {
-        super::record(apply_lchmod(&path, mode as u32));
-    }
+    let Some(path) = validate::path("path", path) else {
+        return entry::undefined_value();
+    };
+    let Some(mode) = validate::mode("mode", mode) else {
+        return entry::undefined_value();
+    };
+    super::record(apply_lchmod(&path, mode));
     entry::undefined_value()
 }
 
@@ -254,7 +277,16 @@ pub(super) extern "C" fn lutimes_sync(_e: u64, _this: u64, path: u64, atime: u64
 }
 
 fn apply_path_utimes(path: u64, atime: u64, mtime: u64, nofollow: bool) -> u64 {
-    if let (Some(path), Some(atime_ms), Some(mtime_ms)) = (text(path), time_ms(atime), time_ms(mtime)) {
+    let Some(path) = validate::path("path", path) else {
+        return entry::undefined_value();
+    };
+    // `atime`/`mtime` are NOT validated here: Node's `TimeLike` is a number, a
+    // `Date` or a numeric string, and this module reads all three through
+    // `time_ms`. A validator that refused what `time_ms` accepts would be a
+    // stricter rule than Node's; one that accepted it would have nothing left
+    // to check. Named as the gap it is — `test-fs-utimes.js` is not among the
+    // files this change answers.
+    if let (Some(atime_ms), Some(mtime_ms)) = (time_ms(atime), time_ms(mtime)) {
         #[cfg(unix)]
         super::record(apply_utimensat(&path, atime_ms, mtime_ms, nofollow));
         #[cfg(windows)]
@@ -270,11 +302,14 @@ fn apply_path_utimes(path: u64, atime: u64, mtime: u64, nofollow: bool) -> u64 {
 
 /// `fs.futimesSync(fd, atime, mtime)`.
 pub(super) extern "C" fn futimes_sync(_e: u64, _this: u64, fd_value: u64, atime: u64, mtime: u64, _a3: u64) -> u64 {
-    if let (Some(fd_value), Some(atime_ms), Some(mtime_ms)) = (number(fd_value), time_ms(atime), time_ms(mtime)) {
+    let Some(fd_value) = validate::fd(fd_value) else {
+        return entry::undefined_value();
+    };
+    if let (Some(atime_ms), Some(mtime_ms)) = (time_ms(atime), time_ms(mtime)) {
         #[cfg(unix)]
         {
             use std::os::unix::io::AsRawFd;
-            let ok = fd::with_file(fd_value as i64, |file| {
+            let ok = fd::with_file(fd_value, |file| {
                 let times = [to_timespec(atime_ms), to_timespec(mtime_ms)];
                 unsafe { libc::futimens(file.as_raw_fd(), times.as_ptr()) == 0 }
             })
@@ -283,7 +318,7 @@ pub(super) extern "C" fn futimes_sync(_e: u64, _this: u64, fd_value: u64, atime:
         }
         #[cfg(windows)]
         {
-            let ok = fd::with_file(fd_value as i64, |file| apply_set_file_time(file, atime_ms, mtime_ms)).unwrap_or(false);
+            let ok = fd::with_file(fd_value, |file| apply_set_file_time(file, atime_ms, mtime_ms)).unwrap_or(false);
             super::record(ok);
         }
         #[cfg(not(any(unix, windows)))]

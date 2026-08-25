@@ -57,7 +57,7 @@ const METHODS: &[(&str, Provided)] = &[
 
 /// `fs.opendirSync(path)`. `undefined` on failure.
 pub(super) extern "C" fn opendir_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = super::text(path) else {
+    let Some(path) = super::validate::path("path", path) else {
         return entry::undefined_value();
     };
     let Ok(entries) = std::fs::read_dir(&path) else {

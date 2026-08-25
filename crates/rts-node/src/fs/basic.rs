@@ -2,7 +2,7 @@
 //! `copyFileSync`/`renameSync`/`unlinkSync` — the members that read or write
 //! whole-file contents by path, no fd and no directory tree involved.
 
-use super::{bool_value, encoding, string, text};
+use super::{bool_value, encoding, string, text, validate};
 
 /// `fs.readFileSync(path, encoding?)` — text under `encoding` (`"utf8"` when
 /// absent or unrecognised, matching every caller in this crate today).
@@ -20,7 +20,7 @@ use super::{bool_value, encoding, string, text};
 /// nothing to do with this bug: that form never claimed to honour an
 /// encoding it was never given.
 pub(super) extern "C" fn read_file_sync(_e: u64, _this: u64, path: u64, encoding_arg: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = text(path) else {
+    let Some(path) = validate::path("path", path) else {
         return rts_core::entry::undefined_value();
     };
     let result = std::fs::read(&path);
@@ -41,7 +41,12 @@ pub(super) extern "C" fn read_file_sync(_e: u64, _this: u64, path: u64, encoding
 /// [`append_file_sync`] share the fix with: a hex/base64/utf16le string
 /// used to be written as its own literal UTF-8 bytes instead of what it names.
 pub(super) extern "C" fn write_file_sync(_e: u64, _this: u64, path: u64, data: u64, encoding_arg: u64, _a3: u64) -> u64 {
-    if let (Some(path), Some(data)) = (text(path), text(data)) {
+    // `"file"`, not `"path"`: Node's `writeFile`/`appendFile` accept a fd here
+    // as well, and name the argument accordingly in their own message.
+    let Some(path) = validate::path("file", path) else {
+        return rts_core::entry::undefined_value();
+    };
+    if let Some(data) = text(data) {
         let name = text(encoding_arg).unwrap_or_else(|| "utf8".to_string());
         match encoding::decode(&name, &data) {
             Some(bytes) => super::record_io(&std::fs::write(path, bytes)),
@@ -54,7 +59,10 @@ pub(super) extern "C" fn write_file_sync(_e: u64, _this: u64, path: u64, data: u
 /// `fs.appendFileSync(path, data, encoding?)`.
 pub(super) extern "C" fn append_file_sync(_e: u64, _this: u64, path: u64, data: u64, encoding_arg: u64, _a3: u64) -> u64 {
     use std::io::Write;
-    if let (Some(path), Some(data)) = (text(path), text(data)) {
+    let Some(path) = validate::path("file", path) else {
+        return rts_core::entry::undefined_value();
+    };
+    if let Some(data) = text(data) {
         let name = text(encoding_arg).unwrap_or_else(|| "utf8".to_string());
         match encoding::decode(&name, &data) {
             Some(bytes) => match std::fs::OpenOptions::new().create(true).append(true).open(path) {
@@ -77,23 +85,34 @@ pub(super) extern "C" fn exists_sync(_e: u64, _this: u64, path: u64, _a1: u64, _
 
 /// `fs.copyFileSync(src, dest)`.
 pub(super) extern "C" fn copy_file_sync(_e: u64, _this: u64, src: u64, dest: u64, _a2: u64, _a3: u64) -> u64 {
-    if let (Some(src), Some(dest)) = (text(src), text(dest)) {
-        super::record_io(&std::fs::copy(src, dest));
-    }
+    let Some(src) = validate::path("src", src) else {
+        return rts_core::entry::undefined_value();
+    };
+    let Some(dest) = validate::path("dest", dest) else {
+        return rts_core::entry::undefined_value();
+    };
+    super::record_io(&std::fs::copy(src, dest));
     rts_core::entry::undefined_value()
 }
 
 /// `fs.renameSync(from, to)`.
 pub(super) extern "C" fn rename_sync(_e: u64, _this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
-    if let (Some(from), Some(to)) = (text(from), text(to)) {
-        super::record_io(&std::fs::rename(from, to));
-    }
+    // `oldPath`/`newPath`, not the parameters' local spelling:
+    // `test-fs-rename-type-check.js` asserts the argument NAME inside the
+    // message, so it is Node's name that must reach a program.
+    let Some(from) = validate::path("oldPath", from) else {
+        return rts_core::entry::undefined_value();
+    };
+    let Some(to) = validate::path("newPath", to) else {
+        return rts_core::entry::undefined_value();
+    };
+    super::record_io(&std::fs::rename(from, to));
     rts_core::entry::undefined_value()
 }
 
 /// `fs.unlinkSync(path)`.
 pub(super) extern "C" fn unlink_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    if let Some(path) = text(path) {
+    if let Some(path) = validate::path("path", path) {
         super::record_io(&std::fs::remove_file(path));
     }
     rts_core::entry::undefined_value()

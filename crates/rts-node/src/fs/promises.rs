@@ -122,6 +122,28 @@ pub(crate) fn namespace(context: &mut Context) -> u64 {
     rts_core::entry::make_namespace(context, members)
 }
 
+/// A refused ARGUMENT, turned from a throw into a rejection.
+///
+/// # Why the promise half cannot simply let it throw
+///
+/// The `*Sync` bodies these wrappers call validate their arguments through
+/// [`super::validate`], which raises. That is right for `fs.chownSync(1, 1, 1)`
+/// — Node throws there too — and wrong here: `fsPromises.chown` is an `async
+/// function` in Node, so a validator's throw inside it becomes a REJECTED
+/// PROMISE, and a program written as `p.chown(…).catch(e => e.code)` would
+/// otherwise get an exception at the call site instead.
+///
+/// [`rts_core::entry::take_thrown`] clears the flag as it reads, which is what
+/// keeps the raise from ALSO escaping this native — the value is not lost, it
+/// moves into the rejection.
+fn refusal() -> Option<u64> {
+    if rts_core::entry::thrown() == 0 {
+        return None;
+    }
+    let value = rts_core::entry::take_thrown();
+    Some(rts_core::entry::with_runtime(|context| settled(context, value, true)))
+}
+
 /// Wraps a `*Sync` native whose `undefined` return means FAILURE — rejects
 /// with a real error object on `undefined`, resolves with the value
 /// otherwise.
@@ -137,6 +159,9 @@ pub(crate) fn namespace(context: &mut Context) -> u64 {
 /// [`super::last_code`] — set by the SAME `*_sync` call this wraps, via
 /// [`super::record_io`], so it is never stale.
 fn answered(sync_result: u64) -> u64 {
+    if let Some(rejection) = refusal() {
+        return rejection;
+    }
     rts_core::entry::with_runtime(|context| {
         let absent = undefined_in(context);
         match sync_result == absent {
@@ -163,6 +188,9 @@ fn answered(sync_result: u64) -> u64 {
 /// `sync_result`, which is `undefined` on both success and failure for every
 /// member this wraps and so carries no signal a `catch` could read anyway.
 fn done(sync_result: u64) -> u64 {
+    if let Some(rejection) = refusal() {
+        return rejection;
+    }
     let failed = !super::succeeded();
     rts_core::entry::with_runtime(|context| match failed {
         true => {

@@ -87,12 +87,6 @@ pub(super) fn chained_prototype(context: &mut Context, parent: &'static str, nam
     prototype
 }
 
-/// A number argument, `None` when absent or not a number.
-pub(super) fn number_arg(value: u64) -> Option<f64> {
-    let absent = entry::undefined_value();
-    if value == absent { None } else { entry::number_of(value) }
-}
-
 /// A string argument, read from a context already in hand — the pair
 /// `stream::mod.rs::option_member` documents the same reason for: reading an
 /// argument object's fields inside `with_runtime` where the ambient form

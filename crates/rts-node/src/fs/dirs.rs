@@ -1,7 +1,7 @@
 //! `mkdirSync`/`rmSync`/`rmdirSync`/`readdirSync`/`mkdtempSync`/`cpSync` — the
 //! members that operate on a directory tree rather than a single file.
 
-use super::{option_flag, string, text};
+use super::{option_flag, string, validate};
 
 /// `fs.mkdirSync(path, { recursive })`.
 ///
@@ -9,7 +9,7 @@ use super::{option_flag, string, text};
 /// second argument is an options object or a mode number, and only the shape
 /// this crate needs — `recursive` — is read from it.
 pub(super) extern "C" fn mkdir_sync(_e: u64, _this: u64, path: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
-    if let Some(path) = text(path) {
+    if let Some(path) = validate::path("path", path) {
         let recursive = option_flag(options, "recursive");
         super::record(
             match recursive {
@@ -24,7 +24,7 @@ pub(super) extern "C" fn mkdir_sync(_e: u64, _this: u64, path: u64, options: u64
 
 /// `fs.rmSync(path, { recursive })`.
 pub(super) extern "C" fn rm_sync(_e: u64, _this: u64, path: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
-    if let Some(path) = text(path) {
+    if let Some(path) = validate::path("path", path) {
         let recursive = option_flag(options, "recursive");
         let target = std::path::Path::new(&path);
         super::record(
@@ -41,7 +41,7 @@ pub(super) extern "C" fn rm_sync(_e: u64, _this: u64, path: u64, options: u64, _
 /// `fs.rmdirSync(path)` — an empty directory only; `rmSync` is where
 /// `recursive` lives, matching Node's own split between the two.
 pub(super) extern "C" fn rmdir_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    if let Some(path) = text(path) {
+    if let Some(path) = validate::path("path", path) {
         super::record(std::fs::remove_dir(path).is_ok());
     }
     rts_core::entry::undefined_value()
@@ -56,7 +56,7 @@ pub(super) extern "C" fn rmdir_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a
 /// `recursive` is not read from `options` — this is the flat single-level
 /// listing Node calls the default.
 pub(super) extern "C" fn readdir_sync(_e: u64, _this: u64, path: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = text(path) else {
+    let Some(path) = validate::path("path", path) else {
         return rts_core::entry::undefined_value();
     };
     let with_file_types = option_flag(options, "withFileTypes");
@@ -91,7 +91,11 @@ pub(super) extern "C" fn readdir_sync(_e: u64, _this: u64, path: u64, options: u
 /// a same-process temp-name generator — cryptographic unpredictability is
 /// not a property `mkdtemp` promises.
 pub(super) extern "C" fn mkdtemp_sync(_e: u64, _this: u64, prefix: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(prefix) = text(prefix) else {
+    // A prefix is a PATH, refused on the same rule: `test-fs-mkdtemp-prefix-
+    // check.js` passes `0`, `true` and `null` and asserts
+    // `ERR_INVALID_ARG_TYPE`, which is what reading it as text would have
+    // turned into a directory literally named `"true"`.
+    let Some(prefix) = validate::path("prefix", prefix) else {
         return rts_core::entry::undefined_value();
     };
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -123,15 +127,19 @@ pub(super) extern "C" fn mkdtemp_sync(_e: u64, _this: u64, prefix: u64, _a1: u64
 /// this module does not have (see the module doc); a non-recursive `cpSync`
 /// on a file is exactly `copyFileSync`'s behaviour.
 pub(super) extern "C" fn cp_sync(_e: u64, _this: u64, src: u64, dest: u64, options: u64, _a3: u64) -> u64 {
-    if let (Some(src), Some(dest)) = (text(src), text(dest)) {
-        let recursive = option_flag(options, "recursive");
-        let src = std::path::Path::new(&src);
-        let dest = std::path::Path::new(&dest);
-        if recursive && src.is_dir() {
-            super::record(copy_dir_all(src, dest).is_ok());
-        } else {
-            super::record(std::fs::copy(src, dest).is_ok());
-        }
+    let Some(src) = validate::path("src", src) else {
+        return rts_core::entry::undefined_value();
+    };
+    let Some(dest) = validate::path("dest", dest) else {
+        return rts_core::entry::undefined_value();
+    };
+    let recursive = option_flag(options, "recursive");
+    let src = std::path::Path::new(&src);
+    let dest = std::path::Path::new(&dest);
+    if recursive && src.is_dir() {
+        super::record(copy_dir_all(src, dest).is_ok());
+    } else {
+        super::record(std::fs::copy(src, dest).is_ok());
     }
     rts_core::entry::undefined_value()
 }

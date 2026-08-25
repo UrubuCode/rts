@@ -24,6 +24,21 @@
 //! and write through the same accessors; see [`bytes`] for the one limit that
 //! remains (no five-positional-argument form).
 //!
+//! # An INVALID ARGUMENT does throw, and that is a different question
+//!
+//! The section below is about an operation that FAILED — a missing file, a
+//! permission denied — and it still stands. It is not about an argument this
+//! surface never accepts: `fs.chownSync(1, 1, 1)` is not a chown that failed,
+//! it is a call Node refuses before any syscall, with a `TypeError` carrying
+//! `code: 'ERR_INVALID_ARG_TYPE'`. Every member here now refuses the same set,
+//! through [`validate`] (which decides) and `crate::errors` (which raises).
+//!
+//! The two are told apart by what a program can do about them: a refusal is a
+//! bug in the CALL and is raised where the call is, while an I/O failure is the
+//! world's answer and is reported the way this module's own section says.
+//! Measured 2026-08-24, 37 files of Node's own `fs` suite died on *"Missing
+//! expected exception"* — an argument we accepted and Node does not.
+//!
 //! # Errors: no throw, a stated stand-in
 //!
 //! Node throws on a missing file, a permission failure, and so on. A native
@@ -63,7 +78,10 @@
 //!   re-entry problem was not one for a callback invoked exactly ONCE, inside
 //!   the native call that already has the answer: `fs/watch.rs`'s `pump`
 //!   already calls into JS the same way for a stored listener, so this reuses
-//!   that it is safe. The other bare forms below still are not implemented —
+//!   that it is safe. [`errfirst`] then covers the rest of that column —
+//!   `rename`, `unlink`, `chown`, `close`, `mkdtemp`, `open` and the others —
+//!   as WRAPPERS over the `*Sync` sibling rather than as second bodies.
+//!   The other bare forms below still are not implemented —
 //!   they need re-entry spread across more than one native call, which a
 //!   single err-first callback does not.
 //!   `fs.promises.*`/`fsPromises.*` (including `FileHandle`, see
@@ -121,6 +139,10 @@ pub(crate) mod constants;
 mod dir;
 mod dirent;
 mod dirs;
+// The err-first callback forms whose `*Sync` sibling already answers
+// everything they need — see the module doc for why they are wrappers rather
+// than a second implementation.
+mod errfirst;
 mod encoding;
 mod fd;
 mod glob;
@@ -132,6 +154,10 @@ mod stats;
 mod statfs;
 mod streams;
 mod utf8stream;
+// What each member ACCEPTS, one rule per argument shape rather than one per
+// member — see the module's own doc for why the deciding lives apart from the
+// raising in `crate::errors`.
+mod validate;
 mod watch;
 
 use rts_core::entry::{Context, Provided};
@@ -194,6 +220,28 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("exists", callbacks::exists),
         ("access", callbacks::access),
         ("readdir", callbacks::readdir),
+        ("rename", errfirst::rename),
+        ("unlink", errfirst::unlink),
+        ("copyFile", errfirst::copy_file),
+        ("appendFile", errfirst::append_file),
+        ("mkdir", errfirst::mkdir),
+        ("rmdir", errfirst::rmdir),
+        ("rm", errfirst::rm),
+        ("chmod", errfirst::chmod),
+        ("link", errfirst::link),
+        ("symlink", errfirst::symlink),
+        ("truncate", errfirst::truncate),
+        ("ftruncate", errfirst::ftruncate),
+        ("close", errfirst::close),
+        ("chown", errfirst::chown),
+        ("lchown", errfirst::lchown),
+        ("fchown", errfirst::fchown),
+        ("fchmod", errfirst::fchmod),
+        ("lchmod", errfirst::lchmod),
+        ("readlink", errfirst::readlink),
+        ("realpath", errfirst::realpath),
+        ("mkdtemp", errfirst::mkdtemp),
+        ("open", errfirst::open),
         ("createWriteStream", streams::create_write_stream),
         ("createReadStream", streams::create_read_stream),
     ];

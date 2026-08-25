@@ -413,9 +413,18 @@ fn destroyed(stream: u64) -> bool {
 /// reason the encoding lives on the stream object: two streams over one child
 /// decode independently.
 fn chunk_value(stream: u64, bytes: &[u8]) -> u64 {
-    let encoding =
-        entry::with_runtime(|context| entry::get_member(context, stream, "__encoding"));
-    match super::shared::text(encoding) {
+    // Asked with the type TEST and not with `text`, which COERCES: the stream
+    // starts with `__encoding` set to `null` — Node's own answer for "no
+    // encoding" and what `readableEncoding` reports — and coercing that gives
+    // the string `"null"`, so every chunk decoded and `child.stdout` emitted
+    // TEXT where Node emits a `Buffer`. A program doing
+    // `Buffer.concat([held, chunk])` then refuses its own chunk, which is how
+    // this was found.
+    let encoding = entry::with_runtime(|context| {
+        let held = entry::get_member(context, stream, "__encoding");
+        entry::string_in(context, held)
+    });
+    match encoding {
         // The name is not consulted beyond "there is one": this engine's
         // strings are UTF-8 and a `latin1` request would need a second decoder
         // that nothing here has. Stated rather than silently applied — a
