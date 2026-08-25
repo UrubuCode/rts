@@ -480,8 +480,22 @@ pub fn declare_function_names(context: &mut Context, names: Vec<(u64, String, u3
 /// rather than re-derived, for the reason [`stack_text`] records — a second
 /// record of one fact disagrees the first time either forgets to pop.
 ///
-/// An unnamed function contributes nothing, exactly as in the printed trace: a
-/// label a program cannot search for is worse than a gap.
+/// # Why an unnamed frame is KEPT here and dropped from the printed trace
+///
+/// Because the two are read differently. A trace is read by a person, and a
+/// line saying `at ` is worse than no line — which is why [`stack_text`] filters
+/// them. This list is read by INDEX: `util.getCallSite()[1]` is how Node's own
+/// test harness asks for "my caller's caller", and dropping a frame silently
+/// shifts every index past it onto the wrong function.
+///
+/// That was not hypothetical. A module's top-level body is an unnamed function,
+/// so a call made from there produced a one-element list, `[1]` was `undefined`,
+/// and 18 files of Node's suite died reading a property of it — the shape of
+/// bug an index-addressed list has and a printed one does not.
+///
+/// An unnamed frame contributes the empty string, which is what
+/// `(function(){}).name` answers and therefore what a program comparing names
+/// already handles.
 ///
 /// **What it does not carry is a POSITION**, and the caller must say so rather
 /// than fill one in. The machine records a source position per instruction and
@@ -493,14 +507,18 @@ pub fn call_frames() -> Vec<String> {
             .callees
             .iter()
             .rev()
-            .filter_map(|callee| {
-                let cell = crate::value::Value(*callee).as_slot()?;
-                let (code, _) = context.callable_at(cell)?;
-                context
-                    .function_names
-                    .iter()
-                    .find(|(at, name, _)| *at == code && !name.is_empty())
-                    .map(|(_, name, _)| name.clone())
+            .map(|callee| {
+                let named = crate::value::Value(*callee)
+                    .as_slot()
+                    .and_then(|cell| context.callable_at(cell))
+                    .and_then(|(code, _)| {
+                        context
+                            .function_names
+                            .iter()
+                            .find(|(at, _, _)| *at == code)
+                            .map(|(_, name, _)| name.clone())
+                    });
+                named.unwrap_or_default()
             })
             .collect()
     })

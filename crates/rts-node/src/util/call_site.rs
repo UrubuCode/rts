@@ -52,11 +52,16 @@ extern "C" fn get_call_site(_e: u64, _this: u64, limit: u64, _b: u64, _c: u64, _
     // Read OUTSIDE the borrow: `call_frames` takes one of its own, and a second
     // borrow of the same cell from inside is the re-entrancy that aborts a
     // process rather than unwinding.
-    // The innermost frame is the CALLER, not this function: a native carries no
-    // name on that list, so `getCallSite` itself is already absent from it —
-    // the same fact `throw::stack_text` records about a printed trace. Dropping
-    // a frame here to "skip ourselves" is what the first version did, and it
-    // hid the caller: `interna()` calling this reported only `externa`.
+    // Nothing is dropped, and the INDEX is why. `[0]` is this native itself —
+    // unnamed, so it arrives as the empty string — and `[1]` is the caller,
+    // which is exactly Node's numbering: `common.mustNotCall` reads
+    // `getCallSite()[1]` to name the line that called it.
+    //
+    // Two earlier versions of this line were wrong in opposite directions. One
+    // dropped `[0]` to "skip ourselves" and hid the caller; the other relied on
+    // unnamed frames being filtered out, which made a call from a module's
+    // top-level body — itself unnamed — answer a one-element list where `[1]`
+    // was `undefined`, and 18 files died reading a property of it.
     let mut frames = entry::call_frames();
     if let Some(count) = entry::number_of(limit).filter(|held| *held >= 0.0) {
         frames.truncate(count as usize);

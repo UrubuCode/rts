@@ -113,8 +113,21 @@ pub fn namespace(context: &mut Context) -> u64 {
     // the strict view names itself.
     entry::put_member(context, strict, "strict", strict);
     entry::put_member(context, callable, "strict", strict);
+    // `class AssertionError extends Error` is what Node has, and a program
+    // checks it: `assert.AssertionError instanceof Error` is the first line of
+    // Node's own `test-assert.js`. What makes that true is the CONSTRUCTOR's
+    // own prototype link — `AssertionError.__proto__ === Error` — which is
+    // `extends` and not the instance chain. Absent, the class stood beside the
+    // Error family instead of inside it.
+    let error_base = {
+        let global = entry::global_object(context);
+        entry::get_member(context, global, "Error")
+    };
     for holder in [callable, strict] {
         let error_class = entry::make_callable(context, assertion_error);
+        if entry::is_object(context, error_base) {
+            entry::set_prototype_in(context, error_class, error_base);
+        }
         entry::put_member(context, holder, "AssertionError", error_class);
         let assert_class = entry::make_callable(context, assert_class);
         entry::put_member(context, holder, "Assert", assert_class);

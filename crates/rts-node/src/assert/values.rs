@@ -27,16 +27,54 @@ static FAILURES: AtomicU64 = AtomicU64::new(0);
 ///
 /// The stderr line and counter predate the raise and stay: a harness scanning
 /// the log, or a person reading the run, still gets the operator and both
-/// values even when the raise is caught and swallowed by the caller. The
-/// raise itself is `entry::throw_type_error` — `TypeError` rather than Node's
-/// own `AssertionError`, since that is the only class this crate can raise
-/// with publicly; see its doc in `rts-core` for why. Must be called
-/// OUTSIDE any `with_runtime` borrow — raising opens its own — which every
-/// caller in `checks.rs` already satisfies (see this module's doc).
+/// values even when the raise is caught and swallowed by the caller.
+///
+/// # What is raised, and why it stopped being a `TypeError`
+///
+/// It was `entry::throw_type_error`, *"since that is the only class this crate
+/// can raise with publicly"*. That was true of the class and false of the
+/// mechanism: `entry::make_named_error` builds a real `Error` and
+/// `entry::throw_value` raises any value, and both are public. So what travels
+/// now is an error carrying Node's own shape — `name: 'AssertionError'`,
+/// `code: 'ERR_ASSERTION'`, and the `operator` — which is what a program tests
+/// for.
+///
+/// It is not cosmetic. `assert.throws(fn, { code: 'ERR_ASSERTION' })` is how
+/// Node's own suite checks that a failure was an assertion and not something
+/// else, and against a `TypeError` with no `code` that check answered "the
+/// error's code is undefined" — a real failure reported at the wrong place, in
+/// 29 files.
+///
+/// Must be called OUTSIDE any `with_runtime` borrow — raising opens its own —
+/// which every caller in `checks.rs` already satisfies (see this module's doc).
 pub(super) fn report_failure(operator: &str, detail: &str) {
     let count = FAILURES.fetch_add(1, Ordering::Relaxed) + 1;
     eprintln!("AssertionError [{operator}] #{count}: {detail}");
-    entry::throw_type_error(detail);
+    let Some(error) = entry::make_named_error("Error", detail) else {
+        // No `Error` class to build from — a program so early that the
+        // primordials are not installed. The old raise is the fallback rather
+        // than silence: an assertion that failed must still stop the caller.
+        entry::throw_type_error(detail);
+        return;
+    };
+    let operator = operator.to_owned();
+    entry::with_runtime(|context| {
+        let name = entry::make_string(context, "AssertionError");
+        entry::put_member(context, error, "name", name);
+        let code = entry::make_string(context, "ERR_ASSERTION");
+        entry::put_member(context, error, "code", code);
+        let held = entry::make_string(context, &operator);
+        entry::put_member(context, error, "operator", held);
+        // `generatedMessage` is `true` when the text was built here and not
+        // handed in by the caller. This cannot tell the two apart — the message
+        // arrives already rendered — so it says `false`, which is the answer
+        // for a caller that DID pass one and the safer half of the guess: a
+        // program acting on `true` would be rewriting a message the caller
+        // chose.
+        let held = entry::boolean_value(false);
+        entry::put_member(context, error, "generatedMessage", held);
+    });
+    entry::throw_value(error);
 }
 
 /// The failure text: the caller's `message` when there is one, else the

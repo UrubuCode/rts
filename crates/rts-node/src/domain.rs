@@ -74,7 +74,7 @@
 //!   resurrected here either.
 
 use rts_core::entry::{self, Provided};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -83,6 +83,23 @@ thread_local! {
     /// why this is a stack independent of `crate::async_hooks::STACK` despite
     /// the identical shape.
     static STACK: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+
+    /// O proprio namespace `node:domain`, guardado no install.
+    ///
+    /// `create()` alcancava-o pelo receptor — `domain.create()` tem o namespace
+    /// como `this`. `new domain.Domain()` nao: ali o `this` e a instancia nova,
+    /// e escrever `active` nela em vez de no namespace poe a resposta onde
+    /// ninguem a le. Guardado uma vez, entao as duas portas atualizam o mesmo
+    /// sitio.
+    static NAMESPACE: Cell<u64> = const { Cell::new(0) };
+
+    /// `Domain.prototype`, minted once in [`namespace`].
+    ///
+    /// Held for the reason `async_hooks::resource` holds its own:
+    /// `make_prototype` reports a collision by the CALLER'S FILE, and one
+    /// object is the stronger invariant anyway — every instance shares the
+    /// prototype a program's `instanceof` compares against.
+    static PROTOTYPE: Cell<u64> = const { Cell::new(0) };
 }
 
 /// `domain instance -> its members`, kept natively rather than solely as a
@@ -121,11 +138,20 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
     // require('domain').createDomain` answers `'function'` there. Answering one
     // spelling and refusing the other reports a naming history as a missing
     // feature.
-    let members: &[(&str, Provided)] = &[("create", create), ("createDomain", create)];
+    let members: &[(&str, Provided)] = &[("create", create), ("createDomain", create), ("Domain", domain_class)];
     let namespace = entry::make_namespace(context, members);
+    NAMESPACE.with(|held| held.set(namespace));
     let event_emitter = entry::make_prototype(context, "EventEmitter", &[]);
     let prototype = entry::make_prototype(context, "Domain", METHODS);
     entry::set_prototype_in(context, prototype, event_emitter);
+    PROTOTYPE.with(|held| held.set(prototype));
+    // `Domain.prototype`, so `new domain.Domain()` hands the constructor an
+    // object already on the chain — the constructor fills it and answers it,
+    // and `d instanceof domain.Domain` holds. Without this link `new` builds an
+    // object with nothing on it, and the methods are one property lookup away
+    // from existing.
+    let constructor = entry::get_member(context, namespace, "Domain");
+    entry::put_member(context, constructor, "prototype", prototype);
     let active_domain = active().unwrap_or_else(|| entry::undefined_in(context));
     entry::put_member(context, namespace, "active", active_domain);
     namespace
@@ -137,13 +163,51 @@ fn refresh_active(context: &mut entry::Context, namespace: u64) {
 }
 
 /// `domain.create()` — a fresh, empty, not-yet-entered `Domain`.
-extern "C" fn create(_e: u64, namespace: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+extern "C" fn create(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // No receiver: `domain.create()` is a plain call and the object it answers
+    // is a fresh one either way.
+    fresh(entry::undefined_value())
+}
+
+/// `new domain.Domain()` — the class form of the same thing.
+///
+/// Node has both, and a program picks by habit rather than by meaning:
+/// `domain.create()` and `new domain.Domain()` answer the same kind of object.
+/// Absent, `domain.Domain` was `undefined` and `new undefined()` took the
+/// program down before its first listener — 10 files of Node's own `domain`
+/// suite, measured 2026-08-24.
+///
+/// The receiver is ignored on purpose: what `new` hands in is a bare instance
+/// with the wrong prototype for this class, and answering an object from a
+/// constructor is what makes `new` use it instead.
+extern "C" fn domain_class(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // The receiver is FILLED rather than replaced, which is what makes `new`
+    // work: `new` hands in an object already linked to `Domain.prototype` and
+    // takes that object back. Answering a different one instead is what the
+    // first version did, and `new domain.Domain()` came back `undefined`.
+    fresh(this)
+}
+
+/// One empty domain, whichever door asked for it.
+///
+/// `receiver` is what `new` handed in, or `undefined` for a plain call. An
+/// object is filled and answered; anything else means a fresh instance.
+fn fresh(receiver: u64) -> u64 {
     entry::with_runtime(|context| {
-        let prototype = entry::make_prototype(context, "Domain", METHODS);
-        let instance = entry::make_instance(context, prototype);
+        let prototype = match PROTOTYPE.with(Cell::get) {
+            0 => entry::make_prototype(context, "Domain", METHODS),
+            held => held,
+        };
+        let instance = match entry::is_object(context, receiver) {
+            true => receiver,
+            false => entry::make_instance(context, prototype),
+        };
         let members = entry::make_array_in(context, Vec::new());
         entry::put_member(context, instance, "members", members);
-        refresh_active(context, namespace);
+        let namespace = NAMESPACE.with(Cell::get);
+        if namespace != 0 {
+            refresh_active(context, namespace);
+        }
         instance
     })
 }
