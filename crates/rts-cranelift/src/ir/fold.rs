@@ -15,7 +15,7 @@
 use crate::ir::consts::ConstDecl;
 use crate::ir::entity::ValueId;
 use crate::ir::func::{Function, ValueOrigin};
-use crate::ir::inst::{Inst, NumOp};
+use crate::ir::inst::{BitOp, Inst, NumOp};
 use crate::repr::Repr;
 
 /// The value a guard would bind, when the guard cannot fail.
@@ -262,5 +262,209 @@ fn defining_inst(func: &Function, value: ValueId) -> Option<&Inst> {
     match func.value(value)?.origin {
         ValueOrigin::BlockParam(_) => None,
         ValueOrigin::InstResult(inst) => Some(&func.inst(inst)?.inst),
+    }
+}
+
+/// What [`Inst::ToInt32`] answers without converting anything.
+///
+/// The instruction is not cheap and its cost is not obvious. Since 2026-08-25 it
+/// lowers to a range compare, a branch, and two instructions on the taken side —
+/// so a `ToInt32` the builder can settle here removes a branch from the emitted
+/// block as well as the conversion, and the emitter above produces one for
+/// nearly every bitwise operator a program writes.
+pub(crate) enum Int32Answer {
+    /// The operand already IS this value in the integer domain.
+    Reuse(ValueId),
+    /// The conversion is decided here, and this is what it answers.
+    Settled(i32),
+}
+
+/// The value a `ToInt32` would produce, when it is knowable while building.
+///
+/// Two shapes, and both were found by reading what the layer above actually
+/// emits rather than by listing what is theoretically foldable — `fold`'s own
+/// header rule, that a fold with no producer is a fold nothing tests:
+///
+/// - **over a [`Inst::ToF64`]**, which is the round trip `(a << 3) | 0` writes
+///   in full: the shift leaves `I32`, `ToF64` carries it back to the
+///   representation every numeric guard tests for, and the `| 0` immediately
+///   converts it again. `ToF64` only accepts `I32` (the builder refuses
+///   anything else), every `i32` is exactly representable as a double, and the
+///   result is integral and inside the range — so `ToInt32` over it is the
+///   identity, not an approximation of one.
+/// - **over a constant double**, which every `a & 255`, `a | 1` and `a ^ 3`
+///   emits for its right operand, and which every `| 0` emits for the zero.
+///
+/// # What is deliberately absent
+///
+/// A `ToInt32` over a block parameter whose predecessors all carry integers.
+/// That is a traversal, which is a pass, which this module's header says does
+/// not live here — and it is the shape that would actually pay, because it is
+/// the one on the dependency chain a loop carries. Recorded as the next thing
+/// rather than half-attempted: `int not` is `ToInt32` + `Xor` + `ToF64` with
+/// nothing foldable left in it and still costs 3.28 ns against 0.94 for the
+/// empty loop, so the round trip itself is what remains.
+pub(crate) fn to_int32_answer(func: &Function, value: ValueId) -> Option<Int32Answer> {
+    match *defining_inst(func, value)? {
+        Inst::ToF64(source) => Some(Int32Answer::Reuse(source)),
+        Inst::Const(id) => match func.constant(id)? {
+            ConstDecl::Scalar {
+                repr: Repr::F64,
+                bits,
+            } => Some(Int32Answer::Settled(to_int32_of(f64::from_bits(bits.0)))),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The language's `ToInt32`, computed here rather than at run time.
+///
+/// Deliberately written as the specification reads instead of as the lowering
+/// emits, because the two agreeing is the property worth having and would be
+/// unfalsifiable if this were a transcription of that. Both are checked against
+/// the same fixture — `tests/cross-runtime/numeric/436_toint32_boundary.ts`,
+/// whose values reach the run-time path, and this module's own unit tests, whose
+/// values reach this one.
+///
+/// `%` on doubles is exact for every operand pair (it is `fmod`, which is
+/// defined to be), so the reduction below rounds nothing at any magnitude.
+fn to_int32_of(x: f64) -> i32 {
+    if !x.is_finite() {
+        return 0;
+    }
+    let whole = x.trunc();
+    let reduced = whole % 4294967296.0;
+    // Into `[0, 2^32)` before the cast, so that the wrap into signed is the
+    // cast's and not a second rule written here. `-0.0` fails `< 0.0` and casts
+    // to zero, which is the answer for it.
+    let unsigned = if reduced < 0.0 {
+        reduced + 4294967296.0
+    } else {
+        reduced
+    };
+    unsigned as u32 as i32
+}
+
+/// The value a bitwise instruction would produce, when both operands are known.
+///
+/// Only `And`, `Or` and `Xor`, and only over two constants. The shifts are
+/// absent because nothing emits one over two constants — the count is masked
+/// against `31` by the layer above, so a shift's operands are a variable and the
+/// result of THAT mask, which this fold settles instead.
+pub(crate) fn bitwise_answer(
+    func: &Function,
+    op: BitOp,
+    a: ValueId,
+    b: ValueId,
+) -> Option<i32> {
+    let (x, y) = (int32_const(func, a)?, int32_const(func, b)?);
+    match op {
+        BitOp::And => Some(x & y),
+        BitOp::Or => Some(x | y),
+        BitOp::Xor => Some(x ^ y),
+        BitOp::Shl | BitOp::Shr => None,
+    }
+}
+
+/// The operand a bitwise instruction would return unchanged.
+///
+/// One case, and it has a producer in every program: `x | 0`, which is how the
+/// layer above spells "as an int32" and which it emits around the result of an
+/// operation that already left one. Disjunction with zero is the identity on
+/// every bit pattern.
+///
+/// `x & -1` and `x ^ 0` are the obvious neighbours and are absent for the dull
+/// reason: nothing emits either.
+pub(crate) fn bitwise_unchanged(
+    func: &Function,
+    op: BitOp,
+    a: ValueId,
+    b: ValueId,
+) -> Option<ValueId> {
+    if op != BitOp::Or {
+        return None;
+    }
+    if int32_const(func, b) == Some(0) {
+        return Some(a);
+    }
+    if int32_const(func, a) == Some(0) {
+        return Some(b);
+    }
+    None
+}
+
+/// The 32-bit integer a value is, when it is a constant one.
+fn int32_const(func: &Function, value: ValueId) -> Option<i32> {
+    let Some(&Inst::Const(id)) = defining_inst(func, value) else {
+        return None;
+    };
+    match func.constant(id)? {
+        ConstDecl::Scalar {
+            repr: Repr::I32,
+            bits,
+        } => Some(bits.0 as u32 as i32),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_int32_of;
+
+    /// The compile-time `ToInt32` answers what the lowering answers.
+    ///
+    /// These are the same inputs as
+    /// `tests/cross-runtime/numeric/436_toint32_boundary.ts`, which reaches the
+    /// run-time path and is checked against node and bun. Two implementations
+    /// of one specification only stay in agreement if something compares them,
+    /// and the fixture cannot reach this one: a constant the builder can fold
+    /// never becomes a run-time conversion, which is the whole point of the
+    /// fold and also the reason it can drift alone.
+    #[test]
+    fn a_constant_converts_to_what_the_language_says_it_does() {
+        for (input, expected) in [
+            (0.0, 0),
+            (-0.0, 0),
+            (1.0, 1),
+            (-1.0, -1),
+            // Truncation is toward zero, which is not rounding and not floor.
+            (0.9, 0),
+            (-0.9, 0),
+            (1.5, 1),
+            (-1.5, -1),
+            (2147483647.0, 2147483647),
+            // The wrap into signed, which is the cast's and not a rule of ours.
+            (2147483648.0, -2147483648),
+            (-2147483649.0, 2147483647),
+            (4294967295.0, -1),
+            // A multiple of 2^32 reduces to zero however large it is.
+            (4294967296.0, 0),
+            (4294967297.0, 1),
+            (1e21, -559939584),
+            (9007199254740991.0, -1),
+            (-9007199254740991.0, 1),
+            // Either side of 2^63, which is where the lowering changes path and
+            // where this one does not — so it is the input most likely to make
+            // the two disagree.
+            (9223372036854774784.0, -1024),
+            (9223372036854775808.0, 0),
+            (-9223372036854775808.0, 0),
+            (18446744073709551616.0, 0),
+            (1.9342813113834067e25, 0),
+            (f64::MAX, 0),
+            // The three the range guard exists for.
+            (f64::INFINITY, 0),
+            (f64::NEG_INFINITY, 0),
+            (f64::NAN, 0),
+        ] {
+            assert_eq!(
+                to_int32_of(input),
+                expected,
+                "ToInt32({input}) is {expected} in the language, and the \
+                 run-time lowering answers that — see \
+                 tests/cross-runtime/numeric/436_toint32_boundary.ts"
+            );
+        }
     }
 }

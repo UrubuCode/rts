@@ -15,7 +15,7 @@
 //! Widening at a branch is inserted here and only here, which makes it one place
 //! to audit rather than one per site.
 
-use super::consts::ConstDecl;
+use super::consts::{ConstDecl, ScalarBits};
 use super::entity::{BlockId, ConstId, ValueId};
 use super::func::{Function, Signature};
 use super::funcs::{FuncId, FuncRegistry, SigId};
@@ -357,6 +357,20 @@ impl<'a> FuncBuilder<'a> {
                 found: repr,
             });
         }
+        // Asked after the domain check, so that an ill-formed operand is still
+        // refused: a fold that ran first would accept what the instruction
+        // itself would not. Same ordering, and the same reason, as `arith`.
+        match super::fold::to_int32_answer(&self.func, value) {
+            Some(super::fold::Int32Answer::Reuse(source)) => return Ok(source),
+            Some(super::fold::Int32Answer::Settled(known)) => {
+                let id = self.declare_const(ConstDecl::Scalar {
+                    repr: Repr::I32,
+                    bits: ScalarBits(known as u32 as u64),
+                });
+                return Ok(self.use_const(id));
+            }
+            None => {}
+        }
         Ok(self.emit(Inst::ToInt32(value), Repr::I32))
     }
 
@@ -393,6 +407,21 @@ impl<'a> FuncBuilder<'a> {
                 operation: "bitwise",
                 found: repr,
             });
+        }
+        if let Some(unchanged) = super::fold::bitwise_unchanged(&self.func, op, a, b) {
+            return Ok(unchanged);
+        }
+        // Only over `I32`, which is the width the fold computes in. A wider
+        // integer representation reaching here would be folded to the wrong
+        // value, so the guard is the representation and not the operands.
+        if repr == Repr::I32
+            && let Some(known) = super::fold::bitwise_answer(&self.func, op, a, b)
+        {
+            let id = self.declare_const(ConstDecl::Scalar {
+                repr: Repr::I32,
+                bits: ScalarBits(known as u32 as u64),
+            });
+            return Ok(self.use_const(id));
         }
         Ok(self.emit(Inst::Bitwise(op, a, b), repr))
     }
