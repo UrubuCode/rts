@@ -37,6 +37,95 @@ use crate::value::Value;
 /// inside `with_current` and a second borrow is the re-entry this folder's split
 /// exists to make impossible.
 pub fn arguments_at(context: &Context, from: usize, given: [u64; 4]) -> Vec<u64> {
+    with_arguments_at(context, from, given, <[u64]>::to_vec)
+}
+
+/// The arguments a call carried, OWNED, without allocating for the common count.
+///
+/// # Why this exists beside the other two
+///
+/// [`with_arguments_at`] hands over a slice and is the cheapest thing here, but
+/// its slice may borrow the context — so a caller that must give the borrow back
+/// before it can act cannot use it. Two such callers are the reason this type
+/// exists, and neither is unusual:
+///
+/// - `push` appends through `elements_at_mut`, a MUTABLE borrow of the same
+///   context a spilled slice comes from.
+/// - `Math.max` coerces each value with `to_number`, which takes a borrow of its
+///   own, and `math.rs` records that nesting them "is a panic on the re-entry".
+///
+/// Both used [`arguments_at`] and paid a heap allocation per call for it. This
+/// holds the four-slot case in the value itself, so the overwhelmingly common
+/// call allocates nothing and the spilled one behaves exactly as before.
+///
+/// # Why an enum rather than a buffer at each call site
+///
+/// Because "four slots, then a vector" is one rule about what a call carried,
+/// and this module exists on the principle that such a rule is stated once. A
+/// buffer written out at two call sites is that rule written twice, and the
+/// second copy is where the two come to disagree about `from`.
+pub enum Arguments {
+    /// Held in the value: what the convention's four slots carried.
+    Inline([u64; 4], usize),
+    /// The call spilled past four, so the runtime's vector was copied out.
+    Spilled(Vec<u64>),
+}
+
+impl Arguments {
+    /// What the call carried, whichever way it is held.
+    pub fn as_slice(&self) -> &[u64] {
+        match self {
+            Self::Inline(held, count) => &held[..*count],
+            Self::Spilled(held) => held,
+        }
+    }
+}
+
+/// [`arguments_at`] without the allocation, for a caller that needs to own them.
+pub fn arguments_owned_at(context: &Context, from: usize, given: [u64; 4]) -> Arguments {
+    with_arguments_at(context, from, given, |args| {
+        let mut inline = [0u64; 4];
+        match args.len() <= inline.len() {
+            true => {
+                inline[..args.len()].copy_from_slice(args);
+                Arguments::Inline(inline, args.len())
+            }
+            false => Arguments::Spilled(args.to_vec()),
+        }
+    })
+}
+
+/// The same, handed to `take` as a SLICE rather than materialised.
+///
+/// # Why this exists beside [`arguments_at`]
+///
+/// Because the four slots are already on this frame's stack and the spilled
+/// vector is already in the context, so building a `Vec` allocates to hold what
+/// is in front of both of them. That is one heap allocation per call to every
+/// native that reads its arguments — `push`, `unshift`, `concat`, `Array.of`,
+/// `Math.max`, `Function.prototype.call` — and `a.push(i)` pays it to carry a
+/// single word whose count the SITE already declared.
+///
+/// Measured 2026-08-26, release: `a.push(i)` cost 179 ns against Node's 10, and
+/// an indexed write of the same element cost 71 — so the native call path was
+/// ~108 ns over doing the append directly.
+///
+/// [`arguments_at`] stays, as a wrapper: twenty-three callers want an owned
+/// vector because they hand it onward or hold it across user code, and this file
+/// exists on the principle that there is one rule about what a call carried and
+/// therefore one function stating it. That function is now this one.
+///
+/// # Why a closure rather than an iterator or a returned slice
+///
+/// The two answers live in different places — one borrows the context, the other
+/// borrows this frame's argument array — so no single lifetime describes both. A
+/// closure lets each arm hand over what it already has.
+pub fn with_arguments_at<R>(
+    context: &Context,
+    from: usize,
+    given: [u64; 4],
+    take: impl FnOnce(&[u64]) -> R,
+) -> R {
     let spilled = context
         .pending_arguments
         .last()
@@ -44,7 +133,7 @@ pub fn arguments_at(context: &Context, from: usize, given: [u64; 4]) -> Vec<u64>
         .and_then(|vector| Value(vector).as_slot())
         .and_then(|cell| context.elements_at(cell));
     if let Some(elements) = spilled {
-        return elements.iter().skip(from).copied().collect();
+        return take(&elements[from.min(elements.len())..]);
     }
     // What the SITE said it wrote, when it said. The doc above described the
     // guess below as the only available answer and named its divergence —
@@ -53,11 +142,14 @@ pub fn arguments_at(context: &Context, from: usize, given: [u64; 4]) -> Vec<u64>
     // the right place instead of at the last non-`undefined`.
     if let Some(count) = context.pending_counts.last().copied().flatten() {
         let count = count.min(given.len());
-        return given[from.min(count)..count].to_vec();
+        return take(&given[from.min(count)..count]);
     }
-    let mut given = given.to_vec();
-    while given.last().is_some_and(|last| absent(context, *last)) {
-        given.pop();
+    // The trailing `undefined` is CUT rather than popped, which is the same
+    // answer without owning anything: the old spelling built a `Vec` in order to
+    // shorten it.
+    let mut end = given.len();
+    while end > 0 && absent(context, given[end - 1]) {
+        end -= 1;
     }
-    given.into_iter().skip(from).collect()
+    take(&given[from.min(end)..end])
 }

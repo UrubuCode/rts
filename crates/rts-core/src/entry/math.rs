@@ -50,8 +50,8 @@ use super::with_current;
 /// The borrow is taken and given back HERE, before the first coercion, because
 /// `to_number` takes one of its own. Nesting them is a panic on the re-entry,
 /// which is the trap this whole authoring layer exists to make structural.
-fn given(a0: u64, a1: u64, a2: u64, a3: u64) -> Vec<u64> {
-    with_current(|context| super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]))
+fn given(a0: u64, a1: u64, a2: u64, a3: u64) -> super::array_proto::Arguments {
+    with_current(|context| super::array_proto::arguments_owned_at(context, 0, [a0, a1, a2, a3]))
 }
 
 /// The comparison [`Math::max`] folds with.
@@ -359,9 +359,11 @@ impl Math {
     /// arguments at all.
     #[arity(2)]
     fn hypot(a: u64, b: u64, c: u64, d: u64) -> f64 {
-        let numbers: Vec<f64> = given(a, b, c, d)
-            .into_iter()
-            .map(super::class_support::to_number)
+        let carried = given(a, b, c, d);
+        let numbers: Vec<f64> = carried
+            .as_slice()
+            .iter()
+            .map(|value| super::class_support::to_number(*value))
             .collect();
         if numbers.iter().any(|n| n.is_infinite()) {
             return f64::INFINITY;
@@ -407,13 +409,13 @@ impl Math {
     /// that was never written is never coerced.
     #[arity(2)]
     fn max(a: u64, b: u64, c: u64, d: u64) -> f64 {
-        folded(&given(a, b, c, d), f64::NEG_INFINITY, max2)
+        folded(given(a, b, c, d).as_slice(), f64::NEG_INFINITY, max2)
     }
 
     /// `Math.min(…)`, with the same two rules as [`Math::max`].
     #[arity(2)]
     fn min(a: u64, b: u64, c: u64, d: u64) -> f64 {
-        folded(&given(a, b, c, d), f64::INFINITY, min2)
+        folded(given(a, b, c, d).as_slice(), f64::INFINITY, min2)
     }
 }
 

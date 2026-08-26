@@ -43,7 +43,7 @@ pub(in crate::entry) mod more;
 mod numeric;
 pub(in crate::entry) mod species;
 
-pub use arguments::arguments_at;
+pub use arguments::{Arguments, arguments_at, arguments_owned_at, with_arguments_at};
 
 use super::objects::undefined_of;
 use super::rooted::Rooted;
@@ -227,7 +227,18 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
 /// here uses.
 extern "C" fn push(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let (answer, refused) = with_current(|context| {
-        let more = arguments_at(context, 0, [a0, a1, a2, a3]);
+        // Into a buffer on THIS frame, and a `Vec` only when the call spilled
+        // past the four slots. `a.push(i)` carries one word whose count the site
+        // already declared and which is already in a register, so allocating a
+        // heap vector to hold it is paying for a question that was answered
+        // while compiling.
+        //
+        // Copied out rather than borrowed because `elements_at_mut` below takes
+        // a mutable borrow of the same context a spilled slice would come from —
+        // which is why the buffer is what makes this work at all, rather than
+        // merely what makes it fast.
+        let carried = arguments::arguments_owned_at(context, 0, [a0, a1, a2, a3]);
+        let more = carried.as_slice();
         let Some(cell) = Value(this).as_slot() else {
             return (undefined_of(context), None);
         };
