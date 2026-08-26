@@ -1,4 +1,4 @@
-# What every action costs, 2026-08-21
+# What every action costs, 2026-08-26
 
 The table of record. Every other document in this tree points at a row of it,
 and a claim that something got faster is a claim that a row here moved.
@@ -8,20 +8,48 @@ three runtimes on one machine within the same ten minutes:
 
 | | binary | invocation |
 |---|---|---|
-| rts | `target/release/rts.exe`, built from the tree at `97f66385` | `rts.exe run bench/analytic.ts` |
+| rts | `target/release/rts.exe`, built from the tree at `673b9c0c` | `rts.exe run bench/analytic.ts` |
 | bun | 1.4.0 | `bun run bench/analytic.ts` |
-| node | 25.9.0 | `node --experimental-strip-types bench/analytic.ts` |
+| node | 25.9.0 | `node bench/analytic.ts` |
 
-Machine: Windows 11 Pro 26200, the same one for all three. Numbers are
-nanoseconds per action, best of the harness's own calibrated repeats.
+Machine: Windows 11 Pro 26200, the same one for all three, **with nothing else
+running** — see below for why that clause is now part of the method.
 
-**`97f66385` is a parent of this branch, not its tip.** These numbers were taken
-against that commit, and against the changes that now sit on top of it; the
-branch has since been rebased onto ninety commits of `rts-dom` and parity work
-which touch none of the crates measured here. The *attribution* therefore stands
-— it is a before/after of one change set, measured with both binaries in hand —
-but the absolute figures describe a tree that no longer exists exactly.
-Re-measure before quoting an absolute number.
+**Three runs of each runtime, minimum per row**, which is stricter than the
+2026-08-21 table and is stated because it makes the two not quite comparable:
+that one took the harness's own calibrated repeats once. The change is
+deliberate. This session watched a loaded machine move rows by 20% and, in one
+case, report 81 cross-runtime fixtures as regressions that were timeouts — so a
+single run is no longer trusted for a table other documents subtract from.
+
+`node` is invoked without `--experimental-strip-types`; 25.9 reads TypeScript
+without it, and the flag now warns.
+
+### What moved since 2026-08-21, and why the old numbers were not wrong
+
+The previous table was taken at `97f66385` and `docs/codegen/object-model.md` §6
+item 0 called re-measuring it the first item on the work list, because every
+subtraction in that document is arithmetic on these rows and two of them were
+known stale. They were, and by more than it estimated:
+
+| row | 2026-08-21 | object-model's estimate | now |
+|---|---:|---:|---:|
+| `prop write own` | 9.61 | ~4.59 | **4.02** |
+| `prop read own` | 4.97 | — | **4.14** |
+| `alloc class instance` | 90.89 | ~86 | **74.55** |
+| `alloc add prop after` | 54.12 | ~44.5 | **39.60** |
+
+The first is a write barrier that could never report anything, removed in
+`hot-path-hygiene.md`; the allocation rows contain it once and twice. The rest of
+the fall is five days of work between the two commits, including this session's
+four changes to `closure_new`, native arguments, enumeration and the transition
+key.
+
+**Read this against rule 1 below rather than as a speedup**: these are two
+absolutes taken on two different days, which is exactly the comparison that
+section says is evidence of nothing. What licenses the direction here is that
+each change was A/B'd against its own kept binary when it landed, and those are
+the numbers in the commits.
 
 ### An absolute here is not comparable across days. Only a same-session A/B is.
 
@@ -83,7 +111,7 @@ tree's README requires one of them to move before a change ships on a row here.
 
 **The floor.** The empty-loop row is what the harness itself costs, and a row at
 the floor is a row whose cost the harness dominates — not a free action. rts's
-floor is 1.27 ns, bun's 0.46, node's 1.37. Subtract before believing a small
+floor is 0.89 ns, bun's 0.45, node's 1.31. Subtract before believing a small
 number.
 
 ---
@@ -95,80 +123,96 @@ bun and node was faster.
 
 | action | rts | bun | node | rts / best |
 |---|---:|---:|---:|---:|
-| `floor empty loop` | 1.27 | 0.46 | 1.37 | 3× |
-| `arith int add` | 1.22 | 0.49 | 0.38 | 3× |
-| `arith int mul` | 7.55 | 0.72 | 0.26 | 29× |
-| `arith int div` | 2.62 | 0.68 | 0.77 | 4× |
-| `arith int mod` | 5.23 | 0.94 | 1.16 | 6× |
-| `arith float add` | 1.22 | 0.70 | 0.70 | 2× |
-| `arith float mul` | 1.29 | 0.71 | 0.70 | 2× |
-| `arith compare int` | 2.08 | 0.51 | 0.38 | 5× |
-| `arith Math.sqrt` | 3.18 | 2.03 | 1.99 | 2× |
-| `arith Math.floor` | 3.29 | 1.34 | 3.79 | 2× |
-| `arith Math.random` | 5.01 | 1.13 | 6.30 | 4× |
-| `call free function` | 3.21 | 0.38 | 0.39 | 8× |
-| `call arrow` | 3.11 | 0.55 | 0.39 | 8× |
-| `call method` | 29.35 | 0.52 | 0.38 | 77× |
-| `call varargs 3` | 253.36 | 0.55 | 0.38 | 667× |
-| `call closure make+call` | 1672.46 | 10.25 | 8.40 | 199× |
-| `call closure var read` | 26.00 | 0.67 | 0.40 | 65× |
-| `prop read own` | 4.97 | 0.54 | 0.38 | 13× |
-| `prop write own` | 9.61 | 0.31 | 0.30 | 32× |
-| `prop read 4 fields` | 4.18 | 0.17 | 0.18 | 25× |
-| `prop computed key` | 107.86 | 2.33 | 7.53 | 46× |
-| `prop proto method call` | 27.79 | 0.66 | 0.38 | 73× |
-| `prop optional chain` | 4.13 | 0.76 | 0.57 | 7× |
-| `prop in operator` | 85.53 | 0.26 | 0.38 | 329× |
-| `prop typeof` | 22.79 | 0.54 | 0.38 | 60× |
-| `prop typeof alone` | 13.10 | 0.26 | 0.38 | 50× |
-| `prop instanceof` | 240.80 | 0.30 | 0.37 | 803× |
-| `alloc object literal 2` | 1.22 | 0.47 | 0.61 | 3× |
-| `alloc object literal 8` | 1.24 | 0.50 | 0.62 | 2× |
-| `alloc class instance` | 90.89 | 0.53 | 0.38 | 239× |
-| `alloc array literal 4` | 231.34 | 0.52 | 0.62 | 445× |
-| `alloc add prop after` | 54.12 | 0.48 | 0.61 | 113× |
-| `array index read` | 16.63 | 0.71 | 0.70 | 24× |
-| `array index write` | 16.88 | 0.52 | 0.47 | 36× |
-| `array push+pop` | 148.78 | 0.70 | 0.86 | 213× |
-| `array for-of 16` | 55.95 | 1.26 | 3.73 | 44× |
-| `array map 16` | 220.89 | 2.38 | 1.75 | 126× |
-| `array filter 16` | 223.51 | 3.86 | 2.28 | 98× |
-| `array indexOf 16` | 6.58 | 0.54 | 0.74 | 12× |
-| `array join 16` | 151.56 | 15.33 | 12.82 | 12× |
-| `string length` | 5.41 | 0.49 | 0.39 | 14× |
-| `string charCodeAt` | 97.78 | 0.81 | 1.46 | 121× |
-| `string index []` | 123.03 | 1.39 | 0.50 | 246× |
-| `string concat 2` | 141.88 | 0.52 | 0.38 | 373× |
-| `string template literal` | 477.50 | 35.93 | 15.36 | 31× |
-| `string equals` | 10.66 | 0.25 | 0.38 | 43× |
-| `string indexOf 256` | 207.45 | 0.50 | 0.39 | 532× |
-| `string slice 16` | 206.59 | 0.60 | 0.38 | 544× |
-| `string split 16` | 4799.01 | 9.86 | 35.74 | 487× |
-| `string toUpperCase 16` | 202.29 | 0.38 | 0.38 | 532× |
-| `string number->string` | 154.76 | 28.65 | 18.57 | 8× |
-| `string parseInt` | 138.48 | 0.50 | 0.63 | 277× |
-| `string parseFloat` | 167.20 | 19.72 | 35.83 | 8× |
-| `coll Map.get` | 52.10 | 0.51 | 6.98 | 102× |
-| `coll Map.set existing` | 66.82 | 8.80 | 7.70 | 9× |
-| `coll Map.has` | 50.86 | 0.47 | 6.52 | 108× |
-| `coll Set.has` | 43.49 | 0.48 | 2.85 | 91× |
-| `coll Object.keys 4` | 308.09 | 0.14 | 2.32 | 2201× |
-| `json stringify small` | 5014.88 | 104.90 | 144.63 | 48× |
-| `json parse small` | 2859.54 | 220.71 | 428.93 | 13× |
-| `regex test` | 117.28 | 1.44 | 18.92 | 81× |
-| `regex exec+group` | 2268.25 | 10.05 | 36.09 | 226× |
-| `regex replace` | 1503.12 | 0.50 | 38.75 | 3006× |
-| `binary Uint8Array read` | 24.65 | 0.49 | 0.52 | 50× |
-| `binary Uint8Array write` | 30.76 | 0.47 | 0.44 | 70× |
-| `binary Float64Array rw` | 27.66 | 0.35 | 1.90 | 79× |
-| `binary DataView getU32` | 39.27 | 0.50 | 0.57 | 79× |
-| `binary alloc Uint8Array 64` | 944.93 | 10.02 | 29.37 | 94× |
-| `binary subarray 64` | 294.13 | 34.73 | 24.17 | 12× |
-| `binary TextEncoder 16` | 1250.23 | 28.76 | 357.55 | 43× |
-| `flow try/catch no throw` | 10.31 | 0.23 | 0.38 | 45× |
-| `flow throw+catch` | 1628.61 | 424.15 | 8020.97 | 4× |
-| `flow generator next` | 805.09 | 3.82 | 15.80 | 211× |
-| `flow switch 8-way` | 4.22 | 1.83 | 1.71 | 2× |
+| `floor empty loop` | 0.89 | 0.45 | 1.31 | 2× |
+| `arith int add` | 1.14 | 0.45 | 0.36 | 3× |
+| `arith int mul` | 3.74 | 0.67 | 0.25 | 15× |
+| `arith int div` | 2.03 | 0.63 | 0.72 | 3× |
+| `arith int mod` | 4.78 | 0.84 | 1.13 | 6× |
+| `arith int shl` | 0.82 | 0.22 | 0.25 | 4× |
+| `arith int shr` | 0.90 | 0.44 | 0.25 | 4× |
+| `arith int shr unsigned` | 12.55 | 0.22 | 0.25 | 57× |
+| `arith float add` | 0.90 | 0.68 | 0.67 | 1× |
+| `arith float mul` | 0.90 | 0.66 | 0.67 | 1× |
+| `arith compare int` | 1.33 | 0.45 | 0.36 | 4× |
+| `arith int sub` | 3.62 | 0.23 | 0.25 | 16× |
+| `arith float sub` | 1.11 | 0.67 | 0.67 | 2× |
+| `arith float div` | 3.07 | 2.98 | 2.98 | 1× |
+| `arith exponent` | 19.09 | 0.22 | 0.25 | 87× |
+| `arith int and` | 0.82 | 0.23 | 0.25 | 4× |
+| `arith int or` | 0.90 | 0.23 | 0.25 | 4× |
+| `arith int xor` | 0.90 | 0.23 | 0.25 | 4× |
+| `arith int not` | 1.14 | 0.23 | 0.25 | 5× |
+| `arith negate` | 0.91 | 0.45 | 0.25 | 4× |
+| `arith unary plus` | 3.72 | 0.44 | 0.25 | 15× |
+| `arith logical not` | 8.06 | 0.69 | 0.56 | 14× |
+| `arith strict equals int` | 1.36 | 0.67 | 0.39 | 3× |
+| `arith loose equals int` | 1.58 | 0.68 | 0.39 | 4× |
+| `arith Math.sqrt` | 2.93 | 1.87 | 1.89 | 2× |
+| `arith Math.floor` | 2.93 | 1.18 | 0.66 | 4× |
+| `arith Math.random` | 4.07 | 1.03 | 5.77 | 4× |
+| `call free function` | 2.95 | 0.45 | 0.37 | 8× |
+| `call arrow` | 2.89 | 0.45 | 0.36 | 8× |
+| `call method` | 25.39 | 0.34 | 0.36 | 75× |
+| `call varargs 3` | 209.47 | 0.45 | 0.36 | 582× |
+| `call closure make+call` | 241.27 | 6.33 | 6.92 | 38× |
+| `call closure var read` | 23.29 | 0.57 | 0.40 | 58× |
+| `prop read own` | 4.14 | 0.45 | 0.37 | 11× |
+| `prop write own` | 4.02 | 0.45 | 0.28 | 14× |
+| `prop read 4 fields` | 3.85 | 0.14 | 0.17 | 27× |
+| `prop computed key` | 36.12 | 2.07 | 6.71 | 17× |
+| `prop proto method call` | 25.62 | 0.34 | 0.37 | 75× |
+| `prop optional chain` | 3.29 | 0.67 | 0.55 | 6× |
+| `prop in operator` | 32.35 | 0.22 | 0.36 | 147× |
+| `prop typeof` | 20.42 | 0.45 | 0.36 | 57× |
+| `prop typeof alone` | 10.68 | 0.22 | 0.36 | 49× |
+| `prop instanceof` | 116.69 | 0.22 | 0.37 | 530× |
+| `alloc object literal 2` | 1.03 | 0.44 | 0.56 | 2× |
+| `alloc object literal 8` | 0.90 | 0.43 | 0.57 | 2× |
+| `alloc class instance` | 74.55 | 0.45 | 0.36 | 207× |
+| `alloc array literal 4` | 212.17 | 0.44 | 0.57 | 482× |
+| `alloc add prop after` | 39.60 | 0.43 | 0.56 | 92× |
+| `array index read` | 14.09 | 0.57 | 0.68 | 25× |
+| `array index write` | 14.29 | 0.45 | 0.45 | 32× |
+| `array push+pop` | 109.54 | 0.57 | 0.81 | 192× |
+| `array for-of 16` | 44.79 | 1.08 | 0.87 | 51× |
+| `array map 16` | 90.60 | 1.96 | 1.83 | 50× |
+| `array filter 16` | 90.42 | 2.79 | 2.12 | 43× |
+| `array indexOf 16` | 5.30 | 0.26 | 0.71 | 20× |
+| `array join 16` | 99.75 | 13.59 | 11.82 | 8× |
+| `string length` | 4.22 | 0.44 | 0.37 | 11× |
+| `string charCodeAt` | 77.44 | 0.67 | 1.37 | 116× |
+| `string index []` | 105.37 | 0.98 | 0.47 | 224× |
+| `string concat 2` | 109.02 | 0.45 | 0.36 | 303× |
+| `string template literal` | 391.29 | 27.28 | 14.77 | 26× |
+| `string equals` | 10.10 | 0.22 | 0.37 | 46× |
+| `string indexOf 256` | 197.18 | 0.45 | 0.37 | 533× |
+| `string slice 16` | 183.45 | 0.44 | 0.36 | 510× |
+| `string split 16` | 1327.33 | 8.82 | 33.36 | 150× |
+| `string toUpperCase 16` | 184.20 | 0.34 | 0.37 | 542× |
+| `string number->string` | 138.49 | 25.06 | 17.70 | 8× |
+| `string parseInt` | 127.57 | 0.34 | 0.59 | 375× |
+| `string parseFloat` | 135.38 | 17.75 | 33.43 | 8× |
+| `coll Map.get` | 45.85 | 0.34 | 8.95 | 135× |
+| `coll Map.set existing` | 57.83 | 7.54 | 9.69 | 8× |
+| `coll Map.has` | 47.08 | 0.46 | 8.48 | 102× |
+| `coll Set.has` | 37.77 | 0.45 | 2.71 | 84× |
+| `coll Object.keys 4` | 166.87 | 0.11 | 1.96 | 1517× |
+| `json stringify small` | 1848.36 | 94.79 | 132.92 | 19× |
+| `json parse small` | 2279.90 | 193.88 | 409.20 | 12× |
+| `regex test` | 106.70 | 1.31 | 17.39 | 81× |
+| `regex exec+group` | 1552.64 | 7.85 | 31.87 | 198× |
+| `regex replace` | 1167.52 | 0.22 | 33.69 | 5307× |
+| `binary Uint8Array read` | 20.61 | 0.45 | 0.49 | 46× |
+| `binary Uint8Array write` | 27.09 | 0.45 | 0.43 | 63× |
+| `binary Float64Array rw` | 23.89 | 0.33 | 1.83 | 72× |
+| `binary DataView getU32` | 34.77 | 0.47 | 0.56 | 74× |
+| `binary alloc Uint8Array 64` | 599.58 | 8.26 | 27.00 | 73× |
+| `binary subarray 64` | 232.41 | 28.68 | 21.84 | 11× |
+| `binary TextEncoder 16` | 684.77 | 26.31 | 309.57 | 26× |
+| `flow try/catch no throw` | 3.87 | 0.22 | 0.37 | 18× |
+| `flow throw+catch` | 1060.43 | 388.36 | 7835.42 | 3× |
+| `flow generator next` | 408.36 | 13.23 | 14.05 | 31× |
+| `flow switch 8-way` | 2.98 | 1.73 | 1.81 | 2× |
 
 ---
 
@@ -221,10 +265,10 @@ for whatever else can be inlined — not evidence that calls are cheap.
 
 ### The two rows that are already at the floor
 
-`alloc object literal 2` at 1.22 and `alloc object literal 8` at 1.24, against a
-floor of 1.27. The allocation is **gone** — `crates/rts-codegen/src/emit/escape.rs`
+`alloc object literal 2` at 1.03 and `alloc object literal 8` at 0.90, against a
+floor of 0.89. The allocation is **gone** — `crates/rts-codegen/src/emit/escape.rs`
 removed it. Which makes the interesting number not these but their neighbours:
-`alloc class instance` at 90.89 and `alloc array literal 4` at 231.34, the same
+`alloc class instance` at 74.55 and `alloc array literal 4` at 212.17, the same
 shape of code with the same fate available and not taken.
 
 ### `string split 16` is bimodal and must not be quoted at all
