@@ -227,6 +227,7 @@ pub(crate) fn apply_css_wide_keyword(
             let applied = apply_initial_value(css, prop);
             if applied {
                 crate::style::inherit_kw::clear_inherit_marker(css, prop);
+                crate::style::inherit_kw::mark_initial_property(css, prop);
             }
             applied
         }
@@ -273,6 +274,10 @@ fn is_inherited_property(prop: &str) -> bool {
 fn apply_initial_value(css: &mut ComputedStyle, prop: &str) -> bool {
     // A inicialização dos shorthands abaixo é válida para todas as suas
     // longhands modeladas e passa pelo parser normal para conservar os clears.
+    if prop == "font-family" {
+        css.font_family = None;
+        return true;
+    }
     let value = match prop {
         "margin" | "padding" => Some("0px"),
         "border" => Some("medium none black"),
@@ -330,6 +335,7 @@ pub(crate) fn apply_specified_declaration(
     }
 
     crate::style::inherit_kw::clear_inherit_marker(css, &prop);
+    crate::style::inherit_kw::clear_initial_marker(css, &prop);
     if !aplica_declaracao(css, prop.as_str(), val) {
         let nu = prop
             .strip_prefix("-webkit-")

@@ -43,9 +43,29 @@ pub(crate) fn clear_inherit_marker(dst: &mut ComputedStyle, name: &str) {
     dst.inherit_props = (!remaining.is_empty()).then(|| std::sync::Arc::new(remaining));
 }
 
-/// Remove marcadores CSS que são cobertos por um campo já aplicado no merge da
-/// cascade. Os nomes de campo do `ComputedStyle` são internos; esta tabela
-/// traduz apenas os casos herdáveis e os shorthands que os controlam.
+/// Marca uma propriedade que foi explicitamente definida como `initial`.
+pub(crate) fn mark_initial_property(dst: &mut ComputedStyle, name: &str) {
+    let mut names = dst.initial_props.as_deref().cloned().unwrap_or_default();
+    if !names.iter().any(|property| property == name) {
+        names.push(name.to_string());
+    }
+    dst.initial_props = Some(std::sync::Arc::new(names));
+}
+
+pub(crate) fn clear_initial_marker(dst: &mut ComputedStyle, name: &str) {
+    let Some(existing) = dst.initial_props.take() else {
+        return;
+    };
+    let remaining: Vec<String> = existing
+        .iter()
+        .filter(|property| property.as_str() != name)
+        .cloned()
+        .collect();
+    dst.initial_props = (!remaining.is_empty()).then(|| std::sync::Arc::new(remaining));
+}
+
+/// Remove o marcador de `inherit` quando um campo computado posterior vence a
+/// mesma propriedade na cascade.
 pub(crate) fn clear_inherit_for_field(dst: &mut ComputedStyle, field: &str) {
     let names: &[&str] = match field {
         "color" => &["color"],
@@ -79,6 +99,56 @@ pub(crate) fn clear_inherit_for_field(dst: &mut ComputedStyle, field: &str) {
     };
     for name in names {
         clear_inherit_marker(dst, name);
+    }
+}
+
+/// Remove o marcador de `initial` quando um campo computado posterior vence a
+/// mesma propriedade na cascade.
+pub(crate) fn clear_initial_for_field(dst: &mut ComputedStyle, field: &str) {
+    let names: &[&str] = match field {
+        "color" => &["color"],
+        "font_size" => &["font-size", "font"],
+        "bold" => &["font-weight", "font"],
+        "italic" => &["font-style", "font"],
+        "line_height" => &["line-height", "font"],
+        "font_family" => &["font-family", "font"],
+        "text_align" => &["text-align"],
+        "white_space" => &["white-space"],
+        "text_transform" => &["text-transform"],
+        "letter_spacing" => &["letter-spacing"],
+        "text_decoration" => &["text-decoration", "text-decoration-line"],
+        "font_stretch" => &["font-stretch", "font"],
+        "word_spacing" => &["word-spacing"],
+        "visibility" => &["visibility"],
+        "tab_size" => &["tab-size"],
+        "line_break" => &["line-break"],
+        "text_decoration_skip_ink" => &["text-decoration-skip-ink"],
+        "caret_color" => &["caret-color"],
+        "text_wrap" => &["text-wrap"],
+        "hyphens" => &["hyphens"],
+        "direction" => &["direction"],
+        "word_break" => &["word-break"],
+        "overflow_wrap" => &["overflow-wrap", "word-wrap"],
+        "text_indent" => &["text-indent"],
+        "list_style_type" => &["list-style-type", "list-style"],
+        "list_style_position" => &["list-style-position", "list-style"],
+        "pointer_events" => &["pointer-events"],
+        _ => &[],
+    };
+    for name in names {
+        clear_initial_marker(dst, name);
+    }
+}
+
+/// Reaplica `initial` depois da herança genérica. Alguns iniciais são `None`
+/// no modelo (por exemplo a família de fonte), logo só o marcador consegue
+/// impedir a cópia silenciosa do pai.
+pub(crate) fn apply_initial_keywords(dst: &mut ComputedStyle) {
+    let Some(names) = dst.initial_props.clone() else {
+        return;
+    };
+    for name in names.iter() {
+        let _ = crate::style::parse::apply_css_wide_keyword(dst, name, "initial");
     }
 }
 
@@ -228,6 +298,14 @@ mod tests {
         inicial.inherit_from(&pai);
         assert_eq!(inicial.color, Some(0x000000ff), "initial não herda color");
         assert_eq!(inicial.width, Some(crate::style::Dimension::Auto));
+
+        let pai_fonte = parse_inline("font-family:Arial");
+        let mut inicial_fonte = parse_inline("font-family:initial");
+        inicial_fonte.inherit_from(&pai_fonte);
+        assert_eq!(
+            inicial_fonte.font_family, None,
+            "initial não deve herdar a família do pai"
+        );
     }
 
     #[test]
