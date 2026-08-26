@@ -50,6 +50,11 @@ pub fn install(context: &mut Context) {
         tree::MEMBERS.iter().chain(nodes::MEMBERS).copied().collect();
     let surface = entry::make_namespace(context, &members);
     entry::declare_module(context, "rts:dom", surface);
+    // A fachada `DOM_TS` é um prelude de script e chama os primitivos como
+    // `dom.parseHtml(...)`, sem uma importação no seu texto. O mesmo valor pode
+    // ser publicado nas duas superfícies: módulos continuam a usar
+    // `import ... from "rts:dom"` e a fachada usa o global `dom`.
+    entry::declare_global(context, "dom", surface);
 }
 
 /// O prelude `.ts` da fachada ergonômica (`document`/`Element`), para o host

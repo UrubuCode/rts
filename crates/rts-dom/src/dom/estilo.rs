@@ -35,18 +35,66 @@ impl Dom {
         Some(computed)
     }
 
-    /// Acrescenta o conteúdo de um `<style>` ao stylesheet de autor da página
-    /// (chamado pelo parser ao encontrar um `RawElement` de `style`). Vários
-    /// `<style>` acumulam, com as regras posteriores desempatando por cima.
+    /// Acrescenta CSS externo ao stylesheet autoral. O conteúdo dos elementos
+    /// `<style>` é recolhido dos nós vivos por `rebuild_author_stylesheet`, para
+    /// que remoções e substituições não deixem regras antigas na cascade.
     pub fn add_stylesheet(&mut self, css: &str) {
         let _phase = crate::metrics::phases::scope("parse-css");
         crate::bump!(stylesheets_added);
         crate::bump!(css_bytes, css.len());
+        self.external_css.push_str(css);
+        self.external_css.push('\n');
+        self.rebuild_author_stylesheet();
+    }
+
+    /// Reconstrói a stylesheet autoral na ordem documental dos `<style>` vivos.
+    /// Esta operação é usada depois de mutações que podem inserir, remover ou
+    /// substituir CSS. O CSS externo é preservado como a primeira origem autoral.
+    pub(in crate::dom) fn rebuild_author_stylesheet(&mut self) {
+        let mut embedded = Vec::new();
+        self.collect_embedded_css(self.root, &mut embedded);
+
+        let mut stylesheet = crate::style::Stylesheet::new();
+        if !self.external_css.is_empty() {
+            stylesheet.append_css(&self.external_css);
+        }
+        for css in &embedded {
+            stylesheet.append_css(css);
+        }
+        self.stylesheet = stylesheet;
+
+        self.raw_css.clear();
+        self.raw_css.push_str(&self.external_css);
+        for css in embedded {
+            self.raw_css.push_str(&css);
+            self.raw_css.push('\n');
+        }
         self.touch();
-        self.stylesheet.append_css(css);
-        // guarda o bruto p/ os pseudo-elementos ::-webkit-scrollbar* (#1744).
-        self.raw_css.push_str(css);
-        self.raw_css.push('\n');
+    }
+
+    pub(in crate::dom) fn subtree_contains_style(&self, idx: NodeIdx) -> bool {
+        if matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "style") {
+            return true;
+        }
+        self.nodes[idx]
+            .children
+            .iter()
+            .copied()
+            .any(|child| self.subtree_contains_style(child))
+    }
+
+    fn collect_embedded_css(&self, idx: NodeIdx, out: &mut Vec<String>) {
+        if let NodeKind::Element { tag } = &self.nodes[idx].kind {
+            if tag == "style" {
+                let css = self
+                    .text_content(self.make_id(idx))
+                    .unwrap_or_default();
+                out.push(css);
+            }
+        }
+        for &child in &self.nodes[idx].children {
+            self.collect_embedded_css(child, out);
+        }
     }
 
     /// O estilo da SCROLLBAR resolvido da página (#1744): combina `scrollbar-width`/

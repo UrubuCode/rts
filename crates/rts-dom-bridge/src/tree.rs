@@ -15,6 +15,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("createDocument", create_document),
     ("free", free),
     ("rootId", root_id),
+    ("documentElement", document_element),
     ("addStylesheet", add_stylesheet),
     ("dump", dump),
     ("nodeCount", node_count),
@@ -49,6 +50,14 @@ extern "C" fn root_id(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> 
 }
 
 /// `addStylesheet(doc, css)` — acrescenta regras de autor ao documento.
+extern "C" fn document_element(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let id = rts_dom::store::with_dom(handle(doc), |d| {
+        d.document_element().map(|n| n.to_abi()).unwrap_or(-1)
+    })
+    .unwrap_or(-1);
+    int(id)
+}
+
 extern "C" fn add_stylesheet(_e: u64, _t: u64, doc: u64, css: u64, _b: u64, _c: u64) -> u64 {
     let css = text(css);
     rts_dom::store::with_dom_mut(handle(doc), |d| d.add_stylesheet(&css));

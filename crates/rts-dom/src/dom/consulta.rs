@@ -22,6 +22,24 @@ impl Dom {
         Some(self.make_id(idx))
     }
 
+    /// `document.getElementById`: procura o valor literal do atributo `id`, sem
+    /// passar pelo parser CSS. O primeiro candidato é escolhido em ordem
+    /// documental, inclusive quando há IDs duplicados.
+    pub fn get_element_by_id(&self, id: &str) -> Option<NodeId> {
+        let candidates = self.id_index.get(id)?;
+        let positions = self.document_positions();
+        let idx = candidates
+            .iter()
+            .copied()
+            .filter(|&idx| {
+                self.is_attached(idx)
+                    && matches!(self.nodes[idx].kind, NodeKind::Element { .. })
+                    && self.nodes[idx].attr("id") == Some(id)
+            })
+            .min_by_key(|&idx| positions.1[idx]);
+        idx.map(|idx| self.make_id(idx))
+    }
+
     /// Núcleo do `query` em índices crus (interno). O `query` público embrulha o
     /// resultado no `NodeId` versionado.
     fn query_idx(&self, sel: &str) -> Option<NodeIdx> {

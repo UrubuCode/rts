@@ -285,3 +285,38 @@
         assert_eq!(dom.inline_property(a, "color"), ""); // o color sumiu
         assert_eq!(dom.inline_property(a, "background-color"), "rgb(0, 128, 0)");
     }
+
+
+    #[test]
+    fn style_inserido_por_inner_html_entra_e_sai_da_cascade() {
+        let mut dom = parse_html_to_dom("<div id='root'></div>");
+        let root = dom.query("#root").unwrap();
+
+        dom.set_inner_html(
+            root,
+            "<style>.x { color: #ff0000 }</style><p id='p' class='x'>x</p>",
+        );
+        let p = dom.query("#p").unwrap();
+        assert_eq!(dom.computed_property(p, "color"), "rgb(255, 0, 0)");
+
+        dom.set_inner_html(root, "<p id='p' class='x'>x</p>");
+        let p = dom.query("#p").unwrap();
+        assert_eq!(dom.computed_property(p, "color"), "rgb(0, 0, 0)");
+    }
+
+    #[test]
+    fn style_embutido_removido_nao_apaga_css_externo() {
+        let mut dom = parse_html_to_dom("<div id='root'></div>");
+        dom.add_stylesheet(".x { color: #0000ff }");
+        let root = dom.query("#root").unwrap();
+        dom.set_inner_html(
+            root,
+            "<style>.x { color: #ff0000 }</style><p id='p' class='x'>x</p>",
+        );
+        let p = dom.query("#p").unwrap();
+        assert_eq!(dom.computed_property(p, "color"), "rgb(255, 0, 0)");
+
+        dom.set_inner_html(root, "<p id='p' class='x'>x</p>");
+        let p = dom.query("#p").unwrap();
+        assert_eq!(dom.computed_property(p, "color"), "rgb(0, 0, 255)");
+    }

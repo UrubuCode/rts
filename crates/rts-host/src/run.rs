@@ -611,7 +611,24 @@ pub(crate) struct Seed<'a> {
 
 /// Parses and emits source text into one program. See [`FrontEnd`].
 pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
-    front_end_agreeing(source, None, false, None)
+    // `DOM_TS` é a camada ergonómica do DOM, não um módulo que o utilizador
+    // tenha de importar. Incluí-lo em todos os programas, porém, mudaria o
+    // contrato de `compile`: o prelude contém declarações e o host passaria a
+    // analisar scripts sem DOM como um corpo diferente. Optamos pelo bootstrap
+    // sob demanda, ativado pelos nomes públicos da fachada.
+    let source_with_dom = if uses_dom_facade(source) {
+        format!("{}\n{}", rts_dom_bridge::PRELUDE_TS, source)
+    } else {
+        source.to_owned()
+    };
+    front_end_agreeing(&source_with_dom, None, false, None)
+}
+
+fn uses_dom_facade(source: &str) -> bool {
+    source.contains("parseDocument")
+        || source.contains("document.")
+        || source.contains("new Document")
+        || source.contains("new Element")
 }
 
 /// The same, for a compilation that must agree with a numbering that already

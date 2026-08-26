@@ -20,12 +20,14 @@ use crate::value::{handle, int, integer, nothing, num, string, text};
 pub const MEMBERS: &[(&str, Provided)] = &[
     // consulta
     ("querySelector", query_selector),
+    ("getById", get_by_id),
     ("querySelectorAllCount", query_all_count),
     ("querySelectorAllAt", query_all_at),
     ("matches", matches_selector),
     // leitura
     ("getText", get_text),
     ("getAttribute", get_attribute),
+    ("hasAttr", has_attr),
     ("tagName", tag_name),
     ("nodeType", node_type),
     ("childCount", child_count),
@@ -36,7 +38,9 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     // mutação
     ("setText", set_text),
     ("setAttribute", set_attribute),
+    ("setAttr", set_attribute),
     ("removeAttribute", remove_attribute),
+    ("removeAttr", remove_attribute),
     ("createElement", create_element),
     ("createTextNode", create_text_node),
     ("appendChild", append_child),
@@ -63,6 +67,15 @@ extern "C" fn query_selector(_e: u64, _t: u64, doc: u64, sel: u64, _b: u64, _c: 
     })
     .unwrap_or(-1);
     int(id)
+}
+
+extern "C" fn get_by_id(_e: u64, _t: u64, doc: u64, id: u64, _b: u64, _c: u64) -> u64 {
+    let id = text(id);
+    let out = rts_dom::store::with_dom(handle(doc), |d| {
+        d.get_element_by_id(&id).map(|n| n.to_abi()).unwrap_or(-1)
+    })
+    .unwrap_or(-1);
+    int(out)
 }
 
 extern "C" fn query_all_count(_e: u64, _t: u64, doc: u64, sel: u64, _b: u64, _c: u64) -> u64 {
@@ -103,6 +116,13 @@ extern "C" fn get_attribute(_e: u64, _t: u64, doc: u64, n: u64, name: u64, _c: u
     })
     .unwrap_or_default();
     string(&out)
+}
+
+extern "C" fn has_attr(_e: u64, _t: u64, doc: u64, n: u64, name: u64, _c: u64) -> u64 {
+    let name = text(name);
+    let Some(id) = node(n) else { return int(0) };
+    let yes = rts_dom::store::with_dom(handle(doc), |d| d.has_attr(id, &name)).unwrap_or(false);
+    int(yes as i64)
 }
 
 extern "C" fn tag_name(_e: u64, _t: u64, doc: u64, n: u64, _b: u64, _c: u64) -> u64 {
