@@ -320,7 +320,13 @@ impl Dom {
 
         // ── Passe 1: NORMAIS (fraco → forte) ────────────────────────────────────
         let mut css = style::lookup_style(&tag).unwrap_or_default(); // UA/defineStyle
+        if author.all_initial_normal {
+            css = style::ComputedStyle::default();
+        }
         css.merge_over(&author.normal); // <style> autor
+        if inline.all_initial_normal {
+            css = style::ComputedStyle::default();
+        }
         css.merge_over(&inline.normal); // style="" inline
         for (prop, raw, important) in &inline.pending {
             if !important {
@@ -331,7 +337,13 @@ impl Dom {
             css.merge_over(ov); // override por-nó (setStyleBatch)
         }
         // ── Passe 2: IMPORTANT (vencem qualquer normal) ─────────────────────────
+        if author.all_initial_important {
+            css = style::ComputedStyle::default();
+        }
         css.merge_over(&author.important); // <style> !important
+        if inline.all_initial_important {
+            css = style::ComputedStyle::default();
+        }
         css.merge_over(&inline.important); // inline !important
         for (prop, raw, important) in &inline.pending {
             if *important {

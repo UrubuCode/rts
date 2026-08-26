@@ -487,6 +487,8 @@ impl Stylesheet {
         let mut out = DeclBlock::default();
         for (_, _, _, i) in &matched.rules {
             let r = &self.rules[*i];
+            out.all_initial_normal |= r.decls.all_initial_normal;
+            out.all_initial_important |= r.decls.all_initial_important;
             r.decls.apply_normal(&mut out.normal);
             if let Some(v) = vars {
                 for (prop, raw, important) in &r.decls.pending {

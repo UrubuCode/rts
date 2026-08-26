@@ -316,6 +316,19 @@ pub(crate) fn apply_specified_declaration(
     };
     crate::bump!(css_declarations);
 
+    if prop == "all" {
+        if val.eq_ignore_ascii_case("initial") {
+            if important {
+                block.all_initial_important = true;
+                block.important = ComputedStyle::default();
+            } else {
+                block.all_initial_normal = true;
+                block.normal = ComputedStyle::default();
+            }
+        }
+        return;
+    }
+
     if prop.starts_with("--") {
         crate::bump!(css_custom_declarations);
         if important {

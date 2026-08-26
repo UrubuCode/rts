@@ -271,3 +271,17 @@ fn declaracao_de_ordem_de_layers_precede_os_blocos() {
         "a lista de layers declara alto depois de baixo"
     );
 }
+
+
+#[test]
+fn all_initial_reseta_o_bloco_sem_apagar_custom_properties() {
+    let block = parse_inline_block(
+        "--brand: rebeccapurple; width: 120px; color: red; all: initial",
+    );
+    assert_eq!(block.normal.width, None);
+    assert_eq!(block.normal.color, None);
+    assert_eq!(block.custom, vec![("--brand".into(), "rebeccapurple".into())]);
+
+    let important = parse_inline_block("color: red !important; all: initial !important");
+    assert_eq!(important.important.color, None);
+}

@@ -182,9 +182,13 @@ pub struct Rule {
 pub struct DeclBlock {
     /// Declarações normais (sem `!important`).
     pub normal: ComputedStyle,
+    /// `all: initial` normal resetou as declarações anteriores deste bloco.
+    pub all_initial_normal: bool,
     /// Declarações marcadas `!important` (vencem qualquer normal na cascade).
     pub important: ComputedStyle,
-    /// Declarações de CUSTOM PROPERTIES normais (`--nome: valor`) do bloco, na
+    /// `all: initial !important` resetou a camada importante deste bloco.
+    pub all_initial_important: bool,
+    /// Declarações normais de CUSTOM PROPERTIES normais (`--nome: valor`) do bloco, na
     /// ordem da fonte, com o valor cru. Participam da cascade por elemento.
     pub custom: Vec<(String, String)>,
     /// Custom properties marcadas `!important`, aplicadas depois das normais e
@@ -208,6 +212,8 @@ pub struct DeclBlock {
 pub struct RuleDecls {
     pub normal: Box<[super::props::Decl]>,
     pub important: Box<[super::props::Decl]>,
+    pub all_initial_normal: bool,
+    pub all_initial_important: bool,
     pub custom: Vec<(String, String)>,
     pub custom_important: Vec<(String, String)>,
     pub pending: Vec<(String, String, bool)>,
@@ -220,6 +226,8 @@ impl RuleDecls {
         RuleDecls {
             normal: block.normal.to_decls().into_boxed_slice(),
             important: block.important.to_decls().into_boxed_slice(),
+            all_initial_normal: block.all_initial_normal,
+            all_initial_important: block.all_initial_important,
             custom: block.custom,
             custom_important: block.custom_important,
             pending: block.pending,
@@ -229,12 +237,18 @@ impl RuleDecls {
     /// Aplica as declarações normais sobre um estilo (mesma precedência do
     /// `merge_over`: quem aplica depois vence).
     pub fn apply_normal(&self, target: &mut ComputedStyle) {
+        if self.all_initial_normal {
+            *target = ComputedStyle::default();
+        }
         for d in &self.normal {
             d.apply(target);
         }
     }
 
     pub fn apply_important(&self, target: &mut ComputedStyle) {
+        if self.all_initial_important {
+            *target = ComputedStyle::default();
+        }
         for d in &self.important {
             d.apply(target);
         }
@@ -263,6 +277,8 @@ impl DeclBlock {
     pub fn is_empty(&self) -> bool {
         self.normal == ComputedStyle::default()
             && self.important == ComputedStyle::default()
+            && !self.all_initial_normal
+            && !self.all_initial_important
             && self.custom.is_empty()
             && self.custom_important.is_empty()
             && self.pending.is_empty()

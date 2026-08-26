@@ -145,3 +145,10 @@ fn unset_no_root_e_no_descendente_resolve_com_o_pai_correcto() {
     assert_eq!(prop(&d, "body", "color"), "rgb(0, 0, 0)");
     assert_eq!(prop(&d, "#p", "color"), "rgb(0, 0, 0)");
 }
+
+
+#[test]
+fn all_initial_no_autor_reseta_o_valor_ua() {
+    let d = doc("p{color:red} #alvo{all:initial}", "<p id=alvo>x</p>");
+    assert_eq!(prop(&d, "#alvo", "color"), "rgb(0, 0, 0)");
+}
