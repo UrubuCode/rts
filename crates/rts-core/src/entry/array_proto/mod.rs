@@ -43,7 +43,7 @@ pub(in crate::entry) mod more;
 mod numeric;
 pub(in crate::entry) mod species;
 
-pub use arguments::{Arguments, arguments_at, arguments_owned_at, with_arguments_at};
+pub use arguments::{Arguments, arguments_at, arguments_owned_at};
 
 use super::objects::undefined_of;
 use super::rooted::Rooted;

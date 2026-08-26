@@ -271,8 +271,20 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
         // thing that reads it back is `typed_as`, to mint a type NUMBER. A slow
         // `put` of a number takes the F64 transition instead, so the two paths can
         // reach two shapes for one key set — which costs a miss, never a value.
+        // Asked ONCE, here, and read again at the ordinary resolution below.
+        // Both sites wanted the same answer about the same `(shape, key)` and
+        // nothing between them changes it: the growth arm returns before
+        // reaching the second, so a store that does NOT grow — every store to a
+        // property the object already has — probed the index twice for one
+        // answer. `docs/codegen/object-model.md` §6 item 5 names this pair.
+        //
+        // Its sibling in that item, `ShapeTree::slot_of`'s own three probes, is
+        // already gone: `slot_of` is `index_of(shape).get(&key)` and `index_of`
+        // is a bounds check and an array index, so the shape is no longer hashed
+        // at all. The document predates that and says three; it is one.
+        let held = context.shapes.slot_of(shape, key);
         if reaches == Reaches::Cell
-            && context.shapes.slot_of(shape, key).is_none()
+            && held.is_none()
             && !super::integrity::refuses_growth(context, object as u32)
             && context.proxy_at(object as u32).is_none()
             // A setter ANYWHERE on the chain runs instead of the property being
@@ -326,7 +338,10 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
             }
             return offset;
         }
-        let Some(slot) = context.shapes.slot_of(shape, key) else {
+        // The answer taken above. Re-asking was the duplicate: reaching here
+        // means the growth arm did not fire, and nothing on the way changed
+        // which slot this key occupies.
+        let Some(slot) = held else {
             // Absent. Legal, and it reads as `undefined` — but not by loading,
             // which is all this answer says.
             explain("the property is absent from the receiver's shape", context);

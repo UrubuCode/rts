@@ -528,12 +528,37 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
     // in `entry::array` — write `Tagged`, which costs the shape tree one
     // discriminator it currently uses for nothing. See
     // `docs/codegen/object-model.md` §4.
-    let observed = if Value(value).numeric().is_some() {
-        Repr::F64
-    } else {
-        Repr::Tagged
-    };
-    let Ok(grown) = context.shapes.transition(shape, machine, observed) else {
+    // `Tagged`, and NOT the representation this one value happened to have.
+    //
+    // Choosing `F64` because the value observed at this write was a number is
+    // narrowing at run time from a single sample, which is exactly what
+    // `rts-cranelift`'s rule 11 refuses: widening is exact, narrowing is only
+    // ever reachable through a guard. The paragraphs above record the decision;
+    // `docs/codegen/object-model.md` §4 item 2 is where it was checked, and it
+    // ends "**Make both observing sites write `Tagged`.**"
+    //
+    // What it costs: the shape tree loses a discriminator it used for nothing.
+    // Both representations are 64 bits (`repr/mod.rs`), the collector walks
+    // slots conservatively rather than by declared repr, and `traced_offsets`
+    // has no consumer outside `mem/layout.rs` — verified again here by grep, and
+    // it is still empty.
+    //
+    // What it buys is that two objects written the same way stop landing at two
+    // shapes. A write routed through here with a number, followed by one with a
+    // string, split the layout and every site that had warmed on the first
+    // stopped recognising the second: measured in the same document at 13
+    // sampled resolve lines for number/string alternation against 1 for
+    // number/number.
+    //
+    // And it removes a claim that was never true: thirty lines above, a write to
+    // a property the object ALREADY has stores any value into the existing slot
+    // without consulting the repr, so a shape could claim `F64` while its slot
+    // held a reference. Writing `Tagged` makes the field say what the engine
+    // actually guarantees.
+    let Ok(grown) = context
+        .shapes
+        .transition(shape, machine, Repr::Tagged)
+    else {
         return;
     };
     let Some(at) = context.shapes.slot_of(grown, machine) else {
