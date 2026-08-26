@@ -30,33 +30,26 @@
 //!
 //! That is close to `vm.runInNewContext`'s contract (a fresh global scope,
 //! no access to the caller's locals) and is why the members below are named
-//! after it. It is **not** `vm.runInThisContext`'s contract — nothing here
-//! runs against "this" context, because there is no ambient context to run
-//! against: every call gets its own fresh one. `runInThisContext` is
-//! refused rather than mislabeled.
+//! after it. `runInContext` and `runInThisContext` are exposed as well, but
+//! retain this engine's honest limitation: each call still evaluates in a
+//! fresh program rather than sharing live objects with a caller-supplied or
+//! ambient context.
 //!
-//! # `Context` objects: a marker, not a scope
+//! # `Context` objects: a scope with explicit limits
 //!
-//! `vm.createContext(obj)` in real Node makes `obj`'s own properties act as
-//! additional globals for code run against it — a genuine scope
-//! substitution. `entry::evaluate` has no such mechanism (see
-//! `modules.rs`'s doc on why an ambient re-entry cannot share a region), so
-//! [`create_context`] does not attempt it: it stamps `obj` with a hidden
-//! marker property so [`is_context`] can answer honestly, and nothing
-//! evaluated against it ever sees `obj`'s properties as globals. This is
-//! stated in the object's own doc rather than left for a caller to
-//! discover by testing it.
+//! `vm.createContext(obj)` marks and returns `obj`. Code run through
+//! `runInContext` or `Script.runInContext` uses that same object for free-name
+//! lookup and as `this`, so property reads and writes stay in the running
+//! region. The evaluator does not implement every V8 context feature: it does
+//! not create a separate intrinsic realm, and completion values that require
+//! unsupported syntax still follow the host's normal failure path.
 //!
 //! # Not implemented, by name
 //!
-//! - **`vm.runInThisContext`** and **`vm.runInContext`** — both require
-//!   running against an ambient/caller-supplied context that already holds
-//!   live objects. `entry::evaluate` cannot do this: it always builds a
-//!   fresh region, so "run against a shared context" is not a smaller
-//!   version of what this module offers, it is a different capability this
-//!   crate has no seam for. Both are absent from the namespace rather than
-//!   aliased onto `runInNewContext`, which would silently answer a
-//!   different question than the one asked.
+//! - **Separate V8 realms for `vm.runInThisContext` and `vm.runInContext`** —
+//!   these methods use the active runtime region and preserve object identity,
+//!   but they do not create a separate intrinsic realm. V8-only realm controls
+//!   remain outside the scope of this implementation.
 //! - **`vm.Module` / `vm.SourceTextModule` / `vm.SyntheticModule`** — the
 //!   whole family needs a *dynamic*, user-linked module record; this
 //!   engine resolves imports statically at compile time
@@ -74,19 +67,25 @@
 //! - **`vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER` / `importModuleDynamically`**
 //!   — dynamic `import()` inside evaluated source has nothing to resolve
 //!   against; not offered.
-//! - **`vm.constants.DONT_CONTEXTIFY`** — since [`create_context`] never
-//!   really contextifies (see above), the distinction this constant draws
-//!   does not exist here; both members are omitted from `vm.constants`.
+//! - **`vm.constants.DONT_CONTEXTIFY`** — this implementation always uses the
+//!   ordinary marked context object, so the V8 distinction this constant draws
+//!   is omitted from `vm.constants`.
 
 use rts_core::entry::{self, Context, Provided};
 
 /// The instance methods `Script` carries.
-const SCRIPT_METHODS: &[(&str, Provided)] = &[("runInNewContext", script_run), ("runInContext", script_run)];
+const SCRIPT_METHODS: &[(&str, Provided)] = &[
+    ("runInNewContext", script_run_new_context),
+    ("runInContext", script_run_context),
+    ("runInThisContext", script_run_this_context),
+];
 
 /// The namespace `node:vm` is.
 pub fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] = &[
         ("runInNewContext", run_in_new_context),
+        ("runInContext", run_in_context),
+        ("runInThisContext", run_in_this_context),
         ("createContext", create_context),
         ("isContext", is_context),
         ("compileFunction", compile_function),
@@ -101,11 +100,30 @@ pub fn namespace(context: &mut Context) -> u64 {
 
 /// `vm.runInNewContext(code[, contextObject[, options]])`.
 ///
-/// `contextObject`/`options` are read for arity but not acted on — see the
-/// module doc's "`Context` objects" section: nothing evaluated here can see
-/// a caller-supplied object as its globals.
-extern "C" fn run_in_new_context(_e: u64, _this: u64, code: u64, _context_obj: u64, _options: u64, _d: u64) -> u64 {
-    run(code)
+/// When a context object is supplied, its properties are used as the evaluated
+/// program's environment and as its `this` value. Options remain accepted but
+/// unsupported execution controls are ignored, as documented above.
+extern "C" fn run_in_new_context(_e: u64, _this: u64, code: u64, context_obj: u64, _options: u64, _d: u64) -> u64 {
+    run_with_context(code, context_obj)
+}
+
+/// `vm.runInContext(code, contextifiedObject[, options])`.
+///
+/// The context object supplies both the evaluated program's environment and
+/// its `this` value; unsupported V8 realm features remain outside the scope of
+/// this implementation.
+extern "C" fn run_in_context(_e: u64, _this: u64, code: u64, context_obj: u64, _options: u64, _d: u64) -> u64 {
+    run_with_context(code, context_obj)
+}
+
+/// `vm.runInThisContext(code[, options])`.
+///
+/// The current global object supplies both the evaluated program's environment
+/// and its `this` value. It is still compiled through the host's live evaluator,
+/// rather than through V8's separate realm machinery.
+extern "C" fn run_in_this_context(_e: u64, _this: u64, code: u64, _options: u64, _c: u64, _d: u64) -> u64 {
+    let global = entry::with_runtime(|context| entry::global_object(context));
+    run_in_context_object(code, global)
 }
 
 /// `new vm.Script(code[, options])`.
@@ -129,20 +147,23 @@ extern "C" fn script_ctor(_e: u64, this: u64, code: u64, _options: u64, _c: u64,
     })
 }
 
-/// `script.runInNewContext([contextObject[, options]])` /
-/// `script.runInContext(contextifiedObject[, options])`.
-///
-/// One implementation for both members: `entry::evaluate` cannot
-/// distinguish "a fresh context" from "an existing one" because it never
-/// runs against either — every call is already fresh. `runInContext`
-/// against an object holding live objects (Node's actual use case for it,
-/// vs. `runInNewContext`) is exactly what this module cannot honor; giving
-/// it the same body as `runInNewContext` here would be silently wrong, so
-/// it is registered only under the `runInNewContext`-shaped contract this
-/// module doc already states, never claimed to be the general form.
-extern "C" fn script_run(_e: u64, this: u64, _context_obj: u64, _options: u64, _c: u64, _d: u64) -> u64 {
+/// `script.runInNewContext([contextObject[, options]])`.
+extern "C" fn script_run_new_context(_e: u64, this: u64, context_obj: u64, _options: u64, _c: u64, _d: u64) -> u64 {
     let code = entry::with_runtime(|context| entry::get_member(context, this, "__code__"));
-    run(code)
+    run_with_context(code, context_obj)
+}
+
+/// `script.runInContext(contextifiedObject[, options])`.
+extern "C" fn script_run_context(_e: u64, this: u64, context_obj: u64, _options: u64, _c: u64, _d: u64) -> u64 {
+    let code = entry::with_runtime(|context| entry::get_member(context, this, "__code__"));
+    run_in_context_object(code, context_obj)
+}
+
+/// `script.runInThisContext([options])`.
+extern "C" fn script_run_this_context(_e: u64, this: u64, _options: u64, _c: u64, _d: u64, _e2: u64) -> u64 {
+    let code = entry::with_runtime(|context| entry::get_member(context, this, "__code__"));
+    let global = entry::with_runtime(|context| entry::global_object(context));
+    run_in_context_object(code, global)
 }
 
 /// Compiles and runs `code`, answering `entry::evaluate`'s value or
@@ -152,6 +173,28 @@ fn run(code: u64) -> u64 {
         return entry::undefined_value();
     };
     match entry::evaluate(&source) {
+        Some(value) => value,
+        None => entry::undefined_value(),
+    }
+}
+
+/// Evaluates against a caller-supplied context, falling back to a fresh program
+/// when the optional context was omitted.
+fn run_with_context(code: u64, context_obj: u64) -> u64 {
+    let absent = entry::undefined_value();
+    if context_obj == absent {
+        run(code)
+    } else {
+        run_in_context_object(code, context_obj)
+    }
+}
+
+/// Evaluates source text against an object that acts as the environment.
+fn run_in_context_object(code: u64, environment: u64) -> u64 {
+    let Some(source) = entry::text_of(code) else {
+        return entry::undefined_value();
+    };
+    match entry::evaluate_in_scope_with_receiver(&source, environment, environment) {
         Some(value) => value,
         None => entry::undefined_value(),
     }

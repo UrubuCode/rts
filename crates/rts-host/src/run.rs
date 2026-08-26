@@ -380,6 +380,10 @@ fn run_region(
     rts_core::entry::declare_function_compiler(&mut context, crate::live::compile_function);
     rts_core::entry::declare_source_parser(&mut context, crate::live::check_source);
     rts_core::entry::declare_eval_compiler(&mut context, crate::live::evaluate_in_scope);
+    rts_core::entry::declare_eval_compiler_with_receiver(
+        &mut context,
+        crate::live::evaluate_in_scope_with_receiver,
+    );
     // The other capability that has to come down rather than up: letting time
     // pass. `rts-core`'s membership rule is availability and
     // `std::thread::sleep` is not on every target, so the runtime holds a hook

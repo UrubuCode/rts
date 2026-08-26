@@ -129,7 +129,9 @@ pub use eval::{
     declare_function_compiler, declare_source_parser,
 };
 pub use eval_scope::{
-    EvalCompiler, declare_eval_compiler, environment_names, eval_direct,
+    EvalCompiler, EvalCompilerWithReceiver, declare_eval_compiler,
+    declare_eval_compiler_with_receiver, environment_names, eval_direct, evaluate_in_scope,
+    evaluate_in_scope_with_receiver,
 };
 pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
 pub use global::{global_get, global_get_unbound, global_object, global_set, sloppy_this};
@@ -1003,6 +1005,8 @@ pub struct Context {
     /// `eval` needs, direct or indirect. See [`eval_scope::EvalCompiler`] for why the
     /// function compiler beside it cannot answer the same question.
     pub eval_compiler: Option<eval_scope::EvalCompiler>,
+    /// How a host evaluates source with an explicit JavaScript receiver.
+    pub eval_compiler_with_receiver: Option<eval_scope::EvalCompilerWithReceiver>,
     /// What still has work to do after the program.s last statement.
     ///
     /// Registered by whoever owns a background thread, never by the host — see
@@ -1178,6 +1182,7 @@ impl Context {
             function_compiler: None,
             source_parser: None,
             eval_compiler: None,
+            eval_compiler_with_receiver: None,
             loop_sources: Vec::new(),
             rest: None,
             templates: Vec::new(),
