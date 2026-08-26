@@ -21,7 +21,12 @@
 //! choice that has exactly two answers and never changes after construction.
 
 /// A pattern that has been compiled, by whichever engine took it.
-pub(super) enum Engine {
+///
+/// Cloning one is an `Arc` bump in both engines, which is what lets
+/// [`super::compiled`] hand the same program to every object that spells the
+/// pattern the same way.
+#[derive(Clone)]
+pub(in crate::entry) enum Engine {
     /// The linear-time one. What almost every pattern gets.
     Plain(regex::Regex),
     /// The backtracking one, for a pattern the first declined.
@@ -152,8 +157,8 @@ impl Engine {
 /// A structure rather than the text, because three of them change how the
 /// pattern is compiled and three change how a match is *driven* — and reading
 /// the string again at every match to find out which is a table stated twice.
-#[derive(Clone, Copy, Default)]
-pub(super) struct Flags {
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub(in crate::entry) struct Flags {
     /// `i`.
     pub(super) ignore_case: bool,
     /// `m` — `^` and `$` match at a line break.

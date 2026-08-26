@@ -556,6 +556,10 @@ pub struct Context {
     /// therefore gets `name` and `length`.
     callable_templates: [Option<context::CallableTemplate>; 4],
     regexes: Aside<regex::Regexp>,
+    /// One compiled program per (source, flags), shared by every object that
+    /// spells the pattern that way. See `regex::compiled` for why a cache is
+    /// sound, what it saves, and why it is here rather than in an `Aside`.
+    compiled_patterns: std::collections::HashMap<(String, regex::Flags), regex::Engine>,
     /// What every regular expression inherits from, once one exists.
     ///
     /// Made on demand rather than at construction: a program with no regular
@@ -1140,6 +1144,7 @@ impl Context {
             function_by_code: std::collections::HashMap::new(),
             callable_templates: [None; 4],
             regexes: Aside::in_region(bits),
+            compiled_patterns: std::collections::HashMap::new(),
             regexp_prototype: None,
             classes: Vec::new(),
             promises: promise::Machine::in_region(region_index),

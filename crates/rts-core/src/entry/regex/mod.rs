@@ -54,7 +54,7 @@ pub(in crate::entry) mod indices;
 pub(in crate::entry) mod methods;
 mod translate;
 
-use compile::{Engine, Flags};
+pub(in crate::entry) use compile::{Engine, Flags};
 
 use super::objects::undefined_of;
 use super::{Context, with_current};
@@ -157,7 +157,7 @@ pub(super) fn make(context: &mut Context, source: &str, letters: &str) -> u64 {
 let Some(parsed) = Flags::parse(letters) else {
             return undefined_of(context);
         };
-        let Some(engine) = Engine::compile(source, parsed) else {
+        let Some(engine) = compiled(context, source, parsed) else {
             return undefined_of(context);
         };
 
@@ -169,10 +169,25 @@ let Some(parsed) = Flags::parse(letters) else {
 
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
-        let Some(cell) = context.region.alloc(crate::heap::STRIDE, ty) else {
-            // The region is full — see [`super::alloc::heap_exhausted`].
-            super::alloc::heap_exhausted(context);
-        };
+        // Through `alloc_or_die`, which COLLECTS before it gives up — and this
+        // line called `region.alloc` directly, which does not.
+        //
+        // The difference is not speed. A regular expression built in a loop
+        // grew the region and never once ran a cycle, so the whole reservation
+        // filled with cells nothing had referred to for a long time and the
+        // program died on `heap_exhausted`. Two lines reproduce it, and node
+        // and bun both run them:
+        //
+        // ```js
+        // let a = 0;
+        // for (let i = 0; i < 300000; i++) { const r = /[0-9]/; if (r === r) a++; }
+        // ```
+        //
+        // `new RegExp("[0-9]")` died the same way, and neither needed a match
+        // to do it — merely making one was enough. Every other allocation in
+        // this crate already goes through `super::alloc`; this was the one that
+        // did not, which is why the collector looked like it worked.
+        let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
 
         // The prototype of the class `new` named, when there is one — so
         // `class Mine extends RegExp {}` produces something that reaches
@@ -192,6 +207,63 @@ let Some(parsed) = Flags::parse(letters) else {
         });
         Value::from_slot(cell).bits()
     }
+}
+
+/// How many compiled patterns are kept.
+///
+/// A cap and not a growing map, because the key is text the PROGRAM supplies:
+/// `new RegExp(input)` in a loop over distinct inputs would otherwise keep every
+/// compiled program alive for the run. When it fills, the whole cache is
+/// dropped rather than one entry evicted — a program cycling through more than
+/// this many patterns then pays compilation again, which is exactly what it paid
+/// before this existed, and an LRU's bookkeeping buys nothing against a cost
+/// this lopsided.
+const COMPILED_KEPT: usize = 64;
+
+/// The compiled program for a pattern, built once per spelling.
+///
+/// # Why a cache is sound here at all
+///
+/// Because the compiled program is a pure function of the source and the flags,
+/// and nothing observable depends on two objects having distinct ones. What a
+/// program CAN observe about a regular expression object is its identity and its
+/// `lastIndex`, and both stay per-cell: `regexes` still holds one [`Regexp`] per
+/// object and this shares only the `Engine` inside it. `/a/g` evaluated twice is
+/// still two objects with two `lastIndex`, which is the property `mod.rs`'s first
+/// page says the literal cannot be interned for.
+///
+/// # What it costs, and why it is worth a `HashMap`
+///
+/// Measured 2026-08-26 at `e5058342`: `"abc123def456".split(/[0-9]/)` cost
+/// **60 612 ns** with the literal inside the loop and **2 994 ns** with the same
+/// pattern hoisted out of it — so **~57.6 us of every regular-expression literal
+/// evaluation was `Engine::compile`**, and the matching was the small half.
+/// `Context::well_known` argues against a `HashMap` for its five names because
+/// hashing to avoid hashing is silly; here the alternative to a hash of a short
+/// string is fifty-seven microseconds, which settles it the other way.
+///
+/// # Why on `Context` and not in an `Aside`
+///
+/// `regexes` is an `Aside`, which is state keyed BY CELL — one entry per object,
+/// which is the shape this is trying not to be. The nearest thing that already
+/// has the right shape is `array_layout` and `callable_templates`: a small memo
+/// of something a construction would otherwise recompute, keyed by what decides
+/// it. Nothing in `rts-cranelift` answers this — it compiles no patterns, and
+/// the two matchers are in this crate by its README's rule 5.
+///
+/// It holds no references into the heap — an `Engine` and a `String` are Rust
+/// values — so it is not a root and the collector never has to know about it.
+fn compiled(context: &mut Context, source: &str, flags: Flags) -> Option<Engine> {
+    let key = (source.to_owned(), flags);
+    if let Some(held) = context.compiled_patterns.get(&key) {
+        return Some(held.clone());
+    }
+    let built = Engine::compile(source, flags)?;
+    if context.compiled_patterns.len() >= COMPILED_KEPT {
+        context.compiled_patterns.clear();
+    }
+    context.compiled_patterns.insert(key, built.clone());
+    Some(built)
 }
 
 /// The text a value has, when it is genuinely a string.
