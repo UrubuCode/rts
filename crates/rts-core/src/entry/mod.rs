@@ -539,6 +539,14 @@ pub struct Context {
     /// See `Context::index_functions_by_code`, which is the only thing that
     /// writes it and states what it is worth.
     function_by_code: std::collections::HashMap<u64, (rts_cranelift::shape::Key, u32, bool, bool)>,
+    /// The layout a callable of each shape arrives at, recorded by the first one
+    /// built. See `Context::callable_template` for why it is a recording of the
+    /// real path rather than a computed one.
+    ///
+    /// Four, because two independent questions decide the layout: whether the
+    /// callable gets a `prototype`, and whether the emitter described it and it
+    /// therefore gets `name` and `length`.
+    callable_templates: [Option<context::CallableTemplate>; 4],
     regexes: Aside<regex::Regexp>,
     /// What every regular expression inherits from, once one exists.
     ///
@@ -1088,6 +1096,7 @@ impl Context {
             frames: Vec::new(),
             function_names: Vec::new(),
             function_by_code: std::collections::HashMap::new(),
+            callable_templates: [None; 4],
             regexes: Aside::in_region(bits),
             regexp_prototype: None,
             classes: Vec::new(),

@@ -62,6 +62,38 @@ pub const ARGUMENT_SLOTS: usize = 4;
 /// answer, it is a jump with a corrupt stack.
 type Compiled = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 
+/// Writes one of a fresh callable's own properties.
+///
+/// A STORE at the remembered slot when this shape has been built before, and the
+/// ordinary [`super::objects::put`] when it has not.
+///
+/// # Why the store is sound here and not in general
+///
+/// `put` does five things this cell provably does not need. It asks whether the
+/// key refuses a write — a cell allocated three lines ago has no integrity level
+/// and no attribute record, so the answer is no. It asks whether growth is
+/// refused, for the same reason. It reconciles `length` against an array's
+/// elements, and a callable has none. It resolves the shape from the header, and
+/// the header is what the template just supplied. And it takes the transition,
+/// which is the whole of what the template records.
+///
+/// None of that is a judgement about which writes look safe: the template only
+/// exists because a previous closure of this exact shape went through `put` and
+/// arrived here, so the slot being written is the slot `put` chose.
+fn write_own(
+    context: &mut Context,
+    cell: u32,
+    key: crate::object::Key,
+    value: u64,
+    template: Option<super::context::CallableTemplate>,
+    at: usize,
+) {
+    match template.and_then(|template| template.slots[at]) {
+        Some(slot) => super::objects::set_slot_value(context, cell, slot, value),
+        None => super::objects::put(context, cell, key, value),
+    }
+}
+
 /// Makes a callable out of a code address and an environment.
 ///
 /// The code address comes from the machine's `FuncAddr`, which is a relocation
@@ -70,11 +102,37 @@ type Compiled = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 #[rtse::entry]
 pub fn closure_new(code: i64, environment: u64) -> u64 {
     with_current(|context| {
+        // Looked up BEFORE the cell exists, which it was not: the two questions
+        // it answers decide which layout the cell should be born at, and asking
+        // afterwards meant every closure started at the empty layout and
+        // transitioned into the right one through `objects::put`. Measured
+        // 2026-08-25 by ablation: those transitions were 78 ns of 218.
+        let described = context.described_at(code as u64);
+        // A function this table does not describe keeps the `prototype`, which
+        // is the safe direction: `rts-napi` and `eval` mint callables the
+        // emitter never saw, and refusing `new` on one of those would break a
+        // working program where an extra object only costs.
+        let has_prototype = described.is_none_or(|(_, _, has_prototype, _)| has_prototype);
+        let template_at = usize::from(has_prototype) | (usize::from(described.is_some()) << 1);
+        let held_template = context.callable_template(template_at);
+
         // An ordinary object, because a function IS one: `f.x = 1` works, and
         // `f.prototype` will. What makes it callable is recorded beside the
         // cell, where nothing a program can write reaches it.
-        let shape = context.shapes.root();
-        let ty = context.layout_of(shape).index() as u32;
+        //
+        // Born at the layout a closure of this shape ENDS at when one has
+        // already been built, so the writes below are stores rather than
+        // transitions. The first closure of each shape has no template, starts
+        // empty exactly as every closure used to, and records what it arrived at
+        // — see `Context::callable_template` for why the template is a recording
+        // of that path rather than a second statement of it.
+        let ty = match held_template {
+            Some(template) => template.ty,
+            None => {
+                let shape = context.shapes.root();
+                context.layout_of(shape).index() as u32
+            }
+        };
         let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
         context.mark_callable(cell, code as u64, environment);
         let made = Value::from_slot(cell).bits();
@@ -101,12 +159,6 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // scans of the same table for one address; the second was added when
         // `prototype` stopped being unconditional and merging them was cheaper
         // than repeating the walk.
-        // Through the by-address INDEX, not by walking `function_names`. The
-        // walk was linear in the size of the program — 0.42 ns per entry,
-        // measured 2026-08-25 — and it cloned a `String` out of the table on
-        // every hit, for a name that cannot change within a run. The index
-        // answers an interned key instead, which is a number.
-        let described = context.described_at(code as u64);
         // A CONSTRUCTIBLE function gets a `prototype` object, because `new`
         // reads one. An arrow and a method do not get one, and that is the
         // language rather than an optimisation: `(() => {}).prototype` is
@@ -127,11 +179,13 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // `new F()` is the ordinary way to write a method, so it has to exist
         // first. Laziness would need the property-read path to materialise it,
         // which is a second answer to what a callable's own keys are.
-        let constructs = described.as_ref().is_none_or(|(_, _, has_prototype, _)| *has_prototype);
-        let shape = context.shapes.root();
-        let ty = context.layout_of(shape).index() as u32;
-        if let Some(prototype) = constructs
-            .then(|| super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty))
+        let empty = context.shapes.root();
+        let empty_ty = context.layout_of(empty).index() as u32;
+        // Which keys this closure ends up owning, in the template's own order —
+        // recorded below so a later closure of this shape is born holding them.
+        let mut owned: [Option<crate::object::Key>; 3] = [None; 3];
+        if let Some(prototype) = has_prototype
+            .then(|| super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, empty_ty))
             .flatten()
         {
             // The same hazard one line later, and held for the same reason:
@@ -141,7 +195,8 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             let prototype_value = Value::from_slot(prototype).bits();
             let held_prototype = super::external::hold(context, prototype_value);
             let key = prototype_key(context);
-            super::objects::put(context, cell, key, prototype_value);
+            owned[0] = Some(key);
+            write_own(context, cell, key, prototype_value, held_template, 0);
             // Not enumerable, which the language says about all three of a
             // function's own properties. It went unseen for as long as
             // `for`-`in` walked own keys only; the moment it walked the chain,
@@ -192,7 +247,8 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // runtime hold", and one more thing to remember at the day there is
             // a moving collector.
             let text = context.key_value(name);
-            super::objects::put(context, cell, key, text);
+            owned[1] = Some(key);
+            write_own(context, cell, key, text, held_template, 1);
             // `hidden` and not `introspective`, which is a KNOWN divergence
             // rather than an oversight: `SetFunctionName` says
             // `[[Writable]]: false`, and a compiled function's descriptors
@@ -209,13 +265,22 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // for a dead program.
             let length_key = context.well_known("length");
             let count = Value::from_f64(f64::from(arity)).bits();
-            super::objects::put(context, cell, length_key, count);
+            owned[2] = Some(length_key);
+            write_own(context, cell, length_key, count, held_template, 2);
             // ONE reach into the attribute table for both, and the reach is what
             // costs: it is indexed by cell and grows to reach one it has never
             // held anything for, so two calls paid that growth twice on a cell
             // that is always fresh here. Measured 2026-08-25, the pair was 98 ns
             // of a 514 ns closure.
             super::native::hidden_many(context, cell, &[key, length_key]);
+        }
+        // Recorded only when this closure took the long way, and read back out
+        // of the SHAPE it actually reached rather than from anything decided
+        // here — see `Context::record_callable_template`. A closure built FROM a
+        // template is not a witness to anything: it was born at the layout it is
+        // being asked to describe.
+        if held_template.is_none() {
+            context.record_callable_template(template_at, cell, &owned);
         }
         super::external::release(context, held);
         made

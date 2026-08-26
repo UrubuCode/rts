@@ -16,6 +16,21 @@ use crate::heap::Slot;
 use crate::text::Str;
 use crate::value::Value;
 
+/// The layout a callable of one shape arrives at, and where its own properties
+/// sit in it.
+///
+/// Three slots in a fixed order — `prototype`, `name`, `length` — each `None`
+/// when the shape this describes does not carry that property. See
+/// [`Context::callable_template`] for why this is recorded rather than computed.
+#[derive(Clone, Copy)]
+pub(super) struct CallableTemplate {
+    /// The type number a cell of this shape is born at, so a closure can be
+    /// allocated already carrying it instead of transitioning into it.
+    pub(super) ty: u32,
+    /// Where `prototype`, `name` and `length` land, in that order.
+    pub(super) slots: [Option<u32>; 3],
+}
+
 impl Context {
     /// The layout a shape arrives at, remembering the way back.
     ///
@@ -375,6 +390,66 @@ impl Context {
     /// The name is interned HERE, once per function, so the hot path holds a
     /// number and reads the text — when it needs it at all — out of the cache
     /// `key_value` already keeps and `roots` already scans.
+    /// The layout a callable of this shape ends up at, once one has been built.
+    ///
+    /// # What it is for
+    ///
+    /// `closure_new` allocates at the EMPTY layout and then writes `prototype`,
+    /// `name` and `length` through `objects::put`, which takes a shape
+    /// transition per write. Every closure of every function takes the same
+    /// three, so the layout it arrives at is the same handful of answers for the
+    /// whole program — and `put` recomputed them per closure. Measured
+    /// 2026-08-25 by ablation: the two `put`s for `name` and `length` were 78 ns
+    /// of a 218 ns closure.
+    ///
+    /// # Why the FIRST closure records it rather than something computing it
+    ///
+    /// Because a template computed here would be a second statement of what a
+    /// property write does — which slot a key lands in, which representation the
+    /// shape records, what the header becomes — and the two would drift the day
+    /// `put` changed. So the first closure of each shape goes through `put`
+    /// exactly as before and the result is REMEMBERED: the template is a
+    /// recording of the real path, not a reimplementation of it, and a closure
+    /// built from one is byte-identical to one built the long way.
+    ///
+    /// Indexed by [`Self::callable_template_at`]'s two questions, because a
+    /// callable that gets a `prototype` and one that does not are different
+    /// layouts, and so are a described one and an anonymous one.
+    pub(super) fn callable_template(&self, at: usize) -> Option<CallableTemplate> {
+        self.callable_templates[at]
+    }
+
+    /// Remembers the layout a freshly built callable arrived at.
+    ///
+    /// Reads the slots back out of the SHAPE rather than being told them, so a
+    /// caller cannot record a position `put` did not actually use.
+    pub(super) fn record_callable_template(&mut self, at: usize, cell: u32, keys: &[Option<crate::object::Key>; 3]) {
+        if self.callable_templates[at].is_some() {
+            return;
+        }
+        let Some(ty) = self.region.type_of(cell) else {
+            return;
+        };
+        let Some(shape) = self.shape_of(ty) else {
+            return;
+        };
+        let mut slots = [None; 3];
+        for (at, key) in keys.iter().enumerate() {
+            let Some(crate::object::Key::Name(named)) = key else {
+                continue;
+            };
+            let Some(slot) = self.shapes.slot_of(shape, *named) else {
+                // A key `put` declined to store — a frozen cell, a refusal —
+                // means this cell is not a template for anything. Recording a
+                // partial one would hand later closures a layout missing a
+                // property they are supposed to have.
+                return;
+            };
+            slots[at] = Some(slot);
+        }
+        self.callable_templates[at] = Some(CallableTemplate { ty, slots });
+    }
+
     /// What the emitter recorded about the function compiled at `code`.
     ///
     /// The interned name key, the arity, and whether `new` may reach it. `None`
