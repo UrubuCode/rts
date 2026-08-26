@@ -145,7 +145,19 @@ pub(crate) fn max_content_width(dom: &Dom, table: NodeIdx, font: f32, ctx: &Layo
     let css = dom.computed_style_idx(table).unwrap_or_default();
     let ts = TableStyle::of(dom, table, &css, font, ctx);
     let cols = medir_colunas(dom, &g, font, ctx, ts.spacing_h);
-    cols.iter().map(|c| c.max).sum::<f32>() + (g.cols + 1) as f32 * ts.spacing_h
+    let vaos = (g.cols + 1) as f32 * ts.spacing_h;
+    let soma_maximos = cols.iter().map(|c| c.max).sum::<f32>() + vaos;
+    // Uma percentagem de coluna é relativa à largura útil da própria tabela. Se
+    // o mínimo intrínseco da coluna não cabe nessa percentagem, a tabela precisa
+    // crescer até satisfazer `percentagem * largura_util >= mínimo`. Ignorar esta
+    // relação fazia uma tabela aninhada com `width:1%` e mínimo de 100px responder
+    // apenas à soma dos máximos, encolhendo para 300px em vez de ocupar a célula.
+    let minimo_percentual = cols
+        .iter()
+        .filter_map(|c| c.percentagem.filter(|p| *p > 0.0).map(|p| c.min * 100.0 / p))
+        .fold(0.0f32, f32::max)
+        + vaos;
+    soma_maximos.max(minimo_percentual)
 }
 
 fn medir_colunas(

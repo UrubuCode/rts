@@ -430,9 +430,25 @@ fn distribui_excedente(cols: &mut [Coluna], extra: f32, campo: impl Fn(&mut Colu
     if extra <= 0.0 || cols.is_empty() {
         return;
     }
-    let quota = extra / cols.len() as f32;
-    for c in cols.iter_mut() {
-        *campo(c) += quota;
+    // Uma célula com colspan não pode elevar uma coluna que já tem uma largura
+    // declarada: essa coluna já foi classificada como restringida pelo conteúdo
+    // da própria coluna e deve ficar congelada neste degrau. O excedente pertence
+    // às colunas automáticas do intervalo. Quando todas são declaradas, não há
+    // uma classe livre; nesse caso mantemos o fallback igualitário para preservar
+    // o comportamento de uma tabela composta só por restrições.
+    let livres: Vec<usize> = cols
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| (!c.restringida).then_some(i))
+        .collect();
+    let alvos: Vec<usize> = if livres.is_empty() {
+        (0..cols.len()).collect()
+    } else {
+        livres
+    };
+    let quota = extra / alvos.len() as f32;
+    for i in alvos {
+        *campo(&mut cols[i]) += quota;
     }
 }
 
