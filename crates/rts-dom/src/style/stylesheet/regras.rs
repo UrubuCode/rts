@@ -14,19 +14,59 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
     parse_rules_ast(&ast)
 }
 
+#[derive(Default)]
+struct LayerState {
+    names: Vec<String>,
+}
+
+impl LayerState {
+    fn id(&mut self, name: &str) -> u32 {
+        let name = if name.is_empty() {
+            "<anonymous>"
+        } else {
+            name
+        };
+        if let Some((index, _)) = self
+            .names
+            .iter()
+            .enumerate()
+            .find(|(_, existing)| existing.as_str() == name)
+        {
+            return index as u32;
+        }
+        let id = self.names.len() as u32;
+        self.names.push(name.to_string());
+        id
+    }
+}
+
 /// Faz o lowering semântico de um AST já tokenizado, evitando uma segunda
 /// tokenização quando o chamador também precisa dos at-rules originais.
 pub(in crate::style::stylesheet) fn parse_rules_ast(
     ast: &crate::style::syntax::StylesheetAst,
 ) -> Vec<Rule> {
+    let mut layers = Vec::new();
+    parse_rules_ast_with_layers(ast, &mut layers)
+}
+
+pub(in crate::style::stylesheet) fn parse_rules_ast_with_layers(
+    ast: &crate::style::syntax::StylesheetAst,
+    layer_names: &mut Vec<String>,
+) -> Vec<Rule> {
     let mut rules = Vec::new();
-    lower_items(&ast.items, None, &mut rules);
+    let mut layers = LayerState {
+        names: std::mem::take(layer_names),
+    };
+    lower_items(&ast.items, None, None, &mut layers, &mut rules);
+    *layer_names = layers.names;
     rules
 }
 
 fn lower_items(
     items: &[crate::style::syntax::AstItem],
     inherited_media: Option<MediaQuery>,
+    inherited_layer: Option<u32>,
+    layers: &mut LayerState,
     output: &mut Vec<Rule>,
 ) {
     for item in items {
@@ -53,6 +93,7 @@ fn lower_items(
                             selector,
                             specified: std::rc::Rc::clone(&specified),
                             source_declarations: std::rc::Rc::clone(&source_declarations),
+                            layer: inherited_layer,
                             decls: std::rc::Rc::clone(&decls),
                             order: 0,
                             media: inherited_media,
@@ -80,22 +121,39 @@ fn lower_items(
                     "media" => {
                         let media = MediaQuery::parse(cond.trim());
                         let media = combine_media(inherited_media, media);
-                        with_nested_items(block, |items| lower_items(items, media, output));
+                        with_nested_items(block, |items| {
+                            lower_items(items, media, inherited_layer, layers, output)
+                        });
                     }
                     "supports" => {
                         if super::supports::avalia(cond.trim()) {
                             with_nested_items(block, |items| {
-                                lower_items(items, inherited_media, output)
+                                lower_items(items, inherited_media, inherited_layer, layers, output)
                             });
                         } else {
                             crate::bump!(css_supports_rejeitado);
                         }
                     }
-                    "layer" => with_nested_items(block, |items| {
-                        lower_items(items, inherited_media, output)
-                    }),
+                    "layer" => {
+                        let layer = layers.id(cond.trim());
+                        with_nested_items(block, |items| {
+                            lower_items(items, inherited_media, Some(layer), layers, output)
+                        });
+                    }
                     _ => {}
                 }
+            }
+            crate::style::syntax::AstItem::AtRule {
+                name,
+                prelude,
+                block: None,
+                ..
+            } if name.eq_ignore_ascii_case("layer") => {
+                let cond: String = prelude
+                    .iter()
+                    .map(crate::style::syntax::ComponentValue::to_css_semantic)
+                    .collect();
+                layers.id(cond.trim());
             }
             _ => {}
         }

@@ -215,3 +215,43 @@ fn at_rules_nao_corrompem_o_parse() {
         Some(0x0000FFFF)
     );
 }
+
+
+#[test]
+fn layer_normal_e_regra_sem_layer_respeitam_a_precedencia() {
+    let mut sheet = Stylesheet::new();
+    sheet.append_css(
+        "@layer base { .x { color: red } } \
+         @layer tema { .x { color: blue } } \
+         .x { color: green }",
+    );
+    assert_eq!(
+        sheet.computed_for("div", None, &["x"]).normal.color,
+        Some(0x008000FF),
+        "regra sem layer vence as layers na cascade normal"
+    );
+
+    let mut same = Stylesheet::new();
+    same.append_css("@layer tema { .x { color: red } } @layer base { .x { color: blue } }");
+    same.append_css("@layer tema { .x { color: green } }");
+    assert_eq!(
+        same.computed_for("div", None, &["x"]).normal.color,
+        Some(0x0000FFFF),
+        "a layer base, criada depois de tema, mantém a sua precedência"
+    );
+}
+
+#[test]
+fn layer_important_inverte_a_ordem_e_favorece_layers() {
+    let mut sheet = Stylesheet::new();
+    sheet.append_css(
+        "@layer base { .x { color: red !important } } \
+         @layer tema { .x { color: blue !important } } \
+         .x { color: green !important }",
+    );
+    assert_eq!(
+        sheet.computed_for("div", None, &["x"]).important.color,
+        Some(0xFF0000FF),
+        "a primeira layer vence entre important, inclusive sobre a regra sem layer"
+    );
+}

@@ -16,6 +16,7 @@ impl Stylesheet {
             hover_reach: std::cell::RefCell::new(None),
             position_sensitive: std::cell::RefCell::new(None),
             out_of_flow: std::cell::RefCell::new(None),
+            layer_names: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -286,7 +287,11 @@ impl Stylesheet {
         // (var()/custom properties agora resolvem POR ELEMENTO na cascade — #1779;
         // o antigo passe textual GLOBAL daqui foi removido.)
         let base = self.rules.len() as u32;
-        for (i, rule) in super::parse_rules_ast(&ast).into_iter().enumerate() {
+        let parsed_rules = super::regras::parse_rules_ast_with_layers(
+            &ast,
+            &mut self.layer_names.borrow_mut(),
+        );
+        for (i, rule) in parsed_rules.into_iter().enumerate() {
             crate::bump!(css_rules);
             self.rules.push(Rule {
                 order: base + i as u32,
@@ -325,7 +330,7 @@ impl Stylesheet {
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
         crate::bump!(rules_considered, cand.len());
         let index = self.index.borrow();
-        let mut rules: Vec<(u32, u32, usize)> = cand
+        let mut rules: Vec<(u32, u32, u32, usize)> = cand
             .iter()
             .filter_map(|&i| {
                 let r = &self.rules[i];
@@ -337,11 +342,18 @@ impl Stylesheet {
                 (r.selector.pseudo_element.is_none()
                     && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
                     && matches(&r.selector))
-                .then(|| (index.specificity(i), r.order, i))
+                .then(|| {
+                    (
+                        r.layer.unwrap_or(u32::MAX),
+                        index.specificity(i),
+                        r.order,
+                        i,
+                    )
+                })
             })
             .collect();
         crate::bump!(rules_matched, rules.len());
-        rules.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        rules.sort_by_key(|(layer, specificity, order, _)| (*layer, *specificity, *order));
         MatchedRules { rules }
     }
 
@@ -370,21 +382,28 @@ impl Stylesheet {
     ) -> (MatchedRules, Option<std::rc::Rc<crate::pseudo::Content>>) {
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
         let index = self.index.borrow();
-        let mut rules: Vec<(u32, u32, usize)> = cand
+        let mut rules: Vec<(u32, u32, u32, usize)> = cand
             .iter()
             .filter_map(|&i| {
                 let r = &self.rules[i];
                 (r.selector.pseudo_element == Some(pe)
                     && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
                     && matches(&r.selector))
-                .then(|| (index.specificity(i), r.order, i))
+                .then(|| {
+                    (
+                        r.layer.unwrap_or(u32::MAX),
+                        index.specificity(i),
+                        r.order,
+                        i,
+                    )
+                })
             })
             .collect();
-        rules.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        rules.sort_by_key(|(layer, specificity, order, _)| (*layer, *specificity, *order));
         let content = rules
             .iter()
             .rev()
-            .find_map(|(_, _, i)| self.rules[*i].content.clone());
+            .find_map(|(_, _, _, i)| self.rules[*i].content.clone());
         (MatchedRules { rules }, content)
     }
 
@@ -407,7 +426,7 @@ impl Stylesheet {
             .rules
             .iter()
             .rev()
-            .find_map(|(_, _, i)| self.rules[*i].counters.clone())
+            .find_map(|(_, _, _, i)| self.rules[*i].counters.clone())
     }
 
     /// `true` se alguma regra desta folha declara contadores.
@@ -436,7 +455,7 @@ impl Stylesheet {
         matched
             .rules
             .iter()
-            .flat_map(|(_, _, i)| self.rules[*i].decls.custom.iter().cloned())
+            .flat_map(|(_, _, _, i)| self.rules[*i].decls.custom.iter().cloned())
             .collect()
     }
 
@@ -449,7 +468,7 @@ impl Stylesheet {
         vars: Option<&std::collections::HashMap<String, String>>,
     ) -> DeclBlock {
         let mut out = DeclBlock::default();
-        for (_, _, i) in &matched.rules {
+        for (_, _, _, i) in &matched.rules {
             let r = &self.rules[*i];
             r.decls.apply_normal(&mut out.normal);
             if let Some(v) = vars {
@@ -460,7 +479,19 @@ impl Stylesheet {
                 }
             }
         }
-        for (_, _, i) in &matched.rules {
+        // A ordem das layers é invertida para `!important`: a layer mais
+        // antiga vence, enquanto as regras sem layer continuam acima das
+        // nomeadas na camada normal. A especificidade e a ordem de origem já
+        // vêm ordenadas dentro de cada layer.
+        let mut important_rules = matched.rules.clone();
+        important_rules.sort_by_key(|(layer, specificity, order, _)| {
+            (
+                if *layer == u32::MAX { 0 } else { u32::MAX - *layer },
+                *specificity,
+                *order,
+            )
+        });
+        for (_, _, _, i) in &important_rules {
             let r = &self.rules[*i];
             r.decls.apply_important(&mut out.important);
             if let Some(v) = vars {

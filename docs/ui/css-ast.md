@@ -39,7 +39,7 @@ Uma `DeclarationAst` separa nome, valor, importância e span. O valor continua c
 
 O lowering preserva a ordem das declarações. Isso é importante para shorthands que limpam longhands anteriores e para propriedades de timing que acumulam informação. A conversão para `ComputedStyle` continua a usar o parser semântico stateful existente, agora depois da análise estrutural. `initial` e `unset` são encaminhados como operações de defaulting: o primeiro usa os valores iniciais conhecidos e o segundo escolhe entre inicial e herança; `revert` e `revert-layer` aguardam metadados de origem e camada.
 
-Os at-rules suportados entram no caminho estruturado: `@media` produz `MediaQuery`, `@supports` é avaliado, `@layer` é atravessado e `@keyframes` produz a tabela de animações. At-rules desconhecidos permanecem no AST para tooling, mas não afectam a cascade até existir uma implementação semântica.
+Os at-rules suportados entram no caminho estruturado: `@media` produz `MediaQuery`, `@supports` é avaliado, `@layer` é atravessado e `@keyframes` produz a tabela de animações. As layers recebem uma ordem global persistida no `Stylesheet`: regras normais sem layer vencem as nomeadas; entre layers vence a última, enquanto em `!important` a prioridade é invertida. At-rules desconhecidos permanecem no AST para tooling, mas não afectam a cascade até existir uma implementação semântica.
 
 ## Diagnósticos
 

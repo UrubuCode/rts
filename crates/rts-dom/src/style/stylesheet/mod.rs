@@ -138,6 +138,9 @@ pub struct Rule {
     /// Alias de compatibilidade para consumidores que ainda precisam da fatia
     /// directa de declarações especificadas.
     pub source_declarations: std::rc::Rc<[crate::style::syntax::DeclarationAst]>,
+    /// Ordem da cascade layer. `None` significa regra autoral não agrupada;
+    /// para declarações normais ela fica acima de todas as layers nomeadas.
+    pub layer: Option<u32>,
     /// As declarações, COMPARTILHADAS: `Rc` e não valor.
     ///
     /// Um `DeclBlock` tem 2120 bytes (dois `ComputedStyle` inteiros, medido por
@@ -298,14 +301,19 @@ pub struct Stylesheet {
     position_sensitive: std::cell::RefCell<Option<bool>>,
     /// Cache de [`has_out_of_flow`](Stylesheet::has_out_of_flow).
     out_of_flow: std::cell::RefCell<Option<bool>>,
+    /// Ordem global das cascade layers deste stylesheet. É persistida entre
+    /// chamadas a `append_css`, porque folhas anexadas são uma única origem
+    /// autoral para fins de cascade.
+    pub(crate) layer_names: std::cell::RefCell<Vec<String>>,
 }
 
 /// As regras que casaram um nó, ordenadas pela cascade. Opaco de propósito: o
 /// que quem chama precisa é passá-lo aos dois passes, não ler o conteúdo.
 #[derive(Debug, Default)]
 pub struct MatchedRules {
-    /// `(especificidade, ordem, índice da regra)`, crescente.
-    rules: Vec<(u32, u32, usize)>,
+    /// `(prioridade-layer, especificidade, ordem, índice)`, crescente.
+    /// `prioridade-layer` usa `u32::MAX` para regras sem layer.
+    pub(crate) rules: Vec<(u32, u32, u32, usize)>,
 }
 
 impl MatchedRules {
