@@ -27,17 +27,17 @@
 JS spec compatibility validated against **Bun** and **Node** over 1516 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 77.8%   1177/1513 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 77.8%   1178/1514 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **77.8%** (1177/1513) |
-| ✅ RTS = Bun = Node | 1177 |
+| **Parity** | **77.8%** (1178/1514) |
+| ✅ RTS = Bun = Node | 1178 |
 | ❌ RTS diverges | 248 |
 | 💥 RTS runtime error | 88 |
 | 🛠️  **Left to fix** | **336** |
-| ⚠️ Bun ≠ Node (skip) | 2 |
+| ⚠️ Bun ≠ Node (skip) | 1 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1516 |
 
@@ -124,20 +124,20 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `d0be898`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `c5d23b8`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 24 ms | 60 ms | 58 ms | 45 ms | **29 ms** | **0.85×** | **2.07×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 429 ms | 785 ms | 760 ms | 1.10 s | **1.11 s** | **0.39×** | **0.71×** |
-| …the same RTS run, vs JS using native `Math.random` | 88 ms | 269 ms | 213 ms | 1.09 s | **1.08 s** | **0.08×** | **0.25×** |
-| π Machin f64 (RTS only) | — | — | — | 22 ms | **13 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 348 ms | **336 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 45 ms | **34 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 169 ms | **160 ms** | — | — |
-| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 48 ms | **28 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 688 ms | **676 ms** | — | — |
-| one loop, state as a local / captured / property | 262 ms | 529 ms | 433 ms | 220 ms | **197 ms** | **1.33×** | **2.68×** |
+| Hello/startup | 20 ms | 40 ms | 40 ms | 34 ms | **22 ms** | **0.90×** | **1.84×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 294 ms | 443 ms | 439 ms | 675 ms | **673 ms** | **0.44×** | **0.66×** |
+| …the same RTS run, vs JS using native `Math.random` | 66 ms | 205 ms | 147 ms | 663 ms | **655 ms** | **0.10×** | **0.31×** |
+| π Machin f64 (RTS only) | — | — | — | 18 ms | **10 ms** | — | — |
+| 3M objects allocated (RTS only) | — | — | — | 241 ms | **239 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 35 ms | **27 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 120 ms | **108 ms** | — | — |
+| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 36 ms | **20 ms** | — | — |
+| string indexing, input doubled four times (RTS only) | — | — | — | 310 ms | **296 ms** | — | — |
+| one loop, state as a local / captured / property | 195 ms | 286 ms | 247 ms | 180 ms | **166 ms** | **1.18×** | **1.73×** |
 
 _Updated: 2026-08-26 — run locally with `powershell -File bench/benchmark.ps1`_
 
