@@ -65,9 +65,41 @@ use crate::value::Value;
 /// reason is in [`eval_direct`].
 pub type EvalCompiler = fn(&str, u64) -> Option<u64>;
 
+/// The host callback shape for evaluating source with an explicit receiver.
+pub type EvalCompilerWithReceiver = fn(&str, u64, u64) -> Option<u64>;
+
 /// Installs the host's evaluator for `eval`. See [`EvalCompiler`].
 pub fn declare_eval_compiler(context: &mut Context, compiler: EvalCompiler) {
     context.eval_compiler = Some(compiler);
+}
+
+/// Installs the host callback used by APIs that supply an explicit receiver.
+pub fn declare_eval_compiler_with_receiver(
+    context: &mut Context,
+    compiler: EvalCompilerWithReceiver,
+) {
+    context.eval_compiler_with_receiver = Some(compiler);
+}
+
+/// Evaluates source against an existing environment object.
+///
+/// This is the public counterpart of the direct-`eval` path for host-backed
+/// facilities such as `node:vm`. The compiler is still owned by `rts-host`; this
+/// function only forwards the source and environment through the installed seam,
+/// so the runtime does not duplicate compilation or placement policy.
+pub fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
+    let compiler = with_current(|context| context.eval_compiler)?;
+    compiler(source, environment)
+}
+
+/// Evaluates source against an environment and an explicit JavaScript receiver.
+pub fn evaluate_in_scope_with_receiver(
+    source: &str,
+    environment: u64,
+    receiver: u64,
+) -> Option<u64> {
+    let compiler = with_current(|context| context.eval_compiler_with_receiver)?;
+    compiler(source, environment, receiver)
 }
 
 /// The global `eval` VALUE — which is to say, an INDIRECT `eval`.

@@ -101,8 +101,9 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
         "return function anonymous({}) {{\n{body}\n}};",
         parameters.join(", ")
     );
-    let nothing = rts_core::entry::undefined_value();
-    place_and_enter(&source, None, nothing)
+            let nothing = rts_core::entry::undefined_value();
+        place_and_enter(&source, None, nothing, nothing)
+
 }
 
 /// Runs `eval` source in the scope the running program handed over.
@@ -120,7 +121,22 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
 /// `SyntaxError`.
 pub(crate) fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
     let enclosing = rts_core::entry::environment_names(environment);
-    place_and_enter(source, Some(&enclosing), environment)
+    let nothing = rts_core::entry::undefined_value();
+    place_and_enter(source, Some(&enclosing), environment, nothing)
+}
+
+/// Runs source in an existing scope with an explicit JavaScript receiver.
+///
+/// VM contexts use the same environment for name lookup and `this`. Keeping
+/// this as a separate callback preserves direct `eval`'s existing receiver
+/// behavior while reusing the same placement and agreement checks.
+pub(crate) fn evaluate_in_scope_with_receiver(
+    source: &str,
+    environment: u64,
+    receiver: u64,
+) -> Option<u64> {
+    let enclosing = rts_core::entry::environment_names(environment);
+    place_and_enter(source, Some(&enclosing), environment, receiver)
 }
 
 /// Compiles one source text into the running region and enters it, answering
@@ -134,6 +150,7 @@ fn place_and_enter(
     source: &str,
     enclosing: Option<&[(String, u32)]>,
     environment: u64,
+    receiver: u64,
 ) -> Option<u64> {
     let agreement = rts_core::entry::agreement();
     // See the module documentation: a second compilation under single-region
@@ -216,9 +233,9 @@ fn place_and_enter(
     // emitted the reads at hop counts measured from exactly this object. A
     // `Function` body is handed `undefined`, which closes over nothing.
     //
-    // No receiver and no arguments either way. The context is the caller's and
-    // is already installed: this is reached from inside a native, which runs
-    // with one and holds no borrow.
+    // The receiver is explicit for VM contexts and `undefined` for direct eval
+    // and Function-built code. The context is already installed: this is reached
+    // from inside a native, which runs with no outstanding context borrow.
     let nothing = rts_core::entry::undefined_value();
-    Some(entry(environment, nothing, nothing, nothing, nothing, nothing))
+    Some(entry(environment, receiver, nothing, nothing, nothing, nothing))
 }
