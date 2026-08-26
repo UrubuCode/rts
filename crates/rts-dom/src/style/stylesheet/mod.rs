@@ -26,7 +26,7 @@
 //! de case `[a=v i]`; as keywords `inherit`/`initial`/`unset`/`revert`.
 //! (`!important` — estágio 1 da MDN — JÁ é suportado.)
 
-pub(in crate::style::stylesheet) use super::parse::parse_inline_block;
+pub(in crate::style::stylesheet) use super::parse::{parse_inline_block, parse_inline_block_raw};
 pub(in crate::style::stylesheet) use super::props::ComputedStyle;
 pub(in crate::style::stylesheet) use super::selector::{ComplexSelector, PseudoClass, Selector, compound_matches};
 
@@ -131,6 +131,10 @@ fn parse_media_len(v: &str) -> Option<f32> {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Rule {
     pub selector: Selector,
+    /// Declarações CSS especificadas preservadas pelo AST, antes do lowering.
+    /// Servem para tooling, diagnósticos e migração de propriedades sem perder o
+    /// valor original que não cabe ainda em `ComputedStyle`.
+    pub source_declarations: std::rc::Rc<[crate::style::syntax::DeclarationAst]>,
     /// As declarações, COMPARTILHADAS: `Rc` e não valor.
     ///
     /// Um `DeclBlock` tem 2120 bytes (dois `ComputedStyle` inteiros, medido por

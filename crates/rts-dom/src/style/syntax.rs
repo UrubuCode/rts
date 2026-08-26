@@ -484,6 +484,9 @@ pub struct BlockAst {
     pub span: SourceSpan,
     /// `false` quando o source terminou sem o delimitador de fecho.
     pub closed: bool,
+    /// Filhos estruturais de at-rules cujo bloco contém regras, como `@media`.
+    /// Blocos de declarações mantêm `None` e usam `values` directamente.
+    pub nested: Option<Box<StylesheetAst>>,
 }
 
 impl BlockAst {
@@ -530,7 +533,11 @@ impl BlockAst {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeclarationAst {
+    /// Nome descodificado para o lowering semântico; a case original permanece
+    /// disponível em `name_raw`.
     pub name: String,
+    /// Grafia original do nome, incluindo escapes e whitespace.
+    pub name_raw: String,
     pub value: Vec<ComponentValue>,
     pub important: bool,
     pub span: SourceSpan,
@@ -738,8 +745,13 @@ fn declaration_from_values(values: &[ComponentValue]) -> Option<DeclarationAst> 
     }
     let start = values[first].span().start;
     let end = values.last().map(|value| value.span().end).unwrap_or(start);
+    let name_raw = values[first..colon]
+        .iter()
+        .map(ComponentValue::to_css)
+        .collect();
     Some(DeclarationAst {
         name,
+        name_raw,
         value,
         important,
         span: SourceSpan::new(start, end),
@@ -875,10 +887,24 @@ impl<'a> Parser<'a> {
             end = value.span().end;
             values.push(value);
         }
+        let has_nested_rules = values.iter().any(|value| {
+            matches!(
+                value,
+                ComponentValue::SimpleBlock { open: '{', .. }
+            )
+        });
+        let nested = has_nested_rules.then(|| {
+            let source: String = values
+                .iter()
+                .map(ComponentValue::to_css)
+                .collect();
+            Box::new(StylesheetAst::parse(&source))
+        });
         BlockAst {
             values,
             span: SourceSpan::new(start, end),
             closed,
+            nested,
         }
     }
 
@@ -1029,6 +1055,8 @@ mod tests {
         assert_eq!(name, "media");
         let block = block.as_ref().unwrap();
         assert!(!block.values.is_empty());
+        let nested = block.nested.as_ref().expect("filhos estruturais");
+        assert!(matches!(nested.items[0], AstItem::QualifiedRule { .. }));
         let nested_css = block.to_css();
         assert!(nested_css.contains("future-prop: mystery(1, 2)"));
     }
@@ -1043,6 +1071,7 @@ mod tests {
         assert_eq!(declarations.len(), 2);
         assert!(declarations[0].important);
         assert_eq!(declarations[0].name, "color");
+        assert_eq!(declarations[0].name_raw, "color");
         assert_eq!(declarations[1].value_css(), "calc(100% - 2px)");
     }
 }

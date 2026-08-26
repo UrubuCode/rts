@@ -29,10 +29,29 @@ pub fn parse_inline(style: &str) -> ComputedStyle {
     parse_inline_block(style).normal
 }
 
-/// Parseia um bloco de declarações CSS (`"prop: valor; outra: x !important"`)
-/// separando as camadas normal/important (MDN estágio 1). Ignora
-/// propriedades/valores desconhecidos sem panicar (robustez de parser real).
+/// Parseia um bloco de declarações usando o AST sintáctico e baixa cada
+/// declaração para o IR semântico existente. O wrapper sintético permite que
+/// `style="..."` e corpos `{ ... }` partilhem exactamente a mesma gramática.
 pub fn parse_inline_block(style: &str) -> DeclBlock {
+    let source = format!("* {{{style}}}");
+    let ast = crate::style::syntax::StylesheetAst::parse(&source);
+    let Some(block) = ast.items.iter().find_map(|item| match item {
+        crate::style::syntax::AstItem::QualifiedRule { block, .. } => Some(block),
+        _ => None,
+    }) else {
+        return DeclBlock::default();
+    };
+    // O parser semântico recebe o bloco inteiro, e não uma declaração por vez:
+    // shorthands podem limpar longhands anteriores e transições/animações são
+    // montadas pela ordem das declarações. O AST continua a ser a fase estrutural;
+    // `parse_inline_block_raw` é apenas o lowering compatível e stateful.
+    parse_inline_block_raw(&block.to_css_semantic())
+}
+
+/// Parser semântico de uma declaração já isolada. Fica separado do entrypoint
+/// AST para que lowering de regras e resolução de `var()` não criem ASTs
+/// sintéticos recursivamente.
+pub(crate) fn parse_inline_block_raw(style: &str) -> DeclBlock {
     let _phase = crate::metrics::phases::scope("parse-decls");
     let mut block = DeclBlock::default();
     // `split_top_level_semicolons` e nao `split(';')`: um `;` DENTRO de

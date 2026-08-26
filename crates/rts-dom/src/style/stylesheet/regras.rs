@@ -37,6 +37,9 @@ fn lower_items(
                     .map(crate::style::syntax::ComponentValue::to_css_semantic)
                     .collect();
                 let body = block.to_css_semantic();
+                let source_declarations: std::rc::Rc<
+                    [crate::style::syntax::DeclarationAst]
+                > = block.declarations().into_boxed_slice().into();
                 let decls = std::rc::Rc::new(RuleDecls::from_block(lower_declarations(block)));
                 let content = std::cell::OnceCell::new();
                 let counters = crate::counters::parse_ops(&body).map(std::rc::Rc::new);
@@ -49,6 +52,7 @@ fn lower_items(
                         });
                         output.push(Rule {
                             selector,
+                            source_declarations: std::rc::Rc::clone(&source_declarations),
                             decls: std::rc::Rc::clone(&decls),
                             order: 0,
                             media: inherited_media,
@@ -72,21 +76,24 @@ fn lower_items(
                     .iter()
                     .map(crate::style::syntax::ComponentValue::to_css_semantic)
                     .collect();
-                let nested = crate::style::syntax::StylesheetAst::parse(&block.to_css_semantic());
                 match name.to_ascii_lowercase().as_str() {
                     "media" => {
                         let media = MediaQuery::parse(cond.trim());
                         let media = combine_media(inherited_media, media);
-                        lower_items(&nested.items, media, output);
+                        with_nested_items(block, |items| lower_items(items, media, output));
                     }
                     "supports" => {
                         if super::supports::avalia(cond.trim()) {
-                            lower_items(&nested.items, inherited_media, output);
+                            with_nested_items(block, |items| {
+                                lower_items(items, inherited_media, output)
+                            });
                         } else {
                             crate::bump!(css_supports_rejeitado);
                         }
                     }
-                    "layer" => lower_items(&nested.items, inherited_media, output),
+                    "layer" => with_nested_items(block, |items| {
+                        lower_items(items, inherited_media, output)
+                    }),
                     _ => {}
                 }
             }
@@ -109,7 +116,7 @@ fn lower_declarations(block: &crate::style::syntax::BlockAst) -> DeclBlock {
             declaration.value_css(),
             important
         );
-        let parsed = parse_inline_block(&source);
+        let parsed = parse_inline_block_raw(&source);
         if declaration.important {
             lowered.important.merge_over(&parsed.important);
         } else {
@@ -119,6 +126,18 @@ fn lower_declarations(block: &crate::style::syntax::BlockAst) -> DeclBlock {
         lowered.pending.extend(parsed.pending);
     }
     lowered
+}
+
+fn with_nested_items(
+    block: &crate::style::syntax::BlockAst,
+    f: impl FnOnce(&[crate::style::syntax::AstItem]),
+) {
+    if let Some(nested) = &block.nested {
+        f(&nested.items);
+    } else {
+        let nested = crate::style::syntax::StylesheetAst::parse(&block.to_css());
+        f(&nested.items);
+    }
 }
 
 fn combine_media(outer: Option<MediaQuery>, inner: MediaQuery) -> Option<MediaQuery> {
@@ -132,29 +151,29 @@ fn combine_media(outer: Option<MediaQuery>, inner: MediaQuery) -> Option<MediaQu
 pub(in crate::style::stylesheet) fn parse_keyframe_ast(
     block: &crate::style::syntax::BlockAst,
 ) -> crate::anim::Keyframes {
-    let ast = crate::style::syntax::StylesheetAst::parse(&block.to_css());
     let mut stops = Vec::new();
-    for item in ast.items {
-        let crate::style::syntax::AstItem::QualifiedRule {
-            prelude, block, ..
-        } = item
-        else {
-            continue;
-        };
-        let selector: String = prelude
-            .iter()
-            .map(crate::style::syntax::ComponentValue::to_css_semantic)
-            .collect();
-        let body = block.to_css_semantic();
-        let decls = lower_declarations(&block);
-        for token in selector.split(',') {
-            if let Some(offset) = parse_keyframe_offset(token.trim()) {
-                let mut style = decls.normal.clone();
-                style.merge_over(&decls.important);
-                stops.push(crate::anim::Keyframe { offset, style });
+    with_nested_items(block, |items| {
+        for item in items {
+            let crate::style::syntax::AstItem::QualifiedRule {
+                prelude, block, ..
+            } = item
+            else {
+                continue;
+            };
+            let selector: String = prelude
+                .iter()
+                .map(crate::style::syntax::ComponentValue::to_css_semantic)
+                .collect();
+            let decls = lower_declarations(block);
+            for token in selector.split(',') {
+                if let Some(offset) = parse_keyframe_offset(token.trim()) {
+                    let mut style = decls.normal.clone();
+                    style.merge_over(&decls.important);
+                    stops.push(crate::anim::Keyframe { offset, style });
+                }
             }
         }
-    }
+    });
     stops.sort_by(|a, b| {
         a.offset
             .partial_cmp(&b.offset)
@@ -242,7 +261,7 @@ pub(crate) fn apply_resolved_decl(
     if resolved.trim().is_empty() {
         return; // var() sem valor nem fallback: declaração inválida (spec: unset)
     }
-    let mini = parse_inline_block(&format!("{prop}: {resolved}"));
+    let mini = parse_inline_block_raw(&format!("{prop}: {resolved}"));
     css.merge_over(&mini.normal);
 }
 
