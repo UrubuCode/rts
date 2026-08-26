@@ -26,6 +26,12 @@ fn stylesheet_expoe_ast_original_e_declaracoes_desconhecidas() {
             .iter()
             .any(|declaration| declaration.name == "future-prop")
     );
+    assert!(
+        rule.specified
+            .declarations()
+            .iter()
+            .any(|declaration| declaration.name_raw.contains("future-prop"))
+    );
 }
 
 #[test]
@@ -75,4 +81,31 @@ fn ast_reporta_funcao_incompleta_com_span() {
         .find(|diagnostic| diagnostic.message.contains("função"))
         .expect("diagnóstico da função");
     assert!(diagnostic.span.start < diagnostic.span.end);
+}
+
+#[test]
+fn specified_style_preserva_ordem_e_importancia() {
+    let ast = StylesheetAst::parse(".a { COLOR: red; width: calc(50% + 2px) !important; }");
+    let AstItem::QualifiedRule { block, .. } = &ast.items[0] else {
+        panic!("regra qualificada esperada");
+    };
+    let specified = SpecifiedStyle::from_block(block);
+
+    assert_eq!(specified.declarations().len(), 2);
+    assert_eq!(specified.declarations()[0].name_raw.trim(), "COLOR");
+    assert!(!specified.declarations()[0].important);
+    assert!(specified.declarations()[1].important);
+    assert!(specified.to_css().contains("COLOR: red;"));
+    assert!(specified
+        .to_css()
+        .contains("width: calc(50% + 2px) !important;"));
+}
+
+#[test]
+fn inline_specified_usa_a_mesma_fronteira_do_stylesheet() {
+    let specified = parse_inline_specified("color: var(--brand); --brand: rebeccapurple");
+    assert_eq!(specified.declarations().len(), 2);
+    assert_eq!(specified.declarations()[0].name, "color");
+    assert_eq!(specified.declarations()[1].name, "--brand");
+    assert!(specified.to_css().contains("color: var(--brand);"));
 }

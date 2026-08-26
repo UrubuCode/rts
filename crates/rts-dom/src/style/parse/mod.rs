@@ -29,6 +29,23 @@ pub fn parse_inline(style: &str) -> ComputedStyle {
     parse_inline_block(style).normal
 }
 
+/// Preserva as declarações de um `style="..."` no estado especificado. O
+/// resultado ainda não contém valores computados nem herança; é a fronteira
+/// pública para tooling e para futuras fases de resolução por propriedade.
+pub fn parse_inline_specified(style: &str) -> crate::style::syntax::SpecifiedStyle {
+    let source = format!("* {{{style}}}");
+    let ast = crate::style::syntax::StylesheetAst::parse(&source);
+    ast.items
+        .iter()
+        .find_map(|item| match item {
+            crate::style::syntax::AstItem::QualifiedRule { block, .. } => {
+                Some(crate::style::syntax::SpecifiedStyle::from_block(block))
+            }
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 /// Parseia um bloco de declarações usando o AST sintáctico e baixa cada
 /// declaração para o IR semântico existente. O wrapper sintético permite que
 /// `style="..."` e corpos `{ ... }` partilhem exactamente a mesma gramática.
@@ -41,11 +58,21 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
     }) else {
         return DeclBlock::default();
     };
-    // O parser semântico recebe o bloco inteiro, e não uma declaração por vez:
-    // shorthands podem limpar longhands anteriores e transições/animações são
-    // montadas pela ordem das declarações. O AST continua a ser a fase estrutural;
-    // `parse_inline_block_raw` é apenas o lowering compatível e stateful.
-    parse_inline_block_raw(&block.to_css_semantic())
+    let mut lowered = DeclBlock::default();
+    for declaration in block.declarations() {
+        let value = declaration
+            .value
+            .iter()
+            .map(crate::style::syntax::ComponentValue::to_css_semantic)
+            .collect::<String>();
+        apply_specified_declaration(
+            &mut lowered,
+            &declaration.name,
+            &value,
+            declaration.important,
+        );
+    }
+    lowered
 }
 
 /// Parser semântico de uma declaração já isolada. Fica separado do entrypoint
@@ -163,6 +190,160 @@ pub(crate) fn parse_inline_block_raw(style: &str) -> DeclBlock {
         }
     }
     block
+}
+
+fn is_css_wide_keyword(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "initial" | "inherit" | "unset" | "revert" | "revert-layer"
+    )
+}
+
+/// Aplica `initial`/`inherit`/`unset` à camada semântica. Os valores iniciais
+/// são convertidos pelo mesmo dispatch das propriedades normais, em vez de
+/// duplicar os tipos na tabela `initial`. `revert` e `revert-layer` exigem
+/// metadados de origem/camada que o IR actual ainda não guarda e são ignorados
+/// deliberadamente até essa informação existir.
+pub(crate) fn apply_css_wide_keyword(
+    css: &mut ComputedStyle,
+    prop: &str,
+    value: &str,
+) -> bool {
+    let keyword = value.trim().to_ascii_lowercase();
+    match keyword.as_str() {
+        "inherit" => {
+            crate::style::inherit_kw::clear_inherit_marker(css, prop);
+            let mut nomes = css.inherit_props.as_deref().cloned().unwrap_or_default();
+            if !nomes.iter().any(|name| name == prop) {
+                nomes.push(prop.to_string());
+            }
+            css.inherit_props = Some(std::sync::Arc::new(nomes));
+            true
+        }
+        "unset" if is_inherited_property(prop) => {
+            apply_css_wide_keyword(css, prop, "inherit")
+        }
+        "unset" | "initial" => {
+            let applied = apply_initial_value(css, prop);
+            if applied {
+                crate::style::inherit_kw::clear_inherit_marker(css, prop);
+            }
+            applied
+        }
+        "revert" | "revert-layer" => false,
+        _ => false,
+    }
+}
+
+fn is_inherited_property(prop: &str) -> bool {
+    matches!(
+        prop,
+        "color"
+            | "font"
+            | "font-size"
+            | "font-family"
+            | "font-style"
+            | "font-weight"
+            | "font-stretch"
+            | "line-height"
+            | "text-align"
+            | "text-decoration"
+            | "text-decoration-line"
+            | "letter-spacing"
+            | "word-spacing"
+            | "white-space"
+            | "text-transform"
+            | "visibility"
+            | "direction"
+            | "tab-size"
+            | "word-break"
+            | "overflow-wrap"
+            | "word-wrap"
+            | "text-indent"
+            | "list-style-type"
+            | "list-style-position"
+            | "pointer-events"
+            | "caret-color"
+            | "hyphens"
+            | "line-break"
+            | "text-wrap"
+    )
+}
+
+fn apply_initial_value(css: &mut ComputedStyle, prop: &str) -> bool {
+    // A inicialização dos shorthands abaixo é válida para todas as suas
+    // longhands modeladas e passa pelo parser normal para conservar os clears.
+    let value = match prop {
+        "margin" | "padding" => Some("0px"),
+        "border" => Some("medium none black"),
+        "display" => Some("inline"), // initial CSS de display; o default da tag é UA.
+        _ => crate::style::initial::initial(prop),
+    };
+    let Some(value) = value else {
+        return false;
+    };
+    aplica_declaracao(css, prop, value)
+}
+
+/// Aplica uma declaração já extraída pelo AST sobre o mesmo `DeclBlock`, sem
+/// criar um snapshot temporário. O parser textual continua separado para
+/// compatibilidade, mas regras e inline AST usam esta operação para conservar a
+/// ordem dos shorthands/longhands e os efeitos acumulativos do bloco.
+pub(crate) fn apply_specified_declaration(
+    block: &mut DeclBlock,
+    prop_raw: &str,
+    val: &str,
+    important: bool,
+) {
+    let prop = prop_raw.trim();
+    if prop.is_empty() {
+        return;
+    }
+    let val = val.trim();
+    let prop = if prop.starts_with("--") {
+        prop.to_string()
+    } else {
+        prop.to_ascii_lowercase()
+    };
+    crate::bump!(css_declarations);
+
+    if prop.starts_with("--") {
+        crate::bump!(css_custom_declarations);
+        block.custom.push((prop, val.trim().to_string()));
+        return;
+    }
+    if val.contains("var(") {
+        crate::bump!(css_var_refs);
+        block
+            .pending
+            .push((prop, val.trim().to_string(), important));
+        return;
+    }
+
+    let css = if important {
+        &mut block.important
+    } else {
+        &mut block.normal
+    };
+    if is_css_wide_keyword(val) && apply_css_wide_keyword(css, &prop, val) {
+        return;
+    }
+
+    crate::style::inherit_kw::clear_inherit_marker(css, &prop);
+    if !aplica_declaracao(css, prop.as_str(), val) {
+        let nu = prop
+            .strip_prefix("-webkit-")
+            .or_else(|| prop.strip_prefix("-moz-"))
+            .or_else(|| prop.strip_prefix("-ms-"))
+            .or_else(|| prop.strip_prefix("-o-"));
+        match nu {
+            Some(n) if aplica_declaracao(css, n, val) => {}
+            _ => {
+                crate::bump!(css_declarations_unknown);
+                crate::note!("propriedade-ignorada", prop);
+            }
+        }
+    }
 }
 
 /// Aplica `text-decoration` / `text-decoration-line`. `com_cor` distingue os

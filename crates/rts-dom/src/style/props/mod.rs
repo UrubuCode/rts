@@ -172,7 +172,10 @@ macro_rules! css_props {
             }
 
             pub fn merge_over(&mut self, other: &ComputedStyle) {
-                $( if other.$ofield.is_some() { self.$ofield = other.$ofield.clone(); } )*
+                $( if other.$ofield.is_some() {
+                    crate::style::inherit_kw::clear_inherit_for_field(self, stringify!($ofield));
+                    self.$ofield = other.$ofield.clone();
+                } )*
                 $( self.$efield.merge_over(&other.$efield); )*
                 // GRID: os campos built-in (Vec/track) — `other` vence quando setado
                 // (mesma precedência dos campos da macro; grid não herda).

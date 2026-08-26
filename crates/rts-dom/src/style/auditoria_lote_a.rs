@@ -96,19 +96,31 @@ fn a_lista_de_font_family_perde_tudo_menos_a_primeira() {
     assert_eq!(c.computed_value("font-family", None), "Georgia");
 }
 
-/// `estilo.keyword.unset` / `estilo.keyword.initial` / `estilo.keyword.revert` —
-/// as três são ignoradas, portanto a declaração ANTERIOR fica a valer.
-///
-/// É a diferença que importa: no browser um `color:unset` desfaz o `red`; aqui
-/// não o desfaz, e a página fica com a cor que o autor mandou tirar.
+/// CSS-wide keywords da primeira fatia implementada. `unset` e `initial` já
+/// atravessam o lowering semântico; `revert` e `revert-layer` continuam adiados
+/// porque o IR ainda não guarda origem/camada suficiente para os resolver.
 #[test]
-fn unset_initial_e_revert_sao_ignorados() {
+fn unset_e_initial_resolvem_e_revert_continua_adiado() {
     let vermelho = parse_inline("color:red").color;
-    for kw in ["unset", "initial", "revert", "revert-layer"] {
+    let unset = parse_inline("color:red;color:unset");
+    assert_eq!(unset.color, vermelho, "o snapshot ainda não tem o pai");
+    assert!(
+        unset
+            .inherit_props
+            .as_deref()
+            .is_some_and(|names| names.iter().any(|name| name == "color")),
+        "unset marca color para a passada de herança"
+    );
+    assert_eq!(
+        parse_inline("color:red;color:initial").color,
+        Some(0x000000ff),
+        "initial usa o valor inicial de color"
+    );
+    for kw in ["revert", "revert-layer"] {
         assert_eq!(
             parse_inline(&format!("color:red;color:{kw}")).color,
             vermelho,
-            "`color:{kw}` devia desfazer o vermelho"
+            "`color:{kw}` ainda não tem a origem/camada necessária"
         );
     }
 }

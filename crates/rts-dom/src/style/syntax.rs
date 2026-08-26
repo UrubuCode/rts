@@ -560,6 +560,51 @@ impl DeclarationAst {
     }
 }
 
+/// Declarações no estado especificado: a fonte já foi tokenizada, mas ainda não
+/// foi convertida para valores computados nem resolvida contra o elemento/pai.
+///
+/// Esta camada é deliberadamente pequena. O `ComputedStyle` continua a ser o
+/// formato eficiente usado pela cascade e pelo layout; este tipo é a fronteira
+/// estável para tooling, diagnósticos e futuros parsers de valores por
+/// propriedade.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SpecifiedStyle {
+    pub declarations: std::rc::Rc<[DeclarationAst]>,
+}
+
+impl SpecifiedStyle {
+    pub fn from_block(block: &BlockAst) -> Self {
+        Self {
+            declarations: block.declarations().into_boxed_slice().into(),
+        }
+    }
+
+    pub fn declarations(&self) -> &[DeclarationAst] {
+        &self.declarations
+    }
+
+    /// Serialização normalizada das declarações especificadas. A serialização
+    /// lossless do stylesheet completo continua em `StylesheetAst::to_css()`.
+    pub fn to_css(&self) -> String {
+        self.declarations
+            .iter()
+            .map(|declaration| {
+                let important = if declaration.important {
+                    " !important"
+                } else {
+                    ""
+                };
+                format!(
+                    "{}: {}{};",
+                    declaration.name_raw.trim(),
+                    declaration.value_css(),
+                    important
+                )
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AstItem {
     QualifiedRule {

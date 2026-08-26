@@ -31,13 +31,13 @@ A entrada pode ser reconstruída com `StylesheetAst::to_css()`. Essa operação 
 
 `BlockAst` preserva os `ComponentValue`, sabe se o delimitador de fecho existia e, quando contém regras aninhadas, disponibiliza um `StylesheetAst` filho. Funções e blocos delimitados não são achatados prematuramente, o que permite interpretar posteriormente `calc()`, `var()`, listas e construções CSS futuras sem alterar o tokenizer.
 
-Uma `DeclarationAst` separa nome, valor, importância e span. O valor continua como uma lista de component values; a sua interpretação fica para a fase semântica. A grafia original do nome está em `name_raw`.
+Uma `DeclarationAst` separa nome, valor, importância e span. O valor continua como uma lista de component values; a sua interpretação fica para a fase semântica. A grafia original do nome está em `name_raw`. `SpecifiedStyle` agrupa essas declarações e é exposto tanto para regras (`Rule::specified`) como para `style="..."` (`parse_inline_specified`).
 
 ## Lowering
 
 `stylesheet::parse_rules` baixa `QualifiedRule` para `Rule`. Os selectors usam os tipos já existentes (`ComplexSelector`, `CompoundSelector`, `SimpleSelector` e `Combinator`). As declarações especificadas são preservadas em `Rule::source_declarations` e, em paralelo, convertidas para `RuleDecls`, que continua a ser o formato da cascade.
 
-O lowering preserva a ordem das declarações. Isso é importante para shorthands que limpam longhands anteriores e para propriedades de timing que acumulam informação. A conversão para `ComputedStyle` continua a usar o parser semântico stateful existente, agora depois da análise estrutural.
+O lowering preserva a ordem das declarações. Isso é importante para shorthands que limpam longhands anteriores e para propriedades de timing que acumulam informação. A conversão para `ComputedStyle` continua a usar o parser semântico stateful existente, agora depois da análise estrutural. `initial` e `unset` são encaminhados como operações de defaulting: o primeiro usa os valores iniciais conhecidos e o segundo escolhe entre inicial e herança; `revert` e `revert-layer` aguardam metadados de origem e camada.
 
 Os at-rules suportados entram no caminho estruturado: `@media` produz `MediaQuery`, `@supports` é avaliado, `@layer` é atravessado e `@keyframes` produz a tabela de animações. At-rules desconhecidos permanecem no AST para tooling, mas não afectam a cascade até existir uma implementação semântica.
 

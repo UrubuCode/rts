@@ -97,7 +97,7 @@ pub use borders::{SideBorder, SideName};
 pub use color::parse_color;
 pub use grid_areas::{GridArea, GridAreas};
 pub use lerp::{lerp_color, lerp_dimension, lerp_f32};
-pub use parse::{is_mono_family, parse_inline, parse_inline_block};
+pub use parse::{is_mono_family, parse_inline, parse_inline_block, parse_inline_specified};
 pub use props::{
     ComputedStyle, SLOT_BG, SLOT_BORDER_COLOR, SLOT_BORDER_WIDTH, SLOT_COLOR, SLOT_CORNER_RADIUS,
     SLOT_FONT_SIZE, SLOT_MARGIN, SLOT_MARGIN_V, SLOT_PADDING, SLOT_TEXT_ALIGN,
@@ -114,7 +114,7 @@ pub use stylesheet::{
 };
 pub use syntax::{
     AstItem, BlockAst, ComponentValue, DeclarationAst, Diagnostic, DiagnosticSeverity, SourceSpan,
-    StylesheetAst, Token, TokenKind, tokenize,
+    SpecifiedStyle, StylesheetAst, Token, TokenKind, tokenize,
 };
 pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
 pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak};

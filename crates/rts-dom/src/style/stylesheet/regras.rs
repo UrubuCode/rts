@@ -37,9 +37,8 @@ fn lower_items(
                     .map(crate::style::syntax::ComponentValue::to_css_semantic)
                     .collect();
                 let body = block.to_css_semantic();
-                let source_declarations: std::rc::Rc<
-                    [crate::style::syntax::DeclarationAst]
-                > = block.declarations().into_boxed_slice().into();
+                let specified = std::rc::Rc::new(crate::style::syntax::SpecifiedStyle::from_block(block));
+                let source_declarations = std::rc::Rc::clone(&specified.declarations);
                 let decls = std::rc::Rc::new(RuleDecls::from_block(lower_declarations(block)));
                 let content = std::cell::OnceCell::new();
                 let counters = crate::counters::parse_ops(&body).map(std::rc::Rc::new);
@@ -52,6 +51,7 @@ fn lower_items(
                         });
                         output.push(Rule {
                             selector,
+                            specified: std::rc::Rc::clone(&specified),
                             source_declarations: std::rc::Rc::clone(&source_declarations),
                             decls: std::rc::Rc::clone(&decls),
                             order: 0,
@@ -105,25 +105,17 @@ fn lower_items(
 fn lower_declarations(block: &crate::style::syntax::BlockAst) -> DeclBlock {
     let mut lowered = DeclBlock::default();
     for declaration in block.declarations() {
-        let important = if declaration.important {
-            " !important"
-        } else {
-            ""
-        };
-        let source = format!(
-            "{}: {}{};",
-            declaration.name,
-            declaration.value_css(),
-            important
+        let value = declaration
+            .value
+            .iter()
+            .map(crate::style::syntax::ComponentValue::to_css_semantic)
+            .collect::<String>();
+        crate::style::parse::apply_specified_declaration(
+            &mut lowered,
+            &declaration.name,
+            &value,
+            declaration.important,
         );
-        let parsed = parse_inline_block_raw(&source);
-        if declaration.important {
-            lowered.important.merge_over(&parsed.important);
-        } else {
-            lowered.normal.merge_over(&parsed.normal);
-        }
-        lowered.custom.extend(parsed.custom);
-        lowered.pending.extend(parsed.pending);
     }
     lowered
 }
@@ -261,8 +253,10 @@ pub(crate) fn apply_resolved_decl(
     if resolved.trim().is_empty() {
         return; // var() sem valor nem fallback: declaração inválida (spec: unset)
     }
-    let mini = parse_inline_block_raw(&format!("{prop}: {resolved}"));
-    css.merge_over(&mini.normal);
+    let mut block = DeclBlock::default();
+    block.normal = css.clone();
+    crate::style::parse::apply_specified_declaration(&mut block, prop, &resolved, false);
+    *css = block.normal;
 }
 
 
