@@ -94,6 +94,9 @@ pub(in crate::entry) fn from(source: u64, encoding_or_offset: u64) -> u64 {
     let Some(shape) = validate::source("value", source) else {
         return undefined();
     };
+    if matches!(shape, Shape::ArrayBuffer) {
+        return with_current(|context| super::ops::from_array_buffer(context, source));
+    }
     let encoding = match shape {
         Shape::Text(_) => match validate::encoding(encoding_or_offset) {
             Some(name) => name,

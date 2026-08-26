@@ -52,10 +52,25 @@ pub(in crate::entry) mod validate;
 
 use super::buffers::element::Kind;
 use super::buffers::uint8_array;
+use crate::entry;
 
 /// `Buffer`.
 #[rtse::class("Buffer", extends = uint8_array)]
 impl Buffer {
+    /// `Buffer(size)` / `new Buffer(size)` and the legacy source overloads.
+    ///
+    /// Node keeps this callable for compatibility even though modern code uses
+    /// `Buffer.from` or `Buffer.alloc`. Numbers follow the legacy unsafe-size
+    /// path; all other sources reuse the validated `from` implementation.
+    #[construct]
+    fn build(this: u64, source: u64, encoding_or_offset: u64) -> u64 {
+        let _ = this;
+        if entry::number_of(source).is_some() {
+            return statics::alloc_unsafe(source);
+        }
+        statics::from(source, encoding_or_offset)
+    }
+
     /// `Buffer.poolSize` — Node's allocation-pool size. Meaningless here: this
     /// engine's `allocUnsafe` zero-fills fresh memory rather than drawing from a
     /// shared pool (see `rts-node`'s former module doc), so the property

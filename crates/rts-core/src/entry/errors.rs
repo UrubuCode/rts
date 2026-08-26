@@ -69,6 +69,26 @@ pub fn out_of_range(name: &str, expected: &str, actual: u64) {
     );
 }
 
+/// Raises `TypeError [ERR_INVALID_ARG_TYPE]` for Buffer search values.
+pub fn invalid_search_value(actual: u64) {
+    let described = kind_text(actual);
+    // Node's helper formats an anonymous function with a trailing space after
+    // `function`; keep that small textual distinction because the suite checks
+    // the complete error message for this overload.
+    let received = if described == "function" {
+        format!("{described} ")
+    } else {
+        described
+    };
+    raise(
+        "TypeError",
+        "ERR_INVALID_ARG_TYPE",
+        &format!(
+            "The \"value\" argument must be one of type number or string or an instance of Buffer or Uint8Array. Received {received}"
+        ),
+    );
+}
+
 /// Raises `TypeError [ERR_INVALID_STATE]` for an operation on detached state.
 pub fn invalid_state(message: &str) {
     raise("TypeError", "ERR_INVALID_STATE", message);
