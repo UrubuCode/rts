@@ -49,7 +49,7 @@ fn so_min_e_max_width_sao_avaliadas() {
 /// `estilo.var.important` — custom properties mantêm a importância durante a
 /// cascade por elemento, antes da substituição em `var()`.
 #[test]
-fn a_importancia_de_uma_custom_property_e_respeitada() {
+fn important_custom_property_precedence_is_respected() {
     let d = doc(":root{--c:red !important;--c:blue} p{color:var(--c)}", "<p>x</p>");
     assert_eq!(
         prop(&d, "p", "color"),
@@ -136,7 +136,7 @@ fn uma_var_invalida_ja_nao_apaga_a_anterior() {
 
 
 #[test]
-fn unset_no_root_e_no_descendente_resolve_com_o_pai_correcto() {
+fn unset_on_root_and_descendant_resolves_against_the_correct_parent() {
     let d = doc(
         "html{color:red;color:unset} body{color:blue;color:unset}",
         "<p id=p>x</p>",
@@ -148,7 +148,7 @@ fn unset_no_root_e_no_descendente_resolve_com_o_pai_correcto() {
 
 
 #[test]
-fn all_initial_no_autor_reseta_o_valor_ua() {
+fn all_initial_resets_the_user_agent_value() {
     let d = doc("p{color:red} #alvo{all:initial}", "<p id=alvo>x</p>");
     assert_eq!(prop(&d, "#alvo", "color"), "rgb(0, 0, 0)");
 }

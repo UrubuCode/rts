@@ -78,6 +78,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
 /// Parser semântico de uma declaração já isolada. Fica separado do entrypoint
 /// AST para que lowering de regras e resolução de `var()` não criem ASTs
 /// sintéticos recursivamente.
+#[allow(dead_code)]
 pub(crate) fn parse_inline_block_raw(style: &str) -> DeclBlock {
     let _phase = crate::metrics::phases::scope("parse-decls");
     let mut block = DeclBlock::default();
@@ -479,6 +480,7 @@ pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) 
 
 /// Separa o sufixo `!important` (case-insensitive, com espaços) de um valor CSS.
 /// Devolve `(valor_sem_important, é_important)`. `"red !important"` → `("red", true)`.
+#[allow(dead_code)]
 fn split_important(val: &str) -> (&str, bool) {
     let v = val.trim();
     // Acha `!important` no fim, tolerante a espaço entre `!` e `important` não — a

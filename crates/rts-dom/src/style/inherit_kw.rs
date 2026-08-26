@@ -312,11 +312,11 @@ mod tests {
         assert_eq!(inicial.color, Some(0x000000ff), "initial não herda color");
         assert_eq!(inicial.width, Some(crate::style::Dimension::Auto));
 
-        let pai_fonte = parse_inline("font-family:Arial");
-        let mut inicial_fonte = parse_inline("font-family:initial");
-        inicial_fonte.inherit_from(&pai_fonte);
+        let parent_font = parse_inline("font-family:Arial");
+        let mut initial_font = parse_inline("font-family:initial");
+        initial_font.inherit_from(&parent_font);
         assert_eq!(
-            inicial_fonte.font_family, None,
+            initial_font.font_family, None,
             "initial não deve herdar a família do pai"
         );
     }

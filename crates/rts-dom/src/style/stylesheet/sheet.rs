@@ -68,11 +68,11 @@ impl Stylesheet {
         // Os seletores aninhados (`:is(...)`) entram na varredura: um `:hover`
         // dentro de um deles muda estilo na mesma, e ignorá-lo dava
         // `HoverReach::None` — o mouse deixava de invalidar o que devia.
-        let mut todos: Vec<&super::ComplexSelector> = Vec::new();
+        let mut all_selectors: Vec<&super::ComplexSelector> = Vec::new();
         for r in &self.rules {
-            super::selector::visit_selectors(&r.selector, &mut |s| todos.push(s));
+            super::selector::visit_selectors(&r.selector, &mut |s| all_selectors.push(s));
         }
-        for sel in todos {
+        for sel in all_selectors {
             let n = sel.compounds.len();
             for (i, c) in sel.compounds.iter().enumerate() {
                 if !super::selector::compound_has_hover(c) {
@@ -118,15 +118,15 @@ impl Stylesheet {
         let answer = self.rules.iter().any(|r| {
             // Varre também o que está dentro de `:is()`/`:not()`: `:not(:first-child)`
             // depende da posição exatamente como `:first-child`.
-            let mut sensivel = false;
+            let mut is_position_sensitive = false;
             super::selector::visit_selectors(&r.selector, &mut |s| {
-                sensivel |= s
+                is_position_sensitive |= s
                     .combinators
                     .iter()
                     .any(|c| matches!(c, Combinator::NextSibling | Combinator::SubsequentSibling));
             });
             super::selector::visit_simples(&r.selector, &mut |p| {
-                sensivel |= matches!(
+                is_position_sensitive |= matches!(
                     p,
                     S::Pseudo(
                         P::FirstChild
@@ -141,7 +141,7 @@ impl Stylesheet {
                     )
                 );
             });
-            sensivel
+            is_position_sensitive
         });
         *self.position_sensitive.borrow_mut() = Some(answer);
         answer
@@ -178,15 +178,15 @@ impl Stylesheet {
             return cached;
         }
         use super::props::Decl;
-        let fora = |d: &Decl| {
+        let out_of_flow = |d: &Decl| {
             matches!(
                 d,
                 Decl::position(Some(super::Position::Absolute | super::Position::Fixed))
             )
         };
         let answer = self.rules.iter().any(|r| {
-            r.decls.normal.iter().any(fora)
-                || r.decls.important.iter().any(fora)
+            r.decls.normal.iter().any(out_of_flow)
+                || r.decls.important.iter().any(out_of_flow)
                 // uma pendente com var() pode virar qualquer coisa: conta como
                 // possível, que é o lado seguro.
                 || r.decls.pending.iter().any(|(prop, _, _)| prop == "position")
@@ -324,7 +324,7 @@ impl Stylesheet {
         // (var()/custom properties agora resolvem POR ELEMENTO na cascade — #1779;
         // o antigo passe textual GLOBAL daqui foi removido.)
         let base = self.rules.len() as u32;
-        let parsed_rules = super::regras::parse_rules_ast_with_layers(
+        let parsed_rules = super::rules::parse_rules_ast_with_layers(
             &ast,
             &mut self.layer_names.borrow_mut(),
         );

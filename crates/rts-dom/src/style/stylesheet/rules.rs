@@ -86,7 +86,7 @@ fn lower_items(
                     if let Some(selector) = ComplexSelector::parse(sel_str) {
                         let content = selector.pseudo_element.and_then(|_| {
                             content
-                                .get_or_init(|| content_do_corpo(&body).map(std::rc::Rc::new))
+                                .get_or_init(|| parse_content_from_body(&body).map(std::rc::Rc::new))
                                 .clone()
                         });
                         output.push(Rule {
@@ -243,22 +243,22 @@ pub(in crate::style::stylesheet) fn parse_keyframe_ast(
 /// porque o valor pode conter `;` dentro de aspas (`content: ";"`), e porque
 /// `font-content`/`--content` não são a propriedade procurada — o nome tem de
 /// casar inteiro.
-fn content_do_corpo(body: &str) -> Option<crate::pseudo::Content> {
-    let mut achado = None;
+fn parse_content_from_body(body: &str) -> Option<crate::pseudo::Content> {
+    let mut found = None;
     for decl in split_top_level_semicolons(body) {
-        let Some((nome, valor)) = decl.split_once(':') else {
+        let Some((name, value)) = decl.split_once(':') else {
             continue;
         };
-        if !nome.trim().eq_ignore_ascii_case("content") {
+        if !name.trim().eq_ignore_ascii_case("content") {
             continue;
         }
         // A ÚLTIMA declaração do bloco vence, como em qualquer bloco CSS; uma
         // que não saibamos parsear não apaga a anterior que sabíamos.
-        if let Some(c) = crate::pseudo::parse_content(valor.trim_end_matches("!important").trim()) {
-            achado = Some(c);
+        if let Some(content) = crate::pseudo::parse_content(value.trim_end_matches("!important").trim()) {
+            found = Some(content);
         }
     }
-    achado
+    found
 }
 
 /// Divide um corpo de declarações nos `;` de topo (fora de aspas e parênteses).

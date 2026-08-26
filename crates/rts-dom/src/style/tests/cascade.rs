@@ -258,23 +258,23 @@ fn layer_important_inverte_a_ordem_e_favorece_layers() {
 
 
 #[test]
-fn declaracao_de_ordem_de_layers_precede_os_blocos() {
+fn layer_order_declaration_precedes_following_blocks() {
     let mut sheet = Stylesheet::new();
     sheet.append_css(
-        "@layer baixo, alto; \
-         @layer alto { .x { color: blue } } \
-         @layer baixo { .x { color: red } }",
+        "@layer low, high; \
+         @layer high { .x { color: blue } } \
+         @layer low { .x { color: red } }",
     );
     assert_eq!(
         sheet.computed_for("div", None, &["x"]).normal.color,
         Some(0x0000FFFF),
-        "a lista de layers declara alto depois de baixo"
+        "the layer list declares high after low"
     );
 }
 
 
 #[test]
-fn all_initial_reseta_o_bloco_sem_apagar_custom_properties() {
+fn all_initial_resets_the_block_without_clearing_custom_properties() {
     let block = parse_inline_block(
         "--brand: rebeccapurple; width: 120px; color: red; all: initial",
     );
