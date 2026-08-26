@@ -244,6 +244,14 @@ pub const CACHED_KEYS: [&str; 8] = [
     "constructor",
 ];
 
+/// Where `"length"` sits in [`CACHED_KEYS`].
+///
+/// A constant rather than a `position()` scan because the one reader is
+/// `Context::attributes_at`, which every property write and every enumeration
+/// passes through — eight string compares there would cost more than the record
+/// this exists to avoid writing. Pinned by `integrity::length_is_first`.
+pub(super) const LENGTH_KEY_AT: usize = 0;
+
 /// The strings the runtime builds as VALUES on a path that runs per operation.
 ///
 /// Different from [`CACHED_KEYS`] in what is saved. A key is a number and

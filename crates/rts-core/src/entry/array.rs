@@ -744,26 +744,22 @@ pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
     let key = super::computed::length_key(context);
     let value = Value::from_f64(length as f64).bits();
     super::objects::put(context, cell, key, value);
-    // Not enumerable, which is the language — and recorded here, at the one
-    // funnel every array's length passes through, rather than as a name
-    // `own_keys` knows to skip. Written every time rather than once at
-    // construction: an array reaches this before it has the property at all,
-    // and the attribute has nowhere to live until it does.
-    if let crate::object::Key::Name(key) = key {
-        // `writable` is READ rather than written `true`, and that is what makes
-        // writing the attributes on every pass safe: a `push` reaching this
-        // line would otherwise undo a `{ writable: false }` the program had
-        // already recorded — a length that refuses to change and changes
-        // anyway. `configurable` is `false` because an array's `length` never
-        // is; inherited from `..default()` it was `true`, and
-        // `getOwnPropertyDescriptor` said so.
-        let writable = !super::integrity::refuses_key_write(context, cell, key);
-        super::integrity::set_attributes(context, cell, key, super::integrity::Attributes {
-            writable,
-            enumerable: false,
-            configurable: false,
-        });
-    }
+    // The attributes are NOT written here, and used to be: `{writable,
+    // !enumerable, !configurable}` was recorded against this cell and this key
+    // on every array built and every `push`. It said the same three flags every
+    // time, so `Context::implied_attributes` answers them from the fact the
+    // cell already carries — that `array_elements` names it — and this function
+    // is one `put`.
+    //
+    // What it cost measured 2026-08-26, ablating the two halves separately in
+    // one binary: of a 136.6 ns `[]`, the `put` was 24 ns and the record was
+    // **84** — the first attribute of a cell allocates a `Vec` and grows an
+    // `Aside`. `[]` is 52.4 ns without it, under `new C()` at 76.
+    //
+    // The read-back this used to do (`writable` from `refuses_key_write`, so a
+    // `push` could not undo a program's `{writable: false}`) went with it, and
+    // for a stronger reason than it was written for: a recorded deviation is
+    // now the only record there is, so nothing overwrites it.
 }
 
 /// Whether a key's spelling IS the canonical one for an array index.

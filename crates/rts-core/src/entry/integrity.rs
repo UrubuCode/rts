@@ -109,7 +109,61 @@ impl Context {
         self.attributes
             .get(cell)
             .and_then(|held| held.iter().find(|(at, _)| *at == key))
-            .map_or_else(Attributes::default, |(_, attributes)| *attributes)
+            .map_or_else(
+                || self.implied_attributes(cell, key),
+                |(_, attributes)| *attributes,
+            )
+    }
+
+    /// What a key permits when nothing was recorded for it.
+    ///
+    /// [`Attributes::default`] for everything a program wrote, and one
+    /// exception: an ARRAY's `length` is `{writable, !enumerable,
+    /// !configurable}` for every array there is, without exception and from the
+    /// moment it exists.
+    ///
+    /// # Why the exception is here and not a record per array
+    ///
+    /// It was a record per array — `array::set_length` called
+    /// `integrity::set_attributes` on every array it built, which for a fresh
+    /// cell is the one call in that function that genuinely allocates: a `Vec`
+    /// for the cell's first attribute entry, plus the `Aside` growth to hold
+    /// it. Measured 2026-08-26 by ablating the two halves of `set_length`
+    /// independently in one binary: `[]` cost **136.6 ns**, of which the
+    /// `objects::put` was 24 and **the attribute record was 84**. A four-element
+    /// literal was 204.9 and an empty array without the record is 52.4 — below
+    /// `new C()` at 76.
+    ///
+    /// The record was never carrying information: it is the same three flags
+    /// for every array, derivable from the one fact the cell already stores —
+    /// that `array_elements` names it. So this is not a second source of truth
+    /// replacing a first; it is the first one, read where it lives instead of
+    /// copied per cell.
+    ///
+    /// A program that *changes* it still gets a record, and the record still
+    /// wins: `Object.defineProperty(a, "length", {writable: false})` reaches
+    /// [`set_attributes`], and the `find` above answers before this does. That
+    /// is also why `set_length` no longer reads `writable` back before writing
+    /// it — there is nothing left to undo.
+    ///
+    /// The alternative was to keep the write and make it cheaper (size the
+    /// `Vec` at one, or hold the flags in a bitfield beside the cell). Rejected:
+    /// both keep a per-cell copy of a per-kind constant, so both still pay the
+    /// `Aside` and both can still drift from the language.
+    fn implied_attributes(&self, cell: u32, key: ShapeKey) -> Attributes {
+        // The key compare first, and the cell lookup only when it matches: this
+        // function is on the miss path of every property write in the program,
+        // and `array_elements` is an `Aside` probe.
+        if self.well_known_keys[super::LENGTH_KEY_AT] == Some(crate::object::Key::Name(key))
+            && self.array_elements.copied(cell).is_some()
+        {
+            return Attributes {
+                writable: true,
+                enumerable: false,
+                configurable: false,
+            };
+        }
+        Attributes::default()
     }
 }
 
@@ -412,4 +466,18 @@ fn own_count(context: &mut Context, cell: u32) -> usize {
         .and_then(|ty| context.shape_of(ty))
         .map_or(0, |shape| context.shapes.properties(shape).len());
     elements + properties
+}
+
+#[cfg(test)]
+mod tests {
+    /// `LENGTH_KEY_AT` indexes `CACHED_KEYS` by a number, and
+    /// [`super::Context::implied_attributes`] reads
+    /// `well_known_keys[LENGTH_KEY_AT]` on the miss path of every property
+    /// write. Reordering `CACHED_KEYS` would make it compare against
+    /// `"prototype"` instead — so every array's `length` would enumerate and
+    /// every function's `prototype` would not, with nothing failing to compile.
+    #[test]
+    fn length_is_first() {
+        assert_eq!(crate::entry::CACHED_KEYS[crate::entry::LENGTH_KEY_AT], "length");
+    }
 }
