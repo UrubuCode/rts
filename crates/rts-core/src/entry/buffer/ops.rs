@@ -30,6 +30,7 @@ use super::super::errors;
 use super::super::objects::undefined_of;
 use super::super::{Context, native, with_current};
 use super::codec;
+use crate::entry;
 use super::validate::{self, Shape};
 use crate::value::Value;
 
@@ -60,8 +61,33 @@ fn instance_over(context: &mut Context, view: View) -> u64 {
     if let Some(prototype) = super::super::class_support::prototype(context, "Buffer") {
         context.set_prototype(cell, prototype);
     }
+    let parent = Value::from_slot(view.buffer).bits();
     super::super::buffers::attach(context, cell, view);
+    // Node exposes the backing ArrayBuffer through the legacy `parent` alias;
+    // keep it identical to `buffer` so zero-length and shared views retain the
+    // same identity as the source storage.
+    let parent_key = context.well_known("parent");
+    super::super::objects::put(context, cell, parent_key, parent);
     Value::from_slot(cell).bits()
+}
+
+/// A Buffer view over an existing raw ArrayBuffer, preserving shared storage.
+pub(in crate::entry) fn from_array_buffer(context: &mut Context, source: u64) -> u64 {
+    let Some(buffer) = Value(source).as_slot() else {
+        return undefined_of(context);
+    };
+    let Some(length) = context.bytes_at(buffer).map(Vec::len) else {
+        return undefined_of(context);
+    };
+    instance_over(
+        context,
+        View {
+            buffer,
+            offset: 0,
+            length,
+            kind: Kind::Uint8,
+        },
+    )
 }
 
 /// The bytes a value carries as source data: a `Uint8Array`/`Buffer`'s window,
@@ -111,7 +137,18 @@ pub(in crate::entry) fn pattern_of(context: &Context, value: u64, encoding: &str
             }
             Vec::new()
         }
-        None => vec![super::super::operators::as_number(context, Value(value)).unwrap_or(0.0) as u8],
+        None => {
+            let number = super::super::operators::as_number(context, Value(value)).unwrap_or(0.0);
+            // ToUint8 is modulo 256, while Rust's float-to-u8 cast saturates
+            // negative values to zero. Buffer searches/fills rely on the JS
+            // conversion, e.g. -140 becomes 116 (`'t'`).
+            let byte = if number.is_finite() {
+                number.trunc().rem_euclid(256.0) as u8
+            } else {
+                0
+            };
+            vec![byte]
+        },
     }
 }
 
@@ -313,12 +350,21 @@ fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
 
 /// `buf.indexOf(value, byteOffset?, encoding?)`.
 pub(in crate::entry) fn index_of(this: u64, value: u64, byte_offset: u64, encoding: u64) -> f64 {
+    if !validate::search_value(value) {
+        return -1.0;
+    }
     let byte_offset = optional_number(byte_offset);
     with_current(|context| {
         let Some(view) = view_of(context, this) else { return -1.0 };
         let Some(bytes) = window(context, &view) else { return -1.0 };
         let enc = encoding_arg(context, encoding);
         let needle = pattern_of(context, value, &enc);
+        // UTF-16 searches operate on two-byte code units. A raw Buffer needle
+        // with an odd byte length cannot represent one, and Node returns no
+        // match rather than finding a byte halfway through a code unit.
+        if entry::canonical_encoding(&enc) == Some("utf16le") && needle.len() % 2 != 0 {
+            return -1.0;
+        }
         let (from, _) = range(bytes.len(), byte_offset, None);
         find(bytes, &needle, from).map(|at| at as f64).unwrap_or(-1.0)
     })

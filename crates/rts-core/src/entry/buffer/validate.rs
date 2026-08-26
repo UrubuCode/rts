@@ -62,6 +62,8 @@ pub(in crate::entry) enum Shape {
     List(Vec<u64>),
     /// A `Buffer`, typed array or `DataView`, and how many bytes it is.
     Bytes(usize),
+    /// A raw `ArrayBuffer`, whose storage can be exposed through a Buffer view.
+    ArrayBuffer,
     /// Anything else: an object, a boolean, `null`, a function.
     Other,
 }
@@ -84,8 +86,15 @@ pub(in crate::entry) fn shape_of(value: u64) -> Shape {
         let Some(cell) = Value(value).as_slot() else {
             return Shape::Other;
         };
-        if let Some(text) = context.text_at(cell).and_then(|text| text.to_rust()) {
-            return Shape::Text(text);
+        if let Some(bytes) = context.bytes_at(cell) {
+            let _ = bytes;
+            return Shape::ArrayBuffer;
+        }
+        if let Some(text) = context.text_at(cell) {
+            // Buffer's UTF-8 encoder replaces lone UTF-16 surrogates with
+            // U+FFFD; refusing the whole source would make valid JavaScript
+            // strings unusable as Buffer input.
+            return Shape::Text(text.to_rust_lossy());
         }
         match context.elements_at(cell) {
             Some(elements) => Shape::List(elements.clone()),
@@ -167,6 +176,17 @@ pub(in crate::entry) fn bytes(name: &str, value: u64) -> Option<usize> {
     }
 }
 
+/// A value accepted by `Buffer.indexOf`/`includes`: number, string or bytes.
+pub(in crate::entry) fn search_value(value: u64) -> bool {
+    match shape_of(value) {
+        Shape::Number(_) | Shape::Text(_) | Shape::Bytes(_) => true,
+        _ => {
+            errors::invalid_search_value(value);
+            false
+        }
+    }
+}
+
 /// The offset of an ELEMENT `width` bytes wide inside a buffer of `count`.
 ///
 /// The two refusals differ, which is why this is not [`offset`] with the
@@ -195,7 +215,7 @@ pub(in crate::entry) fn element_offset(
 /// classification is a second borrow, which is what the module doc forbids.
 pub(in crate::entry) fn source(name: &str, value: u64) -> Option<Shape> {
     match shape_of(value) {
-        found @ (Shape::Text(_) | Shape::List(_) | Shape::Bytes(_)) => Some(found),
+        found @ (Shape::Text(_) | Shape::List(_) | Shape::Bytes(_) | Shape::ArrayBuffer) => Some(found),
         _ => {
             errors::invalid_arg_type(
                 name,

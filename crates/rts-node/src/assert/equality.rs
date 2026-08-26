@@ -118,6 +118,18 @@ fn walk(actual: u64, expected: u64, mode: Mode, seen: &mut Vec<(u64, u64)>) -> b
     if mode.prototypes && entry::get_prototype(actual) != entry::get_prototype(expected) {
         return false;
     }
+    // Typed arrays and Buffer instances expose their indexed elements through
+    // internal view state rather than enumerable properties. Compare that state
+    // directly so two equal slices do not depend on the underlying ArrayBuffer
+    // identity or on the implementation-only shape fields.
+    let (actual_bytes, expected_bytes) = entry::with_runtime(|context| {
+        (entry::bytes_of(context, actual), entry::bytes_of(context, expected))
+    });
+    match (actual_bytes, expected_bytes) {
+        (Some(left), Some(right)) => return left == right,
+        (Some(_), None) | (None, Some(_)) => return false,
+        (None, None) => {}
+    }
     if identity_only(actual) || identity_only(expected) {
         return false;
     }
