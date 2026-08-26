@@ -28,7 +28,8 @@
 //! here; `crate::fs::options_and_listener` is the overload shifter and no
 //! function in `node:util` has an optional-middle-argument overload, so it is
 //! not used. `TextEncoder`/`TextDecoder` live in `rts-std`'s globals and are
-//! refused here — see below for why re-exporting them is not possible yet.
+//! re-exported here by reading those same global constructors, so `node:util`
+//! does not mint a second class or prototype.
 //!
 //! # The rule this module tree is written around
 //!
@@ -72,14 +73,10 @@
 //!
 //! ## Needs something this engine does not have
 //!
-//! - **`TextEncoder` / `TextDecoder`.** They exist — `rts-std`'s
-//!   `globals/text.rs` implements both and declares them as globals — and this
-//!   module still cannot name them: a host module has no way to READ a global
-//!   by name (`entry::global_get` takes an interned key number nothing here can
-//!   mint), and `entry::make_prototype` is idempotent BY NAME, so asking it for
-//!   `"TextEncoder"` would mint an empty prototype and win the name from the
-//!   real class. Re-exporting them needs one host accessor, not code here.
-//!   A program reaching the ambient globals directly gets the real classes.
+//! - **`TextEncoder` / `TextDecoder`.** They are implemented by `rts-std`'s
+//!   `globals/text` and installed as globals; `namespace` reads those existing
+//!   constructors and attaches the same values to `node:util`, preserving class
+//!   identity instead of minting a second prototype.
 //! - **`getCallSites`.** No stack walk, and no `scriptId` concept to synthesize
 //!   one from.
 //! - **`getSystemErrorName` / `getSystemErrorMap` / `getSystemErrorMessage`.**
@@ -210,6 +207,17 @@ pub fn namespace(context: &mut Context) -> u64 {
         .chain(call_site::MEMBERS.iter().copied())
         .collect();
     let namespace = entry::make_namespace(context, &members);
+    // `TextEncoder` and `TextDecoder` are owned by `rts-std`'s global text
+    // implementation. Reuse those exact constructors so `new util.TextEncoder`
+    // has the same prototype and identity as the ambient class.
+    let undefined = entry::undefined_in(context);
+    let global = entry::global_object(context);
+    for name in ["TextEncoder", "TextDecoder"] {
+        let constructor = entry::get_member(context, global, name);
+        if constructor != undefined {
+            entry::put_member(context, namespace, name, constructor);
+        }
+    }
     // `inspect` is built apart from the list because it carries members of its
     // own, and `make_namespace` installs plain callables.
     let inspector = entry::make_callable(context, inspect::inspect);

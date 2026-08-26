@@ -133,7 +133,7 @@ extern "C" fn structured_clone(_e: u64, _t: u64, value: u64, options: u64, _a2: 
     result
 }
 
-/// Zeroes every `ArrayBuffer` named in `options.transfer`, if any.
+/// Detaches every `ArrayBuffer` named in `options.transfer`, if any.
 ///
 /// Read and applied AFTER the clone is fully materialised: a buffer transfers
 /// itself (`transfer: [buffer]` cloning `buffer`), and detaching it first would
@@ -154,11 +154,10 @@ fn detach_transferred(options: u64) {
             let Some(cell) = Value(held).as_slot() else {
                 continue;
             };
-            if let Some(bytes) = context.bytes_at_mut(cell) {
-                bytes.clear();
-            }
-            let key = context.well_known("byteLength");
-            super::objects::put(context, cell, key, Value::from_f64(0.0).bits());
+            // Use the canonical detach operation so the mark, byteLength and
+            // detached state stay in sync for every consumer, including
+            // `buffer.isAscii`/`isUtf8` and N-API's detached query.
+            context.detach_buffer(cell);
         }
     });
 }
