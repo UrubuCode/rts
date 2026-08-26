@@ -47,7 +47,7 @@ Os at-rules suportados entram no caminho estruturado: `@media` produz `MediaQuer
 
 ## Contrato de compatibilidade
 
-A API pública de `Stylesheet::append_css` não mudou. A cascade continua a consultar `Stylesheet::rules`, portanto a migração não exige alterações no layout ou no bridge. O AST é adicional e pode ser usado gradualmente para implementar propriedades novas, sem reescrever o parser estrutural.
+A API pública de `Stylesheet::append_css` não mudou. A cascade continua a consultar `Stylesheet::rules`, portanto a migração não exige alterações no layout ou no bridge. O AST é adicional e pode ser usado gradualmente para implementar propriedades novas, sem reescrever o parser estrutural. `Stylesheet::insert_rule` e `Stylesheet::delete_rule` oferecem uma primeira operação CSSOM mutável sobre blocos preservados: depois da mutação, rules, keyframes, layers e índices são reconstruídos de forma transaccional. Esta API ainda trabalha ao nível de blocos anexados, não pretende ser o CSSOM completo de `CSSStyleSheet` com índices individuais de cada regra.
 
 ## Limites conhecidos
 

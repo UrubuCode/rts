@@ -109,3 +109,20 @@ fn inline_specified_usa_a_mesma_fronteira_do_stylesheet() {
     assert_eq!(specified.declarations()[1].name, "--brand");
     assert!(specified.to_css().contains("color: var(--brand);"));
 }
+
+
+#[test]
+fn stylesheet_cssom_insert_delete_reconstroi_o_lowering() {
+    let mut sheet = Stylesheet::new();
+    sheet.append_css(".a { color: red }");
+    assert_eq!(sheet.computed_for("div", None, &["a"]).normal.color, Some(0xff0000ff));
+
+    assert_eq!(sheet.insert_rule(1, ".a { color: blue }").unwrap(), 1);
+    assert_eq!(sheet.computed_for("div", None, &["a"]).normal.color, Some(0x0000ffff));
+    assert_eq!(sheet.syntax().len(), 2);
+
+    assert!(!sheet.delete_rule(99));
+    assert!(sheet.delete_rule(0));
+    assert_eq!(sheet.computed_for("div", None, &["a"]).normal.color, Some(0x0000ffff));
+    assert_eq!(sheet.syntax().len(), 1);
+}

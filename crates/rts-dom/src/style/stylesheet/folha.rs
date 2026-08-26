@@ -248,6 +248,43 @@ impl Stylesheet {
         self.keyframes.get(name)
     }
 
+    /// Insere um bloco CSS preservado na posição dos blocos sintácticos anexados.
+    /// A operação é deliberadamente transaccional: o AST é actualizado primeiro e
+    /// rules, keyframes, layers e índices são reconstruídos a partir da nova fonte.
+    /// `index == len` equivale a append; um índice fora do intervalo é rejeitado.
+    pub fn insert_rule(&mut self, index: usize, css: &str) -> Result<usize, String> {
+        if index > self.syntax.len() {
+            return Err(format!("índice de regra fora do intervalo: {index}"));
+        }
+        let ast = crate::style::syntax::StylesheetAst::parse(css);
+        if ast.items.is_empty() {
+            return Err("regra CSS vazia".to_string());
+        }
+        self.syntax.insert(index, ast);
+        self.rebuild_from_syntax();
+        Ok(index)
+    }
+
+    /// Remove um bloco CSS sintáctico e reconstrói a representação semântica.
+    /// Devolve `false` quando o índice não existe.
+    pub fn delete_rule(&mut self, index: usize) -> bool {
+        if index >= self.syntax.len() {
+            return false;
+        }
+        self.syntax.remove(index);
+        self.rebuild_from_syntax();
+        true
+    }
+
+    fn rebuild_from_syntax(&mut self) {
+        let blocks: Vec<String> = self.syntax.iter().map(|ast| ast.to_css()).collect();
+        let mut rebuilt = Stylesheet::new();
+        for css in blocks {
+            rebuilt.append_css(&css);
+        }
+        *self = rebuilt;
+    }
+
     /// Acrescenta as regras de mais um bloco `<style>` (uma página pode ter vários).
     /// EXTRAI os `@keyframes` primeiro (não são regras de seletor), depois as regras.
     pub fn append_css(&mut self, css: &str) {
