@@ -163,7 +163,37 @@ Ranking is ns removed × confidence ÷ effort. Every item names the experiment t
 ### 0. Re-measure the table. Effort S. Zero engineering. Do this first.
 `measurements.md` is dated to `97f66385` and still carries `prop write own` = 9.61 against `hot-path-hygiene.md:228`'s 4.59. Two allocation rows contain that barrier once and twice. **Every subtraction in this document is arithmetic on stale rows.** One quiet-machine run of `bench/analytic.ts`, plus a note beside each row saying which binary produced it. Without this the rest is not rankable.
 
-### 1. L3 — memoise the constructor's prototype and type. 3–8 ns. Effort M.
+### 1. L3 — memoise the constructor's prototype and type. ~~3–8 ns~~ **MEASURED 3–4 ns. Do not ship.** Effort M.
+
+**Priced 2026-08-26 by the experiment this item demanded, at `673b9c0c`.** The
+memo was built as ablation scaffolding — keyed by the target cell, with **no**
+invalidation, which is what makes it cheap and unsound and therefore the ceiling
+— and toggled against itself in one binary:
+
+| | without | with |
+|---|---:|---:|
+| `alloc class instance` (`analytic.ts`) | 74.73 | 70.07 |
+| `new Callee()` (dedicated loop) | 66.87 | 63.64 |
+| `new Empty()` | 65.30 | 60.97 |
+| `new Old()` (a function) | 80.12 | 78.67 |
+
+Three to four nanoseconds, the low end of the estimate — and across five
+alternating runs of `analytic.ts` the ranges **overlap completely**: without
+[71.87, 76.92], with [67.98, 79.95]. It is not resolvable on that row.
+
+Set that against what this item's own **Cost** paragraph says a missed
+invalidation is, and against the invalidation surface it needs — `objects::put`,
+`computed::delete_own`, `collect_cycle::release`, plus rooting. Four nanoseconds
+does not buy that, and this session established the floor it has to clear:
+`docs/codegen/measurements.md` now records that a rebuild moves unrelated rows by
+more than 10%.
+
+**What the ablation did settle**, and it is worth more than the item: it skips
+the lookups (`prototype_key`, `read_property`, `typed_as`) and keeps
+`alloc_after_collecting` and `set_prototype`. So the lookups are ~4 ns, and the
+remaining ~70 of `new` is the allocation and the collector. §3 closed with
+"`allocate_for_target` costs about twice what its named operations cost, and
+nobody knows why"; this narrows it — **not the lookups.**
 `docs/codegen/plan.md:302`, unchanged in substance and corrected in three places by this round:
 - Key by the **resolved target cell** — `functions.rs:873`, from `new_targets.last()` — **and after the bound walk at `:891-902`**, or a bound function serves a stale prototype (demonstrated above).
 - Invalidate from `objects::put` (`objects.rs:446`) on the `prototype` key, which covers `Object.defineProperty` (`descriptor.rs:319`), **and from `computed::delete_own` (`computed/query.rs:192`)** — `F.prototype` is configurable here (`functions.rs:115` uses `native::hidden`) and `delete F.prototype` succeeds today, verified by running it.
@@ -173,7 +203,46 @@ Ranking is ns removed × confidence ÷ effort. Every item names the experiment t
 
 **Cost:** a second source of one fact, admissible only because the writers are enumerable. **A missed invalidation is not a slow answer — it is `new C()` producing an object that inherits from the old prototype.** Pin it with a test that reassigns `C.prototype` mid-loop, one that deletes it, and one on `A.bind(null)`.
 
-### 2. Hoist an emptiness check out of the sweep loop. Part of 10–14 ns. Effort S–M.
+### 2. Hoist an emptiness check out of the sweep loop. **PREMISE REFUTED. Do not ship.** Effort S–M.
+
+**The `reach()` dump this item asks for at the end was run, 2026-08-26, and it
+refutes the sentence the item rests on.** In a `new C()` loop, of the
+twenty-two tables `release` clears, **eight are non-empty, not one**:
+
+```
+proto 65536  call 1995  attr 1995  cctor 1992  ptypes 1988
+spill 1912   elems 1547  acc 195
+buf 0  det 0  proxy 0  curs 0  bound 0  views 0  coll 0
+gen 0  help 0  re 0  integ 0  deriv 0  boxed 0  foreign 0
+```
+
+A class allocates callables, records a prototype and a type against it, marks a
+constructor, hides three properties, and spills. So the skippable set is
+fourteen bounds checks, not twenty-one, and a bounds check against an empty
+`Vec` is about one instruction.
+
+Built anyway, in the safe per-cycle form this item specifies — a `Reached`
+snapshot taken once before the sweep, twenty-two flags, no new table and no
+set-side obligation. Measured against its own baseline:
+
+| | before | after |
+|---|---:|---:|
+| `alloc class instance` (`analytic.ts`) | 75.71–77.77 | **79.32–86.76** |
+| `new Callee()` | 70.10 | 68.44 |
+| `new Empty()` | 68.17 | **69.93** |
+| `new Old()` | 83.93 | **87.34** |
+
+**Slower**, and the mechanism is plain in hindsight: twenty-two flag loads
+replace twenty-two bounds checks, fourteen of which were the cheap ones.
+
+**And the number that made this item look big was mis-measured — by the ablation
+that priced it here.** Skipping twenty-one removes in a `new C()` loop reported
+72.45 → 63.63 ns, which is real, but it was skipping the eight NON-empty tables
+too. That ablation is not a model of this item; it is a model of not sweeping.
+The 10–14 ns the collector costs is therefore still unattributed, and it is not
+in the empty tables.
+
+Reverted. What remains true is §3's collector figure and item 3 below.
 `release` (`collect_cycle.rs:151-235`) makes 22 unconditional `Aside::remove` calls — verified by `grep -c`, correcting `plan.md:165/:228/:333`'s "~26". In a `new C()` loop exactly **one** of the 22 has been grown (`prototypes`, from `functions.rs:912`); the other 21 are bounds checks against a zero-length `Vec`.
 
 **Do NOT build the per-cell bitmask** that four investigations proposed. Three verifiers refused it and the argument is the same each time: a mask moves the exhaustiveness obligation from 22 lines in one function to 47 `Aside::set` sites, and `collect_cycle.rs:178-188` records what one missed line already cost — `detached` left behind was **corruption, not a leak**, reproducing only at 80 000 iterations once cells began coming back. In `trace::edges_of` the failure direction is worse still: a missed bit means an edge is not followed and a **live object is freed**.
