@@ -80,6 +80,54 @@ Provenance tags: **IN-ENGINE** (measured on the real binary), **BENCH** (a row o
 | **named** | **~48–61** | | |
 | **residual** | **~30–43 of 90.89, ~25–38 of a re-measured ~86** | | |
 
+### The collector row is 10–14 ns of WORK and ~0 ns of removable cost
+
+**Measured in-engine 2026-08-26 at `e2271e71`, and it retires the largest named
+row in the table above.** The 10–14 ns comes from `examples/alloc_cost.rs` as
+`sweeping − pre-freed`, and the question is what `pre-freed` is. Read at
+`alloc_cost.rs:129-146`: a region **large enough that every allocation comes out
+of a free list built by hand**, every page already faulted in, no `each_live`
+walk and no `release`.
+
+That state does not exist in a program. A loop allocating 800 000 objects into a
+65 536-cell region must either collect or grow the region, and both cost. So
+`sweeping − pre-freed` is the collector measured against a world where memory is
+free and already warm — not against the alternative.
+
+Against the alternative it is not visible at all. `new Callee()` in a loop, the
+warm-up outside the timer, cycle count from `RTS_GC_DEBUG=1`, minimum of three
+runs each:
+
+| allocations timed | cycles | ns/op |
+|---:|---:|---:|
+| 40 000 | **0** | 70.64 |
+| 100 000 | 1 | 76.02 |
+| 200 000 | 3 | 76.09 |
+| 400 000 | 6 | 70.89 |
+| 800 000 | 12 | 68.67 |
+| 1 600 000 | 25 | 69.17 |
+
+**Flat, with no step and no trend.** If a collection cost ~10 ns per allocation
+the row would climb with the cycle count and plateau near 80; instead the two
+highest readings are at ONE and THREE cycles, which is the opposite of the
+prediction, and twenty-five cycles is cheaper than zero.
+
+The mechanism is the counterfactual: the run that never collects is the run that
+GROWS, and it pays first-touch on fresh pages where the collecting run reuses
+memory that is already warm. The free-list path's fifteen zero words sit on the
+other side of the same trade.
+
+**What this does NOT say.** Not that `release` is free — `alloc_cost.rs` measures
+its work honestly, and item 3 below found a real O(n) cliff inside it by the same
+instrument. Not that a different collector could not be better. It says that the
+10–14 ns is not sitting there to be removed by making the sweep cheaper, because
+the program would then pay it at the page instead.
+
+This extends §5 item 7 rather than contradicting it. That item found the
+ISOLATED models overstating and named the in-engine probe as the one of record;
+this finds that probe overstating too, for a reason specific to it — its baseline
+is a heap that never has to find room.
+
 ### The residual is not new, and it is half already ranked
 
 `docs/codegen/plan.md:110-116` (§S1a, rank 2) decomposes `call method` = 29.35 and closes: *"That sums to roughly 10–12 ns. **Sixteen nanoseconds are unattributed**, and every method row in the table pays them."* `new Callee()` goes through the same `called`/`invoke` machinery, so it pays those sixteen too. So ~16 of the residual belongs to an open question the plan already owns, and ~14–27 is specific to `new`.
