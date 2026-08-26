@@ -267,23 +267,35 @@ impl Dom {
             v.extend(inline.custom.iter().cloned());
             v
         };
+        let own_customs_important: Vec<(String, String)> = if self.stylesheet.is_empty() {
+            inline.custom_important.clone()
+        } else {
+            let mut v = self.stylesheet.custom_important_from(&matched);
+            v.extend(inline.custom_important.iter().cloned());
+            v
+        };
         let parent_vars = parent_css_for_vars
             .as_ref()
             .and_then(|p| p.custom_props.clone());
         let vars_arc: Option<std::sync::Arc<std::collections::HashMap<String, String>>> =
-            match (parent_vars, own_customs.is_empty()) {
+            match (
+                parent_vars,
+                own_customs.is_empty() && own_customs_important.is_empty(),
+            ) {
                 (p, true) => p, // só herda: compartilha o Arc (O(1))
                 (p, false) => {
                     crate::bump!(custom_maps_built);
                     let mut m = p.map(|a| (*a).clone()).unwrap_or_default();
-                    // o valor de uma custom pode conter var() de OUTRA — a
-                    // substituição recursiva do consumidor resolve; guarda cru.
-                    for (k, v) in own_customs {
+                    // Normais entram primeiro; as importantes vencem por nome.
+                    for (k, v) in own_customs
+                        .into_iter()
+                        .chain(own_customs_important.into_iter())
+                    {
                         // AUTO-REFERÊNCIA DIRETA (`--c: ...var(--c)...`): a declaração é
                         // guaranteed-invalid (spec) — o Chrome a DESCARTA e mantém a
-                        // anterior válida. Se já há um valor para `k` (ex. o oklch real do
-                        // bloco de tema) e a nova declaração se auto-referencia, ignora a
-                        // nova. Sem valor anterior, insere (o consumidor corta o ciclo).
+                        // anterior válida. Se já há um valor para `k` e a nova declaração
+                        // se auto-referencia, ignora a nova. Sem valor anterior, insere
+                        // e o consumidor corta o ciclo.
                         if references_self(&k, &v) && m.contains_key(&k) {
                             continue;
                         }
@@ -406,6 +418,8 @@ impl Dom {
         if let Some(parent_css) = &parent_css {
             crate::bump!(inherit_steps);
             css.inherit_from(parent_css);
+        } else {
+            crate::style::inherit_kw::apply_root_inherit_as_initial(&mut css);
         }
 
         // A camada de ANIMAÇÃO (o `anim_override` interpolado) NÃO entra aqui: este é

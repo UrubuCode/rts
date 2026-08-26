@@ -153,7 +153,9 @@ fn lower_items(
                     .iter()
                     .map(crate::style::syntax::ComponentValue::to_css_semantic)
                     .collect();
-                layers.id(cond.trim());
+                for name in cond.split(',') {
+                    layers.id(name.trim());
+                }
             }
             _ => {}
         }

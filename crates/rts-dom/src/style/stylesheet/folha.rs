@@ -459,6 +459,23 @@ impl Stylesheet {
             .collect()
     }
 
+    /// Custom properties `!important` em ordem de aplicação. A prioridade de
+    /// layers é invertida para importantes, tal como nas declarações normais.
+    pub fn custom_important_from(&self, matched: &MatchedRules) -> Vec<(String, String)> {
+        let mut rules = matched.rules.clone();
+        rules.sort_by_key(|(layer, specificity, order, _)| {
+            (
+                if *layer == u32::MAX { 0 } else { u32::MAX - *layer },
+                *specificity,
+                *order,
+            )
+        });
+        rules
+            .iter()
+            .flat_map(|(_, _, _, i)| self.rules[*i].decls.custom_important.iter().cloned())
+            .collect()
+    }
+
     /// PASS B: as declarações normais e `!important` das regras que casaram, com
     /// as pendentes (`prop: …var(--x)…`) resolvidas na POSIÇÃO da regra contra
     /// as custom props do elemento.

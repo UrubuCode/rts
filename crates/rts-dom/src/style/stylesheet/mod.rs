@@ -184,10 +184,12 @@ pub struct DeclBlock {
     pub normal: ComputedStyle,
     /// Declarações marcadas `!important` (vencem qualquer normal na cascade).
     pub important: ComputedStyle,
-    /// Declarações de CUSTOM PROPERTIES (`--nome: valor`) do bloco, na ordem do
-    /// fonte, com o valor CRU (pode conter `var()` aninhado). Participam da
-    /// cascade por elemento (#1779). Importância ignorada na v1 (documentado).
+    /// Declarações de CUSTOM PROPERTIES normais (`--nome: valor`) do bloco, na
+    /// ordem da fonte, com o valor cru. Participam da cascade por elemento.
     pub custom: Vec<(String, String)>,
+    /// Custom properties marcadas `!important`, aplicadas depois das normais e
+    /// antes de resolver os valores pendentes com `var()`.
+    pub custom_important: Vec<(String, String)>,
     /// Declarações PENDENTES — o valor contém `var()` e só resolve POR ELEMENTO
     /// (contra as custom props computadas dele): `(prop, valor-cru, important)`.
     /// Resolvidas na posição da regra em [`Stylesheet::computed_for_node`].
@@ -207,6 +209,7 @@ pub struct RuleDecls {
     pub normal: Box<[super::props::Decl]>,
     pub important: Box<[super::props::Decl]>,
     pub custom: Vec<(String, String)>,
+    pub custom_important: Vec<(String, String)>,
     pub pending: Vec<(String, String, bool)>,
 }
 
@@ -218,6 +221,7 @@ impl RuleDecls {
             normal: block.normal.to_decls().into_boxed_slice(),
             important: block.important.to_decls().into_boxed_slice(),
             custom: block.custom,
+            custom_important: block.custom_important,
             pending: block.pending,
         }
     }
@@ -243,6 +247,7 @@ impl RuleDecls {
             + self
                 .custom
                 .iter()
+                .chain(self.custom_important.iter())
                 .map(|(k, v)| k.capacity() + v.capacity())
                 .sum::<usize>()
             + self
@@ -259,6 +264,7 @@ impl DeclBlock {
         self.normal == ComputedStyle::default()
             && self.important == ComputedStyle::default()
             && self.custom.is_empty()
+            && self.custom_important.is_empty()
             && self.pending.is_empty()
     }
 }

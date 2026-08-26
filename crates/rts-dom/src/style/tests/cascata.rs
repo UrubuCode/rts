@@ -255,3 +255,19 @@ fn layer_important_inverte_a_ordem_e_favorece_layers() {
         "a primeira layer vence entre important, inclusive sobre a regra sem layer"
     );
 }
+
+
+#[test]
+fn declaracao_de_ordem_de_layers_precede_os_blocos() {
+    let mut sheet = Stylesheet::new();
+    sheet.append_css(
+        "@layer baixo, alto; \
+         @layer alto { .x { color: blue } } \
+         @layer baixo { .x { color: red } }",
+    );
+    assert_eq!(
+        sheet.computed_for("div", None, &["x"]).normal.color,
+        Some(0x0000FFFF),
+        "a lista de layers declara alto depois de baixo"
+    );
+}

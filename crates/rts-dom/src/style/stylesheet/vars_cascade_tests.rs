@@ -143,3 +143,22 @@ fn fragmento_sem_html_continua_a_ter_um_unico_root() {
     assert_eq!(frag.query_all(":root").len(), 0, "dois topos, nenhuma raiz");
 }
 
+
+
+#[test]
+fn custom_property_important_vence_antes_do_var() {
+    let d = parse_html_to_dom(
+        "<html><head><style>p{--size:10px} p{--size:20px!important} \
+         p{font-size:var(--size)}</style></head><body><p id=p>x</p></body></html>",
+    );
+    assert_eq!(font_size(&d, "#p"), "20px");
+}
+
+#[test]
+fn custom_property_important_inline_vence_a_folha() {
+    let d = parse_html_to_dom(
+        "<html><head><style>p{--size:10px!important;font-size:var(--size)}</style></head>\
+         <body><p id=p style=\"--size:30px!important\">x</p></body></html>",
+    );
+    assert_eq!(font_size(&d, "#p"), "30px");
+}

@@ -122,7 +122,11 @@ pub(crate) fn parse_inline_block_raw(style: &str) -> DeclBlock {
         // cascade por elemento resolve (#1779). Importância ignorada (v1).
         if prop.starts_with("--") {
             crate::bump!(css_custom_declarations);
-            block.custom.push((prop.clone(), val.to_string()));
+            if important {
+                block.custom_important.push((prop.clone(), val.to_string()));
+            } else {
+                block.custom.push((prop.clone(), val.to_string()));
+            }
             continue;
         }
         // Valor com `var()`: NÃO parseia agora — vira declaração PENDENTE, que a
@@ -314,7 +318,11 @@ pub(crate) fn apply_specified_declaration(
 
     if prop.starts_with("--") {
         crate::bump!(css_custom_declarations);
-        block.custom.push((prop, val.trim().to_string()));
+        if important {
+            block.custom_important.push((prop, val.to_string()));
+        } else {
+            block.custom.push((prop, val.to_string()));
+        }
         return;
     }
     if val.contains("var(") {

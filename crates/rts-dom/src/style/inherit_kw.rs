@@ -152,6 +152,19 @@ pub(crate) fn apply_initial_keywords(dst: &mut ComputedStyle) {
     }
 }
 
+/// No elemento raiz, `inherit`/`unset` de uma propriedade herdável resolve para
+/// o inicial porque não existe elemento pai. A operação remove o marcador antigo
+/// antes de aplicar o inicial, inclusive quando o campo já tinha um valor de uma
+/// declaração anterior no mesmo snapshot.
+pub(crate) fn apply_root_inherit_as_initial(dst: &mut ComputedStyle) {
+    let Some(names) = dst.inherit_props.clone() else {
+        return;
+    };
+    for name in names.iter() {
+        let _ = crate::style::parse::apply_css_wide_keyword(dst, name, "initial");
+    }
+}
+
 /// Copia de `src` para `dst` o campo da propriedade `name`. É o único sítio que
 /// mapeia nome CSS → campo para COPIAR (o parse mapeia nome → valor parseado), e
 /// cobre as propriedades que o modelo tem: uma que não esteja aqui deixa o campo
