@@ -127,7 +127,7 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // `new F()` is the ordinary way to write a method, so it has to exist
         // first. Laziness would need the property-read path to materialise it,
         // which is a second answer to what a callable's own keys are.
-        let constructs = described.as_ref().is_none_or(|(_, _, yes)| *yes);
+        let constructs = described.as_ref().is_none_or(|(_, _, has_prototype, _)| *has_prototype);
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
         if let Some(prototype) = constructs
@@ -175,7 +175,7 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // kept in agreement with it. Widening `ClosureNew` to carry them was
         // the alternative: it costs two more operands on every closure ever
         // made, where this costs a lookup only.
-        if let Some((name, arity, _)) = described {
+        if let Some((name, arity, _, _)) = described {
             let key = context.well_known("name");
             // `key_text_value` and NOT `intern_value`, which despite its name
             // does not intern: its own documentation says it "inserts into the
@@ -681,6 +681,46 @@ pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// Split from [`construct`] for the reason [`invoke`] is split from [`call`]:
 /// `construct_with_args` has already pushed the vector this construction reads.
 fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    // Callable but NOT constructible, which is a different refusal from "not
+    // callable" and needs its own: an arrow, a method and an `async function`
+    // are all perfectly good functions that `new` may not reach. This answered
+    // an object instead — `new (() => {})()` produced one and carried on, where
+    // Node ends the program with `TypeError: … is not a constructor`, so a
+    // program whose control flow depended on that catch took the wrong branch
+    // in silence. Measured against Node 25.9 on 2026-08-25.
+    //
+    // The flag is the one the emitter already records and `closure_new` already
+    // reads to decide the `prototype` — asked here through the same index, so
+    // "may `new` reach this" has one answer rather than two that can disagree.
+    // A callable the table does not describe is allowed through, exactly as it
+    // is allowed to keep its `prototype`: `rts-napi` and `eval` mint callables
+    // the emitter never saw, and refusing those would break working programs.
+    let refused = with_current(|context| {
+        let cell = Value(callee).as_slot()?;
+        let (code, _) = context.callable_at(cell)?;
+        // A class constructor is marked separately and is constructible by
+        // definition, whatever the emitter recorded about the function it was
+        // written as.
+        if context.is_class_constructor(cell) {
+            return None;
+        }
+        let (name, _, _, constructs) = context.described_at(code)?;
+        if constructs {
+            return None;
+        }
+        let spelled = context
+            .interner
+            .text(name)
+            .and_then(|text| text.to_rust())
+            .filter(|text| !text.is_empty())
+            .unwrap_or_else(|| "anonymous".to_owned());
+        Some(format!("{spelled} is not a constructor"))
+    });
+    if let Some(message) = refused {
+        super::throw::type_error(&message);
+        return with_current(|context| undefined_of(context));
+    }
+
     let derived = with_current(|context| {
         let Some(cell) = Value(callee).as_slot() else {
             return None;

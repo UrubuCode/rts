@@ -194,7 +194,7 @@ pub struct Program {
     /// is the empty string rather than an absence. A trace still prints nothing
     /// for an empty name — that filter belongs to the printer, where it is a
     /// statement about traces instead of about functions.
-    pub function_names: Vec<(FuncId, String, u32, bool)>,
+    pub function_names: Vec<(FuncId, String, u32, bool, bool)>,
     /// Which of them is the program's entry.
     pub entry: FuncId,
     /// Every string literal, as UTF-16 code units, indexed by the number the
@@ -430,7 +430,7 @@ pub struct Ctx<'a> {
     /// name.
     inferred_name: Option<crate::names::Name>,
     /// The name and declared arity of each function, collected while emitting.
-    function_names: Vec<(FuncId, String, u32, bool)>,
+    function_names: Vec<(FuncId, String, u32, bool, bool)>,
     /// Which of the emitted functions are generator bodies.
     ///
     /// Collected while emitting rather than derived afterwards: `may_suspend` is

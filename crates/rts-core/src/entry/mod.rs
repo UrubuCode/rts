@@ -533,12 +533,12 @@ pub struct Context {
     /// For a stack trace to name a frame. Keyed by ADDRESS because that is what
     /// a callable holds, and filled by the host after placement for the reason
     /// `frames` is: the addresses do not exist until then.
-    function_names: Vec<(u64, String, u32, bool)>,
+    function_names: Vec<(u64, String, u32, bool, bool)>,
     /// `function_names` indexed by code address — DERIVED, never a second source.
     ///
     /// See `Context::index_functions_by_code`, which is the only thing that
     /// writes it and states what it is worth.
-    function_by_code: std::collections::HashMap<u64, (rts_cranelift::shape::Key, u32, bool)>,
+    function_by_code: std::collections::HashMap<u64, (rts_cranelift::shape::Key, u32, bool, bool)>,
     regexes: Aside<regex::Regexp>,
     /// What every regular expression inherits from, once one exists.
     ///

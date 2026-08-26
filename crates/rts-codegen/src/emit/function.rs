@@ -208,31 +208,28 @@ fn emit_closure_with(
     definition: Definition,
     constructs: Constructs,
 ) -> EmitResult<ValueId> {
-    // Two more forms are not constructors, and both are read off the tree the
-    // caller already handed over rather than asked of it: a caller saying
-    // `Constructs::Maybe` is saying "not a method", and the rest is syntax.
+    // TWO questions, not one, and conflating them was a bug: a generator HAS a
+    // `prototype` and is NOT constructible. The matrix below was read off Node
+    // 25.9 on 2026-08-25 rather than derived — sixteen forms, every combination
+    // of arrow, method, `async`, generator and class:
     //
-    // An ARROW — `captures_this` is the flag that says it is one, which this
-    // struct's own documentation calls "the one thing arrows actually change".
+    //     decl / function expression   prototype: yes   new: ok
+    //     class                        prototype: yes   new: ok
+    //     generator (any form)         prototype: yes   new: THROWS
+    //     arrow, async arrow           prototype: no    new: THROWS
+    //     async function               prototype: no    new: THROWS
+    //     method (obj or class)        prototype: no    new: THROWS
     //
-    // An ASYNC function, but NOT an async generator, and the asymmetry is the
-    // language's: `async function f(){}` has no `prototype`, while
-    // `async function* g(){}` has one, because what a generator's `prototype`
-    // is for is the object its iterator inherits from rather than construction.
-    // Verified against Node on 2026-08-25, all four forms — a plain generator
-    // keeps one too.
-    //
-    // **This half cannot fire yet, and that is stated rather than left to be
-    // rediscovered.** An async or generator function reaches `closure_new` at a
-    // WRAPPER's address, which is not the one recorded here, so the runtime's
-    // lookup misses and it falls back to keeping the `prototype`. The same miss
-    // is why `(async function af(){}).name` and `.length` answer `undefined`
-    // today where Node answers `"af"` and `2` — one defect with three symptoms,
-    // measured 2026-08-25. Whoever registers the wrapper's address gets this
-    // condition already correct instead of having to find it again.
-    let constructs = constructs == Constructs::Maybe
-        && !function.captures_this
-        && !(function.is_async && !function.is_generator);
+    // A "plain" function is one that is neither an arrow nor a method:
+    // `captures_this` is what says arrow — this struct's own documentation calls
+    // it "the one thing arrows actually change" — and the caller says method by
+    // reaching `emit_closure_method`.
+    let plain = constructs == Constructs::Maybe && !function.captures_this;
+    // A generator's `prototype` is not for construction at all: it is the object
+    // its iterator inherits from, which is why it survives on a form that `new`
+    // refuses, and why it is there even for a generator METHOD.
+    let has_prototype = function.is_generator || (plain && !function.is_async);
+    let constructs = plain && !function.is_async && !function.is_generator;
     // An ARROW reads `this` as a NAME, from the environment the enclosing
     // function put it in. `Scope::late_this` is the mechanism — it already
     // exists for a derived constructor, where `this` is also a name rather than
@@ -258,7 +255,7 @@ fn emit_closure_with(
         }
         false => late_this,
     };
-    let id = emit_function(ctx, scope, function, late_this, definition, constructs)?;
+    let id = emit_function(ctx, scope, function, late_this, definition, has_prototype, constructs)?;
 
     // The address is not a number known here — it is a relocation the
     // destination fills in, which is the whole reason the machine had to grow
@@ -283,6 +280,7 @@ fn emit_function(
     function: &Function,
     late_this: Option<Name>,
     definition: Definition,
+    has_prototype: bool,
     constructs: bool,
 ) -> EmitResult<FuncId> {
     // Two refusals and not one, because they are two constructs and the
@@ -435,8 +433,30 @@ fn emit_function(
         .or(lent)
         .map(|name| ctx.names.text(name).to_owned())
         .unwrap_or_default();
-    ctx.function_names.push((id, text, arity, constructs));
+    ctx.function_names.push((id, text.clone(), arity, has_prototype, constructs));
     ctx.pending.push((id, emitted));
+    // The id recorded above is the BODY's, and for a generator or an `async`
+    // function that is not the one a closure is made from: both return a
+    // WRAPPER below, and `emit_closure_with` takes the address of whatever this
+    // answers. So the runtime looked the wrapper's address up, found nothing,
+    // and fell through to its "undescribed" answer — which is why
+    // `(async function af(){}).name` and `.length` read `undefined` where Node
+    // reads `"af"` and `2`, and why an `async function` kept a `prototype` the
+    // language says it does not have. One defect, three symptoms, measured
+    // 2026-08-25.
+    //
+    // BOTH are recorded rather than moving the entry, because the two consumers
+    // want different addresses and always did: a stack trace names the frame
+    // that is RUNNING, which is the body, while `.name`, `.length` and
+    // constructibility are properties of the callable a program holds, which is
+    // the wrapper. Moving it would have closed these three and opened a hole in
+    // `trace`.
+    let named = |ctx: &mut Ctx, wrapper: FuncId| {
+        if wrapper != id {
+            ctx.function_names.push((wrapper, text, arity, has_prototype, constructs));
+        }
+        wrapper
+    };
     if function.is_generator {
         // The body is not called here and is not called by the caller either:
         // the wrapper hands its ADDRESS to the runtime, which parks a frame
@@ -451,10 +471,11 @@ fn emit_function(
         // plain generator — one with no `[Symbol.asyncIterator]`, which is the
         // only thing `for await` asks a source for, so every `for await` over a
         // declared async generator died on `undefined is not a function`.
-        return match function.is_async {
-            false => Ok(made),
-            true => super::wrap::async_generator(ctx, made),
+        let wrapped = match function.is_async {
+            false => made,
+            true => super::wrap::async_generator(ctx, made)?,
         };
+        return Ok(named(ctx, wrapped));
     }
     match function.is_async {
         false => Ok(id),
@@ -465,7 +486,8 @@ fn emit_function(
         // the runtime half of `RuntimeOp::AsyncStart`.
         true => {
             ctx.generators.push(id);
-            super::wrap::async_function(ctx, id)
+            let wrapped = super::wrap::async_function(ctx, id)?;
+            Ok(named(ctx, wrapped))
         }
     }
 }

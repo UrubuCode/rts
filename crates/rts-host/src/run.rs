@@ -99,7 +99,7 @@ pub struct Compiled {
     ///
     /// For a stack trace. Computed once, where the addresses become known, and
     /// seeded into every context that runs the program.
-    function_names: Vec<(u64, String, u32, bool)>,
+    function_names: Vec<(u64, String, u32, bool, bool)>,
     /// The text the last run's answer had, read while its heap still existed.
     described: Option<String>,
     /// What `import.meta` answers, per module of the graph.
@@ -316,7 +316,7 @@ fn run_region(
     // was placed, and this context did not exist then.
     frames: &[rts_core::entry::FrameShape],
     // What each compiled function is called, for a stack trace to name a frame.
-    function_names: &[(u64, String, u32, bool)],
+    function_names: &[(u64, String, u32, bool, bool)],
     // What `import.meta` answers, per module. Seeded like the literals: the
     // object is built in THIS region, and one from another is a dead cell.
     module_metas: &[crate::graph::ModuleMeta],
@@ -916,14 +916,14 @@ pub(crate) fn place(
 pub(crate) fn addressed(
     prepared: &Prepared,
     placed: &InMemory,
-) -> (Vec<(u64, String, u32, bool)>, Vec<rts_core::entry::FrameShape>) {
+) -> (Vec<(u64, String, u32, bool, bool)>, Vec<rts_core::entry::FrameShape>) {
     let function_names = prepared
         .emitted
         .function_names
         .iter()
-        .filter_map(|(id, name, arity, constructs)| {
+        .filter_map(|(id, name, arity, has_prototype, constructs)| {
             let at = placed.address_of(*id)?;
-            Some((at as u64, name.clone(), *arity, *constructs))
+            Some((at as u64, name.clone(), *arity, *has_prototype, *constructs))
         })
         .collect();
     // A body that was rewritten and then not placed would leave a wrapper

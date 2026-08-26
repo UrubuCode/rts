@@ -384,22 +384,23 @@ impl Context {
     pub(super) fn described_at(
         &self,
         code: u64,
-    ) -> Option<(rts_cranelift::shape::Key, u32, bool)> {
+    ) -> Option<(rts_cranelift::shape::Key, u32, bool, bool)> {
         self.function_by_code.get(&code).copied()
     }
 
     pub(super) fn index_functions_by_code(&mut self) {
-        let described: Vec<(u64, Str, u32, bool)> = self
+        let described: Vec<(u64, Str, u32, bool, bool)> = self
             .function_names
             .iter()
-            .map(|(at, name, arity, constructs)| {
-                (*at, Str::from_str(name), *arity, *constructs)
+            .map(|(at, name, arity, has_prototype, constructs)| {
+                (*at, Str::from_str(name), *arity, *has_prototype, *constructs)
             })
             .collect();
         self.function_by_code.clear();
-        for (at, name, arity, constructs) in described {
+        for (at, name, arity, has_prototype, constructs) in described {
             let key = self.interner.intern(&name, &mut self.keys);
-            self.function_by_code.insert(at, (key, arity, constructs));
+            self.function_by_code
+                .insert(at, (key, arity, has_prototype, constructs));
         }
     }
 
