@@ -694,7 +694,28 @@ pub struct Context {
     ///
     /// Not an `Aside`: a cell may have several, and what is looked up is the
     /// set on a DYING cell rather than the one on a live one. See [`finalize`].
-    pub deaths: Vec<(u32, u32, finalize::Pending)>,
+    /// Registrations waiting for a cell to die, keyed BY THAT CELL.
+    ///
+    /// # Why a map and not the list it was
+    ///
+    /// `finalize::queue_freed` runs once per FREED CELL — 63 669 times a cycle
+    /// on a heap of 65 536 — and it used to walk this whole list looking for a
+    /// match, with an O(n) `Vec::remove` inside the walk. So a cycle was
+    /// O(freed x registrations). Measured by `examples/alloc_cost.rs` before
+    /// this changed: **+21,90 ns per allocation at 100 registrations and
+    /// +245,16 at 1000**, against the same heap with none.
+    ///
+    /// Keyed by the cell because that is the question the sweep asks. `cancel`
+    /// asks the other one — by id — and stays a walk, which its own comment
+    /// argues for: it is `napi_remove_wrap`, where this is every program.
+    ///
+    /// A map rather than an `Aside`, and the difference is the whole reason the
+    /// obvious fix was refused: an `Aside` is a `Vec` indexed by cell and grows
+    /// to `cell + 1` on first write, so ONE registration at a high index
+    /// materialises a 65 536-entry table the sweep then streams per freed cell —
+    /// worse than the walk for the handful-of-registrations case that is normal.
+    /// A map holds what was registered and nothing else.
+    pub deaths: std::collections::HashMap<u32, Vec<(u32, finalize::Pending)>>,
     /// The next identifier [`finalize::on_death`] hands out. Never reused.
     pub next_death: u32,
     /// What the sweep queued and the next drain will call.
@@ -922,7 +943,20 @@ pub struct Context {
     /// The mirror of `external`, and the sweep clears an entry as it frees the
     /// cell — see [`weak`], which explains why a kept word is worse than a
     /// cleared one.
-    pub weak: Vec<(u32, u32, Option<u64>)>,
+    /// Weak watches, keyed BY THE CELL they watch.
+    ///
+    /// The same reshape `deaths` took and for the same reason:
+    /// `weak::clear_freed` runs once per FREED CELL and used to scan this whole
+    /// list looking for matches, so a cycle was O(freed x watches).
+    ///
+    /// Cleared rather than removed on a death — `peek` distinguishes an id that
+    /// was never issued from one whose value died, and dropping the entry would
+    /// collapse the two.
+    ///
+    /// Nothing outside `rts-napi` produces one: `WeakRef` holds its target as an
+    /// ordinary property, so for a JavaScript program this is empty and the
+    /// sweep pays one branch.
+    pub weak: std::collections::HashMap<u32, Vec<(u32, Option<u64>)>>,
     /// The next identifier [`weak::watch`] hands out. Never reused.
     pub next_weak: u32,
     /// The next identifier [`external::hold`] hands out.
@@ -1072,7 +1106,7 @@ impl Context {
             class_constructors: Aside::in_region(bits),
             boxed: Aside::in_region(bits),
             foreign: Aside::in_region(bits),
-            deaths: Vec::new(),
+            deaths: std::collections::HashMap::new(),
             next_death: 1,
             dying: Vec::new(),
             integrity: Aside::in_region(bits),
@@ -1122,7 +1156,7 @@ impl Context {
             literals: Vec::new(),
             type_names: [None; TYPE_NAMES.len()],
             external: Vec::new(),
-            weak: Vec::new(),
+            weak: std::collections::HashMap::new(),
             next_weak: 1,
             next_external: 1,
             modules: Vec::new(),

@@ -66,7 +66,7 @@ pub fn on_death(context: &mut Context, value: u64, pending: Pending) -> Option<u
     let cell = Value(value).as_slot()?;
     let id = context.next_death;
     context.next_death = context.next_death.wrapping_add(1);
-    context.deaths.push((id, cell, pending));
+    context.deaths.entry(cell).or_default().push((id, pending));
     Some(id)
 }
 
@@ -75,24 +75,36 @@ pub fn on_death(context: &mut Context, value: u64, pending: Pending) -> Option<u
 /// A client that has already run the callback itself — an addon calling
 /// `napi_remove_wrap` — withdraws rather than letting it run twice.
 pub fn cancel(context: &mut Context, id: u32) -> bool {
-    let before = context.deaths.len();
-    context.deaths.retain(|(waiting, _, _)| *waiting != id);
-    context.deaths.len() != before
+    // BY ID, so this walks where `queue_freed` does not: the registrations are
+    // keyed by the cell they wait on, and an id says nothing about which cell
+    // that is. It stays a walk on purpose. A second index from id to cell would
+    // be a second source of one fact for a caller that is `napi_remove_wrap` —
+    // withdrawn by an addon that already ran the callback itself — where
+    // `queue_freed` is the sweep, per freed cell, on every program.
+    let mut withdrew = false;
+    context.deaths.retain(|_, waiting| {
+        let before = waiting.len();
+        waiting.retain(|(held, _)| *held != id);
+        withdrew |= waiting.len() != before;
+        !waiting.is_empty()
+    });
+    withdrew
 }
 
 /// Moves every registration on a dying cell into the run queue.
 ///
 /// Called by the sweep, which must not call them — see the module doc.
 pub(super) fn queue_freed(context: &mut Context, cell: u32) {
-    let mut at = 0;
-    while at < context.deaths.len() {
-        match context.deaths[at].1 == cell {
-            true => {
-                let (_, _, pending) = context.deaths.remove(at);
-                context.dying.push(pending);
-            }
-            false => at += 1,
-        }
+    // The empty case FIRST, and it is the one that matters: a program that never
+    // wrote `FinalizationRegistry.register` has nothing here, and a sweep asks
+    // this once per freed cell — 63 669 times a cycle on a heap of 65 536. One
+    // load and one branch, which is what the old `while at < len` also cost when
+    // the list was empty. Nothing about the common path got slower.
+    if context.deaths.is_empty() {
+        return;
+    }
+    if let Some(waiting) = context.deaths.remove(&cell) {
+        context.dying.extend(waiting.into_iter().map(|(_, pending)| pending));
     }
 }
 

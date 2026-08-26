@@ -43,7 +43,7 @@ pub fn watch(context: &mut Context, value: u64) -> Option<u32> {
     let cell = Value(value).as_slot()?;
     let id = context.next_weak;
     context.next_weak = context.next_weak.wrapping_add(1);
-    context.weak.push((id, cell, Some(value)));
+    context.weak.entry(cell).or_default().push((id, Some(value)));
     Some(id)
 }
 
@@ -53,16 +53,23 @@ pub fn watch(context: &mut Context, value: u64) -> Option<u32> {
 /// `Some(None)` for one whose value has been collected — two different facts an
 /// addon reports differently, which is why they are not one `Option`.
 pub fn peek(context: &Context, id: u32) -> Option<Option<u64>> {
+    // BY ID, so this walks where `clear_freed` does not — the same split
+    // `finalize` makes, and for the same reason: an addon reading a `WeakRef`
+    // asks this, where the sweep asks the other one once per freed cell.
     context
         .weak
-        .iter()
-        .find(|(watched, _, _)| *watched == id)
-        .map(|(_, _, value)| *value)
+        .values()
+        .flatten()
+        .find(|(watched, _)| *watched == id)
+        .map(|(_, value)| *value)
 }
 
 /// Stops watching.
 pub fn forget(context: &mut Context, id: u32) {
-    context.weak.retain(|(watched, _, _)| *watched != id);
+    context.weak.retain(|_, watching| {
+        watching.retain(|(watched, _)| *watched != id);
+        !watching.is_empty()
+    });
 }
 
 /// Clears every watch on a cell the sweep is about to free.
@@ -72,8 +79,18 @@ pub fn forget(context: &mut Context, id: u32) {
 /// or writing after the free is reading a cell already spliced into the free
 /// list.
 pub(super) fn clear_freed(context: &mut Context, cell: u32) {
-    for (_, watched, value) in context.weak.iter_mut() {
-        if *watched == cell {
+    // The empty case FIRST: nothing in this repository outside `rts-napi`
+    // produces a watch — `WeakRef` holds its target as an ordinary property —
+    // so for every JavaScript program this is one load and one branch, asked
+    // once per freed cell.
+    if context.weak.is_empty() {
+        return;
+    }
+    // CLEARED, not removed: `peek` must go on distinguishing an id that was
+    // never issued from one whose value died, and dropping the entry would
+    // collapse the two into `None`.
+    if let Some(watching) = context.weak.get_mut(&cell) {
+        for (_, value) in watching {
             *value = None;
         }
     }

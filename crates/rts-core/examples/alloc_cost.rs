@@ -203,8 +203,15 @@ fn main() {
         "the collector's bookkeeping, per allocation: {:.2} ns",
         sweeping - prefreed
     );
+    // The row this is a share OF, from `docs/codegen/measurements.md`. It was
+    // 90.89 and that table was re-measured on 2026-08-26 at `673b9c0c`: the row
+    // is 74.55 now, so the share printed here was reading low against a number
+    // that had moved. A constant copied out of a table is a second source of it,
+    // and this is the comment that says which table and when — re-read it before
+    // trusting the percentage.
+    const ALLOC_CLASS_INSTANCE: f64 = 74.55;
     println!(
-        "against the 90.89 ns `bench/analytic.ts` reports for `new Callee()`: {:.1}%",
-        (sweeping - prefreed) / 90.89 * 100.0
+        "against the {ALLOC_CLASS_INSTANCE} ns `bench/analytic.ts` reports for `new Callee()`: {:.1}%",
+        (sweeping - prefreed) / ALLOC_CLASS_INSTANCE * 100.0
     );
 }
