@@ -152,8 +152,12 @@ pub struct Dom {
     /// `defineStyle` (por-tag, mais fraco) e o `style=""` inline. Estado DERIVADO
     /// do HTML — não entra no `PartialEq` do `Dom`.
     stylesheet: crate::style::Stylesheet,
-    /// CSS BRUTO acumulado dos `<style>` — guardado para resolver os pseudo-elementos
-    /// `::-webkit-scrollbar*` (o stylesheet parseado não modela pseudo-elementos).
+    /// CSS externo acrescentado por `addStylesheet`. Fica separado do conteúdo
+    /// dos elementos `<style>` para que uma mutação possa reconstruir apenas as
+    /// regras embutidas ainda vivas, sem ressuscitar regras removidas.
+    external_css: String,
+    /// CSS BRUTO efetivo da página — CSS externo mais o conteúdo dos `<style>` vivos.
+    /// Guardado para resolver os pseudo-elementos `::-webkit-scrollbar*`.
     /// DERIVADO do HTML, fora do `PartialEq`.
     raw_css: String,
     /// Eventos (#1760, modelo de POLLING — F3): que TIPOS cada nó escuta

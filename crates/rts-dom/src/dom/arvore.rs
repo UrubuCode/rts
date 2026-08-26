@@ -24,6 +24,7 @@ impl Dom {
             class_index: HashMap::new(),
             style_overrides: HashMap::new(),
             stylesheet: crate::style::Stylesheet::new(),
+            external_css: String::new(),
             raw_css: String::new(),
             listeners: HashMap::new(),
             listener_cbs: HashMap::new(),
