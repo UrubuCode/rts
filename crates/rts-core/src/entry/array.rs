@@ -292,8 +292,8 @@ pub fn own_keys(object: u64) -> u64 {
 /// it is the same different mechanism.
 #[rtse::entry]
 pub fn enumerate_keys(object: u64) -> u64 {
-    let mut offered: Vec<Str> = Vec::new();
-    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut offered: Vec<crate::object::Key> = Vec::new();
+    let mut seen: std::collections::BTreeSet<crate::object::Key> = std::collections::BTreeSet::new();
     let mut walking = object;
     // A bound rather than a `while let`: a prototype chain a program built with
     // `Object.setPrototypeOf` can be a CYCLE, and the language throws when one
@@ -305,25 +305,41 @@ pub fn enumerate_keys(object: u64) -> u64 {
             break;
         };
         let (enumerable, every) = with_current(|context| {
-            (
-                key_texts(context, walking, true),
-                key_texts(context, walking, false),
-            )
-        });
-        for text in enumerable {
-            let Some(spelled) = text.to_rust() else {
-                continue;
+            let enumerable = key_list(context, walking, true);
+            let every = key_list(context, walking, false);
+            // CANONICAL for the shadowing test, and this is not tidiness.
+            //
+            // The walk used to compare spellings, so an element at position 0
+            // and an inherited property named `"0"` were one key and shadowing
+            // worked. As keys they are `Index(0)` and `Name(…)`, which are not
+            // equal — so the test has to put a name that SPELLS an index back
+            // into the index form, or a `for`-`in` over an array whose prototype
+            // carries `"0"` would offer the position twice.
+            let canonical = |context: &Context, key: crate::object::Key| match key {
+                crate::object::Key::Name(named) => context
+                    .interner
+                    .text(named)
+                    .and_then(index_spelling)
+                    .map_or(key, crate::object::Key::Index),
+                crate::object::Key::Index(_) => key,
             };
-            if seen.contains(&spelled) {
+            let enumerable: Vec<_> = enumerable
+                .into_iter()
+                .map(|key| (canonical(context, key), key))
+                .collect();
+            let every: Vec<_> = every
+                .into_iter()
+                .map(|key| canonical(context, key))
+                .collect();
+            (enumerable, every)
+        });
+        for (canonical, key) in enumerable {
+            if seen.contains(&canonical) {
                 continue;
             }
-            offered.push(text);
+            offered.push(key);
         }
-        for text in every {
-            if let Some(spelled) = text.to_rust() {
-                seen.insert(spelled);
-            }
-        }
+        seen.extend(every);
         let _ = cell;
         let next = super::chain::get_prototype(walking);
         if next == walking {
@@ -358,11 +374,24 @@ pub(in crate::entry) fn own_names(object: u64) -> u64 {
 /// context by construction — `entry::member_names` is that caller — and the
 /// ambient form would be a nested borrow, which in an `extern "C"` frame is an
 /// abort rather than an error.
-pub(in crate::entry) fn key_texts(
+/// The same walk, answering KEYS.
+///
+/// # Why the keys and not their text
+///
+/// A key is a number the registry issued; its text is a heap buffer beside that
+/// number. This walk used to answer the text, so every enumeration cloned one
+/// `Str` per key — `Object.keys` of a four-property object built four strings
+/// that already existed, on every call — and `interned` then hashed each clone
+/// back to the number it started from.
+///
+/// The numbers are what a shape holds and what `key_value` is keyed by, so they
+/// are what this answers. [`key_texts`] is the wrapper, for the callers that
+/// genuinely want text.
+pub(in crate::entry) fn key_list(
     context: &mut Context,
     object: u64,
     enumerable_only: bool,
-) -> Vec<Str> {
+) -> Vec<crate::object::Key> {
     {
         let Some(slot) = Value(object).as_slot() else {
             return Vec::new();
@@ -388,8 +417,8 @@ pub(in crate::entry) fn key_texts(
             .flatten();
         if let Some(text) = held.map_or_else(|| context.text_at(slot), |cell| context.text_at(cell))
         {
-            let mut keys: Vec<Str> = (0..text.units().count())
-                .map(|index| crate::coerce::number_to_string(index as f64))
+            let mut keys: Vec<crate::object::Key> = (0..text.units().count())
+                .map(|index| crate::object::Key::Index(index as u32))
                 .collect();
             // `"length"` too, but only for `getOwnPropertyNames`: a boxed
             // string has an own, non-enumerable `length`, the same as an
@@ -399,12 +428,12 @@ pub(in crate::entry) fn key_texts(
             // never the one every other own-name walk here already gives an
             // array.
             if !enumerable_only {
-                keys.push(Str::from_str("length"));
+                keys.push(super::computed::length_key(context));
             }
             return keys;
         }
 
-        let mut keys: Vec<Str> = Vec::new();
+        let mut keys: Vec<crate::object::Key> = Vec::new();
         // Elements first, as strings: `for (k in [1,2])` yields "0" and "1",
         // not 0 and 1. A loop that compared `k === 0` would find nothing, and
         // that is the language rather than a quirk of this implementation.
@@ -418,7 +447,7 @@ pub(in crate::entry) fn key_texts(
                 if *vazio {
                     continue;
                 }
-                keys.push(crate::coerce::number_to_string(index as f64));
+                keys.push(crate::object::Key::Index(index as u32));
             }
         }
         let Some(ty) = context.region.type_of(slot) else {
@@ -474,10 +503,10 @@ pub(in crate::entry) fn key_texts(
                 if super::symbol::is_symbol_key(text) {
                     continue;
                 }
-                keys.push(text.clone());
+                keys.push(crate::object::Key::Name(key));
             }
         }
-        ordered(keys)
+        ordered_keys(context, keys)
     }
 }
 
@@ -540,7 +569,7 @@ pub(in crate::entry) fn symbol_keyed_with(
 /// The shared walk.
 fn keys_of(object: u64, enumerable_only: bool) -> u64 {
     interned(with_current(|context| {
-        key_texts(context, object, enumerable_only)
+        key_list(context, object, enumerable_only)
     }))
 }
 
@@ -550,11 +579,10 @@ fn keys_of(object: u64, enumerable_only: bool) -> u64 {
 /// different head — a walk UP the chain rather than one level — and the
 /// alternative was a second copy of the in-place write below, which is where
 /// one of the two would come to allocate twice again.
-fn interned(texts: Vec<Str>) -> u64 {
-
+fn interned(keys: Vec<crate::object::Key>) -> u64 {
     // Built outside the borrow above, because interning each string and
     // allocating the array both need the context again.
-    let array = array_new(texts.len() as i64);
+    let array = array_new(keys.len() as i64);
     // Written STRAIGHT INTO the array, one key at a time.
     //
     // It used to intern into a second `Vec` and then replace the array's own —
@@ -570,13 +598,28 @@ fn interned(texts: Vec<Str>) -> u64 {
         let Some(slot) = Value(array).as_slot() else {
             return;
         };
-        for (at, text) in texts.into_iter().enumerate() {
+        for (at, key) in keys.into_iter().enumerate() {
             // Through the key cache, because these ARE keys: every one came
             // from a shape or from an element index, both closed sets the
             // interner already holds. `intern_value` allocated a fresh cell per
             // key per call — `Object.keys` of a four-property object built four
             // strings that already existed, every time it was asked.
-            let value = context.key_text_value(&text);
+            //
+            // By NUMBER now, which is the whole of the second round: `key_value`
+            // is keyed by the number the walk already had, where `key_text_value`
+            // took the text and hashed it back to that number. A named key
+            // therefore costs one lookup in a cache `roots` already scans, and no
+            // `Str` is cloned anywhere on this path.
+            //
+            // An element position is the exception and has to be: its spelling
+            // is a NUMBER's, which no shape holds, so it is built here — which
+            // is what `Object.keys` of an array pays and an object does not.
+            let value = match key {
+                crate::object::Key::Name(named) => context.key_value(named),
+                crate::object::Key::Index(number) => {
+                    context.key_text_value(&crate::coerce::number_to_string(f64::from(number)))
+                }
+            };
             if let Some(elements) = context.elements_at_mut(slot) {
                 elements[at] = value;
             }
@@ -723,6 +766,40 @@ pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
     }
 }
 
+/// Whether a key's spelling IS the canonical one for an array index.
+///
+/// The same question [`ordered_keys`] asks, answered without allocating. The old
+/// spelling was `text.to_rust()?` — a `String` on the heap — then `parse`, then
+/// `number.to_string()` for the round trip: **two allocations per key per
+/// enumeration**, to decide something that is fixed for the life of the key.
+/// `Object.keys` of a four-property object paid it four times, every call.
+///
+/// The round trip is preserved exactly, and it is what makes `"01"` and `"1.0"`
+/// ordinary names as the specification says. Reading it as digits gives the same
+/// answer: a leading zero is only canonical for `"0"` itself, anything that is
+/// not a digit is not an index, and an overflow past `u32::MAX` is not one
+/// either — which also covers `u32::MAX`, the one value the language reserves
+/// for `length` rather than for an element.
+fn index_spelling(text: &Str) -> Option<u32> {
+    let length = text.len();
+    if length == 0 || length > 10 {
+        return None;
+    }
+    let first = text.unit_at(0)?;
+    if first == b'0' as u16 {
+        return (length == 1).then_some(0);
+    }
+    let mut number: u32 = 0;
+    for at in 0..length {
+        let unit = text.unit_at(at)?;
+        if !(b'0' as u16..=b'9' as u16).contains(&unit) {
+            return None;
+        }
+        number = number.checked_mul(10)?.checked_add(u32::from(unit - b'0' as u16))?;
+    }
+    (number != u32::MAX).then_some(number)
+}
+
 /// The enumeration order the language states, over keys already collected.
 ///
 /// **Array-index keys first, in ascending numeric order; then everything else
@@ -730,7 +807,7 @@ pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
 /// is not exotic: `o.b = 1; o[2] = 1; o.a = 1; o[1] = 1` enumerates
 /// `1, 2, b, a`.
 ///
-/// # Why this is a sort here rather than a `Key::Index`
+/// # Why a `Key::Name` still has to be asked
 ///
 /// [`super::computed`] turns every computed key into a NAME, including one that
 /// spells an index, and its own documentation says why: `o[0]` and `o["0"]` are
@@ -738,22 +815,23 @@ pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
 /// `o[0] = 1; o[0]` read as absent. What that gave up was exactly this ordering,
 /// recorded there as "an enumeration order nothing implements".
 ///
-/// So it is implemented from the text instead. A key is an index when its
-/// spelling is the canonical one for a number below 2^32 − 1 — which is what
-/// makes `"01"` and `"1.0"` ordinary names, as the specification says, and what
-/// a `parse` alone would have got wrong.
-fn ordered(keys: Vec<Str>) -> Vec<Str> {
-    let index_of = |text: &Str| -> Option<u32> {
-        let text = text.to_rust()?;
-        let number: u32 = text.parse().ok()?;
-        // The canonical spelling, and only that: `"01"` parses to 1 and is not
-        // an index, because the language decides by the round trip rather than
-        // by the value.
-        (number.to_string() == text && number != u32::MAX).then_some(number)
+/// So a `Key::Index` — which only an element position produces — is already the
+/// number this sorts by, and a `Key::Name` has its spelling asked instead. A key
+/// is an index when that spelling is the canonical one for a number below
+/// 2^32 − 1, which is what makes `"01"` and `"1.0"` ordinary names as the
+/// specification says, and what a `parse` alone would have got wrong.
+///
+/// The text is READ, never cloned: [`index_spelling`] walks its units.
+fn ordered_keys(context: &Context, keys: Vec<crate::object::Key>) -> Vec<crate::object::Key> {
+    let index_of = |key: &crate::object::Key| -> Option<u32> {
+        match key {
+            crate::object::Key::Index(number) => Some(*number),
+            crate::object::Key::Name(named) => index_spelling(context.interner.text(*named)?),
+        }
     };
 
-    let mut indices: Vec<(u32, Str)> = Vec::new();
-    let mut names: Vec<Str> = Vec::new();
+    let mut indices: Vec<(u32, crate::object::Key)> = Vec::new();
+    let mut names: Vec<crate::object::Key> = Vec::new();
     for key in keys {
         match index_of(&key) {
             Some(number) => indices.push((number, key)),
@@ -761,8 +839,30 @@ fn ordered(keys: Vec<Str>) -> Vec<Str> {
         }
     }
     indices.sort_by_key(|(number, _)| *number);
-
-    let mut out: Vec<Str> = indices.into_iter().map(|(_, key)| key).collect();
+    let mut out: Vec<crate::object::Key> = indices.into_iter().map(|(_, key)| key).collect();
     out.extend(names);
     out
 }
+
+/// The keys a walk answers, as TEXT.
+///
+/// The wrapper over [`key_list`] for the callers that want spellings rather than
+/// numbers — a `for`-`in` binding, a proxy invariant check, a module's member
+/// names. Each pays one `Str` per key, which is what the walk itself used to
+/// charge every caller including the ones that only wanted the number back.
+pub(in crate::entry) fn key_texts(
+    context: &mut Context,
+    object: u64,
+    enumerable_only: bool,
+) -> Vec<Str> {
+    key_list(context, object, enumerable_only)
+        .into_iter()
+        .filter_map(|key| match key {
+            crate::object::Key::Index(number) => {
+                Some(crate::coerce::number_to_string(f64::from(number)))
+            }
+            crate::object::Key::Name(named) => context.interner.text(named).cloned(),
+        })
+        .collect()
+}
+
