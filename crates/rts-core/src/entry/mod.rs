@@ -192,8 +192,8 @@ pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 pub use buffer::validate::MAX_LENGTH as BUFFER_MAX_LENGTH;
 pub use errors::{
-    buffer_out_of_bounds, invalid_arg_instance, invalid_arg_type, invalid_arg_value, out_of_range,
-    unknown_encoding,
+    buffer_out_of_bounds, invalid_arg_instance, invalid_arg_type, invalid_arg_value, invalid_state,
+    out_of_range, unknown_encoding,
 };
 pub use throw::{
     call_frames, declare_function_names, make_named_error, pending, take_thrown, throw, throw_type_error,

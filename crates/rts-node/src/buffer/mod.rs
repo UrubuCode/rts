@@ -46,10 +46,9 @@
 //!   view over one: a `Buffer`, a typed array or a `DataView`, all of which
 //!   work). [`entry::bytes_of`] reads bytes through a view, and an
 //!   `ArrayBuffer` has none — so such a part contributes **zero bytes** and is
-//!   named here rather than silently changing `blob.size`. The same limit
-//!   makes [`is_ascii`]/[`is_utf8`] answer `undefined` for an `ArrayBuffer`
-//!   argument instead of guessing. The missing host capability is "bytes of an
-//!   `ArrayBuffer` cell".
+//!   named here rather than silently changing `blob.size`. The missing host
+//!   capability is "bytes of an `ArrayBuffer` cell"; `isAscii`/`isUtf8` raise
+//!   `ERR_INVALID_ARG_TYPE` for inputs without a readable view.
 //! - **`resolveObjectURL(id)`** answers `undefined` for every `id`, and that is
 //!   a correct total answer rather than a stub: the ids it resolves are minted
 //!   only by `URL.createObjectURL`, which `node:url` refuses by name for want
@@ -189,24 +188,32 @@ fn transcode_encoding(name: &str) -> Option<&'static str> {
 
 /// `buffer.isAscii(input)` — every byte `<= 0x7F`.
 ///
-/// `undefined`, not `false`, for an argument whose bytes cannot be read: Node
-/// throws `ERR_INVALID_ARG_TYPE` there, and `false` would be a wrong answer
-/// that runs — indistinguishable from a real buffer containing a high byte.
+/// Inputs without a readable byte view raise `ERR_INVALID_ARG_TYPE`, matching
+/// Node's contract instead of returning an ambiguous boolean or `undefined`.
 extern "C" fn is_ascii(_e: u64, _this: u64, input: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    match bytes_argument(input) {
-        Some(bytes) => entry::boolean_value(bytes.iter().all(|byte| byte.is_ascii())),
-        None => entry::undefined_value(),
-    }
+    let Some(bytes) = bytes_argument(input) else {
+        if entry::buffer_detached(input) {
+            entry::invalid_state("Cannot use a detached ArrayBuffer");
+        } else {
+            entry::invalid_arg_instance("input", "Buffer, TypedArray, or DataView", input);
+        }
+        return entry::undefined_value();
+    };
+    entry::boolean_value(bytes.iter().all(|byte| byte.is_ascii()))
+}
+/// `buffer.isUtf8(input)` — the bytes decode as UTF-8.
+extern "C" fn is_utf8(_e: u64, _this: u64, input: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let Some(bytes) = bytes_argument(input) else {
+        if entry::buffer_detached(input) {
+            entry::invalid_state("Cannot use a detached ArrayBuffer");
+        } else {
+            entry::invalid_arg_instance("input", "Buffer, TypedArray, or DataView", input);
+        }
+        return entry::undefined_value();
+    };
+    entry::boolean_value(std::str::from_utf8(&bytes).is_ok())
 }
 
-/// `buffer.isUtf8(input)` — the bytes decode as UTF-8. Same `undefined`-for-
-/// unreadable rule as [`is_ascii`].
-extern "C" fn is_utf8(_e: u64, _this: u64, input: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    match bytes_argument(input) {
-        Some(bytes) => entry::boolean_value(std::str::from_utf8(&bytes).is_ok()),
-        None => entry::undefined_value(),
-    }
-}
 
 /// The bytes of a `Buffer`/typed array/`DataView` argument. `None` for
 /// anything else — including a raw `ArrayBuffer`, refused by name in the

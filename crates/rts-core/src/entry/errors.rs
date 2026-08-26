@@ -69,6 +69,11 @@ pub fn out_of_range(name: &str, expected: &str, actual: u64) {
     );
 }
 
+/// Raises `TypeError [ERR_INVALID_STATE]` for an operation on detached state.
+pub fn invalid_state(message: &str) {
+    raise("TypeError", "ERR_INVALID_STATE", message);
+}
+
 /// Raises `TypeError [ERR_INVALID_ARG_VALUE]`.
 pub fn invalid_arg_value(name: &str, actual: u64, reason: &str) {
     let described = value_text(actual);
