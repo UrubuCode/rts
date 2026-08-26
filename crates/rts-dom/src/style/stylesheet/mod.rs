@@ -266,6 +266,9 @@ pub fn rule_size() -> usize {
 #[derive(Clone, Default, Debug)]
 pub struct Stylesheet {
     pub rules: Vec<Rule>,
+    /// AST sintáctico dos blocos CSS anexados, preservado para diagnósticos,
+    /// tooling e lowering futuro. A cascade continua a consumir `rules`.
+    pub syntax: Vec<crate::style::syntax::StylesheetAst>,
     /// Os `@keyframes nome {...}` da página (#1776), por nome. Consultados pelo
     /// `advance` quando um nó tem `animation: nome ...`.
     pub keyframes: std::collections::HashMap<String, crate::anim::Keyframes>,
@@ -324,6 +327,21 @@ pub enum HoverReach {
 impl PartialEq for Stylesheet {
     fn eq(&self, other: &Self) -> bool {
         self.rules == other.rules
+    }
+}
+
+impl Stylesheet {
+    /// Blocos sintácticos CSS preservados na ordem em que foram anexados.
+    pub fn syntax(&self) -> &[crate::style::syntax::StylesheetAst] {
+        &self.syntax
+    }
+
+    /// Diagnósticos de parsing dos blocos CSS anexados, na ordem da fonte.
+    pub fn diagnostics(&self) -> Vec<crate::style::syntax::Diagnostic> {
+        self.syntax
+            .iter()
+            .flat_map(|ast| ast.diagnostics.iter().cloned())
+            .collect()
     }
 }
 

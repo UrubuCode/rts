@@ -9,6 +9,7 @@ impl Stylesheet {
     pub fn new() -> Stylesheet {
         Stylesheet {
             rules: Vec::new(),
+            syntax: Vec::new(),
             keyframes: std::collections::HashMap::new(),
             index: std::cell::RefCell::new(super::ruleindex::RuleIndex::default()),
             candidate_scratch: std::cell::RefCell::new(Vec::new()),
@@ -249,13 +250,43 @@ impl Stylesheet {
     /// Acrescenta as regras de mais um bloco `<style>` (uma página pode ter vários).
     /// EXTRAI os `@keyframes` primeiro (não são regras de seletor), depois as regras.
     pub fn append_css(&mut self, css: &str) {
+        // Tokeniza uma única vez. O AST preserva a entrada original para tooling;
+        // o IR semântico continua a ser a fonte consumida pela cascade.
+        let ast = crate::style::syntax::StylesheetAst::parse(css);
+        self.syntax.push(ast.clone());
+
+        // `@keyframes` é um at-rule estrutural: não vira `Rule`, mas os seus stops
+        // são baixados directamente para a tabela de animações.
+        for item in &ast.items {
+            if let crate::style::syntax::AstItem::AtRule {
+                name,
+                prelude,
+                block: Some(block),
+                ..
+            } = item
+            {
+                let lower = name.to_ascii_lowercase();
+                if lower == "keyframes" || lower == "-webkit-keyframes" {
+                    let keyframe_name: String = prelude
+                        .iter()
+                        .map(crate::style::syntax::ComponentValue::to_css_semantic)
+                        .collect();
+                    let keyframe_name = keyframe_name.trim();
+                    if !keyframe_name.is_empty() {
+                        crate::bump!(css_keyframes);
+                        self.keyframes.insert(
+                            keyframe_name.to_string(),
+                            super::parse_keyframe_ast(block),
+                        );
+                    }
+                }
+            }
+        }
+
         // (var()/custom properties agora resolvem POR ELEMENTO na cascade — #1779;
         // o antigo passe textual GLOBAL daqui foi removido.)
-        // 1) extrai e remove os blocos @keyframes (guarda por nome).
-        let css_without_kf = self.extract_keyframes(css);
-        // 2) as regras normais do resto.
         let base = self.rules.len() as u32;
-        for (i, rule) in parse_rules(&css_without_kf).into_iter().enumerate() {
+        for (i, rule) in super::parse_rules_ast(&ast).into_iter().enumerate() {
             crate::bump!(css_rules);
             self.rules.push(Rule {
                 order: base + i as u32,
@@ -266,35 +297,6 @@ impl Stylesheet {
         *self.hover_reach.borrow_mut() = None;
         *self.position_sensitive.borrow_mut() = None;
         *self.out_of_flow.borrow_mut() = None;
-    }
-
-    /// Acha cada `@keyframes nome { ... }`, parseia os stops e guarda; devolve o CSS
-    /// SEM os blocos de keyframes (p/ o parser de regras não tropeçar neles).
-    fn extract_keyframes(&mut self, css: &str) -> String {
-        let _phase = crate::metrics::phases::scope("css-keyframes+strip");
-        let css = strip_css_comments(css);
-        let mut out = String::new();
-        let mut rest = css.as_str();
-        while let Some(at) = rest.find("@keyframes") {
-            out.push_str(&rest[..at]);
-            let after = &rest[at + "@keyframes".len()..];
-            // nome até o `{`.
-            let Some(brace) = after.find('{') else { break };
-            let name = after[..brace].trim().to_string();
-            // acha o `}` que fecha o bloco (contando aninhamento, pois cada stop tem `{}`).
-            let body_start = at + "@keyframes".len() + brace + 1;
-            let Some(body_end) = find_matching_brace(&rest[body_start..]) else {
-                break;
-            };
-            let body = &rest[body_start..body_start + body_end];
-            if !name.is_empty() {
-                crate::bump!(css_keyframes);
-                self.keyframes.insert(name, parse_keyframe_body(body));
-            }
-            rest = &rest[body_start + body_end + 1..];
-        }
-        out.push_str(rest);
-        out
     }
 
     /// Computa o estilo de AUTOR para um elemento, aplicando as regras cujo seletor

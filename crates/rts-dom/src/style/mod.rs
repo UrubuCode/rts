@@ -55,6 +55,8 @@ pub mod root_font;
 pub mod ruleindex;
 pub mod selector;
 pub mod stylesheet;
+/// Tokenizer e AST sintáctico lossless do CSS, antes do lowering para a cascade.
+pub mod syntax;
 /// As propriedades de TABELA e a posição do marcador de lista — ver o módulo.
 pub mod tables;
 pub mod text;
@@ -68,6 +70,8 @@ pub mod vocab;
 
 mod aplica;
 
+#[cfg(test)]
+mod ast_tests;
 #[cfg(test)]
 mod afirmacoes_tests;
 #[cfg(test)]
@@ -107,6 +111,10 @@ pub use selector::{
 };
 pub use stylesheet::{
     DeclBlock, HoverReach, MatchedRules, MediaQuery, Rule, Stylesheet, parse_rules,
+};
+pub use syntax::{
+    AstItem, BlockAst, ComponentValue, DeclarationAst, Diagnostic, DiagnosticSeverity, SourceSpan,
+    StylesheetAst, Token, TokenKind, tokenize,
 };
 pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
 pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak};
