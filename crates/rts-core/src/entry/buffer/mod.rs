@@ -48,6 +48,7 @@
 pub(in crate::entry) mod codec;
 pub(in crate::entry) mod ops;
 pub(in crate::entry) mod statics;
+pub(in crate::entry) mod swap;
 pub(in crate::entry) mod validate;
 
 use super::buffers::element::Kind;
@@ -184,6 +185,24 @@ impl Buffer {
     /// `buf.includes(value, byteOffset?, encoding?)`.
     fn includes(this: u64, value: u64, byte_offset: u64, encoding: u64) -> bool {
         ops::includes(this, value, byte_offset, encoding)
+    }
+
+    /// `buf.swap16()` — reverse each 16-bit word in place.
+    #[js("swap16")]
+    fn swap_16(this: u64) -> u64 {
+        swap::swap(this, 2)
+    }
+
+    /// `buf.swap32()` — reverse each 32-bit word in place.
+    #[js("swap32")]
+    fn swap_32(this: u64) -> u64 {
+        swap::swap(this, 4)
+    }
+
+    /// `buf.swap64()` — reverse each 64-bit word in place.
+    #[js("swap64")]
+    fn swap_64(this: u64) -> u64 {
+        swap::swap(this, 8)
     }
 
     /// `buf.toJSON()`.

@@ -152,6 +152,15 @@ pub fn buffer_out_of_bounds(name: Option<&str>) {
     raise("RangeError", "ERR_BUFFER_OUT_OF_BOUNDS", &message);
 }
 
+/// Raises `RangeError [ERR_INVALID_BUFFER_SIZE]` for a byte-swap width mismatch.
+pub fn invalid_buffer_size(bits: usize) {
+    raise(
+        "RangeError",
+        "ERR_INVALID_BUFFER_SIZE",
+        &format!("Buffer size must be a multiple of {bits}-bits"),
+    );
+}
+
 /// Builds an error of `class`, stamps `code` on it, and raises it.
 ///
 /// # Why the class name crosses as text
