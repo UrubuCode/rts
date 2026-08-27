@@ -79,7 +79,6 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("transcode", transcode),
         ("isAscii", is_ascii),
         ("isUtf8", is_utf8),
-        ("SlowBuffer", slow_buffer_native),
         ("resolveObjectURL", resolve_object_url),
     ];
     let namespace = entry::make_namespace(context, members);
@@ -91,6 +90,18 @@ pub fn namespace(context: &mut Context) -> u64 {
 
     let buffer = entry::buffer_class(context);
     entry::put_member(context, namespace, "Buffer", buffer);
+
+    // `SlowBuffer` is a callable legacy factory that also accepts `new`. A
+    // generic namespace callable has no `.prototype`, so the construction path
+    // cannot make its temporary receiver. Its returned value remains the real
+    // `Buffer` from `allocUnsafe`, while this separate prototype matches Node's
+    // public `SlowBuffer.prototype` identity.
+    let slow_buffer_prototype = entry::make_prototype(context, "SlowBuffer", &[]);
+    let slow_buffer = entry::make_callable(context, slow_buffer_native);
+    entry::put_member(context, slow_buffer, "prototype", slow_buffer_prototype);
+    entry::declare_host_class(context, slow_buffer, slow_buffer_prototype, "SlowBuffer", 1);
+    entry::put_member(context, namespace, "SlowBuffer", slow_buffer);
+
     blob::install(context, namespace);
 
     let constants = entry::make_object(context);

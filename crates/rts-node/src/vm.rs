@@ -22,18 +22,15 @@
 //! region can cross — a number, a boolean, a singleton — and `evaluate`
 //! answers `None` for anything else (an object, including a function),
 //! **and also** for a source that failed to compile. The two are one
-//! answer on purpose (see `evaluate`'s own doc) and this module inherits
-//! that: **a returned `undefined` here can mean "the source legitimately
-//! produced `undefined`", "the source produced an object that cannot
-//! cross", or "the source did not compile"** — this module cannot and does
-//! not tell those apart, and no member of it claims to.
+//! answer on purpose (see `evaluate`'s own doc) and the `run` helper below
+//! inherits that limitation.
 //!
-//! That is close to `vm.runInNewContext`'s contract (a fresh global scope,
-//! no access to the caller's locals) and is why the members below are named
-//! after it. `runInContext` and `runInThisContext` are exposed as well, but
-//! retain this engine's honest limitation: each call still evaluates in a
-//! fresh program rather than sharing live objects with a caller-supplied or
-//! ambient context.
+//! The context-aware VM methods use `evaluate_in_scope_with_receiver`
+//! instead. They compile a fresh program against an environment in the
+//! running region, so completion objects such as an `ArrayBuffer` remain
+//! usable by the caller. This still does not create a separate intrinsic
+//! realm: the scope is isolated by its environment object, not by a second
+//! heap or global implementation.
 //!
 //! # `Context` objects: a scope with explicit limits
 //!
@@ -178,15 +175,18 @@ fn run(code: u64) -> u64 {
     }
 }
 
-/// Evaluates against a caller-supplied context, falling back to a fresh program
-/// when the optional context was omitted.
+/// Evaluates against a caller-supplied context, creating an empty one when the
+/// optional context was omitted. The empty object keeps completion values in the
+/// running region, which is required for a returned `ArrayBuffer` to remain a
+/// usable `BufferSource` even though this engine has no separate intrinsic realm.
 fn run_with_context(code: u64, context_obj: u64) -> u64 {
     let absent = entry::undefined_value();
-    if context_obj == absent {
-        run(code)
+    let environment = if context_obj == absent {
+        entry::with_runtime(|context| entry::make_object(context))
     } else {
-        run_in_context_object(code, context_obj)
-    }
+        context_obj
+    };
+    run_in_context_object(code, environment)
 }
 
 /// Evaluates source text against an object that acts as the environment.
