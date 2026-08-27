@@ -105,6 +105,12 @@ impl Buffer {
         statics::from(source, encoding_or_offset)
     }
 
+    /// `Buffer.of(...values)`.
+    #[stat]
+    fn of(a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+        statics::of(a0, a1, a2, a3)
+    }
+
     /// `Buffer.concat(list, totalLength?)`.
     #[stat]
     fn concat(list: u64, total_length: u64) -> u64 {
