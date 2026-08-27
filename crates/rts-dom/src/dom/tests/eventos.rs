@@ -170,3 +170,73 @@
             ]
         );
     }
+
+
+    #[test]
+    fn listener_options_preservam_ordem_e_once() {
+        let mut dom = parse_html_to_dom("<div id=pai><button id=b>x</button></div>");
+        let pai = dom.query("#pai").unwrap();
+        let b = dom.query("#b").unwrap();
+        dom.add_event_listener_cb_with_options(
+            pai,
+            "custom",
+            10,
+            ListenerOptions { capture: true, once: false, passive: false },
+        );
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            20,
+            ListenerOptions { capture: true, once: false, passive: false },
+        );
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            30,
+            ListenerOptions { capture: false, once: true, passive: true },
+        );
+        dom.add_event_listener_cb_with_options(
+            pai,
+            "custom",
+            40,
+            ListenerOptions { capture: false, once: false, passive: false },
+        );
+
+        assert_eq!(dom.dispatch_event_collect(b, "custom", true), 4);
+        assert_eq!(dom.last_dispatch_at(0).unwrap().1, 10);
+        assert!(dom.last_dispatch_capture_at(0));
+        assert_eq!(dom.last_dispatch_at(1).unwrap().1, 20);
+        assert!(dom.last_dispatch_capture_at(1));
+        assert_eq!(dom.last_dispatch_at(2).unwrap().1, 30);
+        assert!(!dom.last_dispatch_capture_at(2));
+        assert!(dom.last_dispatch_passive_at(2));
+        assert_eq!(dom.last_dispatch_at(3).unwrap().1, 40);
+        assert!(!dom.last_dispatch_capture_at(3));
+
+        assert_eq!(dom.dispatch_event_collect(b, "custom", true), 3);
+        assert_eq!(dom.last_dispatch_at(0).unwrap().1, 10);
+        assert_eq!(dom.last_dispatch_at(1).unwrap().1, 20);
+        assert_eq!(dom.last_dispatch_at(2).unwrap().1, 40);
+    }
+
+    #[test]
+    fn remove_listener_cb_respeita_capture() {
+        let mut dom = parse_html_to_dom("<button id=b>x</button>");
+        let b = dom.query("#b").unwrap();
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            11,
+            ListenerOptions { capture: true, once: false, passive: false },
+        );
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            11,
+            ListenerOptions { capture: false, once: false, passive: false },
+        );
+        dom.remove_event_listener_cb(b, "custom", 11, true);
+        assert_eq!(dom.dispatch_event_collect(b, "custom", false), 1);
+        assert_eq!(dom.last_dispatch_at(0).unwrap().1, 11);
+        assert!(!dom.last_dispatch_capture_at(0));
+    }
