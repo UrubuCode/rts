@@ -29,7 +29,9 @@ fn format_buffer(value: u64, options: Options, seen: &mut Vec<u64>) -> Option<St
         .map(|byte| format!("{byte:02x}"))
         .collect();
     if bytes.len() > shown {
-        parts.push(format!("... {} more bytes", bytes.len() - shown));
+        let more = bytes.len() - shown;
+        let unit = if more == 1 { "byte" } else { "bytes" };
+        parts.push(format!("... {more} more {unit}"));
     }
     let mut rendered = format!("<Buffer {}", parts.join(" "));
     let extras = own_key_strings(value)
