@@ -76,17 +76,27 @@ fn cantos_logicos_caem_nos_cantos_fisicos_em_ltr() {
 }
 
 #[test]
-fn canto_eliptico_fica_pelo_raio_horizontal() {
-    // Um canto do CSS são DOIS raios; o modelo tem um número por canto. Fica o
-    // horizontal, e o teste fixa isso em vez de o deixar por descobrir.
+fn elliptical_corner_preserves_both_radii() {
+    let longhand = parse_inline("border-top-left-radius: 10px 20px");
     assert_eq!(
-        parse_inline("border-top-left-radius: 10px 20px").corner_tl,
-        Some(10.0)
+        (longhand.corner_tl, longhand.corner_tl_y),
+        (Some(10.0), Some(20.0))
     );
-    // e a parte depois da `/` no shorthand é a vertical — descartada igual.
+    assert_eq!(longhand.get_property("border-top-left-radius"), "10px 20px");
+
+    let shorthand = parse_inline("border-radius: 5px / 15px");
     assert_eq!(
-        parse_inline("border-radius: 5px / 15px").corner_tl,
-        Some(5.0)
+        (
+            shorthand.corner_tl_y,
+            shorthand.corner_tr_y,
+            shorthand.corner_br_y,
+            shorthand.corner_bl_y
+        ),
+        (Some(15.0), Some(15.0), Some(15.0), Some(15.0))
+    );
+    assert_eq!(
+        shorthand.get_property("border-bottom-right-radius"),
+        "5px 15px"
     );
 }
 

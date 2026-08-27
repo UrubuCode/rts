@@ -1,29 +1,8 @@
-//! Os RAIOS POR CANTO (`border-top-left-radius` e as sete companhias).
+//! `border-*-radius`: parsing e serialização dos quatro cantos elípticos.
 //!
-//! São **1 064 declarações** nas folhas medidas — o maior item que faltava, e
-//! quase todo do WhatsApp Web, que escreve os quatro cantos separados e na forma
-//! lógica (`border-start-start-radius`). Até aqui caíam todas no contador de
-//! ignoradas, com uma recusa DELIBERADA em `style::borders`: o modelo tinha um
-//! raio só para os quatro cantos, e escrever um canto declarado nesse campo
-//! arredondaria os outros três. Essa recusa continua a ser a resposta certa e não
-//! foi levantada — o que mudou é que agora há onde guardar o canto.
-//!
-//! ## O que ESTE módulo faz, e o que continua por fazer
-//!
-//! Guarda os quatro cantos em campos próprios e responde-os no computed. **Não
-//! pinta.** A lista de display tem UM raio por retângulo
-//! (`DisplayItem::SolidRect { radius: f32 }`, em `layout.rs`), e o egui lê-o em
-//! `frame/render.rs`; pintar por canto é mudar esse item para quatro valores e o
-//! consumidor com ele — outra tarefa, outro dono.
-//!
-//! ## A regra que não pode quebrar
-//!
-//! `corner_radius` — o campo único — continua a responder EXATAMENTE o que
-//! respondia. Quem já o lê (o fundo, a borda, a barra de rolagem, a tabela) não
-//! pode receber resposta diferente por causa deste lote, e por isso o shorthand
-//! `border-radius` escreve os dois: o campo único como sempre escreveu, e os
-//! quatro cantos por cima. Um canto declarado sozinho NÃO toca o campo único —
-//! é a recusa de sempre, agora com o valor guardado ao lado em vez de perdido.
+//! Um canto CSS tem dois raios, horizontal e vertical. O layout/painter actual
+//! continua a consumir o raio horizontal legado, mas o estilo computado preserva
+//! ambos para que `getComputedStyle` não reduza uma elipse a um círculo.
 
 use super::lengths::{parse_len_pub, split_top_ws};
 use super::props::ComputedStyle;
@@ -38,13 +17,12 @@ pub enum Corner {
 }
 
 impl Corner {
-    /// O canto nomeado pelo sufixo de uma longhand, física ou LÓGICA.
+    /// O canto nomeado pelo sufixo de uma longhand, física ou lógica.
     ///
     /// As lógicas assumem LTR horizontal, que é o mesmo corte de
-    /// `padding-inline-start` e de `style::logical` — um segundo comportamento
-    /// para "que lado é `start`" seria pior que o corte.
-    fn parse(sufixo: &str) -> Option<Corner> {
-        Some(match sufixo {
+    /// `padding-inline-start` e de `style::logical`.
+    fn parse(suffix: &str) -> Option<Corner> {
+        Some(match suffix {
             "top-left" | "start-start" => Corner::TopLeft,
             "top-right" | "start-end" => Corner::TopRight,
             "bottom-right" | "end-end" => Corner::BottomRight,
@@ -54,17 +32,26 @@ impl Corner {
     }
 }
 
-fn set(css: &mut ComputedStyle, c: Corner, v: Option<f32>) {
-    match c {
-        Corner::TopLeft => css.corner_tl = v,
-        Corner::TopRight => css.corner_tr = v,
-        Corner::BottomRight => css.corner_br = v,
-        Corner::BottomLeft => css.corner_bl = v,
+fn set_horizontal(css: &mut ComputedStyle, corner: Corner, value: Option<f32>) {
+    match corner {
+        Corner::TopLeft => css.corner_tl = value,
+        Corner::TopRight => css.corner_tr = value,
+        Corner::BottomRight => css.corner_br = value,
+        Corner::BottomLeft => css.corner_bl = value,
     }
 }
 
-fn get(css: &ComputedStyle, c: Corner) -> Option<f32> {
-    match c {
+fn set_vertical(css: &mut ComputedStyle, corner: Corner, value: Option<f32>) {
+    match corner {
+        Corner::TopLeft => css.corner_tl_y = value,
+        Corner::TopRight => css.corner_tr_y = value,
+        Corner::BottomRight => css.corner_br_y = value,
+        Corner::BottomLeft => css.corner_bl_y = value,
+    }
+}
+
+fn horizontal(css: &ComputedStyle, corner: Corner) -> Option<f32> {
+    match corner {
         Corner::TopLeft => css.corner_tl,
         Corner::TopRight => css.corner_tr,
         Corner::BottomRight => css.corner_br,
@@ -72,70 +59,111 @@ fn get(css: &ComputedStyle, c: Corner) -> Option<f32> {
     }
 }
 
-/// A componente HORIZONTAL de um raio: `10px` ou o primeiro de `10px 20px`.
-///
-/// Um canto do CSS é uma ELIPSE — dois raios, e a folha real do WhatsApp usa a
-/// forma de dois valores. O modelo tem um número por canto, portanto fica o
-/// horizontal. Um canto elíptico sairá circular; está dito aqui em vez de ser
-/// descoberto por quem comparar com o Chrome.
-fn primeiro_raio(val: &str) -> Option<f32> {
-    let toks = split_top_ws(val);
-    parse_len_pub(toks.first()?)
+fn vertical(css: &ComputedStyle, corner: Corner) -> Option<f32> {
+    match corner {
+        Corner::TopLeft => css.corner_tl_y,
+        Corner::TopRight => css.corner_tr_y,
+        Corner::BottomRight => css.corner_br_y,
+        Corner::BottomLeft => css.corner_bl_y,
+    }
 }
 
-/// O shorthand `border-radius`, na parte que ESTE módulo responde: os quatro
-/// cantos. Chamado a seguir ao braço que escreve `corner_radius`, sem lhe tocar.
-///
-/// `<1 a 4 valores> [/ <1 a 4 valores>]`. A ordem é TL, TR, BR, BL, e o omitido
-/// copia o canto DIAGONALMENTE oposto — não o adjacente, que é a regra dos
-/// shorthands de caixa e não a dos cantos. A parte depois da `/` são os raios
-/// verticais e é descartada pelo mesmo motivo que `primeiro_raio` descarta o
-/// segundo valor.
-pub fn apply_shorthand(css: &mut ComputedStyle, val: &str) {
-    let horizontais = val.split('/').next().unwrap_or(val);
-    let t = split_top_ws(horizontais);
-    let g = |i: usize| parse_len_pub(&t[i]);
-    let (tl, tr, br, bl) = match t.len() {
-        1 => (g(0), g(0), g(0), g(0)),
-        2 => (g(0), g(1), g(0), g(1)),
-        3 => (g(0), g(1), g(2), g(1)),
-        4 => (g(0), g(1), g(2), g(3)),
-        _ => return,
+fn parse_radius_length(value: &str) -> Option<f32> {
+    parse_len_pub(value).or_else(|| (value.trim() == "0").then_some(0.0))
+}
+
+/// Expande a lista CSS de 1 a 4 valores na ordem TL, TR, BR, BL.
+fn expand_values(values: &[String]) -> Option<[f32; 4]> {
+    let value = |index: usize| values.get(index).and_then(|token| parse_radius_length(token));
+    match values.len() {
+        1 => Some([value(0)?, value(0)?, value(0)?, value(0)?]),
+        2 => Some([value(0)?, value(1)?, value(0)?, value(1)?]),
+        3 => Some([value(0)?, value(1)?, value(2)?, value(1)?]),
+        4 => Some([value(0)?, value(1)?, value(2)?, value(3)?]),
+        _ => None,
+    }
+}
+
+/// Lê a componente de um canto: `10px` ou `10px 20px`.
+fn parse_corner_pair(value: &str) -> Option<(f32, f32)> {
+    let values = split_top_ws(value);
+    if values.is_empty() || values.len() > 2 {
+        return None;
+    }
+    let horizontal = parse_radius_length(values.first()?)?;
+    let vertical = match values.get(1) {
+        Some(token) => parse_radius_length(token)?,
+        None => horizontal,
     };
-    css.corner_tl = tl;
-    css.corner_tr = tr;
-    css.corner_br = br;
-    css.corner_bl = bl;
+    Some((horizontal, vertical))
 }
 
-/// Tenta aplicar uma longhand de canto. `false` = o nome não é de nenhuma.
-pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
-    let Some(sufixo) = prop
+/// O shorthand `border-radius`, incluindo a forma elíptica
+/// `<horizontal> / <vertical>`.
+///
+/// A expansão segue a regra CSS: 1–4 valores em cada lado, na ordem TL, TR, BR,
+/// BL, com o segundo e o quarto a repetirem os valores correspondentes.
+pub fn apply_shorthand(css: &mut ComputedStyle, value: &str) {
+    let parts: Vec<&str> = value.split('/').collect();
+    if parts.len() > 2 {
+        return;
+    }
+    let horizontal = match expand_values(&split_top_ws(parts[0])) {
+        Some(values) => values,
+        None => return,
+    };
+    let vertical = if let Some(vertical_text) = parts.get(1) {
+        match expand_values(&split_top_ws(vertical_text)) {
+            Some(values) => values,
+            None => return,
+        }
+    } else {
+        horizontal
+    };
+    let corners = [
+        Corner::TopLeft,
+        Corner::TopRight,
+        Corner::BottomRight,
+        Corner::BottomLeft,
+    ];
+    for (index, corner) in corners.into_iter().enumerate() {
+        set_horizontal(css, corner, Some(horizontal[index]));
+        set_vertical(css, corner, Some(vertical[index]));
+    }
+}
+
+/// Tenta aplicar uma longhand de canto. `false` = o nome não é de uma delas.
+pub fn try_apply(css: &mut ComputedStyle, property: &str, value: &str) -> bool {
+    let Some(suffix) = property
         .strip_prefix("border-")
-        .and_then(|r| r.strip_suffix("-radius"))
+        .and_then(|rest| rest.strip_suffix("-radius"))
     else {
         return false;
     };
-    let Some(canto) = Corner::parse(sufixo) else {
+    let Some(corner) = Corner::parse(suffix) else {
         return false;
     };
-    set(css, canto, primeiro_raio(val));
+    let pair = parse_corner_pair(value);
+    set_horizontal(css, corner, pair.map(|values| values.0));
+    set_vertical(css, corner, pair.map(|values| values.1));
     true
 }
 
-/// O valor DECLARADO de uma longhand de canto (`""` se o elemento não a
-/// declarou — o inicial vive em `style::initial`, como o de todas). `None` = o
-/// nome não é de um canto.
-pub fn get_property(css: &ComputedStyle, prop: &str) -> Option<String> {
-    let sufixo = prop
+/// O valor computado de uma longhand de canto.
+pub fn get_property(css: &ComputedStyle, property: &str) -> Option<String> {
+    let suffix = property
         .strip_prefix("border-")
-        .and_then(|r| r.strip_suffix("-radius"))?;
-    let canto = Corner::parse(sufixo)?;
-    // O canto responde o que o canto tem; se só o shorthand foi declarado, foi
-    // ele que escreveu os quatro, portanto a resposta já está no campo do canto.
-    Some(
-        get(css, canto)
-            .map(|v| format!("{v}px"))
-            .unwrap_or_default(),
-    )
+        .and_then(|rest| rest.strip_suffix("-radius"))?;
+    let corner = Corner::parse(suffix)?;
+    let horizontal = horizontal(css, corner)?;
+    let vertical = vertical(css, corner).unwrap_or(horizontal);
+    Some(if horizontal == vertical {
+        super::fmt_values::fmt_px(horizontal)
+    } else {
+        format!(
+            "{} {}",
+            super::fmt_values::fmt_px(horizontal),
+            super::fmt_values::fmt_px(vertical)
+        )
+    })
 }
