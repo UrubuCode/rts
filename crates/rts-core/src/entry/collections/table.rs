@@ -413,18 +413,21 @@ fn same_key(context: &Context, left: u64, right: u64) -> bool {
 ///
 /// The only guarantee this owes is the one direction: if two keys are
 /// SameValueZero then their hashes are equal. A collision the other way costs a
-/// longer chain and nothing else, which is what lets the reference case be a
-/// single bucket.
+/// longer chain and nothing else, which is why collisions remain a lookup
+/// concern rather than a semantic one.
 ///
-/// # Why an object hashes to zero
+/// # Why a reference may use its slot as identity
 ///
-/// A real engine hashes object **identity**, and this one cannot: a reference
-/// is a region index, and the collector this heap is heading for moves cells —
-/// so a hash taken from the index would change under a value that did not, and
-/// the entry would become unreachable in its own table. Rehashing the world on
-/// every collection is the alternative, and it is a decision for the collector
-/// rather than for this. Until then every reference lands in bucket zero, which
-/// degrades that chain to the linear scan it replaced and stays correct.
+/// The reference payload is a slot, not an address. A moving collector relocates
+/// what the slot points at and leaves the slot itself unchanged — the heap's
+/// reason for using indices rather than pointers in the first place. A `Map` or
+/// `Set` also traces its keys through [`Table::trace`], so a slot holding one of
+/// those keys cannot be freed and reused while that key is still observable.
+///
+/// The hash below is therefore an identity hash, not a runtime property cache:
+/// equal references have equal slots, and distinct slots are mixed only to keep
+/// ordinary tables from forming one long chain. A collision remains harmless;
+/// `same_key` is still the authority for equality.
 fn hash_of(context: &Context, value: u64) -> u32 {
     let value = Value(value);
     if let Some(number) = value.numeric() {
@@ -455,12 +458,28 @@ fn hash_of(context: &Context, value: u64) -> u32 {
         mixed ^= mixed >> 13;
         return mixed & 0x7fff_ffff;
     }
-    if let Some(cell) = value.as_slot()
-        && let Some(text) = context.text_at(cell)
-    {
-        // `Str` memoizes this exact FNV-1a over UTF-16 code units. Reusing it
-        // removes an O(length) hash from every Map/Set lookup after the first.
-        return text.hash_code();
+    if let Some(cell) = value.as_slot() {
+        if let Some(text) = context.text_at(cell) {
+            // `Str` memoizes this exact FNV-1a over UTF-16 code units. Reusing it
+            // removes an O(length) hash from every Map/Set lookup after the first.
+            return text.hash_code();
+        }
+        return identity_hash(cell);
     }
     0
+}
+
+/// Mixes a live heap slot into a bucket-sized value without consulting memory.
+///
+/// The multiplication is deliberately a fixed integer permutation rather than a
+/// process-random hash: the identity must be repeatable when a table rehashes,
+/// and the slot already supplies the stable identity. This is the same collision
+/// contract as every other branch of [`hash_of`], not a second equality rule.
+fn identity_hash(cell: u32) -> u32 {
+    let mut mixed = cell;
+    mixed ^= mixed >> 16;
+    mixed = mixed.wrapping_mul(0x7feb_352d);
+    mixed ^= mixed >> 15;
+    mixed = mixed.wrapping_mul(0x846c_a68b);
+    mixed ^ (mixed >> 16)
 }

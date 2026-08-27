@@ -370,8 +370,8 @@ Insertion order is the source of truth and the hash index only removes the
 linear scan, because the specification requires every walk to be in insertion
 order. `delete` shifts and rehashes, deliberately the rare slow path. Equality is
 SameValueZero through the one `value::same_value_zero`, so `NaN` is a usable key.
-A reference hashes to a single bucket: hashing object identity means hashing an
-address a moving collector would change.
+A reference hashes from its live slot: the slot is stable while the collection
+traces the key, so a moving collector changes neither identity nor reachability.
 
 The weak pair is **strong**, said rather than faked — real weakness needs the
 `(slot, generation)` pair C1 describes. What they do enforce is the part that is

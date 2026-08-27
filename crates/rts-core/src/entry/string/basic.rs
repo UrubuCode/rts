@@ -32,7 +32,10 @@
 use super::super::native::Native;
 
 use super::super::with_current;
-use super::{absent, answer, answer_owned, arg_units, nothing, relative, text_of, units_of};
+use super::{
+    absent, answer, answer_owned, answer_owned_units, arg_units, nothing, relative, text_of,
+    units_of,
+};
 use crate::value::Value;
 
 /// What a string's prototype holds, apart from the searches and the patterns.
@@ -328,14 +331,39 @@ extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> 
     let Some(this) = super::coerce_receiver(this) else {
         return super::refused();
     };
-    let given =
-        with_current(|context| super::super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]));
-    let mut pieces = Vec::with_capacity(given.len() + 1);
-    for value in std::iter::once(this).chain(given) {
-        pieces.push(super::super::primitive::to_primitive(
+    let given = with_current(|context| {
+        super::super::array_proto::arguments_owned_at(context, 0, [a0, a1, a2, a3])
+    });
+    // String primitives are already their final ToPrimitive result. Prove that
+    // common case before allocating any conversion buffers: the result can be
+    // joined directly from the cells, and the only allocation left is the new
+    // string itself.
+    let joined = with_current(|context| {
+        let all_text = std::iter::once(this)
+            .chain(given.as_slice().iter().copied())
+            .all(|value| {
+                Value(value)
+                    .as_slot()
+                    .and_then(|cell| context.text_at(cell))
+                    .is_some()
+            });
+        all_text.then(|| join_existing_text(context, this, given.as_slice()))
+    });
+    if let Some(joined) = joined {
+        return joined;
+    }
+    // The conversion may call user code and return a newly allocated value. Keep
+    // every converted value visible to the collector until the final string has
+    // been interned; a plain Rust Vec is not scanned by the heap.
+    let mut pieces = super::super::rooted::Rooted::new();
+    let argument_count = given.as_slice().len();
+    pieces.values().reserve(argument_count + 1);
+    let mut owned_text = Vec::with_capacity(argument_count + 1);
+    for value in std::iter::once(this).chain(given.as_slice().iter().copied()) {
+        let primitive = super::super::primitive::to_primitive(
             value,
             crate::coerce::Hint::String,
-        ));
+        );
         // Rule 8: `to_primitive` may have run a `toString` a program wrote, and
         // one that threw answered `undefined` — which is a VALUE, so carrying on
         // would concatenate the word "undefined" into a string the program never
@@ -343,17 +371,142 @@ extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> 
         if super::super::throw::in_flight() {
             return with_current(|context| nothing(context));
         }
+        pieces.values().push(primitive);
+        owned_text.push(None);
     }
+
     with_current(|context| {
-        let mut units = Vec::new();
-        for piece in pieces {
-            let Some(text) = text_of(context, piece) else {
+        // Resolve wrappers once. Existing text cells stay borrowed from the
+        // context; only non-text primitives need an owned temporary Str. This
+        // avoids cloning every string argument merely to inspect its layout.
+        for index in 0..pieces.len() {
+            let primitive = pieces.as_slice()[index];
+            if Value(primitive)
+                .as_slot()
+                .and_then(|cell| context.text_at(cell))
+                .is_none()
+            {
+                let Some(text) = super::super::text::to_text(context, Value(primitive)) else {
+                    return nothing(context);
+                };
+                owned_text[index] = Some(text);
+            }
+        }
+
+        // The narrow representation is the common machine path: all source
+        // strings already carry bytes as their UTF-16 units, so the result needs
+        // one byte buffer and no widening pass. A wide piece selects the honest
+        // fallback and preserves lone surrogates unchanged.
+        let mut total = 0usize;
+        let mut narrow = true;
+        for (index, piece) in pieces.as_slice().iter().copied().enumerate() {
+            let text = match owned_text[index].as_ref() {
+                Some(text) => text,
+                None => {
+                    let Some(cell) = Value(piece).as_slot() else {
+                        return nothing(context);
+                    };
+                    let Some(text) = context.text_at(cell) else {
+                        return nothing(context);
+                    };
+                    text
+                }
+            };
+            total = total.saturating_add(text.len());
+            narrow &= text.narrow().is_some();
+        }
+
+        if narrow {
+            let mut bytes = Vec::with_capacity(total);
+            for (index, piece) in pieces.as_slice().iter().copied().enumerate() {
+                let text = match owned_text[index].as_ref() {
+                    Some(text) => text,
+                    None => {
+                        let Some(cell) = Value(piece).as_slot() else {
+                            return nothing(context);
+                        };
+                        let Some(text) = context.text_at(cell) else {
+                            return nothing(context);
+                        };
+                        text
+                    }
+                };
+                let Some(part) = text.narrow() else {
+                    return nothing(context);
+                };
+                bytes.extend_from_slice(part);
+            }
+            answer_owned(context, bytes)
+        } else {
+            let mut units = Vec::with_capacity(total);
+            for (index, piece) in pieces.as_slice().iter().copied().enumerate() {
+                let text = match owned_text[index].as_ref() {
+                    Some(text) => text,
+                    None => {
+                        let Some(cell) = Value(piece).as_slot() else {
+                            return nothing(context);
+                        };
+                        let Some(text) = context.text_at(cell) else {
+                            return nothing(context);
+                        };
+                        text
+                    }
+                };
+                units.extend(text.units());
+            }
+            answer_owned_units(context, units)
+        }
+    })
+}
+
+/// Joins text cells without materialising `Str` or `u16` temporaries.
+///
+/// The caller has already proved every value is a text cell, so this function
+/// cannot run user code or encounter a non-text value. It keeps the two physical
+/// representations separate until the output representation is known.
+fn join_existing_text(context: &mut super::super::Context, first: u64, rest: &[u64]) -> u64 {
+    let values = std::iter::once(first).chain(rest.iter().copied());
+    let mut total = 0usize;
+    let mut narrow = true;
+    for value in values {
+        let Some(cell) = Value(value).as_slot() else {
+            return nothing(context);
+        };
+        let Some(text) = context.text_at(cell) else {
+            return nothing(context);
+        };
+        total = total.saturating_add(text.len());
+        narrow &= text.narrow().is_some();
+    }
+
+    if narrow {
+        let mut bytes = Vec::with_capacity(total);
+        for value in std::iter::once(first).chain(rest.iter().copied()) {
+            let Some(cell) = Value(value).as_slot() else {
+                return nothing(context);
+            };
+            let Some(text) = context.text_at(cell) else {
+                return nothing(context);
+            };
+            let Some(part) = text.narrow() else {
+                return nothing(context);
+            };
+            bytes.extend_from_slice(part);
+        }
+        answer_owned(context, bytes)
+    } else {
+        let mut units = Vec::with_capacity(total);
+        for value in std::iter::once(first).chain(rest.iter().copied()) {
+            let Some(cell) = Value(value).as_slot() else {
+                return nothing(context);
+            };
+            let Some(text) = context.text_at(cell) else {
                 return nothing(context);
             };
             units.extend(text.units());
         }
-        answer(context, &units)
-    })
+        answer_owned_units(context, units)
+    }
 }
 
 /// `s.padStart(n, fill)`.

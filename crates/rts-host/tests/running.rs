@@ -1168,6 +1168,34 @@ fn a_template_concatenates_rather_than_adding() {
 }
 
 #[test]
+fn string_concat_preserves_arguments_layouts_and_coercion_effects() {
+    holds(
+        "return \"a\".concat(\"b\", \"c\", \"d\", \"e\", \"f\") === \"abcdef\";",
+    );
+    holds("return String.prototype.concat.call(5, \"!\") === \"5!\";");
+    holds(
+        "let s = \"a\".concat(\"日\", String.fromCharCode(0xD800)); \
+         return s.length === 3 && s.charCodeAt(1) === 0x65E5 && s.charCodeAt(2) === 0xD800;",
+    );
+    holds(
+        "let calls = 0; \
+         let o = { toString: function () { calls++; return \"x\"; } }; \
+         return \"a\".concat(o) === \"ax\" && calls === 1;",
+    );
+}
+
+#[test]
+fn string_concat_roots_conversion_results_until_the_join_finishes() {
+    holds(concat!(
+        "let out = \"\"; ",
+        "for (let i = 0; i < 2000; i++) { ",
+        "out = out.concat({ toString: function () { return \"xy\".repeat(4); } }); ",
+        "} ",
+        "return out.length === 16000;",
+    ));
+}
+
+#[test]
 fn a_template_evaluates_its_substitutions_in_order() {
     assert_eq!(
         tags::payload_of(run(
@@ -3757,8 +3785,18 @@ fn a_map_keeps_insertion_order_and_same_value_zero_keys() {
     // SameValue rather than from `===`.
     holds("let m = new Map(); m.set(0, 1); m.set(-0, 2); return m.size === 1 && m.get(0) === 2;");
 
-    // Object keys hash to one bucket and stay correct by identity.
+    // Object keys use their live slot as an identity hash and stay correct by identity.
     holds("let a = {}; let b = {}; let m = new Map(); m.set(a, 1); m.set(b, 2); return m.get(a) === 1 && m.get(b) === 2;");
+}
+
+#[test]
+fn object_keys_keep_identity_across_collections() {
+    holds(concat!(
+        "let stable = {}; let m = new Map(); let s = new Set(); ",
+        "m.set(stable, 7); s.add(stable); ",
+        "for (let i = 0; i < 100000; i++) { const garbage = {}; } ",
+        "return m.get(stable) === 7 && m.has(stable) && s.has(stable) && !m.has({}) && !s.has({});",
+    ));
 }
 
 #[test]

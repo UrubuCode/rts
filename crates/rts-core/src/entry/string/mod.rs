@@ -345,6 +345,14 @@ pub(super) fn answer_owned(context: &mut Context, bytes: Vec<u8>) -> u64 {
     context.intern_value(Str::owning_latin1(bytes)).bits()
 }
 
+/// The same, from a wide buffer the caller already owns.
+///
+/// Unlike [`answer`], this does not scan or copy the units again. The caller has
+/// already selected the wide representation while assembling the result.
+pub(super) fn answer_owned_units(context: &mut Context, units: Vec<u16>) -> u64 {
+    context.intern_value(Str::owning_utf16(units)).bits()
+}
+
 /// The undefined a method answers when there is nothing to answer.
 pub(super) fn nothing(context: &Context) -> u64 {
     undefined_of(context)

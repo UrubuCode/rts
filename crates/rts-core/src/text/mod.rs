@@ -306,6 +306,16 @@ impl Str {
         Str::of(Repr::Latin1(bytes))
     }
 
+    /// A string from an already-owned wide buffer.
+    ///
+    /// The caller has already established that at least one code unit does not
+    /// fit Latin-1, so scanning and copying the buffer again would only repeat a
+    /// decision it has already made. The UTF-16 units remain authoritative,
+    /// including lone surrogates.
+    pub fn owning_utf16(units: Vec<u16>) -> Self {
+        Str::of(Repr::Utf16(units))
+    }
+
     /// A string from UTF-16 code units, narrowing when they all fit.
     ///
     /// Takes `u16` rather than `char` because the input may contain a lone
