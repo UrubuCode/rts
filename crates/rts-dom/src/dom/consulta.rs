@@ -42,7 +42,7 @@ impl Dom {
 
     /// Núcleo do `query` em índices crus (interno). O `query` público embrulha o
     /// resultado no `NodeId` versionado.
-    fn query_idx(&self, sel: &str) -> Option<NodeIdx> {
+    pub(in crate::dom) fn query_idx(&self, sel: &str) -> Option<NodeIdx> {
         crate::bump!(query_calls);
         let selectors = crate::style::parse_selector_list(sel);
         if selectors.is_empty() {

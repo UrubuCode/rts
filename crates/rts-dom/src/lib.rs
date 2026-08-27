@@ -106,7 +106,10 @@ pub mod scrollbar;
 /// passa o teto de linhas com folga; ver o cabeçalho para o que fica de fora.
 pub mod painteffects;
 
-pub use dom::{Attr, Dom, Node, NodeId, NodeIdx, NodeKind, parse_html_to_dom};
+pub use dom::{
+    Attr, Dom, ListenerOptions, Node, NodeId, NodeIdx, NodeKind, RawInputEvent, RawKeyboardEvent,
+    parse_html_to_dom,
+};
 
 /// Prelude `.ts` da FACHADA DOM ergonômica (`document` global + `Element`, com a
 /// API/nomes do browser) sobre os primitivos do namespace `rts:dom`. Incluído via

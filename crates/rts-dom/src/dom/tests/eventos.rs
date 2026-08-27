@@ -140,3 +140,141 @@
         assert_eq!(dom.dispatch_event(a, "click", true), 0);
         assert!(dom.poll_event().is_none());
     }
+
+
+    #[test]
+    fn focus_emite_eventos_na_ordem_dom() {
+        let mut dom = parse_html_to_dom("<body><input id=a><input id=b></body>");
+        let a = dom.query("#a").unwrap();
+        let b = dom.query("#b").unwrap();
+        for event_type in ["focusin", "focus", "focusout", "blur"] {
+            dom.add_event_listener(a, event_type);
+            dom.add_event_listener(b, event_type);
+        }
+
+        let a_idx = dom.resolve(a).unwrap();
+        let b_idx = dom.resolve(b).unwrap();
+        dom.focus_input(Some(a_idx));
+        dom.focus_input(Some(b_idx));
+
+        let events: Vec<(NodeId, String)> = std::iter::from_fn(|| dom.poll_raw_event()).collect();
+        assert_eq!(
+            events,
+            vec![
+                (a, "focusin".to_string()),
+                (a, "focus".to_string()),
+                (a, "focusout".to_string()),
+                (a, "blur".to_string()),
+                (b, "focusin".to_string()),
+                (b, "focus".to_string()),
+            ]
+        );
+    }
+
+
+    #[test]
+    fn listener_options_preservam_ordem_e_once() {
+        let mut dom = parse_html_to_dom("<div id=pai><button id=b>x</button></div>");
+        let pai = dom.query("#pai").unwrap();
+        let b = dom.query("#b").unwrap();
+        dom.add_event_listener_cb_with_options(
+            pai,
+            "custom",
+            10,
+            ListenerOptions { capture: true, once: false, passive: false },
+        );
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            20,
+            ListenerOptions { capture: true, once: false, passive: false },
+        );
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            30,
+            ListenerOptions { capture: false, once: true, passive: true },
+        );
+        dom.add_event_listener_cb_with_options(
+            pai,
+            "custom",
+            40,
+            ListenerOptions { capture: false, once: false, passive: false },
+        );
+
+        assert_eq!(dom.dispatch_event_collect(b, "custom", true), 4);
+        assert_eq!(dom.last_dispatch_at(0).unwrap().1, 10);
+        assert!(dom.last_dispatch_capture_at(0));
+        assert_eq!(dom.last_dispatch_at(1).unwrap().1, 20);
+        assert!(dom.last_dispatch_capture_at(1));
+        assert_eq!(dom.last_dispatch_at(2).unwrap().1, 30);
+        assert!(!dom.last_dispatch_capture_at(2));
+        assert!(dom.last_dispatch_passive_at(2));
+        assert_eq!(dom.last_dispatch_at(3).unwrap().1, 40);
+        assert!(!dom.last_dispatch_capture_at(3));
+
+        assert_eq!(dom.dispatch_event_collect(b, "custom", true), 3);
+        assert_eq!(dom.last_dispatch_at(0).unwrap().1, 10);
+        assert_eq!(dom.last_dispatch_at(1).unwrap().1, 20);
+        assert_eq!(dom.last_dispatch_at(2).unwrap().1, 40);
+    }
+
+    #[test]
+    fn remove_listener_cb_respeita_capture() {
+        let mut dom = parse_html_to_dom("<button id=b>x</button>");
+        let b = dom.query("#b").unwrap();
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            11,
+            ListenerOptions { capture: true, once: false, passive: false },
+        );
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            11,
+            ListenerOptions { capture: false, once: false, passive: false },
+        );
+        dom.remove_event_listener_cb(b, "custom", 11, true);
+        assert_eq!(dom.dispatch_event_collect(b, "custom", false), 1);
+        assert_eq!(dom.last_dispatch_at(0).unwrap().1, 11);
+        assert!(!dom.last_dispatch_capture_at(0));
+    }
+
+    #[test]
+    fn fila_raw_input_preserva_ordem_tipo_texto_e_alvo() {
+        let mut dom = parse_html_to_dom("<body><input id=campo></body>");
+        let campo = dom.query("#campo").unwrap();
+        let campo_idx = dom.resolve(campo).unwrap();
+        dom.focus_input(Some(campo_idx));
+        dom.push_raw_composition_event(2, String::new());
+        dom.push_raw_composition_event(3, "ka".to_string());
+        dom.push_raw_composition_event(4, "か".to_string());
+        dom.push_raw_text_input("か".to_string());
+
+        let events: Vec<RawInputEvent> =
+            std::iter::from_fn(|| dom.poll_raw_input_event()).collect();
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].target, campo_idx);
+        assert_eq!(events[0].kind, 2);
+        assert_eq!(events[0].text, "");
+        assert_eq!(events[1].kind, 3);
+        assert_eq!(events[1].text, "ka");
+        assert_eq!(events[2].kind, 4);
+        assert_eq!(events[2].text, "か");
+        assert_eq!(events[3].kind, 1);
+        assert_eq!(events[3].text, "か");
+        assert!(dom.poll_raw_input_event().is_none());
+    }
+
+    #[test]
+    fn fila_raw_input_disabled_fecha_composicao_sem_commit() {
+        let mut dom = parse_html_to_dom("<body><input id=campo></body>");
+        let campo = dom.query("#campo").unwrap();
+        dom.focus_input(dom.resolve(campo));
+        dom.push_raw_composition_event(5, String::new());
+        let event = dom.poll_raw_input_event().unwrap();
+        assert_eq!(event.target, dom.resolve(campo).unwrap());
+        assert_eq!(event.kind, 5);
+        assert!(event.text.is_empty());
+    }

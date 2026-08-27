@@ -49,6 +49,7 @@ mod serial;
 mod travessia;
 
 pub use self::no::{Attr, Node, NodeId, NodeKind};
+pub use self::eventos::{RawInputEvent, RawKeyboardEvent};
 pub use self::parser::{parse_fragmento, parse_html_to_dom};
 use self::matcher::TargetKey;
 use self::helpers::{memo_forget, memo_put, nth_casa};
@@ -58,6 +59,20 @@ use self::helpers::{is_plain_ident, references_self, upsert_css_decl};
 /// Índice cru de um nó na arena (`Dom::nodes`). Uso INTERNO ao `dom.rs` — o que
 /// cruza a fronteira (TS/ABI) é sempre o `NodeId` VERSIONADO, nunca este índice.
 pub type NodeIdx = usize;
+
+/// Opções de um listener, normalizadas no limite Rust/TypeScript.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ListenerOptions {
+    pub capture: bool,
+    pub once: bool,
+    pub passive: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ListenerRecord {
+    callback: i64,
+    options: ListenerOptions,
+}
 
 /// Chave de uma medição de layout descartável. O cache guarda apenas `(outer_w,
 /// outer_h)`, nunca itens de pintura; por isso a posição `(x,y)` não participa.
@@ -167,16 +182,24 @@ pub struct Dom {
     /// CALLBACKS por (nó, tipo) — `el.addEventListener('click', fn)` com fn de
     /// verdade. O Dom guarda o WORD/handle i64 da Function OPACO (nunca o invoca —
     /// o rts-dom é headless e livre de runtime; quem invoca é a camada TS via
-    /// `dispatch_event_collect`). Guardar fn-handles ficou confiável com o motor
-    /// novo (Entry::Function com keep_alive; o antigo limite #195 caiu).
-    listener_cbs: HashMap<(NodeIdx, String), Vec<i64>>,
+    /// `dispatch_event_collect`). As opções ficam junto de cada callback porque
+    /// callbacks iguais com capture diferente são registos distintos no DOM.
+    listener_cbs: HashMap<(NodeIdx, String), Vec<ListenerRecord>>,
     /// Fila de eventos PENDENTES a entregar ao loop TS via `pollEvent`. Cada entrada
     /// é `(nó-alvo a notificar, tipo)` — já expandida pelo bubbling no `dispatch`.
     event_queue: std::collections::VecDeque<(NodeIdx, String)>,
+    /// Tipo devolvido pelo último `poll_event`; scratch da ABI, fora do `PartialEq`.
+    last_event_type: String,
+    /// Tipo devolvido pelo último `poll_raw_event`; scratch da ABI, fora do `PartialEq`.
+    last_raw_event_type: String,
     /// Scratch da ÚLTIMA coleta de `dispatch_event_collect`: pares (nó-alvo,
-    /// callback-word) na ordem de invocação. A camada TS copia TUDO para um array
-    /// local ANTES de invocar (um callback pode re-despachar e sobrescrever isto).
+    /// callback-word) na ordem de invocação. A camada TS copia TUDO para arrays
+    /// locais ANTES de invocar (um callback pode re-despachar e sobrescrever isto).
     last_dispatch: Vec<(NodeIdx, i64)>,
+    /// Opções paralelas dos callbacks coletados: capture e passive. `once` já é
+    /// removido do mapa antes da camada TypeScript invocar o callback.
+    last_dispatch_capture: Vec<bool>,
+    last_dispatch_passive: Vec<bool>,
     /// O nó SOB O CURSOR (hit-test do backend, por frame) — o estado do `:hover`
     /// vivo. `None` = ponteiro fora do conteúdo. Cell: mutável sem `&mut` (o
     /// matcher lê durante a cascade). Setar via [`Dom::set_hovered`] (que só
@@ -188,6 +211,16 @@ pub struct Dom {
     /// (bubbling + callbacks + fila de polling). Padrão 1-frame-latency do
     /// north-star §3.
     raw_event_queue: std::collections::VecDeque<(NodeIdx, String)>,
+    /// Eventos de teclado crus emitidos pelo backend. O alvo é escolhido pelo DOM
+    /// (input focado, body ou documentElement), não pelo backend.
+    raw_keyboard_event_queue: std::collections::VecDeque<crate::dom::RawKeyboardEvent>,
+    /// Evento de teclado devolvido pelo último `poll_raw_keyboard_event`.
+    last_raw_keyboard_event: Option<crate::dom::RawKeyboardEvent>,
+    /// Eventos raw de edição/composição emitidos pelo backend. O alvo é capturado
+    /// no momento da entrada, como no teclado, e a fachada TS faz o dispatch real.
+    raw_input_event_queue: std::collections::VecDeque<crate::dom::RawInputEvent>,
+    /// Evento de edição devolvido pelo último `poll_raw_input_event`.
+    last_raw_input_event: Option<crate::dom::RawInputEvent>,
     // ── Animação (#1776) — LOOP INTERNO ao DOM; o egui só passa o tempo ───────────
     /// As transições EM CURSO, por nó. O `Dom` é dono do loop: `advance(now_ms)`
     /// detecta mudanças de estilo, inicia/atualiza transições e grava o estilo

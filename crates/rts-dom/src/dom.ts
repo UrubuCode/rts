@@ -14,6 +14,22 @@
 // `dom.*` são os primitivos do namespace `rts:dom`. `-1` é a sentinela "nó nenhum".
 
 const __DOM_NONE = -1;
+const __LISTENER_OPTIONS_SEPARATOR = "\u001f";
+const __compositionStates: Map<i64, number> = new Map();
+
+function __listenerFlags(options: any): number {
+  if (options === true) return 1;
+  if (options === null || options === undefined) return 0;
+  let flags = 0;
+  if (options.capture === true) flags = flags + 1;
+  if (options.once === true) flags = flags + 2;
+  if (options.passive === true) flags = flags + 4;
+  return flags;
+}
+
+function __listenerEventName(type: string, options: any): string {
+  return type + __LISTENER_OPTIONS_SEPARATOR + __listenerFlags(options);
+}
 
 // Despacho de evento com CALLBACKS: coleta os pares (nó, fn-word) do Rust
 // (`dispatchCollect` — alvo primeiro, depois bubbling), COPIA tudo para arrays
@@ -21,27 +37,258 @@ const __DOM_NONE = -1;
 // cada fn com um objeto de evento `{type, target, currentTarget}` (subset do Event
 // do browser). Devolve o total notificado (callbacks coletados; a fila de polling
 // legada também é alimentada pelo mesmo dispatchCollect).
-function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: number): number {
+function __dispatchWithCallbacks(
+  h: i64,
+  node: number,
+  type: string,
+  bubbles: number,
+  trusted: number,
+): number {
   const n = dom.dispatchCollect(h, node, type, bubbles);
   if (n === 0) return 0;
   const cbs: number[] = [];
   const nodes: number[] = [];
+  const captures: number[] = [];
+  const passives: number[] = [];
   let i = 0;
   while (i < n) {
     cbs.push(dom.dispatchCbAt(h, i));
     nodes.push(dom.dispatchCbNode(h, i));
+    captures.push(dom.dispatchCbCapture(h, i));
+    passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
   const target = new Element(h, node);
+  const state = { stopped: 0, immediate: 0, passive: 0 };
+  const event: any = {
+    type: type,
+    target: target,
+    currentTarget: target,
+    data: "",
+    inputType: "",
+    isComposing: false,
+    bubbles: bubbles !== 0,
+    cancelable: true,
+    defaultPrevented: false,
+    eventPhase: 0,
+    isTrusted: trusted !== 0,
+    cancelBubble: false,
+    stopPropagation: function () {
+      state.stopped = 1;
+      event.cancelBubble = true;
+    },
+    stopImmediatePropagation: function () {
+      state.stopped = 1;
+      state.immediate = 1;
+      event.cancelBubble = true;
+    },
+    preventDefault: function () {
+      if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
+    },
+  };
   let j = 0;
   while (j < n) {
-    const cur = new Element(h, nodes[j]);
-    // engine.invoke_cb: o cb atravessou a borda I64 da ABI (vira número); a
-    // bridge re-taggeia para função e invoca com 1 argumento (o objeto Event).
-    engine.invoke_cb(cbs[j], { type: type, target: target, currentTarget: cur });
+    event.currentTarget = new Element(h, nodes[j]);
+    state.passive = passives[j] !== 0 ? 1 : 0;
+    event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
+    // `engine.invoke_cb` reconstitui o Function word no runtime e chama o
+    // listener com o mesmo objecto de evento mutável.
+    engine.invoke_cb(cbs[j], event);
+    if (state.immediate !== 0) break;
+    if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
     j = j + 1;
   }
   return n;
+}
+
+function __keyboardKey(code: number, shift: number): string {
+  if (code >= 100 && code <= 125) {
+    const letters = "abcdefghijklmnopqrstuvwxyz";
+    const letter = letters.charAt(code - 100);
+    return shift !== 0 ? letter.toUpperCase() : letter;
+  }
+  if (code >= 130 && code <= 139) return String(code - 130);
+  if (code >= 140 && code <= 151) return "F" + (code - 139);
+  if (code === 1) return "Enter";
+  if (code === 2) return "Escape";
+  if (code === 3) return " ";
+  if (code === 4) return "Backspace";
+  if (code === 5) return "ArrowUp";
+  if (code === 6) return "ArrowDown";
+  if (code === 7) return "ArrowLeft";
+  if (code === 8) return "ArrowRight";
+  if (code === 9) return "Tab";
+  if (code === 10) return "Delete";
+  if (code === 11) return "Insert";
+  if (code === 12) return "Home";
+  if (code === 13) return "End";
+  if (code === 14) return "PageUp";
+  if (code === 15) return "PageDown";
+  return "Unidentified";
+}
+
+function __keyboardCode(code: number): string {
+  if (code >= 100 && code <= 125) {
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    return "Key" + letters.charAt(code - 100);
+  }
+  if (code >= 130 && code <= 139) return "Digit" + (code - 130);
+  if (code >= 140 && code <= 151) return "F" + (code - 139);
+  if (code === 1) return "Enter";
+  if (code === 2) return "Escape";
+  if (code === 3) return "Space";
+  if (code === 4) return "Backspace";
+  if (code === 5) return "ArrowUp";
+  if (code === 6) return "ArrowDown";
+  if (code === 7) return "ArrowLeft";
+  if (code === 8) return "ArrowRight";
+  if (code === 9) return "Tab";
+  if (code === 10) return "Delete";
+  if (code === 11) return "Insert";
+  if (code === 12) return "Home";
+  if (code === 13) return "End";
+  if (code === 14) return "PageUp";
+  if (code === 15) return "PageDown";
+  return "Unidentified";
+}
+
+function __dispatchKeyboardWithCallbacks(
+  h: i64,
+  node: number,
+  pressed: number,
+  repeat: number,
+  keyCode: number,
+  ctrl: number,
+  shift: number,
+  alt: number,
+  meta: number,
+): number {
+  const type = pressed !== 0 ? "keydown" : "keyup";
+  const n = dom.dispatchCollect(h, node, type, 1);
+  if (n === 0) return 0;
+  const cbs: number[] = [];
+  const nodes: number[] = [];
+  const captures: number[] = [];
+  const passives: number[] = [];
+  let i = 0;
+  while (i < n) {
+    cbs.push(dom.dispatchCbAt(h, i));
+    nodes.push(dom.dispatchCbNode(h, i));
+    captures.push(dom.dispatchCbCapture(h, i));
+    passives.push(dom.dispatchCbPassive(h, i));
+    i = i + 1;
+  }
+  const target = new Element(h, node);
+  const key = __keyboardKey(keyCode, shift);
+  const code = __keyboardCode(keyCode);
+  const state = { stopped: 0, immediate: 0, passive: 0 };
+  const event: any = {
+    type: type,
+    target: target,
+    currentTarget: target,
+    key: key,
+    code: code,
+    keyCode: keyCode,
+    which: keyCode,
+    repeat: repeat !== 0,
+    ctrlKey: ctrl !== 0,
+    shiftKey: shift !== 0,
+    altKey: alt !== 0,
+    metaKey: meta !== 0,
+    bubbles: true,
+    cancelable: true,
+    defaultPrevented: false,
+    eventPhase: 0,
+    isTrusted: true,
+    cancelBubble: false,
+    stopPropagation: function () {
+      state.stopped = 1;
+      event.cancelBubble = true;
+    },
+    stopImmediatePropagation: function () {
+      state.stopped = 1;
+      state.immediate = 1;
+      event.cancelBubble = true;
+    },
+    preventDefault: function () {
+      if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
+    },
+  };
+  let j = 0;
+  while (j < n) {
+    event.currentTarget = new Element(h, nodes[j]);
+    state.passive = passives[j] !== 0 ? 1 : 0;
+    event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
+    engine.invoke_cb(cbs[j], event);
+    if (state.immediate !== 0) break;
+    if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
+    j = j + 1;
+  }
+  return event.defaultPrevented ? 1 : 0;
+}
+
+function __dispatchInputCallbacks(
+  h: i64,
+  node: number,
+  type: string,
+  data: string,
+  inputType: string,
+  isComposing: number,
+  trusted: number,
+): number {
+  const n = dom.dispatchCollect(h, node, type, 1);
+  if (n === 0) return 0;
+  const cbs: number[] = [];
+  const nodes: number[] = [];
+  const captures: number[] = [];
+  const passives: number[] = [];
+  let i = 0;
+  while (i < n) {
+    cbs.push(dom.dispatchCbAt(h, i));
+    nodes.push(dom.dispatchCbNode(h, i));
+    captures.push(dom.dispatchCbCapture(h, i));
+    passives.push(dom.dispatchCbPassive(h, i));
+    i = i + 1;
+  }
+  const target = new Element(h, node);
+  const state = { stopped: 0, immediate: 0, passive: 0 };
+  const event: any = {
+    type: type,
+    target: target,
+    currentTarget: target,
+    data: data,
+    inputType: inputType,
+    isComposing: isComposing !== 0,
+    bubbles: true,
+    cancelable: type === "beforeinput",
+    defaultPrevented: false,
+    eventPhase: 0,
+    isTrusted: trusted !== 0,
+    cancelBubble: false,
+    stopPropagation: function () {
+      state.stopped = 1;
+      event.cancelBubble = true;
+    },
+    stopImmediatePropagation: function () {
+      state.stopped = 1;
+      state.immediate = 1;
+      event.cancelBubble = true;
+    },
+    preventDefault: function () {
+      if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
+    },
+  };
+  let j = 0;
+  while (j < n) {
+    event.currentTarget = new Element(h, nodes[j]);
+    state.passive = passives[j] !== 0 ? 1 : 0;
+    event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
+    engine.invoke_cb(cbs[j], event);
+    if (state.immediate !== 0) break;
+    if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
+    j = j + 1;
+  }
+  return event.defaultPrevented ? 1 : 0;
 }
 
 // camelCase → kebab-case para o açúcar de `dataset` (`userId` → `user-id`).
@@ -340,26 +587,30 @@ class Element {
   // bubbling). O Dom guarda o fn-word opaco (o antigo limite #195 caiu — Function
   // values são estáveis). A forma de 1 argumento continua valendo para o modelo de
   // POLLING legado (pumpEvents/getEventTargetId por frame).
-  addEventListener(type: string, cb?: any): void {
+  addEventListener(type: string, cb?: any, options?: any): void {
     if (cb === undefined) {
       dom.addListener(this._dom, this._node, type);
       return;
     }
-    dom.addListenerCb(this._dom, this._node, type, cb);
+    dom.addListenerCbOptions(this._dom, this._node, __listenerEventName(type, options), cb);
   }
-  removeEventListener(type: string): void {
-    dom.removeListener(this._dom, this._node, type);
+  removeEventListener(type: string, cb?: any, options?: any): void {
+    if (cb === undefined) {
+      dom.removeListener(this._dom, this._node, type);
+      return;
+    }
+    dom.removeListenerCb(this._dom, this._node, __listenerEventName(type, options), cb);
   }
   // `el.dispatchEvent(type)` — dispara COM BUBBLING (como `new Event(t, {bubbles:
   // true})`): invoca os callbacks registrados (alvo → ancestrais) e alimenta a fila
   // de polling legada. Devolve quantos listeners (callbacks + polling) notificou.
   dispatchEvent(type: string): number {
-    return __dispatchWithCallbacks(this._dom, this._node, type, 1);
+    return __dispatchWithCallbacks(this._dom, this._node, type, 1, 0);
   }
   // `el.dispatchEventNoBubble(type)` — dispara SÓ no alvo (como `new Event(t)`, que
   // é bubbles:false por padrão; focus/blur/mouseenter não borbulham).
   dispatchEventNoBubble(type: string): number {
-    return __dispatchWithCallbacks(this._dom, this._node, type, 0);
+    return __dispatchWithCallbacks(this._dom, this._node, type, 0, 0);
   }
   // `el.nodeId` — o NodeId cru deste elemento (p/ comparar no switch do polling).
   get nodeId(): number {
@@ -551,6 +802,29 @@ class Document {
 
   constructor(dom_handle: number) {
     this._dom = dom_handle;
+  }
+
+  private eventTarget(): Element | null {
+    const root = dom.documentElement(this._dom);
+    if (root !== __DOM_NONE) return new Element(this._dom, root);
+    const body = dom.querySelector(this._dom, "body");
+    if (body !== __DOM_NONE) return new Element(this._dom, body);
+    return null;
+  }
+
+  // Listeners do documento recebem eventos que borbulham até à raiz HTML.
+  addEventListener(type: string, cb?: any): void {
+    const target = this.eventTarget();
+    if (target !== null) target.addEventListener(type, cb);
+  }
+  removeEventListener(type: string): void {
+    const target = this.eventTarget();
+    if (target !== null) target.removeEventListener(type);
+  }
+  dispatchEvent(type: string): number {
+    const target = this.eventTarget();
+    if (target === null) return 0;
+    return target.dispatchEvent(type);
   }
 
   querySelector(sel: string): Element | null {
@@ -981,11 +1255,108 @@ function pumpEventCallbacks(doc: Document): number {
     const node = dom.pollRawEvent(h);
     if (node === __DOM_NONE) return despachados;
     const t = dom.pollRawEventType(h);
-    __dispatchWithCallbacks(h, node, t, 1);
+    __dispatchWithCallbacks(h, node, t, 1, 1);
     despachados = despachados + 1;
     guard = guard + 1;
   }
   return despachados;
+}
+
+// Bomba de teclado do BACKEND: drena as transições emitidas pelo renderer egui
+// e entrega `keydown`/`keyup` ao target focado. Os getters de metadados devem ser
+// lidos imediatamente depois do poll, antes de qualquer outro poll do documento.
+function __pumpKeyboardEvents(doc: Document, applyDefault: number): number {
+  const h: i64 = doc._dom;
+  let despachados = 0;
+  let guard = 0;
+  while (guard < 256) {
+    const node = dom.pollRawKeyboardEvent(h);
+    if (node === __DOM_NONE) return despachados;
+    const pressed = dom.rawKeyboardPressed(h);
+    const repeat = dom.rawKeyboardRepeat(h);
+    const keyCode = dom.rawKeyboardKey(h);
+    const ctrl = dom.rawKeyboardCtrl(h);
+    const shift = dom.rawKeyboardShift(h);
+    const alt = dom.rawKeyboardAlt(h);
+    const meta = dom.rawKeyboardMeta(h);
+    const prevented = __dispatchKeyboardWithCallbacks(h, node, pressed, repeat, keyCode, ctrl, shift, alt, meta);
+
+    // Backspace é a primeira acção padrão de edição ligada ao cancelamento DOM.
+    // O evento beforeinput ocorre depois de keydown e antes da mutação do value.
+    if (applyDefault !== 0 && pressed !== 0 && keyCode === 4 && prevented === 0) {
+      const focused = dom.focusedInput(h);
+      if (focused !== __DOM_NONE) {
+        const before = __dispatchInputCallbacks(h, focused, "beforeinput", "", "deleteContentBackward", 0, 1);
+        if (before === 0 && dom.inputBackspaceAt(h, focused) !== 0) {
+          __dispatchInputCallbacks(h, focused, "input", "", "deleteContentBackward", 0, 1);
+        }
+      }
+    }
+    despachados = despachados + 1;
+    guard = guard + 1;
+  }
+  return despachados;
+}
+
+function pumpKeyboardEvents(doc: Document): number {
+  return __pumpKeyboardEvents(doc, 0);
+}
+
+// Pump orientado a browser: além de keydown/keyup, entrega composição e texto
+// editado. A fila raw mantém a ordem e o alvo capturado pelo backend; o parâmetro
+// de janela não é necessário nesta fronteira.
+function clearInputValue(doc: Document, node: number): number {
+  const h: i64 = doc._dom;
+  let deleted = 0;
+  while (dom.inputValue(h, node).length > 0 && deleted < 300) {
+    const before = __dispatchInputCallbacks(h, node, "beforeinput", "", "deleteContentBackward", 0, 1);
+    if (before !== 0 || dom.inputBackspaceAt(h, node) === 0) break;
+    __dispatchInputCallbacks(h, node, "input", "", "deleteContentBackward", 0, 1);
+    deleted = deleted + 1;
+  }
+  return deleted;
+}
+
+function pumpInputEvents(doc: Document): number {
+  const h: i64 = doc._dom;
+  let dispatched = __pumpKeyboardEvents(doc, 1);
+  let composing = __compositionStates.get(h) === 1 ? 1 : 0;
+  let guard = 0;
+  while (guard < 256) {
+    const node = dom.pollRawInputEvent(h);
+    if (node === __DOM_NONE) break;
+    const kind = dom.rawInputKind(h);
+    const data = dom.rawInputText(h);
+    if (kind === 1) {
+      const inputType = composing !== 0 ? "insertCompositionText" : "insertText";
+      const before = __dispatchInputCallbacks(h, node, "beforeinput", data, inputType, composing, 1);
+      if (before === 0 && dom.inputFeedTextAt(h, node, data) !== 0) {
+        __dispatchInputCallbacks(h, node, "input", data, inputType, composing, 1);
+      }
+      dispatched = dispatched + 1;
+    } else if (kind === 2) {
+      __dispatchInputCallbacks(h, node, "compositionstart", data, "", 0, 1);
+      composing = 1;
+      dispatched = dispatched + 1;
+    } else if (kind === 3) {
+      composing = 1;
+      __dispatchInputCallbacks(h, node, "compositionupdate", data, "", 1, 1);
+      dispatched = dispatched + 1;
+    } else if (kind === 4) {
+      composing = 0;
+      __dispatchInputCallbacks(h, node, "compositionend", data, "", 0, 1);
+      dispatched = dispatched + 1;
+    } else if (kind === 5) {
+      if (composing !== 0) {
+        composing = 0;
+        __dispatchInputCallbacks(h, node, "compositionend", "", "", 0, 1);
+        dispatched = dispatched + 1;
+      }
+    }
+    guard = guard + 1;
+  }
+  __compositionStates.set(h, composing);
+  return dispatched;
 }
 
 // Bomba de TIMERS da página: dispara os `setTimeout`/`setInterval` que os

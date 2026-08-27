@@ -478,10 +478,9 @@ while (egui.isOpen(win) !== 0) {
     }
   }
 
-  // Digitação no input focado (o textInput JÁ inclui o texto colado com Ctrl+V).
-  const typed = input.textInput(win);
-  if (typed.length > 0) dom.inputFeedText(d, typed);
-  if (input.key(win, KEY_BACKSPACE, PHASE_PRESSED) !== 0) dom.inputBackspace(d);
+  // O pump unificado entrega keydown/keyup, beforeinput/input e composição.
+  // A edição já não é mutada directamente aqui: preventDefault() pode cancelar
+  // keydown ou beforeinput antes de o valor do campo ser alterado.
   if (input.key(win, KEY_ENTER, PHASE_PRESSED) !== 0) doNav = true;
 
   // ── Atalhos com Ctrl (copiar / apagar tudo) ──────────────────────────────────
@@ -492,13 +491,9 @@ while (egui.isOpen(win) !== 0) {
     io.print("[copy] '" + dom.inputValue(d, urlInput(d)) + "'");
   }
   if (ctrl && input.key(win, KEY_A, PHASE_PRESSED) !== 0) {
-    // Ctrl+A: "seleciona tudo" → como não há seleção visual, apaga a barra (limpa p/
-    // digitar/colar uma URL nova de uma vez).
-    let n = 0;
-    while (dom.inputValue(d, urlInput(d)).length > 0 && n < 300) {
-      dom.inputBackspace(d);
-      n = n + 1;
-    }
+    // Ctrl+A: "seleciona tudo" → como ainda não há seleção visual, limpa a barra
+    // pelo mesmo beforeinput/input cancelável de uma edição normal.
+    clearInputValue(docF, urlInput(d));
   }
 
   // Navega (Enter ou botão Ir) — só se não há download em andamento.
@@ -526,8 +521,10 @@ while (egui.isOpen(win) !== 0) {
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);
-  // Entrega os cliques do frame aos addEventListener registrados pelos <script>
-  // da página (hit-test do render → fila crua → callbacks, PRs #1884/#1885).
+  // Entrega teclado, edição e cliques do frame aos addEventListener registrados
+  // pelos <script> da página. O renderer apenas enfileira eventos crus; a fachada
+  // faz dispatch, bubbling, callbacks e acções padrão canceláveis no DOM.
+  pumpInputEvents(docF);
   pumpEventCallbacks(docF);
   pumpTimerCallbacks(docF);
 }

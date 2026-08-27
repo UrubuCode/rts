@@ -7,8 +7,13 @@
 //! uma variante do `Entry` do runtime.
 
 use rts_core::entry::Provided;
+use rts_dom::NodeId;
 
-use crate::value::{handle, int, nothing, string, text};
+use crate::value::{handle, int, integer, nothing, string, text};
+
+fn node(value: u64) -> Option<NodeId> {
+    NodeId::from_abi(integer(value, -1))
+}
 
 pub const MEMBERS: &[(&str, Provided)] = &[
     ("parseHtml", parse_html),
@@ -19,6 +24,9 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("addStylesheet", add_stylesheet),
     ("dump", dump),
     ("nodeCount", node_count),
+    ("getByTagCount", get_by_tag_count),
+    ("getByTagAt", get_by_tag_at),
+    ("runScript", run_script),
 ];
 
 /// `parseHtml(source)` — o handle do documento (0 em falha).
@@ -68,6 +76,39 @@ extern "C" fn add_stylesheet(_e: u64, _t: u64, doc: u64, css: u64, _b: u64, _c: 
 extern "C" fn dump(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> u64 {
     let out = rts_dom::store::with_dom(handle(doc), |d| d.dump()).unwrap_or_default();
     string(&out)
+}
+
+/// `getByTagCount(doc, tag)` — número de elementos com a tag, em ordem documental.
+extern "C" fn get_by_tag_count(_e: u64, _t: u64, doc: u64, tag: u64, _b: u64, _c: u64) -> u64 {
+    let tag = text(tag);
+    let count = rts_dom::store::with_dom(handle(doc), |d| d.query_all(&tag).len()).unwrap_or(0);
+    int(count as i64)
+}
+
+/// `getByTagAt(doc, tag, index)` — i-ésimo elemento da tag, ou `-1`.
+extern "C" fn get_by_tag_at(_e: u64, _t: u64, doc: u64, tag: u64, index: u64, _c: u64) -> u64 {
+    let tag = text(tag);
+    let index = integer(index, -1);
+    let id = rts_dom::store::with_dom(handle(doc), |d| {
+        if index < 0 {
+            return -1;
+        }
+        d.query_all(&tag)
+            .get(index as usize)
+            .map(|node| node.to_abi())
+            .unwrap_or(-1)
+    })
+    .unwrap_or(-1);
+    int(id)
+}
+
+/// `runScript(doc, node, source)` — materializa um script externo no nó para que
+/// a fachada TypeScript o execute na etapa seguinte.
+extern "C" fn run_script(_e: u64, _t: u64, doc: u64, n: u64, source: u64, _c: u64) -> u64 {
+    let Some(id) = node(n) else { return nothing() };
+    let source = text(source);
+    rts_dom::store::with_dom_mut(handle(doc), |d| d.set_text(id, &source));
+    nothing()
 }
 
 /// `nodeCount(doc)` — quantos nós a arena tem. Inclui os desanexados: é uma

@@ -32,10 +32,20 @@ impl Dom {
     /// Dá o foco a `id` (ou tira o foco, com `None`). O caller (loop TS) passa o
     /// input sob o cursor após um clique. Bumpa a revisão (o cursor a pintar muda).
     pub fn focus_input(&mut self, id: Option<NodeIdx>) {
-        if self.focused_input != id {
-            self.focused_input = id;
-            self.touch();
+        if self.focused_input == id {
+            return;
         }
+        let previous = self.focused_input;
+        if let Some(previous) = previous {
+            self.raw_event_queue.push_back((previous, "focusout".to_string()));
+            self.raw_event_queue.push_back((previous, "blur".to_string()));
+        }
+        self.focused_input = id;
+        if let Some(current) = id {
+            self.raw_event_queue.push_back((current, "focusin".to_string()));
+            self.raw_event_queue.push_back((current, "focus".to_string()));
+        }
+        self.touch();
     }
 
     /// Anexa `text` (os caracteres digitados no frame) ao input FOCADO. Ignora se
@@ -44,7 +54,14 @@ impl Dom {
         let Some(id) = self.focused_input else {
             return false;
         };
-        if text.is_empty() {
+        self.input_feed_text_at(id, text)
+    }
+
+    /// Variante direccionada usada pela fila backend→DOM. O alvo é validado antes
+    /// da mutação para que uma mudança de foco durante `keydown` não redireccione
+    /// texto já capturado para outro campo.
+    pub fn input_feed_text_at(&mut self, id: NodeIdx, text: &str) -> bool {
+        if !self.is_text_input_idx(id) || text.is_empty() {
             return false;
         }
         // filtra controles (o backend já separa Enter/Backspace; aqui só texto real).
@@ -115,6 +132,14 @@ impl Dom {
         let Some(id) = self.focused_input else {
             return false;
         };
+        self.input_backspace_at(id)
+    }
+
+    /// Variante direccionada do Backspace para o alvo do evento de teclado.
+    pub fn input_backspace_at(&mut self, id: NodeIdx) -> bool {
+        if !self.is_text_input_idx(id) {
+            return false;
+        }
         let mut cur = self.input_value(id);
         if cur.pop().is_none() {
             return false;
