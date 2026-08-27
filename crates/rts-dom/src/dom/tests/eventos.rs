@@ -140,3 +140,33 @@
         assert_eq!(dom.dispatch_event(a, "click", true), 0);
         assert!(dom.poll_event().is_none());
     }
+
+
+    #[test]
+    fn focus_emite_eventos_na_ordem_dom() {
+        let mut dom = parse_html_to_dom("<body><input id=a><input id=b></body>");
+        let a = dom.query("#a").unwrap();
+        let b = dom.query("#b").unwrap();
+        for event_type in ["focusin", "focus", "focusout", "blur"] {
+            dom.add_event_listener(a, event_type);
+            dom.add_event_listener(b, event_type);
+        }
+
+        let a_idx = dom.resolve(a).unwrap();
+        let b_idx = dom.resolve(b).unwrap();
+        dom.focus_input(Some(a_idx));
+        dom.focus_input(Some(b_idx));
+
+        let events: Vec<(NodeId, String)> = std::iter::from_fn(|| dom.poll_raw_event()).collect();
+        assert_eq!(
+            events,
+            vec![
+                (a, "focusin".to_string()),
+                (a, "focus".to_string()),
+                (a, "focusout".to_string()),
+                (a, "blur".to_string()),
+                (b, "focusin".to_string()),
+                (b, "focus".to_string()),
+            ]
+        );
+    }

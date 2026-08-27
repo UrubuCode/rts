@@ -33,12 +33,36 @@ function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: nu
     i = i + 1;
   }
   const target = new Element(h, node);
+  const state = { stopped: 0, immediate: 0 };
+  const event: any = {
+    type: type,
+    target: target,
+    currentTarget: target,
+    bubbles: bubbles !== 0,
+    cancelable: true,
+    defaultPrevented: false,
+    cancelBubble: false,
+    stopPropagation: function () {
+      state.stopped = 1;
+      event.cancelBubble = true;
+    },
+    stopImmediatePropagation: function () {
+      state.stopped = 1;
+      state.immediate = 1;
+      event.cancelBubble = true;
+    },
+    preventDefault: function () {
+      if (event.cancelable) event.defaultPrevented = true;
+    },
+  };
   let j = 0;
   while (j < n) {
-    const cur = new Element(h, nodes[j]);
-    // engine.invoke_cb: o cb atravessou a borda I64 da ABI (vira número); a
-    // bridge re-taggeia para função e invoca com 1 argumento (o objeto Event).
-    engine.invoke_cb(cbs[j], { type: type, target: target, currentTarget: cur });
+    event.currentTarget = new Element(h, nodes[j]);
+    // `engine.invoke_cb` reconstitui o Function word no runtime e chama o
+    // listener com o mesmo objecto de evento mutável.
+    engine.invoke_cb(cbs[j], event);
+    if (state.immediate !== 0) break;
+    if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
     j = j + 1;
   }
   return n;
@@ -120,26 +144,43 @@ function __dispatchKeyboardWithCallbacks(
   const target = new Element(h, node);
   const key = __keyboardKey(keyCode, shift);
   const code = __keyboardCode(keyCode);
+  const state = { stopped: 0, immediate: 0 };
+  const event: any = {
+    type: type,
+    target: target,
+    currentTarget: target,
+    key: key,
+    code: code,
+    keyCode: keyCode,
+    which: keyCode,
+    repeat: repeat !== 0,
+    ctrlKey: ctrl !== 0,
+    shiftKey: shift !== 0,
+    altKey: alt !== 0,
+    metaKey: meta !== 0,
+    bubbles: true,
+    cancelable: true,
+    defaultPrevented: false,
+    cancelBubble: false,
+    stopPropagation: function () {
+      state.stopped = 1;
+      event.cancelBubble = true;
+    },
+    stopImmediatePropagation: function () {
+      state.stopped = 1;
+      state.immediate = 1;
+      event.cancelBubble = true;
+    },
+    preventDefault: function () {
+      if (event.cancelable) event.defaultPrevented = true;
+    },
+  };
   let j = 0;
   while (j < n) {
-    const current = new Element(h, nodes[j]);
-    engine.invoke_cb(cbs[j], {
-      type: type,
-      target: target,
-      currentTarget: current,
-      key: key,
-      code: code,
-      keyCode: keyCode,
-      which: keyCode,
-      repeat: repeat !== 0,
-      ctrlKey: ctrl !== 0,
-      shiftKey: shift !== 0,
-      altKey: alt !== 0,
-      metaKey: meta !== 0,
-      bubbles: true,
-      cancelable: true,
-      defaultPrevented: false,
-    });
+    event.currentTarget = new Element(h, nodes[j]);
+    engine.invoke_cb(cbs[j], event);
+    if (state.immediate !== 0) break;
+    if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
     j = j + 1;
   }
   return n;

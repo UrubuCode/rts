@@ -32,10 +32,20 @@ impl Dom {
     /// Dá o foco a `id` (ou tira o foco, com `None`). O caller (loop TS) passa o
     /// input sob o cursor após um clique. Bumpa a revisão (o cursor a pintar muda).
     pub fn focus_input(&mut self, id: Option<NodeIdx>) {
-        if self.focused_input != id {
-            self.focused_input = id;
-            self.touch();
+        if self.focused_input == id {
+            return;
         }
+        let previous = self.focused_input;
+        if let Some(previous) = previous {
+            self.raw_event_queue.push_back((previous, "focusout".to_string()));
+            self.raw_event_queue.push_back((previous, "blur".to_string()));
+        }
+        self.focused_input = id;
+        if let Some(current) = id {
+            self.raw_event_queue.push_back((current, "focusin".to_string()));
+            self.raw_event_queue.push_back((current, "focus".to_string()));
+        }
+        self.touch();
     }
 
     /// Anexa `text` (os caracteres digitados no frame) ao input FOCADO. Ignora se
