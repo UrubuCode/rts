@@ -1305,6 +1305,18 @@ function pumpKeyboardEvents(doc: Document): number {
 // Pump orientado a browser: além de keydown/keyup, entrega composição e texto
 // editado. A fila raw mantém a ordem e o alvo capturado pelo backend; o parâmetro
 // de janela não é necessário nesta fronteira.
+function clearInputValue(doc: Document, node: number): number {
+  const h: i64 = doc._dom;
+  let deleted = 0;
+  while (dom.inputValue(h, node).length > 0 && deleted < 300) {
+    const before = __dispatchInputCallbacks(h, node, "beforeinput", "", "deleteContentBackward", 0, 1);
+    if (before !== 0 || dom.inputBackspaceAt(h, node) === 0) break;
+    __dispatchInputCallbacks(h, node, "input", "", "deleteContentBackward", 0, 1);
+    deleted = deleted + 1;
+  }
+  return deleted;
+}
+
 function pumpInputEvents(doc: Document): number {
   const h: i64 = doc._dom;
   let dispatched = __pumpKeyboardEvents(doc, 1);

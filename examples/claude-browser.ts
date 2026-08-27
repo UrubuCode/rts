@@ -491,13 +491,9 @@ while (egui.isOpen(win) !== 0) {
     io.print("[copy] '" + dom.inputValue(d, urlInput(d)) + "'");
   }
   if (ctrl && input.key(win, KEY_A, PHASE_PRESSED) !== 0) {
-    // Ctrl+A: "seleciona tudo" → como não há seleção visual, apaga a barra (limpa p/
-    // digitar/colar uma URL nova de uma vez).
-    let n = 0;
-    while (dom.inputValue(d, urlInput(d)).length > 0 && n < 300) {
-      dom.inputBackspace(d);
-      n = n + 1;
-    }
+    // Ctrl+A: "seleciona tudo" → como ainda não há seleção visual, limpa a barra
+    // pelo mesmo beforeinput/input cancelável de uma edição normal.
+    clearInputValue(docF, urlInput(d));
   }
 
   // Navega (Enter ou botão Ir) — só se não há download em andamento.
