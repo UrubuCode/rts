@@ -52,6 +52,7 @@ pub(in crate::entry) mod statics;
 pub(in crate::entry) mod string;
 pub(in crate::entry) mod swap;
 pub(in crate::entry) mod validate;
+pub(in crate::entry) mod write;
 
 use super::buffers::element::Kind;
 use super::buffers::uint8_array;
@@ -488,5 +489,6 @@ pub(in crate::entry) fn register_buffer_with_aliases(context: &mut Context) -> u
             super::modules::put_member(context, prototype, lower, value);
         }
     }
+    write::install_aliases(context, prototype);
     constructor
 }

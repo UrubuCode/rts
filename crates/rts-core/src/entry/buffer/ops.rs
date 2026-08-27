@@ -24,9 +24,8 @@
 
 use super::super::buffers::element::Kind;
 use super::super::buffers::{
-    View, as_count, optional_number, range, undefined, view_of, window, window_mut,
+    View, as_count, optional_number, range, view_of, window, window_mut,
 };
-use super::super::errors;
 use super::super::objects::undefined_of;
 use super::super::{Context, native, with_current};
 use super::codec;
@@ -157,53 +156,8 @@ pub(in crate::entry) fn pattern_of(context: &Context, value: u64, encoding: &str
 // ---------------------------------------------------------------------------
 
 /// `buf.write(string, offset?, length?, encoding?)`.
-///
-/// # The two-argument form, and why a string `offset` is not always one
-///
-/// `buf.write(string, encoding)` is legal — Node reads a string second argument
-/// as the encoding. What it does NOT allow is that shorthand with anything after
-/// it: `buf.write('o', '1', 'ascii')` and `buf.write('test', 'utf8', 0)` are both
-/// `ERR_INVALID_ARG_TYPE`, because the caller has now given an encoding twice or
-/// a length after an offset that is not one. Both are in `test-buffer-alloc.js`,
-/// and both used to be accepted here — the string coerced to an offset of 0 and
-/// the write silently landed at the start of the buffer.
 pub(in crate::entry) fn write(this: u64, string: u64, offset: u64, length: u64, encoding: u64) -> f64 {
-    let Some(count) = validate::bytes("source", this) else { return 0.0 };
-    let Shape::Text(text) = validate::shape_of(string) else {
-        errors::invalid_arg_type("string", "string", string);
-        return 0.0;
-    };
-    let shorthand = matches!(validate::shape_of(offset), Shape::Text(_));
-    let (offset, encoding) = match shorthand {
-        true => {
-            let trailing = !matches!(validate::shape_of(length), Shape::Absent)
-                || !matches!(validate::shape_of(encoding), Shape::Absent);
-            if trailing {
-                errors::invalid_arg_type("offset", "number", offset);
-                return 0.0;
-            }
-            (undefined(), offset)
-        }
-        false => (offset, encoding),
-    };
-    let Some(enc) = validate::encoding(encoding) else { return 0.0 };
-    let Some(start) = validate::offset("offset", offset, count) else { return 0.0 };
-    let cap = match validate::shape_of(length) {
-        Shape::Absent => count - start,
-        _ => match validate::offset("length", length, count - start) {
-            Some(length) => length,
-            None => return 0.0,
-        },
-    };
-    with_current(|context| {
-        let Some(view) = view_of(context, this) else { return 0.0 };
-        let bytes = codec::encode(&text, &enc).unwrap_or_default();
-        let count = bytes.len().min(cap).min(view.count() - start);
-        if let Some(destination) = window_mut(context, &view) {
-            destination[start..start + count].copy_from_slice(&bytes[..count]);
-        }
-        count as f64
-    })
+    super::write::write(this, string, offset, length, encoding)
 }
 
 /// `buf.slice(begin?, end?)` / `buf.subarray(begin?, end?)` — a Buffer
@@ -260,15 +214,15 @@ pub(in crate::entry) fn copy(this: u64, target: u64, target_start: u64, source_s
     // not ask about first.
     let Some(source_len) = validate::bytes("source", this) else { return 0.0 };
     let Some(target_len) = validate::bytes("target", target) else { return 0.0 };
-    let Some(target_at) = validate::offset("targetStart", target_start, target_len) else {
+    let Some(target_at) = validate::copy_target(target_start, target_len) else {
         return 0.0;
     };
-    let Some(source_at) = validate::offset("sourceStart", source_start, source_len) else {
+    let Some(source_at) = validate::copy_source_start(source_start, source_len) else {
         return 0.0;
     };
     let source_to = match validate::shape_of(source_end) {
         Shape::Absent => source_len,
-        _ => match validate::offset("sourceEnd", source_end, source_len) {
+        _ => match validate::copy_source_end(source_end, source_len) {
             Some(at) => at,
             None => return 0.0,
         },

@@ -149,23 +149,79 @@ fn integer_offset(name: &str, value: u64) -> Option<f64> {
     Some(number)
 }
 
-/// A position inside a buffer: every `read*`/`write*` offset, and `buf.write`'s.
+/// A `Buffer.write` offset or length, whose public message uses `&&`.
 ///
-/// `limit` is the largest offset that is still inside — the caller subtracts the
-/// width of what it is about to read, because "offset 3 of a 4-byte buffer" is
-/// fine for a `UInt8` and out of range for a `UInt16`, and only the caller knows
-/// which.
-///
-/// An absent offset is `0`, which is what Node documents and what
-/// `test-buffer-readuint.js` asserts explicitly for both `undefined` and no
-/// argument at all.
-pub(in crate::entry) fn offset(name: &str, value: u64, limit: usize) -> Option<usize> {
+/// The generic offset validator cannot change spelling: `copy` and the legacy
+/// numeric readers expose the older `and` wording, and their tests match it.
+/// Keeping this one operation-specific avoids making a shared validator answer
+/// two observable contracts.
+pub(in crate::entry) fn write_offset(name: &str, value: u64, limit: usize) -> Option<usize> {
     let number = integer_offset(name, value)?;
     if !number.is_finite() || number < 0.0 || number > limit as f64 {
-        errors::out_of_range(name, &format!(">= 0 and <= {limit}"), value);
+        errors::out_of_range(name, &format!(">= 0 && <= {limit}"), value);
         return None;
     }
     Some(number as usize)
+}
+
+/// A bound for the legacy `asciiWrite`/`latin1Write`/`utf8Write` methods.
+///
+/// These methods predate `Buffer.write` and report a bounds error for an
+/// invalid offset rather than the newer numeric range diagnostic. Their length
+/// still clamps at the remaining capacity, which is why the two cases stay
+/// separate below.
+pub(in crate::entry) fn legacy_offset(name: &str, value: u64, limit: usize) -> Option<usize> {
+    let number = integer_offset(name, value)?;
+    if !number.is_finite() || number < 0.0 || number > limit as f64 {
+        errors::buffer_out_of_bounds(Some(name));
+        return None;
+    }
+    Some(number as usize)
+}
+
+pub(in crate::entry) fn legacy_length(value: u64, limit: usize) -> Option<usize> {
+    let number = integer_offset("length", value)?;
+    if !number.is_finite() || number < 0.0 {
+        errors::buffer_out_of_bounds(Some("length"));
+        return None;
+    }
+    Some((number as usize).min(limit))
+}
+
+/// `Buffer.copy` uses JavaScript number coercion for its range arguments.
+fn copy_integer(value: u64) -> Option<f64> {
+    let number = super::super::class_support::to_number(value);
+    if super::super::throw::in_flight() {
+        return None;
+    }
+    Some(if number.is_nan() { 0.0 } else { number.trunc() })
+}
+
+pub(in crate::entry) fn copy_target(value: u64, limit: usize) -> Option<usize> {
+    let number = copy_integer(value)?;
+    if !number.is_finite() || number < 0.0 || number > limit as f64 {
+        errors::out_of_range("targetStart", ">= 0", value);
+        return None;
+    }
+    Some(number as usize)
+}
+
+pub(in crate::entry) fn copy_source_start(value: u64, limit: usize) -> Option<usize> {
+    let number = copy_integer(value)?;
+    if !number.is_finite() || number < 0.0 || number > limit as f64 {
+        errors::out_of_range("sourceStart", &format!(">= 0 && <= {limit}"), value);
+        return None;
+    }
+    Some(number as usize)
+}
+
+pub(in crate::entry) fn copy_source_end(value: u64, limit: usize) -> Option<usize> {
+    let number = copy_integer(value)?;
+    if !number.is_finite() || number < 0.0 {
+        errors::out_of_range("sourceEnd", ">= 0", value);
+        return None;
+    }
+    Some((number as usize).min(limit))
 }
 
 /// An argument that must be a `Buffer` or a `Uint8Array` — `compare`'s target,
@@ -226,7 +282,9 @@ pub(in crate::entry) fn element_offset(
 /// classification is a second borrow, which is what the module doc forbids.
 pub(in crate::entry) fn source(name: &str, value: u64) -> Option<Shape> {
     match shape_of(value) {
-        found @ (Shape::Text(_) | Shape::List(_) | Shape::Bytes(_) | Shape::ArrayBuffer) => Some(found),
+        found @ (Shape::Text(_) | Shape::List(_) | Shape::Bytes(_) | Shape::ArrayBuffer) => {
+            Some(found)
+        }
         _ => {
             errors::invalid_arg_type(
                 name,
@@ -331,7 +389,10 @@ pub(in crate::entry) fn variable_offset(value: u64, count: usize, width: usize) 
 pub(in crate::entry) fn variable_fits(value: f64, width: usize, signed: bool) -> bool {
     let bits = (width * 8) as u32;
     let (low, high) = if signed {
-        (-(2f64.powi(bits as i32 - 1)), 2f64.powi(bits as i32 - 1) - 1.0)
+        (
+            -(2f64.powi(bits as i32 - 1)),
+            2f64.powi(bits as i32 - 1) - 1.0,
+        )
     } else {
         (0.0, 2f64.powi(bits as i32) - 1.0)
     };
@@ -363,7 +424,10 @@ pub(in crate::entry) fn fits(kind: Kind, value: f64) -> bool {
         return true;
     };
     let (low, high) = match signed {
-        true => (-(2f64.powi(bits as i32 - 1)), 2f64.powi(bits as i32 - 1) - 1.0),
+        true => (
+            -(2f64.powi(bits as i32 - 1)),
+            2f64.powi(bits as i32 - 1) - 1.0,
+        ),
         false => (0.0, 2f64.powi(bits as i32) - 1.0),
     };
     if value >= low && value <= high {
@@ -371,6 +435,10 @@ pub(in crate::entry) fn fits(kind: Kind, value: f64) -> bool {
     }
     // The raw bits back, so the message renders the number the program passed
     // rather than a re-parse of it.
-    errors::out_of_range("value", &format!(">= {low} and <= {high}"), Value::from_f64(value).bits());
+    errors::out_of_range(
+        "value",
+        &format!(">= {low} and <= {high}"),
+        Value::from_f64(value).bits(),
+    );
     false
 }
