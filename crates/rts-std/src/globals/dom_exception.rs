@@ -168,9 +168,26 @@ pub(super) fn class(context: &mut Context) -> u64 {
 /// cannot unwind — it aborts the process.
 extern "C" fn construct(_e: u64, _this: u64, message: u64, name: u64, _c: u64, _d: u64) -> u64 {
     let message_text = text_argument(message).unwrap_or_default();
+    // The second parameter is either the legacy name string or an options
+    // object. Read the object before making the error, but check `cause` with
+    // `in` semantics so an explicitly supplied `undefined` is not lost.
+    let absent = entry::undefined_value();
+    let legacy_name = name == absent || entry::text_of(name).is_some();
+    let options = !legacy_name && entry::with_runtime(|context| entry::is_object(context, name));
+    let (name_value, cause_value) = if options {
+        let name_value = entry::with_runtime(|context| entry::get_member(context, name, "name"));
+        let cause_key = entry::with_runtime(|context| entry::make_string(context, "cause"));
+        let has_cause = entry::has_property(cause_key, name);
+        let cause_value = has_cause.then(|| {
+            entry::with_runtime(|context| entry::get_member(context, name, "cause"))
+        });
+        (name_value, cause_value)
+    } else {
+        (name, None)
+    };
     // `"Error"`, not the empty string: that is what a `DOMException` built with
     // no name reports, in Node and in every browser.
-    let name_text = text_argument(name).unwrap_or_else(|| "Error".to_owned());
+    let name_text = text_argument(name_value).unwrap_or_else(|| "Error".to_owned());
     let Some(error) = entry::make_named_error("Error", &message_text) else {
         return entry::undefined_value();
     };
@@ -187,6 +204,9 @@ extern "C" fn construct(_e: u64, _this: u64, message: u64, name: u64, _c: u64, _
         entry::put_member(context, error, "name", held);
         let code = entry::make_number(code_of(&name_text));
         entry::put_member(context, error, "code", code);
+        if let Some(cause_value) = cause_value {
+            entry::put_member(context, error, "cause", cause_value);
+        }
         error
     })
 }
