@@ -240,3 +240,41 @@
         assert_eq!(dom.last_dispatch_at(0).unwrap().1, 11);
         assert!(!dom.last_dispatch_capture_at(0));
     }
+
+    #[test]
+    fn fila_raw_input_preserva_ordem_tipo_texto_e_alvo() {
+        let mut dom = parse_html_to_dom("<body><input id=campo></body>");
+        let campo = dom.query("#campo").unwrap();
+        let campo_idx = dom.resolve(campo).unwrap();
+        dom.focus_input(Some(campo_idx));
+        dom.push_raw_composition_event(2, String::new());
+        dom.push_raw_composition_event(3, "ka".to_string());
+        dom.push_raw_composition_event(4, "か".to_string());
+        dom.push_raw_text_input("か".to_string());
+
+        let events: Vec<RawInputEvent> =
+            std::iter::from_fn(|| dom.poll_raw_input_event()).collect();
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].target, campo_idx);
+        assert_eq!(events[0].kind, 2);
+        assert_eq!(events[0].text, "");
+        assert_eq!(events[1].kind, 3);
+        assert_eq!(events[1].text, "ka");
+        assert_eq!(events[2].kind, 4);
+        assert_eq!(events[2].text, "か");
+        assert_eq!(events[3].kind, 1);
+        assert_eq!(events[3].text, "か");
+        assert!(dom.poll_raw_input_event().is_none());
+    }
+
+    #[test]
+    fn fila_raw_input_disabled_fecha_composicao_sem_commit() {
+        let mut dom = parse_html_to_dom("<body><input id=campo></body>");
+        let campo = dom.query("#campo").unwrap();
+        dom.focus_input(dom.resolve(campo));
+        dom.push_raw_composition_event(5, String::new());
+        let event = dom.poll_raw_input_event().unwrap();
+        assert_eq!(event.target, dom.resolve(campo).unwrap());
+        assert_eq!(event.kind, 5);
+        assert!(event.text.is_empty());
+    }

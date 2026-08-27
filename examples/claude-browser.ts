@@ -478,10 +478,9 @@ while (egui.isOpen(win) !== 0) {
     }
   }
 
-  // Digitação no input focado (o textInput JÁ inclui o texto colado com Ctrl+V).
-  const typed = input.textInput(win);
-  if (typed.length > 0) dom.inputFeedText(d, typed);
-  if (input.key(win, KEY_BACKSPACE, PHASE_PRESSED) !== 0) dom.inputBackspace(d);
+  // O pump unificado entrega keydown/keyup, beforeinput/input e composição.
+  // A edição já não é mutada directamente aqui: preventDefault() pode cancelar
+  // keydown ou beforeinput antes de o valor do campo ser alterado.
   if (input.key(win, KEY_ENTER, PHASE_PRESSED) !== 0) doNav = true;
 
   // ── Atalhos com Ctrl (copiar / apagar tudo) ──────────────────────────────────
@@ -526,10 +525,10 @@ while (egui.isOpen(win) !== 0) {
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);
-  // Entrega teclado e cliques do frame aos addEventListener registrados pelos
-  // <script> da página. O renderer apenas enfileira eventos crus; a fachada faz
-  // dispatch, bubbling e callbacks no DOM.
-  pumpKeyboardEvents(docF);
+  // Entrega teclado, edição e cliques do frame aos addEventListener registrados
+  // pelos <script> da página. O renderer apenas enfileira eventos crus; a fachada
+  // faz dispatch, bubbling, callbacks e acções padrão canceláveis no DOM.
+  pumpInputEvents(docF);
   pumpEventCallbacks(docF);
   pumpTimerCallbacks(docF);
 }

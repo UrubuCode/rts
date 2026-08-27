@@ -15,6 +15,7 @@
 
 const __DOM_NONE = -1;
 const __LISTENER_OPTIONS_SEPARATOR = "\u001f";
+const __compositionStates: Map<i64, number> = new Map();
 
 function __listenerFlags(options: any): number {
   if (options === true) return 1;
@@ -57,10 +58,14 @@ function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: nu
     type: type,
     target: target,
     currentTarget: target,
+    data: "",
+    inputType: "",
+    isComposing: false,
     bubbles: bubbles !== 0,
     cancelable: true,
     defaultPrevented: false,
     eventPhase: 0,
+    isTrusted: false,
     cancelBubble: false,
     stopPropagation: function () {
       state.stopped = 1;
@@ -188,6 +193,7 @@ function __dispatchKeyboardWithCallbacks(
     cancelable: true,
     defaultPrevented: false,
     eventPhase: 0,
+    isTrusted: true,
     cancelBubble: false,
     stopPropagation: function () {
       state.stopped = 1;
@@ -212,7 +218,71 @@ function __dispatchKeyboardWithCallbacks(
     if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
     j = j + 1;
   }
-  return n;
+  return event.defaultPrevented ? 1 : 0;
+}
+
+function __dispatchInputCallbacks(
+  h: i64,
+  node: number,
+  type: string,
+  data: string,
+  inputType: string,
+  isComposing: number,
+  trusted: number,
+): number {
+  const n = dom.dispatchCollect(h, node, type, 1);
+  if (n === 0) return 0;
+  const cbs: number[] = [];
+  const nodes: number[] = [];
+  const captures: number[] = [];
+  const passives: number[] = [];
+  let i = 0;
+  while (i < n) {
+    cbs.push(dom.dispatchCbAt(h, i));
+    nodes.push(dom.dispatchCbNode(h, i));
+    captures.push(dom.dispatchCbCapture(h, i));
+    passives.push(dom.dispatchCbPassive(h, i));
+    i = i + 1;
+  }
+  const target = new Element(h, node);
+  const state = { stopped: 0, immediate: 0, passive: 0 };
+  const event: any = {
+    type: type,
+    target: target,
+    currentTarget: target,
+    data: data,
+    inputType: inputType,
+    isComposing: isComposing !== 0,
+    bubbles: true,
+    cancelable: type === "beforeinput",
+    defaultPrevented: false,
+    eventPhase: 0,
+    isTrusted: trusted !== 0,
+    cancelBubble: false,
+    stopPropagation: function () {
+      state.stopped = 1;
+      event.cancelBubble = true;
+    },
+    stopImmediatePropagation: function () {
+      state.stopped = 1;
+      state.immediate = 1;
+      event.cancelBubble = true;
+    },
+    preventDefault: function () {
+      if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
+    },
+  };
+  let j = 0;
+  while (j < n) {
+    event.currentTarget = new Element(h, nodes[j]);
+    state.passive = passives[j] !== 0 ? 1 : 0;
+    event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
+    engine.invoke_cb(cbs[j], event);
+    if (state.immediate !== 0) break;
+    if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
+    j = j + 1;
+  }
+  return event.defaultPrevented ? 1 : 0;
 }
 
 // camelCase → kebab-case para o açúcar de `dataset` (`userId` → `user-id`).
@@ -1189,7 +1259,7 @@ function pumpEventCallbacks(doc: Document): number {
 // Bomba de teclado do BACKEND: drena as transições emitidas pelo renderer egui
 // e entrega `keydown`/`keyup` ao target focado. Os getters de metadados devem ser
 // lidos imediatamente depois do poll, antes de qualquer outro poll do documento.
-function pumpKeyboardEvents(doc: Document): number {
+function __pumpKeyboardEvents(doc: Document, applyDefault: number): number {
   const h: i64 = doc._dom;
   let despachados = 0;
   let guard = 0;
@@ -1203,11 +1273,72 @@ function pumpKeyboardEvents(doc: Document): number {
     const shift = dom.rawKeyboardShift(h);
     const alt = dom.rawKeyboardAlt(h);
     const meta = dom.rawKeyboardMeta(h);
-    __dispatchKeyboardWithCallbacks(h, node, pressed, repeat, keyCode, ctrl, shift, alt, meta);
+    const prevented = __dispatchKeyboardWithCallbacks(h, node, pressed, repeat, keyCode, ctrl, shift, alt, meta);
+
+    // Backspace é a primeira acção padrão de edição ligada ao cancelamento DOM.
+    // O evento beforeinput ocorre depois de keydown e antes da mutação do value.
+    if (applyDefault !== 0 && pressed !== 0 && keyCode === 4 && prevented === 0) {
+      const focused = dom.focusedInput(h);
+      if (focused !== __DOM_NONE) {
+        const before = __dispatchInputCallbacks(h, focused, "beforeinput", "", "deleteContentBackward", 0, 1);
+        if (before === 0 && dom.inputBackspaceAt(h, focused) !== 0) {
+          __dispatchInputCallbacks(h, focused, "input", "", "deleteContentBackward", 0, 1);
+        }
+      }
+    }
     despachados = despachados + 1;
     guard = guard + 1;
   }
   return despachados;
+}
+
+function pumpKeyboardEvents(doc: Document): number {
+  return __pumpKeyboardEvents(doc, 0);
+}
+
+// Pump orientado a browser: além de keydown/keyup, entrega composição e texto
+// editado. A fila raw mantém a ordem e o alvo capturado pelo backend; o parâmetro
+// de janela não é necessário nesta fronteira.
+function pumpInputEvents(doc: Document): number {
+  const h: i64 = doc._dom;
+  let dispatched = __pumpKeyboardEvents(doc, 1);
+  let composing = __compositionStates.get(h) === 1 ? 1 : 0;
+  let guard = 0;
+  while (guard < 256) {
+    const node = dom.pollRawInputEvent(h);
+    if (node === __DOM_NONE) break;
+    const kind = dom.rawInputKind(h);
+    const data = dom.rawInputText(h);
+    if (kind === 1) {
+      const inputType = composing !== 0 ? "insertCompositionText" : "insertText";
+      const before = __dispatchInputCallbacks(h, node, "beforeinput", data, inputType, composing, 1);
+      if (before === 0 && dom.inputFeedTextAt(h, node, data) !== 0) {
+        __dispatchInputCallbacks(h, node, "input", data, inputType, composing, 1);
+      }
+      dispatched = dispatched + 1;
+    } else if (kind === 2) {
+      __dispatchInputCallbacks(h, node, "compositionstart", data, "", 0, 1);
+      composing = 1;
+      dispatched = dispatched + 1;
+    } else if (kind === 3) {
+      composing = 1;
+      __dispatchInputCallbacks(h, node, "compositionupdate", data, "", 1, 1);
+      dispatched = dispatched + 1;
+    } else if (kind === 4) {
+      composing = 0;
+      __dispatchInputCallbacks(h, node, "compositionend", data, "", 0, 1);
+      dispatched = dispatched + 1;
+    } else if (kind === 5) {
+      if (composing !== 0) {
+        composing = 0;
+        __dispatchInputCallbacks(h, node, "compositionend", "", "", 0, 1);
+        dispatched = dispatched + 1;
+      }
+    }
+    guard = guard + 1;
+  }
+  __compositionStates.set(h, composing);
+  return dispatched;
 }
 
 // Bomba de TIMERS da página: dispara os `setTimeout`/`setInterval` que os
