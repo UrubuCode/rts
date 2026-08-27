@@ -10,6 +10,219 @@
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi alterada.
 
 use super::*;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum MarginChildRole {
+    Ignore,
+    Barrier,
+    Block { top: f32, bottom: f32 },
+}
+
+fn establishes_block_formatting_context(css: &ComputedStyle) -> bool {
+    let display_bfc = matches!(
+        css.effective_display(),
+        Some(
+            crate::style::DisplayKind::Flex
+                | crate::style::DisplayKind::FlexWrap
+                | crate::style::DisplayKind::Grid
+                | crate::style::DisplayKind::InlineBlock
+                | crate::style::DisplayKind::Table
+                | crate::style::DisplayKind::TableRowGroup
+                | crate::style::DisplayKind::TableRow
+                | crate::style::DisplayKind::TableCell
+                | crate::style::DisplayKind::TableCaption
+        )
+    );
+    let overflow_bfc = [css.overflow_x, css.overflow_y].into_iter().any(|value| {
+        matches!(
+            value,
+            Some(
+                crate::scrollbar::Overflow::Auto
+                    | crate::scrollbar::Overflow::Scroll
+                    | crate::scrollbar::Overflow::Hidden
+            )
+        )
+    });
+    let float_bfc = css
+        .float_side
+        .is_some_and(|side| side != crate::style::FloatSide::None);
+    let positioned_bfc = css
+        .position
+        .map(|position| position.out_of_flow())
+        .unwrap_or(false);
+    css.flow_root.unwrap_or(false) || display_bfc || overflow_bfc || float_bfc || positioned_bfc
+}
+
+pub(in crate::layout) fn collapse_margin(first: f32, second: f32) -> f32 {
+    if first >= 0.0 && second >= 0.0 {
+        first.max(second)
+    } else if first <= 0.0 && second <= 0.0 {
+        first.min(second)
+    } else {
+        first + second
+    }
+}
+
+fn margin_child_role(
+    dom: &Dom,
+    child: NodeIdx,
+    content_w: f32,
+    parent_font_size: f32,
+    ctx: &LayoutCtx,
+) -> MarginChildRole {
+    match &dom.node(child).kind {
+        NodeKind::Comment(_) => MarginChildRole::Ignore,
+        NodeKind::Text(text) if text.trim().is_empty() => MarginChildRole::Ignore,
+        NodeKind::Text(_) | NodeKind::Document => MarginChildRole::Barrier,
+        NodeKind::Element { tag } if is_non_rendered_tag(tag) => MarginChildRole::Ignore,
+        NodeKind::Element { .. } => {
+            let css = dom.computed_style_idx(child).unwrap_or_default();
+            if e_display_none(dom, child)
+                || css
+                    .position
+                    .map(|position| position.out_of_flow())
+                    .unwrap_or(false)
+                || css
+                    .float_side
+                    .map(|side| side != crate::style::FloatSide::None)
+                    .unwrap_or(false)
+            {
+                return MarginChildRole::Ignore;
+            }
+            let effective = css.effective_display();
+            let block_candidate = match effective {
+                Some(
+                    crate::style::DisplayKind::Inline
+                    | crate::style::DisplayKind::InlineBlock
+                    | crate::style::DisplayKind::TableRowGroup
+                    | crate::style::DisplayKind::TableRow
+                    | crate::style::DisplayKind::TableCell
+                    | crate::style::DisplayKind::TableCaption
+                    | crate::style::DisplayKind::None,
+                ) => false,
+                Some(_) => true,
+                None => is_block_level(dom, child) && !is_inline_block(dom, child),
+            };
+            if !block_candidate {
+                return MarginChildRole::Barrier;
+            }
+            let resolve = ResolveCtx {
+                parent_content_w: content_w,
+                node_font_size: font_px(&css, parent_font_size),
+                root_font_size: crate::style::root_font_size(),
+                viewport_w: ctx.viewport_w,
+                viewport_h: ctx.viewport_h,
+            };
+            let margin_v = css.margin_v.unwrap_or(0.0);
+            let margin_top_extra = if css.margin.top == crate::style::Side::Unset {
+                margin_v
+            } else {
+                0.0
+            };
+            let margin_bottom_extra = if css.margin.bottom == crate::style::Side::Unset {
+                margin_v
+            } else {
+                0.0
+            };
+            MarginChildRole::Block {
+                top: css.margin.top.resolve(&resolve).unwrap_or(0.0) + margin_top_extra,
+                bottom: css.margin.bottom.resolve(&resolve).unwrap_or(0.0) + margin_bottom_extra,
+            }
+        }
+    }
+}
+
+fn edge_margin_from_children(
+    dom: &Dom,
+    id: NodeIdx,
+    content_w: f32,
+    parent_font_size: f32,
+    ctx: &LayoutCtx,
+    from_end: bool,
+) -> Option<f32> {
+    let children = &dom.node(id).children;
+    if from_end {
+        for &child in children.iter().rev() {
+            match margin_child_role(dom, child, content_w, parent_font_size, ctx) {
+                MarginChildRole::Ignore => continue,
+                MarginChildRole::Barrier => return None,
+                MarginChildRole::Block { bottom, .. } => return Some(bottom),
+            }
+        }
+    } else {
+        for &child in children {
+            match margin_child_role(dom, child, content_w, parent_font_size, ctx) {
+                MarginChildRole::Ignore => continue,
+                MarginChildRole::Barrier => return None,
+                MarginChildRole::Block { top, .. } => return Some(top),
+            }
+        }
+    }
+    None
+}
+
+pub(in crate::layout) fn escaped_child_margins(
+    dom: &Dom,
+    id: NodeIdx,
+    parent_css: &ComputedStyle,
+    content_w: f32,
+    parent_font_size: f32,
+    ctx: &LayoutCtx,
+    pad_top: f32,
+    border_top: f32,
+    pad_bottom: f32,
+    border_bottom: f32,
+    bottom_auto_height: bool,
+) -> (f32, f32) {
+    if establishes_block_formatting_context(parent_css) {
+        return (0.0, 0.0);
+    }
+    let top = if pad_top == 0.0 && border_top == 0.0 {
+        edge_margin_from_children(dom, id, content_w, parent_font_size, ctx, false).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    let bottom = if bottom_auto_height && pad_bottom == 0.0 && border_bottom == 0.0 {
+        edge_margin_from_children(dom, id, content_w, parent_font_size, ctx, true).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    (top, bottom)
+}
+
+pub(in crate::layout) fn escaped_margins_for_box(
+    dom: &Dom,
+    id: NodeIdx,
+    content_w: f32,
+    parent_font_size: f32,
+    ctx: &LayoutCtx,
+) -> (f32, f32) {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let resolve = ResolveCtx {
+        parent_content_w: content_w,
+        node_font_size: font_px(&css, parent_font_size),
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let pad_top = css.padding.top.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let pad_bottom = css.padding.bottom.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let [border_top, _, border_bottom, _] = crate::style::borders::used_widths(&css);
+    escaped_child_margins(
+        dom,
+        id,
+        &css,
+        content_w,
+        parent_font_size,
+        ctx,
+        pad_top,
+        border_top,
+        pad_bottom,
+        border_bottom,
+        css.height.is_none() && css.min_height.is_none(),
+    )
+}
+
 /// Faz o layout de UM nó-bloco a partir de `(x, y)`, com `avail_w` de largura
 /// disponível (a do container). Emite os itens (fundo/borda/texto/filhos) na
 /// `list` e devolve o TAMANHO EXTERNO `(outer_w, outer_h)` da caixa (incluindo
@@ -255,16 +468,16 @@ pub(crate) fn layout_block(
             content_natural_width(dom, id, font_for_content, ctx)
         } else {
             match css.width.and_then(|d| d.resolve(&resolve)) {
-            // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
-            // então o content é `width - (padding_h + 2*border)`. Em content-box
-            // (default), o `width` JÁ é o content.
-            Some(w) if border_box => (w - (padding_h + border_h)).max(0.0),
-            Some(w) => w,
-            // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
-            // senão (fluxo block normal) → ocupa a largura disponível.
-            None if shrink_to_fit => content_natural_width(dom, id, font_for_content, ctx)
-                .min((avail_w - frame).max(0.0)),
-            None => (avail_w - frame).max(0.0),
+                // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
+                // então o content é `width - (padding_h + 2*border)`. Em content-box
+                // (default), o `width` JÁ é o content.
+                Some(w) if border_box => (w - (padding_h + border_h)).max(0.0),
+                Some(w) => w,
+                // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
+                // senão (fluxo block normal) → ocupa a largura disponível.
+                None if shrink_to_fit => content_natural_width(dom, id, font_for_content, ctx)
+                    .min((avail_w - frame).max(0.0)),
+                None => (avail_w - frame).max(0.0),
             }
         };
         // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são
@@ -548,14 +761,38 @@ pub(crate) fn layout_block(
         None => content_h,
     };
 
+    // MARGIN-COLLAPSE pai/filho: sem BFC, borda ou padding, a margem da primeira
+    // caixa de bloco pode escapar por cima e a da última pode escapar por baixo.
+    // O cursor que o pai devolve continua a incluir o espaço colapsado, mas o
+    // border-box próprio não pinta nem mede essa margem externa.
+    let (escaped_top, escaped_bottom) = escaped_child_margins(
+        dom,
+        id,
+        &css,
+        content_w,
+        font_size,
+        ctx,
+        pad_top,
+        border_top,
+        pad_bottom,
+        border_bottom,
+        explicit_content_h.is_none() && mnh_pre.is_none(),
+    );
+    let box_content_h = if explicit_content_h.is_none() && mnh_pre.is_none() {
+        (content_h - escaped_top - escaped_bottom).max(0.0)
+    } else {
+        content_h
+    };
+    let box_top_margin = collapse_margin(margin_top, escaped_top);
+    let box_bottom_margin = collapse_margin(margin_bottom, escaped_bottom);
     // ── Insere a CAIXA (fundo + borda) no índice reservado, ATRÁS dos filhos ─────
     // O BORDER-BOX do nó: content + padding + border (NÃO a margin — esta é espaço
     // externo). É o retângulo que `getBoundingClientRect()` reporta.
     let box_rect = Rect::new(
         x + margin_left,
-        y + margin_top,
+        y + box_top_margin,
         content_w + padding_h + border_h,
-        content_h + pad_top + pad_bottom + border_v,
+        box_content_h + pad_top + pad_bottom + border_v,
     );
     // Registra a geometria deste nó (base do getBoundingClientRect/offsetWidth).
     record_node_rect(list, id, box_rect);
@@ -663,7 +900,12 @@ pub(crate) fn layout_block(
     let clips =
         ov_x != crate::scrollbar::Overflow::Visible || ov_y != crate::scrollbar::Overflow::Visible;
     if clips {
-        let content_rect = Rect::new(content_x, content_y, content_w, content_h);
+        let content_rect = Rect::new(
+            content_x,
+            box_rect.y + border_top + pad_top,
+            content_w,
+            box_content_h,
+        );
         // BeginClip no índice onde os FILHOS começam (logo após os itens de caixa que
         // foram inseridos em `box_index`); EndClip no fim. Quantos itens de caixa:
         // fundo (se bg) + borda (se visível).
@@ -813,6 +1055,7 @@ pub(crate) fn layout_block(
     // componente já é a SOMA do seu eixo (padding_h = left+right; margin_h idem;
     // border conta 2× pelos dois lados). Não multiplicar margin/padding por 2.
     let outer_w = content_w + padding_h + border_h + margin_h;
-    let outer_h = content_h + pad_top + pad_bottom + border_v + margin_top + margin_bottom;
+    let outer_h =
+        box_content_h + pad_top + pad_bottom + border_v + box_top_margin + box_bottom_margin;
     (outer_w, outer_h)
 }

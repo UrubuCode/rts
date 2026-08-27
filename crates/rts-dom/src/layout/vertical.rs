@@ -192,6 +192,10 @@ pub(in crate::layout) fn layout_children_vertical(
                 crate::bump!(fragment_hits);
                 flush_inline!(child_y);
                 let (topo, baixo) = (fragment.margin_top, fragment.margin_bottom);
+                let (_, escaped_bottom) = crate::layout::bloco::escaped_margins_for_box(
+                    dom, child, content_w, font_size, ctx,
+                );
+                let baixo = crate::layout::bloco::collapse_margin(baixo, escaped_bottom);
                 let com_topo = junta_ao_strut(strut, topo);
                 let aresta = borda + strut_colapsado(com_topo);
                 child_y = aresta - topo;
@@ -469,13 +473,18 @@ pub(in crate::layout) fn layout_children_vertical(
                     ctx,
                     list,
                 );
-                if atravessa_se(h, m, m_baixo) {
+                let (_, escaped_bottom) = crate::layout::bloco::escaped_margins_for_box(
+                    dom, child, content_w, font_size, ctx,
+                );
+                let effective_bottom =
+                    crate::layout::bloco::collapse_margin(m_baixo, escaped_bottom);
+                if atravessa_se(h, m, effective_bottom) {
                     // Não ocupou espaço: a `borda` fica onde estava e a margem
                     // de baixo entra no MESMO conjunto que a de cima.
-                    strut = junta_ao_strut(com_topo, m_baixo);
+                    strut = junta_ao_strut(com_topo, effective_bottom);
                 } else {
-                    borda = aresta + (h - m - m_baixo);
-                    strut = junta_ao_strut((0.0, 0.0), m_baixo);
+                    borda = aresta + (h - m - effective_bottom);
+                    strut = junta_ao_strut((0.0, 0.0), effective_bottom);
                 }
                 child_y = borda + strut_colapsado(strut);
             }

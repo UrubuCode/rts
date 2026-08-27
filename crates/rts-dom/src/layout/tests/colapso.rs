@@ -163,7 +163,6 @@ fn margens_adjacentes_colapsam_por_conjunto_e_nao_par_a_par() {
 /// vive inteira na caixa do pai** — que é precisamente o que a régua de
 /// paridade compara, elemento a elemento.
 #[test]
-#[ignore = "Chrome pai h=20 y=41, nos h=60 y=1 - a margem nunca atravessa o pai. Lote D"]
 fn a_margem_do_primeiro_filho_atravessa_o_pai_sem_borda() {
     let (yp, hp) = rel("c3", "c3p");
     let (yf, _) = rel("c3", "c3f");
@@ -181,7 +180,6 @@ fn a_margem_do_primeiro_filho_atravessa_o_pai_sem_borda() {
 /// É o caso que a auditoria descreve como a soma a DOBRAR: o pai cresce pela
 /// margem do filho e ainda a soma outra vez ao colapsar com o irmão.
 #[test]
-#[ignore = "Chrome pai h=20 e 40 de intervalo, nos h=60 e 50 - margem contada duas vezes. Lote D"]
 fn a_margem_do_ultimo_filho_atravessa_o_pai_de_altura_auto() {
     let (yp, hp) = rel("c4", "c4p");
     let (yn, _) = rel("c4", "c4n");
@@ -297,7 +295,10 @@ fn o_bloco_vazio_colapsa_tambem_com_a_margem_do_vizinho_anterior() {
 fn um_padding_de_um_pixel_barra_o_colapso_do_primeiro_filho() {
     let (yp, hp) = rel("b1", "b1p");
     let (yf, _) = rel("b1", "b1f");
-    assert!(perto(yp, 1.0) && perto(hp, 61.0), "pai y={yp} h={hp} (Chrome: 1 / 61)");
+    assert!(
+        perto(yp, 1.0) && perto(hp, 61.0),
+        "pai y={yp} h={hp} (Chrome: 1 / 61)"
+    );
     assert!(perto(yf, 42.0), "filho y={yf} (Chrome: 42)");
 }
 
@@ -307,7 +308,10 @@ fn um_padding_de_um_pixel_barra_o_colapso_do_primeiro_filho() {
 #[test]
 fn um_float_barra_o_colapso_atraves_do_pai() {
     let (yp, hp) = rel("b2", "b2p");
-    assert!(perto(yp, 1.0) && perto(hp, 60.0), "pai y={yp} h={hp} (Chrome: 1 / 60)");
+    assert!(
+        perto(yp, 1.0) && perto(hp, 60.0),
+        "pai y={yp} h={hp} (Chrome: 1 / 60)"
+    );
 }
 
 /// Um pai flex não tem colapso de margens de todo — os filhos são itens de flex.
@@ -320,7 +324,10 @@ fn um_float_barra_o_colapso_atraves_do_pai() {
 #[test]
 fn um_pai_flex_nao_colapsa_com_os_filhos() {
     let (yp, hp) = rel("b3", "b3p");
-    assert!(perto(yp, 1.0) && perto(hp, 60.0), "pai y={yp} h={hp} (Chrome: 1 / 60)");
+    assert!(
+        perto(yp, 1.0) && perto(hp, 60.0),
+        "pai y={yp} h={hp} (Chrome: 1 / 60)"
+    );
 }
 
 /// Um `inline-block` estabelece contexto próprio.
@@ -329,7 +336,10 @@ fn um_pai_flex_nao_colapsa_com_os_filhos() {
 #[test]
 fn um_inline_block_barra_o_colapso_atraves_do_pai() {
     let (yp, hp) = rel("b4", "b4p");
-    assert!(perto(yp, 1.0) && perto(hp, 60.0), "pai y={yp} h={hp} (Chrome: 1 / 60)");
+    assert!(
+        perto(yp, 1.0) && perto(hp, 60.0),
+        "pai y={yp} h={hp} (Chrome: 1 / 60)"
+    );
 }
 
 /// `display:flow-root` existe SÓ para estabelecer um contexto de formatação —
@@ -352,7 +362,10 @@ fn um_inline_block_barra_o_colapso_atraves_do_pai() {
 #[test]
 fn flow_root_barra_o_colapso_atraves_do_pai() {
     let (yp, hp) = rel("b5", "b5p");
-    assert!(perto(yp, 1.0) && perto(hp, 60.0), "pai y={yp} h={hp} (Chrome: 1 / 60)");
+    assert!(
+        perto(yp, 1.0) && perto(hp, 60.0),
+        "pai y={yp} h={hp} (Chrome: 1 / 60)"
+    );
 }
 
 /// **O caso que discrimina: uma borda só em baixo barra só em baixo.**
@@ -364,12 +377,17 @@ fn flow_root_barra_o_colapso_atraves_do_pai() {
 /// Um lote que decidisse a barreira pela caixa e não pelo lado passaria em
 /// todos os outros seis e falharia neste.
 #[test]
-#[ignore = "Chrome pai y=41 h=61 e seguinte 102, nos y=1 - a margem de cima nao escapa. Lote D"]
 fn uma_borda_so_em_baixo_barra_so_a_margem_de_baixo() {
     let (yp, hp) = rel("b6", "b6p");
     let (yn, _) = rel("b6", "b6n");
-    assert!(perto(yp, 41.0), "pai y={yp} (Chrome: 41 — a margem de cima escapou)");
-    assert!(perto(hp, 61.0), "pai h={hp} (Chrome: 61 — a de baixo ficou presa)");
+    assert!(
+        perto(yp, 41.0),
+        "pai y={yp} (Chrome: 41 — a margem de cima escapou)"
+    );
+    assert!(
+        perto(hp, 61.0),
+        "pai h={hp} (Chrome: 61 — a de baixo ficou presa)"
+    );
     assert!(perto(yn, 102.0), "seguinte y={yn} (Chrome: 102)");
 }
 
@@ -378,11 +396,16 @@ fn uma_borda_so_em_baixo_barra_so_a_margem_de_baixo() {
 /// Chrome: pai em y=41 com **20** de altura — nem a de cima nem a de baixo lá
 /// estão — e o irmão seguinte em 101, que é `41 + 20 + max(40, 10)`.
 #[test]
-#[ignore = "Chrome pai y=41 h=20 e seguinte 101, nos y=1 h=100 - nenhuma das duas escapa. Lote D"]
 fn sem_barreira_as_duas_margens_atravessam_o_pai() {
     let (yp, hp) = rel("b7", "b7p");
     let (yn, _) = rel("b7", "b7n");
     assert!(perto(yp, 41.0), "pai y={yp} (Chrome: 41)");
-    assert!(perto(hp, 20.0), "pai h={hp} (Chrome: 20 — as duas margens saíram)");
-    assert!(perto(yn, 101.0), "seguinte y={yn} (Chrome: 101 = 41+20+max(40,10))");
+    assert!(
+        perto(hp, 20.0),
+        "pai h={hp} (Chrome: 20 — as duas margens saíram)"
+    );
+    assert!(
+        perto(yn, 101.0),
+        "seguinte y={yn} (Chrome: 101 = 41+20+max(40,10))"
+    );
 }
