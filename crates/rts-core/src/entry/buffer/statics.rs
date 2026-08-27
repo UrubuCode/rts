@@ -318,6 +318,11 @@ pub(in crate::entry) fn concat(list_value: u64, total_length: u64) -> u64 {
             None => return undefined(),
         },
     };
+    // An empty list is special: Node returns an empty Buffer regardless of the
+    // optional total length, while a non-empty list uses it as the output size.
+    if elements.is_empty() {
+        return with_current(|context| made(context, &[]));
+    }
     with_current(|context| {
         let mut joined = Vec::new();
         for element in elements {
