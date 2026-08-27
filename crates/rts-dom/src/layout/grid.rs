@@ -130,6 +130,12 @@ pub(in crate::layout) fn layout_children_grid(
         conteudo.as_deref(),
         &resolve,
     );
+    // O computed style do Blink pode consultar o LayoutObject para propriedades
+    // dependentes de used values. Guardamos a mesma resolução no container para o
+    // DOM a serializar sem executar um segundo algoritmo de track sizing.
+    if css.grid_template_columns.is_some() {
+        list.grid_column_tracks.insert(id, col_sizes.clone());
+    }
     // Uma linha DECLARADA pela matriz existe mesmo sem item nela (ela ainda empurra
     // as linhas seguintes pelo gap), daí o max com `areas.rows`.
     let nrows = cells

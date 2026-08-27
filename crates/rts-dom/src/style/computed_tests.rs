@@ -61,6 +61,19 @@ fn computed_resolve_line_height_e_percentagem_como_o_chrome() {
 }
 
 #[test]
+fn computed_grid_columns_exposes_resolved_track_sizes() {
+    let dom = crate::parse_html_to_dom(
+        "<div id='g' style='display:grid;width:600px;grid-template-columns:1fr 2fr 1fr'>\
+         <div style='height:40px'></div><div style='height:40px'></div><div style='height:40px'></div></div>",
+    );
+    let grid = dom.query("#g").unwrap();
+    assert_eq!(
+        dom.computed_property(grid, "grid-template-columns"),
+        "150px 300px 150px"
+    );
+}
+
+#[test]
 fn overflow_de_um_eixo_torna_o_outro_auto() {
     // Regra da spec que só o computed mostra: um eixo não-visível ao lado de um
     // `visible` faz o segundo computar para `auto`. Medido no Chrome.
