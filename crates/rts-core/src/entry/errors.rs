@@ -104,6 +104,16 @@ pub fn invalid_arg_value(name: &str, actual: u64, reason: &str) {
     );
 }
 
+/// Raises `Error [ERR_STRING_TOO_LONG]` for a string conversion over the
+/// runtime's materialisation limit.
+pub fn string_too_long() {
+    raise(
+        "Error",
+        "ERR_STRING_TOO_LONG",
+        "Cannot create a string longer than 0x1fffffe8 characters",
+    );
+}
+
 /// Raises `TypeError [ERR_UNKNOWN_ENCODING]`.
 ///
 /// A name apart from [`invalid_arg_value`] because Node gives it its own code

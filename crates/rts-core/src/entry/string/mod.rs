@@ -52,6 +52,7 @@ mod more;
 pub(super) mod pattern;
 mod points;
 mod replace;
+mod repeat;
 mod search;
 mod split;
 pub(in crate::entry) mod text;

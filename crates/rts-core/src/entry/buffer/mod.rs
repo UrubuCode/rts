@@ -102,6 +102,9 @@ impl Buffer {
         statics::alloc_unsafe(size)
     }
 
+    /// `Buffer.allocUnsafeSlow(size)`.
+    #[stat]
+    fn alloc_unsafe_slow(size: u64) -> u64 { statics::alloc_unsafe(size) }
     /// `Buffer.from(source, encodingOrOffset?)`.
     #[stat]
     fn from(source: u64, encoding_or_offset: u64) -> u64 {

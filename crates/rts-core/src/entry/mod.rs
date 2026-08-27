@@ -191,6 +191,14 @@ pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 pub use buffer::validate::MAX_LENGTH as BUFFER_MAX_LENGTH;
+/// The largest non-empty JavaScript string this runtime can materialise.
+///
+/// This is deliberately narrower than the byte-buffer ceiling: strings are
+/// stored as UTF-16 code units and `String.repeat` enforces this result limit.
+/// Keeping it in the core entry surface lets `node:buffer` publish the exact
+/// capacity that the string implementation accepts rather than copying a second
+/// literal there.
+pub const BUFFER_MAX_STRING_LENGTH: f64 = 536_870_888.0;
 pub use errors::{
     buffer_out_of_bounds, invalid_arg_instance, invalid_arg_type, invalid_arg_value, invalid_state,
     out_of_range, unknown_encoding,
