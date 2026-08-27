@@ -164,6 +164,7 @@ mod args;
 mod call_site;
 mod equal;
 mod inspect;
+mod inspect_buffer;
 mod legacy;
 mod promisify;
 mod signals;

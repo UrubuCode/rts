@@ -80,6 +80,7 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("transcode", transcode),
         ("isAscii", is_ascii),
         ("isUtf8", is_utf8),
+        ("SlowBuffer", slow_buffer_native),
         ("resolveObjectURL", resolve_object_url),
     ];
     let namespace = entry::make_namespace(context, members);
@@ -220,6 +221,23 @@ extern "C" fn is_utf8(_e: u64, _this: u64, input: u64, _b: u64, _c: u64, _d: u64
 /// module doc.
 fn bytes_argument(input: u64) -> Option<Vec<u8>> {
     entry::with_runtime(|context| entry::bytes_of(context, input))
+}
+
+/// The legacy `buffer.SlowBuffer(size)` factory.
+extern "C" fn slow_buffer_native(
+    _e: u64,
+    _this: u64,
+    size: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    let buffer = entry::with_runtime(|context| entry::buffer_class(context));
+    let alloc_unsafe = entry::with_runtime(|context| {
+        entry::get_member(context, buffer, "allocUnsafe")
+    });
+    let absent = entry::undefined_value();
+    entry::call(alloc_unsafe, buffer, size, absent, absent, absent)
 }
 
 /// `buffer.resolveObjectURL(id)` — always `undefined`, and totally correct
