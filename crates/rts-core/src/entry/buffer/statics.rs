@@ -18,10 +18,12 @@
 //! The borrow rule is unchanged and is [`super::ops`]'s: every member takes ONE,
 //! at the end, after every refusal has been decided. See [`super::validate`].
 
+use super::super::array_proto::arguments_at;
 use super::super::buffers::{undefined, view_of, window};
 use super::super::errors;
 use super::super::objects::undefined_of;
-use super::super::with_current;
+use super::super::{operators, with_current};
+use crate::coerce::Hint;
 use crate::value::Value;
 use super::codec;
 use super::ops::{made, pattern_of, source_bytes};
@@ -108,6 +110,31 @@ pub(in crate::entry) fn from(source: u64, encoding_or_offset: u64) -> u64 {
         let bytes = source_bytes(context, source, &encoding).unwrap_or_default();
         made(context, &bytes)
     })
+}
+
+/// `Buffer.of(...values)`.
+///
+/// This is deliberately not routed through [`source_bytes`]: each argument is
+/// one numeric ToUint8 value, so `Buffer.of("2")` contains `2` rather than the
+/// UTF-8 byte for the character `2`.
+pub(in crate::entry) fn of(a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let values = with_current(|context| arguments_at(context, 0, [a0, a1, a2, a3]));
+    let mut bytes = Vec::with_capacity(values.len());
+    for value in values {
+        let primitive = super::super::primitive::to_primitive(value, Hint::Number);
+        if super::super::throw::in_flight() {
+            return undefined();
+        }
+        let number = with_current(|context| {
+            operators::as_number(context, Value(primitive)).unwrap_or(0.0)
+        });
+        bytes.push(if number.is_finite() {
+            number.trunc().rem_euclid(256.0) as u8
+        } else {
+            0
+        });
+    }
+    with_current(|context| made(context, &bytes))
 }
 
 /// `Buffer.concat(list, totalLength?)`.
