@@ -54,11 +54,10 @@ pub fn draw_rect(
 /// mais o buffer quando chegar aqui. É a mesma razão que fez `meshUpload` receber
 /// views tipadas em vez de ponteiro e tamanho.
 ///
-/// A textura é EFÊMERA — carregada por frame e descartada pelo egui no fim, com
-/// nome único por posição na fila para não pegar cache velho. Isso torna cada
-/// frame independente e é o que uma miniatura de asset precisa; uma imagem
-/// pintada todo frame paga o upload todo frame, e é o custo a medir antes de
-/// alguém desenhar um vídeo com isto.
+/// A textura do framebuffer é persistente por janela. O primeiro frame aloca o
+/// recurso; frames seguintes actualizam o mesmo `TextureHandle`, evitando criar e
+/// libertar uma textura egui por frame. Se as dimensões mudarem, o recurso é
+/// recriado uma vez para acompanhar o novo tamanho.
 pub fn draw_image(h: u64, x: f64, y: f64, w: f64, h_: f64, pixels: &[u8], img_w: i64, img_h: i64) {
     let width = img_w.max(0) as usize;
     let height = img_h.max(0) as usize;
@@ -73,17 +72,26 @@ pub fn draw_image(h: u64, x: f64, y: f64, w: f64, h_: f64, pixels: &[u8], img_w:
         if !c.frame_active {
             return;
         }
-        let tex = c.egui_ctx.load_texture(
-            format!("__rts_img_{}", c.cmds.len()),
-            image,
-            egui::TextureOptions::LINEAR,
-        );
+        if c.image_tex.is_none() || c.image_w != width || c.image_h != height {
+            c.image_w = width;
+            c.image_h = height;
+            c.image_tex = Some(c.egui_ctx.load_texture(
+                "__rts_framebuffer",
+                image,
+                egui::TextureOptions::LINEAR,
+            ));
+        } else if let Some(tex) = c.image_tex.as_mut() {
+            tex.set(image, egui::TextureOptions::LINEAR);
+        }
+        let Some(tex) = c.image_tex.as_ref() else {
+            return;
+        };
         c.cmds.push(WidgetCmd::DrawImage {
             x: x as f32,
             y: y as f32,
             w: w as f32,
             h: h_ as f32,
-            tex,
+            tex: tex.clone(),
         });
     });
 }

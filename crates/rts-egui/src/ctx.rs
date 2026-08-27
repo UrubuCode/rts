@@ -156,6 +156,11 @@ pub struct UiCtx {
     /// freio o arrasto fica pesado. O frame de assentamento (largura final
     /// exata) vem do loop TS assim que o arrasto solta.
     pub last_resize_redraw: Option<std::time::Instant>,
+    /// Textura do framebuffer de `drawImage`, reutilizada entre frames quando as
+    /// dimensões não mudam. O handle mantém o recurso vivo no TextureManager.
+    pub image_tex: Option<egui::TextureHandle>,
+    pub image_w: usize,
+    pub image_h: usize,
     /// Árvore de DOM RETIDA da última chamada a `egui.html(...)`. É a fonte da
     /// verdade persistente entre frames (ao contrário de `cmds`, zerada a cada
     /// frame): o render percorre esta árvore, `egui.domDump` a serializa para

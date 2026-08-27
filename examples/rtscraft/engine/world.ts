@@ -1,25 +1,13 @@
-import buffer from "rts:buffer";
-import math from "rts:math";
-
-// RTS-MINE engine — o mundo voxel como CLASSE (estilo Unity: um "singleton" de
-// cena injetado nos GameObjects). O grid vive num buffer u8; o raycaster lê o
-// handle cru (`world.buf`) por performance; a lógica de jogo usa os métodos.
-//
+// RTS-MINE engine — mundo voxel em TypedArrays do runtime actual.
 // ids de bloco: 0 ar, 1 grama, 2 terra, 3 pedra, 4 água, 5 areia, 6 tronco,
-// 7 folhas. (Entidades NÃO vivem no grid — têm renderer próprio, render3d.ts.)
+// 7 folhas. Entidades não vivem no grid — têm renderer próprio.
 
 export class World {
-  buf: i64;
-  /// heightmap de CULLING do renderer: topo+1 de qualquer bloco não-ar por
-  /// coluna (u8, índice z*sx+x). Células acima disso são céu garantido — o
-  /// raycaster pula a leitura do grid (o "chunk culling" do raycasting).
-  hbuf: i64;
-  /// topo global (nenhum bloco acima disso em lugar nenhum): raio subindo
-  /// acima de maxH sai direto pro céu.
+  buf: Uint8Array;
+  hbuf: Uint8Array;
+  cbuf: Uint8Array;
+  heightCounts: Int32Array;
   maxH: number;
-  /// CHUNKS 4×4×4: contagem de blocos não-ar por chunk (u8). O raycaster pula
-  /// células em chunk vazio SEM ler o grid — o "chunk culling" do raycasting.
-  cbuf: i64;
   sx: number;
   sy: number;
   sz: number;
@@ -30,41 +18,37 @@ export class World {
     this.sy = sy;
     this.sz = sz;
     this.waterLevel = waterLevel;
-    this.buf = buffer.alloc(sx * sy * sz);
-    this.hbuf = buffer.alloc(sx * sz);
-    this.cbuf = buffer.alloc((sx / 4) * (sy / 4) * (sz / 4));
+    this.buf = new Uint8Array(sx * sy * sz);
+    this.hbuf = new Uint8Array(sx * sz);
+    this.cbuf = new Uint8Array((sx / 4) * (sy / 4) * (sz / 4));
+    this.heightCounts = new Int32Array(sy + 1);
     this.maxH = 0;
   }
 
-  /// Ajusta a contagem do chunk 4×4×4 que contém (x,y,z) em `delta` (+1/-1).
   bumpChunk(x: number, y: number, z: number, delta: number): void {
     const cxx = this.sx / 4;
     const czz = this.sz / 4;
     const idx = ((y >> 2) * czz + (z >> 2)) * cxx + (x >> 2);
-    const cur = buffer.read_u8(this.cbuf, idx);
-    buffer.write_u8(this.cbuf, idx, cur + delta);
+    this.cbuf[idx] = this.cbuf[idx] + delta;
   }
 
-  /// Reconstrói as contagens de chunk do zero (chamar após generate()).
   rebuildChunks(): void {
     const cxx = this.sx / 4;
     const cyy = this.sy / 4;
     const czz = this.sz / 4;
-    // zera
     let ci = 0;
     const total = cxx * cyy * czz;
     while (ci < total) {
-      buffer.write_u8(this.cbuf, ci, 0);
+      this.cbuf[ci] = 0;
       ci = ci + 1;
     }
-    // conta
     let y = 0;
     while (y < this.sy) {
       let z = 0;
       while (z < this.sz) {
         let x = 0;
         while (x < this.sx) {
-          const b = buffer.read_u8(this.buf, (y * this.sz + z) * this.sx + x);
+          const b = this.buf[(y * this.sz + z) * this.sx + x];
           if (b !== 0) this.bumpChunk(x, y, z, 1);
           x = x + 1;
         }
@@ -74,90 +58,105 @@ export class World {
     }
   }
 
-  /// Recalcula o topo (não-ar) de UMA coluna após um edit. maxH só cresce
-  /// (conservador — remoção não abaixa o teto global; segue correto).
   updateColumn(x: number, z: number): void {
+    const hidx = z * this.sx + x;
+    const oldTop = this.hbuf[hidx];
     let ty = this.sy - 1;
     let top = 0;
     while (ty >= 0) {
-      const b = buffer.read_u8(this.buf, (ty * this.sz + z) * this.sx + x);
+      const b = this.buf[(ty * this.sz + z) * this.sx + x];
       if (b !== 0) { top = ty + 1; break; }
       ty = ty - 1;
     }
-    buffer.write_u8(this.hbuf, z * this.sx + x, top);
-    if (top > this.maxH) this.maxH = top;
+    if (oldTop === top) return;
+    this.hbuf[hidx] = top;
+    this.heightCounts[oldTop] = this.heightCounts[oldTop] - 1;
+    this.heightCounts[top] = this.heightCounts[top] + 1;
+    if (top > this.maxH) {
+      this.maxH = top;
+    } else if (oldTop === this.maxH && top < oldTop) {
+      let candidate = this.maxH;
+      while (candidate > 0 && this.heightCounts[candidate] === 0) candidate = candidate - 1;
+      this.maxH = candidate;
+    }
   }
 
-  /// Reconstrói o heightmap inteiro + maxH (chamar após generate()).
   rebuildHeights(): void {
+    let i = 0;
+    while (i <= this.sy) {
+      this.heightCounts[i] = 0;
+      i = i + 1;
+    }
+    this.maxH = 0;
     let z = 0;
     while (z < this.sz) {
       let x = 0;
       while (x < this.sx) {
-        this.updateColumn(x, z);
+        const hidx = z * this.sx + x;
+        let ty = this.sy - 1;
+        let top = 0;
+        while (ty >= 0) {
+          const b = this.buf[(ty * this.sz + z) * this.sx + x];
+          if (b !== 0) { top = ty + 1; break; }
+          ty = ty - 1;
+        }
+        this.hbuf[hidx] = top;
+        this.heightCounts[top] = this.heightCounts[top] + 1;
+        if (top > this.maxH) this.maxH = top;
         x = x + 1;
       }
       z = z + 1;
     }
   }
 
-  /// id do bloco em (x,y,z); fora dos limites = 0 (ar).
   get(x: number, y: number, z: number): number {
     if (x < 0 || x >= this.sx || y < 0 || y >= this.sy || z < 0 || z >= this.sz) return 0;
-    return buffer.read_u8(this.buf, (y * this.sz + z) * this.sx + x);
+    return this.buf[(y * this.sz + z) * this.sx + x];
   }
 
-  /// escreve o bloco (ignora fora dos limites) e atualiza o culling
-  /// (coluna do heightmap + contagem do chunk).
   set(x: number, y: number, z: number, id: number): void {
     if (x < 0 || x >= this.sx || y < 0 || y >= this.sy || z < 0 || z >= this.sz) return;
-    const old = buffer.read_u8(this.buf, (y * this.sz + z) * this.sx + x);
-    buffer.write_u8(this.buf, (y * this.sz + z) * this.sx + x, id);
+    const idx = (y * this.sz + z) * this.sx + x;
+    const old = this.buf[idx];
+    if (old === id) return;
+    this.buf[idx] = id;
     if (old === 0 && id !== 0) this.bumpChunk(x, y, z, 1);
-    if (old !== 0 && id === 0) this.bumpChunk(x, y, z, 0 - 1);
+    if (old !== 0 && id === 0) this.bumpChunk(x, y, z, -1);
     this.updateColumn(x, z);
   }
 
-  /// 1 se o bloco é sólido pra física (água não é). Lê o grid direto
-  /// (sem passar por get() — dispatch aninhado custa no hot path da física).
   solid(x: number, y: number, z: number): number {
     if (x < 0 || x >= this.sx || y < 0 || y >= this.sy || z < 0 || z >= this.sz) return 0;
-    const b = buffer.read_u8(this.buf, (y * this.sz + z) * this.sx + x);
+    const b = this.buf[(y * this.sz + z) * this.sx + x];
     if (b !== 0 && b !== 4) return 1;
     return 0;
   }
 
-  /// y do bloco sólido mais alto em (x,z); -1 se nenhum. Leitura direta e
-  /// começa do teto REAL do mundo (maxH), não do topo do grid.
   topY(x: number, z: number): number {
     if (x < 0 || x >= this.sx || z < 0 || z >= this.sz) return -1;
-    let y = this.maxH;
-    if (y > this.sy - 1) y = this.sy - 1;
+    let y = this.hbuf[z * this.sx + x] - 1;
     while (y >= 0) {
-      const b = buffer.read_u8(this.buf, (y * this.sz + z) * this.sx + x);
+      const b = this.buf[(y * this.sz + z) * this.sx + x];
       if (b !== 0 && b !== 4) return y;
       y = y - 1;
     }
     return -1;
   }
 
-  /// Gera o terreno: heightmap (senos + hash), camadas, água, areia e árvores.
   generate(): void {
-    const wb = this.buf;
     const wx = this.sx;
     const wy = this.sy;
     const wz = this.sz;
     const wl = this.waterLevel;
-
     let gx = 0;
     while (gx < wx) {
       let gz = 0;
       while (gz < wz) {
-        const s1 = math.sin(gx * 0.23) * math.cos(gz * 0.19);
-        const s2 = math.sin((gx * 0.5 + gz) * 0.11);
-        const hn = math.sin(gx * 12.9898 + gz * 78.233) * 43758.5453;
-        const rnd = hn - math.floor(hn);
-        let hgt = math.floor(9.0 + 5.0 * s1 + 3.0 * s2 + rnd * 2.0);
+        const s1 = Math.sin(gx * 0.23) * Math.cos(gz * 0.19);
+        const s2 = Math.sin((gx * 0.5 + gz) * 0.11);
+        const hn = Math.sin(gx * 12.9898 + gz * 78.233) * 43758.5453;
+        const rnd = hn - Math.floor(hn);
+        let hgt = Math.floor(9.0 + 5.0 * s1 + 3.0 * s2 + rnd * 2.0);
         if (hgt < 2) hgt = 2;
         if (hgt > 24) hgt = 24;
         let gy = 0;
@@ -169,7 +168,7 @@ export class World {
             if (hgt <= wl) b = 5;
             else b = 1;
           } else if (gy <= wl) b = 4;
-          buffer.write_u8(wb, (gy * wz + gz) * wx + gx, b);
+          this.buf[(gy * wz + gz) * wx + gx] = b;
           gy = gy + 1;
         }
         gz = gz + 1;
@@ -177,27 +176,26 @@ export class World {
       gx = gx + 1;
     }
 
-    // árvores determinísticas
     let tx = 3;
     while (tx < wx - 3) {
       let tz = 3;
       while (tz < wz - 3) {
-        const hn2 = math.sin(tx * 91.17 + tz * 41.921) * 33421.77;
-        const r2 = hn2 - math.floor(hn2);
+        const hn2 = Math.sin(tx * 91.17 + tz * 41.921) * 33421.77;
+        const r2 = hn2 - Math.floor(hn2);
         if (r2 > 0.975) {
           let ty = wy - 1;
           let top = -1;
           while (ty >= 0) {
-            const bb = buffer.read_u8(wb, (ty * wz + tz) * wx + tx);
+            const bb = this.buf[(ty * wz + tz) * wx + tx];
             if (bb !== 0) { top = ty; break; }
             ty = ty - 1;
           }
           if (top > wl && top + 7 < wy) {
-            const tb = buffer.read_u8(wb, (top * wz + tz) * wx + tx);
+            const tb = this.buf[(top * wz + tz) * wx + tx];
             if (tb === 1) {
               let k = 1;
               while (k <= 4) {
-                buffer.write_u8(wb, ((top + k) * wz + tz) * wx + tx, 6);
+                this.buf[((top + k) * wz + tz) * wx + tx] = 6;
                 k = k + 1;
               }
               let ly = top + 4;
@@ -206,15 +204,15 @@ export class World {
                 while (lx <= tx + 1) {
                   let lz = tz - 1;
                   while (lz <= tz + 1) {
-                    const cur = buffer.read_u8(wb, (ly * wz + lz) * wx + lx);
-                    if (cur === 0) buffer.write_u8(wb, (ly * wz + lz) * wx + lx, 7);
+                    const idx = (ly * wz + lz) * wx + lx;
+                    if (this.buf[idx] === 0) this.buf[idx] = 7;
                     lz = lz + 1;
                   }
                   lx = lx + 1;
                 }
                 ly = ly + 1;
               }
-              buffer.write_u8(wb, ((top + 6) * wz + tz) * wx + tx, 7);
+              this.buf[((top + 6) * wz + tz) * wx + tx] = 7;
             }
           }
         }
