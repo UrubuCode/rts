@@ -161,6 +161,42 @@ pub fn invalid_buffer_size(bits: usize) {
     );
 }
 
+/// Raises the TypeError used when a Buffer BigInt method receives another type.
+pub fn invalid_bigint_type() {
+    super::throw::type_error("Cannot mix BigInt and other types, use explicit conversions");
+}
+
+/// Raises a BigInt `RangeError [ERR_OUT_OF_RANGE]` with Node's `n` rendering.
+pub fn out_of_range_bigint(name: &str, expected: &str, actual: u64) {
+    let received = with_current(|context| {
+        super::bigints::digits_of(context, actual)
+            .map(|value| grouped_bigint(&value.to_decimal()))
+            .unwrap_or_else(|| String::from("undefined"))
+    });
+    raise(
+        "RangeError",
+        "ERR_OUT_OF_RANGE",
+        &format!(
+            "The value of \"{name}\" is out of range. It must be {expected}. Received {received}"
+        ),
+    );
+}
+
+/// Group a decimal BigInt magnitude in the presentation used by Node errors.
+fn grouped_bigint(decimal: &str) -> String {
+    let (sign, digits) = match decimal.strip_prefix('-') {
+        Some(digits) => ("-", digits),
+        None => ("", decimal),
+    };
+    let mut grouped = digits.to_owned();
+    let mut at = grouped.len().saturating_sub(3);
+    while at > 0 {
+        grouped.insert(at, '_');
+        at = at.saturating_sub(3);
+    }
+    format!("{sign}{grouped}n")
+}
+
 /// Builds an error of `class`, stamps `code` on it, and raises it.
 ///
 /// # Why the class name crosses as text

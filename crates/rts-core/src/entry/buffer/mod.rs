@@ -45,6 +45,7 @@
 //! fourteen times over — see [`validate`], which also documents the borrow rule
 //! that decides their shape.
 
+pub(in crate::entry) mod bigint;
 pub(in crate::entry) mod codec;
 pub(in crate::entry) mod ops;
 pub(in crate::entry) mod statics;
@@ -192,6 +193,24 @@ impl Buffer {
     fn includes(this: u64, value: u64, byte_offset: u64, encoding: u64) -> bool {
         ops::includes(this, value, byte_offset, encoding)
     }
+
+    // BigInt64 and BigUint64 accessors share the dedicated word codec.
+    #[js("readBigInt64LE")]
+    fn read_big_int64_le(this: u64, offset: u64) -> u64 { bigint::read(this, offset, Kind::BigInt64, true) }
+    #[js("readBigInt64BE")]
+    fn read_big_int64_be(this: u64, offset: u64) -> u64 { bigint::read(this, offset, Kind::BigInt64, false) }
+    #[js("readBigUInt64LE")]
+    fn read_big_u_int64_le(this: u64, offset: u64) -> u64 { bigint::read(this, offset, Kind::BigUint64, true) }
+    #[js("readBigUInt64BE")]
+    fn read_big_u_int64_be(this: u64, offset: u64) -> u64 { bigint::read(this, offset, Kind::BigUint64, false) }
+    #[js("writeBigInt64LE")]
+    fn write_big_int64_le(this: u64, value: u64, offset: u64) -> f64 { bigint::write(this, value, offset, Kind::BigInt64, true) }
+    #[js("writeBigInt64BE")]
+    fn write_big_int64_be(this: u64, value: u64, offset: u64) -> f64 { bigint::write(this, value, offset, Kind::BigInt64, false) }
+    #[js("writeBigUInt64LE")]
+    fn write_big_u_int64_le(this: u64, value: u64, offset: u64) -> f64 { bigint::write(this, value, offset, Kind::BigUint64, true) }
+    #[js("writeBigUInt64BE")]
+    fn write_big_u_int64_be(this: u64, value: u64, offset: u64) -> f64 { bigint::write(this, value, offset, Kind::BigUint64, false) }
 
     /// `buf.swap16()` — reverse each 16-bit word in place.
     #[js("swap16")]
@@ -458,6 +477,10 @@ pub(in crate::entry) fn register_buffer_with_aliases(context: &mut Context) -> u
         ("writeUIntLE", "writeUintLE"),
         ("readUIntBE", "readUintBE"),
         ("writeUIntBE", "writeUintBE"),
+        ("readBigUInt64LE", "readBigUint64LE"),
+        ("writeBigUInt64LE", "writeBigUint64LE"),
+        ("readBigUInt64BE", "readBigUint64BE"),
+        ("writeBigUInt64BE", "writeBigUint64BE"),
     ] {
         let value = super::modules::get_member(context, prototype, upper);
         if value != super::modules::undefined_in(context) {
