@@ -276,6 +276,17 @@ fn raise(class: &str, code: &str, message: &str) {
     super::throw::throw_value(error);
 }
 
+fn constructor_name_in(context: &mut super::Context, value: u64) -> Option<String> {
+    let cell = crate::value::Value(value).as_slot()?;
+    let constructor = context.well_known("constructor");
+    let constructor = super::objects::read_property(context, cell, constructor)?;
+    let constructor = crate::value::Value(constructor.bits()).as_slot()?;
+    let name = context.well_known("name");
+    let name = super::objects::read_property(context, constructor, name)?;
+    let name = name.as_slot()?;
+    context.text_at(name).and_then(|text| text.to_rust())
+}
+
 /// What a value is, in the words Node's `ERR_INVALID_ARG_TYPE` uses.
 ///
 /// Node writes `type number` for a primitive, `an instance of Buffer` for an
@@ -341,6 +352,9 @@ fn kind_text(value: u64) -> String {
         if super::modules::is_array_in(context, value) {
             return String::from("an instance of Array");
         }
+        if let Some(name) = constructor_name_in(context, value).filter(|name| !name.is_empty()) {
+            return format!("an instance of {name}");
+        }
         if super::modules::is_object(context, value) {
             return String::from("an instance of Object");
         }
@@ -373,15 +387,7 @@ fn buffer_kind_text(value: u64) -> String {
         let Some(cell) = crate::value::Value(value).as_slot() else {
             return (None, false);
         };
-        let constructor = context.well_known("constructor");
-        let class_name = super::objects::read_property(context, cell, constructor)
-            .and_then(|constructor| crate::value::Value(constructor.bits()).as_slot())
-            .and_then(|constructor| {
-                let name = context.well_known("name");
-                super::objects::read_property(context, constructor, name)
-            })
-            .and_then(|name| name.as_slot())
-            .and_then(|name| context.text_at(name).and_then(|text| text.to_rust()));
+        let class_name = constructor_name_in(context, value);
         let value_of = context.well_known("valueOf");
         let custom_value_of = super::objects::own_property(context, cell, value_of)
             .is_some_and(|value_of| super::modules::is_callable_in(context, value_of.bits()));

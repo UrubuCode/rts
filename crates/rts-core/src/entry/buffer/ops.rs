@@ -29,6 +29,7 @@ use super::super::buffers::{
 use super::super::objects::undefined_of;
 use super::super::{Context, native, with_current};
 use super::codec;
+use super::search;
 use crate::entry;
 use super::validate::{self, Shape};
 use crate::value::Value;
@@ -106,7 +107,7 @@ pub(in crate::entry) fn source_bytes(context: &Context, value: u64, encoding: &s
     if let Some(cell) = Value(value).as_slot()
         && let Some(text) = context.text_at(cell)
     {
-        return codec::encode(&text.to_rust()?, encoding);
+        return codec::encode_text(text, encoding);
     }
     if let Some(cell) = Value(value).as_slot()
         && let Some(elements) = context.elements_at(cell)
@@ -131,13 +132,23 @@ fn encoding_arg(context: &Context, value: u64) -> String {
         .unwrap_or_else(|| "utf8".to_owned())
 }
 
+/// Encoding validation for search methods, whose optional trailing slot is null
+/// when the native ABI receives no third argument.
+fn validated_encoding(value: u64) -> Option<String> {
+    if value == entry::undefined_value() || value == entry::null_value() {
+        Some("utf8".to_owned())
+    } else {
+        validate::encoding(value)
+    }
+}
+
 /// A byte, a string's encoded bytes, or a view's bytes — what
 /// [`fill`]/[`index_of`]/[`includes`] search for or write.
 pub(in crate::entry) fn pattern_of(context: &Context, value: u64, encoding: &str) -> Vec<u8> {
     match Value(value).as_slot() {
         Some(cell) => {
             if let Some(text) = context.text_at(cell) {
-                return codec::encode(&text.to_rust().unwrap_or_default(), encoding).unwrap_or_default();
+                return codec::encode_text(text, encoding).unwrap_or_default();
             }
             if let Some(view) = view_of(context, value) {
                 return window(context, &view).map(<[u8]>::to_vec).unwrap_or_default();
@@ -273,42 +284,78 @@ pub(in crate::entry) fn fill(this: u64, value: u64, begin: u64, end: u64, encodi
     })
 }
 
-/// The first index at or after `from` where `needle` occurs in `haystack`, or
-/// `None`. An empty needle matches at `from` itself, the way `String.indexOf`
-/// treats one.
-fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
-    if needle.is_empty() {
-        return (from <= haystack.len()).then_some(from);
-    }
-    if from >= haystack.len() {
-        return None;
-    }
-    // Two-way with a SIMD prefilter, where the window compare this replaces was
-    // O(n*m). The same swap `entry::string::basic` took, and this one is the
-    // case that wants it most: a `Buffer` is bytes by construction and is
-    // routinely megabytes, where a string in this engine is usually short.
-    memchr::memmem::find(&haystack[from..], needle).map(|position| position + from)
-}
-
 /// `buf.indexOf(value, byteOffset?, encoding?)`.
 pub(in crate::entry) fn index_of(this: u64, value: u64, byte_offset: u64, encoding: u64) -> f64 {
+    if !validate::search_receiver(this) {
+        return -1.0;
+    }
     if !validate::search_value(value) {
         return -1.0;
     }
-    let byte_offset = optional_number(byte_offset);
+    let byte_offset_value = byte_offset;
+    let (byte_offset, encoding_in_offset) = search::search_arguments(byte_offset, encoding);
+    let enc = if encoding_in_offset {
+        validated_encoding(byte_offset_value)
+    } else {
+        validated_encoding(encoding)
+    };
+    let Some(enc) = enc else { return -1.0 };
     with_current(|context| {
         let Some(view) = view_of(context, this) else { return -1.0 };
         let Some(bytes) = window(context, &view) else { return -1.0 };
-        let enc = encoding_arg(context, encoding);
         let needle = pattern_of(context, value, &enc);
-        // UTF-16 searches operate on two-byte code units. A raw Buffer needle
-        // with an odd byte length cannot represent one, and Node returns no
-        // match rather than finding a byte halfway through a code unit.
-        if entry::canonical_encoding(&enc) == Some("utf16le") && needle.len() % 2 != 0 {
+        // UTF-16 searches operate on two-byte code-unit boundaries. A raw
+        // Buffer needle with an odd byte length cannot represent one, and Node
+        // returns no match rather than finding a byte halfway through a unit.
+        let utf16 = entry::canonical_encoding(&enc) == Some("utf16le");
+        if utf16 && needle.len() % 2 != 0 {
             return -1.0;
         }
         let (from, _) = range(bytes.len(), byte_offset, None);
-        find(bytes, &needle, from).map(|at| at as f64).unwrap_or(-1.0)
+        let found = if utf16 {
+            search::find_utf16(bytes, &needle, from)
+        } else {
+            search::find(bytes, &needle, from)
+        };
+        found.map(|at| at as f64).unwrap_or(-1.0)
+    })
+}
+
+pub(in crate::entry) fn last_index_of(
+    this: u64,
+    value: u64,
+    byte_offset: u64,
+    encoding: u64,
+) -> f64 {
+    if !validate::search_receiver(this) {
+        return -1.0;
+    }
+    if !validate::search_value(value) {
+        return -1.0;
+    }
+    let byte_offset_value = byte_offset;
+    let (byte_offset, encoding_in_offset) = search::search_arguments(byte_offset, encoding);
+    let enc = if encoding_in_offset {
+        validated_encoding(byte_offset_value)
+    } else {
+        validated_encoding(encoding)
+    };
+    let Some(enc) = enc else { return -1.0 };
+    with_current(|context| {
+        let Some(view) = view_of(context, this) else { return -1.0 };
+        let Some(bytes) = window(context, &view) else { return -1.0 };
+        let needle = pattern_of(context, value, &enc);
+        let utf16 = entry::canonical_encoding(&enc) == Some("utf16le");
+        if utf16 && needle.len() % 2 != 0 {
+            return -1.0;
+        }
+        let Some(from) = search::last_from(bytes.len(), byte_offset) else { return -1.0 };
+        let found = if utf16 {
+            search::find_last_utf16(bytes, &needle, from)
+        } else {
+            search::find_last(bytes, &needle, from)
+        };
+        found.map(|at| at as f64).unwrap_or(-1.0)
     })
 }
 

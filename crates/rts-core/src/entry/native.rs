@@ -123,6 +123,56 @@ pub(in crate::entry) fn install_with_arity(context: &mut Context, cell: u32, nat
     }
 }
 
+/// Installs native members that Node exposes as constructible functions.
+///
+/// Most runtime-created callables deliberately have no own `prototype`: making
+/// `native::callable` constructible globally would change getters, global
+/// functions and bound-function helpers. Buffer's methods are the exception
+/// observed by the compatibility suite. Their own prototype is an ordinary
+/// object, its `constructor` points back to the method, and the prototype
+/// property is non-enumerable/non-configurable but writable. The rejected
+/// alternative was to special-case the error formatter for one method, which
+/// would leave `new` with the wrong observable prototype and would not generalise
+/// to the other constructible Buffer methods.
+pub(in crate::entry) fn install_with_arity_and_prototypes(
+    context: &mut Context,
+    cell: u32,
+    natives: &[(&str, Native, u32)],
+) {
+    for (name, code, arity) in natives {
+        let method = callable(context, *code);
+        name_of(context, method, name);
+        length_of(context, method, *arity);
+        let Some(method_cell) = Value(method).as_slot() else {
+            continue;
+        };
+        let Some(prototype_cell) = plain(context) else {
+            continue;
+        };
+        let prototype = Value::from_slot(prototype_cell).bits();
+        let prototype_key = context.well_known("prototype");
+        super::objects::put(context, method_cell, prototype_key, prototype);
+        if let crate::object::Key::Name(named) = prototype_key {
+            super::integrity::set_attributes(
+                context,
+                method_cell,
+                named,
+                super::integrity::Attributes {
+                    writable: true,
+                    enumerable: false,
+                    configurable: false,
+                },
+            );
+        }
+        let constructor_key = context.well_known("constructor");
+        super::objects::put(context, prototype_cell, constructor_key, method);
+        hidden(context, prototype_cell, constructor_key);
+        let key = context.well_known(name);
+        super::objects::put(context, cell, key, method);
+        hidden(context, cell, key);
+    }
+}
+
 /// Marks a property nothing may change: non-writable, non-enumerable,
 /// NON-configurable.
 ///

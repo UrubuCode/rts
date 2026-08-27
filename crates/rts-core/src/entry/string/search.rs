@@ -42,6 +42,9 @@ extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
     let Some(search) = super::text_arg(search) else {
         return super::refused();
     };
+    // ToIntegerOrInfinity must run outside the borrow so arrays and objects can
+    // perform their ordinary ToPrimitive conversion instead of becoming NaN.
+    let from = super::integer_outside(from);
     with_current(|context| {
         // The narrow path first, and it is the common one: both sides ASCII, so
         // there is nothing to widen and nothing to copy. `units_of` builds a
@@ -52,7 +55,7 @@ extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
         //
         // Answered from borrowed slices, so neither side allocates at all.
         if let Some((hay, pin)) = narrow_pair(context, this, search) {
-            let start = relative(super::integer_arg(context, from).max(0.0), hay.len());
+            let start = relative(from.max(0.0), hay.len());
             let found = find_bytes(hay, pin, start);
             return Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits();
         }
@@ -60,7 +63,7 @@ extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
         else {
             return nothing(context);
         };
-        let start = relative(super::integer_arg(context, from).max(0.0), units.len());
+        let start = relative(from.max(0.0), units.len());
         let found = find(&units, &needle, start);
         Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits()
     })
@@ -104,6 +107,10 @@ extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64
     let Some(search) = super::text_arg(search) else {
         return super::refused();
     };
+    // Unlike `integer_arg`, this keeps NaN visible: String.lastIndexOf treats
+    // it like an omitted upper bound, and the conversion still belongs outside
+    // the runtime borrow so object offsets can run their primitive hooks.
+    let from = super::super::class_support::to_number(from);
     with_current(|context| {
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
@@ -114,13 +121,12 @@ extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64
         // position means 0. The asymmetry is the specification's: one searches
         // forwards from a lower bound, the other backwards from an upper one.
         //
-        // Asked through `ToNumber` rather than through `integer_arg`, because
-        // that one folds `NaN` into zero and here `NaN` means the far end. This
-        // is the one method the specification writes with `ToNumber` and an
-        // explicit `NaN` case instead of `ToIntegerOrInfinity`.
-        let limit = match super::super::operators::as_number(context, Value(from)) {
-            Some(number) if !number.is_nan() => relative(number.trunc().max(0.0), units.len()),
-            _ => units.len(),
+        // `from` was converted before this borrow. Keep NaN as the far end;
+        // otherwise truncate and clamp the requested upper bound.
+        let limit = if from.is_nan() {
+            units.len()
+        } else {
+            relative(from.trunc().max(0.0), units.len())
         };
         // The last position a match could START at: past `len - needle.len()`
         // there is not enough string left for one.
