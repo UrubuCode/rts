@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "1 | // ONE thing: join/toString cycle detection. An array reachable from itself\n2 | // contributes an EMPTY string instead of recursing — the spec keeps a stack of\n3 | // arrays already being joined.\n4 | const a: any[] = [1, 2];\n5 | a.push(a);\n6 | console.log(\"self=\" + a.join(\",\"));\n                            ^\nRangeError: Maximum call stack size exceeded.\n      at /home/runner/work/rts/rts/tests/cross-runtime/array/claude-join-cycle-detection.ts:6:25\n\n::error file=tests/cross-runtime/array/claude-join-cycle-detection.ts,line=6,col=25,title=RangeError: Maximum call stack size exceeded.::%0A      at /home/runner/work/rts/rts/tests/cross-runtime/array/claude-join-cycle-detection.ts:6:25\n\nBun v1.4.0 (Linux x64)",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4829) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4762) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -5702,7 +5702,7 @@
   "status": "rts_diverge",
   "bun": "1 timeline=sync,micro1,qm1,micro2,qm2,micro3,qm3,micro4,qm4,timer1,t1-micro,t1-then,timer2,t2-micro,timer3\n2 syncFirst=true\n3 allMicroBeforeTimer1=true\n4 allQmBeforeTimer1=true\n5 timerOrder=true,true\n6 timer1MicrosBeforeTimer2=true\n7 timer2MicroBeforeTimer3=true\n8 handleType=true\n9 clearedRan=false\n10 forwardedArgs=x/y/2\n11 lateSoFar=outer,sibling\n12 stepCount=15\n13 clearFired=quiet\n14 stringDelay=micro,stringDelay\n15 lateFinal=outer,sibling,nested\nend",
   "node": "1 timeline=sync,micro1,qm1,micro2,qm2,micro3,qm3,micro4,qm4,timer1,t1-micro,t1-then,timer2,t2-micro,timer3\n2 syncFirst=true\n3 allMicroBeforeTimer1=true\n4 allQmBeforeTimer1=true\n5 timerOrder=true,true\n6 timer1MicrosBeforeTimer2=true\n7 timer2MicroBeforeTimer3=true\n8 handleType=true\n9 clearedRan=false\n10 forwardedArgs=x/y/2\n11 lateSoFar=outer,sibling\n12 stepCount=15\n13 clearFired=quiet\n14 stringDelay=micro,stringDelay\n15 lateFinal=outer,sibling,nested\nend",
-  "rts": "1 timeline=sync,micro1,qm1,micro2,qm2,micro3,qm3,micro4,qm4,timer1,timer2,timer3\n2 syncFirst=true\n3 allMicroBeforeTimer1=true\n4 allQmBeforeTimer1=true\n5 timerOrder=true,true\n6 timer1MicrosBeforeTimer2=true\n7 timer2MicroBeforeTimer3=true\n8 handleType=true\n9 clearedRan=false\n10 forwardedArgs=x/undefined/1\n11 lateSoFar=outer,sibling\n12 stepCount=15\n13 clearFired=quiet\n14 stringDelay=micro,stringDelay\n15 lateFinal=outer,sibling,nested\nend",
+  "rts": "1 timeline=sync,micro1,qm1,micro2,qm2,micro3,qm3,micro4,qm4,timer1,timer2,t1-micro,t1-then,t2-micro,timer3\n2 syncFirst=true\n3 allMicroBeforeTimer1=true\n4 allQmBeforeTimer1=true\n5 timerOrder=true,true\n6 timer1MicrosBeforeTimer2=false\n7 timer2MicroBeforeTimer3=true\n8 handleType=true\n9 clearedRan=false\n10 forwardedArgs=x/undefined/1\n11 lateSoFar=outer,sibling\n12 stepCount=15\n13 clearFired=quiet\n14 stringDelay=micro,stringDelay\n15 lateFinal=outer,sibling,nested\nend",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
