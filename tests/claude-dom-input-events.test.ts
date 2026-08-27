@@ -10,6 +10,39 @@ function makeInput(value: string): { doc: Document; field: Element } {
 }
 
 describe("eventos de edição do DOM", () => {
+  test("dispatchEvent aceita Event e CustomEvent do núcleo geral", () => {
+    const { doc, field } = makeInput("");
+    const parent = field.parentElement;
+    let childEvents = 0;
+    let parentEvents = 0;
+    let detail = 0;
+    field.addEventListener("object-event", (event: any) => {
+      childEvents = childEvents + 1;
+      expect(event instanceof Event).toBe(true);
+    });
+    if (parent !== null) {
+      parent.addEventListener("object-event", (_event: any) => parentEvents = parentEvents + 1);
+    }
+    const event = new Event("object-event", { bubbles: true, cancelable: true });
+    expect(field.dispatchEvent(event)).toBe(true);
+    expect(childEvents).toBe(1);
+    expect(parentEvents).toBe(1);
+    expect(event.defaultPrevented).toBe(false);
+    expect(event.eventPhase).toBe(0);
+    expect(event.currentTarget).toBe(null);
+
+    field.addEventListener("custom-event", (received: any) => detail = received.detail);
+    const custom = new CustomEvent("custom-event", { detail: 42 });
+    expect(field.dispatchEvent(custom)).toBe(true);
+    expect(custom instanceof Event).toBe(true);
+    expect(detail).toBe(42);
+
+    field.addEventListener("cancel-object-event", (received: any) => received.preventDefault());
+    const cancelable = new Event("cancel-object-event", { cancelable: true });
+    expect(field.dispatchEvent(cancelable)).toBe(false);
+    expect(cancelable.defaultPrevented).toBe(true);
+  });
+
   test("faz beforeinput antes da mutação e input depois, com metadados", () => {
     const { doc, field } = makeInput("a");
     let order = "";

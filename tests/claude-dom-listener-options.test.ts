@@ -7,6 +7,7 @@ const order: string[] = [];
 let onceCount = 0;
 let passiveDefaultPrevented = false;
 let activeDefaultPrevented = false;
+const noBubbleOrder: string[] = [];
 
 if (parent !== null) {
   parent.addEventListener("order", (event: any) => {
@@ -38,6 +39,13 @@ if (button !== null) {
   button.dispatchEvent("once");
   button.dispatchEvent("once");
   button.dispatchEvent("cancel");
+  if (parent !== null) {
+    parent.addEventListener("no-bubble", (_event: any) => noBubbleOrder.push("parent-capture"), { capture: true });
+    parent.addEventListener("no-bubble", (_event: any) => noBubbleOrder.push("parent-bubble"));
+  }
+  button.addEventListener("no-bubble", (_event: any) => noBubbleOrder.push("target-capture"), { capture: true });
+  button.addEventListener("no-bubble", (_event: any) => noBubbleOrder.push("target-bubble"));
+  button.dispatchEvent(new Event("no-bubble", { bubbles: false }));
 }
 
 const removedDoc = parseDocument("<body><button id='b'>x</button></body>");
@@ -69,5 +77,12 @@ describe("opções de listeners DOM", () => {
 
   test("removeEventListener respeita callback e capture", () => {
     expect(removedCount).toBe(0);
+  });
+
+  test("bubbles false mantém capture e bloqueia bubbling", () => {
+    expect(noBubbleOrder[0]).toBe("parent-capture");
+    expect(noBubbleOrder[1]).toBe("target-capture");
+    expect(noBubbleOrder[2]).toBe("target-bubble");
+    expect(noBubbleOrder.length).toBe(3);
   });
 });

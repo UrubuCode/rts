@@ -117,6 +117,45 @@
 
 
     #[test]
+    fn capture_anda_com_bubbles_false_e_target_e_capture_first() {
+        let mut dom = parse_html_to_dom("<div id=pai><button id=b>x</button></div>");
+        let pai = dom.query("#pai").unwrap();
+        let b = dom.query("#b").unwrap();
+        dom.add_event_listener_cb_with_options(
+            pai,
+            "custom",
+            10,
+            ListenerOptions { capture: true, once: false, passive: false },
+        );
+        dom.add_event_listener_cb_with_options(
+            pai,
+            "custom",
+            20,
+            ListenerOptions { capture: false, once: false, passive: false },
+        );
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            30,
+            ListenerOptions { capture: false, once: false, passive: false },
+        );
+        dom.add_event_listener_cb_with_options(
+            b,
+            "custom",
+            40,
+            ListenerOptions { capture: true, once: false, passive: false },
+        );
+
+        assert_eq!(dom.dispatch_event_collect(b, "custom", false), 3);
+        assert_eq!(dom.last_dispatch_at(0).unwrap().1, 10);
+        assert!(dom.last_dispatch_capture_at(0));
+        assert_eq!(dom.last_dispatch_at(1).unwrap().1, 40);
+        assert!(dom.last_dispatch_capture_at(1));
+        assert_eq!(dom.last_dispatch_at(2).unwrap().1, 30);
+        assert!(!dom.last_dispatch_capture_at(2));
+    }
+
+    #[test]
     fn eventos_tipo_case_sensitive() {
         // tipos de evento são CASE-SENSITIVE (spec DOM: click ≠ CLICK).
         let mut dom = parse_html_to_dom("<div id=\"a\">x</div>");
