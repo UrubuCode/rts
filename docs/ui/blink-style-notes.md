@@ -23,3 +23,12 @@ An unlayered author declaration takes precedence over layered author declaration
 Implications for RTS: the current implementation has normal/important layers and `initial`/`unset`, but `revert` and `revert-layer` require retaining per-declaration provenance or applying cascade in origin/layer passes. A property-level cascade record is the next necessary abstraction before implementing those keywords correctly.
 
 Blink `CSSComputedStyleDeclaration` finding: `getPropertyValue` first obtains a property-specific CSS value from the computed style mapping. `getPropertyCSSValue` updates the style/layout tree, obtains the node's `ComputedStyle`, and passes the `LayoutObject` when needed to `ComputedStyleCSSValueMapping::get`; the final CSS text is the mapped value's `cssText()`. This is why a computed-style probe may expose resolved geometry-dependent values (for example grid track sizes) while the style object still retains computed declarations separately.
+
+## Margin collapsing and block formatting context
+
+MDN's CSS guidance, cross-checked against the local Chrome fixtures, confirms that a first in-flow child's top margin collapses with the parent when the parent has no top border, top padding, inline content, or clearance. The last child's bottom margin can collapse with an auto-height parent unless the parent has a defined height/min-height, bottom border, or bottom padding. A new block formatting context suppresses these parent/child collapses; `display: flow-root`, flex/grid containers, and non-`visible`/non-`clip` overflow are relevant barriers in this scope.[1] [2]
+
+The incremental RTS implementation should therefore distinguish the parent's own border-box rect from the flow cursor used to place the child. When the first child's margin escapes, the child remains at the collapsed edge while the parent's rect begins there and its content height excludes the escaped margin. The same provenance must be applied to the last child's bottom margin without changing the sibling strut outside the parent.
+
+[1]: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Box_model/Margin_collapsing "MDN: Mastering margin collapsing"
+[2]: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Display/Block_formatting_context "MDN: Block formatting context"
