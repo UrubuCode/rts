@@ -5,6 +5,21 @@
 
 use super::*;
 
+/// Evento de teclado bruto produzido por um backend. O DOM escolhe o alvo antes
+/// de o evento atravessar a fronteira TypeScript; `key_code` usa a tabela neutra
+/// de `rts-input` (A-Z 100..125, dígitos 130..139, F1..F12 140..151).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RawKeyboardEvent {
+    pub target: NodeIdx,
+    pub key_code: i64,
+    pub pressed: bool,
+    pub repeat: bool,
+    pub ctrl_key: bool,
+    pub shift_key: bool,
+    pub alt_key: bool,
+    pub meta_key: bool,
+}
+
 impl Dom {
 
     // ── Eventos (#1760) — modelo de polling + bubbling headless ──────────────────
@@ -99,9 +114,18 @@ impl Dom {
     /// `None` se a fila está vazia. O loop TS chama em laço por frame e despacha o
     /// callback certo (que vive no TS, indexado por nó+tipo). O NodeId é versionado.
     pub fn poll_event(&mut self) -> Option<(NodeId, String)> {
-        self.event_queue
-            .pop_front()
-            .map(|(idx, t)| (self.make_id(idx), t))
+        let event = self.event_queue.pop_front();
+        if let Some((_, ref event_type)) = event {
+            self.last_event_type = event_type.clone();
+        } else {
+            self.last_event_type.clear();
+        }
+        event.map(|(idx, _)| (self.make_id(idx), self.last_event_type.clone()))
+    }
+
+    /// Tipo devolvido pelo último `poll_event`.
+    pub fn poll_event_type(&self) -> &str {
+        &self.last_event_type
     }
 
     /// `dispatchEvent` com COLETA de callbacks: mesmo caminhamento (alvo → bubbling
@@ -196,6 +220,47 @@ impl Dom {
         }
     }
 
+    /// BACKEND → DOM: enfileira uma transição de teclado. O target é o input
+    /// focado; sem foco, usa `body` e finalmente `documentElement`.
+    pub fn push_raw_keyboard_event(
+        &mut self,
+        key_code: i64,
+        pressed: bool,
+        repeat: bool,
+        ctrl_key: bool,
+        shift_key: bool,
+        alt_key: bool,
+        meta_key: bool,
+    ) {
+        let target = self
+            .focused_input
+            .or_else(|| self.query_idx("body"))
+            .or_else(|| self.document_element().map(|id| id.idx as usize))
+            .unwrap_or(self.root);
+        self.raw_keyboard_event_queue.push_back(RawKeyboardEvent {
+            target,
+            key_code,
+            pressed,
+            repeat,
+            ctrl_key,
+            shift_key,
+            alt_key,
+            meta_key,
+        });
+    }
+
+    /// Retira o próximo evento de teclado bruto produzido pelo backend.
+    pub fn poll_raw_keyboard_event(&mut self) -> Option<RawKeyboardEvent> {
+        let event = self.raw_keyboard_event_queue.pop_front();
+        self.last_raw_keyboard_event = event;
+        event
+    }
+
+    /// Consulta o evento de teclado devolvido pelo último polling.
+    pub fn last_raw_keyboard_event(&self) -> Option<&RawKeyboardEvent> {
+        self.last_raw_keyboard_event.as_ref()
+    }
+
     /// BACKEND → DOM: empurra um evento CRU (`(nó, tipo)`) vindo do hit-test do
     /// mouse. Nenhuma expansão aqui — a fachada TS drena com [`Dom::poll_raw_event`]
     /// e faz o dispatch completo (bubbling + callbacks). `idx` é o `NodeIdx` cru
@@ -207,9 +272,18 @@ impl Dom {
 
     /// Próximo evento CRU do backend `(NodeId versionado, tipo)`, ou `None`.
     pub fn poll_raw_event(&mut self) -> Option<(NodeId, String)> {
-        self.raw_event_queue
-            .pop_front()
-            .map(|(idx, t)| (self.make_id(idx), t))
+        let event = self.raw_event_queue.pop_front();
+        if let Some((_, ref event_type)) = event {
+            self.last_raw_event_type = event_type.clone();
+        } else {
+            self.last_raw_event_type.clear();
+        }
+        event.map(|(idx, _)| (self.make_id(idx), self.last_raw_event_type.clone()))
+    }
+
+    /// Tipo devolvido pelo último `poll_raw_event`.
+    pub fn poll_raw_event_type(&self) -> &str {
+        &self.last_raw_event_type
     }
 
     /// Nº de callbacks coletados pelo último [`Dom::dispatch_event_collect`].

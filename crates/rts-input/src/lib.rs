@@ -15,6 +15,14 @@
 //! `rts-render`: ambos dependem só de `rts-engine`
 //! (`rts-engine ← {rts-render, rts-input} ← rts-egui`).
 //!
+//! ## Polling e eventos por frame
+//!
+//! O polling legado continua disponível para jogos que perguntam o estado a cada
+//! frame. Além dele, a fonte pode devolver transições de teclado em ordem de
+//! chegada através de `keyboard_events`; o DOM enfileira e despacha essas
+//! transições depois do frame. O backend não chama callbacks directamente nem
+//! conhece nós DOM, preservando a fronteira entre captura e dispatch.
+//!
 //! ## Expansão futura (este é o lar de TODA a entrada)
 //!
 //! Hoje cobre mouse/teclado/scroll/modificadores/texto. A intenção é crescer aqui
@@ -29,9 +37,10 @@ use std::cell::RefCell;
 
 
 /// O contrato de ENTRADA: o backend CAPTA o input cru (tem a janela; o SO entrega
-/// a ele) e o reporta SEM interpretar. Modelo POLLING — o DOM/layout/app pergunta
-/// o estado a cada frame e faz o hit-test/dispatch dos eventos (o backend não
-/// conhece nós DOM). Coords no mesmo espaço do render (pontos). Botões: 0=esq
+/// a ele) e o reporta SEM conhecer nós DOM. O estado continua disponível por
+/// polling e transições discretas podem ser devolvidas como eventos por frame;
+/// o DOM/layout/app escolhe o hit-test e faz o dispatch. Coords no mesmo espaço
+/// do render (pontos). Botões: 0=esq
 /// 1=dir 2=meio.
 pub trait InputSource {
     /// Posição do cursor (x, y) em pontos. `(-1, -1)` se fora da janela.
@@ -64,6 +73,11 @@ pub trait InputSource {
     /// = SOLTA neste frame. Unifica os antigos key_down/pressed/released num só
     /// (um único símbolo ABI `__rtsm_input_key`). Fase desconhecida → false.
     fn key_state(&self, target: u64, key: i64, phase: i64) -> bool;
+    /// Eventos de teclado recebidos neste frame, em ordem de chegada. O método
+    /// default mantém compatibilidade com backends que só oferecem polling.
+    fn keyboard_events(&self, _target: u64) -> Vec<KeyboardEvent> {
+        Vec::new()
+    }
     /// Modificadores segurados AGORA (Ctrl/Shift/Alt/Cmd) — `mod_*`.
     fn modifiers(&self, target: u64) -> Modifiers;
     /// Texto digitado neste frame (UTF-8 concatenado).
@@ -73,9 +87,18 @@ pub trait InputSource {
     fn copy_text(&self, _target: u64, _text: &str) {}
 }
 
+/// Evento de teclado neutro, independente de egui/winit/SDL.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyboardEvent {
+    pub key_code: i64,
+    pub pressed: bool,
+    pub repeat: bool,
+    pub modifiers: Modifiers,
+}
+
 /// Estado dos modificadores num frame (neutro). `cmd` = Super/⌘/Win (o egui
 /// `command`, cross-platform: Ctrl no Win/Linux, ⌘ no Mac).
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Modifiers {
     pub ctrl: bool,
     pub shift: bool,

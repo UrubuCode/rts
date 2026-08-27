@@ -118,6 +118,29 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
     ui.allocate_space(egui::vec2(ui.available_width(), list.content_height));
 }
 
+/// Transforma eventos neutros de `rts-input` em eventos crus do DOM. A captura
+/// fica no backend activo, mas não invoca callbacks: a fachada TypeScript faz o
+/// dispatch e o bubbling junto com os eventos de mouse.
+fn emit_keyboard_events(h: u64) {
+    let events = rts_input::with_input(|input| input.keyboard_events(h)).unwrap_or_default();
+    if events.is_empty() {
+        return;
+    }
+    let _ = rts_dom::store::with_dom_mut(h, |dom| {
+        for event in events {
+            dom.push_raw_keyboard_event(
+                event.key_code,
+                event.pressed,
+                event.repeat,
+                event.modifiers.ctrl,
+                event.modifiers.shift,
+                event.modifiers.alt,
+                event.modifiers.cmd,
+            );
+        }
+    });
+}
+
 /// Renderiza o DOM COM SCROLL — o egui burro: mantém só o offset (input do mouse),
 /// translada o conteúdo por -offset e pinta. A BARRA (track+thumb) é emitida pelo
 /// DOM (`layout::emit_scrollbar`) como `SolidRect` — NÃO usa o ScrollArea do egui,
@@ -132,6 +155,7 @@ pub(crate) fn render_dom_scrolled(
     force: bool,
 ) {
     let _phase = rts_dom::metrics::phases::scope("render-dom");
+    emit_keyboard_events(h);
     let avail = ui.available_size();
     let viewport_w = avail.x.max(1.0);
     let viewport_h = avail.y.max(1.0);

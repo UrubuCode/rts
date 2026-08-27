@@ -44,6 +44,107 @@ function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: nu
   return n;
 }
 
+function __keyboardKey(code: number, shift: number): string {
+  if (code >= 100 && code <= 125) {
+    const letters = "abcdefghijklmnopqrstuvwxyz";
+    const letter = letters.charAt(code - 100);
+    return shift !== 0 ? letter.toUpperCase() : letter;
+  }
+  if (code >= 130 && code <= 139) return String(code - 130);
+  if (code >= 140 && code <= 151) return "F" + (code - 139);
+  if (code === 1) return "Enter";
+  if (code === 2) return "Escape";
+  if (code === 3) return " ";
+  if (code === 4) return "Backspace";
+  if (code === 5) return "ArrowUp";
+  if (code === 6) return "ArrowDown";
+  if (code === 7) return "ArrowLeft";
+  if (code === 8) return "ArrowRight";
+  if (code === 9) return "Tab";
+  if (code === 10) return "Delete";
+  if (code === 11) return "Insert";
+  if (code === 12) return "Home";
+  if (code === 13) return "End";
+  if (code === 14) return "PageUp";
+  if (code === 15) return "PageDown";
+  return "Unidentified";
+}
+
+function __keyboardCode(code: number): string {
+  if (code >= 100 && code <= 125) {
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    return "Key" + letters.charAt(code - 100);
+  }
+  if (code >= 130 && code <= 139) return "Digit" + (code - 130);
+  if (code >= 140 && code <= 151) return "F" + (code - 139);
+  if (code === 1) return "Enter";
+  if (code === 2) return "Escape";
+  if (code === 3) return "Space";
+  if (code === 4) return "Backspace";
+  if (code === 5) return "ArrowUp";
+  if (code === 6) return "ArrowDown";
+  if (code === 7) return "ArrowLeft";
+  if (code === 8) return "ArrowRight";
+  if (code === 9) return "Tab";
+  if (code === 10) return "Delete";
+  if (code === 11) return "Insert";
+  if (code === 12) return "Home";
+  if (code === 13) return "End";
+  if (code === 14) return "PageUp";
+  if (code === 15) return "PageDown";
+  return "Unidentified";
+}
+
+function __dispatchKeyboardWithCallbacks(
+  h: i64,
+  node: number,
+  pressed: number,
+  repeat: number,
+  keyCode: number,
+  ctrl: number,
+  shift: number,
+  alt: number,
+  meta: number,
+): number {
+  const type = pressed !== 0 ? "keydown" : "keyup";
+  const n = dom.dispatchCollect(h, node, type, 1);
+  if (n === 0) return 0;
+  const cbs: number[] = [];
+  const nodes: number[] = [];
+  let i = 0;
+  while (i < n) {
+    cbs.push(dom.dispatchCbAt(h, i));
+    nodes.push(dom.dispatchCbNode(h, i));
+    i = i + 1;
+  }
+  const target = new Element(h, node);
+  const key = __keyboardKey(keyCode, shift);
+  const code = __keyboardCode(keyCode);
+  let j = 0;
+  while (j < n) {
+    const current = new Element(h, nodes[j]);
+    engine.invoke_cb(cbs[j], {
+      type: type,
+      target: target,
+      currentTarget: current,
+      key: key,
+      code: code,
+      keyCode: keyCode,
+      which: keyCode,
+      repeat: repeat !== 0,
+      ctrlKey: ctrl !== 0,
+      shiftKey: shift !== 0,
+      altKey: alt !== 0,
+      metaKey: meta !== 0,
+      bubbles: true,
+      cancelable: true,
+      defaultPrevented: false,
+    });
+    j = j + 1;
+  }
+  return n;
+}
+
 // camelCase → kebab-case para o açúcar de `dataset` (`userId` → `user-id`).
 function __camelToKebab(s: string): string {
   let out = "";
@@ -553,6 +654,29 @@ class Document {
     this._dom = dom_handle;
   }
 
+  private eventTarget(): Element | null {
+    const root = dom.documentElement(this._dom);
+    if (root !== __DOM_NONE) return new Element(this._dom, root);
+    const body = dom.querySelector(this._dom, "body");
+    if (body !== __DOM_NONE) return new Element(this._dom, body);
+    return null;
+  }
+
+  // Listeners do documento recebem eventos que borbulham até à raiz HTML.
+  addEventListener(type: string, cb?: any): void {
+    const target = this.eventTarget();
+    if (target !== null) target.addEventListener(type, cb);
+  }
+  removeEventListener(type: string): void {
+    const target = this.eventTarget();
+    if (target !== null) target.removeEventListener(type);
+  }
+  dispatchEvent(type: string): number {
+    const target = this.eventTarget();
+    if (target === null) return 0;
+    return target.dispatchEvent(type);
+  }
+
   querySelector(sel: string): Element | null {
     const n = dom.querySelector(this._dom, sel);
     if (n === __DOM_NONE) return null;
@@ -982,6 +1106,30 @@ function pumpEventCallbacks(doc: Document): number {
     if (node === __DOM_NONE) return despachados;
     const t = dom.pollRawEventType(h);
     __dispatchWithCallbacks(h, node, t, 1);
+    despachados = despachados + 1;
+    guard = guard + 1;
+  }
+  return despachados;
+}
+
+// Bomba de teclado do BACKEND: drena as transições emitidas pelo renderer egui
+// e entrega `keydown`/`keyup` ao target focado. Os getters de metadados devem ser
+// lidos imediatamente depois do poll, antes de qualquer outro poll do documento.
+function pumpKeyboardEvents(doc: Document): number {
+  const h: i64 = doc._dom;
+  let despachados = 0;
+  let guard = 0;
+  while (guard < 256) {
+    const node = dom.pollRawKeyboardEvent(h);
+    if (node === __DOM_NONE) return despachados;
+    const pressed = dom.rawKeyboardPressed(h);
+    const repeat = dom.rawKeyboardRepeat(h);
+    const keyCode = dom.rawKeyboardKey(h);
+    const ctrl = dom.rawKeyboardCtrl(h);
+    const shift = dom.rawKeyboardShift(h);
+    const alt = dom.rawKeyboardAlt(h);
+    const meta = dom.rawKeyboardMeta(h);
+    __dispatchKeyboardWithCallbacks(h, node, pressed, repeat, keyCode, ctrl, shift, alt, meta);
     despachados = despachados + 1;
     guard = guard + 1;
   }

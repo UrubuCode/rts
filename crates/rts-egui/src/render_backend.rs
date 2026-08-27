@@ -150,6 +150,50 @@ fn neutral_to_egui_key(key: i64) -> Option<egui::Key> {
     })
 }
 
+fn egui_to_neutral_key(key: egui::Key) -> Option<i64> {
+    use egui::Key;
+    const LETTERS: [Key; 26] = [
+        Key::A, Key::B, Key::C, Key::D, Key::E, Key::F, Key::G, Key::H, Key::I, Key::J,
+        Key::K, Key::L, Key::M, Key::N, Key::O, Key::P, Key::Q, Key::R, Key::S, Key::T,
+        Key::U, Key::V, Key::W, Key::X, Key::Y, Key::Z,
+    ];
+    if let Some(index) = LETTERS.iter().position(|candidate| *candidate == key) {
+        return Some(rts_input::KEY_A + index as i64);
+    }
+    const DIGITS: [Key; 10] = [
+        Key::Num0, Key::Num1, Key::Num2, Key::Num3, Key::Num4,
+        Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9,
+    ];
+    if let Some(index) = DIGITS.iter().position(|candidate| *candidate == key) {
+        return Some(rts_input::KEY_0 + index as i64);
+    }
+    const FUNCTION_KEYS: [Key; 12] = [
+        Key::F1, Key::F2, Key::F3, Key::F4, Key::F5, Key::F6,
+        Key::F7, Key::F8, Key::F9, Key::F10, Key::F11, Key::F12,
+    ];
+    if let Some(index) = FUNCTION_KEYS.iter().position(|candidate| *candidate == key) {
+        return Some(rts_input::KEY_F1 + index as i64);
+    }
+    Some(match key {
+        Key::Enter => rts_input::KEY_ENTER,
+        Key::Escape => rts_input::KEY_ESCAPE,
+        Key::Space => rts_input::KEY_SPACE,
+        Key::Backspace => rts_input::KEY_BACKSPACE,
+        Key::ArrowUp => rts_input::KEY_ARROW_UP,
+        Key::ArrowDown => rts_input::KEY_ARROW_DOWN,
+        Key::ArrowLeft => rts_input::KEY_ARROW_LEFT,
+        Key::ArrowRight => rts_input::KEY_ARROW_RIGHT,
+        Key::Tab => rts_input::KEY_TAB,
+        Key::Delete => rts_input::KEY_DELETE,
+        Key::Insert => rts_input::KEY_INSERT,
+        Key::Home => rts_input::KEY_HOME,
+        Key::End => rts_input::KEY_END,
+        Key::PageUp => rts_input::KEY_PAGE_UP,
+        Key::PageDown => rts_input::KEY_PAGE_DOWN,
+        _ => return None,
+    })
+}
+
 impl InputSource for EguiRenderer {
     fn mouse_pos(&self, target: u64) -> (f32, f32) {
         ctx::with_ctx(target, |c| {
@@ -245,6 +289,33 @@ impl InputSource for EguiRenderer {
         .unwrap_or(false)
     }
 
+    fn keyboard_events(&self, target: u64) -> Vec<rts_input::KeyboardEvent> {
+        ctx::with_ctx(target, |c| {
+            c.egui_ctx.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        egui::Event::Key { key, pressed, repeat, modifiers, .. } => {
+                            egui_to_neutral_key(*key).map(|key_code| rts_input::KeyboardEvent {
+                                key_code,
+                                pressed: *pressed,
+                                repeat: *repeat,
+                                modifiers: rts_input::Modifiers {
+                                    ctrl: modifiers.ctrl,
+                                    shift: modifiers.shift,
+                                    alt: modifiers.alt,
+                                    cmd: modifiers.command,
+                                },
+                            })
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
+    }
     fn modifiers(&self, target: u64) -> rts_input::Modifiers {
         ctx::with_ctx(target, |c| {
             c.egui_ctx.input(|i| {

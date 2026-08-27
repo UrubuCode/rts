@@ -526,8 +526,10 @@ while (egui.isOpen(win) !== 0) {
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);
-  // Entrega os cliques do frame aos addEventListener registrados pelos <script>
-  // da página (hit-test do render → fila crua → callbacks, PRs #1884/#1885).
+  // Entrega teclado e cliques do frame aos addEventListener registrados pelos
+  // <script> da página. O renderer apenas enfileira eventos crus; a fachada faz
+  // dispatch, bubbling e callbacks no DOM.
+  pumpKeyboardEvents(docF);
   pumpEventCallbacks(docF);
   pumpTimerCallbacks(docF);
 }

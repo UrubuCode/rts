@@ -49,6 +49,7 @@ mod serial;
 mod travessia;
 
 pub use self::no::{Attr, Node, NodeId, NodeKind};
+pub use self::eventos::RawKeyboardEvent;
 pub use self::parser::{parse_fragmento, parse_html_to_dom};
 use self::matcher::TargetKey;
 use self::helpers::{memo_forget, memo_put, nth_casa};
@@ -173,6 +174,10 @@ pub struct Dom {
     /// Fila de eventos PENDENTES a entregar ao loop TS via `pollEvent`. Cada entrada
     /// é `(nó-alvo a notificar, tipo)` — já expandida pelo bubbling no `dispatch`.
     event_queue: std::collections::VecDeque<(NodeIdx, String)>,
+    /// Tipo devolvido pelo último `poll_event`; scratch da ABI, fora do `PartialEq`.
+    last_event_type: String,
+    /// Tipo devolvido pelo último `poll_raw_event`; scratch da ABI, fora do `PartialEq`.
+    last_raw_event_type: String,
     /// Scratch da ÚLTIMA coleta de `dispatch_event_collect`: pares (nó-alvo,
     /// callback-word) na ordem de invocação. A camada TS copia TUDO para um array
     /// local ANTES de invocar (um callback pode re-despachar e sobrescrever isto).
@@ -188,6 +193,11 @@ pub struct Dom {
     /// (bubbling + callbacks + fila de polling). Padrão 1-frame-latency do
     /// north-star §3.
     raw_event_queue: std::collections::VecDeque<(NodeIdx, String)>,
+    /// Eventos de teclado crus emitidos pelo backend. O alvo é escolhido pelo DOM
+    /// (input focado, body ou documentElement), não pelo backend.
+    raw_keyboard_event_queue: std::collections::VecDeque<crate::dom::RawKeyboardEvent>,
+    /// Evento de teclado devolvido pelo último `poll_raw_keyboard_event`.
+    last_raw_keyboard_event: Option<crate::dom::RawKeyboardEvent>,
     // ── Animação (#1776) — LOOP INTERNO ao DOM; o egui só passa o tempo ───────────
     /// As transições EM CURSO, por nó. O `Dom` é dono do loop: `advance(now_ms)`
     /// detecta mudanças de estilo, inicia/atualiza transições e grava o estilo
