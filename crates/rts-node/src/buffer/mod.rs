@@ -76,8 +76,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// The namespace `node:buffer` is.
 pub fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] = &[
-        ("atob", atob),
-        ("btoa", btoa),
         ("transcode", transcode),
         ("isAscii", is_ascii),
         ("isUtf8", is_utf8),
@@ -85,6 +83,11 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("resolveObjectURL", resolve_object_url),
     ];
     let namespace = entry::make_namespace(context, members);
+    let global = entry::global_object(context);
+    let atob_global = entry::get_member(context, global, "atob");
+    let btoa_global = entry::get_member(context, global, "btoa");
+    entry::put_member(context, namespace, "atob", atob_global);
+    entry::put_member(context, namespace, "btoa", btoa_global);
 
     let buffer = entry::buffer_class(context);
     entry::put_member(context, namespace, "Buffer", buffer);
@@ -132,25 +135,6 @@ const MAX_LENGTH: f64 = entry::BUFFER_MAX_LENGTH;
 const MAX_STRING_LENGTH: f64 = entry::BUFFER_MAX_STRING_LENGTH;
 
 static INSPECT_MAX_BYTES: AtomicU64 = AtomicU64::new(50.0f64.to_bits());
-
-/// `buffer.atob(data)` — base64 to a binary string, one code unit per byte.
-/// Invalid base64 answers `""` (no-throw stand-in); real Node throws a
-/// `DOMException` this engine has no primordial for (reference §7).
-extern "C" fn atob(_e: u64, _this: u64, data: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let text = entry::text_of(data).unwrap_or_default();
-    let bytes = entry::decode_base64(&text);
-    let binary: String = bytes.iter().map(|&byte| byte as char).collect();
-    entry::with_runtime(|context| entry::make_string(context, &binary))
-}
-
-/// `buffer.btoa(data)` — a binary string (`U+0000`-`U+00FF`) to base64. A
-/// char above `U+00FF` truncates to its low byte — same no-throw stand-in.
-extern "C" fn btoa(_e: u64, _this: u64, data: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let text = entry::text_of(data).unwrap_or_default();
-    let bytes: Vec<u8> = text.chars().map(|ch| ch as u32 as u8).collect();
-    let encoded = entry::encode_base64(&bytes, true);
-    entry::with_runtime(|context| entry::make_string(context, &encoded))
-}
 
 /// `buffer.transcode(source, fromEnc, toEnc)`. Decodes to a `String`
 /// intermediate with `fromEnc`'s codec, then re-encodes with `toEnc`'s —
