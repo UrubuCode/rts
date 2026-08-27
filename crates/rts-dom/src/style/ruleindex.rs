@@ -110,7 +110,9 @@ impl RuleIndex {
         }
         idx.specificity = rules.iter().map(|r| r.selector.specificity()).collect();
         idx.covered = rules.len();
-        idx.has_custom_rules = rules.iter().any(|r| !r.decls.custom.is_empty());
+        idx.has_custom_rules = rules
+            .iter()
+            .any(|r| !r.decls.custom.is_empty() || !r.decls.custom_important.is_empty());
         idx.has_pseudo_elements = rules.iter().any(|r| r.selector.pseudo_element.is_some());
         idx.has_attribute_selectors = rules.iter().any(|rule| {
             let mut usa = false;

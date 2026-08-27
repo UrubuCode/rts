@@ -6,12 +6,14 @@
 use super::*;
 
 impl Dom {
-
     /// O ALVO-BASE (cascade sem animação) de um nó, MEMOIZADO por revisão estrutural.
     /// O `advance` consulta isto a cada frame; entre frames de animação (revisão
     /// estrutural estável) é um hit de cache — a cascade não re-roda. `None` p/
     /// não-elemento.
-    pub(in crate::dom) fn base_style_idx(&self, idx: NodeIdx) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {
+    pub(in crate::dom) fn base_style_idx(
+        &self,
+        idx: NodeIdx,
+    ) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {
         let style_epoch = crate::style::props::style_epoch();
         let (vw, vh) = self.viewport.get();
         let vp_key = (vw.to_bits(), vh.to_bits());
@@ -35,18 +37,64 @@ impl Dom {
         Some(computed)
     }
 
-    /// Acrescenta o conteúdo de um `<style>` ao stylesheet de autor da página
-    /// (chamado pelo parser ao encontrar um `RawElement` de `style`). Vários
-    /// `<style>` acumulam, com as regras posteriores desempatando por cima.
+    /// Acrescenta CSS externo ao stylesheet autoral. O conteúdo dos elementos
+    /// `<style>` é recolhido dos nós vivos por `rebuild_author_stylesheet`, para
+    /// que remoções e substituições não deixem regras antigas na cascade.
     pub fn add_stylesheet(&mut self, css: &str) {
         let _phase = crate::metrics::phases::scope("parse-css");
         crate::bump!(stylesheets_added);
         crate::bump!(css_bytes, css.len());
+        self.external_css.push_str(css);
+        self.external_css.push('\n');
+        self.rebuild_author_stylesheet();
+    }
+
+    /// Reconstrói a stylesheet autoral na ordem documental dos `<style>` vivos.
+    /// Esta operação é usada depois de mutações que podem inserir, remover ou
+    /// substituir CSS. O CSS externo é preservado como a primeira origem autoral.
+    pub(in crate::dom) fn rebuild_author_stylesheet(&mut self) {
+        let mut embedded = Vec::new();
+        self.collect_embedded_css(self.root, &mut embedded);
+
+        let mut stylesheet = crate::style::Stylesheet::new();
+        if !self.external_css.is_empty() {
+            stylesheet.append_css(&self.external_css);
+        }
+        for css in &embedded {
+            stylesheet.append_css(css);
+        }
+        self.stylesheet = stylesheet;
+
+        self.raw_css.clear();
+        self.raw_css.push_str(&self.external_css);
+        for css in embedded {
+            self.raw_css.push_str(&css);
+            self.raw_css.push('\n');
+        }
         self.touch();
-        self.stylesheet.append_css(css);
-        // guarda o bruto p/ os pseudo-elementos ::-webkit-scrollbar* (#1744).
-        self.raw_css.push_str(css);
-        self.raw_css.push('\n');
+    }
+
+    pub(in crate::dom) fn subtree_contains_style(&self, idx: NodeIdx) -> bool {
+        if matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "style") {
+            return true;
+        }
+        self.nodes[idx]
+            .children
+            .iter()
+            .copied()
+            .any(|child| self.subtree_contains_style(child))
+    }
+
+    fn collect_embedded_css(&self, idx: NodeIdx, out: &mut Vec<String>) {
+        if let NodeKind::Element { tag } = &self.nodes[idx].kind {
+            if tag == "style" {
+                let css = self.text_content(self.make_id(idx)).unwrap_or_default();
+                out.push(css);
+            }
+        }
+        for &child in &self.nodes[idx].children {
+            self.collect_embedded_css(child, out);
+        }
     }
 
     /// O estilo da SCROLLBAR resolvido da página (#1744): combina `scrollbar-width`/
@@ -62,7 +110,6 @@ impl Dom {
         &self.stylesheet
     }
 
-
     /// `getComputedStyle(el).<name>` — o valor COMPUTADO (após a cascade completa)
     /// de uma propriedade CSS por nome, no formato do browser. `""` se não definida
     /// ou o nó não é elemento. (#1759)
@@ -72,15 +119,41 @@ impl Dom {
         // rgb(0, 0, 0)`). O `get_property` cru continua a servir o
         // `el.style.x`, que TEM de responder vazio fora do `style=""`. A tag vai
         // junto porque o inicial de `display` é o da UA-stylesheet dela.
-        let tag = self
-            .resolve(id)
-            .and_then(|idx| match &self.nodes[idx].kind {
-                NodeKind::Element { tag } => Some(tag.clone()),
-                _ => None,
-            });
-        self.computed_style(id)
-            .map(|c| c.computed_value(name, tag.as_deref()))
-            .unwrap_or_default()
+        let Some(idx) = self.resolve(id) else {
+            return String::new();
+        };
+        let tag = match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => Some(tag.clone()),
+            _ => None,
+        };
+        let Some(style) = self.computed_style(id) else {
+            return String::new();
+        };
+
+        // Blink serializa `grid-template-columns` a partir do ComputedStyle com
+        // acesso ao LayoutObject quando a propriedade depende dos used values. O
+        // layout RTS já calcula as mesmas larguras; consulta-se a display list
+        // cacheada em vez de duplicar o algoritmo de sizing no formatador de estilo.
+        if name.trim().eq_ignore_ascii_case("grid-template-columns")
+            && style.grid_template_columns.is_some()
+        {
+            let (viewport_w, viewport_h) = self.viewport.get();
+            let context = crate::layout::LayoutCtx {
+                viewport_w,
+                viewport_h,
+                measurer: &crate::layout::ApproxMeasurer,
+            };
+            let list = crate::layout::layout_cached(self, &context);
+            if let Some(tracks) = list.grid_column_tracks.get(&idx) {
+                return tracks
+                    .iter()
+                    .map(|track| crate::style::fmt_values::fmt_px(*track))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+            }
+        }
+
+        style.computed_value(name, tag.as_deref())
     }
 
     /// `el.style.<name>` (getPropertyValue) — o valor INLINE da propriedade (só o

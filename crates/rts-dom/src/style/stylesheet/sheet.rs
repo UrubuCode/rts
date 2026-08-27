@@ -9,12 +9,14 @@ impl Stylesheet {
     pub fn new() -> Stylesheet {
         Stylesheet {
             rules: Vec::new(),
+            syntax: Vec::new(),
             keyframes: std::collections::HashMap::new(),
             index: std::cell::RefCell::new(super::ruleindex::RuleIndex::default()),
             candidate_scratch: std::cell::RefCell::new(Vec::new()),
             hover_reach: std::cell::RefCell::new(None),
             position_sensitive: std::cell::RefCell::new(None),
             out_of_flow: std::cell::RefCell::new(None),
+            layer_names: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -66,11 +68,11 @@ impl Stylesheet {
         // Os seletores aninhados (`:is(...)`) entram na varredura: um `:hover`
         // dentro de um deles muda estilo na mesma, e ignorá-lo dava
         // `HoverReach::None` — o mouse deixava de invalidar o que devia.
-        let mut todos: Vec<&super::ComplexSelector> = Vec::new();
+        let mut all_selectors: Vec<&super::ComplexSelector> = Vec::new();
         for r in &self.rules {
-            super::selector::visit_selectors(&r.selector, &mut |s| todos.push(s));
+            super::selector::visit_selectors(&r.selector, &mut |s| all_selectors.push(s));
         }
-        for sel in todos {
+        for sel in all_selectors {
             let n = sel.compounds.len();
             for (i, c) in sel.compounds.iter().enumerate() {
                 if !super::selector::compound_has_hover(c) {
@@ -116,15 +118,15 @@ impl Stylesheet {
         let answer = self.rules.iter().any(|r| {
             // Varre também o que está dentro de `:is()`/`:not()`: `:not(:first-child)`
             // depende da posição exatamente como `:first-child`.
-            let mut sensivel = false;
+            let mut is_position_sensitive = false;
             super::selector::visit_selectors(&r.selector, &mut |s| {
-                sensivel |= s
+                is_position_sensitive |= s
                     .combinators
                     .iter()
                     .any(|c| matches!(c, Combinator::NextSibling | Combinator::SubsequentSibling));
             });
             super::selector::visit_simples(&r.selector, &mut |p| {
-                sensivel |= matches!(
+                is_position_sensitive |= matches!(
                     p,
                     S::Pseudo(
                         P::FirstChild
@@ -139,7 +141,7 @@ impl Stylesheet {
                     )
                 );
             });
-            sensivel
+            is_position_sensitive
         });
         *self.position_sensitive.borrow_mut() = Some(answer);
         answer
@@ -176,15 +178,15 @@ impl Stylesheet {
             return cached;
         }
         use super::props::Decl;
-        let fora = |d: &Decl| {
+        let out_of_flow = |d: &Decl| {
             matches!(
                 d,
                 Decl::position(Some(super::Position::Absolute | super::Position::Fixed))
             )
         };
         let answer = self.rules.iter().any(|r| {
-            r.decls.normal.iter().any(fora)
-                || r.decls.important.iter().any(fora)
+            r.decls.normal.iter().any(out_of_flow)
+                || r.decls.important.iter().any(out_of_flow)
                 // uma pendente com var() pode virar qualquer coisa: conta como
                 // possível, que é o lado seguro.
                 || r.decls.pending.iter().any(|(prop, _, _)| prop == "position")
@@ -246,16 +248,87 @@ impl Stylesheet {
         self.keyframes.get(name)
     }
 
+    /// Insere um bloco CSS preservado na posição dos blocos sintácticos anexados.
+    /// A operação é deliberadamente transaccional: o AST é actualizado primeiro e
+    /// rules, keyframes, layers e índices são reconstruídos a partir da nova fonte.
+    /// `index == len` equivale a append; um índice fora do intervalo é rejeitado.
+    pub fn insert_rule(&mut self, index: usize, css: &str) -> Result<usize, String> {
+        if index > self.syntax.len() {
+            return Err(format!("índice de regra fora do intervalo: {index}"));
+        }
+        let ast = crate::style::syntax::StylesheetAst::parse(css);
+        if ast.items.is_empty() {
+            return Err("regra CSS vazia".to_string());
+        }
+        self.syntax.insert(index, ast);
+        self.rebuild_from_syntax();
+        Ok(index)
+    }
+
+    /// Remove um bloco CSS sintáctico e reconstrói a representação semântica.
+    /// Devolve `false` quando o índice não existe.
+    pub fn delete_rule(&mut self, index: usize) -> bool {
+        if index >= self.syntax.len() {
+            return false;
+        }
+        self.syntax.remove(index);
+        self.rebuild_from_syntax();
+        true
+    }
+
+    fn rebuild_from_syntax(&mut self) {
+        let blocks: Vec<String> = self.syntax.iter().map(|ast| ast.to_css()).collect();
+        let mut rebuilt = Stylesheet::new();
+        for css in blocks {
+            rebuilt.append_css(&css);
+        }
+        *self = rebuilt;
+    }
+
     /// Acrescenta as regras de mais um bloco `<style>` (uma página pode ter vários).
     /// EXTRAI os `@keyframes` primeiro (não são regras de seletor), depois as regras.
     pub fn append_css(&mut self, css: &str) {
+        // Tokeniza uma única vez. O AST preserva a entrada original para tooling;
+        // o IR semântico continua a ser a fonte consumida pela cascade.
+        let ast = crate::style::syntax::StylesheetAst::parse(css);
+        self.syntax.push(ast.clone());
+
+        // `@keyframes` é um at-rule estrutural: não vira `Rule`, mas os seus stops
+        // são baixados directamente para a tabela de animações.
+        for item in &ast.items {
+            if let crate::style::syntax::AstItem::AtRule {
+                name,
+                prelude,
+                block: Some(block),
+                ..
+            } = item
+            {
+                let lower = name.to_ascii_lowercase();
+                if lower == "keyframes" || lower == "-webkit-keyframes" {
+                    let keyframe_name: String = prelude
+                        .iter()
+                        .map(crate::style::syntax::ComponentValue::to_css_semantic)
+                        .collect();
+                    let keyframe_name = keyframe_name.trim();
+                    if !keyframe_name.is_empty() {
+                        crate::bump!(css_keyframes);
+                        self.keyframes.insert(
+                            keyframe_name.to_string(),
+                            super::parse_keyframe_ast(block),
+                        );
+                    }
+                }
+            }
+        }
+
         // (var()/custom properties agora resolvem POR ELEMENTO na cascade — #1779;
         // o antigo passe textual GLOBAL daqui foi removido.)
-        // 1) extrai e remove os blocos @keyframes (guarda por nome).
-        let css_without_kf = self.extract_keyframes(css);
-        // 2) as regras normais do resto.
         let base = self.rules.len() as u32;
-        for (i, rule) in parse_rules(&css_without_kf).into_iter().enumerate() {
+        let parsed_rules = super::rules::parse_rules_ast_with_layers(
+            &ast,
+            &mut self.layer_names.borrow_mut(),
+        );
+        for (i, rule) in parsed_rules.into_iter().enumerate() {
             crate::bump!(css_rules);
             self.rules.push(Rule {
                 order: base + i as u32,
@@ -266,35 +339,6 @@ impl Stylesheet {
         *self.hover_reach.borrow_mut() = None;
         *self.position_sensitive.borrow_mut() = None;
         *self.out_of_flow.borrow_mut() = None;
-    }
-
-    /// Acha cada `@keyframes nome { ... }`, parseia os stops e guarda; devolve o CSS
-    /// SEM os blocos de keyframes (p/ o parser de regras não tropeçar neles).
-    fn extract_keyframes(&mut self, css: &str) -> String {
-        let _phase = crate::metrics::phases::scope("css-keyframes+strip");
-        let css = strip_css_comments(css);
-        let mut out = String::new();
-        let mut rest = css.as_str();
-        while let Some(at) = rest.find("@keyframes") {
-            out.push_str(&rest[..at]);
-            let after = &rest[at + "@keyframes".len()..];
-            // nome até o `{`.
-            let Some(brace) = after.find('{') else { break };
-            let name = after[..brace].trim().to_string();
-            // acha o `}` que fecha o bloco (contando aninhamento, pois cada stop tem `{}`).
-            let body_start = at + "@keyframes".len() + brace + 1;
-            let Some(body_end) = find_matching_brace(&rest[body_start..]) else {
-                break;
-            };
-            let body = &rest[body_start..body_start + body_end];
-            if !name.is_empty() {
-                crate::bump!(css_keyframes);
-                self.keyframes.insert(name, parse_keyframe_body(body));
-            }
-            rest = &rest[body_start + body_end + 1..];
-        }
-        out.push_str(rest);
-        out
     }
 
     /// Computa o estilo de AUTOR para um elemento, aplicando as regras cujo seletor
@@ -323,7 +367,7 @@ impl Stylesheet {
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
         crate::bump!(rules_considered, cand.len());
         let index = self.index.borrow();
-        let mut rules: Vec<(u32, u32, usize)> = cand
+        let mut rules: Vec<(u32, u32, u32, usize)> = cand
             .iter()
             .filter_map(|&i| {
                 let r = &self.rules[i];
@@ -335,11 +379,18 @@ impl Stylesheet {
                 (r.selector.pseudo_element.is_none()
                     && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
                     && matches(&r.selector))
-                .then(|| (index.specificity(i), r.order, i))
+                .then(|| {
+                    (
+                        r.layer.unwrap_or(u32::MAX),
+                        index.specificity(i),
+                        r.order,
+                        i,
+                    )
+                })
             })
             .collect();
         crate::bump!(rules_matched, rules.len());
-        rules.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        rules.sort_by_key(|(layer, specificity, order, _)| (*layer, *specificity, *order));
         MatchedRules { rules }
     }
 
@@ -368,21 +419,28 @@ impl Stylesheet {
     ) -> (MatchedRules, Option<std::rc::Rc<crate::pseudo::Content>>) {
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
         let index = self.index.borrow();
-        let mut rules: Vec<(u32, u32, usize)> = cand
+        let mut rules: Vec<(u32, u32, u32, usize)> = cand
             .iter()
             .filter_map(|&i| {
                 let r = &self.rules[i];
                 (r.selector.pseudo_element == Some(pe)
                     && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
                     && matches(&r.selector))
-                .then(|| (index.specificity(i), r.order, i))
+                .then(|| {
+                    (
+                        r.layer.unwrap_or(u32::MAX),
+                        index.specificity(i),
+                        r.order,
+                        i,
+                    )
+                })
             })
             .collect();
-        rules.sort_by_key(|(specificity, order, _)| (*specificity, *order));
+        rules.sort_by_key(|(layer, specificity, order, _)| (*layer, *specificity, *order));
         let content = rules
             .iter()
             .rev()
-            .find_map(|(_, _, i)| self.rules[*i].content.clone());
+            .find_map(|(_, _, _, i)| self.rules[*i].content.clone());
         (MatchedRules { rules }, content)
     }
 
@@ -405,7 +463,7 @@ impl Stylesheet {
             .rules
             .iter()
             .rev()
-            .find_map(|(_, _, i)| self.rules[*i].counters.clone())
+            .find_map(|(_, _, _, i)| self.rules[*i].counters.clone())
     }
 
     /// `true` se alguma regra desta folha declara contadores.
@@ -434,7 +492,24 @@ impl Stylesheet {
         matched
             .rules
             .iter()
-            .flat_map(|(_, _, i)| self.rules[*i].decls.custom.iter().cloned())
+            .flat_map(|(_, _, _, i)| self.rules[*i].decls.custom.iter().cloned())
+            .collect()
+    }
+
+    /// Custom properties `!important` em ordem de aplicação. A prioridade de
+    /// layers é invertida para importantes, tal como nas declarações normais.
+    pub fn custom_important_from(&self, matched: &MatchedRules) -> Vec<(String, String)> {
+        let mut rules = matched.rules.clone();
+        rules.sort_by_key(|(layer, specificity, order, _)| {
+            (
+                if *layer == u32::MAX { 0 } else { u32::MAX - *layer },
+                *specificity,
+                *order,
+            )
+        });
+        rules
+            .iter()
+            .flat_map(|(_, _, _, i)| self.rules[*i].decls.custom_important.iter().cloned())
             .collect()
     }
 
@@ -447,8 +522,10 @@ impl Stylesheet {
         vars: Option<&std::collections::HashMap<String, String>>,
     ) -> DeclBlock {
         let mut out = DeclBlock::default();
-        for (_, _, i) in &matched.rules {
+        for (_, _, _, i) in &matched.rules {
             let r = &self.rules[*i];
+            out.all_initial_normal |= r.decls.all_initial_normal;
+            out.all_initial_important |= r.decls.all_initial_important;
             r.decls.apply_normal(&mut out.normal);
             if let Some(v) = vars {
                 for (prop, raw, important) in &r.decls.pending {
@@ -458,7 +535,19 @@ impl Stylesheet {
                 }
             }
         }
-        for (_, _, i) in &matched.rules {
+        // A ordem das layers é invertida para `!important`: a layer mais
+        // antiga vence, enquanto as regras sem layer continuam acima das
+        // nomeadas na camada normal. A especificidade e a ordem de origem já
+        // vêm ordenadas dentro de cada layer.
+        let mut important_rules = matched.rules.clone();
+        important_rules.sort_by_key(|(layer, specificity, order, _)| {
+            (
+                if *layer == u32::MAX { 0 } else { u32::MAX - *layer },
+                *specificity,
+                *order,
+            )
+        });
+        for (_, _, _, i) in &important_rules {
             let r = &self.rules[*i];
             r.decls.apply_important(&mut out.important);
             if let Some(v) = vars {

@@ -28,6 +28,15 @@ impl Dom {
         }
     }
 
+    /// O elemento `<html>` top-level do documento, separado da raiz sintética
+    /// `#document`. `None` para um fragmento sem `<html>`.
+    pub fn document_element(&self) -> Option<NodeId> {
+        self.nodes[self.root].children.iter().copied().find_map(|idx| {
+            matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "html")
+                .then(|| self.make_id(idx))
+        })
+    }
+
     /// Nome da tag de um elemento em minúsculas (`element.tagName`, mas o browser
     /// devolve em CAIXA ALTA para HTML — a fachada TS faz o upper). `None` se não
     /// resolve ou não é elemento.

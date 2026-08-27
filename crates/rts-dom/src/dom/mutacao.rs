@@ -17,6 +17,7 @@ impl Dom {
         if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
             return;
         }
+        let style_node = matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "style");
         self.touch_render_only(idx);
         // Descarta os filhos atuais (arena não compacta; vira lixo inacessível —
         // ok para o uso atual, a árvore é reconstruída a cada `html()`). Zera o
@@ -28,6 +29,9 @@ impl Dom {
         let child = self.push_detached(NodeKind::Text(text.to_string()));
         self.nodes[child].parent = Some(idx);
         self.nodes[idx].children.push(child);
+        if style_node {
+            self.rebuild_author_stylesheet();
+        }
     }
 
 
@@ -136,8 +140,15 @@ impl Dom {
             return;
         };
         let children: Vec<NodeIdx> = self.nodes[idx].children.clone();
+        let style_affected = children
+            .iter()
+            .copied()
+            .any(|child| self.subtree_contains_style(child));
         for c in children {
             self.detach(c);
+        }
+        if style_affected {
+            self.rebuild_author_stylesheet();
         }
     }
 
@@ -157,9 +168,17 @@ impl Dom {
     pub fn set_node_value(&mut self, id: NodeId, value: &str) {
         self.touch();
         let Some(idx) = self.resolve(id) else { return };
+        let style_affected = self
+            .nodes[idx]
+            .parent
+            .map(|parent| self.subtree_contains_style(parent))
+            .unwrap_or(false);
         match &mut self.nodes[idx].kind {
             NodeKind::Text(t) | NodeKind::Comment(t) => *t = value.to_string(),
             _ => {}
+        }
+        if style_affected {
+            self.rebuild_author_stylesheet();
         }
     }
 
@@ -355,6 +374,7 @@ impl Dom {
         if parent == child || self.is_ancestor(child, parent) {
             return;
         }
+        let style_affected = self.subtree_contains_style(child);
         // ref==child é no-op (inserir antes de si mesmo mantém a posição). A spec do
         // DOM trata referenceNode==node como manter no lugar.
         let ref_idx = reference.and_then(|r| self.resolve(r));
@@ -366,6 +386,9 @@ impl Dom {
                 self.nodes[child].parent = Some(parent);
                 self.nodes[parent].children.push(child);
                 self.touch_structural(child, old_parent);
+                if style_affected {
+                    self.rebuild_author_stylesheet();
+                }
             }
             return;
         }
@@ -379,6 +402,9 @@ impl Dom {
             .unwrap_or(self.nodes[parent].children.len());
         self.nodes[parent].children.insert(pos, child);
         self.touch_structural(child, old_parent);
+        if style_affected {
+            self.rebuild_author_stylesheet();
+        }
     }
 
     /// `node.nodeType` — código numérico do DOM: Element=1, Text=3, Comment=8,
@@ -426,6 +452,9 @@ impl Dom {
         self.nodes[child].parent = Some(parent);
         self.nodes[parent].children.push(child);
         self.touch_structural(child, old_parent);
+        if self.subtree_contains_style(child) {
+            self.rebuild_author_stylesheet();
+        }
     }
 
     /// Desliga um nó do pai (`element.remove`). O nó continua na arena (lixo).
@@ -441,8 +470,12 @@ impl Dom {
         // dele), e os ancestrais precisam estar alcançáveis para os epochs
         // subirem — depois do detach o nó já não tem pai.
         let parent = self.nodes[idx].parent;
+        let style_affected = self.subtree_contains_style(idx);
         self.touch_structural(idx, parent);
         self.detach(idx);
+        if style_affected {
+            self.rebuild_author_stylesheet();
+        }
     }
 
 
@@ -472,6 +505,7 @@ impl Dom {
         for sub_child in sub_root_children {
             self.copy_subtree_into(&sub, sub_child, idx);
         }
+        self.rebuild_author_stylesheet();
     }
 
     /// Copia recursivamente o nó `src_idx` da árvore `src` para dentro desta arena,

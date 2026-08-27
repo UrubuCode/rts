@@ -54,7 +54,12 @@ pub(in crate::layout) struct KeyBase {
 }
 
 impl KeyBase {
-    pub(in crate::layout) fn new(dom: &Dom, avail_w: f32, avail_h: Option<f32>, ctx: &LayoutCtx) -> KeyBase {
+    pub(in crate::layout) fn new(
+        dom: &Dom,
+        avail_w: f32,
+        avail_h: Option<f32>,
+        ctx: &LayoutCtx,
+    ) -> KeyBase {
         KeyBase {
             tree: dom.cache_identity(),
             style_epoch: crate::style::props::style_epoch(),
@@ -166,11 +171,18 @@ fn costurar(
     let _phase = crate::metrics::phases::scope("fragment-patch");
 
     let mut children = anterior.children.clone();
+    let mut grid_column_tracks = (*anterior.grid_column_tracks).clone();
     let mut trocou = false;
     for child in &mut children {
         if !sujos.contains(&child.node) {
             continue;
         }
+        let previous_grid_nodes: Vec<NodeIdx> = child
+            .fragment
+            .grid_column_tracks
+            .iter()
+            .map(|(node, _)| *node)
+            .collect();
         let mut own = DisplayList::default();
         // Onde o filho FOI POSTO: a origem em que o fragmento dele foi calculado
         // mais o deslocamento com que entrou aqui. Somar à origem do PAI daria
@@ -204,6 +216,8 @@ fn costurar(
         // O `layout_block_reusing` emitiu numa lista própria; o que interessa é a
         // referência que ele acabou de registrar para este nó.
         let novo = own.children.first()?.fragment.clone();
+        grid_column_tracks.retain(|(node, _)| !previous_grid_nodes.contains(node));
+        grid_column_tracks.extend(novo.grid_column_tracks.iter().cloned());
         child.fragment = novo;
         trocou = true;
     }
@@ -217,6 +231,7 @@ fn costurar(
         children,
         rects: std::rc::Rc::clone(&anterior.rects),
         hit_order: std::rc::Rc::clone(&anterior.hit_order),
+        grid_column_tracks: std::rc::Rc::new(grid_column_tracks),
         scroll_regions: anterior.scroll_regions.clone(),
         origin: anterior.origin,
         size: anterior.size,
@@ -331,6 +346,11 @@ pub(in crate::layout) fn layout_block_reusing(
                 .collect(),
         ),
         hit_order: std::rc::Rc::new(std::mem::take(&mut own.hit_order)),
+        grid_column_tracks: std::rc::Rc::new(
+            std::mem::take(&mut own.grid_column_tracks)
+                .into_iter()
+                .collect(),
+        ),
         scroll_regions: std::mem::take(&mut own.scroll_regions),
         items: std::rc::Rc::new(std::mem::take(&mut own.items)),
         children: std::mem::take(&mut own.children),
@@ -409,6 +429,8 @@ pub struct Fragment {
     pub children: Vec<ChildRef>,
     /// Geometria por nó (o que alimenta `getBoundingClientRect`).
     pub rects: std::rc::Rc<Vec<(NodeIdx, Rect)>>,
+    /// Tracks de coluna resolvidas desta subárvore, para `computedProperty`.
+    pub grid_column_tracks: std::rc::Rc<Vec<(NodeIdx, Vec<f32>)>>,
     /// Ordem de pintura para o hit-test (ancestral antes de descendente).
     pub hit_order: std::rc::Rc<Vec<NodeIdx>>,
     /// Regiões roláveis internas descobertas dentro da subárvore.
@@ -450,6 +472,9 @@ impl Fragment {
         // Os RETÂNGULOS abaixo continuam sendo materializados, porque a consulta
         // de geometria é por nó e precisa do valor pronto — são 16 bytes contra
         // os 48 de um item, numa quantidade menor.
+        for (node, tracks) in self.grid_column_tracks.iter() {
+            list.grid_column_tracks.insert(*node, tracks.clone());
+        }
         list.children.push(ChildRef {
             node: self.node,
             height: self.size.1,

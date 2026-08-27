@@ -55,6 +55,8 @@ pub mod root_font;
 pub mod ruleindex;
 pub mod selector;
 pub mod stylesheet;
+/// Tokenizer e AST sintáctico lossless do CSS, antes do lowering para a cascade.
+pub mod syntax;
 /// As propriedades de TABELA e a posição do marcador de lista — ver o módulo.
 pub mod tables;
 pub mod text;
@@ -68,6 +70,8 @@ pub mod vocab;
 
 mod aplica;
 
+#[cfg(test)]
+mod ast_tests;
 #[cfg(test)]
 mod afirmacoes_tests;
 #[cfg(test)]
@@ -93,7 +97,7 @@ pub use borders::{SideBorder, SideName};
 pub use color::parse_color;
 pub use grid_areas::{GridArea, GridAreas};
 pub use lerp::{lerp_color, lerp_dimension, lerp_f32};
-pub use parse::{is_mono_family, parse_inline, parse_inline_block};
+pub use parse::{is_mono_family, parse_inline, parse_inline_block, parse_inline_specified};
 pub use props::{
     ComputedStyle, SLOT_BG, SLOT_BORDER_COLOR, SLOT_BORDER_WIDTH, SLOT_COLOR, SLOT_CORNER_RADIUS,
     SLOT_FONT_SIZE, SLOT_MARGIN, SLOT_MARGIN_V, SLOT_PADDING, SLOT_TEXT_ALIGN,
@@ -107,6 +111,10 @@ pub use selector::{
 };
 pub use stylesheet::{
     DeclBlock, HoverReach, MatchedRules, MediaQuery, Rule, Stylesheet, parse_rules,
+};
+pub use syntax::{
+    AstItem, BlockAst, ComponentValue, DeclarationAst, Diagnostic, DiagnosticSeverity, SourceSpan,
+    SpecifiedStyle, StylesheetAst, Token, TokenKind, tokenize,
 };
 pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
 pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak};

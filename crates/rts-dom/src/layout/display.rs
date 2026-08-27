@@ -264,6 +264,9 @@ pub struct DisplayList {
     /// o `getBoundingClientRect` do browser); elementos inline recebem a união dos
     /// fragmentos de linha; nós de texto não entram.
     pub node_rects: crate::fasthash::FastMap<NodeIdx, Rect>,
+    /// Tracks de coluna de grids explícitos, já resolvidas em px pelo layout. O
+    /// `computedProperty` usa esta fonte de used values sem duplicar `resolve_tracks`.
+    pub grid_column_tracks: crate::fasthash::FastMap<NodeIdx, Vec<f32>>,
     /// Containers roláveis internos (divs com `overflow`) — o backend gerencia o
     /// offset de cada região e recorta. Vazio quando a página não tem scroll interno.
     pub scroll_regions: Vec<ScrollRegion>,

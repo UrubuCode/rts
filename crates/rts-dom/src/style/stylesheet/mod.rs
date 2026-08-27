@@ -21,10 +21,10 @@
 //! `~=`/`|=`), pseudo estruturais (`:first-child`/`:last-child`/`:only-child`/
 //! `:empty`/`:root`/`:nth-child`) e de estado-via-atributo (`:checked`/`:disabled`/
 //! `:enabled`/`:required`), e lista por vírgula em querySelector/matches/closest.
-//! **Cortes (não bugs):** `@layer`; pseudo de estado VIVO (`:hover`/`:focus`);
-//! `:not()`/`:is()`/`:where()`/`:nth-of-type`; pseudo-elementos (`::before`); flag
-//! de case `[a=v i]`; as keywords `inherit`/`initial`/`unset`/`revert`.
-//! (`!important` — estágio 1 da MDN — JÁ é suportado.)
+//! **Cortes (não bugs):** pseudo de estado VIVO (`:hover`/`:focus`); pseudo-elementos
+//! (`::before`); flag de case `[a=v i]`; `revert`/`revert-layer` sem origem/camada
+//! completa. `@layer`, `inherit`, `initial`, `unset` e `!important` já atravessam
+//! o pipeline actual.
 
 pub(in crate::style::stylesheet) use super::parse::parse_inline_block;
 pub(in crate::style::stylesheet) use super::props::ComputedStyle;
@@ -131,6 +131,16 @@ fn parse_media_len(v: &str) -> Option<f32> {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Rule {
     pub selector: Selector,
+    /// Declarações CSS no estado especificado, preservadas pelo AST antes do
+    /// lowering para `ComputedStyle`. A mesma instância é partilhada pelos
+    /// selectors que vierem de uma regra com lista de selectors.
+    pub specified: std::rc::Rc<crate::style::syntax::SpecifiedStyle>,
+    /// Alias de compatibilidade para consumidores que ainda precisam da fatia
+    /// directa de declarações especificadas.
+    pub source_declarations: std::rc::Rc<[crate::style::syntax::DeclarationAst]>,
+    /// Ordem da cascade layer. `None` significa regra autoral não agrupada;
+    /// para declarações normais ela fica acima de todas as layers nomeadas.
+    pub layer: Option<u32>,
     /// As declarações, COMPARTILHADAS: `Rc` e não valor.
     ///
     /// Um `DeclBlock` tem 2120 bytes (dois `ComputedStyle` inteiros, medido por
@@ -172,12 +182,18 @@ pub struct Rule {
 pub struct DeclBlock {
     /// Declarações normais (sem `!important`).
     pub normal: ComputedStyle,
+    /// `all: initial` normal resetou as declarações anteriores deste bloco.
+    pub all_initial_normal: bool,
     /// Declarações marcadas `!important` (vencem qualquer normal na cascade).
     pub important: ComputedStyle,
-    /// Declarações de CUSTOM PROPERTIES (`--nome: valor`) do bloco, na ordem do
-    /// fonte, com o valor CRU (pode conter `var()` aninhado). Participam da
-    /// cascade por elemento (#1779). Importância ignorada na v1 (documentado).
+    /// `all: initial !important` resetou a camada importante deste bloco.
+    pub all_initial_important: bool,
+    /// Declarações normais de CUSTOM PROPERTIES normais (`--nome: valor`) do bloco, na
+    /// ordem da fonte, com o valor cru. Participam da cascade por elemento.
     pub custom: Vec<(String, String)>,
+    /// Custom properties marcadas `!important`, aplicadas depois das normais e
+    /// antes de resolver os valores pendentes com `var()`.
+    pub custom_important: Vec<(String, String)>,
     /// Declarações PENDENTES — o valor contém `var()` e só resolve POR ELEMENTO
     /// (contra as custom props computadas dele): `(prop, valor-cru, important)`.
     /// Resolvidas na posição da regra em [`Stylesheet::computed_for_node`].
@@ -196,7 +212,10 @@ pub struct DeclBlock {
 pub struct RuleDecls {
     pub normal: Box<[super::props::Decl]>,
     pub important: Box<[super::props::Decl]>,
+    pub all_initial_normal: bool,
+    pub all_initial_important: bool,
     pub custom: Vec<(String, String)>,
+    pub custom_important: Vec<(String, String)>,
     pub pending: Vec<(String, String, bool)>,
 }
 
@@ -207,7 +226,10 @@ impl RuleDecls {
         RuleDecls {
             normal: block.normal.to_decls().into_boxed_slice(),
             important: block.important.to_decls().into_boxed_slice(),
+            all_initial_normal: block.all_initial_normal,
+            all_initial_important: block.all_initial_important,
             custom: block.custom,
+            custom_important: block.custom_important,
             pending: block.pending,
         }
     }
@@ -215,12 +237,18 @@ impl RuleDecls {
     /// Aplica as declarações normais sobre um estilo (mesma precedência do
     /// `merge_over`: quem aplica depois vence).
     pub fn apply_normal(&self, target: &mut ComputedStyle) {
+        if self.all_initial_normal {
+            *target = ComputedStyle::default();
+        }
         for d in &self.normal {
             d.apply(target);
         }
     }
 
     pub fn apply_important(&self, target: &mut ComputedStyle) {
+        if self.all_initial_important {
+            *target = ComputedStyle::default();
+        }
         for d in &self.important {
             d.apply(target);
         }
@@ -233,6 +261,7 @@ impl RuleDecls {
             + self
                 .custom
                 .iter()
+                .chain(self.custom_important.iter())
                 .map(|(k, v)| k.capacity() + v.capacity())
                 .sum::<usize>()
             + self
@@ -248,7 +277,10 @@ impl DeclBlock {
     pub fn is_empty(&self) -> bool {
         self.normal == ComputedStyle::default()
             && self.important == ComputedStyle::default()
+            && !self.all_initial_normal
+            && !self.all_initial_important
             && self.custom.is_empty()
+            && self.custom_important.is_empty()
             && self.pending.is_empty()
     }
 }
@@ -266,6 +298,9 @@ pub fn rule_size() -> usize {
 #[derive(Clone, Default, Debug)]
 pub struct Stylesheet {
     pub rules: Vec<Rule>,
+    /// AST sintáctico dos blocos CSS anexados, preservado para diagnósticos,
+    /// tooling e lowering futuro. A cascade continua a consumir `rules`.
+    pub syntax: Vec<crate::style::syntax::StylesheetAst>,
     /// Os `@keyframes nome {...}` da página (#1776), por nome. Consultados pelo
     /// `advance` quando um nó tem `animation: nome ...`.
     pub keyframes: std::collections::HashMap<String, crate::anim::Keyframes>,
@@ -288,14 +323,19 @@ pub struct Stylesheet {
     position_sensitive: std::cell::RefCell<Option<bool>>,
     /// Cache de [`has_out_of_flow`](Stylesheet::has_out_of_flow).
     out_of_flow: std::cell::RefCell<Option<bool>>,
+    /// Ordem global das cascade layers deste stylesheet. É persistida entre
+    /// chamadas a `append_css`, porque folhas anexadas são uma única origem
+    /// autoral para fins de cascade.
+    pub(crate) layer_names: std::cell::RefCell<Vec<String>>,
 }
 
 /// As regras que casaram um nó, ordenadas pela cascade. Opaco de propósito: o
 /// que quem chama precisa é passá-lo aos dois passes, não ler o conteúdo.
 #[derive(Debug, Default)]
 pub struct MatchedRules {
-    /// `(especificidade, ordem, índice da regra)`, crescente.
-    rules: Vec<(u32, u32, usize)>,
+    /// `(prioridade-layer, especificidade, ordem, índice)`, crescente.
+    /// `prioridade-layer` usa `u32::MAX` para regras sem layer.
+    pub(crate) rules: Vec<(u32, u32, u32, usize)>,
 }
 
 impl MatchedRules {
@@ -327,6 +367,21 @@ impl PartialEq for Stylesheet {
     }
 }
 
+impl Stylesheet {
+    /// Blocos sintácticos CSS preservados na ordem em que foram anexados.
+    pub fn syntax(&self) -> &[crate::style::syntax::StylesheetAst] {
+        &self.syntax
+    }
+
+    /// Diagnósticos de parsing dos blocos CSS anexados, na ordem da fonte.
+    pub fn diagnostics(&self) -> Vec<crate::style::syntax::Diagnostic> {
+        self.syntax
+            .iter()
+            .flat_map(|ast| ast.diagnostics.iter().cloned())
+            .collect()
+    }
+}
+
 // Os corpos movidos dizem `super::props::…`, `super::Combinator` e mais oito, como
 // o ficheiro único dizia — mas ali `super` era `style` e aqui é `stylesheet`. Os
 // dez nomes foram MEDIDOS (as duas formas: `super::X` e `super::{A, B}`), e
@@ -334,8 +389,8 @@ impl PartialEq for Stylesheet {
 use super::{Combinator, CompoundSelector, Position, PseudoElement, SimpleSelector};
 use super::{props, ruleindex, selector, vars};
 
-mod folha;
-mod regras;
+mod sheet;
+mod rules;
 mod supports;
 
-pub use regras::*;
+pub use rules::*;

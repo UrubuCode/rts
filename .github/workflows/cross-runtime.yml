@@ -107,6 +107,16 @@ jobs:
             const s = r.summary;
             const divergent = r.results.filter(x => x.status === 'rts_diverge' || x.status === 'rts_error');
 
+            const maxCommentLength = 60000;
+            const maxDivergences = 20;
+            const maxOutputLength = 2500;
+            const clip = (value) => {
+              const text = String(value ?? '').replaceAll('```', '`\u200b``');
+              return text.length <= maxOutputLength
+                ? text
+                : text.slice(0, maxOutputLength) + '\n...[output truncated; full report is in the workflow artifact]';
+            };
+
             let body = `## Cross-runtime parity (RTS vs Bun vs Node)\n\n`;
             body += `| Metric | Value |\n|---|---|\n`;
             body += `| Total | ${s.total} |\n`;
@@ -118,15 +128,25 @@ jobs:
 
             if (divergent.length > 0) {
               body += `### Divergences detected\n\n`;
-              for (const d of divergent) {
+              for (const d of divergent.slice(0, maxDivergences)) {
                 body += `<details><summary><code>${d.name}</code> — ${d.status}</summary>\n\n`;
-                body += `**Bun output:**\n\`\`\`\n${d.bun}\n\`\`\`\n\n`;
-                body += `**Node output:**\n\`\`\`\n${d.node}\n\`\`\`\n\n`;
-                body += `**RTS output:**\n\`\`\`\n${d.rts}\n\`\`\`\n\n`;
+                body += `**Bun output:**\n\`\`\`\n${clip(d.bun)}\n\`\`\`\n\n`;
+                body += `**Node output:**\n\`\`\`\n${clip(d.node)}\n\`\`\`\n\n`;
+                body += `**RTS output:**\n\`\`\`\n${clip(d.rts)}\n\`\`\`\n\n`;
                 body += `</details>\n\n`;
+              }
+              if (divergent.length > maxDivergences) {
+                body += `_${divergent.length - maxDivergences} additional divergences are available in the uploaded workflow artifact._\n`;
               }
             } else if (s.pass === s.total) {
               body += `🎉 Full parity.\n`;
+            }
+
+            // GitHub rejects issue comments over 65,536 characters. Keep a hard
+            // safety margin even if a future fixture name/output is unusually long.
+            if (body.length > maxCommentLength) {
+              body = body.slice(0, maxCommentLength) +
+                '\n\n_[comment truncated to GitHub limit; full report is in the workflow artifact]._\n';
             }
 
             github.rest.issues.createComment({

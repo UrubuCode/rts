@@ -46,15 +46,15 @@ fn so_min_e_max_width_sao_avaliadas() {
     assert!(!aplica("(400px <= width < 99999px)"), "a sintaxe de intervalo");
 }
 
-/// `estilo.var.important` — a importância de uma custom property é ignorada, e
-/// por isso uma declaração normal posterior vence uma `!important` anterior.
+/// `estilo.var.important` — custom properties mantêm a importância durante a
+/// cascade por elemento, antes da substituição em `var()`.
 #[test]
-fn a_importancia_de_uma_custom_property_e_ignorada() {
+fn important_custom_property_precedence_is_respected() {
     let d = doc(":root{--c:red !important;--c:blue} p{color:var(--c)}", "<p>x</p>");
     assert_eq!(
         prop(&d, "p", "color"),
-        "rgb(0, 0, 255)",
-        "o `!important` da primeira devia ter vencido"
+        "rgb(255, 0, 0)",
+        "a definição important deve vencer a normal"
     );
 }
 
@@ -132,4 +132,23 @@ fn supports_e_avaliado_o_registo_esta_obsoleto() {
 fn uma_var_invalida_ja_nao_apaga_a_anterior() {
     let d = doc("p{color:red;color:var(--nao-existe)}", "<p>x</p>");
     assert_eq!(prop(&d, "p", "color"), "rgb(255, 0, 0)");
+}
+
+
+#[test]
+fn unset_on_root_and_descendant_resolves_against_the_correct_parent() {
+    let d = doc(
+        "html{color:red;color:unset} body{color:blue;color:unset}",
+        "<p id=p>x</p>",
+    );
+    assert_eq!(prop(&d, ":root", "color"), "rgb(0, 0, 0)");
+    assert_eq!(prop(&d, "body", "color"), "rgb(0, 0, 0)");
+    assert_eq!(prop(&d, "#p", "color"), "rgb(0, 0, 0)");
+}
+
+
+#[test]
+fn all_initial_resets_the_user_agent_value() {
+    let d = doc("p{color:red} #alvo{all:initial}", "<p id=alvo>x</p>");
+    assert_eq!(prop(&d, "#alvo", "color"), "rgb(0, 0, 0)");
 }

@@ -307,3 +307,21 @@
         assert_eq!(ids, vec!["u", "v"], "sem duplicata e em ordem");
         let _ = &mut dom2;
     }
+
+
+    #[test]
+    fn document_element_nao_e_a_raiz_document() {
+        let dom = parse_html_to_dom("<html><body><p>x</p></body></html>");
+        let html = dom.document_element().expect("html top-level");
+        assert_eq!(dom.node_type(dom.root_id()), 9);
+        assert_eq!(dom.node_type(html), 1);
+        assert_eq!(dom.tag_name(html), Some("html"));
+    }
+
+    #[test]
+    fn get_element_by_id_nao_interpreta_id_como_css() {
+        let dom = parse_html_to_dom("<div id='a.b'>literal</div><p id='a'>outro</p>");
+        let literal = dom.get_element_by_id("a.b").expect("id literal");
+        assert_eq!(dom.tag_name(literal), Some("div"));
+        assert_eq!(dom.text_content(literal).as_deref(), Some("literal"));
+    }

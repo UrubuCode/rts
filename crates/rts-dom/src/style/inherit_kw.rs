@@ -28,6 +28,143 @@
 
 use super::props::ComputedStyle;
 
+/// Remove o marcador de `inherit` de uma propriedade quando uma declaração
+/// posterior da mesma camada fornece outro valor. Sem isto, `color: inherit;
+/// color: red` seria novamente sobrescrito pelo pai na passada de herança.
+pub(crate) fn clear_inherit_marker(dst: &mut ComputedStyle, name: &str) {
+    let Some(existing) = dst.inherit_props.take() else {
+        return;
+    };
+    let remaining: Vec<String> = existing
+        .iter()
+        .filter(|property| property.as_str() != name)
+        .cloned()
+        .collect();
+    dst.inherit_props = (!remaining.is_empty()).then(|| std::sync::Arc::new(remaining));
+}
+
+/// Marca uma propriedade que foi explicitamente definida como `initial`.
+pub(crate) fn mark_initial_property(dst: &mut ComputedStyle, name: &str) {
+    let mut names = dst.initial_props.as_deref().cloned().unwrap_or_default();
+    if !names.iter().any(|property| property == name) {
+        names.push(name.to_string());
+    }
+    dst.initial_props = Some(std::sync::Arc::new(names));
+}
+
+pub(crate) fn clear_initial_marker(dst: &mut ComputedStyle, name: &str) {
+    let Some(existing) = dst.initial_props.take() else {
+        return;
+    };
+    let remaining: Vec<String> = existing
+        .iter()
+        .filter(|property| property.as_str() != name)
+        .cloned()
+        .collect();
+    dst.initial_props = (!remaining.is_empty()).then(|| std::sync::Arc::new(remaining));
+}
+
+/// Remove o marcador de `inherit` quando um campo computado posterior vence a
+/// mesma propriedade na cascade.
+pub(crate) fn clear_inherit_for_field(dst: &mut ComputedStyle, field: &str) {
+    let names: &[&str] = match field {
+        "color" => &["color"],
+        "font_size" => &["font-size", "font"],
+        "bold" => &["font-weight", "font"],
+        "italic" => &["font-style", "font"],
+        "line_height" => &["line-height", "font"],
+        "font_family" => &["font-family", "font"],
+        "text_align" => &["text-align"],
+        "white_space" => &["white-space"],
+        "text_transform" => &["text-transform"],
+        "letter_spacing" => &["letter-spacing"],
+        "text_decoration" => &["text-decoration", "text-decoration-line"],
+        "font_stretch" => &["font-stretch", "font"],
+        "word_spacing" => &["word-spacing"],
+        "visibility" => &["visibility"],
+        "tab_size" => &["tab-size"],
+        "line_break" => &["line-break"],
+        "text_decoration_skip_ink" => &["text-decoration-skip-ink"],
+        "caret_color" => &["caret-color"],
+        "text_wrap" => &["text-wrap"],
+        "hyphens" => &["hyphens"],
+        "direction" => &["direction"],
+        "word_break" => &["word-break"],
+        "overflow_wrap" => &["overflow-wrap", "word-wrap"],
+        "text_indent" => &["text-indent"],
+        "list_style_type" => &["list-style-type", "list-style"],
+        "list_style_position" => &["list-style-position", "list-style"],
+        "pointer_events" => &["pointer-events"],
+        _ => &[],
+    };
+    for name in names {
+        clear_inherit_marker(dst, name);
+    }
+}
+
+/// Remove o marcador de `initial` quando um campo computado posterior vence a
+/// mesma propriedade na cascade.
+pub(crate) fn clear_initial_for_field(dst: &mut ComputedStyle, field: &str) {
+    let names: &[&str] = match field {
+        "color" => &["color"],
+        "font_size" => &["font-size", "font"],
+        "bold" => &["font-weight", "font"],
+        "italic" => &["font-style", "font"],
+        "line_height" => &["line-height", "font"],
+        "font_family" => &["font-family", "font"],
+        "text_align" => &["text-align"],
+        "white_space" => &["white-space"],
+        "text_transform" => &["text-transform"],
+        "letter_spacing" => &["letter-spacing"],
+        "text_decoration" => &["text-decoration", "text-decoration-line"],
+        "font_stretch" => &["font-stretch", "font"],
+        "word_spacing" => &["word-spacing"],
+        "visibility" => &["visibility"],
+        "tab_size" => &["tab-size"],
+        "line_break" => &["line-break"],
+        "text_decoration_skip_ink" => &["text-decoration-skip-ink"],
+        "caret_color" => &["caret-color"],
+        "text_wrap" => &["text-wrap"],
+        "hyphens" => &["hyphens"],
+        "direction" => &["direction"],
+        "word_break" => &["word-break"],
+        "overflow_wrap" => &["overflow-wrap", "word-wrap"],
+        "text_indent" => &["text-indent"],
+        "list_style_type" => &["list-style-type", "list-style"],
+        "list_style_position" => &["list-style-position", "list-style"],
+        "pointer_events" => &["pointer-events"],
+        _ => &[],
+    };
+    for name in names {
+        clear_initial_marker(dst, name);
+    }
+}
+
+/// Reaplica `initial` depois da herança genérica. Alguns iniciais são `None`
+/// no modelo (por exemplo a família de fonte), logo só o marcador consegue
+/// impedir a cópia silenciosa do pai.
+pub(crate) fn apply_initial_keywords(dst: &mut ComputedStyle) {
+    let Some(names) = dst.initial_props.clone() else {
+        return;
+    };
+    for name in names.iter() {
+        let _ = crate::style::parse::apply_css_wide_keyword(dst, name, "initial");
+    }
+}
+
+/// No elemento raiz, `inherit`/`unset` de uma propriedade herdável resolve para
+/// o inicial porque não existe elemento pai. A operação remove o marcador antigo
+/// antes de aplicar o inicial, inclusive quando o campo já tinha um valor de uma
+/// declaração anterior no mesmo snapshot.
+pub(crate) fn apply_root_inherit_as_initial(dst: &mut ComputedStyle) {
+    let Some(names) = dst.inherit_props.clone() else {
+        return;
+    };
+    for name in names.iter() {
+        let _ = crate::style::parse::apply_css_wide_keyword(dst, name, "initial");
+    }
+}
+
 /// Copia de `src` para `dst` o campo da propriedade `name`. É o único sítio que
 /// mapeia nome CSS → campo para COPIAR (o parse mapeia nome → valor parseado), e
 /// cobre as propriedades que o modelo tem: uma que não esteja aqui deixa o campo
@@ -158,5 +295,37 @@ mod tests {
             !filho.padding.any_set(),
             "o `padding:inherit` passou a funcionar sem ninguém o implementar"
         );
+    }
+
+    #[test]
+    fn css_wide_initial_e_unset_resolvem_na_passada_de_heranca() {
+        let pai = parse_inline("color:blue;width:100px");
+        let mut filho = parse_inline("color:unset;width:unset");
+        assert_eq!(filho.color, None);
+        assert_eq!(filho.width, Some(crate::style::Dimension::Auto));
+        filho.inherit_from(&pai);
+        assert_eq!(filho.color, pai.color, "unset herda propriedade herdável");
+        assert_eq!(filho.width, Some(crate::style::Dimension::Auto));
+
+        let mut inicial = parse_inline("color:initial;width:initial");
+        inicial.inherit_from(&pai);
+        assert_eq!(inicial.color, Some(0x000000ff), "initial não herda color");
+        assert_eq!(inicial.width, Some(crate::style::Dimension::Auto));
+
+        let parent_font = parse_inline("font-family:Arial");
+        let mut initial_font = parse_inline("font-family:initial");
+        initial_font.inherit_from(&parent_font);
+        assert_eq!(
+            initial_font.font_family, None,
+            "initial não deve herdar a família do pai"
+        );
+    }
+
+    #[test]
+    fn declaracao_posterior_remove_marcador_de_inherit() {
+        let pai = parse_inline("color:blue");
+        let mut filho = parse_inline("color:inherit;color:red");
+        filho.inherit_from(&pai);
+        assert_eq!(filho.color, Some(0xff0000ff));
     }
 }

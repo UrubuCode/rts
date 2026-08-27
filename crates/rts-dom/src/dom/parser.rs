@@ -299,14 +299,12 @@ fn parse_com_estrutura(html: &str, estrutura: bool) -> Dom {
                 content,
             } => {
                 // `<style>`/`<script>`: DOM fiel preserva o ELEMENTO (com o texto cru
-                // como filho), mas o conteúdo NÃO é HTML. Para `<style>`, o CSS
-                // alimenta o stylesheet de autor (a cascade de `computed_style`).
+                // como filho), mas o conteúdo NÃO é HTML. O CSS dos `<style>` será
+                // recolhido da árvore ao final, para manter a mesma fonte de verdade
+                // usada pelas mutações (`innerHTML`, remove e replace).
                 // Para `<script>`, só preserva o nó (não executamos JS). O render
                 // ignora ambos (sem `BlockDef`/inline para essas tags). Os atributos
                 // da abertura são preservados (`<script src>`/`<style media>`).
-                if tag == "style" {
-                    dom.add_stylesheet(&content);
-                }
                 let parent = open.last().unwrap().0;
                 let parsed = parse_attrs(&attrs);
                 let el = dom.push(NodeKind::Element { tag }, parsed, parent);
@@ -316,6 +314,7 @@ fn parse_com_estrutura(html: &str, estrutura: bool) -> Dom {
             }
         }
     }
+    dom.rebuild_author_stylesheet();
     dom
 }
 

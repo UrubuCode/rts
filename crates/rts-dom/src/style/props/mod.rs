@@ -65,6 +65,11 @@ macro_rules! css_props {
             /// `style::inherit_kw`). `Arc` porque a lista é quase sempre vazia ou
             /// minúscula e é clonada com o estilo.
             pub inherit_props: Option<std::sync::Arc<Vec<String>>>,
+            /// Propriedades explicitamente definidas como `initial`. O marcador
+            /// impede que a herança por omissão trate `None` como ausência de
+            /// declaração; é necessário para iniciais dependentes do ambiente,
+            /// como `font-family`.
+            pub initial_props: Option<std::sync::Arc<Vec<String>>>,
             /// GRID: as trilhas de COLUNA (`grid-template-columns`) parseadas —
             /// px/fr/auto/%. `None` = não é grid explícito. Campo built-in (Vec não
             /// cabe na macro simples); herança N/A (grid não herda). O layout roda
@@ -111,6 +116,7 @@ macro_rules! css_props {
             grid_justify_items(Option<crate::style::AlignItems>),
             custom_props(Option<std::sync::Arc<std::collections::HashMap<String, String>>>),
             inherit_props(Option<std::sync::Arc<Vec<String>>>),
+            initial_props(Option<std::sync::Arc<Vec<String>>>),
         }
 
         impl Decl {
@@ -127,6 +133,7 @@ macro_rules! css_props {
                     Decl::grid_justify_items(v) => target.grid_justify_items = *v,
                     Decl::custom_props(v) => target.custom_props = v.clone(),
                     Decl::inherit_props(v) => target.inherit_props = v.clone(),
+                    Decl::initial_props(v) => target.initial_props = v.clone(),
                 }
             }
         }
@@ -168,11 +175,18 @@ macro_rules! css_props {
                 if self.inherit_props.is_some() {
                     out.push(Decl::inherit_props(self.inherit_props.clone()));
                 }
+                if self.initial_props.is_some() {
+                    out.push(Decl::initial_props(self.initial_props.clone()));
+                }
                 out
             }
 
             pub fn merge_over(&mut self, other: &ComputedStyle) {
-                $( if other.$ofield.is_some() { self.$ofield = other.$ofield.clone(); } )*
+                $( if other.$ofield.is_some() {
+                    crate::style::inherit_kw::clear_inherit_for_field(self, stringify!($ofield));
+                    crate::style::inherit_kw::clear_initial_for_field(self, stringify!($ofield));
+                    self.$ofield = other.$ofield.clone();
+                } )*
                 $( self.$efield.merge_over(&other.$efield); )*
                 // GRID: os campos built-in (Vec/track) — `other` vence quando setado
                 // (mesma precedência dos campos da macro; grid não herda).
@@ -191,6 +205,15 @@ macro_rules! css_props {
                 if other.grid_justify_items.is_some() {
                     self.grid_justify_items = other.grid_justify_items;
                 }
+                if other.display.is_some() {
+                    crate::style::inherit_kw::clear_inherit_marker(self, "display");
+                    crate::style::inherit_kw::clear_initial_marker(self, "display");
+                    self.display = other.display;
+                }
+                if other.border_box.is_some() {
+                    crate::style::inherit_kw::clear_initial_marker(self, "box-sizing");
+                    self.border_box = other.border_box;
+                }
                 // `inherit`: as listas SOMAM-SE. Duas regras podem pedir
                 // `inherit` em propriedades diferentes, e a de maior precedência
                 // não anula o pedido da outra — anular seria trocar "esta regra
@@ -203,6 +226,20 @@ macro_rules! css_props {
                             for n in deles.iter() {
                                 if !v.contains(n) {
                                     v.push(n.clone());
+                                }
+                            }
+                            std::sync::Arc::new(v)
+                        }
+                    });
+                }
+                if let Some(iniciais) = &other.initial_props {
+                    self.initial_props = Some(match self.initial_props.take() {
+                        None => iniciais.clone(),
+                        Some(meus) => {
+                            let mut v = (*meus).clone();
+                            for name in iniciais.iter() {
+                                if !v.contains(name) {
+                                    v.push(name.clone());
                                 }
                             }
                             std::sync::Arc::new(v)
@@ -234,6 +271,10 @@ macro_rules! css_props {
                 // `inherit` EXPLÍCITO: depois da herança por omissão, porque é
                 // uma declaração e vence o que o nó não declarou.
                 self.apply_inherit_keyword(parent);
+                // `initial` EXPLÍCITO: depois da herança, porque deve impedir a
+                // cópia do pai mesmo quando o valor inicial é representado por
+                // `None` no campo computado.
+                crate::style::inherit_kw::apply_initial_keywords(self);
                 // custom props SEMPRE herdam (spec): sem declaração própria o
                 // filho compartilha o Arc do pai (O(1)); com declaração própria,
                 // as do pai preenchem por baixo (o filho vence por nome).

@@ -278,6 +278,12 @@ css_props! {
         [anim] corner_tr: f32;
         [anim] corner_br: f32;
         [anim] corner_bl: f32;
+        /// Componente vertical dos quatro cantos elípticos. O eixo horizontal
+        /// permanece nos campos `corner_*`; estes campos completam o valor CSS.
+        [anim] corner_tl_y: f32;
+        [anim] corner_tr_y: f32;
+        [anim] corner_br_y: f32;
+        [anim] corner_bl_y: f32;
         /// `transform-origin` — o ponto em torno do qual o `transform` roda e
         /// escala. Reusa [`crate::style::BgPosition`]: a gramatica e a mesma de
         /// `background-position` (comprimento, percentagem ou keyword por eixo).

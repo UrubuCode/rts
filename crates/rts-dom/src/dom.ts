@@ -94,15 +94,15 @@ class Element {
     dom.setText(this._dom, this._node, t);
   }
 
-  // `el.innerHTML` — GET serializa os filhos. O jeito #1 de mexer no DOM em apps.
+  // `el.innerHTML` — GET/SET serializa ou substitui os filhos.
   get innerHTML(): string {
     return dom.innerHtml(this._dom, this._node);
   }
-  // ⚠️ O SET é via MÉTODO `setInnerHTML(html)`, não o setter `el.innerHTML = ...`:
-  // o motor RTS atual não dispara setters de propriedade de classe (o `app.x = v`
-  // não chama `set x()` — cria um campo no objeto). Métodos despacham certo. Quando
-  // o motor suportar setters, o `set innerHTML` volta. (mesmo motivo de classList*
-  // serem métodos, não um objeto `.classList` vivo.)
+  set innerHTML(html: string) {
+    dom.setInnerHtml(this._dom, this._node, html);
+  }
+  // Método explícito mantido para hosts que ainda não despacham setters de
+  // propriedades de classe; ambos os caminhos usam a mesma mutação Rust.
   setInnerHTML(html: string): void {
     dom.setInnerHtml(this._dom, this._node, html);
   }
@@ -571,9 +571,12 @@ class Document {
     return out;
   }
 
-  // `document.getElementById(id)` — atalho para `#id`.
+  // `document.getElementById(id)` usa igualdade textual no índice do DOM;
+  // não é um seletor CSS e, portanto, funciona para IDs como `a.b`.
   getElementById(id: string): Element | null {
-    return this.querySelector("#" + id);
+    const n = dom.getById(this._dom, id);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
   }
 
   // ── getElementsBy* (#1758) — coleções por classe/tag/name ────────────────────
@@ -626,9 +629,10 @@ class Document {
     return new Element(this._dom, n);
   }
 
-  // `document.documentElement` — a raiz `#document`.
-  get documentElement(): Element {
-    const root = dom.rootId(this._dom);
+  // `document.documentElement` — o elemento `<html>`, não a raiz `#document`.
+  get documentElement(): Element | null {
+    const root = dom.documentElement(this._dom);
+    if (root === __DOM_NONE) return null;
     return new Element(this._dom, root);
   }
 }
@@ -786,7 +790,7 @@ function __fetchText(url: string): string {
   return fetch.fetchText(url);
 }
 
-// Expande os `@import url(...)` / `@import "..."` de um CSS, INLINE e recursivamente.
+// Expande os imports CSS (`url(...)` ou string) INLINE e recursivamente.
 // Cada import é resolvido contra a base do CSS que o contém. `seen` corta ciclos;
 // `depth` limita a profundidade (defesa contra recursão patológica).
 // NOTA (motor): sem `break` (ver `__trimEnd`); o fim do laço é controlado por `i`,
