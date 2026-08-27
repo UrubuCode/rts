@@ -37,7 +37,13 @@ function __listenerEventName(type: string, options: any): string {
 // cada fn com um objeto de evento `{type, target, currentTarget}` (subset do Event
 // do browser). Devolve o total notificado (callbacks coletados; a fila de polling
 // legada também é alimentada pelo mesmo dispatchCollect).
-function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: number): number {
+function __dispatchWithCallbacks(
+  h: i64,
+  node: number,
+  type: string,
+  bubbles: number,
+  trusted: number,
+): number {
   const n = dom.dispatchCollect(h, node, type, bubbles);
   if (n === 0) return 0;
   const cbs: number[] = [];
@@ -65,7 +71,7 @@ function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: nu
     cancelable: true,
     defaultPrevented: false,
     eventPhase: 0,
-    isTrusted: false,
+    isTrusted: trusted !== 0,
     cancelBubble: false,
     stopPropagation: function () {
       state.stopped = 1;
@@ -599,12 +605,12 @@ class Element {
   // true})`): invoca os callbacks registrados (alvo → ancestrais) e alimenta a fila
   // de polling legada. Devolve quantos listeners (callbacks + polling) notificou.
   dispatchEvent(type: string): number {
-    return __dispatchWithCallbacks(this._dom, this._node, type, 1);
+    return __dispatchWithCallbacks(this._dom, this._node, type, 1, 0);
   }
   // `el.dispatchEventNoBubble(type)` — dispara SÓ no alvo (como `new Event(t)`, que
   // é bubbles:false por padrão; focus/blur/mouseenter não borbulham).
   dispatchEventNoBubble(type: string): number {
-    return __dispatchWithCallbacks(this._dom, this._node, type, 0);
+    return __dispatchWithCallbacks(this._dom, this._node, type, 0, 0);
   }
   // `el.nodeId` — o NodeId cru deste elemento (p/ comparar no switch do polling).
   get nodeId(): number {
@@ -1249,7 +1255,7 @@ function pumpEventCallbacks(doc: Document): number {
     const node = dom.pollRawEvent(h);
     if (node === __DOM_NONE) return despachados;
     const t = dom.pollRawEventType(h);
-    __dispatchWithCallbacks(h, node, t, 1);
+    __dispatchWithCallbacks(h, node, t, 1, 1);
     despachados = despachados + 1;
     guard = guard + 1;
   }

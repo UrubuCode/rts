@@ -105,6 +105,24 @@ describe("eventos de edição do DOM", () => {
     expect(syntheticTrusted).toBe(false);
   });
 
+  test("foco vindo da fila backend é trusted e foco sintético não é", () => {
+    const { doc, field } = makeInput("");
+    let backendTrusted = false;
+    let syntheticTrusted = true;
+    field.addEventListener("focusin", (event: any) => {
+      if (event.isTrusted) backendTrusted = true;
+      else syntheticTrusted = false;
+    });
+
+    dom.focusInput(doc._dom, -1);
+    dom.focusInput(doc._dom, field.nodeId);
+    pumpEventCallbacks(doc);
+    field.dispatchEvent("focusin");
+
+    expect(backendTrusted).toBe(true);
+    expect(syntheticTrusted).toBe(false);
+  });
+
   test("composição entrega start/update/end e insere o commit uma só vez", () => {
     const { doc, field } = makeInput("");
     let order = "";
