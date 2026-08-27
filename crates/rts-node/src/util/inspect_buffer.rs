@@ -35,7 +35,13 @@ fn format_buffer(value: u64, options: Options, seen: &mut Vec<u64>) -> Option<St
     let extras = own_key_strings(value)
         .into_iter()
         .filter(|key| !internal_key(key) && key.parse::<usize>().is_err())
-        .map(|key| format!("{}: {}", inspect::key_text(&key), inspect::format_value(get(value, &key), options.inner(), seen)))
+        .map(|key| {
+            format!(
+                "{}: {}",
+                inspect::key_text(&key),
+                inspect::format_value(get(value, &key), options.inner(), seen)
+            )
+        })
         .collect::<Vec<_>>();
     if !extras.is_empty() {
         if !parts.is_empty() {
@@ -51,8 +57,15 @@ fn format_buffer(value: u64, options: Options, seen: &mut Vec<u64>) -> Option<St
 /// Node's typed-array spelling for the Uint8Array values used as Buffer extras.
 fn format_uint8_array(value: u64) -> Option<String> {
     let bytes = entry::with_runtime(|context| entry::bytes_of(context, value))?;
-    let parts = bytes.iter().map(|byte| byte.to_string()).collect::<Vec<_>>();
-    Some(format!("Uint8Array({}) {}", bytes.len(), inspect::wrapped('[', ']', &parts)))
+    let parts = bytes
+        .iter()
+        .map(|byte| byte.to_string())
+        .collect::<Vec<_>>();
+    Some(format!(
+        "Uint8Array({}) {}",
+        bytes.len(),
+        inspect::wrapped('[', ']', &parts)
+    ))
 }
 
 /// Read the mutable limit exposed by `node:buffer`.
@@ -67,7 +80,10 @@ fn inspect_max_bytes() -> usize {
 
 /// Metadata installed on every Buffer view, not user-defined properties.
 fn internal_key(key: &str) -> bool {
-    matches!(key, "byteLength" | "byteOffset" | "length" | "buffer" | "parent")
+    matches!(
+        key,
+        "byteLength" | "byteOffset" | "length" | "buffer" | "parent"
+    )
 }
 
 fn constructor_name(value: u64) -> Option<String> {
