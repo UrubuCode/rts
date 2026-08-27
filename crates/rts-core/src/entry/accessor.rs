@@ -54,6 +54,32 @@ pub(super) enum Found {
 /// The getter and setter a cell has for a key, if either.
 type Pair = (Option<u64>, Option<u64>);
 
+/// Installs a native accessor while the caller already owns the context borrow.
+///
+/// Namespace builders receive `&mut Context` before the context is on the
+/// thread-local stack, so the ambient `define_getter`/`define_setter` entry
+/// points cannot be used there. This keeps the conversion from a name to a key,
+/// callable creation, and cache invalidation in the accessor owner.
+pub fn define_accessor_in(
+    context: &mut Context,
+    object: u64,
+    name: &str,
+    getter: super::modules::Provided,
+    setter: Option<super::modules::Provided>,
+) -> u64 {
+    let Some(cell) = Value(object).as_slot() else {
+        return object;
+    };
+    let key = super::modules::member_key(context, name);
+    if key == u32::MAX {
+        return object;
+    }
+    let getter = super::modules::make_callable(context, getter);
+    let setter = setter.map(|code| super::modules::make_callable(context, code));
+    context.define_accessor_and_invalidate(cell, key, Some(getter), setter);
+    object
+}
+
 impl Context {
     /// What a cell defines for a key, if anything.
     ///

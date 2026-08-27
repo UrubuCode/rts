@@ -71,6 +71,7 @@
 pub(crate) mod blob;
 
 use rts_core::entry::{self, Context, Provided};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The namespace `node:buffer` is.
 pub fn namespace(context: &mut Context) -> u64 {
@@ -100,13 +101,15 @@ pub fn namespace(context: &mut Context) -> u64 {
     entry::put_member(context, namespace, "kMaxLength", k_max_length);
     let k_string_max_length = entry::make_number(MAX_STRING_LENGTH);
     entry::put_member(context, namespace, "kStringMaxLength", k_string_max_length);
-    // Mutable in Node, and mutable here for free: an own data property on the
-    // namespace object is what `buffer.INSPECT_MAX_BYTES = 10` assigns to.
-    // Nothing in this engine READS it yet — `util.inspect` has its own limit —
-    // so it is a value a program can round-trip rather than a knob, which is
-    // what the reference §2.3 documents it as.
-    let inspect_max_bytes = entry::make_number(50.0);
-    entry::put_member(context, namespace, "INSPECT_MAX_BYTES", inspect_max_bytes);
+    // Mutable in Node, and represented here by an accessor so assignments can
+    // validate the non-negative numeric limit before `util.inspect` reads it.
+    entry::define_accessor_in(
+        context,
+        namespace,
+        "INSPECT_MAX_BYTES",
+        inspect_max_bytes_get,
+        Some(inspect_max_bytes_set),
+    );
 
     namespace
 }
@@ -126,6 +129,8 @@ const MAX_LENGTH: f64 = entry::BUFFER_MAX_LENGTH;
 /// Same reasoning as [`MAX_LENGTH`] — this engine's UTF-8 `Str` cells have no
 /// narrower ceiling of their own, so the two share one number.
 const MAX_STRING_LENGTH: f64 = entry::BUFFER_MAX_LENGTH;
+
+static INSPECT_MAX_BYTES: AtomicU64 = AtomicU64::new(50.0f64.to_bits());
 
 /// `buffer.atob(data)` — base64 to a binary string, one code unit per byte.
 /// Invalid base64 answers `""` (no-throw stand-in); real Node throws a
@@ -238,6 +243,39 @@ extern "C" fn slow_buffer_native(
     });
     let absent = entry::undefined_value();
     entry::call(alloc_unsafe, buffer, size, absent, absent, absent)
+}
+
+/// The getter half of the mutable `buffer.INSPECT_MAX_BYTES` property.
+extern "C" fn inspect_max_bytes_get(
+    _e: u64,
+    _this: u64,
+    _a0: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    entry::make_number(f64::from_bits(INSPECT_MAX_BYTES.load(Ordering::SeqCst)))
+}
+
+/// The setter validates Node's non-negative numeric limit before publishing it.
+extern "C" fn inspect_max_bytes_set(
+    _e: u64,
+    _this: u64,
+    value: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    let Some(number) = entry::number_of(value) else {
+        entry::invalid_arg_type("INSPECT_MAX_BYTES", "number", value);
+        return entry::undefined_value();
+    };
+    if number.is_nan() || number < 0.0 {
+        entry::out_of_range("INSPECT_MAX_BYTES", ">= 0", value);
+        return entry::undefined_value();
+    }
+    INSPECT_MAX_BYTES.store(number.to_bits(), Ordering::SeqCst);
+    entry::undefined_value()
 }
 
 /// `buffer.resolveObjectURL(id)` — always `undefined`, and totally correct
