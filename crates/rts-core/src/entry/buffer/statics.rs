@@ -92,24 +92,191 @@ pub(in crate::entry) fn alloc_unsafe(size: u64) -> u64 {
 /// The second argument is an ENCODING only when the source is a string — for a
 /// view or an array it is a byte offset — so it is validated as one only there.
 /// Checking it always would refuse `Buffer.from(other, 2)`, which is legal.
-pub(in crate::entry) fn from(source: u64, encoding_or_offset: u64) -> u64 {
+pub(in crate::entry) fn from(
+    source: u64,
+    encoding_or_offset: u64,
+    length: u64,
+) -> u64 {
+    let source = string_wrapper_source(source);
+    let source = primitive_source(source);
+    if super::super::throw::in_flight() {
+        return undefined();
+    }
     let Some(shape) = validate::source("value", source) else {
         return undefined();
     };
     if matches!(shape, Shape::ArrayBuffer) {
-        return with_current(|context| super::ops::from_array_buffer(context, source));
+        let Some((offset, length)) = array_buffer_range(source, encoding_or_offset, length) else {
+            return undefined();
+        };
+        return with_current(|context| {
+            super::ops::from_array_buffer(context, source, offset, length)
+        });
     }
     let encoding = match shape {
-        Shape::Text(_) => match validate::encoding(encoding_or_offset) {
-            Some(name) => name,
-            None => return undefined(),
+        Shape::Text(_) => match validate::shape_of(encoding_or_offset) {
+            Shape::Text(_) => match validate::encoding(encoding_or_offset) {
+                Some(name) => name,
+                None => return undefined(),
+            },
+            _ => String::from("utf8"),
         },
         _ => String::from("utf8"),
     };
+    let bytes = match shape {
+        Shape::Other => match with_current(|context| object_source_bytes(context, source)) {
+            Some(bytes) => bytes,
+            None => {
+                errors::invalid_buffer_source(source);
+                return undefined();
+            }
+        },
+        _ => with_current(|context| source_bytes(context, source, &encoding)).unwrap_or_default(),
+    };
+    with_current(|context| made(context, &bytes))
+}
+
+/// Unwraps only String wrapper objects. Number and Boolean wrappers must remain
+/// objects so their refusal reports `an instance of Number`/`Boolean`.
+fn string_wrapper_source(value: u64) -> u64 {
     with_current(|context| {
-        let bytes = source_bytes(context, source, &encoding).unwrap_or_default();
-        made(context, &bytes)
+        let primitive = super::super::primitive_proto::unwrap(context, value);
+        let Some(cell) = Value(primitive).as_slot() else {
+            return value;
+        };
+        context.text_at(cell).is_some().then_some(primitive).unwrap_or(value)
     })
+}
+
+/// Invokes `Symbol.toPrimitive` only when the source actually exposes that hook.
+/// Generic objects are not coerced: Node rejects `{}` even though ordinary
+/// JavaScript numeric/string conversion could produce a primitive for it.
+fn primitive_source(value: u64) -> u64 {
+    if !with_current(|context| super::super::primitive::is_object_in(context, value)) {
+        return value;
+    }
+    let key = with_current(|context| super::super::symbol::well_known(context, "toPrimitive"));
+    let method = super::super::computed::get_indexed(value, key);
+    if super::super::throw::in_flight() {
+        return value;
+    }
+    if !with_current(|context| super::super::modules::is_callable_in(context, method)) {
+        return value;
+    }
+    let (hint, absent) = with_current(|context| {
+        (
+            context.intern_value(crate::text::Str::from_str("string")).bits(),
+            undefined_of(context),
+        )
+    });
+    let answer = super::super::functions::call(method, value, hint, absent, absent, absent);
+    if super::super::throw::in_flight() {
+        value
+    } else {
+        answer
+    }
+}
+
+/// Reads the object forms Node accepts as a Buffer source.
+fn object_source_bytes(context: &mut super::super::Context, value: u64) -> Option<Vec<u8>> {
+    let cell = Value(value).as_slot()?;
+    let type_key = context.well_known("type");
+    if let Some(kind) = super::super::objects::read_property(context, cell, type_key)
+        .and_then(|kind| kind.as_slot())
+        .and_then(|kind| context.text_at(kind))
+        .and_then(|kind| kind.to_rust())
+        && kind == "Buffer"
+    {
+        let data_key = context.well_known("data");
+        let data = super::super::objects::read_property(context, cell, data_key)?;
+        return array_values(context, data.bits());
+    }
+
+    // An object carrying `buffer` is accepted as an Array-like source even when
+    // it has no length; the resulting Buffer is empty, matching Node's legacy
+    // structural overload and the SharedArrayBuffer regression test.
+    let buffer_key = context.well_known("buffer");
+    if super::super::objects::read_property(context, cell, buffer_key).is_some() {
+        return Some(Vec::new());
+    }
+
+    let length_key = context.well_known("length");
+    let length = super::super::objects::read_property(context, cell, length_key)?;
+    let number = operators::as_number(context, length).unwrap_or(f64::NAN);
+    let count = super::super::buffers::as_count(number);
+    let mut bytes = Vec::with_capacity(count);
+    for index in 0..count {
+        let key = crate::object::Key::Index(index as u32);
+        let held = super::super::objects::read_property(context, cell, key)
+            .map(|value| operators::as_number(context, value).unwrap_or(0.0))
+            .unwrap_or(0.0);
+        bytes.push(if held.is_finite() {
+            held.trunc().rem_euclid(256.0) as u8
+        } else {
+            0
+        });
+    }
+    Some(bytes)
+}
+
+/// Copies numeric entries from a JSON Buffer `data` array.
+fn array_values(context: &super::super::Context, value: u64) -> Option<Vec<u8>> {
+    let cell = Value(value).as_slot()?;
+    let elements = context.elements_at(cell)?;
+    Some(
+        elements
+            .iter()
+            .map(|value| operators::as_number(context, Value(*value)).unwrap_or(0.0))
+            .map(|number| {
+                if number.is_finite() {
+                    number.trunc().rem_euclid(256.0) as u8
+                } else {
+                    0
+                }
+            })
+            .collect(),
+    )
+}
+
+/// Resolves `Buffer.from(arrayBuffer, byteOffset?, length?)` before the view
+/// borrow opens. Non-numeric offsets become zero, a missing length covers the
+/// remainder, and a finite range that leaves the backing store becomes the
+/// Node-specific buffer-bounds error.
+fn array_buffer_range(source: u64, offset: u64, length: u64) -> Option<(usize, usize)> {
+    let total = with_current(|context| {
+        Value(source)
+            .as_slot()
+            .and_then(|cell| context.bytes_at(cell).map(Vec::len))
+    })?;
+    let offset = super::super::buffers::optional_number(offset).unwrap_or(0.0);
+    let offset = if offset.is_nan() {
+        0
+    } else if offset.is_finite() && offset.fract() == 0.0 && offset >= 0.0 {
+        offset as usize
+    } else {
+        errors::buffer_out_of_bounds(Some("offset"));
+        return None;
+    };
+    if offset > total {
+        errors::buffer_out_of_bounds(Some("offset"));
+        return None;
+    }
+    let Some(length) = super::super::buffers::optional_number(length) else {
+        return Some((offset, total - offset));
+    };
+    if length.is_nan() {
+        return Some((offset, 0));
+    }
+    if !length.is_finite() || length.fract() != 0.0 || length < 0.0 {
+        errors::buffer_out_of_bounds(Some("length"));
+        return None;
+    }
+    let length = length as usize;
+    if length > total - offset {
+        errors::buffer_out_of_bounds(Some("length"));
+        return None;
+    }
+    Some((offset, length))
 }
 
 /// `Buffer.of(...values)`.
@@ -171,14 +338,27 @@ pub(in crate::entry) fn concat(list_value: u64, total_length: u64) -> u64 {
 /// caller's check discards whatever crossed back. Every early return in this
 /// module and in [`super::ops`] means the same thing, whatever value it names.
 pub(in crate::entry) fn byte_length(source: u64, encoding: u64) -> f64 {
-    let Some(shape) = validate::source("string", source) else {
+    let Some(shape) = validate::byte_length_source(source) else {
         return 0.0;
     };
-    let encoding = match shape {
-        Shape::Text(_) => match validate::encoding(encoding) {
-            Some(name) => name,
-            None => return 0.0,
-        },
+    if matches!(shape, Shape::ArrayBuffer) {
+        return with_current(|context| {
+            Value(source)
+                .as_slot()
+                .and_then(|cell| context.bytes_at(cell))
+                .map_or(0.0, |bytes| bytes.len() as f64)
+        });
+    }
+    if matches!(shape, Shape::Bytes(_)) {
+        return with_current(|context| {
+            view_of(context, source)
+                .map_or(0.0, |view| view.length as f64)
+        });
+    }
+    let encoding = match validate::shape_of(encoding) {
+        Shape::Text(name) => codec::canonical_encoding(&name)
+            .unwrap_or("utf8")
+            .to_owned(),
         _ => String::from("utf8"),
     };
     with_current(|context| {

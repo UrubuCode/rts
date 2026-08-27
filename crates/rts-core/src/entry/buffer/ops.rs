@@ -71,18 +71,26 @@ fn instance_over(context: &mut Context, view: View) -> u64 {
 }
 
 /// A Buffer view over an existing raw ArrayBuffer, preserving shared storage.
-pub(in crate::entry) fn from_array_buffer(context: &mut Context, source: u64) -> u64 {
+pub(in crate::entry) fn from_array_buffer(
+    context: &mut Context,
+    source: u64,
+    offset: usize,
+    length: usize,
+) -> u64 {
     let Some(buffer) = Value(source).as_slot() else {
         return undefined_of(context);
     };
-    let Some(length) = context.bytes_at(buffer).map(Vec::len) else {
+    let Some(bytes) = context.bytes_at(buffer) else {
         return undefined_of(context);
     };
+    if offset.checked_add(length).is_none_or(|end| end > bytes.len()) {
+        return undefined_of(context);
+    }
     instance_over(
         context,
         View {
             buffer,
-            offset: 0,
+            offset,
             length,
             kind: Kind::Uint8,
         },
