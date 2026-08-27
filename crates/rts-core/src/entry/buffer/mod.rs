@@ -52,6 +52,7 @@ pub(in crate::entry) mod validate;
 
 use super::buffers::element::Kind;
 use super::buffers::uint8_array;
+use super::Context;
 use crate::entry;
 
 /// `Buffer`.
@@ -191,6 +192,16 @@ impl Buffer {
         ops::to_json(this)
     }
 
+    /// `buf.readInt8(offset?)`.
+    fn read_int8(this: u64, offset: u64) -> f64 {
+        ops::read_num(this, offset, Kind::Int8, true)
+    }
+
+    /// `buf.writeInt8(value, offset?)`.
+    fn write_int8(this: u64, value: f64, offset: u64) -> f64 {
+        ops::write_num(this, value, offset, Kind::Int8, true)
+    }
+
     /// `buf.readUInt8(offset?)`.
     fn read_u_int8(this: u64, offset: u64) -> f64 {
         ops::read_num(this, offset, Kind::Uint8, true)
@@ -223,6 +234,78 @@ impl Buffer {
     #[js("writeUInt16BE")]
     fn write_u_int16_be(this: u64, value: f64, offset: u64) -> f64 {
         ops::write_num(this, value, offset, Kind::Uint16, false)
+    }
+
+    /// `buf.readInt16LE(offset?)`.
+    #[js("readInt16LE")]
+    fn read_int16_le(this: u64, offset: u64) -> f64 {
+        ops::read_num(this, offset, Kind::Int16, true)
+    }
+
+    /// `buf.readInt16BE(offset?)`.
+    #[js("readInt16BE")]
+    fn read_int16_be(this: u64, offset: u64) -> f64 {
+        ops::read_num(this, offset, Kind::Int16, false)
+    }
+
+    /// `buf.writeInt16LE(value, offset?)`.
+    #[js("writeInt16LE")]
+    fn write_int16_le(this: u64, value: f64, offset: u64) -> f64 {
+        ops::write_num(this, value, offset, Kind::Int16, true)
+    }
+
+    /// `buf.writeInt16BE(value, offset?)`.
+    #[js("writeInt16BE")]
+    fn write_int16_be(this: u64, value: f64, offset: u64) -> f64 {
+        ops::write_num(this, value, offset, Kind::Int16, false)
+    }
+
+    /// `buf.readUIntLE(offset?, byteLength)`.
+    #[js("readUIntLE")]
+    fn read_u_int_le(this: u64, offset: u64, byte_length: u64) -> f64 {
+        ops::read_variable(this, offset, byte_length, true, false)
+    }
+
+    /// `buf.readUIntBE(offset?, byteLength)`.
+    #[js("readUIntBE")]
+    fn read_u_int_be(this: u64, offset: u64, byte_length: u64) -> f64 {
+        ops::read_variable(this, offset, byte_length, false, false)
+    }
+
+    /// `buf.writeUIntLE(value, offset?, byteLength)`.
+    #[js("writeUIntLE")]
+    fn write_u_int_le(this: u64, value: f64, offset: u64, byte_length: u64) -> f64 {
+        ops::write_variable(this, value, offset, byte_length, true, false)
+    }
+
+    /// `buf.writeUIntBE(value, offset?, byteLength)`.
+    #[js("writeUIntBE")]
+    fn write_u_int_be(this: u64, value: f64, offset: u64, byte_length: u64) -> f64 {
+        ops::write_variable(this, value, offset, byte_length, false, false)
+    }
+
+    /// `buf.readIntLE(offset?, byteLength)`.
+    #[js("readIntLE")]
+    fn read_int_le(this: u64, offset: u64, byte_length: u64) -> f64 {
+        ops::read_variable(this, offset, byte_length, true, true)
+    }
+
+    /// `buf.readIntBE(offset?, byteLength)`.
+    #[js("readIntBE")]
+    fn read_int_be(this: u64, offset: u64, byte_length: u64) -> f64 {
+        ops::read_variable(this, offset, byte_length, false, true)
+    }
+
+    /// `buf.writeIntLE(value, offset?, byteLength)`.
+    #[js("writeIntLE")]
+    fn write_int_le(this: u64, value: f64, offset: u64, byte_length: u64) -> f64 {
+        ops::write_variable(this, value, offset, byte_length, true, true)
+    }
+
+    /// `buf.writeIntBE(value, offset?, byteLength)`.
+    #[js("writeIntBE")]
+    fn write_int_be(this: u64, value: f64, offset: u64, byte_length: u64) -> f64 {
+        ops::write_variable(this, value, offset, byte_length, false, true)
     }
 
     /// `buf.readUInt32LE(offset?)`.
@@ -291,10 +374,34 @@ impl Buffer {
         ops::write_num(this, value, offset, Kind::Float32, true)
     }
 
+    /// `buf.readFloatBE(offset?)`.
+    #[js("readFloatBE")]
+    fn read_float_be(this: u64, offset: u64) -> f64 {
+        ops::read_num(this, offset, Kind::Float32, false)
+    }
+
+    /// `buf.writeFloatBE(value, offset?)`.
+    #[js("writeFloatBE")]
+    fn write_float_be(this: u64, value: f64, offset: u64) -> f64 {
+        ops::write_num(this, value, offset, Kind::Float32, false)
+    }
+
     /// `buf.readDoubleLE(offset?)`.
     #[js("readDoubleLE")]
     fn read_double_le(this: u64, offset: u64) -> f64 {
         ops::read_num(this, offset, Kind::Float64, true)
+    }
+
+    /// `buf.readDoubleBE(offset?)`.
+    #[js("readDoubleBE")]
+    fn read_double_be(this: u64, offset: u64) -> f64 {
+        ops::read_num(this, offset, Kind::Float64, false)
+    }
+
+    /// `buf.writeDoubleBE(value, offset?)`.
+    #[js("writeDoubleBE")]
+    fn write_double_be(this: u64, value: f64, offset: u64) -> f64 {
+        ops::write_num(this, value, offset, Kind::Float64, false)
     }
 
     /// `buf.writeDoubleLE(value, offset?)`.
@@ -302,4 +409,35 @@ impl Buffer {
     fn write_double_le(this: u64, value: f64, offset: u64) -> f64 {
         ops::write_num(this, value, offset, Kind::Float64, true)
     }
+}
+
+/// Register Buffer and install Node's spelling aliases without generating a
+/// second native wrapper for each `UInt`/`Uint` pair.
+pub(in crate::entry) fn register_buffer_with_aliases(context: &mut Context) -> u64 {
+    let constructor = register_buffer(context);
+    let Some(prototype) = super::class_support::prototype(context, "Buffer") else {
+        return constructor;
+    };
+    for (upper, lower) in [
+        ("readUInt8", "readUint8"),
+        ("writeUInt8", "writeUint8"),
+        ("readUInt16LE", "readUint16LE"),
+        ("writeUInt16LE", "writeUint16LE"),
+        ("readUInt16BE", "readUint16BE"),
+        ("writeUInt16BE", "writeUint16BE"),
+        ("readUInt32LE", "readUint32LE"),
+        ("writeUInt32LE", "writeUint32LE"),
+        ("readUInt32BE", "readUint32BE"),
+        ("writeUInt32BE", "writeUint32BE"),
+        ("readUIntLE", "readUintLE"),
+        ("writeUIntLE", "writeUintLE"),
+        ("readUIntBE", "readUintBE"),
+        ("writeUIntBE", "writeUintBE"),
+    ] {
+        let value = super::modules::get_member(context, prototype, upper);
+        if value != super::modules::undefined_in(context) {
+            super::modules::put_member(context, prototype, lower, value);
+        }
+    }
+    constructor
 }

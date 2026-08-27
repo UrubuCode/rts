@@ -148,7 +148,7 @@ pub(in crate::entry) fn supply(
         "Proxy" => super::proxy::register_proxy(context),
         "Map" => super::collections::register_map(context),
             "Set" => super::collections::register_set(context),
-            "Buffer" => super::buffer::register_buffer(context),
+            "Buffer" => super::buffer::register_buffer_with_aliases(context),
             "ArrayBuffer" => super::buffers::register_array_buffer(context),
             "DataView" => super::buffers::register_data_view(context),
             "Int8Array" => super::buffers::int8_array(context),

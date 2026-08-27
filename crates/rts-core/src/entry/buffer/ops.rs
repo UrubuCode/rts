@@ -442,3 +442,59 @@ pub(in crate::entry) fn write_num(this: u64, value: f64, offset: u64, kind: Kind
         (at + kind.size()) as f64
     })
 }
+
+/// A variable-width integer read, used by the 1–6 byte Buffer methods.
+pub(in crate::entry) fn read_variable(
+    this: u64,
+    offset: u64,
+    byte_length: u64,
+    little: bool,
+    signed: bool,
+) -> f64 {
+    let Some(count) = validate::bytes("buffer", this) else { return f64::NAN };
+    let Some(width) = validate::byte_length(byte_length) else { return f64::NAN };
+    let Some(at) = validate::variable_offset(offset, count, width) else { return f64::NAN };
+    with_current(|context| {
+        let Some(view) = view_of(context, this) else { return f64::NAN };
+        let Some(bytes) = window(context, &view) else { return f64::NAN };
+        let Some(word) = super::super::buffers::element::gathered(bytes, at, width, little) else {
+            return f64::NAN;
+        };
+        let bits = width * 8;
+        if signed && (word & (1u64 << (bits - 1))) != 0 {
+            (word as i128 - (1i128 << bits)) as f64
+        } else {
+            word as f64
+        }
+    })
+}
+
+/// A variable-width integer write, used by the 1–6 byte Buffer methods.
+pub(in crate::entry) fn write_variable(
+    this: u64,
+    value: f64,
+    offset: u64,
+    byte_length: u64,
+    little: bool,
+    signed: bool,
+) -> f64 {
+    let Some(count) = validate::bytes("buffer", this) else { return 0.0 };
+    let Some(width) = validate::byte_length(byte_length) else { return 0.0 };
+    let Some(at) = validate::variable_offset(offset, count, width) else { return 0.0 };
+    if !validate::variable_fits(value, width, signed) {
+        return 0.0;
+    }
+    let bits = width * 8;
+    let word = (value as i128).rem_euclid(1i128 << bits) as u64;
+    with_current(|context| {
+        if let Some(view) = view_of(context, this)
+            && let Some(bytes) = window_mut(context, &view)
+        {
+            for index in 0..width {
+                let shift = if little { index } else { width - 1 - index };
+                bytes[at + index] = (word >> (shift * 8)) as u8;
+            }
+        }
+        (at + width) as f64
+    })
+}

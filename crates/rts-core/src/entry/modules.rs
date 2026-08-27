@@ -881,7 +881,7 @@ pub fn decode_base64(text: &str) -> Vec<u8> {
 /// the small accessor `rts-node` needs to hand its own `Buffer` name back to
 /// the one this crate builds, rather than fabricating a second one.
 pub fn buffer_class(context: &mut Context) -> u64 {
-    super::buffer::register_buffer(context)
+    super::buffer::register_buffer_with_aliases(context)
 }
 
 /// An object inheriting from a prototype.

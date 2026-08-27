@@ -173,6 +173,29 @@ fn satisfies(error: u64, expected: u64) -> Verdict {
     for name in values::own_key_strings(expected) {
         let wanted = member(expected, &name);
         let held = member(error, &name);
+        // Object matchers may use a RegExp for a field such as `message`.
+        // Treat it like the top-level matcher above instead of comparing the
+        // RegExp object identity with the actual string value.
+        let tester = member(wanted, "test");
+        if values::is_callable(tester) && member(wanted, "source") != entry::undefined_value() {
+            let actual = string_of(held).unwrap_or_else(|| values::render(held));
+            let matched = entry::call(
+                tester,
+                wanted,
+                values::string(&actual),
+                entry::undefined_value(),
+                entry::undefined_value(),
+                entry::undefined_value(),
+            );
+            if !entry::to_boolean(matched) {
+                return Verdict::Failed(format!(
+                    "Expected the error's `{name}` to match {}, got {}",
+                    values::render(wanted),
+                    actual
+                ));
+            }
+            continue;
+        }
         if !super::equality::same_value(held, wanted) {
             return Verdict::Failed(format!(
                 "Expected the error's `{name}` to be {}, got {}",
