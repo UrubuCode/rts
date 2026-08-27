@@ -32,6 +32,29 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
 
 /// `s.indexOf(t, from)` — where `t` first occurs, or -1.
 extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
+    // Bare text values and a primitive position cannot run user code. When all
+    // three are already in their machine representation, answer the common
+    // narrow case under one borrow that reads both immutable text cells.
+    // Objects, wrappers, symbols, BigInts and wide strings keep the staged path
+    // below, where the existing conversion and refusal order remains unchanged.
+    if matches!(
+        Value(from).kind(),
+        crate::value::Kind::Float
+            | crate::value::Kind::Int
+            | crate::value::Kind::Bool
+            | crate::value::Kind::Singleton(_)
+    ) {
+        if let Some(answer) = with_current(|context| {
+            let haystack = context.text_at(Value(this).as_slot()?)?.narrow()?;
+            let needle = context.text_at(Value(search).as_slot()?)?.narrow()?;
+            let start = super::relative(super::integer_arg(context, from).max(0.0), haystack.len());
+            let found = find_bytes(haystack, needle, start);
+            Some(Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits())
+        }) {
+            return answer;
+        }
+    }
+
     // `ToString(RequireObjectCoercible(this))`, before any borrow — see
     // `super::coerce_receiver`.
     let Some(this) = super::coerce_receiver(this) else {

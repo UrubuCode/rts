@@ -2564,7 +2564,7 @@ fn a_string_finds_its_methods_by_inheriting_them() {
 
 #[test]
 fn the_string_methods_count_code_units_and_not_bytes() {
-    // `"é"` is one code unit and two UTF-8 bytes. Every index in these methods
+    // `é` is one code unit and two UTF-8 bytes. Every index in these methods
     // is a position in the unit sequence, and working in bytes here would make
     // `slice` cut a character in half while `length` said otherwise.
     let length = run("return \"é\".length;");
@@ -2575,6 +2575,18 @@ fn the_string_methods_count_code_units_and_not_bytes() {
 
     let found = run("return \"éa\".indexOf(\"a\");");
     assert_eq!(tags::decode_double(found), 1.0);
+}
+
+#[test]
+fn index_of_keeps_object_conversion_order_off_the_direct_path() {
+    let produced = run(
+        "let order = ''; \
+         let receiver = { toString() { order = order + 'h'; return 'abc'; } }; \
+         let needle = { toString() { order = order + 'n'; return 'b'; } }; \
+         let found = String.prototype.indexOf.call(receiver, needle, 0); \
+         return found === 1 && order === 'hn';"
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
 #[test]
@@ -2615,6 +2627,18 @@ fn char_code_at_keeps_utf16_units_and_nan_semantics() {
                  'abc'.charCodeAt(9) !== 'abc'.charCodeAt(9)) ? 1 : 0;"
     );
     assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn char_code_at_converts_the_receiver_before_an_object_index() {
+    let produced = run(
+        "let order = ''; \
+         let receiver = { toString() { order = order + 'r'; return 'abc'; } }; \
+         let index = { valueOf() { order = order + 'i'; return 1; } }; \
+         let code = String.prototype.charCodeAt.call(receiver, index); \
+         return code === 98 && order === 'ri';"
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
 #[test]
@@ -3035,6 +3059,19 @@ fn object_keys_and_values_agree_about_order() {
 
     let value = run("let o = { a: 1, b: 2 }; return Object.values(o)[1];");
     assert_eq!(tags::decode_double(value), 2.0);
+}
+
+#[test]
+fn object_keys_filters_hidden_and_symbol_properties_after_ordering_indices() {
+    let produced = run(
+        "let symbol = Symbol('hidden'); \
+         let o = {}; o['2'] = 2; o['1'] = 1; o.name = 3; \
+         Object.defineProperty(o, 'secret', { value: 4, enumerable: false }); \
+         o[symbol] = 5; \
+         let keys = Object.keys(o); \
+         return keys.length === 3 && keys[0] === '1' && keys[1] === '2' && keys[2] === 'name';"
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
 #[test]
