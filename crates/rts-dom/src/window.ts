@@ -227,10 +227,10 @@ class WindowImpl {
     const root = this._doc.querySelector("body");
     if (root !== null) { root.removeEventListener(type); }
   }
-  dispatchEvent(type: string): number {
+  dispatchEvent(event: any): any {
     const root = this._doc.querySelector("body");
-    if (root !== null) { return root.dispatchEvent(type); }
-    return 0;
+    if (root !== null) { return root.dispatchEvent(event); }
+    return false;
   }
 
   // scroll/alert/etc: no-op (não há navegação/dialog nativo no script).

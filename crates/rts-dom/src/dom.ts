@@ -31,21 +31,45 @@ function __listenerEventName(type: string, options: any): string {
   return type + __LISTENER_OPTIONS_SEPARATOR + __listenerFlags(options);
 }
 
-// Despacho de evento com CALLBACKS: coleta os pares (nó, fn-word) do Rust
-// (`dispatchCollect` — alvo primeiro, depois bubbling), COPIA tudo para arrays
-// locais (um callback pode re-despachar e sobrescrever o scratch do Dom) e invoca
-// cada fn com um objeto de evento `{type, target, currentTarget}` (subset do Event
-// do browser). Devolve o total notificado (callbacks coletados; a fila de polling
-// legada também é alimentada pelo mesmo dispatchCollect).
-function __dispatchWithCallbacks(
-  h: i64,
-  node: number,
+// Adapter de propagação DOM: coleta os pares (nó, fn-word) do Rust
+// (`dispatchCollect`) e invoca os callbacks com uma instância do `Event` geral de
+// rts-std. O DOM acrescenta apenas target, currentTarget, fases e a cadeia de
+// ancestrais; a fila de polling legada continua a ser alimentada pelo Rust.
+function __newDomEvent(
   type: string,
   bubbles: number,
+  cancelable: number,
   trusted: number,
-): number {
-  const n = dom.dispatchCollect(h, node, type, bubbles);
-  if (n === 0) return 0;
+): any {
+  const event: any = new Event(type, {
+    bubbles: bubbles !== 0,
+    cancelable: cancelable !== 0,
+  });
+  event.isTrusted = trusted !== 0;
+  event.data = "";
+  event.inputType = "";
+  event.isComposing = false;
+  return event;
+}
+
+function __dispatchCallbacks(h: i64, node: number, event: any): number {
+  if (event.__dispatching__ === true) {
+    throw new Error("dispatchEvent: the event is already being dispatched");
+  }
+  event.__dispatching__ = true;
+  const n = dom.dispatchCollect(h, node, event.type, event.bubbles ? 1 : 0);
+  const target = new Element(h, node);
+  event.target = target;
+  event.currentTarget = null;
+  event.eventPhase = 0;
+  event.cancelBubble = false;
+  event.__stopPropagation__ = false;
+  event.__stopImmediate__ = false;
+  event.__passiveListener__ = false;
+  if (n === 0) {
+    event.__dispatching__ = false;
+    return 0;
+  }
   const cbs: number[] = [];
   const nodes: number[] = [];
   const captures: number[] = [];
@@ -58,47 +82,42 @@ function __dispatchWithCallbacks(
     passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
-  const target = new Element(h, node);
-  const state = { stopped: 0, immediate: 0, passive: 0 };
-  const event: any = {
-    type: type,
-    target: target,
-    currentTarget: target,
-    data: "",
-    inputType: "",
-    isComposing: false,
-    bubbles: bubbles !== 0,
-    cancelable: true,
-    defaultPrevented: false,
-    eventPhase: 0,
-    isTrusted: trusted !== 0,
-    cancelBubble: false,
-    stopPropagation: function () {
-      state.stopped = 1;
-      event.cancelBubble = true;
-    },
-    stopImmediatePropagation: function () {
-      state.stopped = 1;
-      state.immediate = 1;
-      event.cancelBubble = true;
-    },
-    preventDefault: function () {
-      if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
-    },
-  };
+  event.target = target;
   let j = 0;
   while (j < n) {
     event.currentTarget = new Element(h, nodes[j]);
-    state.passive = passives[j] !== 0 ? 1 : 0;
+    event.__passiveListener__ = passives[j] !== 0;
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
-    // `engine.invoke_cb` reconstitui o Function word no runtime e chama o
-    // listener com o mesmo objecto de evento mutável.
     engine.invoke_cb(cbs[j], event);
-    if (state.immediate !== 0) break;
-    if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
+    if (event.__stopImmediate__ === true) break;
+    if (event.__stopPropagation__ === true && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
     j = j + 1;
   }
+  event.currentTarget = null;
+  event.eventPhase = 0;
+  event.__passiveListener__ = false;
+  event.__dispatching__ = false;
   return n;
+}
+
+function __dispatchWithCallbacks(
+  h: i64,
+  node: number,
+  type: string,
+  bubbles: number,
+  trusted: number,
+): number {
+  const event = __newDomEvent(type, bubbles, 1, trusted);
+  return __dispatchCallbacks(h, node, event);
+}
+
+function __dispatchUserEvent(h: i64, node: number, event: any): boolean {
+  if (!(event instanceof Event)) {
+    throw new TypeError("dispatchEvent: the argument must be an Event");
+  }
+  event.isTrusted = false;
+  __dispatchCallbacks(h, node, event);
+  return event.defaultPrevented !== true;
 }
 
 function __keyboardKey(code: number, shift: number): string {
@@ -164,66 +183,18 @@ function __dispatchKeyboardWithCallbacks(
   meta: number,
 ): number {
   const type = pressed !== 0 ? "keydown" : "keyup";
-  const n = dom.dispatchCollect(h, node, type, 1);
-  if (n === 0) return 0;
-  const cbs: number[] = [];
-  const nodes: number[] = [];
-  const captures: number[] = [];
-  const passives: number[] = [];
-  let i = 0;
-  while (i < n) {
-    cbs.push(dom.dispatchCbAt(h, i));
-    nodes.push(dom.dispatchCbNode(h, i));
-    captures.push(dom.dispatchCbCapture(h, i));
-    passives.push(dom.dispatchCbPassive(h, i));
-    i = i + 1;
-  }
-  const target = new Element(h, node);
-  const key = __keyboardKey(keyCode, shift);
-  const code = __keyboardCode(keyCode);
-  const state = { stopped: 0, immediate: 0, passive: 0 };
-  const event: any = {
-    type: type,
-    target: target,
-    currentTarget: target,
-    key: key,
-    code: code,
-    keyCode: keyCode,
-    which: keyCode,
-    repeat: repeat !== 0,
-    ctrlKey: ctrl !== 0,
-    shiftKey: shift !== 0,
-    altKey: alt !== 0,
-    metaKey: meta !== 0,
-    bubbles: true,
-    cancelable: true,
-    defaultPrevented: false,
-    eventPhase: 0,
-    isTrusted: true,
-    cancelBubble: false,
-    stopPropagation: function () {
-      state.stopped = 1;
-      event.cancelBubble = true;
-    },
-    stopImmediatePropagation: function () {
-      state.stopped = 1;
-      state.immediate = 1;
-      event.cancelBubble = true;
-    },
-    preventDefault: function () {
-      if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
-    },
-  };
-  let j = 0;
-  while (j < n) {
-    event.currentTarget = new Element(h, nodes[j]);
-    state.passive = passives[j] !== 0 ? 1 : 0;
-    event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
-    engine.invoke_cb(cbs[j], event);
-    if (state.immediate !== 0) break;
-    if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
-    j = j + 1;
-  }
+  const event: any = __newDomEvent(type, 1, 1, 1);
+  event.key = __keyboardKey(keyCode, shift);
+  event.code = __keyboardCode(keyCode);
+  event.keyCode = keyCode;
+  event.which = keyCode;
+  event.repeat = repeat !== 0;
+  event.ctrlKey = ctrl !== 0;
+  event.shiftKey = shift !== 0;
+  event.altKey = alt !== 0;
+  event.metaKey = meta !== 0;
+
+  __dispatchCallbacks(h, node, event);
   return event.defaultPrevented ? 1 : 0;
 }
 
@@ -236,58 +207,12 @@ function __dispatchInputCallbacks(
   isComposing: number,
   trusted: number,
 ): number {
-  const n = dom.dispatchCollect(h, node, type, 1);
-  if (n === 0) return 0;
-  const cbs: number[] = [];
-  const nodes: number[] = [];
-  const captures: number[] = [];
-  const passives: number[] = [];
-  let i = 0;
-  while (i < n) {
-    cbs.push(dom.dispatchCbAt(h, i));
-    nodes.push(dom.dispatchCbNode(h, i));
-    captures.push(dom.dispatchCbCapture(h, i));
-    passives.push(dom.dispatchCbPassive(h, i));
-    i = i + 1;
-  }
-  const target = new Element(h, node);
-  const state = { stopped: 0, immediate: 0, passive: 0 };
-  const event: any = {
-    type: type,
-    target: target,
-    currentTarget: target,
-    data: data,
-    inputType: inputType,
-    isComposing: isComposing !== 0,
-    bubbles: true,
-    cancelable: type === "beforeinput",
-    defaultPrevented: false,
-    eventPhase: 0,
-    isTrusted: trusted !== 0,
-    cancelBubble: false,
-    stopPropagation: function () {
-      state.stopped = 1;
-      event.cancelBubble = true;
-    },
-    stopImmediatePropagation: function () {
-      state.stopped = 1;
-      state.immediate = 1;
-      event.cancelBubble = true;
-    },
-    preventDefault: function () {
-      if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
-    },
-  };
-  let j = 0;
-  while (j < n) {
-    event.currentTarget = new Element(h, nodes[j]);
-    state.passive = passives[j] !== 0 ? 1 : 0;
-    event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
-    engine.invoke_cb(cbs[j], event);
-    if (state.immediate !== 0) break;
-    if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
-    j = j + 1;
-  }
+  const event: any = __newDomEvent(type, 1, type === "beforeinput" ? 1 : 0, trusted);
+  event.data = data;
+  event.inputType = inputType;
+  event.isComposing = isComposing !== 0;
+
+  __dispatchCallbacks(h, node, event);
   return event.defaultPrevented ? 1 : 0;
 }
 
@@ -601,11 +526,14 @@ class Element {
     }
     dom.removeListenerCb(this._dom, this._node, __listenerEventName(type, options), cb);
   }
-  // `el.dispatchEvent(type)` — dispara COM BUBBLING (como `new Event(t, {bubbles:
-  // true})`): invoca os callbacks registrados (alvo → ancestrais) e alimenta a fila
-  // de polling legada. Devolve quantos listeners (callbacks + polling) notificou.
-  dispatchEvent(type: string): number {
-    return __dispatchWithCallbacks(this._dom, this._node, type, 1, 0);
+  // API padrão: `dispatchEvent(new Event(...))` devolve false apenas quando um
+  // evento cancelável foi prevenido. A forma string permanece como adapter legado
+  // do RTS e conserva o retorno de contagem usado pelos exemplos antigos.
+  dispatchEvent(event: any): any {
+    if (typeof event === "string") {
+      return __dispatchWithCallbacks(this._dom, this._node, event, 1, 0);
+    }
+    return __dispatchUserEvent(this._dom, this._node, event);
   }
   // `el.dispatchEventNoBubble(type)` — dispara SÓ no alvo (como `new Event(t)`, que
   // é bubbles:false por padrão; focus/blur/mouseenter não borbulham).
@@ -821,10 +749,10 @@ class Document {
     const target = this.eventTarget();
     if (target !== null) target.removeEventListener(type);
   }
-  dispatchEvent(type: string): number {
+  dispatchEvent(event: any): any {
     const target = this.eventTarget();
-    if (target === null) return 0;
-    return target.dispatchEvent(type);
+    if (target === null) return false;
+    return target.dispatchEvent(event);
   }
 
   querySelector(sel: string): Element | null {

@@ -128,6 +128,7 @@ extern "C" fn add(_e: u64, this: u64, kind: u64, listener: u64, options: u64, _d
     };
     let once = super::option_flag(options, "once");
     let capture = capture_of(options);
+    let passive = super::option_flag(options, "passive");
     let store = store_of(this);
     let mut records = super::elements(super::get(store, &name));
     if records.iter().any(|&held| matches(held, listener, capture)) {
@@ -138,6 +139,12 @@ extern "C" fn add(_e: u64, this: u64, kind: u64, listener: u64, options: u64, _d
         entry::put_member(context, record, "fn", listener);
         entry::put_member(context, record, "once", entry::boolean_value(once));
         entry::put_member(context, record, "capture", entry::boolean_value(capture));
+        entry::put_member(
+            context,
+            record,
+            "passive",
+            entry::boolean_value(passive),
+        );
         record
     });
     records.push(record);
@@ -276,6 +283,11 @@ pub(super) fn dispatch_event(target: u64, event: u64) -> bool {
         if !super::flag(record, "once") && !still_registered(store, &name, record) {
             continue;
         }
+        super::put(
+            event,
+            super::event::PASSIVE_LISTENER,
+            entry::boolean_value(super::flag(record, "passive")),
+        );
         entry::call(callee, receiver, event, absent, absent, absent);
     }
     entry::with_runtime(|context| {
@@ -284,6 +296,12 @@ pub(super) fn dispatch_event(target: u64, event: u64) -> bool {
         let phase = entry::make_number(super::event::NONE);
         entry::put_member(context, event, "eventPhase", phase);
         entry::put_member(context, event, IN_FLIGHT, entry::boolean_value(false));
+        entry::put_member(
+            context,
+            event,
+            super::event::PASSIVE_LISTENER,
+            entry::boolean_value(false),
+        );
     });
     !(super::flag(event, "cancelable") && super::flag(event, "defaultPrevented"))
 }
@@ -316,6 +334,9 @@ fn stamp(event: u64, target: u64, phase: f64) {
         entry::put_member(context, event, "eventPhase", entry::make_number(phase));
         let clear = entry::boolean_value(false);
         entry::put_member(context, event, super::event::STOPPED, clear);
+        entry::put_member(context, event, super::event::PROPAGATION_STOPPED, clear);
+        entry::put_member(context, event, super::event::PASSIVE_LISTENER, clear);
+        entry::put_member(context, event, "cancelBubble", clear);
     });
 }
 

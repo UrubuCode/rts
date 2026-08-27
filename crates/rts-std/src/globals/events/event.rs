@@ -197,6 +197,9 @@ pub(super) fn init(context: &mut Context, event: u64, kind: &str, flags: &Flags)
         ("defaultPrevented", false),
         ("isTrusted", false),
         (STOPPED, false),
+        (PROPAGATION_STOPPED, false),
+        (PASSIVE_LISTENER, false),
+        ("cancelBubble", false),
     ];
     for (name, held) in pairs {
         entry::put_member(context, event, name, entry::boolean_value(held));
@@ -214,6 +217,12 @@ pub(super) fn init(context: &mut Context, event: u64, kind: &str, flags: &Flags)
 /// them is a listener loop that never stops early, which nothing would report.
 pub(super) const STOPPED: &str = "__stopImmediate__";
 
+/// The propagation flag set by `stopPropagation`, consumed by tree adapters.
+pub(super) const PROPAGATION_STOPPED: &str = "__stopPropagation__";
+
+/// Whether the current listener is passive. The dispatcher sets this before call.
+pub(super) const PASSIVE_LISTENER: &str = "__passiveListener__";
+
 /// `Event.NONE` — not dispatching.
 pub(super) const NONE: f64 = 0.0;
 
@@ -223,14 +232,17 @@ pub(super) const AT_TARGET: f64 = 2.0;
 /// `event.preventDefault()` — a no-op unless the event is cancelable, exactly as
 /// specified.
 extern "C" fn prevent_default(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    if super::flag(this, "cancelable") {
+    if super::flag(this, "cancelable") && !super::flag(this, PASSIVE_LISTENER) {
         super::put(this, "defaultPrevented", entry::boolean_value(true));
     }
     super::absent()
 }
 
-/// `event.stopPropagation()` — inert, as in Node; see the module doc.
-extern "C" fn stop_propagation(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+/// `event.stopPropagation()` — records the request for a tree adapter. The
+/// single-target EventTarget does not need to consume it, but DOM propagation does.
+extern "C" fn stop_propagation(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    super::put(this, PROPAGATION_STOPPED, entry::boolean_value(true));
+    super::put(this, "cancelBubble", entry::boolean_value(true));
     super::absent()
 }
 
@@ -245,5 +257,7 @@ extern "C" fn stop_immediate_propagation(
     _d: u64,
 ) -> u64 {
     super::put(this, STOPPED, entry::boolean_value(true));
+    super::put(this, PROPAGATION_STOPPED, entry::boolean_value(true));
+    super::put(this, "cancelBubble", entry::boolean_value(true));
     super::absent()
 }

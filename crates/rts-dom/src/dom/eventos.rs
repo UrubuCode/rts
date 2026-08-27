@@ -211,26 +211,34 @@ impl Dom {
             }
         };
 
-        // Capture: raiz → pai do target. No target, capture e bubble seguem a
-        // ordem de registo, como no DOM.
-        if bubbles {
-            let mut i = path.len();
-            while i > 1 {
-                i -= 1;
-                if let Some(records) = self.listener_cbs.get(&(path[i], key_type.clone())) {
-                    let capture: Vec<ListenerRecord> = records
-                        .iter()
-                        .copied()
-                        .filter(|record| record.options.capture)
-                        .collect();
-                    collect(path[i], &capture);
-                }
+        // Capture: raiz → pai do target ocorre mesmo com `bubbles:false`.
+        // Bubbling controla apenas a subida depois do target.
+        let mut i = path.len();
+        while i > 1 {
+            i -= 1;
+            if let Some(records) = self.listener_cbs.get(&(path[i], key_type.clone())) {
+                let capture: Vec<ListenerRecord> = records
+                    .iter()
+                    .copied()
+                    .filter(|record| record.options.capture)
+                    .collect();
+                collect(path[i], &capture);
             }
         }
         if let Some(&idx) = path.first() {
             if let Some(records) = self.listener_cbs.get(&(idx, key_type.clone())) {
-                let records: Vec<ListenerRecord> = records.iter().copied().collect();
-                collect(idx, &records);
+                let capture: Vec<ListenerRecord> = records
+                    .iter()
+                    .copied()
+                    .filter(|record| record.options.capture)
+                    .collect();
+                collect(idx, &capture);
+                let bubble: Vec<ListenerRecord> = records
+                    .iter()
+                    .copied()
+                    .filter(|record| !record.options.capture)
+                    .collect();
+                collect(idx, &bubble);
             }
         }
         if bubbles {
