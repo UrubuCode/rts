@@ -488,6 +488,27 @@ pub(in crate::entry) fn key_list(
         // occupies its place in the sequence, so dropping it early would move
         // everything an accessor is ranked against.
         let ranked = context.ranked_accessors(slot);
+        // Most objects have no accessor side table. In that representation there
+        // is nothing to merge or rank: filter the shape's own keys directly and
+        // let `ordered_keys` perform the only ordering required. The old merge
+        // path allocated a second vector and walked every property twice even
+        // though no accessor could enter it.
+        if ranked.is_empty() {
+            for (key, _) in context.shapes.properties(shape) {
+                if enumerable_only && !super::integrity::enumerable(context, slot, key) {
+                    continue;
+                }
+                if context
+                    .interner
+                    .text(key)
+                    .is_some_and(super::symbol::is_symbol_key)
+                {
+                    continue;
+                }
+                keys.push(crate::object::Key::Name(key));
+            }
+            return ordered_keys(context, keys);
+        }
         let mut order: Vec<rts_cranelift::shape::Key> = Vec::new();
         let mut next = 0;
         for (position, (key, _)) in context.shapes.properties(shape).into_iter().enumerate() {

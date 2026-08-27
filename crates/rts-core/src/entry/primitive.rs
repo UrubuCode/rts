@@ -65,6 +65,13 @@ pub(super) fn is_object_in(context: &Context, value: u64) -> bool {
 /// `toString` never run when it does — including when it answers an object,
 /// which is a `TypeError` rather than a reason to try the pair.
 pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
+    // Only a reference can be a string or an object. Every other tag is already
+    // primitive, so it cannot consult a hook and does not need to borrow the
+    // runtime context just to answer that fact. This is the common path for
+    // numeric array joins, arithmetic and template substitutions.
+    if !matches!(Value(value).kind(), Kind::Reference(_)) {
+        return value;
+    }
     if !with_current(|context| is_object_in(context, value)) {
         return value;
     }
