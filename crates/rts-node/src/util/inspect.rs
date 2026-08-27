@@ -59,7 +59,7 @@ impl Default for Options {
 
 impl Options {
     /// The same options one level deeper in.
-    fn inner(self) -> Self {
+    pub(super) fn inner(self) -> Self {
         Self { depth: self.depth.saturating_sub(1), ..self }
     }
 }
@@ -128,6 +128,9 @@ pub(super) fn format_value(value: u64, options: Options, seen: &mut Vec<u64>) ->
     }
     if value == entry::null_value() {
         return "null".to_owned();
+    }
+    if let Some(rendered) = super::inspect_buffer::format(value, options, seen) {
+        return rendered;
     }
     match kind_of(value).as_str() {
         "string" => quoted(&string_of(value).unwrap_or_default()),
@@ -223,7 +226,7 @@ fn format_members(value: u64, options: Options, seen: &mut Vec<u64>) -> String {
 /// A property name as Node writes it: bare when it is an identifier, quoted
 /// otherwise, so `{ "a b": 1 }` does not print as something that would not
 /// parse back.
-fn key_text(key: &str) -> String {
+pub(super) fn key_text(key: &str) -> String {
     let identifier = !key.is_empty()
         && !key.starts_with(|c: char| c.is_ascii_digit())
         && key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$');
@@ -234,7 +237,7 @@ fn key_text(key: &str) -> String {
 }
 
 /// Entries between their brackets, with Node's inner spacing.
-fn wrapped(open: char, close: char, parts: &[String]) -> String {
+pub(super) fn wrapped(open: char, close: char, parts: &[String]) -> String {
     match parts.is_empty() {
         true => format!("{open}{close}"),
         false => format!("{open} {} {close}", parts.join(", ")),
