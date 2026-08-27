@@ -56,9 +56,9 @@ pub(super) extern "C" fn join(
         // `"a-b"` — and it answered `undefined` here for every receiver that was
         // not a real array. That is the spelling `Array.prototype.toString`
         // reaches for a non-array receiver, so the two were wrong together.
-        let (real_array, elements) = match staged(context, this) {
-            Some((_, elements)) => (true, elements),
-            None => (false, super::array_like(context, this)?),
+        let elements = match staged(context, this) {
+            Some((_, elements)) => elements,
+            None => super::array_like(context, this)?,
         };
         // O buraco vira `undefined` AQUI, dentro do mesmo empréstimo que leu os
         // elementos. Sem isto ele escapava ao conjunto `empty` de baixo — que
@@ -74,29 +74,15 @@ pub(super) extern "C" fn join(
             true => Str::from_str(","),
             false => super::super::text::to_text(context, Value(separator))?,
         };
-        let primitive_only = real_array
-            && elements
-                .iter()
-                .all(|&value| !super::super::primitive::is_object_in(context, value));
         Some((
-            primitive_only,
             between,
             elements,
             [undefined_of(context), null_of(context)],
         ))
     });
-    let Some((primitive_only, between, elements, empty)) = staged else {
+    let Some((between, elements, empty)) = staged else {
         return with_current(|context| undefined_of(context));
     };
-
-    // A real array keeps every element reachable through `this`, so a join whose
-    // elements are all already primitive can assemble under one context borrow.
-    // Objects and generic array-likes stay on the staged path below: their
-    // conversion can execute user code, and their values cannot be assumed to be
-    // rooted by the receiver. This is a proof from representation, not a cache.
-    if primitive_only {
-        return join_primitives(between, elements, empty);
-    }
 
     // Assembled as UTF-16 UNITS rather than through Rust strings, and that is a
     // correctness difference rather than a shortcut. `Str::to_rust` refuses
@@ -167,57 +153,6 @@ pub(super) extern "C" fn join(
     }
 
     with_current(|context| {
-        let result = if narrow {
-            Str::owning_latin1(bytes)
-        } else {
-            Str::from_utf16(&joined)
-        };
-        context.intern_value(result).bits()
-    })
-}
-
-/// Joins a real array whose elements are already primitive values.
-///
-/// No element can invoke user code in this branch, so the text conversion and
-/// final interning can share one context borrow. The receiver keeps string
-/// references alive while that allocation happens; generic array-like values do
-/// not receive this proof and use `join`'s staged fallback instead.
-fn join_primitives(between: Str, elements: Vec<u64>, empty: [u64; 2]) -> u64 {
-    with_current(|context| {
-        let separator_bytes = between.narrow();
-        let mut narrow = separator_bytes.is_some();
-        let mut bytes = Vec::with_capacity(elements.len() * between.len());
-        let mut joined = Vec::with_capacity(elements.len() * between.len());
-        if !narrow {
-            joined.extend(between.units());
-        }
-        for (at, held) in elements.iter().enumerate() {
-            if at > 0 {
-                if narrow {
-                    bytes.extend_from_slice(separator_bytes.expect("narrow was proved"));
-                } else {
-                    joined.extend(between.units());
-                }
-            }
-            if empty.contains(held) {
-                continue;
-            }
-            let Some(text) = super::super::text::to_text(context, Value(*held)) else {
-                continue;
-            };
-            if narrow {
-                if let Some(part) = text.narrow() {
-                    bytes.extend_from_slice(part);
-                } else {
-                    joined.extend(bytes.iter().map(|byte| u16::from(*byte)));
-                    bytes.clear();
-                    narrow = false;
-                    joined.extend(text.units());
-                }
-            } else {
-                joined.extend(text.units());
-            }
-        }
         let result = if narrow {
             Str::owning_latin1(bytes)
         } else {
