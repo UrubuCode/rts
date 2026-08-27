@@ -78,6 +78,32 @@ pub trait InputSource {
     fn keyboard_events(&self, _target: u64) -> Vec<KeyboardEvent> {
         Vec::new()
     }
+    /// Eventos de composição IME recebidos neste frame, em ordem.
+    /// Backends sem suporte devolvem uma lista vazia.
+    fn composition_events(&self, _target: u64) -> Vec<CompositionEvent> {
+        Vec::new()
+    }
+    /// Número de eventos IME no frame. O default deriva da lista neutra.
+    fn composition_event_count(&self, target: u64) -> usize {
+        self.composition_events(target).len()
+    }
+    /// Tipo IME: 1=start, 2=update, 3=end, 4=disabled; -1 se o índice não existe.
+    fn composition_event_kind(&self, target: u64, index: usize) -> i64 {
+        match self.composition_events(target).get(index) {
+            Some(CompositionEvent::Start) => 1,
+            Some(CompositionEvent::Update(_)) => 2,
+            Some(CompositionEvent::End(_)) => 3,
+            Some(CompositionEvent::Disabled) => 4,
+            None => -1,
+        }
+    }
+    /// Texto do preedit/commit; vazio para `start` ou índice inválido.
+    fn composition_event_text(&self, target: u64, index: usize) -> String {
+        match self.composition_events(target).get(index) {
+            Some(CompositionEvent::Update(text)) | Some(CompositionEvent::End(text)) => text.clone(),
+            Some(CompositionEvent::Start) | Some(CompositionEvent::Disabled) | None => String::new(),
+        }
+    }
     /// Modificadores segurados AGORA (Ctrl/Shift/Alt/Cmd) — `mod_*`.
     fn modifiers(&self, target: u64) -> Modifiers;
     /// Texto digitado neste frame (UTF-8 concatenado).
@@ -94,6 +120,17 @@ pub struct KeyboardEvent {
     pub pressed: bool,
     pub repeat: bool,
     pub modifiers: Modifiers,
+}
+
+/// Evento IME neutro. `Update` é o preedit ainda não confirmado; `End` contém
+/// o texto confirmado pelo sistema operativo. `Disabled` fecha uma composição que
+/// terminou sem texto confirmado.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CompositionEvent {
+    Start,
+    Update(String),
+    End(String),
+    Disabled,
 }
 
 /// Estado dos modificadores num frame (neutro). `cmd` = Super/⌘/Win (o egui

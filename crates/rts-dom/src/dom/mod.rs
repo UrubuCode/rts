@@ -49,7 +49,7 @@ mod serial;
 mod travessia;
 
 pub use self::no::{Attr, Node, NodeId, NodeKind};
-pub use self::eventos::RawKeyboardEvent;
+pub use self::eventos::{RawInputEvent, RawKeyboardEvent};
 pub use self::parser::{parse_fragmento, parse_html_to_dom};
 use self::matcher::TargetKey;
 use self::helpers::{memo_forget, memo_put, nth_casa};
@@ -216,6 +216,11 @@ pub struct Dom {
     raw_keyboard_event_queue: std::collections::VecDeque<crate::dom::RawKeyboardEvent>,
     /// Evento de teclado devolvido pelo último `poll_raw_keyboard_event`.
     last_raw_keyboard_event: Option<crate::dom::RawKeyboardEvent>,
+    /// Eventos raw de edição/composição emitidos pelo backend. O alvo é capturado
+    /// no momento da entrada, como no teclado, e a fachada TS faz o dispatch real.
+    raw_input_event_queue: std::collections::VecDeque<crate::dom::RawInputEvent>,
+    /// Evento de edição devolvido pelo último `poll_raw_input_event`.
+    last_raw_input_event: Option<crate::dom::RawInputEvent>,
     // ── Animação (#1776) — LOOP INTERNO ao DOM; o egui só passa o tempo ───────────
     /// As transições EM CURSO, por nó. O `Dom` é dono do loop: `advance(now_ms)`
     /// detecta mudanças de estilo, inicia/atualiza transições e grava o estilo

@@ -48,6 +48,9 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("modAlt", mod_alt),
     ("modCmd", mod_cmd),
     ("textInput", text_input),
+    ("compositionEventCount", composition_event_count),
+    ("compositionEventKind", composition_event_kind),
+    ("compositionEventText", composition_event_text),
     ("copyText", copy_text),
 ];
 
@@ -177,6 +180,57 @@ extern "C" fn text_input(_e: u64, _t: u64, win: u64, _a: u64, _b: u64, _c: u64) 
     let win = handle(win);
     let typed = rts_input::with_input(|source| source.text_input(win)).unwrap_or_default();
     value::from_text(&typed)
+}
+
+/// `input.compositionEventCount(win)` — quantidade de transições IME no frame.
+extern "C" fn composition_event_count(
+    _e: u64,
+    _t: u64,
+    win: u64,
+    _a: u64,
+    _b: u64,
+    _c: u64,
+) -> u64 {
+    let win = handle(win);
+    let count = rts_input::with_input(|source| source.composition_event_count(win)).unwrap_or(0);
+    value::from_number(count as f64)
+}
+
+/// `input.compositionEventKind(win, index)` — 1=start, 2=update, 3=end.
+extern "C" fn composition_event_kind(
+    _e: u64,
+    _t: u64,
+    win: u64,
+    index: u64,
+    _b: u64,
+    _c: u64,
+) -> u64 {
+    let (win, index) = (handle(win), integer(index, -1));
+    let kind = if index < 0 {
+        -1
+    } else {
+        rts_input::with_input(|source| source.composition_event_kind(win, index as usize)).unwrap_or(-1)
+    };
+    value::from_number(kind as f64)
+}
+
+/// `input.compositionEventText(win, index)` — preedit/commit do evento IME.
+extern "C" fn composition_event_text(
+    _e: u64,
+    _t: u64,
+    win: u64,
+    index: u64,
+    _b: u64,
+    _c: u64,
+) -> u64 {
+    let (win, index) = (handle(win), integer(index, -1));
+    let text = if index < 0 {
+        String::new()
+    } else {
+        rts_input::with_input(|source| source.composition_event_text(win, index as usize))
+            .unwrap_or_default()
+    };
+    value::from_text(&text)
 }
 
 /// `input.copyText(win, text)` — põe o texto no clipboard do SO.

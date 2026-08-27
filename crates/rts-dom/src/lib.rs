@@ -107,7 +107,8 @@ pub mod scrollbar;
 pub mod painteffects;
 
 pub use dom::{
-    Attr, Dom, ListenerOptions, Node, NodeId, NodeIdx, NodeKind, RawKeyboardEvent, parse_html_to_dom,
+    Attr, Dom, ListenerOptions, Node, NodeId, NodeIdx, NodeKind, RawInputEvent, RawKeyboardEvent,
+    parse_html_to_dom,
 };
 
 /// Prelude `.ts` da FACHADA DOM ergonômica (`document` global + `Element`, com a

@@ -316,6 +316,34 @@ impl InputSource for EguiRenderer {
         })
         .unwrap_or_default()
     }
+    fn composition_events(&self, target: u64) -> Vec<rts_input::CompositionEvent> {
+        ctx::with_ctx(target, |c| {
+            c.egui_ctx
+                .input(|input| {
+                    input
+                        .events
+                        .iter()
+                        .filter_map(|event| match event {
+                            egui::Event::Ime(egui::ImeEvent::Enabled) => {
+                                Some(rts_input::CompositionEvent::Start)
+                            }
+                            egui::Event::Ime(egui::ImeEvent::Preedit(text)) => {
+                                Some(rts_input::CompositionEvent::Update(text.clone()))
+                            }
+                            egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
+                                Some(rts_input::CompositionEvent::End(text.clone()))
+                            }
+                            egui::Event::Ime(egui::ImeEvent::Disabled) => {
+                                Some(rts_input::CompositionEvent::Disabled)
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                })
+        })
+        .unwrap_or_default()
+    }
+
     fn modifiers(&self, target: u64) -> rts_input::Modifiers {
         ctx::with_ctx(target, |c| {
             c.egui_ctx.input(|i| {
@@ -330,13 +358,20 @@ impl InputSource for EguiRenderer {
         ctx::with_ctx(target, |c| {
             c.egui_ctx.input(|i| {
                 let mut s = String::new();
+                let has_ime_commit = i.events.iter().any(|event| {
+                    matches!(event, egui::Event::Ime(egui::ImeEvent::Commit(_)))
+                });
                 for ev in &i.events {
                     match ev {
-                        // digitação normal.
-                        egui::Event::Text(t) => s.push_str(t),
+                        // Quando egui fornece o commit IME, o eventual Text paralelo
+                        // é a mesma confirmação e não pode ser inserido novamente.
+                        egui::Event::Text(t) if !has_ime_commit => s.push_str(t),
                         // Ctrl+V: o texto colado do clipboard chega como Paste. Entra
                         // no input pelo mesmo caminho da digitação (o TS o insere).
                         egui::Event::Paste(t) => s.push_str(t),
+                        // O commit IME é a confirmação final; o preedit não entra
+                        // no valor até ser confirmado pelo sistema operativo.
+                        egui::Event::Ime(egui::ImeEvent::Commit(t)) => s.push_str(t),
                         _ => {}
                     }
                 }

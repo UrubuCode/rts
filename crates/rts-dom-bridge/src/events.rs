@@ -36,7 +36,17 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("rawKeyboardAlt", raw_keyboard_alt),
     ("rawKeyboardMeta", raw_keyboard_meta),
     ("rawKeyboardTarget", raw_keyboard_target),
+    ("pushRawTextInput", push_raw_text_input),
+    ("pushRawCompositionEvent", push_raw_composition_event),
+    ("pollRawInputEvent", poll_raw_input_event),
+    ("rawInputKind", raw_input_kind),
+    ("rawInputText", raw_input_text),
+    ("rawInputTarget", raw_input_target),
     ("focusInput", focus_input),
+    ("focusedInput", focused_input),
+    ("inputValue", input_value),
+    ("inputFeedTextAt", input_feed_text_at),
+    ("inputBackspaceAt", input_backspace_at),
     ("inputFeedText", input_feed_text),
     ("inputBackspace", input_backspace),
 ];
@@ -361,12 +371,143 @@ extern "C" fn raw_keyboard_target(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, 
     .unwrap_or(-1);
     int(out)
 }
-
+extern "C" fn push_raw_text_input(
+    _e: u64,
+    _t: u64,
+    doc: u64,
+    value: u64,
+    _b: u64,
+    _c: u64,
+) -> u64 {
+    rts_dom::store::with_dom_mut(handle(doc), |d| d.push_raw_text_input(text(value)));
+    nothing()
+}
+extern "C" fn push_raw_composition_event(
+    _e: u64,
+    _t: u64,
+    doc: u64,
+    kind: u64,
+    value: u64,
+    _c: u64,
+) -> u64 {
+    rts_dom::store::with_dom_mut(handle(doc), |d| {
+        d.push_raw_composition_event(integer(kind, -1), text(value));
+    });
+    nothing()
+}
+extern "C" fn poll_raw_input_event(
+    _e: u64,
+    _t: u64,
+    doc: u64,
+    _a: u64,
+    _b: u64,
+    _c: u64,
+) -> u64 {
+    let out = rts_dom::store::with_dom_mut(handle(doc), |d| {
+        d.poll_raw_input_event()
+            .map(|event| d.id_of_idx(event.target).to_abi())
+            .unwrap_or(-1)
+    })
+    .unwrap_or(-1);
+    int(out)
+}
+fn with_raw_input<F, T>(doc: u64, f: F, default: T) -> T
+where
+    F: FnOnce(&rts_dom::RawInputEvent) -> T,
+    T: Copy,
+{
+    rts_dom::store::with_dom(handle(doc), |d| {
+        d.last_raw_input_event().map(f).unwrap_or(default)
+    })
+    .unwrap_or(default)
+}
+extern "C" fn raw_input_kind(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    int(with_raw_input(doc, |event| event.kind, -1))
+}
+extern "C" fn raw_input_text(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let value = rts_dom::store::with_dom(handle(doc), |d| {
+        d.last_raw_input_event().map(|event| event.text.clone()).unwrap_or_default()
+    })
+    .unwrap_or_default();
+    string(&value)
+}
+extern "C" fn raw_input_target(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let out = rts_dom::store::with_dom(handle(doc), |d| {
+        d.last_raw_input_event()
+            .map(|event| d.id_of_idx(event.target).to_abi())
+            .unwrap_or(-1)
+    })
+    .unwrap_or(-1);
+    int(out)
+}
 extern "C" fn focus_input(_e: u64, _t: u64, doc: u64, n: u64, _b: u64, _c: u64) -> u64 {
     let h = handle(doc);
     let target = node(n).and_then(|id| rts_dom::store::with_dom(h, |d| d.resolve(id)).flatten());
     rts_dom::store::with_dom_mut(h, |d| d.focus_input(target));
     nothing()
+}
+
+extern "C" fn focused_input(
+    _e: u64,
+    _t: u64,
+    doc: u64,
+    _a: u64,
+    _b: u64,
+    _c: u64,
+) -> u64 {
+    let out = rts_dom::store::with_dom(handle(doc), |d| {
+        d.focused_input().map(|idx| d.id_of_idx(idx).to_abi()).unwrap_or(-1)
+    })
+    .unwrap_or(-1);
+    int(out)
+}
+
+extern "C" fn input_value(_e: u64, _t: u64, doc: u64, n: u64, _b: u64, _c: u64) -> u64 {
+    let Some((h, id)) = resolved_node(doc, n) else {
+        return string("");
+    };
+    let value = rts_dom::store::with_dom(h, |d| {
+        d.resolve(id).map(|idx| d.input_value(idx)).unwrap_or_default()
+    })
+    .unwrap_or_default();
+    string(&value)
+}
+
+extern "C" fn input_feed_text_at(
+    _e: u64,
+    _t: u64,
+    doc: u64,
+    n: u64,
+    value: u64,
+    _c: u64,
+) -> u64 {
+    let Some((h, id)) = resolved_node(doc, n) else {
+        return int(0);
+    };
+    let value = text(value);
+    let changed = rts_dom::store::with_dom_mut(h, |d| {
+        d.resolve(id).map(|idx| d.input_feed_text_at(idx, &value)).unwrap_or(false)
+    })
+    .unwrap_or(false);
+    int(changed as i64)
+}
+
+extern "C" fn input_backspace_at(
+    _e: u64,
+    _t: u64,
+    doc: u64,
+    n: u64,
+    _b: u64,
+    _c: u64,
+) -> u64 {
+    let Some((h, id)) = resolved_node(doc, n) else {
+        return int(0);
+    };
+    let changed = rts_dom::store::with_dom_mut(h, |d| {
+        d.resolve(id).map(|idx| d.input_backspace_at(idx)).unwrap_or(false)
+    })
+    .unwrap_or(false);
+    int(changed as i64)
 }
 
 extern "C" fn input_feed_text(_e: u64, _t: u64, doc: u64, value: u64, _b: u64, _c: u64) -> u64 {

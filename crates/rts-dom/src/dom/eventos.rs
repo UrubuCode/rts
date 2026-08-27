@@ -20,6 +20,15 @@ pub struct RawKeyboardEvent {
     pub meta_key: bool,
 }
 
+/// Evento raw backend→DOM de edição ou composição. `kind` usa 1 para texto,
+/// 2/3/4/5 para compositionstart/update/end/disabled respectivamente.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawInputEvent {
+    pub target: NodeIdx,
+    pub kind: i64,
+    pub text: String,
+}
+
 impl Dom {
 
     // ── Eventos (#1760) — modelo de polling + bubbling headless ──────────────────
@@ -335,6 +344,41 @@ impl Dom {
             alt_key,
             meta_key,
         });
+    }
+
+    /// BACKEND → DOM: enfileira texto editável já capturado pelo backend.
+    pub fn push_raw_text_input(&mut self, text: String) {
+        let target = self
+            .focused_input
+            .or_else(|| self.query_idx("body"))
+            .or_else(|| self.document_element().map(|id| id.idx as usize))
+            .unwrap_or(self.root);
+        self.raw_input_event_queue.push_back(RawInputEvent { target, kind: 1, text });
+    }
+
+    /// BACKEND → DOM: enfileira uma transição de composição IME.
+    pub fn push_raw_composition_event(&mut self, kind: i64, text: String) {
+        if !(2..=5).contains(&kind) {
+            return;
+        }
+        let target = self
+            .focused_input
+            .or_else(|| self.query_idx("body"))
+            .or_else(|| self.document_element().map(|id| id.idx as usize))
+            .unwrap_or(self.root);
+        self.raw_input_event_queue.push_back(RawInputEvent { target, kind, text });
+    }
+
+    /// Retira o próximo evento raw de edição/composição produzido pelo backend.
+    pub fn poll_raw_input_event(&mut self) -> Option<RawInputEvent> {
+        let event = self.raw_input_event_queue.pop_front();
+        self.last_raw_input_event = event.clone();
+        event
+    }
+
+    /// Consulta o evento raw de edição devolvido pelo último polling.
+    pub fn last_raw_input_event(&self) -> Option<&RawInputEvent> {
+        self.last_raw_input_event.as_ref()
     }
 
     /// Retira o próximo evento de teclado bruto produzido pelo backend.

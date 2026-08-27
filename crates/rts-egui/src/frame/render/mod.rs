@@ -141,6 +141,40 @@ fn emit_keyboard_events(h: u64) {
     });
 }
 
+/// Enfileira os dados de edição capturados pelo backend. O `Text`/`Paste` e o
+/// commit IME atravessam a mesma fila; a fachada decide `beforeinput` → mutação
+/// → `input`, evitando que um listener seja contornado pelo renderer.
+fn emit_input_events(h: u64) {
+    let (compositions, text) = rts_input::with_input(|input| {
+        (input.composition_events(h), input.text_input(h))
+    })
+    .unwrap_or_default();
+    if compositions.is_empty() && text.is_empty() {
+        return;
+    }
+    let _ = rts_dom::store::with_dom_mut(h, |dom| {
+        for event in compositions {
+            match event {
+                rts_input::CompositionEvent::Start => {
+                    dom.push_raw_composition_event(2, String::new())
+                }
+                rts_input::CompositionEvent::Update(value) => {
+                    dom.push_raw_composition_event(3, value)
+                }
+                rts_input::CompositionEvent::End(value) => {
+                    dom.push_raw_composition_event(4, value)
+                }
+                rts_input::CompositionEvent::Disabled => {
+                    dom.push_raw_composition_event(5, String::new())
+                }
+            }
+        }
+        if !text.is_empty() {
+            dom.push_raw_text_input(text);
+        }
+    });
+}
+
 /// Renderiza o DOM COM SCROLL — o egui burro: mantém só o offset (input do mouse),
 /// translada o conteúdo por -offset e pinta. A BARRA (track+thumb) é emitida pelo
 /// DOM (`layout::emit_scrollbar`) como `SolidRect` — NÃO usa o ScrollArea do egui,
@@ -156,6 +190,7 @@ pub(crate) fn render_dom_scrolled(
 ) {
     let _phase = rts_dom::metrics::phases::scope("render-dom");
     emit_keyboard_events(h);
+    emit_input_events(h);
     let avail = ui.available_size();
     let viewport_w = avail.x.max(1.0);
     let viewport_h = avail.y.max(1.0);
