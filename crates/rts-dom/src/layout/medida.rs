@@ -24,6 +24,18 @@ pub trait TextMeasurer {
     /// fator`; o backend pode dar o valor exato da fonte.
     fn line_height(&self, size: f32) -> f32;
 
+    /// Ascent da fonte usado para alinhar texto com a baseline de atoms altos.
+    /// Backends com métricas próprias podem substituir a aproximação por valores
+    /// derivados da fonte real.
+    fn font_ascent(&self, size: f32) -> f32 {
+        size * 0.9375
+    }
+
+    /// Descent da fonte usado para fechar a line box depois de um inline-block.
+    fn font_descent(&self, size: f32) -> f32 {
+        size * 0.3125
+    }
+
     /// IDENTIDADE deste medidor: dois medidores com a mesma identidade têm de
     /// dar a mesma largura para o mesmo texto.
     ///
@@ -93,7 +105,12 @@ impl TextMeasurer for ApproxMeasurer {
 /// shrink-to-fit (item flex / inline-block). Para um filho-bloco com `width`, usa
 /// esse width (+ frame); para texto, a largura medida. Aproximação do max-content
 /// (o inline-flow exato — palavras quebrando — vem na fatia de inline).
-pub(in crate::layout) fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+pub(in crate::layout) fn content_natural_width(
+    dom: &Dom,
+    id: NodeIdx,
+    font: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     intrinsic_content_width(dom, id, font, ctx)
 }
 
@@ -106,7 +123,12 @@ pub(in crate::layout) fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32
 /// - block (vertical): MAX das larguras dos filhos (empilham).
 /// - texto: a largura do texto concatenado.
 /// Recursivo: a largura de um filho é a SUA intrínseca + frame (ou seu `width` fixo).
-pub(in crate::layout) fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+pub(in crate::layout) fn intrinsic_content_width(
+    dom: &Dom,
+    id: NodeIdx,
+    font: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     let key = IntrinsicWidthKey {
         tree: dom.cache_identity(),
         node_epoch: dom.layout_epoch(id),

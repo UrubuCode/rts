@@ -290,10 +290,10 @@ pub(in crate::layout) fn layout_children_vertical(
                 let inline_declarado = effective == Some(crate::style::DisplayKind::Inline);
                 let block = if inline_declarado {
                     replaced
-                        || child_css
-                            .as_ref()
-                            .map(|c| crate::inline_box::cria_caixa_apesar_de_inline(c))
-                            .unwrap_or(false)
+                        || child_css.as_deref().is_some_and(|c| {
+                            !crate::layout::caixa::ignores_inline_dimensions(c)
+                                && crate::inline_box::cria_caixa_apesar_de_inline(c)
+                        })
                 } else {
                     replaced
                         || effective.is_some()
@@ -314,6 +314,11 @@ pub(in crate::layout) fn layout_children_vertical(
                     } else if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
                         !explicit_block
                     } else if crate::block::lookup(tag).is_some() || explicit_block {
+                        false
+                    } else if child_css
+                        .as_deref()
+                        .is_some_and(crate::layout::caixa::ignores_inline_dimensions)
+                    {
                         false
                     } else {
                         child_css

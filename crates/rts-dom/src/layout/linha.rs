@@ -238,6 +238,29 @@ pub(in crate::layout) fn layout_inline_flow(
         // decide o espaçamento é o `line-height`, quem decide a caixa é a fonte.
         let conteudo = crate::inline_box::altura_do_conteudo(font_size, ctx.measurer);
         let meia = crate::inline_box::meia_entrelinha(line_h, conteudo);
+        let tall_inline_block = line_h > lh + 0.001
+            && line
+                .iter()
+                .any(|segment| matches!(segment.atomic, Some((_, AtomicKind::Block))));
+        // Um inline-block vazio alinha pela baseline no seu fundo. Quando ele é
+        // mais alto que o strut, o texto mantém o ascent da fonte acima dessa
+        // baseline e o descent do strut fica abaixo dela. É o contrato Blink que
+        // dá, na fixture display, texto em y=55 e o bloco seguinte em y=75.
+        let text_top = if tall_inline_block {
+            cy + line_h - ctx.measurer.font_ascent(font_size)
+        } else {
+            cy + meia
+        };
+        let text_owner_anchor = if tall_inline_block {
+            cy + line_h
+        } else {
+            cy + meia
+        };
+        let line_advance = if tall_inline_block {
+            line_h + ctx.measurer.font_descent(font_size)
+        } else {
+            line_h
+        };
         // A banda desta linha, no `cy` VERDADEIRO — é aqui que o texto passa a
         // correr ao lado do float em vez de por baixo dele.
         let (linha_x, linha_w) = if exclusoes.is_empty() {
@@ -320,7 +343,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 // de um vazio/quebra é a fatia de linha que ele ocupa.
                 let propria = match kind {
                     AtomicKind::Marker | AtomicKind::Break => {
-                        Rect::new(seg_x, cy + meia, 0.0, conteudo)
+                        Rect::new(seg_x, text_top, 0.0, conteudo)
                     }
                     _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
                 };
@@ -333,7 +356,16 @@ pub(in crate::layout) fn layout_inline_flow(
                     crate::inline_box::union_rect(
                         list,
                         owner,
-                        fragmento_do_dono(dom, owner, seg_x, cy + meia, seg.ww, conteudo, ctx),
+                        fragmento_do_dono(
+                            dom,
+                            owner,
+                            seg_x,
+                            cy + meia,
+                            seg.ww,
+                            conteudo,
+                            ctx,
+                            false,
+                        ),
                     );
                 }
                 // A CAIXA DOS ANCESTRAIS inline: a largura que esta caixa ocupa na
@@ -348,7 +380,7 @@ pub(in crate::layout) fn layout_inline_flow(
             let w = seg.text_width + ls * seg.text.chars().count() as f32;
             list.items.push(DisplayItem::Text {
                 x: seg_x,
-                y: cy + meia,
+                y: text_top,
                 text: seg.text.into(),
                 color: seg.color,
                 size: font_size,
@@ -362,12 +394,21 @@ pub(in crate::layout) fn layout_inline_flow(
                 crate::inline_box::union_rect(
                     list,
                     owner,
-                    fragmento_do_dono(dom, owner, seg_x, cy + meia, w.max(0.0), conteudo, ctx),
+                    fragmento_do_dono(
+                        dom,
+                        owner,
+                        seg_x,
+                        text_owner_anchor,
+                        w.max(0.0),
+                        conteudo,
+                        ctx,
+                        tall_inline_block,
+                    ),
                 );
             }
             seg_x += w;
         }
-        cy += line_h;
+        cy += line_advance;
     }
     cy
 }
@@ -392,6 +433,7 @@ fn fragmento_do_dono(
     w: f32,
     conteudo_da_linha: f32,
     ctx: &LayoutCtx,
+    align_to_baseline: bool,
 ) -> Rect {
     let Some(css) = dom.computed_style_idx(dono) else {
         return Rect::new(x, y, w, conteudo_da_linha);
@@ -400,5 +442,10 @@ fn fragmento_do_dono(
         return Rect::new(x, y, w, conteudo_da_linha);
     };
     let conteudo = crate::inline_box::altura_do_conteudo(fonte, ctx.measurer);
-    Rect::new(x, y + (conteudo_da_linha - conteudo) / 2.0, w, conteudo)
+    let top = if align_to_baseline {
+        y - ctx.measurer.font_ascent(fonte)
+    } else {
+        y + (conteudo_da_linha - conteudo) / 2.0
+    };
+    Rect::new(x, top, w, conteudo)
 }

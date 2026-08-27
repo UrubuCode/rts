@@ -27,6 +27,15 @@
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi alterada.
 
 use super::*;
+
+/// `true` quando `display:inline` torna `width` e `height` inoperantes. A
+/// classificação de caixa e o fluxo inline partilham esta pergunta para não
+/// transformar uma dimensão declarada num inline-block artificial.
+pub(in crate::layout) fn ignores_inline_dimensions(css: &ComputedStyle) -> bool {
+    css.effective_display() == Some(crate::style::DisplayKind::Inline)
+        && (css.width.is_some() || css.height.is_some())
+}
+
 /// `true` se um nó-elemento deve ser tratado como BLOCO no layout (entra em
 /// `layout_block`, com sua própria caixa/eixo) — em vez de inline (texto corrido).
 /// É bloco se: tem `display` no CSS (qualquer um define caixa própria), OU tem um
@@ -81,6 +90,9 @@ pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             // `cria_caixa_apesar_de_inline` — não `cria_caixa_de_bloco`, que
             // conta a margem que o `display:inline` acabou de tornar
             // inoperante e devolveria o `<h3>` ao caminho de onde ele saiu.
+            if css.as_deref().is_some_and(ignores_inline_dimensions) {
+                return false;
+            }
             if css.as_ref().and_then(|c| c.effective_display())
                 == Some(crate::style::DisplayKind::Inline)
             {
@@ -112,6 +124,9 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
             let css = dom.computed_style_idx(id);
+            if css.as_deref().is_some_and(ignores_inline_dimensions) {
+                return false;
+            }
             // Um `display:inline-block` DECLARADO responde `true` e não chega às
             // perguntas seguintes — nem à tag, que é o que o tornava invisível.
             //
@@ -266,7 +281,11 @@ pub(in crate::layout) fn em_contexto_inline(dom: &Dom, parent: NodeIdx, child: N
 /// Retorna se um whitespace entre irmãos deve participar do contexto inline. O
 /// parser preserva o nó de texto por fidelidade ao DOM, mas whitespace entre dois
 /// blocos/floats não cria uma linha visual; whitespace adjacente a texto/inline sim.
-pub(in crate::layout) fn whitespace_is_inline_separator(dom: &Dom, parent: NodeIdx, child: NodeIdx) -> bool {
+pub(in crate::layout) fn whitespace_is_inline_separator(
+    dom: &Dom,
+    parent: NodeIdx,
+    child: NodeIdx,
+) -> bool {
     let children = &dom.node(parent).children;
     let Some(pos) = children.iter().position(|&c| c == child) else {
         return false;

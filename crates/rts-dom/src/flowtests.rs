@@ -347,6 +347,30 @@ fn display_inline_declarado_vence_a_tag_de_bloco() {
     );
 }
 
+#[test]
+fn display_inline_ignores_width_and_height() {
+    let (dom, list) = geometria(
+        "<div style='width:400px;line-height:20px'>\
+         <span id='inline' style='display:inline;width:300px;height:300px'>abc</span>\
+         <span id='inline-block' style='display:inline-block;width:120px;height:40px'></span></div>",
+        800.0,
+    );
+    let inline = rect(&dom, &list, "#inline", 0);
+    assert!(
+        inline.w < 100.0,
+        "inline width deve ignorar 300px: {inline:?}"
+    );
+    assert!(
+        inline.h < 30.0,
+        "inline height deve ignorar 300px: {inline:?}"
+    );
+    let inline_block = rect(&dom, &list, "#inline-block", 0);
+    assert!(
+        inline_block.x > inline.x,
+        "inline-block deve seguir na mesma linha: {inline:?} -> {inline_block:?}"
+    );
+}
+
 /// E o inline declarado que CRIA caixa (fundo, padding) continua a ir pelo
 /// caminho de bloco, porque é quem pinta essa caixa. A regra que a correção
 /// acima introduz não podia levar esse caso com ela.
@@ -392,10 +416,16 @@ fn display_block_declarado_vence_a_tag_inline() {
 fn display_inline_vale_para_qualquer_tag_de_bloco() {
     for tag in ["div", "p", "li", "h2"] {
         let (d, l) = geometria(
-            &format!("<div style='width:400px'><{tag} id='b' style='display:inline'>abc</{tag}></div>"),
+            &format!(
+                "<div style='width:400px'><{tag} id='b' style='display:inline'>abc</{tag}></div>"
+            ),
             800.0,
         );
         let b = rect(&d, &l, "#b", 0);
-        assert!(b.w < 100.0, "<{tag}> inline levou a largura do pai: {}", b.w);
+        assert!(
+            b.w < 100.0,
+            "<{tag}> inline levou a largura do pai: {}",
+            b.w
+        );
     }
 }
