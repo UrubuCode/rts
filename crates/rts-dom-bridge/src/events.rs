@@ -4,19 +4,23 @@
 //! a fachada TypeScript copia os callbacks antes de os invocar no runtime.
 
 use rts_core::entry::Provided;
-use rts_dom::NodeId;
+use rts_dom::{ListenerOptions, NodeId};
 
 use crate::value::{handle, int, integer, nothing, string, text};
 
 pub const MEMBERS: &[(&str, Provided)] = &[
     ("addListener", add_listener),
     ("addListenerCb", add_listener_cb),
+    ("addListenerCbOptions", add_listener_cb_options),
     ("removeListener", remove_listener),
+    ("removeListenerCb", remove_listener_cb),
     ("hasListener", has_listener),
     ("dispatchEvent", dispatch_event),
     ("dispatchCollect", dispatch_collect),
     ("dispatchCbAt", dispatch_cb_at),
     ("dispatchCbNode", dispatch_cb_node),
+    ("dispatchCbCapture", dispatch_cb_capture),
+    ("dispatchCbPassive", dispatch_cb_passive),
     ("pollEvent", poll_event),
     ("pollEventType", poll_event_type),
     ("pushRawEvent", push_raw_event),
@@ -62,15 +66,62 @@ extern "C" fn add_listener(_e: u64, _t: u64, doc: u64, n: u64, event: u64, _c: u
 }
 
 extern "C" fn add_listener_cb(_e: u64, _t: u64, doc: u64, n: u64, event: u64, cb: u64) -> u64 {
+    add_listener_cb_options(_e, _t, doc, n, event, cb)
+}
+
+/// Registo com flags no sufixo interno `\u{001f}<bits>`: bit 0 capture, bit 1
+/// once, bit 2 passive. O nome público do evento continua intacto no DOM.
+extern "C" fn add_listener_cb_options(
+    _e: u64,
+    _t: u64,
+    doc: u64,
+    n: u64,
+    event: u64,
+    cb: u64,
+) -> u64 {
     let Some((h, id)) = resolved_node(doc, n) else {
         return nothing();
     };
-    let event = text(event);
+    let raw_event = text(event);
+    let (event, options) = raw_event
+        .rsplit_once('\u{001f}')
+        .map(|(event, flags)| {
+            let bits = flags.parse::<u8>().unwrap_or(0);
+            (
+                event,
+                ListenerOptions {
+                    capture: bits & 1 != 0,
+                    once: bits & 2 != 0,
+                    passive: bits & 4 != 0,
+                },
+            )
+        })
+        .unwrap_or((raw_event.as_str(), ListenerOptions::default()));
     let callback = cb as i64;
     rts_dom::store::with_dom_mut(h, |d| {
-        if d.resolve(id).is_some() {
-            d.add_event_listener_cb(id, &event, callback);
-        }
+        d.add_event_listener_cb_with_options(id, event, callback, options);
+    });
+    nothing()
+}
+
+extern "C" fn remove_listener_cb(
+    _e: u64,
+    _t: u64,
+    doc: u64,
+    n: u64,
+    event: u64,
+    cb: u64,
+) -> u64 {
+    let Some((h, id)) = resolved_node(doc, n) else {
+        return nothing();
+    };
+    let raw_event = text(event);
+    let (event, capture) = raw_event
+        .rsplit_once('\u{001f}')
+        .map(|(event, flags)| (event, flags.parse::<u8>().unwrap_or(0) & 1 != 0))
+        .unwrap_or((raw_event.as_str(), false));
+    rts_dom::store::with_dom_mut(h, |d| {
+        d.remove_event_listener_cb(id, event, cb as i64, capture);
     });
     nothing()
 }
@@ -154,6 +205,30 @@ extern "C" fn dispatch_cb_node(_e: u64, _t: u64, doc: u64, i: u64, _b: u64, _c: 
     })
     .unwrap_or(-1);
     int(node)
+}
+
+extern "C" fn dispatch_cb_capture(_e: u64, _t: u64, doc: u64, i: u64, _b: u64, _c: u64) -> u64 {
+    let i = integer(i, -1);
+    if i < 0 {
+        return int(0);
+    }
+    let capture = rts_dom::store::with_dom(handle(doc), |d| {
+        d.last_dispatch_capture_at(i as usize) as i64
+    })
+    .unwrap_or(0);
+    int(capture)
+}
+
+extern "C" fn dispatch_cb_passive(_e: u64, _t: u64, doc: u64, i: u64, _b: u64, _c: u64) -> u64 {
+    let i = integer(i, -1);
+    if i < 0 {
+        return int(0);
+    }
+    let passive = rts_dom::store::with_dom(handle(doc), |d| {
+        d.last_dispatch_passive_at(i as usize) as i64
+    })
+    .unwrap_or(0);
+    int(passive)
 }
 
 extern "C" fn poll_event(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> u64 {

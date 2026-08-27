@@ -14,6 +14,21 @@
 // `dom.*` são os primitivos do namespace `rts:dom`. `-1` é a sentinela "nó nenhum".
 
 const __DOM_NONE = -1;
+const __LISTENER_OPTIONS_SEPARATOR = "\u001f";
+
+function __listenerFlags(options: any): number {
+  if (options === true) return 1;
+  if (options === null || options === undefined) return 0;
+  let flags = 0;
+  if (options.capture === true) flags = flags + 1;
+  if (options.once === true) flags = flags + 2;
+  if (options.passive === true) flags = flags + 4;
+  return flags;
+}
+
+function __listenerEventName(type: string, options: any): string {
+  return type + __LISTENER_OPTIONS_SEPARATOR + __listenerFlags(options);
+}
 
 // Despacho de evento com CALLBACKS: coleta os pares (nó, fn-word) do Rust
 // (`dispatchCollect` — alvo primeiro, depois bubbling), COPIA tudo para arrays
@@ -26,14 +41,18 @@ function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: nu
   if (n === 0) return 0;
   const cbs: number[] = [];
   const nodes: number[] = [];
+  const captures: number[] = [];
+  const passives: number[] = [];
   let i = 0;
   while (i < n) {
     cbs.push(dom.dispatchCbAt(h, i));
     nodes.push(dom.dispatchCbNode(h, i));
+    captures.push(dom.dispatchCbCapture(h, i));
+    passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
   const target = new Element(h, node);
-  const state = { stopped: 0, immediate: 0 };
+  const state = { stopped: 0, immediate: 0, passive: 0 };
   const event: any = {
     type: type,
     target: target,
@@ -41,6 +60,7 @@ function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: nu
     bubbles: bubbles !== 0,
     cancelable: true,
     defaultPrevented: false,
+    eventPhase: 0,
     cancelBubble: false,
     stopPropagation: function () {
       state.stopped = 1;
@@ -52,12 +72,14 @@ function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: nu
       event.cancelBubble = true;
     },
     preventDefault: function () {
-      if (event.cancelable) event.defaultPrevented = true;
+      if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
     },
   };
   let j = 0;
   while (j < n) {
     event.currentTarget = new Element(h, nodes[j]);
+    state.passive = passives[j] !== 0 ? 1 : 0;
+    event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
     // `engine.invoke_cb` reconstitui o Function word no runtime e chama o
     // listener com o mesmo objecto de evento mutável.
     engine.invoke_cb(cbs[j], event);
@@ -135,16 +157,20 @@ function __dispatchKeyboardWithCallbacks(
   if (n === 0) return 0;
   const cbs: number[] = [];
   const nodes: number[] = [];
+  const captures: number[] = [];
+  const passives: number[] = [];
   let i = 0;
   while (i < n) {
     cbs.push(dom.dispatchCbAt(h, i));
     nodes.push(dom.dispatchCbNode(h, i));
+    captures.push(dom.dispatchCbCapture(h, i));
+    passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
   const target = new Element(h, node);
   const key = __keyboardKey(keyCode, shift);
   const code = __keyboardCode(keyCode);
-  const state = { stopped: 0, immediate: 0 };
+  const state = { stopped: 0, immediate: 0, passive: 0 };
   const event: any = {
     type: type,
     target: target,
@@ -161,6 +187,7 @@ function __dispatchKeyboardWithCallbacks(
     bubbles: true,
     cancelable: true,
     defaultPrevented: false,
+    eventPhase: 0,
     cancelBubble: false,
     stopPropagation: function () {
       state.stopped = 1;
@@ -172,12 +199,14 @@ function __dispatchKeyboardWithCallbacks(
       event.cancelBubble = true;
     },
     preventDefault: function () {
-      if (event.cancelable) event.defaultPrevented = true;
+      if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
     },
   };
   let j = 0;
   while (j < n) {
     event.currentTarget = new Element(h, nodes[j]);
+    state.passive = passives[j] !== 0 ? 1 : 0;
+    event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
     engine.invoke_cb(cbs[j], event);
     if (state.immediate !== 0) break;
     if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
@@ -482,15 +511,19 @@ class Element {
   // bubbling). O Dom guarda o fn-word opaco (o antigo limite #195 caiu — Function
   // values são estáveis). A forma de 1 argumento continua valendo para o modelo de
   // POLLING legado (pumpEvents/getEventTargetId por frame).
-  addEventListener(type: string, cb?: any): void {
+  addEventListener(type: string, cb?: any, options?: any): void {
     if (cb === undefined) {
       dom.addListener(this._dom, this._node, type);
       return;
     }
-    dom.addListenerCb(this._dom, this._node, type, cb);
+    dom.addListenerCbOptions(this._dom, this._node, __listenerEventName(type, options), cb);
   }
-  removeEventListener(type: string): void {
-    dom.removeListener(this._dom, this._node, type);
+  removeEventListener(type: string, cb?: any, options?: any): void {
+    if (cb === undefined) {
+      dom.removeListener(this._dom, this._node, type);
+      return;
+    }
+    dom.removeListenerCb(this._dom, this._node, __listenerEventName(type, options), cb);
   }
   // `el.dispatchEvent(type)` — dispara COM BUBBLING (como `new Event(t, {bubbles:
   // true})`): invoca os callbacks registrados (alvo → ancestrais) e alimenta a fila

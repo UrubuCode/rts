@@ -29,6 +29,8 @@ impl Dom {
             listeners: HashMap::new(),
             listener_cbs: HashMap::new(),
             last_dispatch: Vec::new(),
+            last_dispatch_capture: Vec::new(),
+            last_dispatch_passive: Vec::new(),
             raw_event_queue: std::collections::VecDeque::new(),
             raw_keyboard_event_queue: std::collections::VecDeque::new(),
             last_raw_keyboard_event: None,

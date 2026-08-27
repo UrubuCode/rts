@@ -29,8 +29,8 @@ impl Dom {
     // que escutam), e o loop TS consome via `poll_event` e chama o handler certo.
 
     /// `element.addEventListener(type, handler)`: registra que o nó escuta `type`.
-    /// (O handler real é guardado no lado TS, indexado por (nó, tipo).) Idempotente:
-    /// não duplica o mesmo tipo. O tipo é CASE-SENSITIVE (spec DOM: `click`≠`CLICK`).
+    /// O handler real é guardado no lado Rust como word opaco. Sem callback, mantém
+    /// a API de polling legada; com callback, as opções definem a propagação.
     pub fn add_event_listener(&mut self, id: NodeId, event_type: &str) {
         crate::bump!(listeners_added);
         let Some(idx) = self.resolve(id) else { return };
@@ -41,23 +41,51 @@ impl Dom {
         }
     }
 
-    /// `element.addEventListener(type, fn)` com CALLBACK: registra o tipo (como
-    /// acima) e guarda o word/handle i64 da Function, opaco. Duplicatas do MESMO
-    /// callback são ignoradas (spec DOM: registrar o mesmo par duas vezes é no-op).
-    pub fn add_event_listener_cb(&mut self, id: NodeId, event_type: &str, cb: i64) {
+    /// Regista um callback com as opções DOM. A identidade de um listener é
+    /// `(target, type, callback, capture)`; `once` e `passive` não criam duplicatas.
+    pub fn add_event_listener_cb_with_options(
+        &mut self,
+        id: NodeId,
+        event_type: &str,
+        cb: i64,
+        options: ListenerOptions,
+    ) {
         let Some(idx) = self.resolve(id) else { return };
         self.add_event_listener(id, event_type);
         let cbs = self
             .listener_cbs
             .entry((idx, event_type.to_string()))
             .or_default();
-        if !cbs.contains(&cb) {
-            cbs.push(cb);
+        if !cbs.iter().any(|record| record.callback == cb && record.options.capture == options.capture) {
+            cbs.push(ListenerRecord { callback: cb, options });
         }
     }
 
-    /// `element.removeEventListener(type)`: para de escutar `type` neste nó.
-    /// (Remove também os callbacks registrados do tipo.)
+    /// Compatibilidade com a ABI antiga: listener bubble, persistente e activo.
+    pub fn add_event_listener_cb(&mut self, id: NodeId, event_type: &str, cb: i64) {
+        self.add_event_listener_cb_with_options(id, event_type, cb, ListenerOptions::default());
+    }
+
+    /// Remove um callback específico. `capture` participa na identidade do listener.
+    pub fn remove_event_listener_cb(
+        &mut self,
+        id: NodeId,
+        event_type: &str,
+        cb: i64,
+        capture: bool,
+    ) {
+        crate::bump!(listeners_removed);
+        let Some(idx) = self.resolve(id) else { return };
+        let key = (idx, event_type.to_string());
+        if let Some(cbs) = self.listener_cbs.get_mut(&key) {
+            cbs.retain(|record| !(record.callback == cb && record.options.capture == capture));
+            if cbs.is_empty() {
+                self.listener_cbs.remove(&key);
+            }
+        }
+    }
+
+    /// `element.removeEventListener(type)`: remove todos os callbacks desse tipo.
     pub fn remove_event_listener(&mut self, id: NodeId, event_type: &str) {
         crate::bump!(listeners_removed);
         let Some(idx) = self.resolve(id) else { return };
@@ -123,6 +151,15 @@ impl Dom {
         event.map(|(idx, _)| (self.make_id(idx), self.last_event_type.clone()))
     }
 
+    /// Metadata do callback colectado na última dispatch.
+    pub fn last_dispatch_capture_at(&self, index: usize) -> bool {
+        self.last_dispatch_capture.get(index).copied().unwrap_or(false)
+    }
+
+    pub fn last_dispatch_passive_at(&self, index: usize) -> bool {
+        self.last_dispatch_passive.get(index).copied().unwrap_or(false)
+    }
+
     /// Tipo devolvido pelo último `poll_event`.
     pub fn poll_event_type(&self) -> &str {
         &self.last_event_type
@@ -142,21 +179,72 @@ impl Dom {
         bubbles: bool,
     ) -> i64 {
         self.last_dispatch.clear();
+        self.last_dispatch_capture.clear();
+        self.last_dispatch_passive.clear();
+
+        let mut path = Vec::new();
         let mut cur = Some(target);
-        let mut first = true;
         while let Some(node) = cur {
             let Some(idx) = self.resolve(node) else { break };
-            if let Some(cbs) = self.listener_cbs.get(&(idx, event_type.to_string())) {
-                for &cb in cbs {
-                    self.last_dispatch.push((idx, cb));
-                }
-            }
-            if !bubbles && first {
-                break;
-            }
-            first = false;
+            path.push(idx);
             cur = self.parent_of(node);
         }
+        let key_type = event_type.to_string();
+        let mut once = Vec::new();
+        let mut collect = |idx: NodeIdx, records: &[ListenerRecord]| {
+            for record in records {
+                self.last_dispatch.push((idx, record.callback));
+                self.last_dispatch_capture.push(record.options.capture);
+                self.last_dispatch_passive.push(record.options.passive);
+                if record.options.once {
+                    once.push((idx, record.callback, record.options.capture));
+                }
+            }
+        };
+
+        // Capture: raiz → pai do target. No target, capture e bubble seguem a
+        // ordem de registo, como no DOM.
+        if bubbles {
+            let mut i = path.len();
+            while i > 1 {
+                i -= 1;
+                if let Some(records) = self.listener_cbs.get(&(path[i], key_type.clone())) {
+                    let capture: Vec<ListenerRecord> = records
+                        .iter()
+                        .copied()
+                        .filter(|record| record.options.capture)
+                        .collect();
+                    collect(path[i], &capture);
+                }
+            }
+        }
+        if let Some(&idx) = path.first() {
+            if let Some(records) = self.listener_cbs.get(&(idx, key_type.clone())) {
+                let records: Vec<ListenerRecord> = records.iter().copied().collect();
+                collect(idx, &records);
+            }
+        }
+        if bubbles {
+            let mut i = 1;
+            while i < path.len() {
+                if let Some(records) = self.listener_cbs.get(&(path[i], key_type.clone())) {
+                    let bubble: Vec<ListenerRecord> = records
+                        .iter()
+                        .copied()
+                        .filter(|record| !record.options.capture)
+                        .collect();
+                    collect(path[i], &bubble);
+                }
+                i += 1;
+            }
+        }
+
+        // `once` é removido antes da invocação JS. Se o callback re-despachar o
+        // mesmo evento, não volta a ser colectado.
+        for (idx, callback, capture) in once {
+            self.remove_event_listener_cb(self.make_id(idx), event_type, callback, capture);
+        }
+
         // Mantém o contrato do polling também (contadores/fila do modelo #1760):
         // um app antigo que só usa pumpEvents continua vendo o evento.
         self.dispatch_event(target, event_type, bubbles);
