@@ -249,6 +249,17 @@ pub(in crate::entry) fn bytes(name: &str, value: u64) -> Option<usize> {
     }
 }
 
+/// A receiver accepted by `Buffer.indexOf`/`lastIndexOf`: any byte view.
+pub(in crate::entry) fn search_receiver(value: u64) -> bool {
+    match shape_of(value) {
+        Shape::Bytes(_) => true,
+        _ => {
+            errors::invalid_arg_instance("buffer", "Buffer, TypedArray, or DataView", value);
+            false
+        }
+    }
+}
+
 /// A value accepted by `Buffer.indexOf`/`includes`: number, string or bytes.
 pub(in crate::entry) fn search_value(value: u64) -> bool {
     match shape_of(value) {

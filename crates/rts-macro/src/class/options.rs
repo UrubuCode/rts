@@ -38,10 +38,12 @@ pub(super) struct Options {
     /// Everything added since ES6 carries one. Defaulting to installed would
     /// put a property on eight prototypes that a real engine does not have.
     pub(super) tag: bool,
+    /// Whether prototype members get their own constructible-function prototype.
+    pub(super) method_prototypes: bool,
 }
 
-/// Reads `("Name")`, `("Name", namespace)`, `("Name", extends = path)` and
-/// `("Name", tag)`.
+/// Reads `("Name")`, `("Name", namespace)`, `("Name", extends = path)`,
+/// `("Name", tag)` and `("Name", method_prototypes)`.
 pub(super) fn parse_options(args: TokenStream) -> syn::Result<Options> {
     let span = args.span();
     // A `macro_rules!` metavariable arrives wrapped in an invisible group, and
@@ -75,6 +77,7 @@ pub(super) fn parse_options(args: TokenStream) -> syn::Result<Options> {
         flavour: Flavour::Class,
         extends: None,
         tag: false,
+        method_prototypes: false,
     };
 
     for part in parts {
@@ -84,6 +87,9 @@ pub(super) fn parse_options(args: TokenStream) -> syn::Result<Options> {
             }
             Expr::Path(path) if path.path.is_ident("tag") => {
                 options.tag = true;
+            }
+            Expr::Path(path) if path.path.is_ident("method_prototypes") => {
+                options.method_prototypes = true;
             }
             Expr::Assign(assign) => {
                 let Expr::Path(left) = assign.left.as_ref() else {
@@ -104,7 +110,7 @@ pub(super) fn parse_options(args: TokenStream) -> syn::Result<Options> {
             other => {
                 return Err(syn::Error::new(
                     other.span(),
-                    "the options are `namespace`, `tag` and `extends = path`",
+                    "the options are `namespace`, `tag`, `method_prototypes` and `extends = path`",
                 ));
             }
         }

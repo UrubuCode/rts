@@ -48,6 +48,33 @@ pub(in crate::entry) fn encode(text: &str, encoding: &str) -> Option<Vec<u8>> {
     }
 }
 
+/// A JavaScript string encoded from its UTF-16 code units.
+///
+/// `Str::to_rust()` deliberately refuses lone surrogates, but Buffer follows
+/// the byte codec's rules: UTF-8 writes U+FFFD, while UTF-16LE preserves the
+/// original code unit. The narrow Rust-string entry point remains for callers
+/// that already have well-formed text; this one is for JS strings.
+pub(in crate::entry) fn encode_text(
+    text: &crate::text::Str,
+    encoding: &str,
+) -> Option<Vec<u8>> {
+    match canonical_encoding(encoding)? {
+        "utf8" => Some(text.to_rust_lossy().into_bytes()),
+        "ascii" => Some(text.units().map(|unit| unit as u8).collect()),
+        "latin1" => Some(text.units().map(|unit| unit as u8).collect()),
+        "utf16le" => {
+            let mut out = Vec::with_capacity(text.len() * 2);
+            for unit in text.units() {
+                out.extend_from_slice(&unit.to_le_bytes());
+            }
+            Some(out)
+        }
+        "base64" | "base64url" => Some(decode_base64(&text.to_rust_lossy())),
+        "hex" => Some(decode_hex(&text.to_rust_lossy())),
+        _ => None,
+    }
+}
+
 /// Bytes decoded to text under the named encoding.
 pub(in crate::entry) fn decode(bytes: &[u8], encoding: &str) -> String {
     match canonical_encoding(encoding) {

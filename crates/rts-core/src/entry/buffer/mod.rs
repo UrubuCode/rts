@@ -44,23 +44,21 @@
 //! rather than a line per member because the same three questions are asked
 //! fourteen times over — see [`validate`], which also documents the borrow rule
 //! that decides their shape.
-
 pub(in crate::entry) mod bigint;
 pub(in crate::entry) mod codec;
 pub(in crate::entry) mod ops;
+pub(in crate::entry) mod search;
 pub(in crate::entry) mod statics;
 pub(in crate::entry) mod string;
 pub(in crate::entry) mod swap;
 pub(in crate::entry) mod validate;
 pub(in crate::entry) mod write;
-
 use super::buffers::element::Kind;
 use super::buffers::uint8_array;
 use super::Context;
 use crate::entry;
-
 /// `Buffer`.
-#[rtse::class("Buffer", extends = uint8_array)]
+#[rtse::class("Buffer", extends = uint8_array, method_prototypes)]
 impl Buffer {
     /// `Buffer(size)` / `new Buffer(size)` and the legacy source overloads.
     ///
@@ -99,7 +97,6 @@ impl Buffer {
     fn alloc(size: u64, fill: u64, encoding: u64) -> u64 {
         statics::alloc(size, fill, encoding)
     }
-
     /// `Buffer.allocUnsafe(size)`.
     #[stat]
     fn alloc_unsafe(size: u64) -> u64 {
@@ -113,19 +110,16 @@ impl Buffer {
     fn from(source: u64, encoding_or_offset: u64, length: u64) -> u64 {
         statics::from(source, encoding_or_offset, length)
     }
-
     /// `Buffer.of(...values)`.
     #[stat]
     fn of(a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         statics::of(a0, a1, a2, a3)
     }
-
     /// `Buffer.concat(list, totalLength?)`.
     #[stat]
     fn concat(list: u64, total_length: u64) -> u64 {
         statics::concat(list, total_length)
     }
-
     /// `Buffer.byteLength(source, encoding?)`.
     #[stat]
     fn byte_length(source: u64, encoding: u64) -> f64 {
@@ -195,6 +189,12 @@ impl Buffer {
     /// `buf.indexOf(value, byteOffset?, encoding?)`.
     fn index_of(this: u64, value: u64, byte_offset: u64, encoding: u64) -> f64 {
         ops::index_of(this, value, byte_offset, encoding)
+    }
+
+    /// `buf.lastIndexOf(value, byteOffset?, encoding?)`.
+    #[js("lastIndexOf")]
+    fn last_index_of(this: u64, value: u64, byte_offset: u64, encoding: u64) -> f64 {
+        ops::last_index_of(this, value, byte_offset, encoding)
     }
 
     /// `buf.includes(value, byteOffset?, encoding?)`.

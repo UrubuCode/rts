@@ -139,6 +139,7 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             options.extends.as_ref(),
             &prefix,
             options.tag,
+            options.method_prototypes,
         ),
     };
 
@@ -257,8 +258,20 @@ fn class_body(
     extends: Option<&Path>,
     prefix: &str,
     tag: bool,
+    method_prototypes: bool,
 ) -> TokenStream {
     let tagged = tagging(name, quote!(prototype_cell), tag);
+    let install_members = if method_prototypes {
+        quote! {
+            crate::entry::native::install_with_arity_and_prototypes(
+                context, prototype_cell, #natives,
+            );
+        }
+    } else {
+        quote! {
+            crate::entry::native::install_with_arity(context, prototype_cell, #natives);
+        }
+    };
     // A class with no constructor of its own still has to be callable, because
     // `new C()` runs one. The default keeps the object `construct` made, which
     // is what a JavaScript constructor with an empty body does.
@@ -345,7 +358,7 @@ fn class_body(
             // runtime answers `[]`, and `for (const k in Map)` walked it.
             crate::entry::native::pinned(context, cell, key);
         }
-        crate::entry::native::install_with_arity(context, prototype_cell, #natives);
+        #install_members
         crate::entry::class_support::constants(context, prototype_cell, #constants);
         // `p.constructor` is an ordinary property, and a program reads it.
         let key = context.well_known("constructor");
