@@ -53,20 +53,15 @@
 //! would answer `["encoding"]`. `TextDecoder`'s three vary per instance, so
 //! they are own properties and `Object.keys` does diverge there — named below.
 //!
-//! # Why there is no throw anywhere in this file
+//! # Why most failures still do not throw in this file
 //!
-//! `rts_core::entry::throw` ends the program rather than unwinding to a
-//! handler; its own module doc says so, and the machine has no exception table
-//! yet. Every failure the specification defines as a throw therefore answers
-//! `undefined` here — an answer a program can test — rather than a fabricated
-//! value or a silent no-op.
+//! `rts_core::entry::throw` can now preserve a throw for compiled code to catch,
+//! but older decoder paths still answer `undefined` where their specification
+//! raises. The distinction is kept per operation rather than turning every
+//! refusal into a process-visible throw without a measured contract.
 //!
 //! # Not implemented, by name
 //!
-//! - **`atob`/`btoa` throwing `InvalidCharacterError`.** Invalid input answers
-//!   `undefined`. This differs from `node:buffer`'s `atob`, which answers `""`;
-//!   `undefined` is the one a program can distinguish from a successful decode
-//!   of an empty string, and `""` is the answer that looks like it worked.
 //! - **`new TextDecoder(label)` throwing `RangeError` for a label this engine
 //!   cannot decode.** It answers an INERT decoder instead — one carrying no
 //!   `encoding`, whose `decode` answers `undefined`. The reference document is
@@ -224,14 +219,14 @@ fn fitting_prefix(text: &str, room: usize) -> (usize, &[u8]) {
 
 /// `atob(data)` — base64 to a binary string, one code unit per byte.
 ///
-/// `undefined` for input that is not valid forgiving-base64, where Node throws
-/// `InvalidCharacterError`.
-extern "C" fn atob(_e: u64, _this: u64, data: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let Some(text) = text_argument(data) else {
+/// Invalid input raises `InvalidCharacterError`, as required by the WHATWG
+/// forgiving-base64 API.
+extern "C" fn atob(_e: u64, _this: u64, data: u64, b: u64, c: u64, d: u64) -> u64 {
+    let Some(text) = base64_argument([data, b, c, d]) else {
         return entry::undefined_value();
     };
     if !is_forgiving_base64(&text) {
-        return entry::undefined_value();
+        return invalid_character();
     }
     let bytes = entry::decode_base64(&text);
     let binary = entry::decode_bytes(&bytes, "latin1");
@@ -240,16 +235,15 @@ extern "C" fn atob(_e: u64, _this: u64, data: u64, _b: u64, _c: u64, _d: u64) ->
 
 /// `btoa(data)` — a binary string to base64.
 ///
-/// `undefined` for a code point above `U+00FF`, where Node throws
-/// `InvalidCharacterError`. Checked BEFORE encoding, because `latin1` encoding
-/// truncates such a character to its low byte — which would answer base64 of
-/// something the caller never wrote.
-extern "C" fn btoa(_e: u64, _this: u64, data: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let Some(text) = text_argument(data) else {
+/// A code point above `U+00FF` raises `InvalidCharacterError` BEFORE encoding,
+/// because `latin1` would otherwise truncate it to a byte the caller did not
+/// provide.
+extern "C" fn btoa(_e: u64, _this: u64, data: u64, b: u64, c: u64, d: u64) -> u64 {
+    let Some(text) = base64_argument([data, b, c, d]) else {
         return entry::undefined_value();
     };
     if text.chars().any(|character| character as u32 > 0xFF) {
-        return entry::undefined_value();
+        return invalid_character();
     }
     let Some(bytes) = entry::encode_text(&text, "latin1") else {
         return entry::undefined_value();
@@ -295,20 +289,42 @@ fn is_forgiving_base64(text: &str) -> bool {
 
 // ----------------------------------------------------------------- the shared
 
-/// An argument as text, `None` for an absent one.
+/// A base64 argument as text, `None` after raising or preserving its error.
 ///
-/// `text_of` is `ToString`, which is what a `DOMString` parameter takes — so
-/// `btoa(123)` encodes `"123"`, as it does in Node. It answers nothing for an
-/// object, whose `toString` is user code no entry point may call, and for a
-/// string holding a lone surrogate.
-///
-/// Ambient, so every caller of this is outside a borrow.
+/// `string_for_host` runs the existing ToPrimitive protocol, including
+/// `Symbol.toPrimitive`, wrappers and user-defined `toString`/`valueOf`. An
+/// absent argument and a Symbol are TypeErrors; a callback that throws is left
+/// untouched so the compiled caller can propagate its original value.
+fn base64_argument(slots: [u64; 4]) -> Option<String> {
+    let given = entry::with_runtime(|context| entry::arguments_at(context, 0, slots));
+    let Some(value) = given.first().copied() else {
+        entry::throw_type_error("The first argument must be specified");
+        return None;
+    };
+    match entry::string_for_host(value) {
+        Err(()) => None,
+        Ok(Some(text)) => Some(text),
+        Ok(None) => {
+            entry::throw_type_error("Cannot convert a Symbol value to a string");
+            None
+        }
+    }
+}
+
+/// An argument as already-materialised text for the older decoder paths.
 fn text_argument(value: u64) -> Option<String> {
     let absent = entry::undefined_value();
     match value == absent {
         true => None,
         false => entry::text_of(value),
     }
+}
+
+/// Raises the DOM error used by WHATWG base64 for malformed input.
+fn invalid_character() -> u64 {
+    let error = super::dom_exception::make("Invalid character", "InvalidCharacterError");
+    entry::throw_value(error);
+    entry::undefined_value()
 }
 
 /// One member of an options bag, `undefined` when there is no bag.

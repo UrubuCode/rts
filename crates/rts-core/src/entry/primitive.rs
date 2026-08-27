@@ -152,8 +152,24 @@ pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
     value
 }
 
-/// Both operands of a binary operator, converted in the order the operator
-/// specifies.
+/// ToString for a host entry point, preserving a throw raised by user code.
+///
+/// `Ok(Some(text))` is a materialised string, `Ok(None)` is a primitive that
+/// cannot be represented as Rust text (notably Symbol), and `Err(())` means a
+/// user conversion already left a throw in flight. The three outcomes are kept
+/// distinct so a host can raise its own specification error without replacing a
+/// callback's exception.
+pub fn string_for_host(value: u64) -> Result<Option<String>, ()> {
+    let primitive = to_primitive(value, Hint::String);
+    if super::throw::in_flight() {
+        return Err(());
+    }
+    Ok(with_current(|context| {
+        super::text::to_text(context, Value(primitive)).and_then(|text| text.to_rust())
+    }))
+}
+
+/// Both operands of a binary operator, converted in the order the operator specifies.
 ///
 /// The order is the part that is easy to get wrong and invisible until an
 /// operand has a side-effecting `valueOf`, which is why it comes from

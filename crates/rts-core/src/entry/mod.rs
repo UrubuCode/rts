@@ -162,6 +162,7 @@ pub use operators::{
     remainder, subtract,
 };
 pub use primitives::{add, number_to_string, same_value, strict_equals, to_boolean, to_boolean_in};
+pub use primitive::string_for_host;
 pub use bigint_class::{bigint_new, negate};
 pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
 pub use buffers::detach::{buffer_detached, detach_buffer};
