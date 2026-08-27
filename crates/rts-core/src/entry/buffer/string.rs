@@ -33,15 +33,21 @@ pub(in crate::entry) fn to_string(this: u64, encoding: u64, start: u64, end: u64
     if super::super::throw::in_flight() {
         return undefined();
     }
+    let Some((view, first, last)) = with_current(|context| {
+        let view = view_of(context, this)?;
+        let (first, last) = absolute_range(view.length, start, end);
+        Some((view, first, last))
+    }) else {
+        return undefined();
+    };
+    if (last - first) as f64 > super::super::BUFFER_MAX_STRING_LENGTH {
+        errors::string_too_long();
+        return undefined();
+    }
     with_current(|context| {
-        let absent = undefined_of(context);
-        let Some(view) = view_of(context, this) else {
-            return absent;
-        };
         let Some(bytes) = window(context, &view) else {
-            return absent;
+            return undefined_of(context);
         };
-        let (first, last) = absolute_range(bytes.len(), start, end);
         let text = codec::decode(&bytes[first..last], &enc);
         context
             .intern_value(crate::text::Str::from_str(&text))

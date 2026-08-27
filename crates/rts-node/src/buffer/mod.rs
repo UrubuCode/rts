@@ -126,9 +126,10 @@ pub fn namespace(context: &mut Context) -> u64 {
 /// `test-buffer-over-max-length.js` computes its argument from.
 const MAX_LENGTH: f64 = entry::BUFFER_MAX_LENGTH;
 
-/// Same reasoning as [`MAX_LENGTH`] — this engine's UTF-8 `Str` cells have no
-/// narrower ceiling of their own, so the two share one number.
-const MAX_STRING_LENGTH: f64 = entry::BUFFER_MAX_LENGTH;
+/// The string ceiling is narrower than the byte ceiling because String cells
+/// are materialised as UTF-16 code units. It is shared with `String.repeat`
+/// through the core entry surface rather than duplicated here.
+const MAX_STRING_LENGTH: f64 = entry::BUFFER_MAX_STRING_LENGTH;
 
 static INSPECT_MAX_BYTES: AtomicU64 = AtomicU64::new(50.0f64.to_bits());
 
