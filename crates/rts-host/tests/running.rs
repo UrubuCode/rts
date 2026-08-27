@@ -1168,6 +1168,29 @@ fn a_template_concatenates_rather_than_adding() {
 }
 
 #[test]
+fn a_template_uses_the_string_hint_for_object_substitutions() {
+    let produced = run(
+        "let calls = 0; \
+         let o = { valueOf: function () { return 7; }, \
+                   toString: function () { calls++; return 'T'; } }; \
+         return `${o}` === 'T' && calls === 1;",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn template_join_roots_hook_returned_strings_until_the_final_string_is_built() {
+    holds(concat!(
+        "let total = 0; ",
+        "for (let i = 0; i < 2000; i++) { ",
+        "let o = { toString: function () { return 'x'.repeat(8); } }; ",
+        "total += `${o}`.length; ",
+        "} ",
+        "return total === 16000;",
+    ));
+}
+
+#[test]
 fn string_concat_preserves_arguments_layouts_and_coercion_effects() {
     holds(
         "return \"a\".concat(\"b\", \"c\", \"d\", \"e\", \"f\") === \"abcdef\";",

@@ -165,13 +165,6 @@ impl Context {
         }
         Attributes::default()
     }
-
-    /// Whether this cell has an explicit descriptor for this key.
-    pub(in crate::entry) fn has_attributes(&self, cell: u32, key: ShapeKey) -> bool {
-        self.attributes
-            .get(cell)
-            .is_some_and(|held| held.iter().any(|(at, _)| *at == key))
-    }
 }
 
 /// What a key permits once the OBJECT's own refusals are folded in.
