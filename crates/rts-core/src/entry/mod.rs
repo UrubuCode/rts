@@ -109,7 +109,7 @@ mod uri;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
-pub use array::{array_new, array_of, element_at, elements_base, enumerate_keys, own_keys};
+pub use array::{array_length, array_new, array_of, element_at, elements_base, enumerate_keys, own_keys};
 pub use math::math_random;
 pub use array_proto::arguments_at;
 pub use arguments::arguments_object;
@@ -148,7 +148,7 @@ pub use modules::{
     bytes_of, bytes_pointer, get_member_at, is_array, is_object, make_bytes, member_key, make_instance, make_prototype, module_at_name, module_binding, module_namespace, module_publish, module_specifiers, forget_module, null_value, number_of,
     Evaluator, declare_evaluator, evaluate, evaluator, is_array_in, is_callable_in, member_names, string_in, null_in, put_member, set_prototype_in, text_in,
     write_bytes,
-    text_of, undefined_in, undefined_value, with_runtime,
+    text_of, undefined_in, undefined_value, utf8_bytes_if_string, with_runtime,
 };
 pub use function_proto::running_function;
 pub use host_class::{declare_host_class, describe_callable};
@@ -235,7 +235,7 @@ use crate::value::Singletons;
 pub const TEXT_LENGTH_SLOT: u32 = 1;
 
 /// The names the runtime asks for BY NAME on a path that runs per operation.
-pub const CACHED_KEYS: [&str; 8] = [
+pub const CACHED_KEYS: [&str; 9] = [
     "length",
     "prototype",
     "byteLength",
@@ -252,6 +252,7 @@ pub const CACHED_KEYS: [&str; 8] = [
     // 514 ns closure.
     "name",
     "constructor",
+    symbol::SPECIES,
 ];
 
 /// Where `"length"` sits in [`CACHED_KEYS`].
@@ -617,6 +618,12 @@ pub struct Context {
     /// reason `string_prototype` records: `array_new` would otherwise write the
     /// link at every allocation to record one fact they all share.
     array_prototype: Option<u32>,
+    /// The prototype backing buffers created internally for typed arrays.
+    ///
+    /// `new_buffer` asks for it on every typed-array allocation, so the first
+    /// successful class lookup is retained just like the string and array
+    /// prototypes above.
+    array_buffer_prototype: Option<u32>,
     /// Which keys on a cell are a pair of functions rather than a slot.
     ///
     /// Deliberately NOT in the shape: compiled code emits `cached_get`, which
@@ -856,6 +863,13 @@ pub struct Context {
     /// Rooted by [`roots`], like `type_names`: nothing else holds these, and a
     /// collection between two uses would free the one the next use hands back.
     pub(super) well_known_texts: [Option<u64>; CACHED_TEXTS.len()],
+    /// Cached primitive strings for UTF-16 code units below 256.
+    ///
+    /// String indexing and `charAt` return a one-unit string. Those values are
+    /// immutable primitives, so reusing their heap representation is observable
+    /// only as an allocation reduction; boxed strings still create their own
+    /// wrapper object. Wide units remain on the ordinary path.
+    pub(super) single_unit_texts: [Option<u64>; 256],
     /// The string CELL each interned key text has been handed out as.
     ///
     /// # Why a second table beside the interner, rather than a field in it
@@ -1164,6 +1178,7 @@ impl Context {
             globals: None,
             string_prototype: None,
             array_prototype: None,
+            array_buffer_prototype: None,
             resolves: 0,
             array_layout: None,
             doomed: Vec::new(),
@@ -1176,6 +1191,7 @@ impl Context {
             // compilation that produced the code.
             well_known_keys: [None; CACHED_KEYS.len()],
             well_known_texts: [None; CACHED_TEXTS.len()],
+            single_unit_texts: [None; 256],
             key_texts_as_values: std::collections::HashMap::new(),
             remembered_keys: Vec::new(),
             literals: Vec::new(),

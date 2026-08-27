@@ -307,13 +307,20 @@ fn refusal(context: &Context, cell: u32) -> String {
 
 /// `a.pop()` — the last element, removed.
 extern "C" fn pop(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
+    let (answer, refused) = with_current(|context| {
         let Some(cell) = Value(this).as_slot() else {
-            return undefined_of(context);
+            return (undefined_of(context), None);
         };
-        // An empty array answers `undefined` and stays empty. Not a special
-        // case: the length is written back either way, so a `pop` on an empty
-        // array cannot leave the property saying -1.
+        // An empty array answers `undefined` and stays empty. Re-stating zero
+        // is permitted even when `length` is non-writable; a non-empty array,
+        // however, must be rejected before its last element is removed.
+        if context
+            .elements_at(cell)
+            .is_some_and(|elements| !elements.is_empty())
+            && refuses_append(context, cell)
+        {
+            return (undefined_of(context), Some(refusal(context, cell)));
+        }
         // `visible`: um buraco no fim sai como `undefined`, não como o
         // marcador — este é um dos quatro pontos que devolvem o word CRU ao
         // programa sem passar por `get_indexed`.
@@ -321,13 +328,17 @@ extern "C" fn pop(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) ->
         // here calls user code, so nothing needs the copy.
         let taken = match context.elements_at_mut(cell) {
             Some(elements) => elements.pop(),
-            None => return undefined_of(context),
+            None => return (undefined_of(context), None),
         };
         let count = context.elements_at(cell).map_or(0, Vec::len);
         super::array::set_length(context, cell, count);
         let taken = taken.unwrap_or_else(|| undefined_of(context));
-        super::array::visible(context, taken)
-    })
+        (super::array::visible(context, taken), None)
+    });
+    if let Some(message) = refused {
+        super::throw::type_error(&message);
+    }
+    answer
 }
 
 /// `a.shift()` — the first element, removed.

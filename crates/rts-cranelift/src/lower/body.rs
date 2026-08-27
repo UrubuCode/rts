@@ -257,6 +257,7 @@ impl<'a> Body<'a> {
                     BitOp::Xor => builder.ins().bxor(x, y),
                     BitOp::Shl => builder.ins().ishl(x, y),
                     BitOp::Shr => builder.ins().sshr(x, y),
+                    BitOp::ShrUnsigned => builder.ins().ushr(x, y),
                 }
             }
 
@@ -410,6 +411,11 @@ impl<'a> Body<'a> {
             Inst::ToF64(v) => {
                 let raw = self.value(*v);
                 builder.ins().fcvt_from_sint(types::F64, raw)
+            }
+
+            Inst::ToF64Unsigned(v) => {
+                let raw = self.value(*v);
+                builder.ins().fcvt_from_uint(types::F64, raw)
             }
 
             // One load, no arithmetic. `trusted` says the address is valid and

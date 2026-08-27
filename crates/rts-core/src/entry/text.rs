@@ -154,27 +154,62 @@ pub fn template_join(which: i64, count: i64, v0: u64, v1: u64, v2: u64) -> u64 {
         let Some((pieces, _)) = context.templates.get(which as usize) else {
             return undefined_of(context);
         };
-        let pieces = pieces.clone();
+        // Convert each already-rooted substitution once, then size the final
+        // output exactly. The old loop repeatedly allocated an intermediate
+        // `Str` for every literal/value boundary; this builds only the answer.
+        let converted: Vec<Option<Str>> = values
+            .iter()
+            .take(wanted)
+            .map(|&value| to_text(context, crate::value::Value(value)))
+            .collect();
+        let mut capacity = 0usize;
+        let mut narrow = true;
+        for piece in pieces {
+            if let Some(&literal) = context.literals.get(*piece as usize)
+                && let Some(text) = crate::value::Value(literal)
+                    .as_slot()
+                    .and_then(|cell| context.text_at(cell))
+            {
+                capacity += text.len();
+                narrow &= text.narrow().is_some();
+            }
+        }
+        for text in converted.iter().flatten() {
+            capacity += text.len();
+            narrow &= text.narrow().is_some();
+        }
 
-        // One buffer, grown once and written through. The pieces are already
-        // interned strings, so what is built here is the JOIN and not a copy
-        // of anything that already existed.
-        let mut joined = Str::from_str("");
+        if narrow {
+            let mut bytes = Vec::with_capacity(capacity);
+            for (at, piece) in pieces.iter().enumerate() {
+                if let Some(&literal) = context.literals.get(*piece as usize)
+                    && let Some(text) = crate::value::Value(literal)
+                        .as_slot()
+                        .and_then(|cell| context.text_at(cell))
+                {
+                    bytes.extend_from_slice(text.narrow().expect("narrow was proved"));
+                }
+                if let Some(Some(text)) = converted.get(at) {
+                    bytes.extend_from_slice(text.narrow().expect("narrow was proved"));
+                }
+            }
+            return context.intern_value(Str::owning_latin1(bytes)).bits();
+        }
+
+        let mut units = Vec::with_capacity(capacity);
         for (at, piece) in pieces.iter().enumerate() {
             if let Some(&literal) = context.literals.get(*piece as usize)
                 && let Some(text) = crate::value::Value(literal)
                     .as_slot()
                     .and_then(|cell| context.text_at(cell))
             {
-                joined = joined.concat(text);
+                units.extend(text.units());
             }
-            if at < wanted
-                && let Some(text) = to_text(context, crate::value::Value(values[at]))
-            {
-                joined = joined.concat(&text);
+            if let Some(Some(text)) = converted.get(at) {
+                units.extend(text.units());
             }
         }
-        context.intern_value(joined).bits()
+        context.intern_value(Str::from_utf16(&units)).bits()
     })
 }
 

@@ -96,9 +96,5 @@ pub(in crate::entry) fn string_property(context: &mut Context, slot: u32, key: K
 pub(in crate::entry) fn string_element(context: &mut Context, slot: u32, key: Value) -> Option<u64> {
     let at = super::super::array::as_index(context, key)?;
     let unit = context.text_at(text_cell(context, slot)?)?.unit_at(at)?;
-    Some(
-        context
-            .intern_value(crate::text::Str::from_utf16(&[unit]))
-            .bits(),
-    )
+    Some(super::answer_unit(context, unit))
 }

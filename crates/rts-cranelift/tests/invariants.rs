@@ -342,6 +342,11 @@ fn reading_a_double_as_an_int32_and_back_stays_in_its_domain() {
     let back = builder.to_f64(integer).expect("an int32 converts back");
     assert_eq!(builder.repr_of(back), Repr::F64);
     assert!(builder.to_f64(back).is_err(), "already a double");
+    let unsigned_back = builder
+        .to_f64_unsigned(integer)
+        .expect("an int32 converts back as unsigned");
+    assert_eq!(builder.repr_of(unsigned_back), Repr::F64);
+    assert!(builder.to_f64_unsigned(back).is_err(), "already a double");
 }
 
 #[test]

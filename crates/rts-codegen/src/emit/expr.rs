@@ -193,7 +193,16 @@ pub fn emit_expr(
             let receiver = emit_expr(builder, scope, ctx, object)?;
             super::property::emit_read(builder, ctx, receiver, *property)
         }
-        ExprKind::Index { object, index, .. } => {
+        ExprKind::Index {
+            object,
+            index,
+            optional,
+        } => {
+            // A local array proven not to escape is represented by scalar bindings;
+            // no array allocation, element write or indexed lookup is needed.
+            if let Some(field) = super::escape::array_field_of(ctx, object, index, *optional) {
+                return super::binding::read(builder, scope, ctx, field);
+            }
             // A read a DESUGARING proved: the receiver is an array it made and
             // the index is a counter it minted, so none of the questions
             // `GetIndexed` asks has an answer the caller did not already have.
@@ -1530,10 +1539,14 @@ enum Proven {
     /// the machine has had an instruction for all along — `BitOp::Shl` and
     /// `BitOp::Shr` were in `rts-cranelift` with no producer anywhere.
     ///
-    /// `>>>` is NOT here and that is not an oversight: its result is `ToUint32`,
-    /// so a proven `I32` carrying it would report a negative number where the
-    /// language says a large positive one. It stays a call.
+    /// `>>>` is separate from this signed shift because its result is unsigned
+    /// and therefore needs a different conversion back to the numeric domain.
     Shift(BitOp),
+    /// A logical right shift whose result is the unsigned 32-bit value as f64.
+    ///
+    /// It cannot reuse [`Proven::Shift`]: that path returns a signed `I32`, while
+    /// `>>>` must preserve values from `2^31` through `2^32 - 1`.
+    UnsignedShift,
     /// A runtime call that both takes and answers PROVEN doubles.
     ///
     /// (`Proven` is `Copy` because two paths ask the same value twice: the
@@ -1636,12 +1649,12 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
         BinaryOp::Shl => Proven::Shift(BitOp::Shl),
         BinaryOp::Shr => Proven::Shift(BitOp::Shr),
 
-        // `>>>` stays a call, and this is the half of the old comment that
-        // survives unchanged: its result is `ToUint32`, so a proven `I32`
-        // carrying it would report a negative number where the language says a
-        // large positive one. The obstacle there is the RESULT's type rather
-        // than a missing step, which is why one of the three moved and one did
-        // not.
+        // `>>>` now has its own machine result path. The operands still enter as
+        // the same `ToInt32` bit patterns, but the shift is logical and the
+        // result rejoins `F64` through an unsigned conversion, so values with
+        // bit 31 set remain positive instead of being interpreted as negative.
+        BinaryOp::UShr => Proven::UnsignedShift,
+
         _ => return None,
     })
 }
@@ -1698,6 +1711,18 @@ fn proven_instruction(
             let count = builder.bitwise(BitOp::And, right, mask)?;
             let bits = builder.bitwise(bit, left, count)?;
             builder.to_f64(bits)?
+        }
+        Proven::UnsignedShift => {
+            let left = builder.to_int32(left)?;
+            let right = builder.to_int32(right)?;
+            let mask = builder.declare_const(ConstDecl::Scalar {
+                repr: Repr::I32,
+                bits: ScalarBits(31),
+            });
+            let mask = builder.use_const(mask);
+            let count = builder.bitwise(BitOp::And, right, mask)?;
+            let bits = builder.bitwise(BitOp::ShrUnsigned, left, count)?;
+            builder.to_f64_unsigned(bits)?
         }
         // The machine FIRST, and the call only where it refuses. `%` by a power
         // of two has an exact instruction sequence, and which divisors qualify
@@ -1994,9 +2019,11 @@ fn runtime_binary(op: BinaryOp) -> Option<(RuntimeOp, bool)> {
         // `1 << 0` — which is the invariant working, and is why that `expect`
         // is an `expect` and not a silent fallback.
         //
-        // `>>>` is in NEITHER, which is what keeps them agreeing about it.
+        // `>>>` has the same fallback as its new fast path, but a separate
+        // machine instruction because the result is unsigned.
         BinaryOp::Shl => (RuntimeOp::ShiftLeft, false),
         BinaryOp::Shr => (RuntimeOp::ShiftRight, false),
+        BinaryOp::UShr => (RuntimeOp::ShiftRightUnsigned, false),
         // The loose pair, and they are here for the same reason the shifts are:
         // `proven_binary` names them, so the guarded path emits an instruction
         // on the fast side and needs THIS call on the slow one. Adding a row

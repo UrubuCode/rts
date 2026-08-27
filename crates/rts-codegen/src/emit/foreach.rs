@@ -203,8 +203,17 @@ pub fn emit_for_each(
     // element, forever. Hoisting it is not an optimisation of the read; it
     // removes the read.
     let length = ctx.names.intern("__rts_in_len");
-    let length_key = ctx.names.intern("length");
-    let bound = super::property::emit_read(builder, ctx, enumerated, length_key)?;
+    // `enumerated` is always a fresh internal array: `EnumerateKeys` returns
+    // one directly, while the `for-of` join selects either an empty array or
+    // the array materialised by `Iterate`. Its length is therefore a compiler
+    // fact, not a user property read, and the scalar entry preserves F64 for
+    // the loop header.
+    let bound = super::expr::call(
+        builder,
+        ctx,
+        crate::runtime::RuntimeOp::ArrayLength,
+        &[enumerated],
+    )?[0];
     super::binding::declare(builder, scope, ctx, length, bound)?;
 
     let test = Expr {
@@ -389,24 +398,11 @@ pub fn emit_for_each(
     // `WrongDomain` at emission, which refuses the whole program rather than
     // this loop. Rule 5 of this crate's README is the shape: what cannot be
     // proven becomes generic, visibly. Here that means keeping `ElementAt`.
-    // # This is never true today, and saying so is the point
-    //
-    // `bound` is what `property::emit_read` answered for `length`, and that is
-    // `emit::UNPROVEN` — `Repr::Tagged` — always and by construction. So the
-    // second conjunct cannot hold, no run is ever hoisted, `ElementsBase` is
-    // never called and `Inst::ElementLoad` is never emitted. Verified with
-    // `rts ir` over the twelve `bench/*.ts` and every `array_*`/`for_of*` test:
-    // **59 files, zero hoists**, 2026-08-23.
-    //
-    // The comment above describes what SHOULD refuse a hoist. What actually
-    // refuses every one of them is this, and a reader deserves to know which is
-    // which before spending a day on the instruction downstream.
-    //
-    // What it needs is a `length` this layer has proven. `Guard` narrowing the
-    // generic read to `F64` is rule 11's shape and the failure path keeps
-    // `ElementAt` — but that emits the loop body twice, and the throw check
-    // already accounts for ~32% of every instruction emitted, so the trade has
-    // to be measured before it is taken.
+    // `ArrayLength` answers the internal array's size as F64, so the existing
+    // proof is now reachable without narrowing a user-visible property read.
+    // The suspension check remains necessary: a resumable body cannot retain a
+    // raw Vec address across a park, and those loops keep the safe ElementAt
+    // path instead.
     let hoistable = !super::suspends::body_suspends(std::slice::from_ref(body))
         && builder.repr_of(bound) == rts_cranelift::repr::Repr::F64;
     let outer_run = match hoistable {

@@ -1042,8 +1042,34 @@ fn the_two_right_shifts_differ_in_what_they_do_with_the_sign() {
 }
 
 #[test]
+fn proven_unsigned_right_shift_stays_positive_after_machine_lowering() {
+    // Locals keep their numeric proof, so these operands reach the machine path
+    // rather than the constant folder or the generic runtime entry point.
+    assert_eq!(
+        tags::decode_double(run("let value = -1; let count = 0; return value >>> count;")),
+        4294967295.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let value = -8; let count = 1; return value >>> count;")),
+        2147483644.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let value = 1; let count = 32; return value >>> count;")),
+        1.0
+    );
+}
+
+#[test]
+fn unary_plus_skips_numeric_conversion_but_converts_generic_values() {
+    assert_eq!(tags::decode_double(run("let value = 3 | 0; return +value;")), 3.0);
+    assert_eq!(tags::decode_double(run("return +\"3\";")), 3.0);
+}
+
+#[test]
 fn a_bitwise_operator_converts_a_string_first() {
+
     // Which is what makes these entry points at all: `ToInt32` runs `ToNumber`,
+
     // and `ToNumber` of a string reads its text out of the heap.
     assert_eq!(tags::decode_double(run("return \"12\" & 10;")), 8.0);
 }
@@ -2531,6 +2557,16 @@ fn char_at_answers_the_empty_string_where_the_index_answers_undefined() {
 }
 
 #[test]
+fn char_code_at_keeps_utf16_units_and_nan_semantics() {
+    let produced = run(
+        "const s = new String('😀'); \
+         return (s.charCodeAt(0) === 55357 && s.charCodeAt(1) === 56832 && \
+                 'abc'.charCodeAt(9) !== 'abc'.charCodeAt(9)) ? 1 : 0;"
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
 fn a_program_can_add_a_method_to_every_string() {
     // `String.prototype.mine = f` is not special-cased anywhere: it is a
     // property write on the object strings inherit from, and the chain walk
@@ -3204,7 +3240,52 @@ fn a_method_taking_a_callback_calls_back_into_compiled_code() {
 }
 
 #[test]
+fn builtin_array_species_memoization_never_skips_user_getters() {
+    let observed = run(
+        "let calls = 0; \
+         let original = Array.prototype.constructor; \
+         let holder = {}; \
+         Object.defineProperty(holder, Symbol.species, { get: function () { calls++; return Array; } }); \
+         Array.prototype.constructor = holder; \
+         let first = [1, 2].map(function (x) { return x + 1; }); \
+         let custom = calls === 1 && first[1] === 3; \
+         Array.prototype.constructor = original; \
+         let second = [3].map(function (x) { return x + 1; }); \
+         let restored = second[0] === 4; \
+         let explicit = [5]; \
+         Object.setPrototypeOf(explicit, Array.prototype); \
+         let linked = explicit.map(function (x) { return x; })[0] === 5; \
+         return custom && restored && linked ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(observed), 1.0);
+}
+
+#[test]
+fn cached_store_mutation_cannot_stale_array_species() {
+    let observed = run(
+        "let calls = 0; \
+         let original = Array.prototype.constructor; \
+         let holder = {}; \
+         Object.defineProperty(holder, Symbol.species, { get: function () { calls++; return Array; } }); \
+         let warm = [1].map(function (x) { return x; }); \
+         let mode = 0; \
+         let result = 0; \
+         for (let i = 0; i < 3; i = i + 1) { \
+             Array.prototype.constructor = mode === 1 ? holder : original; \
+             if (mode === 1) { \
+                 let made = [2].map(function (x) { return x; }); \
+                 result = made[0]; \
+             } \
+             mode = mode + 1; \
+         } \
+         return warm[0] === 1 && result === 2 && calls === 1 ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(observed), 1.0);
+}
+
+#[test]
 fn the_predicates_answer_booleans_over_the_whole_array() {
+
     let some = run("let a = [1, 2]; return a.some(function (x) { return x > 1; });");
     assert_eq!(tags::payload_of(some), tags::BOOL_TRUE);
 
@@ -3678,6 +3759,24 @@ fn a_map_keeps_insertion_order_and_same_value_zero_keys() {
 
     // Object keys hash to one bucket and stay correct by identity.
     holds("let a = {}; let b = {}; let m = new Map(); m.set(a, 1); m.set(b, 2); return m.get(a) === 1 && m.get(b) === 2;");
+}
+
+#[test]
+fn string_keys_use_content_identity_in_map_and_set() {
+    holds(
+        "let m = new Map(); \
+         let first = \"ab\"; \
+         let second = (\"a\" + \"b\").slice(0, 2); \
+         m.set(first, 7); \
+         m.set(second, 9); \
+         return m.size === 1 && m.get(first) === 9 && m.get(second) === 9;",
+    );
+    holds(
+        "let s = new Set(); \
+         s.add(\"key\"); \
+         s.add(\"k\" + \"ey\"); \
+         return s.size === 1 && s.has(\"key\");",
+    );
 }
 
 #[test]

@@ -113,6 +113,10 @@ pub const CANNOT_RAISE: &[RuntimeOp] = &[
     // `array.rs:651` records that the bound is established before the address
     // is used.
     RuntimeOp::ElementsBase,
+    // `context.elements_at(cell).map_or(0.0, |elements| elements.len() as f64)`.
+    // `entry/array.rs`. Closed: it neither allocates nor calls user code; the
+    // caller establishes that the value is an internal enumeration array.
+    RuntimeOp::ArrayLength,
 ];
 
 /// The two operations that ARE the check, which are exempt for a different
@@ -176,7 +180,7 @@ mod tests {
         // fails here rather than silently in a program that catches nothing.
         assert_eq!(
             CANNOT_RAISE.len(),
-            9,
+            10,
             "CANNOT_RAISE changed — each entry must name the rts-core body it \
              was read against, and rts-host asserts the symbol still exists"
         );

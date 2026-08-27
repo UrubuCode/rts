@@ -38,35 +38,52 @@ pub(super) enum Node {
     Object(Vec<(Vec<u16>, Node)>),
 }
 
+use crate::text::Str;
+
 /// The whole document, or `None` for anything that is not one.
 ///
 /// One answer for every failure, deliberately: a `SyntaxError` carries a
 /// position and a reason, and there is nothing here that can throw one — see
 /// the module documentation in the parent. Inventing a richer failure type that
 /// only ever collapses to `undefined` would be detail nothing reads.
-pub(super) fn parse_units(units: &[u16]) -> Option<Node> {
-    let mut reader = Reader { units, at: 0 };
+/// Parses directly over a runtime string without copying the complete input.
+pub(super) fn parse_text(text: &Str) -> Option<Node> {
+    let mut reader = Reader { text, at: 0 };
     reader.spaces();
     let node = reader.value(0)?;
     reader.spaces();
     // Trailing content is a failure rather than a stop: `JSON.parse("1 2")`
     // must not answer 1, because a caller that got 1 has no way to learn the
     // rest of its input was discarded.
-    match reader.at == units.len() {
+    match reader.at == reader.len() {
         true => Some(node),
         false => None,
     }
 }
 
-/// A cursor over the text.
+/// A cursor over borrowed runtime text.
 struct Reader<'a> {
-    units: &'a [u16],
+    text: &'a Str,
     at: usize,
 }
 
 impl Reader<'_> {
+    fn len(&self) -> usize {
+        self.text.len()
+    }
+
+    fn unit_at(&self, index: usize) -> Option<u16> {
+        self.text.unit_at(index)
+    }
+
     fn peek(&self) -> Option<u16> {
-        self.units.get(self.at).copied()
+        self.unit_at(self.at)
+    }
+
+    /// Borrows an ASCII number from a narrow runtime string when possible.
+    fn ascii_slice(&self, start: usize, end: usize) -> Option<&str> {
+        let bytes = self.text.narrow()?.get(start..end)?;
+        std::str::from_utf8(bytes).ok()
     }
 
     /// Whether the next unit is this ASCII character, consuming it if so.
@@ -245,12 +262,17 @@ impl Reader<'_> {
             self.digits();
         }
         // Every unit in the range is an ASCII character the scan above admitted,
-        // so this cannot lose anything.
-        let text: String = self.units[start..self.at]
-            .iter()
-            .map(|unit| *unit as u8 as char)
-            .collect();
-        text.parse().ok().map(Node::Number)
+        // so this cannot lose anything. Narrow runtime strings can parse directly
+        // from their borrowed byte slice; wide strings retain the allocation only
+        // for the representation conversion required by `f64::from_str`.
+        if let Some(text) = self.ascii_slice(start, self.at) {
+            return parse_number_text(text).map(Node::Number);
+        }
+        let mut text = String::with_capacity(self.at - start);
+        for index in start..self.at {
+            text.push(self.unit_at(index)? as u8 as char);
+        }
+        parse_number_text(&text).map(Node::Number)
     }
 
     /// The next unit as an ASCII digit, without consuming it.
@@ -265,6 +287,27 @@ impl Reader<'_> {
             self.at += 1;
         }
     }
+}
+
+/// Parses an already grammar-checked JSON number.
+fn parse_number_text(text: &str) -> Option<f64> {
+    // Preserve the sign of JSON's `-0`; integer parsing alone would erase it.
+    if text == "-0" {
+        return Some(-0.0);
+    }
+    // An integer within either signed or unsigned 64-bit range can be converted
+    // directly to the same IEEE-754 value as the standard parser, without its
+    // decimal scanner. Larger integers and all fractions/exponents keep the
+    // standards-compliant fallback.
+    if !text.as_bytes().iter().any(|unit| matches!(unit, b'.' | b'e' | b'E')) {
+        if let Ok(integer) = text.parse::<u64>() {
+            return Some(integer as f64);
+        }
+        if let Ok(integer) = text.parse::<i64>() {
+            return Some(integer as f64);
+        }
+    }
+    text.parse().ok()
 }
 
 /// The value of one hexadecimal digit.

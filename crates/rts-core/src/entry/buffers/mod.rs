@@ -219,17 +219,27 @@ pub(in crate::entry) fn new_buffer(context: &mut Context, length: usize) -> Opti
     // Registering is still what happens when it is genuinely absent, and that
     // is not a nicety: `new Uint8Array(8)` in a program that never wrote the
     // word `ArrayBuffer` has to work.
-    let prototype = match super::class_support::prototype(context, "ArrayBuffer") {
-        Some(found) => Some(found),
-        None => {
-            register_array_buffer(context);
-            super::class_support::prototype(context, "ArrayBuffer")
-        }
+    let prototype = match context.array_buffer_prototype {
+        Some(cell) => Some(Value::from_slot(cell).bits()),
+        None => match super::class_support::prototype(context, "ArrayBuffer") {
+            Some(found) => {
+                context.array_buffer_prototype = Value(found).as_slot();
+                Some(found)
+            }
+            None => {
+                register_array_buffer(context);
+                let found = super::class_support::prototype(context, "ArrayBuffer");
+                if let Some(prototype) = found {
+                    context.array_buffer_prototype = Value(prototype).as_slot();
+                }
+                found
+            }
+        },
     };
     if let Some(prototype) = prototype {
         context.set_prototype(cell, prototype);
     }
-    install_bytes(context, cell, length);
+    install_internal_bytes(context, cell, length);
     Some(cell)
 }
 
@@ -248,6 +258,63 @@ pub(in crate::entry) fn install_bytes(context: &mut Context, cell: u32, length: 
     // bug would be invisible in the `if` every caller writes and visible only in
     // the `===` a test writes.
     flag(context, cell, "detached", false);
+}
+
+/// The internal backing buffer of a typed array, with its fixed metadata layout.
+///
+/// `new_buffer` always creates a fresh plain cell and gives it the registered
+/// `ArrayBuffer` prototype before reaching here. Build the two real properties
+/// in one shape walk and one type write instead of routing through `put` twice;
+/// public `new ArrayBuffer` instances retain `install_bytes`, whose generic path
+/// must tolerate subclass layouts and pre-existing properties.
+fn install_internal_bytes(context: &mut Context, cell: u32, length: usize) {
+    let store = context.buffers.insert(vec![0u8; length]).slot();
+    context.mark_buffer(cell, store);
+    let properties = [
+        (
+            context.well_known("byteLength"),
+            Value::from_f64(length as f64).bits(),
+        ),
+        (context.well_known("detached"), Value::from_bool(false).bits()),
+    ];
+    if install_metadata(context, cell, &properties) {
+        return;
+    }
+    stamp(context, cell, "byteLength", length as f64);
+    flag(context, cell, "detached", false);
+}
+
+/// Materialize fixed metadata on a fresh root-shaped cell.
+fn install_metadata(
+    context: &mut Context,
+    cell: u32,
+    properties: &[(crate::object::Key, u64)],
+) -> bool {
+    let mut shape = context.shapes.root();
+    let mut slots = [0u32; 4];
+    for (index, (key, _)) in properties.iter().enumerate() {
+        let crate::object::Key::Name(machine) = key else {
+            return false;
+        };
+        let Ok(grown) = context
+            .shapes
+            .transition(shape, *machine, rts_cranelift::repr::Repr::Tagged)
+        else {
+            return false;
+        };
+        let Some(at) = context.shapes.slot_of(grown, *machine) else {
+            return false;
+        };
+        slots[index] = at;
+        shape = grown;
+    }
+    let link = context.prototype_at(cell);
+    let ty = context.typed_as(shape, link).index() as u32;
+    context.region.set_type(cell, ty);
+    for (index, (_, value)) in properties.iter().enumerate() {
+        super::objects::set_slot_value(context, cell, slots[index], *value);
+    }
+    true
 }
 
 /// One boolean property, by name.

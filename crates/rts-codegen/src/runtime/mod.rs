@@ -356,6 +356,13 @@ pub enum RuntimeOp {
     /// reads — so the run cannot move while the address is held.
     ElementsBase,
 
+    /// The length of an array returned by compiler-owned enumeration.
+    ///
+    /// This is not a general JavaScript `length` read. `foreach.rs` applies it
+    /// only to arrays produced by `Iterate` or `EnumerateKeys`, so the runtime can
+    /// return an unboxed double and the machine can hoist the element run.
+    ArrayLength,
+
     /// Where this thread's throw flag lives, as a machine address.
     ///
     /// # Why the address and not the answer
@@ -931,6 +938,7 @@ impl RuntimeOp {
         RuntimeOp::Thrown,
         RuntimeOp::ElementAt,
         RuntimeOp::ElementsBase,
+        RuntimeOp::ArrayLength,
         RuntimeOp::ThrownAddress,
         RuntimeOp::TakeThrown,
         RuntimeOp::RunningFunction,
@@ -1035,6 +1043,7 @@ impl RuntimeOp {
             RuntimeOp::ThrownAddress => "__rts_thrown_address",
             RuntimeOp::ElementAt => "__rts_element_at",
             RuntimeOp::ElementsBase => "__rts_elements_base",
+            RuntimeOp::ArrayLength => "__rts_array_length",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::RunningFunction => "__rts_running_function",
             RuntimeOp::EvalDirect => "__rts_eval_direct",
@@ -1187,6 +1196,7 @@ impl RuntimeOp {
             RuntimeOp::ThrownAddress => (vec![], vec![Repr::I64]),
             RuntimeOp::ElementAt => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::ElementsBase => (vec![UNPROVEN], vec![Repr::I64]),
+            RuntimeOp::ArrayLength => (vec![UNPROVEN], vec![Repr::F64]),
             RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),
             RuntimeOp::RunningFunction => (vec![], vec![UNPROVEN]),
             // The source and the environment, both ordinary values — the second

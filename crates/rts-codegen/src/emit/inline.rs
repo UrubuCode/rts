@@ -51,6 +51,8 @@ pub(super) struct Inlinable {
     pub parameters: Vec<Name>,
     /// The single expression it answers.
     pub body: Expr,
+    /// A zero-fixed-parameter rest function whose body is exactly `rest.length`.
+    pub rest_length: Option<Name>,
 }
 
 /// Every function in `body` a call site may substitute, by the name it is
@@ -63,13 +65,14 @@ pub(super) fn candidates(
     body: &[Stmt],
     eval: Name,
     global_this: Name,
+    length: Name,
 ) -> BTreeMap<Name, Rc<Inlinable>> {
     let mut found = BTreeMap::new();
     for statement in body {
         let Some((name, function)) = declared_function(statement) else {
             continue;
         };
-        let Some(candidate) = shape_of(function) else {
+        let Some(candidate) = shape_of(function, length) else {
             continue;
         };
         // The three whole-program questions, asked only for a name that got
@@ -117,6 +120,22 @@ pub(super) fn emit_substituted(
     let Some(candidate) = ctx.inlinable(*name) else {
         return Ok(None);
     };
+    if candidate.rest_length.is_some() {
+        // A spread has a runtime-dependent count, so it cannot use the exact
+        // written-argument proof. Still emit every non-spread argument in source
+        // order so side effects happen before the constant result.
+        if arguments.iter().any(|argument| matches!(argument, Spreadable::Spread(_))) {
+            return Ok(None);
+        }
+        for argument in arguments {
+            let Spreadable::Single(value) = argument else {
+                unreachable!("spread was rejected above")
+            };
+            super::expr::emit_expr(builder, scope, ctx, value)?;
+        }
+        let count = super::expr::number_constant(builder, arguments.len() as f64);
+        return Ok(Some(super::expr::tagged(builder, count)));
+    }
     if arguments.len() != candidate.parameters.len() {
         return Ok(None);
     }
@@ -180,8 +199,38 @@ fn declared_function(statement: &Stmt) -> Option<(Name, &Function)> {
 }
 
 /// What a function has to be for its body to stand in for a call to it.
-fn shape_of(function: &Function) -> Option<Inlinable> {
-    if function.is_async || function.is_generator || !function.has_simple_parameter_list() {
+fn shape_of(function: &Function, length: Name) -> Option<Inlinable> {
+    if function.is_async || function.is_generator {
+        return None;
+    }
+    let answered = returned_expression(function)?;
+    // The only supported non-simple list is a named rest with no fixed
+    // parameters and a body that returns its own `length`. The exact member
+    // proof means no array method, prototype lookup or user code is skipped.
+    if let Some(rest) = &function.rest_parameter {
+        let Pattern::Name(rest) = rest else {
+            return None;
+        };
+        if !function.parameters.is_empty()
+            || !matches!(
+                &answered.kind,
+                ExprKind::Member {
+                    object,
+                    property,
+                    optional: false,
+                } if matches!(&object.kind, ExprKind::Ident(name) if *name == *rest)
+                    && *property == length
+            )
+        {
+            return None;
+        }
+        return Some(Inlinable {
+            parameters: Vec::new(),
+            body: answered.clone(),
+            rest_length: Some(*rest),
+        });
+    }
+    if !function.has_simple_parameter_list() {
         return None;
     }
     let mut parameters = Vec::with_capacity(function.parameters.len());
@@ -191,26 +240,28 @@ fn shape_of(function: &Function) -> Option<Inlinable> {
             _ => return None,
         }
     }
-    // A body is one expression, however it was spelled: `x => x + 1` and
-    // `function (x) { return x + 1 }` are the same function and a rule that
-    // took only one of them would be a rule about syntax.
-    let answered = match &function.body {
-        FunctionBody::Expression(expr) => expr,
-        FunctionBody::Block(statements) => match &statements[..] {
-            [Stmt {
-                kind: StmtKind::Return(Some(expr)),
-                ..
-            }] => expr,
-            _ => return None,
-        },
-    };
     if !closed_over_parameters(answered, &parameters) {
         return None;
     }
     Some(Inlinable {
         parameters,
         body: answered.clone(),
+        rest_length: None,
     })
+}
+
+/// The one expression a candidate returns, regardless of concise or block syntax.
+fn returned_expression(function: &Function) -> Option<&Expr> {
+    match &function.body {
+        FunctionBody::Expression(expr) => Some(expr),
+        FunctionBody::Block(statements) => match &statements[..] {
+            [Stmt {
+                kind: StmtKind::Return(Some(expr)),
+                ..
+            }] => Some(expr),
+            _ => None,
+        },
+    }
 }
 
 /// Whether every identifier the body reads is one of its own parameters, and

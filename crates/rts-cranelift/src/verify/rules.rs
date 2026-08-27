@@ -756,7 +756,7 @@ pub(super) fn check_instructions(
                     }
                 }
 
-                Inst::ToF64(value) => {
+                Inst::ToF64(value) | Inst::ToF64Unsigned(value) => {
                     if func.repr_of(*value) != Repr::I32 {
                         errors.push(VerifyError::WrongDomain {
                             inst: inst_id,

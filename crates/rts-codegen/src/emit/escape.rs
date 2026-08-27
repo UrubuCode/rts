@@ -141,6 +141,8 @@ pub(super) const MARKER: &str = "__rts_flat.";
 pub(super) struct Flattened {
     /// Each replaceable local, with its literal's keys in source order.
     objects: HashMap<Name, Vec<Name>>,
+    /// Each replaceable local array, with its fixed element count.
+    arrays: HashMap<Name, usize>,
 }
 
 impl Flattened {
@@ -155,12 +157,26 @@ impl Flattened {
             .get(&object)
             .is_some_and(|keys| keys.contains(&property))
     }
+
+    /// The fixed length of a replaceable array, or `None` for an ordinary local.
+    pub(super) fn array_length(&self, array: Name) -> Option<usize> {
+        self.arrays.get(&array).copied()
+    }
+
 }
 
 /// One local that might be replaceable, before the escape scan has run.
 struct Candidate {
     /// Its literal's keys, in source order.
     keys: Vec<Name>,
+    /// How many value-carrying regions enclose its declaration.
+    depth: u32,
+}
+
+/// One small array that may be scalar-replaced by indexed bindings.
+struct ArrayCandidate {
+    /// Its fixed, hole-free element count.
+    length: usize,
     /// How many value-carrying regions enclose its declaration.
     depth: u32,
 }
@@ -183,6 +199,8 @@ pub(super) fn analyse(
 
     let mut escaping = Escaping {
         candidates: &collected.candidates,
+        arrays: &collected.arrays,
+        additions: HashMap::new(),
         escaped: HashSet::new(),
         why: HashMap::new(),
         everything: false,
@@ -230,13 +248,38 @@ pub(super) fn analyse(
         } else if collected.introductions.get(name) != Some(&1) {
             4
         } else {
-            objects.insert(*name, candidate.keys.clone());
+            let mut keys = candidate.keys.clone();
+            if let Some(added) = escaping.additions.get(name) {
+                keys.extend(added.iter().copied());
+            }
+            objects.insert(*name, keys);
             continue;
         };
         refused[reason] += 1;
     }
-    report(collected.candidates.len(), objects.len(), refused, &escaping.why);
-    Flattened { objects }
+    let mut arrays: HashMap<Name, usize> = HashMap::new();
+    for (name, candidate) in &collected.arrays {
+        let reason = if escaping.escaped.contains(name) {
+            1
+        } else if captured.contains(name) {
+            2
+        } else if parameters.contains(name) {
+            3
+        } else if collected.introductions.get(name) != Some(&1) {
+            4
+        } else {
+            arrays.insert(*name, candidate.length);
+            continue;
+        };
+        refused[reason] += 1;
+    }
+    report(
+        collected.candidates.len() + collected.arrays.len(),
+        objects.len() + arrays.len(),
+        refused,
+        &escaping.why,
+    );
+    Flattened { objects, arrays }
 }
 
 /// What `RTS_ESCAPE_STATS` prints: how many object literals this body could
@@ -272,8 +315,10 @@ fn report(
 /// What the first pass finds.
 #[derive(Default)]
 struct Collected {
-    /// Locals declared as a replaceable-looking literal.
+    /// Locals declared as a replaceable-looking object literal.
     candidates: HashMap<Name, Candidate>,
+    /// Locals declared as a replaceable-looking small array literal.
+    arrays: HashMap<Name, ArrayCandidate>,
     /// How many bindings introduce each spelling, in any form.
     introductions: HashMap<Name, usize>,
 }
@@ -333,13 +378,21 @@ fn collect(statement: &Stmt, depth: u32, into: &mut Collected) {
             let Some(value) = &binding.value else {
                 continue;
             };
-            let ExprKind::Object { properties } = &value.kind else {
-                continue;
-            };
-            let Some(keys) = flattenable(properties) else {
-                continue;
-            };
-            into.candidates.insert(*name, Candidate { keys, depth });
+            match &value.kind {
+                ExprKind::Object { properties } => {
+                    let Some(keys) = flattenable(properties) else {
+                        continue;
+                    };
+                    into.candidates.insert(*name, Candidate { keys, depth });
+                }
+                ExprKind::Array { elements } => {
+                    let Some(length) = array_flattenable(elements) else {
+                        continue;
+                    };
+                    into.arrays.insert(*name, ArrayCandidate { length, depth });
+                }
+                _ => continue,
+            }
         }
     }
 
@@ -443,10 +496,37 @@ fn flattenable(properties: &[Property]) -> Option<Vec<Name>> {
     Some(keys)
 }
 
+/// Whether an array literal has a fixed, hole-free shape suitable for scalar use.
+fn array_flattenable(elements: &[Option<Spreadable>]) -> Option<usize> {
+    if elements.len() > 4 || elements.iter().any(Option::is_none) {
+        return None;
+    }
+    if elements.iter().flatten().any(|element| matches!(element, Spreadable::Spread(_))) {
+        return None;
+    }
+    Some(elements.len())
+}
+
+/// A literal array index that is exact in the JavaScript element domain.
+fn literal_index(expr: &Expr) -> Option<usize> {
+    let ExprKind::Literal(crate::syntax::Literal::Number(number)) = expr.kind else {
+        return None;
+    };
+    if !number.is_finite() || number < 0.0 || number.fract() != 0.0 {
+        return None;
+    }
+    let index = number as usize;
+    (index as f64 == number).then_some(index)
+}
+
 /// What the escape scan is accumulating.
 struct Escaping<'a> {
-    /// What might still be replaceable.
+    /// What might still be replaceable as objects.
     candidates: &'a HashMap<Name, Candidate>,
+    /// What might still be replaceable as small arrays.
+    arrays: &'a HashMap<Name, ArrayCandidate>,
+    /// Named properties added by direct writes after an object literal.
+    additions: HashMap<Name, Vec<Name>>,
     /// What is not.
     escaped: HashSet<Name>,
     /// Whether a node the shared walker does not descend into was reached, in
@@ -529,20 +609,51 @@ impl Escaping<'_> {
             self.kill(object, "read inside its own initialiser");
             return;
         }
+        if self.arrays.contains_key(&object) {
+            self.kill(object, "a property access on an array");
+            return;
+        }
         let Some(candidate) = self.candidates.get(&object) else {
             // Not a candidate, so `o.k` on it is an ordinary property access and
             // there is nothing to decide.
             return;
         };
-        let known = candidate.keys.contains(&property);
+        let added = self
+            .additions
+            .get(&object)
+            .is_some_and(|keys| keys.contains(&property));
+        let known = candidate.keys.contains(&property) || added;
         let declared_at = candidate.depth;
-        // A key the literal did not write is not a key this analysis knows: it
-        // would be read from the prototype chain, or answer `undefined`, and a
-        // binding is neither.
-        if !known {
+        // A new named property written in the same value-carrying region can be
+        // represented by an initially-undefined scalar. Reads before the write
+        // therefore keep the correct `undefined` result, while `in`, enumeration,
+        // dynamic keys and calls still take the conservative escape path.
+        if !known && is_write && depth <= declared_at {
+            let keys = self.additions.entry(object).or_default();
+            if !keys.contains(&property) {
+                keys.push(property);
+            }
+        } else if !known {
             self.kill(object, "a key the literal did not write");
         } else if is_write && depth > declared_at {
             self.kill(object, "written from an inner scope");
+        }
+    }
+
+    /// Records a read of a fixed array element. Dynamic keys, out-of-range keys
+    /// and writes remain ordinary array semantics and therefore refuse flattening.
+    fn note_array_use(&mut self, array: Name, index: usize, depth: u32) {
+        if self.declaring == Some(array) {
+            self.kill(array, "read inside its own initialiser");
+            return;
+        }
+        let Some(candidate) = self.arrays.get(&array) else {
+            return;
+        };
+        if index >= candidate.length {
+            self.kill(array, "an index the literal did not write");
+        } else if depth > candidate.depth {
+            self.kill(array, "read from an inner scope");
         }
     }
 }
@@ -599,7 +710,7 @@ fn scan_stmt(statement: &Stmt, depth: u32, state: &mut Escaping) {
 /// the candidate.
 fn scan_expr(expr: &Expr, depth: u32, state: &mut Escaping, allow_member: bool) {
     match &expr.kind {
-        // ALLOWED: a read of a key the literal wrote.
+        // ALLOWED: a read of a key the object literal wrote.
         ExprKind::Member {
             object,
             property,
@@ -607,6 +718,21 @@ fn scan_expr(expr: &Expr, depth: u32, state: &mut Escaping, allow_member: bool) 
         } if allow_member => {
             if let ExprKind::Ident(name) = &object.kind {
                 state.note_use(*name, *property, depth, false);
+                return;
+            }
+        }
+        // A small array's scalar replacement is safe only for a literal numeric
+        // index. The index expression itself is not emitted here; it is known to
+        // have no observable work because `literal_index` accepts numbers only.
+        ExprKind::Index {
+            object,
+            index,
+            optional: false,
+        } if allow_member => {
+            if let ExprKind::Ident(name) = &object.kind
+                && let Some(index) = literal_index(index)
+            {
+                state.note_array_use(*name, index, depth);
                 return;
             }
         }
@@ -802,6 +928,12 @@ pub(super) fn field_name(ctx: &mut Ctx, object: Name, property: Name) -> Name {
     ctx.names.intern(&text)
 }
 
+/// The binding name for one scalar-replaced array element.
+pub(super) fn array_field_name(ctx: &mut Ctx, array: Name, index: usize) -> Name {
+    let text = format!("{MARKER}{}[{index}]", ctx.names.text(array));
+    ctx.names.intern(&text)
+}
+
 /// The binding a property access reads, when the access is one that was
 /// replaced.
 ///
@@ -827,6 +959,24 @@ pub(super) fn field_of(
     Some(field_name(ctx, *name, property))
 }
 
+/// The binding behind a proven literal index of a scalar-replaced array.
+pub(super) fn array_field_of(
+    ctx: &mut Ctx,
+    object: &Expr,
+    index: &Expr,
+    optional: bool,
+) -> Option<Name> {
+    if optional {
+        return None;
+    }
+    let ExprKind::Ident(array) = &object.kind else {
+        return None;
+    };
+    let index = literal_index(index)?;
+    let length = ctx.flattened.array_length(*array)?;
+    (index < length).then(|| array_field_name(ctx, *array, index))
+}
+
 /// Emits a replaced declaration, or answers that this one is not replaced.
 ///
 /// The property values are emitted **in source order**, which is the whole of
@@ -839,6 +989,27 @@ pub(super) fn declare_flattened(
     object: Name,
     value: Option<&Expr>,
 ) -> EmitResult<bool> {
+    if let Some(length) = ctx.flattened.array_length(object) {
+        let Some(Expr {
+            kind: ExprKind::Array { elements },
+            ..
+        }) = value
+        else {
+            return Ok(false);
+        };
+        if elements.len() != length {
+            return Ok(false);
+        }
+        for (index, element) in elements.iter().enumerate() {
+            let Some(Spreadable::Single(written)) = element else {
+                return Ok(false);
+            };
+            let produced = super::expr::emit_expr(builder, scope, ctx, written)?;
+            let field = array_field_name(ctx, object, index);
+            super::binding::declare(builder, scope, ctx, field, produced)?;
+        }
+        return Ok(true);
+    }
     if ctx.flattened.properties(object).is_none() {
         return Ok(false);
     }
@@ -869,6 +1040,30 @@ pub(super) fn declare_flattened(
     for (property, written) in fields {
         let produced = super::expr::emit_expr(builder, scope, ctx, written)?;
         let field = field_name(ctx, object, property);
+        super::binding::declare(builder, scope, ctx, field, produced)?;
+    }
+    // Properties first written after the literal did not have an initializer
+    // expression to emit here. They still need a scalar binding so a later read
+    // before assignment answers `undefined`, exactly as the object would.
+    let all_keys = ctx
+        .flattened
+        .properties(object)
+        .expect("object flattening was checked above")
+        .to_vec();
+    for property in all_keys {
+        if properties.iter().any(|written| {
+            matches!(
+                written,
+                Property::Value {
+                    key: PropertyKey::Named(name),
+                    ..
+                } if *name == property
+            )
+        }) {
+            continue;
+        }
+        let field = field_name(ctx, object, property);
+        let produced = super::expr::undefined(builder, ctx);
         super::binding::declare(builder, scope, ctx, field, produced)?;
     }
     Ok(true)
@@ -915,6 +1110,53 @@ mod tests {
             .collect();
         found.sort();
         found
+    }
+
+    fn array_length(source: &str) -> Option<usize> {
+        let mut names = Names::default();
+        let program =
+            parse_script(&format!("function t() {{ {source} }}"), &mut names).expect("parses");
+        let [ModuleItem::Stmt(statement)] = program.body.as_slice() else {
+            panic!("one statement");
+        };
+        let StmtKind::Function(function) = &statement.kind else {
+            panic!("a function");
+        };
+        let FunctionBody::Block(body) = &function.body else {
+            panic!("a block");
+        };
+        let captured = super::super::capture::captured(body, &[]);
+        let decided = analyse(body, &[], &captured);
+        decided.array_length(names.intern("xs"))
+    }
+
+    #[test]
+    fn a_small_array_read_at_a_literal_index_can_be_scalar_replaced() {
+        assert_eq!(
+            array_length("let xs = [1, 2, 3, 4]; return xs[0] + xs[3];"),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn an_array_with_a_dynamic_index_or_escape_stays_an_array() {
+        assert_eq!(array_length("let xs = [1, 2]; let i = 0; return xs[i];"), None);
+        assert_eq!(array_length("let xs = [1, , 2]; return xs[0];"), None);
+        assert_eq!(array_length("let xs = [1, 2]; return xs;"), None);
+    }
+
+    #[test]
+    fn a_direct_property_added_after_the_literal_can_be_scalar_replaced() {
+        assert_eq!(
+            replaced("let o = {x: 1}; o.y = 2; return o.y;"),
+            ["o"]
+        );
+    }
+
+    #[test]
+    fn reading_an_added_property_before_its_write_stays_conservative() {
+        assert!(replaced("let o = {x: 1}; let before = o.y; o.y = 2; return before;").is_empty());
+        assert!(replaced("let o = {x: 1}; while (true) { o.y = 2; break; } return o.y;").is_empty());
     }
 
     #[test]

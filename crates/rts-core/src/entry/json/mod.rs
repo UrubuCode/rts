@@ -132,13 +132,27 @@ impl Json {
         // `ToString` of the argument first, which is what the specification
         // says — `JSON.parse(5)` parses `"5"` and answers 5, and refusing a
         // non-string would refuse a call the language defines.
-        let units = with_current(|context| {
-            super::text::to_text(context, Value(text)).map(|text| text.units().collect::<Vec<u16>>())
+        // Parse an existing string through a borrow of its heap text. The old
+        // path cloned the complete input `Str` before the parser copied the
+        // string tokens it actually needed into `Node`; numbers and other
+        // primitive inputs still use the ordinary ToString conversion.
+        let parsed = with_current(|context| {
+            if let Some(existing) = Value(text)
+                .as_slot()
+                .and_then(|cell| context.text_at(cell))
+            {
+                return Ok(read::parse_text(existing));
+            }
+            let Some(converted) = super::text::to_text(context, Value(text)) else {
+                return Err(());
+            };
+            Ok(read::parse_text(&converted))
         });
-        let Some(units) = units else {
-            return with_current(|context| undefined_of(context));
+        let parsed = match parsed {
+            Ok(parsed) => parsed,
+            Err(()) => return with_current(|context| undefined_of(context)),
         };
-        match read::parse_units(&units) {
+        match parsed {
             Some(node) => {
                 let value = materialise(&node);
                 match with_current(|context| super::modules::is_callable_in(context, reviver)) {
@@ -186,45 +200,30 @@ fn materialise(node: &read::Node) -> u64 {
             // recursive and every branch of it ALLOCATES, so the children built
             // so far are exposed between the steps of the loop that makes them
             // — named only by a `Vec` on the Rust heap, which no scan of ours
-            // reaches. `array_new` below is a second exposure of the same list.
-            // See `super::rooted`.
+            // reaches. See `super::rooted`.
             let mut built = super::rooted::Rooted::new();
             for item in items {
                 let value = materialise(item);
                 built.values().push(value);
             }
-            let array = super::array::array_new(built.len() as i64);
-            let built = built.take();
-            with_current(|context| {
-                if let Some(cell) = Value(array).as_slot()
-                    && let Some(elements) = context.elements_at_mut(cell)
-                {
-                    *elements = built;
-                }
-                array
-            })
+            // Allocate the array while the child values remain registered;
+            // only then transfer them into the array side table.
+            with_current(|context| super::array::built_in_rooted(context, built))
         }
         Node::Object(members) => {
-            // The same, with the keys kept beside the guard: `Rooted` holds
-            // values, and a `Str` is not one — it is text this function has not
-            // interned yet, on the Rust heap where nothing can collect it.
+            // The same, with keys kept beside the guard: `Rooted` holds values,
+            // and a `Str` is not one — it is text this function has not interned
+            // yet, on the Rust heap where nothing can collect it.
             let mut values = super::rooted::Rooted::new();
-            let mut keys: Vec<Str> = Vec::with_capacity(members.len());
+            let mut built: Vec<(Str, u64)> = Vec::with_capacity(members.len());
             for (key, value) in members {
                 let made = materialise(value);
                 values.values().push(made);
-                keys.push(Str::from_utf16(key));
+                built.push((Str::from_utf16(key), made));
             }
-            // The guard stays ALIVE past this line, and `built` carries a copy
-            // of the same words rather than taking them: everything below —
-            // `native::plain`, and `objects::put` on the fallback path —
-            // allocates, so the values have to remain registered until they are
-            // written into the cell. Eight bytes a member to keep the existing
-            // shape-building code untouched.
-            let built: Vec<(Str, u64)> = keys
-                .into_iter()
-                .zip(values.as_slice().iter().copied())
-                .collect();
+            // The guard stays ALIVE past this line: `native::plain`, interning
+            // keys and every shape transition below may allocate, so the values
+            // remain registered until they land in the new object.
             let made = with_current(|context| {
                 let Some(cell) = super::native::plain(context) else {
                     return undefined_of(context);

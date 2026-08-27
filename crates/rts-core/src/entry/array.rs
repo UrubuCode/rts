@@ -113,16 +113,36 @@ pub(in crate::entry) fn visible(context: &Context, held: u64) -> u64 {
 pub(in crate::entry) fn built_in(context: &mut Context, elements: Vec<u64>) -> u64 {
     let count = elements.len();
     let store = context.arrays.insert(elements).slot();
+    let cell = allocate_array_cell(context);
+    context.mark_array(cell, store);
+    set_length(context, cell, count);
+    Value::from_slot(cell).bits()
+}
 
+/// Builds an array from a list that is still registered with the collector.
+///
+/// The cell is allocated FIRST, while `values` remains a [`Rooted`] list. The
+/// subsequent `take`/insert/mark sequence performs no runtime allocation: the
+/// values become reachable through `array_elements` before the guard is dropped.
+/// This is the safe transfer for recursive materialisers such as JSON.parse.
+pub(in crate::entry) fn built_in_rooted(
+    context: &mut Context,
+    values: super::rooted::Rooted,
+) -> u64 {
+    let count = values.len();
+    let cell = allocate_array_cell(context);
+    let store = context.arrays.insert(values.take()).slot();
+    context.mark_array(cell, store);
+    set_length(context, cell, count);
+    Value::from_slot(cell).bits()
+}
+
+/// Allocates the array object at the shared cached layout.
+fn allocate_array_cell(context: &mut Context) -> u32 {
     // Born at the layout an array ARRIVES at, rather than at the empty one and
     // then transitioning. Every array reaches the same shape — one property,
     // `length` — so the transition computed the same answer every time: a
     // shape lookup, a `transition`, a `typed_as` and a re-type, per array.
-    //
-    // Measured as the residue of the rest-parameter work: a call with a rest
-    // parameter cost 430 ns with ZERO arguments against 40 for fixed ones, and
-    // removing two of the three crossings only took it to 395. What was left
-    // was here.
     //
     // Remembered on the context rather than recomputed, and it cannot go
     // stale: it is the layout of one shape, and a shape is immutable once
@@ -140,10 +160,7 @@ pub(in crate::entry) fn built_in(context: &mut Context, elements: Vec<u64>) -> u
                     // panicking keeps a malformed key registry slow instead of
                     // fatal.
                     let ty = context.layout_of(root).index() as u32;
-                    let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
-                    context.mark_array(cell, store);
-                    set_length(context, cell, count);
-                    return Value::from_slot(cell).bits();
+                    return super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
                 }
             };
             let Ok(grown) = context
@@ -151,20 +168,14 @@ pub(in crate::entry) fn built_in(context: &mut Context, elements: Vec<u64>) -> u
                 .transition(root, key, rts_cranelift::repr::Repr::F64)
             else {
                 let ty = context.layout_of(root).index() as u32;
-                let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
-                context.mark_array(cell, store);
-                set_length(context, cell, count);
-                return Value::from_slot(cell).bits();
+                return super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
             };
             let ty = context.layout_of(grown).index() as u32;
             context.array_layout = Some(ty);
             ty
         }
     };
-    let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
-    context.mark_array(cell, store);
-    set_length(context, cell, count);
-    Value::from_slot(cell).bits()
+    super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty)
 }
 
 impl Context {
@@ -442,12 +453,15 @@ pub(in crate::entry) fn key_list(
             // saem também `for-in`, `Object.values/entries`, `Object.assign`,
             // `structuredClone` e o `JSON.stringify` de objeto — todos corretos
             // por causa deste `continue`.
-            let ausentes: Vec<bool> = elements.iter().map(|&h| is_hole(context, h)).collect();
-            for (index, vazio) in ausentes.iter().enumerate() {
-                if *vazio {
-                    continue;
+            //
+            // Filter in place. Building `ausentes` first used a second heap
+            // allocation and a second full pass over the element store even
+            // though the result only needs the non-hole indices.
+            keys.reserve(elements.len());
+            for (index, &held) in elements.iter().enumerate() {
+                if !is_hole(context, held) {
+                    keys.push(crate::object::Key::Index(index as u32));
                 }
-                keys.push(crate::object::Key::Index(index as u32));
             }
         }
         let Some(ty) = context.region.type_of(slot) else {
@@ -689,17 +703,12 @@ pub fn element_at(array: u64, index: u64) -> u64 {
 /// must not walk its own additions — and that same copy is what makes the
 /// address stable.
 ///
-/// # That caller does not fire, and this says so rather than implying otherwise
+/// # The bound is established beside the address
 ///
-/// `foreach.rs` hoists only when the loop's bound is a proven double, and the
-/// bound is a property read, which that layer always answers generically. The
-/// condition is unsatisfiable by construction, so this is never called and
-/// `Inst::ElementLoad` is never emitted — `rts ir` over 59 files (the benches
-/// and every `array_*`/`for_of*` test), 2026-08-23: **zero**.
-///
-/// Not a producer-less structure, which rule 9 would forbid: the producer is
-/// written and refused by one predicate. It needs a PROVEN `length`, and until
-/// then every `for-of` pays [`element_at`] per element.
+/// `foreach.rs` asks the internal array's length through `ArrayLength`, which
+/// returns F64 rather than a user-visible property value. That makes the
+/// existing `ElementLoad` producer reachable for non-suspending loops while
+/// preserving the safe [`element_at`] fallback for resumable bodies.
 ///
 /// **Do not price that gap by differencing a `for-of` that reads its binding
 /// against one that ignores it.** The binding is pushed unconditionally, so the
@@ -719,6 +728,22 @@ pub fn elements_base(array: u64) -> i64 {
             Some(elements) => elements.as_ptr() as i64,
             None => 0,
         }
+    })
+}
+
+/// The length of an internal array returned by a compiler-owned enumeration.
+///
+/// This is narrower than a JavaScript `length` property read: the only caller is
+/// the `for-of`/`for-in` lowering after it has obtained a fresh array from an
+/// enumeration entry. The result is an unboxed double, so the loop header can
+/// feed the machine's bounded element load without a tagged property crossing.
+#[rtse::entry]
+pub fn array_length(array: u64) -> f64 {
+    with_current(|context| {
+        Value(array)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell))
+            .map_or(0.0, |elements| elements.len() as f64)
     })
 }
 
@@ -743,6 +768,41 @@ pub fn elements_base(array: u64) -> i64 {
 pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
     let key = super::computed::length_key(context);
     let value = Value::from_f64(length as f64).bits();
+    // Ordinary arrays already own `length` in their current shape. Updating an
+    // existing slot cannot change the shape, so avoid the generic property path
+    // on every push/pop; first materialisation and malformed layouts keep `put`.
+    if let crate::object::Key::Name(name) = key
+        && let Some(ty) = context.region.type_of(cell)
+        && let Some(shape) = context.shape_of(ty)
+        && let Some(slot) = context.shapes.slot_of(shape, name)
+    {
+        // `length` is born in the array layout, so the slot exists before the
+        // first call reaches this branch. Its descriptor does not: the shape
+        // stores only the value representation, while array-specific attributes
+        // live beside the cell. Initialise that side table once, then preserve
+        // any descriptor subsequently installed by `defineProperty`, freeze, or
+        // seal.
+        if !context.has_attributes(cell, name) {
+            super::integrity::set_attributes(
+                context,
+                cell,
+                name,
+                super::integrity::Attributes {
+                    writable: true,
+                    enumerable: false,
+                    configurable: false,
+                },
+            );
+        }
+        // The raw slot write deliberately has no descriptor check; do it before
+        // using the fast path, otherwise push/pop could change a frozen array
+        // while its `length` property stayed unchanged.
+        if super::integrity::refuses_key_write(context, cell, name) {
+            return;
+        }
+        super::objects::set_slot_value(context, cell, slot, value);
+        return;
+    }
     super::objects::put(context, cell, key, value);
     // The attributes are NOT written here, and used to be: `{writable,
     // !enumerable, !configurable}` was recorded against this cell and this key

@@ -458,15 +458,9 @@ fn hash_of(context: &Context, value: u64) -> u32 {
     if let Some(cell) = value.as_slot()
         && let Some(text) = context.text_at(cell)
     {
-        // FNV-1a over the code UNITS, because that is what a string is here and
-        // what `same_units` compares. Hashing the UTF-8 of it would be a second
-        // spelling of the same string's identity.
-        let mut hash: u32 = 2_166_136_261;
-        for unit in text.units() {
-            hash ^= u32::from(unit);
-            hash = hash.wrapping_mul(16_777_619);
-        }
-        return hash & 0x7fff_ffff;
+        // `Str` memoizes this exact FNV-1a over UTF-16 code units. Reusing it
+        // removes an O(length) hash from every Map/Set lookup after the first.
+        return text.hash_code();
     }
     0
 }

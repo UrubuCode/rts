@@ -85,8 +85,9 @@ bench("arith", "int mod", (n) => {
 });
 // The three shifts, and they are three rows rather than one because they do not
 // cost the same thing and the difference is the point: `<<` and `>>` become
-// instructions where the operands are proven doubles, and `>>>` cannot — its
-// result is `ToUint32`, which does not fit the proven `I32` the other two carry.
+// instructions where the operands are proven doubles, while `>>>` uses its own
+// logical-shift plus unsigned-widening sequence. Unknown operands still take the
+// generic runtime fallback because their ToNumber conversion remains observable.
 //
 // There was NO shift row here at all until 2026-08-23, and that is why a 5x gap
 // sat unseen: `(x << 3) >> 1` cost 1727 ms over 20 000 000 iterations against
@@ -135,9 +136,9 @@ bench("arith", "compare int", (n) => {
 // So the rule this block encodes: **an operator with no row is an operator
 // nobody can find out about.** Coverage is the instrument; the rows that come
 // out flat are not waste, they are the controls that make the others readable.
-// `int shr unsigned` earned its place that way within a day — it is code that
-// did not change, and it moved 3.5% between two binaries, which is what said the
-// per-row differences beside it were layout rather than the change.
+// `int shr unsigned` earned its place that way within a day. Its row now
+// verifies that the logical-shift path remains observable instead of regressing
+// to a generic call hidden behind the harness.
 // ---------------------------------------------------------------------------
 bench("arith", "int sub", (n) => {
   let a = 0;

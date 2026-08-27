@@ -75,7 +75,7 @@ extern "C" fn char_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u
             return answer(context, &[]);
         }
         match super::indexed(context, this, at as usize) {
-            Some(unit) => answer(context, &[unit]),
+            Some(unit) => super::answer_unit(context, unit),
             None => answer(context, &[]),
         }
     })
@@ -92,18 +92,25 @@ extern "C" fn char_code_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _
         return super::refused();
     };
     with_current(|context| {
-        let Some(length) = super::length_of(context, this) else {
-            return nothing(context);
+        // `coerce_receiver` has already converted wrappers and generic objects
+        // to a primitive text value. Read that cell once here; asking
+        // `length_of` and then `indexed` would unwrap and look it up twice for
+        // every call, although both questions concern the same immutable `Str`.
+        let Some(cell) = Value(this).as_slot() else {
+            return Value::from_f64(f64::NAN).bits();
+        };
+        let Some(text) = context.text_at(cell) else {
+            return Value::from_f64(f64::NAN).bits();
         };
         let at = super::integer_arg(context, index);
-        if at < 0.0 || at >= length as f64 {
+        if at < 0.0 || at >= text.len() as f64 {
             // `NaN`, not `undefined`. A program comparing the result to a number
             // gets false either way; one doing arithmetic with it gets `NaN`
             // where `undefined` would also give `NaN` — but `typeof` tells them
             // apart, and the language says which it is.
             return Value::from_f64(f64::NAN).bits();
         }
-        match super::indexed(context, this, at as usize) {
+        match text.unit_at(at as usize) {
             Some(unit) => Value::from_f64(f64::from(unit)).bits(),
             None => Value::from_f64(f64::NAN).bits(),
         }
@@ -141,7 +148,7 @@ extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -
             return nothing(context);
         }
         match super::indexed(context, this, at as usize) {
-            Some(unit) => answer(context, &[unit]),
+            Some(unit) => super::answer_unit(context, unit),
             None => nothing(context),
         }
     })

@@ -65,8 +65,6 @@
 //! life of the process.
 
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 use rts_cranelift::shape::{Key, KeyRegistry};
 
@@ -74,23 +72,11 @@ use super::Str;
 
 /// The hash a string's code units probe under.
 ///
-/// Walks [`Str::units`] as an iterator, so a probe never allocates — see the
-/// module documentation for the 123x measurement this is the fix for. Two
-/// strings with the same units always produce the same hash, which is what
-/// makes bucketing by it in [`Interner::keys`] sound; two different strings
-/// occasionally sharing one is expected and handled by the equality check
-/// that follows a bucket hit.
-fn units_hash(text: &Str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    // The length goes in too, so e.g. `[0x61, 0x00]` and `[0x6100]` — which
-    // cannot both be code-unit sequences of one string, but would otherwise
-    // be hashed by an unbounded stream of units alone — are not relied upon
-    // to disagree by accident.
-    text.len().hash(&mut hasher);
-    for unit in text.units() {
-        unit.hash(&mut hasher);
-    }
-    hasher.finish()
+/// `Str` memoizes this FNV-1a value, so a repeated probe reaches the same bucket
+/// without walking the text or constructing a temporary hasher. Different
+/// strings may collide and are still disambiguated by `same_units` below.
+fn units_hash(text: &Str) -> u32 {
+    text.hash_code()
 }
 
 /// Every string that has been used as a property key while running.
@@ -104,7 +90,7 @@ pub struct Interner {
     /// than one candidate, [`Interner::intern`] disambiguates by comparing
     /// against `text`, so correctness never depends on the hash being
     /// collision-free — only speed does.
-    keys: HashMap<u64, Vec<Key>>,
+    keys: HashMap<u32, Vec<Key>>,
     /// The text, for the places the language genuinely needs it back — and,
     /// on a bucket hit, for the equality check that confirms it rather than
     /// merely a matching hash.

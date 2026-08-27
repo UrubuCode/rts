@@ -114,24 +114,52 @@ pub(super) extern "C" fn join(
     // one whose element is `undefined`, `null` or a hole — `[1,,3].join("-")` is
     // `"1--3"`. Emitting it before the element rather than after is what keeps
     // that true without a second pass to trim a trailing one.
-    let between: Vec<u16> = between.units().collect();
-    let mut joined: Vec<u16> = Vec::new();
+    let separator_bytes = between.narrow();
+    let mut narrow = separator_bytes.is_some();
+    let mut bytes = Vec::with_capacity(elements.len() * between.len());
+    let mut joined = Vec::with_capacity(elements.len() * between.len());
+    if !narrow {
+        joined.extend(between.units());
+    }
     for (at, held) in elements.iter().enumerate() {
         if at > 0 {
-            joined.extend_from_slice(&between);
+            if narrow {
+                bytes.extend_from_slice(separator_bytes.expect("narrow was proved"));
+            } else {
+                joined.extend(between.units());
+            }
         }
         if empty.contains(held) {
             continue;
         }
         let held = super::super::primitive::to_primitive(*held, crate::coerce::Hint::String);
         with_current(|context| {
-            if let Some(text) = super::super::text::to_text(context, Value(held)) {
+            let Some(text) = super::super::text::to_text(context, Value(held)) else {
+                return;
+            };
+            if narrow {
+                if let Some(part) = text.narrow() {
+                    bytes.extend_from_slice(part);
+                } else {
+                    joined.extend(bytes.iter().map(|byte| u16::from(*byte)));
+                    bytes.clear();
+                    narrow = false;
+                    joined.extend(text.units());
+                }
+            } else {
                 joined.extend(text.units());
             }
         });
     }
 
-    with_current(|context| context.intern_value(Str::from_utf16(&joined)).bits())
+    with_current(|context| {
+        let result = if narrow {
+            Str::owning_latin1(bytes)
+        } else {
+            Str::from_utf16(&joined)
+        };
+        context.intern_value(result).bits()
+    })
 }
 
 /// The encoded `null`, which [`join`] treats as the empty string.

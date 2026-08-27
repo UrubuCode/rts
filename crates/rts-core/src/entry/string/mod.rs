@@ -321,6 +321,15 @@ pub(super) fn answer(context: &mut Context, units: &[u16]) -> u64 {
     context.intern_value(Str::from_utf16(units)).bits()
 }
 
+/// A string containing exactly one UTF-16 code unit.
+///
+/// The context owns a finite cache for the Latin-1 range, which is the common
+/// result of indexing ASCII and Latin-1 strings. Wide units retain the ordinary
+/// allocation path because they cannot share the Latin-1 representation.
+pub(super) fn answer_unit(context: &mut Context, unit: u16) -> u64 {
+    context.single_unit_text(unit)
+}
+
 /// The same, from bytes that are already known to be one code unit each.
 ///
 /// `Str::from_utf16` scans its input to decide whether the narrow form fits.

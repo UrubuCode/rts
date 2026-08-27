@@ -492,18 +492,22 @@ impl Context {
     /// Put a string on the heap and return the value naming it.
     pub fn intern_value(&mut self, text: Str) -> Value {
         let length = text.len();
-        let slot = self.cells.insert(text).slot();
         let size = crate::heap::STRIDE;
         let ty = self.text_type.index() as u32;
+        // Reserve the region cell before putting the text in the slab. If the
+        // region is full, collection may run here; inserting the slab entry
+        // first would leave a text with no region root while that collection
+        // scans the heap.
         let cell = super::alloc::alloc_or_die(self, size, ty);
+        let slot = self.cells.insert(text).slot();
         self.region
             .set_field(cell, 0, u64::from(slot.0))
             .expect("a string cell has a first slot");
         // The LENGTH as a VALUE, not as an integer: a cached read hands back what
         // the slot holds, so what the slot holds must be a JavaScript value. It
-        // was a raw `u64` for one build and every length read back as a
-        // denormal — 2 answered 1e-323 — which is what a bit pattern looks like
-        // when it is read as the double it is not.
+        // was a raw `u64` for one build and every length read back as a denormal —
+        // 2 answered 1e-323 — which is what a bit pattern looks like when it is
+        // read as the double it is not.
         //
         // Beside the slab position, so that reading it is a load rather than
         // a slab lookup and — the point — so an inline cache can answer for it.
@@ -514,6 +518,27 @@ impl Context {
             .set_field(cell, crate::entry::TEXT_LENGTH_SLOT, Value::from_f64(length as f64).bits())
             .expect("a string cell has a second slot");
         Value::from_slot(cell)
+    }
+
+    /// The primitive string for one UTF-16 code unit.
+    ///
+    /// The common Latin-1 range is immutable and finite, so retaining one value
+    /// per unit removes the repeated slab and region allocation from string
+    /// indexing and `charAt`. A unit above 255 still uses the ordinary path so
+    /// lone surrogates and all other UTF-16 values remain representable.
+    pub(super) fn single_unit_text(&mut self, unit: u16) -> u64 {
+        let index = usize::from(unit);
+        if index < self.single_unit_texts.len() {
+            if let Some(value) = self.single_unit_texts[index] {
+                return value;
+            }
+            let value = self
+                .intern_value(Str::owning_latin1(vec![unit as u8]))
+                .bits();
+            self.single_unit_texts[index] = Some(value);
+            return value;
+        }
+        self.intern_value(Str::from_utf16(&[unit])).bits()
     }
 
     /// Whether two slots hold equal text.
@@ -556,12 +581,23 @@ impl Context {
         // for an answer that cannot change within a run. `prototype` is read by
         // every `new`, and the other three are stamped onto every typed array.
         //
-        // A linear scan of five short `&str`s, not a `HashMap<String, Key>`,
+        // A static match over the nine names, not a `HashMap<String, Key>`,
         // which would hash the name to avoid hashing the name. Anything not on
         // the list falls through to the intern exactly as before, and putting a
         // name on it is only ever a speed decision — the answer is identical
         // either way, because the intern is idempotent.
-        let held = super::CACHED_KEYS.iter().position(|&known| known == name);
+        let held = match name {
+            "length" => Some(0),
+            "prototype" => Some(1),
+            "byteLength" => Some(2),
+            "byteOffset" => Some(3),
+            "buffer" => Some(4),
+            "toJSON" => Some(5),
+            "name" => Some(6),
+            "constructor" => Some(7),
+            super::symbol::SPECIES => Some(8),
+            _ => None,
+        };
         if let Some(at) = held
             && let Some(key) = self.well_known_keys[at]
         {
@@ -586,7 +622,12 @@ impl Context {
     /// Falls through for a name not on [`super::CACHED_TEXTS`], so a caller
     /// that hands it something else gets the ordinary behaviour.
     pub(super) fn well_known_text(&mut self, name: &str) -> u64 {
-        let held = super::CACHED_TEXTS.iter().position(|&known| known == name);
+        let held = match name {
+            "toJSON" => Some(0),
+            "" => Some(1),
+            super::symbol::HAS_INSTANCE => Some(2),
+            _ => None,
+        };
         if let Some(at) = held
             && let Some(value) = self.well_known_texts[at]
         {

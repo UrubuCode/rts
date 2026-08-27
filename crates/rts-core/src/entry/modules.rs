@@ -555,6 +555,25 @@ pub fn text_of(value: u64) -> Option<String> {
     with_current(|context| super::text::to_text(context, Value(value))?.to_rust())
 }
 
+/// UTF-8 bytes for an already-materialised primitive string.
+///
+/// This deliberately refuses non-string values instead of performing `ToString`:
+/// callers that need coercion keep using [`text_of`]. For ASCII, the runtime's
+/// Latin-1 representation is already the final byte sequence and needs one copy;
+/// other valid strings use their ordinary UTF-8 conversion. Lone surrogates return
+/// `None`, matching the existing refusal path.
+pub fn utf8_bytes_if_string(value: u64) -> Option<Vec<u8>> {
+    with_current(|context| {
+        let text = context.text_at(Value(value).as_slot()?)?;
+        if let Some(bytes) = text.narrow()
+            && bytes.is_ascii()
+        {
+            return Some(bytes.to_vec());
+        }
+        Some(text.to_rust()?.into_bytes())
+    })
+}
+
 /// An array value holding these.
 pub fn make_array(values: Vec<u64>) -> u64 {
     super::array_proto::built(values)

@@ -558,14 +558,13 @@ impl Writer {
             // reading it runs nothing and can allocate nothing — which is what
             // makes taking the text alongside it safe here and not in the
             // general loop.
-            let Some((text, held)) = with_current(|context| {
-                let text = context.interner.text(key).cloned()?;
+            let Some(held) = with_current(|context| {
                 let found = super::super::objects::own_property(
                     context,
                     Value(value).as_slot()?,
                     crate::object::Key::Name(key),
                 )?;
-                Some((text, found.bits()))
+                Some(found.bits())
             }) else {
                 continue;
             };
@@ -578,7 +577,11 @@ impl Writer {
             }
             written = true;
             self.newline(depth + 1);
-            self.quoted(&text);
+            with_current(|context| {
+                if let Some(text) = context.interner.text(key) {
+                    self.quoted(text);
+                }
+            });
             self.ascii(":");
             if !self.indent.is_empty() {
                 self.ascii(" ");
@@ -659,6 +662,12 @@ impl Writer {
     /// because deciding whether a high surrogate is lone means looking at the
     /// next one.
     fn quoted(&mut self, text: &Str) {
+        if let Some(bytes) = text.narrow() {
+            self.out.push(b'"' as u16);
+            quoted_narrow(&mut self.out, bytes);
+            self.out.push(b'"' as u16);
+            return;
+        }
         let units: Vec<u16> = text.units().collect();
         self.out.push(b'"' as u16);
         for (at, unit) in units.iter().copied().enumerate() {
@@ -835,6 +844,29 @@ impl HookKey {
                 .intern_value(crate::coerce::number_to_string(at as f64))
                 .bits(),
             HookKey::Named(key) => context.key_value(key),
+        }
+    }
+}
+
+
+/// Writes a Latin-1 JSON string body directly into the UTF-16 output buffer.
+fn quoted_narrow(out: &mut Vec<u16>, bytes: &[u8]) {
+    for &unit in bytes {
+        match unit {
+            b'"' => out.extend([b'\\' as u16, b'"' as u16]),
+            b'\\' => out.extend([b'\\' as u16, b'\\' as u16]),
+            0x08 => out.extend([b'\\' as u16, b'b' as u16]),
+            0x0c => out.extend([b'\\' as u16, b'f' as u16]),
+            b'\n' => out.extend([b'\\' as u16, b'n' as u16]),
+            b'\r' => out.extend([b'\\' as u16, b'r' as u16]),
+            b'\t' => out.extend([b'\\' as u16, b't' as u16]),
+            0x00..=0x1f => {
+                out.extend([b'\\' as u16, b'u' as u16, b'0' as u16, b'0' as u16]);
+                let digits = b"0123456789abcdef";
+                out.push(u16::from(digits[(unit >> 4) as usize]));
+                out.push(u16::from(digits[(unit & 0xf) as usize]));
+            }
+            _ => out.push(u16::from(unit)),
         }
     }
 }

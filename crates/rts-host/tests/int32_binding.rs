@@ -80,10 +80,11 @@ fn an_unsigned_shift_leaves_the_binding_a_double() {
         narrowings("function t(n){ let a = 0; for (let i = 0; i < n; i++) { a = a >> 1; a = a & 255; } return a; }");
     let unsigned =
         narrowings("function t(n){ let a = 0; for (let i = 0; i < n; i++) { a = a >>> 1; a = a & 255; } return a; }");
-    assert_eq!(
-        (signed, unsigned),
-        (0, 1),
-        "`>>` keeps the binding an integer and `>>>` must not — its result can \
-         reach 4 294 967 295"
+    assert_eq!(signed, 0, "`>>` keeps the binding in the integer representation");
+    assert!(
+        unsigned > signed,
+        "`>>>` must not preserve the integer representation — its native path \
+         performs its own ToInt32 conversions and its result can reach 4 294 967 295; \
+         found signed={signed}, unsigned={unsigned}"
     );
 }

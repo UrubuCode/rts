@@ -94,6 +94,27 @@ fn includes_acha_o_buraco_e_indexof_o_pula() {
 }
 
 #[test]
+fn array_length_keeps_its_descriptor_and_blocks_mutation_when_non_writable() {
+    assert_eq!(numero("return Object.keys([1,2]).length;"), 2.0);
+    assert_eq!(
+        numero(
+            "const d=Object.getOwnPropertyDescriptor([1], 'length'); \
+             return (d.writable && !d.enumerable && !d.configurable) ? 1 : 0;"
+        ),
+        1.0
+    );
+    assert_eq!(
+        numero(
+            "const a=[1,2]; Object.defineProperty(a, 'length', {writable:false}); \
+             let push_threw=false; try { a.push(3); } catch (e) { push_threw=true; } \
+             let pop_threw=false; try { a.pop(); } catch (e) { pop_threw=true; } \
+             return (push_threw && pop_threw && a.length===2 && a[1]===2 && a[2]===undefined) ? 1 : 0;"
+        ),
+        1.0
+    );
+}
+
+#[test]
 fn um_array_denso_nao_muda_em_nada() {
     // A rede de segurança: nada acima pode ter custado o caso comum.
     assert_eq!(numero("const a=[1,2,3]; return a.length;"), 3.0);

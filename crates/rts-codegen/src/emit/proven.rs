@@ -736,17 +736,16 @@ pub(super) fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
             // against the emission for `~`, and now this against the emission
             // for the shifts.
             //
-            // `>>>` STAYS OUT, and now that is the only exclusion left and it is
-            // the real one: its result is `ToUint32`, which does not fit the
-            // proven `i32` the other two carry, so `proven_binary` answers
-            // nothing for it and the site emits a `Tagged` value. Claiming a
-            // number for it would ask for a narrowing on a loop's back edge —
-            // the `ImplicitNarrowing` refusal, a program that does not compile.
+            // `>>>` also produces a number, but its unsigned result is carried
+            // back as `F64` by the machine's dedicated conversion. Keeping it in
+            // this table is what prevents a numeric accumulator from becoming
+            // tagged after a logical shift and paying a generic call forever.
             BinaryOp::BitAnd
             | BinaryOp::BitOr
             | BinaryOp::BitXor
             | BinaryOp::Shl
-            | BinaryOp::Shr => is_numeric(left, known) && is_numeric(right, known),
+            | BinaryOp::Shr
+            | BinaryOp::UShr => is_numeric(left, known) && is_numeric(right, known),
             // A comparison is a boolean, and `in`/`instanceof` are booleans.
             _ => false,
         },

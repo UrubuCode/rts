@@ -399,6 +399,21 @@ impl<'a> FuncBuilder<'a> {
         Ok(self.emit(Inst::ToF64(value), Repr::F64))
     }
 
+    /// A proven 32-bit integer interpreted as unsigned and converted to a double.
+    ///
+    /// Kept separate from [`Self::to_f64`] because the high bit is data here: the
+    /// logical shift `-1 >>> 0` must answer `4294967295.0`, not `-1.0`.
+    pub fn to_f64_unsigned(&mut self, value: ValueId) -> BuildResult<ValueId> {
+        let repr = self.repr_of(value);
+        if repr != Repr::I32 {
+            return Err(BuildError::WrongDomain {
+                operation: "to_f64_unsigned",
+                found: repr,
+            });
+        }
+        Ok(self.emit(Inst::ToF64Unsigned(value), Repr::F64))
+    }
+
     /// Bitwise operation over two proven integers of identical representation.
     pub fn bitwise(&mut self, op: BitOp, a: ValueId, b: ValueId) -> BuildResult<ValueId> {
         let repr = self.same_proven("bitwise", a, b)?;

@@ -53,7 +53,7 @@ extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
         // Answered from borrowed slices, so neither side allocates at all.
         if let Some((hay, pin)) = narrow_pair(context, this, search) {
             let start = relative(super::integer_arg(context, from).max(0.0), hay.len());
-            let found = find_bytes(hay, &pin, start);
+            let found = find_bytes(hay, pin, start);
             return Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits();
         }
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
@@ -161,7 +161,7 @@ extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
     with_current(|context| {
         if let Some((hay, pin)) = narrow_pair(context, this, search) {
             let start = relative(super::integer_arg(context, from).max(0.0), hay.len());
-            return Value::from_bool(find_bytes(hay, &pin, start).is_some()).bits();
+            return Value::from_bool(find_bytes(hay, pin, start).is_some()).bits();
         }
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
@@ -202,7 +202,7 @@ extern "C" fn starts_with(_e: u64, this: u64, search: u64, from: u64, _a2: u64, 
         // widening, no copy of the receiver. The wide path below is unchanged.
         if let Some((hay, pin)) = narrow_pair(context, this, search) {
             let start = relative(super::integer_arg(context, from).max(0.0), hay.len());
-            return Value::from_bool(hay[start..].starts_with(&pin)).bits();
+            return Value::from_bool(hay[start..].starts_with(pin)).bits();
         }
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
@@ -249,7 +249,7 @@ extern "C" fn ends_with(_e: u64, this: u64, search: u64, end: u64, _a2: u64, _a3
                 true => hay.len(),
                 false => relative(super::integer_arg(context, end).max(0.0), hay.len()),
             };
-            return Value::from_bool(hay[..stop].ends_with(&pin)).bits();
+            return Value::from_bool(hay[..stop].ends_with(pin)).bits();
         }
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
@@ -274,18 +274,17 @@ extern "C" fn ends_with(_e: u64, this: u64, search: u64, end: u64, _a2: u64, _a3
 /// haystack allocating 512 bytes and widening 256 units to answer where four
 /// characters are.
 ///
-/// The needle IS copied, and that is not an oversight: `text_of` may BUILD a
-/// string (a number argument becomes its digits), so there is not always
-/// anything to borrow from. It is the short side, and copying it is what lets
-/// the long side stay borrowed.
+/// `text_arg` has already converted any dynamic argument into a bare string
+/// value, so both sides can be borrowed directly from the context. This avoids
+/// cloning the short needle on every call while retaining the same conversion
+/// boundary for numbers, wrappers, symbols and objects.
 ///
 /// `None` when either side is wide, which sends the caller to the path it
 /// already had.
-fn narrow_pair(context: &super::Context, this: u64, search: u64) -> Option<(&[u8], Vec<u8>)> {
-    let pattern = super::text_of(context, search)?;
-    let needle = pattern.narrow()?.to_vec();
+fn narrow_pair(context: &super::Context, this: u64, search: u64) -> Option<(&[u8], &[u8])> {
+    let pattern = context.text_at(Value(search).as_slot()?)?;
     let text = context.text_at(Value(this).as_slot()?)?;
-    Some((text.narrow()?, needle))
+    Some((text.narrow()?, pattern.narrow()?))
 }
 
 /// Where a run of bytes first occurs at or after a position, which is what both

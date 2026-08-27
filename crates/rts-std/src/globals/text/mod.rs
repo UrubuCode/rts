@@ -153,8 +153,13 @@ extern "C" fn new_encoder(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64
 
 /// `encoder.encode(input?)` — a `Uint8Array` of the UTF-8 bytes.
 extern "C" fn encode(_e: u64, _this: u64, input: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let text = text_argument(input).unwrap_or_default();
-    let bytes = entry::encode_text(&text, "utf8").unwrap_or_default();
+    // A primitive string already owns its code units in the runtime. Avoid
+    // materialising a Rust `String` and then copying it again into the byte
+    // vector; non-string inputs retain the DOMString coercion path.
+    let bytes = entry::utf8_bytes_if_string(input).unwrap_or_else(|| {
+        let text = text_argument(input).unwrap_or_default();
+        entry::encode_text(&text, "utf8").unwrap_or_default()
+    });
     entry::with_runtime(|context| entry::make_bytes(context, &bytes))
 }
 

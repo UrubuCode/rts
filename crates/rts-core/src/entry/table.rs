@@ -40,7 +40,9 @@
 use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
 use super::accessor::{DEFINE_METHOD_ENTRY, DEFINE_GETTER_ENTRY, DEFINE_SETTER_ENTRY};
-use super::array::{ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY};
+use super::array::{
+    ARRAY_LENGTH_ENTRY, ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY,
+};
 use super::math::MATH_RANDOM_ENTRY;
 use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
 use super::bitwise::{
@@ -633,6 +635,9 @@ pub enum CoreEntry {
     /// publishes one VALUE that may replace the whole namespace — the difference
     /// between the two module systems, stated where they meet.
     ModulePublishCommon = 92,
+
+    /// The length of an internal enumeration array, returned as F64.
+    ArrayLength = 93,
 }
 
 /// How many entry points exist.
@@ -640,7 +645,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 93;
+pub const CORE_ENTRY_COUNT: usize = 94;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -738,6 +743,7 @@ impl CoreEntry {
         CoreEntry::NumberExponent,
         CoreEntry::RequireFunction,
         CoreEntry::ModulePublishCommon,
+        CoreEntry::ArrayLength,
     ];
 
     /// The number a call site holds.
@@ -833,6 +839,7 @@ impl CoreEntry {
             CoreEntry::ModuleImport => MODULE_IMPORT_ENTRY,
             CoreEntry::RequireFunction => REQUIRE_FUNCTION_ENTRY,
             CoreEntry::ModulePublishCommon => MODULE_PUBLISH_COMMON_ENTRY,
+            CoreEntry::ArrayLength => ARRAY_LENGTH_ENTRY,
             CoreEntry::MarkDerived => MARK_DERIVED_ENTRY,
             CoreEntry::MarkClassConstructor => MARK_CLASS_CONSTRUCTOR_ENTRY,
             CoreEntry::SetCallName => SET_CALL_NAME_ENTRY,
@@ -1044,7 +1051,7 @@ mod tests {
         // Reusing `Remainder` was REJECTED: one number would mean two shapes,
         // tagged both ways for one caller and unboxed both ways for the other.
         assert!(
-            CORE_ENTRY_COUNT <= 93,
+            CORE_ENTRY_COUNT <= 94,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

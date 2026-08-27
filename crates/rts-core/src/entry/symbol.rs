@@ -82,6 +82,9 @@ use prefix;
 /// the head of a 477 ns operation.
 pub(super) const HAS_INSTANCE: &str = concat!(prefix!(), "hasInstance");
 
+/// `Symbol.species`'s internal property key, shared by installation and lookup.
+pub(super) const SPECIES: &str = concat!(prefix!(), "species");
+
 /// The five protocols a string method offers its argument before falling back
 /// to the built-in scan, spelled at COMPILE time for [`HAS_INSTANCE`]'s reason.
 ///

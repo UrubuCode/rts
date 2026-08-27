@@ -363,7 +363,7 @@ pub(crate) fn bitwise_answer(
         BitOp::And => Some(x & y),
         BitOp::Or => Some(x | y),
         BitOp::Xor => Some(x ^ y),
-        BitOp::Shl | BitOp::Shr => None,
+        BitOp::Shl | BitOp::Shr | BitOp::ShrUnsigned => None,
     }
 }
 

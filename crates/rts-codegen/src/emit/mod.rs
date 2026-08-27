@@ -986,7 +986,8 @@ pub(super) fn emit_program_into(
     ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
-    ctx.inlinable = inline::candidates(body, eval_name, global_this);
+    let length_name = ctx.names.intern("length");
+    ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name);
 
     let mut emitted = function::emit_body(
         ctx,
@@ -1134,7 +1135,8 @@ fn emit_unit(
     ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
-    ctx.inlinable = inline::candidates(body, eval_name, global_this);
+    let length_name = ctx.names.intern("length");
+    ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name);
     let nothing = Scope::new();
     let mut emitted = function::emit_body(
         ctx,

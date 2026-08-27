@@ -4504,6 +4504,7 @@ dependencies = [
 name = "rts-host"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rts-codegen",
  "rts-core",
  "rts-cranelift",
@@ -4606,6 +4607,7 @@ version = "0.1.0"
 name = "rts-runtime"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rts-core",
  "rts-node",
  "rts-std",

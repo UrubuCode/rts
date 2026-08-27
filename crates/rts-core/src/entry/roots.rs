@@ -114,6 +114,7 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
             context.globals,
             context.string_prototype,
             context.array_prototype,
+            context.array_buffer_prototype,
         ]
         .into_iter()
         .flatten()
@@ -168,6 +169,10 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // cache is the only holder, so a collection between two uses would free
     // what the next use hands back.
     words.extend(context.well_known_texts.iter().flatten().copied());
+    // The finite one-unit string table is also a set of heap references. It is
+    // lazy, but every populated entry is retained for the lifetime of the
+    // context so a later index read never observes a recycled cell.
+    words.extend(context.single_unit_texts.iter().flatten().copied());
     // And the string handed back for each key an enumeration has named. Same
     // argument once more, and the consequence of getting it wrong is sharper
     // here than above: this cache is what `Object.keys` answers WITH, so a

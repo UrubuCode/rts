@@ -202,6 +202,18 @@ pub(super) fn text_arg(value: u64) -> Option<u64> {
 /// engine throws, which is a wrong answer that runs. `None` says a throw was
 /// recorded and the method must answer nothing.
 pub(super) fn number_arg(value: u64) -> Option<u64> {
+    // These values are already primitives and `ToPrimitive` cannot change them
+    // or run user code. Returning the original word avoids the generic crossing
+    // on integer indices such as `s.charCodeAt(i & 15)`.
+    if matches!(
+        Value(value).kind(),
+        crate::value::Kind::Float
+            | crate::value::Kind::Int
+            | crate::value::Kind::Bool
+            | crate::value::Kind::Singleton(_)
+    ) {
+        return Some(value);
+    }
     let primitive = super::super::primitive::to_primitive(value, crate::coerce::Hint::Number);
     if super::super::throw::in_flight() {
         return None;

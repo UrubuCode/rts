@@ -189,6 +189,12 @@ pub struct Str {
     /// Asking for the slab mutably instead would collide with that borrow —
     /// the same shape `symbol::key_of` records for its own memo.
     key: std::cell::Cell<u32>,
+    /// The SameValueZero hash used by Map/Set, stored as hash plus one.
+    ///
+    /// Zero means "not computed"; the real hash is masked to 31 bits, so adding
+    /// one is lossless and leaves every possible value distinguishable from the
+    /// sentinel. Cloning a `Str` copies this memo along with its immutable bytes.
+    hash: std::cell::Cell<u32>,
 }
 
 impl PartialEq for Str {
@@ -214,7 +220,23 @@ impl Str {
         Str {
             repr,
             key: std::cell::Cell::new(0),
+            hash: std::cell::Cell::new(0),
         }
+    }
+
+    /// The FNV-1a hash over UTF-16 code units, memoized on the immutable string.
+    pub(crate) fn hash_code(&self) -> u32 {
+        if let Some(cached) = self.hash.get().checked_sub(1) {
+            return cached;
+        }
+        let mut hash: u32 = 2_166_136_261;
+        for unit in self.units() {
+            hash ^= u32::from(unit);
+            hash = hash.wrapping_mul(16_777_619);
+        }
+        let hash = hash & 0x7fff_ffff;
+        self.hash.set(hash + 1);
+        hash
     }
 
     /// The property key this text was last resolved to, if it has been.
@@ -585,5 +607,26 @@ mod tests {
         assert!(empty.is_empty());
         assert_eq!(empty.unit_at(0), None);
         assert_eq!(empty.to_rust().as_deref(), Some(""));
+    }
+
+    #[test]
+    fn the_memoized_hash_is_identical_across_string_layouts() {
+        let narrow = Str::from_str("a");
+        let wide = Str::of(Repr::Utf16(vec![0x0061]));
+        assert_eq!(narrow.hash_code(), wide.hash_code());
+        assert_eq!(narrow.hash.get(), wide.hash.get());
+    }
+
+    #[test]
+    fn the_memoized_hash_matches_the_utf16_fnv_algorithm() {
+        let text = Str::from_utf16(&[0x0061, 0x00e9, 0x65e5, 0xd800]);
+        let mut expected = 2_166_136_261u32;
+        for unit in text.units() {
+            expected ^= u32::from(unit);
+            expected = expected.wrapping_mul(16_777_619);
+        }
+        expected &= 0x7fff_ffff;
+        assert_eq!(text.hash_code(), expected);
+        assert_eq!(text.hash.get(), expected + 1);
     }
 }

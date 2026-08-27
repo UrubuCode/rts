@@ -163,8 +163,8 @@ fn by_units(context: &super::Context, this: u64, separator: u64) -> Option<Vec<S
 /// The pieces of `this.split(separator)` for narrow text and a narrow literal
 /// separator, or `None` when this call is not one this path answers.
 ///
-/// Borrows the subject rather than copying it: the pieces are slices of it
-/// until the moment each becomes a cell, which is the whole of the saving.
+/// Borrows the subject rather than copying it: the pieces are slices of it until
+/// the moment each becomes a cell, which is the whole of the saving.
 fn narrow(context: &super::Context, this: u64, separator: u64) -> Option<Vec<Str>> {
     let subject_cell = Value(this).as_slot()?;
     let separator_cell = Value(separator).as_slot()?;

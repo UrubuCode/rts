@@ -32,3 +32,4 @@ crate-type = ["rlib", "staticlib"]
 rts-core = { path = "../rts-core" }
 rts-std = { path = "../rts-std" }
 rts-node = { path = "../rts-node" }
+libc = "0.2"

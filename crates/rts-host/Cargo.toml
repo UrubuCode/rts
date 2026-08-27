@@ -45,6 +45,7 @@ rts-ui = { path = "../rts-ui", optional = true }
 # como a UI: um DOM headless não precisa de tela, e é justamente sem tela que
 # ele se distingue de um Node com jsdom.
 rts-dom-bridge = { path = "../rts-dom-bridge" }
+libc = "0.2"
 
 [features]
 # `ui` E PADRAO. A razao de ela ter ficado de fora morreu com o crate que a

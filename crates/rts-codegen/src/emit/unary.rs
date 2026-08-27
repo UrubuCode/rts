@@ -78,12 +78,19 @@ pub fn emit_unary(
             Ok(expr::call(builder, ctx, RuntimeOp::Negate, &[value])?[0])
         }
 
-        // Unary plus is not an identity: `+"3"` is `3`. It is `ToNumber`
-        // spelled short, and multiplying by one is that conversion with a
-        // product the identity of which leaves every case — `-0`, `NaN`,
-        // infinities — where it started.
+        // Unary plus is not an identity in the generic domain: `+"3"` is `3`.
+        // Once the operand is already a proven number, ToNumber has no
+        // observable work left. F64 returns unchanged (which preserves -0);
+        // I32 widens directly to the numeric representation. Both remove the
+        // multiply-by-one from the carried chain while preserving the generic
+        // path for strings, objects and other values.
         UnaryOp::Plus => {
             let value = emit_expr(builder, scope, ctx, operand)?;
+            match builder.repr_of(value) {
+                rts_cranelift::repr::Repr::F64 => return Ok(value),
+                rts_cranelift::repr::Repr::I32 => return Ok(builder.to_f64(value)?),
+                _ => {}
+            }
             let one = expr::number_constant(builder, 1.0);
             expr::emit_binary(builder, ctx, BinaryOp::Mul, value, one)
         }

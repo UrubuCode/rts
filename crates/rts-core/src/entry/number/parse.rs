@@ -65,7 +65,7 @@ pub(in crate::entry) fn radix_of(radix: u64) -> i64 {
 /// The conversion runs OUTSIDE the borrow, because it is user code, and rule 8
 /// applies to what it leaves behind: a `toString` that threw must not have its
 /// `undefined` spent as though it were an answer.
-pub(in crate::entry) fn leading(value: u64, parse: impl FnOnce(&str) -> f64) -> f64 {
+pub(in crate::entry) fn leading(value: u64, mut parse: impl FnMut(&str) -> f64) -> f64 {
     let value = super::super::primitive::to_primitive(value, crate::coerce::Hint::String);
     if super::super::throw::in_flight() {
         return f64::NAN;
@@ -80,6 +80,25 @@ pub(in crate::entry) fn leading(value: u64, parse: impl FnOnce(&str) -> f64) -> 
         super::super::throw::type_error("Cannot convert a Symbol value to a string");
         return f64::NAN;
     }
+
+    // A primitive ASCII string already is the parser's input. `to_text` below
+    // would clone its `Str`, convert it to a Rust `String`, and only then scan
+    // the digits. Borrowing the narrow bytes and viewing them as UTF-8 performs
+    // no allocation and is exact for ASCII; every non-ASCII or non-string value
+    // keeps the complete conversion path below.
+    let direct = with_current(|context| {
+        let text = context.text_at(Value(value).as_slot()?)?;
+        let bytes = text.narrow()?;
+        if !bytes.is_ascii() {
+            return None;
+        }
+        let text = std::str::from_utf8(bytes).expect("ASCII bytes are UTF-8");
+        Some(parse(text.trim_start()))
+    });
+    if let Some(parsed) = direct {
+        return parsed;
+    }
+
     let text = with_current(|context| {
         super::super::text::to_text(context, Value(value)).and_then(|text| text.to_rust())
     });

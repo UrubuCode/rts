@@ -124,6 +124,8 @@ pub enum BitOp {
     Shl,
     /// Arithmetic right shift.
     Shr,
+    /// Logical right shift, preserving the unsigned bit pattern.
+    ShrUnsigned,
 }
 
 /// Operations over operands whose representation is not proven.
@@ -209,6 +211,14 @@ pub enum Inst {
     /// One instruction in both directions, so a language emitting bitwise work
     /// stays inside the one representation everything else here proves about.
     ToF64(ValueId),
+
+    /// A proven 32-bit integer interpreted as unsigned and converted to a double.
+    ///
+    /// This is distinct from [`Inst::ToF64`]: a logical shift may produce a value
+    /// in `2^31..2^32-1`, while the signed conversion would turn the same bits
+    /// into a negative number. The machine keeps the operation separate so a
+    /// client cannot accidentally claim that `0xffff_ffff` means `-1.0`.
+    ToF64Unsigned(ValueId),
 
     /// A one-operand floating-point operation the hardware performs directly.
     ///
@@ -533,6 +543,7 @@ impl Inst {
             Inst::Widen(v)
             | Inst::ToInt32(v)
             | Inst::ToF64(v)
+            | Inst::ToF64Unsigned(v)
             | Inst::FloatUnary(_, v) => vec![*v],
 
             Inst::IntArith(_, a, b)

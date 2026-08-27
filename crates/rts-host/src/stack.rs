@@ -25,15 +25,19 @@
 //! `GetCurrentThreadStackLimits` is the documented, correct call, and this is a
 //! direct, minimal use of it: no TIB, no derived arithmetic.
 //!
-//! **Everything else — deliberately absent, not guessed.** A Linux port has a
-//! precedent too (`/proc/self/maps`, in the same old-engine module), but
-//! nobody has exercised it here and this crate's task was to make Windows
-//! sound, not to port an untested read to a second platform and call it done.
-//! [`current_thread_stack_high`] answers `None` off Windows, and
-//! [`rts_core::entry::collect_cycle`]'s own contract is to skip the stack
-//! half of a collection entirely rather than run one with a bound nobody
-//! checked — see `Context::stack_high`'s own documentation for why a missing
-//! bound must never be treated as a small one.
+//! **Linux — `pthread_getattr_np` is the selected implementation.** It returns
+//! the bounds of the CURRENT thread, including worker threads created by
+//! [`Compiled::run_on`]. The call happens once per context, not inside an
+//! allocation or collection, so the platform query does not become part of the
+//! hot path. A `/proc/self/maps` lookup would identify the process mapping and
+//! can miss a worker thread's stack, so it is deliberately not used here.
+//!
+//! **Everything else — deliberately absent, not guessed.** [`current_thread_stack_high`]
+//! answers `None` on platforms whose stack-top mechanism is not implemented, and
+//! [`rts_core::entry::collect_cycle`]'s own contract is to skip the stack half of
+//! a collection rather than run one with a bound nobody checked — see
+//! `Context::stack_high`'s own documentation for why a missing bound must never
+//! be treated as a small one.
 use rts_core::entry::Context;
 
 /// The top of the CURRENT thread's stack, if this platform can answer honestly.
@@ -55,8 +59,34 @@ pub fn current_thread_stack_high() -> Option<usize> {
     Some(high)
 }
 
-/// The honest answer off Windows: nobody has wired a sound call yet.
-#[cfg(not(all(target_arch = "x86_64", target_os = "windows")))]
+/// The top of the current Linux thread's stack, from its pthread attributes.
+#[cfg(target_os = "linux")]
+pub fn current_thread_stack_high() -> Option<usize> {
+    let mut attributes = std::mem::MaybeUninit::<libc::pthread_attr_t>::uninit();
+    // SAFETY: `pthread_getattr_np` initializes `attributes` when it returns 0;
+    // `pthread_self` names this thread, so the returned bounds belong to the
+    // stack that will later be scanned by the collector.
+    let status = unsafe { libc::pthread_getattr_np(libc::pthread_self(), attributes.as_mut_ptr()) };
+    if status != 0 {
+        return None;
+    }
+
+    let mut attributes = unsafe { attributes.assume_init() };
+    let mut base = std::ptr::null_mut();
+    let mut size = 0usize;
+    // SAFETY: `attributes` was initialized by pthread_getattr_np and both
+    // output pointers are valid for the duration of this call.
+    let status = unsafe { libc::pthread_attr_getstack(&attributes, &mut base, &mut size) };
+    // SAFETY: pthread_attr_destroy accepts an initialized pthread attribute.
+    let destroy_status = unsafe { libc::pthread_attr_destroy(&mut attributes) };
+    if status != 0 || destroy_status != 0 || base.is_null() {
+        return None;
+    }
+    Some(base as usize + size)
+}
+
+/// The honest answer on platforms without a verified stack-top mechanism.
+#[cfg(not(any(target_os = "linux", all(target_arch = "x86_64", target_os = "windows"))))]
 pub fn current_thread_stack_high() -> Option<usize> {
     None
 }
@@ -71,4 +101,17 @@ pub fn current_thread_stack_high() -> Option<usize> {
 /// this crate's rule 2 exists to make impossible to miss.
 pub fn install(context: &mut Context) {
     context.stack_high = current_thread_stack_high();
+}
+
+#[cfg(all(test, any(target_os = "linux", all(target_arch = "x86_64", target_os = "windows"))))]
+mod tests {
+    use super::current_thread_stack_high;
+
+    #[test]
+    fn current_thread_stack_high_is_above_a_live_frame() {
+        let anchor = 0u8;
+        let frame = &anchor as *const u8 as usize;
+        let high = current_thread_stack_high().expect("the current platform has a stack bound");
+        assert!(high > frame, "stack high {high:#x} is not above frame {frame:#x}");
+    }
 }

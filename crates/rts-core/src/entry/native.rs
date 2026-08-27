@@ -277,8 +277,7 @@ pub(in crate::entry) fn species(context: &mut Context, constructor: u64) {
     let Some(cell) = Value(constructor).as_slot() else {
         return;
     };
-    let key = format!("{}species", super::symbol::PREFIX);
-    getter(context, cell, &key, receiver as Native);
+    getter(context, cell, super::symbol::SPECIES, receiver as Native);
 }
 
 /// A getter answering its receiver — `Symbol.species`, and nothing else yet.

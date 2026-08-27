@@ -61,9 +61,13 @@ pub(super) fn made(original: u64, length: usize) -> Option<u64> {
     // side table, not the prototype, so an array whose prototype was replaced
     // still answers here and a plain object that inherited from one does not.
     let held = with_current(|context| {
-        Value(original)
-            .as_slot()
-            .is_some_and(|cell| context.elements_at(cell).is_some())
+        let Some(cell) = Value(original).as_slot() else {
+            return false;
+        };
+        if context.elements_at(cell).is_none() {
+            return false;
+        }
+        true
     });
     if !held {
         return None;
@@ -80,7 +84,7 @@ pub(super) fn made(original: u64, length: usize) -> Option<u64> {
     // An absent species is the CONSTRUCTOR itself, which is what the getter the
     // language puts on `Array` returns: `class Same extends Array {}` maps into
     // a `Same`.
-    let answered = property(constructor, "@@species").unwrap_or(constructor);
+    let answered = property(constructor, super::super::symbol::SPECIES).unwrap_or(constructor);
     let chosen = with_current(|context| {
         // `undefined` and `null` are the two the specification names as "use the
         // default", and a species that cannot be constructed with is a
@@ -90,15 +94,21 @@ pub(super) fn made(original: u64, length: usize) -> Option<u64> {
         if answered == objects::undefined_of(context) {
             return None;
         }
-        let cell = Value(answered).as_slot()?;
-        context.callable_at(cell)?;
+        let Some(cell) = Value(answered).as_slot() else {
+            return None;
+        };
+        if context.callable_at(cell).is_none() {
+            return None;
+        }
         // The built-in `Array` answers what the default already makes, so it is
         // not worth a construction — and running one would only be slower.
-        match built_in(context) == Some(answered) {
-            true => None,
-            false => Some(answered),
+        let builtin = built_in(context) == Some(answered);
+        if builtin {
+            return None;
         }
-    })?;
+        Some(answered)
+    });
+    let chosen = chosen?;
     let absent = with_current(|context| objects::undefined_of(context));
     let counted = Value::from_f64(length as f64).bits();
     Some(functions::construct(chosen, counted, absent, absent, absent))
@@ -157,6 +167,7 @@ pub(in crate::entry) fn property(value: u64, name: &str) -> Option<u64> {
         Found::Absent => None,
     }
 }
+
 
 /// The array a method that PRODUCES one answers, species consulted.
 ///

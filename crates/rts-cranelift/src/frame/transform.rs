@@ -752,6 +752,7 @@ fn replace_operands(inst: &mut Inst, replacements: &[ValueId]) {
         Inst::Widen(v)
         | Inst::ToInt32(v)
         | Inst::ToF64(v)
+        | Inst::ToF64Unsigned(v)
         | Inst::WordLoad { address: v }
         | Inst::IsSingleton { value: v, .. }
         | Inst::FloatUnary(_, v) => *v = take(),
