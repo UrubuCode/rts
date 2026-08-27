@@ -118,6 +118,27 @@ pub fn unknown_encoding(encoding: &str) {
     );
 }
 
+/// Raises a numeric `RangeError [ERR_OUT_OF_RANGE]`, optionally using Node's
+/// grouped presentation for variable-width 48-bit values.
+pub fn out_of_range_number(name: &str, expected: &str, number: f64, grouped: bool) {
+    let received = if grouped
+        && number.is_finite()
+        && number.fract() == 0.0
+        && number.abs() >= 4_294_967_296.0
+    {
+        grouped_integer(number)
+    } else {
+        format!("{number}")
+    };
+    raise(
+        "RangeError",
+        "ERR_OUT_OF_RANGE",
+        &format!(
+            "The value of \"{name}\" is out of range. It must be {expected}. Received {received}"
+        ),
+    );
+}
+
 /// Raises `RangeError [ERR_BUFFER_OUT_OF_BOUNDS]`.
 ///
 /// Node's own message has two forms: with an argument name for a bound that was
@@ -217,8 +238,27 @@ fn kind_text(value: u64) -> String {
 
 /// A value as a message renders it — the same rendering, without the "type".
 fn value_text(value: u64) -> String {
-    with_current(|context| match super::modules::text_in(context, value) {
-        Some(text) => text,
-        None => String::from("undefined"),
+    with_current(|context| {
+        match super::modules::text_in(context, value) {
+            Some(text) => text,
+            None => String::from("undefined"),
+        }
     })
+}
+
+/// Node's Buffer range diagnostics group integers once they leave the 32-bit
+/// range; the separator is presentation only and must not affect the value.
+fn grouped_integer(number: f64) -> String {
+    let negative = number.is_sign_negative();
+    let mut digits = format!("{:.0}", number.abs());
+    let mut at = digits.len().saturating_sub(3);
+    while at > 0 {
+        digits.insert(at, '_');
+        at = at.saturating_sub(3);
+    }
+    if negative {
+        format!("-{digits}")
+    } else {
+        digits
+    }
 }

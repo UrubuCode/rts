@@ -128,6 +128,27 @@ pub(in crate::entry) fn size(name: &str, value: u64) -> Option<usize> {
     Some(number as usize)
 }
 
+/// The numeric part of an offset, after type and integralness checks.
+///
+/// Keeping this first step separate matters for a short buffer: Node reports an
+/// invalid type or a fractional offset before it reports that the element cannot
+/// fit, but reports out-of-bounds for an integer, Infinity, or a negative value.
+fn integer_offset(name: &str, value: u64) -> Option<f64> {
+    let number = match shape_of(value) {
+        Shape::Absent => 0.0,
+        Shape::Number(number) => number,
+        _ => {
+            errors::invalid_arg_type(name, "number", value);
+            return None;
+        }
+    };
+    if number.is_nan() || (number.is_finite() && number.fract() != 0.0) {
+        errors::out_of_range(name, "an integer", value);
+        return None;
+    }
+    Some(number)
+}
+
 /// A position inside a buffer: every `read*`/`write*` offset, and `buf.write`'s.
 ///
 /// `limit` is the largest offset that is still inside — the caller subtracts the
@@ -139,22 +160,8 @@ pub(in crate::entry) fn size(name: &str, value: u64) -> Option<usize> {
 /// `test-buffer-readuint.js` asserts explicitly for both `undefined` and no
 /// argument at all.
 pub(in crate::entry) fn offset(name: &str, value: u64, limit: usize) -> Option<usize> {
-    let number = match shape_of(value) {
-        Shape::Absent => return Some(0),
-        Shape::Number(number) => number,
-        _ => {
-            errors::invalid_arg_type(name, "number", value);
-            return None;
-        }
-    };
-    // Two range messages, not one, because Node distinguishes them and the test
-    // compares the text: a fractional or non-finite offset "must be an integer",
-    // where an integer outside the buffer names the bounds it missed.
-    if !number.is_finite() || number.fract() != 0.0 {
-        errors::out_of_range(name, "an integer", value);
-        return None;
-    }
-    if number < 0.0 || number > limit as f64 {
+    let number = integer_offset(name, value)?;
+    if !number.is_finite() || number < 0.0 || number > limit as f64 {
         errors::out_of_range(name, &format!(">= 0 and <= {limit}"), value);
         return None;
     }
@@ -200,13 +207,17 @@ pub(in crate::entry) fn element_offset(
     count: usize,
     width: usize,
 ) -> Option<usize> {
-    match count.checked_sub(width) {
-        Some(limit) => offset(name, value, limit),
-        None => {
-            errors::buffer_out_of_bounds(Some(name));
-            None
-        }
+    let number = integer_offset(name, value)?;
+    if width > count {
+        errors::buffer_out_of_bounds(None);
+        return None;
     }
+    let limit = count - width;
+    if !number.is_finite() || number < 0.0 || number > limit as f64 {
+        errors::out_of_range(name, &format!(">= 0 and <= {limit}"), value);
+        return None;
+    }
+    Some(number as usize)
 }
 
 /// A `Buffer.from`/`Buffer.byteLength` source.
@@ -269,6 +280,75 @@ pub(in crate::entry) fn encoding(value: u64) -> Option<String> {
             None
         }
     }
+}
+
+/// A byte length for `read/write{Int,UInt}{LE,BE}`.
+pub(in crate::entry) fn byte_length(value: u64) -> Option<usize> {
+    let number = match shape_of(value) {
+        Shape::Number(number) => number,
+        _ => {
+            errors::invalid_arg_type("byteLength", "number", value);
+            return None;
+        }
+    };
+    if number.is_nan() || (number.is_finite() && number.fract() != 0.0) {
+        errors::out_of_range("byteLength", "an integer", value);
+        return None;
+    }
+    if !number.is_finite() || number < 1.0 || number > 6.0 {
+        errors::out_of_range("byteLength", ">= 1 and <= 6", value);
+        return None;
+    }
+    Some(number as usize)
+}
+
+/// A required offset for a variable-width integer operation.
+pub(in crate::entry) fn variable_offset(value: u64, count: usize, width: usize) -> Option<usize> {
+    let number = match shape_of(value) {
+        Shape::Number(number) => number,
+        _ => {
+            errors::invalid_arg_type("offset", "number", value);
+            return None;
+        }
+    };
+    if number.is_nan() || (number.is_finite() && number.fract() != 0.0) {
+        errors::out_of_range("offset", "an integer", value);
+        return None;
+    }
+    let limit = count.saturating_sub(width);
+    if !number.is_finite() || number < 0.0 || number > limit as f64 {
+        if width > count {
+            errors::buffer_out_of_bounds(None);
+        } else {
+            errors::out_of_range("offset", &format!(">= 0 and <= {limit}"), value);
+        }
+        return None;
+    }
+    Some(number as usize)
+}
+
+/// Whether a variable-width integer value fits its signedness and byte width.
+pub(in crate::entry) fn variable_fits(value: f64, width: usize, signed: bool) -> bool {
+    let bits = (width * 8) as u32;
+    let (low, high) = if signed {
+        (-(2f64.powi(bits as i32 - 1)), 2f64.powi(bits as i32 - 1) - 1.0)
+    } else {
+        (0.0, 2f64.powi(bits as i32) - 1.0)
+    };
+    if value.is_finite() && value.fract() == 0.0 && value >= low && value <= high {
+        return true;
+    }
+    let expected = if signed && width > 4 {
+        format!(">= -(2 ** {}) and < 2 ** {}", bits - 1, bits - 1)
+    } else if !signed && width > 4 {
+        format!(">= 0 and < 2 ** {bits}")
+    } else if signed {
+        format!(">= {low} and <= {high}")
+    } else {
+        format!(">= 0 and <= {high}")
+    };
+    errors::out_of_range_number("value", &expected, value, width > 4);
+    false
 }
 
 /// Whether a number fits the integer element it is about to be written as.
