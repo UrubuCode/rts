@@ -124,20 +124,20 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `d28828e`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `aa45a17`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 26 ms | 60 ms | 55 ms | 47 ms | **29 ms** | **0.89×** | **2.03×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 431 ms | 785 ms | 760 ms | 1.09 s | **1.08 s** | **0.40×** | **0.73×** |
-| …the same RTS run, vs JS using native `Math.random` | 87 ms | 265 ms | 215 ms | 1.08 s | **1.08 s** | **0.08×** | **0.25×** |
+| Hello/startup | 31 ms | 68 ms | 61 ms | 52 ms | **33 ms** | **0.94×** | **2.03×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 432 ms | 787 ms | 762 ms | 1.08 s | **1.07 s** | **0.40×** | **0.74×** |
+| …the same RTS run, vs JS using native `Math.random` | 87 ms | 260 ms | 213 ms | 1.08 s | **1.06 s** | **0.08×** | **0.24×** |
 | π Machin f64 (RTS only) | — | — | — | 22 ms | **13 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 361 ms | **350 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 46 ms | **35 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 180 ms | **170 ms** | — | — |
-| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 51 ms | **29 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 673 ms | **653 ms** | — | — |
-| one loop, state as a local / captured / property | 262 ms | 531 ms | 435 ms | 216 ms | **197 ms** | **1.33×** | **2.70×** |
+| 3M objects allocated (RTS only) | — | — | — | 353 ms | **344 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 46 ms | **34 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 175 ms | **163 ms** | — | — |
+| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 49 ms | **28 ms** | — | — |
+| string indexing, input doubled four times (RTS only) | — | — | — | 648 ms | **651 ms** | — | — |
+| one loop, state as a local / captured / property | 261 ms | 532 ms | 437 ms | 215 ms | **195 ms** | **1.34×** | **2.73×** |
 
 _Updated: 2026-08-27 — run locally with `powershell -File bench/benchmark.ps1`_
 
