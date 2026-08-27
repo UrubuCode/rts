@@ -156,26 +156,6 @@ pub(in crate::entry) fn pattern_of(context: &Context, value: u64, encoding: &str
 // Instance methods
 // ---------------------------------------------------------------------------
 
-/// `buf.toString(encoding?, start?, end?)`.
-pub(in crate::entry) fn to_string(this: u64, encoding: u64, start: u64, end: u64) -> u64 {
-    // The encoding is the only argument Node refuses here: `start` and `end` are
-    // defined to clamp, so `buf.toString('utf8', 0, 99)` is an answer and not a
-    // mistake. `buf.toString('nope')` is `ERR_UNKNOWN_ENCODING`.
-    let Some(enc) = validate::encoding(encoding) else {
-        return undefined();
-    };
-    let start = optional_number(start);
-    let end = optional_number(end);
-    with_current(|context| {
-        let absent = undefined_of(context);
-        let Some(view) = view_of(context, this) else { return absent };
-        let Some(bytes) = window(context, &view) else { return absent };
-        let (first, last) = range(bytes.len(), start, end);
-        let text = codec::decode(&bytes[first..last], &enc);
-        context.intern_value(crate::text::Str::from_str(&text)).bits()
-    })
-}
-
 /// `buf.write(string, offset?, length?, encoding?)`.
 ///
 /// # The two-argument form, and why a string `offset` is not always one

@@ -49,6 +49,7 @@ pub(in crate::entry) mod bigint;
 pub(in crate::entry) mod codec;
 pub(in crate::entry) mod ops;
 pub(in crate::entry) mod statics;
+pub(in crate::entry) mod string;
 pub(in crate::entry) mod swap;
 pub(in crate::entry) mod validate;
 
@@ -146,7 +147,7 @@ impl Buffer {
 
     /// `buf.toString(encoding?, start?, end?)`.
     fn to_string(this: u64, encoding: u64, start: u64, end: u64) -> u64 {
-        ops::to_string(this, encoding, start, end)
+        string::to_string(this, encoding, start, end)
     }
 
     /// `buf.write(string, offset?, length?, encoding?)`.

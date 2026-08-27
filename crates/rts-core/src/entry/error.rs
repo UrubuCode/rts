@@ -252,6 +252,10 @@ fn written(this: u64, message: u64, class: &'static str) -> u64 {
             let value = context.intern_value(text).bits();
             let key = context.well_known("message");
             super::objects::put(context, cell, key, value);
+            // Node exposes `message` as an own property, but not as an enumerable
+            // one. Keeping the data property and changing only its attributes
+            // preserves ordinary reads while making `Object.keys(error)` agree.
+            super::native::hidden(context, cell, key);
         }
 
         // `.stack`, captured HERE — where the error is CONSTRUCTED, not where it
@@ -270,6 +274,7 @@ fn written(this: u64, message: u64, class: &'static str) -> u64 {
         let value = context.intern_value(crate::text::Str::from_str(&stack)).bits();
         let key = context.well_known("stack");
         super::objects::put(context, cell, key, value);
+        super::native::hidden(context, cell, key);
 
         Value::from_slot(cell).bits()
     })
