@@ -86,8 +86,35 @@ extern "C" fn char_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u
 
 /// `s.charCodeAt(i)` — the code unit as a number.
 extern "C" fn char_code_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    // `ToString(RequireObjectCoercible(this))`, before any borrow — see
-    // `super::coerce_receiver`.
+    // A primitive index has no conversion effects, so it may be decoded before
+    // the receiver only in this branch. If the receiver is already a text cell,
+    // read both values under one borrow instead of asking `coerce_receiver` for
+    // a cell and borrowing the context again for the code unit.
+    if matches!(
+        Value(index).kind(),
+        crate::value::Kind::Float
+            | crate::value::Kind::Int
+            | crate::value::Kind::Bool
+            | crate::value::Kind::Singleton(_)
+    ) {
+        if let Some(answer) = with_current(|context| {
+            let cell = Value(this).as_slot()?;
+            let text = context.text_at(cell)?;
+            let at = super::integer_arg(context, index);
+            if at < 0.0 || at >= text.len() as f64 {
+                return Some(Value::from_f64(f64::NAN).bits());
+            }
+            Some(match text.unit_at(at as usize) {
+                Some(unit) => Value::from_f64(f64::from(unit)).bits(),
+                None => Value::from_f64(f64::NAN).bits(),
+            })
+        }) {
+            return answer;
+        }
+    }
+
+    // The fallback preserves the specified order: receiver conversion happens
+    // before an object index can run its `valueOf` hook.
     let Some(this) = super::coerce_receiver(this) else {
         return super::refused();
     };
@@ -107,10 +134,6 @@ extern "C" fn char_code_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _
         };
         let at = super::integer_arg(context, index);
         if at < 0.0 || at >= text.len() as f64 {
-            // `NaN`, not `undefined`. A program comparing the result to a number
-            // gets false either way; one doing arithmetic with it gets `NaN`
-            // where `undefined` would also give `NaN` — but `typeof` tells them
-            // apart, and the language says which it is.
             return Value::from_f64(f64::NAN).bits();
         }
         match text.unit_at(at as usize) {
