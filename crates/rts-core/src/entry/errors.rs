@@ -57,6 +57,49 @@ pub fn invalid_arg_instance(name: &str, expected: &str, actual: u64) {
     );
 }
 
+/// Raises the legacy `Buffer.from` source diagnostic.
+///
+/// Node keeps this sentence separate from the named-argument form used by
+/// newer Buffer methods. In particular, it includes the constructor name when
+/// a forged object reaches the refusal, which is why it cannot call the generic
+/// [`invalid_arg_type`] formatter.
+pub fn invalid_buffer_source(actual: u64) {
+    raise(
+        "TypeError",
+        "ERR_INVALID_ARG_TYPE",
+        &format!(
+            "The first argument must be of type string or an instance of Buffer, \
+             ArrayBuffer, or Array or an Array-like Object. Received {}",
+            buffer_kind_text(actual)
+        ),
+    );
+}
+
+/// Raises the narrower `Buffer.byteLength` source diagnostic.
+pub fn invalid_buffer_byte_length_source(actual: u64) {
+    raise(
+        "TypeError",
+        "ERR_INVALID_ARG_TYPE",
+        &format!(
+            "The \"string\" argument must be of type string or an instance of \
+             Buffer or ArrayBuffer. Received {}",
+            kind_text(actual)
+        ),
+    );
+}
+
+/// Raises `Buffer.concat`'s list diagnostic.
+pub fn invalid_buffer_list(actual: u64) {
+    raise(
+        "TypeError",
+        "ERR_INVALID_ARG_TYPE",
+        &format!(
+            "The \"list\" argument must be an instance of Array. Received {}",
+            kind_text(actual)
+        ),
+    );
+}
+
 /// Raises `RangeError [ERR_OUT_OF_RANGE]`.
 pub fn out_of_range(name: &str, expected: &str, actual: u64) {
     let described = value_text(actual);
@@ -265,8 +308,35 @@ fn kind_text(value: u64) -> String {
         if let Some(number) = super::modules::number_of(value) {
             return format!("type number ({number})");
         }
+        if let Some(symbol) = super::symbol::described(context, value) {
+            return format!("type symbol ({symbol})");
+        }
+        if let Some(bigint) = super::bigints::digits_of(context, value) {
+            return format!("type bigint ({}n)", bigint.to_decimal());
+        }
         if super::modules::is_callable_in(context, value) {
             return String::from("function");
+        }
+        if let Some(cell) = crate::value::Value(value).as_slot() {
+            for class in [
+                "Buffer",
+                "Uint8Array",
+                "Int8Array",
+                "Uint8ClampedArray",
+                "Uint16Array",
+                "Int16Array",
+                "Uint32Array",
+                "Int32Array",
+                "Float32Array",
+                "Float64Array",
+                "DataView",
+                "ArrayBuffer",
+                "SharedArrayBuffer",
+            ] {
+                if super::object_proto::extends_class(context, cell, class) {
+                    return format!("an instance of {class}");
+                }
+            }
         }
         if super::modules::is_array_in(context, value) {
             return String::from("an instance of Array");
@@ -289,6 +359,44 @@ fn kind_text(value: u64) -> String {
         let shown = super::primitives::to_boolean_in(context, value);
         format!("type boolean ({shown})")
     })
+}
+
+/// The source description used by the legacy `Buffer.from` sentence.
+///
+/// Its generic error helper deliberately reports every object as `Object`, but
+/// Node's historical Buffer diagnostic reports a user constructor such as `AB`.
+/// Reading `constructor.name` here is data-only: the ordinary property reader
+/// does not invoke accessors or user code, so the error remains outside a
+/// re-entrant callback.
+fn buffer_kind_text(value: u64) -> String {
+    let (class_name, custom_value_of) = with_current(|context| {
+        let Some(cell) = crate::value::Value(value).as_slot() else {
+            return (None, false);
+        };
+        let constructor = context.well_known("constructor");
+        let class_name = super::objects::read_property(context, cell, constructor)
+            .and_then(|constructor| crate::value::Value(constructor.bits()).as_slot())
+            .and_then(|constructor| {
+                let name = context.well_known("name");
+                super::objects::read_property(context, constructor, name)
+            })
+            .and_then(|name| name.as_slot())
+            .and_then(|name| context.text_at(name).and_then(|text| text.to_rust()));
+        let value_of = context.well_known("valueOf");
+        let custom_value_of = super::objects::own_property(context, cell, value_of)
+            .is_some_and(|value_of| super::modules::is_callable_in(context, value_of.bits()));
+        (class_name, custom_value_of)
+    });
+    if custom_value_of {
+        return String::from("[object Object]");
+    }
+    if let Some(name) = class_name.as_ref().filter(|name| !name.is_empty()) {
+        return format!("an instance of {name}");
+    }
+    match kind_text(value).as_str() {
+        "function" => String::from("function "),
+        other => other.to_owned(),
+    }
 }
 
 /// A value as a message renders it — the same rendering, without the "type".

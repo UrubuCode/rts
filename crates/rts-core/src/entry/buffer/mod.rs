@@ -66,14 +66,18 @@ impl Buffer {
     ///
     /// Node keeps this callable for compatibility even though modern code uses
     /// `Buffer.from` or `Buffer.alloc`. Numbers follow the legacy unsafe-size
-    /// path; all other sources reuse the validated `from` implementation.
+    /// path only without an encoding; all other sources reuse `from`.
     #[construct]
-    fn build(this: u64, source: u64, encoding_or_offset: u64) -> u64 {
+    fn build(this: u64, source: u64, encoding_or_offset: u64, length: u64) -> u64 {
         let _ = this;
         if entry::number_of(source).is_some() {
+            if !matches!(validate::shape_of(encoding_or_offset), validate::Shape::Absent) {
+                entry::invalid_arg_type("string", "string", source);
+                return entry::undefined_value();
+            }
             return statics::alloc_unsafe(source);
         }
-        statics::from(source, encoding_or_offset)
+        statics::from(source, encoding_or_offset, length)
     }
 
     /// `Buffer.poolSize` — Node's allocation-pool size. Meaningless here: this
@@ -101,14 +105,13 @@ impl Buffer {
     fn alloc_unsafe(size: u64) -> u64 {
         statics::alloc_unsafe(size)
     }
-
     /// `Buffer.allocUnsafeSlow(size)`.
     #[stat]
     fn alloc_unsafe_slow(size: u64) -> u64 { statics::alloc_unsafe(size) }
     /// `Buffer.from(source, encodingOrOffset?)`.
     #[stat]
-    fn from(source: u64, encoding_or_offset: u64) -> u64 {
-        statics::from(source, encoding_or_offset)
+    fn from(source: u64, encoding_or_offset: u64, length: u64) -> u64 {
+        statics::from(source, encoding_or_offset, length)
     }
 
     /// `Buffer.of(...values)`.

@@ -96,6 +96,16 @@ pub(in crate::entry) fn shape_of(value: u64) -> Shape {
             // strings unusable as Buffer input.
             return Shape::Text(text.to_rust_lossy());
         }
+        // `new String(value)` and its subclasses are objects, but Buffer.from
+        // consumes their wrapped primitive. Keep Number/Boolean wrappers out
+        // of this branch: Node refuses them as sources rather than treating
+        // them as numeric or boolean data.
+        if let Some(boxed) = context.boxed_at(cell)
+            && let Some(primitive) = Value(boxed).as_slot()
+            && let Some(text) = context.text_at(primitive)
+        {
+            return Shape::Text(text.to_rust_lossy());
+        }
         match context.elements_at(cell) {
             Some(elements) => Shape::List(elements.clone()),
             None => Shape::Other,
@@ -285,12 +295,31 @@ pub(in crate::entry) fn source(name: &str, value: u64) -> Option<Shape> {
         found @ (Shape::Text(_) | Shape::List(_) | Shape::Bytes(_) | Shape::ArrayBuffer) => {
             Some(found)
         }
+        Shape::Other if with_current(|context| {
+            super::super::primitive::is_object_in(context, value)
+                && !super::super::modules::is_callable_in(context, value)
+        }) => {
+            let _ = name;
+            Some(Shape::Other)
+        }
         _ => {
-            errors::invalid_arg_type(
-                name,
-                "string or an instance of Buffer, TypedArray, DataView, or Array",
-                value,
-            );
+            let _ = name;
+            errors::invalid_buffer_source(value);
+            None
+        }
+    }
+}
+
+/// The source contract for `Buffer.byteLength`.
+///
+/// It is intentionally narrower than [`source`]: Node accepts views at runtime,
+/// but its refusal sentence only names strings, Buffers and ArrayBuffers, and it
+/// treats an unknown encoding as UTF-8 rather than rejecting it.
+pub(in crate::entry) fn byte_length_source(value: u64) -> Option<Shape> {
+    match shape_of(value) {
+        found @ (Shape::Text(_) | Shape::Bytes(_) | Shape::ArrayBuffer) => Some(found),
+        _ => {
+            errors::invalid_buffer_byte_length_source(value);
             None
         }
     }
@@ -302,7 +331,7 @@ pub(in crate::entry) fn source(name: &str, value: u64) -> Option<Shape> {
 /// half that makes a failure in a hundred-element concat findable.
 pub(in crate::entry) fn list(value: u64) -> Option<Vec<u64>> {
     let Shape::List(elements) = shape_of(value) else {
-        errors::invalid_arg_type("list", "Array", value);
+        errors::invalid_buffer_list(value);
         return None;
     };
     for (at, element) in elements.iter().enumerate() {
