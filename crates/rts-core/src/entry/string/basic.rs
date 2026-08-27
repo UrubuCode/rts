@@ -182,6 +182,39 @@ extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -
 
 /// `s.slice(from, to)` — negative counts from the end.
 extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
+    // A bare narrow string and primitive bounds cannot run user code. Resolve
+    // both bounds and copy the requested byte range under one borrow. Objects,
+    // wrappers, symbols, BigInts and wide strings keep the staged path below,
+    // where conversion order and UTF-16 semantics remain unchanged.
+    let primitive_bound = |value: u64| {
+        matches!(
+            Value(value).kind(),
+            crate::value::Kind::Float
+                | crate::value::Kind::Int
+                | crate::value::Kind::Bool
+                | crate::value::Kind::Singleton(_)
+        )
+    };
+    if primitive_bound(from) && primitive_bound(to) {
+        if let Some(answer) = with_current(|context| {
+            let bytes = context.text_at(Value(this).as_slot()?)?.narrow()?;
+            let start = relative(super::integer_arg(context, from), bytes.len());
+            let end = if absent(context, to) {
+                bytes.len()
+            } else {
+                relative(super::integer_arg(context, to), bytes.len())
+            };
+            let taken = if start >= end {
+                Vec::new()
+            } else {
+                bytes[start..end].to_vec()
+            };
+            Some(answer_owned(context, taken))
+        }) {
+            return answer;
+        }
+    }
+
     // `ToString(RequireObjectCoercible(this))`, before any borrow — see
     // `super::coerce_receiver`.
     let Some(this) = super::coerce_receiver(this) else {

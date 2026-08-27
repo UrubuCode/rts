@@ -2605,6 +2605,19 @@ fn slice_crosses_where_substring_swaps() {
 }
 
 #[test]
+fn slice_keeps_receiver_and_bound_conversion_order_off_the_direct_path() {
+    let produced = run(
+        "let order = ''; \
+         let receiver = { toString() { order = order + 'r'; return 'abcd'; } }; \
+         let from = { valueOf() { order = order + 'f'; return 1; } }; \
+         let to = { valueOf() { order = order + 't'; return 3; } }; \
+         let result = String.prototype.slice.call(receiver, from, to); \
+         return result === 'bc' && order === 'rft';"
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
 fn char_at_answers_the_empty_string_where_the_index_answers_undefined() {
     // Both spellings exist because they disagree here, and an engine answering
     // the same for both makes `s.charAt(9) === ""` false.
