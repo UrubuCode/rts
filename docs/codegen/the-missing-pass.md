@@ -50,6 +50,59 @@ value in that file is annotated `: number`, which is worth stating plainly: the
 annotations are not what proves an operand here, and a reader who assumes they
 are will not understand the emitted code.
 
+## How much of the guard traffic the pass would actually reach
+
+*Added 2026-08-28, counted rather than estimated.* Before writing a pass it is
+worth knowing what fraction of the guards it could remove, because two cheaper
+answers look plausible until they are counted.
+
+`rts ir` over `bench/analytic.ts`, every `Guard` split by what its input is:
+
+| | |
+|---|---:|
+| guards in the program | **794** |
+| …whose input is a **block parameter** — the cross-block case | **137** (17%) |
+| …whose input is defined in the same block | 657 (83%) |
+
+**The local 83% are not the pass's to take.** `ir/fold.rs` already folds a guard
+whose answer is known within one instruction, so a `Guard(Widen(x), F64)` where
+`x` is an `F64` is gone before anyone sees it. What is left in that column is
+genuine: a property read produces `Tagged` because a property genuinely can be
+anything, and `emit/property.rs:87` makes its join parameter `UNPROVEN` for that
+reason.
+
+So the pass's reach is the 137, and the direct saving is what this document
+already measures at 0.65 ns for an accumulator across a back edge. **The
+compounding is the larger half and is not in that number** — see the section
+above: a value that arrives `Tagged` also fails `machine_operation`'s
+precondition, which is what turns `Math.floor` from one instruction into a full
+JavaScript call.
+
+### Two cheaper answers, counted and refused
+
+**Lowering `ToBoolean` inline.** Plausible: `if (x)` is everywhere and it is a
+runtime crossing. Counted, it is not:
+
+| program | `__rts_to_boolean` call sites |
+|---|---:|
+| `bench/analytic.ts` | 23 |
+| `bench/objbench.ts` | 0 |
+| `bench/monte_carlo_pi.ts` | 0 |
+| a call-heavy loop | 1 |
+
+`emit/expr.rs::to_boolean` already returns a proven `Bool` untouched and unwraps
+a widened one, and between them those two cover almost every condition a program
+writes. Adding an inline path for a proven `F64` would fire on a handful of
+sites. Not worth the branch it would add.
+
+**Consulting `widened_source` at the guard sites.** `emit/expr.rs:789` is the
+only caller of it, and the arithmetic guards at `:1900`/`:1913` do not ask. But
+they do not need to: `fold.rs`'s `guard_answer` answers the same question one
+level down, which is why 83% of the guards above are either already folded or
+genuinely unknown. The gap is exactly the one `fold.rs`'s own header names —
+"anything needing a fixed point, a traversal, or knowledge of a second block" —
+and it is the 137.
+
 ## What the engine emits
 
 `rts ir` on `let a = 0; for (let i = 0; i < n; i++) a += arr[i & 1023];` produces
