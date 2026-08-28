@@ -76,6 +76,7 @@ pub struct Placing<'a> {
 pub struct InMemory {
     module: cranelift_jit::JITModule,
     placed: Vec<(FuncId, *const u8)>,
+    code: crate::observe::CodeMap,
 }
 
 impl InMemory {
@@ -85,6 +86,33 @@ impl InMemory {
             .iter()
             .find(|(placed, _)| *placed == id)
             .map(|(_, address)| *address)
+    }
+
+    /// Which function an address in this program is in, and where in the
+    /// client's source that code came from.
+    ///
+    /// # Why this is built here and could not be built anywhere else
+    ///
+    /// `observe::CodeMap` needs two halves that exist at different moments.
+    /// What a function is called and how much code it became is known while
+    /// compiling and is gone by the time anything runs; where it ENDED UP is
+    /// only known after `finalize_definitions`, which is after the module that
+    /// knew the first half has been given up. This function is the one point
+    /// where both are in hand.
+    ///
+    /// Until 2026-08-28 nothing built it. `CodeMap`, `MachineModule::place`
+    /// and `PositionMap` were complete and tested, and the only caller of any
+    /// of them was `tests/observability.rs` — so the two things they exist to
+    /// answer went unanswered: `entry/throw.rs` builds a stack trace by walking
+    /// a runtime-side list of callees instead of the machine stack, and says in
+    /// its own documentation that it carries no source POSITION because
+    /// "nothing maps an address back to one at run time".
+    ///
+    /// This is that map. `docs/engine/the-unwired-keystone.md` has what it
+    /// unblocks and what still has to be built on top: a stack walk, and the
+    /// two consumers switched over to it.
+    pub fn code_map(&self) -> &crate::observe::CodeMap {
+        &self.code
     }
 
     /// How many functions were placed.
@@ -137,19 +165,32 @@ pub unsafe fn place_in_memory(
     heap: Option<crate::mem::RegionBases>,
 ) -> Result<InMemory, TargetError> {
     let mut jit = executable_memory_calling(outside)?;
-    let machine_ids = compile_batch(&mut jit, program, funcs, types, heap)?;
+    // The emitted description comes back with the identifiers, because the
+    // module that holds it borrows `jit` and has to be given up before
+    // `finalize_definitions` can run — and the addresses do not exist until
+    // after that. Two halves, two moments, one place they meet: here.
+    let (machine_ids, placements) = compile_batch(&mut jit, program, funcs, types, heap)?;
 
     jit.finalize_definitions()
         .map_err(|error| TargetError::Module(error))?;
 
-    let placed = machine_ids
+    let placed: Vec<(FuncId, *const u8)> = machine_ids
         .into_iter()
         .map(|(id, machine_id)| (id, jit.get_finalized_function(machine_id)))
         .collect();
 
+    let mut code = crate::observe::CodeMap::new();
+    for (id, address) in &placed {
+        // A function declared and never defined has a name and no code.
+        // Recording zero bytes of it would put a hole in the map at a real
+        // address, which is why `emitted` only carries what was compiled.
+        placements.place(&mut code, *id, *address as usize);
+    }
+
     Ok(InMemory {
         module: jit,
         placed,
+        code,
     })
 }
 
@@ -201,7 +242,7 @@ fn compile_batch(
     funcs: &FuncRegistry,
     types: &TypeRegistry,
     heap: Option<crate::mem::RegionBases>,
-) -> Result<Vec<(FuncId, cranelift_module::FuncId)>, TargetError> {
+) -> Result<(Vec<(FuncId, cranelift_module::FuncId)>, super::Placements), TargetError> {
     // How a reference becomes an address is a property of the heap rather
     // than of any function compiled against it, which is why it is given to
     // the module once and not passed at each definition.
@@ -244,5 +285,10 @@ fn compile_batch(
             machine_ids.push((placing.id, machine_id));
         }
     }
-    Ok(machine_ids)
+
+    // Taken before the module is given up, because that is the only moment it
+    // exists: `MachineModule` borrows the destination, and the destination has
+    // to be handed back before it can be finalized. `Placements` is the shape
+    // this crate already had for exactly that hand-over.
+    Ok((machine_ids, module.into_placements()))
 }

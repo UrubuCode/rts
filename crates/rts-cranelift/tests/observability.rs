@@ -229,3 +229,67 @@ fn a_function_that_was_declared_and_never_defined_is_not_placed() {
     assert!(map.is_empty());
     std::mem::forget(jit);
 }
+
+/// The map a whole placed program carries, which nothing built until now.
+///
+/// The tests above prove `CodeMap` works when a test assembles one by hand.
+/// That is what it did for as long as it existed: `MachineModule::place`,
+/// `CodeMap` and `PositionMap` were complete and tested, and every caller of
+/// any of them was in this file. So the map a RUNNING program would need was
+/// never built, and `entry/throw.rs` says what that cost — a stack trace with
+/// no source position, because "nothing maps an address back to one at run
+/// time".
+///
+/// This pins the other half: `place_in_memory` builds the map itself, so an
+/// address taken out of a real placement answers with the function it is in.
+#[test]
+fn a_placed_program_carries_a_map_of_itself() {
+    use rts_cranelift::target::{Placing, Visibility, place_in_memory};
+
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature {
+        params: vec![Repr::I64],
+        returns: vec![Repr::I64],
+        ..Signature::default()
+    });
+    let id = funcs.declare_function(shape);
+    let body = three_additions([70, 71, 72]);
+
+    let placing = [Placing {
+        id,
+        name: "mapped",
+        visibility: Visibility::Exported,
+        body: Some(&body),
+    }];
+
+    // SAFETY: nothing is expected from outside, so there is no address whose
+    // signature this test could get wrong.
+    let placed = unsafe { place_in_memory(&placing, &[], &funcs, &types, None) }.expect("placed");
+
+    let address = placed.address_of(id).expect("defined") as usize;
+    let map = placed.code_map();
+    assert_eq!(map.len(), 1, "one function was placed, so one range is mapped");
+
+    let at_entry = map.attribute(address).expect("the entry address is in the program");
+    assert_eq!(
+        at_entry.function, "mapped",
+        "an address inside a placed function names that function"
+    );
+    assert_eq!(
+        at_entry.offset, 0,
+        "the entry address is the start of its function"
+    );
+
+    // A byte past the end belongs to nothing, which is the property that keeps
+    // a walk from naming a neighbour for a return address that left the program.
+    let (_, length) = map
+        .iter()
+        .next()
+        .map(|range| (range.name.clone(), range.length))
+        .expect("one range");
+    assert!(
+        map.attribute(address + length).is_none(),
+        "an address past the end of the only function is attributed to nothing"
+    );
+}
