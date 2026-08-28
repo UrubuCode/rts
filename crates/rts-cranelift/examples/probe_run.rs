@@ -1,60 +1,86 @@
-//! Roda o probe da máquina e imprime a tabela.
+//! Runs the machine probe and prints the table.
 //!
 //! ```text
 //! cargo run --release -p rts-cranelift --example probe_run
 //! ```
 //!
-//! # Por que isto faltava
+//! # Why this exists
 //!
-//! `src/probe/` existe desde que este crate existe e diz, no próprio doc, que os
-//! números dele são um CONTRATO: uma regressão neles é regressão da máquina, e um
-//! programa lento cujos números do probe não mudaram tem problema noutro lugar.
+//! `src/probe/` has been in this crate since the crate existed and its own
+//! module doc says the numbers are a CONTRACT: a regression in them is a
+//! regression in the machine layer, and a slow program whose probe numbers are
+//! unchanged has its problem somewhere else.
 //!
-//! Só que nada os rodava. `.claude/skills/perf-claim/SKILL.md` manda
-//! `cargo test -p rts-cranelift --test probe`, e esse alvo não existe — não há
-//! `tests/probe.rs`. Um contrato que ninguém pode ler não vincula nada.
+//! Nothing ran them. A contract nobody can read binds nothing.
 //!
-//! Um EXEMPLO e não um teste, de propósito: um teste que falha por lentidão
-//! falha na máquina de outra pessoa, no CI compartilhado, na terça de manhã. O
-//! probe é uma régua para ser lida por quem está medindo, não um portão.
+//! # Why an example and not a test
+//!
+//! A test that fails because a machine was busy fails on someone else's laptop,
+//! in shared CI, on a Tuesday morning. The probe is a ruler for whoever is
+//! measuring, not a gate. `.claude/skills/perf-claim/SKILL.md` names this
+//! command for that reason — it named `cargo test -p rts-cranelift --test probe`
+//! until 2026-08-28, and that target has never existed.
+//!
+//! # How to read it
+//!
+//! Against `loop_floor`, never in absolute terms. Every fixture runs its
+//! primitive inside a counted loop — that is what gives the instrument the
+//! resolution to tell these rows apart at all, see `probe/fixtures.rs` — so
+//! every row carries one compare, one branch and one increment that belong to
+//! the instrument. The floor is that and nothing else, and what a primitive
+//! costs is the distance from it.
 
 fn main() {
     let profile = rts_cranelift::probe::Profile::current();
-    println!("probe da maquina — perfil: {profile:?}");
+    println!("machine probe — profile: {profile:?}");
     if !profile.is_meaningful() {
         println!();
-        println!("  ATENCAO: este e um build DEBUG e o numero nao vale nada.");
-        println!("  Rode com --release. (`CLAUDE.md`: um numero de debug nao e um numero.)");
+        println!("  WARNING: this is a DEBUG build and the numbers are worth nothing.");
+        println!("  Run with --release. (`CLAUDE.md`: a debug number is not a number.)");
         println!();
     }
     println!();
-    println!("  {:<14} {:>12}   {}", "fixture", "ns/op", "o que e");
-    println!("  {:-<14} {:->12}   {:-<48}", "", "", "");
+    println!(
+        "  {:<14} {:>9}  {:>11}   {}",
+        "fixture", "ns/op", "above floor", "what it is"
+    );
+    println!("  {:-<14} {:->9}  {:->11}   {:-<46}", "", "", "", "");
 
-    let mut base = 0.0_f64;
+    // Enough inner iterations that the one call into the fixture disappears
+    // into them: at this count it contributes under a femtosecond per
+    // operation, which is the whole reason the loop is inside the compiled
+    // program rather than around it.
+    const TRIPS: u64 = 200_000_000;
+
+    let mut floor = 0.0_f64;
     for fixture in rts_cranelift::probe::all() {
-        // Iterações suficientes para que o relógio do SO não seja o limite: o
-        // piso é uma soma, e uma soma medida em dezenas de milhares de passadas
-        // some no ruído.
-        let measurement = rts_cranelift::probe::measure(&fixture, 2_000_000);
+        let measurement = rts_cranelift::probe::measure(&fixture, TRIPS);
         let ns = measurement.nanos_per_op();
-        if fixture.name == "arithmetic" {
-            base = ns;
+        if fixture.name == "loop_floor" {
+            floor = ns;
         }
-        // A RAZÃO contra a aritmética é o que se lê, não o valor absoluto: o
-        // absoluto varia com a máquina, e a razão é o que diz se uma operação
-        // custa o que deveria.
-        let vezes = if base > 0.0 { format!("{:.1}x", ns / base) } else { "-".to_owned() };
+        // The DISTANCE from the floor is the number. Reporting the totals alone
+        // would let a reader conclude that every primitive costs half a
+        // nanosecond, which is a statement about a counted loop and not about
+        // this layer at all.
+        let above = match fixture.name == "loop_floor" {
+            true => "-".to_owned(),
+            false => format!("{:+.2} ns", ns - floor),
+        };
         println!(
-            "  {:<14} {:>9.2} ns {:>6}   {}",
-            fixture.name, ns, vezes, fixture.about
+            "  {:<14} {:>6.2} ns  {:>11}   {}",
+            fixture.name, ns, above, fixture.about
         );
-        // O checksum é impresso para que um otimizador que apagasse o trabalho
-        // apareça como um número bom demais em vez de como um número rápido.
-        debug_assert!(measurement.checksum != i64::MIN, "o fixture nao computou nada");
+        // Printed so that an optimizer which deleted the work shows up as a
+        // number too good to be true rather than as a fast one.
+        debug_assert!(measurement.checksum != i64::MIN, "the fixture computed nothing");
     }
+
     println!();
-    println!("  A coluna de vezes e contra `arithmetic`, que e o piso da maquina.");
-    println!("  Uma leitura de campo que custe MUITO mais que o piso e onde a");
-    println!("  camada de cima deve procurar antes de culpar o proprio codigo.");
+    println!("  A row at the floor is a primitive this machine emits for free —");
+    println!("  it fits in the slack of a loop the processor is already running.");
+    println!("  `call_direct` is the one to watch: it is the cheapest call this");
+    println!("  layer can emit, so it is the floor under every call above it, and");
+    println!("  the distance between it and what a built-in costs belongs to");
+    println!("  somebody else. See docs/codegen/native-call-floor.md.");
 }
