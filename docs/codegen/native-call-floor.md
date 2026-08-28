@@ -354,6 +354,55 @@ so a refused call leaves the activation stacks exactly as it found them.
 
 ---
 
+## 5b. REFUTED: moving the callee stack out of `invoke`
+
+**Do not do this.** It is the obvious next step after §5a and it was implemented
+in full, measured, and reverted.
+
+§5a paid 5–7% by folding a check into a borrow that already happened, and the
+same shape was still available: `invoke` pushes `callees` and pops it again in
+two `with_current` of its own, immediately beside the two `called` takes to
+push and pop the argument vector. Four borrows around one jump where three
+would do.
+
+Done properly, and the ordering that makes it subtle was preserved: `invoke`
+answers `Option<u64>` — `None` when the value is not code — and the caller pops
+its activation *before* calling the extracted `not_callable`. That keeps a
+proxy's `apply` trap from running with an un-callable value on the callee stack,
+which `function_proto::running_function` would otherwise report. Every path was
+checked and every one is byte-identical: the failure message, the proxy trap,
+`arguments`, a rest parameter, a spread, `apply`/`call`, `super()`, and a stack
+trace naming its frames.
+
+**The rows split, reproducibly, over eleven alternations:**
+
+| action | before | after | |
+|---|---:|---:|---:|
+| floor, `f(a)` *(controls)* | | | 0.0% |
+| `c.m(a)` | 20.58 | 18.71 | **+9.1%** |
+| `Array.isArray` | 36.03 | 34.06 | +5.5% |
+| `Object.is` | 34.97 | 33.30 | +4.8% |
+| `set.has(7)` | 30.76 | 32.92 | **−7.0%** |
+| `arr.indexOf(15)` | 80.63 | 82.82 | −2.7% |
+| `obj.hasOwnProperty` | 167.96 | 172.13 | −2.5% |
+
+**And the programs decided against it**, which is what rule 4 is for: a
+call-heavy loop went 154.11 → 154.41 ms (nothing), and the function-call loop
+of §7a went **561.7 → 607.3 ms, 8% worse**, on all three pairings.
+
+The likely mechanism is that `invoke` became small enough to inline once its
+failure path was extracted, which changes register allocation differently at
+each of its four call sites. That is a guess, and a guess is the reason to
+revert rather than to ship: a change that makes a program 8% slower and cannot
+be explained is what the honesty floor exists to stop.
+
+**What it leaves.** The borrow saving is real — `c.m(a)` shows it — and it is
+not reachable by restructuring `invoke`, because the restructure is what costs.
+Whatever removes those two borrows has to do it without changing where the
+failure path lives.
+
+---
+
 ## 6. REFUTED: putting a short string's bytes in the string
 
 **Do not do this in the shape below.** It was implemented in full, measured, and
@@ -590,9 +639,11 @@ than predicted.** See §5a: the prediction was that the second *table* was the
 cost. It was not — merging the tables bought nothing. What paid was folding the
 check into the borrow `called` already takes.
 
-**Stage 2 — an activation record instead of three stacks (~6-7 ns).** §3a, with
-the GC-root trap priced. The ablation above says the whole bookkeeping is 8-9 ns
-and stage 1 is about 2 of it.
+**Stage 2 — an activation record instead of three stacks.** §3a, with the
+GC-root trap priced. The ablation says the whole bookkeeping is 7-9 ns and
+stage 1 took about 2 of it — but §5b is the first attempt on the remainder and
+it was REFUTED, so what is left here is smaller than it looks and needs a shape
+that does not move the failure path.
 
 **Stage 3 — a direct call to a statically known callee (~16 ns).** The big one,
 and §7's expired sentence is what has been blocking it. `emit/inline.rs` already
