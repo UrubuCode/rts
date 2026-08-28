@@ -115,6 +115,19 @@ fn array_length_keeps_its_descriptor_and_blocks_mutation_when_non_writable() {
 }
 
 #[test]
+fn a_built_array_keeps_its_implicit_length_descriptor_after_mutation() {
+    assert_eq!(
+        numero(
+            "const a=[]; a.push(1); \
+             const d=Object.getOwnPropertyDescriptor(a, 'length'); \
+             const popped=a.pop(); \
+             return (popped===1 && d.writable && !d.enumerable && !d.configurable && a.length===0) ? 1 : 0;"
+        ),
+        1.0
+    );
+}
+
+#[test]
 fn um_array_denso_nao_muda_em_nada() {
     // A rede de segurança: nada acima pode ter custado o caso comum.
     assert_eq!(numero("const a=[1,2,3]; return a.length;"), 3.0);

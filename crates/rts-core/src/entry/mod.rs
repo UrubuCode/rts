@@ -816,6 +816,13 @@ pub struct Context {
     /// Computed on the first array and remembered, because it is the same
     /// answer for every one of them. See `array::built_in`.
     array_layout: Option<u32>,
+    /// The field holding `length` in the array layout.
+    ///
+    /// This is layout metadata, not an inline cache: every array starts with the
+    /// same immutable `length` field, and shape transitions preserve that field's
+    /// position. It lets array mutation write the already-known field directly;
+    /// descriptor and integrity checks still run before the write when needed.
+    array_length_slot: Option<u32>,
     /// The sweep's scratch list of cells to free, kept across cycles for its
     /// capacity. See `collect_cycle::sweep`.
     doomed: Vec<u32>,
@@ -1182,6 +1189,7 @@ impl Context {
             array_buffer_prototype: None,
             resolves: 0,
             array_layout: None,
+            array_length_slot: None,
             doomed: Vec::new(),
             census: std::env::var_os("RTS_CACHE_CENSUS")
                 .map(|_| std::collections::BTreeMap::new()),

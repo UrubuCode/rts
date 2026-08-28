@@ -1168,6 +1168,29 @@ fn a_template_concatenates_rather_than_adding() {
 }
 
 #[test]
+fn a_template_uses_the_string_hint_for_object_substitutions() {
+    let produced = run(
+        "let calls = 0; \
+         let o = { valueOf: function () { return 7; }, \
+                   toString: function () { calls++; return 'T'; } }; \
+         return `${o}` === 'T' && calls === 1;",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn template_join_roots_hook_returned_strings_until_the_final_string_is_built() {
+    holds(concat!(
+        "let total = 0; ",
+        "for (let i = 0; i < 2000; i++) { ",
+        "let o = { toString: function () { return 'x'.repeat(8); } }; ",
+        "total += `${o}`.length; ",
+        "} ",
+        "return total === 16000;",
+    ));
+}
+
+#[test]
 fn string_concat_preserves_arguments_layouts_and_coercion_effects() {
     holds(
         "return \"a\".concat(\"b\", \"c\", \"d\", \"e\", \"f\") === \"abcdef\";",
@@ -2541,7 +2564,7 @@ fn a_string_finds_its_methods_by_inheriting_them() {
 
 #[test]
 fn the_string_methods_count_code_units_and_not_bytes() {
-    // `"é"` is one code unit and two UTF-8 bytes. Every index in these methods
+    // `é` is one code unit and two UTF-8 bytes. Every index in these methods
     // is a position in the unit sequence, and working in bytes here would make
     // `slice` cut a character in half while `length` said otherwise.
     let length = run("return \"é\".length;");
@@ -2552,6 +2575,18 @@ fn the_string_methods_count_code_units_and_not_bytes() {
 
     let found = run("return \"éa\".indexOf(\"a\");");
     assert_eq!(tags::decode_double(found), 1.0);
+}
+
+#[test]
+fn index_of_keeps_object_conversion_order_off_the_direct_path() {
+    let produced = run(
+        "let order = ''; \
+         let receiver = { toString() { order = order + 'h'; return 'abc'; } }; \
+         let needle = { toString() { order = order + 'n'; return 'b'; } }; \
+         let found = String.prototype.indexOf.call(receiver, needle, 0); \
+         return found === 1 && order === 'hn';"
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
 #[test]
@@ -2567,6 +2602,19 @@ fn slice_crosses_where_substring_swaps() {
     // Negative counts from the end for one and clamps to zero for the other.
     let from_end = run("return \"abcd\".slice(-2) === \"cd\";");
     assert_eq!(tags::payload_of(from_end), tags::BOOL_TRUE);
+}
+
+#[test]
+fn slice_keeps_receiver_and_bound_conversion_order_off_the_direct_path() {
+    let produced = run(
+        "let order = ''; \
+         let receiver = { toString() { order = order + 'r'; return 'abcd'; } }; \
+         let from = { valueOf() { order = order + 'f'; return 1; } }; \
+         let to = { valueOf() { order = order + 't'; return 3; } }; \
+         let result = String.prototype.slice.call(receiver, from, to); \
+         return result === 'bc' && order === 'rft';"
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
 #[test]
@@ -2592,6 +2640,18 @@ fn char_code_at_keeps_utf16_units_and_nan_semantics() {
                  'abc'.charCodeAt(9) !== 'abc'.charCodeAt(9)) ? 1 : 0;"
     );
     assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn char_code_at_converts_the_receiver_before_an_object_index() {
+    let produced = run(
+        "let order = ''; \
+         let receiver = { toString() { order = order + 'r'; return 'abc'; } }; \
+         let index = { valueOf() { order = order + 'i'; return 1; } }; \
+         let code = String.prototype.charCodeAt.call(receiver, index); \
+         return code === 98 && order === 'ri';"
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
 #[test]
@@ -3012,6 +3072,19 @@ fn object_keys_and_values_agree_about_order() {
 
     let value = run("let o = { a: 1, b: 2 }; return Object.values(o)[1];");
     assert_eq!(tags::decode_double(value), 2.0);
+}
+
+#[test]
+fn object_keys_filters_hidden_and_symbol_properties_after_ordering_indices() {
+    let produced = run(
+        "let symbol = Symbol('hidden'); \
+         let o = {}; o['2'] = 2; o['1'] = 1; o.name = 3; \
+         Object.defineProperty(o, 'secret', { value: 4, enumerable: false }); \
+         o[symbol] = 5; \
+         let keys = Object.keys(o); \
+         return keys.length === 3 && keys[0] === '1' && keys[1] === '2' && keys[2] === 'name';"
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
 #[test]

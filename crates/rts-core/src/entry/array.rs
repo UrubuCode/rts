@@ -171,6 +171,12 @@ fn allocate_array_cell(context: &mut Context) -> u32 {
                 return super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
             };
             let ty = context.layout_of(grown).index() as u32;
+            // The array layout is immutable, so its `length` field has one
+            // structural offset for every array, including arrays whose shape
+            // later grows or is retyped by an integrity operation. Keep the
+            // offset beside the layout rather than rediscovering it on every
+            // mutation.
+            context.array_length_slot = context.shapes.slot_of(grown, key);
             context.array_layout = Some(ty);
             ty
         }
@@ -769,34 +775,18 @@ pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
     let key = super::computed::length_key(context);
     let value = Value::from_f64(length as f64).bits();
     // Ordinary arrays already own `length` in their current shape. Updating an
-    // existing slot cannot change the shape, so avoid the generic property path
-    // on every push/pop; first materialisation and malformed layouts keep `put`.
+    // existing slot cannot change the shape, so use the offset recorded with the
+    // immutable array layout instead of rediscovering it through the shape tree
+    // on every push/pop. The array side table is the brand check; objects that
+    // merely happen to have a `length` property stay on the generic path.
     if let crate::object::Key::Name(name) = key
-        && let Some(ty) = context.region.type_of(cell)
-        && let Some(shape) = context.shape_of(ty)
-        && let Some(slot) = context.shapes.slot_of(shape, name)
+        && let Some(slot) = context.array_length_slot
+        && context.array_elements.copied(cell).is_some()
     {
-        // `length` is born in the array layout, so the slot exists before the
-        // first call reaches this branch. Its descriptor does not: the shape
-        // stores only the value representation, while array-specific attributes
-        // live beside the cell. Initialise that side table once, then preserve
-        // any descriptor subsequently installed by `defineProperty`, freeze, or
-        // seal.
-        if !context.has_attributes(cell, name) {
-            super::integrity::set_attributes(
-                context,
-                cell,
-                name,
-                super::integrity::Attributes {
-                    writable: true,
-                    enumerable: false,
-                    configurable: false,
-                },
-            );
-        }
         // The raw slot write deliberately has no descriptor check; do it before
         // using the fast path, otherwise push/pop could change a frozen array
-        // while its `length` property stayed unchanged.
+        // while its `length` property stayed unchanged. `attributes_at` still
+        // supplies the implicit array descriptor when no explicit record exists.
         if super::integrity::refuses_key_write(context, cell, name) {
             return;
         }
