@@ -654,6 +654,13 @@ to substitute one-expression bodies. The same proof licenses
 callee that reads `arguments`, takes a rest parameter or is re-assigned keeps
 the door it has now.
 
+**Stage 3 needs a keystone first.** A direct call that skips `callees.push` is a
+frame missing from `new Error().stack`, because `throw::stack_text` builds a
+trace by walking that list. Stack traces have to come from the machine stack
+before the runtime one can go — see `docs/engine/the-unwired-keystone.md`, which
+reads the three unwired capabilities together and finds them under this item,
+under stage 2, and under `element-load.md` alike.
+
 **Stage 4 — a convention that can say `F64` (§7a).** Even a direct call boxes
 today, because `Compiled` is six `u64`. `Signature` already carries a
 `Vec<Repr>`, so the machine can express `(F64) -> F64`; what is missing is the

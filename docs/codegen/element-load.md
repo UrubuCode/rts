@@ -201,6 +201,11 @@ already written. Until it is attached, every fast path in this class has to be
 refused for the same reason, and refusing them one at a time — as this document
 did — reads like five separate problems.
 
+It is not only this family. `docs/engine/the-unwired-keystone.md` is the one
+place the three unwired capabilities are read together, with what each of them
+blocks: this, the direct call, and the line numbers `CLAUDE.md` lists as
+missing.
+
 ## What this leaves
 
 The instruction, the lowering, `elements_base` and the `ctx.set_element_run`
