@@ -82,7 +82,10 @@ pub fn delegate_step(step: u64, source: u64, sent: u64) -> u64 {
     let absent = with_current(|context| objects::undefined_of(context));
     // ONE argument written, which is what the emitted call passed and what lets
     // the callee tell `next(undefined)` from `next()`.
-    let answered = functions::call_counted(step, source, 1, sent, absent, absent, absent);
+    // Nothing to name: a native calling `next` has no call SITE, which is what
+    // the name operand carries. `functions::NO_CALL_NAME` is that, said once.
+    let unnamed = functions::NO_CALL_NAME;
+    let answered = functions::call_counted(step, source, 1, unnamed, sent, absent, absent, absent);
     // Rule 8: `next` is user code, and a throw leaves `call` answering
     // `undefined`. Reading `done` off that answers `undefined`, which is never
     // true, so the loop above would yield for ever.
@@ -152,7 +155,8 @@ pub(super) fn forward_throw(cell: u32, inner: u64, error: u64) -> Option<u64> {
     }
 
     let absent = with_current(|context| objects::undefined_of(context));
-    let answered = functions::call_counted(method, inner, 1, error, absent, absent, absent);
+    let unnamed = functions::NO_CALL_NAME;
+    let answered = functions::call_counted(method, inner, 1, unnamed, error, absent, absent, absent);
     if throw::in_flight() {
         with_current(|context| finish(context, cell));
         return Some(absent);
@@ -173,7 +177,8 @@ pub(super) fn forward_return(cell: u32, inner: u64, value: u64) -> Option<u64> {
     }
 
     let absent = with_current(|context| objects::undefined_of(context));
-    let answered = functions::call_counted(method, inner, 1, value, absent, absent, absent);
+    let unnamed = functions::NO_CALL_NAME;
+    let answered = functions::call_counted(method, inner, 1, unnamed, value, absent, absent, absent);
     if throw::in_flight() {
         with_current(|context| finish(context, cell));
         return Some(absent);
@@ -220,7 +225,8 @@ fn close(inner: u64) {
     let absent = with_current(|context| objects::undefined_of(context));
     // No arguments written: closing an iterator passes none, and the count is
     // what a callee reads to tell that from `return(undefined)`.
-    functions::call_counted(method, inner, 0, absent, absent, absent, absent);
+    let unnamed = functions::NO_CALL_NAME;
+    functions::call_counted(method, inner, 0, unnamed, absent, absent, absent, absent);
 }
 
 /// Ends a delegation without ending the generator.

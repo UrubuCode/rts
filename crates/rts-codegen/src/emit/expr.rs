@@ -1378,6 +1378,30 @@ pub(super) fn count_constant(builder: &mut FuncBuilder, count: usize) -> ValueId
     builder.use_const(written)
 }
 
+/// WHICH literal spells the callee, for the call about to be issued, or `-1`
+/// for a callee with nothing to name.
+///
+/// An operand rather than a crossing of its own. `SetCallName` was a whole
+/// runtime call before every named call — a jump, a context borrow and a table
+/// read — to record a name used only in the message of a `TypeError` that most
+/// calls never raise. Measured 2026-08-28 by ablation, minimum of four
+/// alternations per binary over the call rows of `bench/analytic.ts`: **2.3 to
+/// 2.9 ns on every named call**, against a static-call control that did not
+/// move (2.86 → 2.88).
+///
+/// `-1` rather than an `Option` because the operand is an `i64` in the calling
+/// convention and the runtime already reads its literal table by index — so
+/// "no name" has to be a number, and the one number that cannot be an index is
+/// the honest choice.
+pub(super) fn name_constant(builder: &mut FuncBuilder, name: Option<u32>) -> ValueId {
+    let which = name.map_or(-1i64, i64::from);
+    let spelled = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+        repr: rts_cranelift::repr::Repr::I64,
+        bits: rts_cranelift::ir::ScalarBits(which as u64),
+    });
+    builder.use_const(spelled)
+}
+
 pub(super) fn boolean_constant(builder: &mut FuncBuilder, value: bool) -> ValueId {
     let payload = if value {
         tags::BOOL_TRUE

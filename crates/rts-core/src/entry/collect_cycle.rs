@@ -237,7 +237,6 @@ fn release(context: &mut Context, cell: u32) {
     context.integrity.remove(cell);
     context.attributes.remove(cell);
     context.derived.remove(cell);
-    context.class_constructors.remove(cell);
     context.boxed.remove(cell);
     // The word a client attached. Dropped with the cell and nothing is called —
     // `super::foreign` says so where an addon author will read it.

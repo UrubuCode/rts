@@ -75,7 +75,7 @@ use super::Context;
 ///   `shape_of_type`, `text_type`, `symbols` (a symbol is a machine *tag*, not
 ///   a cell — see `entry::symbol`'s own module documentation for why that
 ///   stopped being true the day symbols became primitives), `pending_call_name`
-///   (an index into `literals`, not a value), `derived`, `class_constructors`
+///   (see below — it is a value, and it is covered), `derived`, the class-constructor flag
 ///   (flags), `barriers`, `resolves` (counters), `remembered` (cell/region
 ///   pairs describing a store, not a value — and always empty today, per its
 ///   own module doc), `bigints` (digits, not `Value`s), `function_names`,
@@ -86,6 +86,23 @@ use super::Context;
 ///   module's own background state does, that module's table is a root this
 ///   crate cannot see and is a gap for whoever owns that module to close),
 ///   `singletons`, `kinds`.
+///
+/// # `pending_call_name`, and why it is safe for the reason this list did NOT give
+///
+/// It sat in the third group above with the reason "an index into `literals`,
+/// not a value". That was wrong: [`super::functions::set_call_name`] writes
+/// `context.literals.get(…).copied()`, which is the resolved encoded `Value` of
+/// a string cell, not an index.
+///
+/// Nothing leaked, and the correct reason is one line further on — the same
+/// word is in `literals`, which IS scanned below, so the cell has a root either
+/// way. The classification is what was wrong, and a false sentence about what
+/// is and is not a root is the most expensive kind of sentence in this file:
+/// the next person to add a field reasons from this list.
+///
+/// Since 2026-08-28 the hot path really does carry an index — a call's spelling
+/// is an operand (`functions::Spelling::Literal`) and is resolved only in the
+/// branch that raises. Only the vector path still stores a value here.
 ///
 /// [scars]: https://github.com/UrubuCode/rts (commit `53be596d`: a receiver
 /// reachable only through a masked/narrowed word became invisible once the

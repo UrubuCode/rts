@@ -561,15 +561,34 @@ pub enum RuntimeOp {
     /// membership rule unmodified.
     ///
     /// The sharper reason is what happens when it is not. `1()` throws a
-    /// `TypeError`, and throwing needs the machine's protected regions, which
-    /// nothing emits yet. Compiled code therefore has no way to fail here,
-    /// while the runtime does — and the alternative, jumping through whatever
-    /// the value spelled, is not a slower wrong answer but an arbitrary
-    /// address.
+    /// `TypeError`, and throwing needed the machine's protected regions, which
+    /// nothing emitted when this was written. Compiled code therefore had no
+    /// way to fail here, while the runtime did — and the alternative, jumping
+    /// through whatever the value spelled, is not a slower wrong answer but an
+    /// arbitrary address.
+    ///
+    /// **That reason expired and this operation outlived it.** `emit/protect.rs`
+    /// opens protected regions and `emit/destructure/array.rs` opens a third,
+    /// so compiled code has had a way to fail here for some time: a program
+    /// that wraps `n()` in `try`/`catch` catches the `TypeError` and continues.
+    /// `rts-core`'s `entry::functions` carries the same expired sentence, and
+    /// that is the shape of the defect rather than a coincidence — the two
+    /// crates cannot see each other, so neither could notice its half go stale.
+    ///
+    /// What survives is the first reason: a callee is a value, and proving it
+    /// is code reads the heap. What changes is that the proof can now be a
+    /// guard at the call site whose failure path lands here, instead of every
+    /// call in every program arriving here unconditionally. The machine already
+    /// lowers `Inst::CallIndirect` and this crate already declares inline
+    /// caches; the missing piece was the failure path, and it is not missing.
+    /// `docs/codegen/machine-primitives.md` sizes it: 1.1 ns for the machine's
+    /// indirect call against about 33 for this door.
     ///
     /// The arity is fixed at four arguments, padded with `undefined`. See
     /// `emit/call.rs` for why, and for what changes when a stack slot exists to
-    /// put a real argument vector in.
+    /// put a real argument vector in — the machine has none at all today, which
+    /// is why `rts-core` keeps the vector in a `Vec` of its own and pays about
+    /// 8 ns per call for the three activation stacks that implies.
     Call,
 
     /// Records the source spelling of the callee about to be called, by its
@@ -577,12 +596,23 @@ pub enum RuntimeOp {
     /// what was written instead of only what kind of value it found.
     ///
     /// A call site is the only place that still knows the spelling — `Call`
-    /// itself receives a bare value with no memory of `obj.foo` versus `foo`
-    /// — so this is emitted immediately before the jump, after every argument
-    /// has been evaluated, and the runtime clears what it recorded as soon as
-    /// it is read. Not folded into `Call`'s own arguments: `Call`'s arity is
-    /// fixed at four argument slots already spoken for, and a fifth slot here
-    /// would exist on every call to serve the one that fails.
+    /// itself receives a bare value with no memory of `obj.foo` versus `foo`.
+    ///
+    /// **It IS folded into `Call`'s operands now, and this operation serves one
+    /// path.** The paragraph here used to argue the opposite — "`Call`'s arity
+    /// is fixed at four argument slots already spoken for, and a fifth slot
+    /// here would exist on every call to serve the one that fails" — and that
+    /// argument was wrong twice. The slots are the *arguments*; a name beside
+    /// them is one more operand in a convention that had room, exactly as the
+    /// written-argument count already was. And the crossing it was avoiding
+    /// cost far more than the operand it refused: measured 2026-08-28 by
+    /// ablation, **2.3 to 2.9 ns on every named call**, against a static-call
+    /// control that did not move.
+    ///
+    /// What still reaches this is the one call shape with no operand to put a
+    /// name on: `CallWithArgs`, taken by more than four arguments or by a
+    /// spread. There the name is recorded here, and `entry::functions` takes it
+    /// rather than leaving it for the next call to inherit.
     SetCallName,
 
     /// `/pattern/flags` — a new regular expression.
@@ -1258,9 +1288,12 @@ impl RuntimeOp {
             // because a caller cannot know what it is handing over.
             RuntimeOp::Call => {
                 // The callee, the receiver, HOW MANY arguments were written,
-                // and the four slots. The count is the operand that lets a
-                // callee tell `f(undefined)` from `f()`.
-                let mut params = vec![UNPROVEN, UNPROVEN, Repr::I64];
+                // WHICH literal spells the callee, and the four slots. The
+                // count is the operand that lets a callee tell `f(undefined)`
+                // from `f()`; the name is the one that used to be a crossing of
+                // its own — `SetCallName`, measured at 2.3-2.9 ns on every
+                // named call. `-1` spells a callee with nothing to name.
+                let mut params = vec![UNPROVEN, UNPROVEN, Repr::I64, Repr::I64];
                 params.extend(std::iter::repeat_n(UNPROVEN, ARGUMENT_SLOTS));
                 (params, vec![UNPROVEN])
             }

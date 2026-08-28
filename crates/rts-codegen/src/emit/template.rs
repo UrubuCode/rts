@@ -222,7 +222,7 @@ pub fn emit_tagged_template(
     for expression in expressions {
         values.push(emit_expr(builder, scope, ctx, expression)?);
     }
-    super::call::issue(builder, ctx, function, receiver, &values)
+    super::call::issue(builder, ctx, function, receiver, &values, None)
 }
 
 /// The value a template part stands for.

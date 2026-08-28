@@ -176,13 +176,16 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::KeyNumber => (CoreEntry::KeyNumber, {
             rts_core::entry::key_number as extern "C" fn(u64) -> i64 as *const u8
         }),
-        // The cast is the arity agreement, written out. Six parameters: the
-        // callee, the receiver, and `ARGUMENT_SLOTS` arguments — and the
-        // assertion below is what makes that sentence checkable rather than a
-        // comment that was true once.
+        // The cast is the arity agreement, written out. EIGHT parameters: the
+        // callee, the receiver, HOW MANY arguments were written, WHICH literal
+        // spells the callee, and `ARGUMENT_SLOTS` arguments — and the assertion
+        // below is what makes that sentence checkable rather than a comment
+        // that was true once. It read "six" while the count operand had already
+        // made it seven, which is exactly the drift the assertion catches and
+        // the sentence cannot.
         RuntimeOp::Call => (CoreEntry::Call, {
             rts_core::entry::call_counted
-                as extern "C" fn(u64, u64, i64, u64, u64, u64, u64) -> u64 as *const u8
+                as extern "C" fn(u64, u64, i64, i64, u64, u64, u64, u64) -> u64 as *const u8
         }),
         // The argument is which literal, exactly as `StringConst`'s is: an
         // `i64` index into the table the run seeds, not the text itself.

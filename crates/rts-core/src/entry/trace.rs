@@ -200,8 +200,10 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
 
     // 4. A closure's environment. Never its code — `callables.0` is an
     //    address, not a value, and following it as one would hand the region
-    //    a decompose of a number that is not a reference at all.
-    if let Some((_, environment)) = context.callables.copied(cell) {
+    //    a decompose of a number that is not a reference at all. The third
+    //    member is the class-constructor flag, which is a boolean.
+
+    if let Some((_, environment, _)) = context.callables.copied(cell) {
         out.push(environment);
     }
 
@@ -281,8 +283,9 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     // ordinary property, already covered by the inline slots or a spill),
     // `integrity` (a freeze level) and `attributes` (writable/enumerable/
     // configurable flags, keyed by a property NUMBER rather than by
-    // anything the heap allocated) hold no value of any kind. `derived` and
-    // `class_constructors` are booleans. `buffer_of` only locates
+    // anything the heap allocated) hold no value of any kind. `derived` is a
+    // boolean, and so is the class-constructor flag that `callables` now
+    // carries as its third member. `buffer_of` only locates
     // `Context::buffers`, whose bytes are never references themselves — an
     // `ArrayBuffer`'s bytes are exactly that, bytes, and a live view already
     // names the buffer's CELL through step 7 above, not through this table.

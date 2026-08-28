@@ -426,8 +426,7 @@ pub(super) fn emit_call_with_name(
         };
         values.push(emit_expr(builder, scope, ctx, value)?);
     }
-    emit_set_call_name(builder, ctx, name)?;
-    issue(builder, ctx, function, receiver, &values)
+    issue(builder, ctx, function, receiver, &values, name)
 }
 
 /// Records the callee's spelling for the call about to be issued, if it has
@@ -463,8 +462,10 @@ pub(super) fn issue(
     function: ValueId,
     receiver: ValueId,
     values: &[ValueId],
+    name: Option<u32>,
 ) -> EmitResult<ValueId> {
     if values.len() > ARGUMENT_SLOTS {
+        emit_set_call_name(builder, ctx, name)?;
         // Through the shared list builder: the first four go in one crossing
         // and the rest are appended, where this was one crossing to make the
         // array and one per value. See `expr::value_list`.
@@ -477,7 +478,7 @@ pub(super) fn issue(
         )?[0]);
     }
 
-    let mut passed = Vec::with_capacity(3 + ARGUMENT_SLOTS);
+    let mut passed = Vec::with_capacity(4 + ARGUMENT_SLOTS);
     passed.push(function);
     passed.push(receiver);
     // HOW MANY arguments were written, which nothing carried and which the
@@ -490,10 +491,20 @@ pub(super) fn issue(
     // precedent for that second shape and it costs a crossing per call site,
     // where this costs one register the convention already had room for.
     passed.push(expr::count_constant(builder, values.len()));
+    // WHICH literal spells the callee, on the same argument and for the same
+    // reason. `SetCallName` was the crossing this replaces; `expr::name_constant`
+    // carries what it was measured to cost.
+    //
+    // Ordering is strictly better than the crossing's, not merely preserved.
+    // `emit_set_call_name` had to be emitted LAST, after every argument, so an
+    // argument that called something of its own could not overwrite what this
+    // site had recorded. A constant operand cannot be overwritten by anything,
+    // because nothing runs between the operands and the jump.
+    passed.push(expr::name_constant(builder, name));
     passed.extend_from_slice(values);
     // Padded after the written arguments were evaluated, so the padding cannot
     // get between two of them and change the order side effects happen in.
-    while passed.len() < 3 + ARGUMENT_SLOTS {
+    while passed.len() < 4 + ARGUMENT_SLOTS {
         let undefined = expr::undefined(builder, ctx);
         passed.push(undefined);
     }

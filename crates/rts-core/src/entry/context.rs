@@ -173,7 +173,7 @@ impl Context {
     /// claim a cell is callable, which is what makes the code address
     /// unreachable from anything a program can write.
     pub(super) fn callable_at(&self, cell: u32) -> Option<(u64, u64)> {
-        self.callables.copied(cell)
+        self.callables.copied(cell).map(|(code, env, _)| (code, env))
     }
 
     /// The list an iterator walks, and how far it has gone.
@@ -218,13 +218,41 @@ impl Context {
 
     /// Whether a callable is a class constructor, and so may only be reached
     /// through `new`.
+    ///
+    /// # Why this lives in `callables` and not in a table of its own
+    ///
+    /// Because **every call asked both questions and paid for two probes.**
+    /// `functions::called` asks this before anything else, and
+    /// `functions::invoke` asks `callable_at` a moment later — two `Aside<T>`,
+    /// each a `Vec<Option<T>>` indexed by the same cell, so two bounds checks
+    /// and two cache lines to answer one call. Merging them makes the second
+    /// question free: the line is already in cache from the first.
+    ///
+    /// Measured 2026-08-28 by ablating the check entirely, which bounds what
+    /// merging can recover: `c.m(a)` −10.0%, `Number.isInteger` −7.7%,
+    /// `Object.is` −6.9%, `set.has(7)` −5.1%, with the static-call control at
+    /// −0.3%. About 2 ns on every call in every program.
+    ///
+    /// Not the borrow — `action-table-2026-08-26.md` §4 implemented borrow
+    /// merging in full and it bought nothing. It is the second *table*.
     pub(super) fn is_class_constructor(&self, cell: u32) -> bool {
-        self.class_constructors.copied(cell).unwrap_or(false)
+        self.callables
+            .copied(cell)
+            .is_some_and(|(_, _, class_constructor)| class_constructor)
     }
 
     /// Records that it is.
+    ///
+    /// Keeps the code and environment already recorded: the class lowering
+    /// emits `closure_new` before `mark_class_constructor`, so the entry
+    /// exists by the time this runs. A cell with no entry is not callable and
+    /// cannot be reached by a call, so there is nothing for the flag to
+    /// protect — recording it against a zero code address would invent a
+    /// callable instead.
     pub(super) fn mark_class_constructor(&mut self, cell: u32) {
-        self.class_constructors.set(cell, true);
+        if let Some((code, environment, _)) = self.callables.copied(cell) {
+            self.callables.set(cell, (code, environment, true));
+        }
     }
 
     /// The primitive a wrapper object stands for, if it is one.
@@ -238,8 +266,18 @@ impl Context {
     }
 
     /// Records that a cell calls this code with this environment.
+    ///
+    /// Preserves the class-constructor flag if one is already there. Nothing
+    /// re-marks a callable today, but a `set` that silently cleared a
+    /// refusal-to-call would turn `class C {}; C()` from a `TypeError` into a
+    /// constructor running with no `this`, which is the kind of thing that
+    /// should not depend on call order.
     pub(super) fn mark_callable(&mut self, cell: u32, code: u64, environment: u64) {
-        self.callables.set(cell, (code, environment));
+        let class_constructor = self
+            .callables
+            .copied(cell)
+            .is_some_and(|(_, _, flag)| flag);
+        self.callables.set(cell, (code, environment, class_constructor));
     }
 
     /// The text a reference names, if it names one.

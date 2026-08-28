@@ -17,8 +17,16 @@ use crate::value::Value;
 /// That is the whole reason the operator exists, so it is what this asks.
 ///
 /// A receiver that is not an object answers `false` where the language throws a
-/// `TypeError` — the same stated gap every property operation has, and for the
-/// same reason: throwing needs protected regions and nothing emits those.
+/// `TypeError`: `"x" in 5` is `false` here and
+/// `TypeError: Cannot use 'in' operator to search for 'x' in 5` on node.
+///
+/// **The gap is real; the reason recorded for it is not.** It said "throwing
+/// needs protected regions and nothing emits those", and it was the same
+/// sentence four places in two crates carried. `emit/protect.rs` emits them,
+/// natives raise catchable errors, and the two operations this cited as
+/// sharing the gap have both closed — `null.x` and `(5)()` each throw and are
+/// catchable. So nothing prevents this one; it is simply not written, and it
+/// stayed unwritten because the reason beside it said it could not be.
 #[rtse::entry]
 pub fn has_property(key: u64, object: u64) -> bool {
     // Before the borrow, for the reason `get_property` states: a trap is user

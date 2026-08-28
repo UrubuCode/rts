@@ -9,9 +9,39 @@
 //!
 //! There is a second reason, and it is the one that decided the shape. A value
 //! that is **not** callable must not be jumped to, and the language says what
-//! happens instead: `1()` throws a `TypeError`. Throwing needs the machine's
-//! protected regions and nothing emits those yet, so the check has to live
-//! somewhere that can fail without them. Compiled code cannot; this can.
+//! happens instead: `1()` throws a `TypeError`. Throwing needed the machine's
+//! protected regions, and when this was written nothing emitted them, so the
+//! check had to live somewhere that could fail without them. Compiled code
+//! could not; this could.
+//!
+//! # That second reason has EXPIRED, and the shape it decided is still here
+//!
+//! `rts-codegen` emits protected regions today — `emit/protect.rs` opens two
+//! and `emit/destructure/array.rs` a third — and a program catches the
+//! `TypeError` this function raises and carries on:
+//!
+//! ```js
+//! const n = 5;
+//! try { n(); } catch (e) { /* "TypeError: n is not a function" */ }
+//! ```
+//!
+//! So "compiled code cannot fail here" is no longer true, and the sentence
+//! above is kept only to say when it stopped being. The same claim is written
+//! in `rts-codegen`'s `RuntimeOp::Call`, which is the shape of the problem
+//! rather than a coincidence: neither crate may see the other, so neither could
+//! notice its half go stale.
+//!
+//! **The FIRST reason still stands** and is what any replacement has to answer:
+//! a callee is a value, and finding out whether it is code reads the heap. What
+//! has changed is that the failure path is now expressible, so the read can be
+//! a cached guard at the call site with the slow path coming here, instead of
+//! every call in every program arriving unconditionally.
+//!
+//! What that would remove is measured rather than guessed — see
+//! `docs/codegen/machine-primitives.md`: the machine's own indirect call costs
+//! 1.1 ns and this door costs about 33, of which roughly 2 ns is the
+//! class-constructor check below, 8 ns is the three activation stacks, and the
+//! rest is the crossing and the resolution.
 //!
 //! # What a callable is
 //!
@@ -391,7 +421,7 @@ pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
     // tolerance `list_from_array_like` leaves to whoever calls it, and which
     // `Reflect.apply` spends on a `TypeError` instead.
     let arguments = list_from_array_like(arguments).unwrap_or(arguments);
-    let first = with_current(|context| {
+    let (first, spelled) = with_current(|context| {
         let absent = undefined_of(context);
         let mut first = [absent; ARGUMENT_SLOTS];
         if let Some(cell) = Value(arguments).as_slot()
@@ -406,11 +436,25 @@ pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
         context.pending_arguments.push(arguments);
         // Paired with the vector, so a callee's count is its own — see `called`.
         context.pending_counts.push(None);
-        first
+        // TAKEN here rather than inside `invoke`, which no longer reads it.
+        // This door is the only one that still records a name out of band —
+        // a call with a vector has no operand to carry one — so it is also the
+        // one that has to clear it, or a name written for this call would
+        // outlive it and be reported for the next call that has none.
+        let spelled = context.pending_call_name.take();
+        (first, spelled)
     });
     // Not through `call`, which pushes a marker of its own — that marker on top
     // would hide the vector from exactly the callee it was made for.
-    let produced = invoke(callee, this, first[0], first[1], first[2], first[3]);
+    let produced = invoke(
+        callee,
+        this,
+        Spelling::Taken(spelled),
+        first[0],
+        first[1],
+        first[2],
+        first[3],
+    );
     with_current(|context| {
         context.pending_arguments.pop();
         context.pending_counts.pop();
@@ -513,25 +557,90 @@ pub(in crate::entry) fn collected(
 /// doors, one implementation — the alternative was widening `call` itself, and
 /// that would have made every native in this crate declare a count it has no
 /// way to know.
+/// `name` is WHICH literal spells the callee, or [`NO_CALL_NAME`] for a callee
+/// with nothing to name — the operand that replaced [`set_call_name`], a whole
+/// crossing this door used to be preceded by. Measured 2026-08-28, minimum of
+/// four alternations per binary: **2.3 to 2.9 ns on every named call**, against
+/// a static-call control that did not move. It is read into
+/// `pending_call_name` inside the borrow `called` already takes, so what is
+/// left of it is a bounds check and a load rather than a jump.
 #[rtse::entry]
-pub fn call_counted(callee: u64, this: u64, count: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+pub fn call_counted(
+    callee: u64,
+    this: u64,
+    count: i64,
+    name: i64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+) -> u64 {
     let counted = count.clamp(0, ARGUMENT_SLOTS as i64) as usize;
-    called(callee, this, Some(counted), a0, a1, a2, a3)
+    called(callee, this, Some(counted), name, a0, a1, a2, a3)
+}
+
+/// A callee with nothing to name, as the `name` operand spells it.
+///
+/// Not an `Option` because the operand is an `i64` in the calling convention
+/// and the runtime reads its literal table by index — so "no name" has to be a
+/// number, and the one number that cannot be an index is the honest choice.
+pub const NO_CALL_NAME: i64 = -1;
+
+/// How the callee about to be jumped to was spelled, as far as the caller
+/// knows — and *unresolved*, which is the whole point.
+///
+/// The name is used by exactly one branch of [`invoke`]: the one where the
+/// callee turned out not to be callable and a `TypeError` has to say which
+/// spelling failed. Every other call — that is, every call a working program
+/// makes — needs the name never to be looked at. So this carries the cheapest
+/// thing each door has and defers the reading to [`Self::resolve`].
+enum Spelling {
+    /// Nothing to name: a native calling another function has no call site,
+    /// and a `[Symbol.iterator]()` the compiler wrote has no source text.
+    None,
+    /// WHICH literal, straight off the call's operand. Costs a register.
+    Literal(i64),
+    /// Already taken out of `pending_call_name` by the door that set it.
+    ///
+    /// [`call_with_args`] is that door: its site still records the name
+    /// through [`set_call_name`], because a call with a vector has no operand
+    /// to put it on. Taking it THERE rather than here is what keeps a name
+    /// from outliving the call it was written for — a later call that has
+    /// nothing to name must not inherit it.
+    Taken(Option<u64>),
+}
+
+impl Spelling {
+    /// The text, read only where it is about to be printed.
+    fn resolve(self, context: &Context) -> Option<u64> {
+        match self {
+            Self::None => None,
+            Self::Literal(NO_CALL_NAME) => None,
+            Self::Literal(which) => context.literals.get(which as usize).copied(),
+            Self::Taken(name) => name,
+        }
+    }
 }
 
 /// Calls a value, with a receiver and up to [`ARGUMENT_SLOTS`] arguments.
 ///
-/// Answers `undefined` for a callee that is not callable, where the language
-/// throws a `TypeError`. A stated gap and the same one property access has:
-/// throwing needs protected regions and nothing emits those yet. It is named
-/// here rather than left implicit because *this* gap is the one that would
-/// otherwise be a jump to an arbitrary address.
+/// **Throws a `TypeError` for a callee that is not callable**, which a program
+/// can catch. This paragraph said the opposite — "answers `undefined` … a
+/// stated gap … throwing needs protected regions and nothing emits those yet"
+/// — and both halves had stopped being true: `invoke` raises, and
+/// `emit/protect.rs` emits the regions. `const n = 5; try { n(); } catch (e)`
+/// catches it and carries on.
+///
+/// It is still worth naming here rather than leaving implicit, for the reason
+/// the old text gave and which does survive: of everything that can fail in
+/// this crate, *this* is the one that would otherwise be a jump to an arbitrary
+/// address.
 ///
 /// The count is `None` here, and honestly so: this door is for a NATIVE calling
 /// another function, and a native has no call site to read one from.
 #[rtse::entry]
 pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    called(callee, this, None, a0, a1, a2, a3)
+    called(callee, this, None, NO_CALL_NAME, a0, a1, a2, a3)
 }
 
 /// What both doors do, with the count either known or not.
@@ -539,18 +648,12 @@ fn called(
     callee: u64,
     this: u64,
     count: Option<usize>,
+    name: i64,
     a0: u64,
     a1: u64,
     a2: u64,
     a3: u64,
 ) -> u64 {
-    // A class constructor called without `new` is a `TypeError`, checked
-    // before anything else so `1()` and `ClassCtor()` do not share a path
-    // that decides this AFTER the jump.
-    if is_bare_class_constructor_call(callee) {
-        super::throw::type_error("Class constructor cannot be invoked without 'new'");
-        return with_current(|context| undefined_of(context));
-    }
     // Read what is needed, then LET GO of the context before jumping.
     //
     // Not a tidiness: `with_current` holds a `RefCell` borrow for as long as its
@@ -563,7 +666,22 @@ fn called(
     // reading its rest must not find the vector of an OUTER call that is still
     // running. One push and one pop per call is what that costs, and
     // `call_with_args` names what removes it.
-    with_current(|context| {
+    // A class constructor called without `new` is a `TypeError`, and it is
+    // decided in the borrow this call already takes rather than in one of its
+    // own. It was a separate `with_current` over a separate side table, and
+    // ablating it entirely priced the pair at about 2 ns on every call in
+    // every program — see `Context::is_class_constructor`.
+    //
+    // Answered before anything is pushed, so a refused call leaves the stacks
+    // exactly as it found them, and still before the jump, so `1()` and
+    // `ClassCtor()` do not share a path that decides this afterwards.
+    let refused = with_current(|context| {
+        if Value(callee)
+            .as_slot()
+            .is_some_and(|cell| context.is_class_constructor(cell))
+        {
+            return true;
+        }
         let absent = undefined_of(context);
         context.pending_arguments.push(absent);
         // Pushed by EVERY call for the same reason the vector is: a callee
@@ -573,8 +691,18 @@ fn called(
         // honestly — and what makes `arguments_at` fall back to the old guess
         // there instead of inventing a number.
         context.pending_counts.push(count);
+        false
     });
-    let produced = invoke(callee, this, a0, a1, a2, a3);
+    if refused {
+        super::throw::type_error("Class constructor cannot be invoked without 'new'");
+        return with_current(|context| undefined_of(context));
+    }
+    // The spelling travels as a NUMBER and is not resolved here. Reading the
+    // literal table on the way in would put a bounds check and a load on every
+    // call, to answer a question only a call that turns out not to be callable
+    // ever asks — so `invoke` resolves it in the branch that raises, and the
+    // successful call pays a register.
+    let produced = invoke(callee, this, Spelling::Literal(name), a0, a1, a2, a3);
     with_current(|context| {
         context.pending_arguments.pop();
         context.pending_counts.pop();
@@ -587,22 +715,28 @@ fn called(
 /// Split from [`call`] because `call_with_args` has already pushed the vector
 /// this activation reads, and `call`'s marker on top of it would hide that
 /// vector from the one callee it was made for.
-fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let (found, name) = with_current(|context| {
+fn invoke(
+    callee: u64,
+    this: u64,
+    spelling: Spelling,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+) -> u64 {
+    let found = with_current(|context| {
         // Which callable is about to run, recorded before the jump. A compiled
         // function never asks; a native does, because it closes over nothing —
         // so a bound function's only way to know WHICH binding it is comes from
         // here. See [`super::function_proto`].
         context.callees.push(callee);
-        // Taken, not merely read: this activation's own callee may itself
-        // fail to be a function only ONCE, and taking it here means a nested
-        // call this one goes on to make starts with nothing set, rather than
-        // inheriting the name written for an outer call that never used it.
-        let name = context.pending_call_name.take();
-        (resolve(context, callee), name)
+        resolve(context, callee)
     });
 
     let Some((code, environment)) = found else {
+        // Resolved HERE and nowhere earlier: this is the only branch that
+        // needs the name, and it is the branch a working program never takes.
+        let name = with_current(|context| spelling.resolve(context));
         with_current(|context| context.callees.pop());
         // A proxy has no code address — it must not have one, since an address
         // is the one thing a program may never choose — so calling one arrives
@@ -820,7 +954,7 @@ fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         },
     };
 
-    let produced = invoke(callee, this, a0, a1, a2, a3);
+    let produced = invoke(callee, this, Spelling::None, a0, a1, a2, a3);
     with_current(|context| context.new_targets.pop());
 
     // A constructor that returned an object produced THAT. Anything else — a
@@ -926,7 +1060,7 @@ fn super_construct_inner(parent: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64
         },
     };
 
-    let produced = invoke(parent, this, a0, a1, a2, a3);
+    let produced = invoke(parent, this, Spelling::None, a0, a1, a2, a3);
     with_current(|context| context.new_targets.pop());
     // The same question `construct_inner` asks, and for the same reason: a
     // parent constructor that returns a string must not have it become the

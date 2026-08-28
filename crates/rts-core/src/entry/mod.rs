@@ -398,7 +398,16 @@ pub struct Context {
     /// shape cannot hold a property, so every write to a function was a silent
     /// no-op. Recording it beside the cell gives both, and is the third use of
     /// this pattern after arrays and the property spill.
-    callables: Aside<(u64, u64)>,
+    /// Which callables are class constructors, and so must be reached through
+    /// `new`, carried as the third member rather than in a table of its own —
+    /// see `Context::is_class_constructor` for the 2 ns per call that costs.
+    ///
+    /// Whether a callable came from a `class` declaration is syntax the
+    /// compiler knows and this crate cannot see, because an ordinary function
+    /// and a class constructor are the same kind of cell otherwise. Written at
+    /// class definition time, read by `call` and `call_with_args` — never by
+    /// `construct`, which is the one path allowed to reach one.
+    callables: Aside<(u64, u64, bool)>,
     /// A proxy's target and handler.
     ///
     /// Beside the cell like everything else about one, and the reason it is not
@@ -690,16 +699,6 @@ pub struct Context {
     /// constructor and a plain function are the same kind of cell. Written at
     /// class definition time, read by `construct`.
     derived: Aside<bool>,
-    /// Which callables are class constructors, and so must be reached through
-    /// `new`.
-    ///
-    /// The same shape as `derived` and for the same reason: whether a
-    /// callable came from a `class` declaration is syntax the compiler knows
-    /// and this crate cannot see, because an ordinary function and a class
-    /// constructor are the same kind of cell otherwise. Written at class
-    /// definition time, read by `call` and `call_with_args` — never by
-    /// `construct`, which is the one path that is allowed to reach one.
-    class_constructors: Aside<bool>,
     /// The primitive a wrapper object stands for.
     ///
     /// `new Number(5)` is an object whose `[[NumberData]]` is `5`, and the
@@ -1150,7 +1149,6 @@ impl Context {
             array_elements: Aside::in_region(bits),
             accessors: Aside::in_region(bits),
             derived: Aside::in_region(bits),
-            class_constructors: Aside::in_region(bits),
             boxed: Aside::in_region(bits),
             foreign: Aside::in_region(bits),
             deaths: std::collections::HashMap::new(),

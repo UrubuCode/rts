@@ -140,11 +140,14 @@ fn iterator_of(
     // No arguments, and the SOURCE as the receiver — which is what makes a
     // `[Symbol.iterator]()` written on a class body see its own instance.
     let written = super::expr::count_constant(builder, 0);
+    // A call the COMPILER wrote: `[Symbol.iterator]()` has no source spelling,
+    // so there is no literal to name, and the operand says so.
+    let unnamed = super::expr::name_constant(builder, None);
     let iterator = super::expr::call(
         builder,
         ctx,
         RuntimeOp::Call,
-        &[method, source, written, absent, absent, absent, absent],
+        &[method, source, written, unnamed, absent, absent, absent, absent],
     )?[0];
     let iterator = builder.widen(iterator);
     builder.jump(join, &[iterator])?;

@@ -538,11 +538,14 @@ fn open_sequence(
     // receiver — which is what makes a class method reached through the
     // prototype chain see its own instance.
     let written = super::expr::count_constant(builder, 0);
+    // A call the COMPILER wrote: `[Symbol.iterator]()` has no source spelling,
+    // so there is no literal to name, and the operand says so.
+    let unnamed = super::expr::name_constant(builder, None);
     let it = super::expr::call(
         builder,
         ctx,
         RuntimeOp::Call,
-        &[method, source, written, absent, absent, absent, absent],
+        &[method, source, written, unnamed, absent, absent, absent, absent],
     )?[0];
     let it = builder.widen(it);
     // The walk gets nothing to walk: `len` is 0, so the arm that reads the array

@@ -117,7 +117,40 @@ pub const CANNOT_RAISE: &[RuntimeOp] = &[
     // `entry/array.rs`. Closed: it neither allocates nor calls user code; the
     // caller establishes that the value is an internal enumeration array.
     RuntimeOp::ArrayLength,
+    // `to_boolean_in`: two `Context` field reads (`singletons`, `kinds`), the
+    // pure `values_to_boolean` over the value layer, and two side-table reads
+    // for the only two questions the falsy rule cannot answer alone — `0n`
+    // through `bigint_at` and `""` through `text_at`.
+    // `entry/primitives.rs:151`. Closed, and it is the first COMMON operation
+    // on this list: every `if`, `while`, `&&`, `||` and `!` over a value the
+    // type pass did not prove reaches it. Verified 2026-08-28.
+    //
+    // ToBoolean is the one coercion in the language that never consults the
+    // object — no `valueOf`, no `toString`, no `Symbol.toPrimitive` — which is
+    // what separates it from `Less` and `LooseEquals` two lines above, whose
+    // `ToPrimitive` runs user code and which must therefore stay off this list.
+    RuntimeOp::ToBoolean,
+    // `strict_equals`: `bigints::same` (`digits_of` twice and a slice compare,
+    // `entry/bigints.rs:114`) and `values_strict_equals` over the value layer
+    // with `context.same_text` for the string case. `entry/primitives.rs:101`.
+    // Closed — nothing allocates and nothing is coerced, which is exactly what
+    // makes `===` different from `==`: the specification's `IsStrictlyEqual`
+    // compares types first and never converts. Verified 2026-08-28.
+    RuntimeOp::StrictEquals,
 ];
+
+/// One that was read and deliberately NOT added, so the next audit does not
+/// have to read it again.
+///
+/// `TypeOf` (`entry/text.rs:291`) reaches user code nowhere and coerces
+/// nothing — but `type_name` builds the answer string on first use, so it
+/// **allocates**, and every entry above this line does not. Allocation cannot
+/// record a throw here (`alloc::heap_exhausted` calls `process::exit`), so the
+/// exemption is very probably correct; it is left off because "very probably"
+/// is the wrong standard for a list whose false entries swallow throws, and
+/// because admitting the first allocating operation deserves its own audit of
+/// what a collection may run rather than a comment on the way past.
+const _CONSIDERED_AND_LEFT_OFF: &[RuntimeOp] = &[RuntimeOp::TypeOf];
 
 /// The two operations that ARE the check, which are exempt for a different
 /// reason and must not be confused with [`CANNOT_RAISE`].
@@ -178,9 +211,16 @@ mod tests {
     fn the_exempt_set_is_exactly_what_was_verified() {
         // Pinned as a count so that adding one without reading its runtime body
         // fails here rather than silently in a program that catches nothing.
+        //
+        // Ten until 2026-08-28, when `ToBoolean` and `StrictEquals` were added
+        // — the first COMMON operations on the list, and the first the module
+        // documentation's "this list does not collect most of that" no longer
+        // describes. Both bodies were read in full to the standard the doc
+        // comment on `CANNOT_RAISE` sets; this test failing is what made that
+        // reading happen on the record rather than in passing.
         assert_eq!(
             CANNOT_RAISE.len(),
-            10,
+            12,
             "CANNOT_RAISE changed — each entry must name the rts-core body it \
              was read against, and rts-host asserts the symbol still exists"
         );

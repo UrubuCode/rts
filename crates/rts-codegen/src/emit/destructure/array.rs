@@ -127,6 +127,8 @@ fn get_pattern_iterator(
     let absent = super::super::expr::undefined(builder, ctx);
     // `it[Symbol.iterator]()` takes no arguments.
     let written = super::super::expr::count_constant(builder, 0);
+    // A call the COMPILER wrote: no source spelling, so no literal to name.
+    let unnamed = super::super::expr::name_constant(builder, None);
     let own_iter = super::super::expr::call(
         builder,
         ctx,
@@ -135,6 +137,7 @@ fn get_pattern_iterator(
             method,
             source,
             written,
+            unnamed,
             absent,
             absent,
             absent,
