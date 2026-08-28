@@ -81,20 +81,17 @@
 //! reading a promise that already exists, nothing to make one from Rust) —
 //! this is exactly the gap `docs/reference/node/events.md` §5.1 already
 //! names as belonging to a `.ts` shim over the primordial `Promise`, not to
-//! this crate. `events.addAbortListener`. `rawListeners` returns the same
-//! functions [`listeners`] does rather than real Node's invocable
-//! once-wrapper with a `.listener` back-reference — building a per-listener
-//! closure needs a native callable that carries captured state, and
-//! [`rts_core::entry::make_callable`] hands back a fixed function
-//! pointer with no environment slot this crate can fill; a wrapper that is
-//! itself callable waits on that. `captureRejections`. `errorMonitor`,
-//! `EventEmitter.defaultMaxListeners`/`captureRejectionSymbol` as *statics on
-//! the `EventEmitter` value itself*, and `MaxListenersExceededWarning` —
-//! nothing is warned on; [`set_max_listeners`] and
-//! [`static_set_max_listeners`] record numbers, never compare them against a
-//! count. Symbol-keyed event names — every event name here goes through
-//! [`text_of`](rts_core::entry::text_of), so only strings work; a symbol
-//! argument reads as an absent event and silently does nothing.
+//! this crate. `rawListeners` returns the same functions [`listeners`] does
+//! rather than real Node's invocable once-wrapper with a `.listener`
+//! back-reference — building a per-listener closure needs a native callable
+//! that carries captured state, and [`rts_core::entry::make_callable`] hands
+//! back a fixed function pointer with no environment slot this crate can fill;
+//! a wrapper that is itself callable waits on that. `captureRejections`,
+//! `errorMonitor`, `captureRejectionSymbol`, and `MaxListenersExceededWarning`
+//! remain absent — the listener-limit setters record values but do not warn.
+//! The full unhandled-`'error'` process-hook path remains a larger semantic gap.
+//! `addAbortListener` and Symbol-keyed event names are implemented through the
+//! shared EventTarget and property-key machinery.
 
 use rts_core::entry::{Context, Provided};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -102,7 +99,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// `EventEmitter.defaultMaxListeners` — read by [`get_max_listeners`] when an
 /// instance never called `.setMaxListeners()`, written by
 /// [`static_set_max_listeners`] when called with no target.
-static DEFAULT_MAX_LISTENERS: AtomicU64 = AtomicU64::new(10);
+static DEFAULT_MAX_LISTENERS: AtomicU64 = AtomicU64::new(10.0f64.to_bits());
 
 /// The instance methods every `EventEmitter` shares through one prototype.
 const METHODS: &[(&str, Provided)] = &[
@@ -158,9 +155,21 @@ pub fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] = &[
         ("EventEmitter", make_emitter),
         ("getEventListeners", get_event_listeners),
+        ("getMaxListeners", static_get_max_listeners),
         ("setMaxListeners", static_set_max_listeners),
+        ("addAbortListener", add_abort_listener),
     ];
     let namespace = rts_core::entry::make_namespace(context, members);
+    // `defaultMaxListeners` is a mutable module property in Node, not a copy of
+    // the current value. Keep it backed by the same atomic used by every
+    // emitter's fallback so reads and writes observe one setting.
+    rts_core::entry::define_accessor_in(
+        context,
+        namespace,
+        "defaultMaxListeners",
+        default_max_listeners_get,
+        Some(default_max_listeners_set),
+    );
     // The constructor carries `prototype`, which is what makes `new` link the
     // object it allocates to it. Returning an instance from the constructor is
     // NOT enough: `new` over a native keeps the object it made, so every
@@ -169,6 +178,23 @@ pub fn namespace(context: &mut Context) -> u64 {
     let prototype = emitter_prototype(context);
     let constructor = rts_core::entry::get_member(context, namespace, "EventEmitter");
     rts_core::entry::put_member(context, constructor, "prototype", prototype);
+    // Node's CommonJS export is the constructor itself and also exposes that
+    // constructor as `.EventEmitter`, which named destructuring reads.
+    rts_core::entry::put_member(context, constructor, "EventEmitter", constructor);
+    // CommonJS returns the constructor itself (`require("events")`), whose
+    // static helpers mirror the module namespace in Node. Keep both views on
+    // the same callable cells rather than rebuilding any function.
+    for name in ["getEventListeners", "getMaxListeners", "setMaxListeners", "addAbortListener"] {
+        let member = rts_core::entry::get_member(context, namespace, name);
+        rts_core::entry::put_member(context, constructor, name, member);
+    }
+    rts_core::entry::define_accessor_in(
+        context,
+        constructor,
+        "defaultMaxListeners",
+        default_max_listeners_get,
+        Some(default_max_listeners_set),
+    );
     namespace
 }
 
@@ -186,6 +212,8 @@ extern "C" fn make_emitter(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u6
         };
         let events = rts_core::entry::make_object(context);
         rts_core::entry::put_member(context, emitter, "__events__", events);
+        let event_names = rts_core::entry::make_array_in(context, Vec::new());
+        rts_core::entry::put_member(context, emitter, "__eventNames__", event_names);
         emitter
     })
 }
@@ -218,17 +246,20 @@ extern "C" fn prepend_once_listener(_e: u64, this: u64, event: u64, listener: u6
 /// most one matching registration, like real Node, and emits
 /// `'removeListener'` with the original (unwrapped) function afterward.
 extern "C" fn remove_listener(_e: u64, this: u64, event: u64, listener: u64, _c: u64, _d: u64) -> u64 {
-    let Some(name) = rts_core::entry::text_of(event) else {
+    if !valid_event_name(event) {
         return this;
-    };
+    }
     let events = events_object(this);
     let array = rts_core::entry::get_indexed(events, event);
     let mut wrappers = collect_array(array);
     if let Some(at) = wrappers.iter().position(|&w| rts_core::entry::strict_equals(wrapper_fn(w), listener)) {
         wrappers.remove(at);
-        store_array(events, &name, wrappers);
-        if name != "removeListener" {
+        store_array(events, event, wrappers);
+        if !is_remove_listener_event(event) {
             emit_meta(this, "removeListener", event, listener);
+        }
+        if collect_array(rts_core::entry::get_indexed(events, event)).is_empty() {
+            forget_event_name(this, event);
         }
     }
     this
@@ -239,7 +270,7 @@ extern "C" fn remove_listener(_e: u64, this: u64, event: u64, listener: u64, _c:
 extern "C" fn remove_all_listeners(_e: u64, this: u64, event: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let absent = rts_core::entry::undefined_value();
     if event == absent {
-        let names: Vec<u64> = collect_array(rts_core::entry::own_keys(events_object(this)));
+        let names = collect_array(event_name_list(this));
         for key in names {
             remove_all_for(this, key);
         }
@@ -251,14 +282,15 @@ extern "C" fn remove_all_listeners(_e: u64, this: u64, event: u64, _b: u64, _c: 
 
 /// Clears one event's listener array, firing `'removeListener'` for each.
 fn remove_all_for(this: u64, event: u64) {
-    let Some(name) = rts_core::entry::text_of(event) else {
+    if !valid_event_name(event) {
         return;
-    };
+    }
     let events = events_object(this);
     let array = rts_core::entry::get_indexed(events, event);
     let wrappers = collect_array(array);
-    store_array(events, &name, Vec::new());
-    if name != "removeListener" {
+    store_array(events, event, Vec::new());
+    forget_event_name(this, event);
+    if !is_remove_listener_event(event) {
         for wrapper in wrappers {
             emit_meta(this, "removeListener", event, wrapper_fn(wrapper));
         }
@@ -282,10 +314,8 @@ extern "C" fn emit(_e: u64, this: u64, event: u64, a0: u64, a1: u64, a2: u64) ->
     // `once` listeners are dropped from storage before any of them runs, so a
     // listener re-entering `emit` for the same event does not see them twice.
     let remaining: Vec<u64> = wrappers.iter().copied().filter(|&w| !wrapper_once(w)).collect();
-    if remaining.len() != wrappers.len()
-        && let Some(name) = rts_core::entry::text_of(event)
-    {
-        store_array(events, &name, remaining);
+    if remaining.len() != wrappers.len() {
+        store_array(events, event, remaining);
     }
     let absent = rts_core::entry::undefined_value();
     for wrapper in wrappers {
@@ -323,7 +353,7 @@ extern "C" fn listener_count(_e: u64, this: u64, event: u64, listener: u64, _c: 
 /// `emitter.eventNames()` — the names holding at least one listener.
 extern "C" fn event_names(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let events = events_object(this);
-    let names: Vec<u64> = collect_array(rts_core::entry::own_keys(events))
+    let names: Vec<u64> = collect_array(event_name_list(this))
         .into_iter()
         .filter(|&key| {
             let array = rts_core::entry::get_indexed(events, key);
@@ -348,6 +378,140 @@ extern "C" fn get_event_listeners(e: u64, _this: u64, emitter: u64, event: u64, 
     listeners(e, emitter, event, 0, 0, 0)
 }
 
+/// `events.addAbortListener(signal, listener)`.
+///
+/// The callback is registered on the engine's global `AbortSignal` through its
+/// ordinary EventTarget API, but carries an internal protected flag. EventTarget
+/// delivers that registration after `stopImmediatePropagation`, which is the
+/// security property Node's helper promises. A fixed native callable stores the
+/// user's listener as its closure state, so disposal needs no runtime cache.
+extern "C" fn add_abort_listener(
+    _e: u64,
+    _this: u64,
+    signal: u64,
+    listener: u64,
+    _c: u64,
+    _d: u64,
+) -> u64 {
+    let absent = rts_core::entry::undefined_value();
+    if !is_abort_signal(signal) {
+        rts_core::entry::invalid_arg_instance("signal", "AbortSignal", signal);
+        return absent;
+    }
+    let callable = rts_core::entry::with_runtime(|context| {
+        rts_core::entry::is_callable_in(context, listener)
+    });
+    if !callable {
+        rts_core::entry::invalid_arg_type("listener", "function", listener);
+        return absent;
+    }
+
+    let callback = rts_core::entry::closure_new(
+        abort_listener_callback as *const () as usize as i64,
+        listener,
+    );
+    let options = rts_core::entry::with_runtime(|context| {
+        let options = rts_core::entry::make_object(context);
+        rts_core::entry::put_member(context, options, "once", rts_core::entry::boolean_value(true));
+        rts_core::entry::put_member(
+            context,
+            options,
+            "__nodeProtectedAbortListener__",
+            rts_core::entry::boolean_value(true),
+        );
+        options
+    });
+    let add = rts_core::entry::get_indexed(signal, string_key("addEventListener"));
+    rts_core::entry::call(add, signal, string_key("abort"), callback, options, absent);
+    if rts_core::entry::thrown() != 0 {
+        return absent;
+    }
+
+    let aborted = rts_core::entry::to_boolean(rts_core::entry::get_indexed(signal, string_key("aborted")));
+    if aborted {
+        let event = rts_core::entry::get_indexed(signal, string_key("__nodeAbortEvent__"));
+        rts_core::entry::call(listener, signal, event, absent, absent, absent);
+    }
+    disposable(signal, callback)
+}
+
+/// The fixed callable stored by a protected EventTarget registration.
+extern "C" fn abort_listener_callback(
+    listener: u64,
+    this: u64,
+    event: u64,
+    _b: u64,
+    _c: u64,
+    _d: u64,
+) -> u64 {
+    let absent = rts_core::entry::undefined_value();
+    rts_core::entry::call(listener, this, event, absent, absent, absent)
+}
+
+/// Build the object returned by `addAbortListener`.
+fn disposable(signal: u64, callback: u64) -> u64 {
+    let (object, dispose_key, dispose_fn) = rts_core::entry::with_runtime(|context| {
+        let object = rts_core::entry::make_object(context);
+        rts_core::entry::put_member(context, object, "__abortSignal__", signal);
+        rts_core::entry::put_member(context, object, "__abortCallback__", callback);
+        let dispose_key = rts_core::entry::well_known_symbol(context, "dispose");
+        let dispose_fn = rts_core::entry::make_callable(context, dispose_abort_listener);
+        (object, dispose_key, dispose_fn)
+    });
+    let object_root = rts_core::entry::hold_current(object);
+    let dispose_root = rts_core::entry::hold_current(dispose_fn);
+    rts_core::entry::set_indexed(object, dispose_key, dispose_fn);
+    rts_core::entry::release_current(dispose_root);
+    rts_core::entry::release_current(object_root);
+    object
+}
+
+/// `[Symbol.dispose]()` removes the protected registration. Repeated disposal
+/// is idempotent because EventTarget removal is idempotent for a missing record.
+extern "C" fn dispose_abort_listener(
+    _e: u64,
+    this: u64,
+    _a0: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    let absent = rts_core::entry::undefined_value();
+    let signal = rts_core::entry::get_indexed(this, string_key("__abortSignal__"));
+    let callback = rts_core::entry::get_indexed(this, string_key("__abortCallback__"));
+    if signal == absent || callback == absent {
+        return absent;
+    }
+    let remove = rts_core::entry::get_indexed(signal, string_key("removeEventListener"));
+    rts_core::entry::call(remove, signal, string_key("abort"), callback, absent, absent);
+    rts_core::entry::set_indexed(this, string_key("__abortSignal__"), absent);
+    rts_core::entry::set_indexed(this, string_key("__abortCallback__"), absent);
+    absent
+}
+
+fn is_abort_signal(value: u64) -> bool {
+    let constructor = rts_core::entry::with_runtime(|context| {
+        let global = rts_core::entry::global_object(context);
+        rts_core::entry::get_member(context, global, "AbortSignal")
+    });
+    constructor != rts_core::entry::undefined_value()
+        && rts_core::entry::instance_of(value, constructor)
+}
+
+/// `events.getMaxListeners(emitter)` — the module-level spelling of the
+/// instance query. EventTarget is a separate ambient surface and remains
+/// outside this module; EventEmitter-shaped objects use the shared query.
+extern "C" fn static_get_max_listeners(
+    _e: u64,
+    _this: u64,
+    emitter: u64,
+    _b: u64,
+    _c: u64,
+    _d: u64,
+) -> u64 {
+    get_max_listeners(0, emitter, 0, 0, 0, 0)
+}
+
 /// `emitter.getMaxListeners()` — the explicit `setMaxListeners()` value if
 /// one was set, else [`DEFAULT_MAX_LISTENERS`].
 extern "C" fn get_max_listeners(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
@@ -356,34 +520,116 @@ extern "C" fn get_max_listeners(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _
         rts_core::entry::get_member(context, this, "__maxListeners__")
     });
     if stored == absent {
-        rts_core::entry::make_number(DEFAULT_MAX_LISTENERS.load(Ordering::Relaxed) as f64)
+        rts_core::entry::make_number(f64::from_bits(DEFAULT_MAX_LISTENERS.load(Ordering::Relaxed)))
     } else {
         stored
     }
 }
 
-/// `emitter.setMaxListeners(n)` — recorded, never enforced or warned on; see
-/// the module doc.
+/// `emitter.setMaxListeners(n)` — records the validated limit. Warning
+/// emission is still outside this module's current process-hook surface.
 extern "C" fn set_max_listeners(_e: u64, this: u64, n: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let Some(number) = valid_max_listeners(n) else {
+        return rts_core::entry::undefined_value();
+    };
+    let value = rts_core::entry::make_number(number);
     rts_core::entry::with_runtime(|context| {
-        rts_core::entry::put_member(context, this, "__maxListeners__", n);
+        rts_core::entry::put_member(context, this, "__maxListeners__", value);
     });
     this
 }
 
+/// Getter for the mutable module-level `defaultMaxListeners` property.
+extern "C" fn default_max_listeners_get(
+    _e: u64,
+    _this: u64,
+    _a0: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    rts_core::entry::make_number(f64::from_bits(DEFAULT_MAX_LISTENERS.load(Ordering::Relaxed)))
+}
+
+/// Setter for `events.defaultMaxListeners`, with the same non-negative numeric
+/// boundary used by Node's listener-limit API.
+extern "C" fn default_max_listeners_set(
+    _e: u64,
+    _this: u64,
+    value: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    let Some(number) = rts_core::entry::number_of(value) else {
+        rts_core::entry::invalid_arg_type("defaultMaxListeners", "number", value);
+        return rts_core::entry::undefined_value();
+    };
+    if number.is_nan() || number < 0.0 {
+        rts_core::entry::out_of_range("defaultMaxListeners", ">= 0", value);
+        return rts_core::entry::undefined_value();
+    }
+    DEFAULT_MAX_LISTENERS.store(number.to_bits(), Ordering::Relaxed);
+    rts_core::entry::undefined_value()
+}
+
+/// Validate the numeric listener limit once for both instance and static
+/// setters. `Infinity` is a valid Node value; only NaN and negative numbers
+/// are rejected.
+fn valid_max_listeners(value: u64) -> Option<f64> {
+    let Some(number) = rts_core::entry::number_of(value) else {
+        rts_core::entry::invalid_arg_type("n", "number", value);
+        return None;
+    };
+    if number.is_nan() || number < 0.0 {
+        rts_core::entry::out_of_range("n", ">= 0", value);
+        return None;
+    }
+    Some(number)
+}
+
 /// `events.setMaxListeners(n, target?)` — with no target, changes
-/// [`DEFAULT_MAX_LISTENERS`]; real Node also accepts a variadic list of
-/// targets, which this module's four call slots have no room left for once
-/// `n` and one target are read, so only the single-target form is honest
-/// here.
-extern "C" fn static_set_max_listeners(_e: u64, _this: u64, n: u64, target: u64, _c: u64, _d: u64) -> u64 {
+/// [`DEFAULT_MAX_LISTENERS`]; the native ABI exposes three target slots, so the
+/// implementation accepts the corresponding variadic prefix and validates all
+/// targets before writing any of them.
+extern "C" fn static_set_max_listeners(
+    _e: u64,
+    _this: u64,
+    n: u64,
+    target: u64,
+    target_b: u64,
+    target_c: u64,
+) -> u64 {
     let absent = rts_core::entry::undefined_value();
-    if target == absent {
-        if let Some(value) = rts_core::entry::number_of(n) {
-            DEFAULT_MAX_LISTENERS.store(value as u64, Ordering::Relaxed);
+    let Some(number) = valid_max_listeners(n) else {
+        return absent;
+    };
+    let targets = [target, target_b, target_c];
+    if targets.iter().all(|&one| one == absent) {
+        DEFAULT_MAX_LISTENERS.store(number.to_bits(), Ordering::Relaxed);
+        return absent;
+    }
+    let mut valid_targets = Vec::new();
+    for one in targets {
+        if one == absent {
+            continue;
         }
-    } else {
-        set_max_listeners(0, target, n, 0, 0, 0);
+        let is_object = rts_core::entry::with_runtime(|context| {
+            rts_core::entry::is_object(context, one)
+        });
+        if !is_object {
+            rts_core::entry::invalid_arg_type(
+                "eventTargets",
+                "EventEmitter or EventTarget",
+                one,
+            );
+            return absent;
+        }
+        valid_targets.push(one);
+    }
+    let value = rts_core::entry::make_number(number);
+    for one in valid_targets {
+        set_max_listeners(0, one, value, 0, 0, 0);
     }
     absent
 }
@@ -394,15 +640,16 @@ extern "C" fn static_set_max_listeners(_e: u64, _this: u64, n: u64, target: u64,
 /// handler that itself emits the same event synchronously will not see the
 /// not-yet-added listener).
 fn add_listener(this: u64, event: u64, listener: u64, once: bool, prepend: bool) {
-    let Some(name) = rts_core::entry::text_of(event) else {
+    if !valid_event_name(event) {
         return;
-    };
-    if name != "newListener" {
+    }
+    if !is_new_listener_event(event) {
         emit_meta(this, "newListener", event, listener);
     }
     let events = events_object(this);
     let array = rts_core::entry::get_indexed(events, event);
     let mut wrappers = collect_array(array);
+    let was_empty = wrappers.is_empty();
     let wrapper = rts_core::entry::with_runtime(|context| {
         let object = rts_core::entry::make_object(context);
         rts_core::entry::put_member(context, object, "fn", listener);
@@ -415,7 +662,10 @@ fn add_listener(this: u64, event: u64, listener: u64, once: bool, prepend: bool)
     } else {
         wrappers.push(wrapper);
     }
-    store_array(events, &name, wrappers);
+    store_array(events, event, wrappers);
+    if was_empty {
+        remember_event_name(this, event);
+    }
 }
 
 /// Emits `'newListener'`/`'removeListener'` directly against `this`'s own
@@ -451,12 +701,49 @@ fn wrapper_once(wrapper: u64) -> bool {
     rts_core::entry::to_boolean(rts_core::entry::get_indexed(wrapper, string_key("once")))
 }
 
-/// Replaces one event's listener array under `events.<name>`.
-fn store_array(events: u64, name: &str, wrappers: Vec<u64>) {
-    rts_core::entry::with_runtime(|context| {
-        let array = rts_core::entry::make_array_in(context, wrappers);
-        rts_core::entry::put_member(context, events, name, array);
+/// Replaces one event's listener array under its string or Symbol key.
+fn store_array(events: u64, key: u64, wrappers: Vec<u64>) {
+    let array = rts_core::entry::with_runtime(|context| {
+        rts_core::entry::make_array_in(context, wrappers)
     });
+    rts_core::entry::set_indexed(events, key, array);
+}
+
+/// The ordered event names, including Symbols, that have ever had a listener.
+fn event_name_list(this: u64) -> u64 {
+    rts_core::entry::get_indexed(this, string_key("__eventNames__"))
+}
+
+/// Add an event name once, when its first listener is registered.
+fn remember_event_name(this: u64, event: u64) {
+    rts_core::entry::array_append(event_name_list(this), event);
+}
+
+/// Remove an event name after its listener array becomes empty.
+fn forget_event_name(this: u64, event: u64) {
+    let list = collect_array(event_name_list(this));
+    let kept: Vec<u64> = list
+        .into_iter()
+        .filter(|&name| !rts_core::entry::strict_equals(name, event))
+        .collect();
+    rts_core::entry::with_runtime(|context| {
+        let replacement = rts_core::entry::make_array_in(context, kept);
+        rts_core::entry::put_member(context, this, "__eventNames__", replacement);
+    });
+}
+
+/// Event names are strings or Symbols; objects are not coerced inside this native.
+fn valid_event_name(event: u64) -> bool {
+    rts_core::entry::text_of(event).is_some()
+        || rts_core::entry::with_runtime(|context| rts_core::entry::is_symbol_in(context, event))
+}
+
+fn is_new_listener_event(event: u64) -> bool {
+    rts_core::entry::text_of(event).as_deref() == Some("newListener")
+}
+
+fn is_remove_listener_event(event: u64) -> bool {
+    rts_core::entry::text_of(event).as_deref() == Some("removeListener")
 }
 
 /// A JS array's elements, read out through `.length` and indexed access.

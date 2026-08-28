@@ -201,6 +201,11 @@ pub fn install(context: &mut Context) {
         rts_core::entry::declare_module(context, &format!("node:{name}"), namespace);
         rts_core::entry::declare_module(context, name, namespace);
     }
+    // CommonJS `require("events")` returns the callable EventEmitter export,
+    // while named/namespace imports still read the full events namespace. Both
+    // spellings share the same registered entry; only the CommonJS view differs.
+    let event_emitter = rts_core::entry::get_member(context, events_namespace, "EventEmitter");
+    rts_core::entry::declare_module_common(context, &["node:events", "events"], event_emitter);
     // Registering all of these costs 14 us, measured 2026-08-11 — which is the
     // answer to "why not prune the list by what the program imports instead":
     // a pruning pass could remove only this, and building what is left is 1.4 ms

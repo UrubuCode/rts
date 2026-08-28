@@ -226,7 +226,7 @@ pub(super) fn is_symbol_key(text: &Str) -> bool {
 }
 
 /// Whether a value is a symbol at all.
-pub(super) fn is_symbol(context: &Context, value: u64) -> bool {
+pub fn is_symbol(context: &Context, value: u64) -> bool {
     Value(value).as_client(context.kinds.symbol).is_some()
 }
 
@@ -400,7 +400,7 @@ fn shared(context: &mut Context, key: String, description: Option<String>) -> u6
 /// value every time — which is the whole point of the shared table, because a
 /// per-read symbol would make `o[Symbol.iterator]` write a property no later
 /// read could find.
-pub(super) fn well_known(context: &mut Context, name: &str) -> u64 {
+pub fn well_known(context: &mut Context, name: &str) -> u64 {
     shared(
         context,
         format!("{PREFIX}{name}"),

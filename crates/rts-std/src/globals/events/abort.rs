@@ -56,6 +56,10 @@ const DEPENDENTS: &str = "__dependents__";
 /// function on one target differ only in `capture`.
 const REMOVALS: &str = "__removals__";
 
+/// The last engine-generated abort event, used by Node's helper when a listener
+/// is added after the signal has already aborted.
+const NODE_ABORT_EVENT: &str = "__nodeAbortEvent__";
+
 thread_local! {
     /// Signals waiting on a deadline, and when each is due.
     ///
@@ -292,6 +296,7 @@ fn signal_abort(signal: u64, reason: u64, default: (&str, &str)) {
                 // The one event this engine generates itself, which is the only
                 // case the reference marks as trusted.
                 entry::put_member(context, event, "isTrusted", entry::boolean_value(true));
+                entry::put_member(context, target, NODE_ABORT_EVENT, event);
                 (target, event)
             })
             .collect()

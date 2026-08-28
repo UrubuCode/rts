@@ -465,15 +465,15 @@ None. `node:events` carries no byte-level payloads — `emit()`/`dispatchEvent()
 
 (d) Wire the module loader to mount `events.ts`'s exports under the `"node:events"` specifier (same mechanism already used for other `rts-node` `.ts`-shipped modules), and re-export `EventTarget`, `Event`, `CustomEvent` from the ambient globals.
 
-(e) Add `EventEmitter.defaultMaxListeners`/`errorMonitor`/`captureRejections`/`captureRejectionSymbol` statics + the `MaxListenersExceededWarning` construction-and-delivery path (soft-wired to `node:process`'s warning emitter per §5.7).
+(e) Add the remaining `EventEmitter.errorMonitor`/`captureRejections`/`captureRejectionSymbol` statics + the `MaxListenersExceededWarning` construction-and-delivery path (soft-wired to `node:process`'s warning emitter per §5.7). `defaultMaxListeners` and its module/class accessors are implemented.
 
 (f) Add `captureRejections` (constructor option + global toggle) with the thenable-duck-type `.then(undefined, handler)` wrapper.
 
-(g) Add the module-level/static helpers: `getEventListeners`, `getMaxListeners`, `listenerCount`, `setMaxListeners` (covering both `EventEmitter` and `EventTarget` receivers).
+(g) Add the module-level/static helpers: `getEventListeners`, `getMaxListeners`, `listenerCount`, `setMaxListeners` (covering both `EventEmitter` and `EventTarget` receivers). The current native surface includes `getEventListeners`, `getMaxListeners`, and validated `setMaxListeners`; `listenerCount` remains an explicit follow-up if the module-level spelling is required.
 
 (h) Add `events.once()` (promise) and `events.on()` (async iterator, with `signal`/`close`/`highWaterMark`/`lowWaterMark` support).
 
-(i) Add `events.addAbortListener()` (disposable wrapper around a one-shot `AbortSignal` listener).
+(i) Add `events.addAbortListener()` (disposable wrapper around a protected one-shot `AbortSignal` listener). **Implemented** in the current native surface, including invalid-argument codes, already-aborted signals, `[Symbol.dispose]`, disposal, and delivery after `stopImmediatePropagation`.
 
 (j) Add `EventEmitterAsyncResource` (subclass + `asyncId`/`triggerAsyncId` stub counter + `emitDestroy()` double-call guard).
 
@@ -509,5 +509,5 @@ None. `node:events` carries no byte-level payloads — `emit()`/`dispatchEvent()
 - **`EventEmitterAsyncResource` real `async_hooks` fidelity** — ships as an inert `asyncId`/`triggerAsyncId` counter (§5.3) until/unless RTS gets a real `async_hooks` implementation; `executionAsyncId()`-based defaulting is not implementable without it. Tracked as a follow-up once `node:async_hooks` is scoped.
 - **`events.on()` real backpressure (`highWaterMark`/`lowWaterMark`) vs a simplified always-buffer-everything approximation** — the exact "pause by temporarily removing the internal listener" mechanics are an internal Node implementation detail rather than observable API contract in most programs; first pass may implement an unbounded buffer (approximation) and only add true pause/resume if a real workload needs the memory bound. Flag in the PR if the first landed version is the approximation.
 - **Deprecated `EventTarget` error-routing behavior (`process.on('error')` before `uncaughtException`)** — Node's own docs mark this "subject to change." RTS should decide whether to match today's routing or jump straight to the eventual (undocumented-timeline) fixed behavior; recommend matching current Node until upstream actually ships the change, then follow.
-- **`events.addAbortListener`'s already-aborted-signal behavior** — the fetched documentation does not fully pin down whether the listener fires synchronously-immediately or is skipped when `signal.aborted` is already `true` at call time; verify against Node's actual source/test262-style behavior before finalizing (marked "(verify)" in §2).
+- **`events.addAbortListener`'s already-aborted-signal behavior** — verified against the official Node corpus: the listener fires synchronously and the returned Disposable remains valid.
 - **Performance** — no native fast path is proposed for P0 (see §5.2); revisit only if profiling of a real `node:stream`/`node:net`-heavy workload shows `EventEmitter.emit()` as a hot spot once those modules land on top of this one.

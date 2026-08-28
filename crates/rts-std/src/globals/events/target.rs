@@ -34,6 +34,11 @@ const STORE: &str = "__listeners__";
 /// recursion this flag exists to refuse.
 const IN_FLIGHT: &str = "__dispatching__";
 
+/// Internal option used by Node's protected abort-listener helper. It is not a
+/// public EventTarget option; it only marks a registration that dispatch must
+/// deliver after `stopImmediatePropagation` has stopped ordinary listeners.
+const PROTECTED: &str = "__nodeProtectedAbortListener__";
+
 const METHODS: &[(&str, Provided)] = &[
     ("addEventListener", add),
     ("removeEventListener", remove),
@@ -127,6 +132,7 @@ extern "C" fn add(_e: u64, this: u64, kind: u64, listener: u64, options: u64, _d
         _ => None,
     };
     let once = super::option_flag(options, "once");
+    let protected = super::option_flag(options, PROTECTED);
     let capture = capture_of(options);
     let store = store_of(this);
     let mut records = super::elements(super::get(store, &name));
@@ -138,6 +144,7 @@ extern "C" fn add(_e: u64, this: u64, kind: u64, listener: u64, options: u64, _d
         entry::put_member(context, record, "fn", listener);
         entry::put_member(context, record, "once", entry::boolean_value(once));
         entry::put_member(context, record, "capture", entry::boolean_value(capture));
+        entry::put_member(context, record, PROTECTED, entry::boolean_value(protected));
         record
     });
     records.push(record);
@@ -250,7 +257,7 @@ pub(super) fn dispatch_event(target: u64, event: u64) -> bool {
     let callees = callees_of(target, &records);
     let absent = super::absent();
     for (record, (callee, receiver)) in records.iter().copied().zip(callees) {
-        if super::flag(event, super::event::STOPPED) {
+        if super::flag(event, super::event::STOPPED) && !super::flag(record, PROTECTED) {
             break;
         }
         // Whether this registration is STILL registered, asked immediately
