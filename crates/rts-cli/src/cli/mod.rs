@@ -315,7 +315,7 @@ fn print_help(bin_name: &str) {
     println!("  {bin_name} clean");
     println!("  {bin_name} test [path]");
     println!("  {bin_name} emit-types [output.d.ts]");
-    println!("  {bin_name} ir <input.ts>          dump Cranelift IR to stderr (no execution)");
+    println!("  {bin_name} ir <input.ts>          dump this engine's own IR to stderr (no execution)");
     println!("  {bin_name} i [pkg@version ...]   install packages from package.json or args");
     println!("  {bin_name} help");
     println!("Options:");

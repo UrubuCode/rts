@@ -71,7 +71,23 @@ cargo test -p rts-cranelift <filter>
 cargo test -p rts-cranelift --test invariants
 ```
 
-Both are seconds. Do not build the workspace in release to check this crate.
+Seconds, all of them. Do not build the workspace in release to check this crate.
+
+**If the instruction is meant to be cheap, add a probe fixture and find out.**
+
+```bash
+cargo run --release -p rts-cranelift --example probe_run
+```
+
+`src/probe/fixtures.rs` is where a primitive gets a row. Two rules that file
+learned the hard way and a new fixture has to keep: the primitive runs inside
+the counted loop `open_loop` builds — one operation behind an indirect call
+cannot be resolved, because the call costs more than the operation — and it must
+sit on the loop's dependency chain, or the code generator hoists it out and the
+row reads as the floor.
+
+A row at `loop_floor` means the machine emits it for free. `call_direct` is the
+row every layer above is measured against.
 
 The code generator's own verifier answers *"is this well formed"* and **not**
 *"can this be compiled"*. Reading the first as the second already let two phases

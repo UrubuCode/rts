@@ -145,12 +145,37 @@ _Updated: 2026-08-28 — run locally with `powershell -File bench/benchmark.ps1`
 
 **Why native wins (and where the work is).** RTS compiles TS to machine
 code via Cranelift — no JIT warmup, no interpreter tier, native 64-bit
-integer arithmetic JS engines can't touch without BigInt. The `PolyValue`
-NaN-box only pays where code is actually polymorphic and the Cranelift
-egraph folds redundant box/unbox away — the design that made the old
-engine 5× faster than Bun is intact; wiring the new engine's hot paths
-back to it (plus cutting the ~70 ms AOT startup) is the tuning phase after
-the parity campaign.
+integer arithmetic JS engines can't touch without BigInt.
+
+**Read the Monte Carlo row as the honest statement of where the work is.**
+RTS AOT (1.08 s) is barely ahead of RTS JIT (1.12 s), and that gap is the
+whole finding: AOT removes the compile step, and the compile step was
+never the cost. Both paths emit the same IR, so both pay the same thing.
+
+This paragraph used to say the `PolyValue` NaN-box "only pays where code is
+actually polymorphic and the Cranelift egraph folds redundant box/unbox
+away". **Measured 2026-08-28, that is not what happens:**
+
+- **The egraph is off.** `opt_level` is left at Cranelift's default, which
+  is `none` — no GVN, no LICM, no redundant-load elimination.
+  `target/mod.rs` documents this and env-gates the setting behind
+  `RTS_CL_OPT`; turning it on moves Monte Carlo by less than the run-to-run
+  noise, because the mid-end cannot see across an opaque call and this
+  engine's IR is mostly opaque calls.
+- **So the box/unbox is not folded.** `rts ir` on `bench/monte_carlo_pi.ts`
+  emits **19 `Widen` and 25 `Guard` for 12 real float operations** — every
+  intermediate re-boxed to `Tagged` and proven back for the next operation.
+- **And it compounds.** A value that arrives `Tagged` fails the
+  precondition of `emit/call.rs`'s `machine_operation`, the one place this
+  engine turns a library call into an instruction. `Math.floor(x)` is one
+  instruction when `x` is a loop local and a **full JavaScript call** when
+  `x` reached it through a guard — which is most real code, and it fails
+  silently because falling back is a correct answer.
+
+The pass that folds a redundant widen/guard pair across a block boundary is
+the single missing piece, and it is missing rather than disabled:
+`docs/codegen/the-missing-pass.md` prices it and `ir/fold.rs` declines it by
+name. That, not startup and not the value model, is the tuning phase.
 
 ---
 
@@ -271,70 +296,81 @@ Full state and technical backlog: [issue #1793](https://github.com/UrubuCode/rts
 
 ## 🏗️ Architecture
 
-> **The cutover happened.** The old engine (`rts-codegen-old`) and the MIR
-> tier (`rts-mir`) are **deleted** — `crates/rts-codegen-new/` is the only
-> engine (single HIR→Cranelift path; `PolyValue` NaN-boxed value model in
-> `crates/rts-runtime/src/adapters/`; hidden-class shapes + AOT-safe data inline caches;
-> data-driven dispatch). Canonical design:
-> [`docs/engine/architecture.md`](docs/engine/architecture.md).
-> Public-surface direction:
-> [`docs/engine/architecture.md`](docs/engine/architecture.md).
+> **The cutover happened, twice.** The old engine went first; then
+> `rts-codegen-new` — the crate this section used to describe — was itself
+> **deleted on 2026-08-10**, once `ir`, `eval` and `emit-types` had been
+> rebuilt on the engine below. Its doctrine went with it and is the model for
+> nothing. Canonical design:
+> [`docs/engine/architecture.md`](docs/engine/architecture.md); binding rules
+> live in each crate's own `README.md`.
 
 Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin (re-exports
 the crates); real paths live under `crates/<crate>/src/`.
 
+**Two crates and a boundary.** `rts-codegen` is the language and knows no
+machine; `rts-cranelift` is the machine and knows no language. Either rule alone
+is a preference; both at once means a decision has exactly one place it can be
+made.
+
 ```
 crates/
-├─ rts-ast/          internal AST
-├─ rts-parser/       SWC parse → AST (+ generator/async state-machine desugar)
-├─ rts-diagnostics/  structured errors
-├─ rts-engine/       ⚡ heap GC + ABI contract (SPECS, AbiType, Intrinsic, symbols)
-│                    + Registry/builder + global shape registry
-├─ rts-hir/          typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any)
-├─ rts-codegen-new/  THE engine — front/run (single HIR→Cranelift lowering),
-│                    module_jit + module_aot, adapter_symbols (JIT table harvested from SPECS),
-│                    repr.rs (Repr lattice) + shape.rs (hidden-class shapes) + state.rs
-├─ rts-primitives/   PRIMORDIAL classes (String/Object/Array/Function/Promise/Boolean/Number/Error…)
-├─ rts-shared/       non-primordial universal (collections/json/globals + stdlib/*.ts preludes)
-├─ rts-std/          backend (io/net/tokio/console/promise/streams/audio)
-├─ rts-runtime/      thin facade (pub use of the four above) + AOT staticlib;
-│                    src/adapters/ = value model (PolyValue 64-bit NaN-box +
-│                    runtime trampolines + data-driven dispatch) — folded in
-│                    from the former rts-adapters crate
-├─ rts-node/         node:* shims (fs, os, path, process, crypto, util)
-├─ rts-napi/         N-API (.node addons) via libloading + HandleTable
-├─ rts-dom/          headless HTML+CSS engine (DOM → cascade → layout → display list)
-├─ rts-egui/         window/paint backend (egui/wgpu) + render/input namespaces
-├─ rts-linker/       native link (system linker + object fallback, per-target archives)
-└─ rts-cli/          run · compile · apis · init · repl · eval · ir
+├─ rts-cranelift/    the machine — IR, representations, GC contract, frames,
+│                    calls, unwinding. The ONLY crate that touches Cranelift.
+├─ rts-codegen/      the language — JS/TS tree, SWC bridge, emit, type pass
+├─ rts-core/         the runtime — values, heap, objects, coercion, entry points
+├─ rts-host/         where the three meet, and where a program runs
+├─ rts-macro/        #[rtse::entry] / #[rtse::class] — declare one, derive four
+├─ rts-std/          the `rts:` surface, and the globals
+├─ rts-node/         the `node:` surface (fs, os, path, process, crypto, util…)
+├─ rts-runtime/      the AOT staticlib a compiled program links against
+├─ rts-napi/         N-API (.node addons) — 146 symbols, a real addon runs
+├─ rts-dom/          headless HTML+CSS engine (DOM → cascade → layout → paint)
+├─ rts-egui/         window/paint backend (egui/wgpu)
+├─ rts-render/       rts-input/  rts-dom-bridge/  rts-physics/  rts-ui/
+├─ rts-linker/       native link (system linker + object fallback)
+└─ rts-cli/          run · compile · test · ir · eval · emit-types · repl
 ```
 
-### Pipeline (new engine — single path, no MIR)
+### Pipeline
 
 ```
-TS → SWC → AST → HIR (rts-hir) → lower/ (HIR → Cranelift IR, ONE path) → Cranelift egraph → JIT/AOT
+TS → SWC → rts-codegen syntax tree → emit → rts_cranelift::ir → verify
+   → lower/ → Cranelift → JIT (executable memory) | AOT (object + link)
 ```
 
-There is no MIR tier and no dual AST/MIR in the new engine. The **Cranelift egraph**
-(`use_egraphs=true`) is the ONLY optimizer (const-fold, CSE, DCE, FMA, strength
-reduction, intraprocedural inlining). The front-end only does what Cranelift cannot
-(JS semantics): `ToNumber/ToString/ToBoolean` coercions, the polymorphic `+`,
-box/unbox insertion (pure IR the egraph folds), shape/IC site emission,
-narrow-int wrap, exception edges. AOT/JIT share `compile_program`
-(`FnCtx.module` is `&mut dyn Module`).
+One path, no MIR tier. `rts ir` prints the middle stage — this engine's own
+representation, not Cranelift's `.clif`.
 
-**PRIMORDIAL-vs-Registry doctrine (central to the new engine):** the engine NAMES only
-the primordial classes; everything else resolves via the data-driven Registry — **no
-non-primordial name hardcoded in the front, not even in an "allow-list"** (see
-[`CLAUDE.md`](CLAUDE.md) § anti-hardcode). The non-primordial globals (console,
-Map/Set, JSON, Date) live as prelude `.ts` (`rts-shared/stdlib/*.ts`) and
-call private `engine.*` bridges; the front does not name them.
+**What optimizes it: almost nothing, and that is the honest statement.** This
+section used to claim the Cranelift egraph (`use_egraphs=true`) was the
+optimizer. `opt_level` is left at Cranelift's default of `none`, which gates the
+egraph mid-end out entirely — `target/mod.rs` documents that and puts the knob
+behind `RTS_CL_OPT`, where turning it on measures as noise because the mid-end
+cannot see across an opaque call. So the box/unbox pairs the front end inserts
+are **not** folded away by anything; see the performance section above and
+[`docs/codegen/the-missing-pass.md`](docs/codegen/the-missing-pass.md).
 
-**Boxing-free ABI**: each namespace function is a symbol
-`#[no_mangle] extern "C" fn __RTS_FN_NS_<NS>_<NAME>(...)`. No `JsValue`,
-no central dispatcher. `i64`/`f64` in native bits, strings as UTF-8
-`(ptr, len)`, opaque `u64` handles for resources. In the new engine the JIT symbol
-table is DERIVED from `SPECS` (`abi_gen.rs`), not manual `add_fn!`.
+The front end does what Cranelift cannot — JS semantics:
+`ToNumber`/`ToString`/`ToBoolean` coercions, the polymorphic `+`, widen/guard
+insertion, shape and inline-cache site emission, narrow-int wrap, exception
+edges. AOT and JIT share one lowering and differ only in the destination.
+
+**One source, generated views.** A runtime symbol is declared by an attribute
+and never written by hand: `#[rtse::class]` derives the wrappers, the install
+lists, the registration **and** the TypeScript declaration `rts emit-types`
+prints — four views from one `impl` block. There is no symbol table to bake,
+because a native here is a **function pointer beside a cell**, not a name a
+linker resolves. See
+[`docs/engine/authoring-natives.md`](docs/engine/authoring-natives.md).
+
+The one permanent exception is `rts-napi`'s 146 `napi_*` declarations: a foreign
+C ABI whose names *are* the interface, since a compiled `.node` addon links
+against those exact strings.
+
+**Where the three crates agree, they are made to.** An entry point crosses as
+ABI scalars, and `rts-host` is the only crate that may name the compiler's
+statement of the entry-point set and the runtime's derivation of it at once — so
+that is where the two are asserted equal, by name, rather than assumed.
 
 ---
 
@@ -358,24 +394,33 @@ cargo build --release
 ```bash
 rts run file.ts                  # in-memory JIT
 rts compile -p file.ts out       # AOT with use-based slicing
-rts apis                         # list APIs registered in abi::SPECS
-rts ir file.ts                   # dump Cranelift IR (for codegen debugging)
+rts test [path]                  # the *.test.ts corpus
+rts ir file.ts                   # this engine's own IR, no execution
+rts emit-types [out.d.ts]        # TypeScript declarations, from #[rtse::class]
 rts init my-app                  # project scaffolding
+rts i [pkg@version …]            # install from package.json or args
+rts clean                        # remove generated object/cache directories
 ```
 
 ---
 
 ## 🔬 Codegen debugging
 
-Want to see exactly what Cranelift is generating?
+Want to see exactly what the engine emitted?
 
 ```bash
 rts ir file.ts 2>&1 | head -50
 ```
 
-Prints the IR of every user fn + `__rts_startup` without executing. Great for hunting
-redundant loads/stores in hot loops, unnecessary extern calls, and
-intrinsic opportunities. See `CLAUDE.md` § Codegen debugging.
+Prints **this engine's own IR** — not Cranelift's `.clif`, which only exists
+inside `lower/` after every decision has already been taken. A callee legend
+sits at the top, so a `Call { callee: FuncId(7) }` can be read back to a name.
+
+It is the tool for the questions that matter here: how many `Widen`/`Guard`
+pairs surround each real operation, which operations became runtime calls
+instead of instructions, and where a throw check follows something that cannot
+throw. [`docs/guides/reading-ir.md`](docs/guides/reading-ir.md) is how to read
+it; [`docs/codegen/`](docs/codegen/) is what past readings settled.
 
 ---
 

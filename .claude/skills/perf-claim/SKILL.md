@@ -31,13 +31,31 @@ the code generator does with it.
 ```bash
 cargo run -- run file.ts             # JIT, no release build
 target/release/rts.exe ir file.ts    # what we emit, PRE-optimization
-cargo test -p rts-cranelift --test probe   # what the primitives cost, no client
+cargo run --release -p rts-cranelift --example probe_run   # what the machine's
+                                     # primitives cost, with no client present
 ```
 
+The third line said `cargo test -p rts-cranelift --test probe` until
+2026-08-28, and **that target has never existed** — so the one command this
+skill gave for attributing a cost to a layer printed a list of other test
+targets and exited. It is an example rather than a test on purpose: a timing
+test fails on a busy machine, and the probe is a ruler, not a gate.
+
 `crates/rts-cranelift/src/probe/` measures machine primitives with **no client
-present**. That is the property that makes a cost attributable to a layer.
+present**. That is the property that makes a cost attributable to a layer, and
+the row to read first is `call_direct`: it is the cheapest call the machine can
+emit, so it is the floor under every call the layers above pay, and anything
+above it belongs to them. `docs/codegen/machine-primitives.md` has the current
+numbers and what they settle.
 
 **Never benchmark a debug build.** A debug number is not a number.
+
+**And a ruler has to be able to see.** Every probe fixture runs its primitive
+inside a counted loop, because until 2026-08-28 each was one operation behind an
+indirect call that costs 1.27 ns — so every row landed within noise of every
+other and a field read measured *below* an addition, which is impossible. If a
+measurement you are about to trust cannot separate two things you know differ,
+the instrument is the first suspect, not the code.
 
 ## 3. Verify the input, not just the output
 

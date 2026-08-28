@@ -192,9 +192,11 @@ already documents for itself. This harness inherits them deliberately.
 | [`entry-tax.md`](entry-tax.md) | is the `RefCell<Vec<Context>>` behind every entry point why the runtime costs 16–30 ns | **no** — 0.53 ns of it |
 | [`hot-path-hygiene.md`](hot-path-hygiene.md) | four things a hot path was doing that nothing asked it to | done, measured |
 | [`startup.md`](startup.md) | where the 19.9 ms of `rts run empty.ts` goes | attributed; three items fixed |
-| [`the-missing-pass.md`](the-missing-pass.md) | what the absent IR pass costs a loop | measured; `ToInt32`-of-a-constant is 3.08 ns |
+| [`the-missing-pass.md`](the-missing-pass.md) | what the absent IR pass costs a loop | measured; `ToInt32`-of-a-constant is 3.08 ns — and it also **disqualifies** `Math.floor` from being an instruction |
 | [`object-model.md`](object-model.md) | is the Hermes-shaped object model the limit, or the surroundings | **keep it** — the model's removable cost is 3–8 ns of ~90 |
-| [`element-load.md`](element-load.md) | can the dead bounded-load fast path for arrays simply be switched on | **no** — it drops the array's only root |
+| [`element-load.md`](element-load.md) | can the dead bounded-load fast path for arrays simply be switched on | **no** — it drops the array's only root, and the general fix (`describe_frames`) is written but unwired |
+| [`native-call-floor.md`](native-call-floor.md) | is what a built-in costs the Rust that implements it | **no** — ~35 ns of getting there; a hash probe costs the same as an integer compare |
+| [`machine-primitives.md`](machine-primitives.md) | what does the machine itself cost, and is any of the 35 ns its fault | **no** — its call is 1.1 ns; the probe could not say until its rows stopped being one operation behind an indirect call |
 
 ---
 

@@ -9,6 +9,47 @@ guess the other way round.
 
 ---
 
+## The larger cost is not the boxing: it is what the boxing DISQUALIFIES
+
+*Added 2026-08-28.* The numbers below price the round trip at about a
+nanosecond, and that is right — and it is not the whole bill, because a value
+that arrives `Tagged` also **fails the precondition of every fast path that
+requires a proven one**.
+
+`emit/call.rs`'s `machine_operation` turns `Math.floor(x)` into the instruction
+the hardware has, on three conditions, the third being that the operand *"must
+ALREADY be a proven double"*. Its own comment justifies that: *"the operand of a
+square root in a loop is proven by the type pass in the case that matters"*.
+
+**It is not, as soon as the value came from anywhere.** A minimal pair, the only
+difference being where the operand comes from:
+
+| program | `FloatUnary` emitted |
+|---|---|
+| `for (let i = 0; …) a += Math.floor(i * 1.5)` — `i` is a loop local | **1** — one instruction |
+| `function step() { s = s*3+1; return Math.floor(s / 7) }` — `s` is a module-level `let` a function captures | **0** — a global read and a full JavaScript call |
+
+So `Math.floor` costs one instruction in the first and something on the order of
+a built-in call — ~35 ns, `native-call-floor.md` — in the second. Nothing about
+the floor changed; the operand reached it through a guard, and provenness does
+not survive a block boundary, because that is the traversal this whole document
+is about.
+
+The compounding is the point. The missing pass is priced below at 0.65 ns for an
+accumulator that is `Tagged` across a back edge. That is what it costs *directly*.
+What it costs *indirectly* is that `machine_operation` — the one place this
+engine turns a library call into an instruction — is switched off for
+essentially all real code, and silently, because falling back to the ordinary
+call is a correct answer.
+
+**Where it was found.** `bench/monte_carlo_pi.ts` spends 705 ms of a 790 ms run
+in its loop, and rewriting its `%` into `Math.floor` arithmetic made it *nearly
+twice as slow* while making node twice as fast — because on node the added
+operations are instructions and on this engine `Math.floor` became a call. Every
+value in that file is annotated `: number`, which is worth stating plainly: the
+annotations are not what proves an operand here, and a reader who assumes they
+are will not understand the emitted code.
+
 ## What the engine emits
 
 `rts ir` on `let a = 0; for (let i = 0; i < n; i++) a += arr[i & 1023];` produces

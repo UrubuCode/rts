@@ -152,6 +152,55 @@ Because every available patch is a design decision, not a fix:
 None of those is an afternoon, and shipping the version that measured −15.3% and
 answered wrongly is what the honesty floor exists to forbid.
 
+### A fifth patch, which this list did not consider — and it fails too
+
+*Added 2026-08-28.* The obvious objection to the second bullet is that it
+conflates two different things: "keep the array live" and "pass the array to a
+runtime function". Only the second reintroduces a crossing. **Make the array a
+fourth operand of `ElementLoad` itself** and it is neither — the instruction
+already exists, the operand costs no instruction, and the value is live by
+construction at every load.
+
+Two of the three links in that chain check out:
+
+- `Inst::operands()` enumerates `ElementLoad`'s operands, and
+  `gc::liveness` does `live.extend(inst.operands())` at `liveness.rs:115`
+  and `:155`. So an `owner` operand **would** be live across the loop.
+- `gc/mod.rs` states the payoff: *"`describe_frames` derives the root set from
+  liveness, and there is no entry point through which a client could report a
+  set of its own"* — exactly rule 8, no discipline to forget.
+
+**The third link does not exist.** `rts-core`'s `entry::roots` says it in its own
+first paragraph: `describe_frames` *"is finished and tested, and has zero
+callers — nothing attaches its liveness output to compiled code at run time, so
+a frame the machine compiled cannot be asked which of its slots are live"*. What
+runs is `scan_stack`, which **recognises references by their bit pattern** on
+the machine stack.
+
+So an `owner` operand would root the array only if the register allocator
+happened to spill it, or happened to leave it in a callee-saved register that
+the scan captures. That is a fast path whose correctness depends on register
+allocation, which is the same class of "works until it does not" as the version
+that shipped 53 wrong answers.
+
+### What this actually means, and it is bigger than arrays
+
+The blocker is not the array's storage and it is not this instruction. It is
+that **a machine-typed derivative of a heap reference is invisible to a
+conservative collector.** A base address, an unboxed field, a narrow element —
+each stops looking like a reference the moment it becomes useful, and stops
+being a root at the same instant.
+
+That is why `Inst::ElementLoad` is dead, why `Repr::I8`, `I16` and `F32` have
+zero producers in the language layer, and why there is no integer-width
+conversion in the instruction set at all: the whole family of optimisations that
+would use them shares one precondition, and it is unwired rather than missing.
+
+**`describe_frames` is the enabling change**, and it is the rare kind that is
+already written. Until it is attached, every fast path in this class has to be
+refused for the same reason, and refusing them one at a time — as this document
+did — reads like five separate problems.
+
 ## What this leaves
 
 The instruction, the lowering, `elements_base` and the `ctx.set_element_run`
