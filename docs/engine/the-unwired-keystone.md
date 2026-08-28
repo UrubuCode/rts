@@ -108,6 +108,44 @@ there to notice.
 
 ---
 
+## The constraint that decides how the walk is written
+
+*Added 2026-08-28, before writing one.* Frame pointers are preserved —
+`isa_with` sets `preserve_frame_pointers` and says why — so a chain of compiled
+frames is walkable by following `rbp`. `entry/registers.rs` already captures
+`rbp` for the collector, and `rts-host/src/stack.rs` installs
+`Context::stack_high` from the OS, so a walk has both a start and a bound.
+
+**And that is not enough, because the chain is not all ours.** A throw is raised
+inside `rts-core`, and the frames between one compiled function and the next are
+Rust: `call_counted`, `called`, `invoke`, and whatever native is running. Rust
+and LLVM do not promise to keep `rbp` as a frame pointer in a function that does
+not need one, so following the chain through them can stop early or land on a
+word that is not a frame at all.
+
+Two consequences, and the second is the design decision:
+
+- **The walk must SKIP rather than stop** at an address the map does not
+  attribute. A Rust frame is not the end of the program; it is the middle of
+  one call. A walker that ended at the first unattributed address would report
+  exactly one compiled frame.
+- **The chain itself has to come from unwind information, not from `rbp`**, if
+  it is to cross those frames reliably. On Windows that is
+  `RtlCaptureStackBackTrace` / `RtlVirtualUnwind`, which reads the unwind tables
+  every x64 function is required to have; the machine layer's `unwind/` already
+  produces ours. Elsewhere it is the platform's equivalent.
+
+That puts the walker in `rts-host`, beside `stack.rs`, which is already the
+crate that asks the OS about this thread's stack and is already written per
+platform. Not in `rts-core`, which has no business naming an OS API, and not in
+`rts-cranelift`, whose rule 2 forbids it knowing who is asking.
+
+**This is why no walker is written here.** An `rbp` chain is ten lines and would
+work in the cases anyone would first test — a compiled function calling a
+compiled function — and would silently truncate the moment a native sat between
+them, which is most real traces. Writing it that way to have something is how a
+trace that is quietly wrong ships.
+
 ## What wiring it would involve
 
 Not attempted here, and stated so the size is not underestimated:
@@ -115,9 +153,10 @@ Not attempted here, and stated so the size is not underestimated:
 - **A frame table in the artifact.** `describe_frames` answers per function at
   compile time; the answer has to survive into the running program, for the JIT
   and for an object file, and be findable from a return address.
-- **A stack walker.** `roots::scan_stack` reads a raw range today. Precise roots
-  need frames, which needs either frame pointers kept or the unwind information
-  `unwind/` already produces.
+- **A stack walker**, and the section above settles which kind: unwind
+  information rather than an `rbp` chain, in `rts-host` beside `stack.rs`,
+  because the frames between two compiled ones are Rust and may keep no frame
+  pointer at all.
 - **Two consumers switched over.** `collect_cycle` stops scanning conservatively
   where a frame is described; `throw::stack_text` stops reading `callees`.
 - **And the conservative scan stays.** `roots.rs` (B) is explicit that a Rust or
