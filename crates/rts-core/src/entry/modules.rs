@@ -216,6 +216,25 @@ pub fn declare_module(context: &mut Context, specifier: &str, namespace: u64) {
     }
 }
 
+/// Gives a host-provided module its CommonJS `module.exports` value.
+///
+/// ESM named/default imports continue to read the registered namespace. Plain
+/// `require()` reads this value first, which is necessary for Node modules whose
+/// CommonJS export is callable (`require("events")` is the `EventEmitter`
+/// constructor rather than the namespace object). The specifiers must already
+/// have been declared and therefore share the same namespace entry.
+pub fn declare_module_common(context: &mut Context, specifiers: &[&str], common: u64) {
+    for specifier in specifiers {
+        if let Some(held) = context
+            .modules
+            .iter_mut()
+            .find(|held| held.specifier == *specifier)
+        {
+            held.common = Some(common);
+        }
+    }
+}
+
 /// What builds a namespace the first time a program names it.
 pub type Builder = fn(&mut Context) -> u64;
 
