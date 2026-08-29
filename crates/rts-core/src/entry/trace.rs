@@ -234,6 +234,31 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
         table.trace(out);
     }
 
+    // 8b. WHAT AN ITERATOR IS WALKING, and this table is the only path to it.
+    //
+    //     `Context::cursors` holds `(listed, at)`: the array an array or string
+    //     iterator steps, or the Map/Set whose table a collection cursor walks.
+    //     Both are encoded `Value`s and neither is reachable from the iterator
+    //     by any other route — an iterator has no own property naming its
+    //     source, exactly as a helper does not, which is why `helpers` is
+    //     traced at 9b below.
+    //
+    //     It was MISSING, and the failure it produced was silence rather than a
+    //     crash. `const it = [1,2,3][Symbol.iterator]()` leaves the array named
+    //     by nothing else; the first collection reclaimed it, `stepped` then
+    //     found no elements at the cell, and `next()` answered `{done: true}`.
+    //     A `for`-`of` over such an iterator ENDS EARLY and reports nothing.
+    //     Reproduced 2026-08-29 for an array, a Set and a Map at once.
+    //
+    //     `cursors` was also the one `Aside` holding a `Value` that neither this
+    //     walk visited nor the closing comment accounted for — every other
+    //     unvisited table (`regexes`, `integrity`, `attributes`, `derived`,
+    //     `buffer_of`, `foreign`, `detached`, `proto_types`) holds no reference,
+    //     and says so there.
+    if let Some((listed, _)) = context.cursors.copied(cell) {
+        out.push(listed);
+    }
+
     // 9. A generator's parked frame. Its own cell reference is pushed
     //    directly rather than through `follow`: `alloc_spanning` never wrote
     //    it as an encoded `Value` anywhere a decode could find it, this is

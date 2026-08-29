@@ -71,6 +71,15 @@ use super::Context;
 ///   of `spills`, `buffers` and `arrays`, which are reached from a cell via one
 ///   of those `Aside` tables, and of `region`, the aggregate storage a shape's
 ///   own trace walks.
+///
+///   **That sentence is only true while `trace` actually visits each of them,
+///   and for `cursors` it did not.** An iterator's cursor holds the array or
+///   the collection it is walking, and nothing else names it —
+///   `[1,2,3][Symbol.iterator]()` leaves the array reachable through this table
+///   alone. The first collection reclaimed it and `next()` began answering
+///   `{done: true}`, so a `for`-`of` ended early and reported nothing. Fixed in
+///   `trace` step 8b on 2026-08-29; the classification above was right about
+///   where the responsibility lies and wrong about it having been discharged.
 /// - **No references at all** — `shapes`, `keys`, `interner`, `types`,
 ///   `shape_of_type`, `text_type`, `symbols` (a symbol is a machine *tag*, not
 ///   a cell — see `entry::symbol`'s own module documentation for why that

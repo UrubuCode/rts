@@ -228,6 +228,26 @@ fn materialise(node: &read::Node) -> u64 {
                 let Some(cell) = super::native::plain(context) else {
                     return undefined_of(context);
                 };
+                // THE CELL ITSELF IS A ROOT FROM HERE, and it was not.
+                //
+                // `cell` is a bare `u32` in a Rust frame. The stack scan
+                // recognises an encoded `Value`, and a raw index is not one — so
+                // between this line and the last store the object being built was
+                // named by nothing the collector walks. The fallback arm below
+                // calls `put` once per member, and a `put` that grows the spill
+                // reaches `alloc_or_die`, which may collect; the cell was then
+                // freed and handed out again while the loop went on writing into
+                // it. **That is a SEGFAULT, not a wrong answer**: 3 000
+                // `JSON.parse` calls over an 80-key object died on the first
+                // collection, every run, and 5 000 over a 60-key object did not
+                // — the difference is how many times the spill has to grow.
+                //
+                // An object grown the ordinary way never had this: `const o = {};
+                // o.k = v` holds the object in a machine slot as an encoded
+                // value, which the scan does see. Only a native building a cell
+                // out of a Rust local is exposed, and this is the one that builds
+                // a wide one.
+                values.values().push(Value::from_slot(cell).bits());
                 // The layout is reached ONCE. A `put` per member is a shape
                 // transition, a slot lookup, a type mint and a header write —
                 // and every one of those types but the last is thrown away by

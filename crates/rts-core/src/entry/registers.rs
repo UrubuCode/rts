@@ -86,6 +86,29 @@ pub fn callee_saved() -> Vec<Slot> {
 ///
 /// `rsp` is absent because it is the stack pointer, and everything it addresses
 /// is what the walk already covers.
+///
+/// # The half that is NOT here, and why it is not
+///
+/// Windows x86-64 also preserves `xmm6`-`xmm15`, and a NaN-boxed value is
+/// sixty-four bits Cranelift is free to keep in one — every `Widen`/`Guard`
+/// pair in this engine is a bitcast between `F64` and `Tagged`. So the same
+/// argument that made the eight above necessary reads, on paper, as if it
+/// applied to ten more.
+///
+/// It was WRITTEN (ten `movq`s into an eighteen-word array, plus `d8`-`d15` on
+/// AArch64), built, and reverted on 2026-08-29, because **no program forced
+/// it**. Two were tried: a `for`-`of` over a `Set` that loses its iterator on
+/// the first collection, and a loop holding five objects across ten live
+/// doubles and 400 000 allocations. Both behave identically with the capture
+/// and without it.
+///
+/// That is the standard this module was created under and it cuts both ways:
+/// `roots.rs` refused the integer set until a failing program existed, recorded
+/// the refusal as *"absence of a failing case, not a proof"*, and named the
+/// condition for reopening — *"a program that breaks it makes it necessary
+/// again"*. The reasoning above is kept so the next person does not re-derive
+/// it; the code is not, because a root source nobody can demonstrate is a
+/// permanent cost paid against a hypothesis.
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 fn captured() -> [u64; 8] {
