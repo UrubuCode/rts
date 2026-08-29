@@ -425,7 +425,6 @@ fn step_iterator(
     let next_name = ctx.names.intern("next");
     let done_prop = ctx.names.intern("done");
     let value_prop = ctx.names.intern("value");
-    let length_name = ctx.names.intern("length");
 
     let declare_val = Stmt {
         kind: StmtKind::Declare {
@@ -510,7 +509,7 @@ fn step_iterator(
         Some(direct) => Stmt {
             kind: StmtKind::If {
                 condition: ident(direct.flag, at),
-                then_branch: Box::new(indexed_step(direct.held, length_name, done, val, position, at)),
+                then_branch: Box::new(indexed_step(direct.held, val, position, at)),
                 else_branch: Some(Box::new(if_stmt)),
             },
             at,
@@ -523,66 +522,45 @@ fn step_iterator(
     super::super::binding::read(builder, scope, ctx, val)
 }
 
-/// One position, read straight out of the source.
+/// One position, read straight out of the source: `val = src[position]`.
 ///
-/// ```text
-/// done = position >= src.length;
-/// val  = done ? undefined : src[position];
-/// ```
+/// # Why there is no length test, and why that is not a shortcut
 ///
-/// `length` is read at EVERY position rather than hoisted, and that is the
-/// difference between indistinguishable and nearly so: the primordial cursor
-/// asks the receiver its length on every `next()`, so a source that shrinks
-/// between positions ends the pattern early — and a hoisted length would keep
-/// reading past the end. It costs a cached property read, measured at 3.3 ns
-/// against the ~13 ns of the element read beside it.
+/// An indexed read past the end already answers `undefined`, and so does a
+/// hole — which is exactly what the stepping arm answers for both, because the
+/// primordial cursor reads `elements[i]` through the same visibility rule and
+/// `val = done ? undefined : step.value` collapses to the same thing. So the
+/// comparison a first version wrote here was computing a value that could not
+/// change the answer, and it was not free: `position >= src.length` emitted a
+/// property read AND `__rts_greater_equal`, because neither side is proven.
+/// Counted in `rts ir`, that is two of the three crossings this arm was paying
+/// per position.
 ///
-/// Out of range and a hole both answer `undefined` through the ordinary indexed
-/// read, which is what the stepping arm answers for them too — the cursor reads
-/// `elements[i]` through the same visibility rule.
-fn indexed_step(
-    held: Name,
-    length: Name,
-    done: Name,
-    val: Name,
-    position: usize,
-    at: Position,
-) -> Stmt {
-    let at_position = Expr {
-        kind: ExprKind::Literal(Literal::Number(position as f64)),
-        at,
-    };
-    let past_end = Expr {
-        kind: ExprKind::Binary {
-            op: BinaryOp::GreaterEqual,
-            left: Box::new(at_position.clone()),
-            right: Box::new(member_expr(ident(held, at), length, at)),
-        },
-        at,
-    };
+/// # Why `done` is not written either
+///
+/// Because on this arm nothing reads it, and that is a fact about
+/// [`direct_candidate`]'s gate rather than about this function. Every reader was
+/// checked: `close_close_region` runs only for an element where
+/// [`can_throw`] holds, `gather_rest_stepwise` only for a pattern with a rest,
+/// and both are what the gate excludes; the `!done` guard and the `done ?`
+/// ternary are the STEPPING arm's own; and [`close_stmt`] is conditioned on the
+/// flag, not on `done`, precisely so that it does not depend on this.
+///
+/// Widening the gate means giving `done` back before anything else — it is the
+/// one thing here that a wider scope would silently need.
+fn indexed_step(held: Name, val: Name, position: usize, at: Position) -> Stmt {
     let element = Expr {
         kind: ExprKind::Index {
             object: Box::new(ident(held, at)),
-            index: Box::new(at_position),
+            index: Box::new(Expr {
+                kind: ExprKind::Literal(Literal::Number(position as f64)),
+                at,
+            }),
             optional: false,
         },
         at,
     };
-    let chosen = Expr {
-        kind: ExprKind::Conditional {
-            condition: Box::new(ident(done, at)),
-            then_branch: Box::new(undefined_expr(at)),
-            else_branch: Box::new(element),
-        },
-        at,
-    };
-    Stmt {
-        kind: StmtKind::Block(vec![
-            plain_assign_stmt(ident(done, at), past_end, at),
-            plain_assign_stmt(ident(val, at), chosen, at),
-        ]),
-        at,
-    }
+    plain_assign_stmt(ident(val, at), element, at)
 }
 
 /// Whether initializing this element can leave abruptly, and therefore needs

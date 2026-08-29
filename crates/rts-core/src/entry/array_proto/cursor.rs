@@ -166,6 +166,12 @@ pub(super) fn over(receiver: u64, kind: Kind) -> u64 {
                     let next = context.well_known("next");
                     context.array_cursor_next = objects::own_property(context, cell, next)
                         .map(|found| found.bits());
+                    // And WHERE it lives, so the guard never has to ask
+                    // `class_support::prototype` for it — that walks `classes`
+                    // comparing a string per entry, and the program that pays
+                    // most for it is the one that never makes a cursor at all
+                    // and walks the whole list to be told so.
+                    context.array_cursor_prototype = Some(cell);
                 }
                 match super::super::class_support::prototype(context, "ArrayCursor") {
                     Some(prototype) => prototype,

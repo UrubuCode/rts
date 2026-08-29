@@ -128,14 +128,15 @@ fn direct(context: &mut Context, source: u64) -> bool {
 
 /// Whether the array cursor still steps and closes the way it was built to.
 fn cursor_step_is_primordial(context: &mut Context) -> bool {
-    let Some(prototype) = class_support::prototype(context, "ArrayCursor") else {
+    let Some(cell) = context.array_cursor_prototype else {
         // Never registered, so no cursor has ever existed and there has been
         // nothing to replace. This is the ordinary case for a program that
-        // destructures without ever asking an array for an iterator by name.
+        // destructures without ever asking an array for an iterator by name,
+        // and answering it by NOT LOOKING is the point: the question used to go
+        // to `class_support::prototype`, which walks `classes` comparing a
+        // string per entry, so the program that never makes a cursor paid the
+        // whole walk on every pattern to be told the class is absent.
         return true;
-    };
-    let Some(cell) = Value(prototype).as_slot() else {
-        return false;
     };
 
     let next = context.well_known("next");

@@ -239,7 +239,7 @@ use crate::value::Singletons;
 pub const TEXT_LENGTH_SLOT: u32 = 1;
 
 /// The names the runtime asks for BY NAME on a path that runs per operation.
-pub const CACHED_KEYS: [&str; 11] = [
+pub const CACHED_KEYS: [&str; 14] = [
     "length",
     "prototype",
     "byteLength",
@@ -266,6 +266,14 @@ pub const CACHED_KEYS: [&str; 11] = [
     // zero and `integrity::length_is_first` asserts it.
     "value",
     "done",
+    // The three `pattern::array_pattern_direct` asks, once per array pattern in
+    // the program. Measured before they were here: the guard cost 461 ns of a
+    // 543 ns destructuring — 85% of it — and three uncached names were part of
+    // that. `@@iterator` is asked on every call; `next` and `return` only once a
+    // cursor exists, and they are here beside it rather than in a second place.
+    symbol::ITERATOR,
+    "next",
+    "return",
 ];
 
 /// Where `"length"` sits in [`CACHED_KEYS`].
@@ -669,6 +677,15 @@ pub struct Context {
     /// does not exist until then, so there is nothing a program could have
     /// replaced, and the guard reads `None` as "still primordial".
     pub(super) array_cursor_next: Option<u64>,
+    /// The cell `%ArrayIteratorPrototype%` lives in, recorded beside its `next`.
+    ///
+    /// Kept so that the common case costs NOTHING. The guard used to ask
+    /// `class_support::prototype(context, "ArrayCursor")`, which walks `classes`
+    /// comparing a `&str` per entry — and a program that destructures without
+    /// ever asking an array for an iterator by name walks the whole list to
+    /// learn that the class is absent, on every pattern. `None` here answers the
+    /// same question by not looking.
+    pub(super) array_cursor_prototype: Option<u32>,
     /// The prototype backing buffers created internally for typed arrays.
     ///
     /// `new_buffer` asks for it on every typed-array allocation, so the first
@@ -1228,6 +1245,7 @@ impl Context {
             generator_result_prototype: None,
             array_iterator_method: None,
             array_cursor_next: None,
+            array_cursor_prototype: None,
             array_buffer_prototype: None,
             resolves: 0,
             array_layout: None,

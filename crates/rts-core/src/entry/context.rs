@@ -636,6 +636,9 @@ impl Context {
             super::symbol::SPECIES => Some(8),
             "value" => Some(9),
             "done" => Some(10),
+            super::symbol::ITERATOR => Some(11),
+            "next" => Some(12),
+            "return" => Some(13),
             _ => None,
         };
         if let Some(at) = held
