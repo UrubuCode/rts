@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 
+use super::dominance::Dominance;
 use super::error::VerifyError;
 use crate::ir::inst::NumOp;
 use crate::ir::{BlockCall, BlockId, Function, Inst, InstId, Terminator, ValueId};
@@ -223,81 +224,6 @@ pub(super) fn check_unwind(func: &Function, errors: &mut Vec<VerifyError>) {
 /// leaves to the same place, so several are still one exit. Reads only itself:
 /// now over everything the piece defines, including its own block parameters,
 /// which is what lets a merge inside a cleanup work at all.
-/// For each block, the blocks that dominate it — itself included.
-///
-/// The textbook iterative formulation: the entry dominates only itself to start
-/// with, everything else starts as "everything", and each block's set shrinks to
-/// itself plus the intersection of its predecessors' until nothing moves.
-/// `Vec<bool>` per block rather than a `HashSet`, because the inner operation is
-/// an intersection over a fixed universe and a bitmap is what that wants; rule
-/// 13 does not constrain it, since nothing here is printed.
-///
-/// Unreachable blocks keep the initial "dominated by everything", which is the
-/// conventional answer and the conservative one for the use below: a value is
-/// admitted only when its definition dominates, so a block nothing reaches
-/// admits nothing extra.
-fn dominators(func: &Function) -> Vec<Vec<bool>> {
-    let count = func.blocks().count();
-    let index_of = |block: BlockId| block.index();
-
-    let mut predecessors: Vec<Vec<BlockId>> = vec![Vec::new(); count];
-    for (block, data) in func.blocks() {
-        let Some(terminator) = &data.terminator else {
-            continue;
-        };
-        for successor in terminator.successors() {
-            if let Some(slot) = predecessors.get_mut(index_of(successor)) {
-                slot.push(block);
-            }
-        }
-    }
-
-    let mut sets: Vec<Vec<bool>> = vec![vec![true; count]; count];
-    if let Some(entry) = sets.get_mut(index_of(func.entry)) {
-        entry.fill(false);
-        entry[index_of(func.entry)] = true;
-    }
-
-    let mut moved = true;
-    while moved {
-        moved = false;
-        for (block, _) in func.blocks() {
-            // The entry is fixed, and so is anything with no predecessor AT
-            // ALL — which is not only unreachable code. A handler block and a
-            // cleanup entry have none: the unwinder enters them, and the
-            // unwinder is not an edge in this graph. Running the rule over one
-            // would intersect over an empty set and leave it dominated by
-            // itself alone, which then says the function's own entry does not
-            // dominate it. Measured: every `try`/`catch` in the corpus started
-            // reporting `CleanupReadsOutsideItself` about the environment
-            // pointer, a value defined in the entry block.
-            if block == func.entry || predecessors[index_of(block)].is_empty() {
-                continue;
-            }
-            let mut next = vec![false; count];
-            let mut seeded = false;
-            for &predecessor in &predecessors[index_of(block)] {
-                match seeded {
-                    false => {
-                        next.copy_from_slice(&sets[index_of(predecessor)]);
-                        seeded = true;
-                    }
-                    true => {
-                        for (slot, held) in next.iter_mut().zip(&sets[index_of(predecessor)]) {
-                            *slot &= *held;
-                        }
-                    }
-                }
-            }
-            next[index_of(block)] = true;
-            if next != sets[index_of(block)] {
-                sets[index_of(block)] = next;
-                moved = true;
-            }
-        }
-    }
-    sets
-}
 
 /// Whether `region` encloses `inner`, at any depth.
 fn encloses(func: &Function, region: RegionId, inner: RegionId) -> bool {
@@ -312,7 +238,6 @@ fn encloses(func: &Function, region: RegionId, inner: RegionId) -> bool {
 }
 
 fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
-    let dominance = dominators(func);
     let mut cleanups = Vec::new();
     for index in 0..func.regions.len() {
         let id = RegionId(index as u32);
@@ -322,6 +247,17 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
             cleanups.push((id, cleanup));
         }
     }
+
+    // After the list, and only when the list has something in it: the one reader
+    // of this is the loop below, so a function with no `finally` computed a
+    // dominator tree that nothing then asked a question of. That was free to fix
+    // and it was not free to keep — before [`Dominance`] replaced the bitmap, a
+    // 400-statement function with no `try` anywhere spent 4.5 seconds here and
+    // read none of it.
+    let dominance = match cleanups.is_empty() {
+        true => None,
+        false => Some(Dominance::of(func)),
+    };
 
     let mut inside_some_cleanup = Vec::new();
     for &(region, entry) in &cleanups {
@@ -374,9 +310,11 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
                 .blocks()
                 .map(|(block, _)| block)
                 .filter(|&candidate| {
-                    protected
-                        .iter()
-                        .all(|&block| dominance[block.index()][candidate.index()])
+                    dominance.as_ref().is_some_and(|tree| {
+                        protected
+                            .iter()
+                            .all(|&block| tree.dominates(candidate, block))
+                    })
                 })
                 .collect(),
         };

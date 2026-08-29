@@ -14,6 +14,7 @@
 //! because a program with two mistakes should take one pass to diagnose.
 
 mod calls;
+mod dominance;
 mod error;
 mod rules;
 
