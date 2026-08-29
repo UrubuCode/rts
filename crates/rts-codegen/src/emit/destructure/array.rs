@@ -103,11 +103,17 @@ fn get_pattern_iterator(
     depth: u32,
     at: Position,
 ) -> EmitResult<ValueId> {
-    let symbol_global = ctx.names.intern("Symbol");
-    let iterator_name = ctx.names.intern("iterator");
-    let symbol_iterator = member_expr(ident(symbol_global, at), iterator_name, at);
-    let key = super::super::expr::emit_expr(builder, scope, ctx, &symbol_iterator)?;
-    let method = super::super::expr::call(builder, ctx, RuntimeOp::GetIndexed, &[source, key])?[0];
+    // The key directly, never the global name `Symbol`. Reading `Symbol` here
+    // made a LOCAL binding of that name decide whether a destructuring worked:
+    // `function f(arr) { const Symbol = null; const [x, y] = arr; }` threw
+    // `Cannot read properties of null` where node and bun both answer, because
+    // the emitter resolved the shadowing binding instead of the well-known
+    // symbol. `emit/foreach.rs` states the same rule for the same reason and
+    // spells it the same way — the reserved `@@` space is how this crate names
+    // a symbol key, and `class.rs` emits `[Symbol.iterator]() {}` under it.
+    let symbol_iterator = ctx.names.intern("@@iterator");
+    let key = super::super::property::key_constant(builder, ctx, symbol_iterator);
+    let method = super::super::expr::call(builder, ctx, RuntimeOp::GetProperty, &[source, key])?[0];
     let kind = super::super::expr::call(builder, ctx, RuntimeOp::TypeOf, &[method])?[0];
     let function_literal = super::super::expr::string_literal(builder, ctx, "function")?;
     let steppable = super::super::expr::call(
