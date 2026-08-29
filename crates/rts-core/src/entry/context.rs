@@ -640,6 +640,11 @@ impl Context {
             "next" => Some(12),
             "return" => Some(13),
             super::symbol::HAS_INSTANCE => Some(14),
+            "index" => Some(15),
+            "input" => Some(16),
+            "groups" => Some(17),
+            "lastIndex" => Some(18),
+            "indices" => Some(19),
             _ => None,
         };
         if let Some(at) = held

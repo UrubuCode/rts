@@ -86,14 +86,49 @@ pub fn cache_resolve_keyed(object: u64, key: u64, cache: i64) -> i64 {
     // Already checked before storing: the mark is set once and read every miss,
     // so a load and a predicted branch beat dirtying a cache line that already
     // holds what it should.
+    // COUNTED, not marked, and the difference is whether the table is bounded.
+    //
+    // It was a `Vec<bool>` set once and never cleared, and the reasoning beside
+    // it said the retention was "bounded by the program's property names".
+    // That is the bound on distinct KEYS; this table is keyed by the CELL, and
+    // the same comment two lines above already says why the two differ — "two
+    // different string cells can spell one key, and it is the cell a site was
+    // actually handed that has to survive". A fresh cell per pass is therefore
+    // a fresh permanent root per pass:
+    //
+    //     const o = { abcdefg: 1 }; const s = "abcdefghij";
+    //     for (let i = 0; i < 2_000_000; i++) a += o[s.slice(0, 7)];
+    //
+    // exhausted the heap and killed the program — `roots 63355 live 65396
+    // freed 5` — over seven characters that never changed.
+    //
+    // A site remembers exactly ONE key, so what has to stay alive is one cell
+    // per SITE, and a count gives that: the site's previous key is released as
+    // its new one is taken. Sites share cells, which is why it is a count and
+    // not a flag.
+    //
+    // Releasing the old one is safe because THIS function is the only writer of
+    // the key word — the machine only reads it — so the word holds either a key
+    // this function counted or the cold zero, and zero is below `BOX_BASE` and
+    // decodes to no slot at all.
     with_current(|context| {
+        // SAFETY: the site's own cell, as everywhere else in this pair of
+        // modules; the word is within the sixty-four bytes every site is given.
+        let held = unsafe {
+            let word = (cache as *const u8).offset(CACHE_KEY_OFFSET as isize) as *const u64;
+            word.read()
+        };
+        if let Some(previous) = crate::value::Value(held).as_slot() {
+            let previous = previous as usize;
+            if let Some(count) = context.remembered_keys.get_mut(previous) {
+                *count = count.saturating_sub(1);
+            }
+        }
         let at = cell as usize;
         if context.remembered_keys.len() <= at {
-            context.remembered_keys.resize(at + 1, false);
+            context.remembered_keys.resize(at + 1, 0);
         }
-        if !context.remembered_keys[at] {
-            context.remembered_keys[at] = true;
-        }
+        context.remembered_keys[at] += 1;
     });
 
     // Only after the layout resolved, and that order is the invariant: the

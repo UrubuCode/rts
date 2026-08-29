@@ -216,7 +216,7 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
             .remembered_keys
             .iter()
             .enumerate()
-            .filter(|(_, marked)| **marked)
+            .filter(|(_, held)| **held > 0)
             .map(|(cell, _)| crate::value::Value::from_slot(cell as u32).bits()),
     );
     // Only the ones a program has actually named: a module registered lazily

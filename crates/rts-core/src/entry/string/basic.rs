@@ -336,7 +336,7 @@ extern "C" fn to_upper_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
     let Some(this) = super::coerce_receiver(this) else {
         return super::refused();
     };
-    mapped(this, str::to_uppercase, u8::to_ascii_uppercase)
+    mapped(this, str::to_uppercase, <[u8]>::to_ascii_uppercase)
 }
 
 /// `s.toLowerCase()`.
@@ -353,7 +353,7 @@ extern "C" fn to_lower_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
     let Some(this) = super::coerce_receiver(this) else {
         return super::refused();
     };
-    mapped(this, str::to_lowercase, u8::to_ascii_lowercase)
+    mapped(this, str::to_lowercase, <[u8]>::to_ascii_lowercase)
 }
 
 /// `s.concat(t, …)` — however many arguments the call carried.
@@ -640,20 +640,32 @@ fn padded(this: u64, width: u64, fill: u64, at_start: bool) -> u64 {
 /// Unicode algorithm — `ß` uppercases to `SS`, one character becoming two — and
 /// where the surrogate handling is stated once for this and for `normalize`.
 ///
+/// # Why the ASCII arm maps the SLICE and not each byte
+///
+/// It took `fn(&u8) -> u8` and ran `bytes.iter().map(ascii).collect()`, which
+/// is an INDIRECT CALL PER BYTE: a function pointer cannot be inlined, so the
+/// compiler can neither unroll the loop nor vectorise it, and the twenty-six
+/// letters were decided one `call` at a time. `[u8]::to_ascii_uppercase` is the
+/// same decision written as one call on the whole slice, where `std` is free to
+/// do it a register at a time.
+///
+/// The answer is identical by construction — it is the same std function this
+/// was calling per element — so this is a shape change and not a semantic one.
+///
 /// # Why ASCII gets a byte path and the rest of the narrow form does not
 ///
 /// Because a Latin-1 case change can LEAVE the narrow form. `ÿ` uppercases to
 /// `Ÿ`, and `µ` to `Μ` — neither fits a byte, so a byte-wise map would silently
 /// truncate. Below 128 there is no such case: the only mapping is the
 /// twenty-six letters, and it stays below 128.
-fn mapped(this: u64, body: fn(&str) -> String, ascii: fn(&u8) -> u8) -> u64 {
+fn mapped(this: u64, body: fn(&str) -> String, ascii: fn(&[u8]) -> Vec<u8>) -> u64 {
     with_current(|context| {
         let held = super::receiver(context, this);
         if let Some(text) = Value(held).as_slot().and_then(|cell| context.text_at(cell))
             && let Some(bytes) = text.narrow()
             && bytes.is_ascii()
         {
-            let produced: Vec<u8> = bytes.iter().map(ascii).collect();
+            let produced: Vec<u8> = ascii(bytes);
             return answer_owned(context, produced);
         }
         let Some(text) = text_of(context, held) else {

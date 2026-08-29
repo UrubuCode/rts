@@ -100,6 +100,40 @@ fn fold_numeric(op: BinaryOp, a: f64, b: f64) -> Option<Literal> {
         // is `-2.0` in both, pinned in the tests below.
         BinaryOp::Rem => Some(Literal::Number(a % b)),
 
+        // `**`, folded only where Rust's `powf` ALREADY IS `Number::exponentiate`
+        // — which is everywhere except two rows, and those two are refused here
+        // rather than reimplemented.
+        //
+        // # Why the rule is not restated
+        //
+        // `rts_core::entry::bitwise::exponentiate` owns it, and its own
+        // documentation says why it is one function and not two: "a rule written
+        // twice is a rule that will be written differently, which here means
+        // `x ** 2` and `Math.pow(x, 2)` answering differently for the same `x`".
+        // This crate cannot call it — `rts-codegen` depends on the machine and
+        // nothing else, deliberately — so restating it would make a third copy
+        // of a rule that already refused to have a second.
+        //
+        // The way out is that both operands are LITERALS here, so the two rows
+        // where IEEE-754 and ECMAScript disagree can be RECOGNISED instead of
+        // reimplemented, and handed to the one implementation that owns them:
+        //
+        //   - `1 ** NaN` is `NaN`, where IEEE makes a base of one absorbing;
+        //   - `(±1) ** ±Infinity` is `NaN`, for the same reason.
+        //
+        // `None` for those two means the call is emitted and the runtime
+        // answers, exactly as it does today. Every other pair folds, and this is
+        // the same shape the arms above already take — "Rust's `f64::/` already
+        // behaves this way; no zero check is added" — with the precondition made
+        // explicit because here it is not total.
+        //
+        // Measured before: `arith exponent` was 19.35 ns, four times the next
+        // arithmetic row, for `(a + 2 ** 3) | 0` — a runtime crossing with two
+        // constant operands, on every iteration, forever.
+        BinaryOp::Exponent if b.is_nan() => None,
+        BinaryOp::Exponent if b.is_infinite() && a.abs() == 1.0 => None,
+        BinaryOp::Exponent => Some(Literal::Number(a.powf(b))),
+
         // NaN is unordered: every one of the four relational operators must
         // answer `false` when either operand is NaN, INCLUDING `<=` and `>=`
         // — `!(a > b)` would get those two wrong, because negating a false
@@ -186,6 +220,61 @@ mod tests {
 
     fn fold(op: BinaryOp, a: f64, b: f64) -> Literal {
         fold_binary(op, &n(a), &n(b)).expect("this pair folds")
+    }
+
+    /// The two rows where `powf` is NOT `Number::exponentiate` are REFUSED, so
+    /// the runtime that owns the rule answers them.
+    ///
+    /// This is the assertion the fold's correctness rests on, and it is a test
+    /// rather than a comment because the whole reason the arm is guarded is that
+    /// `a.powf(b)` is right for every OTHER pair. If either of these ever starts
+    /// folding, `x ** 2` and `Math.pow(x, 2)` have begun to disagree — which is
+    /// what `rts_core::entry::bitwise` refused to allow when it made
+    /// `exponentiate` one function instead of two.
+    #[test]
+    fn exponent_refuses_the_two_rows_ieee_and_ecmascript_disagree_on() {
+        assert_eq!(
+            fold_binary(BinaryOp::Exponent, &n(1.0), &n(f64::NAN)),
+            None,
+            "1 ** NaN is NaN in the language and 1 in IEEE — the runtime answers it"
+        );
+        assert_eq!(
+            fold_binary(BinaryOp::Exponent, &n(2.0), &n(f64::NAN)),
+            None,
+            "a NaN exponent is NaN whatever the base"
+        );
+        assert_eq!(
+            fold_binary(BinaryOp::Exponent, &n(1.0), &n(f64::INFINITY)),
+            None
+        );
+        assert_eq!(
+            fold_binary(BinaryOp::Exponent, &n(-1.0), &n(f64::NEG_INFINITY)),
+            None
+        );
+    }
+
+    /// And everything else folds, including the rows a hand-written table would
+    /// be most likely to get wrong.
+    #[test]
+    fn exponent_folds_every_other_pair_the_way_the_language_says() {
+        assert_eq!(fold(BinaryOp::Exponent, 2.0, 3.0), n(8.0));
+        assert_eq!(fold(BinaryOp::Exponent, 2.0, -1.0), n(0.5));
+        // NaN ** 0 is 1: the zero-exponent rule is asked BEFORE the NaN-base
+        // rule, and the language and `powf` agree.
+        assert_eq!(fold(BinaryOp::Exponent, f64::NAN, 0.0), n(1.0));
+        // 0 ** -1 is Infinity, not a division error.
+        assert_eq!(fold(BinaryOp::Exponent, 0.0, -1.0), n(f64::INFINITY));
+        // A negative base with an ODD integer exponent keeps its sign.
+        assert_eq!(fold(BinaryOp::Exponent, -2.0, 3.0), n(-8.0));
+        assert_eq!(fold(BinaryOp::Exponent, -2.0, 2.0), n(4.0));
+        // A negative base with a FRACTIONAL exponent is NaN in both.
+        match fold(BinaryOp::Exponent, -2.0, 0.5) {
+            Literal::Number(value) => assert!(value.is_nan(), "(-2) ** 0.5 is NaN"),
+            other => panic!("expected a number, got {other:?}"),
+        }
+        // A base of one IS absorbing for a finite exponent in both, so that row
+        // folds — only the NaN and infinite exponents are refused.
+        assert_eq!(fold(BinaryOp::Exponent, 1.0, 1e308), n(1.0));
     }
 
     #[test]

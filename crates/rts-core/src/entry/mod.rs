@@ -239,7 +239,7 @@ use crate::value::Singletons;
 pub const TEXT_LENGTH_SLOT: u32 = 1;
 
 /// The names the runtime asks for BY NAME on a path that runs per operation.
-pub const CACHED_KEYS: [&str; 15] = [
+pub const CACHED_KEYS: [&str; 20] = [
     "length",
     "prototype",
     "byteLength",
@@ -283,6 +283,18 @@ pub const CACHED_KEYS: [&str; 15] = [
     // error. `well_known_text` already memoised the text of this name; the KEY
     // was interned afresh, which is what put it here.
     symbol::HAS_INSTANCE,
+    // The five a regular expression match result is BUILT from, written by
+    // every `exec` and every `match` that answers an array. `index` and `input`
+    // are stamped on every result; `groups` on every result whether or not the
+    // pattern has named ones; `lastIndex` is read and written per call on a
+    // global pattern; `indices` is the `d` flag's. None was memoised, so a match
+    // paid `Str::from_str` plus a cold `Interner::intern` — the units hash and
+    // two `HashMap` probes — for names the compiler knew before the program ran.
+    "index",
+    "input",
+    "groups",
+    "lastIndex",
+    "indices",
 ];
 
 /// Where `"length"` sits in [`CACHED_KEYS`].
@@ -990,11 +1002,20 @@ pub struct Context {
     /// the canonical one. Reusing it would root the wrong cell and look
     /// correct.
     ///
-    /// # What it retains
+    /// # What it retains, and the bound that was WRONG
     ///
-    /// One cell per distinct string a keyed site has been handed, which is
-    /// bounded by the program's property names — the same bound the interner
-    /// already accepts for holding every key text forever.
+    /// One cell per keyed SITE, because a site remembers exactly one key and
+    /// releases its previous one as it takes a new one. That is what the count
+    /// is for; a flag cannot express it, and sites share cells.
+    ///
+    /// This paragraph used to say "one cell per distinct string … bounded by
+    /// the program's property names". That is the bound on distinct KEYS, and
+    /// this table is keyed by the CELL — a distinction the paragraph above
+    /// already draws and this one then forgot. `o[s.slice(0, 7)]` in a loop
+    /// hands a FRESH cell every pass, so the table grew without bound and every
+    /// entry was a permanent root: `roots 63355 live 65396 freed 5`, and the
+    /// program died of heap exhaustion over seven characters that never
+    /// changed.
     ///
     /// # Why a dense `Vec<bool>` and not a `HashSet<u64>`
     ///
@@ -1009,7 +1030,7 @@ pub struct Context {
     /// `Aside` uses for every other per-cell fact in this crate, and for the
     /// same reason: a cell number is dense and hashing a dense number is work
     /// that buys nothing.
-    pub(super) remembered_keys: Vec<bool>,
+    pub(super) remembered_keys: Vec<u32>,
     /// The nine strings `typeof` can answer, each built at most once.
     ///
     /// # Why a cache rather than building the answer

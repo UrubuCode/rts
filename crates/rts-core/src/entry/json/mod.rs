@@ -237,10 +237,24 @@ fn materialise(node: &read::Node) -> u64 {
                 // calls `put` once per member, and a `put` that grows the spill
                 // reaches `alloc_or_die`, which may collect; the cell was then
                 // freed and handed out again while the loop went on writing into
-                // it. **That is a SEGFAULT, not a wrong answer**: 3 000
-                // `JSON.parse` calls over an 80-key object died on the first
-                // collection, every run, and 5 000 over a 60-key object did not
-                // — the difference is how many times the spill has to grow.
+                // it.
+                //
+                // **It is a SILENT WRONG ANSWER before it is a crash, and this
+                // comment said the opposite.** Measured against a kept pre-fix
+                // binary: a TWENTY-key object parsed 60 000 times comes back
+                // twice with `Object.keys(o).length === 0` and the process exits
+                // ZERO. The segfault the first version of this comment described
+                // is what happens further along, once enough recycled cells have
+                // been written through. So the reader of an earlier draft would
+                // have concluded that a small object is safe and that a clean
+                // exit means a clean parse; neither is true.
+                //
+                // The threshold is the SPILL, not eighty keys: the exposed
+                // allocation is `spill_set` -> `alloc_spanning_or_die`, which
+                // both arms reach. The fast arm bounds at `region.width_of`
+                // (fifteen) while `set_slot_value` subtracts `owned_slots`
+                // (fourteen), so the fifteenth property spills with `fallback`
+                // still false.
                 //
                 // An object grown the ordinary way never had this: `const o = {};
                 // o.k = v` holds the object in a machine slot as an encoded
@@ -282,9 +296,12 @@ fn materialise(node: &read::Node) -> u64 {
                         .width_of(cell)
                         .unwrap_or(crate::heap::INLINE_SLOTS)
                     {
-                        // Past the inline slots the value goes to the spill
-                        // beside the cell, which `set_slot_value` does not
-                        // reach. The general path does.
+                        // Past the inline slots. NOTE: `set_slot_value` does
+                        // reach the spill — `objects.rs` subtracts `owned_slots`
+                        // and calls `spill_set` — so this bound is not what
+                        // keeps the fast arm off it. What the bound decides is
+                        // which arm RESOLVES the key, and the general path is
+                        // right for the cases below it.
                         fallback = true;
                         break;
                     }
