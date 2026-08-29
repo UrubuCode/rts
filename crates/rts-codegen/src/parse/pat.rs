@@ -103,6 +103,16 @@ pub(crate) fn array_target(cx: &mut Cx, array: &swc::ArrayPat) -> Result<Pattern
         match element {
             None => elements.push(None),
             Some(swc::Pat::Rest(spread)) => {
+                // A hole in the rest's own position, exactly as [`binding`]
+                // pushes one, so that both roles hand the emitter the SAME
+                // shape. Pushing nothing here was a real bug: `array_pattern`
+                // drops the last element when a pattern has a rest, because in
+                // the binding form that last element IS this placeholder — so
+                // for an assignment it dropped a named target instead.
+                // `[c, ...d] = [1, 2, 3]` answered `c === undefined` and
+                // `d === [1, 2, 3]`, where `const [c, ...d]` next to it was
+                // right, and the two differed only by the role.
+                elements.push(None);
                 rest = Some(Box::new(target(cx, &spread.arg)?));
             }
             Some(slot) => elements.push(Some(target_element(cx, slot)?)),
