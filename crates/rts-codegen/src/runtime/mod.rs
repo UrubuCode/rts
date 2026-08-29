@@ -362,6 +362,14 @@ pub enum RuntimeOp {
     /// only to arrays produced by `Iterate` or `EnumerateKeys`, so the runtime can
     /// return an unboxed double and the machine can hoist the element run.
     ArrayLength,
+    /// Whether an array pattern may read its source by INDEX rather than
+    /// stepping its iterator — [`rts_core::entry::array_pattern_direct`].
+    ///
+    /// A call and not an instruction because the four facts it answers are all
+    /// global mutable state: the elements table, the proxy table, and two
+    /// prototypes a program may write to. Asked once per pattern, so that the
+    /// per-position reads below it can be plain indexed ones.
+    ArrayPatternDirect,
 
     /// Where this thread's throw flag lives, as a machine address.
     ///
@@ -969,6 +977,7 @@ impl RuntimeOp {
         RuntimeOp::ElementAt,
         RuntimeOp::ElementsBase,
         RuntimeOp::ArrayLength,
+        RuntimeOp::ArrayPatternDirect,
         RuntimeOp::ThrownAddress,
         RuntimeOp::TakeThrown,
         RuntimeOp::RunningFunction,
@@ -1074,6 +1083,7 @@ impl RuntimeOp {
             RuntimeOp::ElementAt => "__rts_element_at",
             RuntimeOp::ElementsBase => "__rts_elements_base",
             RuntimeOp::ArrayLength => "__rts_array_length",
+            RuntimeOp::ArrayPatternDirect => "__rts_array_pattern_direct",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::RunningFunction => "__rts_running_function",
             RuntimeOp::EvalDirect => "__rts_eval_direct",
@@ -1227,6 +1237,7 @@ impl RuntimeOp {
             RuntimeOp::ElementAt => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::ElementsBase => (vec![UNPROVEN], vec![Repr::I64]),
             RuntimeOp::ArrayLength => (vec![UNPROVEN], vec![Repr::F64]),
+            RuntimeOp::ArrayPatternDirect => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),
             RuntimeOp::RunningFunction => (vec![], vec![UNPROVEN]),
             // The source and the environment, both ordinary values — the second

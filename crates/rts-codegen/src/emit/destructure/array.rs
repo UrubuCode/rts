@@ -72,8 +72,112 @@ pub(super) fn array_pattern(
     depth: u32,
     role: Role,
 ) -> EmitResult<()> {
-    let iterator = get_pattern_iterator(builder, scope, ctx, source, depth, at)?;
-    array_pattern_stepwise(builder, scope, ctx, pattern, iterator, at, depth, role)
+    let direct = direct_candidate(builder, scope, ctx, pattern, source, depth)?;
+    let iterator = iterator_unless_direct(builder, scope, ctx, source, depth, at, direct)?;
+    array_pattern_stepwise(builder, scope, ctx, pattern, iterator, at, depth, role, direct)
+}
+
+/// The source, and the answer to "may this pattern read it by index" — or
+/// `None` for a pattern this does not yet cover.
+///
+/// # Which patterns, and why the line is here
+///
+/// A rest and an element that can throw are excluded, and both for the same
+/// reason rather than two: each is a place the ITERATOR is named again after the
+/// positions are stepped. A rest gathers the remainder by stepping until `done`,
+/// and a throwing element opens a region whose handler calls `return()` on the
+/// iterator — and on this path there is no iterator, because not making one is
+/// the whole saving. Covering them means giving each a second arm of its own,
+/// which is the duplication of "how a default fires" and "how a rest is
+/// gathered" that this module's header refuses. They keep stepping, exactly as
+/// before, and what is left is `[x, y, z]` and `[a, , c]` — the shape almost
+/// every program writes.
+///
+/// # Why the question goes to the runtime whole
+///
+/// Four facts have to hold at once and every one of them is state a program can
+/// change; `rts_core::entry::pattern` states them and why they are asked
+/// together. `emit/foreach.rs` asks its own version out of emitted operations,
+/// and that is the shape NOT taken here: it costs a `Symbol.iterator` read, an
+/// `ArrayNew` and an identity comparison — 203 ns measured, 66 of them an array
+/// allocated only to read a method off it — which a loop amortises and a
+/// destructuring pays in full. It also cannot ask three of the four.
+fn direct_candidate(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    pattern: &ArrayPattern,
+    source: ValueId,
+    depth: u32,
+) -> EmitResult<Option<Direct>> {
+    let covered = pattern.rest.is_none()
+        && pattern
+            .elements
+            .iter()
+            .flatten()
+            .all(|element| !can_throw(element));
+    if !covered {
+        return Ok(None);
+    }
+
+    let held = ctx.names.intern(&format!("__rts_destructure_src_{depth}"));
+    super::super::binding::declare(builder, scope, ctx, held, source)?;
+    let asked =
+        super::super::expr::call(builder, ctx, RuntimeOp::ArrayPatternDirect, &[source])?[0];
+    let flag = ctx.names.intern(&format!("__rts_destructure_direct_{depth}"));
+    super::super::binding::declare(builder, scope, ctx, flag, asked)?;
+    Ok(Some(Direct { flag, held }))
+}
+
+/// A pattern that may read its source by index, and the two names that say so.
+#[derive(Clone, Copy)]
+struct Direct {
+    /// Holds the runtime's answer.
+    flag: Name,
+    /// Holds the source, so an indexed read can name it.
+    held: Name,
+}
+
+/// The iterator to step, or `undefined` when the source is read by index.
+///
+/// The prologue is what this skips, and skipping it is most of the point: it is
+/// ten emitted calls — the method read, `typeof`, a string constant, an identity
+/// comparison, and the invocation — for a source that is about to be read
+/// directly anyway. A merge by hand rather than an `if`, because what it joins
+/// is one `ValueId` and neither arm declares a name that outlives it, which is
+/// the same shape and the same argument [`get_pattern_iterator`] already carries
+/// for its own two arms.
+fn iterator_unless_direct(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    source: ValueId,
+    depth: u32,
+    at: Position,
+    direct: Option<Direct>,
+) -> EmitResult<ValueId> {
+    let Some(direct) = direct else {
+        return get_pattern_iterator(builder, scope, ctx, source, depth, at);
+    };
+
+    let asked = super::super::binding::read(builder, scope, ctx, direct.flag)?;
+    let asked = super::super::expr::to_boolean(builder, ctx, asked)?;
+    let skipped = builder.create_block();
+    let stepped = builder.create_block();
+    let join = builder.create_block();
+    let answer = builder.add_block_param(join, UNPROVEN);
+    builder.branch(asked, (skipped, &[]), (stepped, &[]))?;
+
+    builder.switch_to(skipped);
+    let absent = super::super::expr::undefined(builder, ctx);
+    builder.jump(join, &[absent])?;
+
+    builder.switch_to(stepped);
+    let stepping = get_pattern_iterator(builder, scope, ctx, source, depth, at)?;
+    builder.jump(join, &[stepping])?;
+
+    builder.switch_to(join);
+    Ok(answer)
 }
 
 /// The iterator to step: `source`'s own, if it declares a callable
@@ -197,6 +301,7 @@ fn array_pattern_stepwise(
     at: Position,
     depth: u32,
     role: Role,
+    direct: Option<Direct>,
 ) -> EmitResult<()> {
     let iter = ctx.names.intern(&format!("__rts_destructure_iter_{depth}"));
     super::super::binding::declare(builder, scope, ctx, iter, iterator)?;
@@ -219,7 +324,7 @@ fn array_pattern_stepwise(
     for (position, element) in named.iter().enumerate() {
         // A hole still steps — it already consumed a slot in the listwise
         // path, and stepping is what "consuming a slot" means here.
-        let raw = step_iterator(builder, scope, ctx, iter, done, depth, position, at)?;
+        let raw = step_iterator(builder, scope, ctx, iter, done, depth, position, at, direct)?;
         let Some(element) = element else { continue };
         // `BindingInitialization` of ONE element — the default and the target
         // together — is what the specification protects: a throw from either
@@ -262,6 +367,33 @@ fn array_pattern_stepwise(
         // `!done`, matching `IteratorClose`'s "only if not already done".
         let mut loops = Loops::default();
         let close = close_stmt(iter, done, ctx, at);
+        // Not on the indexed path, and this is a correctness guard rather than a
+        // saving: there is no iterator there, so `iter` holds `undefined` and
+        // `typeof iter.return` would read a property of it and throw.
+        //
+        // Skipping it is also what the specification does. `IteratorClose` looks
+        // `return` up on the iterator and returns without calling anything when
+        // it is absent, and `%ArrayIteratorPrototype%` has none — it carries
+        // `next` and a string tag. `rts_core::entry::pattern` refuses the
+        // indexed path outright if a program has added one, so the case where
+        // this would have mattered never reaches here.
+        let close = match direct {
+            None => close,
+            Some(direct) => Stmt {
+                kind: StmtKind::If {
+                    condition: Expr {
+                        kind: ExprKind::Unary {
+                            op: UnaryOp::Not,
+                            operand: Box::new(ident(direct.flag, at)),
+                        },
+                        at,
+                    },
+                    then_branch: Box::new(close),
+                    else_branch: None,
+                },
+                at,
+            },
+        };
         super::super::stmt::emit_stmt(builder, scope, ctx, &mut loops, &close)?;
     }
 
@@ -286,12 +418,14 @@ fn step_iterator(
     depth: u32,
     position: usize,
     at: Position,
+    direct: Option<Direct>,
 ) -> EmitResult<ValueId> {
     let val = ctx.names.intern(&format!("__rts_destructure_val_{depth}_{position}"));
     let step = ctx.names.intern(&format!("__rts_destructure_step_{depth}_{position}"));
     let next_name = ctx.names.intern("next");
     let done_prop = ctx.names.intern("done");
     let value_prop = ctx.names.intern("value");
+    let length_name = ctx.names.intern("length");
 
     let declare_val = Stmt {
         kind: StmtKind::Declare {
@@ -364,10 +498,91 @@ fn step_iterator(
         at,
     };
 
+    // The indexed arm, when the runtime licensed one. An `if` and not a second
+    // merge written by hand, for the reason the module doc gives for the `if`
+    // above it: the lowering of `if` already reconciles what each arm did to a
+    // binding, and both arms here write exactly `val` and `done`.
+    //
+    // Exactly one arm is live for a given source, so nothing downstream — the
+    // default, the target, the close — has to know which was taken.
+    let step = match direct {
+        None => if_stmt,
+        Some(direct) => Stmt {
+            kind: StmtKind::If {
+                condition: ident(direct.flag, at),
+                then_branch: Box::new(indexed_step(direct.held, length_name, done, val, position, at)),
+                else_branch: Some(Box::new(if_stmt)),
+            },
+            at,
+        },
+    };
+
     let mut loops = Loops::default();
     super::super::stmt::emit_stmt(builder, scope, ctx, &mut loops, &declare_val)?;
-    super::super::stmt::emit_stmt(builder, scope, ctx, &mut loops, &if_stmt)?;
+    super::super::stmt::emit_stmt(builder, scope, ctx, &mut loops, &step)?;
     super::super::binding::read(builder, scope, ctx, val)
+}
+
+/// One position, read straight out of the source.
+///
+/// ```text
+/// done = position >= src.length;
+/// val  = done ? undefined : src[position];
+/// ```
+///
+/// `length` is read at EVERY position rather than hoisted, and that is the
+/// difference between indistinguishable and nearly so: the primordial cursor
+/// asks the receiver its length on every `next()`, so a source that shrinks
+/// between positions ends the pattern early — and a hoisted length would keep
+/// reading past the end. It costs a cached property read, measured at 3.3 ns
+/// against the ~13 ns of the element read beside it.
+///
+/// Out of range and a hole both answer `undefined` through the ordinary indexed
+/// read, which is what the stepping arm answers for them too — the cursor reads
+/// `elements[i]` through the same visibility rule.
+fn indexed_step(
+    held: Name,
+    length: Name,
+    done: Name,
+    val: Name,
+    position: usize,
+    at: Position,
+) -> Stmt {
+    let at_position = Expr {
+        kind: ExprKind::Literal(Literal::Number(position as f64)),
+        at,
+    };
+    let past_end = Expr {
+        kind: ExprKind::Binary {
+            op: BinaryOp::GreaterEqual,
+            left: Box::new(at_position.clone()),
+            right: Box::new(member_expr(ident(held, at), length, at)),
+        },
+        at,
+    };
+    let element = Expr {
+        kind: ExprKind::Index {
+            object: Box::new(ident(held, at)),
+            index: Box::new(at_position),
+            optional: false,
+        },
+        at,
+    };
+    let chosen = Expr {
+        kind: ExprKind::Conditional {
+            condition: Box::new(ident(done, at)),
+            then_branch: Box::new(undefined_expr(at)),
+            else_branch: Box::new(element),
+        },
+        at,
+    };
+    Stmt {
+        kind: StmtKind::Block(vec![
+            plain_assign_stmt(ident(done, at), past_end, at),
+            plain_assign_stmt(ident(val, at), chosen, at),
+        ]),
+        at,
+    }
 }
 
 /// Whether initializing this element can leave abruptly, and therefore needs

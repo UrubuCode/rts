@@ -97,9 +97,17 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // by a string there and this key is a symbol. It IS `values` — the same
     // function, not a second one, because `[...a]` and `a.values()` walking an
     // array differently is the failure that would be found last.
-    let key = context.well_known(&format!("{}iterator", super::symbol::PREFIX));
+    let key = context.well_known(super::symbol::ITERATOR);
     let values = super::native::callable(context, more::values);
     super::objects::put(context, cell, key, values);
+    // Remembered as it is installed, which is the only moment it is knowably
+    // the primordial: `super::pattern::array_pattern_direct` licenses reading an
+    // array pattern's source by index only when the source's `Symbol.iterator`
+    // is still THIS function, and a value read later could already be a
+    // program's replacement. Recording it is not a protector — nothing
+    // invalidates it, because the guard compares against the CURRENT property
+    // every time it is asked.
+    context.array_iterator_method = Some(values);
     install_unscopables(context, cell);
     // `Array.prototype.constructor` is written by `Array`'s registration, and
     // that registration is lazy — so a program that never spells `Array` read

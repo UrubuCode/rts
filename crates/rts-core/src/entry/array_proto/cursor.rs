@@ -156,6 +156,16 @@ pub(super) fn over(receiver: u64, kind: Kind) -> u64 {
                         .bits();
                     objects::put(context, cell, key, tag);
                     native::hidden(context, cell, key);
+                    // The primordial `next`, remembered at the ONE moment it is
+                    // knowably primordial: this prototype did not exist a line
+                    // ago, so nothing can have replaced the method yet.
+                    // `super::super::pattern::array_pattern_direct` compares the
+                    // CURRENT `next` against this before letting a pattern read
+                    // by index, because skipping the protocol is only
+                    // indistinguishable while the step it skips is this one.
+                    let next = context.well_known("next");
+                    context.array_cursor_next = objects::own_property(context, cell, next)
+                        .map(|found| found.bits());
                 }
                 match super::super::class_support::prototype(context, "ArrayCursor") {
                     Some(prototype) => prototype,

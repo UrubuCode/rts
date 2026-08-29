@@ -87,6 +87,7 @@ mod object_proto;
 mod dynamic_module;
 mod modules;
 mod objects;
+mod pattern;
 mod operators;
 mod primitive;
 mod primitive_proto;
@@ -152,6 +153,7 @@ pub use modules::{
 };
 pub use function_proto::running_function;
 pub use host_class::{declare_host_class, describe_callable};
+pub use pattern::array_pattern_direct;
 pub use objects::{
     get_property, get_super_property, object_new, object_spread, set_property,
     set_super_property,
@@ -651,6 +653,22 @@ pub struct Context {
     /// enumerated by [`roots`] — nothing ever removes a registration, so the
     /// memo cannot outlive what it names.
     generator_result_prototype: Option<u64>,
+    /// `Array.prototype[Symbol.iterator]` as it was INSTALLED.
+    ///
+    /// Written once by `array_proto::prototype` and never again, so it is a
+    /// constant rather than a cache: [`pattern::array_pattern_direct`] compares
+    /// the property a source carries NOW against it, and a program that
+    /// replaced the method fails that comparison instead of invalidating
+    /// anything. Nothing has to remember to clear it, which is the property a
+    /// protector cell would not have.
+    pub(super) array_iterator_method: Option<u64>,
+    /// `%ArrayIteratorPrototype%.next` as it was installed, for the same reason
+    /// and read the same way.
+    ///
+    /// `None` until a cursor is first made, which is not a gap: the prototype
+    /// does not exist until then, so there is nothing a program could have
+    /// replaced, and the guard reads `None` as "still primordial".
+    pub(super) array_cursor_next: Option<u64>,
     /// The prototype backing buffers created internally for typed arrays.
     ///
     /// `new_buffer` asks for it on every typed-array allocation, so the first
@@ -1208,6 +1226,8 @@ impl Context {
             string_prototype: None,
             array_prototype: None,
             generator_result_prototype: None,
+            array_iterator_method: None,
+            array_cursor_next: None,
             array_buffer_prototype: None,
             resolves: 0,
             array_layout: None,

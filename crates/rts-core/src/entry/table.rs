@@ -43,6 +43,7 @@ use super::accessor::{DEFINE_METHOD_ENTRY, DEFINE_GETTER_ENTRY, DEFINE_SETTER_EN
 use super::array::{
     ARRAY_LENGTH_ENTRY, ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY,
 };
+use super::pattern::ARRAY_PATTERN_DIRECT_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
 use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
 use super::bitwise::{
@@ -638,6 +639,15 @@ pub enum CoreEntry {
 
     /// The length of an internal enumeration array, returned as F64.
     ArrayLength = 93,
+    /// [`super::array_pattern_direct`].
+    ///
+    /// Whether `[a, b] = source` may read `source` by index instead of
+    /// stepping its iterator. Four questions at once, and every one reads
+    /// state a program can change: whether the source holds its own elements,
+    /// whether it is a proxy, whether its `Symbol.iterator` is still the
+    /// installed one, and whether the step being skipped is still the step the
+    /// specification would have run.
+    ArrayPatternDirect = 94,
 }
 
 /// How many entry points exist.
@@ -645,7 +655,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 94;
+pub const CORE_ENTRY_COUNT: usize = 95;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -744,6 +754,7 @@ impl CoreEntry {
         CoreEntry::RequireFunction,
         CoreEntry::ModulePublishCommon,
         CoreEntry::ArrayLength,
+        CoreEntry::ArrayPatternDirect,
     ];
 
     /// The number a call site holds.
@@ -840,6 +851,7 @@ impl CoreEntry {
             CoreEntry::RequireFunction => REQUIRE_FUNCTION_ENTRY,
             CoreEntry::ModulePublishCommon => MODULE_PUBLISH_COMMON_ENTRY,
             CoreEntry::ArrayLength => ARRAY_LENGTH_ENTRY,
+            CoreEntry::ArrayPatternDirect => ARRAY_PATTERN_DIRECT_ENTRY,
             CoreEntry::MarkDerived => MARK_DERIVED_ENTRY,
             CoreEntry::MarkClassConstructor => MARK_CLASS_CONSTRUCTOR_ENTRY,
             CoreEntry::SetCallName => SET_CALL_NAME_ENTRY,
@@ -1050,8 +1062,35 @@ mod tests {
         //
         // Reusing `Remainder` was REJECTED: one number would mean two shapes,
         // tagged both ways for one caller and unboxed both ways for the other.
+        //
+        // Moved to 95 on 2026-08-28 for `ArrayPatternDirect`. The entry-level
+        // question is easy: it reads the elements table, the class registry, two
+        // prototypes and their property slots, all of which are global mutable
+        // state no instruction reaches.
+        //
+        // The LIST-level argument, which is the one this ceiling exists to
+        // force, and here it is unusually clean, because the alternative EXISTS
+        // and was measured. The four questions can be asked from the emitter out
+        // of entries that are already on this list — `emit/foreach.rs` asks its
+        // own version that way and adds no row. Two things are wrong with it.
+        //
+        // It costs more than it saves. That shape is a `Symbol.iterator` read,
+        // an `ArrayNew` and an identity comparison: 203 ns measured, of which 66
+        // is an array allocated only to read a method off it. `for`-`of` pays it
+        // once per loop and it disappears; a destructuring pays it once per
+        // destructuring, against the ~2 000 ns the fast path is there to remove
+        // — and it would put an ALLOCATION on the path whose purpose is to
+        // remove one.
+        //
+        // And it cannot ask the question. Three of the four clauses — an own
+        // elements vector, not a proxy, a `next` nobody has replaced — have no
+        // spelling in the emitted form at all. `foreach.rs`'s version omits
+        // them, and that omission is not hypothetical: `for (const v of new
+        // Proxy([1, 2, 3], {}))` throws `TypeError: the value is not iterable`
+        // here and answers 6 on node. Copying that guard would have carried the
+        // defect into destructuring; one row buys the version that cannot.
         assert!(
-            CORE_ENTRY_COUNT <= 94,
+            CORE_ENTRY_COUNT <= 95,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

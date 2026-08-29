@@ -85,6 +85,14 @@ pub(super) const HAS_INSTANCE: &str = concat!(prefix!(), "hasInstance");
 /// `Symbol.species`'s internal property key, shared by installation and lookup.
 pub(super) const SPECIES: &str = concat!(prefix!(), "species");
 
+/// `Symbol.iterator`'s key text, spelled once for [`HAS_INSTANCE`]'s reason.
+///
+/// Installed by `array_proto::prototype` and asked for by every array pattern
+/// that wants to know whether it may read by index. Both sites built it with
+/// `format!("{PREFIX}iterator")` — a `String` and a hash for a name that cannot
+/// change — which is precisely what the constant above exists to stop.
+pub(super) const ITERATOR: &str = concat!(prefix!(), "iterator");
+
 /// The five protocols a string method offers its argument before falling back
 /// to the built-in scan, spelled at COMPILE time for [`HAS_INSTANCE`]'s reason.
 ///
