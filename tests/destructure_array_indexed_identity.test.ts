@@ -47,11 +47,16 @@ describe("fixture:destructure_array_indexed_identity", () => {
   });
 
   test("divergences that predate the fast path, pinned as they are", () => {
-    // node answers [1,2] for the proxy, 5 for the getter, [1,null] for the
+    // node answers 5 for the getter, [1,null] for the
     // shrinking getter and [1,42,3] for the inherited hole. Each is a defect of
     // its own path and none is this one's to fix here — changing them is a
     // separate change with a comparison of its own.
-    expect(answer(() => { const [a, b] = new Proxy([1, 2], {}); return [a, b]; })).toBe("[null,null]");
+        // The proxy line USED to be here answering [null,null], and it moved: the
+    // indexed read through a proxy with no `get` trap was walking the target's
+    // shape properties and never its elements, and `Iterate` looked up
+    // `Symbol.iterator` without asking the proxy at all. Both fixed in their own
+    // commit, which is why this assertion now agrees with node.
+    expect(answer(() => { const [a, b] = new Proxy([1, 2], {}); return [a, b]; })).toBe("[1,2]");
     expect(answer(() => {
       const a: any = [];
       Object.defineProperty(a, 0, { get() { return 5; }, enumerable: true, configurable: true });

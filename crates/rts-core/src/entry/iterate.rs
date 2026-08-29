@@ -171,7 +171,7 @@ pub fn iterate(value: u64) -> u64 {
 /// length of its body and a callee's first act may be to call the runtime, so
 /// each read here takes its own borrow and gives it straight back.
 fn protocol(value: u64) -> Option<Vec<u64>> {
-    let method = member(value, &format!("{}iterator", super::symbol::PREFIX));
+    let method = iterator_method(value);
     if !callable(method) {
         return None;
     }
@@ -284,6 +284,46 @@ fn refuse(value: u64) {
     }
     let described = super::text::described(value).unwrap_or_else(|| "the value".to_owned());
     super::throw::type_error(&format!("{described} is not iterable"));
+}
+
+/// `value[Symbol.iterator]`, asked the way the language asks it.
+///
+/// Apart from [`member`] because the two are not the same question, and reading
+/// them alike is what made `[...new Proxy([1, 2], {})]` throw
+/// `TypeError: the value is not iterable` where node answers `[1, 2]`. `member`
+/// is a DATA read — no proxy, no getter — and that narrowing is right for `next`
+/// and `done`, which are read off a step record the protocol just produced. It
+/// is wrong here: `GetMethod(obj, @@iterator)` is an ordinary `Get`, so a proxy
+/// must be asked and it is the only chance the handler gets to say what the
+/// object iterates as.
+///
+/// The reach was wider than the one construct it was found through. `for`-`of`,
+/// spread, `f(...args)`, `yield*`, `new Set(p)` and `Array.from(p)` all arrive
+/// here, and every one of them refused a proxy — including a proxy over an
+/// object carrying its OWN generator method, which is what rules out
+/// "`Array.prototype` was replaced" as the explanation.
+///
+/// The proxy is asked BEFORE any borrow and only of an object that is one, which
+/// is `objects::get_property`'s shape and its reason: a trap is user code whose
+/// first act may be to call back into the runtime, and a second borrow in an
+/// `extern "C"` frame aborts rather than unwinding.
+///
+/// What this still does NOT do is run an ACCESSOR `Symbol.iterator` on an
+/// ordinary object — `member`'s data read is what answers below, and an object
+/// that declares the method through a getter reads `undefined` here. Rare, real,
+/// and left for a change that can be measured on its own.
+fn iterator_method(value: u64) -> u64 {
+    let proxied = with_current(|context| {
+        let key = context.well_known(super::symbol::ITERATOR);
+        let slot = Value(value).as_slot()?;
+        context.proxy_at(slot).map(|_| key)
+    });
+    if let Some(key) = proxied
+        && let Some(answered) = super::proxy::get(value, key)
+    {
+        return answered;
+    }
+    member(value, super::symbol::ITERATOR)
 }
 
 /// One property of a value, by a name the runtime knows.
