@@ -513,31 +513,64 @@ fn a_loop_can_now_be_written_the_way_a_program_writes_one() {
     assert_eq!(tags::decode_double(produced), 10.0);
 }
 
+/// The refusal list is EMPTY, and what stood here is kept because the list was
+/// the record.
+///
+/// # What this test was
+///
+/// `a_construct_still_missing_is_refused_by_name_rather_than_approximated`, and
+/// it asserted that `compile` answers `Unsupported` for each construct the
+/// emitter did not have. It named `typeof`, a string literal, `~` and `==` in
+/// turn, then `[1, , 2]` — which left when the runtime gained a marker for an
+/// absent position — then `super()` past four arguments, then `delete x`, and
+/// last `[...[1], , 2]`: a hole beside a SPREAD, which the argument-vector path
+/// did not know how to skip.
+///
+/// That last one now compiles and answers correctly, so the loop had nothing
+/// left to iterate. A test whose collection is empty asserts nothing while
+/// still reporting green, which is the failure mode CLAUDE.md's honesty floor
+/// names — empty looks exactly like passing at the place anyone looks.
+///
+/// # Why a behaviour test replaces it rather than nothing
+///
+/// Because the construct is the interesting half. A hole is not `undefined`:
+/// `1 in [1, , 2]` is false and `1 in [1, undefined, 2]` is true, and an
+/// emitter that filled holes with `undefined` would pass every length and
+/// element check while losing the distinction. All five shapes below were
+/// compared against node on 2026-08-29 and agree, `in` included.
+///
+/// The refusal SHAPE is still pinned, by `emit/`'s own tests: what is gone is
+/// this file's list of which constructs are currently in it.
 #[test]
-fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
-    // An array is a heap value with no entry point to make one; a computed key
-    // needs `ToPropertyKey`, which the runtime does not define; `delete`
-    // removes a property, which it does not define either.
-    //
-    // This test has named `typeof`, a string literal, `~` and `==` in turn, and
-    // each moved on when it landed. What it pins is the shape of the refusal.
-    // `[1, , 2]` esteve nesta lista e saiu quando o runtime ganhou um marcador
-    // de posição ausente. O que entrou no lugar é o mesmo buraco ao lado de um
-    // SPREAD, que o caminho do vetor de argumentos não sabe pular.
-    // `super()` past four arguments saiu desta lista quando ganhou uma entrada
-    // com forma de vetor que NAO define `new.target` — a razao pela qual nao
-    // podia simplesmente reutilizar a que ja existia.
-    // `delete x` saiu desta lista porque deixou de ser um buraco: o emissor
-    // responde `false` para um nome ligado — que e o que a linguagem diz — e o
-    // erro precoce que o modo estrito quer e do verificador, nao daqui. Uma
-    // recusa por nome ali seria recusar um programa que a linguagem define.
-    for source in ["return [...[1], , 2];"] {
-        let error = compile(source).expect_err("still a gap");
-        assert!(
-            format!("{error:?}").contains("Unsupported"),
-            "expected a named refusal for `{source}`, got {error:?}"
-        );
-    }
+fn a_hole_beside_a_spread_stays_a_hole() {
+    // The one that was refused until this list emptied.
+    assert_eq!(tags::decode_double(run("return [...[1], , 2].length;")), 3.0);
+    assert_eq!(
+        tags::decode_double(run("return (1 in [...[1], , 2]) ? 1 : 0;")),
+        0.0,
+        "the middle position is a HOLE, not an `undefined` stored in it"
+    );
+    assert_eq!(tags::decode_double(run("return [...[1], , 2][2];")), 2.0);
+
+    // A hole BEFORE the spread, which is the other order and a different path.
+    assert_eq!(tags::decode_double(run("return [, ...[1]].length;")), 2.0);
+    assert_eq!(
+        tags::decode_double(run("return (1 in [, ...[1]]) ? 1 : 0;")),
+        1.0,
+        "position 1 is what the spread filled, so it is present"
+    );
+
+    // A spread of more than one element, so the hole's index is not the
+    // spread's length by coincidence.
+    assert_eq!(tags::decode_double(run("return [...[1, 2], , 3].length;")), 4.0);
+    assert_eq!(tags::decode_double(run("return [...[1, 2], , 3][3];")), 3.0);
+
+    // And the hole between an element and a spread.
+    assert_eq!(tags::decode_double(run("return [1, , ...[2]][2];")), 2.0);
+    assert_eq!(
+        tags::decode_double(run("return (1 in [1, , ...[2]]) ? 1 : 0;")),
+        0.0
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -4051,16 +4084,46 @@ fn an_object_operand_is_converted_by_its_own_method() {
     let identity = run("let a = {}; return ({} == {}) === false && (a == a) === true ? 1 : 0;");
     assert_eq!(tags::decode_double(identity), 1.0);
 
-    // The order is observable, and it is not left-to-right for `<=`: that is
-    // specified as `!(b < a)`, so the right operand converts first.
-    let order = run(
+    // The order is observable, and it is left-to-right for ALL FOUR relational
+    // operators — including the two the specification writes with their
+    // operands swapped.
+    //
+    // This assertion said the opposite, and it was wrong rather than stale: it
+    // required "ba" for `a <= b`, reasoning that `<=` "is specified as !(b < a),
+    // so the right operand converts first". The premise is right and the
+    // conclusion does not follow. `a <= b` evaluates `IsLessThan(rval, lval,
+    // false)`, and that `false` selects the branch converting `y` before `x` —
+    // where `y` is the SECOND argument, which is `lval`, the LEFT operand. The
+    // specification says why in a NOTE at that very step: "the order of
+    // evaluation needs to be reversed to preserve left to right evaluation".
+    // The swap in the arguments and the swap in the conversion cancel, on
+    // purpose.
+    //
+    // Checked against both rulers on 2026-08-29 rather than re-derived from the
+    // text a second time: node and bun each answer "ab" for `<`, `>`, `<=` and
+    // `>=`, and so does this engine. A test asserting behaviour the language
+    // does not have is the one failure running more tests cannot catch.
+    for op in ["<", ">", "<=", ">="] {
+        let order = run(&format!(
+            "let log = \"\"; \
+             let a = {{ valueOf() {{ log += \"a\"; return 1; }} }}; \
+             let b = {{ valueOf() {{ log += \"b\"; return 2; }} }}; \
+             a {op} b; return log === \"ab\" ? 1 : 0;"
+        ));
+        assert_eq!(
+            tags::decode_double(order),
+            1.0,
+            "`a {op} b` converts its left operand first"
+        );
+    }
+    // `+` has no swap to cancel and converts left first for the plain reason.
+    let plus = run(
         "let log = \"\"; \
          let a = { valueOf() { log += \"a\"; return 1; } }; \
          let b = { valueOf() { log += \"b\"; return 2; } }; \
-         a <= b; let first = log; log = \"\"; a + b; \
-         return first === \"ba\" && log === \"ab\" ? 1 : 0;",
+         a + b; return log === \"ab\" ? 1 : 0;",
     );
-    assert_eq!(tags::decode_double(order), 1.0);
+    assert_eq!(tags::decode_double(plus), 1.0);
 }
 
 /// `lastIndexOf` with an empty needle answered by hanging.
@@ -4643,12 +4706,51 @@ fn an_iterator_carries_the_helpers_a_program_expects() {
 
     // A helper CONSUMES the iterator it was called on, which is what stops two
     // `take(1)` calls from both answering the first element.
-    let consumed = run(
+    //
+    // The claim is right and the assertion under it was wrong. It read
+    // `it.next().done ? 1 : 0` and required 1 — that the source is EXHAUSTED
+    // after `take(1).toArray()`. It is not: `take` pulls one element and then
+    // performs `IteratorClose`, which looks for a `return` method, and an array
+    // iterator has none. So two of the three elements are still there. node and
+    // bun both answer `{ value: 2, done: false }`, and so does this engine;
+    // checked on 2026-08-29, which is the ruler this file otherwise uses.
+    //
+    // What consumption actually looks like is the second pair below: two
+    // `take(1)` calls on ONE source answer `[1]` and then `[2]`, never `[1]`
+    // twice. That is the behaviour the comment always described, now asserted.
+    let after = run(
         "const it = [1, 2, 3].values(); \
          it.take(1).toArray(); \
-         return it.next().done ? 1 : 0;",
+         const step = it.next(); \
+         return step.done === false && step.value === 2 ? 1 : 0;",
     );
-    assert_eq!(tags::decode_double(consumed), 1.0);
+    assert_eq!(
+        tags::decode_double(after),
+        1.0,
+        "one element taken leaves the other two on the source"
+    );
+
+    let twice = run(
+        "const it = [1, 2, 3].values(); \
+         const first = it.take(1).toArray(); \
+         const second = it.take(1).toArray(); \
+         return first[0] === 1 && second[0] === 2 ? 1 : 0;",
+    );
+    assert_eq!(
+        tags::decode_double(twice),
+        1.0,
+        "the second helper starts where the first one stopped"
+    );
+
+    // The same through a helper that WRAPS rather than ends: `map` adopts the
+    // source, `take` adopts the map, and the pull still reaches the array.
+    let through = run(
+        "const it = [1, 2, 3].values(); \
+         const mapped = it.map(x => x * 2).take(1).toArray(); \
+         const step = it.next(); \
+         return mapped[0] === 2 && step.value === 2 ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(through), 1.0);
 }
 
 /// `export *` and `export * as ns` both forward what another module exports.
