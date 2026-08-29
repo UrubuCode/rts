@@ -242,10 +242,41 @@ fn forwarded_read(target: u64, key: Key) -> u64 {
         return answered;
     }
     let found = with_current(|context| {
-        Value(target)
-            .as_slot()
-            .and_then(|cell| objects::read_property(context, cell, key))
-            .map(|value| value.bits())
+        let cell = Value(target).as_slot()?;
+        // An INDEX first, and only from the element vector, because an array's
+        // elements are not shape properties and `read_property` therefore cannot
+        // see them. Without this, `new Proxy([10, 20], {})[0]` answered
+        // `undefined` where node answers 10 — and only for a handler with no
+        // `get` trap, since a handler that HAS one reaches the target through
+        // `Reflect.get` and never arrives here. `p.length` worked throughout,
+        // which is what made the shape of the defect hard to see: `length` IS a
+        // property and the indices are not.
+        //
+        // `visible` and not the raw word: a hole reads as `undefined` rather
+        // than as whatever the vector holds for one, exactly as an ordinary
+        // indexed read of the target would answer.
+        //
+        // The key arrives as `Key::Name` even for `p[0]`, which is the part that
+        // is easy to get wrong: `computed::property_key` interns every string
+        // and never mints a `Key::Index`, so matching on that variant matches
+        // nothing. The text is asked back and `as_array_index` decides, which is
+        // the same idiom `accessor::resolve` and `object_global::arrays` use and
+        // the same CANONICAL rule — `p["01"]` and `p["1.0"]` stay ordinary
+        // properties, exactly as they are on the target itself.
+        if let Key::Name(named) = key
+            && context.elements_at(cell).is_some()
+            && let Some(index) = context
+                .interner
+                .text(named)
+                .and_then(crate::object::as_array_index)
+            && let Some(held) = context
+                .elements_at(cell)
+                .and_then(|elements| elements.get(index as usize))
+                .copied()
+        {
+            return Some(super::super::array::visible(context, held));
+        }
+        objects::read_property(context, cell, key).map(|value| value.bits())
     });
     match found {
         Some(value) => value,
