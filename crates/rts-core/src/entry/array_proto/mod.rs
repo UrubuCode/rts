@@ -647,15 +647,19 @@ pub(super) fn built(values: Vec<u64>) -> u64 {
     // that loop runs, before this is ever reached. Those hold a guard of their
     // own for the loop.
     let values = Rooted::with(values);
-    let array = super::array::array_new(values.len() as i64);
-    // Taken out here, before the borrow below, so the rule stays visible:
-    // nothing between the take and the store may allocate.
-    let values = values.take();
-    with_current(|context| {
-        if let Some(cell) = Value(array).as_slot() {
-            store(context, cell, values);
-        }
-        array
-    })
+    // Through `built_in_rooted` rather than `array_new` plus [`store`], and the
+    // difference is a whole vector. `array_new(n)` builds `vec![hole; n]` — a
+    // malloc of eight bytes per element and n writes — inserts it, and calls
+    // `set_length`; the store then REPLACED that vector with this one, freeing
+    // the holes nobody read, and called `set_length` a second time with the
+    // same count. Nineteen call sites paid it, including `map`, `filter`,
+    // `split`, `Object.keys`, `subarray`, `join` and a regular expression's
+    // match array.
+    //
+    // `built_in_rooted` exists for exactly this transfer and states the rule it
+    // keeps: the CELL is allocated first, while the values are still registered,
+    // and nothing between the take and the insert allocates. So this is the same
+    // window, not a shorter one.
+    with_current(|context| super::array::built_in_rooted(context, values))
 }
 

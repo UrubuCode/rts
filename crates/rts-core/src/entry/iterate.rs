@@ -143,16 +143,12 @@ pub fn iterate(value: u64) -> u64 {
     // one: until the array exists and holds them, these values are named only
     // by a `Vec` on the Rust heap, and `array_new` allocates.
     let values = super::rooted::Rooted::with(values);
-    let array = super::array::array_new(values.len() as i64);
-    let values = values.take();
-    with_current(|context| {
-        if let Some(cell) = Value(array).as_slot()
-            && let Some(elements) = context.elements_at_mut(cell)
-        {
-            *elements = values;
-        }
-        array
-    })
+    // `built_in_rooted` and not `array_new` followed by a write-over.
+    // `array_new(n)` fills `vec![hole; n]` — a malloc and n writes — and the
+    // line that used to be here threw all of it away one statement later by
+    // assigning over `elements`, having also paid `set_length` twice. Every
+    // `for-of` over a non-array iterable and every spread reaches this.
+    with_current(|context| super::array::built_in_rooted(context, values))
 }
 
 /// Everything an object's own `Symbol.iterator` yields.
