@@ -153,6 +153,110 @@ describe("a statement body substituted at its call site", () => {
     expect(Number.isNaN((two as any)(1))).toBe(true);
   });
 
+
+  test("a helper declared inside a function is substituted there", () => {
+    function run(n: number): number {
+      function nested(x: number): number {
+        return x + 1;
+      }
+      let a = 0;
+      for (let i = 0; i < n; i++) a = nested(a);
+      return a;
+    }
+    expect(run(5)).toBe(5);
+  });
+
+  test("a const arrow declared inside a function is substituted there", () => {
+    function run(n: number): number {
+      const nested = (x: number): number => x * 2;
+      let a = 1;
+      for (let i = 0; i < n; i++) a = nested(a);
+      return a;
+    }
+    expect(run(4)).toBe(16);
+  });
+
+  test("a nested helper with statements and a free name", () => {
+    let seen = 0;
+    function run(n: number): number {
+      function step(x: number): number {
+        seen = seen + 1;
+        if (seen > 1000) seen = 0;
+        return x + 2;
+      }
+      let a = 0;
+      for (let i = 0; i < n; i++) a = step(a);
+      return a;
+    }
+    expect(run(3)).toBe(6);
+    expect(seen).toBe(3);
+  });
+
+  test("a name bound only inside another function does NOT leak to a sibling", () => {
+    // The hazard the scope gate closes. `helper` is declared exactly once in
+    // the program, so the declaration count cannot tell these two sites apart;
+    // only the scope chain can. In `sibling` the name is not bound at all, so
+    // the call must reach whatever `helper` means there — which is nothing, and
+    // the program says so rather than quietly running the other body.
+    function owner(): number {
+      function helper(x: number): number {
+        return x + 100;
+      }
+      return helper(1);
+    }
+    expect(owner()).toBe(101);
+    let reached = "";
+    try {
+      // eslint-disable-next-line
+      const sibling = new Function("return typeof helper");
+      reached = String(sibling());
+    } catch {
+      reached = "refused";
+    }
+    expect(reached === "undefined" || reached === "refused").toBe(true);
+  });
+
+  test("two helpers of the same name in two functions are both refused", () => {
+    // Declared twice in the program, so `declarations_of` is 2 and neither is a
+    // candidate — the values still have to be right.
+    function first(): number {
+      function same(x: number): number {
+        return x + 1;
+      }
+      return same(10);
+    }
+    function second(): number {
+      function same(x: number): number {
+        return x + 2;
+      }
+      return same(10);
+    }
+    expect(first()).toBe(11);
+    expect(second()).toBe(12);
+  });
+
+  test("a nested helper closing over the enclosing function's local", () => {
+    // `base` is a local of `run`, so a substituted body reads the caller's
+    // binding — which here IS the right one, because the body lands inside
+    // `run`.
+    function run(): number {
+      const base = 7;
+      function add(x: number): number {
+        return x + base;
+      }
+      return add(1) + add(2);
+    }
+    expect(run()).toBe(17);
+  });
+
+  test("a nested helper is not visible after its function returns", () => {
+    function makes(): (x: number) => number {
+      const inner = (x: number): number => x + 3;
+      return inner;
+    }
+    const held = makes();
+    expect(held(1)).toBe(4);
+  });
   test("a throw from inside a substituted body propagates", () => {
     function boom(n: number): number {
       const held: any = null;

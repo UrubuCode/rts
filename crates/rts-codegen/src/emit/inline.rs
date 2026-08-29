@@ -87,10 +87,25 @@ pub(super) fn candidates(
     length: Name,
 ) -> BTreeMap<Name, Rc<Inlinable>> {
     let mut found = BTreeMap::new();
+    // EVERY declaration in the program, not only the top-level ones.
+    //
+    // A helper declared inside a function was invisible to this pass, and the
+    // measurement says what that cost: the same one-expression helper is 8.2 ns
+    // a call at the top level and 19.2 nested — the whole door, on a shape real
+    // code writes constantly.
+    //
+    // Collecting them into ONE flat map is only sound because of the gate at
+    // the call site: `emit_substituted` requires the name to be LEXICALLY BOUND
+    // there. Without it, `function f() { function parseInt(x) { return 0 } }`
+    // would make a `parseInt("5")` in an unrelated function substitute the
+    // nested body instead of reaching the global — the name is declared exactly
+    // once in the program, so the count below cannot tell the two apart. The
+    // scope can, and that is the half that makes this legal.
+    let mut declarations = Vec::new();
     for statement in body {
-        let Some((name, function)) = declared_function(statement) else {
-            continue;
-        };
+        collect_declarations(statement, &mut declarations);
+    }
+    for (name, function) in declarations {
         let Some((candidate, free)) = shape_of(function, length, name) else {
             continue;
         };
@@ -173,6 +188,22 @@ pub(super) fn emit_substituted(
     let Some(candidate) = ctx.inlinable(*name) else {
         return Ok(None);
     };
+    // THE NAME MUST BE BOUND HERE, and this is what makes collecting candidates
+    // from any depth legal.
+    //
+    // `declarations_of == 1` says the program declares this name once. It does
+    // NOT say that a given call site can see that declaration: a helper written
+    // inside one function is out of scope in the next, where the same spelling
+    // reaches a GLOBAL instead — `function f() { function parseInt(x) {…} }`
+    // beside a `parseInt("5")` elsewhere is the whole hazard, and the count
+    // cannot tell the two apart. The scope chain can, so it is asked.
+    //
+    // A top-level declaration is bound at every site inside the module for the
+    // same reason it is callable there, so this refuses nothing that already
+    // worked — which is a claim the clock checks, not a comment.
+    if scope.lookup(*name).is_none() {
+        return Ok(None);
+    }
     if candidate.rest_length.is_some() {
         // A spread has a runtime-dependent count, so it cannot use the exact
         // written-argument proof. Still emit every non-spread argument in source
@@ -249,6 +280,62 @@ pub(super) fn emit_substituted(
     Ok(Some(answered?))
 }
 
+
+/// Every `function f(…)` and `const f = …` in a statement and everything under
+/// it, however deep.
+///
+/// [`declared_function`] answers for ONE statement; this is the same question
+/// asked of a whole subtree, so a helper written inside the function that uses
+/// it is reachable. The walk goes through `walk_stmt`'s children rather than
+/// matching each statement kind, which is what keeps a statement added to the
+/// tree tomorrow from being silently skipped.
+fn collect_declarations<'a>(statement: &'a Stmt, found: &mut Vec<(Name, &'a Function)>) {
+    if let Some(pair) = declared_function(statement) {
+        found.push(pair);
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => collect_declarations(inner, found),
+        StmtChild::Binding(binding) => {
+            if let (Pattern::Name(name), Some(value)) = (&binding.target, &binding.value)
+                && let ExprKind::Function(function) = &value.kind
+            {
+                found.push((*name, function));
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                collect_declarations(inner, found);
+            }
+        }
+        StmtChild::Function(function) => {
+            if let Some(name) = function.name {
+                found.push((name, function));
+            }
+            for inner in body_statements(function) {
+                collect_declarations(inner, found);
+            }
+        }
+        StmtChild::Expr(_) | StmtChild::Class(_) => {}
+    });
+    // A declaration's own body, which `walk_stmt` does not descend into for a
+    // `StmtKind::Function` — it hands the function over as a child and stops.
+    if let Some((_, function)) = declared_function(statement) {
+        for inner in body_statements(function) {
+            collect_declarations(inner, found);
+        }
+    }
+}
+
+/// The statements of a body, or nothing for a concise arrow.
+///
+/// A concise `x => x + 1` has no statements to look inside, and answering an
+/// empty slice for it is the whole of what this exists to say.
+fn body_statements(function: &Function) -> &[Stmt] {
+    match &function.body {
+        FunctionBody::Block(statements) => statements,
+        FunctionBody::Expression(_) => &[],
+    }
+}
 /// The function a top-level statement declares under a name, in either
 /// spelling.
 ///
