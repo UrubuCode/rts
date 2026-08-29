@@ -314,6 +314,19 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     // `Context::buffers`, whose bytes are never references themselves — an
     // `ArrayBuffer`'s bytes are exactly that, bytes, and a live view already
     // names the buffer's CELL through step 7 above, not through this table.
+    //
+    // **A field in NEITHER list is the bug.** That is not a hypothetical: it is
+    // the state `cursors` was in until step 8b existed, and what it produced was
+    // a `for`-`of` that ended early and reported nothing. So a new `Aside<T>`
+    // that can hold a `Value` gets an arm above, or a line here saying why it
+    // holds none — and there is no third option that leaves the reader able to
+    // tell "decided" from "forgotten".
+    //
+    // `rts-core`'s rule 10 makes that binding and `docs/engine/lost-roots.md`
+    // is the why: the four places a live reference hides, the three found on
+    // 2026-08-29, and the four mechanical checks that find the next one. **There
+    // will be a next one** — every new table is a fresh chance to be missing
+    // from a hand-written list.
 }
 
 #[cfg(test)]

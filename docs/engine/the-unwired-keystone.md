@@ -46,6 +46,22 @@ integer-width conversion at all. The whole family shares one precondition.
 > the compiler underneath already supports the precise alternative … Two such
 > declarations exist and **this repository calls neither**.
 
+**And a third thing is blocked that this list did not name: the END of a whole
+class of correctness bug.** With references recognised by bit pattern, what is
+live is decided by two HAND-WRITTEN lists — `roots::context_roots` and
+`trace::edges_of` — and a list is a place a thing can be missing from. Three
+were missing on 2026-08-29 and two of them answered WRONGLY in silence: a
+`for`-`of` that ended early, and a `JSON.parse` that returned objects with no
+properties while the process exited zero.
+
+`docs/engine/lost-roots.md` is the class, with the four checks that find the
+next one and the reason to expect one. It is worth reading beside this document
+rather than instead of it, because the two are the same precondition from
+opposite sides: precise roots are usually argued for as a way to go FASTER — the
+nine dead capabilities above — and they are equally a way to stop maintaining a
+list by hand. Until then the class is policed rather than closed, and every new
+side table, native and cache is a fresh chance to be missing from one.
+
 ### 2. Machine-derived stack traces block the direct call
 
 `docs/codegen/native-call-floor.md` measures a JavaScript call at ~23 ns

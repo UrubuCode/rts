@@ -391,6 +391,25 @@ Never lifts. No mode suspends it.
   quietly smaller than claimed is a claim wearing a measurement's clothes. This
   is not hypothetical: a test262 score was published 0.8 points high because 503
   of 24 007 files silently failed to check out.
+- **A green suite is not the last gate — the clock is.** A disabled optimisation
+  passes every correctness test there is. A guard written on 2026-08-29 turned
+  the whole inliner off; the corpus, the unit tests and the doctests were all
+  green, and the only thing that said otherwise was a benchmark returning to its
+  old number. So after any change justified by speed, MEASURE AGAIN even once
+  the reason to measure has been satisfied. `crates/rts-codegen/README.md` rule
+  11 has the other three gates and what each of them caught.
+- **The worst failure here is silent, and it is a CLASS rather than an
+  incident.** What the collector treats as live is decided by two hand-written
+  lists, so a live reference can simply be missing from one — and what that
+  produces is not a crash but a `for`-`of` that ends early, or a `JSON.parse`
+  that answers objects with no properties while the process exits zero. Both
+  were real on 2026-08-29, alongside a third that exhausted the heap.
+  `docs/engine/lost-roots.md` is the class, the four checks that find the next
+  one, and the reason to expect one; `crates/rts-core/README.md` rule 10 is the
+  binding form. **Expect more of these** — every new side table, native and
+  cache is a fresh chance to be missing from a list, and only the precise roots
+  of `docs/engine/the-unwired-keystone.md` close the class rather than police
+  it.
 
 ---
 

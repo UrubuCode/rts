@@ -80,6 +80,12 @@ use super::Context;
 ///   `{done: true}`, so a `for`-`of` ended early and reported nothing. Fixed in
 ///   `trace` step 8b on 2026-08-29; the classification above was right about
 ///   where the responsibility lies and wrong about it having been discharged.
+///
+///   **And a correct sentence about a mechanism nobody built reads exactly like
+///   a correct sentence about one that was.** That is the failure mode of both
+///   lists in this file, and `docs/engine/lost-roots.md` is where the class is
+///   written down — with the four checks that find the next one, and the reason
+///   to expect one.
 /// - **No references at all** — `shapes`, `keys`, `interner`, `types`,
 ///   `shape_of_type`, `text_type`, `symbols` (a symbol is a machine *tag*, not
 ///   a cell — see `entry::symbol`'s own module documentation for why that

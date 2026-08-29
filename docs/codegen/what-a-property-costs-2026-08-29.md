@@ -1,4 +1,4 @@
-# What a property costs, and three changes measured against it
+# What a property costs, three lost roots, and a call that stopped being one
 
 *2026-08-29, over `a2741a34`. Every number here was produced by
 `target/release/rts.exe` — a real release build, never `fast` — against a
@@ -370,3 +370,163 @@ for (let i = 0; i < 5000; i++) JSON.parse(src);
 That is a crash, so by the honesty floor it is not a passing anything, and it
 is written here because no row of `bench/analytic.ts` would ever have found it:
 every object in that file has fewer than fifteen members.
+
+---
+
+# Part two — the defects, and the call that stopped being a call
+
+*Same day, same instrument, same method. Sections 0 through 7 above were written
+before this half and none of their numbers is restated here; what changed is
+that three of the "not for this session" items turned out to be correctness
+bugs, and one of the "days" items was done.*
+
+---
+
+## 8. Three lost roots, and one of them killed the program
+
+**The class has its own document now — `docs/engine/lost-roots.md` — and this
+section is only the numbers.** The class is what matters and it is not closed;
+that document carries the four places a live reference hides, the four
+mechanical checks that find the next one, and the reason to expect one.
+`rts-core`'s rule 10 is the binding form.
+
+| defect | what it did | how it was found |
+|---|---|---|
+| `Context::cursors` was never traced | a `for`-`of` over a Set/Map/array iterator **ended early in silence** after any collection | a `for`-`of` in the previous session's own probe file died, and the bisection said the iterator, not the loop |
+| `json::materialise` held its cell as a bare `u32` | a 20-key object parsed 60 000 times came back **twice with zero properties, exit code 0** | the segfault at 80 keys was the visible half; the wrong answer at 20 was found by counting `Object.keys` instead of waiting for a crash |
+| `Context::remembered_keys` was never released | `o[s.slice(0,7)]` in a loop **exhausted the heap** — `roots 63355 live 65396 freed 5` | a workflow agent read the bound in the comment against the key of the table |
+
+Two of the three are **silent wrong answers**, which is the reason this section
+exists at all: a segfault gets fixed because it is loud, and a `for`-`of` that
+runs sixteen times instead of seventeen does not.
+
+**And a correction this document owes its own first half.** `b9360998`'s comment
+said the JSON failure "is a SEGFAULT, not a wrong answer" and gave 80 keys as
+the threshold. Measured against the kept pre-fix binary, both are wrong: twenty
+keys, and the process exits zero. A reader would have concluded that a small
+object is safe and that a clean exit means a clean parse. Corrected in place.
+
+### 8a. What was written, measured, and REVERTED
+
+Capturing `xmm6`-`xmm15` (and `d8`-`d15` on AArch64) as roots. Windows x86-64
+preserves them, a NaN-boxed value is sixty-four bits Cranelift may keep in one,
+and every `Widen`/`Guard` pair in this engine is a bitcast between `F64` and
+`Tagged` — so the argument reads as if it applied. **No program forces it.** Two
+were tried, including one holding five objects across ten live doubles and
+400 000 allocations; both behave identically with the capture and without.
+
+`registers.rs` was created under the standard that refuses exactly this —
+*"absence of a failing case, not a proof"* — and the standard cuts both ways.
+The reasoning is kept in that module so the next person does not re-derive it;
+the code is not, because a root source nobody can demonstrate is a permanent
+cost paid against a hypothesis.
+
+---
+
+## 9. `bench/monte_carlo_pi.ts`: 695 ms → 337 ms
+
+The ablation came first, in JavaScript, before a line of Rust was written. 10M
+iterations, minimum of five inside one process:
+
+| | ms |
+|---|---:|
+| as shipped — a call per point, state captured | **662** |
+| the body hand-substituted, state still captured | 303 |
+| the body substituted, state a plain local | **129** |
+| the empty loop | 8 |
+
+So **the call is ~359 ms of it — 18.0 ns each, twenty million of them** — and
+the captured module binding is a further 174. `emit/inline.rs` already held the
+proof that identifies the callee and spends it on bodies of exactly one
+expression; `nextRandomF64` has three statements and was refused at the first
+gate.
+
+Extended, it collects exactly the predicted half: **695 → 337 ms end to end, a
+2.06x**, answer byte-identical, with `objbench` 251 → 254, `pi_machin` 21 → 21
+and `rts_simple` 36 → 36. `bench/analytic.ts` is flat (geomean +0.06%, one row
+better and none worse) and that is the expected result rather than an absent
+one — its functions are one-expression and were already inlined.
+
+### 9a. What it cost to get right, and why rule 11 exists
+
+Four failures, each caught by a different gate, and the fourth is the one worth
+carrying forward:
+
+1. a body-local `const t` wrote the CALLER's `t` — caught by a fixture written
+   before the change;
+2. a name declared twice was admitted — same fixture;
+3. a named function expression's own name was admitted as free, and
+   `function_expression.test.ts` died with `ReferenceError: fact is not defined`
+   — caught by the corpus compared per file;
+4. the guard written for (3) read `inner == own`, which is true of every
+   `function f()`, so it **turned the entire pass off** — and the suite was
+   green, the unit tests were green, and the only thing that said otherwise was
+   Monte Carlo going back to 730 ms.
+
+**A disabled optimisation passes every correctness gate there is.**
+`crates/rts-codegen/README.md` rule 11 is the binding form, and
+`tests/inline_statement_body.test.ts` pins all twelve cases — including the two
+that shipped wrong — and passes on the binary before the change as well as
+after.
+
+### 9b. The 200 ms the owner asked for, and what is between here and it
+
+The second half of the ablation is the answer and it is **not** done: with the
+call gone, `rngState` still lives in an environment object, which is the 303 →
+129 step. Two edits are named in the workflow's own finding — count the
+references to a fully-inlined candidate that are not substituted call sites, and
+pass that set into `capture::captured()` so the closure and its `CachedSet` are
+never emitted.
+
+It is left undone deliberately. The condition that makes it safe is that **no
+call site can fall back to a real call**, and two of the three refusals in
+`emit_substituted` are static (arity, spread) while the third — the caller's
+escape analysis having flattened a name — is a fact about the CALLER that
+candidate collection cannot see. Getting that wrong is not a slow program, it is
+an unbound name. The measured prize is real (337 → ~165 ms, which clears the
+target) and so is the shape of the risk.
+
+---
+
+## 10. The rest, and what the turn is worth
+
+Four smaller items, each measured against a kept baseline, alternated:
+
+| | |
+|---|---|
+| `2 ** 3` was a runtime call every iteration | `arith exponent` **19.7 → 8.0 ns, −59%** |
+| `toUpperCase` mapped ASCII one byte at a time through a function pointer | 4096 chars **−53%**, 256 chars −30%, 1.82 → 0.93 ns/byte |
+| `index`, `input`, `groups`, `lastIndex`, `indices` were interned cold on every match | `regex exec+group` **−18.6%**, `string match` −15.2% |
+| `put` asked the same refusal twice; the cache diagnostics ran a modulo before their switch | two rows better, none worse |
+
+The exponent fold is worth a sentence on its own because of what it did NOT do.
+`Number::exponentiate` lives in `rts-core` and `rts-codegen` depends on the
+machine and nothing else, so folding it looked like it required either a new
+dependency edge or a second copy of a rule whose own documentation refuses to
+have one. Both operands are literals at fold time, so the two rows where
+IEEE-754 and ECMAScript disagree are **recognised and refused** instead, and the
+runtime that owns the rule answers them. No edge, no copy.
+
+**The turn, start to HEAD, four runs per binary in both orders: sum −2.15%,
+geomean −1.68%, two rows more than 8% better and NONE worse** — plus Monte Carlo
+at 2.06x, which no row of this table measures.
+
+---
+
+## 11. Read section 7 as a queue, because most of it is still open
+
+The ranked list above lost four entries to this half and gained nothing. What is
+still there, and what the second workflow added to it, is roughly two dozen
+verified findings — `exec` transcoding its subject twice, seven string methods
+widening the whole receiver for a constant-size answer, `JSON.parse` never using
+`object_new_wide` (a 3x step at the fifteenth member), `JSON.stringify`
+allocating a `Str` per number only to copy its digits out, string literals
+re-issued as a runtime call on every loop iteration, `String(x)` paying a global
+property read, and `template_join` at 128 ns of the 256 ns template row.
+
+None of them is a research question. They are the same three shapes this
+document keeps finding: **work repeated per execution that is a fact of the
+site, a constant that became a call, and a name hashed cold that the compiler
+knew.** Expect the next sweep to find more of exactly those, for the same
+structural reason the lost-root document gives about its own class — nothing in
+the type system says a compile-time fact has to be spent at compile time.

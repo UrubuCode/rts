@@ -112,6 +112,43 @@ that stopped reaching it, and a structure with no producer is a gap rather than 
 feature. That last one is not hypothetical: the machine layer shipped three of
 them and each was found by looking, not by the build.
 
+### 11. A pass that substitutes code needs four gates, and the fourth is a clock
+
+`emit/inline.rs` emits a callee's body **in the caller's scope**. Anything that
+does that — and more will, because the whole-program proof this crate already
+computes is worth more than the one-expression slice it was first spent on — can
+answer wrongly with no error at all. Extending it on 2026-08-29 produced four
+distinct failures, and each was caught by a different gate. All four are
+required:
+
+1. **A fixture written BEFORE the change**, asserting values and never asserting
+   that a substitution happened. It caught two: a body-local `const t` wrote the
+   CALLER's `t`, because a module-level binding lives in an environment object
+   and not in a scope this can enter and leave; and a name declared twice was
+   admitted.
+2. **`rts test`, compared PER FILE against a kept binary.** It caught the third,
+   which the fixture did not have: a named function EXPRESSION binds its own
+   name inside its own body only, and `declarations_of` counts that name, so it
+   looked admissible. `ReferenceError: fact is not defined`.
+3. **`cargo test`, doctests included.** An indented JavaScript example inside a
+   `///` comment is compiled as Rust. Fence it as `text`.
+4. **The CLOCK, after the other three are green.** This is the one nobody
+   expects. A guard written for (2) read `free.contains(&inner) || inner == own`,
+   and `inner == own` is true of every `function f()` — the declaration and the
+   expression carry one name — so it turned the entire pass off. **The suite was
+   green, the unit tests were green, and the only thing that said otherwise was
+   the benchmark going back to its old number.**
+
+A disabled optimisation passes every correctness gate there is. That is what
+makes (4) not optional, and it generalises past this pass: after any change
+justified by speed, measure again even when the reason to measure has already
+been satisfied.
+
+What the extension may substitute, and why each refusal exists, is on
+`shape_of` and `closed_over` in that file; `tests/inline_statement_body.test.ts`
+pins all of it and passes on the binary before the change as well as after,
+which is what a semantics test has to do.
+
 ---
 
 ## Working on this crate

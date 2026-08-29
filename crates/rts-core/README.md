@@ -146,6 +146,40 @@ and why the raise and the checks are one change rather than two.
 feature. One function was written and deleted before its first commit for exactly
 this — it comes back with its caller, in the same change.
 
+### 10. A reference this crate holds is a reference the collector is told about
+
+Two hand-written lists say what is live: `roots::context_roots` enumerates the
+fields of `Context` that hold one, and `trace::edges_of` walks the side tables a
+marked cell reaches through. **A list is a place a thing can be missing from**,
+and a reference missing from one does not fail where the mistake is — it fails
+at a collection, later, somewhere else.
+
+So, when adding anything:
+
+- **A new `Aside<T>` that can hold a `Value` gets an arm in `edges_of`, or a
+  line in its closing comment saying why it holds no reference.** In neither
+  list is the bug. `cursors` sat in exactly that state and a `for`-`of` over a
+  Set ENDED EARLY in silence.
+- **A native that builds a cell roots it before anything else can allocate.**
+  `cell` is a bare `u32` in a Rust frame and the stack scan recognises an
+  encoded `Value`, not an index; `Rooted` is the guard, and `alloc_or_die`,
+  `intern_value`, `object_new*` and any `put` that grows a shape or a spill all
+  end the safe window. `json::materialise` did not, and twenty-key objects came
+  back EMPTY with the process exiting zero.
+- **Values in a `Vec<u64>` go in a `Rooted`.** Its header carries the
+  measurement that made it necessary.
+- **A root source is BOUNDED, and the bound is about the right thing.**
+  `remembered_keys` claimed to be bounded by the program's property names while
+  being keyed by the cell, and a computed key in a loop exhausted the heap.
+  Over-rooting is the same defect as under-rooting, wearing the coat that fails
+  loudly.
+
+`docs/engine/lost-roots.md` is the why: the four hiding places, the three
+instances with their reproductions, and the four mechanical checks that find
+the next one. **There will be a next one** — every new table, native and cache
+is a fresh chance to be missing from a hand-written list, and only
+`docs/engine/the-unwired-keystone.md` ends the class rather than policing it.
+
 ---
 
 ## Layout

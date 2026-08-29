@@ -24,6 +24,13 @@
 //! anything else would resolve that name against the caller's bindings, which is
 //! a wrong answer rather than a missed optimisation.
 //!
+//! **Four gates, not three, and `rts-codegen`'s rule 11 is the binding text.**
+//! Extending this pass produced four distinct failures and each was caught by a
+//! different one: a fixture written first, the corpus compared per file, the
+//! doctests, and — after all three were green — the CLOCK, which is what found
+//! a guard that had turned the whole pass off while every correctness gate
+//! stayed green. A disabled optimisation passes every test there is.
+//!
 //! Recorded as deliberately conservative rather than as the finished shape. The
 //! plan entry this implements notes that the wider form — a body that calls
 //! other proven functions, several statements, a `let` — was refused once for

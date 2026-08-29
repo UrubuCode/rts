@@ -267,6 +267,22 @@ everything it orders already works.
 
 ---
 
+## The standing item that is not a phase
+
+**A live reference nothing enumerates**, and there will be more of them. Three
+were found on 2026-08-29 — an iterator's source, a parsed object's own cell, and
+a keyed cache's remembered key — and two answered WRONGLY in silence rather than
+crashing. This is not a phase because it does not finish: what is live is
+decided by two hand-written lists, and every table, native and cache added by
+any phase below is a fresh chance to be missing from one.
+
+`docs/engine/lost-roots.md` carries the class, the four mechanical checks that
+find the next one, and the reason the class only CLOSES with the precise roots
+of `docs/engine/the-unwired-keystone.md`. Rule 10 of this crate's README is the
+binding form, and it applies to every phase here rather than to one of them.
+
+---
+
 ## How this is measured
 
 Not yet, and saying otherwise would be the failure the language plan spent a
