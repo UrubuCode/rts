@@ -237,7 +237,7 @@ use crate::value::Singletons;
 pub const TEXT_LENGTH_SLOT: u32 = 1;
 
 /// The names the runtime asks for BY NAME on a path that runs per operation.
-pub const CACHED_KEYS: [&str; 9] = [
+pub const CACHED_KEYS: [&str; 11] = [
     "length",
     "prototype",
     "byteLength",
@@ -255,6 +255,15 @@ pub const CACHED_KEYS: [&str; 9] = [
     "name",
     "constructor",
     symbol::SPECIES,
+    // The two `generator::result` writes onto the `{ value, done }` record it
+    // builds for EVERY step of EVERY iterator — an array's cursor, a `Map`'s, a
+    // generator's, and anything `for`-`of` or a destructuring pattern steps. It
+    // is the densest per-operation pair on this list: two `Str::from_str` and
+    // two hashes per element walked, for an answer that cannot change within a
+    // run. Appended rather than inserted, because `LENGTH_KEY_AT` pins position
+    // zero and `integrity::length_is_first` asserts it.
+    "value",
+    "done",
 ];
 
 /// Where `"length"` sits in [`CACHED_KEYS`].
@@ -629,6 +638,19 @@ pub struct Context {
     /// reason `string_prototype` records: `array_new` would otherwise write the
     /// link at every allocation to record one fact they all share.
     array_prototype: Option<u32>,
+    /// What the `{ value, done }` of every iterator step inherits from.
+    ///
+    /// Remembered because `generator::result` asked for it by NAME once per
+    /// step, and `class_support::prototype` answers a name by walking `classes`
+    /// and comparing strings — so every element of every `for`-`of`, every
+    /// destructuring position, and every `Map` or `Set` walk paid a linear scan
+    /// with a `str` compare per entry to find a registration that cannot move.
+    ///
+    /// Needs no root of its own, and that is worth stating rather than assuming:
+    /// what it holds is `Registered::prototype`, and `classes` is already
+    /// enumerated by [`roots`] — nothing ever removes a registration, so the
+    /// memo cannot outlive what it names.
+    generator_result_prototype: Option<u64>,
     /// The prototype backing buffers created internally for typed arrays.
     ///
     /// `new_buffer` asks for it on every typed-array allocation, so the first
@@ -1185,6 +1207,7 @@ impl Context {
             globals: None,
             string_prototype: None,
             array_prototype: None,
+            generator_result_prototype: None,
             array_buffer_prototype: None,
             resolves: 0,
             array_layout: None,

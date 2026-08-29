@@ -634,6 +634,8 @@ impl Context {
             "name" => Some(6),
             "constructor" => Some(7),
             super::symbol::SPECIES => Some(8),
+            "value" => Some(9),
+            "done" => Some(10),
             _ => None,
         };
         if let Some(at) = held

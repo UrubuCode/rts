@@ -410,11 +410,24 @@ pub(in crate::entry) fn result(context: &mut Context, value: u64, done: bool) ->
 /// here is reached: a program with no generator in it pays for none of this.
 fn made(context: &mut Context) -> Option<u32> {
     let cell = super::native::plain(context)?;
-    let prototype = match super::class_support::prototype(context, "Generator") {
+    // Asked of the memo first, because the fallback is a linear walk of
+    // `classes` comparing a `&str` per entry and this runs once per STEP of
+    // every iterator in the program — an array cursor, a `Map`, a generator,
+    // every position of every destructuring pattern. The registration it finds
+    // cannot move: nothing removes an entry, so the name is asked at most once
+    // per process instead of once per element.
+    let prototype = match context.generator_result_prototype {
         Some(prototype) => prototype,
         None => {
-            register(context);
-            super::class_support::prototype(context, "Generator")?
+            let found = match super::class_support::prototype(context, "Generator") {
+                Some(prototype) => prototype,
+                None => {
+                    register(context);
+                    super::class_support::prototype(context, "Generator")?
+                }
+            };
+            context.generator_result_prototype = Some(found);
+            found
         }
     };
     context.set_prototype(cell, prototype);
