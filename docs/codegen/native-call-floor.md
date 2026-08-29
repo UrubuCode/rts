@@ -127,6 +127,80 @@ is an activation depth `function_proto` reads while `throw` walks the same list
 backwards for a stack trace. Three consumers, three different shapes. Anyone
 taking this on prices the root scan too.
 
+### 3a-i. REFUTED: merging two of the three stacks into one activation record
+
+**Do not do this.** §3a above names it as "the obvious fix" and prices the
+trap; it was implemented in full, measured, and reverted. This is the third
+independent negative on restructuring the call path, after §4 of
+`action-table-2026-08-26.md` and §5b below.
+
+The shape was the contained half of §3a's proposal, deliberately. `callees`
+was left alone — it is the one with three consumers and the one §5b already
+refused to move. `pending_arguments` and `pending_counts` are pushed together
+at five sites, popped together at five, and read together at three; only the
+first is a GC root and neither has a `len` consumer. They became:
+
+```rust
+pub struct Activation { pub arguments: u64, pub count: Option<u32> }
+pub activations: Vec<Activation>,
+```
+
+sixteen bytes, one push instead of two, one `last()` instead of two, and
+`roots::context_roots` reading the `arguments` field with a stride. It also
+made a class of bug unrepresentable: the two stacks could no longer get out
+of step, which is a real property and is why this looked like the safe half.
+
+**The isolated ladder said it worked.** Four alternations per binary, min of
+five inside each process, the static call flat as the control:
+
+| | base | merged | |
+|---|---:|---:|---:|
+| `f(a)` *(control)* | 8.33 | 8.33 | 0.0% |
+| `c.m(a)` | 22.67 | 21.67 | **−4.4%** |
+| `s.has(7)` | 31.67 | 30.67 | −3.2% |
+| `Array.isArray` | 37.67 | 36.67 | −2.7% |
+| `Object.is` | 36.67 | 36.00 | −1.8% |
+| `m.get('k')` | 33.33 | 33.00 | −1.0% |
+
+About 1 ns a call, consistent in direction across five independent rows.
+
+**`bench/analytic.ts` refused it.** Four runs per binary, and — this is the
+part that decided it — in BOTH orders, because a first pass with the merged
+binary always measured second could have been the machine drifting:
+
+| | base first | merged first | pooled |
+|---|---:|---:|---:|
+| geomean | +4.1% | +2.4% | **+2.2%** |
+| sum | +6.1% | +0.5% | +0.5% |
+| rows >8% worse | 23 | 10 | **9** |
+| rows >8% better | 2 | 1 | **0** |
+
+Nine rows worse and none better, reproducible with the order reversed. The
+call rows the ladder had won moved between −4.5% and +6.5% in the table and
+netted nothing; what got worse were `call closure make+call` +14.0%,
+`string concat 2` +15.6%, `array for-of 16` +13.6%, `regex exec+group` +8.0%
+and five more that cannot touch an activation stack.
+
+**The mechanism is §5b's, and that is the finding.** §5b guessed that
+restructuring `invoke` changed its inlining and therefore register allocation
+at each call site. This change does not touch `invoke` at all and produced
+the same signature — the ladder wins, unrelated rows lose, no explanation.
+So the cause is not `invoke`: **`rts-core`'s hot natives are sensitive to
+code layout at roughly the size of the prize**, and any restructure of them
+whose predicted gain is a nanosecond is below the resolution of the only
+instrument that matters.
+
+The rule this leaves, and it is the reusable part: **on this crate's hot
+paths, prefer a change that REMOVES work to one that REARRANGES it.** The
+three changes measured on the same day against the same instrument split
+exactly that way — this one rearranged and cost 2.2%; deleting a duplicated
+refusal and a hole-filled vector removed work and cost nothing anywhere.
+
+What §3a's 7.3–10.2 ns still needs is therefore not a better arrangement of
+the stacks. It is the calling convention with a caller-allocated argument
+slot that `functions.rs` already names, which removes the push rather than
+making it cheaper.
+
 ### 3b. `SetCallName`, a crossing per named call — **2.3 to 2.9 ns**
 
 | action | base | ablated | saved |
