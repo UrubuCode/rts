@@ -485,6 +485,21 @@ impl<'a> FuncBuilder<'a> {
         Ok(self.emit(Inst::IsSingleton { value, singleton }, Repr::Bool))
     }
 
+    /// Whether a value is a constant of exactly this singleton.
+    ///
+    /// The build-time half of [`FuncBuilder::is_singleton`], and the reason a
+    /// client can tell the two cases apart before emitting anything: a
+    /// comparison against a singleton the client itself materialised is
+    /// answerable here, and a comparison against a singleton that arrived in a
+    /// register is what the instruction is for.
+    pub fn is_constant_singleton(
+        &self,
+        value: ValueId,
+        singleton: crate::tags::SingletonId,
+    ) -> bool {
+        super::fold::is_constant_singleton(self.func, value, singleton)
+    }
+
     /// What a value was widened from, if it was widened here.
     ///
     /// The counterpart to [`FuncBuilder::widen`], and the only way a client can

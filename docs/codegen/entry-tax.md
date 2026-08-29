@@ -425,3 +425,101 @@ cargo run --release --bin verify_regs      # register pressure, on its own
 
 The in-engine ladder is a `.ts` file and is not checked in; its shape is in the
 table above and it is three lines of loop per row.
+
+---
+
+# Part three: the emitter speculating against its own constant
+
+Found 2026-08-29, chasing why a defaulted parameter cost 24.5 ns where the same
+call without one cost 8.
+
+## What it was
+
+`emit_binary_inner` speculates. Given any operator a pair of doubles settles, it
+emits a guard on each side, the machine instruction, and the runtime call as the
+slow path — a good bet when nothing is known about the operands.
+
+It is not a bet when one operand is a constant the emitter itself just
+materialised. `x === undefined` guards `undefined` for being a double. That
+guard fails on **every** pass, by construction, because the constant is a
+singleton word and will never be anything else. So the shape that ran was: two
+guards nobody can pass, an instruction nothing reaches, five blocks, and
+`__rts_strict_equals` — a full runtime crossing — to answer whether one machine
+word equals another.
+
+`FuncBuilder::is_singleton` had existed since the nullish work and answered
+exactly that question in one comparison. Its own doc comment said the old shape
+cost every optional chain, every nullish coalesce and every defaulted parameter
+two calls — and the defaulted parameter had never been moved over. The comment
+described the intent and was read as the state.
+
+## What it is now
+
+`expr::singleton_equality` runs before the speculation and settles strict
+equality and inequality against `undefined` and `null` as one
+`Inst::IsSingleton`. The IR for a defaulted parameter went from a guard pair
+plus a call to two instructions:
+
+    v9: Bool = IsSingleton { value: v3, singleton: SingletonId(0) }
+    Branch { cond: v9, ... }
+
+Measured, `--release`, min of 9, three alternations, controls in the same run:
+
+| | base | now |
+|---|---:|---:|
+| a defaulted parameter | 23.75 | **19.75  (-16.8%)** |
+| `x !== null` | 12.00 | **8.75  (-27.1%)** |
+| a destructuring default | 40.25 | **36.50  (-9.3%)** |
+| CONTROL a plain call | 8.00 | 8.00 |
+| CONTROL an addition | 3.75 | 3.75 |
+
+## Why the operand and not the syntax
+
+`undefined` is an identifier in JavaScript and a program may shadow it. Decided
+on the emitted VALUE, that case needs no thought at all: a shadowed `undefined`
+is a scope read rather than a constant, so `is_constant_singleton` answers
+false and the comparison stays a call — correct, and for free. Decided on the
+tree, it would have needed the scope, and would have been wrong the first time
+someone wrote a local named `undefined`.
+
+It also catches the comparisons no program wrote. `bind_parameters` synthesises
+one comparison per defaulted parameter, and `destructure` emitted its own
+`StrictEquals` call directly; a syntax test would have had to be told about
+both, and was told about neither.
+
+## THIS IS A CLASS, and two more members are already named
+
+The defect is not "defaults were slow". It is **the emitter speculating that an
+operand is a double while holding the constant that proves it is not**, and the
+same shape was found in two more places within the hour:
+
+- **`x === true` and `x === false`.** A boolean constant is a unique word too,
+  by the same argument `Inst::IsSingleton` gives for a singleton — and it takes
+  the identical useless guard pair and the identical call. The machine has no
+  instruction for it, because `IsSingleton` deliberately takes a singleton
+  number, so this one needs a machine capability and not only an emitter change.
+- **`typeof x === "string"`.** THREE crossings — `TypeOf` to build a string,
+  `StringConst` to build the other one, `StrictEquals` to compare their text —
+  plus a throw check, to answer a question about `x`'s tag. The runtime already
+  computes a `TypeName` discriminant and then turns it into a string purely so
+  that the comparison has something to compare.
+
+**Expect more.** Anywhere the emitter materialises a constant and then hands it
+to a path that assumes it knows nothing about its operands, the assumption is
+already false at the moment it is made. The check that finds the next one is to
+read the IR of a construct rather than its source: a `Guard` expecting `F64`
+whose input is a `Const` on the line above is the whole signature, and `rts ir`
+prints both.
+
+## The two rows that read worse, and how they were dismissed
+
+`bench/analytic.ts` put `string number->string` at +14.7% and
+`string toUpperCase 16` at +8.2%. A dedicated probe (min of 11, three
+alternations) put them at +5.7% and +2.1%, so both are real and small.
+
+Neither is attributable, and the check that says so is not an argument: `rts ir`
+for the `number->string` loop is **byte-identical** between the two binaries. The
+emission did not change, so what moved is where the runtime's own code landed in
+the linked image. That is this tree's documented layout floor, measured rather
+than asserted for once — and it is the cheapest check of the three this file
+records, because it needs no second build.

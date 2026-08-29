@@ -48,6 +48,44 @@ pub(crate) fn guard_answer(func: &Function, input: ValueId, expect: Repr) -> Opt
     (func.repr_of(source) == expect).then_some(source)
 }
 
+/// Whether a value is a CONSTANT of exactly the given singleton.
+///
+/// Asked by a client about to emit an equality test, so that a comparison
+/// against a singleton it wrote down itself becomes one bit test instead of a
+/// call into the client's runtime. It answers about the operand's ORIGIN, which
+/// is the whole of why it lives here: [`Inst::IsSingleton`] tests a value at run
+/// time, and this tests whether the client has already settled the question at
+/// build time.
+///
+/// Takes the singleton's id rather than answering WHICH singleton a word is,
+/// and the difference is the rule that type states: a singleton reconstructed
+/// from a bit pattern at a call site is a second copy of the registry's
+/// numbering. The client holds the id it was issued; this only confirms it.
+///
+/// False for a block parameter, for anything not a constant, and for a constant
+/// in any representation but the generic one — nothing proven is a singleton,
+/// so a `true` here for a proven operand would be a lie about a value whose
+/// shape the machine already knows.
+pub(crate) fn is_constant_singleton(
+    func: &Function,
+    value: ValueId,
+    singleton: crate::tags::SingletonId,
+) -> bool {
+    if func.repr_of(value) != Repr::Tagged {
+        return false;
+    }
+    let Some(&Inst::Const(id)) = defining_inst(func, value) else {
+        return false;
+    };
+    matches!(
+        func.constant(id),
+        Some(ConstDecl::Scalar {
+            repr: Repr::Tagged,
+            bits
+        }) if bits.0 == singleton.word()
+    )
+}
+
 /// The operand an arithmetic instruction would return unchanged.
 ///
 /// One case only: a proven-`F64` multiplication by exactly `1.0`. It exists

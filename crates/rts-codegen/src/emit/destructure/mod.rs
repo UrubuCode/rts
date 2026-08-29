@@ -443,9 +443,24 @@ fn apply_default(
         ctx.lend_name(*name);
     }
 
-    let undefined = super::expr::singleton(builder, ctx, Singleton::Undefined);
-    let is_undefined =
-        super::expr::call(builder, ctx, RuntimeOp::StrictEquals, &[value, undefined])?[0];
+    // One bit test, not a call. A destructuring default asks whether the value
+    // IS `undefined`, and a singleton has exactly one encoding — so the runtime
+    // has nothing to decide that the machine cannot. The same change
+    // `expr::singleton_equality` makes for a written `x === undefined`, made
+    // here because this comparison is synthesised and never passes through it.
+    //
+    // A value the emitter proved is not a singleton and cannot become one, so
+    // the default is dead and the branch has one destination — which is why the
+    // machine refuses the question for a proven operand rather than answering a
+    // constant.
+    let undefined = ctx.model.singleton(Singleton::Undefined);
+    // Widened only for the TEST, and the widening is not a cost paid twice: a
+    // value already generic is returned unchanged, and a proven one cannot be a
+    // singleton, so the test answers a constant `false` the machine folds
+    // rather than a comparison anything executes. `value` itself is untouched,
+    // because the branch below binds the value and not the test.
+    let generic = builder.widen(value);
+    let is_undefined = builder.is_singleton(generic, undefined)?;
 
     let evaluate = builder.create_block();
     let skip = builder.create_block();

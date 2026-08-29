@@ -902,6 +902,77 @@ fn count_claimed_operands(ctx: &mut Ctx, left: &Expr, right: &Expr) {
 /// known representation; `<` in JavaScript compares text when both sides are
 /// strings. Reaching for `compare` because the spelling matches is exactly the
 /// mistake rule 2 names.
+/// `a === b` where one side is a singleton the emitter itself wrote down.
+///
+/// # Why this is not an optimisation of strict equality
+///
+/// It is the observation that `x === undefined` asks a different question from
+/// `x === y`. Strict equality between two unknown values has to reach the
+/// runtime because two strings are `===` when their TEXT is, which reads the
+/// heap. Against `undefined` or `null` there is no text and no heap: a
+/// singleton has exactly one encoding, so the answer is whether one machine
+/// word equals another, which is what `FuncBuilder::is_singleton` is.
+///
+/// # What it cost to not do this
+///
+/// Every defaulted parameter, and every `x === undefined` and `x !== null` a
+/// program writes. `emit_binary_inner` speculates that both operands are
+/// doubles, so the emitted shape was two guards, an instruction nobody reaches,
+/// and a call to `StrictEquals` — and the guard against a constant `undefined`
+/// fails on EVERY pass by construction, because the constant is not a double
+/// and never will be. `bench/analytic.ts` read a defaulted parameter at
+/// 24.5 ns against 8 for the same call without one.
+///
+/// # Why the operand and not the syntax
+///
+/// `undefined` is an identifier in JavaScript and a program may shadow it.
+/// Asked here, that case needs no thought: a shadowed `undefined` emits a scope
+/// read rather than a constant, and `is_constant_singleton` answers false for
+/// it. Asked of the tree, it would have needed the scope and would have been
+/// wrong the first time someone wrote `let undefined = 1`. It also catches the
+/// comparisons no program wrote — `bind_parameters` synthesises one per
+/// defaulted parameter — which a syntax test would have had to be told about.
+fn singleton_equality(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    op: BinaryOp,
+    a: ValueId,
+    b: ValueId,
+) -> EmitResult<Option<ValueId>> {
+    let negated = match op {
+        BinaryOp::StrictEqual => false,
+        BinaryOp::StrictNotEqual => true,
+        _ => return Ok(None),
+    };
+    for which in Singleton::ALL {
+        let id = ctx.model.singleton(*which);
+        // The other side is the one under test, so the constant side is
+        // whichever of the two the emitter can settle. `undefined === x` is the
+        // same question as `x === undefined` and is written by real code.
+        let tested = if builder.is_constant_singleton(b, id) {
+            a
+        } else if builder.is_constant_singleton(a, id) {
+            b
+        } else {
+            continue;
+        };
+        // Nothing proven is a singleton — a proved double or boolean cannot be
+        // one — so the comparison has a constant answer and the machine refuses
+        // the question rather than emitting a test that is always false. That
+        // refusal is what surfaces the case here instead of leaving it emitted.
+        if builder.repr_of(tested) != UNPROVEN {
+            return Ok(Some(boolean_constant(builder, negated)));
+        }
+        let is = builder.is_singleton(tested, id)?;
+        return Ok(Some(if negated {
+            super::choice::from_bool(builder, is, true)?
+        } else {
+            builder.widen(is)
+        }));
+    }
+    Ok(None)
+}
+
 /// The same, with the speculation the claims said was pointless left out.
 ///
 /// A separate entry point rather than a flag on the one below, so that a
@@ -939,6 +1010,14 @@ fn emit_binary_inner(
     b: ValueId,
     speculate: bool,
 ) -> EmitResult<ValueId> {
+    // Before the double speculation, because a comparison against a singleton
+    // this emitter materialised is settled without any of it — and the
+    // speculation is actively wrong for that shape: the guard against a
+    // constant `undefined` cannot succeed.
+    if let Some(answer) = singleton_equality(builder, ctx, op, a, b)? {
+        return Ok(answer);
+    }
+
     // The whole point of the pass. Two proven doubles turn every one of these
     // into a machine instruction, because the decision the runtime call exists
     // to make has exactly one answer once the operands are known.
