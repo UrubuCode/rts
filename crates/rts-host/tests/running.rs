@@ -5538,3 +5538,112 @@ fn a_declared_name_wins_over_the_commonjs_binding() {
     assert_eq!(reported.len(), 1, "the fixture registers one test");
     assert!(failed.is_empty(), "the program's own bindings answer: {failed:?}");
 }
+
+/// A `for-of` hands back the elements of the array it walks, across a collection.
+///
+/// # What this pins, and what it caught
+///
+/// A collection is not something a JavaScript program can observe, so a loop
+/// body that allocates enough to cause one must not change what the loop is
+/// handed. That is the language claim; the engine broke it for two days.
+///
+/// The desugaring hoisted the ADDRESS of the run it walks — `ElementsBase` once
+/// per loop, then a bounded load per element instead of a crossing. The address
+/// belongs to the `Vec` behind the array `Iterate` copies the source into, and
+/// nothing else in the program can name that copy: the only reference to it was
+/// the one the desugaring bound, and hoisting the address replaced the last read
+/// of it. So the copy went unreachable at the top of the first pass, a body that
+/// allocated collected it, and the loop read a run that by then belonged to
+/// something else.
+///
+/// Measured with the two binaries, on the program below with its final
+/// `return` written as a `console.log`: **83 of 90 elements came back wrong**
+/// before, and none after. `bench/analytic.ts` reported 14 of its 90 rows as
+/// `c.run is not a function` for the same reason, deterministically, while
+/// `CASES[i]` answered correctly throughout — which is what made it look like a
+/// benchmark bug for as long as it did.
+///
+/// # Why the shape below is not incidental
+///
+/// Every clause is load-bearing, and that fragility is the argument for pinning
+/// it here rather than trusting it to be noticed again:
+///
+/// - the body ALLOCATES. The same loop with an arithmetic body was always
+///   correct, on both binaries.
+/// - `sink` is typed, so the object literal is genuinely built rather than
+///   scalarised away. Dropping the annotations made the same program allocate
+///   nothing and answer correctly on the broken binary.
+/// - the loop is at TOP LEVEL. Inside a called function the copy happened to
+///   stay reachable and the program was correct.
+/// - it is 90 elements. At 200 the same body answered correctly; two release
+///   binaries built hours apart disagreed about WHICH of the 90 came back wrong.
+///
+/// A defect whose visibility depends on where a binding was allocated is why the
+/// fix removed the hoist rather than narrowing its predicate.
+#[test]
+fn a_for_of_hands_back_its_own_elements_across_a_collection() {
+    let produced = run(
+        "const held: { id: number }[] = [];
+         for (let i = 0; i < 90; i++) held.push({ id: i });
+         let step: i32 = 0;
+         let mismatched: i32 = 0;
+         let sink: i32 = 0;
+         for (const each of held) {
+           for (let k = 0; k < 20000; k++) { sink += { x: k }.x; }
+           if (each !== held[step]) { mismatched += 1; }
+           step += 1;
+         }
+         return mismatched * 1000 + step;",
+    );
+    // Packed rather than two runs: the defect depends on the allocation the loop
+    // performs, so asking twice asks a different question the second time.
+    let packed = tags::decode_double(produced);
+    assert_eq!(
+        packed, 90.0,
+        "expected 0 mismatches over 90 steps; got {} mismatches over {} steps",
+        (packed / 1000.0).floor(),
+        packed % 1000.0
+    );
+}
+
+/// The same guarantee where reading a reclaimed run does not merely answer
+/// wrongly.
+///
+/// # Why a second test rather than a bigger first one
+///
+/// Because it fails differently, and the difference is the point. The loop above
+/// read words that had been handed to another object and reported them as
+/// elements — a wrong answer with nothing to announce it. This one walks 200
+/// elements while the body allocates arrays of exactly that length, so a
+/// reclaimed elements vector is handed straight back out, and the load then went
+/// through an address that no longer addressed anything: it SEGFAULTED, every
+/// run, on the release binary of 2026-08-28.
+///
+/// A crash is the honesty floor's own category — "nothing that crashes or hangs
+/// is committed as passing" — and a test that turns one into a signal is worth
+/// more than one that turns it into an assertion.
+#[test]
+fn a_for_of_does_not_read_a_run_the_collector_reclaimed() {
+    let produced = run(
+        "const held: { id: number }[] = [];
+         for (let i = 0; i < 200; i++) held.push({ id: i });
+         let step: i32 = 0;
+         let mismatched: i32 = 0;
+         let sink: i32 = 0;
+         for (const each of held) {
+           for (let k = 0; k < 400; k++) {
+             const scratch: number[] = [];
+             for (let j = 0; j < 200; j++) scratch.push(j);
+             sink += scratch[0];
+           }
+           if (each !== held[step]) { mismatched += 1; }
+           step += 1;
+         }
+         return mismatched * 1000 + step;",
+    );
+    assert_eq!(
+        tags::decode_double(produced),
+        200.0,
+        "200 steps, none of them reading a reclaimed run"
+    );
+}

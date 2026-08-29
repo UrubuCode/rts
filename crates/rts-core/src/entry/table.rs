@@ -32,10 +32,27 @@
 //! # The numbers are the linkage, so they are facts about the list
 //!
 //! Written out rather than derived from order, so a reader comparing two
-//! versions can see that an entry kept its place. Adding one appends; removing
-//! one leaves a gap rather than renumbering, because a caller compiled against
-//! an older list would otherwise call a different function with the same number
-//! and never find out.
+//! versions can see that an entry kept its place. Adding one appends.
+//!
+//! **Removing one RENUMBERS, and the paragraph here used to say the opposite.**
+//! It said a removal leaves a gap, "because a caller compiled against an older
+//! list would otherwise call a different function with the same number" — which
+//! describes a linkage this engine does not have. Nothing outside a single build
+//! ever sees these numbers: `rts-host`'s `resolve` answers a FUNCTION POINTER
+//! taken with an `as extern "C" fn(..)` cast, an AOT program links the runtime
+//! archive from the same tree, and `rts compile` refuses a stale one by name.
+//! There is no older list to be compiled against.
+//!
+//! What decided it is that the claim was never enforced and its opposite was:
+//! `the_numbers_are_written_and_dense` asserts `ALL[i].index() == i`, so the
+//! first removal would have failed it — and did, on 2026-08-29, when
+//! `ElementsBase` (76) went. Rule 7's shape, from the machine layer's README:
+//! an invariant that is documented and not enforced degrades into one that is
+//! wrong, and here the enforced half was right.
+//!
+//! So the numbers stay written out — a reader still sees at a glance that an
+//! entry kept its place across a diff that did not touch it — and a removal
+//! shifts everything after it down by one, in the same change.
 
 use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
@@ -74,7 +91,7 @@ use super::promise::ASYNC_START_ENTRY;
 use super::common_js::{MODULE_PUBLISH_COMMON_ENTRY, REQUIRE_FUNCTION_ENTRY};
 use super::dynamic_module::{IMPORT_META_ENTRY, MODULE_IMPORT_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
-use super::array::{ELEMENTS_BASE_ENTRY, ELEMENT_AT_ENTRY};
+use super::array::ELEMENT_AT_ENTRY;
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ADDRESS_ENTRY, THROWN_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
@@ -465,8 +482,6 @@ pub enum CoreEntry {
     /// An element of a proven array at a proven index.
     ElementAt = 75,
 
-    /// Where a proven array's elements start, as an address.
-    ElementsBase = 76,
 
     /// `ToString(value)` â€” the conversion with the STRING hint.
     ///
@@ -474,7 +489,7 @@ pub enum CoreEntry {
     /// `+` converts with the DEFAULT hint, which asks `valueOf` first, and a
     /// template substitution asks `toString` first. No spelling of the operator
     /// answers the second question.
-    StringOf = 77,
+    StringOf = 76,
 
     /// The keys a `for`-`in` visits: enumerable, along the PROTOTYPE CHAIN.
     ///
@@ -483,14 +498,14 @@ pub enum CoreEntry {
     /// two answer different questions that are both asked. Object rest is
     /// own-only by specification; `for`-`in` walks up, and walked only the own
     /// keys until this existed.
-    EnumerateKeys = 78,
+    EnumerateKeys = 77,
 
     /// `class C { m() {} }` â€” a member of a class, written NON-ENUMERABLE.
     ///
     /// Separate from a property write because the attribute is the whole
     /// difference, and a write carries none. An instance FIELD stays an
     /// ordinary write: the language makes that one enumerable.
-    DefineMethod = 79,
+    DefineMethod = 78,
 
     /// One turn of a `yield*`: [`super::delegate_step`].
     ///
@@ -499,7 +514,7 @@ pub enum CoreEntry {
     /// being resumed is delegating to, which is global mutable state â€” the
     /// membership rule's third clause â€” and is the only way `g.throw(e)` can
     /// reach the inner iterator's own `throw`.
-    DelegateStep = 80,
+    DelegateStep = 79,
 
     /// `new.target` â€” the constructor `new` named, for the activation asking.
     ///
@@ -509,7 +524,7 @@ pub enum CoreEntry {
     /// construct" bit â€” inventing one would be a machine change every call in
     /// the program pays for, so that a meta-property almost no program writes
     /// could be read without a call.
-    NewTarget = 81,
+    NewTarget = 80,
 
     /// `import.meta` â€” [`super::import_meta`].
     ///
@@ -517,7 +532,7 @@ pub enum CoreEntry {
     /// per module and kept for the life of the program, and only this crate
     /// outlives an activation. An object literal emitted at each occurrence
     /// would make `import.meta === import.meta` false.
-    ImportMeta = 82,
+    ImportMeta = 81,
 
     /// `import(specifier)` â€” [`super::module_import`].
     ///
@@ -525,7 +540,7 @@ pub enum CoreEntry {
     /// twice over. Distinct from [`CoreEntry::ModuleNamespace`] because the
     /// specifier is a VALUE the program computed rather than a literal the
     /// compiler resolved, which is the whole reason a dynamic import exists.
-    ModuleImport = 83,
+    ModuleImport = 82,
 
     /// The receiver a NON-STRICT function was entered with â€” [`super::sloppy_this`].
     ///
@@ -533,7 +548,7 @@ pub enum CoreEntry {
     /// makes on demand and holds. Reached only from a body the compiler knows
     /// is non-strict, which in this engine means text `Function`/`eval`
     /// compiled into a program that is already running.
-    SloppyThis = 84,
+    SloppyThis = 83,
 
     /// The promise a call to an `async function` answers â€” [`super::async_start`].
     ///
@@ -541,7 +556,7 @@ pub enum CoreEntry {
     /// promise. What it does that no other entry does is DRIVE the frame, which
     /// is the third clause â€” the promise reaction that resumes it is the
     /// runtime's own table, and no instruction can attach one.
-    AsyncStart = 85,
+    AsyncStart = 84,
 
     /// `arguments` â€” the array-LIKE object, not the array
     /// [`RestArguments`](CoreEntry::RestArguments) builds.
@@ -550,7 +565,7 @@ pub enum CoreEntry {
     /// where the arguments of a running call live is this crate's question â€”
     /// and separate from it because what comes out differs in a way a program
     /// reads: `Array.isArray(arguments)` is `false`.
-    ArgumentsObject = 86,
+    ArgumentsObject = 85,
 
     /// [`super::eval_direct`] â€” a call whose callee was written as the bare
     /// name `eval`, with the caller's environment beside the source.
@@ -559,7 +574,7 @@ pub enum CoreEntry {
     /// are the SAME value called two ways: only the emitter can tell them
     /// apart, and only a distinct entry can carry the environment that
     /// difference is about.
-    EvalDirect = 87,
+    EvalDirect = 86,
 
     /// [`super::with_has`] â€” whether a `with` scope resolves a name against its
     /// object, which is `in` minus what `Symbol.unscopables` blocks.
@@ -570,7 +585,7 @@ pub enum CoreEntry {
     /// BINDING a name means â€” asking it in two instructions would put the
     /// unscopables rule in the language layer, where a second spelling of it
     /// would eventually disagree with this one.
-    WithHas = 88,
+    WithHas = 87,
 
     /// [`super::number_remainder`] â€” `a % b` over two proven doubles.
     ///
@@ -591,7 +606,7 @@ pub enum CoreEntry {
     /// is exactly the "one number must not mean two answers" the row above
     /// records. The shapes are the entire difference: the arithmetic is one
     /// `%` on two `f64` in both, written once and delegated to from here.
-    NumberRemainder = 89,
+    NumberRemainder = 88,
 
     /// `a ** b` over two operands already proven to be doubles.
     ///
@@ -615,7 +630,7 @@ pub enum CoreEntry {
     /// times `float mul`. The alternative to a row here was `**` never leaving
     /// the generic path — and, as with `%`, a local reassigned through it being
     /// unprovable, which makes everything downstream of it unprovable too.
-    NumberExponent = 90,
+    NumberExponent = 89,
 
     /// The `require` a CommonJS module is given — [`super::require_function`].
     ///
@@ -625,7 +640,7 @@ pub enum CoreEntry {
     /// [`CoreEntry::ModuleNamespace`] because that reads a specifier the
     /// compiler resolved, and this answers a FUNCTION the program may pass
     /// around and call with a specifier it computed.
-    RequireFunction = 91,
+    RequireFunction = 90,
 
     /// What a CommonJS module left in `module.exports` —
     /// [`super::module_publish_common`].
@@ -635,10 +650,10 @@ pub enum CoreEntry {
     /// [`CoreEntry::ModulePublish`] because that publishes one NAME and this
     /// publishes one VALUE that may replace the whole namespace — the difference
     /// between the two module systems, stated where they meet.
-    ModulePublishCommon = 92,
+    ModulePublishCommon = 91,
 
     /// The length of an internal enumeration array, returned as F64.
-    ArrayLength = 93,
+    ArrayLength = 92,
     /// [`super::array_pattern_direct`].
     ///
     /// Whether `[a, b] = source` may read `source` by index instead of
@@ -647,7 +662,7 @@ pub enum CoreEntry {
     /// whether it is a proxy, whether its `Symbol.iterator` is still the
     /// installed one, and whether the step being skipped is still the step the
     /// specification would have run.
-    ArrayPatternDirect = 94,
+    ArrayPatternDirect = 93,
 }
 
 /// How many entry points exist.
@@ -655,7 +670,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 95;
+pub const CORE_ENTRY_COUNT: usize = 94;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -736,7 +751,6 @@ impl CoreEntry {
         CoreEntry::TemplateJoin,
         CoreEntry::ThrownAddress,
         CoreEntry::ElementAt,
-        CoreEntry::ElementsBase,
         CoreEntry::StringOf,
         CoreEntry::EnumerateKeys,
         CoreEntry::DefineMethod,
@@ -794,7 +808,6 @@ impl CoreEntry {
             CoreEntry::TakeThrown => TAKE_THROWN_ENTRY,
             CoreEntry::ThrownAddress => THROWN_ADDRESS_ENTRY,
             CoreEntry::ElementAt => ELEMENT_AT_ENTRY,
-            CoreEntry::ElementsBase => ELEMENTS_BASE_ENTRY,
             CoreEntry::RunningFunction => RUNNING_FUNCTION_ENTRY,
             CoreEntry::GeneratorNew => GENERATOR_NEW_ENTRY,
             CoreEntry::GeneratorYield => GENERATOR_YIELD_ENTRY,

@@ -376,43 +376,53 @@ pub fn emit_for_each(
     // one place in the compiler that can say so. Saved and restored for the
     // same reason the two above are: nested loops share the spelling.
     let outer_element = ctx.prove_element_read(Some((keys, index)));
-    // And the RUN itself, asked once and held for the loop: where the elements
-    // start, and how many there are. With those, each element is a bounded load
+    // The RUN is deliberately NOT hoisted, and the paragraph that stood here
+    // described hoisting it: `ElementsBase` answered where the elements start,
+    // `ArrayLength` how many there were, and each element became a bounded load
     // instead of a crossing.
     //
-    // Refused for a body that PARKS. `frame::resumable_form` rewrites a
-    // suspending function around every suspension, so a value defined here and
-    // read after a `yield` is not the value it was — the same reason
-    // `function.rs` withholds the throw-flag address from such a body. Those
-    // loops keep `ElementAt`, which is a call and therefore survives the
-    // rewrite.
+    // It read words the collector had already given away. The address belongs to
+    // the `Vec` behind the copy `Iterate` makes, and that copy is a cell like
+    // any other — reachable, while this loop runs, from exactly one place: the
+    // tagged reference this desugaring binds to `ks`. Hoisting the address
+    // REPLACED the last read of that reference, so the copy became unreachable
+    // at the top of the first pass; a body that allocated enough collected it,
+    // and the loop went on reading a run that by then belonged to something
+    // else. Measured on this tree: `for-of` over 90 objects with an allocating
+    // body handed back 83 wrong elements, and the same loop over 200 with a body
+    // allocating arrays of the same length SEGFAULTED.
     //
-    // The base is an ADDRESS INTO A `Vec`, and it is stable only because this
-    // array is the copy `Iterate` made: no program can name it, and this loop
-    // only reads. `array::elements_base` states that contract from the other
-    // side, and this is the caller it names.
+    // The machine layer's rule 8 is the one this broke, and it names the
+    // mechanism exactly: "root sets are derived from LIVENESS — there is no
+    // entry point through which a client could report its own set, because a
+    // discipline that must hold at every allocation in every program will not
+    // hold." An address is not a reference, liveness cannot see one, and the
+    // hoist turned the second into the first.
     //
-    // And refused a second time when the bound is not a PROVEN double. The
-    // count is the machine's bound for a load, and `to_int32` takes one — a
-    // `length` read that stayed generic has no such proof, and asking anyway is
-    // `WrongDomain` at emission, which refuses the whole program rather than
-    // this loop. Rule 5 of this crate's README is the shape: what cannot be
-    // proven becomes generic, visibly. Here that means keeping `ElementAt`.
-    // `ArrayLength` answers the internal array's size as F64, so the existing
-    // proof is now reachable without narrowing a user-visible property read.
-    // The suspension check remains necessary: a resumable body cannot retain a
-    // raw Vec address across a park, and those loops keep the safe ElementAt
-    // path instead.
-    let hoistable = !super::suspends::body_suspends(std::slice::from_ref(body))
-        && builder.repr_of(bound) == rts_cranelift::repr::Repr::F64;
-    let outer_run = match hoistable {
-        false => ctx.set_element_run(None),
-        true => {
-            let base = super::expr::call(builder, ctx, crate::runtime::RuntimeOp::ElementsBase, &[enumerated])?[0];
-            let count = builder.to_int32(bound)?;
-            ctx.set_element_run(Some((base, count)))
-        }
-    };
+    // # Why this is not repaired here, and what would repair it
+    //
+    // Nothing this layer can emit keeps the copy alive. A read of `ks` whose
+    // result is unused does not survive to the machine, and there is no way to
+    // spell "this value is live across that call" in a layer whose rule 2
+    // forbids deciding what is live at a collection. That is exactly the shape
+    // rule 2 names: a capability is missing below and the fix belongs below.
+    //
+    // The capability is a bounded load that takes the run's OWNER as an operand
+    // it keeps live — precise stack maps, or an operand the lowering genuinely
+    // uses. Until one exists, `ElementAt` is the form, and it is a call per
+    // element rather than a load. That is the cost, stated plainly: this is
+    // slower, and it is right.
+    //
+    // # Why the trigger is not what refuses it
+    //
+    // The defect surfaced only for a loop at MODULE TOP LEVEL whose array no
+    // closure captured; the same loop inside a function, and the same loop in a
+    // file whose assertions captured the array, answered correctly throughout.
+    // Two release binaries built hours apart disagreed about which of 90
+    // elements came back wrong. A condition that decides correctness by where a
+    // binding happened to be allocated is not a condition to narrow — it is one
+    // to remove.
+    //
     // The stepped form has NO header test: the two arms above decide when the
     // sequence ended, and each of them says so with a `break`. Leaving the test
     // in the header as well would ask `i < len` twice per pass and end the loop
@@ -433,18 +443,6 @@ pub fn emit_for_each(
         &inner,
         label,
     );
-    // The run is put BACK, and it is a pair with the line above rather than
-    // tidiness: a `for`-`of` inside a `for`-`of` replaces the outer loop's base
-    // and count, and without this the outer body would go on reading from the
-    // INNER array's storage with the inner array's bound.
-    //
-    // Latent rather than observable today, and said that way on purpose. The
-    // only proven element read a body has is the one the desugaring emits at
-    // its top, before any nested loop runs — so nothing reaches the stale pair
-    // yet. That is a property of what `is_proven_element` currently admits, not
-    // a property of this loop, and the failure it would become is a load from
-    // the wrong array with no crash to announce it.
-    ctx.set_element_run(outer_run);
     ctx.prove_element_read(outer_element);
     if !index_was_proven {
         ctx.forget_minted(index);

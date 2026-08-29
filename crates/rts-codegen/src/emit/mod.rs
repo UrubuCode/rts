@@ -586,14 +586,6 @@ pub struct Ctx<'a> {
     /// One pair and not a set, because the only producer is a `for-of` and it
     /// proves exactly the pair it minted. See `Ctx::prove_element_read`.
     proven_element: Option<(Name, Name)>,
-    /// The base address and element count of that pair, hoisted out of the
-    /// loop, when the loop is one that may hold them.
-    ///
-    /// Absent for a body that PARKS: `frame::resumable_form` rewrites a
-    /// suspending function around every suspension, so an SSA value defined
-    /// before a `yield` is not the value it was afterwards — the same reason
-    /// `thrown_flag` is absent there.
-    element_run: Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)>,
 }
 
 impl<'a> Ctx<'a> {
@@ -641,7 +633,6 @@ impl<'a> Ctx<'a> {
             body: body_state::BodyState::default(),
             async_parks: false,
             proven_element: None,
-            element_run: None,
         }
     }
 
@@ -771,19 +762,6 @@ impl<'a> Ctx<'a> {
     /// Whether this read is that pair.
     pub(super) fn is_proven_element(&self, array: Name, index: Name) -> bool {
         self.proven_element == Some((array, index))
-    }
-
-    /// The hoisted base and count for that pair, when the loop could hoist them.
-    pub(super) fn element_run(&self) -> Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)> {
-        self.element_run
-    }
-
-    /// Records them, answering what was there so a nested loop restores it.
-    pub(super) fn set_element_run(
-        &mut self,
-        run: Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)>,
-    ) -> Option<(rts_cranelift::ir::ValueId, rts_cranelift::ir::ValueId)> {
-        std::mem::replace(&mut self.element_run, run)
     }
 
     /// Lends a binding's name to the anonymous definition about to be emitted.

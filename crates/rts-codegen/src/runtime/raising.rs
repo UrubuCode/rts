@@ -108,11 +108,6 @@ pub const CANNOT_RAISE: &[RuntimeOp] = &[
     // `context.class_constructors.set(cell, true)`. `entry/functions.rs`.
     // Closed.
     RuntimeOp::MarkClassConstructor,
-    // `context.elements_at(cell)`, answering the base address or 0. `entry/
-    // array.rs`. Closed — the bounds question belongs to the caller, and
-    // `array.rs:651` records that the bound is established before the address
-    // is used.
-    RuntimeOp::ElementsBase,
     // `context.elements_at(cell).map_or(0.0, |elements| elements.len() as f64)`.
     // `entry/array.rs`. Closed: it neither allocates nor calls user code; the
     // caller establishes that the value is an internal enumeration array.
@@ -218,9 +213,15 @@ mod tests {
         // describes. Both bodies were read in full to the standard the doc
         // comment on `CANNOT_RAISE` sets; this test failing is what made that
         // reading happen on the record rather than in passing.
+        //
+        // Eleven since 2026-08-29: `ElementsBase` left with the operation
+        // itself. It is the first entry to leave this list, and it is worth
+        // saying that removing one is the SAFE direction — an operation off the
+        // list keeps its throw check, so the cost is a check nothing needed
+        // rather than a throw nobody sees.
         assert_eq!(
             CANNOT_RAISE.len(),
-            12,
+            11,
             "CANNOT_RAISE changed — each entry must name the rts-core body it \
              was read against, and rts-host asserts the symbol still exists"
         );

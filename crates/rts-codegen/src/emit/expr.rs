@@ -210,26 +210,19 @@ pub fn emit_expr(
             if let (ExprKind::Ident(array), ExprKind::Ident(at)) = (&object.kind, &index.kind)
                 && ctx.is_proven_element(*array, *at)
             {
-                // With the run hoisted, the read is an INSTRUCTION: a bounded
-                // load from the base the loop asked for once. The bound is the
-                // machine's, not a comparison written here — see
-                // `Inst::ElementLoad`.
+                // A call, and NOT a bounded load from an address the loop
+                // hoisted once. That form existed and was removed: the address
+                // belongs to the copy `Iterate` made, hoisting it replaced the
+                // last read of the tagged reference to that copy, and the
+                // collector then reclaimed a run the loop was still reading.
+                // `foreach.rs` carries the measurement and what would make the
+                // load sound.
                 //
-                // Only when the counter is a PROVEN double, which is the same
-                // condition `foreach.rs` puts on hoisting the run at all:
-                // `to_int32` takes a double, and a counter that stayed generic
-                // has no such proof. Asking anyway is `WrongDomain` at
-                // emission, which refuses the whole program rather than this
-                // read — measured as 37 fixtures that stopped compiling, every
-                // generator among them. Rule 5: what cannot be proven becomes
-                // generic, visibly.
+                // What survives is the proof itself, which is worth as much as
+                // it ever was: `ElementAt` skips every question `GetIndexed`
+                // asks, because the receiver is an array this compiler made and
+                // the index is a counter it minted.
                 let position = emit_expr(builder, scope, ctx, index)?;
-                if let Some((base, count)) = ctx.element_run()
-                    && builder.repr_of(position) == Repr::F64
-                {
-                    let position = builder.to_int32(position)?;
-                    return Ok(builder.element_load(base, position, count)?);
-                }
                 let receiver = emit_expr(builder, scope, ctx, object)?;
                 // The counter again as the KEY, and it is the value already
                 // emitted above rather than a second emission of the same

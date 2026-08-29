@@ -348,14 +348,6 @@ pub enum RuntimeOp {
     /// and the proof is the desugaring itself.
     ElementAt,
 
-    /// Where a proven array's elements start, as a machine address.
-    ///
-    /// Asked ONCE per loop by the `for-of` desugaring, so that each element is
-    /// a bounded load instead of a crossing. Safe there and nowhere else: the
-    /// array is the copy `Iterate` made, nothing can name it, and the loop only
-    /// reads — so the run cannot move while the address is held.
-    ElementsBase,
-
     /// The length of an array returned by compiler-owned enumeration.
     ///
     /// This is not a general JavaScript `length` read. `foreach.rs` applies it
@@ -975,7 +967,6 @@ impl RuntimeOp {
         RuntimeOp::KeyNumber,
         RuntimeOp::Thrown,
         RuntimeOp::ElementAt,
-        RuntimeOp::ElementsBase,
         RuntimeOp::ArrayLength,
         RuntimeOp::ArrayPatternDirect,
         RuntimeOp::ThrownAddress,
@@ -1081,7 +1072,6 @@ impl RuntimeOp {
             RuntimeOp::Thrown => "__rts_thrown",
             RuntimeOp::ThrownAddress => "__rts_thrown_address",
             RuntimeOp::ElementAt => "__rts_element_at",
-            RuntimeOp::ElementsBase => "__rts_elements_base",
             RuntimeOp::ArrayLength => "__rts_array_length",
             RuntimeOp::ArrayPatternDirect => "__rts_array_pattern_direct",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
@@ -1235,7 +1225,6 @@ impl RuntimeOp {
             RuntimeOp::Thrown => (vec![], vec![Repr::I64]),
             RuntimeOp::ThrownAddress => (vec![], vec![Repr::I64]),
             RuntimeOp::ElementAt => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
-            RuntimeOp::ElementsBase => (vec![UNPROVEN], vec![Repr::I64]),
             RuntimeOp::ArrayLength => (vec![UNPROVEN], vec![Repr::F64]),
             RuntimeOp::ArrayPatternDirect => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),

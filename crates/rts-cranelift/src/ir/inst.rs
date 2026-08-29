@@ -341,22 +341,51 @@ pub enum Inst {
     /// of the structures-with-no-producer this crate's rule 6 forbids and has
     /// shipped before.
     ///
-    /// # And this instruction is in that position itself right now
+    /// # And this instruction has no client, which is a decision and not an oversight
     ///
-    /// Stated here because the paragraph above makes the opposite easy to
-    /// assume. The client that builds this is `rts-codegen`'s `for-of`
-    /// desugaring, and **it has never built one in a real program**: it hoists
-    /// only when the loop's bound is a proven double, and the bound is a
-    /// property read, which that layer always answers generically. Verified with
-    /// `rts ir` over 59 files — twelve benches and every array and `for-of`
-    /// test — on 2026-08-23: zero.
+    /// The paragraph here said it had "never built one in a real program" and
+    /// dated that to 2026-08-23. It stopped being true: `rts-codegen`'s
+    /// `for-of` desugaring was changed to read its bound through `ArrayLength`,
+    /// which answers F64, and that satisfied the predicate which had been
+    /// refusing the hoist. The client then built one in every `for-of` over an
+    /// array.
     ///
-    /// So the builder, the verifier rule and the lowering below are exercised by
-    /// this crate's own tests and by nothing else. That is a gap in the CLIENT
-    /// rather than dead code here — rule 6 asks whether a live path reaches it,
-    /// and one is written and refused by a predicate, not absent. But a reader
-    /// deciding what this instruction costs should know that no measurement of
-    /// it exists, and that the obvious way to take one measures something else.
+    /// It was withdrawn on 2026-08-29, and the reason is the precondition below
+    /// rather than anything wrong here. The base it hoisted addressed the `Vec`
+    /// behind an array the runtime had just made, and the hoist replaced the
+    /// last read of the only tagged reference to that array — so a body that
+    /// allocated collected the run while the loop was still reading it. 83 of 90
+    /// elements came back wrong in one shape, and another SEGFAULTED.
+    ///
+    /// **The client could not have met the precondition, and no client can while
+    /// roots are found by scanning.** A run stays put only while its owner is
+    /// live, "live" here means a tagged reference the scan can find, and this
+    /// instruction takes an address — which is precisely a thing the scan cannot
+    /// find. That is rule 8 read from the other end: root sets are derived from
+    /// liveness, so a client that converts a reference into an address has
+    /// removed it from the set with nothing to notice.
+    ///
+    /// # What would give it one back
+    ///
+    /// An operand for the run's OWNER, kept live by something the lowering
+    /// genuinely uses, or precise stack maps consumed at collection time —
+    /// `MachBufferFinalized::user_stack_maps` already produces them and nothing
+    /// reads them yet. Either makes the precondition expressible instead of
+    /// merely stated, and rule 7 is the reason to prefer that over documenting
+    /// it harder.
+    ///
+    /// # Rule 6, and why this was kept rather than deleted
+    ///
+    /// Stated because rule 6 points the other way and this crate's own audit
+    /// paragraph deleted five variants for having no producer. Those five were
+    /// broken as well as unbuilt — three answered `NotYetLowered`, and
+    /// `Inst::Narrow`'s verification was weaker than rule 11. This one is built
+    /// by [`crate::ir::Builder::element_load`], lowered, verified, rewritten
+    /// correctly by `frame::resumable_form`, and exercised by
+    /// `tests/invariants.rs`; it is also the only producer of
+    /// [`TrapCode::OutOfBounds`], which `fault/table.rs` decodes back. What it
+    /// lacks is a CLIENT, and rule 12's shape covers that: the conservative form
+    /// is the default and raising it is explicit, named for what it requires.
     ///
     /// # What the client is asserting, and what this cannot check
     ///

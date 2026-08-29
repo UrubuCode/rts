@@ -694,49 +694,6 @@ pub fn element_at(array: u64, index: u64) -> u64 {
     })
 }
 
-/// Where an array's elements START, as a machine address.
-///
-/// # What the caller is taking on
-///
-/// That the run does not MOVE while it holds this. The elements are a `Vec`,
-/// and pushing to one reallocates — so an address handed out here is good only
-/// for as long as nothing grows that array.
-///
-/// The one caller is `rts-codegen`'s `for-of` desugaring, and it is safe there
-/// for a reason nothing else can borrow: the array is the copy `iterate` just
-/// made, no program can name it, and the loop only reads. `iterate` copies
-/// deliberately — its own documentation says a body that pushes to the original
-/// must not walk its own additions — and that same copy is what makes the
-/// address stable.
-///
-/// # The bound is established beside the address
-///
-/// `foreach.rs` asks the internal array's length through `ArrayLength`, which
-/// returns F64 rather than a user-visible property value. That makes the
-/// existing `ElementLoad` producer reachable for non-suspending loops while
-/// preserving the safe [`element_at`] fallback for resumable bodies.
-///
-/// **Do not price that gap by differencing a `for-of` that reads its binding
-/// against one that ignores it.** The binding is pushed unconditionally, so the
-/// call is in both arms and cancels; the difference measures an unbox, not a
-/// load.
-///
-/// Answers `0` for anything that is not an array, which the caller must treat
-/// as "no run": zero elements, so a bounded read of it is refused by its own
-/// bound before the address is ever used.
-#[rtse::entry]
-pub fn elements_base(array: u64) -> i64 {
-    with_current(|context| {
-        let Some(cell) = Value(array).as_slot() else {
-            return 0;
-        };
-        match context.elements_at(cell) {
-            Some(elements) => elements.as_ptr() as i64,
-            None => 0,
-        }
-    })
-}
-
 /// The length of an internal array returned by a compiler-owned enumeration.
 ///
 /// This is narrower than a JavaScript `length` property read: the only caller is
