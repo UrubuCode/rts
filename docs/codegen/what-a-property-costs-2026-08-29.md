@@ -162,10 +162,17 @@ does not survive the join between the cache's hit and miss edges — which is
 
 ## 4. Shipped, with what each was worth
 
-Three changes, each measured against a baseline **built** from the commit
+Four changes, each measured against a baseline **built** from the commit
 before it, each gated on `rts test` producing a **byte-identical failing set**
 (758 passed, 61 failed, 3 059/3 123 throughout) and on `cargo test --profile
 fast -p rts-core` (297 passed, 0 failed).
+
+*A note on the baselines, because it is the exact trap this repository has
+already paid for once: every one of them was BUILT, never copied out of
+`target/`. Four documentation commits arrived from CI part-way through the
+session — two parity badges and two benchmark tables — and they touched
+`README.md` and `.github/cross_runtime_report.json` and nothing else, so no
+code moved under any measurement here. That was checked rather than assumed.*
 
 **`eedde0c9` — a read took three borrows and resolved its key in each.**
 `get_property` now takes one, the shape `set_property` already had. Isolated:
@@ -189,8 +196,45 @@ the mechanism names moving as it says (`array map 16` −8.3%, `array for-of 16`
 **`889351d7` — two questions asked whose answers were in hand.** `put` asked
 the same `refuses_key_write` twice with the same arguments; the cache
 diagnostics ran a modulo before reading the `OnceLock` that gates them. Table:
-**sum −0.61%, geomean −0.46%, two rows better and NONE worse** — the only one
-of the three with an empty regression column.
+**sum −0.61%, geomean −0.46%, two rows better and NONE worse**.
+
+**`705d9885` — `instanceof` was one failed lookup.** §2 above is the finding;
+the change is that step 1 of the operator PROBES for `Symbol.hasInstance` with
+`accessor::resolve` inside a borrow it was taking anyway, and reaches
+`computed::get_indexed` only for the three shapes that can run user code — a
+proxy, a getter, and a callee with no cell. `@@hasInstance` also joins
+`CACHED_KEYS`, which is the whole of the 41.5% on the row where a hook exists.
+Every arm moved 17–24% with the three controls flat, and the table agrees:
+**sum −2.37%, geomean −1.32%**, `prop instanceof` −23.8%.
+
+### 4a. What the four are worth together, measured rather than composed
+
+Multiplying the four deltas gives −2.3% on the geomean. **Measuring the two
+ends directly gives −0.62%**, and the direct number is the one to quote:
+composing four pairs multiplies four optimistic draws, and this instrument
+carries 4.7% of noise on the geomean.
+
+`eedde0c9` → `705d9885`, four runs per binary in both orders, one afternoon,
+one machine state:
+
+| | |
+|---|---:|
+| sum | 11 995 → 11 807 (**−1.57%**) |
+| geomean | 15.471 → 15.375 (**−0.62%**) |
+| rows >8% better | 3 |
+| rows >8% worse | 1 |
+
+**So the aggregate is inside the noise, and the dedicated probes are what
+carry the claim** — eleven of eleven array-producing operations 3–14% faster,
+every `instanceof` arm 17–24% faster, with controls flat in both. A table with
+90 rows where four are unusable cannot resolve a 1% aggregate, and saying it
+does would be the same error as reading a single-digit percentage off `string
+template literal`.
+
+`coll Map.get` reads +16.2% here and `string indexOf 256` read +8.6%, −12.1%
+and −10.5% across the four comparisons. Neither is reachable from anything
+changed. They are the layout noise this document keeps naming, and they are
+named again rather than netted away.
 
 ---
 
