@@ -553,13 +553,17 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
 
     // Already in the layout: a store, at the offset the layout decided.
     if let Some(at) = context.shapes.slot_of(shape, machine) {
-        // A frozen object refuses it, and so does a property declared
-        // non-writable. Silently, like every other write this engine cannot
-        // report — the language throws in strict mode, and `super::throw`
-        // cannot find a handler in a caller.
-        if super::integrity::refuses_key_write(context, slot, machine) {
-            return;
-        }
+        // The refusal was ASKED ALREADY, at the top of this function, and this
+        // is the same question with the same arguments: `machine_key` answers
+        // `Some(named)` for the very `Key::Name(named)` that was tested there,
+        // and answers `None` for a `Key::Index`, which returns above and never
+        // reaches here. Nothing in between can change it — `reconcile_length`
+        // touches `length_key`, `Value::numeric`, `array::hole_of` and
+        // `elements_at_mut`, and neither `integrity` nor `attributes`.
+        //
+        // It cost every property write in every program two `Aside` probes and
+        // a linear find where one would do. If `reconcile_length` ever learns
+        // to touch integrity, this deletion is what has to come back.
         set_slot_value(context, slot, at, value);
         return;
     }

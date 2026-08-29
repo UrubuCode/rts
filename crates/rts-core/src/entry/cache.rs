@@ -152,7 +152,7 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
             // what a cache is. What this exists to catch is the site that
             // misses forever, so it reports the reason and the key rather than
             // a count, and stops after twenty so a real program stays readable.
-            if (context.resolves <= 20 || context.resolves % 200_000 == 0) && super::switches::cache_debug() {
+            if super::switches::cache_debug() && (context.resolves <= 20 || context.resolves % 200_000 == 0) {
                 let named = u32::try_from(key)
                     .ok()
                     .and_then(|number| context.keys.key(number))
@@ -233,7 +233,7 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
         // the read reports shape ["x"] on every sample while the program answers
         // correctly, which says the read resolves against a type older than the
         // transition the write took.
-        if (context.resolves <= 3 || context.resolves % 20_000 == 0) && super::switches::cache_why() {
+        if super::switches::cache_why() && (context.resolves <= 3 || context.resolves % 20_000 == 0) {
             let held: Vec<String> = context
                 .shapes
                 .properties(shape)
