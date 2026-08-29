@@ -74,12 +74,62 @@ pub(super) fn alloc_after_collecting(context: &mut Context, size: u32, ty: u32) 
     // address and the stack walk finds it. The collector's prologue saves
     // below it, where the walk does not reach — see `registers.rs`.
     let registers = super::registers::callee_saved();
-    super::collect_cycle::collect(context, stack_low, &registers);
+    let freed = super::collect_cycle::collect(context, stack_low, &registers);
+    grow_if_the_cycle_barely_helped(context, freed);
 
     if let Some(cell) = context.region.alloc(size, ty) {
         return Some(cell);
     }
     grow_and_retry(context, |region| region.alloc(size, ty))
+}
+
+/// Raises the bound when a cycle reclaimed too little to be worth repeating.
+///
+/// # The ratio this exists to bound
+///
+/// A cycle over a region of `C` cells with `S` survivors reclaims `F = C - S`,
+/// and the program then does `F` allocations before the next one — which marks
+/// those same `S` again. So the marking a program pays PER ALLOCATION is `S/F`,
+/// and it is unbounded as the live set approaches the capacity: it is 1 at half
+/// full, 3 at three quarters, and 19 at ninety-five percent. Nothing about that
+/// is the collector being slow; it is the heap being the wrong size.
+///
+/// Measured on this tree before this existed, one million allocations of `{}`
+/// with a live set held to the side:
+///
+/// ```text
+///      0 live      73 ns per allocation
+///  5 000 live      80
+/// 50 000 live     280
+/// ```
+///
+/// 50 000 in a 65 536-cell region is 76% full, so `S/F` is about three — and
+/// three is what the number does.
+///
+/// # Why half
+///
+/// `S <= F` is exactly `S <= C/2`, so keeping the live set under half the
+/// capacity keeps the marking under one mark per allocation. That is the whole
+/// rule; the doubling in [`Region::grow`] is what reaches it in one step.
+///
+/// # Why this is not a new policy
+///
+/// [`grow_and_retry`]'s own documentation already says the loop "is reached
+/// only when a full cycle reclaimed too little" — but it was reached only when
+/// a cycle reclaimed literally NOTHING, because the caller asked `alloc` again
+/// and any single free cell answered it. This makes the code say what the
+/// sentence said. Growth is still asked for AFTER a collection and never
+/// before, which is the part that keeps a program whose garbage is collectable
+/// at the working set it actually has.
+///
+/// The cost is memory that is never given back, bounded by the reservation the
+/// region claimed at construction — `GROWTH_CEILING` steps, and `grow` answers
+/// `false` past it, so a program that genuinely needs the whole heap converges
+/// instead of growing on every cycle.
+fn grow_if_the_cycle_barely_helped(context: &mut Context, freed: usize) {
+    if (freed as u64) * 2 < u64::from(context.region.capacity()) {
+        context.region.grow();
+    }
 }
 
 /// Raises the region's bound until the allocation fits, or the reservation is
