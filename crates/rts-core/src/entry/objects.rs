@@ -121,38 +121,33 @@ pub(super) fn object_new_in(context: &mut Context) -> u64 {
 /// shape `own_keys` and `exec` have, for the same reason.
 #[rtse::entry]
 pub fn get_property(object: u64, key: i64) -> u64 {
-    // `undefined` and `null` first, and BEFORE the proxy question: neither can
-    // be a proxy, and answering `undefined` for `u.x` is what let three
-    // unrelated failures report an operation two steps downstream — see
-    // [`refuse_access`].
-    if let Some(refusal) =
-        with_current(|context| access_refusal(context, object, key_of(context, key), true))
-    {
-        super::throw::type_error(&refusal);
-        return with_current(|context| undefined_of(context));
-    }
-    // A proxy answers by running user code, so it is asked BEFORE any borrow
-    // that a lookup would take — the trap may call straight back in here.
-    // `None` means this is an ordinary object, which is every object in a
-    // program that never wrote `new Proxy`.
-    // Asked in the same borrow that resolves the key and does the lookup, and
-    // only of an object that IS one — `proxy_at` is a table read. It used to
-    // resolve the key in a borrow of its own, hand it to `proxy::get`, and then
-    // resolve it again below: two lookups and two borrows on every read that
-    // misses its cache, for a question almost every program answers "no" to.
-    let proxied = with_current(|context| {
-        let key = key_of(context, key)?;
-        let slot = Value(object).as_slot()?;
-        context.proxy_at(slot).map(|_| key)
-    });
-    if let Some(key) = proxied
-        && let Some(answered) = super::proxy::get(object, key)
-    {
-        return answered;
-    }
-    let found = with_current(|context| {
-        let Some(key) = key_of(context, key) else {
-            return super::accessor::Found::Value(undefined_of(context));
+    // ONE borrow of the context for the ordinary read, and the three paths that
+    // cannot finish inside it — a refusal, a proxy trap and a getter, each of
+    // which either calls user code or builds an `Error` that takes the context
+    // again — leave with what they need instead. This is exactly the shape
+    // [`set_property`] below was already given, and for the same reason.
+    //
+    // It was THREE borrows and the key was resolved through the registry in
+    // each of them. The first resolution was the worst: it is an argument to
+    // [`access_refusal`], which answers `None` on its own first line for any
+    // receiver that is not `undefined` or `null` — so every ordinary read in
+    // every program resolved a key twice for answers it discarded.
+    //
+    // Measured 2026-08-29, `target/release/rts.exe`: an own property reads in
+    // 21 ns and an inherited one at depth 1 in 66. This removes the part of
+    // that gap which is bookkeeping; the chain walk in `accessor::resolve` is
+    // the rest and is not touched here.
+    let decided = with_current(|context| {
+        let named = key_of(context, key);
+        // `undefined` and `null` first, and BEFORE the proxy question: neither
+        // can be a proxy, and answering `undefined` for `u.x` is what let three
+        // unrelated failures report an operation two steps downstream — see
+        // [`access_refusal`].
+        if let Some(refusal) = access_refusal(context, object, named, true) {
+            return Read::Refused(refusal);
+        }
+        let Some(key) = named else {
+            return Read::Value(undefined_of(context));
         };
         let Some(slot) = Value(object).as_slot() else {
             // A number, a boolean, a symbol or a bigint — none of which has a
@@ -161,38 +156,117 @@ pub fn get_property(object: u64, key: i64) -> u64 {
             // and [`super::computed::primitive_found`] for why the cascade is
             // stated there rather than twice: the computed spelling reaches the
             // same receivers, and for a while it did not.
-            return super::computed::primitive_found(context, Value(object), key);
+            //
+            // Asked before the proxy question rather than after it, which is a
+            // reordering and not a change: `proxy_at` is keyed by a CELL and a
+            // primitive has none, so that question could never answer yes here.
+            let found = super::computed::primitive_found(context, Value(object), key);
+            return found_as_read(context, found);
         };
-        if let Some(answer) = super::string::text::string_property(context, slot, key) {
-            return super::accessor::Found::Value(answer);
+        // A proxy answers by running user code, so it leaves the borrow with
+        // the key already resolved rather than being asked in a borrow of its
+        // own. `None` — an ordinary object — is what every program that never
+        // wrote `new Proxy` answers, on every read.
+        if context.proxy_at(slot).is_some() {
+            return Read::Proxy(key);
         }
-        super::accessor::resolve(context, slot, key)
+        looked_up(context, slot, key)
     });
-    match found {
-        super::accessor::Found::Value(value) => value,
+    match decided {
+        Read::Value(value) => value,
+        Read::Refused(refusal) => {
+            super::throw::type_error(&refusal);
+            with_current(|context| undefined_of(context))
+        }
+        // A proxy with no `get` trap forwards to its target, and that is the
+        // ordinary lookup — reached in a second borrow, because the trap that
+        // declined had to be tried outside the first one.
+        Read::Proxy(key) => match super::proxy::get(object, key) {
+            Some(answered) => answered,
+            None => {
+                let decided = with_current(|context| match Value(object).as_slot() {
+                    Some(slot) => looked_up(context, slot, key),
+                    None => Read::Value(undefined_of(context)),
+                });
+                match decided {
+                    Read::Value(value) => value,
+                    Read::Getter(getter) => run_getter(object, getter),
+                    // The receiver was already established as a non-nullish
+                    // cell whose trap has been asked, so neither remaining
+                    // exit is reachable — and saying so beats answering
+                    // `undefined` for a case that would then be silent.
+                    Read::Proxy(_) | Read::Refused(_) => {
+                        with_current(|context| undefined_of(context))
+                    }
+                }
+            }
+        },
         // The receiver is the object the read was written on, not the one the
         // getter was found on: `derived.x` running a getter defined on the
         // prototype must see `derived`.
-        super::accessor::Found::Getter(getter) => {
-            let undefined = with_current(|context| undefined_of(context));
-            super::functions::call(getter, object, undefined, undefined, undefined, undefined)
-        }
-        // A miss on the GLOBAL OBJECT is not a miss until the lazy build has
-        // been asked. The globals are made one at a time, the first time each is
-        // read by its bare name, so `globalThis.Object` in a program that never
-        // wrote `Object` reached an object where nothing had made it — and
-        // answered `undefined` for every name the runtime supplies.
-        super::accessor::Found::Absent => with_current(|context| {
-            if let Some(slot) = Value(object).as_slot()
-                && context.globals == Some(slot)
-                && let Some(Key::Name(named)) = key_of(context, key)
-                && let Some(made) = super::global::supply(context, named)
-            {
-                return made;
-            }
-            undefined_of(context)
-        }),
+        Read::Getter(getter) => run_getter(object, getter),
     }
+}
+
+/// What a read turned out to need that cannot be done while the context is
+/// borrowed, because it calls user code — or, for a refusal, because building
+/// the `TypeError` takes the context itself.
+///
+/// [`Handled`]'s twin for the read side. Two enums rather than one because the
+/// two operations do not have the same exits: a read has a getter and a value
+/// to answer with, a write has a setter and nothing to answer with.
+enum Read {
+    /// Answered inside the borrow, which is every read of a data property.
+    Value(u64),
+    /// A proxy's `get` trap, with the key already resolved.
+    Proxy(Key),
+    /// A getter found on the receiver or above it.
+    Getter(u64),
+    /// The language refuses this read, with the message it refuses it by.
+    Refused(String),
+}
+
+/// The ordinary lookup, once the receiver is known to be a cell and not a proxy.
+///
+/// A function rather than a block because a proxy whose trap declines forwards
+/// to exactly this, and a second copy of the text/accessor/global cascade would
+/// be a second opinion about what `p.x` answers when `p` has no `get`.
+fn looked_up(context: &mut Context, slot: u32, key: Key) -> Read {
+    if let Some(answer) = super::string::text::string_property(context, slot, key) {
+        return Read::Value(answer);
+    }
+    let found = super::accessor::resolve(context, slot, key);
+    // A miss on the GLOBAL OBJECT is not a miss until the lazy build has been
+    // asked. The globals are made one at a time, the first time each is read by
+    // its bare name, so `globalThis.Object` in a program that never wrote
+    // `Object` reached an object where nothing had made it — and answered
+    // `undefined` for every name the runtime supplies.
+    if matches!(found, super::accessor::Found::Absent)
+        && context.globals == Some(slot)
+        && let Key::Name(named) = key
+        && let Some(made) = super::global::supply(context, named)
+    {
+        return Read::Value(made);
+    }
+    found_as_read(context, found)
+}
+
+/// A resolution, as the exit it implies.
+///
+/// `Absent` reads as `undefined`, which is the language rather than a fallback:
+/// a property that is not there has a value, and it is this one.
+fn found_as_read(context: &Context, found: super::accessor::Found) -> Read {
+    match found {
+        super::accessor::Found::Value(value) => Read::Value(value),
+        super::accessor::Found::Getter(getter) => Read::Getter(getter),
+        super::accessor::Found::Absent => Read::Value(undefined_of(context)),
+    }
+}
+
+/// Runs a getter with the receiver the read was written on.
+fn run_getter(object: u64, getter: u64) -> u64 {
+    let undefined = with_current(|context| undefined_of(context));
+    super::functions::call(getter, object, undefined, undefined, undefined, undefined)
 }
 
 /// `object.name = value`. Answers the value, because an assignment is an
