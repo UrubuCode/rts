@@ -100,12 +100,17 @@ UMD bundle's `typeof module` sniff now takes the CommonJS branch everywhere.
 
 `crates/rts-host/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-22: 746 of the 808 `*.test.ts` files pass** (3 008 of 3 074
-assertions), by `target/release/rts.exe test`. It was 754 of 808 on 08-15, 756
-of 799 on 08-10, 626 of 797 on 08-09 and 535 of 818 at the start of 08-08,
-through generators, `yield*`, `Proxy`, native iterators, `export *`, a catchable
-throw, the bare `rts` specifier, stack traces, variadic natives and wrapper
-objects.
+claimed. **2026-08-29: 758 of the 819 `*.test.ts` files pass** (3 059 of 3 123
+assertions), by `target/fast/rts.exe test` at `d58bd54a`. It was 746 of 808 on
+08-22, 754 of 808 on 08-15, 756 of 799 on 08-10, 626 of 797 on 08-09 and 535 of
+818 at the start of 08-08, through generators, `yield*`, `Proxy`, native
+iterators, `export *`, a catchable throw, the bare `rts` specifier, stack traces,
+variadic natives and wrapper objects.
+
+**`--profile fast` and not `--release`, and that is allowed here for the reason
+the merge-gate section gives**: `fast` differs from `release` in optimisation
+quality only, and "did this file pass" is not a question a profile changes the
+answer to. A NUMBER about speed still needs `release`.
 
 **The share fell by eight between 08-15 and 08-22 and this line does not claim
 to know why.** What it can say is what the drop is NOT: each of the 62 failing
@@ -130,17 +135,42 @@ and the file that used to HANG is gone from the column:
 `for_await_break_return.test.ts` timed out on every run until `for`-`of`
 stopped materialising its sequence.
 
-**And the second ruler: 728 of 762 cross-runtime fixtures** (95.5%), measured
-2026-08-15 by `scripts/cross_runtime_check.sh`, one process per file, against
-Bun and Node. That corpus is a different question from the one above — it asks
-whether this engine and a real one agree about the same program, where
-`*.test.ts` asks whether the program does what it says.
+**And the second ruler: 1 179 of 1 514 cross-runtime fixtures** (77.9 %),
+measured 2026-08-28 by the `cross-runtime` job of `build-artifacts.yml`, one
+process per file, against Bun and Node. That corpus is a different question from
+the one above — it asks whether this engine and a real one agree about the same
+program, where `*.test.ts` asks whether the program does what it says.
 
-It was 674 of 708 before the corpus grew, and 666, 646, 630, 593 and 419 earlier
-in the same stretch. Every step between those figures was measured PER FILE
-against a kept binary and cost **nothing**: the LOST list is empty at each one,
-which is the only form the claim "no regression" takes here. The net number
-never was.
+**That share is lower than the one this line used to carry, and the reason is the
+denominator.** It said 728 of 762 (95.5 %) for 2026-08-15, and the corpus is now
+**1 516 files**. The old one had been very nearly exhausted — which is what a
+corpus is FOR, and also what makes it stop measuring anything — so it was
+roughly doubled. A share that falls because the ruler got longer is not a
+regression, and the two numbers are not comparable in either direction.
+
+Read them as what they are: 728 files agreed with Bun and Node in August, and
+1 179 do now. **335 are left to fix** — 247 answering differently and 88 ending
+in a runtime error — and one is skipped because Bun and Node disagree with each
+other, which the harness refuses to arbitrate.
+
+The number in the README is the one CI writes, and it is generated rather than
+typed: the `cross-runtime` job rewrites the block between the
+`CROSS_RUNTIME_STATS` markers on every run. **Read it there rather than here**,
+because this file is edited by hand and has already been the stale half of this
+pair once.
+
+**What that job cannot do is fail.** `cross-runtime`, `node-suite` and `ts-suite`
+are all `continue-on-error: true`, and `node-suite` additionally runs only on
+`schedule`. So every ruler in CI reports and none of them gates: the one blocking
+signal in the whole workflow is that the `build` job compiled. That is a decision
+recorded in each job's own comment and not an oversight, but it means a falling
+share is noticed by a person reading a badge, never by a red check.
+
+It was 674 of 708 before an earlier growth of the corpus, and 666, 646, 630, 593
+and 419 earlier in the same stretch. Every step between those figures was
+measured PER FILE against a kept binary and cost **nothing**: the LOST list is
+empty at each one, which is the only form the claim "no regression" takes here.
+The net number never was.
 
 **The denominator moved by 54, and both halves are stated because of it.** Those
 are `tests/cross-runtime/obfuscated/` — real `javascript-obfuscator` output over
