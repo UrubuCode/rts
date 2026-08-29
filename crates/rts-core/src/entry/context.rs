@@ -639,6 +639,7 @@ impl Context {
             super::symbol::ITERATOR => Some(11),
             "next" => Some(12),
             "return" => Some(13),
+            super::symbol::HAS_INSTANCE => Some(14),
             _ => None,
         };
         if let Some(at) = held

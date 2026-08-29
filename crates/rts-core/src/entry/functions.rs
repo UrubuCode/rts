@@ -1272,18 +1272,63 @@ fn is_bare_class_constructor_call(callee: u64) -> bool {
 /// many links away, which is why this is a loop rather than one comparison.
 #[rtse::entry]
 pub fn instance_of(value: u64, callee: u64) -> bool {
-    // `Symbol.hasInstance` primeiro, que e o passo 1 do operador e nao existia:
-    // uma classe que o define decide ela propria o que e uma instancia dela, e
-    // sem isto a decisao era sempre da cadeia de prototipos. Lido FORA do
-    // emprestimo, porque e uma leitura de propriedade que pode correr um getter
-    // ou um trap de proxy — e por isso mesmo passa a alcancar um Proxy, que
-    // antes caia no `callable_at` e respondia falso.
-    let key = with_current(|context| context.well_known_text(super::symbol::HAS_INSTANCE));
-    let hook = super::computed::get_indexed(callee, key);
-    if super::throw::in_flight() {
-        return false;
-    }
-    if with_current(|context| super::modules::is_callable_in(context, hook)) {
+    // `Symbol.hasInstance` primeiro, que e o passo 1 do operador: uma classe que
+    // o define decide ela propria o que e uma instancia dela, e sem isto a
+    // decisao era sempre da cadeia de prototipos.
+    //
+    // # Why it is PROBED here and only sometimes read through `get_indexed`
+    //
+    // Because the ask is a MISS on essentially every execution — almost no class
+    // defines `Symbol.hasInstance` — and a miss through the entry point is what
+    // the whole operator costs. Measured 2026-08-29, `target/release/rts.exe`:
+    // `d instanceof A` is 119 ns and a single absent-property read on the same
+    // constructor is 118. Chain length barely enters it (112 at depth 1, 120 at
+    // depth 4), which is what says the walk is not where the time goes — the
+    // crossing is.
+    //
+    // `accessor::resolve` answers the same question inside a borrow this
+    // function was taking anyway, and its `Absent` is DEFINITIVE for a receiver
+    // that is not a proxy: it is the same walk `get_indexed` performs after its
+    // own nullish and text checks, neither of which can fire for a key spelled
+    // `@@hasInstance`. So the two shapes that CAN run user code — a proxy's trap
+    // and an accessor's getter — keep the door they have, and everything else
+    // stops paying for a door it never opens.
+    let probed = with_current(|context| {
+        let Some(slot) = Value(callee).as_slot() else {
+            // A primitive callee: no cell to walk from, and `get_indexed`
+            // reaches the shared prototype for it. Left to the old path rather
+            // than answered here, because deciding it twice is how the two come
+            // to disagree.
+            return Probe::Slowly;
+        };
+        if context.proxy_at(slot).is_some() {
+            return Probe::Slowly;
+        }
+        let key = context.well_known(super::symbol::HAS_INSTANCE);
+        match super::accessor::resolve(context, slot, key) {
+            // Nothing, along the whole chain. This is the answer for every
+            // ordinary constructor in every program.
+            super::accessor::Found::Absent => Probe::None,
+            super::accessor::Found::Value(found) => Probe::Held(found),
+            // A getter is user code and may not run inside this borrow.
+            super::accessor::Found::Getter(_) => Probe::Slowly,
+        }
+    });
+    let hook = match probed {
+        Probe::None => None,
+        Probe::Held(found) => Some(found),
+        Probe::Slowly => {
+            let key = with_current(|context| context.well_known_text(super::symbol::HAS_INSTANCE));
+            let found = super::computed::get_indexed(callee, key);
+            if super::throw::in_flight() {
+                return false;
+            }
+            Some(found)
+        }
+    };
+    if let Some(hook) = hook
+        && with_current(|context| super::modules::is_callable_in(context, hook))
+    {
         let absent = with_current(|context| undefined_of(context));
         let answered = call(hook, callee, value, absent, absent, absent);
         if super::throw::in_flight() {
@@ -1376,4 +1421,24 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         }
         false
     })
+}
+
+/// What the `Symbol.hasInstance` probe in [`instance_of`] found, before
+/// anything that could run user code has run.
+///
+/// Three answers and not two: "nothing is there" and "here it is" are both
+/// settled inside the borrow, and the third says the question has to be asked
+/// again through the door that can run a getter or a proxy trap. Without the
+/// third, `instance_of` would either answer for a proxy without asking it or
+/// run user code inside a `RefCell` borrow, and both are the failures this
+/// crate's rule 8 is about.
+enum Probe {
+    /// No `Symbol.hasInstance` anywhere on the chain. Every ordinary
+    /// constructor in every program.
+    None,
+    /// A data property, already read.
+    Held(u64),
+    /// A proxy, a getter, or a callee with no cell — ask through
+    /// `computed::get_indexed`, exactly as this function always did.
+    Slowly,
 }

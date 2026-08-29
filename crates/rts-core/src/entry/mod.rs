@@ -239,7 +239,7 @@ use crate::value::Singletons;
 pub const TEXT_LENGTH_SLOT: u32 = 1;
 
 /// The names the runtime asks for BY NAME on a path that runs per operation.
-pub const CACHED_KEYS: [&str; 14] = [
+pub const CACHED_KEYS: [&str; 15] = [
     "length",
     "prototype",
     "byteLength",
@@ -274,6 +274,15 @@ pub const CACHED_KEYS: [&str; 14] = [
     symbol::ITERATOR,
     "next",
     "return",
+    // Asked by EVERY `instanceof`, which is step 1 of the operator: a class may
+    // define `Symbol.hasInstance` and decide for itself what an instance of it
+    // is. Almost nothing does, so the ask is a MISS on essentially every
+    // execution — and a miss is what costs, not a hit. Measured 2026-08-29:
+    // `d instanceof A` is 119 ns and a single absent-property read on the same
+    // constructor is 118, so the operator was one failed lookup and a rounding
+    // error. `well_known_text` already memoised the text of this name; the KEY
+    // was interned afresh, which is what put it here.
+    symbol::HAS_INSTANCE,
 ];
 
 /// Where `"length"` sits in [`CACHED_KEYS`].
