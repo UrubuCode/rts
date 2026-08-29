@@ -257,6 +257,128 @@ describe("a statement body substituted at its call site", () => {
     const held = makes();
     expect(held(1)).toBe(4);
   });
+
+  test("a helper declared inside a function EXPRESSION is substituted", () => {
+    // The enclosing function is written in expression position — an IIFE — so
+    // the collector had to walk through the expression to find `iifeHelper`.
+    const made = (function (): (x: number) => number {
+      function iifeHelper(x: number): number {
+        return x + 5;
+      }
+      return (x: number): number => iifeHelper(x) + 1;
+    })();
+    expect(made(1)).toBe(7);
+  });
+
+  test("a body that declares a UNIQUELY named local is substituted", () => {
+    function uniqueLocalBody(x: number): number {
+      const zqxOnlyHere = x * 3;
+      return zqxOnlyHere + 1;
+    }
+    expect(uniqueLocalBody(2)).toBe(7);
+    expect(uniqueLocalBody(0)).toBe(1);
+  });
+
+  test("a body local whose name the CALLER also declares does not clobber it", () => {
+    // The whole reason the guard exists. `shared` is declared twice in this
+    // program, so the count is 2 and the body is refused — and the caller's
+    // binding has to survive either way, which is what this asserts.
+    function collidingBody(x: number): number {
+      const shared = x + 1;
+      return shared;
+    }
+    const shared = 999;
+    expect(collidingBody(3)).toBe(4);
+    expect(shared).toBe(999);
+  });
+
+  test("a body local does not outlive the substitution", () => {
+    function declaresOne(x: number): number {
+      const zqxScoped = x + 1;
+      return zqxScoped;
+    }
+    expect(declaresOne(1)).toBe(2);
+    // Nothing named `zqxScoped` exists out here, and asking is how we find out.
+    let seen = "";
+    try {
+      seen = String(eval("typeof zqxScoped"));
+    } catch {
+      seen = "undefined";
+    }
+    expect(seen).toBe("undefined");
+  });
+
+  test("two locals in one body, and one of them read by the other", () => {
+    function twoLocals(x: number): number {
+      const zqxFirst = x + 1;
+      const zqxSecond = zqxFirst * 2;
+      return zqxSecond;
+    }
+    expect(twoLocals(3)).toBe(8);
+  });
+
+  test("a body that writes a MEMBER writes the caller's object", () => {
+    const box: { v: number } = { v: 0 };
+    function writesMember(x: number): number {
+      box.v = x;
+      return x + 1;
+    }
+    expect(writesMember(7)).toBe(8);
+    expect(box.v).toBe(7);
+    expect(writesMember(9)).toBe(10);
+    expect(box.v).toBe(9);
+  });
+
+  test("a body that writes through a PARAMETER writes that object", () => {
+    function stamp(target: { v: number }, x: number): number {
+      target.v = x;
+      return x;
+    }
+    const first = { v: 0 };
+    const second = { v: 0 };
+    expect(stamp(first, 1)).toBe(1);
+    expect(stamp(second, 2)).toBe(2);
+    expect(first.v).toBe(1);
+    expect(second.v).toBe(2);
+  });
+
+  test("a body that writes an INDEX", () => {
+    const slots = [0, 0, 0];
+    function putAt(at: number, x: number): number {
+      slots[at] = x;
+      return x;
+    }
+    expect(putAt(1, 42)).toBe(42);
+    expect(slots.join(",")).toBe("0,42,0");
+  });
+
+  test("a body that increments a member", () => {
+    const counter: { n: number } = { n: 0 };
+    function bumpIt(x: number): number {
+      counter.n++;
+      return x + 1;
+    }
+    expect(bumpIt(1)).toBe(2);
+    expect(bumpIt(2)).toBe(3);
+    expect(counter.n).toBe(2);
+  });
+
+  test("a member write happens in the order the call would have", () => {
+    const log: string[] = [];
+    const sink: { last: number } = { last: 0 };
+    function record(x: number): number {
+      sink.last = x;
+      log.push("w" + x);
+      return x;
+    }
+    log.push("before");
+    record(1);
+    log.push("between");
+    record(2);
+    log.push("after");
+    expect(log.join(",")).toBe("before,w1,between,w2,after");
+    expect(sink.last).toBe(2);
+  });
   test("a throw from inside a substituted body propagates", () => {
     function boom(n: number): number {
       const held: any = null;

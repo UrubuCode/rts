@@ -106,7 +106,7 @@ pub(super) fn candidates(
         collect_declarations(statement, &mut declarations);
     }
     for (name, function) in declarations {
-        let Some((candidate, free)) = shape_of(function, length, name) else {
+        let Some((candidate, free, locals)) = shape_of(function, length, name) else {
             continue;
         };
         // The three whole-program questions, asked only for a name that got
@@ -142,6 +142,27 @@ pub(super) fn candidates(
         // written, in the same order, so an assignment says nothing about
         // whether the substitution is legal.
         if free.iter().any(|held| declarations_of(body, *held) != 1) {
+            continue;
+        }
+        // AND THE BODY'S OWN LOCALS, which is the guard that lets a declaring
+        // body be substituted at all.
+        //
+        // The body is emitted in the CALLER's scope, so a `const t` inside it
+        // declares a `t` THERE. When the caller already has one — and a
+        // module-level `const` lives in an environment object rather than in a
+        // scope this can enter and leave — the substitution WROTE IT.
+        // `localsOnly(3)` set the caller's `t` to 6 on the build that admitted
+        // this without a guard, which is three wrong answers in the fixture.
+        //
+        // One declaration in the whole program means no caller has a binding of
+        // that name to clobber: not a `const`, not a `let`, and not a parameter
+        // either, because `declarations_of` counts those too. So the name the
+        // body declares can only be its own.
+        //
+        // This is the same proof the free names get, asked in the opposite
+        // direction — there, that no caller resolves the name DIFFERENTLY; here,
+        // that no caller resolves it at all.
+        if locals.iter().any(|held| declarations_of(body, *held) != 1) {
             continue;
         }
         // What a declaration count CANNOT see, asked once for the whole
@@ -296,11 +317,20 @@ fn collect_declarations<'a>(statement: &'a Stmt, found: &mut Vec<(Name, &'a Func
     walk_stmt(statement, &mut |child| match child {
         StmtChild::Stmt(inner) => collect_declarations(inner, found),
         StmtChild::Binding(binding) => {
-            if let (Pattern::Name(name), Some(value)) = (&binding.target, &binding.value)
-                && let ExprKind::Function(function) = &value.kind
+            let Some(value) = &binding.value else {
+                return;
+            };
+            if let (Pattern::Name(name), ExprKind::Function(function)) =
+                (&binding.target, &value.kind)
             {
                 found.push((*name, function));
             }
+            // And through the value whatever it is, because a function can be
+            // written anywhere inside one. `const f = (function () { … })()` —
+            // an IIFE — binds `f` to a CALL, so the arm above does not fire and
+            // the declarations inside the immediately-invoked function were
+            // never reached.
+            collect_in_expr(value, found);
         }
         StmtChild::Catch(catch) => {
             for inner in &catch.body {
@@ -315,7 +345,14 @@ fn collect_declarations<'a>(statement: &'a Stmt, found: &mut Vec<(Name, &'a Func
                 collect_declarations(inner, found);
             }
         }
-        StmtChild::Expr(_) | StmtChild::Class(_) => {}
+        // A function written in EXPRESSION position — an argument, an IIFE, a
+        // property value — holds declarations like any other body, and the walk
+        // stopped at the expression. `(function () { function h(){…} … })()` is
+        // the shape: measured 19.0 ns a call against 7.75 for the same helper
+        // inside a function DECLARATION, purely because of where the enclosing
+        // function was written.
+        StmtChild::Expr(expr) => collect_in_expr(expr, found),
+        StmtChild::Class(_) => {}
     });
     // A declaration's own body, which `walk_stmt` does not descend into for a
     // `StmtKind::Function` — it hands the function over as a child and stops.
@@ -324,6 +361,25 @@ fn collect_declarations<'a>(statement: &'a Stmt, found: &mut Vec<(Name, &'a Func
             collect_declarations(inner, found);
         }
     }
+}
+
+/// The same walk, through an expression, for the bodies written inside one.
+///
+/// Only functions are looked for: a class body is left alone because a method
+/// is reached as a member and this pass only substitutes a bare name.
+fn collect_in_expr<'a>(expr: &'a Expr, found: &mut Vec<(Name, &'a Function)>) {
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => collect_in_expr(inner, found),
+        Child::Function(function) => {
+            if let Some(name) = function.name {
+                found.push((name, function));
+            }
+            for inner in body_statements(function) {
+                collect_declarations(inner, found);
+            }
+        }
+        Child::Class(_) => {}
+    });
 }
 
 /// The statements of a body, or nothing for a concise arrow.
@@ -375,7 +431,11 @@ fn declared_function(statement: &Stmt) -> Option<(Name, &Function)> {
 /// function does not have, so it collects them and [`candidates`] applies the
 /// same two questions to each that it already applies to the function's own
 /// name.
-fn shape_of(function: &Function, length: Name, own: Name) -> Option<(Inlinable, Vec<Name>)> {
+fn shape_of(
+    function: &Function,
+    length: Name,
+    own: Name,
+) -> Option<(Inlinable, Vec<Name>, Vec<Name>)> {
     if function.is_async || function.is_generator {
         return None;
     }
@@ -411,6 +471,7 @@ fn shape_of(function: &Function, length: Name, own: Name) -> Option<(Inlinable, 
                 rest_length: Some(*rest),
             },
             Vec::new(),
+            Vec::new(),
         ));
     }
     if !function.has_simple_parameter_list() {
@@ -429,9 +490,23 @@ fn shape_of(function: &Function, length: Name, own: Name) -> Option<(Inlinable, 
         return None;
     }
 
-    // The parameters and nothing else: `straight_line` refuses a declaration, so
-    // an accepted body has no locals to bind.
-    let bound = parameters.clone();
+    // The parameters, plus whatever the body declares for itself. A declared
+    // name is BOUND — reading it is not reading the caller's — and the count of
+    // them travels out so `candidates` can ask the whole program about each.
+    let mut bound = parameters.clone();
+    let first_local = bound.len();
+    for statement in &statements {
+        if !declared_names(statement, &mut bound) {
+            return None;
+        }
+    }
+    let locals: Vec<Name> = bound[first_local..].to_vec();
+    // A body that declares one name twice is refused rather than reasoned
+    // about: `const a = 1; { const a = 2; }` is legal JavaScript and the
+    // substitution has no way to keep the two apart in one scope.
+    if locals.iter().enumerate().any(|(at, name)| locals[..at].contains(name)) {
+        return None;
+    }
 
     // Recursion is refused by NAME rather than by a call graph. With statements
     // admitted a body can contain calls, and a self-call would substitute for
@@ -483,6 +558,7 @@ fn shape_of(function: &Function, length: Name, own: Name) -> Option<(Inlinable, 
             rest_length: None,
         },
         free,
+        locals,
     ))
 }
 
@@ -547,6 +623,15 @@ fn straight_line(statement: &Stmt) -> bool {
     match &statement.kind {
         StmtKind::Empty => true,
         StmtKind::Expr(_) => true,
+        // A DECLARATION is admitted again, and the guard that makes it safe is
+        // not here — it is in `candidates`, which requires the declared name to
+        // have exactly ONE declaration in the whole program. See `shape_of`.
+        StmtKind::Declare { kind, bindings } => {
+            !matches!(kind, BindingKind::Var)
+                && bindings.iter().all(|binding| {
+                    matches!(binding.target, Pattern::Name(_)) && binding.value.is_some()
+                })
+        }
         StmtKind::Block(inner) => inner.iter().all(straight_line),
         StmtKind::If {
             then_branch,
@@ -558,6 +643,38 @@ fn straight_line(statement: &Stmt) -> bool {
                     .as_ref()
                     .is_none_or(|branch| straight_line(branch))
         }
+        _ => false,
+    }
+}
+
+/// Every name a statement introduces, added to `bound`.
+///
+/// `false` for a shape `straight_line` has already refused, so this is a second
+/// gate rather than the first: adding a statement kind to one list without the
+/// other refuses instead of admitting.
+fn declared_names(statement: &Stmt, bound: &mut Vec<Name>) -> bool {
+    match &statement.kind {
+        StmtKind::Declare { bindings, .. } => {
+            for binding in bindings {
+                let Pattern::Name(name) = &binding.target else {
+                    return false;
+                };
+                bound.push(*name);
+            }
+            true
+        }
+        StmtKind::Block(inner) => inner.iter().all(|held| declared_names(held, bound)),
+        StmtKind::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            declared_names(then_branch, bound)
+                && else_branch
+                    .as_ref()
+                    .is_none_or(|branch| declared_names(branch, bound))
+        }
+        StmtKind::Empty | StmtKind::Expr(_) => true,
         _ => false,
     }
 }
@@ -641,6 +758,23 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
             let AssignTarget::Place(place) = target else {
                 return false;
             };
+            // A MEMBER or an INDEX, which is a write to the HEAP rather than to
+            // a binding. The receiver is an ordinary expression and goes through
+            // the same proof as any other, and the write lands on the same
+            // object the call would have written, in the same order. `box.v = x`
+            // measured 26.0 ns a call against 8 for the same function without
+            // it, purely because this arm refused the shape.
+            //
+            // Distinct from writing a plain NAME below, which is refused for a
+            // parameter because a parameter is bound to an SSA value here and a
+            // write to one has nowhere to land. A member write does not touch
+            // the binding at all.
+            if matches!(
+                &place.kind,
+                ExprKind::Member { .. } | ExprKind::Index { .. }
+            ) {
+                return closed_over(place, bound, free) && closed_over(value, bound, free);
+            }
             let ExprKind::Ident(name) = &place.kind else {
                 return false;
             };
@@ -656,6 +790,13 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
             return closed_over(value, bound, free);
         }
         ExprKind::Update { target, .. } => {
+            // `o.x++` for the reason `o.x = v` above is admitted.
+            if matches!(
+                &target.kind,
+                ExprKind::Member { .. } | ExprKind::Index { .. }
+            ) {
+                return closed_over(target, bound, free);
+            }
             let ExprKind::Ident(name) = &target.kind else {
                 return false;
             };

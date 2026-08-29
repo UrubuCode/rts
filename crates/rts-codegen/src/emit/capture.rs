@@ -715,7 +715,7 @@ pub(super) enum Child<'a> {
 /// copies of this match is how a node comes to be walked by one analysis and
 /// silently skipped by the other — and the one that skips it decides a local is
 /// not captured when it is.
-pub(super) fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
+pub(super) fn walk_expr<'a>(expr: &'a Expr, on: &mut impl FnMut(Child<'a>)) {
     match &expr.kind {
         ExprKind::Function(function) => on(Child::Function(function)),
         ExprKind::Class(class) => on(Child::Class(class)),
