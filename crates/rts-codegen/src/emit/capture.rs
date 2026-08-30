@@ -645,6 +645,41 @@ fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
     }
     for parameter in &function.parameters {
         names_in_pattern(&parameter.target, found);
+        // A DEFAULT is code, and the names it READS are not names the pattern
+        // binds — `names_in_pattern` answers `bound_names`, which is the other
+        // question. Missing them was not an over-approximation failing to be
+        // tight; it was a name the enclosing function never put in its
+        // environment, so the default's read found nothing:
+        //
+        //     function outer() {
+        //       let shared = 100;
+        //       const g = (x, y = shared) => x + y;
+        //       g(1);        // ReferenceError: shared is not defined
+        //     }
+        //
+        // Only when the default is actually EVALUATED, so `g(1, 5)` worked and
+        // `g(1)` did not — which is why nothing in the corpus had caught it.
+        // Found 2026-08-29 by a test written for a different change.
+        if let Some(default) = &parameter.default {
+            all_names_in_expr(default, found);
+        }
+        // And a pattern carries defaults of its own: `function f({ a = x })`
+        // reads `x` with no `parameter.default` in sight.
+        // `walk_pattern_exprs` is the one walk that knows where they are.
+        walk_pattern_exprs(&parameter.target, &mut |child| {
+            if let Child::Expr(expr) = child {
+                all_names_in_expr(expr, found);
+            }
+        });
+    }
+    // The rest parameter is a pattern too, and it was not walked at all.
+    if let Some(rest) = &function.rest_parameter {
+        names_in_pattern(rest, found);
+        walk_pattern_exprs(rest, &mut |child| {
+            if let Child::Expr(expr) = child {
+                all_names_in_expr(expr, found);
+            }
+        });
     }
     match &function.body {
         FunctionBody::Block(body) => {

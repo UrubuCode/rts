@@ -55,8 +55,21 @@ use super::{Ctx, EmitResult, Scope};
 
 /// A function whose call may be replaced by its body.
 pub(super) struct Inlinable {
-    /// Its parameters, in order. Every one is a plain name with no default.
+    /// Its parameters, in order. Every one is a plain name.
     pub parameters: Vec<Name>,
+    /// The default each parameter carries, or `None` where it carries none.
+    ///
+    /// Parallel to [`Self::parameters`] rather than a pair, because every other
+    /// consumer of that list wants only the names and a tuple would make each
+    /// of them say so.
+    ///
+    /// Only the ABSENT-argument case is substituted. A call that writes the
+    /// argument may still be passing `undefined` at run time, which the
+    /// language says also takes the default, and deciding that needs a test the
+    /// call site cannot settle — so a written argument for a defaulted
+    /// parameter falls back to a real call. That is strictly more than was
+    /// accepted before, which was nothing.
+    pub defaults: Vec<Option<Expr>>,
     /// The names the body reads that it does not declare, each proven to have
     /// exactly one declaration in the whole program. Kept so the call site can
     /// ask the CALLER's escape analysis about them, which is a question only
@@ -185,11 +198,14 @@ pub(super) fn candidates(
 ///
 /// # What is checked HERE rather than while collecting
 ///
-/// Two facts that belong to the call site and not to the callee. The arity must
-/// match exactly: a call passing fewer arguments than the function declares
-/// would need the missing parameters bound to `undefined`, which is correct and
-/// is simply not written yet, and one passing more would have to evaluate the
-/// extra arguments for their side effects with nothing to bind them to.
+/// One fact that belongs to the call site and not to the callee, and it is no
+/// longer the arity. A call passing FEWER arguments than the function declares
+/// binds the missing parameters to `undefined`, which is exactly what the
+/// convention does for a real call; one passing MORE evaluates the extra
+/// arguments where they were written and drops their values, which is also what
+/// a real call does with them. Both were refused for as long as neither was
+/// written, and both were worth about 14 ns a call — an accepted call measured
+/// 9.00 ns against 23.00 for a refused one on 2026-08-29.
 ///
 /// And no parameter may spell a name the CALLER's escape analysis flattened.
 /// The body is emitted in the caller's scope, so `p.x` in the callee would be
@@ -241,7 +257,23 @@ pub(super) fn emit_substituted(
         let count = super::expr::number_constant(builder, arguments.len() as f64);
         return Ok(Some(super::expr::tagged(builder, count)));
     }
-    if arguments.len() != candidate.parameters.len() {
+    // A DEFAULT whose argument was written is refused, and this is the whole of
+    // what is not substituted about defaults. `f(a, undefined)` writes the
+    // argument and still takes the default — the language decides that from the
+    // VALUE, at run time — so binding the written argument would be wrong and
+    // binding the default would be wrong, and the test that separates them is
+    // one this pass would have to emit. A real call already does it.
+    //
+    // The absent case needs no test at all: an argument nobody wrote cannot be
+    // anything, so the default applies by construction. That is the shape
+    // `f(x)` on `function f(x, y = 1)` takes, and it measured 24.50 ns against
+    // 9.00 for a substituted call.
+    if candidate
+        .defaults
+        .iter()
+        .enumerate()
+        .any(|(at, default)| default.is_some() && at < arguments.len())
+    {
         return Ok(None);
     }
     // No name the body uses may spell one the CALLER's escape analysis
@@ -274,7 +306,32 @@ pub(super) fn emit_substituted(
     }
 
     scope.enter();
-    for (parameter, value) in candidate.parameters.iter().zip(values) {
+    // A parameter the call did not pass is `undefined`, which is what the calling
+    // convention hands a real call for the same shape — the six argument slots
+    // are filled with it before the callee looks at them. An argument with no
+    // parameter to bind was still EMITTED above, in source order, so its side
+    // effects happen; what it does not get is a name, and a real call gives it
+    // none either.
+    //
+    // `arguments` is not affected because a body that mentions it is refused
+    // long before here: it is a free name the program declares nowhere, so
+    // `declarations_of` answers zero and the candidate never forms.
+    for (at, parameter) in candidate.parameters.iter().enumerate() {
+        let value = match (values.get(at), candidate.defaults.get(at).and_then(Option::as_ref)) {
+            // Written, and the parameter has no default: the argument.
+            (Some(value), None) => *value,
+            // Not written, and no default: `undefined`.
+            (None, None) => super::expr::undefined(builder, ctx),
+            // Not written, and a default: the default, evaluated HERE — after
+            // the parameters to its left are bound, because a default may read
+            // them (`f(a, b = a + 1)`), and before the ones to its right, which
+            // is the order the language states.
+            (None, Some(default)) => super::expr::emit_expr(builder, scope, ctx, default)?,
+            // Written, and a default. Refused at the top of this function, so
+            // this arm cannot run; it is written out rather than left to a
+            // wildcard so that admitting the case later has one place to change.
+            (Some(_), Some(_)) => unreachable!("a written argument for a defaulted parameter is refused above"),
+        };
         scope.declare(*parameter, value);
     }
     // The statements before the answer, in the scope the parameters were just
@@ -465,6 +522,7 @@ fn shape_of(
         return Some((
             Inlinable {
                 parameters: Vec::new(),
+                defaults: Vec::new(),
                 free: Vec::new(),
                 statements: Vec::new(),
                 body: answered.clone(),
@@ -474,15 +532,21 @@ fn shape_of(
             Vec::new(),
         ));
     }
-    if !function.has_simple_parameter_list() {
+    // `has_simple_parameter_list` is NOT the question any more: it refuses a
+    // default as well as a pattern, and a default is substitutable where a
+    // pattern is not. The two conditions are asked apart — every target must be
+    // a plain name, and a default is carried rather than refused.
+    if function.rest_parameter.is_some() {
         return None;
     }
     let mut parameters = Vec::with_capacity(function.parameters.len());
+    let mut defaults = Vec::with_capacity(function.parameters.len());
     for parameter in &function.parameters {
         match &parameter.target {
             Pattern::Name(name) => parameters.push(*name),
             _ => return None,
         }
+        defaults.push(parameter.default.clone());
     }
 
     let (statements, answered) = body_shape(function)?;
@@ -517,6 +581,26 @@ fn shape_of(
     }
 
     let mut free = Vec::new();
+    // A DEFAULT is emitted at the call site exactly as the body is, so every name
+    // it reads needs the same proof — and it is asked FIRST, because a default
+    // is evaluated before any statement of the body.
+    //
+    // Without this the pass would be unsound rather than merely incomplete:
+    // `function f(x, y = held)` substituted into a caller resolves `held` in the
+    // CALLER's scope, which is a different binding wherever the caller has one.
+    // The free-name set is computed from the body, and a default is not in the
+    // body.
+    //
+    // `bound` is the parameters and the body's locals, which is the right
+    // question by accident of order rather than by luck: a default may read a
+    // parameter to its LEFT and may not read one to its right, and a body local
+    // does not exist yet — so a default reading either is refused here, where
+    // reading a left-hand parameter is admitted because the name is bound.
+    for default in defaults.iter().flatten() {
+        if !closed_over(default, &bound, &mut free) {
+            return None;
+        }
+    }
     for statement in &statements {
         if !closed_over_statement(statement, &bound, &mut free) {
             return None;
@@ -552,6 +636,7 @@ fn shape_of(
     Some((
         Inlinable {
             parameters,
+            defaults,
             free: free.clone(),
             statements,
             body: answered.clone(),
