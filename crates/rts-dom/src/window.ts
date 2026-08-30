@@ -169,6 +169,7 @@ class WindowImpl {
   _ls: WebStorage;
   _ss: WebStorage;
   _iw: number;
+  _name: string;
   _ih: number;
 
   constructor(domHandle: i64, url: string, vw: number, vh: number) {
@@ -180,6 +181,7 @@ class WindowImpl {
     this._ss = new WebStorage();
     this._iw = vw;
     this._ih = vh;
+    this._name = "";
     // Os timers como PROPRIEDADES PRÓPRIAS, com o `this` já preso.
     //
     // Um método do protótipo chamado pelo NOME LIVRE — `setTimeout(fn, 0)`,
@@ -212,19 +214,45 @@ class WindowImpl {
   get outerWidth(): number { return this._iw; }
   get outerHeight(): number { return this._ih; }
   get devicePixelRatio(): number { return 1; }
-  get name(): string { return ""; }
+  // `window.name` e GRAVAVEL num browser, e aqui isso deixou de ser detalhe: o
+  // escopo de um `<script>` E este objeto, entao um `var name` de topo — que
+  // qualquer bundle pode ter — assenta aqui. Com um getter sozinho, o motor
+  // recusava: `Cannot set property name of #<Object> which has only a getter`,
+  // e o react-dom morria a carregar.
+  //
+  // A licao e mais larga do que este nome: todo o acessor so-de-leitura desta
+  // classe passou a poder BLOQUEAR um global legitimo da pagina. Os que um
+  // browser deixa escrever tem de deixar tambem.
+  get name(): string { return this._name; }
+  set name(v: string) { this._name = v; }
   get closed(): boolean { return false; }
   // window.self / window.window / window.top / window.parent apontam pra ele
   // mesmo (single-frame). Getters retornam o próprio window.
+  // Os quatro apontam para ele proprio, e os setters IGNORAM.
+  //
+  // Nao e preguica: e o que um browser faz. Escrever numa propriedade que so
+  // tem getter e, em SLOPPY MODE, um no-op silencioso — e um `<script>` e
+  // sloppy. So em strict e que lanca.
+  //
+  // Este motor lanca nos dois, e isso e um defeito de conformidade que vive no
+  // emissor, nao aqui: `window.self = x` num bundle real fazia
+  // `TypeError: Cannot set property self of #<Object> which has only a getter`
+  // e matava o script. Enquanto a regra nao for corrigida onde e decidida, os
+  // setters vazios dao a resposta certa para os nomes que um bundle escreve.
   get self(): WindowImpl { return this; }
+  set self(_v: any) { }
   get window(): WindowImpl { return this; }
+  set window(_v: any) { }
   get top(): WindowImpl { return this; }
+  set top(_v: any) { }
   get parent(): WindowImpl { return this; }
+  set parent(_v: any) { }
   // `globalThis === window` num browser, e aqui isso deixou de ser uma
   // curiosidade: o escopo de um `<script>` É este objeto, então sem este getter
   // o nome livre `globalThis` caía no global do PROCESSO — outro objeto, que
   // nenhuma página devia alcançar.
   get globalThis(): WindowImpl { return this; }
+  set globalThis(_v: any) { }
 
   // Timers: vão para a FILA POR DOCUMENTO em Rust (`DomTimers`), dirigida pelo
   // frame do host via `pumpTimerCallbacks(doc)` — NÃO para os timers do motor

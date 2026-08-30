@@ -763,6 +763,70 @@ class Element {
     dom.removeNode(this._dom, this._node);
   }
 
+  // ── `el.style` — o objeto de estilo inline ──────────────────────
+  //
+  // Um PROXY, e nao um objeto com uma propriedade por nome CSS. Codigo real
+  // escreve `node.style.color = "red"` e `node.style.backgroundColor = "#fff"`,
+  // e o conjunto dos nomes possiveis e a especificacao CSS inteira: declarar
+  // cada um seria uma lista a envelhecer, e responder so a alguns seria pior
+  // que nao responder — uma escrita perdida em silencio.
+  //
+  // A traducao e feita no acesso: `backgroundColor` -> `background-color`, e o
+  // valor vai para `dom.setStyleProperty`, que e o mesmo estilo inline que o
+  // layout ja le. `setProperty`/`getPropertyValue`/`removeProperty` e `cssText`
+  // ficam por nome, porque quem os usa nao passa pelo caminho camelCase.
+  get style(): any {
+    const dom_h = this._dom;
+    const node_h = this._node;
+    const alvo: any = {};
+    return new Proxy(alvo, {
+      get(_t: any, chave: any): any {
+        const nome = "" + chave;
+        if (nome === "setProperty") {
+          return function (p: string, v: string) { dom.setStyleProperty(dom_h, node_h, p, v); };
+        }
+        if (nome === "getPropertyValue") {
+          return function (p: string) { return dom.inlineProperty(dom_h, node_h, p); };
+        }
+        if (nome === "removeProperty") {
+          return function (p: string) { dom.removeStyleProperty(dom_h, node_h, p); };
+        }
+        if (nome === "cssText") { return dom.cssText(dom_h, node_h); }
+        return dom.inlineProperty(dom_h, node_h, __cssKebab(nome));
+      },
+      set(_t: any, chave: any, valor: any): boolean {
+        const nome = "" + chave;
+        if (nome === "cssText") { dom.setCssText(dom_h, node_h, "" + valor); return true; }
+        dom.setStyleProperty(dom_h, node_h, __cssKebab(nome), "" + valor);
+        return true;
+      },
+    });
+  }
+
+  // ── `el.classList` — o DOMTokenList ───────────────────────────
+  //
+  // Os metodos por baixo ja existiam (`classListAdd` e companhia); o que faltava
+  // era o OBJETO, que e como todo o codigo escreve — `el.classList.add(...)` e
+  // nao `el.classListAdd(...)`. O estado continua no atributo `class`, por isso
+  // nao ha nada a manter em dia.
+  get classList(): any {
+    const eu = this;
+    return {
+      add(c: string): void { eu.classListAdd(c); },
+      remove(c: string): void { eu.classListRemove(c); },
+      toggle(c: string): boolean { return eu.classListToggle(c); },
+      contains(c: string): boolean { return eu.classListContains(c); },
+    };
+  }
+
+  // O namespace de um elemento. Este DOM nao os modela — o parser produz HTML e
+  // nada mais — por isso a resposta e sempre a do HTML. Certa para tudo o que
+  // este motor produz hoje, e ERRADA para um `<svg>`, o que fica dito aqui em
+  // vez de descoberto por quem la chegar.
+  get namespaceURI(): string {
+    return "http://www.w3.org/1999/xhtml";
+  }
+
   // ── classList (add/remove/contains/toggle) ───────────────────────────────────
   // Açúcar sobre o atributo `class`, com a semântica do DOMTokenList. Trabalha
   // sobre a string de classes separada por espaço (sem objeto vivo — o motor
@@ -836,6 +900,16 @@ class Document {
   // `null` quando não há, que é o que um browser responde para um documento
   // sem `<body>`, e não um erro: um script que testa `if (document.body)`
   // escreve-se exatamente porque a resposta pode ser nenhuma.
+  // `createElementNS(ns, tag)` — cria o elemento, e o namespace e IGNORADO.
+  //
+  // Nao e casca: o elemento e real e tem a tag pedida. O que nao acontece e o
+  // namespace ser lembrado, porque este DOM nao os modela — e um `<svg>` criado
+  // assim comporta-se como HTML. E a razao de o React montar uma arvore de HTML
+  // e nao uma de SVG.
+  createElementNS(_ns: string, tag: string): Element {
+    return this.createElement(tag);
+  }
+
   get body(): Element | null {
     const n = dom.querySelector(this._dom, "body");
     return n === __DOM_NONE ? null : new Element(this._dom, n);
@@ -1492,6 +1566,22 @@ function __prepararEscopo(doc: Document, url: string): void {
 }
 
 // Roda o j-ésimo `<script>`: inline usa o texto do nó; externo usa o fonte que o
+// `backgroundColor` -> `background-color`. Um nome ja em kebab passa intacto, e
+// um `--custom` tambem: a especificacao diz que uma propriedade customizada e
+// usada tal e qual, e as maiusculas dentro dela sao significativas.
+function __cssKebab(nome: string): string {
+  if (nome.length > 1 && nome.charAt(0) === "-" && nome.charAt(1) === "-") return nome;
+  let out = "";
+  let i = 0;
+  while (i < nome.length) {
+    const c = nome.charAt(i);
+    const baixo = c.toLowerCase();
+    if (c !== baixo) { out = out + "-" + baixo; } else { out = out + c; }
+    i = i + 1;
+  }
+  return out;
+}
+
 // `loadResources` materializou no nó (mesmo caminho). Devolve 1 (rodou) ou 0.
 function __runScriptAt(doc: Document, j: number, url: string): number {
   // Recebe o DOCUMENT, não o handle: `doc._dom` numa variável `i64` trunca

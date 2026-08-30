@@ -39,6 +39,7 @@ use rts_core::entry::{self, Context, Provided};
 mod engine;
 mod events;
 mod nodes;
+mod travessia;
 mod scope;
 mod timers;
 mod tree;
@@ -53,6 +54,9 @@ pub fn install(context: &mut Context) {
     let members: Vec<(&str, Provided)> = tree::MEMBERS
         .iter()
         .chain(nodes::MEMBERS)
+        // A travessia e a mutação da árvore, que a fachada já chamava e a ponte
+        // não tinha — ver `travessia.rs` para o que foi apagado e porquê.
+        .chain(travessia::MEMBERS)
         .chain(events::MEMBERS)
         .copied()
         .collect();
