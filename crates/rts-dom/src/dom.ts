@@ -17,6 +17,44 @@ const __DOM_NONE = -1;
 const __LISTENER_OPTIONS_SEPARATOR = "\u001f";
 const __compositionStates: Map<i64, number> = new Map();
 
+// -- Identidade de no: um no, UM objeto ------------------------------------
+//
+// `getElementById("b")` chamado duas vezes tem de responder o MESMO objeto, e
+// o que se escreveu nele tem de continuar la. Nao e purismo: toda a biblioteca
+// que ANOTA nos assume-o — o React guarda o fiber em `no.__reactFiber$xyz` e
+// vai busca-lo por `event.target.__reactFiber$xyz`, o jQuery guarda ali o cache
+// de dados, o D3 o `__data__`. Com um wrapper novo a cada acesso escreve-se num
+// objeto e le-se noutro, e o sintoma nao se parece nada com a causa: uma app que
+// MONTA, PINTA e nao responde a um unico clique — foi o que o React 18 fez aqui.
+//
+// A chave e o par (handle do DOM, `NodeId`), e nao so o `NodeId`, porque dois
+// documentos abertos ao mesmo tempo tem cada um a sua arena e os `idx` colidem.
+//
+// NAO precisa de invalidacao, e a razao esta do lado Rust em vez de aqui:
+// `mutacao.rs::remove_node` DESLIGA o no e deixa-o na arena — "o no continua na
+// arena (lixo)" — e `arvore.rs` so faz `nodes.push`. Um `idx` nunca e reciclado
+// dentro de uma geracao, e um re-parse muda a geracao de TODOS (o `NodeId` e
+// `(generation << 32) | idx`). Entao um wrapper guardado nunca pode ser
+// entregue a um no diferente daquele para que foi feito. O que a cache custa e
+// crescer com a arena — que tambem nunca encolhe — e nao mais do que ela.
+const __wrappers: Map<i64, Map<i64, any>> = new Map();
+
+// O wrapper DESTE no, sempre o mesmo. Todo o `dom.ts` passa por aqui em vez de
+// `new Element`: uma unica chamada em falta reintroduz o defeito exactamente no
+// caminho que a esqueceu, e um caminho desses e invisivel a quem le o resto.
+function __elem(h: i64, node: number): Element {
+  let daArvore = __wrappers.get(h);
+  if (daArvore === undefined) {
+    daArvore = new Map();
+    __wrappers.set(h, daArvore);
+  }
+  const visto = daArvore.get(node);
+  if (visto !== undefined) return visto;
+  const novo = new Element(h, node);
+  daArvore.set(node, novo);
+  return novo;
+}
+
 function __listenerFlags(options: any): number {
   if (options === true) return 1;
   if (options === null || options === undefined) return 0;
@@ -58,7 +96,7 @@ function __dispatchWithCallbacks(
     passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
-  const target = new Element(h, node);
+  const target = __elem(h, node);
   const state = { stopped: 0, immediate: 0, passive: 0 };
   const event: any = {
     type: type,
@@ -107,7 +145,7 @@ function __dispatchWithCallbacks(
   event.nativeEvent = event;
   let j = 0;
   while (j < n) {
-    event.currentTarget = new Element(h, nodes[j]);
+    event.currentTarget = __elem(h, nodes[j]);
     state.passive = passives[j] !== 0 ? 1 : 0;
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
     // `engine.invoke_cb` reconstitui o Function word no runtime e chama o
@@ -197,7 +235,7 @@ function __dispatchKeyboardWithCallbacks(
     passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
-  const target = new Element(h, node);
+  const target = __elem(h, node);
   const key = __keyboardKey(keyCode, shift);
   const code = __keyboardCode(keyCode);
   const state = { stopped: 0, immediate: 0, passive: 0 };
@@ -235,7 +273,7 @@ function __dispatchKeyboardWithCallbacks(
   };
   let j = 0;
   while (j < n) {
-    event.currentTarget = new Element(h, nodes[j]);
+    event.currentTarget = __elem(h, nodes[j]);
     state.passive = passives[j] !== 0 ? 1 : 0;
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
     engine.invoke_cb(cbs[j], event);
@@ -269,7 +307,7 @@ function __dispatchInputCallbacks(
     passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
-  const target = new Element(h, node);
+  const target = __elem(h, node);
   const state = { stopped: 0, immediate: 0, passive: 0 };
   const event: any = {
     type: type,
@@ -299,7 +337,7 @@ function __dispatchInputCallbacks(
   };
   let j = 0;
   while (j < n) {
-    event.currentTarget = new Element(h, nodes[j]);
+    event.currentTarget = __elem(h, nodes[j]);
     state.passive = passives[j] !== 0 ? 1 : 0;
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
     engine.invoke_cb(cbs[j], event);
@@ -417,7 +455,7 @@ class Element {
   querySelector(sel: string): Element | null {
     const n = dom.queryWithin(this._dom, this._node, sel);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // `el.querySelectorAll(sel)` — todos os DESCENDENTES que casam (subárvore).
@@ -426,7 +464,7 @@ class Element {
     const n = dom.queryAllWithinCount(this._dom, this._node, sel);
     let i = 0;
     while (i < n) {
-      out.push(new Element(this._dom, dom.queryAllWithinAt(this._dom, this._node, sel, i)));
+      out.push(__elem(this._dom, dom.queryAllWithinAt(this._dom, this._node, sel, i)));
       i = i + 1;
     }
     return out;
@@ -439,7 +477,7 @@ class Element {
     let i = 0;
     while (i < n) {
       const node = dom.childAt(this._dom, this._node, i);
-      out.push(new Element(this._dom, node));
+      out.push(__elem(this._dom, node));
       i = i + 1;
     }
     return out;
@@ -452,7 +490,7 @@ class Element {
     let i = 0;
     while (i < n) {
       const node = dom.childNodeAt(this._dom, this._node, i);
-      out.push(new Element(this._dom, node));
+      out.push(__elem(this._dom, node));
       i = i + 1;
     }
     return out;
@@ -464,49 +502,49 @@ class Element {
   get parentNode(): Element | null {
     const n = dom.parentNode(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get firstChild(): Element | null {
     const n = dom.firstChild(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get lastChild(): Element | null {
     const n = dom.lastChild(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get nextSibling(): Element | null {
     const n = dom.nextSibling(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get previousSibling(): Element | null {
     const n = dom.previousSibling(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // ── Traversal POR ELEMENTO (#1757) — pula nós de texto/comentário ────────────
   get firstElementChild(): Element | null {
     const n = dom.firstElementChild(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get lastElementChild(): Element | null {
     const n = dom.lastElementChild(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get nextElementSibling(): Element | null {
     const n = dom.nextElementSibling(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get previousElementSibling(): Element | null {
     const n = dom.previousElementSibling(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   // `no.ownerDocument` — o documento a que este nó pertence. Todo o `Element`
   // já carrega o handle dele (`_dom`), por isso é o documento REAL e não um
@@ -524,7 +562,7 @@ class Element {
   get parentElement(): Element | null {
     const n = dom.parentElement(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   // `el.childElementCount` — reusa o primitivo childCount (já existente).
   get childElementCount(): number {
@@ -537,7 +575,7 @@ class Element {
   closest(selector: string): Element | null {
     const n = dom.closest(this._dom, this._node, selector);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   // `el.matches(sel)` — testa o seletor simples NESTE nó. (mesmos cortes do closest:
   // só simples; vazio/inválido → false em vez de SyntaxError.)
@@ -549,7 +587,7 @@ class Element {
   // `el.cloneNode(deep)` — duplica o nó (deep=true com filhos); clone SOLTO.
   cloneNode(deep: boolean): Element {
     const n = dom.cloneNode(this._dom, this._node, deep ? 1 : 0);
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   // `parent.prepend(child)` — insere no INÍCIO. (variádico não no motor → 1 nó.)
   prepend(child: Element): void {
@@ -660,11 +698,23 @@ class Element {
   }
   // `node.nodeValue` — texto cru de Text/Comment. ⚠️ CORTE: a spec dá `null` para
   // Element/Document, mas a fronteira ABI (string) não carrega null → devolve `''`
-  // nesses casos (um Text vazio também é '', indistinguível). SET é método
-  // (setNodeValue) porque o motor não dispara setters de propriedade.
+  // nesses casos (um Text vazio tambem e '', indistinguivel).
+  //
+  // O SET era SO o metodo `setNodeValue`, e a razao que estava escrita aqui —
+  // "o motor nao dispara setters de propriedade" — deixou de ser verdade: o
+  // `textContent` trezentas linhas acima ja tem um. O que o corte custava nao
+  // era ergonomia: um reconciliador de React escreve `no.nodeValue = t` para
+  // trocar o texto de um no sem lhe mexer na identidade, e uma propriedade
+  // so-com-getter LANCA nessa atribuicao. A app montava, o clique chegava, e o
+  // commit morria ai.
   get nodeValue(): string {
     return dom.nodeValue(this._dom, this._node);
   }
+  set nodeValue(value: string) {
+    dom.setNodeValue(this._dom, this._node, value);
+  }
+  // Mantido: e o que os chamadores deste prelude escrevem, e os dois caminhos
+  // sao a mesma mutacao.
   setNodeValue(value: string): void {
     dom.setNodeValue(this._dom, this._node, value);
   }
@@ -902,9 +952,9 @@ class Document {
 
   private eventTarget(): Element | null {
     const root = dom.documentElement(this._dom);
-    if (root !== __DOM_NONE) return new Element(this._dom, root);
+    if (root !== __DOM_NONE) return __elem(this._dom, root);
     const body = dom.querySelector(this._dom, "body");
-    if (body !== __DOM_NONE) return new Element(this._dom, body);
+    if (body !== __DOM_NONE) return __elem(this._dom, body);
     return null;
   }
 
@@ -931,12 +981,12 @@ class Document {
 
   get body(): Element | null {
     const n = dom.querySelector(this._dom, "body");
-    return n === __DOM_NONE ? null : new Element(this._dom, n);
+    return n === __DOM_NONE ? null : __elem(this._dom, n);
   }
 
   get head(): Element | null {
     const n = dom.querySelector(this._dom, "head");
-    return n === __DOM_NONE ? null : new Element(this._dom, n);
+    return n === __DOM_NONE ? null : __elem(this._dom, n);
   }
 
   // Listeners do documento recebem eventos que borbulham até à raiz HTML.
@@ -957,7 +1007,7 @@ class Document {
   querySelector(sel: string): Element | null {
     const n = dom.querySelector(this._dom, sel);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   querySelectorAll(sel: string): Element[] {
@@ -966,7 +1016,7 @@ class Document {
     let i = 0;
     while (i < n) {
       const node = dom.querySelectorAllAt(this._dom, sel, i);
-      out.push(new Element(this._dom, node));
+      out.push(__elem(this._dom, node));
       i = i + 1;
     }
     return out;
@@ -977,7 +1027,7 @@ class Document {
   getElementById(id: string): Element | null {
     const n = dom.getById(this._dom, id);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // ── getElementsBy* (#1758) — coleções por classe/tag/name ────────────────────
@@ -986,7 +1036,7 @@ class Document {
     const n = dom.getByClassCount(this._dom, name);
     let i = 0;
     while (i < n) {
-      out.push(new Element(this._dom, dom.getByClassAt(this._dom, name, i)));
+      out.push(__elem(this._dom, dom.getByClassAt(this._dom, name, i)));
       i = i + 1;
     }
     return out;
@@ -996,7 +1046,7 @@ class Document {
     const n = dom.getByTagCount(this._dom, tag);
     let i = 0;
     while (i < n) {
-      out.push(new Element(this._dom, dom.getByTagAt(this._dom, tag, i)));
+      out.push(__elem(this._dom, dom.getByTagAt(this._dom, tag, i)));
       i = i + 1;
     }
     return out;
@@ -1006,7 +1056,7 @@ class Document {
     const n = dom.getByNameCount(this._dom, name);
     let i = 0;
     while (i < n) {
-      out.push(new Element(this._dom, dom.getByNameAt(this._dom, name, i)));
+      out.push(__elem(this._dom, dom.getByNameAt(this._dom, name, i)));
       i = i + 1;
     }
     return out;
@@ -1015,26 +1065,26 @@ class Document {
   // `document.createElement(tag)` — elemento solto (anexe com appendChild).
   createElement(tag: string): Element {
     const n = dom.createElement(this._dom, tag);
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // `document.createTextNode(text)` — nó de texto solto (anexe com appendChild).
   createTextNode(text: string): Element {
     const n = dom.createTextNode(this._dom, text);
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // `document.createComment(text)` — nó de comentário solto (nodeType 8).
   createComment(text: string): Element {
     const n = dom.createComment(this._dom, text);
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // `document.documentElement` — o elemento `<html>`, não a raiz `#document`.
   get documentElement(): Element | null {
     const root = dom.documentElement(this._dom);
     if (root === __DOM_NONE) return null;
-    return new Element(this._dom, root);
+    return __elem(this._dom, root);
   }
 }
 
