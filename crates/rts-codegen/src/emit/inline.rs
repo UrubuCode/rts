@@ -51,7 +51,7 @@ use crate::syntax::{
 };
 
 use super::capture::{Child, StmtChild, walk_expr, walk_stmt};
-use super::{Ctx, EmitResult, Scope};
+use super::{Ctx, EmitResult, Scope, UNPROVEN};
 
 /// A function whose call may be replaced by its body.
 pub(super) struct Inlinable {
@@ -241,6 +241,18 @@ pub(super) fn emit_substituted(
     if scope.lookup(*name).is_none() {
         return Ok(None);
     }
+    // ALREADY BEING SUBSTITUTED, further out. The check below refuses a body
+    // that mentions its own name, which stops `f` calling `f` and says nothing
+    // about `f` calling `g` calling `f` — and the comment above `bound.contains`
+    // claimed a mutual pair was caught "because each is free in the other",
+    // which refuses nothing. It went unnoticed only because such a body has a
+    // `return` in it and `return` was refused for its own reasons.
+    //
+    // Admitting a guard clause removed that reason, and
+    // `two_functions_can_call_each_other` overflowed the COMPILER's stack.
+    if ctx.substituting(*name) {
+        return Ok(None);
+    }
     if candidate.rest_length.is_some() {
         // A spread has a runtime-dependent count, so it cannot use the exact
         // written-argument proof. Still emit every non-spread argument in source
@@ -339,10 +351,50 @@ pub(super) fn emit_substituted(
     // scope. A fresh `Loops` because nothing in an accepted body can jump:
     // `straight_line` refuses every loop, label, `break`, `continue`, `return`
     // and `try`, so there is no frame for one to reach.
+    ctx.enter_substitution(*name);
+    // A body with no guard clause leaves through its tail and needs no join at
+    // all — that is the shape this pass began as, and it stays exactly as it
+    // was so that admitting guards costs nothing where there are none.
+    let guarded = candidate
+        .statements
+        .iter()
+        .any(|statement| guard_return(statement).is_some());
+    let join = guarded.then(|| builder.create_block());
+    let merged = join.map(|block| builder.add_block_param(block, UNPROVEN));
+
     let mut ran = Ok(());
     for statement in &candidate.statements {
         if ran.is_err() {
             break;
+        }
+        // A GUARD CLAUSE is emitted as a branch to the join rather than as a
+        // statement, because `stmt::emit_stmt` would emit its `Return` as a
+        // terminator leaving the CALLER. The two halves are the same two the
+        // body has: take the guard's answer, or carry on to the next statement.
+        if let Some((condition, answer)) = guard_return(statement) {
+            ran = (|| -> EmitResult<()> {
+                let cond = super::expr::emit_condition(builder, scope, ctx, condition)?;
+                let taken = builder.create_block();
+                let carried = builder.create_block();
+                // The scope each side starts from is the one the guard started
+                // in. A guard's answer cannot see what the statements after it
+                // bind, because it left before them.
+                let before = scope.snapshot();
+                builder.branch(cond, (taken, &[]), (carried, &[]))?;
+
+                builder.switch_to(taken);
+                let value = super::expr::emit_expr(builder, scope, ctx, answer)?;
+                let value = builder.widen(value);
+                let Some(block) = join else {
+                    unreachable!("a guard was found, so the join was created")
+                };
+                builder.jump(block, &[value])?;
+
+                scope.restore(&before);
+                builder.switch_to(carried);
+                Ok(())
+            })();
+            continue;
         }
         ran = super::stmt::emit_stmt(
             builder,
@@ -354,8 +406,22 @@ pub(super) fn emit_substituted(
         .map(|_| ());
     }
     let answered = ran.and_then(|()| super::expr::emit_expr(builder, scope, ctx, &candidate.body));
+    // Popped before the `?` below, so a body that fails to emit leaves the stack
+    // as it found it — an unbalanced push would refuse every later call to the
+    // same helper, which is a silent loss rather than a failure.
+    ctx.leave_substitution();
+    let answered = answered?;
+    let result = match (join, merged) {
+        (Some(block), Some(merged)) => {
+            let tail = builder.widen(answered);
+            builder.jump(block, &[tail])?;
+            builder.switch_to(block);
+            merged
+        }
+        _ => answered,
+    };
     scope.leave();
-    Ok(Some(answered?))
+    Ok(Some(result))
 }
 
 
@@ -704,6 +770,51 @@ fn body_shape(function: &Function) -> Option<(Vec<Stmt>, &Expr)> {
 /// this module's header already says it does not have; until there is one, a
 /// body with no declarations is the whole of what can be spliced, and it is
 /// enough for the shape this was extended for.
+/// The `if (c) { return e; }` a body opens with, if this statement is one.
+///
+/// # Why this shape and not `return` in general
+///
+/// Because a `Return` inside a substituted body would return from the CALLER —
+/// the body is spliced into the caller's block, and there is no frame of its own
+/// for a terminator to leave. That is what refuses every other jump here and
+/// always will.
+///
+/// A GUARD CLAUSE is the one shape where the value it leaves with is knowable
+/// without a frame: the statement has no `else`, so the body either answers `e`
+/// or carries on to the next statement, and both are expressions the call site
+/// can merge into one block parameter. `emit_substituted` does exactly that.
+///
+/// It is worth the special case because it is the shape small helpers are
+/// written in — `if (n < 0) return 0;` ahead of the real answer — and one
+/// measured 23.75 ns against 8.75 for the same helper without the guard.
+///
+/// Refuses a `return` with no value: `return;` answers `undefined`, which is
+/// expressible, but the shape is vanishingly rare in a helper that has a value
+/// to give and admitting it would need a constant nobody asked for.
+fn guard_return(statement: &Stmt) -> Option<(&Expr, &Expr)> {
+    let StmtKind::If {
+        condition,
+        then_branch,
+        else_branch: None,
+    } = &statement.kind
+    else {
+        return None;
+    };
+    // `{ return e; }` and `return e;` are the same guard written two ways, and
+    // both are written.
+    let inner = match &then_branch.kind {
+        StmtKind::Block(statements) => match statements.as_slice() {
+            [only] => only,
+            _ => return None,
+        },
+        _ => then_branch.as_ref(),
+    };
+    let StmtKind::Return(Some(answer)) = &inner.kind else {
+        return None;
+    };
+    Some((condition, answer))
+}
+
 fn straight_line(statement: &Stmt) -> bool {
     match &statement.kind {
         StmtKind::Empty => true,
@@ -718,6 +829,9 @@ fn straight_line(statement: &Stmt) -> bool {
                 })
         }
         StmtKind::Block(inner) => inner.iter().all(straight_line),
+        // A guard clause, which is the one way a `Return` is admitted here — see
+        // [`guard_return`] for why this shape and no other.
+        _ if guard_return(statement).is_some() => true,
         StmtKind::If {
             then_branch,
             else_branch,
@@ -749,6 +863,16 @@ fn declared_names(statement: &Stmt, bound: &mut Vec<Name>) -> bool {
             true
         }
         StmtKind::Block(inner) => inner.iter().all(|held| declared_names(held, bound)),
+        // BEFORE the `If` arm, and the position is load-bearing: a `match` takes
+        // the first arm that fits, so an `If` guard placed after it would be
+        // matched as an ordinary `if`, descend into the `return`, and refuse.
+        // It was written after it for one build, the whole pass silently
+        // refused every guarded body, and the only thing that said so was the
+        // clock — the tests all passed, because refusing is always correct.
+        //
+        // A guard clause introduces no name: its `return` is the whole of its
+        // body, and a `return` binds nothing.
+        _ if guard_return(statement).is_some() => true,
         StmtKind::If {
             then_branch,
             else_branch,
@@ -778,6 +902,15 @@ fn closed_over_statement(statement: &Stmt, bound: &[Name], free: &mut Vec<Name>)
         StmtKind::Block(inner) => inner
             .iter()
             .all(|statement| closed_over_statement(statement, bound, free)),
+        // A guard clause, whose two halves are both expressions the call site
+        // emits: asked BEFORE the general `If` arm, which would descend into the
+        // `return` and refuse it.
+        _ if guard_return(statement).is_some() => {
+            let Some((condition, answer)) = guard_return(statement) else {
+                unreachable!("the arm's own guard just answered")
+            };
+            closed_over(condition, bound, free) && closed_over(answer, bound, free)
+        }
         StmtKind::If {
             condition,
             then_branch,

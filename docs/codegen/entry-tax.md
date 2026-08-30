@@ -1036,3 +1036,96 @@ more than once on its way in.
   is, and this file exists because of the spellings that two statements come to
   disagree about. Refused for the same reason part seven kept one parser when it
   removed the allocation.
+
+---
+
+# Part nine: the pass that refused everything, and said nothing
+
+The inliner's guard-clause extension, and two lessons that cost a build each.
+
+## What was added
+
+`function f(n) { if (n < 0) return 0; return n + 1; }` — a guard clause, which
+is how small helpers are written — measured 23.75 ns against 8.75 for the same
+helper without it.
+
+`Return` is refused in a substituted body and always will be: the body is
+spliced into the CALLER's block and has no frame of its own for a terminator to
+leave. A guard clause is the one shape where the value it leaves with is
+knowable without a frame — it has no `else`, so the body either answers `e` or
+carries on, and both are expressions the call site merges into one block
+parameter.
+
+| | base | now |
+|---|---:|---:|
+| an EARLY return | 23.75 | **9.25  (-61%)** |
+| CONTROL a plain helper | 9.00 | 9.00 |
+| CONTROL a ternary body | 9.25 | 9.25 |
+| CONTROL 8 statements | 9.00 | 9.00 |
+
+A body with no guard builds no join block at all, so admitting guards costs
+nothing where there are none.
+
+## Lesson one: the position of a `match` arm is load-bearing
+
+The first build measured **24.00 against 24.00** — nothing. Forty-seven tests
+passed. The corpus passed. The pass was refusing every guarded body.
+
+`declared_names` had its `StmtKind::If` arm above the new `_ if guard_return(…)`
+one, so a guard was matched as an ordinary `if`, descended into, and refused at
+the `return`.
+
+**No test could have caught it, because refusing is always correct.** A pass
+that does not fire gives the same answers as a pass that does, only slower. This
+is the fourth gate — the clock — and it is the second time in this campaign that
+it was the only thing that spoke: a guard written on 2026-08-29 turned the whole
+inliner off and the corpus, the unit tests and the doctests were all green.
+
+## Lesson two: a comment claimed a check that did not exist
+
+The second build overflowed the COMPILER's stack on
+`rts-host/tests/running.rs::two_functions_can_call_each_other`.
+
+The pass refuses a body that mentions its OWN name. Above that check stood:
+
+> a mutual pair is caught because each is free in the other and the free-name
+> question below is asked of a name that IS a function
+
+That refuses nothing. Being free is not being refused. The claim had been true
+in effect and false in fact for as long as a mutually recursive body had a
+`return` in it — which every one does — and admitting guard clauses removed the
+hiding place. `isEven` substituted `isOdd` substituted `isEven`, for ever.
+
+`Ctx` now carries the callees being substituted, innermost last, and refuses a
+name already on it. A stack rather than a depth counter, because a legitimate
+chain — `level1` calling `level2` calling `level3` — repeats no name and is
+substituted all the way down, which a counter would have capped for nothing.
+
+## And the gate that noticed
+
+`cargo test` reported **963 passed where the run before it reported 1295**, with
+the same two failures listed and nothing else red. The 332 missing were one
+target that aborted rather than failed, and `--no-fail-fast` does not make an
+aborted target report.
+
+The number is what said so. Had nobody compared it to the previous run, the
+output would have read like a green suite with two known failures — which is
+`CLAUDE.md`'s "a suite that does not run produces nothing to compare, and empty
+looks exactly like green", arriving in the one form that still shows a total.
+
+## Still refused, with prices
+
+| shape | ns |
+|---|---:|
+| `try`/`catch` in the body | 23.50 — needs a protected region, correctly refused |
+| nine statements | 25.00 — the budget, by design |
+| reads `this` (a method) | 27.25 — needs a property-stability proof |
+| a body with a loop | 24.50 |
+| a rest parameter | 104.00 |
+
+And one that is not an inliner gap at all: `const f = (y) => y + 1; return f(x)`
+costs **280 ns**, and `rts ir` shows why — the call IS substituted, the body
+`x + 1` is emitted inline, and `__rts_closure_new` still runs on every call with
+its result never used. A closure allocated and immediately dead. That is larger
+than anything the pass still refuses, and it is a removal rather than a
+rearrangement.

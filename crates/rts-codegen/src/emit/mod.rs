@@ -553,6 +553,21 @@ pub struct Ctx<'a> {
     /// to the function it was declared as is a fact about the entire tree, and
     /// nothing smaller than that can answer it without guessing. See `inline`.
     inlinable: std::collections::BTreeMap<Name, std::rc::Rc<inline::Inlinable>>,
+    /// The callees whose bodies are being substituted right now, innermost last.
+    ///
+    /// A cycle among candidates is unbounded substitution at COMPILE time, and
+    /// the pass's own recursion check does not see one: it refuses a body that
+    /// mentions its OWN name, which stops `f` calling `f` and says nothing about
+    /// `f` calling `g` calling `f`. The comment that claimed a mutual pair was
+    /// caught "because each is free in the other" was wrong — being free refuses
+    /// nothing — and it went unnoticed while every such body was refused for a
+    /// different reason, having a `return` in it.
+    ///
+    /// Admitting guard clauses removed that reason and the pair became
+    /// substitutable both ways. `two_functions_can_call_each_other` in
+    /// `rts-host/tests/running.rs` overflowed the compiler's stack, which is
+    /// what this stack exists to make unrepresentable rather than unlikely.
+    substituting: Vec<Name>,
     /// What THIS body knows about throws: where its flag lives, and which
     /// re-raise block each protected region already has.
     ///
@@ -631,6 +646,7 @@ impl<'a> Ctx<'a> {
             module_paths: None,
             math_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
+            substituting: Vec::new(),
             body: body_state::BodyState::default(),
             async_parks: false,
             proven_element: None,
@@ -645,6 +661,26 @@ impl<'a> Ctx<'a> {
     /// call site.
     pub(in crate::emit) fn inlinable(&self, name: Name) -> Option<std::rc::Rc<inline::Inlinable>> {
         self.inlinable.get(&name).cloned()
+    }
+
+    /// Whether this callee is already being substituted further out.
+    ///
+    /// Exactly a cycle check: a name on the stack means substituting it again
+    /// would re-enter a body that is still being emitted. A legitimate nesting —
+    /// `outer` calling `inner` — never repeats a name and is unaffected, which
+    /// is why this is a stack rather than a depth counter.
+    pub(in crate::emit) fn substituting(&self, name: Name) -> bool {
+        self.substituting.contains(&name)
+    }
+
+    /// Records that this callee's body is being substituted.
+    pub(in crate::emit) fn enter_substitution(&mut self, name: Name) {
+        self.substituting.push(name);
+    }
+
+    /// Records that it is finished.
+    pub(in crate::emit) fn leave_substitution(&mut self) {
+        self.substituting.pop();
     }
 
     /// Whether the body being emitted replaced an object of this name with

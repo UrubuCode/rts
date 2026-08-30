@@ -502,3 +502,238 @@ describe("arity and defaults at a substituted call site", () => {
     expect(elsewhere()(1)).toBe(14);
   });
 });
+
+describe("a guard clause in a substituted body", () => {
+  test("the guard is taken, and the tail is not", () => {
+    function clamped(n: number): number {
+      if (n < 0) {
+        return 0;
+      }
+      return n + 1;
+    }
+    expect(clamped(-5)).toBe(0);
+    expect(clamped(0)).toBe(1);
+    expect(clamped(5)).toBe(6);
+  });
+
+  test("the braceless spelling is the same guard", () => {
+    function bare(n: number): number {
+      if (n < 0) return 0;
+      return n + 1;
+    }
+    expect(bare(-1)).toBe(0);
+    expect(bare(1)).toBe(2);
+  });
+
+  test("TWO guards, and the order between them decides", () => {
+    function ranged(n: number): string {
+      if (n < 0) {
+        return "low";
+      }
+      if (n > 10) {
+        return "high";
+      }
+      return "mid";
+    }
+    expect(ranged(-1)).toBe("low");
+    expect(ranged(5)).toBe("mid");
+    expect(ranged(50)).toBe("high");
+  });
+
+  test("a guard's answer does NOT see what the statements after it bind", () => {
+    // The guard left before them, so the value it produces cannot depend on
+    // them — which is why each side starts from the scope the guard started in.
+    let seen = "";
+    function ordered(n: number): number {
+      if (n < 0) {
+        seen = seen + "guard";
+        return 0;
+      }
+      const zqxLater = n * 2;
+      seen = seen + "tail";
+      return zqxLater;
+    }
+    seen = "";
+    expect(ordered(-1)).toBe(0);
+    expect(seen).toBe("guard");
+    seen = "";
+    expect(ordered(3)).toBe(6);
+    expect(seen).toBe("tail");
+  });
+
+  test("the statements BEFORE a guard run either way", () => {
+    const log: string[] = [];
+    function staged(n: number): number {
+      log.push("before");
+      if (n < 0) {
+        return 0;
+      }
+      log.push("after");
+      return n;
+    }
+    log.length = 0;
+    expect(staged(-1)).toBe(0);
+    expect(log.join(",")).toBe("before");
+    log.length = 0;
+    expect(staged(1)).toBe(1);
+    expect(log.join(",")).toBe("before,after");
+  });
+
+  test("a guard reading a body LOCAL declared before it", () => {
+    function usesLocal(n: number): number {
+      const zqxDoubled = n * 2;
+      if (zqxDoubled > 10) {
+        return zqxDoubled;
+      }
+      return zqxDoubled + 1;
+    }
+    expect(usesLocal(1)).toBe(3);
+    expect(usesLocal(9)).toBe(18);
+  });
+
+  test("a guard whose condition is not a boolean uses the falsy rule", () => {
+    function truthy(v: any): string {
+      if (v) {
+        return "yes";
+      }
+      return "no";
+    }
+    expect(truthy(1)).toBe("yes");
+    expect(truthy("a")).toBe("yes");
+    expect(truthy([])).toBe("yes");
+    expect(truthy(0)).toBe("no");
+    expect(truthy("")).toBe("no");
+    expect(truthy(null)).toBe("no");
+    expect(truthy(undefined)).toBe("no");
+    expect(truthy(NaN)).toBe("no");
+  });
+
+  test("a guard with an ELSE is not this shape and still answers", () => {
+    function withElse(n: number): number {
+      if (n < 0) {
+        return 0;
+      } else {
+        return n + 1;
+      }
+    }
+    expect(withElse(-1)).toBe(0);
+    expect(withElse(1)).toBe(2);
+  });
+
+  test("a guard's condition and answer are evaluated once each, in order", () => {
+    const log: string[] = [];
+    function mark(tag: string, value: any): any {
+      log.push(tag);
+      return value;
+    }
+    function watched(n: number): any {
+      if (mark("cond", n < 0)) {
+        return mark("answer", 0);
+      }
+      return mark("tail", n);
+    }
+    log.length = 0;
+    expect(watched(-1)).toBe(0);
+    expect(log.join(",")).toBe("cond,answer");
+    log.length = 0;
+    expect(watched(1)).toBe(1);
+    expect(log.join(",")).toBe("cond,tail");
+  });
+
+  test("the guard shape composes with a default and with fewer arguments", () => {
+    function both(n: number, floorAt: number = 0): number {
+      if (n < floorAt) {
+        return floorAt;
+      }
+      return n;
+    }
+    expect(both(-5)).toBe(0);
+    expect(both(5)).toBe(5);
+    expect(both(-5, -10)).toBe(-5);
+  });
+});
+
+describe("substitution must not cycle", () => {
+  test("two functions that call each other still compile and answer", () => {
+    // The pass refuses a body that mentions its OWN name, which stops `f`
+    // calling `f` and says nothing about `f` calling `g` calling `f`. That was
+    // hidden for as long as such a body had a `return` in it and `return` was
+    // refused; admitting a guard clause removed the hiding place, and the
+    // COMPILER overflowed its stack substituting the pair into each other.
+    function isEven(n: number): boolean {
+      if (n === 0) {
+        return true;
+      }
+      return isOdd(n - 1);
+    }
+    function isOdd(n: number): boolean {
+      if (n === 0) {
+        return false;
+      }
+      return isEven(n - 1);
+    }
+    expect(isEven(10)).toBe(true);
+    expect(isOdd(10)).toBe(false);
+    expect(isEven(7)).toBe(false);
+    expect(isOdd(7)).toBe(true);
+    expect(isEven(0)).toBe(true);
+  });
+
+  test("a three-name cycle is refused the same way", () => {
+    function first(n: number): number {
+      if (n <= 0) {
+        return 0;
+      }
+      return second(n - 1);
+    }
+    function second(n: number): number {
+      if (n <= 0) {
+        return 1;
+      }
+      return third(n - 1);
+    }
+    function third(n: number): number {
+      if (n <= 0) {
+        return 2;
+      }
+      return first(n - 1);
+    }
+    expect(first(0)).toBe(0);
+    expect(first(1)).toBe(1);
+    expect(first(2)).toBe(2);
+    expect(first(3)).toBe(0);
+  });
+
+  test("legitimate nesting is NOT refused, and repeats no name", () => {
+    // A stack rather than a depth counter, so a chain that never repeats a name
+    // is substituted all the way down.
+    function level3(x: number): number {
+      return x + 1;
+    }
+    function level2(x: number): number {
+      return level3(x) + 1;
+    }
+    function level1(x: number): number {
+      return level2(x) + 1;
+    }
+    expect(level1(0)).toBe(3);
+    expect(level1(10)).toBe(13);
+  });
+
+  test("direct recursion still answers", () => {
+    function countDown(n: number): number {
+      if (n <= 0) {
+        return 0;
+      }
+      return countDown(n - 1);
+    }
+    expect(countDown(5)).toBe(0);
+    function sum(n: number): number {
+      if (n <= 0) {
+        return 0;
+      }
+      return n + sum(n - 1);
+    }
+    expect(sum(4)).toBe(10);
+  });
+});
