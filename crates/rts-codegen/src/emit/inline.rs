@@ -72,11 +72,39 @@ pub(super) struct Inlinable {
     /// parameter falls back to a real call. That is strictly more than was
     /// accepted before, which was nothing.
     pub defaults: Vec<Option<Expr>>,
-    /// The names the body reads that it does not declare, each proven to have
-    /// exactly one declaration in the whole program. Kept so the call site can
-    /// ask the CALLER's escape analysis about them, which is a question only
+    /// The names the body reads that it does not declare. Kept so the call site
+    /// can ask the CALLER's escape analysis about them, which is a question only
     /// the site can answer.
     pub free: Vec<Name>,
+    /// Whether every free name has exactly one declaration in the whole program.
+    ///
+    /// # Why this is a flag and no longer a refusal
+    ///
+    /// The proof it carries is about WHERE a substituted body lands: the body is
+    /// emitted in the caller's scope, so a free name resolves against the
+    /// caller's bindings, and one declaration program-wide means there is no
+    /// second binding for any caller to resolve it to.
+    ///
+    /// Refusing outright made the count decide it, and the count over-counts on
+    /// purpose — a parameter, a `catch` binding and a LOOP TARGET all count. So
+    /// a helper that reads its loop variable was refused in every program that
+    /// has two loops, because both spell it `i`:
+    ///
+    /// ```text
+    /// for (let i   = …) { const q = (x) => x + i;   a = q(a) | 0; }   233.67 ns
+    /// for (let zwq = …) { const q = (x) => x + zwq; a = q(a) | 0; }    46.33 ns
+    /// ```
+    ///
+    /// Measured 2026-08-30, release, min of 9. Five times, and the only
+    /// difference is spelling.
+    ///
+    /// The proof is still required; it is asked at the SITE, where a second and
+    /// stronger one is available. `Ctx::omits` says the helper is declared in
+    /// the body being emitted, is never read as a value, and is not captured —
+    /// so every call to it is in the declaring function, the caller IS the
+    /// declarer, and a free name resolves to the binding it was written against
+    /// by construction. That is what the count was approximating.
+    pub free_proved: bool,
     /// The statements before the answer, in order. Empty for the one-expression
     /// shape this began as.
     ///
@@ -192,13 +220,17 @@ pub(super) fn candidates(
         if free.iter().any(|held| *held == arguments) {
             continue;
         }
-        if free.iter().any(|held| match declarations_of(body, *held) {
+        // RECORDED RATHER THAN REFUSED, and `free_proved` says why. A site that
+        // cannot offer the stronger proof still refuses on it, so nothing that
+        // was substituted before stops being and nothing new is substituted
+        // without a proof — only the proof may now come from the site.
+        let mut candidate = candidate;
+        let free_proved = !free.iter().any(|held| match declarations_of(body, *held) {
             1 => false,
             0 => !super::primordial::untouched(body, *held, eval, global_this),
             _ => true,
-        }) {
-            continue;
-        }
+        });
+        candidate.free_proved = free_proved;
 
 
         // AND THE BODY'S OWN LOCALS, which is the guard that lets a declaring
@@ -304,6 +336,31 @@ pub(super) fn emit_substituted(
     //
     // Admitting a guard clause removed that reason, and
     // `two_functions_can_call_each_other` overflowed the COMPILER's stack.
+    // THE FREE-NAME PROOF, ASKED HERE BECAUSE THE SITE HAS A STRONGER ONE.
+    //
+    // `free_proved` is the count: every free name declared exactly once in the
+    // whole program, so no caller can resolve one to a different binding. It is
+    // sound and it over-counts, because `declarations_of` counts a parameter, a
+    // `catch` binding and a LOOP TARGET — so a helper reading its loop variable
+    // was refused in every program with two loops, both spelling it `i`. That
+    // cost five times:
+    //
+    //     for (let i   = …) { const q = (x) => x + i;   … }   233.67 ns
+    //     for (let zwq = …) { const q = (x) => x + zwq; … }    46.33 ns
+    //
+    // `ctx.omits` is the other proof, and it is stronger rather than weaker.
+    // `omit::omittable` established, over this whole body and before any of it
+    // was emitted, that the helper is declared HERE, is never read as a value,
+    // and is not captured. So every call to it is in the declaring function,
+    // the caller IS the declarer, and a free name resolves to the binding it
+    // was written against — not because no other binding exists anywhere, but
+    // because no other scope is between the two.
+    //
+    // Either proof suffices and neither is skipped. A candidate with no count
+    // proof, at a site that does not omit it, refuses exactly as it did before.
+    if !candidate.free_proved && !ctx.omits(*name) {
+        return Ok(None);
+    }
     if ctx.substituting(*name) {
         return Ok(None);
     }
@@ -644,6 +701,7 @@ fn shape_of(
                 parameters: Vec::new(),
                 defaults: Vec::new(),
                 free: Vec::new(),
+                free_proved: true,
                 statements: Vec::new(),
                 body: answered.clone(),
                 rest_length: Some(*rest),
@@ -758,6 +816,8 @@ fn shape_of(
             parameters,
             defaults,
             free: free.clone(),
+            // Filled in by the caller, which is where the count is taken.
+            free_proved: true,
             statements,
             body: answered,
             rest_length: None,

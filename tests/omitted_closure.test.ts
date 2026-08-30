@@ -275,3 +275,107 @@ describe("a helper declared inside a block", () => {
     expect(outer(1)).toBe(3);
   });
 });
+
+describe("a helper that reads a name from around it", () => {
+  // The free-name proof used to be a COUNT — every free name declared exactly
+  // once in the whole program — and it was taken at collection, so failing it
+  // refused the helper outright. The count over-counts on purpose: a parameter,
+  // a `catch` binding and a LOOP TARGET all count. So a helper reading its loop
+  // variable was refused in every program that has two loops, because both spell
+  // it `i`. Measured 2026-08-30, release, min of 9:
+  //
+  //   for (let i   = …) { const q = (x) => x + i;   … }   233.67 ns
+  //   for (let zwq = …) { const q = (x) => x + zwq; … }    46.33 ns
+  //
+  // The proof is still required. It is asked at the SITE, where `Ctx::omits`
+  // offers a stronger one: the helper is declared in this body, is never read as
+  // a value, and is not captured — so the caller IS the declarer and a free name
+  // resolves to the binding it was written against.
+  test("the loop variable, spelled the way every program spells it", () => {
+    function reads(n: number): number {
+      let a = 0;
+      for (let i = 0; i < n; i++) {
+        const qi = (x: number): number => x + i;
+        a = qi(a) | 0;
+      }
+      return a;
+    }
+    // A second loop over `i`, so the count says two and the old gate refused.
+    function elsewhere(n: number): number {
+      let s = 0;
+      for (let i = 0; i < n; i++) s = (s + 1) | 0;
+      return s;
+    }
+    expect(reads(4)).toBe(6);
+    expect(elsewhere(4)).toBe(4);
+  });
+
+  test("it reads the value the iteration has, not the last one", () => {
+    // The whole hazard of moving a closure body: if the substituted read
+    // resolved to something other than this iteration's binding, this answers 9.
+    function each(): string {
+      const seen: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        const qj = (): number => i;
+        seen.push(qj());
+      }
+      return seen.join(",");
+    }
+    expect(each()).toBe("0,1,2");
+  });
+
+  test("an outer binding written between two calls", () => {
+    function changes(): number {
+      let held = 1;
+      const qk = (x: number): number => x + held;
+      const first = qk(0);
+      held = 10;
+      const second = qk(0);
+      return first * 100 + second;
+    }
+    expect(changes()).toBe(110);
+  });
+
+  test("a parameter of the enclosing function", () => {
+    function outer(n: number): number {
+      const ql = (x: number): number => x + n;
+      return ql(1);
+    }
+    expect(outer(5)).toBe(6);
+  });
+
+  test("a name the helper both reads and WRITES", () => {
+    function accumulates(n: number): number {
+      let total = 0;
+      for (let i = 0; i < n; i++) {
+        const qm = (x: number): void => {
+          total = total + x;
+        };
+        qm(i);
+      }
+      return total;
+    }
+    expect(accumulates(4)).toBe(6);
+  });
+
+  test("a shadowing binding is still the inner one", () => {
+    function shadows(): number {
+      const held = 1;
+      function inner(): number {
+        const held2 = 100;
+        const qn = (x: number): number => x + held2;
+        return qn(0);
+      }
+      return inner() + held;
+    }
+    expect(shadows()).toBe(101);
+  });
+
+  test("a helper reading a global still answers through it", () => {
+    function usesGlobal(n: number): number {
+      const qo = (x: number): number => Math.abs(x) + n;
+      return qo(-5);
+    }
+    expect(usesGlobal(1)).toBe(6);
+  });
+});
