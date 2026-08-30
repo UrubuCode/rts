@@ -338,7 +338,7 @@ extern "C" fn set(_e: u64, _t: u64, doc: u64, name: u64, value: u64, _c: u64) ->
     let h = handle(doc);
     let name = text(name);
     let object = object_for(h);
-    entry::set_indexed(object, string(&name), value);
+    entry::set_indexed(object, string(&name), value, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     remember(h, &name);
     nothing()
 }

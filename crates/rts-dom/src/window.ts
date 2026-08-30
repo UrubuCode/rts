@@ -228,17 +228,21 @@ class WindowImpl {
   get closed(): boolean { return false; }
   // window.self / window.window / window.top / window.parent apontam pra ele
   // mesmo (single-frame). Getters retornam o próprio window.
-  // Os quatro apontam para ele proprio, e os setters IGNORAM.
+  // Os quatro apontam para ele próprio (single-frame), e os quatro ACEITAM
+  // escrita.
   //
-  // Nao e preguica: e o que um browser faz. Escrever numa propriedade que so
-  // tem getter e, em SLOPPY MODE, um no-op silencioso — e um `<script>` e
-  // sloppy. So em strict e que lanca.
-  //
-  // Este motor lanca nos dois, e isso e um defeito de conformidade que vive no
-  // emissor, nao aqui: `window.self = x` num bundle real fazia
+  // Não é indulgência: na especificação HTML `self`, `window`, `top` e `parent`
+  // são `[Replaceable]` — escrever neles é legal e substitui a propriedade,
+  // inclusive em código STRICT, que é onde um getter sozinho recusa. Um bundle
+  // que o faça no arranque — e o react-dom faz — morria com
   // `TypeError: Cannot set property self of #<Object> which has only a getter`
-  // e matava o script. Enquanto a regra nao for corrigida onde e decidida, os
-  // setters vazios dao a resposta certa para os nomes que um bundle escreve.
+  // enquanto isto eram só getters.
+  //
+  // O setter IGNORA em vez de guardar, e isso é uma divergência declarada: a
+  // especificação diz que a escrita substitui, e aqui a leitura continua a
+  // responder o `window`. É a metade que interessa a quem escreve por hábito
+  // — o script segue — e a outra metade precisaria de uma propriedade own a
+  // tapar o acessor, que esta fachada não sabe criar.
   get self(): WindowImpl { return this; }
   set self(_v: any) { }
   get window(): WindowImpl { return this; }
@@ -252,7 +256,6 @@ class WindowImpl {
   // o nome livre `globalThis` caía no global do PROCESSO — outro objeto, que
   // nenhuma página devia alcançar.
   get globalThis(): WindowImpl { return this; }
-  set globalThis(_v: any) { }
 
   // Timers: vão para a FILA POR DOCUMENTO em Rust (`DomTimers`), dirigida pelo
   // frame do host via `pumpTimerCallbacks(doc)` — NÃO para os timers do motor

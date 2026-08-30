@@ -276,7 +276,7 @@ pub fn define_setter(object: u64, key: i64, setter: u64) -> u64 {
 /// long as `for`-`in` walked own keys only.
 #[rtse::entry]
 pub fn define_method(object: u64, key: i64, value: u64) -> u64 {
-    super::objects::set_property(object, key, value);
+    super::objects::set_property(object, key, value, 0 /* strict: um native que escreve reporta a recusa */);
     with_current(|context| {
         let Some(cell) = Value(object).as_slot() else {
             return;

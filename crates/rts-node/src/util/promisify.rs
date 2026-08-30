@@ -119,7 +119,7 @@ pub(super) extern "C" fn promisify(
     // own idempotence rests on — it defines the custom hook on the result too.
     // Written under the symbol's key text, so a program asking with
     // `Symbol.for(...)` sees exactly this.
-    entry::set_indexed(wrapper, string(CUSTOM), wrapper);
+    entry::set_indexed(wrapper, string(CUSTOM), wrapper, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     wrapper
 }
 
@@ -133,7 +133,7 @@ fn copy_own(original: u64, wrapper: u64) {
     for name in own_key_strings(original) {
         let key = string(&name);
         let value = entry::get_indexed(original, key);
-        entry::set_indexed(wrapper, key, value);
+        entry::set_indexed(wrapper, key, value, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     }
 }
 

@@ -97,7 +97,7 @@ pub unsafe extern "C" fn napi_set_property(
     else {
         return napi_invalid_arg;
     };
-    rts_core::entry::set_indexed(object, key, value);
+    rts_core::entry::set_indexed(object, key, value, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     napi_ok
 }
 
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn napi_set_named_property(
     let key = rts_core::entry::with_runtime(|context| {
         rts_core::entry::make_string(context, name)
     });
-    rts_core::entry::set_indexed(object, key, value);
+    rts_core::entry::set_indexed(object, key, value, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     napi_ok
 }
 
@@ -376,7 +376,7 @@ pub unsafe extern "C" fn napi_set_element(
         return napi_invalid_arg;
     };
     let key = rts_core::entry::make_number(index as f64);
-    rts_core::entry::set_indexed(object, key, value);
+    rts_core::entry::set_indexed(object, key, value, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     napi_ok
 }
 

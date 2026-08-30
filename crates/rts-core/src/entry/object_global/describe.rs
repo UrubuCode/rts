@@ -349,7 +349,7 @@ extern "C" fn get_own_property_descriptors(
     names.extend(elements(own_symbols(object)).unwrap_or_default());
     for name in names {
         if let Some(built) = descriptor(object, name) {
-            super::super::computed::set_indexed(made, name, built);
+            super::super::computed::set_indexed(made, name, built, 0 /* strict: um native que escreve reporta a recusa */);
         }
     }
     made

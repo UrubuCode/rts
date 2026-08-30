@@ -281,11 +281,14 @@ pub fn emit_update(
             let current = expr::call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0];
             let (before, after) = step_value(builder, ctx, current, step)?;
             let stored = builder.widen(after);
+            // `x[k]++` é uma escrita do PROGRAMA, e leva o modo dele: num
+            // objeto congelado, em sloppy, incrementar não lança.
+            let mode = super::property::write_mode(builder, ctx);
             expr::call(
                 builder,
                 ctx,
                 RuntimeOp::SetIndexed,
-                &[receiver, key, stored],
+                &[receiver, key, stored, mode],
             )?;
             Ok(match position {
                 UpdatePosition::Prefix => after,

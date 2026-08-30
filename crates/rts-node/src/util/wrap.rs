@@ -68,7 +68,7 @@ pub(super) extern "C" fn deprecate(
     if modify {
         let prototype = get(target, "prototype");
         if present(prototype) {
-            entry::set_indexed(wrapper, super::values::string("prototype"), prototype);
+            entry::set_indexed(wrapper, super::values::string("prototype"), prototype, 0 /* strict: quem escreve a partir do host reporta a recusa */);
         }
     }
     wrapper
