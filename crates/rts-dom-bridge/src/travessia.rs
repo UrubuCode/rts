@@ -87,7 +87,21 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("getByClassAt", get_by_class_at),
     ("getByNameCount", get_by_name_count),
     ("getByNameAt", get_by_name_at),
+    ("advance", advance),
 ];
+
+/// `dom.advance(doc, agora_ms)` — faz o tempo passar para as animações CSS e as
+/// transições. Responde `1` se alguma continua a correr.
+///
+/// O frame da janela já chamava isto, de Rust para Rust; o que não havia era
+/// forma de um programa o chamar — e sem ela não se consegue perguntar *"esta
+/// página anima?"* sem abrir uma janela e olhar. Um teste que precisa de um
+/// humano a olhar não é um teste.
+extern "C" fn advance(_e: u64, _t: u64, doc: u64, agora: u64, _b: u64, _c: u64) -> u64 {
+    let agora = integer(agora, 0) as f32;
+    let a_correr = rts_dom::store::with_dom_mut(handle(doc), |d| d.advance(agora)).unwrap_or(false);
+    int(if a_correr { 1 } else { 0 })
+}
 
 // ── consulta ───────────────────────────────────────────────────────────────
 //
