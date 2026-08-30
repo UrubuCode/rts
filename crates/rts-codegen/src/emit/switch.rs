@@ -11,7 +11,7 @@ use rts_cranelift::ir::{BlockId, FuncBuilder, ValueId};
 use super::loops::{Frame, Loops, add_params, merged_args, settle};
 use super::stmt::emit_stmt;
 use super::{Ctx, EmitResult, Scope};
-use crate::syntax::{Expr, Stmt};
+use crate::syntax::{Expr, ExprKind, Stmt, UnaryOp};
 
 /// Emits `switch`.
 ///
@@ -66,7 +66,26 @@ pub fn emit_switch(
     // The discriminant is evaluated in the ENCLOSING scope, before the block the
     // clauses share exists — `switch (x) { case 0: let x = 1; }` reads the outer
     // `x`, not the dead zone of the inner one.
-    let subject = super::expr::emit_expr(builder, scope, ctx, discriminant)?;
+    // `switch (typeof x)` is the shape the whole `typeof` fusion was built for,
+    // and it could not reach it: `settled::typeof_equals_literal` recognises a
+    // BINARY expression and a switch never builds one. So the operand is
+    // emitted here, once — the discriminant is evaluated once and that is not
+    // negotiable — and each label asks its own question about it below.
+    //
+    // Measured 2026-08-30: `switch (typeof o.f)` with two labels cost 44.2 ns
+    // against 32.4 for the same test as an `if` chain, which evaluates `typeof`
+    // TWICE and still won.
+    let typed = match &discriminant.kind {
+        ExprKind::Unary {
+            op: UnaryOp::TypeOf,
+            operand,
+        } => Some(super::unary::typeof_operand(builder, scope, ctx, operand)?),
+        _ => None,
+    };
+    let subject = match typed {
+        Some(value) => value,
+        None => super::expr::emit_expr(builder, scope, ctx, discriminant)?,
+    };
 
     // ONE block scope for the whole statement, not one per clause. The clauses
     // are not nested scopes: `case 0: let n = 1;` declares a binding `case 1:`
@@ -119,6 +138,24 @@ pub fn emit_switch(
         };
         if let Some(previous) = fell_through.take() {
             builder.switch_to(previous);
+        }
+        // A label of `switch (typeof x)`, which is `typeof x === "…"` written
+        // another way — so it goes through the same settlement rather than
+        // building the string and comparing its text.
+        if let Some(operand) = typed
+            && let ExprKind::Literal(crate::syntax::Literal::String(spelled)) = &test.kind
+            && let Some(matched) =
+                super::settled::typeof_is_proof(builder, ctx, operand, spelled)?
+        {
+            let next = builder.create_block();
+            let here = scope.snapshot();
+            builder.branch(
+                matched,
+                (bodies[position], &merged_args(&here[..depth], &merged)),
+                (next, &[]),
+            )?;
+            fell_through = Some(next);
+            continue;
         }
         let candidate = super::expr::emit_expr(builder, scope, ctx, test)?;
         // A PROVEN boolean, which is what a branch takes — so this is the one

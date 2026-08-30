@@ -1349,6 +1349,19 @@ pub(super) fn strict_equals_proof(
     {
         return Ok(builder.compare(cmp, a, b)?);
     }
+    // A SINGLETON on either side, which `settled` settles for `===` written as
+    // an operator and did not settle here. `switch (x) { case null: }` is the
+    // same question `x === null` is, and it was a full crossing at every such
+    // label — this function consulted `proven_binary` and nothing else, so
+    // every settlement `emit_binary_inner` has was reachable only through
+    // `emit_binary_inner`.
+    //
+    // That is a class rather than one omission: a comparison not built by
+    // `emit_binary_inner` is unsettled, and `switch` is the instance with a
+    // clock on it. See `docs/codegen/inlining-survey-2026-08-30.md`.
+    if let Some(proof) = super::settled::singleton_equality_proof(builder, ctx, a, b)? {
+        return Ok(proof);
+    }
     Ok(call(builder, ctx, RuntimeOp::StrictEquals, &[a, b])?[0])
 }
 

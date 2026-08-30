@@ -75,6 +75,29 @@ pub(super) fn singleton_equality(
         BinaryOp::StrictNotEqual => true,
         _ => return Ok(None),
     };
+    let Some(is) = singleton_equality_proof(builder, ctx, a, b)? else {
+        return Ok(None);
+    };
+    let proof = super::choice::negated_proof(builder, is, negated)?;
+    Ok(Some(builder.widen(proof)))
+}
+
+/// The same question, answered as a PROOF rather than as a JavaScript value.
+///
+/// Two callers want it and they want different things back. An expression wants
+/// a value, so [`singleton_equality`] widens; a `switch` label wants the proof a
+/// branch takes, and widening it there would be undone immediately.
+///
+/// Extracted rather than copied, because `switch`'s test chain reaching for its
+/// own answer to "is this `=== null`" is exactly the second statement that made
+/// the chain a call at every label in the first place — `switch.rs`'s own
+/// comment says so about `===` on two doubles.
+pub(super) fn singleton_equality_proof(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    a: ValueId,
+    b: ValueId,
+) -> EmitResult<Option<ValueId>> {
     for which in Singleton::ALL {
         let id = ctx.model.singleton(*which);
         // The other side is the one under test, so the constant side is
@@ -92,14 +115,9 @@ pub(super) fn singleton_equality(
         // the question rather than emitting a test that is always false. That
         // refusal is what surfaces the case here instead of leaving it emitted.
         if builder.repr_of(tested) != UNPROVEN {
-            return Ok(Some(boolean_constant(builder, negated)));
+            return Ok(Some(builder.bool_constant(false)));
         }
-        let is = builder.is_singleton(tested, id)?;
-        return Ok(Some(if negated {
-            super::choice::from_bool(builder, is, true)?
-        } else {
-            builder.widen(is)
-        }));
+        return Ok(Some(builder.is_singleton(tested, id)?));
     }
     Ok(None)
 }
@@ -186,6 +204,35 @@ pub(super) fn typeof_equals_literal(
     let is = call(builder, ctx, RuntimeOp::TypeOfIs, &[value, index])?[0];
     let proof = super::choice::negated_proof(builder, is, negated)?;
     Ok(Some(builder.widen(proof)))
+}
+
+/// `typeof <already-emitted operand> === "…"`, as a proven boolean.
+///
+/// The value-level half of [`typeof_equals_literal`], for the caller that has
+/// the operand already and no binary expression to recognise: a `switch` label.
+/// `switch (typeof x) { case "string": }` asks exactly what
+/// `typeof x === "string"` asks, and asked it as a text comparison because the
+/// settlement was reachable only from `emit_binary_inner`.
+///
+/// `None` when the name is not one of the nine, so the caller falls back to the
+/// ordinary chain and a label like `case "wrong"` still answers false the long
+/// way.
+pub(super) fn typeof_is_proof(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    value: ValueId,
+    spelled: &crate::syntax::Text,
+) -> EmitResult<Option<ValueId>> {
+    if let Some(proof) = tag_decidable(builder, ctx, value, spelled)? {
+        return Ok(Some(proof));
+    }
+    // No filter on WHICH name: `TypeOfIs` compares the literal against the one
+    // the value has and answers false for anything else, so `case "wrong"` is
+    // correct without this layer holding a second copy of the nine names — the
+    // drift `TypeName` exists to prevent.
+    let which = ctx.literal_units(spelled.units());
+    let index = count_constant(builder, which as usize);
+    Ok(Some(call(builder, ctx, RuntimeOp::TypeOfIs, &[value, index])?[0]))
 }
 
 /// `typeof v === "…"` for the three names the TAG decides, as a proven boolean.
