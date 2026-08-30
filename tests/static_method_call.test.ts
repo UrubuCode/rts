@@ -170,3 +170,53 @@ describe("what the resolution must refuse", () => {
     expect((args as any).count(1, 2, 3)).toBe(3);
   });
 });
+
+describe("an `instanceof` does not spend the receiver", () => {
+  // It walks a prototype chain and reads `C.prototype`. It writes nothing and
+  // hands neither operand anywhere, so the clause the value-read rule exists for
+  // — that a read is a way of reaching something which could reassign `o.m` —
+  // does not apply.
+  //
+  // It matters because it is written: `bench/analytic.ts` reads
+  // `derived instanceof Base` in one row and calls `derived.bp()` in another,
+  // and the second stayed a real call at 22.00 ns for the first one's sake.
+  // With the exemption it is 3.00.
+  class Walked {
+    w(): number {
+      return 3;
+    }
+  }
+  const walked = new Walked();
+
+  test("the call is decided even though the receiver is tested", () => {
+    let seen = 0;
+    for (let i = 0; i < 3; i++) {
+      if (walked instanceof Walked) seen += walked.w();
+    }
+    expect(seen).toBe(9);
+  });
+
+  test("and the test itself still answers", () => {
+    expect(walked instanceof Walked).toBe(true);
+    expect(walked instanceof Error).toBe(false);
+  });
+
+  test("a class defining `Symbol.hasInstance` is NOT exempt", () => {
+    // `instanceof` DEFERS to it, called with the left operand — user code
+    // holding the receiver, which may write through it. The handler below does
+    // exactly that, and the call after it must see the write.
+    class Hooked {
+      static [Symbol.hasInstance](x: any): boolean {
+        x.m = () => 99;
+        return true;
+      }
+      m(): number {
+        return 1;
+      }
+    }
+    const hooked: any = new Hooked();
+    expect(hooked.m()).toBe(1);
+    expect(hooked instanceof Hooked).toBe(true);
+    expect(hooked.m()).toBe(99);
+  });
+});

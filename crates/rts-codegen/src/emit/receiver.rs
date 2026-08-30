@@ -102,10 +102,35 @@ pub(super) fn resolve(program: &[Stmt]) -> Resolved {
     // Every name read as a VALUE anywhere in the program, where the receiver of
     // a call and the callee of `new` do not count. One walk for both questions,
     // because they are the same question asked about two names.
+    // Which classes an `instanceof` may name without its operands counting as
+    // read: those whose body declares no STATIC COMPUTED key, which is where a
+    // class writes `Symbol.hasInstance` and the only way `instanceof` reaches
+    // user code holding the left operand.
+    let ordinary: BTreeSet<Name> = classes
+        .iter()
+        .filter(|(name, class)| {
+            declared.get(*name).copied() == Some(1)
+                && !class.body.iter().any(|element| match element {
+                    ClassElement::Method(method) => {
+                        method.is_static && !matches!(&method.key, crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(_)))
+                    }
+                    ClassElement::Field(field) => {
+                        field.is_static && !matches!(&field.key, crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(_)))
+                    }
+                    // A static block is arbitrary code and may write anything,
+                    // including a `Symbol.hasInstance` on the class it is in.
+                    ClassElement::StaticBlock(_) => true,
+                })
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    let ordinary = &ordinary;
+
     let mut read_as_value = BTreeSet::new();
     for statement in program {
-        value_reads_in_statement(statement, &mut read_as_value);
+        value_reads_in_statement(statement, &mut read_as_value, ordinary);
     }
+
 
     for (receiver, class_name) in constructed {
         if read_as_value.contains(&receiver) || read_as_value.contains(&class_name) {
@@ -271,26 +296,30 @@ fn plain_key(key: &crate::syntax::ClassKey) -> Option<Name> {
 /// the two the analysis is asking about, so they are excluded and everything
 /// else counts. `o.m` without a call IS a read, because it produces the function
 /// rather than calling it, and so is `o.m = f`.
-fn value_reads_in_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
+fn value_reads_in_statement(
+    statement: &Stmt,
+    found: &mut BTreeSet<Name>,
+    ordinary: &BTreeSet<Name>,
+) {
     walk_stmt(statement, &mut |child| match child {
-        StmtChild::Stmt(inner) => value_reads_in_statement(inner, found),
-        StmtChild::Expr(expr) => value_reads(expr, found),
+        StmtChild::Stmt(inner) => value_reads_in_statement(inner, found, ordinary),
+        StmtChild::Expr(expr) => value_reads(expr, found, ordinary),
         StmtChild::Binding(binding) => {
             if let Some(value) = &binding.value {
-                value_reads(value, found);
+                value_reads(value, found, ordinary);
             }
         }
         StmtChild::Catch(catch) => {
             for inner in &catch.body {
-                value_reads_in_statement(inner, found);
+                value_reads_in_statement(inner, found, ordinary);
             }
         }
-        StmtChild::Function(function) => nested_names(function, found),
-        StmtChild::Class(class) => class_names(class, found),
+        StmtChild::Function(function) => nested_names(function, found, ordinary),
+        StmtChild::Class(class) => class_names(class, found, ordinary),
     });
 }
 
-fn value_reads(expr: &Expr, found: &mut BTreeSet<Name>) {
+fn value_reads(expr: &Expr, found: &mut BTreeSet<Name>, ordinary: &BTreeSet<Name>) {
     match &expr.kind {
         ExprKind::Ident(name) => {
             found.insert(*name);
@@ -305,7 +334,38 @@ fn value_reads(expr: &Expr, found: &mut BTreeSet<Name>) {
             for argument in arguments {
                 let (crate::syntax::Spreadable::Single(value)
                 | crate::syntax::Spreadable::Spread(value)) = argument;
-                value_reads(value, found);
+                value_reads(value, found, ordinary);
+            }
+            return;
+        }
+        // `x instanceof C` reads NEITHER operand as a value, when `C` is a
+        // class this analysis can see whole.
+        //
+        // The ordinary algorithm walks `x`'s prototype chain and reads
+        // `C.prototype`. It writes nothing and hands neither operand to
+        // anything — so the clause this exemption is written against, that a
+        // value read is a way of reaching something that could reassign `o.m`,
+        // does not apply.
+        //
+        // Except through `Symbol.hasInstance`, which `instanceof` DEFERS to and
+        // which is called with `x`. That is user code holding the receiver, and
+        // it is the whole reason the exemption is conditional: `ordinary` holds
+        // the classes whose bodies declare no static computed key, which is the
+        // only place a class can define one where this can see it. A class that
+        // does, or a right operand that is not a once-declared class at all, is
+        // not in the set and both operands count as read.
+        //
+        // It matters because it is written: `bench/analytic.ts` reads
+        // `derived instanceof Base` in one row and calls `derived.bp()` in
+        // another, and the second stayed a real call at 22.68 ns for the first
+        // one's sake.
+        ExprKind::Binary {
+            op: crate::syntax::BinaryOp::InstanceOf,
+            left,
+            right,
+        } if matches!(&right.kind, ExprKind::Ident(class) if ordinary.contains(class)) => {
+            if !matches!(&left.kind, ExprKind::Ident(_)) {
+                value_reads(left, found, ordinary);
             }
             return;
         }
@@ -314,16 +374,16 @@ fn value_reads(expr: &Expr, found: &mut BTreeSet<Name>) {
             for argument in arguments {
                 let (crate::syntax::Spreadable::Single(value)
                 | crate::syntax::Spreadable::Spread(value)) = argument;
-                value_reads(value, found);
+                value_reads(value, found, ordinary);
             }
             return;
         }
         _ => {}
     }
     walk_expr(expr, &mut |child| match child {
-        Child::Expr(inner) => value_reads(inner, found),
-        Child::Function(function) => nested_names(function, found),
-        Child::Class(class) => class_names(class, found),
+        Child::Expr(inner) => value_reads(inner, found, ordinary),
+        Child::Function(function) => nested_names(function, found, ordinary),
+        Child::Class(class) => class_names(class, found, ordinary),
     });
 }
 
@@ -343,23 +403,23 @@ pub(super) fn receiver_of(callee: &Expr) -> Option<(Name, Name)> {
     Some((*receiver, *property))
 }
 
-fn nested_names(function: &Function, found: &mut BTreeSet<Name>) {
+fn nested_names(function: &Function, found: &mut BTreeSet<Name>, ordinary: &BTreeSet<Name>) {
     for parameter in &function.parameters {
         if let Some(default) = &parameter.default {
-            value_reads(default, found);
+            value_reads(default, found, ordinary);
         }
     }
     match &function.body {
         crate::syntax::FunctionBody::Block(body) => {
             for statement in body {
-                value_reads_in_statement(statement, found);
+                value_reads_in_statement(statement, found, ordinary);
             }
         }
-        crate::syntax::FunctionBody::Expression(expr) => value_reads(expr, found),
+        crate::syntax::FunctionBody::Expression(expr) => value_reads(expr, found, ordinary),
     }
 }
 
-fn class_names(class: &Class, found: &mut BTreeSet<Name>) {
+fn class_names(class: &Class, found: &mut BTreeSet<Name>, ordinary: &BTreeSet<Name>) {
     // `class D extends B` is NOT a value read of `B`, and counting it as one
     // broke the chain walk: every base was refused by the clause meant to catch
     // someone WRITING through the name. Extending only reads a prototype — it
@@ -368,19 +428,19 @@ fn class_names(class: &Class, found: &mut BTreeSet<Name>) {
     if let Some(heritage) = &class.heritage
         && !matches!(&heritage.kind, ExprKind::Ident(_))
     {
-        value_reads(heritage, found);
+        value_reads(heritage, found, ordinary);
     }
     for element in &class.body {
         match element {
-            ClassElement::Method(method) => nested_names(&method.function, found),
+            ClassElement::Method(method) => nested_names(&method.function, found, ordinary),
             ClassElement::Field(field) => {
                 if let Some(value) = &field.value {
-                    value_reads(value, found);
+                    value_reads(value, found, ordinary);
                 }
             }
             ClassElement::StaticBlock(body) => {
                 for statement in body {
-                    value_reads_in_statement(statement, found);
+                    value_reads_in_statement(statement, found, ordinary);
                 }
             }
         }
@@ -467,6 +527,42 @@ mod tests {
         assert!(
             decided(
                 "class C { m() {} } const o = new C(); function g() { class C {} } o.m();"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn an_instanceof_does_not_count_as_reading_either_operand() {
+        // It walks a prototype chain and reads `C.prototype`. It writes nothing
+        // and hands neither operand anywhere, so the clause about reaching
+        // something that could reassign `o.m` does not apply.
+        assert_eq!(
+            decided(
+                "class B { bp() { return 1; } } class D extends B {} const d = new D(); \n                 d.bp(); if (d instanceof B) { }"
+            ),
+            ["d.bp"]
+        );
+    }
+
+    #[test]
+    fn a_class_with_a_static_computed_key_is_not_exempt() {
+        // That is where `Symbol.hasInstance` is written, and `instanceof` defers
+        // to it with the LEFT operand — user code holding the receiver.
+        assert!(
+            decided(
+                "class H { static [Symbol.hasInstance](x) { x.m = 0; return true; } m() {} } \n                 const h = new H(); h.m(); if (h instanceof H) { }"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_static_block_is_not_exempt_either() {
+        // Arbitrary code, which may write a `Symbol.hasInstance` on its own class.
+        assert!(
+            decided(
+                "class S { static { } m() {} } const s = new S(); s.m(); if (s instanceof S) { }"
             )
             .is_empty()
         );
