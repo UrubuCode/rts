@@ -46,7 +46,8 @@
 //! gate outside it, can refuse for. They are conservative on purpose. A refused
 //! omission costs one closure; a wrong one costs a program.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use crate::Name;
 use crate::syntax::{
@@ -63,13 +64,19 @@ use super::capture::{
 /// Answered once per function body, before any of it is emitted, from facts
 /// that are all already computed by then: the inliner's candidates, the
 /// captured set, and this body's own escape analysis.
-pub(super) fn omittable(ctx: &Ctx, body: &[Stmt], captured: &BTreeSet<Name>) -> BTreeSet<Name> {
+pub(super) fn omittable(
+    ctx: &Ctx,
+    body: &[Stmt],
+    captured: &BTreeSet<Name>,
+    length: Name,
+    arguments: Name,
+) -> (BTreeSet<Name>, BTreeMap<Name, Rc<super::inline::Inlinable>>) {
     let mut named = Vec::new();
     for statement in body {
         helper_bindings(statement, &mut named);
     }
     if named.is_empty() {
-        return BTreeSet::new();
+        return (BTreeSet::new(), BTreeMap::new());
     }
     // A `with` ANYWHERE in this body. The gate outside `emit_substituted` is
     // `ctx.with_objects.is_empty()` and it is false for a call written inside
@@ -79,7 +86,7 @@ pub(super) fn omittable(ctx: &Ctx, body: &[Stmt], captured: &BTreeSet<Name>) -> 
     // Asked of the whole body rather than of the call site, because this
     // decision is taken before either exists.
     if body.iter().any(has_with) {
-        return BTreeSet::new();
+        return (BTreeSet::new(), BTreeMap::new());
     }
 
     let mut read_as_value = BTreeSet::new();
@@ -87,49 +94,66 @@ pub(super) fn omittable(ctx: &Ctx, body: &[Stmt], captured: &BTreeSet<Name>) -> 
         value_reads_in_statement(statement, &mut read_as_value);
     }
 
-    named
-        .into_iter()
-        .filter(|name| {
-            // NEVER READ AS A VALUE. `g(f)`, `f.name`, `const h = f`, `[f]`,
-            // `typeof f` and `f?.()` are all reads and all refuse; only the
-            // callee of a direct call is not one, because a call is the single
-            // use a substitution removes entirely.
-            if read_as_value.contains(name) {
-                return false;
-            }
-            // NOT CAPTURED, so it never reaches an environment. A call from
-            // inside a nested function might be substitutable too, but the
-            // substitution would happen while emitting THAT function, and this
-            // analysis is about this one.
-            if captured.contains(name) {
-                return false;
-            }
-            // THE INLINER ACCEPTED IT. The one clause that is not a refusal of
-            // its own: without a candidate there is nothing to substitute with
-            // and the closure is simply needed.
-            let Some(candidate) = ctx.inlinable(*name) else {
-                return false;
-            };
-            // NO NAME OF THE CALLEE IS ONE THIS BODY FLATTENED.
-            // `emit_substituted` asks exactly this, per call site, and the
-            // answer is the same at every site in this body — `ctx.flattened`
-            // is installed for the body before any of it is emitted.
-            if candidate
-                .parameters
-                .iter()
-                .chain(candidate.free.iter())
-                .any(|held| ctx.flattens(*held))
-            {
-                return false;
-            }
-            // NO SPREAD AT ANY CALL SITE, which `emit_substituted` refuses.
-            let mut plain = true;
-            for statement in body {
-                spread_calls(statement, *name, &mut plain);
-            }
-            plain
-        })
-        .collect()
+    let mut omitted = BTreeSet::new();
+    let mut local = BTreeMap::new();
+    for (name, function) in named {
+        // NEVER READ AS A VALUE. `g(f)`, `f.name`, `const h = f`, `[f]`,
+        // `typeof f` and `f?.()` are all reads and all refuse; only the callee
+        // of a direct call is not one, because a call is the single use a
+        // substitution removes entirely.
+        if read_as_value.contains(&name) {
+            continue;
+        }
+        // NOT CAPTURED, so it never reaches an environment. A call from inside a
+        // nested function might be substitutable too, but the substitution would
+        // happen while emitting THAT function, and this analysis is about this
+        // one.
+        if captured.contains(&name) {
+            continue;
+        }
+        // A CANDIDATE, and it may be one this body builds for itself.
+        //
+        // `ctx.inlinable` is keyed by name over the whole program, so it refuses
+        // a spelling two functions use — and that refusal is what made this pass
+        // do nothing on ordinary code. `bench/analytic.ts` declares `c` four
+        // times, so the row that exists to MEASURE closure cost could not be
+        // helped by anything that asks the map.
+        //
+        // Nothing here needs the map. The two clauses above proved that every
+        // call to this name is inside this body, so the declaration in hand is
+        // the one every call reaches, however many other functions spend the
+        // same spelling. `inline::local_candidate` builds the candidate from it.
+        let candidate = match ctx.inlinable(name) {
+            Some(shared) => shared,
+            None => match super::inline::local_candidate(function, length, name, arguments) {
+                Some(built) => Rc::new(built),
+                None => continue,
+            },
+        };
+        // NO NAME OF THE CALLEE IS ONE THIS BODY FLATTENED. `emit_substituted`
+        // asks exactly this, per call site, and the answer is the same at every
+        // site in this body — `ctx.flattened` is installed for the body before
+        // any of it is emitted.
+        if candidate
+            .parameters
+            .iter()
+            .chain(candidate.free.iter())
+            .any(|held| ctx.flattens(*held))
+        {
+            continue;
+        }
+        // NO SPREAD AT ANY CALL SITE, which `emit_substituted` refuses.
+        let mut plain = true;
+        for statement in body {
+            spread_calls(statement, name, &mut plain);
+        }
+        if !plain {
+            continue;
+        }
+        local.insert(name, candidate);
+        omitted.insert(name);
+    }
+    (omitted, local)
 }
 
 /// Every `const`/`let` binding of this body whose initialiser is a function and
@@ -166,7 +190,7 @@ pub(super) fn omittable(ctx: &Ctx, body: &[Stmt], captured: &BTreeSet<Name>) -> 
 ///   back. That is the cycle case — `f` calling `g` calling `f` — and tracing
 ///   the call graph would answer it exactly. Refusing a body with any call
 ///   answers it cheaply, and the helpers this exists for do not have one.
-fn helper_bindings(statement: &Stmt, found: &mut Vec<Name>) {
+fn helper_bindings<'a>(statement: &'a Stmt, found: &mut Vec<(Name, &'a Function)>) {
     let StmtKind::Declare { kind, bindings } = &statement.kind else {
         // Anything else is descended into for the declarations it holds — a
         // loop body, an `if` arm, a bare block, a `try`. Not a nested function
@@ -201,7 +225,7 @@ fn helper_bindings(statement: &Stmt, found: &mut Vec<Name>) {
         {
             continue;
         }
-        found.push(*name);
+        found.push((*name, function));
     }
 }
 

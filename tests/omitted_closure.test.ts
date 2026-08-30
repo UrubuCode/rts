@@ -379,3 +379,74 @@ describe("a helper that reads a name from around it", () => {
     expect(usesGlobal(1)).toBe(6);
   });
 });
+
+describe("a helper whose name another function also spends", () => {
+  // `ctx.inlinable` is keyed by NAME over the whole program, so it must refuse a
+  // spelling two functions use — otherwise it would answer somebody else's body.
+  // That refusal is right for a map of that shape, and it is what made this pass
+  // do nothing on ordinary code: `bench/analytic.ts` declares `c` four times, so
+  // the row that exists to MEASURE closure cost could not be helped by anything
+  // that asks the map.
+  //
+  // `omit` does not need the map. It holds the declaration it is reasoning
+  // about, and it has already proved every call to that name is inside this
+  // body — so the declaration in hand is the one every call reaches, however
+  // many other functions spend the same spelling.
+  //
+  //   for (…) { const c = (x) => x + i; a = c(a) | 0; }   226.33 -> 46.33
+  //
+  // These four all declare `zc`, which is the point.
+  test("the analytic shape, with the name spent three more times", () => {
+    function row(n: number): number {
+      let a = 0;
+      for (let i = 0; i < n; i++) {
+        const zc = (x: number): number => x + i;
+        a = zc(a) | 0;
+      }
+      return a | 0;
+    }
+    expect(row(4)).toBe(6);
+  });
+
+  test("a second function spending it", () => {
+    function other(n: number): number {
+      const zc = (): number => n;
+      return zc();
+    }
+    expect(other(7)).toBe(7);
+  });
+
+  test("a third, as a `for-of` target", () => {
+    function third(n: number): number {
+      let s = 0;
+      for (const zc of [1, 2, 3]) s += zc;
+      return s + n;
+    }
+    expect(third(4)).toBe(10);
+  });
+
+  test("and one where the same spelling must NOT reach the wrong body", () => {
+    // `zc` here answers a string. If the local candidate were confused with any
+    // of the three above, this answers a number or throws.
+    function fourth(): string {
+      const zc = (x: string): string => x + "!";
+      return zc("ok");
+    }
+    expect(fourth()).toBe("ok!");
+  });
+
+  test("`arguments` is refused at this door too", () => {
+    // The one free name no proof of LOCALITY can help with: every function gets
+    // its own implicitly, so a substituted body would read the CALLER's. Four
+    // assertions in `tests/claude-arguments-fn-expr.test.ts` failed on the build
+    // that forgot it.
+    function outer(): number {
+      const zd = function (): number {
+        // eslint-disable-next-line prefer-rest-params
+        return arguments.length;
+      };
+      return zd(1, 2, 3);
+    }
+    expect(outer()).toBe(3);
+  });
+});

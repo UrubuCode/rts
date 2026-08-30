@@ -298,7 +298,7 @@ pub(super) fn emit_substituted(
     let ExprKind::Ident(name) = &callee.kind else {
         return Ok(None);
     };
-    let Some(candidate) = ctx.inlinable(*name) else {
+    let Some(candidate) = ctx.inlinable_here(*name) else {
         return Ok(None);
     };
     // THE NAME MUST BE BOUND HERE, and this is what makes collecting candidates
@@ -665,7 +665,7 @@ fn declared_function(statement: &Stmt) -> Option<(Name, &Function)> {
 /// function does not have, so it collects them and [`candidates`] applies the
 /// same two questions to each that it already applies to the function's own
 /// name.
-fn shape_of(
+pub(super) fn shape_of(
     function: &Function,
     length: Name,
     own: Name,
@@ -1420,4 +1420,53 @@ fn count_in_pattern(pattern: &Pattern, name: Name, count: &mut usize) {
     let mut bound = Vec::new();
     pattern.bound_names(&mut bound);
     *count += bound.iter().filter(|held| **held == name).count();
+}
+
+/// The candidate for ONE helper, built from its declaration rather than looked
+/// up by name.
+///
+/// # Why a second door into `shape_of`
+///
+/// [`candidates`] is keyed by NAME over the whole program, so it must refuse a
+/// spelling two functions use — `ctx.inlinable(name)` would otherwise answer
+/// somebody else's body. `declarations_of(body, name) != 1` is that refusal, and
+/// it is right for a map with that shape.
+///
+/// It is also why the pass does nothing on ordinary code. `bench/analytic.ts`
+/// declares `c` four times — the closure benchmark's helper, the next
+/// benchmark's, and a `for (const c of CASES)` — so the row that exists to
+/// measure closure cost could not be helped by anything that asks the map.
+///
+/// `omit::omittable` does not need the map. It holds the declaration it is
+/// reasoning about, and it proves that every call to that name is inside the
+/// body being emitted — so the name is unambiguous HERE however many other
+/// functions spend the same spelling elsewhere. This builds the candidate from
+/// that declaration, for that body alone.
+///
+/// `free_proved` is false by construction: the whole-program count was never
+/// taken. The site accepts it on `Ctx::omits`, which is the stronger proof and
+/// the one that made this door worth opening.
+pub(super) fn local_candidate(
+    function: &Function,
+    length: Name,
+    own: Name,
+    arguments: Name,
+) -> Option<Inlinable> {
+    let (mut candidate, free, _) = shape_of(function, length, own)?;
+    // `arguments` IS REFUSED HERE TOO, and forgetting it cost four assertions in
+    // `tests/claude-arguments-fn-expr.test.ts` on the first build.
+    //
+    // It is the one free name no proof of LOCALITY can help with, and that is
+    // what made it easy to miss: every other clause this door skips is about
+    // which binding a name reaches, and locality answers those. `arguments` is
+    // not a binding any scope holds — every function gets its own implicitly —
+    // so a substituted body reads the CALLER's, which is a different object with
+    // different contents, or none at all in an arrow. `candidates` refuses it by
+    // name for exactly this reason and says so; this is the same refusal, at the
+    // second door into the same shape.
+    if free.iter().any(|held| *held == arguments) {
+        return None;
+    }
+    candidate.free_proved = false;
+    Some(candidate)
 }

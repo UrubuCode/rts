@@ -375,6 +375,13 @@ pub struct Ctx<'a> {
     /// makes it deterministic. A name in here has every call to it substituted
     /// by construction, so the closure has no reachable use.
     omitted: std::collections::BTreeSet<Name>,
+    /// The candidates this body built for ITSELF, for helpers `omitted` covers.
+    ///
+    /// `inlinable` is keyed by name over the whole program and must refuse a
+    /// spelling two functions use. A helper `omit` approves is called only from
+    /// the body that declares it, so the declaration in hand is the one every
+    /// call reaches — and this holds it for that body alone.
+    local_inlinable: std::collections::BTreeMap<Name, std::rc::Rc<inline::Inlinable>>,
     /// Where a `return` inside a protected span goes instead of returning.
     ///
     /// A `finally` runs on EVERY way out, and a `return` written inside the
@@ -639,6 +646,7 @@ impl<'a> Ctx<'a> {
             page: false,
             with_objects: Vec::new(),
             omitted: std::collections::BTreeSet::new(),
+            local_inlinable: std::collections::BTreeMap::new(),
             finally_returns: Vec::new(),
             finally_jumps: Vec::new(),
             model,
@@ -680,6 +688,20 @@ impl<'a> Ctx<'a> {
     /// call site.
     pub(in crate::emit) fn inlinable(&self, name: Name) -> Option<std::rc::Rc<inline::Inlinable>> {
         self.inlinable.get(&name).cloned()
+    }
+
+    /// The same, consulting what THIS body built for itself first.
+    ///
+    /// A helper `omit` approves is declared here and called only from here, so
+    /// its own declaration is the one every call reaches — even where the
+    /// program-wide map had to refuse the spelling because another function
+    /// spends it too. Consulted only through this door, so nothing that does not
+    /// ask for it can be answered by a body of a different function.
+    pub(in crate::emit) fn inlinable_here(&self, name: Name) -> Option<std::rc::Rc<inline::Inlinable>> {
+        self.local_inlinable
+            .get(&name)
+            .cloned()
+            .or_else(|| self.inlinable.get(&name).cloned())
     }
 
     /// Whether this callee is already being substituted further out.

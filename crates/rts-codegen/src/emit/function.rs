@@ -795,8 +795,12 @@ pub(super) fn emit_body(
     // in this set — and its closure is never emitted — or it is not, and
     // everything happens as it did. There is no fallback path and nothing is
     // decided while emitting. See `omit.rs` for why the lazy shape was refused.
-    let omitted = super::omit::omittable(ctx, body, &captured);
+    let length = ctx.names.intern("length");
+    let held_arguments = ctx.names.intern("arguments");
+    let (omitted, local) =
+        super::omit::omittable(ctx, body, &captured, length, held_arguments);
     let outer_omitted = std::mem::replace(&mut ctx.omitted, omitted);
+    let outer_local = std::mem::replace(&mut ctx.local_inlinable, local);
     // The one that is an SSA VALUE and not a table, which is why it is taken
     // rather than replaced: the inner body defines its own at its own entry,
     // and reading the outer function's here would name a value defined in a
@@ -846,6 +850,7 @@ pub(super) fn emit_body(
     ctx.integers = outer_integers;
     ctx.flattened = outer_flattened;
     ctx.omitted = outer_omitted;
+    ctx.local_inlinable = outer_local;
     ctx.claims = outer_claims;
     ctx.body.leave_nested(outer_throw);
     ctx.finally_returns = outer_returns;
