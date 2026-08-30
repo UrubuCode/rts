@@ -177,14 +177,30 @@ const outMO = docMO.getElementById("m");
 const textoMO = outMO === null ? "" : outMO.textContent;
 
 // `x instanceof window.C` — a forma com objeto global é a MESMA checagem que
-// `x instanceof C`. Uma classe que o motor não tem responde `false`, que é a
-// resposta certa de um feature-detect (o script segue vivo).
+// `x instanceof C`, e é isso que `ehObj` trava.
+//
+// A segunda metade usa o feature-detect COMPLETO (`typeof` antes do
+// `instanceof`), e a versão anterior deste teste não usava: escrevia
+// `obj instanceof window.DOMStringMap` direto e afirmava, no comentário, que
+// "uma classe que o motor não tem responde `false`". Isso não é verdade em
+// runtime nenhum. Medido em Node e Bun, que concordam:
+//
+//   obj instanceof g.NaoExiste   → TypeError: right-hand side is not an object
+//   obj instanceof NaoExisteLivre → ReferenceError: not defined
+//
+// Os dois LANÇAM. O teste passava num browser só porque lá `DOMStringMap`
+// existe de facto — o resultado estava certo pelo mecanismo errado, e aqui,
+// onde a classe não existe, exigia do motor uma resposta que nem o Chrome dá.
+//
+// O feature-detect abaixo é o que código real escreve e funciona em qualquer
+// runtime, com ou sem a classe. O `"10"` continua a ser o esperado.
 const htmlInst =
   "<div id='i'>x</div>" +
   "<script>" +
   "  const obj = {};" +
   "  const ehObj = obj instanceof window.Object;" +
-  "  const ehDSM = obj instanceof window.DOMStringMap;" +
+  "  const temDSM = typeof window.DOMStringMap !== 'undefined';" +
+  "  const ehDSM = temDSM && (obj instanceof window.DOMStringMap);" +
   "  const el = document.getElementById('i');" +
   "  if (el !== null) { el.setInnerHTML((ehObj ? '1' : '0') + (ehDSM ? '1' : '0')); }" +
   "</script>";

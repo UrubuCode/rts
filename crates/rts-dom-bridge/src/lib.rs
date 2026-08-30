@@ -39,6 +39,8 @@ use rts_core::entry::{self, Context, Provided};
 mod engine;
 mod events;
 mod nodes;
+mod scope;
+mod timers;
 mod tree;
 mod value;
 
@@ -63,6 +65,12 @@ pub fn install(context: &mut Context) {
     entry::declare_global(context, "dom", surface);
     let engine_surface = entry::make_namespace(context, engine::MEMBERS);
     entry::declare_global(context, "engine", engine_surface);
+    // `DomScope` e `DomTimers` sao GLOBAIS e nao membros de `rts:dom`: quem os
+    // chama e o prelude da fachada, que roda sem importacao nenhuma no seu texto.
+    let scope_surface = entry::make_namespace(context, scope::MEMBERS);
+    entry::declare_global(context, "DomScope", scope_surface);
+    let timers_surface = entry::make_namespace(context, timers::MEMBERS);
+    entry::declare_global(context, "DomTimers", timers_surface);
 }
 
 /// O prelude `.ts` da fachada ergonômica (`document`/`Element`), para o host

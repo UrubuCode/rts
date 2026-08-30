@@ -370,64 +370,6 @@ function __globalNames(h: i64, url: string, vw: number, vh: number): string[] {
   return __gNames[__winIndex(h)];
 }
 
-// O SACO DE GLOBAIS do documento `h` — onde moram os globais que os scripts
-// criam em runtime (`requireLazy`, `__d`, `_btldr`, …).
-function __globalsFor(h: i64, url: string, vw: number, vh: number): any {
-  // O saco é chaveado pelo handle do DOCUMENTO do `window` — não pelo `h` que
-  // chegou por parâmetro. Um handle repassado como param `i64` chega TRUNCADO
-  // (#1870): o Proxy gravava sob a chave truncada e o leitor de fora procurava
-  // sob a completa, então `__d`/`requireLazy` sumiam entre um <script> e o
-  // seguinte. `__winFor` é a fonte única — dele sai o mesmo `_dom` que
-  // `__scopeKey` usa.
-  // O saco vive em RUST (`scriptscope.rs`), num `thread_local` compartilhado
-  // ENTRE PROGRAMAS — cada `new Function` é um programa novo, então um saco
-  // `.ts` seria por-programa e o script N+1 não veria o do script N. Aqui ele é
-  // um Proxy cujas traps caem direto no registro; o valor viaja como `Poly`
-  // (word tagueada, sem coerção — com `f64` uma função vira `undefined`).
-  //
-  // O handle é CAPTURADO léxicamente (`const doc = h`), nunca repassado como
-  // parâmetro para outra função `.ts`: handle via parâmetro corrompe (#1870 —
-  // medido aqui: `DomScope.count(h)` direto devolve 1, via param devolve 0).
-  const doc: i64 = __winFor(h, url, vw, vh).document._dom;
-  return new Proxy({}, {
-    get: function (alvo: any, chave: any) {
-      return DomScope.get(doc, "" + chave);
-    },
-    set: function (alvo: any, chave: any, valor: any) {
-      DomScope.set(doc, "" + chave, valor);
-      return true;
-    },
-    has: function (alvo: any, chave: any) {
-      return DomScope.has(doc, "" + chave) === 1;
-    },
-  });
-}
-
-// A CHAVE do saco de globais deste documento.
-//
-// Existe porque o handle chega com DOIS valores diferentes conforme o caminho:
-// o campo `doc._dom` carrega o valor completo, e uma variável/param `i64` recebe
-// uma versão truncada (#1870). Os dois endereçam o mesmo DOM nas fns de
-// namespace, mas seriam CHAVES distintas aqui — e foi isso que fez o `__d` da
-// Meta ser publicado sob uma e procurado sob a outra. Todo mundo passa por esta
-// função, então existe UMA chave só, seja qual for o valor que ela normaliza.
-
-
-// Os nomes globais do documento `h` lidos do `DomScope` (Rust) — a lista que
-// SOBREVIVE entre scripts. Cada `<script>` é um programa novo (`new Function`),
-// então um array `.ts` de prelude é por-programa e não serve para "o que o
-// script anterior publicou".
-function __scopeNames(doc: Document): string[] {
-  // Recebe o DOCUMENT: um handle repassado como parâmetro `i64` chega TRUNCADO
-  // (#1870) e viraria uma CHAVE diferente da que o Proxy usa para gravar — foi
-  // o que fez `__d`/`requireLazy` sumirem entre um <script> e o seguinte.
-  const out: string[] = [];
-  const n = DomScope.count(doc._dom);
-  let i = 0;
-  while (i < n) { out.push(DomScope.nameAt(doc._dom, i)); i = i + 1; }
-  return out;
-}
-
 // Descarta o escopo global do documento `h` (chamado no `free` do documento).
 function __dropWindow(h: i64): void {
   DomTimers.drop(h);
@@ -438,3 +380,49 @@ function __dropWindow(h: i64): void {
   __gVals.splice(idx, 1);
   __gNames.splice(idx, 1);
 }
+
+// ── O prelude alcançável de dentro de um `<script>` ──
+//
+// Aqui, no FIM de `window.ts`, porque este é o último ficheiro do prelude
+// (`DOM_TS` concatena dom.ts + scriptscope.ts + window.ts) e uma `class` não
+// é içada: publicar `MutationObserver` do `dom.ts` lia-a antes de existir e
+// derrubava o prelude inteiro num TDZ.────────────────────────
+//
+// `__runScriptAt` compila o corpo do script com `new Function`, e um `new
+// Function` é um PROGRAMA NOVO: não vê o topo do programa que o criou. O
+// prelude é concatenado ao fonte do utilizador (`rts-host/src/run.rs`), então
+// `__winFor` é uma função de topo DESSE programa e ficam
+// invisíveis exatamente onde o prologue as chama — `typeof __winFor` responde
+// `undefined` lá dentro, e o `try/catch` que isola um script quebrado engolia o
+// `ReferenceError` como se a página é que estivesse errada.
+//
+// A cadeia de escopo de um programa novo termina no objeto global, e é isso que
+// as duas linhas abaixo usam. Não é decoração: sem elas nenhum `<script>` de
+// página corre, e a falha aparece como um script silenciosamente sem efeito.
+//
+// Só este, e não o prelude inteiro: é o que o executor de `<script>` nomeia. Publicar o resto poria nomes internos ao alcance do
+// JavaScript da página, que é superfície que ninguém pediu.
+(globalThis as any).__winFor = __winFor;
+
+// `Node` — as constantes de `nodeType` da spec do DOM. Um script usa-as como
+// guarda antes de tocar num nó (`el.nodeType === Node.ELEMENT_NODE`), e sem
+// elas a guarda lança em vez de responder `false` — o que derruba o script
+// inteiro por causa de uma verificação defensiva.
+(globalThis as any).Node = {
+  ELEMENT_NODE: 1,
+  ATTRIBUTE_NODE: 2,
+  TEXT_NODE: 3,
+  CDATA_SECTION_NODE: 4,
+  PROCESSING_INSTRUCTION_NODE: 7,
+  COMMENT_NODE: 8,
+  DOCUMENT_NODE: 9,
+  DOCUMENT_TYPE_NODE: 10,
+  DOCUMENT_FRAGMENT_NODE: 11,
+};
+
+// `MutationObserver` é uma classe do prelude, e uma classe do prelude é tão
+// invisível a um `new Function` quanto uma função dele. O que este alcance
+// trava não é a entrega de mutações — o stub regista e segue, e diz isso de si
+// próprio — é o `new` não lançar: um script que observa o DOM à cabeça morria
+// na primeira linha e nenhuma das seguintes corria.
+(globalThis as any).MutationObserver = MutationObserver;

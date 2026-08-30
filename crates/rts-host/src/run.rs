@@ -620,19 +620,43 @@ pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
     // contrato de `compile`: o prelude contém declarações e o host passaria a
     // analisar scripts sem DOM como um corpo diferente. Optamos pelo bootstrap
     // sob demanda, ativado pelos nomes públicos da fachada.
-    let source_with_dom = if uses_dom_facade(source) {
-        format!("{}\n{}", rts_dom_bridge::PRELUDE_TS, source)
+    let source_with_dom = with_dom_facade(source);
+    front_end_agreeing(&source_with_dom, None, false, Scoped::Nothing)
+}
+
+/// O fonte com a fachada do DOM a frente, quando o programa a menciona.
+///
+/// A decisao vive aqui e so aqui porque ha DOIS caminhos de compilacao — um
+/// ficheiro sozinho e um GRAFO de modulos — e o segundo nao a fazia de todo.
+/// Um programa com uma linha de `import` compila como grafo, portanto qualquer
+/// programa que importasse o que quer que fosse ficava sem `parseDocument`.
+pub(crate) fn with_dom_facade(source: &str) -> String {
+    if uses_dom_facade(source) {
+        format!("{}
+{}", rts_dom_bridge::PRELUDE_TS, source)
     } else {
         source.to_owned()
-    };
-    front_end_agreeing(&source_with_dom, None, false, None)
+    }
 }
 
 fn uses_dom_facade(source: &str) -> bool {
+    // Os nomes de ENTRADA da fachada: um programa que monta ou consulta um
+    // documento passa por um destes.
     source.contains("parseDocument")
         || source.contains("document.")
         || source.contains("new Document")
         || source.contains("new Element")
+        // E o do executor de `<script>`, que um programa pode usar sem nunca
+        // nomear um documento.
+        //
+        // Os quatro prefixos que estavam aqui — `__normalizeScript`,
+        // `__scanImplicitGlobals`, `__qualify` e a varredura à volta deles —
+        // nomeavam o pré-passo que reescrevia o texto de um script antes de o
+        // compilar. Esse caminho foi apagado: o compilador resolve os nomes
+        // livres contra o escopo do documento (`emit::page`), e o único
+        // programa que precisava daqueles nomes era o teste de paridade entre
+        // o scanner em Rust e o seu oráculo `.ts`, que foi apagado com eles.
+        || source.contains("runScripts")
 }
 
 /// The same, for a compilation that must agree with a numbering that already
@@ -641,11 +665,30 @@ fn uses_dom_facade(source: &str) -> bool {
 /// true of what `Function(…)` and `eval(…)` compile and false of a file, since
 /// module code is strict by definition. It reaches `emit::nonstrict`, which is
 /// where the two observable consequences are stated.
+/// What encloses the source about to be compiled.
+///
+/// Three cases and not an `Option`, because a page script and an `eval`
+/// fragment carry the same list and mean different things by it: both resolve
+/// their free names against it, and only one of them DECLARES into it. An
+/// `Option` made those one case, so the caller had no way to say which — and
+/// the text cannot be asked, since the same source is legal as either.
+pub(crate) enum Scoped<'a> {
+    /// A file, or a `Function` body: free names resolve against the globals,
+    /// which is what the specification says of both.
+    Nothing,
+    /// A direct `eval` fragment: reads the caller's bindings, declares nothing
+    /// back into them. `rts_core::entry::eval_scope` documents why.
+    Eval(&'a [(String, u32)]),
+    /// A `<script>` of a page: reads what earlier scripts left, and its
+    /// top-level `var` and `function` become properties the next one reads.
+    Page(&'a [(String, u32)]),
+}
+
 pub(crate) fn front_end_agreeing(
     source: &str,
     seed: Option<&Seed<'_>>,
     sloppy: bool,
-    enclosing: Option<&[(String, u32)]>,
+    enclosing: Scoped<'_>,
 ) -> Result<FrontEnd, HostError> {
     let _timing = rts_cranelift::probe::Phase::start("front-end");
     let mut names = Names::default();
@@ -673,7 +716,7 @@ pub(crate) fn front_end_agreeing(
     // name against the globals. That is the silent wrong answer this whole
     // change exists to avoid, reached through the ONE branch that does not look
     // at `enclosing`.
-    let looks_like_a_module = enclosing.is_none()
+    let looks_like_a_module = matches!(enclosing, Scoped::Nothing)
         && (source.contains("import ") || source.contains("export "));
     let module = match looks_like_a_module {
         true => Some(
@@ -770,7 +813,7 @@ pub(crate) fn front_end_agreeing(
                 ctx.literal_units(units);
             }
         }
-        let emitted = match (&module, enclosing) {
+        let emitted = match (&module, &enclosing) {
             // A module binds its imports and then runs its statements — one
             // function, like a script, because what differs is what is in
             // scope before the first statement rather than how it is entered.
@@ -780,14 +823,26 @@ pub(crate) fn front_end_agreeing(
             // reuses the number each name already has: they came out of the
             // running interner, and `reserve_keys` put every one of those in
             // above.
-            (None, Some(enclosing)) => {
+            (None, Scoped::Eval(enclosing)) => {
                 let enclosing: Vec<_> = enclosing
                     .iter()
                     .map(|(text, hops)| (ctx.names.intern(text), *hops))
                     .collect();
                 rts_codegen::emit::emit_eval_program(&body, &enclosing, &mut ctx)
             }
-            (None, None) => emit_program(&body, &mut ctx),
+            // A page script, which both reads that scope and DECLARES into it.
+            // The difference from the arm above is one the caller has to state
+            // rather than one this can read off the text: the same source is a
+            // legal `eval` fragment and a legal `<script>`, and only the door
+            // it came through says which set of rules it is under.
+            (None, Scoped::Page(enclosing)) => {
+                let enclosing: Vec<_> = enclosing
+                    .iter()
+                    .map(|(text, hops)| (ctx.names.intern(text), *hops))
+                    .collect();
+                rts_codegen::emit::emit_page_program(&body, &enclosing, &mut ctx)
+            }
+            (None, Scoped::Nothing) => emit_program(&body, &mut ctx),
         };
         // The NAME, not its number. A `Name` is an index into a table this
         // function owns and the error crosses out of, so rendering it here is

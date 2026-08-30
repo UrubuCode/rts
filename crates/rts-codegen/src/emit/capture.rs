@@ -638,18 +638,58 @@ pub(super) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'
     }
 }
 
-/// Every name mentioned inside a function, including its own.
+/// Every name a function mentions that it did NOT declare itself — which is
+/// what "free" means, and what a name has to be to belong in somebody else's
+/// environment.
+///
+/// # Why the subtraction, and what over-including actually cost
+///
+/// This used to be "every name mentioned inside a function, INCLUDING its own",
+/// and the reasoning written beside it was that over-including is the safe
+/// direction: a name that need not be in the environment costs a load, and one
+/// missing from it is a wrong program.
+///
+/// That is true of a name this function does not otherwise have, and false of
+/// one it does. [`declared_by_statement`] over-includes at the other end — it
+/// counts a `catch (e)` binding as declared by the enclosing function, on the
+/// same "safe direction" reasoning — and [`captured`] intersects the two sets.
+/// So a `var e` inside a NESTED function and a `catch (e)` in the outer one,
+/// each harmless alone, together made `e` resident in the outer function: an
+/// empty local binding SHADOWING the real `e` outside it. Measured on a real
+/// bundle, the outer `e` was a function, and the call died with
+/// `TypeError: e is not a function` — on a line ABOVE both of them.
+///
+/// Two safe over-approximations composing into a wrong answer is the shape of
+/// this defect, and it is why "the error is in the safe direction" cannot be
+/// argued per analysis. The subtraction here is not a tightening for its own
+/// sake: a `var e` inside a nested function IS that function's `e`, so counting
+/// it as a mention of the outer one was never right.
+///
+/// # What is subtracted, and what deliberately is not
+///
+/// Only what is unambiguously this function's at EVERY point of its body: its
+/// parameters, and the `var` and `function` declarations of its own body. A
+/// `let` in a block is not — it binds in that block, and a mention outside the
+/// block is the outer name — so it stays counted, which keeps the error in the
+/// safe direction exactly where block scope is what decides.
 fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
+    // The function's own name stays, and is not subtracted with the rest: for a
+    // DECLARATION the name binds in the enclosing scope — which is how
+    // recursion reaches it through the environment — and
+    // `declared_by_statement` puts it there for the same reason.
     if let Some(name) = function.name {
         found.insert(name);
     }
+
+    let mut own = BTreeSet::new();
+    let mut mentioned = BTreeSet::new();
     for parameter in &function.parameters {
-        names_in_pattern(&parameter.target, found);
-        // A DEFAULT is code, and the names it READS are not names the pattern
-        // binds — `names_in_pattern` answers `bound_names`, which is the other
-        // question. Missing them was not an over-approximation failing to be
-        // tight; it was a name the enclosing function never put in its
-        // environment, so the default's read found nothing:
+        names_in_pattern(&parameter.target, &mut own);
+        // Um DEFAULT é código, e os nomes que LÊ não são os que o padrão liga —
+        // `names_in_pattern` responde `bound_names`, que é a outra pergunta.
+        // Faltarem não era uma sobre-aproximação a falhar por pouco: era um
+        // nome que a função de fora nunca punha no ambiente, então a leitura do
+        // default não encontrava nada:
         //
         //     function outer() {
         //       let shared = 100;
@@ -657,38 +697,90 @@ fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
         //       g(1);        // ReferenceError: shared is not defined
         //     }
         //
-        // Only when the default is actually EVALUATED, so `g(1, 5)` worked and
-        // `g(1)` did not — which is why nothing in the corpus had caught it.
-        // Found 2026-08-29 by a test written for a different change.
+        // Só quando o default é mesmo AVALIADO, por isso `g(1, 5)` funcionava e
+        // `g(1)` não — que é porque nada no corpus o apanhou.
+        //
+        // Vão para `mentioned` e não para `found`, e essa é a metade que a
+        // composição das duas correções exige: um default pode ler um nome que
+        // esta função LIGA — `function f(a, b = a)` — e entregá-lo direto como
+        // livre devolveria o defeito que a subtração abaixo existe para
+        // fechar, por outra porta.
         if let Some(default) = &parameter.default {
-            all_names_in_expr(default, found);
+            all_names_in_expr(default, &mut mentioned);
         }
-        // And a pattern carries defaults of its own: `function f({ a = x })`
-        // reads `x` with no `parameter.default` in sight.
-        // `walk_pattern_exprs` is the one walk that knows where they are.
+        // E um padrão carrega defaults próprios: `function f({ a = x })` lê `x`
+        // sem nenhum `parameter.default` à vista. `walk_pattern_exprs` é a
+        // única travessia que sabe onde eles estão.
         walk_pattern_exprs(&parameter.target, &mut |child| {
             if let Child::Expr(expr) = child {
-                all_names_in_expr(expr, found);
+                all_names_in_expr(expr, &mut mentioned);
             }
         });
     }
-    // The rest parameter is a pattern too, and it was not walked at all.
+    // O rest é um padrão também, e não era percorrido de todo.
     if let Some(rest) = &function.rest_parameter {
-        names_in_pattern(rest, found);
+        names_in_pattern(rest, &mut own);
         walk_pattern_exprs(rest, &mut |child| {
             if let Child::Expr(expr) = child {
-                all_names_in_expr(expr, found);
+                all_names_in_expr(expr, &mut mentioned);
             }
         });
     }
     match &function.body {
         FunctionBody::Block(body) => {
             for statement in body {
-                all_names_in_statement(statement, found);
+                all_names_in_statement(statement, &mut mentioned);
+                own_function_scoped(statement, &mut own);
             }
         }
-        FunctionBody::Expression(expr) => all_names_in_expr(expr, found),
+        FunctionBody::Expression(expr) => all_names_in_expr(expr, &mut mentioned),
     }
+    found.extend(mentioned.difference(&own));
+}
+
+/// The names a function body binds for the WHOLE of itself: its `var`s and its
+/// function declarations, wherever in the body they are written.
+///
+/// Nested functions and class bodies are not entered — what they declare is
+/// theirs — and a `let`/`const` is not counted, because it binds in its block
+/// and a mention outside that block reaches the enclosing name. A `for (var …)`
+/// head is not counted either: [`walk_stmt`] hands a loop's initialiser over as
+/// a binding without saying which keyword wrote it, and counting one that might
+/// be `let` would subtract a name this function does not own everywhere.
+/// Both omissions leave the analysis where it already was, which is the safe
+/// direction for them.
+fn own_function_scoped(statement: &Stmt, found: &mut BTreeSet<Name>) {
+    match &statement.kind {
+        StmtKind::Declare {
+            kind: crate::syntax::BindingKind::Var,
+            bindings,
+        } => {
+            for binding in bindings {
+                names_in_pattern(&binding.target, found);
+            }
+            return;
+        }
+        StmtKind::Function(function) => {
+            if let Some(name) = function.name {
+                found.insert(name);
+            }
+            return;
+        }
+        StmtKind::Class(_) => return,
+        _ => {}
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => own_function_scoped(inner, found),
+        // A `catch` BODY is still this function's, so a `var` in it is too. The
+        // catch's own binding is not: it belongs to the catch block.
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                own_function_scoped(inner, found);
+            }
+        }
+        StmtChild::Binding(_) | StmtChild::Expr(_) | StmtChild::Function(_)
+        | StmtChild::Class(_) => {}
+    });
 }
 
 /// Every identifier in a statement, without caring what introduced it.

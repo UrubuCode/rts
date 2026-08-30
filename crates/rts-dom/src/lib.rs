@@ -101,6 +101,8 @@ pub mod metrics;
 /// (egui) lê e aplica — o motor não conhece o egui.
 pub mod scrollbar;
 
+/// A varredura lexica do JS de pagina — ver o modulo.
+
 /// `filter` e `clip-path` reduzidos ao que uma display list sabe fazer EXATO —
 /// e a recusa explícita do resto. Módulo à parte de `layout.rs` porque este já
 /// passa o teto de linhas com folga; ver o cabeçalho para o que fica de fora.
@@ -118,13 +120,9 @@ pub use dom::{
 /// `dom.ts` em escopo): o objeto `window` de browser (location/navigator/
 /// history/storage/timers) que o `runScripts` injeta em cada `<script>`, mais o
 /// ESCOPO GLOBAL compartilhado entre os `<script>` do mesmo documento.
-/// O `scriptscope.ts` traz o pré-passo que adapta o JS de página ao subset que o
-/// compilador aceita (global implícito → `__G.x`, `arguments` → rest, sequência
-/// com função → statements).
 pub const DOM_TS: &str = concat!(
     include_str!("dom.ts"),
     "\n",
-    include_str!("scriptscope.ts"),
     "\n",
     include_str!("window.ts")
 );
