@@ -124,22 +124,22 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `a5ada03`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `1ae0643`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 26 ms | 62 ms | 55 ms | 47 ms | **31 ms** | **0.86×** | **2.03×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 430 ms | 786 ms | 760 ms | 466 ms | **448 ms** | **0.96×** | **1.75×** |
-| …the same RTS run, vs JS using native `Math.random` | 89 ms | 267 ms | 212 ms | 459 ms | **447 ms** | **0.20×** | **0.60×** |
-| π Machin f64 (RTS only) | — | — | — | 23 ms | **13 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 345 ms | **340 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 46 ms | **34 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 165 ms | **158 ms** | — | — |
+| Hello/startup | 31 ms | 65 ms | 54 ms | 51 ms | **33 ms** | **0.94×** | **1.96×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 431 ms | 786 ms | 759 ms | 463 ms | **450 ms** | **0.96×** | **1.75×** |
+| …the same RTS run, vs JS using native `Math.random` | 89 ms | 260 ms | 214 ms | 464 ms | **447 ms** | **0.20×** | **0.58×** |
+| π Machin f64 (RTS only) | — | — | — | 24 ms | **14 ms** | — | — |
+| 3M objects allocated (RTS only) | — | — | — | 356 ms | **339 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 47 ms | **35 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 165 ms | **154 ms** | — | — |
 | two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 49 ms | **29 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 668 ms | **654 ms** | — | — |
-| one loop, state as a local / captured / property | 263 ms | 531 ms | 433 ms | 215 ms | **196 ms** | **1.34×** | **2.71×** |
+| string indexing, input doubled four times (RTS only) | — | — | — | 668 ms | **652 ms** | — | — |
+| one loop, state as a local / captured / property | 262 ms | 530 ms | 432 ms | 214 ms | **196 ms** | **1.34×** | **2.71×** |
 
-_Updated: 2026-08-29 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-08-30 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 
