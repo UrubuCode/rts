@@ -200,6 +200,59 @@ pub fn insert(ctx: UiCtx) -> u64 {
     h
 }
 
+thread_local! {
+    /// O `egui::Context` das janelas com um frame ABERTO, por handle.
+    ///
+    /// # Porque isto existe, e porque não é uma segunda verdade
+    ///
+    /// O dono do `egui::Context` é o `UiCtx`, e continua a ser. Isto é o mesmo
+    /// `Context` — que a doc do crate descreve como *"refcounted, cheap clone"*
+    /// — publicado onde se lhe chega SEM pedir o `UiCtx` emprestado.
+    ///
+    /// É preciso porque `end_frame` empresta o `UiCtx` e só o larga no fim, e
+    /// tudo o que o frame desenha corre lá dentro. Uma leitura de input a meio
+    /// do desenho pedia o mesmo empréstimo outra vez, e o `RefCell` aborta o
+    /// processo: `RefCell already borrowed`, medido a matar qualquer página
+    /// pintada por `render(win, doc)` — mesmo uma de dois elementos.
+    ///
+    /// A cadeia era `end_frame → with_ctx → finish_frame → render_dom_scrolled
+    /// → emit_keyboard_events → EguiRenderer::keyboard_events → with_ctx`, e o
+    /// último passo é o `rts-egui` a perguntar-se a si próprio por handle,
+    /// através de uma abstração que existe para OUTROS crates não conhecerem o
+    /// egui.
+    ///
+    /// É uma pilha e não um valor porque há mais do que uma janela, e o frame
+    /// de uma pode abrir enquanto a outra tem o seu.
+    static FRAME_EGUI: RefCell<Vec<(u64, egui::Context)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Publica o `Context` de `h` enquanto o seu frame corre. Ver [`FRAME_EGUI`].
+pub(crate) fn publish_frame(h: u64, egui_ctx: egui::Context) {
+    FRAME_EGUI.with(|f| f.borrow_mut().push((h, egui_ctx)));
+}
+
+/// Retira a publicação mais recente. Chamado quando o frame fecha, sempre —
+/// deixar uma para trás daria o `Context` de um frame que já acabou.
+pub(crate) fn unpublish_frame() {
+    FRAME_EGUI.with(|f| {
+        f.borrow_mut().pop();
+    });
+}
+
+/// Roda `f` com o `egui::Context` do handle, esteja ou não um frame aberto.
+///
+/// Este é o caminho para LER input e estado do egui. [`with_ctx`] é para mexer
+/// no `UiCtx` — a fila de comandos, o backend, a árvore — e não pode ser usado
+/// a meio de um frame, que é quando o input é lido.
+pub fn with_egui<R>(h: u64, f: impl FnOnce(&egui::Context) -> R) -> Option<R> {
+    let published =
+        FRAME_EGUI.with(|held| held.borrow().iter().rev().find(|(held, _)| *held == h).map(|(_, c)| c.clone()));
+    match published {
+        Some(egui_ctx) => Some(f(&egui_ctx)),
+        None => CTXS.with(|m| m.borrow_mut().get_mut(&h).map(|c| f(&c.egui_ctx))),
+    }
+}
+
 /// Roda `f` com acesso mutável ao `UiCtx` do handle. `None` se o handle não existe.
 pub fn with_ctx<R>(h: u64, f: impl FnOnce(&mut UiCtx) -> R) -> Option<R> {
     CTXS.with(|m| m.borrow_mut().get_mut(&h).map(f))
