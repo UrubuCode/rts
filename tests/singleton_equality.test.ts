@@ -111,3 +111,75 @@ describe("equality against a singleton", () => {
     expect([missing === undefined, missing !== undefined].join(",")).toBe("true,false");
   });
 });
+
+describe("a negated condition keeps the proof it computed", () => {
+  // `choice::from_bool` built a three-block diamond of TAGGED constants, so the
+  // join was UNPROVEN and a condition then called `__rts_to_boolean` to recover
+  // the proof the branch had just consumed. Negating a proven boolean is one
+  // `icmp` against `bool_constant(false)`.
+  //
+  // Every assertion is about a VALUE. The polarity is the whole risk: a wrong
+  // one is a silently wrong program, not a slow one.
+  test("the unary ! over every falsy and truthy shape", () => {
+    const truthy: any[] = [1, -1, "a", "0", true, [], {}, Infinity];
+    const falsy: any[] = [0, -0, "", false, null, undefined, NaN];
+    for (const v of truthy) {
+      expect(!v).toBe(false);
+      expect(!!v).toBe(true);
+    }
+    for (const v of falsy) {
+      expect(!v).toBe(true);
+      expect(!!v).toBe(false);
+    }
+  });
+
+  test("!== and != against both proven and unproven operands", () => {
+    const n: any = 1;
+    const s: any = "1";
+    expect(n !== 2).toBe(true);
+    expect(n !== 1).toBe(false);
+    expect(n != s).toBe(false);
+    expect(n !== s).toBe(true);
+    expect(n != 2).toBe(true);
+    // Both operands proven doubles, so the fast path is taken.
+    let a = 1;
+    let b = 2;
+    expect(a !== b).toBe(true);
+    expect(a !== a).toBe(false);
+    expect(a != b).toBe(true);
+  });
+
+  test("!== undefined and != null in both polarities", () => {
+    let missing: any;
+    const held: any = 5;
+    expect(missing !== undefined).toBe(false);
+    expect(held !== undefined).toBe(true);
+    expect(missing != null).toBe(false);
+    expect(held != null).toBe(true);
+    expect(missing == null).toBe(true);
+    expect(held == null).toBe(false);
+    expect((null as any) != undefined).toBe(false);
+  });
+
+  test("a negated condition and the value it produces agree", () => {
+    const o: any = { f: 0 };
+    let taken = "";
+    if (!o.f) taken = "yes";
+    const asValue = !o.f;
+    expect(taken).toBe("yes");
+    expect(asValue).toBe(true);
+    expect(typeof asValue).toBe("boolean");
+    expect(String(!o.f)).toBe("true");
+    expect([!o.f, !!o.f].join(",")).toBe("true,false");
+  });
+
+  test("negation composes with itself and with the ternary", () => {
+    const v: any = 0;
+    expect(!!!v).toBe(true);
+    expect(!v ? "a" : "b").toBe("a");
+    expect(!!v ? "a" : "b").toBe("b");
+    let count = 0;
+    for (const x of [0, 1, "", "a", null]) if (!x) count++;
+    expect(count).toBe(3);
+  });
+});

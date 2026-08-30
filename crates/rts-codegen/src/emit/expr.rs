@@ -1872,12 +1872,21 @@ fn emit_guarded(
     // chamada — e parâmetro de função chega sempre tagueado, então esse é o caso
     // ORDINÁRIO e não uma quina.
     //
-    // Os NEGADOS ficam de fora, e o motivo é que as duas arestas discordariam:
-    // `!==` e `!=` não têm entry point próprio (igualdade estrita é dita uma
-    // vez), então o caminho lento deles é a chamada de igualdade com a resposta
-    // invertida por `from_bool`, que responde um booleano TAGUEADO.
+    // OS NEGADOS ENTRAM AGORA, e a razão de estarem fora deixou de valer. Ela
+    // era que as duas arestas discordariam: `!==` e `!=` não têm entry point
+    // próprio — igualdade estrita é dita UMA vez — então o caminho lento deles
+    // é a chamada de igualdade com a resposta invertida, e `choice::from_bool`
+    // devolvia um booleano TAGUEADO.
+    //
+    // O caminho RÁPIDO deles nunca foi o problema: `proven_binary` mapeia
+    // `StrictNotEqual` para `Compare(Ne)`, que já produz o booleano provado e já
+    // está negado. Era só o lento, e ele passa a inverter no domínio provado com
+    // `choice::negated_proof` — um `icmp` contra `bool_constant(false)`.
+    //
+    // Medido 2026-08-30, release, laços idênticos com um operador de diferença:
+    // `if (a !== b)` custava 7.55 ns contra 4.10 de `if (a === b)`.
     let (_, negated) = runtime_binary(op).expect("every instruction has a runtime operation");
-    let boolean_join = matches!(instruction, Proven::Compare(_)) && !negated;
+    let boolean_join = matches!(instruction, Proven::Compare(_));
     let result = builder.add_block_param(
         join,
         match boolean_join {
@@ -1989,9 +1998,24 @@ fn emit_guarded(
         // com um booleano inventado. Traba: uma prova quebrada para o processo,
         // em vez de um valor errado que segue adiante.
         let impossible = builder.create_block();
-        builder.guard(answered, Repr::Bool, (join, &[]), (impossible, &[]))?;
+        // Um operador NEGADO aterra num bloco próprio para inverter, porque o
+        // runtime respondeu a pergunta POSITIVA. A inversão acontece no domínio
+        // provado — um `icmp` — em vez de widenizar para um booleano tagueado,
+        // que é o que custava à junção a prova.
+        let inverting = negated.then(|| {
+            let block = builder.create_block();
+            let proven = builder.add_block_param(block, Repr::Bool);
+            (block, proven)
+        });
+        let landing = inverting.map_or(join, |(block, _)| block);
+        builder.guard(answered, Repr::Bool, (landing, &[]), (impossible, &[]))?;
         builder.switch_to(impossible);
         builder.trap(rts_cranelift::ir::inst::TrapCode::Unreachable);
+        if let Some((block, proven)) = inverting {
+            builder.switch_to(block);
+            let inverted = super::choice::negated_proof(builder, proven, true)?;
+            builder.jump(join, &[inverted])?;
+        }
     } else {
         let answered = match negated {
             true => super::choice::from_bool(builder, answered, true)?,

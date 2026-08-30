@@ -24,6 +24,7 @@
 //! and the two collapse into one function. Named here so the day it does, the
 //! reason this was ever two is on record.
 
+use rts_cranelift::ir::inst::CmpOp;
 use rts_cranelift::ir::{BlockId, FuncBuilder, ValueId};
 
 use super::expr::{self, emit_condition, emit_expr};
@@ -294,23 +295,41 @@ pub(super) fn branch_on_nullish(
 /// second is the first applied to strict equality, and writing it twice is how
 /// `!==` ends up meaning something subtly different from `!(a === b)`.
 pub fn from_bool(builder: &mut FuncBuilder, cond: ValueId, negated: bool) -> EmitResult<ValueId> {
-    let when_true = builder.create_block();
-    let when_false = builder.create_block();
-    let join = builder.create_block();
-    let result = builder.add_block_param(join, UNPROVEN);
+    let proof = negated_proof(builder, cond, negated)?;
+    Ok(builder.widen(proof))
+}
 
-    builder.branch(cond, (when_true, &[]), (when_false, &[]))?;
-
-    builder.switch_to(when_true);
-    let answer = expr::boolean_constant(builder, !negated);
-    builder.jump(join, &[answer])?;
-
-    builder.switch_to(when_false);
-    let answer = expr::boolean_constant(builder, negated);
-    builder.jump(join, &[answer])?;
-
-    builder.switch_to(join);
-    Ok(result)
+/// A proven boolean, negated or not, still proven.
+///
+/// # What this replaces, and what it cost
+///
+/// A three-block diamond that branched on the proof and jumped to a join with a
+/// TAGGED constant from each arm. The join was therefore `UNPROVEN`, and a
+/// caller in condition position then called `__rts_to_boolean` to recover the
+/// very proof the branch had just consumed.
+///
+/// The comment that justified the diamond said "negating a proven boolean is
+/// arithmetic, and this module has no unary path yet". That was stale:
+/// `Inst::Compare` is verified over `Domain::Any`, `same_proven` accepts any
+/// equal non-generic pair, and a `Repr::Bool` scalar constant lowers to an
+/// `iconst` — so negating a proven boolean is one `icmp` against
+/// `FuncBuilder::bool_constant(false)`, which is the machine naming its own
+/// encoding rather than this crate guessing it.
+///
+/// Measured 2026-08-30, release, min of 7, identical loops differing in one
+/// operator: `if (!o.f)` cost 10.55 ns against 6.35 for `if (o.f)`, and
+/// `if (a !== b)` 7.55 against 4.10 for `if (a === b)`. A census over 400 corpus
+/// files found 1 079 `__rts_to_boolean` sites, 635 of them this shape.
+pub(super) fn negated_proof(
+    builder: &mut FuncBuilder,
+    cond: ValueId,
+    negated: bool,
+) -> EmitResult<ValueId> {
+    if !negated {
+        return Ok(cond);
+    }
+    let f = builder.bool_constant(false);
+    Ok(builder.compare(CmpOp::Eq, cond, f)?)
 }
 
 /// Whether a value is nullish, as a JavaScript value rather than a branch.
@@ -329,21 +348,27 @@ pub(super) fn nullish_value(
     value: ValueId,
     negated: bool,
 ) -> EmitResult<ValueId> {
+    // The join carries a PROOF now, not a tagged constant, for the reason
+    // [`negated_proof`] gives: a condition asking for the proof back is the
+    // common consumer, and a tagged join made it call the runtime to undo a
+    // branch emitted three lines earlier. `x == null` in an `if` paid that in
+    // BOTH polarities, because this function had no non-negated shortcut the
+    // way `settled::singleton_equality` does.
     let nullish = builder.create_block();
     let present = builder.create_block();
     let join = builder.create_block();
-    let result = builder.add_block_param(join, UNPROVEN);
+    let result = builder.add_block_param(join, rts_cranelift::repr::Repr::Bool);
 
     branch_on_nullish(builder, ctx, value, nullish, present)?;
 
     builder.switch_to(nullish);
-    let answer = expr::boolean_constant(builder, !negated);
+    let answer = builder.bool_constant(!negated);
     builder.jump(join, &[answer])?;
 
     builder.switch_to(present);
-    let answer = expr::boolean_constant(builder, negated);
+    let answer = builder.bool_constant(negated);
     builder.jump(join, &[answer])?;
 
     builder.switch_to(join);
-    Ok(result)
+    Ok(builder.widen(result))
 }

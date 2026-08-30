@@ -485,6 +485,29 @@ impl<'a> FuncBuilder<'a> {
         Ok(self.emit(Inst::IsSingleton { value, singleton }, Repr::Bool))
     }
 
+    /// A proven boolean, as a constant.
+    ///
+    /// The bit pattern of a `Repr::Bool` is THIS layer's to decide, and a client
+    /// that wrote one down would be stating an encoding twice: `lower/value.rs`
+    /// widens a proven boolean with `select(v, TAG_BOOL|1, TAG_BOOL|0)` and
+    /// narrows one by comparing the payload against `BOOL_TRUE`, so the proven
+    /// form is a plain zero or one in a machine word and nothing above this
+    /// layer has any business knowing that.
+    ///
+    /// It exists because negating a proven boolean is ONE instruction —
+    /// `Compare(Eq, value, false)` — and the language layer had no way to name
+    /// the operand. `emit/choice.rs` said exactly that in a comment ("negating a
+    /// proven boolean is arithmetic, and this module has no unary path yet") and
+    /// built a three-block diamond of TAGGED constants instead, which cost every
+    /// negated condition in the language the proof it had just computed.
+    pub fn bool_constant(&mut self, value: bool) -> ValueId {
+        let id = self.declare_const(ConstDecl::Scalar {
+            repr: Repr::Bool,
+            bits: ScalarBits(u64::from(value)),
+        });
+        self.use_const(id)
+    }
+
     /// Whether a value is a constant of exactly this singleton.
     ///
     /// The build-time half of [`FuncBuilder::is_singleton`], and the reason a
