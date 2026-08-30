@@ -196,8 +196,8 @@ fn egui_to_neutral_key(key: egui::Key) -> Option<i64> {
 
 impl InputSource for EguiRenderer {
     fn mouse_pos(&self, target: u64) -> (f32, f32) {
-        ctx::with_ctx(target, |c| {
-            c.egui_ctx
+        ctx::with_egui(target, |e| {
+            e
                 .input(|i| i.pointer.hover_pos().map(|p| (p.x, p.y)).unwrap_or((-1.0, -1.0)))
         })
         .unwrap_or((-1.0, -1.0))
@@ -205,30 +205,30 @@ impl InputSource for EguiRenderer {
 
     fn mouse_down(&self, target: u64, button: i64) -> bool {
         let btn = egui_button(button);
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_down(btn))).unwrap_or(false)
+        ctx::with_egui(target, |e| e.input(|i| i.pointer.button_down(btn))).unwrap_or(false)
     }
 
     fn mouse_clicked(&self, target: u64, button: i64) -> bool {
         let btn = egui_button(button);
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_clicked(btn)))
+        ctx::with_egui(target, |e| e.input(|i| i.pointer.button_clicked(btn)))
             .unwrap_or(false)
     }
 
     fn mouse_pressed(&self, target: u64, button: i64) -> bool {
         let btn = egui_button(button);
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_pressed(btn)))
+        ctx::with_egui(target, |e| e.input(|i| i.pointer.button_pressed(btn)))
             .unwrap_or(false)
     }
 
     fn mouse_released(&self, target: u64, button: i64) -> bool {
         let btn = egui_button(button);
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_released(btn)))
+        ctx::with_egui(target, |e| e.input(|i| i.pointer.button_released(btn)))
             .unwrap_or(false)
     }
 
     fn mouse_double_clicked(&self, target: u64, button: i64) -> bool {
         let btn = egui_button(button);
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_double_clicked(btn)))
+        ctx::with_egui(target, |e| e.input(|i| i.pointer.button_double_clicked(btn)))
             .unwrap_or(false)
     }
 
@@ -249,16 +249,16 @@ impl InputSource for EguiRenderer {
     }
 
     fn dragging(&self, target: u64) -> bool {
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.is_decidedly_dragging()))
+        ctx::with_egui(target, |e| e.input(|i| i.pointer.is_decidedly_dragging()))
             .unwrap_or(false)
     }
 
     fn wheel(&self, target: u64) -> f32 {
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.smooth_scroll_delta.y)).unwrap_or(0.0)
+        ctx::with_egui(target, |e| e.input(|i| i.smooth_scroll_delta.y)).unwrap_or(0.0)
     }
 
     fn wheel_x(&self, target: u64) -> f32 {
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.smooth_scroll_delta.x)).unwrap_or(0.0)
+        ctx::with_egui(target, |e| e.input(|i| i.smooth_scroll_delta.x)).unwrap_or(0.0)
     }
 
     fn set_cursor(&self, target: u64, kind: i64) {
@@ -273,13 +273,13 @@ impl InputSource for EguiRenderer {
             8 => egui::CursorIcon::NotAllowed,
             _ => egui::CursorIcon::Default,
         };
-        ctx::with_ctx(target, |c| c.egui_ctx.set_cursor_icon(icon));
+        ctx::with_egui(target, |e| e.set_cursor_icon(icon));
     }
 
     fn key_state(&self, target: u64, key: i64, phase: i64) -> bool {
         let Some(k) = neutral_to_egui_key(key) else { return false };
-        ctx::with_ctx(target, |c| {
-            c.egui_ctx.input(|i| match phase {
+        ctx::with_egui(target, |e| {
+            e.input(|i| match phase {
                 rts_input::KEY_PHASE_DOWN => i.key_down(k),
                 rts_input::KEY_PHASE_PRESSED => i.key_pressed(k),
                 rts_input::KEY_PHASE_RELEASED => i.key_released(k),
@@ -290,8 +290,8 @@ impl InputSource for EguiRenderer {
     }
 
     fn keyboard_events(&self, target: u64) -> Vec<rts_input::KeyboardEvent> {
-        ctx::with_ctx(target, |c| {
-            c.egui_ctx.input(|input| {
+        ctx::with_egui(target, |e| {
+            e.input(|input| {
                 input
                     .events
                     .iter()
@@ -317,8 +317,8 @@ impl InputSource for EguiRenderer {
         .unwrap_or_default()
     }
     fn composition_events(&self, target: u64) -> Vec<rts_input::CompositionEvent> {
-        ctx::with_ctx(target, |c| {
-            c.egui_ctx
+        ctx::with_egui(target, |e| {
+            e
                 .input(|input| {
                     input
                         .events
@@ -345,8 +345,8 @@ impl InputSource for EguiRenderer {
     }
 
     fn modifiers(&self, target: u64) -> rts_input::Modifiers {
-        ctx::with_ctx(target, |c| {
-            c.egui_ctx.input(|i| {
+        ctx::with_egui(target, |e| {
+            e.input(|i| {
                 let m = i.modifiers;
                 rts_input::Modifiers { ctrl: m.ctrl, shift: m.shift, alt: m.alt, cmd: m.command }
             })
@@ -355,8 +355,8 @@ impl InputSource for EguiRenderer {
     }
 
     fn text_input(&self, target: u64) -> String {
-        ctx::with_ctx(target, |c| {
-            c.egui_ctx.input(|i| {
+        ctx::with_egui(target, |e| {
+            e.input(|i| {
                 let mut s = String::new();
                 let has_ime_commit = i.events.iter().any(|event| {
                     matches!(event, egui::Event::Ime(egui::ImeEvent::Commit(_)))
@@ -383,7 +383,7 @@ impl InputSource for EguiRenderer {
 
     fn copy_text(&self, target: u64, text: &str) {
         // Ctrl+C: coloca `text` no clipboard do SO (egui gerencia via arboard).
-        ctx::with_ctx(target, |c| c.egui_ctx.copy_text(text.to_string()));
+        ctx::with_egui(target, |e| e.copy_text(text.to_string()));
     }
 }
 

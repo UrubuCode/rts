@@ -82,7 +82,13 @@ pub fn end_frame(h: u64) {
         let cmds = std::mem::take(&mut c.cmds);
         // guarda a fila p/ o REPLAY do live-resize (redraw_retained).
         c.last_cmds = cmds.clone();
+        // O `egui::Context` fica alcançável SEM pedir o `UiCtx` outra vez,
+        // enquanto o frame desenha. Sem isto, uma leitura de input a meio do
+        // desenho pedia o empréstimo que esta função detém e o `RefCell`
+        // abortava o processo — ver `ctx::FRAME_EGUI` para a cadeia medida.
+        crate::ctx::publish_frame(h, c.egui_ctx.clone());
         finish_frame(c, cmds);
+        crate::ctx::unpublish_frame();
     });
 }
 
