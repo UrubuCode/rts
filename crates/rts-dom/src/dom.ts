@@ -812,6 +812,27 @@ class Document {
     return null;
   }
 
+  // `document.body` e `document.head` — os dois nós que um script de página
+  // nomeia sem os procurar.
+  //
+  // Faltavam, e o mecanismo já cá estava: `eventTarget` acima resolve o `body`
+  // desde sempre, só nunca o publicou. Medido num bundle real: uma comparação
+  // `no.parentElement !== document.body` respondia sempre verdade, porque o
+  // lado direito era `undefined` — a guarda passava sempre, em vez de decidir.
+  //
+  // `null` quando não há, que é o que um browser responde para um documento
+  // sem `<body>`, e não um erro: um script que testa `if (document.body)`
+  // escreve-se exatamente porque a resposta pode ser nenhuma.
+  get body(): Element | null {
+    const n = dom.querySelector(this._dom, "body");
+    return n === __DOM_NONE ? null : new Element(this._dom, n);
+  }
+
+  get head(): Element | null {
+    const n = dom.querySelector(this._dom, "head");
+    return n === __DOM_NONE ? null : new Element(this._dom, n);
+  }
+
   // Listeners do documento recebem eventos que borbulham até à raiz HTML.
   addEventListener(type: string, cb?: any): void {
     const target = this.eventTarget();

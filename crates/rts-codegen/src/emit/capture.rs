@@ -638,22 +638,112 @@ pub(super) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'
     }
 }
 
-/// Every name mentioned inside a function, including its own.
+/// Every name a function mentions that it did NOT declare itself — which is
+/// what "free" means, and what a name has to be to belong in somebody else's
+/// environment.
+///
+/// # Why the subtraction, and what over-including actually cost
+///
+/// This used to be "every name mentioned inside a function, INCLUDING its own",
+/// and the reasoning written beside it was that over-including is the safe
+/// direction: a name that need not be in the environment costs a load, and one
+/// missing from it is a wrong program.
+///
+/// That is true of a name this function does not otherwise have, and false of
+/// one it does. [`declared_by_statement`] over-includes at the other end — it
+/// counts a `catch (e)` binding as declared by the enclosing function, on the
+/// same "safe direction" reasoning — and [`captured`] intersects the two sets.
+/// So a `var e` inside a NESTED function and a `catch (e)` in the outer one,
+/// each harmless alone, together made `e` resident in the outer function: an
+/// empty local binding SHADOWING the real `e` outside it. Measured on a real
+/// bundle, the outer `e` was a function, and the call died with
+/// `TypeError: e is not a function` — on a line ABOVE both of them.
+///
+/// Two safe over-approximations composing into a wrong answer is the shape of
+/// this defect, and it is why "the error is in the safe direction" cannot be
+/// argued per analysis. The subtraction here is not a tightening for its own
+/// sake: a `var e` inside a nested function IS that function's `e`, so counting
+/// it as a mention of the outer one was never right.
+///
+/// # What is subtracted, and what deliberately is not
+///
+/// Only what is unambiguously this function's at EVERY point of its body: its
+/// parameters, and the `var` and `function` declarations of its own body. A
+/// `let` in a block is not — it binds in that block, and a mention outside the
+/// block is the outer name — so it stays counted, which keeps the error in the
+/// safe direction exactly where block scope is what decides.
 fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
+    // The function's own name stays, and is not subtracted with the rest: for a
+    // DECLARATION the name binds in the enclosing scope — which is how
+    // recursion reaches it through the environment — and
+    // `declared_by_statement` puts it there for the same reason.
     if let Some(name) = function.name {
         found.insert(name);
     }
+
+    let mut own = BTreeSet::new();
     for parameter in &function.parameters {
-        names_in_pattern(&parameter.target, found);
+        names_in_pattern(&parameter.target, &mut own);
     }
+    if let Some(rest) = &function.rest_parameter {
+        names_in_pattern(rest, &mut own);
+    }
+    let mut mentioned = BTreeSet::new();
     match &function.body {
         FunctionBody::Block(body) => {
             for statement in body {
-                all_names_in_statement(statement, found);
+                all_names_in_statement(statement, &mut mentioned);
+                own_function_scoped(statement, &mut own);
             }
         }
-        FunctionBody::Expression(expr) => all_names_in_expr(expr, found),
+        FunctionBody::Expression(expr) => all_names_in_expr(expr, &mut mentioned),
     }
+    found.extend(mentioned.difference(&own));
+}
+
+/// The names a function body binds for the WHOLE of itself: its `var`s and its
+/// function declarations, wherever in the body they are written.
+///
+/// Nested functions and class bodies are not entered — what they declare is
+/// theirs — and a `let`/`const` is not counted, because it binds in its block
+/// and a mention outside that block reaches the enclosing name. A `for (var …)`
+/// head is not counted either: [`walk_stmt`] hands a loop's initialiser over as
+/// a binding without saying which keyword wrote it, and counting one that might
+/// be `let` would subtract a name this function does not own everywhere.
+/// Both omissions leave the analysis where it already was, which is the safe
+/// direction for them.
+fn own_function_scoped(statement: &Stmt, found: &mut BTreeSet<Name>) {
+    match &statement.kind {
+        StmtKind::Declare {
+            kind: crate::syntax::BindingKind::Var,
+            bindings,
+        } => {
+            for binding in bindings {
+                names_in_pattern(&binding.target, found);
+            }
+            return;
+        }
+        StmtKind::Function(function) => {
+            if let Some(name) = function.name {
+                found.insert(name);
+            }
+            return;
+        }
+        StmtKind::Class(_) => return,
+        _ => {}
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => own_function_scoped(inner, found),
+        // A `catch` BODY is still this function's, so a `var` in it is too. The
+        // catch's own binding is not: it belongs to the catch block.
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                own_function_scoped(inner, found);
+            }
+        }
+        StmtChild::Binding(_) | StmtChild::Expr(_) | StmtChild::Function(_)
+        | StmtChild::Class(_) => {}
+    });
 }
 
 /// Every identifier in a statement, without caring what introduced it.
