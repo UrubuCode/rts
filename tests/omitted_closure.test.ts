@@ -185,3 +185,93 @@ describe("what the omission must refuse", () => {
     expect(second(1)).toBe(3);
   });
 });
+
+describe("a helper declared inside a block", () => {
+  // The declaration is descended into rather than skipped, and the reason it is
+  // safe is the reason the whole analysis is: the name is proved dead as a VALUE
+  // over the entire function body, not over the block. A binding whose value
+  // nothing reads has no observable scope.
+  //
+  // It matters because the shape is written inside LOOPS, where the cost is paid
+  // once per iteration. Measured 2026-08-30, release, min of 9:
+  //
+  //   for (…) { const q = (x) => x + 1; a = q(a) | 0; }     150.67 -> 8.33
+  //   const q = (x) => x + 1; for (…) { a = q(a) | 0; }       8.33  CONTROL
+  test("in a loop body, called every iteration", () => {
+    function loops(n: number): number {
+      let a = 0;
+      for (let i = 0; i < n; i++) {
+        const qa = (x: number): number => x + 1;
+        a = qa(a) | 0;
+      }
+      return a;
+    }
+    expect(loops(3)).toBe(3);
+    expect(loops(0)).toBe(0);
+  });
+
+  test("in an `if` arm", () => {
+    function arm(n: number): number {
+      let a = 0;
+      if (n > 0) {
+        const qd = (x: number): number => x * 2;
+        a = qd(n);
+      }
+      return a;
+    }
+    expect(arm(4)).toBe(8);
+    expect(arm(-1)).toBe(0);
+  });
+
+  test("in a `try`", () => {
+    function guarded(n: number): number {
+      let a = 0;
+      try {
+        const qf = (x: number): number => x + 3;
+        a = qf(n);
+      } catch {
+        a = -1;
+      }
+      return a;
+    }
+    expect(guarded(1)).toBe(4);
+  });
+
+  test("a loop helper that CAPTURES the loop variable is refused", () => {
+    // Each iteration needs its own closure over its own `i`, so the capture
+    // clause refuses the name and the closure is built as it always was.
+    function captures(n: number): number {
+      let a = 0;
+      for (let i = 0; i < n; i++) {
+        const qb = (x: number): number => x + i;
+        a = qb(a) | 0;
+      }
+      return a;
+    }
+    expect(captures(3)).toBe(3);
+    expect(captures(5)).toBe(10);
+  });
+
+  test("one that ESCAPES its block is refused", () => {
+    function escapes(): number {
+      let held: any;
+      {
+        const qe = (x: number): number => x + 1;
+        held = qe;
+      }
+      return held(5);
+    }
+    expect(escapes()).toBe(6);
+  });
+
+  test("a nested function's helper belongs to the nested function", () => {
+    function outer(n: number): number {
+      const inner = function (m: number): number {
+        const qh = (x: number): number => x + 1;
+        return qh(m);
+      };
+      return inner(n) + 1;
+    }
+    expect(outer(1)).toBe(3);
+  });
+});

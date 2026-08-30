@@ -135,9 +135,26 @@ pub(super) fn omittable(ctx: &Ctx, body: &[Stmt], captured: &BTreeSet<Name>) -> 
 /// Every `const`/`let` binding of this body whose initialiser is a function and
 /// whose shape a call site cannot refuse.
 ///
-/// TOP LEVEL only, and `var` never. A helper declared inside a block leaves that
-/// block's scope, and a `var` is a write to a binding hoisting already made —
-/// neither is a shape this can reason about from here.
+/// `var` never: it is a write to a binding hoisting already made, which is not a
+/// shape this can reason about from here.
+///
+/// A BLOCK IS DESCENDED INTO, and the reason it is safe is the reason the whole
+/// analysis is: the name is proved dead as a VALUE over the entire function
+/// body, not over the block. A binding whose value nothing reads has no
+/// observable scope — leaving the block takes nothing with it — and every call
+/// to it is substituted wherever it stands.
+///
+/// It matters because the shape is written inside LOOPS, where the cost is paid
+/// once per iteration. Measured 2026-08-30, release, min of 9:
+///
+/// ```text
+/// for (…) { const q = (x) => x + 1; a = q(a) | 0; }        148.00 -> 8.00
+/// const q = (x) => x + 1; for (…) { a = q(a) | 0; }          8.00 CONTROL
+/// ```
+///
+/// A NESTED FUNCTION is not descended into, and that is a different question
+/// with a different answer: a helper declared inside one is that function's, and
+/// its substitution happens while emitting it rather than this one.
 ///
 /// Three properties of the function itself are required beyond what the inliner
 /// asks, and each is a refusal this cannot otherwise see:
@@ -151,6 +168,21 @@ pub(super) fn omittable(ctx: &Ctx, body: &[Stmt], captured: &BTreeSet<Name>) -> 
 ///   answers it cheaply, and the helpers this exists for do not have one.
 fn helper_bindings(statement: &Stmt, found: &mut Vec<Name>) {
     let StmtKind::Declare { kind, bindings } = &statement.kind else {
+        // Anything else is descended into for the declarations it holds — a
+        // loop body, an `if` arm, a bare block, a `try`. Not a nested function
+        // and not a class: those are their own bodies and their own analysis.
+        walk_stmt(statement, &mut |child| match child {
+            StmtChild::Stmt(inner) => helper_bindings(inner, found),
+            StmtChild::Catch(catch) => {
+                for inner in &catch.body {
+                    helper_bindings(inner, found);
+                }
+            }
+            StmtChild::Expr(_)
+            | StmtChild::Binding(_)
+            | StmtChild::Function(_)
+            | StmtChild::Class(_) => {}
+        });
         return;
     };
     if matches!(kind, BindingKind::Var) {
