@@ -264,8 +264,54 @@ const PROVIDED: &[&str] = &[
 /// answered from a scan of the whole program because the read can be emitted
 /// before the assignment is reached.
 pub(super) fn resolves(ctx: &Ctx, name: Name) -> bool {
-    PROVIDED.contains(&ctx.names.text(name)) || ctx.globals.contains(&name)
+    let text = ctx.names.text(name);
+    if ctx.page && NODE_ONLY.contains(&text) {
+        return false;
+    }
+    PROVIDED.contains(&text) || ctx.globals.contains(&name)
 }
+
+/// Os nomes que só existem em Node, e que um `<script>` de página NÃO vê.
+///
+/// # Porque a ausência é a resposta certa
+///
+/// Um browser não tem nenhum destes, e meio npm decide o que fazer perguntando
+/// se eles existem. `typeof process !== 'undefined'` é como uma biblioteca
+/// escolhe entre o caminho de servidor e o de browser, e responder `"object"`
+/// numa página manda-a pelo lado errado — sem um erro, porque o lado errado
+/// também corre.
+///
+/// Medido, e foi o que impediu o React 18 de montar. O scheduler dele escolhe
+/// assim:
+///
+/// ```text
+/// var localSetImmediate = typeof setImmediate !== 'undefined' ? setImmediate : null;
+/// if (typeof localSetImmediate === 'function') { … }        // Node.js
+/// else if (typeof MessageChannel !== 'undefined') { … }     // DOM
+/// ```
+///
+/// Com `setImmediate` visível, ele agendava o render pela fila do MOTOR em vez
+/// da do documento — e nada a bombeava. O `#root` ficava vazio, sem um erro,
+/// com os três scripts a correr limpos.
+///
+/// `typeof` é exempto do refusal por especificação, por isso um nome daqui
+/// responde `"undefined"` em vez de lançar, que é exatamente o que a deteção
+/// espera. Uma leitura NUA continua a ser um `ReferenceError`, como num
+/// browser.
+///
+/// `setTimeout` e `URL` não estão aqui: um browser TEM os dois.
+const NODE_ONLY: &[&str] = &[
+    "process",
+    "Buffer",
+    "global",
+    "setImmediate",
+    "clearImmediate",
+    "require",
+    "module",
+    "exports",
+    "__dirname",
+    "__filename",
+];
 
 /// Emits a read of one, if it is one.
 ///

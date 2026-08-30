@@ -350,6 +350,13 @@ pub struct Ctx<'a> {
     ///
     /// A flag rather than a parameter for [`Ctx::in_static_method`]'s reason.
     pub sloppy: bool,
+    /// Se o programa é um `<script>` de PÁGINA.
+    ///
+    /// O que isso muda é uma coisa só e está em [`globals::resolves`]: um nome
+    /// que só o Node tem — `process`, `Buffer`, `setImmediate`, `global` —
+    /// deixa de resolver, porque num browser ele não existe. Ver a lista lá
+    /// para o que isso custou.
+    pub page: bool,
     /// The objects a `with` put on the scope chain, innermost LAST.
     ///
     /// Empty everywhere except inside a `with` body. What reads it is
@@ -606,6 +613,7 @@ impl<'a> Ctx<'a> {
             in_static_method: false,
             in_field_initializer: false,
             sloppy: false,
+            page: false,
             with_objects: Vec::new(),
             finally_returns: Vec::new(),
             finally_jumps: Vec::new(),

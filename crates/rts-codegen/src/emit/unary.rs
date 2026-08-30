@@ -383,6 +383,19 @@ pub(super) fn typeof_operand(
         ExprKind::Ident(name) if scope.lookup(*name).is_none() => {
             match super::binding::predefined(builder, ctx, *name) {
                 Some(value) => value,
+                // `force_read` e nao `read`, porque a EXEMPCAO do `typeof` e
+                // precisamente poder perguntar por um nome que nao existe: o
+                // objeto global responde `undefined` e nada lanca.
+                //
+                // Mas um nome que este programa nao PODE ter tambem nao pode
+                // ser lido dele. Num `<script>` de pagina, `process` e
+                // `setImmediate` sao do Node e um browser nao os tem — e
+                // `typeof` e exatamente como uma biblioteca pergunta. Ler o do
+                // motor respondia `"object"` numa pagina, e o React 18 ia pelo
+                // ramo de Node do seu scheduler.
+                None if !super::globals::resolves(ctx, *name) => {
+                    super::expr::undefined(builder, ctx)
+                }
                 None => super::globals::force_read(builder, ctx, *name)?,
             }
         }

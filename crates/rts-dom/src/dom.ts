@@ -1531,6 +1531,17 @@ function runScriptsAt(doc: Document, url: string): number {
   // Fecha o TASK da página: drena microtasks/timers que os scripts enfileiraram.
   // Sem isto, um `.then`/`queueMicrotask` registrado por um `<script>` ficava na
   // fila para sempre — o callback nunca acontecia, sem erro nenhum.
+  //
+  // UMA volta, e o laço que estava aqui foi retirado: drenar vinte vezes é
+  // defensável em teoria — uma volta pode enfileirar a seguinte — mas MEDIDO
+  // não mudou nada, e código cujo efeito não se consegue mostrar é especulação
+  // a ocupar o caminho quente de todas as páginas.
+  //
+  // O que falta para um framework concurrent montar continua por isolar. O que
+  // se sabe: `ReactDOM.flushSync`, que força o trabalho a correr já, MONTA a
+  // árvore e põe o texto no documento — logo o DOM responde a tudo o que ele
+  // precisa. E o `MessageChannel`, por onde o scheduler despacha, entrega
+  // quando testado sozinho. O que não corre é o trabalho que a entrega agenda.
   engine.run_event_loop();
   // ISOLA como o console do browser: um callback de terceiro que LANÇA não pode
   // derrubar a página inteira. O erro vive no slot do MOTOR — um canal lateral
