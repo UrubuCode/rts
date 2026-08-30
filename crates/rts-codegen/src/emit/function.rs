@@ -785,6 +785,18 @@ pub(super) fn emit_body(
     let outer_integers = std::mem::replace(&mut ctx.integers, integers);
     let outer_claims = std::mem::replace(&mut ctx.claims, claims);
     let outer_flattened = std::mem::replace(&mut ctx.flattened, flattened);
+    // WHICH HELPER CLOSURES THIS BODY NEED NOT BUILD. Asked here and not
+    // earlier because it reads `ctx.flattened` and `ctx.inlinable`, and both are
+    // in place exactly now: the flattening one line up, the candidates before
+    // the body was entered at all.
+    //
+    // Answered ONCE, for the whole body, and consulted by a declaration rather
+    // than by a call site. That is what makes it deterministic: a name is either
+    // in this set — and its closure is never emitted — or it is not, and
+    // everything happens as it did. There is no fallback path and nothing is
+    // decided while emitting. See `omit.rs` for why the lazy shape was refused.
+    let omitted = super::omit::omittable(ctx, body, &captured);
+    let outer_omitted = std::mem::replace(&mut ctx.omitted, omitted);
     // The one that is an SSA VALUE and not a table, which is why it is taken
     // rather than replaced: the inner body defines its own at its own entry,
     // and reading the outer function's here would name a value defined in a
@@ -833,6 +845,7 @@ pub(super) fn emit_body(
     ctx.numeric = outer_numeric;
     ctx.integers = outer_integers;
     ctx.flattened = outer_flattened;
+    ctx.omitted = outer_omitted;
     ctx.claims = outer_claims;
     ctx.body.leave_nested(outer_throw);
     ctx.finally_returns = outer_returns;

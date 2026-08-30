@@ -282,7 +282,17 @@ pub(super) fn emit_substituted(
     // A top-level declaration is bound at every site inside the module for the
     // same reason it is callable there, so this refuses nothing that already
     // worked — which is a claim the clock checks, not a comment.
-    if scope.lookup(*name).is_none() {
+    //
+    // AN OMITTED HELPER IS THE ONE NAME THAT IS NOT BOUND AND IS STILL RIGHT.
+    // `omit::omittable` proved, for this whole body and before any of it was
+    // emitted, that every call to it is substituted — so the declaration was
+    // never emitted and there is nothing in the scope chain to find.
+    //
+    // Asked BEFORE the lookup rather than after, because the lookup's own
+    // reason for existing is the opposite hazard: a name that resolves to
+    // something else at this site. An omitted name resolves to nothing
+    // anywhere, by construction, which is why the proof had to be complete.
+    if !ctx.omits(*name) && scope.lookup(*name).is_none() {
         return Ok(None);
     }
     // ALREADY BEING SUBSTITUTED, further out. The check below refuses a body

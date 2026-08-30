@@ -133,6 +133,24 @@ pub fn emit_stmt(
                 )? {
                     continue;
                 }
+                // A HELPER WHOSE CLOSURE NOBODY READS is not built at all. Every
+                // call to it is substituted by construction — `omit::omittable`
+                // proves that for the whole body before any of it is emitted —
+                // so the object would be allocated, rooted, and never looked at.
+                //
+                // Measured 2026-08-30: a nested arrow called once per call of
+                // its enclosing function cost 162 ns against 7.67 for the same
+                // helper written outside it, and `rts ir` showed the call
+                // already substituted beside the `__rts_closure_new` feeding it
+                // nothing.
+                //
+                // Nothing is bound. That is deliberate and it is what makes the
+                // proof have to be complete: a call site that fell back to a
+                // real call would read a name that does not exist, and would say
+                // so at compile time rather than answering wrongly.
+                if ctx.omits(*name) {
+                    continue;
+                }
                 let value = match &binding.value {
                     Some(expr) => {
                         // NamedEvaluation: `const f = function () {}` names that

@@ -822,12 +822,12 @@ fn own_function_scoped(statement: &Stmt, found: &mut BTreeSet<Name>) {
 /// name. The same statement one level up compiled. Two traversals over one tree
 /// is exactly the failure the `walk_expr` comment below warns about, arrived at
 /// on the statement side.
-fn all_names_in_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
+pub(super) fn all_names_in_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
     referenced_inside_statement(statement, found, true);
 }
 
 /// Every identifier in an expression.
-fn all_names_in_expr(expr: &Expr, found: &mut BTreeSet<Name>) {
+pub(super) fn all_names_in_expr(expr: &Expr, found: &mut BTreeSet<Name>) {
     referenced_inside_expr(expr, found, true);
 }
 
@@ -1152,7 +1152,7 @@ fn writes(statement: &Stmt) -> Vec<Name> {
 /// The same over-approximation [`names_in_function`] makes, and for the same
 /// reason: a method is nested code whose scope this analysis does not model, so
 /// counting every name it mentions is safe where missing one is not.
-fn names_in_class(class: &crate::syntax::Class, found: &mut BTreeSet<Name>) {
+pub(super) fn names_in_class(class: &crate::syntax::Class, found: &mut BTreeSet<Name>) {
     use crate::syntax::ClassElement;
     if let Some(heritage) = &class.heritage {
         referenced_inside_expr(heritage, found, true);

@@ -93,6 +93,7 @@ mod suspends;
 mod types;
 mod switch;
 mod template;
+mod omit;
 mod settled;
 mod unary;
 mod with_scope;
@@ -360,6 +361,13 @@ pub struct Ctx<'a> {
     /// A stack rather than one object because `with (a) with (b) x` asks `b`
     /// first and then `a`, and a single slot would lose the outer one.
     pub with_objects: Vec<rts_cranelift::ir::ValueId>,
+    /// The helper bindings of the body being emitted whose CLOSURE is not built.
+    ///
+    /// Filled once per body by `omit::omittable`, before any of it is emitted,
+    /// and read by the declaration rather than by a call site — which is what
+    /// makes it deterministic. A name in here has every call to it substituted
+    /// by construction, so the closure has no reachable use.
+    omitted: std::collections::BTreeSet<Name>,
     /// Where a `return` inside a protected span goes instead of returning.
     ///
     /// A `finally` runs on EVERY way out, and a `return` written inside the
@@ -622,6 +630,7 @@ impl<'a> Ctx<'a> {
             in_field_initializer: false,
             sloppy: false,
             with_objects: Vec::new(),
+            omitted: std::collections::BTreeSet::new(),
             finally_returns: Vec::new(),
             finally_jumps: Vec::new(),
             model,
@@ -683,6 +692,14 @@ impl<'a> Ctx<'a> {
     /// Records that it is finished.
     pub(in crate::emit) fn leave_substitution(&mut self) {
         self.substituting.pop();
+    }
+
+    /// Whether this helper binding's closure is not built at all.
+    ///
+    /// See `omit.rs`. True only when every call to the name is certain to be
+    /// substituted, so nothing ever reads the value.
+    pub(in crate::emit) fn omits(&self, name: Name) -> bool {
+        self.omitted.contains(&name)
     }
 
     /// Whether the body being emitted replaced an object of this name with
