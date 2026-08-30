@@ -50,7 +50,7 @@ pub(super) struct Registered {
 }
 
 /// What a class registered as, if it has been registered.
-pub(in crate::entry) fn made(context: &Context, name: &str) -> Option<u64> {
+pub fn made(context: &Context, name: &str) -> Option<u64> {
     context
         .classes
         .iter()
@@ -73,7 +73,7 @@ pub(in crate::entry) fn prototype(context: &Context, name: &str) -> Option<u64> 
 /// installing interns names, interning allocates, and an allocation can reach
 /// back into the same registration. Recording afterwards is what made the first
 /// version of `string::prototype_of` recurse until the region ran out.
-pub(in crate::entry) fn record(
+pub fn record(
     context: &mut Context,
     name: &'static str,
     made: u64,
@@ -105,7 +105,7 @@ pub(in crate::entry) fn owner(context: &Context, name: &str) -> Option<&'static 
 /// depends on a context that does not exist while the list is a `const`. Text in
 /// particular has to be interned, which allocates — so what the declaration
 /// carries is the source form and this is where it becomes a value.
-pub(in crate::entry) enum Constant {
+pub enum Constant {
     /// `Math.PI`, `Number.MAX_SAFE_INTEGER`.
     Number(f64),
     /// `Error.prototype.name`.
@@ -118,7 +118,7 @@ pub(in crate::entry) enum Constant {
 /// `regex::describe` records: compiled code reading a property that is in the
 /// layout never asks the runtime at all, so a value only the slow path knows
 /// about is one the fast path disagrees with the moment it starts working.
-pub(in crate::entry) fn constants(context: &mut Context, cell: u32, constants: &[(&str, Constant)]) {
+pub fn constants(context: &mut Context, cell: u32, constants: &[(&str, Constant)]) {
     for (name, held) in constants {
         let value = match held {
             Constant::Number(number) => Value::from_f64(*number).bits(),
@@ -178,7 +178,7 @@ fn attributed(context: &mut Context, cell: u32, key: crate::object::Key, held: &
 /// reached through this if it uses the wrong one, and converting its receiver
 /// looks up `valueOf` and calls it — itself. That recursed until the stack ran
 /// out, in four suite files, the moment this learned to convert.
-pub(in crate::entry) fn to_number(value: u64) -> f64 {
+pub fn to_number(value: u64) -> f64 {
     // A value that already IS a double is its own `ToNumber`, and answering so
     // here costs a tag test where the three steps below cost three
     // `with_current` round trips — a thread-local access, a `RefCell` flag
@@ -233,7 +233,7 @@ pub(in crate::entry) fn this_number(value: u64) -> f64 {
 }
 
 /// `ToBoolean` of an argument.
-pub(in crate::entry) fn to_boolean(value: u64) -> bool {
+pub fn to_boolean(value: u64) -> bool {
     super::primitives::to_boolean(value)
 }
 

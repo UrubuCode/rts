@@ -57,6 +57,9 @@ mod computed;
 #[path = "context_tests.rs"]
 mod context_tests;
 mod current;
+/// The vocabulary `#[rtse::class]` expands into — see the module for why it
+/// is a facade and not three public modules.
+pub mod class_abi;
 pub mod declared;
 mod date;
 mod error;

@@ -147,12 +147,12 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
         Flavour::Namespace => quote!(),
         Flavour::Class => quote! {
             /// What the constructor holds.
-            const #statics_name: &[(&str, crate::entry::native::Native, u32)] =
+            const #statics_name: &[(&str, ::rts_core::entry::class_abi::Native, u32)] =
                 &[#(#statics),*];
 
             /// The constructor's own constants.
             const #static_constants_name:
-                &[(&str, crate::entry::class_support::Constant)] =
+                &[(&str, ::rts_core::entry::class_abi::Constant)] =
                 &[#(#static_constants),*];
         },
     };
@@ -192,8 +192,8 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
         #(#emitted)*
 
         #[doc = #types_doc]
-        pub(in crate::entry) const #types_name: crate::entry::declared::Class =
-            crate::entry::declared::Class {
+        pub(crate) const #types_name: ::rts_core::entry::declared::Class =
+            ::rts_core::entry::declared::Class {
                 name: #name,
                 doc: #class_doc,
                 namespace: #namespace,
@@ -202,17 +202,17 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             };
 
         /// What the prototype holds — or, for a namespace, the object itself.
-        const #natives: &[(&str, crate::entry::native::Native, u32)] = &[#(#members),*];
+        const #natives: &[(&str, ::rts_core::entry::class_abi::Native, u32)] = &[#(#members),*];
 
         #statics_decl
 
         /// The constants, installed as ordinary properties.
-        const #constants_name: &[(&str, crate::entry::class_support::Constant)] =
+        const #constants_name: &[(&str, ::rts_core::entry::class_abi::Constant)] =
             &[#(#constants),*];
 
         #[doc = #doc]
-        pub(in crate::entry) fn #register(
-            context: &mut crate::entry::Context,
+        pub(crate) fn #register(
+            context: &mut ::rts_core::entry::Context,
         ) -> u64 {
             #body
         }
@@ -228,20 +228,20 @@ fn namespace_body(
 ) -> TokenStream {
     let tagged = tagging(name, quote!(cell), tag);
     quote! {
-        if let Some(made) = crate::entry::class_support::made(context, #name) {
+        if let Some(made) = ::rts_core::entry::class_abi::made(context, #name) {
             return made;
         }
-        let Some(cell) = crate::entry::native::plain(context) else {
-            return crate::entry::objects::undefined_of(context);
+        let Some(cell) = ::rts_core::entry::class_abi::plain(context) else {
+            return ::rts_core::entry::class_abi::undefined_of(context);
         };
-        let object = crate::value::Value::from_slot(cell).bits();
+        let object = ::rts_core::value::Value::from_slot(cell).bits();
         // Recorded BEFORE anything is installed. Installing interns names, and
         // interning allocates — the reason `string::prototype_of` records its
         // cell first, and the reason that version recursed until the region ran
         // out when it did not.
-        crate::entry::class_support::record(context, #name, object, object, Some("rts-core::class"));
-        crate::entry::native::install_with_arity(context, cell, #natives);
-        crate::entry::class_support::constants(context, cell, #constants);
+        ::rts_core::entry::class_abi::record(context, #name, object, object, Some("rts-core::class"));
+        ::rts_core::entry::class_abi::install_with_arity(context, cell, #natives);
+        ::rts_core::entry::class_abi::constants(context, cell, #constants);
         #tagged
         object
     }
@@ -263,13 +263,13 @@ fn class_body(
     let tagged = tagging(name, quote!(prototype_cell), tag);
     let install_members = if method_prototypes {
         quote! {
-            crate::entry::native::install_with_arity_and_prototypes(
+            ::rts_core::entry::class_abi::install_with_arity_and_prototypes(
                 context, prototype_cell, #natives,
             );
         }
     } else {
         quote! {
-            crate::entry::native::install_with_arity(context, prototype_cell, #natives);
+            ::rts_core::entry::class_abi::install_with_arity(context, prototype_cell, #natives);
         }
     };
     // A class with no constructor of its own still has to be callable, because
@@ -305,17 +305,17 @@ fn class_body(
             // inherits from `Error.prototype`, which is what makes
             // `new TypeError("x").message` find the accessor Error installed.
             let parent = #path(context);
-            if let Some(parent_cell) = crate::value::Value(parent).as_slot() {
+            if let Some(parent_cell) = ::rts_core::value::Value(parent).as_slot() {
                 let key = context.well_known("prototype");
                 if let Some(found) =
-                    crate::entry::objects::read_property(context, parent_cell, key)
+                    ::rts_core::entry::class_abi::read_property(context, parent_cell, key)
                 {
                     context.set_prototype(prototype_cell, found.bits());
                 }
             }
             // And the constructor inherits the parent's statics, the same way
             // `class B extends A {}` gives `B` everything `A` had.
-            if let Some(cell) = crate::value::Value(callable).as_slot() {
+            if let Some(cell) = ::rts_core::value::Value(callable).as_slot() {
                 context.set_prototype(cell, parent);
             }
         },
@@ -324,46 +324,46 @@ fn class_body(
     quote! {
         #default
 
-        if let Some(made) = crate::entry::class_support::made(context, #name) {
+        if let Some(made) = ::rts_core::entry::class_abi::made(context, #name) {
             return made;
         }
-        let Some(prototype_cell) = crate::entry::native::plain(context) else {
-            return crate::entry::objects::undefined_of(context);
+        let Some(prototype_cell) = ::rts_core::entry::class_abi::plain(context) else {
+            return ::rts_core::entry::class_abi::undefined_of(context);
         };
-        let prototype = crate::value::Value::from_slot(prototype_cell).bits();
-        let callable = crate::entry::native::callable(context, #code);
+        let prototype = ::rts_core::value::Value::from_slot(prototype_cell).bits();
+        let callable = ::rts_core::entry::class_abi::callable(context, #code);
         // `C.name` e uma propriedade real, como em qualquer funcao: sem ela
         // `new Error("x").constructor.name` respondia vazio, e o inspetor do
         // console nao tinha como rotular uma instancia.
-        crate::entry::native::name_of(context, callable, #name);
+        ::rts_core::entry::class_abi::name_of(context, callable, #name);
         // `C.length` is `SetFunctionLength` over the constructor, exactly as it
         // is over a method: what `new C(…)` declares. Without it a program
         // reading `Map.length` saw `undefined` where every runtime answers `0`,
         // and `Boolean.length` where every runtime answers `1`.
-        crate::entry::native::length_of(context, callable, #construct_arity);
+        ::rts_core::entry::class_abi::length_of(context, callable, #construct_arity);
         // Before installing anything, for the reason the namespace body states:
         // installing interns, interning allocates, and an allocation can reach
         // back here.
-        crate::entry::class_support::record(context, #name, callable, prototype, Some("rts-core::class"));
+        ::rts_core::entry::class_abi::record(context, #name, callable, prototype, Some("rts-core::class"));
 
-        if let Some(cell) = crate::value::Value(callable).as_slot() {
-            crate::entry::native::install_with_arity(context, cell, #statics);
-            crate::entry::class_support::constants(context, cell, #static_constants);
+        if let Some(cell) = ::rts_core::value::Value(callable).as_slot() {
+            ::rts_core::entry::class_abi::install_with_arity(context, cell, #statics);
+            ::rts_core::entry::class_abi::constants(context, cell, #static_constants);
             let key = context.well_known("prototype");
-            crate::entry::objects::put(context, cell, key, prototype);
+            ::rts_core::entry::class_abi::put(context, cell, key, prototype);
             // `{ writable: false, enumerable: false, configurable: false }` — a
             // built-in constructor's `prototype` is the one property the
             // specification nails down completely. Unmarked it was enumerable,
             // so `Object.keys(Boolean)` answered `["prototype"]` where every
             // runtime answers `[]`, and `for (const k in Map)` walked it.
-            crate::entry::native::pinned(context, cell, key);
+            ::rts_core::entry::class_abi::pinned(context, cell, key);
         }
         #install_members
-        crate::entry::class_support::constants(context, prototype_cell, #constants);
+        ::rts_core::entry::class_abi::constants(context, prototype_cell, #constants);
         // `p.constructor` is an ordinary property, and a program reads it.
         let key = context.well_known("constructor");
-        crate::entry::objects::put(context, prototype_cell, key, callable);
-        crate::entry::native::hidden(context, prototype_cell, key);
+        ::rts_core::entry::class_abi::put(context, prototype_cell, key, callable);
+        ::rts_core::entry::class_abi::hidden(context, prototype_cell, key);
 
         #tagged
         #inherit
@@ -392,14 +392,14 @@ fn tagging(name: &str, cell: TokenStream, tag: bool) -> TokenStream {
     }
     quote! {
         let key = context.well_known(concat!("@@toStringTag"));
-        let tag = context.intern_value(crate::text::Str::from_str(#name)).bits();
-        crate::entry::objects::put(context, #cell, key, tag);
+        let tag = context.intern_value(::rts_core::text::Str::from_str(#name)).bits();
+        ::rts_core::entry::class_abi::put(context, #cell, key, tag);
         // `{ writable: false, enumerable: false, configurable: true }`, which is
         // what the specification gives every `@@toStringTag`. Unmarked it was
         // writable AND enumerable, so `Object.keys(Math)` listed a symbol-keyed
         // property and `Math[Symbol.toStringTag] = "x"` silently retagged the
         // namespace.
-        crate::entry::native::tagged(context, #cell, key);
+        ::rts_core::entry::class_abi::tagged(context, #cell, key);
     }
 }
 

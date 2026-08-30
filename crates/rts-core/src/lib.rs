@@ -33,6 +33,13 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+// `#[rtse::class]` expands to `::rts_core::…` so the SAME expansion compiles
+// in a host crate — which is the whole point of `entry::class_abi`. Inside
+// this crate that path has to resolve too, and without this alias it does
+// not: a crate cannot name itself by name. So the attribute is usable here
+// and in `rts-ui` with one emission instead of two.
+extern crate self as rts_core;
+
 pub mod bigint;
 pub mod coerce;
 pub mod collect;

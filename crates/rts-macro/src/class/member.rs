@@ -85,11 +85,11 @@ impl Member {
         let ts = &self.ts;
         let doc = &self.doc;
         let role = match self.role {
-            Role::Member => quote!(crate::entry::declared::Role::Prototype),
-            Role::Static => quote!(crate::entry::declared::Role::Static),
-            Role::Construct => quote!(crate::entry::declared::Role::Construct),
+            Role::Member => quote!(::rts_core::entry::declared::Role::Prototype),
+            Role::Static => quote!(::rts_core::entry::declared::Role::Static),
+            Role::Construct => quote!(::rts_core::entry::declared::Role::Construct),
         };
-        quote!(crate::entry::declared::Member {
+        quote!(::rts_core::entry::declared::Member {
             signature: #ts,
             doc: #doc,
             role: #role,
@@ -152,8 +152,8 @@ impl Member {
             // whole reason this wrapper is generated rather than written.
             let converted = match spelled(ty).as_str() {
                 "u64" => quote!(#slot),
-                "f64" => quote!(crate::entry::class_support::to_number(#slot)),
-                "bool" => quote!(crate::entry::class_support::to_boolean(#slot)),
+                "f64" => quote!(::rts_core::entry::class_abi::to_number(#slot)),
+                "bool" => quote!(::rts_core::entry::class_abi::to_boolean(#slot)),
                 other => {
                     return syn::Error::new(
                         ty.span(),
@@ -187,8 +187,8 @@ impl Member {
                 let call = quote!(#inner(#(#forwarded),*));
                 match spelled(ty).as_str() {
                     "u64" => call,
-                    "f64" => quote!(crate::value::Value::from_f64(#call).bits()),
-                    "bool" => quote!(crate::value::Value::from_bool(#call).bits()),
+                    "f64" => quote!(::rts_core::value::Value::from_f64(#call).bits()),
+                    "bool" => quote!(::rts_core::value::Value::from_bool(#call).bits()),
                     other => {
                         return syn::Error::new(
                             ty.span(),
@@ -381,10 +381,10 @@ pub(super) fn constant_type_row(constant: &ImplItemConst) -> syn::Result<TokenSt
         .iter()
         .any(|attribute| attribute.path().is_ident("stat"))
     {
-        true => quote!(crate::entry::declared::Role::StaticConstant),
-        false => quote!(crate::entry::declared::Role::Constant),
+        true => quote!(::rts_core::entry::declared::Role::StaticConstant),
+        false => quote!(::rts_core::entry::declared::Role::Constant),
     };
-    Ok(quote!(crate::entry::declared::Member {
+    Ok(quote!(::rts_core::entry::declared::Member {
         signature: #ts,
         doc: #doc,
         role: #role,
@@ -400,9 +400,9 @@ pub(super) fn constant_type_row(constant: &ImplItemConst) -> syn::Result<TokenSt
 pub(super) fn constant_row(constant: &ImplItemConst) -> syn::Result<(TokenStream, bool)> {
     let value = &constant.expr;
     let held = match spelled(&constant.ty).as_str() {
-        "f64" => quote!(crate::entry::class_support::Constant::Number(#value)),
+        "f64" => quote!(::rts_core::entry::class_abi::Constant::Number(#value)),
         "&str" | "&'staticstr" => {
-            quote!(crate::entry::class_support::Constant::Text(#value))
+            quote!(::rts_core::entry::class_abi::Constant::Text(#value))
         }
         other => {
             return Err(syn::Error::new(

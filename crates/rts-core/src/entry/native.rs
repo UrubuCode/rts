@@ -35,10 +35,10 @@ use crate::value::Value;
 /// Spelled once. Two spellings of a calling convention is how an argument comes
 /// to be read as the wrong thing, and a wrong one is a jump with a corrupt
 /// stack rather than a wrong answer.
-pub(in crate::entry) type Native = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
+pub type Native = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 
 /// A callable value over a Rust function.
-pub(super) fn callable(context: &mut Context, code: Native) -> u64 {
+pub fn callable(context: &mut Context, code: Native) -> u64 {
     let shape = context.shapes.root();
     let ty = context.layout_of(shape).index() as u32;
     let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
@@ -92,7 +92,11 @@ pub(in crate::entry) fn hidden_many(context: &mut Context, cell: u32, keys: &[cr
     });
 }
 
-pub(in crate::entry) fn hidden(context: &mut Context, cell: u32, key: crate::object::Key) {
+/// Makes one property non-enumerable — the `hidden_many` above, for a single
+/// key. It is what a class`s `constructor` back-pointer gets: reachable by
+/// name, absent from `Object.keys`, which is what the language says about
+/// every built-in method.
+pub fn hidden(context: &mut Context, cell: u32, key: crate::object::Key) {
     if let crate::object::Key::Name(named) = key {
         super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
             writable: true,
@@ -112,7 +116,7 @@ pub(in crate::entry) fn hidden(context: &mut Context, cell: u32, key: crate::obj
 /// `Object.assign`, `Object.keys` and friends ARE read as values — a program
 /// forwards them, wraps them, or introspects them — and the specification
 /// pins an exact arity for each.
-pub(in crate::entry) fn install_with_arity(context: &mut Context, cell: u32, natives: &[(&str, Native, u32)]) {
+pub fn install_with_arity(context: &mut Context, cell: u32, natives: &[(&str, Native, u32)]) {
     for (name, code, arity) in natives {
         let method = callable(context, *code);
         name_of(context, method, name);
@@ -134,7 +138,7 @@ pub(in crate::entry) fn install_with_arity(context: &mut Context, cell: u32, nat
 /// alternative was to special-case the error formatter for one method, which
 /// would leave `new` with the wrong observable prototype and would not generalise
 /// to the other constructible Buffer methods.
-pub(in crate::entry) fn install_with_arity_and_prototypes(
+pub fn install_with_arity_and_prototypes(
     context: &mut Context,
     cell: u32,
     natives: &[(&str, Native, u32)],
@@ -180,7 +184,7 @@ pub(in crate::entry) fn install_with_arity_and_prototypes(
 /// built-in constructor's `prototype`. Being non-configurable is the half that
 /// matters beyond enumeration: `delete Map.prototype` has to fail, and
 /// `Object.defineProperty(Map, "prototype", …)` has to refuse.
-pub(in crate::entry) fn pinned(context: &mut Context, cell: u32, key: crate::object::Key) {
+pub fn pinned(context: &mut Context, cell: u32, key: crate::object::Key) {
     if let crate::object::Key::Name(named) = key {
         super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
             writable: false,
@@ -195,14 +199,14 @@ pub(in crate::entry) fn pinned(context: &mut Context, cell: u32, key: crate::obj
 /// Same attributes as [`introspective`] gives `name` and `length`, and named
 /// apart because the reason is a different one: this is the tag, not a function's
 /// own description, and the two would drift the day one of them changes.
-pub(in crate::entry) fn tagged(context: &mut Context, cell: u32, key: crate::object::Key) {
+pub fn tagged(context: &mut Context, cell: u32, key: crate::object::Key) {
     introspective(context, cell, key);
 }
 
 /// Writes `.name` on a callable — a real property, per the specification's own
 /// `SetFunctionName`, so `fn.name` reads the same whether `fn` is a built-in or
 /// a declared one.
-pub(in crate::entry) fn name_of(context: &mut Context, callable: u64, name: &str) {
+pub fn name_of(context: &mut Context, callable: u64, name: &str) {
     if let Some(cell) = Value(callable).as_slot() {
         let key = context.well_known("name");
         let value = context.intern_value(Str::from_str(name)).bits();
@@ -213,7 +217,7 @@ pub(in crate::entry) fn name_of(context: &mut Context, callable: u64, name: &str
 
 /// Writes `.length` on a callable — the parameter count the specification's
 /// `SetFunctionLength` puts there before a body ever runs.
-pub(in crate::entry) fn length_of(context: &mut Context, callable: u64, arity: u32) {
+pub fn length_of(context: &mut Context, callable: u64, arity: u32) {
     if let Some(cell) = Value(callable).as_slot() {
         let key = context.well_known("length");
         let value = Value::from_f64(f64::from(arity)).bits();
@@ -336,7 +340,7 @@ extern "C" fn receiver(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u6
 }
 
 /// An object with nothing on it, for something to be a prototype.
-pub(in crate::entry) fn plain(context: &mut Context) -> Option<u32> {
+pub fn plain(context: &mut Context) -> Option<u32> {
     let shape = context.shapes.root();
     let ty = context.layout_of(shape).index() as u32;
     super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty)

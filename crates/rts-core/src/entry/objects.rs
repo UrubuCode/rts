@@ -550,7 +550,7 @@ pub fn set_super_property(receiver: u64, start: u64, key: i64, value: u64) -> u6
 /// Named `put` rather than `write` because `write` is a macro in scope, and a
 /// call that silently resolves to one instead is a compile error whose message
 /// points at the wrong thing.
-pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
+pub fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
     // `a.length = 1` TRUNCATES, and `a.length = 3` grows with absent elements.
     // Writing the number alone left the array disagreeing with itself: `length`
     // answered 1 while `a[1]` still answered what was stored there, which is two
@@ -742,7 +742,7 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
 /// The second rule is still obeyed here and it matters: an own property holding
 /// `undefined` shadows an inherited one, so the walk stops when the key is
 /// **found**, not when a non-`undefined` value is found.
-pub(super) fn read_property(context: &mut Context, start: u32, key: Key) -> Option<Value> {
+pub fn read_property(context: &mut Context, start: u32, key: Key) -> Option<Value> {
     read(context, start, key)
 }
 
@@ -947,7 +947,7 @@ pub(in crate::entry) fn access_refusal(
 }
 
 /// The encoded `undefined`, from the numbering the language declared.
-pub(super) fn undefined_of(context: &Context) -> u64 {
+pub fn undefined_of(context: &Context) -> u64 {
     rts_cranelift::tags::encode(
         rts_cranelift::tags::TAG_SINGLETON,
         u64::from(context.singletons.undefined),
