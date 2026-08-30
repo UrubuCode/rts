@@ -267,16 +267,53 @@ extern "C" fn run(_e: u64, _t: u64, doc: u64, source: u64, window: u64, _c: u64)
     // deles terminava o processo com a página por montar. Consumir aqui é o que
     // torna a falha DESTE script e não da página.
     let raised = entry::pending();
-    if raised.is_some() {
-        entry::take_thrown();
-    }
+    // O VALOR lançado, e não só a mensagem: um `Error` carrega o `.stack`
+    // capturado onde foi CONSTRUÍDO, que é o único sítio onde a pilha ainda
+    // existe. `call_frames()` aqui responde vazio — quando o controlo volta a
+    // este nativo os frames já foram desempilhados —, e foi por isso que a
+    // primeira tentativa de dizer "onde" não disse nada.
+    //
+    // Sem isto, um erro vindo de dentro de um bundle grande diz O QUÊ e não
+    // ONDE. Medido a custar caro: o React falha a ler `childLanes` de um
+    // `undefined`, e `childLanes` aparece em trinta sítios do react-dom —
+    // três sondas manuais depois, ainda não se sabia em qual.
+    let onde = match raised.is_some() {
+        false => String::new(),
+        true => {
+            let lancado = entry::take_thrown();
+            // A propriedade sob o empréstimo, o TEXTO fora dele: `text_of`
+            // entra no contexto por sua conta, e pedi-lo aqui dentro seria um
+            // abort não-desenrolável em vez de um erro. É a mesma regra que o
+            // cabeçalho deste módulo dá para os locks.
+            let stack = entry::with_runtime(|context| entry::get_member(context, lancado, "stack"));
+            let pilha = entry::text_of(stack);
+            match pilha {
+                // A mensagem já vem em `raised`, e o `.stack` repete-a na
+                // primeira linha: só as linhas `at …` são novidade.
+                Some(texto) => {
+                    let linhas: Vec<&str> = texto
+                        .lines()
+                        .map(str::trim)
+                        .filter(|linha| linha.starts_with("at "))
+                        .collect();
+                    match linhas.is_empty() {
+                        true => String::new(),
+                        false => format!("
+         {}", linhas.join("
+         ")),
+                    }
+                }
+                None => String::new(),
+            }
+        }
+    };
     // O QUE falhou fica guardado, e isso não é só diagnóstico: um browser
     // imprime o erro de um `<script>` no console, e uma falha que não diz nada
     // é indistinguível de um script que não fez nada. Foi assim que o prelude
     // em falta passou dezassete dias por descobrir — ver
     // `docs/ui/page-script-bridge.md`.
     let message = match (&answered, &raised) {
-        (_, Some((_, text))) => Some(text.clone()),
+        (_, Some((_, text))) => Some(format!("{text}{onde}")),
         // Compilou-se nada e não houve throw: fonte que o front end recusou.
         // Um `SyntaxError` de um `<script>` é ordinário numa página real, e
         // dizer "não compilou" é mais do que o silêncio de antes mesmo sem a
