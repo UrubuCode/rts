@@ -1435,6 +1435,34 @@ function runScriptsAt(doc: Document, url: string): number {
   return ran;
 }
 
+// Publica o ambiente de browser no escopo do documento, uma vez.
+//
+// Estes nomes eram `const` injetadas no topo de CADA script por um prólogo. Como
+// propriedades do escopo são a mesma coisa dita onde um browser a diz — o global
+// object — e param de ser recompiladas por script. `window` marca que já foi
+// feito: é o primeiro a entrar e nenhum script legítimo o apaga.
+function __prepararEscopo(doc: Document, url: string): void {
+  if (DomScope.has(doc._dom, "window") === 1) return;
+  const w: any = __winFor(doc._dom, url, 1000, 800);
+  DomScope.set(doc._dom, "window", w);
+  DomScope.set(doc._dom, "document", w.document);
+  DomScope.set(doc._dom, "self", w);
+  DomScope.set(doc._dom, "globalThis", w);
+  DomScope.set(doc._dom, "top", w);
+  DomScope.set(doc._dom, "parent", w);
+  DomScope.set(doc._dom, "location", w.location);
+  DomScope.set(doc._dom, "navigator", w.navigator);
+  DomScope.set(doc._dom, "history", w.history);
+  DomScope.set(doc._dom, "localStorage", w.localStorage);
+  // Os timers CHAMADOS NUS caem na fila por documento (`DomTimers`), não nos do
+  // motor — só essa fila é bombeada pelo frame do host.
+  DomScope.set(doc._dom, "setTimeout", function (f: any, ms: any) { return w.setTimeout(f, ms); });
+  DomScope.set(doc._dom, "clearTimeout", function (id: any) { w.clearTimeout(id); });
+  DomScope.set(doc._dom, "setInterval", function (f: any, ms: any) { return w.setInterval(f, ms); });
+  DomScope.set(doc._dom, "clearInterval", function (id: any) { w.clearInterval(id); });
+  DomScope.set(doc._dom, "requestAnimationFrame", function (f: any) { return w.requestAnimationFrame(f); });
+}
+
 // Roda o j-ésimo `<script>`: inline usa o texto do nó; externo usa o fonte que o
 // `loadResources` materializou no nó (mesmo caminho). Devolve 1 (rodou) ou 0.
 function __runScriptAt(doc: Document, j: number, url: string): number {
@@ -1464,59 +1492,22 @@ function __runScriptAt(doc: Document, j: number, url: string): number {
     code = meta.indexOf("base64") >= 0 ? atob(payload) : decodeURIComponent(payload);
   }
   if (code.length === 0) return 0;
-  // Injeta o AMBIENTE de browser no corpo: `window` (location/navigator/history/
-  // storage/timers) + `document` (do window) + os aliases globais que os scripts
-  // esperam (self/globalThis/top/parent === window). `return 0` final garante o
-  // dynfn tipado i64 (o corpo de um <script> normalmente não tem return).
+  __prepararEscopo(doc, url);
+  // E o texto vai INTEIRO e COMO VEIO. Nada de `__normalizeScript`, nada de
+  // `__bindGlobals`: o compilador resolve os nomes livres contra o escopo (a
+  // porta `emit::page`), e as declarações de topo assentam nele para o script
+  // seguinte as ler — que é o que a ECMA-262 §16.1.7 diz de script code.
   //
-  // O `window` vem de `__winFor` (PERSISTENTE por documento) e `__G` é o SACO DE
-  // GLOBAIS compartilhado — os dois é que fazem um <script> enxergar o que o
-  // anterior definiu, como no browser. Ver `window.ts`.
-  const prologue = "const window = __winFor(__h, __url, 1000, 800);\n"
-    + "const __G = __globalsFor(__h, __url, 1000, 800);\n"
-    + "const document = window.document;\n"
-    + "const self = window; const globalThis = window; const top = window; const parent = window;\n"
-    + "const location = window.location; const navigator = window.navigator;\n"
-    + "const history = window.history; const localStorage = window.localStorage;\n"
-    // Timers CHAMADOS NUS caem na fila por documento (window.setTimeout →
-    // DomTimers), não nos timers do motor — só a fila é bombeada pelo frame do
-    // host (`pumpTimerCallbacks`).
-    + "const setTimeout = function(f: any, ms: any){ return window.setTimeout(f, ms); };\n"
-    + "const clearTimeout = function(id: any){ window.clearTimeout(id); };\n"
-    + "const setInterval = function(f: any, ms: any){ return window.setInterval(f, ms); };\n"
-    + "const clearInterval = function(id: any){ window.clearInterval(id); };\n"
-    + "const requestAnimationFrame = function(f: any){ return window.requestAnimationFrame(f); };\n";
-  // Escopo global COMPARTILHADO: o que scripts anteriores publicaram (`known`)
-  // é qualificado para `__G.<nome>` neste script também — é o que faz o loader
-  // criado pelo script 2 estar disponível para o script 30.
-  // Os nomes que scripts ANTERIORES publicaram vêm do `DomScope` (Rust): é a
-  // ÚNICA lista que sobrevive entre scripts. Um array `.ts` não serve — cada
-  // `<script>` é compilado como um PROGRAMA novo (`new Function`), então o
-  // `push` de um se perde antes do próximo ler. Era exatamente este o bug:
-  // `__d` (o registrador de módulos da Meta) era publicado pelo script 1, o
-  // array `.ts` esquecia, e os 9 bundles de aplicação morriam em "call to
-  // unknown function `__d`" — a página nunca montava.
-  const known = __scopeNames(doc);
-  const created = __scanImplicitGlobals(__normalizeScript(code));
-  const body = prologue + __bindGlobals(code, known) + "\nreturn 0;";
-  let ok = 1;
-  try {
-    const f = new Function("__h", "__url", body);
-    f(doc._dom, url);
-    // Só depois de RODAR é que os nomes viram "publicados" (um script que falhou
-    // não deixa seus globais no escopo — como no browser). Um nome CRIADO mas
-    // ainda não escrito (`x = undefined`) precisa constar mesmo assim: é o que
-    // faz o próximo script qualificá-lo em vez de tratá-lo como não-ligado.
-    let i = 0;
-    while (i < created.length) {
-      const nm = created[i];
-      if (DomScope.has(doc._dom, nm) === 0) DomScope.set(doc._dom, nm, undefined);
-      i = i + 1;
-    }
-  } catch (e) {
-    // Script quebrado não derruba a página (comportamento do browser).
-    ok = 0;
+  // O que isto apaga é uma classe inteira de divergências: enquanto o texto era
+  // reescrito, o motor compilava um programa que a página não serviu, e cada
+  // caso que a varredura não via era um nome perdido em silêncio.
+  const janela = __winFor(doc._dom, url, 1000, 800);
+  const ok = DomScope.run(doc._dom, code, janela);
+  // Reportado como um browser reporta: no console, com a origem, e a página
+  // segue. O silêncio é o que faz um script morto parecer um script vazio.
+  if (ok === 0) {
+    const porque = DomScope.lastError(doc._dom);
+    console.error("[page] <script> " + j + " de " + url + " falhou: " + porque);
   }
   return ok;
 }
-

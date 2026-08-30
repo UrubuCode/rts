@@ -65,6 +65,7 @@ mod delegate;
 mod destructure;
 mod escape;
 mod eval;
+mod page;
 mod dynamic;
 mod expr;
 mod fold;
@@ -99,6 +100,7 @@ mod wrap;
 
 pub use dynamic::{Wanted, dynamic_specifiers, specifiers};
 pub use eval::emit_eval_program;
+pub use page::emit_page_program;
 pub use expr::emit_expr;
 pub use loops::Loops;
 pub use proven::Numeric;

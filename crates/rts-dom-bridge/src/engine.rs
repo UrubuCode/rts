@@ -5,9 +5,13 @@
 
 use rts_core::entry::{self, Provided};
 
-use crate::value::integer;
+use crate::value::{integer, nothing};
 
-pub const MEMBERS: &[(&str, Provided)] = &[("invoke_cb", invoke_callback)];
+pub const MEMBERS: &[(&str, Provided)] = &[
+    ("invoke_cb", invoke_callback),
+    ("run_event_loop", run_event_loop),
+    ("take_error", take_error),
+];
 
 /// `engine.invoke_cb(callbackWord, argument)` — chama um callback armazenado pelo
 /// DOM com um argumento. O callback cruza como número para a fachada TypeScript,
@@ -25,4 +29,31 @@ extern "C" fn invoke_callback(
     entry::call(
         callback, undefined, argument, undefined, undefined, undefined,
     )
+}
+
+/// `engine.run_event_loop()` — fecha o task da página.
+///
+/// Drena o que os `<script>` enfileiraram. Sem isto, um `.then` ou um
+/// `queueMicrotask` registado por um script ficava na fila para sempre: o
+/// callback nunca acontecia e nada dizia porquê.
+extern "C" fn run_event_loop(_e: u64, _t: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    entry::drain_microtasks();
+    nothing()
+}
+
+/// `engine.take_error()` — o erro que uma microtask deixou pendente, e limpa-o.
+///
+/// `undefined` quando não houve nenhum.
+///
+/// Existe porque um throw dentro de uma microtask não passa por nenhum
+/// `try`/`catch` de `.ts`: viaja num canal lateral do motor, e quem quiser
+/// isolar a página como o console de um browser faz — reportar e seguir — tem
+/// de o consumir explicitamente. Não consumir é pior do que parece: o slot
+/// continua marcado, e a próxima verificação lê o erro de outra pessoa como se
+/// fosse seu.
+extern "C" fn take_error(_e: u64, _t: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    if entry::thrown() == 0 {
+        return nothing();
+    }
+    entry::take_thrown()
 }

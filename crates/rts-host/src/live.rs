@@ -102,7 +102,7 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
         parameters.join(", ")
     );
             let nothing = rts_core::entry::undefined_value();
-        place_and_enter(&source, None, nothing, nothing)
+        place_and_enter(&source, crate::run::Scoped::Nothing, nothing, nothing)
 
 }
 
@@ -122,7 +122,7 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
 pub(crate) fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
     let enclosing = rts_core::entry::environment_names(environment);
     let nothing = rts_core::entry::undefined_value();
-    place_and_enter(source, Some(&enclosing), environment, nothing)
+    place_and_enter(source, crate::run::Scoped::Eval(&enclosing), environment, nothing)
 }
 
 /// Runs source in an existing scope with an explicit JavaScript receiver.
@@ -136,19 +136,19 @@ pub(crate) fn evaluate_in_scope_with_receiver(
     receiver: u64,
 ) -> Option<u64> {
     let enclosing = rts_core::entry::environment_names(environment);
-    place_and_enter(source, Some(&enclosing), environment, receiver)
+    place_and_enter(source, crate::run::Scoped::Page(&enclosing), environment, receiver)
 }
 
 /// Compiles one source text into the running region and enters it, answering
 /// what it returned.
 ///
-/// `enclosing` is `None` for a `Function` body — whose free names resolve
-/// against the globals, which is what the specification says — and `Some` for an
-/// `eval` fragment, where they resolve against the environment chain
-/// `environment` names.
+/// `enclosing` says what surrounds the source — nothing for a `Function` body,
+/// whose free names resolve against the globals; the caller's chain for an
+/// `eval` fragment; and the page's for a `<script>`, which also declares back
+/// into it. `crate::run::Scoped` is where the three are spelled.
 fn place_and_enter(
     source: &str,
-    enclosing: Option<&[(String, u32)]>,
+    enclosing: crate::run::Scoped<'_>,
     environment: u64,
     receiver: u64,
 ) -> Option<u64> {
