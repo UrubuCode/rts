@@ -142,6 +142,21 @@ pub struct Scope {
     /// be a register in the statement that introduces it and heap storage four
     /// statements later, when the closure that captures it is written.
     captured: BTreeSet<Name>,
+    /// Quantas entradas do primeiro `Layer` vieram do escopo ENVOLVENTE.
+    ///
+    /// Um nome de fora e um nome desta função vivem na mesma lista, e para
+    /// `lookup` isso é o que se quer — o de dentro sombreia por ser o último.
+    /// Mas há uma pergunta que NÃO é essa: *"esta função já declarou este
+    /// nome?"*, que [`Self::declared_in_function`] responde saltando estas.
+    ///
+    /// Sem a distinção, `hoist_vars` perguntava `lookup(name).is_none()` e
+    /// obtinha `Some` para todo o nome que o envolvente tivesse — logo um
+    /// `var parent` numa função nunca criava binding, e todas as leituras e
+    /// escritas iam para o objeto de fora. Num `<script>` de página, onde o
+    /// envolvente é o `window`, isso é `parent`, `top`, `self`, `name`,
+    /// `length`, `status`, `origin` e `location`: nomes que código real usa
+    /// como variável local todos os dias.
+    from_enclosing: usize,
     /// What `this` is in this function, when it has an answer.
     this_value: Option<ValueId>,
     /// The name `this` is held under, for a function where it is assigned
@@ -162,6 +177,7 @@ impl Scope {
         Scope {
             layers: vec![Layer::default()],
             environment: None,
+            from_enclosing: 0,
             captured: BTreeSet::new(),
             this_value: None,
             late_this: None,
@@ -204,6 +220,7 @@ impl Scope {
         own_level: &BTreeSet<Name>,
         enclosing: &[(Name, u32)],
     ) -> Self {
+        let from_enclosing = enclosing.len();
         let mut entries: Vec<(Name, Binding)> = enclosing
             .iter()
             .map(|(name, hops)| {
@@ -249,9 +266,27 @@ impl Scope {
             }],
             environment,
             captured,
+            from_enclosing,
             this_value: None,
             late_this: None,
         }
+    }
+
+    /// Se ESTA função já ligou o nome — os seus parâmetros, os seus capturados,
+    /// o que já declarou — ignorando o que o escopo envolvente tem.
+    ///
+    /// A pergunta de [`Self::lookup`] é outra: *"a que é que este nome
+    /// resolve?"*, e aí um nome de fora é uma resposta legítima. Esta serve
+    /// quem vai DECLARAR, e para esse um nome de fora não é resposta nenhuma —
+    /// é precisamente o que a declaração tem de sombrear.
+    pub fn declared_in_function(&self, name: Name) -> bool {
+        self.layers.iter().enumerate().any(|(depth, layer)| {
+            let proprias = match depth {
+                0 => layer.entries.get(self.from_enclosing..).unwrap_or(&[]),
+                _ => &layer.entries[..],
+            };
+            proprias.iter().any(|(bound, _)| *bound == name)
+        })
     }
 
     /// The environment object captured names live in, if this function has one.
