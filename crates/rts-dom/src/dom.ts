@@ -85,7 +85,26 @@ function __dispatchWithCallbacks(
     preventDefault: function () {
       if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
     },
+    // Quando o evento aconteceu. Um browser dá milissegundos desde o início do
+    // documento; aqui é o relógio do sistema, que serve para o que um programa
+    // faz com isto — comparar dois eventos.
+    timeStamp: Date.now(),
   };
+  // `nativeEvent` — o evento "de baixo", e aqui é ESTE.
+  //
+  // Num browser há dois objetos: o nativo, que o motor cria, e o SINTÉTICO, que
+  // uma biblioteca embrulha à volta dele para normalizar diferenças entre
+  // browsers. O React lê `event.nativeEvent` para chegar ao primeiro, e é assim
+  // que o seu sistema de eventos delegados encontra o alvo real.
+  //
+  // Aqui não há dois: este objeto é o nativo. Apontá-lo a si próprio é dizer
+  // isso — e não é um atalho, é a resposta certa quando a camada que ele
+  // procura não existe. Sem isto, o React lia `undefined` e nenhum `onClick`
+  // disparava, sem um erro.
+  //
+  // Depois do literal e não dentro dele, porque uma propriedade não se pode
+  // referir ao objeto que ainda está a ser construído.
+  event.nativeEvent = event;
   let j = 0;
   while (j < n) {
     event.currentTarget = new Element(h, nodes[j]);
