@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "1 | // ONE thing: join/toString cycle detection. An array reachable from itself\n2 | // contributes an EMPTY string instead of recursing — the spec keeps a stack of\n3 | // arrays already being joined.\n4 | const a: any[] = [1, 2];\n5 | a.push(a);\n6 | console.log(\"self=\" + a.join(\",\"));\n                            ^\nRangeError: Maximum call stack size exceeded.\n      at /home/runner/work/rts/rts/tests/cross-runtime/array/claude-join-cycle-detection.ts:6:25\n\n::error file=tests/cross-runtime/array/claude-join-cycle-detection.ts,line=6,col=25,title=RangeError: Maximum call stack size exceeded.::%0A      at /home/runner/work/rts/rts/tests/cross-runtime/array/claude-join-cycle-detection.ts:6:25\n\nBun v1.4.0 (Linux x64)",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4779) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4568) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -6119,16 +6119,16 @@
 ,
 {
   "name": "claude-closure-recursion-accumulator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "shared_total=15\nfib_calls=8/25\ntrail=in2,in1,in0,out0,out1,out2\nmax_depth=4\nmemo=55/hits=8\nmutual=true:e4o3e2o1e0\nper_frame=3\nfirst=3\nsecond=6\nglobal_total=6",
   "node": "shared_total=15\nfib_calls=8/25\ntrail=in2,in1,in0,out0,out1,out2\nmax_depth=4\nmemo=55/hits=8\nmutual=true:e4o3e2o1e0\nper_frame=3\nfirst=3\nsecond=6\nglobal_total=6",
-  "rts": "",
+  "rts": "shared_total=15\nfib_calls=8/25\ntrail=in2,in1,in0,out0,out1,out2\nmax_depth=4\nmemo=55/hits=8\nmutual=true:e4o3e2o1e0\nper_frame=3\nfirst=3\nsecond=6\nglobal_total=6",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 124,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "timeout apos 10s\n\nthread 'main' (14477) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": ""
 }
 ,
 {
@@ -6777,16 +6777,16 @@
 ,
 {
   "name": "codex2_117_mutual_recursion_closures",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "true,false,false,true\nfalse,true,true,false",
   "node": "true,false,false,true\nfalse,true,true,false",
-  "rts": "",
+  "rts": "true,false,false,true\nfalse,true,true,false",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 134,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (15769) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": ""
 }
 ,
 {
@@ -9661,9 +9661,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -21223,4 +21223,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1516,"pass":1179,"reachable":1513,"rts_diverge":246,"bun_node_diverge":2,"errors":88,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1516,"pass":1182,"reachable":1514,"rts_diverge":246,"bun_node_diverge":1,"errors":86,"rejected":0,"upstream_defect":1}}

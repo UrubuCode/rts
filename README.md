@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Single Binary](https://img.shields.io/badge/output-single%20binary-blue?style=flat-square)](#)
 <!-- CROSS_RUNTIME_BADGE_START -->
-[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-77.9%25-yellowgreen?style=flat-square)](the spec removed 2026-08-03 (see git history))
+[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-78.1%25-yellowgreen?style=flat-square)](the spec removed 2026-08-03 (see git history))
 <!-- CROSS_RUNTIME_BADGE_END -->
 <!-- NODE_SUITE_BADGE_START -->
 [![Node test suite](https://img.shields.io/badge/Node%20test%20suite-52.4%25-yellow?style=flat-square)](scripts/node_tests/README.md)
@@ -27,17 +27,17 @@
 JS spec compatibility validated against **Bun** and **Node** over 1516 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 77.9%   1179/1513 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78.1%   1182/1514 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **77.9%** (1179/1513) |
-| ✅ RTS = Bun = Node | 1179 |
+| **Parity** | **78.1%** (1182/1514) |
+| ✅ RTS = Bun = Node | 1182 |
 | ❌ RTS diverges | 246 |
-| 💥 RTS runtime error | 88 |
-| 🛠️  **Left to fix** | **334** |
-| ⚠️ Bun ≠ Node (skip) | 2 |
+| 💥 RTS runtime error | 86 |
+| 🛠️  **Left to fix** | **332** |
+| ⚠️ Bun ≠ Node (skip) | 1 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1516 |
 
@@ -124,20 +124,20 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `4e3aee1`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `8748271`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 31 ms | 65 ms | 61 ms | 51 ms | **33 ms** | **0.94×** | **1.94×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 432 ms | 794 ms | 766 ms | 462 ms | **449 ms** | **0.96×** | **1.77×** |
-| …the same RTS run, vs JS using native `Math.random` | 91 ms | 274 ms | 214 ms | 466 ms | **447 ms** | **0.20×** | **0.61×** |
+| Hello/startup | 31 ms | 68 ms | 61 ms | 49 ms | **33 ms** | **0.92×** | **2.05×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 432 ms | 788 ms | 760 ms | 461 ms | **450 ms** | **0.96×** | **1.75×** |
+| …the same RTS run, vs JS using native `Math.random` | 90 ms | 270 ms | 214 ms | 465 ms | **447 ms** | **0.20×** | **0.60×** |
 | π Machin f64 (RTS only) | — | — | — | 25 ms | **15 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 361 ms | **355 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 48 ms | **36 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 173 ms | **164 ms** | — | — |
-| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 49 ms | **29 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 669 ms | **651 ms** | — | — |
-| one loop, state as a local / captured / property | 264 ms | 533 ms | 433 ms | 215 ms | **196 ms** | **1.35×** | **2.72×** |
+| 3M objects allocated (RTS only) | — | — | — | 350 ms | **347 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 49 ms | **36 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 169 ms | **169 ms** | — | — |
+| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 50 ms | **30 ms** | — | — |
+| string indexing, input doubled four times (RTS only) | — | — | — | 669 ms | **654 ms** | — | — |
+| one loop, state as a local / captured / property | 264 ms | 541 ms | 441 ms | 214 ms | **196 ms** | **1.35×** | **2.76×** |
 
 _Updated: 2026-08-30 — run locally with `powershell -File bench/benchmark.ps1`_
 
