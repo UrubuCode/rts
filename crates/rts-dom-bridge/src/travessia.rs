@@ -79,7 +79,83 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("removeStyleProperty", remove_style_property),
     ("cssText", css_text),
     ("setCssText", set_css_text),
+    // ── consulta a partir de um NÓ, e não do documento ─────────────────────
+    ("queryWithin", query_within),
+    ("queryAllWithinCount", query_all_within_count),
+    ("queryAllWithinAt", query_all_within_at),
+    ("getByClassCount", get_by_class_count),
+    ("getByClassAt", get_by_class_at),
+    ("getByNameCount", get_by_name_count),
+    ("getByNameAt", get_by_name_at),
 ];
+
+// ── consulta ───────────────────────────────────────────────────────────────
+//
+// `document.querySelector` já estava exposto; o que faltava era a mesma
+// pergunta feita a partir de um NÓ — `el.querySelector(...)`, que é o que uma
+// aplicação usa para procurar dentro de um componente. `rts-dom` responde às
+// duas há muito (`consulta.rs`), e só a segunda não tinha porta.
+//
+// Contagem e acesso separados pela razão de sempre: um `Vec<NodeId>` não
+// atravessa esta fronteira.
+
+extern "C" fn query_within(_e: u64, _t: u64, doc: u64, n: u64, sel: u64, _c: u64) -> u64 {
+    let Some(id) = node(n) else { return int(-1) };
+    let sel = text(sel);
+    maybe(rts_dom::store::with_dom(handle(doc), |d| d.query_within(id, &sel)).flatten())
+}
+
+extern "C" fn query_all_within_count(_e: u64, _t: u64, doc: u64, n: u64, sel: u64, _c: u64) -> u64 {
+    let Some(id) = node(n) else { return int(0) };
+    let sel = text(sel);
+    let out = rts_dom::store::with_dom(handle(doc), |d| d.query_all_within(id, &sel).len())
+        .unwrap_or(0);
+    int(out as i64)
+}
+
+extern "C" fn query_all_within_at(_e: u64, _t: u64, doc: u64, n: u64, sel: u64, i: u64) -> u64 {
+    let Some(id) = node(n) else { return int(-1) };
+    let sel = text(sel);
+    let i = integer(i, 0).max(0) as usize;
+    maybe(
+        rts_dom::store::with_dom(handle(doc), |d| d.query_all_within(id, &sel).get(i).copied())
+            .flatten(),
+    )
+}
+
+extern "C" fn get_by_class_count(_e: u64, _t: u64, doc: u64, nomes: u64, _b: u64, _c: u64) -> u64 {
+    let nomes = text(nomes);
+    let out = rts_dom::store::with_dom(handle(doc), |d| d.get_elements_by_class_name(&nomes).len())
+        .unwrap_or(0);
+    int(out as i64)
+}
+
+extern "C" fn get_by_class_at(_e: u64, _t: u64, doc: u64, nomes: u64, i: u64, _c: u64) -> u64 {
+    let nomes = text(nomes);
+    let i = integer(i, 0).max(0) as usize;
+    maybe(
+        rts_dom::store::with_dom(handle(doc), |d| {
+            d.get_elements_by_class_name(&nomes).get(i).copied()
+        })
+        .flatten(),
+    )
+}
+
+extern "C" fn get_by_name_count(_e: u64, _t: u64, doc: u64, nome: u64, _b: u64, _c: u64) -> u64 {
+    let nome = text(nome);
+    let out = rts_dom::store::with_dom(handle(doc), |d| d.get_elements_by_name(&nome).len())
+        .unwrap_or(0);
+    int(out as i64)
+}
+
+extern "C" fn get_by_name_at(_e: u64, _t: u64, doc: u64, nome: u64, i: u64, _c: u64) -> u64 {
+    let nome = text(nome);
+    let i = integer(i, 0).max(0) as usize;
+    maybe(
+        rts_dom::store::with_dom(handle(doc), |d| d.get_elements_by_name(&nome).get(i).copied())
+            .flatten(),
+    )
+}
 
 // ── estilo inline ──────────────────────────────────────────────────────────
 //

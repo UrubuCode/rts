@@ -249,7 +249,24 @@ pub fn with_egui<R>(h: u64, f: impl FnOnce(&egui::Context) -> R) -> Option<R> {
         FRAME_EGUI.with(|held| held.borrow().iter().rev().find(|(held, _)| *held == h).map(|(_, c)| c.clone()));
     match published {
         Some(egui_ctx) => Some(f(&egui_ctx)),
-        None => CTXS.with(|m| m.borrow_mut().get_mut(&h).map(|c| f(&c.egui_ctx))),
+        // `try_borrow_mut` e não `borrow_mut`, e a diferença é o processo
+        // continuar vivo.
+        //
+        // Há um caminho que desenha sem passar por `end_frame`: o replay do
+        // live-resize (`frame::redraw_retained`), chamado de dentro do
+        // empréstimo que o `pump` detém e sem o handle à mão para publicar. Uma
+        // leitura de input daí pedia este empréstimo outra vez, e o `RefCell`
+        // aborta — medido a matar uma janela com React a montar.
+        //
+        // `None` significa "não dá para responder agora", e o chamador já sabe
+        // tratar isso: cada leitura do `InputSource` tem o seu default. Um
+        // frame de REPLAY sem input lido é um frame que repete o anterior, que
+        // é o que ele é para começar; um processo morto não é nada.
+        None => CTXS.with(|m| {
+            m.try_borrow_mut()
+                .ok()
+                .and_then(|mut held| held.get_mut(&h).map(|c| f(&c.egui_ctx)))
+        }),
     }
 }
 

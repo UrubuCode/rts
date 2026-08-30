@@ -8,6 +8,14 @@ import { readFileSync } from "node:fs";
 
 const doc = parseDocument(readFileSync("react-app.html", "utf8") as string);
 console.log("scripts que correram:", runScripts(doc));
+// LOGO a seguir aos scripts, antes de qualquer janela: o React montou?
+// Um `await` SUSPENDE o programa e devolve o controlo ao host, que corre o
+// loop ate a promessa resolver. E isso — nao `run_event_loop` chamado de
+// dentro — que faz o trabalho agendado avancar.
+let voltas = 0;
+while (voltas < 30) { await new Promise(function (r: any) { setTimeout(r, 0); }); voltas = voltas + 1; }
+const antes = doc.getElementById("root");
+console.log("filhos do #root ANTES da janela:", antes === null ? "?" : antes.children.length);
 
 const win = openWindow("rts-dom — React 18 a correr", 900, 600, 0);
 let frames = 0;

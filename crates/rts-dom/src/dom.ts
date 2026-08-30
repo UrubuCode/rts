@@ -1475,6 +1475,21 @@ function pumpInputEvents(doc: Document): number {
 // de travar o loop. Devolve quantos callbacks dispararam no frame.
 function pumpTimerCallbacks(doc: Document): number {
   const h: i64 = doc._dom;
+  // A volta do loop do MOTOR primeiro, e não só a fila de timers deste
+  // documento. São duas filas e uma página precisa das duas: um `.then`, um
+  // `queueMicrotask` e uma mensagem de `MessageChannel` viajam pela do motor.
+  //
+  // Sem isto, um framework concurrent nunca avança numa JANELA — e avança
+  // headless, porque aí o programa de topo tem `await` e drena o motor por
+  // acidente. Medido com o React 18: montava headless e deixava o `#root`
+  // vazio na janela, com os mesmos scripts a correr sem um erro.
+  //
+  // O nome desta função fala de timers e ela passou a fazer mais do que isso.
+  // Fica assim porque o que ela É continua a ser uma coisa só — *uma volta do
+  // loop desta página* — e quem a chama, o frame do host, quer exatamente
+  // isso; dividi-la em duas obrigaria todo o chamador a saber que há duas
+  // filas, que é o conhecimento que esta função existe para não espalhar.
+  engine.run_event_loop();
   let disparados = 0;
   let guard = 0;
   while (guard < 64) {
@@ -1532,17 +1547,21 @@ function runScriptsAt(doc: Document, url: string): number {
   // Sem isto, um `.then`/`queueMicrotask` registrado por um `<script>` ficava na
   // fila para sempre — o callback nunca acontecia, sem erro nenhum.
   //
-  // UMA volta, e o laço que estava aqui foi retirado: drenar vinte vezes é
-  // defensável em teoria — uma volta pode enfileirar a seguinte — mas MEDIDO
-  // não mudou nada, e código cujo efeito não se consegue mostrar é especulação
-  // a ocupar o caminho quente de todas as páginas.
+  // Fecha o TASK da página: uma volta do loop desta página, que drena as
+  // microtasks do motor e a fila de timers do documento.
   //
-  // O que falta para um framework concurrent montar continua por isolar. O que
-  // se sabe: `ReactDOM.flushSync`, que força o trabalho a correr já, MONTA a
-  // árvore e põe o texto no documento — logo o DOM responde a tudo o que ele
-  // precisa. E o `MessageChannel`, por onde o scheduler despacha, entrega
-  // quando testado sozinho. O que não corre é o trabalho que a entrega agenda.
+  // UMA, e não em laço. Um laço esteve aqui duas vezes e saiu as duas, pela
+  // mesma razão medida: com 64 voltas o React 18 continuava a não montar, e o
+  // que o fez montar foi outra coisa — um `await` no programa de topo, que
+  // SUSPENDE e devolve o controlo ao host. `run_event_loop()` chamado de dentro
+  // do programa não é equivalente a isso, e o laço só repetia o que já não
+  // chegava.
+  //
+  // Quem precisa de mais voltas tem duas formas honestas de as ter: um `await`
+  // no programa, ou o frame do host, que bombeia a cada passagem. Nenhuma delas
+  // é este laço.
   engine.run_event_loop();
+  pumpTimerCallbacks(doc);
   // ISOLA como o console do browser: um callback de terceiro que LANÇA não pode
   // derrubar a página inteira. O erro vive no slot do MOTOR — um canal lateral
   // que um `try/catch` de `.ts` não observa —, então é preciso consumi-lo
