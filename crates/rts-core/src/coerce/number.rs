@@ -157,10 +157,45 @@ fn shortest_digits(value: f64) -> (String, i32) {
 /// `Number("-1")` is `-1`, because the hex, octal and binary forms have no sign
 /// in their grammar. A parser that stripped a leading sign and then dispatched
 /// on the prefix would accept all three.
+///
+/// # Why the text is BORROWED where it can be
+///
+/// `Str::to_rust` allocates: for the Latin-1 form it is
+/// `String::from_utf8(bytes.to_vec())` — a `Vec`, a copy and a revalidating
+/// scan — and this function used it unconditionally, so `"7" - 1` allocated a
+/// one-byte `String` to parse one digit. Measured 2026-08-29 on the entry path:
+/// `"7" & 15` cost 79.33 ns against 20.33 for `null >>> 15`, and the entry
+/// protocol is the same for both.
+///
+/// ASCII bytes ARE UTF-8 bytes, so the common case needs no copy at all. It is
+/// borrowed rather than parsed separately on purpose: **there is still exactly
+/// one parser below**, running on a `&str` that either points into the string's
+/// own storage or into a `String` built for the shapes that need one. A second
+/// parser for narrow text would be a second statement of what a number literal
+/// is, and this file's whole subject is spellings the two would disagree about.
+///
+/// `is_ascii` and not `str::from_utf8`: a Latin-1 byte pair like `0xC3 0xA9` is
+/// valid UTF-8 and means a DIFFERENT character than the two Latin-1 ones, so
+/// letting the UTF-8 validator decide would silently reinterpret the text. The
+/// scan is SIMD in std and the allocation it replaces is not.
 pub fn string_to_number(text: &Str) -> f64 {
-    let Some(rust) = text.to_rust() else {
-        // A lone surrogate is a legal string and not a legal number.
-        return f64::NAN;
+    let owned;
+    let rust: &str = match text.narrow().filter(|bytes| bytes.is_ascii()) {
+        Some(bytes) => match std::str::from_utf8(bytes) {
+            Ok(borrowed) => borrowed,
+            // Unreachable: the filter above established these bytes are ASCII.
+            // Answered rather than asserted, because a panic here would be an
+            // abort inside an `extern "C"` frame.
+            Err(_) => return f64::NAN,
+        },
+        None => {
+            let Some(built) = text.to_rust() else {
+                // A lone surrogate is a legal string and not a legal number.
+                return f64::NAN;
+            };
+            owned = built;
+            &owned
+        }
     };
     let trimmed = rust.trim_matches(is_string_whitespace);
 
@@ -169,14 +204,23 @@ pub fn string_to_number(text: &Str) -> f64 {
     }
 
     // The prefixed forms, which take no sign.
-    if let Some(rest) = trimmed.strip_prefix("0x").or(trimmed.strip_prefix("0X")) {
-        return radix_value(rest, 16);
-    }
-    if let Some(rest) = trimmed.strip_prefix("0o").or(trimmed.strip_prefix("0O")) {
-        return radix_value(rest, 8);
-    }
-    if let Some(rest) = trimmed.strip_prefix("0b").or(trimmed.strip_prefix("0B")) {
-        return radix_value(rest, 2);
+    //
+    // Behind one byte test, because all three begin with `0` and nothing else
+    // in the grammar does. Six `strip_prefix` calls ran on every string that
+    // reaches here — every `"7" - 1`, every `Number(s)` — to answer no six
+    // times. The guard is exact rather than a heuristic: `strip_prefix("0x")`
+    // can only succeed when the first byte is `b'0'`, so a string failing this
+    // test would have failed all six.
+    if trimmed.as_bytes().first() == Some(&b'0') {
+        if let Some(rest) = trimmed.strip_prefix("0x").or(trimmed.strip_prefix("0X")) {
+            return radix_value(rest, 16);
+        }
+        if let Some(rest) = trimmed.strip_prefix("0o").or(trimmed.strip_prefix("0O")) {
+            return radix_value(rest, 8);
+        }
+        if let Some(rest) = trimmed.strip_prefix("0b").or(trimmed.strip_prefix("0B")) {
+            return radix_value(rest, 2);
+        }
     }
 
     // `Infinity`, with an optional sign.
@@ -374,6 +418,58 @@ mod tests {
         assert_eq!(printed(f64::NAN), NAN);
         assert_eq!(printed(f64::INFINITY), INFINITY);
         assert_eq!(printed(f64::NEG_INFINITY), format!("-{INFINITY}"));
+    }
+
+    #[test]
+    fn the_zero_guard_admits_every_prefixed_form_and_nothing_else() {
+        // The three prefixed forms sit behind one byte test now, because all of
+        // them begin with `0` and nothing else in the grammar does. These are
+        // the strings on both sides of that guard, and every one was checked
+        // against node before it was written down.
+        assert_eq!(parsed("0x1F"), 31.0);
+        assert_eq!(parsed("0X1f"), 31.0);
+        assert_eq!(parsed("0o17"), 15.0);
+        assert_eq!(parsed("0O17"), 15.0);
+        assert_eq!(parsed("0b101"), 5.0);
+        assert_eq!(parsed("0B101"), 5.0);
+        assert_eq!(parsed(" 0x10 "), 16.0, "the guard runs after trimming");
+        // Starts with `0` and is NOT a prefixed form, so it falls past all
+        // three and reaches the decimal parser — which is the arm the guard
+        // must not swallow.
+        assert_eq!(parsed("0"), 0.0);
+        assert_eq!(parsed("00"), 0.0);
+        assert_eq!(parsed("007"), 7.0);
+        assert_eq!(parsed("0.5"), 0.5);
+        assert_eq!(parsed("0e3"), 0.0);
+        // Refused, and each for its own reason: a sign before a prefix, a
+        // digit outside the radix, an empty body, and Rust's separator.
+        assert!(parsed("-0x1").is_nan());
+        assert!(parsed("0xZZ").is_nan());
+        assert!(parsed("0x").is_nan());
+        assert!(parsed("0_1").is_nan());
+    }
+
+    #[test]
+    fn the_borrowed_path_and_the_built_one_agree() {
+        // `string_to_number` reads ASCII bytes in place and builds a `String`
+        // only for the shapes that need one. The boundary is exactly
+        // `is_ascii`, and these are the values that sit on either side of it.
+        //
+        // U+00A0 is the one that makes the distinction necessary rather than
+        // cosmetic: a no-break space FITS in Latin-1, so `narrow()` answers
+        // bytes for it, and those bytes are not UTF-8. Deciding with
+        // `str::from_utf8` instead of `is_ascii` would either reject it (wrong)
+        // or, for a pair like `0xC3 0xA9`, accept it as a DIFFERENT character.
+        assert_eq!(parsed("7"), 7.0, "ascii, read in place");
+        assert_eq!(parsed("  -12.5e2  "), -1250.0, "ascii with the trimming");
+        assert_eq!(parsed("\u{00A0}7"), 7.0, "latin-1 whitespace still trims");
+        assert_eq!(parsed("7\u{00A0}"), 7.0);
+        assert_eq!(parsed("\u{00A0}"), 0.0, "whitespace alone is +0");
+        assert!(parsed("\u{00E9}").is_nan(), "a latin-1 letter is not a number");
+        assert!(parsed("\u{3042}").is_nan(), "a wide letter is not a number");
+        assert_eq!(parsed("\u{3000}7"), 7.0, "wide whitespace still trims");
+        // A lone surrogate has no Rust text and is not a number.
+        assert!(string_to_number(&Str::from_utf16(&[0xD800, 0x37])).is_nan());
     }
 
     #[test]

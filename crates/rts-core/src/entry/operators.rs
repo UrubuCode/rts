@@ -66,7 +66,7 @@ pub(super) fn operands(context: &Context, left: Value, right: Value) -> (f64, f6
 /// Left then right, which is what `coerce::add_operand_order` states for `+`.
 /// The same order, taken from the same place rather than written a second time:
 /// the two have no reason to differ and every reason to be got wrong separately.
-fn operand_order() -> [crate::coerce::Side; 2] {
+pub(super) fn operand_order() -> [crate::coerce::Side; 2] {
     crate::coerce::add_operand_order()
 }
 

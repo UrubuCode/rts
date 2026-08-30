@@ -758,3 +758,281 @@ Written down so the next reader does not re-read them:
 
 One instance found, one instance fixed. The class is stated because the next one
 will be somewhere nobody has read, not because a sweep found several.
+
+---
+
+# Part six: two helpers, one converting, and the caller that picked the other
+
+Part five named the class as *a rule applied in the wrong order*. Running its own
+check — trace what an operation RUNS on its operands, not what it answers —
+across the whole language found the class again, and this time the shape is
+sharper and the instances are many.
+
+## The check, and what it is
+
+One object with a counting `valueOf` and `toString`, one line per operation,
+compared against node:
+
+    o & 1     RTS: (nothing)  -> 0      NODE: a.valueOf -> 1
+    o | 0     RTS: (nothing)  -> 0      NODE: a.valueOf -> 3
+    o << 1    RTS: (nothing)  -> 0      NODE: a.valueOf -> 6
+    o ** 2    RTS: (nothing)  -> NaN    NODE: a.valueOf -> 9
+
+Forty-five rows, forty-two identical to node. This is the INVERSE of part five's
+defect: there the conversion ran and should not have; here it does not run and
+should. And unlike part five, the answer is wrong, so an ordinary assertion could
+have caught it — no test in the corpus had one.
+
+**`[7] & 15` answered 0 where the language says 7, and `[7] ** 2` answered NaN
+where it says 49.** Nothing exotic is required: a one-element array inherits
+`valueOf` from `Object.prototype`, which answers the array, so `toString`
+produces `"7"` and `ToNumber` produces 7.
+
+## The mechanism, which is the part worth remembering
+
+**There are two functions called `operands`.**
+
+- `primitive::operands` converts. It runs `ToPrimitive` and therefore user code,
+  so it must be called OUTSIDE a context borrow.
+- `operators::operands` reads. It is `as_number(…).unwrap_or(NAN)`, pure, and
+  must be called INSIDE one.
+
+The arithmetic operators call both, in that order, and are correct. Every
+operator in `entry/bitwise.rs` called only the second — and `bitwise.rs`'s own
+module header states the rule correctly, `ToInt32(ToNumber(a))`, above code that
+does not implement it. The doc comment on `number_exponent` went further and
+described `operands` as running `ToPrimitive` and possibly a user `valueOf`,
+which was a true sentence about the other function of that name.
+
+## And it is not one pair
+
+The same shape, audited with the same probe over every method that takes a
+numeric argument, found **fourteen more** — and a THIRD spelling of the
+non-converting read:
+
+| where | the non-converting read |
+|---|---|
+| `entry/bitwise.rs`, 8 operators | `operators::operands` |
+| `entry/string/*`, 23 call sites | `string::integer_arg` |
+| `entry/array_proto/*` | `Value(x).numeric().unwrap_or(0.0)`, inline |
+
+`string/mod.rs` is the honest one: `integer_arg`'s doc says *"An object answers
+`NaN` and therefore zero, because `ToNumber` on one runs user code and this is
+inside a borrow. **The stated gap**"*, and `integer_outside` sits directly below
+it as *"the same conversion, performed OUTSIDE any borrow so an object
+converts."* The pair is documented, the gap is documented, and the callers still
+picked the wrong one.
+
+Measured against node, an object argument that converts to a number:
+
+    substr(n1,n2)            ""            node "bc"
+    codePointAt(n2)          97            node 99
+    startsWith('b',n1)       false         node true
+    endsWith('b',n2)         false         node true
+    padStart(n5)             "ab"          node "   ab"
+    padEnd(n5)               "ab"          node "ab   "
+    arr.lastIndexOf(3,n4)    -1            node 2
+    arr.fill(0,n2)           [0,0,0,0]     node [1,2,0,0]
+    arr.fill(0,n1,n3)        [1,2,3,4]     node [1,0,0,4]
+    arr.copyWithin(n0,n2)    [1,2,3,4]     node [3,4,3,4]
+    arr.splice(n1,n2)        []            node [2,3]
+    arr.with(n1,9)           undefined     node [1,9,3,4,5,6]
+    arr.length = n2          [1,2,3]       node [1,2]
+    [3, n2, 1].sort()        [{},1,3]      node [1,{},3]
+
+`with` is implemented and correct for a plain number; every row here is the
+argument, not the method.
+
+## Why this keeps happening, and the only thing that stops it
+
+A borrow of the context cannot call user code — that is a hard constraint of
+this runtime, and it is correct. So every conversion has to be lifted above the
+borrow, which means every argument-reading site has TWO shapes available and
+only one of them is right. The wrong one is shorter, reads naturally, compiles,
+and answers a plausible number.
+
+Naming the pair did not prevent it. Documenting the gap did not prevent it. What
+FINDS it is the counter, and what would END it is one converting helper that the
+non-converting read is not reachable around — a single `ToIntegerOrInfinity`
+taken above the borrow, rather than three spellings of a numeric read that each
+caller must remember to lift.
+
+Until that exists, the check is `scripts/`-able and cheap: give the argument a
+counting `valueOf`, run the operation, and compare the trace to node. A test
+that asserts the answer for `fill(0, 2)` passes on every build in this table.
+
+---
+
+# Part seven: what an operator actually costs, and one allocation removed
+
+Asked directly: why are the operators heavy, when they should cost nothing?
+
+**They do cost nothing.** What costs is the door.
+
+| | ns | over the floor |
+|---|---:|---:|
+| an empty loop | 4.33 | — |
+| `i & 15`, compiled to an INSTRUCTION | 3.67 | **0.00** |
+| `obj.x`, a cached property read | 10.33 | 6.0 |
+| `typeof x === "object"` — exactly ONE crossing | 20.00 | **15.7** |
+| `null - 1` — one crossing plus a body | 21.33 | 17.0 |
+| `null >>> 1` — one crossing plus a body | 22.67 | 18.3 |
+
+The Rust body of a bitwise or arithmetic operator costs about **1.5 ns**. The
+crossing costs about **15.7**. Ninety per cent of what an operator "costs" is
+leaving compiled code, and when the machine can prove its operands it does not
+leave at all — which is what the zero on the second row means.
+
+That figure also corrects one from earlier in this file. `Math.abs(1)` was used
+as a stand-in for "one crossing" at 5.7 ns over the floor; it is not one.
+`Math.floor(1.5)` measures 5.3 and `bench/analytic.ts` reads `arith Math.floor`
+at 3.0 — both are compiled, not called. The honest single-crossing control is
+`typeof x === "…"`, because part four made it exactly one, and it agrees with
+the 13.8 ns per crossing part two measured independently.
+
+## The one thing that was removed
+
+`coerce::string_to_number` began with `text.to_rust()`, unconditionally. For the
+Latin-1 form that is `String::from_utf8(bytes.to_vec())` — a `Vec`, a copy and a
+revalidating scan — so `"7" - 1` allocated a one-byte `String` in order to parse
+one digit.
+
+ASCII bytes ARE UTF-8 bytes, so the common case needs no copy. Measured,
+`--release`, min of 11, three alternations, two controls in the same run:
+
+| | base | now |
+|---|---:|---:|
+| `"7" - 1` | 81.50 | **42.00  (-48%)** |
+| `"7" & 15` | 103.50 | **56.00  (-46%)** |
+| `+"7"` | 94.00 | **46.50  (-47%)** |
+| `"1234.5" - 1` | 92.50 | **55.00  (-41%)** |
+| `"7" < 8` | 144.50 | **96.50  (-33%)** |
+| `Number("7")` | 131.00 | **90.00  (-31%)** |
+| `" 7" - 1` — the slow path, kept | 100.50 | 100.00 |
+| CONTROL `null - 1` | 22.00 | 21.50 |
+| CONTROL `obj.x` | 10.00 | 10.00 |
+
+Thirty-eight nanoseconds off `"7" - 1`. That is the allocation.
+
+**There is still exactly one parser.** The bytes are BORROWED into the same
+`&str` the built `String` would have produced, so nothing below the first four
+lines changed. A second parser for narrow text would be a second statement of
+what a number literal is, and this file exists because of spellings — `inf`,
+`NaN`, `1_0`, `0x` with a sign — that two statements would disagree about.
+
+The boundary is `is_ascii` and not `str::from_utf8`, and the case that makes the
+distinction necessary rather than cosmetic is pinned in a test: `U+00A0` is a
+no-break space, it is string whitespace, and it FITS in Latin-1 — so `narrow()`
+answers bytes for it that are not UTF-8. Letting the UTF-8 validator decide
+would reject that one, and would accept a Latin-1 pair like `0xC3 0xA9` as a
+DIFFERENT character.
+
+## Three hypotheses that did not survive
+
+Written down because each looked obviously right and cost a build to refute.
+
+- **"Each `with_current` costs about 7 ns."** Derived from `null - 1` at 20.33
+  against `null & 15` at 27.33, the two differing only in that `&` takes a
+  second borrow for the bigint ask. `&`, `|` and `^` can never answer
+  `Err(Refused)` — only `<<`, `>>` and `**` can — so the second borrow was
+  merged away for those three. Measured: `&` unchanged, `|` and `^` **1.5 ns
+  worse**, and the untouched `>>>` control drifted as far as either. Reverted.
+  Whatever separates `-` from `&` is not the borrow.
+- **"The thread-local lacks a `const` initializer."** It has one already.
+- **"`bigint_class::binary` probes the digit side table twice per operation."**
+  It does not. `digits_of` is `as_client(kinds.bigint)?` — a tag comparison that
+  returns immediately for anything else, and the table is never touched.
+
+The first is the fifth rearrangement refuted in this campaign against zero that
+shipped. **A change that removes work is worth building; a change that moves
+work is worth measuring before believing.**
+
+## What the clock could NOT say this time
+
+The whole-program and `analytic.ts` numbers for this change were taken on a
+loaded machine — an empty program measured 79-88 ms where it measures 58, and
+`objbench` bounced between 409 and 451 between two alternations of the same
+binary. They support no claim in either direction and none is made.
+
+The probe above is not affected by that, and this is why it is built the way it
+is: **the two controls are in the same run as the targets.** Load that moves a
+target moves a control with it. `obj.x` reading 10.00 on both binaries is what
+licenses reading 81.50 against 42.00 as a real difference.
+
+---
+
+# Part eight: where the other twenty-two nanoseconds were
+
+Part seven left `"7" - 1` at 42 ns and the obvious question with it: the crossing
+is 15.7 and the operator body is 1.5, so what are the other twenty-two?
+
+Answered by choosing strings that stop at different points of the same function.
+Each row does everything the row above it does, and one thing more:
+
+| stops at | ns | the step |
+|---|---:|---:|
+| an empty loop | 4.00 | — |
+| `null - 1` — no string at all | 19.00 | **15.0** the door plus the operator body |
+| `"" - 1` — trims to empty, never parses | 29.00 | **+10.0** the string plumbing |
+| `"x" - 1` — the scan rejects it, never parses | 34.00 | **+5.0** trim, six prefixes, validation |
+| `"7" - 1` — parses one digit | 40.50 | **+6.5** the float parser |
+| `"1234567890" - 1` | 55.00 | +1.6 per further digit |
+
+## The ten, and what was wasteful in it
+
+A string and an object share `TAG_REFERENCE`, so telling them apart always means
+reading the cell — that part is the representation and is not a defect. What was
+a defect is how the question was asked.
+
+`primitive::is_object_in` was `context.text_at(slot).is_none()`, and `text_at`
+performs THREE lookups: the header type, the field that names the slab slot, and
+the slab itself. `is_object_in` needs only the first — it never looks at the
+text — and then `as_number` performs all three again to get the text for real.
+
+`Context::is_text_at` is the header comparison alone. It is not a saving for this
+row only: `is_object_in` is on the path of **every computed property key**, every
+`Map` and `Set` operand, every `JSON.stringify` value and every arithmetic
+operand that is a reference, because that is where "string or object?" is asked.
+
+## The five, and the six comparisons inside it
+
+The three prefixed forms were tried in turn on every string that reached the
+parser, upper and lower case, so six comparisons to answer no six times. All
+three begin with a zero and nothing else in the grammar does, so they now sit
+behind one byte test. The guard is exact rather than a heuristic — a prefix
+strip cannot succeed unless the first byte is that zero — and all sixteen
+boundary spellings were checked against node before being written into a test:
+the six prefixed forms, one with surrounding spaces because the guard runs after
+trimming, the five that begin with zero and are ordinary decimals, and the four
+that are refused, each for a different reason.
+
+Measured, release, min of 11, three alternations, two controls in the run:
+
+| | base | now |
+|---|---:|---:|
+| `Number("7")` | 90.00 | **77.00  (-15%)** |
+| `"0x1F" - 1` | 50.00 | 48.00 |
+| `"x" - 1` | 34.50 | 33.00 |
+| `"" - 1` | 29.50 | 28.00 |
+| `"7" - 1` | 40.50 | 39.50 |
+| CONTROL `obj.x` | 9.50 | 9.50 |
+| CONTROL `null - 1` | 19.50 | 19.50 |
+
+Small on the arithmetic rows and large on `Number`, which asks `is_object_in`
+more than once on its way in.
+
+## What is left, and why none of it is a quick win
+
+- **The door, 15 ns.** It is the call protocol. The only way past it is not to
+  cross, which is what a proven operand already achieves — `i & 15` costs 0.00
+  over the floor.
+- **The second cell read, part of the ten.** Irreducible at this
+  representation: a string and an object share a tag, so distinguishing them
+  reads the cell, and the reader that wants the text must read it again after
+  the reader that wanted only the kind. A separate tag for strings would remove
+  it and is a change to the value encoding, not an optimisation.
+- **The float parser, 6.5 ns.** It is Rust's, and it is correct. A digits-only
+  fast path in front of it would be a SECOND statement of what a number literal
+  is, and this file exists because of the spellings that two statements come to
+  disagree about. Refused for the same reason part seven kept one parser when it
+  removed the allocation.

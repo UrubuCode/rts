@@ -682,13 +682,50 @@ fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
     }
 
     let mut own = BTreeSet::new();
+    let mut mentioned = BTreeSet::new();
     for parameter in &function.parameters {
         names_in_pattern(&parameter.target, &mut own);
+        // Um DEFAULT é código, e os nomes que LÊ não são os que o padrão liga —
+        // `names_in_pattern` responde `bound_names`, que é a outra pergunta.
+        // Faltarem não era uma sobre-aproximação a falhar por pouco: era um
+        // nome que a função de fora nunca punha no ambiente, então a leitura do
+        // default não encontrava nada:
+        //
+        //     function outer() {
+        //       let shared = 100;
+        //       const g = (x, y = shared) => x + y;
+        //       g(1);        // ReferenceError: shared is not defined
+        //     }
+        //
+        // Só quando o default é mesmo AVALIADO, por isso `g(1, 5)` funcionava e
+        // `g(1)` não — que é porque nada no corpus o apanhou.
+        //
+        // Vão para `mentioned` e não para `found`, e essa é a metade que a
+        // composição das duas correções exige: um default pode ler um nome que
+        // esta função LIGA — `function f(a, b = a)` — e entregá-lo direto como
+        // livre devolveria o defeito que a subtração abaixo existe para
+        // fechar, por outra porta.
+        if let Some(default) = &parameter.default {
+            all_names_in_expr(default, &mut mentioned);
+        }
+        // E um padrão carrega defaults próprios: `function f({ a = x })` lê `x`
+        // sem nenhum `parameter.default` à vista. `walk_pattern_exprs` é a
+        // única travessia que sabe onde eles estão.
+        walk_pattern_exprs(&parameter.target, &mut |child| {
+            if let Child::Expr(expr) = child {
+                all_names_in_expr(expr, &mut mentioned);
+            }
+        });
     }
+    // O rest é um padrão também, e não era percorrido de todo.
     if let Some(rest) = &function.rest_parameter {
         names_in_pattern(rest, &mut own);
+        walk_pattern_exprs(rest, &mut |child| {
+            if let Child::Expr(expr) = child {
+                all_names_in_expr(expr, &mut mentioned);
+            }
+        });
     }
-    let mut mentioned = BTreeSet::new();
     match &function.body {
         FunctionBody::Block(body) => {
             for statement in body {

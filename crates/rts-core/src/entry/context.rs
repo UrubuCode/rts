@@ -280,6 +280,29 @@ impl Context {
         self.callables.set(cell, (code, environment, class_constructor));
     }
 
+    /// Whether a reference is a string cell, WITHOUT resolving its text.
+    ///
+    /// [`Self::text_at`] answers the same question by producing the text, and
+    /// that costs two lookups a caller asking only *whether* throws away: the
+    /// field read that finds the slab slot, and the slab lookup itself. Only
+    /// the header comparison decides the question.
+    ///
+    /// `primitive::is_object_in` is the caller that asks it most, and it never
+    /// looks at the text — every computed property key, every `Map` and `Set`
+    /// operand, and every arithmetic operand that is a reference goes through
+    /// it, because a string and an object share one tag and the cell header is
+    /// the only thing that separates them.
+    ///
+    /// It differs from `text_at(…).is_none()` for one state: a cell whose
+    /// header says text but whose slab slot cannot be read. That is a broken
+    /// heap rather than a value, and answering "it is a string" for it is the
+    /// truer of the two — the old spelling called it an OBJECT.
+    pub fn is_text_at(&self, reference: u32) -> bool {
+        self.region
+            .type_of(reference)
+            .is_some_and(|kind| kind as usize == self.text_type.index())
+    }
+
     /// The text a reference names, if it names one.
     ///
     /// A reference is a REGION index now, uniformly — for a string as much as

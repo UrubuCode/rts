@@ -393,3 +393,112 @@ describe("a statement body substituted at its call site", () => {
     expect(caught.indexOf("TypeError") >= 0).toBe(true);
   });
 });
+
+describe("arity and defaults at a substituted call site", () => {
+  test("fewer arguments than parameters bind undefined", () => {
+    function needsTwo(a: number, b?: number): string {
+      return String(a) + "," + String(b) + "," + String(typeof b);
+    }
+    expect(needsTwo(1)).toBe("1,undefined,undefined");
+    expect(needsTwo(1, 2)).toBe("1,2,number");
+    function needsThree(a: number, b?: number, c?: number): string {
+      return String(a) + String(b) + String(c);
+    }
+    expect(needsThree(1)).toBe("1undefinedundefined");
+    expect(needsThree(1, 2)).toBe("12undefined");
+  });
+
+  test("more arguments than parameters are still EVALUATED, in order", () => {
+    // A real call evaluates them and drops them, and so must a substituted one:
+    // the values have nowhere to go and the side effects still happen.
+    const log: string[] = [];
+    function mark(tag: string): number {
+      log.push(tag);
+      return 1;
+    }
+    function takesOne(a: number): number {
+      return a + 1;
+    }
+    expect((takesOne as any)(mark("a"), mark("b"), mark("c"))).toBe(2);
+    expect(log.join(",")).toBe("a,b,c");
+  });
+
+  test("a default applies when the argument is absent", () => {
+    function withDefault(x: number, y: number = 10): number {
+      return x * 100 + y;
+    }
+    expect(withDefault(1)).toBe(110);
+    expect(withDefault(2)).toBe(210);
+    // Written, so it takes a real call — and must still be right.
+    expect(withDefault(1, 5)).toBe(105);
+    expect(withDefault(1, undefined)).toBe(110);
+    expect(withDefault(1, 0)).toBe(100);
+  });
+
+  test("a default may read a parameter to its LEFT", () => {
+    function leaning(a: number, b: number = a + 1, c: number = b * 2): string {
+      return String(a) + "," + String(b) + "," + String(c);
+    }
+    expect(leaning(1)).toBe("1,2,4");
+    expect(leaning(5)).toBe("5,6,12");
+  });
+
+  test("a default is evaluated ONLY when it is used, and once", () => {
+    let made = 0;
+    function counting(): number {
+      made = made + 1;
+      return 7;
+    }
+    function usesDefault(x: number, y: number = counting()): number {
+      return x + y;
+    }
+    expect(usesDefault(1)).toBe(8);
+    expect(made).toBe(1);
+    expect(usesDefault(1, 2)).toBe(3);
+    expect(made).toBe(1);
+    expect(usesDefault(1)).toBe(8);
+    expect(made).toBe(2);
+  });
+
+  test("a default reading a free name reads the DECLARING scope, not the caller", () => {
+    // The hazard the proof closes. A default is emitted at the call site, so a
+    // name in it would resolve where the call is written unless the same
+    // free-name proof the body gets is asked of the default too.
+    let zqxShared = 100;
+    function readsShared(x: number, y: number = zqxShared): number {
+      return x + y;
+    }
+    expect(readsShared(1)).toBe(101);
+    zqxShared = 200;
+    expect(readsShared(1)).toBe(201);
+    expect(readsShared(1, 5)).toBe(6);
+  });
+
+  test("a default that is an object literal makes a NEW one per call", () => {
+    function fresh(x: number, bag: any = { n: 0 }): any {
+      bag.n = bag.n + x;
+      return bag;
+    }
+    const first = fresh(1);
+    const second = fresh(2);
+    expect(first.n).toBe(1);
+    expect(second.n).toBe(2);
+    expect(first === second).toBe(false);
+  });
+
+  test("the values are still right when the callee is not substitutable", () => {
+    // Declared twice, so the pass refuses both and these take real calls. The
+    // answers must not depend on which path ran.
+    function ambiguousArity(a: number, b: number = 3): number {
+      return a * 10 + b;
+    }
+    function elsewhere(): (a: number, b?: number) => number {
+      function ambiguousArity(a: number, b: number = 4): number {
+        return a * 10 + b;
+      }
+      return ambiguousArity;
+    }
+    expect(ambiguousArity(1)).toBe(13);
+    expect(elsewhere()(1)).toBe(14);
+  });
+});
