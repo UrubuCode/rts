@@ -68,9 +68,57 @@ fn shift_by(value: f64) -> u32 {
     to_uint32(value) & SHIFT_MASK
 }
 
+/// `ToNumeric` on both operands, in source order, before anything else reads
+/// them.
+///
+/// # The defect this closes
+///
+/// Every operator in this file read its operands through
+/// [`super::operators::operands`], which is `as_number(…).unwrap_or(NAN)` — a
+/// pure read inside a borrow that answers `None` for an object and CANNOT
+/// convert one, because a conversion runs user code and user code may not run
+/// inside a borrow. So an object operand became `NaN`, `ToInt32(NaN)` is zero,
+/// and every one of these operators answered as though the operand were zero.
+///
+/// `[7] & 15` answered **0** where the language says 7, and `[7] ** 2` answered
+/// **NaN** where the language says 49. Not exotic: a one-element array is the
+/// commonest object there is, and its `valueOf` is inherited and returns the
+/// array, so `toString` produces `"7"` and `ToNumber` produces 7. Found
+/// 2026-08-29 by tracing what each operator RUNS on its operands rather than
+/// what it answers, against node.
+///
+/// The name collision is the whole of how it happened. There are two functions
+/// called `operands` — `primitive::operands`, which converts and must be called
+/// outside a borrow, and `operators::operands`, which reads and must be called
+/// inside one. The arithmetic operators call both, in that order. This file
+/// called only the second, and the module header above states the rule
+/// correctly (`ToInt32(ToNumber(a))`) while the code did not implement it.
+///
+/// # Why this runs before the bigint check and not after
+///
+/// Because the specification's `ToNumeric` is the first step and the bigint
+/// dispatch reads its RESULT. A `BigInt` passes through `ToPrimitive`
+/// unchanged — it is a client tag rather than a reference — so nothing about
+/// the existing bigint path changes, and an object whose `valueOf` answers a
+/// bigint now reaches that path instead of becoming `NaN`.
+///
+/// The order comes from [`super::operators::operand_order`] rather than being
+/// written here, for the reason that function states: which side converts first
+/// is invisible until an operand has a side-effecting `valueOf`, and a second
+/// statement of it is a second thing to get wrong.
+fn converted(left: u64, right: u64) -> (u64, u64) {
+    super::primitive::operands(
+        left,
+        right,
+        super::operators::operand_order(),
+        crate::coerce::Hint::Number,
+    )
+}
+
 /// `a & b`.
 #[rtse::entry]
 pub fn bit_and(left: u64, right: u64) -> u64 {
+    let (left, right) = converted(left, right);
     // Asked in a borrow of its own: a refused count becomes a `RangeError`,
     // and building that error borrows the context again, so `settled` has to
     // run after this borrow has ended.
@@ -92,6 +140,7 @@ pub fn bit_and(left: u64, right: u64) -> u64 {
 /// `a | b`.
 #[rtse::entry]
 pub fn bit_or(left: u64, right: u64) -> u64 {
+    let (left, right) = converted(left, right);
     // Asked in a borrow of its own: a refused count becomes a `RangeError`,
     // and building that error borrows the context again, so `settled` has to
     // run after this borrow has ended.
@@ -109,6 +158,7 @@ pub fn bit_or(left: u64, right: u64) -> u64 {
 /// `a ^ b`.
 #[rtse::entry]
 pub fn bit_xor(left: u64, right: u64) -> u64 {
+    let (left, right) = converted(left, right);
     // Asked in a borrow of its own: a refused count becomes a `RangeError`,
     // and building that error borrows the context again, so `settled` has to
     // run after this borrow has ended.
@@ -130,6 +180,9 @@ pub fn bit_xor(left: u64, right: u64) -> u64 {
 /// one unary case — is a second statement of `ToNumber`'s heap path.
 #[rtse::entry]
 pub fn bit_not(value: u64) -> u64 {
+    // The same conversion, for the one operand this operator has. Outside the
+    // borrow below, because it may run a user `valueOf`.
+    let value = super::primitive::to_primitive(value, crate::coerce::Hint::Number);
     with_current(|context| {
         // `~1n` is `-2n` over the whole value, not over thirty-two bits. Unary,
         // so it cannot go through `binary` — the pattern is the same and the
@@ -146,6 +199,7 @@ pub fn bit_not(value: u64) -> u64 {
 /// `a << b`.
 #[rtse::entry]
 pub fn shift_left(left: u64, right: u64) -> u64 {
+    let (left, right) = converted(left, right);
     // Asked in a borrow of its own: a refused count becomes a `RangeError`,
     // and building that error borrows the context again, so `settled` has to
     // run after this borrow has ended.
@@ -171,6 +225,7 @@ pub fn shift_left(left: u64, right: u64) -> u64 {
 /// `a >> b` — the sign-propagating shift.
 #[rtse::entry]
 pub fn shift_right(left: u64, right: u64) -> u64 {
+    let (left, right) = converted(left, right);
     // Asked in a borrow of its own: a refused count becomes a `RangeError`,
     // and building that error borrows the context again, so `settled` has to
     // run after this borrow has ended.
@@ -194,6 +249,7 @@ pub fn shift_right(left: u64, right: u64) -> u64 {
 /// it.
 #[rtse::entry]
 pub fn shift_right_unsigned(left: u64, right: u64) -> u64 {
+    let (left, right) = converted(left, right);
     with_current(|context| {
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(f64::from(to_uint32(a).wrapping_shr(shift_by(b)))).bits()
@@ -244,11 +300,11 @@ pub(super) fn exponentiate(base: f64, power: f64) -> f64 {
 /// narrowing, and — because it cannot run user code and therefore cannot throw —
 /// none of the `__rts_take_thrown` check that follows every generic operator.
 ///
-/// The two things it skips inside are the larger half. [`exponent`] asks
-/// `bigint_class::binary` first, inside a context borrow, because `2n ** 3n` is
-/// a bigint operation; and then `operands` runs `ToPrimitive`, which reads the
-/// heap and can call a user `valueOf`. **A `Repr::F64` is the proof that neither
-/// applies**: a bigint is a reference, so no site that reaches here can be
+/// The two things it skips inside are the larger half. [`exponent`] runs
+/// [`converted`] — `ToPrimitive` on both operands, which reads the heap and can
+/// call a user `valueOf` — and then asks `bigint_class::binary` inside a context
+/// borrow, because `2n ** 3n` is a bigint operation. **A `Repr::F64` is the
+/// proof that neither applies**: a bigint is a reference, so no site that reaches here can be
 /// holding one, and a double needs no coercion.
 ///
 /// Measured before this existed, `bench/analytic.ts`: `arith exponent` at
@@ -267,6 +323,7 @@ pub fn number_exponent(base: f64, power: f64) -> f64 {
 /// `a ** b`.
 #[rtse::entry]
 pub fn exponent(left: u64, right: u64) -> u64 {
+    let (left, right) = converted(left, right);
     // Asked in a borrow of its own: a refused count becomes a `RangeError`,
     // and building that error borrows the context again, so `settled` has to
     // run after this borrow has ended.

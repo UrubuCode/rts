@@ -758,3 +758,105 @@ Written down so the next reader does not re-read them:
 
 One instance found, one instance fixed. The class is stated because the next one
 will be somewhere nobody has read, not because a sweep found several.
+
+---
+
+# Part six: two helpers, one converting, and the caller that picked the other
+
+Part five named the class as *a rule applied in the wrong order*. Running its own
+check — trace what an operation RUNS on its operands, not what it answers —
+across the whole language found the class again, and this time the shape is
+sharper and the instances are many.
+
+## The check, and what it is
+
+One object with a counting `valueOf` and `toString`, one line per operation,
+compared against node:
+
+    o & 1     RTS: (nothing)  -> 0      NODE: a.valueOf -> 1
+    o | 0     RTS: (nothing)  -> 0      NODE: a.valueOf -> 3
+    o << 1    RTS: (nothing)  -> 0      NODE: a.valueOf -> 6
+    o ** 2    RTS: (nothing)  -> NaN    NODE: a.valueOf -> 9
+
+Forty-five rows, forty-two identical to node. This is the INVERSE of part five's
+defect: there the conversion ran and should not have; here it does not run and
+should. And unlike part five, the answer is wrong, so an ordinary assertion could
+have caught it — no test in the corpus had one.
+
+**`[7] & 15` answered 0 where the language says 7, and `[7] ** 2` answered NaN
+where it says 49.** Nothing exotic is required: a one-element array inherits
+`valueOf` from `Object.prototype`, which answers the array, so `toString`
+produces `"7"` and `ToNumber` produces 7.
+
+## The mechanism, which is the part worth remembering
+
+**There are two functions called `operands`.**
+
+- `primitive::operands` converts. It runs `ToPrimitive` and therefore user code,
+  so it must be called OUTSIDE a context borrow.
+- `operators::operands` reads. It is `as_number(…).unwrap_or(NAN)`, pure, and
+  must be called INSIDE one.
+
+The arithmetic operators call both, in that order, and are correct. Every
+operator in `entry/bitwise.rs` called only the second — and `bitwise.rs`'s own
+module header states the rule correctly, `ToInt32(ToNumber(a))`, above code that
+does not implement it. The doc comment on `number_exponent` went further and
+described `operands` as running `ToPrimitive` and possibly a user `valueOf`,
+which was a true sentence about the other function of that name.
+
+## And it is not one pair
+
+The same shape, audited with the same probe over every method that takes a
+numeric argument, found **fourteen more** — and a THIRD spelling of the
+non-converting read:
+
+| where | the non-converting read |
+|---|---|
+| `entry/bitwise.rs`, 8 operators | `operators::operands` |
+| `entry/string/*`, 23 call sites | `string::integer_arg` |
+| `entry/array_proto/*` | `Value(x).numeric().unwrap_or(0.0)`, inline |
+
+`string/mod.rs` is the honest one: `integer_arg`'s doc says *"An object answers
+`NaN` and therefore zero, because `ToNumber` on one runs user code and this is
+inside a borrow. **The stated gap**"*, and `integer_outside` sits directly below
+it as *"the same conversion, performed OUTSIDE any borrow so an object
+converts."* The pair is documented, the gap is documented, and the callers still
+picked the wrong one.
+
+Measured against node, an object argument that converts to a number:
+
+    substr(n1,n2)            ""            node "bc"
+    codePointAt(n2)          97            node 99
+    startsWith('b',n1)       false         node true
+    endsWith('b',n2)         false         node true
+    padStart(n5)             "ab"          node "   ab"
+    padEnd(n5)               "ab"          node "ab   "
+    arr.lastIndexOf(3,n4)    -1            node 2
+    arr.fill(0,n2)           [0,0,0,0]     node [1,2,0,0]
+    arr.fill(0,n1,n3)        [1,2,3,4]     node [1,0,0,4]
+    arr.copyWithin(n0,n2)    [1,2,3,4]     node [3,4,3,4]
+    arr.splice(n1,n2)        []            node [2,3]
+    arr.with(n1,9)           undefined     node [1,9,3,4,5,6]
+    arr.length = n2          [1,2,3]       node [1,2]
+    [3, n2, 1].sort()        [{},1,3]      node [1,{},3]
+
+`with` is implemented and correct for a plain number; every row here is the
+argument, not the method.
+
+## Why this keeps happening, and the only thing that stops it
+
+A borrow of the context cannot call user code — that is a hard constraint of
+this runtime, and it is correct. So every conversion has to be lifted above the
+borrow, which means every argument-reading site has TWO shapes available and
+only one of them is right. The wrong one is shorter, reads naturally, compiles,
+and answers a plausible number.
+
+Naming the pair did not prevent it. Documenting the gap did not prevent it. What
+FINDS it is the counter, and what would END it is one converting helper that the
+non-converting read is not reachable around — a single `ToIntegerOrInfinity`
+taken above the borrow, rather than three spellings of a numeric read that each
+caller must remember to lift.
+
+Until that exists, the check is `scripts/`-able and cheap: give the argument a
+counting `valueOf`, run the operation, and compare the trace to node. A test
+that asserts the answer for `fill(0, 2)` passes on every build in this table.
