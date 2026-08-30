@@ -160,6 +160,62 @@ about the wrong thing.
 
 ---
 
+
+### A generator under `for`-`of` — OPEN, and the flag that only prints changes the answer
+
+2026-08-30. Not fixed. Recorded because it is reproducible, deterministic, and
+the first instance in this file that survived the obvious candidate.
+
+```js
+function* g() { yield 1; }
+let x = 0;
+for (let i = 0; i < 120000; i++) { for (const v of g()) x = x + v; }
+console.log("ok", x);
+```
+
+| | answer |
+|---|---|
+| release, `RTS_GC_DEBUG=1` | **ok 60683** — the loop ended early |
+| release, plain | ok 120000 |
+| debug, `RTS_GC_DEBUG=1` | ok 120000 |
+| debug, plain | ok 120000 |
+
+Deterministic in all four cells, and one is wrong.
+
+**`RTS_GC_DEBUG` changes no logic.** It is two `if switches::gc_debug()` blocks
+around `eprintln!` in `collect_cycle::collect`. A flag that only prints changing
+the ANSWER means the value is found by the conservative stack scan or not at
+all: the `eprintln!` changes `collect`'s own stack and register layout, and
+therefore what the scan sees. That is hiding place four, and it is the first
+time this file has caught it directly rather than by a build-to-build
+difference.
+
+**What it is not.** Naming the generator in a local — `const it = g()` — answers
+60683 as well, so the program does hold it and the loss is not "nobody named
+it". And `Context::resuming` is NOT the missing root, which is worth writing
+down because it is the obvious candidate: it is the one field that names a
+generator whose body is running, and it says outright that it needs no root
+because "the generator being resumed is the receiver of the `.next()` that
+started this, so it is already held by the caller" — a sentence whose conclusion
+does not follow when the caller is compiled code. Adding it to `context_roots`
+was tried and changed **nothing** in release.
+
+That attempt is also a lesson about the instrument. It appeared to work, because
+it was verified on a DEBUG build — and the debug build answers 120000 with and
+without it. The control was not run first. **A fix verified in a cell that never
+had the bug is not verified.**
+
+**A second symptom in the same shape, also open**: 300 000 rounds exhaust the
+heap outright — "the region grew to its whole reservation of 524288 cells and
+all of them are in use even after a collection" — before and after that attempt.
+Two symptoms; at least one cause still unfound. Check 1 of this document passes:
+all twenty-one `Aside` fields are either walked by `trace::edges_of` or named in
+its closing comment, so it is not another `cursors`.
+
+`tests/generator_for_of_root.test.ts` holds five cases of the shape. They pass
+on the build that has the defect and are a guard, not a reproduction; the header
+says so.
+
 ## There will be more, and that is the point of this document
 
 **This class is not closed.** Three were found in one afternoon by a sweep that
