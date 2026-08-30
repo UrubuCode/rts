@@ -31,6 +31,7 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+mod fetch;
 mod errors;
 pub mod assert;
 pub mod async_hooks;
@@ -290,6 +291,10 @@ pub fn install(context: &mut Context) {
     // same two cells and `globalThis.Blob === (await import("node:buffer")).Blob`
     // holds.
     let (blob, file) = buffer::blob::classes(context);
+    // `fetch` — global aqui como no Node 18+ e como num browser. Ver
+    // `fetch.rs` para porque vive neste crate.
+    let fetch_fn = rts_core::entry::make_callable(context, fetch::fetch);
+    rts_core::entry::declare_global(context, "fetch", fetch_fn);
     rts_core::entry::declare_global(context, "Blob", blob);
     rts_core::entry::declare_global(context, "File", file);
     // `globalThis.crypto` is Node's `require('node:crypto').webcrypto`, and it
