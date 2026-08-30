@@ -410,6 +410,18 @@ Never lifts. No mode suspends it.
   cache is a fresh chance to be missing from a list, and only the precise roots
   of `docs/engine/the-unwired-keystone.md` close the class rather than police
   it.
+- **A second silent class, and it is not about memory: a rule applied in the
+  wrong ORDER.** Every test here asserts an ANSWER, and an answer cannot tell a
+  conversion that was needed from one that was not. `x == null` ran
+  `ToPrimitive` on the object — two `valueOf` calls per comparison where the
+  specification calls it zero times — and answered correctly the whole time, at
+  180 times the cost. What found it was a benchmark row reading 1 456 ns where
+  the model said 14; what PROVES it is a counter on the side effect, never an
+  assertion on the result. **Expect more** wherever this runtime converts before
+  it dispatches: the specification almost always has cheap arms ahead of the
+  conversion, and putting the conversion first is the natural way to write the
+  function. `docs/codegen/entry-tax.md` part five is the class and the shape of
+  the test that catches it.
 
 ---
 

@@ -183,3 +183,71 @@ pub(super) fn typeof_equals_literal(
         builder.widen(is)
     }))
 }
+
+/// `x == null` and `x != null` — the one loose equality that coerces nothing.
+///
+/// # Why this is not an optimisation of `==`
+///
+/// It is the observation that the specification's `IsLooselyEqual` reaches its
+/// coercions only after two arms that `null` and `undefined` take first. With
+/// one side either of them, `x == null` is true **exactly** when `x` is `null`
+/// or `undefined`: same-type falls through to strict equality, the two
+/// cross-arms cover the other one of the pair, and none of the Number/String,
+/// Boolean, BigInt or ToPrimitive arms names `null` or `undefined` at all. So
+/// the answer is reached without converting anything and without running any
+/// user code — which no other spelling of `==` can say.
+///
+/// That is the same question `??` and `?.` ask, so it is
+/// `choice::branch_on_nullish` in a value's clothing rather than a new rule.
+///
+/// # What it cost to not do this
+///
+/// `x == null` is one of the most written idioms in JavaScript and emitted the
+/// worst shape in this file: the double speculation's two guards, of which the
+/// one on the constant `null` fails on every pass by construction; a full
+/// crossing to `__rts_loose_equals`; and the THROW CHECK that crossing implies,
+/// because `==` in general runs `ToPrimitive` and `ToPrimitive` runs user code.
+/// Every part of that is paid for a conversion this arm does not perform.
+///
+/// # The one exotic object that would make this wrong, and why it cannot exist
+///
+/// `document.all` is specified to be loosely equal to `null` while being an
+/// object — the `[[IsHTMLDDA]]` slot, which exists so that a 1990s feature test
+/// keeps working. Nothing in this engine can create one: it is a host object a
+/// browser DOM provides, and `rts-dom` is a rendering engine that publishes no
+/// such thing. If one ever arrives, this function is where it breaks, which is
+/// why it is named here rather than left for someone to rediscover.
+pub(super) fn loose_null_equality(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    op: BinaryOp,
+    a: ValueId,
+    b: ValueId,
+) -> EmitResult<Option<ValueId>> {
+    let negated = match op {
+        BinaryOp::LooseEqual => false,
+        BinaryOp::LooseNotEqual => true,
+        _ => return Ok(None),
+    };
+    for which in Singleton::ALL {
+        let id = ctx.model.singleton(*which);
+        let tested = if builder.is_constant_singleton(b, id) {
+            a
+        } else if builder.is_constant_singleton(a, id) {
+            b
+        } else {
+            continue;
+        };
+        // Nothing proven is nullish, so the answer is constant. The machine
+        // refuses `IsSingleton` for a proven operand rather than answering a
+        // constant `false`, which is what surfaces this case here instead of
+        // leaving it emitted and never taken.
+        if builder.repr_of(tested) != UNPROVEN {
+            return Ok(Some(boolean_constant(builder, negated)));
+        }
+        return Ok(Some(super::choice::nullish_value(
+            builder, ctx, tested, negated,
+        )?));
+    }
+    Ok(None)
+}

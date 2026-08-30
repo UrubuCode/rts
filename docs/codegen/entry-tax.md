@@ -638,3 +638,123 @@ catalogues.
 
 **A census counts sites; only a clock counts nanoseconds.** That is the third
 time in this file a ranked item died to a measurement that cost ten minutes.
+
+---
+
+# Part five: the rule that was applied in the wrong ORDER
+
+The third member of part three's class, and the one that turned out not to be a
+performance defect at all.
+
+## What was measured
+
+`x == null` — one of the most written idioms in JavaScript — emitted the worst
+shape in this file: the double speculation's two guards, of which the one on the
+constant `null` fails on every pass by construction; a full crossing to
+`__rts_loose_equals`; and the throw check that crossing implies, because `==` in
+general runs `ToPrimitive` and `ToPrimitive` runs user code.
+
+The emitter fix is the same one part three describes — `x == null` is true
+exactly when `x` is nullish, so it is `choice::branch_on_nullish` in a value's
+clothing. What was not expected is the size of it:
+
+| | base | now |
+|---|---:|---:|
+| `x == null`, `x` an OBJECT | **1 456.67** | **8.00  (182x)** |
+| `x == null`, `x` undefined | 10.67 | 8.67 |
+| `x != null` | 1 470.33 | 8.00 |
+| `x == undefined` | 1 502.00 | 8.00 |
+| the guard idiom plus a property read | 1 443.33 | 9.67 |
+| CONTROL `x === null` (part three's) | 8.00 | 8.67 |
+| CONTROL an addition | 3.33 | 3.67 |
+
+A crossing costs about 14 ns. 1 456 is not a crossing, and the gap between the
+object row and the undefined row — 1 456 against 10.67, same operator, same
+constant — is what said the operand was being CONVERTED.
+
+## What it actually was
+
+    let (left_object, right_object) = with_current(…);      // ask
+    let (left, right) = match (left_object, right_object) {
+        (true, false) => (to_primitive(left, hint), right), // CONVERT
+        …
+    };
+    with_current(|context| {
+        …
+        if absent(left) || absent(right) { … }              // the null rule
+    })
+
+The `null`/`undefined` rule was applied **after** the conversion. The
+specification puts it at steps 2 to 4 of `IsLooselyEqual` and `ToPrimitive` at
+step 10, and the order is not decoration: `({ valueOf() { … } }) == null` must
+not run the `valueOf` at all.
+
+**And that is observable, not merely wasted.** Counted against node:
+
+    obj == null   ->  false, valueOf/toString called 2 times   (node: 0)
+    obj == 0      ->  true,  called 3 times cumulative         (node: 1)
+
+So a program whose conversion counts, logs, or fetches behaved differently here
+than in every other engine, and the ANSWER was right the whole time. Nothing in
+the corpus caught it, because every test asserted the answer.
+
+## Both halves shipped, and why one was not enough
+
+The emitter change removes the crossing wherever a literal `null` or `undefined`
+is at the site — which is most real code, and more of it than expected, because
+it **composes with the inliner**: a helper like `cmp(a, b) { return a == b }`
+called as `cmp(x, null)` has its body substituted, and the literal then arrives
+in operand position at a site that had none.
+
+That is a mask, not a fix. A callee the inliner refuses still reaches
+`__rts_loose_equals`, and the probe that proves it is a helper declared twice in
+one program, so `declarations_of` is 2 and the pass refuses both:
+
+    via a refused callee:  false, calls: 1     (node: 0)
+
+The runtime arm is therefore reordered as well, in the same change. The rule is
+now asked in the borrow that already existed for `is_object_in`, before the
+conversion — and it is still asked a second time afterwards, which is NOT dead
+code: `ToPrimitive` can answer `undefined`, from a `valueOf` that returns
+nothing, and the specification re-enters the comparison with the converted value
+rather than continuing down the table.
+
+## THE CLASS THIS ADDS, and it is not the one part three named
+
+Part three's class is *the emitter speculating against its own constant*. This is
+a different one and a worse one:
+
+> **A rule applied in the wrong order is invisible to every test that asserts an
+> answer.**
+
+The answer was correct. The cost was 180x. The only thing that could see the
+defect was a counter on a side effect, and the only reason anyone looked was
+that a benchmark row read 1 456 ns where the model said 14.
+
+**Where to expect more.** Anywhere this runtime converts before it dispatches —
+`ToPrimitive`, `ToNumber`, `ToString`, `ToPropertyKey` — the specification
+almost always has cheap arms ahead of the conversion, and putting the conversion
+first is both the natural way to write the function and undetectable by an
+assertion on the result. The check is not a test; it is a COUNTER on the
+conversion, and `tests/loose_null.test.ts` is the shape: give the operand a
+`valueOf` that increments, then assert the count as well as the answer.
+
+A test that asserts only the answer proves the answer. It says nothing about
+what was run to get there.
+
+### The two nearest neighbours were checked and are CLEAN
+
+Written down so the next reader does not re-read them:
+
+- **`primitive::to_primitive`** asks the cheap questions first and is correct.
+  A non-reference returns immediately without borrowing the context at all, and
+  a reference that is not an object returns before `Symbol.toPrimitive` is
+  looked up. Its own comment says why.
+- **`functions::instance_of`** cannot skip its `Symbol.hasInstance` probe — the
+  specification puts it at step 2 of the operator, ahead of everything,
+  including the "`V` is not an object, return false" arm that looks skippable.
+  What it CAN do is answer the probe without a crossing, and it already does, as
+  of the same day's work.
+
+One instance found, one instance fixed. The class is stated because the next one
+will be somewhere nobody has read, not because a sweep found several.

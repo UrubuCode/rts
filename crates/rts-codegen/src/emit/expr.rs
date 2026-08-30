@@ -952,6 +952,9 @@ fn emit_binary_inner(
     if let Some(answer) = super::settled::singleton_equality(builder, ctx, op, a, b)? {
         return Ok(answer);
     }
+    if let Some(answer) = super::settled::loose_null_equality(builder, ctx, op, a, b)? {
+        return Ok(answer);
+    }
 
     // The whole point of the pass. Two proven doubles turn every one of these
     // into a machine instruction, because the decision the runtime call exists

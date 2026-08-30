@@ -312,3 +312,38 @@ pub fn from_bool(builder: &mut FuncBuilder, cond: ValueId, negated: bool) -> Emi
     builder.switch_to(join);
     Ok(result)
 }
+
+/// Whether a value is nullish, as a JavaScript value rather than a branch.
+///
+/// [`branch_on_nullish`] answers the same question to a `Branch`, which is what
+/// `?.` and `??` want. `x == null` written in expression position wants a value,
+/// and the two are one function apart for the reason [`from_bool`] gives: a
+/// second construction of "a boolean from a test" is how the two come to
+/// disagree about a value nobody tested.
+///
+/// The caller is `settled::loose_null_equality`, which is where the argument
+/// that `x == null` IS this question is written down.
+pub(super) fn nullish_value(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    value: ValueId,
+    negated: bool,
+) -> EmitResult<ValueId> {
+    let nullish = builder.create_block();
+    let present = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, UNPROVEN);
+
+    branch_on_nullish(builder, ctx, value, nullish, present)?;
+
+    builder.switch_to(nullish);
+    let answer = expr::boolean_constant(builder, !negated);
+    builder.jump(join, &[answer])?;
+
+    builder.switch_to(present);
+    let answer = expr::boolean_constant(builder, negated);
+    builder.jump(join, &[answer])?;
+
+    builder.switch_to(join);
+    Ok(result)
+}

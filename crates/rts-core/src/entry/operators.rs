@@ -413,12 +413,36 @@ mod tests {
 pub fn loose_equals(left: u64, right: u64) -> bool {
     // Outside the borrow, and before anything else reads the operands: a
     // conversion runs user code. Guarded so the identity rule above survives.
-    let (left_object, right_object) = with_current(|context| {
+    let (left_object, right_object, left_absent, right_absent) = with_current(|context| {
+        let absent = |value: u64| {
+            matches!(Value(value).kind(), crate::value::Kind::Singleton(number)
+                if number == context.singletons.undefined
+                    || number == context.singletons.null)
+        };
         (
             super::primitive::is_object_in(context, left),
             super::primitive::is_object_in(context, right),
+            absent(left),
+            absent(right),
         )
     });
+    // The specification's steps 2 to 4, and they come BEFORE step 10's
+    // `ToPrimitive` rather than after it. Asked here rather than in the borrow
+    // below, which is where it used to be asked and where it was too late:
+    // `({ valueOf() {} }) == null` ran the `valueOf` and then discovered that
+    // the other side was `null` and that no conversion had been needed.
+    //
+    // That was not merely wasted work — it is OBSERVABLE. Measured 2026-08-29
+    // against node: `valueOf` was called twice per comparison where the
+    // specification calls it zero times, so a program whose conversion counts,
+    // logs or fetches behaved differently here. It also cost 1 456 ns against
+    // the 8 the emitter now pays where it can settle the comparison itself.
+    //
+    // `null` and `undefined` are equal to each other and to NOTHING else, which
+    // is why one absent side answers the whole question.
+    if left_absent || right_absent {
+        return left_absent && right_absent;
+    }
     let hint = crate::coerce::Hint::Default;
     let (left, right) = match (left_object, right_object) {
         (true, false) => (super::primitive::to_primitive(left, hint), right),
@@ -429,14 +453,17 @@ pub fn loose_equals(left: u64, right: u64) -> bool {
     with_current(|context| {
         let (left, right) = (Value(left), Value(right));
 
+        // The same rule again, and it is NOT dead code: the test above ran on
+        // the operands as written, and `ToPrimitive` between here and there can
+        // produce `undefined` — a `valueOf` that returns nothing. The
+        // specification says so explicitly, by re-entering `IsLooselyEqual`
+        // with the converted value rather than continuing down the table.
         let absent = |value: Value| {
             matches!(value.kind(), crate::value::Kind::Singleton(number)
                 if number == context.singletons.undefined
                     || number == context.singletons.null)
         };
         if absent(left) || absent(right) {
-            // `null == undefined` is true and neither is equal to anything
-            // else — the one rule that is not a conversion.
             return absent(left) && absent(right);
         }
 
