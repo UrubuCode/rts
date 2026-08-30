@@ -157,10 +157,45 @@ fn shortest_digits(value: f64) -> (String, i32) {
 /// `Number("-1")` is `-1`, because the hex, octal and binary forms have no sign
 /// in their grammar. A parser that stripped a leading sign and then dispatched
 /// on the prefix would accept all three.
+///
+/// # Why the text is BORROWED where it can be
+///
+/// `Str::to_rust` allocates: for the Latin-1 form it is
+/// `String::from_utf8(bytes.to_vec())` — a `Vec`, a copy and a revalidating
+/// scan — and this function used it unconditionally, so `"7" - 1` allocated a
+/// one-byte `String` to parse one digit. Measured 2026-08-29 on the entry path:
+/// `"7" & 15` cost 79.33 ns against 20.33 for `null >>> 15`, and the entry
+/// protocol is the same for both.
+///
+/// ASCII bytes ARE UTF-8 bytes, so the common case needs no copy at all. It is
+/// borrowed rather than parsed separately on purpose: **there is still exactly
+/// one parser below**, running on a `&str` that either points into the string's
+/// own storage or into a `String` built for the shapes that need one. A second
+/// parser for narrow text would be a second statement of what a number literal
+/// is, and this file's whole subject is spellings the two would disagree about.
+///
+/// `is_ascii` and not `str::from_utf8`: a Latin-1 byte pair like `0xC3 0xA9` is
+/// valid UTF-8 and means a DIFFERENT character than the two Latin-1 ones, so
+/// letting the UTF-8 validator decide would silently reinterpret the text. The
+/// scan is SIMD in std and the allocation it replaces is not.
 pub fn string_to_number(text: &Str) -> f64 {
-    let Some(rust) = text.to_rust() else {
-        // A lone surrogate is a legal string and not a legal number.
-        return f64::NAN;
+    let owned;
+    let rust: &str = match text.narrow().filter(|bytes| bytes.is_ascii()) {
+        Some(bytes) => match std::str::from_utf8(bytes) {
+            Ok(borrowed) => borrowed,
+            // Unreachable: the filter above established these bytes are ASCII.
+            // Answered rather than asserted, because a panic here would be an
+            // abort inside an `extern "C"` frame.
+            Err(_) => return f64::NAN,
+        },
+        None => {
+            let Some(built) = text.to_rust() else {
+                // A lone surrogate is a legal string and not a legal number.
+                return f64::NAN;
+            };
+            owned = built;
+            &owned
+        }
     };
     let trimmed = rust.trim_matches(is_string_whitespace);
 
@@ -374,6 +409,29 @@ mod tests {
         assert_eq!(printed(f64::NAN), NAN);
         assert_eq!(printed(f64::INFINITY), INFINITY);
         assert_eq!(printed(f64::NEG_INFINITY), format!("-{INFINITY}"));
+    }
+
+    #[test]
+    fn the_borrowed_path_and_the_built_one_agree() {
+        // `string_to_number` reads ASCII bytes in place and builds a `String`
+        // only for the shapes that need one. The boundary is exactly
+        // `is_ascii`, and these are the values that sit on either side of it.
+        //
+        // U+00A0 is the one that makes the distinction necessary rather than
+        // cosmetic: a no-break space FITS in Latin-1, so `narrow()` answers
+        // bytes for it, and those bytes are not UTF-8. Deciding with
+        // `str::from_utf8` instead of `is_ascii` would either reject it (wrong)
+        // or, for a pair like `0xC3 0xA9`, accept it as a DIFFERENT character.
+        assert_eq!(parsed("7"), 7.0, "ascii, read in place");
+        assert_eq!(parsed("  -12.5e2  "), -1250.0, "ascii with the trimming");
+        assert_eq!(parsed("\u{00A0}7"), 7.0, "latin-1 whitespace still trims");
+        assert_eq!(parsed("7\u{00A0}"), 7.0);
+        assert_eq!(parsed("\u{00A0}"), 0.0, "whitespace alone is +0");
+        assert!(parsed("\u{00E9}").is_nan(), "a latin-1 letter is not a number");
+        assert!(parsed("\u{3042}").is_nan(), "a wide letter is not a number");
+        assert_eq!(parsed("\u{3000}7"), 7.0, "wide whitespace still trims");
+        // A lone surrogate has no Rust text and is not a number.
+        assert!(string_to_number(&Str::from_utf16(&[0xD800, 0x37])).is_nan());
     }
 
     #[test]

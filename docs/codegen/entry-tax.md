@@ -860,3 +860,101 @@ caller must remember to lift.
 Until that exists, the check is `scripts/`-able and cheap: give the argument a
 counting `valueOf`, run the operation, and compare the trace to node. A test
 that asserts the answer for `fill(0, 2)` passes on every build in this table.
+
+---
+
+# Part seven: what an operator actually costs, and one allocation removed
+
+Asked directly: why are the operators heavy, when they should cost nothing?
+
+**They do cost nothing.** What costs is the door.
+
+| | ns | over the floor |
+|---|---:|---:|
+| an empty loop | 4.33 | — |
+| `i & 15`, compiled to an INSTRUCTION | 3.67 | **0.00** |
+| `obj.x`, a cached property read | 10.33 | 6.0 |
+| `typeof x === "object"` — exactly ONE crossing | 20.00 | **15.7** |
+| `null - 1` — one crossing plus a body | 21.33 | 17.0 |
+| `null >>> 1` — one crossing plus a body | 22.67 | 18.3 |
+
+The Rust body of a bitwise or arithmetic operator costs about **1.5 ns**. The
+crossing costs about **15.7**. Ninety per cent of what an operator "costs" is
+leaving compiled code, and when the machine can prove its operands it does not
+leave at all — which is what the zero on the second row means.
+
+That figure also corrects one from earlier in this file. `Math.abs(1)` was used
+as a stand-in for "one crossing" at 5.7 ns over the floor; it is not one.
+`Math.floor(1.5)` measures 5.3 and `bench/analytic.ts` reads `arith Math.floor`
+at 3.0 — both are compiled, not called. The honest single-crossing control is
+`typeof x === "…"`, because part four made it exactly one, and it agrees with
+the 13.8 ns per crossing part two measured independently.
+
+## The one thing that was removed
+
+`coerce::string_to_number` began with `text.to_rust()`, unconditionally. For the
+Latin-1 form that is `String::from_utf8(bytes.to_vec())` — a `Vec`, a copy and a
+revalidating scan — so `"7" - 1` allocated a one-byte `String` in order to parse
+one digit.
+
+ASCII bytes ARE UTF-8 bytes, so the common case needs no copy. Measured,
+`--release`, min of 11, three alternations, two controls in the same run:
+
+| | base | now |
+|---|---:|---:|
+| `"7" - 1` | 81.50 | **42.00  (-48%)** |
+| `"7" & 15` | 103.50 | **56.00  (-46%)** |
+| `+"7"` | 94.00 | **46.50  (-47%)** |
+| `"1234.5" - 1` | 92.50 | **55.00  (-41%)** |
+| `"7" < 8` | 144.50 | **96.50  (-33%)** |
+| `Number("7")` | 131.00 | **90.00  (-31%)** |
+| `" 7" - 1` — the slow path, kept | 100.50 | 100.00 |
+| CONTROL `null - 1` | 22.00 | 21.50 |
+| CONTROL `obj.x` | 10.00 | 10.00 |
+
+Thirty-eight nanoseconds off `"7" - 1`. That is the allocation.
+
+**There is still exactly one parser.** The bytes are BORROWED into the same
+`&str` the built `String` would have produced, so nothing below the first four
+lines changed. A second parser for narrow text would be a second statement of
+what a number literal is, and this file exists because of spellings — `inf`,
+`NaN`, `1_0`, `0x` with a sign — that two statements would disagree about.
+
+The boundary is `is_ascii` and not `str::from_utf8`, and the case that makes the
+distinction necessary rather than cosmetic is pinned in a test: `U+00A0` is a
+no-break space, it is string whitespace, and it FITS in Latin-1 — so `narrow()`
+answers bytes for it that are not UTF-8. Letting the UTF-8 validator decide
+would reject that one, and would accept a Latin-1 pair like `0xC3 0xA9` as a
+DIFFERENT character.
+
+## Three hypotheses that did not survive
+
+Written down because each looked obviously right and cost a build to refute.
+
+- **"Each `with_current` costs about 7 ns."** Derived from `null - 1` at 20.33
+  against `null & 15` at 27.33, the two differing only in that `&` takes a
+  second borrow for the bigint ask. `&`, `|` and `^` can never answer
+  `Err(Refused)` — only `<<`, `>>` and `**` can — so the second borrow was
+  merged away for those three. Measured: `&` unchanged, `|` and `^` **1.5 ns
+  worse**, and the untouched `>>>` control drifted as far as either. Reverted.
+  Whatever separates `-` from `&` is not the borrow.
+- **"The thread-local lacks a `const` initializer."** It has one already.
+- **"`bigint_class::binary` probes the digit side table twice per operation."**
+  It does not. `digits_of` is `as_client(kinds.bigint)?` — a tag comparison that
+  returns immediately for anything else, and the table is never touched.
+
+The first is the fifth rearrangement refuted in this campaign against zero that
+shipped. **A change that removes work is worth building; a change that moves
+work is worth measuring before believing.**
+
+## What the clock could NOT say this time
+
+The whole-program and `analytic.ts` numbers for this change were taken on a
+loaded machine — an empty program measured 79-88 ms where it measures 58, and
+`objbench` bounced between 409 and 451 between two alternations of the same
+binary. They support no claim in either direction and none is made.
+
+The probe above is not affected by that, and this is why it is built the way it
+is: **the two controls are in the same run as the targets.** Load that moves a
+target moves a control with it. `obj.x` reading 10.00 on both binaries is what
+licenses reading 81.50 against 42.00 as a real difference.
