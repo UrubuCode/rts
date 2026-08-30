@@ -25,6 +25,7 @@
 //! change — and the whole of `docs/codegen/entry-tax.md` part three.
 
 use rts_cranelift::ir::{FuncBuilder, ValueId};
+use rts_cranelift::repr::Repr;
 
 use super::expr::{boolean_constant, call, count_constant};
 use super::{Ctx, EmitResult, Scope, UNPROVEN};
@@ -169,6 +170,12 @@ pub(super) fn typeof_equals_literal(
         _ => return Ok(None),
     };
     let value = super::unary::typeof_operand(builder, scope, ctx, applied)?;
+    // THREE OF THE NINE ANSWERS ARE DECIDED BY THE TAG, with no heap access at
+    // all, so they need no crossing. See [`tag_decidable`].
+    if let Some(proof) = tag_decidable(builder, ctx, value, spelled)? {
+        let proof = super::choice::negated_proof(builder, proof, negated)?;
+        return Ok(Some(builder.widen(proof)));
+    }
     // The literal's own index, minted from the same table `StringConst` reads,
     // because that numbering is an agreement the compiler and the runtime
     // already have. A number naming one of the nine `typeof` answers would be a
@@ -177,11 +184,114 @@ pub(super) fn typeof_equals_literal(
     let which = ctx.literal_units(spelled.units());
     let index = count_constant(builder, which as usize);
     let is = call(builder, ctx, RuntimeOp::TypeOfIs, &[value, index])?[0];
-    Ok(Some(if negated {
-        super::choice::from_bool(builder, is, true)?
-    } else {
-        builder.widen(is)
-    }))
+    let proof = super::choice::negated_proof(builder, is, negated)?;
+    Ok(Some(builder.widen(proof)))
+}
+
+/// `typeof v === "…"` for the three names the TAG decides, as a proven boolean.
+///
+/// # Which three, and why not the other six
+///
+/// `number`, `boolean` and `undefined` are readable from the encoding alone. The
+/// machine already tests exactly these: `lower/value.rs`'s `test` answers a
+/// double by asking whether the word is outside the encoded quadrant, a boolean
+/// by `has_tag(TAG_BOOL)`, and `IsSingleton` compares one word.
+///
+/// `string`, `object` and `function` all arrive as `TAG_REFERENCE` and are told
+/// apart by the CELL HEADER, which is the heap — so they stay a crossing, and
+/// that is a fact about the representation rather than a gap.
+///
+/// `symbol` and `bigint` ARE tag-decidable and are deliberately left out. Their
+/// tag numbers are runtime values (`context.kinds.symbol`), so the emitter would
+/// need a compile-time agreement asserted in `rts-host` — the shape of work the
+/// singleton numbering is — for two spellings a corpus census found 6 and 8
+/// times against 45 for `number`.
+///
+/// # Why a proven operand falls through
+///
+/// A value the emitter already proved is not a question: `typeof x` for a proven
+/// double is `"number"` and the machine refuses to guard what it has narrowed.
+/// Answering the constant here would be right and would also be the emitter
+/// deciding a language question from a machine fact in a second place — the
+/// existing call is correct for it and costs nothing anybody measured.
+///
+/// Measured 2026-08-30, release, min of 9 over 10 M iterations, against a floor
+/// of 3.70 and `x === undefined` — already a tag test — at 2.00:
+/// `typeof x === "undefined"` 11.40, `"number"` 12.70, `"boolean"` 13.90.
+fn tag_decidable(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    value: ValueId,
+    spelled: &crate::syntax::Text,
+) -> EmitResult<Option<ValueId>> {
+    if builder.repr_of(value) != UNPROVEN {
+        return Ok(None);
+    }
+    // A lone surrogate is a legal string and names none of the nine, so the
+    // absence is the answer rather than a case to handle.
+    let Some(name) = spelled.as_rust() else {
+        return Ok(None);
+    };
+    let name = name.as_str();
+    match name {
+        // One instruction: a singleton has exactly one encoding.
+        "undefined" => {
+            let id = ctx.model.singleton(Singleton::Undefined);
+            Ok(Some(builder.is_singleton(value, id)?))
+        }
+        "boolean" => Ok(Some(has_any_repr(builder, value, &[Repr::Bool])?)),
+        // A number is a double OR a small integer, and the encoding keeps them
+        // apart — so it is the one name that needs two tests. The second is
+        // asked only where the first failed.
+        "number" => Ok(Some(has_any_repr(
+            builder,
+            value,
+            &[Repr::F64, Repr::I32],
+        )?)),
+        _ => Ok(None),
+    }
+}
+
+/// Whether a generic value carries ANY of these representations, as a proven
+/// boolean.
+///
+/// A guard is a TERMINATOR — it hands the narrowed value to its success block as
+/// a parameter, which is what makes narrowing unrepresentable without a test —
+/// so asking the question as a VALUE costs a branch and a join rather than one
+/// instruction. Two blocks and a constant against a crossing.
+///
+/// The list exists for `number` alone: a number is a double OR a small integer
+/// and the encoding keeps them apart, so it is the one name of the three that
+/// needs two tests. They are CHAINED on failure rather than both computed and
+/// merged — the second is asked only where the first did not hold, which is what
+/// a short circuit means and what a merge would have thrown away.
+fn has_any_repr(
+    builder: &mut FuncBuilder,
+    value: ValueId,
+    reprs: &[Repr],
+) -> EmitResult<ValueId> {
+    let join = builder.create_block();
+    let answer = builder.add_block_param(join, Repr::Bool);
+    let no = builder.create_block();
+
+    for (at, repr) in reprs.iter().enumerate() {
+        let yes = builder.create_block();
+        builder.add_block_param(yes, *repr);
+        let fail = match at + 1 == reprs.len() {
+            true => no,
+            false => builder.create_block(),
+        };
+        builder.guard(value, *repr, (yes, &[]), (fail, &[]))?;
+        builder.switch_to(yes);
+        let held = builder.bool_constant(true);
+        builder.jump(join, &[held])?;
+        builder.switch_to(fail);
+    }
+
+    let held = builder.bool_constant(false);
+    builder.jump(join, &[held])?;
+    builder.switch_to(join);
+    Ok(answer)
 }
 
 /// `x == null` and `x != null` — the one loose equality that coerces nothing.

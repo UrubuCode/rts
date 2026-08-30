@@ -1039,9 +1039,14 @@ fn emit_binary_inner(
 
         // `===` is not `CmpOp::Eq` even though the spelling matches. Two
         // strings are `===` when their *text* is, which reads the heap, so it
-        // is a call. `!==` is its negation and needs one more instruction than
-        // exists here — negating a proven boolean is arithmetic, and this
-        // module has no unary path yet.
+        // is a call.
+        //
+        // `!==` is its negation, and the sentence that used to stand here —
+        // "negating a proven boolean is arithmetic, and this module has no unary
+        // path yet" — was true when it was written and is not now. It is one
+        // `icmp` against `FuncBuilder::bool_constant(false)`, which
+        // `choice::negated_proof` emits; the machine names the operand because
+        // a proven boolean's bit pattern is its own to decide.
         // The runtime answers `Repr::Bool` — it PROVED one, which is what
         // lets a branch consume it without a guard. But `a === b` written in an
         // expression is a JavaScript value, and the widening is what turns the

@@ -130,3 +130,71 @@ describe("typeof compared against a literal", () => {
     expect(log.join(",")).toBe("a,b");
   });
 });
+
+describe("the three answers the TAG decides", () => {
+  // `number`, `boolean` and `undefined` are readable from the encoding alone
+  // and emit a tag test rather than a crossing. `string`, `object` and
+  // `function` all arrive as one tag and are told apart by the cell header, so
+  // they stay a call. These pin the boundary between the two.
+  test("a number is a number however it is encoded", () => {
+    // A small integer and a double are DIFFERENT encodings, so `number` is the
+    // one name of the three that needs two tests.
+    const cases: any[] = [0, -0, 1, -1, 42, 2147483647, -2147483648,
+      0.5, -0.5, 1e308, -1e308, NaN, Infinity, -Infinity, 1e-323];
+    for (const v of cases) {
+      expect(typeof v === "number").toBe(true);
+      expect(typeof v !== "number").toBe(false);
+    }
+  });
+
+  test("and nothing else is", () => {
+    const cases: any[] = ["1", true, false, null, undefined, {}, [],
+      Symbol("s"), 10n, () => 1];
+    for (const v of cases) {
+      expect(typeof v === "number").toBe(false);
+      expect(typeof v !== "number").toBe(true);
+    }
+  });
+
+  test("boolean is exactly the two booleans", () => {
+    for (const v of [true, false] as any[]) {
+      expect(typeof v === "boolean").toBe(true);
+    }
+    for (const v of [0, 1, "", "true", null, undefined, {}, []] as any[]) {
+      expect(typeof v === "boolean").toBe(false);
+    }
+  });
+
+  test("undefined is not null and not a missing property", () => {
+    let missing: any;
+    const o: any = {};
+    expect(typeof missing === "undefined").toBe(true);
+    expect(typeof o.absent === "undefined").toBe(true);
+    expect(typeof null === "undefined").toBe(false);
+    expect(typeof 0 === "undefined").toBe(false);
+    expect(typeof "" === "undefined").toBe(false);
+  });
+
+  test("the six that still cross are unchanged", () => {
+    expect(typeof "s" === "string").toBe(true);
+    expect(typeof {} === "object").toBe(true);
+    expect(typeof null === "object").toBe(true);
+    expect(typeof [] === "object").toBe(true);
+    expect(typeof (() => 1) === "function").toBe(true);
+    expect(typeof Symbol("s") === "symbol").toBe(true);
+    expect(typeof 1n === "bigint").toBe(true);
+    // A boxed number is an OBJECT, which is the case a tag test would get wrong
+    // if it looked at the payload instead of the tag.
+    expect(typeof new Number(1) === "object").toBe(true);
+    expect(typeof new Number(1) === "number").toBe(false);
+    expect(typeof new Boolean(true) === "object").toBe(true);
+    expect(typeof new Boolean(true) === "boolean").toBe(false);
+  });
+
+  test("a PROVEN operand falls through and still answers", () => {
+    const n = 1 + 1;
+    expect(typeof n === "number").toBe(true);
+    expect(typeof n === "string").toBe(false);
+    expect(typeof (1 < 2) === "boolean").toBe(true);
+  });
+});
