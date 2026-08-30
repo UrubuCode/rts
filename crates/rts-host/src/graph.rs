@@ -340,7 +340,23 @@ fn visit(
     ordered.push(Loaded {
         specifier: path.display().to_string(),
         path: path.to_owned(),
-        source,
+        // A fachada do DOM entra aqui pelo mesmo critério do caminho de ficheiro
+        // único — `crate::run::with_dom_facade` é o único sítio onde a decisão
+        // está escrita, e este passa a chamá-lo em vez de a repetir.
+        //
+        // Faltava, e o que a falta impedia é maior do que parece: um programa
+        // com UMA linha de `import` compila como GRAFO, e este caminho nunca
+        // injetava o prelude. Ou seja NENHUM programa que importasse seja o que
+        // fosse — `node:fs`, `rts:egui` — podia usar `parseDocument`, e a falha
+        // era `ReferenceError: parseDocument is not defined`, que aponta para o
+        // programa quando o que faltava era o prelude.
+        //
+        // Por FICHEIRO e não só na entrada, que é o mesmo que o outro caminho
+        // faz: quem menciona a fachada recebe-a. Dois módulos que a mencionem
+        // ficam com classes distintas — um `instanceof` entre eles responderia
+        // falso — e isso está por resolver; o que não estava era poder usá-la
+        // de todo.
+        source: crate::run::with_dom_facade(&source),
     });
     Ok(())
 }

@@ -620,12 +620,23 @@ pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
     // contrato de `compile`: o prelude contém declarações e o host passaria a
     // analisar scripts sem DOM como um corpo diferente. Optamos pelo bootstrap
     // sob demanda, ativado pelos nomes públicos da fachada.
-    let source_with_dom = if uses_dom_facade(source) {
-        format!("{}\n{}", rts_dom_bridge::PRELUDE_TS, source)
+    let source_with_dom = with_dom_facade(source);
+    front_end_agreeing(&source_with_dom, None, false, Scoped::Nothing)
+}
+
+/// O fonte com a fachada do DOM a frente, quando o programa a menciona.
+///
+/// A decisao vive aqui e so aqui porque ha DOIS caminhos de compilacao — um
+/// ficheiro sozinho e um GRAFO de modulos — e o segundo nao a fazia de todo.
+/// Um programa com uma linha de `import` compila como grafo, portanto qualquer
+/// programa que importasse o que quer que fosse ficava sem `parseDocument`.
+pub(crate) fn with_dom_facade(source: &str) -> String {
+    if uses_dom_facade(source) {
+        format!("{}
+{}", rts_dom_bridge::PRELUDE_TS, source)
     } else {
         source.to_owned()
-    };
-    front_end_agreeing(&source_with_dom, None, false, Scoped::Nothing)
+    }
 }
 
 fn uses_dom_facade(source: &str) -> bool {
