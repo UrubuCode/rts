@@ -180,6 +180,25 @@ class WindowImpl {
     this._ss = new WebStorage();
     this._iw = vw;
     this._ih = vh;
+    // Os timers como PROPRIEDADES PRÓPRIAS, com o `this` já preso.
+    //
+    // Um método do protótipo chamado pelo NOME LIVRE — `setTimeout(fn, 0)`,
+    // que é como todo o código de página o escreve — chega cá sem receiver:
+    // a cadeia de escopo lê a propriedade e invoca, e `this` é `undefined`.
+    // Medido: `TypeError: Cannot read properties of undefined (reading
+    // '_doc')` na primeira linha de qualquer script que agende alguma coisa.
+    //
+    // Num browser `setTimeout(…)` nu tem `this === window`, e a resposta certa
+    // a longo prazo é o receiver vir do objeto onde o nome foi encontrado —
+    // uma decisão do emissor, não desta classe. Enquanto ela não existe, uma
+    // arrow presa aqui dá a mesma resposta para estes cinco, que são os que
+    // uma página chama nus. Os outros continuam a precisar de `window.`.
+    const doc = this._doc;
+    (this as any).setTimeout = (fn: any, ms: number) => DomTimers.add(doc._dom, fn, ms, 0);
+    (this as any).clearTimeout = (id: number) => { DomTimers.cancel(doc._dom, id); };
+    (this as any).setInterval = (fn: any, ms: number) => DomTimers.add(doc._dom, fn, ms, 1);
+    (this as any).clearInterval = (id: number) => { DomTimers.cancel(doc._dom, id); };
+    (this as any).requestAnimationFrame = (fn: any) => DomTimers.add(doc._dom, fn, 16, 0);
   }
 
   get document(): Document { return this._doc; }
@@ -201,6 +220,11 @@ class WindowImpl {
   get window(): WindowImpl { return this; }
   get top(): WindowImpl { return this; }
   get parent(): WindowImpl { return this; }
+  // `globalThis === window` num browser, e aqui isso deixou de ser uma
+  // curiosidade: o escopo de um `<script>` É este objeto, então sem este getter
+  // o nome livre `globalThis` caía no global do PROCESSO — outro objeto, que
+  // nenhuma página devia alcançar.
+  get globalThis(): WindowImpl { return this; }
 
   // Timers: vão para a FILA POR DOCUMENTO em Rust (`DomTimers`), dirigida pelo
   // frame do host via `pumpTimerCallbacks(doc)` — NÃO para os timers do motor

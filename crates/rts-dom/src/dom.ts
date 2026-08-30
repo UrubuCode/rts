@@ -489,6 +489,19 @@ class Element {
     if (n === __DOM_NONE) return null;
     return new Element(this._dom, n);
   }
+  // `no.ownerDocument` — o documento a que este nó pertence. Todo o `Element`
+  // já carrega o handle dele (`_dom`), por isso é o documento REAL e não um
+  // objeto novo com o mesmo aspeto.
+  //
+  // Faltava, e o que a falta impedia: o React 18 liga os seus eventos
+  // delegados com `container.ownerDocument.addEventListener(...)`, então
+  // `createRoot(...).render(...)` morria em `Cannot read properties of
+  // undefined (reading 'addEventListener')` — com o React inteiro já carregado
+  // e a funcionar.
+  get ownerDocument(): Document {
+    return new Document(this._dom);
+  }
+
   get parentElement(): Element | null {
     const n = dom.parentElement(this._dom, this._node);
     if (n === __DOM_NONE) return null;
@@ -1463,25 +1476,19 @@ function runScriptsAt(doc: Document, url: string): number {
 // object — e param de ser recompiladas por script. `window` marca que já foi
 // feito: é o primeiro a entrar e nenhum script legítimo o apaga.
 function __prepararEscopo(doc: Document, url: string): void {
-  if (DomScope.has(doc._dom, "window") === 1) return;
   const w: any = __winFor(doc._dom, url, 1000, 800);
-  DomScope.set(doc._dom, "window", w);
-  DomScope.set(doc._dom, "document", w.document);
-  DomScope.set(doc._dom, "self", w);
-  DomScope.set(doc._dom, "globalThis", w);
-  DomScope.set(doc._dom, "top", w);
-  DomScope.set(doc._dom, "parent", w);
-  DomScope.set(doc._dom, "location", w.location);
-  DomScope.set(doc._dom, "navigator", w.navigator);
-  DomScope.set(doc._dom, "history", w.history);
-  DomScope.set(doc._dom, "localStorage", w.localStorage);
-  // Os timers CHAMADOS NUS caem na fila por documento (`DomTimers`), não nos do
-  // motor — só essa fila é bombeada pelo frame do host.
-  DomScope.set(doc._dom, "setTimeout", function (f: any, ms: any) { return w.setTimeout(f, ms); });
-  DomScope.set(doc._dom, "clearTimeout", function (id: any) { w.clearTimeout(id); });
-  DomScope.set(doc._dom, "setInterval", function (f: any, ms: any) { return w.setInterval(f, ms); });
-  DomScope.set(doc._dom, "clearInterval", function (id: any) { w.clearInterval(id); });
-  DomScope.set(doc._dom, "requestAnimationFrame", function (f: any) { return w.requestAnimationFrame(f); });
+  // Uma linha, e é a linha toda: o escopo dos `<script>` deste documento É o
+  // `window`. Num browser são o mesmo objeto, e um bundle UMD depende disso —
+  // o ramo de browser faz `factory(global.React = {})` e o script seguinte lê
+  // `React` como nome livre.
+  //
+  // O que estava aqui antes publicava `window`, `document`, `self`,
+  // `globalThis`, `top`, `parent`, `location`, `navigator`, `history`,
+  // `localStorage` e cinco timers COMO PROPRIEDADES de um saco à parte. Eram
+  // todos duplicados: a classe `WindowImpl` já os tem, e o saco à parte era o
+  // que fazia `window.X = 42` num script e `typeof X` no seguinte responder
+  // `"undefined"` — dois objetos onde a linguagem tem um.
+  DomScope.adopt(doc._dom, w);
 }
 
 // Roda o j-ésimo `<script>`: inline usa o texto do nó; externo usa o fonte que o

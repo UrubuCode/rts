@@ -253,7 +253,31 @@ pub fn environment_names(environment: u64) -> Vec<(String, u32)> {
         let Some(cell) = Value(walking).as_slot() else {
             break;
         };
-        let texts = with_current(|context| super::array::key_texts(context, walking, false));
+        // As chaves próprias E as herdadas. Um objeto de ambiente pode ser o
+        // GLOBAL OBJECT de uma página — o `window` — e a superfície dele
+        // (`document`, `location`, `setTimeout`, `self`) são acessores do
+        // PROTÓTIPO da sua classe, não propriedades da instância. Ler só as
+        // próprias devolvia uma lista vazia, e todo o nome livre de todo o
+        // `<script>` respondia `ReferenceError: window is not defined`.
+        //
+        // É também o que a linguagem diz: num browser `toString` livre resolve,
+        // porque o global object herda de `Object.prototype`. Um nome herdado
+        // está em escopo tanto quanto um próprio.
+        let texts = with_current(|context| {
+            let mut texts = Vec::new();
+            let mut seen = walking;
+            for _ in 0..16u32 {
+                let Some(cell) = Value(seen).as_slot() else { break };
+                texts.extend(super::array::key_texts(context, seen, false));
+                // `context.prototype_at` e não `chain::get_prototype`: aquele
+                // entra no contexto por sua conta, e isto já está dentro de um.
+                seen = match context.prototype_at(cell) {
+                    Some(found) => found,
+                    None => break,
+                };
+            }
+            texts
+        });
         for text in texts {
             let Some(text) = text.to_rust() else {
                 continue;

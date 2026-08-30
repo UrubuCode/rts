@@ -166,7 +166,67 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("drop", drop_member),
     ("run", run),
     ("lastError", last_error),
+    ("adopt", adopt),
 ];
+
+/// `DomScope.adopt(h, objeto)` — faz de `objeto` o saco de globais deste
+/// documento.
+///
+/// # Porque o escopo tem de SER o `window`
+///
+/// Num browser o objeto global e o `window` são a mesma coisa: um script que
+/// escreve `window.X = 1` e outro que lê `X` como nome livre encontram-se,
+/// porque estão a falar da mesma propriedade do mesmo objeto.
+///
+/// Aqui eram dois. O `window` era publicado COMO PROPRIEDADE do saco, e medido
+/// dava isto: `window.X = 42` no primeiro script, `typeof X` no segundo →
+/// `"undefined"`; e ao contrário, `Z = 9` livre não aparecia em `window.Z`.
+///
+/// O que isso quebra não é um caso de canto — é o formato UMD, que é como
+/// TODA a biblioteca do npm é servida a uma página. O ramo de browser de um
+/// UMD faz `factory(global.React = {})`, e o script seguinte lê `React`. Com
+/// dois objetos, o React 18.3.1 publicava-se num sítio que o programa nunca
+/// via: `ReferenceError: React is not defined`, com os dois bundles a terem
+/// corrido sem um erro.
+///
+/// Adotar em vez de copiar: uma cópia teria de ser mantida em dia nos dois
+/// sentidos e toda a escrita passaria a ter dois destinos, que é a forma de
+/// eles divergirem num deles.
+/// Responde `1` quando este documento JÁ tinha adotado este objeto, para que
+/// quem prepara o escopo possa sair sem repetir o trabalho — em vez de o
+/// marcar com uma propriedade, que ficaria à vista do JavaScript da página.
+extern "C" fn adopt(_e: u64, _t: u64, doc: u64, object: u64, _b: u64, _c: u64) -> u64 {
+    let h = handle(doc);
+    if locked().get(&h).map(|bag| bag.object) == Some(object) {
+        return int(1);
+    }
+    // O `hold` novo ANTES de largar o antigo: entre os dois há uma alocação
+    // possível, e uma coleção nesse intervalo não pode encontrar o documento
+    // sem saco nenhum.
+    let hold = entry::hold_current(object);
+    let anterior = {
+        let mut bags = locked();
+        match bags.get_mut(&h) {
+            Some(bag) => {
+                let anterior = Some((bag.object, bag.hold));
+                bag.object = object;
+                bag.hold = hold;
+                anterior
+            }
+            None => {
+                bags.insert(
+                    h,
+                    Bag { object, hold, last_error: None, order: Vec::new(), known: HashSet::new() },
+                );
+                None
+            }
+        }
+    };
+    if let Some((_, hold)) = anterior {
+        entry::release_current(hold);
+    }
+    int(0)
+}
 
 /// `DomScope.run(h, fonte, window)` — corre o texto de um `<script>` com o saco
 /// deste documento COMO ESCOPO, e devolve `1` se correu.
