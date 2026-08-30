@@ -169,6 +169,7 @@ class WindowImpl {
   _ls: WebStorage;
   _ss: WebStorage;
   _iw: number;
+  _name: string;
   _ih: number;
 
   constructor(domHandle: i64, url: string, vw: number, vh: number) {
@@ -180,6 +181,26 @@ class WindowImpl {
     this._ss = new WebStorage();
     this._iw = vw;
     this._ih = vh;
+    this._name = "";
+    // Os timers como PROPRIEDADES PRÓPRIAS, com o `this` já preso.
+    //
+    // Um método do protótipo chamado pelo NOME LIVRE — `setTimeout(fn, 0)`,
+    // que é como todo o código de página o escreve — chega cá sem receiver:
+    // a cadeia de escopo lê a propriedade e invoca, e `this` é `undefined`.
+    // Medido: `TypeError: Cannot read properties of undefined (reading
+    // '_doc')` na primeira linha de qualquer script que agende alguma coisa.
+    //
+    // Num browser `setTimeout(…)` nu tem `this === window`, e a resposta certa
+    // a longo prazo é o receiver vir do objeto onde o nome foi encontrado —
+    // uma decisão do emissor, não desta classe. Enquanto ela não existe, uma
+    // arrow presa aqui dá a mesma resposta para estes cinco, que são os que
+    // uma página chama nus. Os outros continuam a precisar de `window.`.
+    const doc = this._doc;
+    (this as any).setTimeout = (fn: any, ms: number) => DomTimers.add(doc._dom, fn, ms, 0);
+    (this as any).clearTimeout = (id: number) => { DomTimers.cancel(doc._dom, id); };
+    (this as any).setInterval = (fn: any, ms: number) => DomTimers.add(doc._dom, fn, ms, 1);
+    (this as any).clearInterval = (id: number) => { DomTimers.cancel(doc._dom, id); };
+    (this as any).requestAnimationFrame = (fn: any) => DomTimers.add(doc._dom, fn, 16, 0);
   }
 
   get document(): Document { return this._doc; }
@@ -193,14 +214,48 @@ class WindowImpl {
   get outerWidth(): number { return this._iw; }
   get outerHeight(): number { return this._ih; }
   get devicePixelRatio(): number { return 1; }
-  get name(): string { return ""; }
+  // `window.name` e GRAVAVEL num browser, e aqui isso deixou de ser detalhe: o
+  // escopo de um `<script>` E este objeto, entao um `var name` de topo — que
+  // qualquer bundle pode ter — assenta aqui. Com um getter sozinho, o motor
+  // recusava: `Cannot set property name of #<Object> which has only a getter`,
+  // e o react-dom morria a carregar.
+  //
+  // A licao e mais larga do que este nome: todo o acessor so-de-leitura desta
+  // classe passou a poder BLOQUEAR um global legitimo da pagina. Os que um
+  // browser deixa escrever tem de deixar tambem.
+  get name(): string { return this._name; }
+  set name(v: string) { this._name = v; }
   get closed(): boolean { return false; }
   // window.self / window.window / window.top / window.parent apontam pra ele
   // mesmo (single-frame). Getters retornam o próprio window.
+  // Os quatro apontam para ele próprio (single-frame), e os quatro ACEITAM
+  // escrita.
+  //
+  // Não é indulgência: na especificação HTML `self`, `window`, `top` e `parent`
+  // são `[Replaceable]` — escrever neles é legal e substitui a propriedade,
+  // inclusive em código STRICT, que é onde um getter sozinho recusa. Um bundle
+  // que o faça no arranque — e o react-dom faz — morria com
+  // `TypeError: Cannot set property self of #<Object> which has only a getter`
+  // enquanto isto eram só getters.
+  //
+  // O setter IGNORA em vez de guardar, e isso é uma divergência declarada: a
+  // especificação diz que a escrita substitui, e aqui a leitura continua a
+  // responder o `window`. É a metade que interessa a quem escreve por hábito
+  // — o script segue — e a outra metade precisaria de uma propriedade own a
+  // tapar o acessor, que esta fachada não sabe criar.
   get self(): WindowImpl { return this; }
+  set self(_v: any) { }
   get window(): WindowImpl { return this; }
+  set window(_v: any) { }
   get top(): WindowImpl { return this; }
+  set top(_v: any) { }
   get parent(): WindowImpl { return this; }
+  set parent(_v: any) { }
+  // `globalThis === window` num browser, e aqui isso deixou de ser uma
+  // curiosidade: o escopo de um `<script>` É este objeto, então sem este getter
+  // o nome livre `globalThis` caía no global do PROCESSO — outro objeto, que
+  // nenhuma página devia alcançar.
+  get globalThis(): WindowImpl { return this; }
 
   // Timers: vão para a FILA POR DOCUMENTO em Rust (`DomTimers`), dirigida pelo
   // frame do host via `pumpTimerCallbacks(doc)` — NÃO para os timers do motor

@@ -54,11 +54,15 @@
 //! own doc names.
 
 mod agent;
-mod client;
+// `pub(crate)` para o `fetch` reusar `decode_body` — um segundo de-chunker
+// seria uma segunda resposta a mesma pergunta.
+pub(crate) mod client;
 mod common;
 mod incoming;
 mod outgoing;
-mod parser;
+// `pub(crate)` para o `fetch` poder ler uma resposta sem passar pelo
+// `IncomingMessage` — ver `crate::fetch`.
+pub(crate) mod parser;
 mod registry;
 mod server;
 mod status;

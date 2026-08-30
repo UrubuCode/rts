@@ -37,6 +37,24 @@ extern "C" fn invoke_callback(
 /// `queueMicrotask` registado por um script ficava na fila para sempre: o
 /// callback nunca acontecia e nada dizia porquê.
 extern "C" fn run_event_loop(_e: u64, _t: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    // As duas metades do loop, e não só uma.
+    //
+    // `drain_microtasks` corre o que uma promessa deixou pendente. O que ele
+    // NÃO corre são as *sources* — os timers do motor, os sockets, e a entrega
+    // de um `MessageChannel`, que é por onde o scheduler do React 18 despacha o
+    // seu trabalho.
+    //
+    // Faltar essa metade é o que separava uma página VIVA de uma parada: num
+    // programa headless o `await` devolve o controlo ao host, que corre o loop
+    // completo, e tudo avançava; numa JANELA não há `await` — há um frame que
+    // chama isto — e o trabalho agendado ficava na fila para sempre.
+    //
+    // Medido com o Jogo da Vida em React: headless a geração subia a cada 120
+    // ms, na janela ficava em zero, com os mesmos scripts e sem um erro.
+    //
+    // As sources primeiro: uma delas pode enfileirar a microtask que a seguir
+    // se drena, e a ordem inversa deixaria essa microtask para a volta seguinte.
+    entry::pump_sources();
     entry::drain_microtasks();
     nothing()
 }

@@ -114,7 +114,7 @@ pub(super) extern "C" fn assign(
             // source runs and a setter on the target runs — which is what
             // `assign` does and what a slot-to-slot copy would have skipped.
             let value = super::super::computed::get_indexed(source, name);
-            super::super::computed::set_indexed(target, name, value);
+            super::super::computed::set_indexed(target, name, value, 0 /* strict: um native que escreve reporta a recusa */);
         });
         // `own_keys` never reports a symbol — it is the string enumeration,
         // and a symbol has no string spelling for it to report — so a

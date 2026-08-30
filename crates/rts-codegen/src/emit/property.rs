@@ -26,6 +26,32 @@ use crate::runtime::RuntimeOp;
 /// it is which name the compiler resolved. Emitting it tagged would be claiming
 /// the program could compute it, which is exactly what a computed property does
 /// and what this path is not.
+/// O modo de quem escreve, como argumento da operação de escrita.
+///
+/// `1` para sloppy. Uma escrita que o objeto recusa — só-getter, congelada,
+/// `writable: false` — é um `TypeError` em strict e um no-op silencioso em
+/// sloppy, e só o sítio de onde foi escrita sabe qual. `ctx.sloppy` já é por
+/// função: `emit::function` limpa-o num corpo com `"use strict"`, por isso a
+/// pergunta é a certa exatamente onde é feita.
+/// O modo ESTRITO, para as escritas que o EMISSOR faz em objetos que acabou de
+/// criar: um campo de classe, um elemento de literal, `module.exports`, o
+/// objeto de um literal. Nada os pode ter congelado entre a criação e a
+/// escrita, por isso a recusa não é uma resposta possível — e pedir o modo do
+/// programa aqui daria a um `"use strict"` distante o poder de mudar como um
+/// literal se constrói.
+pub(super) fn estrito(builder: &mut FuncBuilder, _ctx: &Ctx) -> ValueId {
+    let id = builder.declare_const(ConstDecl::Scalar { repr: Repr::I64, bits: ScalarBits(0) });
+    builder.use_const(id)
+}
+
+pub(super) fn write_mode(builder: &mut FuncBuilder, ctx: &Ctx) -> ValueId {
+    let id = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I64,
+        bits: ScalarBits(u64::from(ctx.sloppy)),
+    });
+    builder.use_const(id)
+}
+
 pub(super) fn key_constant(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> ValueId {
     let key = ctx.key_of(name);
     let id = builder.declare_const(ConstDecl::Scalar {
@@ -319,11 +345,17 @@ pub(super) fn emit_write(
 
     builder.switch_to(slow);
     let key_value = key_constant(builder, ctx, property);
+    let mode = write_mode(builder, ctx);
     let answered = call(
         builder,
         ctx,
+        // O MODO de quem escreve, e não uma propriedade da operação: uma
+        // escrita que o objeto recusa é um `TypeError` em strict e um no-op em
+        // sloppy, e só aqui se sabe qual dos dois. `ctx.sloppy` já é por função
+        // — `emit::function` limpa-o num corpo com `"use strict"` — por isso a
+        // pergunta é a certa exatamente neste ponto.
         RuntimeOp::SetProperty,
-        &[receiver, key_value, value],
+        &[receiver, key_value, value, mode],
     )?[0];
     builder.jump(join, &[answered])?;
 

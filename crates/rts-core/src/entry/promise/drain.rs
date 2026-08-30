@@ -236,7 +236,59 @@ fn report() {
     let unhandled = with_current(|context| context.promises.unhandled());
     for reason in unhandled {
         let described = with_current(|context| describe(context, reason));
-        eprintln!("rts: unhandled promise rejection: {described}");
+        eprintln!("rts: unhandled promise rejection: {described}{}", origem(reason));
+    }
+}
+
+/// As linhas `at …` do `.stack` da razão, se ela for um `Error`.
+///
+/// # Porque a pilha vem do VALOR e não da máquina
+///
+/// Uma rejeição é reportada quando o TURNO acaba, e nessa altura os frames onde
+/// ela nasceu já foram desempilhados há muito — `throw::call_frames()` responde
+/// vazio. O que sobrevive é o `.stack` que o `Error` capturou quando foi
+/// CONSTRUÍDO, e é o único sítio onde a origem ainda existe.
+///
+/// Sem isto, uma rejeição diz O QUÊ e não ONDE, que num bundle de 1 MB é a
+/// diferença entre corrigir e adivinhar: `Cannot read properties of undefined
+/// (reading 'tag')` é verdade em trinta sítios do React e útil em nenhum.
+///
+/// A leitura é em dois tempos — a propriedade sob o empréstimo do contexto, o
+/// texto fora dele — porque `text_at` toma o contexto por sua conta e pedi-lo
+/// lá dentro seria um abort em vez de um erro.
+fn origem(reason: u64) -> String {
+    let Some(cell) = crate::value::Value(reason).as_slot() else {
+        return String::new();
+    };
+    let stack = with_current(|context| {
+        let key = context
+            .interner
+            .intern(&crate::text::Str::from_str("stack"), &mut context.keys);
+        super::super::objects::read_property(context, cell, crate::object::Key::Name(key))
+            .map(|found| found.bits())
+    });
+    let Some(stack) = stack else {
+        return String::new();
+    };
+    let texto = with_current(|context| {
+        crate::value::Value(stack)
+            .as_slot()
+            .and_then(|cell| context.text_at(cell))
+            .and_then(|held| held.to_rust())
+    });
+    let Some(texto) = texto else {
+        return String::new();
+    };
+    let linhas: Vec<&str> = texto
+        .lines()
+        .map(str::trim)
+        .filter(|linha| linha.starts_with("at "))
+        .collect();
+    match linhas.is_empty() {
+        true => String::new(),
+        false => format!("
+    {}", linhas.join("
+    ")),
     }
 }
 

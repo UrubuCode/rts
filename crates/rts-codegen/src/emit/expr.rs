@@ -1311,22 +1311,24 @@ fn emit_assign(
                     value,
                     |builder, _scope, ctx, new_value| {
                         let new_value = tagged(builder, new_value);
+                        let mode = super::property::write_mode(builder, ctx);
                         Ok(call(
                             builder,
                             ctx,
                             RuntimeOp::SetIndexed,
-                            &[receiver, key, new_value],
+                            &[receiver, key, new_value, mode],
                         )?[0])
                     },
                 );
             }
         };
         let assigned = tagged(builder, assigned);
+        let mode = super::property::write_mode(builder, ctx);
         return Ok(call(
             builder,
             ctx,
             RuntimeOp::SetIndexed,
-            &[receiver, key, assigned],
+            &[receiver, key, assigned, mode],
         )?[0]);
     }
 
@@ -1601,7 +1603,8 @@ pub(super) fn value_list(
     for (position, value) in values.iter().enumerate() {
         let value = tagged(builder, *value);
         let at = number_constant(builder, position as f64);
-        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value])?;
+        let estrito = super::property::estrito(builder, ctx);
+        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value, estrito])?;
     }
     Ok(array)
 }
@@ -2337,7 +2340,8 @@ fn emit_array(
         let value = emit_expr(builder, scope, ctx, value)?;
         let value = tagged(builder, value);
         let at = number_constant(builder, position as f64);
-        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value])?;
+        let estrito = super::property::estrito(builder, ctx);
+        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value, estrito])?;
     }
     Ok(array)
 }

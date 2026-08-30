@@ -118,6 +118,9 @@ pub fn emit_page_program(
         }
     }
 
+    // Este programa é uma página, e a única coisa que isso muda está em
+    // `globals::resolves`: os nomes que só o Node tem deixam de resolver.
+    ctx.page = true;
     let scope = Scope::for_function(None, BTreeSet::new(), &BTreeSet::new(), &chain);
     emit_program_into(&body, &[], None, &[], &scope, ctx)
 }

@@ -337,7 +337,7 @@ fn read_response_blocking(socket: u64) -> Option<u64> {
     }
 }
 
-fn decode_body(buf: &[u8], framing: parser::Framing) -> Vec<u8> {
+pub(crate) fn decode_body(buf: &[u8], framing: parser::Framing) -> Vec<u8> {
     match framing {
         parser::Framing::None => Vec::new(),
         parser::Framing::Length(n) => buf[..n.min(buf.len())].to_vec(),

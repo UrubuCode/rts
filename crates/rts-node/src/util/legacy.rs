@@ -40,7 +40,7 @@ pub(super) extern "C" fn extend(
         .map(|key| (string(&key), get(source, &key)))
         .collect();
     for (key, value) in pairs {
-        entry::set_indexed(target, key, value);
+        entry::set_indexed(target, key, value, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     }
     target
 }
@@ -72,7 +72,7 @@ pub(super) extern "C" fn inherits(
         entry::put_member(context, made, "constructor", subclass);
         made
     });
-    entry::set_indexed(subclass, string("prototype"), made);
-    entry::set_indexed(subclass, string("super_"), superclass);
+    entry::set_indexed(subclass, string("prototype"), made, 0 /* strict: quem escreve a partir do host reporta a recusa */);
+    entry::set_indexed(subclass, string("super_"), superclass, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     entry::undefined_value()
 }

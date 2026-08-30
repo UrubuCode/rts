@@ -275,7 +275,35 @@ fn run_getter(object: u64, getter: u64) -> u64 {
 /// Split for the same reason the read is: a setter is user code, and it runs
 /// after the borrow ends.
 #[rtse::entry]
-pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
+pub fn set_property(object: u64, key: i64, value: u64, sloppy: i64) -> u64 {
+    store_property(object, key, value, sloppy != 0)
+}
+
+/// # Porque o MODO atravessa como argumento
+///
+/// Uma escrita que o objeto recusa — uma propriedade só com `get`, uma
+/// congelada, uma `writable: false` — é um `TypeError` em strict e um **no-op
+/// silencioso** em sloppy. São as duas metades de uma regra da linguagem, e
+/// este motor só implementava a primeira.
+///
+/// A razão está escrita em [`resolve_store`] e era verdadeira quando foi
+/// escrita: *"every program this engine compiles is a MODULE, so every program
+/// is strict"*. Deixou de ser no dia em que um `<script>` de página passou a
+/// compilar como script code, que é sloppy por definição — e o custo apareceu
+/// logo: `window.self = x`, que um bundle UMD escreve e um browser ignora,
+/// matava o script inteiro.
+///
+/// Um ARGUMENTO e não um segundo ponto de entrada, embora um par
+/// `set_property`/`set_property_sloppy` fosse mais simples de escrever: a
+/// tabela do `table.rs` é numerada à mão e tem um teste que a limita a 95
+/// entradas, com a razão de que *"uma lista numerada explicitamente deixa de
+/// ser o mecanismo certo quando ninguém a consegue ler"*. Duas portas para uma
+/// regra gastavam duas dessas 95 sem responder nada de novo.
+///
+/// O modo é do sítio de onde a escrita foi escrita — informação de COMPILAÇÃO,
+/// que o runtime não tem e por isso recebe.
+/// `object.name = value`, com o modo de quem escreve. Ver [`set_property_sloppy`].
+fn store_property(object: u64, key: i64, value: u64, sloppy: bool) -> u64 {
     // The same refusal as the read, and the language spells it the same way:
     // `u.x = 1` on `undefined` throws rather than writing into nothing.
     if let Some(refusal) =
@@ -319,8 +347,13 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
             super::functions::call(setter, object, value, undefined, undefined, undefined);
             value
         }
+        // A recusa só LANÇA em strict. Em sloppy a escrita não acontece e o
+        // programa segue, que é o que a especificação diz e o que um browser
+        // faz — e o valor volta na mesma, porque é o que a expressão produz.
         Some(Handled::Refused(why)) => {
-            super::throw::type_error(&why);
+            if !sloppy {
+                super::throw::type_error(&why);
+            }
             value
         }
     }
@@ -941,7 +974,7 @@ mod tests {
     fn a_property_written_is_the_property_read() {
         hosted(|| {
             let object = object_new(0);
-            set_property(object, 7, Value::from_f64(42.0).bits());
+            set_property(object, 7, Value::from_f64(42.0).bits(), 0 /* strict: um native que escreve reporta a recusa */);
             assert_eq!(
                 rts_cranelift::tags::decode_double(get_property(object, 7)),
                 42.0
@@ -968,8 +1001,8 @@ mod tests {
         // moves with it.
         hosted(|| {
             let object = object_new(0);
-            set_property(object, 1, Value::from_f64(10.0).bits());
-            set_property(object, 2, Value::from_f64(20.0).bits());
+            set_property(object, 1, Value::from_f64(10.0).bits(), 0 /* strict: um native que escreve reporta a recusa */);
+            set_property(object, 2, Value::from_f64(20.0).bits(), 0 /* strict: um native que escreve reporta a recusa */);
             assert_eq!(
                 rts_cranelift::tags::decode_double(get_property(object, 1)),
                 10.0
@@ -989,8 +1022,8 @@ mod tests {
         // same way different shapes.
         hosted(|| {
             let object = object_new(0);
-            set_property(object, 1, Value::from_f64(10.0).bits());
-            set_property(object, 1, Value::from_f64(11.0).bits());
+            set_property(object, 1, Value::from_f64(10.0).bits(), 0 /* strict: um native que escreve reporta a recusa */);
+            set_property(object, 1, Value::from_f64(11.0).bits(), 0 /* strict: um native que escreve reporta a recusa */);
             assert_eq!(
                 rts_cranelift::tags::decode_double(get_property(object, 1)),
                 11.0
@@ -1006,8 +1039,8 @@ mod tests {
         hosted(|| {
             let first = object_new(0);
             let second = object_new(0);
-            set_property(first, 3, Value::from_f64(1.0).bits());
-            set_property(second, 3, Value::from_f64(2.0).bits());
+            set_property(first, 3, Value::from_f64(1.0).bits(), 0 /* strict: um native que escreve reporta a recusa */);
+            set_property(second, 3, Value::from_f64(2.0).bits(), 0 /* strict: um native que escreve reporta a recusa */);
             crate::entry::with_current(|context| {
                 // The header IS the shape, now: a cell records the type its
                 // layout arrived at, so two objects at one layout carry the
@@ -1211,7 +1244,7 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
     if super::proxy::is_proxy(source) {
         super::object_global::each_enumerable_own(source, |key| {
             let value = super::computed::get_indexed(source, key);
-            super::computed::set_indexed(target, key, value);
+            super::computed::set_indexed(target, key, value, 0 /* strict: um native que escreve reporta a recusa */);
         });
         return target;
     }
@@ -1227,7 +1260,7 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
     for at in 0..keys.len() {
         let key = keys.values()[at];
         let value = super::computed::get_indexed(source, key);
-        super::computed::set_indexed(target, key, value);
+        super::computed::set_indexed(target, key, value, 0 /* strict: um native que escreve reporta a recusa */);
     }
     // The same gap `Object.assign` had, for the same reason: `key_texts` is
     // the string enumeration and a symbol has no string spelling for it to

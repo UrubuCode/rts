@@ -17,6 +17,44 @@ const __DOM_NONE = -1;
 const __LISTENER_OPTIONS_SEPARATOR = "\u001f";
 const __compositionStates: Map<i64, number> = new Map();
 
+// -- Identidade de no: um no, UM objeto ------------------------------------
+//
+// `getElementById("b")` chamado duas vezes tem de responder o MESMO objeto, e
+// o que se escreveu nele tem de continuar la. Nao e purismo: toda a biblioteca
+// que ANOTA nos assume-o — o React guarda o fiber em `no.__reactFiber$xyz` e
+// vai busca-lo por `event.target.__reactFiber$xyz`, o jQuery guarda ali o cache
+// de dados, o D3 o `__data__`. Com um wrapper novo a cada acesso escreve-se num
+// objeto e le-se noutro, e o sintoma nao se parece nada com a causa: uma app que
+// MONTA, PINTA e nao responde a um unico clique — foi o que o React 18 fez aqui.
+//
+// A chave e o par (handle do DOM, `NodeId`), e nao so o `NodeId`, porque dois
+// documentos abertos ao mesmo tempo tem cada um a sua arena e os `idx` colidem.
+//
+// NAO precisa de invalidacao, e a razao esta do lado Rust em vez de aqui:
+// `mutacao.rs::remove_node` DESLIGA o no e deixa-o na arena — "o no continua na
+// arena (lixo)" — e `arvore.rs` so faz `nodes.push`. Um `idx` nunca e reciclado
+// dentro de uma geracao, e um re-parse muda a geracao de TODOS (o `NodeId` e
+// `(generation << 32) | idx`). Entao um wrapper guardado nunca pode ser
+// entregue a um no diferente daquele para que foi feito. O que a cache custa e
+// crescer com a arena — que tambem nunca encolhe — e nao mais do que ela.
+const __wrappers: Map<i64, Map<i64, any>> = new Map();
+
+// O wrapper DESTE no, sempre o mesmo. Todo o `dom.ts` passa por aqui em vez de
+// `new Element`: uma unica chamada em falta reintroduz o defeito exactamente no
+// caminho que a esqueceu, e um caminho desses e invisivel a quem le o resto.
+function __elem(h: i64, node: number): Element {
+  let daArvore = __wrappers.get(h);
+  if (daArvore === undefined) {
+    daArvore = new Map();
+    __wrappers.set(h, daArvore);
+  }
+  const visto = daArvore.get(node);
+  if (visto !== undefined) return visto;
+  const novo = new Element(h, node);
+  daArvore.set(node, novo);
+  return novo;
+}
+
 function __listenerFlags(options: any): number {
   if (options === true) return 1;
   if (options === null || options === undefined) return 0;
@@ -58,7 +96,7 @@ function __dispatchWithCallbacks(
     passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
-  const target = new Element(h, node);
+  const target = __elem(h, node);
   const state = { stopped: 0, immediate: 0, passive: 0 };
   const event: any = {
     type: type,
@@ -85,10 +123,29 @@ function __dispatchWithCallbacks(
     preventDefault: function () {
       if (event.cancelable && state.passive === 0) event.defaultPrevented = true;
     },
+    // Quando o evento aconteceu. Um browser dá milissegundos desde o início do
+    // documento; aqui é o relógio do sistema, que serve para o que um programa
+    // faz com isto — comparar dois eventos.
+    timeStamp: Date.now(),
   };
+  // `nativeEvent` — o evento "de baixo", e aqui é ESTE.
+  //
+  // Num browser há dois objetos: o nativo, que o motor cria, e o SINTÉTICO, que
+  // uma biblioteca embrulha à volta dele para normalizar diferenças entre
+  // browsers. O React lê `event.nativeEvent` para chegar ao primeiro, e é assim
+  // que o seu sistema de eventos delegados encontra o alvo real.
+  //
+  // Aqui não há dois: este objeto é o nativo. Apontá-lo a si próprio é dizer
+  // isso — e não é um atalho, é a resposta certa quando a camada que ele
+  // procura não existe. Sem isto, o React lia `undefined` e nenhum `onClick`
+  // disparava, sem um erro.
+  //
+  // Depois do literal e não dentro dele, porque uma propriedade não se pode
+  // referir ao objeto que ainda está a ser construído.
+  event.nativeEvent = event;
   let j = 0;
   while (j < n) {
-    event.currentTarget = new Element(h, nodes[j]);
+    event.currentTarget = __elem(h, nodes[j]);
     state.passive = passives[j] !== 0 ? 1 : 0;
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
     // `engine.invoke_cb` reconstitui o Function word no runtime e chama o
@@ -178,7 +235,7 @@ function __dispatchKeyboardWithCallbacks(
     passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
-  const target = new Element(h, node);
+  const target = __elem(h, node);
   const key = __keyboardKey(keyCode, shift);
   const code = __keyboardCode(keyCode);
   const state = { stopped: 0, immediate: 0, passive: 0 };
@@ -216,7 +273,7 @@ function __dispatchKeyboardWithCallbacks(
   };
   let j = 0;
   while (j < n) {
-    event.currentTarget = new Element(h, nodes[j]);
+    event.currentTarget = __elem(h, nodes[j]);
     state.passive = passives[j] !== 0 ? 1 : 0;
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
     engine.invoke_cb(cbs[j], event);
@@ -250,7 +307,7 @@ function __dispatchInputCallbacks(
     passives.push(dom.dispatchCbPassive(h, i));
     i = i + 1;
   }
-  const target = new Element(h, node);
+  const target = __elem(h, node);
   const state = { stopped: 0, immediate: 0, passive: 0 };
   const event: any = {
     type: type,
@@ -280,7 +337,7 @@ function __dispatchInputCallbacks(
   };
   let j = 0;
   while (j < n) {
-    event.currentTarget = new Element(h, nodes[j]);
+    event.currentTarget = __elem(h, nodes[j]);
     state.passive = passives[j] !== 0 ? 1 : 0;
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
     engine.invoke_cb(cbs[j], event);
@@ -398,7 +455,7 @@ class Element {
   querySelector(sel: string): Element | null {
     const n = dom.queryWithin(this._dom, this._node, sel);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // `el.querySelectorAll(sel)` — todos os DESCENDENTES que casam (subárvore).
@@ -407,7 +464,7 @@ class Element {
     const n = dom.queryAllWithinCount(this._dom, this._node, sel);
     let i = 0;
     while (i < n) {
-      out.push(new Element(this._dom, dom.queryAllWithinAt(this._dom, this._node, sel, i)));
+      out.push(__elem(this._dom, dom.queryAllWithinAt(this._dom, this._node, sel, i)));
       i = i + 1;
     }
     return out;
@@ -420,7 +477,7 @@ class Element {
     let i = 0;
     while (i < n) {
       const node = dom.childAt(this._dom, this._node, i);
-      out.push(new Element(this._dom, node));
+      out.push(__elem(this._dom, node));
       i = i + 1;
     }
     return out;
@@ -433,7 +490,7 @@ class Element {
     let i = 0;
     while (i < n) {
       const node = dom.childNodeAt(this._dom, this._node, i);
-      out.push(new Element(this._dom, node));
+      out.push(__elem(this._dom, node));
       i = i + 1;
     }
     return out;
@@ -445,54 +502,67 @@ class Element {
   get parentNode(): Element | null {
     const n = dom.parentNode(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get firstChild(): Element | null {
     const n = dom.firstChild(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get lastChild(): Element | null {
     const n = dom.lastChild(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get nextSibling(): Element | null {
     const n = dom.nextSibling(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get previousSibling(): Element | null {
     const n = dom.previousSibling(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // ── Traversal POR ELEMENTO (#1757) — pula nós de texto/comentário ────────────
   get firstElementChild(): Element | null {
     const n = dom.firstElementChild(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get lastElementChild(): Element | null {
     const n = dom.lastElementChild(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get nextElementSibling(): Element | null {
     const n = dom.nextElementSibling(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   get previousElementSibling(): Element | null {
     const n = dom.previousElementSibling(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
+  // `no.ownerDocument` — o documento a que este nó pertence. Todo o `Element`
+  // já carrega o handle dele (`_dom`), por isso é o documento REAL e não um
+  // objeto novo com o mesmo aspeto.
+  //
+  // Faltava, e o que a falta impedia: o React 18 liga os seus eventos
+  // delegados com `container.ownerDocument.addEventListener(...)`, então
+  // `createRoot(...).render(...)` morria em `Cannot read properties of
+  // undefined (reading 'addEventListener')` — com o React inteiro já carregado
+  // e a funcionar.
+  get ownerDocument(): Document {
+    return new Document(this._dom);
+  }
+
   get parentElement(): Element | null {
     const n = dom.parentElement(this._dom, this._node);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   // `el.childElementCount` — reusa o primitivo childCount (já existente).
   get childElementCount(): number {
@@ -505,7 +575,7 @@ class Element {
   closest(selector: string): Element | null {
     const n = dom.closest(this._dom, this._node, selector);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   // `el.matches(sel)` — testa o seletor simples NESTE nó. (mesmos cortes do closest:
   // só simples; vazio/inválido → false em vez de SyntaxError.)
@@ -517,7 +587,7 @@ class Element {
   // `el.cloneNode(deep)` — duplica o nó (deep=true com filhos); clone SOLTO.
   cloneNode(deep: boolean): Element {
     const n = dom.cloneNode(this._dom, this._node, deep ? 1 : 0);
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
   // `parent.prepend(child)` — insere no INÍCIO. (variádico não no motor → 1 nó.)
   prepend(child: Element): void {
@@ -628,11 +698,23 @@ class Element {
   }
   // `node.nodeValue` — texto cru de Text/Comment. ⚠️ CORTE: a spec dá `null` para
   // Element/Document, mas a fronteira ABI (string) não carrega null → devolve `''`
-  // nesses casos (um Text vazio também é '', indistinguível). SET é método
-  // (setNodeValue) porque o motor não dispara setters de propriedade.
+  // nesses casos (um Text vazio tambem e '', indistinguivel).
+  //
+  // O SET era SO o metodo `setNodeValue`, e a razao que estava escrita aqui —
+  // "o motor nao dispara setters de propriedade" — deixou de ser verdade: o
+  // `textContent` trezentas linhas acima ja tem um. O que o corte custava nao
+  // era ergonomia: um reconciliador de React escreve `no.nodeValue = t` para
+  // trocar o texto de um no sem lhe mexer na identidade, e uma propriedade
+  // so-com-getter LANCA nessa atribuicao. A app montava, o clique chegava, e o
+  // commit morria ai.
   get nodeValue(): string {
     return dom.nodeValue(this._dom, this._node);
   }
+  set nodeValue(value: string) {
+    dom.setNodeValue(this._dom, this._node, value);
+  }
+  // Mantido: e o que os chamadores deste prelude escrevem, e os dois caminhos
+  // sao a mesma mutacao.
   setNodeValue(value: string): void {
     dom.setNodeValue(this._dom, this._node, value);
   }
@@ -750,6 +832,70 @@ class Element {
     dom.removeNode(this._dom, this._node);
   }
 
+  // ── `el.style` — o objeto de estilo inline ──────────────────────
+  //
+  // Um PROXY, e nao um objeto com uma propriedade por nome CSS. Codigo real
+  // escreve `node.style.color = "red"` e `node.style.backgroundColor = "#fff"`,
+  // e o conjunto dos nomes possiveis e a especificacao CSS inteira: declarar
+  // cada um seria uma lista a envelhecer, e responder so a alguns seria pior
+  // que nao responder — uma escrita perdida em silencio.
+  //
+  // A traducao e feita no acesso: `backgroundColor` -> `background-color`, e o
+  // valor vai para `dom.setStyleProperty`, que e o mesmo estilo inline que o
+  // layout ja le. `setProperty`/`getPropertyValue`/`removeProperty` e `cssText`
+  // ficam por nome, porque quem os usa nao passa pelo caminho camelCase.
+  get style(): any {
+    const dom_h = this._dom;
+    const node_h = this._node;
+    const alvo: any = {};
+    return new Proxy(alvo, {
+      get(_t: any, chave: any): any {
+        const nome = "" + chave;
+        if (nome === "setProperty") {
+          return function (p: string, v: string) { dom.setStyleProperty(dom_h, node_h, p, v); };
+        }
+        if (nome === "getPropertyValue") {
+          return function (p: string) { return dom.inlineProperty(dom_h, node_h, p); };
+        }
+        if (nome === "removeProperty") {
+          return function (p: string) { dom.removeStyleProperty(dom_h, node_h, p); };
+        }
+        if (nome === "cssText") { return dom.cssText(dom_h, node_h); }
+        return dom.inlineProperty(dom_h, node_h, __cssKebab(nome));
+      },
+      set(_t: any, chave: any, valor: any): boolean {
+        const nome = "" + chave;
+        if (nome === "cssText") { dom.setCssText(dom_h, node_h, "" + valor); return true; }
+        dom.setStyleProperty(dom_h, node_h, __cssKebab(nome), "" + valor);
+        return true;
+      },
+    });
+  }
+
+  // ── `el.classList` — o DOMTokenList ───────────────────────────
+  //
+  // Os metodos por baixo ja existiam (`classListAdd` e companhia); o que faltava
+  // era o OBJETO, que e como todo o codigo escreve — `el.classList.add(...)` e
+  // nao `el.classListAdd(...)`. O estado continua no atributo `class`, por isso
+  // nao ha nada a manter em dia.
+  get classList(): any {
+    const eu = this;
+    return {
+      add(c: string): void { eu.classListAdd(c); },
+      remove(c: string): void { eu.classListRemove(c); },
+      toggle(c: string): boolean { return eu.classListToggle(c); },
+      contains(c: string): boolean { return eu.classListContains(c); },
+    };
+  }
+
+  // O namespace de um elemento. Este DOM nao os modela — o parser produz HTML e
+  // nada mais — por isso a resposta e sempre a do HTML. Certa para tudo o que
+  // este motor produz hoje, e ERRADA para um `<svg>`, o que fica dito aqui em
+  // vez de descoberto por quem la chegar.
+  get namespaceURI(): string {
+    return "http://www.w3.org/1999/xhtml";
+  }
+
   // ── classList (add/remove/contains/toggle) ───────────────────────────────────
   // Açúcar sobre o atributo `class`, com a semântica do DOMTokenList. Trabalha
   // sobre a string de classes separada por espaço (sem objeto vivo — o motor
@@ -806,9 +952,9 @@ class Document {
 
   private eventTarget(): Element | null {
     const root = dom.documentElement(this._dom);
-    if (root !== __DOM_NONE) return new Element(this._dom, root);
+    if (root !== __DOM_NONE) return __elem(this._dom, root);
     const body = dom.querySelector(this._dom, "body");
-    if (body !== __DOM_NONE) return new Element(this._dom, body);
+    if (body !== __DOM_NONE) return __elem(this._dom, body);
     return null;
   }
 
@@ -823,14 +969,24 @@ class Document {
   // `null` quando não há, que é o que um browser responde para um documento
   // sem `<body>`, e não um erro: um script que testa `if (document.body)`
   // escreve-se exatamente porque a resposta pode ser nenhuma.
+  // `createElementNS(ns, tag)` — cria o elemento, e o namespace e IGNORADO.
+  //
+  // Nao e casca: o elemento e real e tem a tag pedida. O que nao acontece e o
+  // namespace ser lembrado, porque este DOM nao os modela — e um `<svg>` criado
+  // assim comporta-se como HTML. E a razao de o React montar uma arvore de HTML
+  // e nao uma de SVG.
+  createElementNS(_ns: string, tag: string): Element {
+    return this.createElement(tag);
+  }
+
   get body(): Element | null {
     const n = dom.querySelector(this._dom, "body");
-    return n === __DOM_NONE ? null : new Element(this._dom, n);
+    return n === __DOM_NONE ? null : __elem(this._dom, n);
   }
 
   get head(): Element | null {
     const n = dom.querySelector(this._dom, "head");
-    return n === __DOM_NONE ? null : new Element(this._dom, n);
+    return n === __DOM_NONE ? null : __elem(this._dom, n);
   }
 
   // Listeners do documento recebem eventos que borbulham até à raiz HTML.
@@ -851,7 +1007,7 @@ class Document {
   querySelector(sel: string): Element | null {
     const n = dom.querySelector(this._dom, sel);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   querySelectorAll(sel: string): Element[] {
@@ -860,7 +1016,7 @@ class Document {
     let i = 0;
     while (i < n) {
       const node = dom.querySelectorAllAt(this._dom, sel, i);
-      out.push(new Element(this._dom, node));
+      out.push(__elem(this._dom, node));
       i = i + 1;
     }
     return out;
@@ -871,7 +1027,7 @@ class Document {
   getElementById(id: string): Element | null {
     const n = dom.getById(this._dom, id);
     if (n === __DOM_NONE) return null;
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // ── getElementsBy* (#1758) — coleções por classe/tag/name ────────────────────
@@ -880,7 +1036,7 @@ class Document {
     const n = dom.getByClassCount(this._dom, name);
     let i = 0;
     while (i < n) {
-      out.push(new Element(this._dom, dom.getByClassAt(this._dom, name, i)));
+      out.push(__elem(this._dom, dom.getByClassAt(this._dom, name, i)));
       i = i + 1;
     }
     return out;
@@ -890,7 +1046,7 @@ class Document {
     const n = dom.getByTagCount(this._dom, tag);
     let i = 0;
     while (i < n) {
-      out.push(new Element(this._dom, dom.getByTagAt(this._dom, tag, i)));
+      out.push(__elem(this._dom, dom.getByTagAt(this._dom, tag, i)));
       i = i + 1;
     }
     return out;
@@ -900,7 +1056,7 @@ class Document {
     const n = dom.getByNameCount(this._dom, name);
     let i = 0;
     while (i < n) {
-      out.push(new Element(this._dom, dom.getByNameAt(this._dom, name, i)));
+      out.push(__elem(this._dom, dom.getByNameAt(this._dom, name, i)));
       i = i + 1;
     }
     return out;
@@ -909,26 +1065,26 @@ class Document {
   // `document.createElement(tag)` — elemento solto (anexe com appendChild).
   createElement(tag: string): Element {
     const n = dom.createElement(this._dom, tag);
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // `document.createTextNode(text)` — nó de texto solto (anexe com appendChild).
   createTextNode(text: string): Element {
     const n = dom.createTextNode(this._dom, text);
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // `document.createComment(text)` — nó de comentário solto (nodeType 8).
   createComment(text: string): Element {
     const n = dom.createComment(this._dom, text);
-    return new Element(this._dom, n);
+    return __elem(this._dom, n);
   }
 
   // `document.documentElement` — o elemento `<html>`, não a raiz `#document`.
   get documentElement(): Element | null {
     const root = dom.documentElement(this._dom);
     if (root === __DOM_NONE) return null;
-    return new Element(this._dom, root);
+    return __elem(this._dom, root);
   }
 }
 
@@ -1388,6 +1544,21 @@ function pumpInputEvents(doc: Document): number {
 // de travar o loop. Devolve quantos callbacks dispararam no frame.
 function pumpTimerCallbacks(doc: Document): number {
   const h: i64 = doc._dom;
+  // A volta do loop do MOTOR primeiro, e não só a fila de timers deste
+  // documento. São duas filas e uma página precisa das duas: um `.then`, um
+  // `queueMicrotask` e uma mensagem de `MessageChannel` viajam pela do motor.
+  //
+  // Sem isto, um framework concurrent nunca avança numa JANELA — e avança
+  // headless, porque aí o programa de topo tem `await` e drena o motor por
+  // acidente. Medido com o React 18: montava headless e deixava o `#root`
+  // vazio na janela, com os mesmos scripts a correr sem um erro.
+  //
+  // O nome desta função fala de timers e ela passou a fazer mais do que isso.
+  // Fica assim porque o que ela É continua a ser uma coisa só — *uma volta do
+  // loop desta página* — e quem a chama, o frame do host, quer exatamente
+  // isso; dividi-la em duas obrigaria todo o chamador a saber que há duas
+  // filas, que é o conhecimento que esta função existe para não espalhar.
+  engine.run_event_loop();
   let disparados = 0;
   let guard = 0;
   while (guard < 64) {
@@ -1444,7 +1615,22 @@ function runScriptsAt(doc: Document, url: string): number {
   // Fecha o TASK da página: drena microtasks/timers que os scripts enfileiraram.
   // Sem isto, um `.then`/`queueMicrotask` registrado por um `<script>` ficava na
   // fila para sempre — o callback nunca acontecia, sem erro nenhum.
+  //
+  // Fecha o TASK da página: uma volta do loop desta página, que drena as
+  // microtasks do motor e a fila de timers do documento.
+  //
+  // UMA, e não em laço. Um laço esteve aqui duas vezes e saiu as duas, pela
+  // mesma razão medida: com 64 voltas o React 18 continuava a não montar, e o
+  // que o fez montar foi outra coisa — um `await` no programa de topo, que
+  // SUSPENDE e devolve o controlo ao host. `run_event_loop()` chamado de dentro
+  // do programa não é equivalente a isso, e o laço só repetia o que já não
+  // chegava.
+  //
+  // Quem precisa de mais voltas tem duas formas honestas de as ter: um `await`
+  // no programa, ou o frame do host, que bombeia a cada passagem. Nenhuma delas
+  // é este laço.
   engine.run_event_loop();
+  pumpTimerCallbacks(doc);
   // ISOLA como o console do browser: um callback de terceiro que LANÇA não pode
   // derrubar a página inteira. O erro vive no slot do MOTOR — um canal lateral
   // que um `try/catch` de `.ts` não observa —, então é preciso consumi-lo
@@ -1463,28 +1649,38 @@ function runScriptsAt(doc: Document, url: string): number {
 // object — e param de ser recompiladas por script. `window` marca que já foi
 // feito: é o primeiro a entrar e nenhum script legítimo o apaga.
 function __prepararEscopo(doc: Document, url: string): void {
-  if (DomScope.has(doc._dom, "window") === 1) return;
   const w: any = __winFor(doc._dom, url, 1000, 800);
-  DomScope.set(doc._dom, "window", w);
-  DomScope.set(doc._dom, "document", w.document);
-  DomScope.set(doc._dom, "self", w);
-  DomScope.set(doc._dom, "globalThis", w);
-  DomScope.set(doc._dom, "top", w);
-  DomScope.set(doc._dom, "parent", w);
-  DomScope.set(doc._dom, "location", w.location);
-  DomScope.set(doc._dom, "navigator", w.navigator);
-  DomScope.set(doc._dom, "history", w.history);
-  DomScope.set(doc._dom, "localStorage", w.localStorage);
-  // Os timers CHAMADOS NUS caem na fila por documento (`DomTimers`), não nos do
-  // motor — só essa fila é bombeada pelo frame do host.
-  DomScope.set(doc._dom, "setTimeout", function (f: any, ms: any) { return w.setTimeout(f, ms); });
-  DomScope.set(doc._dom, "clearTimeout", function (id: any) { w.clearTimeout(id); });
-  DomScope.set(doc._dom, "setInterval", function (f: any, ms: any) { return w.setInterval(f, ms); });
-  DomScope.set(doc._dom, "clearInterval", function (id: any) { w.clearInterval(id); });
-  DomScope.set(doc._dom, "requestAnimationFrame", function (f: any) { return w.requestAnimationFrame(f); });
+  // Uma linha, e é a linha toda: o escopo dos `<script>` deste documento É o
+  // `window`. Num browser são o mesmo objeto, e um bundle UMD depende disso —
+  // o ramo de browser faz `factory(global.React = {})` e o script seguinte lê
+  // `React` como nome livre.
+  //
+  // O que estava aqui antes publicava `window`, `document`, `self`,
+  // `globalThis`, `top`, `parent`, `location`, `navigator`, `history`,
+  // `localStorage` e cinco timers COMO PROPRIEDADES de um saco à parte. Eram
+  // todos duplicados: a classe `WindowImpl` já os tem, e o saco à parte era o
+  // que fazia `window.X = 42` num script e `typeof X` no seguinte responder
+  // `"undefined"` — dois objetos onde a linguagem tem um.
+  DomScope.adopt(doc._dom, w);
 }
 
 // Roda o j-ésimo `<script>`: inline usa o texto do nó; externo usa o fonte que o
+// `backgroundColor` -> `background-color`. Um nome ja em kebab passa intacto, e
+// um `--custom` tambem: a especificacao diz que uma propriedade customizada e
+// usada tal e qual, e as maiusculas dentro dela sao significativas.
+function __cssKebab(nome: string): string {
+  if (nome.length > 1 && nome.charAt(0) === "-" && nome.charAt(1) === "-") return nome;
+  let out = "";
+  let i = 0;
+  while (i < nome.length) {
+    const c = nome.charAt(i);
+    const baixo = c.toLowerCase();
+    if (c !== baixo) { out = out + "-" + baixo; } else { out = out + c; }
+    i = i + 1;
+  }
+  return out;
+}
+
 // `loadResources` materializou no nó (mesmo caminho). Devolve 1 (rodou) ou 0.
 function __runScriptAt(doc: Document, j: number, url: string): number {
   // Recebe o DOCUMENT, não o handle: `doc._dom` numa variável `i64` trunca

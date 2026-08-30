@@ -115,7 +115,8 @@ pub fn emit_prologue(
                 let size = integer(builder, 1);
                 let holder = super::expr::call(builder, ctx, RuntimeOp::ObjectNew, &[size])?[0];
                 let key = key_of(builder, ctx, "exports");
-                super::expr::call(builder, ctx, RuntimeOp::SetProperty, &[holder, key, object])?;
+                let estrito = super::property::estrito(builder, ctx);
+                super::expr::call(builder, ctx, RuntimeOp::SetProperty, &[holder, key, object, estrito])?;
                 super::binding::declare(builder, scope, ctx, module_name, holder)?;
             }
             Some(object)
