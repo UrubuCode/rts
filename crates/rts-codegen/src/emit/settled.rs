@@ -206,6 +206,34 @@ pub(super) fn typeof_equals_literal(
     Ok(Some(builder.widen(proof)))
 }
 
+/// `typeof <already-emitted operand> === "<name>"`, for a name the EMITTER
+/// itself wrote rather than one a program spelled.
+///
+/// The desugarings ask this: `for`-`of`, `yield*` and array destructuring all
+/// need to know whether a `next` or a `Symbol.iterator` they just read is
+/// callable, and each wrote it out as three crossings — `TypeOf` to build a
+/// string, `StringConst` to build `"function"`, and `StrictEquals` to compare
+/// their text.
+///
+/// That is the shape `RuntimeOp::TypeOfIs` was added to replace, and they could
+/// not reach it: `settled::typeof_equals_literal` recognises a BINARY
+/// EXPRESSION, and a desugaring has no expression — it has two values. This is
+/// the same question asked of the values.
+///
+/// The name goes through `ctx.literal`, the same table a written literal is
+/// interned into, so `"function"` emitted here and `"function"` written by a
+/// program are one string and one index.
+pub(super) fn typeof_is_named(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    value: ValueId,
+    name: &str,
+) -> EmitResult<ValueId> {
+    let which = ctx.literal(name);
+    let index = count_constant(builder, which as usize);
+    Ok(call(builder, ctx, RuntimeOp::TypeOfIs, &[value, index])?[0])
+}
+
 /// `typeof <already-emitted operand> === "…"`, as a proven boolean.
 ///
 /// The value-level half of [`typeof_equals_literal`], for the caller that has

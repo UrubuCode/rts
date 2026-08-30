@@ -218,14 +218,7 @@ fn get_pattern_iterator(
     let symbol_iterator = ctx.names.intern("@@iterator");
     let key = super::super::property::key_constant(builder, ctx, symbol_iterator);
     let method = super::super::expr::call(builder, ctx, RuntimeOp::GetProperty, &[source, key])?[0];
-    let kind = super::super::expr::call(builder, ctx, RuntimeOp::TypeOf, &[method])?[0];
-    let function_literal = super::super::expr::string_literal(builder, ctx, "function")?;
-    let steppable = super::super::expr::call(
-        builder,
-        ctx,
-        RuntimeOp::StrictEquals,
-        &[kind, function_literal],
-    )?[0];
+    let steppable = super::super::settled::typeof_is_named(builder, ctx, method, "function")?;
 
     let own_block = builder.create_block();
     let wrapped_block = builder.create_block();

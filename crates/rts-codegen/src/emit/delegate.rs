@@ -93,9 +93,7 @@ pub(super) fn emit_delegated(
     // `typeof` and not truthiness. An object carrying a `next` that is not
     // callable is not an iterator, and calling it would fail where iterating it
     // is what the program asked for.
-    let kind = super::expr::call(builder, ctx, RuntimeOp::TypeOf, &[step])?[0];
-    let callable = super::expr::string_literal(builder, ctx, "function")?;
-    let steppable = super::expr::call(builder, ctx, RuntimeOp::StrictEquals, &[kind, callable])?[0];
+    let steppable = super::settled::typeof_is_named(builder, ctx, step, "function")?;
     let first = super::expr::undefined(builder, ctx);
     builder.branch(steppable, (stepwise, &[first]), (listwise, &[]))?;
 
@@ -123,11 +121,10 @@ fn iterator_of(
     let named = ctx.names.intern("@@iterator");
     let key = key_constant(builder, ctx, named);
     let method = super::expr::call(builder, ctx, RuntimeOp::GetProperty, &[source, key])?[0];
-    let kind = super::expr::call(builder, ctx, RuntimeOp::TypeOf, &[method])?[0];
-    let callable = super::expr::string_literal(builder, ctx, "function")?;
-    let declares =
-        super::expr::call(builder, ctx, RuntimeOp::StrictEquals, &[kind, callable])?[0];
-    let declares = super::expr::to_boolean(builder, ctx, declares)?;
+    // A PROVEN boolean already, so `to_boolean` has nothing to undo — it used
+    // to be called here to recover a proof `StrictEquals` had answered and the
+    // three-crossing shape had widened away.
+    let declares = super::settled::typeof_is_named(builder, ctx, method, "function")?;
 
     let asked = builder.create_block();
     let itself = builder.create_block();
