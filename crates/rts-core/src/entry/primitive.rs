@@ -41,7 +41,12 @@ use crate::value::{Kind, Value};
 /// is in hand, so the question can be asked properly.
 pub(super) fn is_object_in(context: &Context, value: u64) -> bool {
     match Value(value).kind() {
-        Kind::Reference(slot) => context.text_at(slot as u32).is_none(),
+        // `is_text_at` and not `text_at(…).is_none()`: this asks WHETHER the
+        // cell is a string and never looks at the text, and resolving the text
+        // to throw it away costs a field read and a slab lookup on every
+        // computed property key, every `Map` operand and every arithmetic
+        // operand that is a reference.
+        Kind::Reference(slot) => !context.is_text_at(slot as u32),
         _ => false,
     }
 }

@@ -204,14 +204,23 @@ pub fn string_to_number(text: &Str) -> f64 {
     }
 
     // The prefixed forms, which take no sign.
-    if let Some(rest) = trimmed.strip_prefix("0x").or(trimmed.strip_prefix("0X")) {
-        return radix_value(rest, 16);
-    }
-    if let Some(rest) = trimmed.strip_prefix("0o").or(trimmed.strip_prefix("0O")) {
-        return radix_value(rest, 8);
-    }
-    if let Some(rest) = trimmed.strip_prefix("0b").or(trimmed.strip_prefix("0B")) {
-        return radix_value(rest, 2);
+    //
+    // Behind one byte test, because all three begin with `0` and nothing else
+    // in the grammar does. Six `strip_prefix` calls ran on every string that
+    // reaches here — every `"7" - 1`, every `Number(s)` — to answer no six
+    // times. The guard is exact rather than a heuristic: `strip_prefix("0x")`
+    // can only succeed when the first byte is `b'0'`, so a string failing this
+    // test would have failed all six.
+    if trimmed.as_bytes().first() == Some(&b'0') {
+        if let Some(rest) = trimmed.strip_prefix("0x").or(trimmed.strip_prefix("0X")) {
+            return radix_value(rest, 16);
+        }
+        if let Some(rest) = trimmed.strip_prefix("0o").or(trimmed.strip_prefix("0O")) {
+            return radix_value(rest, 8);
+        }
+        if let Some(rest) = trimmed.strip_prefix("0b").or(trimmed.strip_prefix("0B")) {
+            return radix_value(rest, 2);
+        }
     }
 
     // `Infinity`, with an optional sign.
@@ -409,6 +418,35 @@ mod tests {
         assert_eq!(printed(f64::NAN), NAN);
         assert_eq!(printed(f64::INFINITY), INFINITY);
         assert_eq!(printed(f64::NEG_INFINITY), format!("-{INFINITY}"));
+    }
+
+    #[test]
+    fn the_zero_guard_admits_every_prefixed_form_and_nothing_else() {
+        // The three prefixed forms sit behind one byte test now, because all of
+        // them begin with `0` and nothing else in the grammar does. These are
+        // the strings on both sides of that guard, and every one was checked
+        // against node before it was written down.
+        assert_eq!(parsed("0x1F"), 31.0);
+        assert_eq!(parsed("0X1f"), 31.0);
+        assert_eq!(parsed("0o17"), 15.0);
+        assert_eq!(parsed("0O17"), 15.0);
+        assert_eq!(parsed("0b101"), 5.0);
+        assert_eq!(parsed("0B101"), 5.0);
+        assert_eq!(parsed(" 0x10 "), 16.0, "the guard runs after trimming");
+        // Starts with `0` and is NOT a prefixed form, so it falls past all
+        // three and reaches the decimal parser — which is the arm the guard
+        // must not swallow.
+        assert_eq!(parsed("0"), 0.0);
+        assert_eq!(parsed("00"), 0.0);
+        assert_eq!(parsed("007"), 7.0);
+        assert_eq!(parsed("0.5"), 0.5);
+        assert_eq!(parsed("0e3"), 0.0);
+        // Refused, and each for its own reason: a sign before a prefix, a
+        // digit outside the radix, an empty body, and Rust's separator.
+        assert!(parsed("-0x1").is_nan());
+        assert!(parsed("0xZZ").is_nan());
+        assert!(parsed("0x").is_nan());
+        assert!(parsed("0_1").is_nan());
     }
 
     #[test]

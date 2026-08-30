@@ -958,3 +958,81 @@ The probe above is not affected by that, and this is why it is built the way it
 is: **the two controls are in the same run as the targets.** Load that moves a
 target moves a control with it. `obj.x` reading 10.00 on both binaries is what
 licenses reading 81.50 against 42.00 as a real difference.
+
+---
+
+# Part eight: where the other twenty-two nanoseconds were
+
+Part seven left `"7" - 1` at 42 ns and the obvious question with it: the crossing
+is 15.7 and the operator body is 1.5, so what are the other twenty-two?
+
+Answered by choosing strings that stop at different points of the same function.
+Each row does everything the row above it does, and one thing more:
+
+| stops at | ns | the step |
+|---|---:|---:|
+| an empty loop | 4.00 | — |
+| `null - 1` — no string at all | 19.00 | **15.0** the door plus the operator body |
+| `"" - 1` — trims to empty, never parses | 29.00 | **+10.0** the string plumbing |
+| `"x" - 1` — the scan rejects it, never parses | 34.00 | **+5.0** trim, six prefixes, validation |
+| `"7" - 1` — parses one digit | 40.50 | **+6.5** the float parser |
+| `"1234567890" - 1` | 55.00 | +1.6 per further digit |
+
+## The ten, and what was wasteful in it
+
+A string and an object share `TAG_REFERENCE`, so telling them apart always means
+reading the cell — that part is the representation and is not a defect. What was
+a defect is how the question was asked.
+
+`primitive::is_object_in` was `context.text_at(slot).is_none()`, and `text_at`
+performs THREE lookups: the header type, the field that names the slab slot, and
+the slab itself. `is_object_in` needs only the first — it never looks at the
+text — and then `as_number` performs all three again to get the text for real.
+
+`Context::is_text_at` is the header comparison alone. It is not a saving for this
+row only: `is_object_in` is on the path of **every computed property key**, every
+`Map` and `Set` operand, every `JSON.stringify` value and every arithmetic
+operand that is a reference, because that is where "string or object?" is asked.
+
+## The five, and the six comparisons inside it
+
+The three prefixed forms were tried in turn on every string that reached the
+parser, upper and lower case, so six comparisons to answer no six times. All
+three begin with a zero and nothing else in the grammar does, so they now sit
+behind one byte test. The guard is exact rather than a heuristic — a prefix
+strip cannot succeed unless the first byte is that zero — and all sixteen
+boundary spellings were checked against node before being written into a test:
+the six prefixed forms, one with surrounding spaces because the guard runs after
+trimming, the five that begin with zero and are ordinary decimals, and the four
+that are refused, each for a different reason.
+
+Measured, release, min of 11, three alternations, two controls in the run:
+
+| | base | now |
+|---|---:|---:|
+| `Number("7")` | 90.00 | **77.00  (-15%)** |
+| `"0x1F" - 1` | 50.00 | 48.00 |
+| `"x" - 1` | 34.50 | 33.00 |
+| `"" - 1` | 29.50 | 28.00 |
+| `"7" - 1` | 40.50 | 39.50 |
+| CONTROL `obj.x` | 9.50 | 9.50 |
+| CONTROL `null - 1` | 19.50 | 19.50 |
+
+Small on the arithmetic rows and large on `Number`, which asks `is_object_in`
+more than once on its way in.
+
+## What is left, and why none of it is a quick win
+
+- **The door, 15 ns.** It is the call protocol. The only way past it is not to
+  cross, which is what a proven operand already achieves — `i & 15` costs 0.00
+  over the floor.
+- **The second cell read, part of the ten.** Irreducible at this
+  representation: a string and an object share a tag, so distinguishing them
+  reads the cell, and the reader that wants the text must read it again after
+  the reader that wanted only the kind. A separate tag for strings would remove
+  it and is a change to the value encoding, not an optimisation.
+- **The float parser, 6.5 ns.** It is Rust's, and it is correct. A digits-only
+  fast path in front of it would be a SECOND statement of what a number literal
+  is, and this file exists because of the spellings that two statements come to
+  disagree about. Refused for the same reason part seven kept one parser when it
+  removed the allocation.
