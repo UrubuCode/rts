@@ -45,6 +45,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("focusInput", focus_input),
     ("focusedInput", focused_input),
     ("inputValue", input_value),
+    ("setInputValue", set_input_value),
     ("inputFeedTextAt", input_feed_text_at),
     ("inputBackspaceAt", input_backspace_at),
     ("inputFeedText", input_feed_text),
@@ -473,6 +474,23 @@ extern "C" fn input_value(_e: u64, _t: u64, doc: u64, n: u64, _b: u64, _c: u64) 
     string(&value)
 }
 
+/// `dom.setInputValue(doc, no, texto)` — SUBSTITUI o valor de um campo.
+///
+/// Distinta do `inputFeedTextAt` ao lado, que ACRESCENTA: aquela e uma tecla a
+/// chegar e esta e o programa a decidir o conteudo. `el.value = ""` — limpar
+/// depois de submeter — nao se escreve com a outra de forma nenhuma.
+extern "C" fn set_input_value(_e: u64, _t: u64, doc: u64, n: u64, value: u64, _c: u64) -> u64 {
+    let Some((h, id)) = resolved_node(doc, n) else {
+        return int(0);
+    };
+    let value = text(value);
+    let changed = rts_dom::store::with_dom_mut(h, |d| {
+        let Some(idx) = d.resolve(id) else { return false };
+        d.set_input_value(idx, &value)
+    })
+    .unwrap_or(false);
+    int(changed as i64)
+}
 extern "C" fn input_feed_text_at(
     _e: u64,
     _t: u64,

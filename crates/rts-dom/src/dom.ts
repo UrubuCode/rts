@@ -150,7 +150,7 @@ function __dispatchWithCallbacks(
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
     // `engine.invoke_cb` reconstitui o Function word no runtime e chama o
     // listener com o mesmo objecto de evento mutável.
-    engine.invoke_cb(cbs[j], event);
+    engine.invoke_cb(cbs[j], event, event.currentTarget);
     if (state.immediate !== 0) break;
     if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
     j = j + 1;
@@ -276,7 +276,7 @@ function __dispatchKeyboardWithCallbacks(
     event.currentTarget = __elem(h, nodes[j]);
     state.passive = passives[j] !== 0 ? 1 : 0;
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
-    engine.invoke_cb(cbs[j], event);
+    engine.invoke_cb(cbs[j], event, event.currentTarget);
     if (state.immediate !== 0) break;
     if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
     j = j + 1;
@@ -340,7 +340,7 @@ function __dispatchInputCallbacks(
     event.currentTarget = __elem(h, nodes[j]);
     state.passive = passives[j] !== 0 ? 1 : 0;
     event.eventPhase = nodes[j] === node ? 2 : (captures[j] !== 0 ? 1 : 3);
-    engine.invoke_cb(cbs[j], event);
+    engine.invoke_cb(cbs[j], event, event.currentTarget);
     if (state.immediate !== 0) break;
     if (state.stopped !== 0 && (j + 1 >= n || nodes[j + 1] !== nodes[j])) break;
     j = j + 1;
@@ -652,6 +652,95 @@ class Element {
   }
 
   // ── Eventos — callbacks REAIS + polling legado (#1760) ───────────────────────
+  // -- O que um controlo de formulario expoe -------------------------------
+  //
+  // `el.value` LE o valor editado e ESCREVE por cima dele. Sao os dois lados de
+  // uma so propriedade e nenhum se escrevia com o outro: a leitura respondia
+  // `undefined` — o `getAttribute("value")` da o valor INICIAL do HTML, nao o
+  // que o utilizador digitou — e a escrita nao tinha caminho nenhum, porque o
+  // vocabulario do DOM era alimentar tecla a tecla.
+  //
+  // Sem isto nao ha formulario: nem ler o que se digitou, nem limpar o campo
+  // depois de submeter (`el.value = ""`), nem um controlled input, que e como
+  // o React e o Preact fazem TODOS os campos.
+  get value(): string {
+    return dom.inputValue(this._dom, this._node);
+  }
+  set value(v: string) {
+    dom.setInputValue(this._dom, this._node, v);
+  }
+  // `el.focus()` / `el.blur()` — para onde vai a proxima tecla. O foco e do
+  // DOCUMENTO e nao do no, entao o `blur` so o larga se for este que o tem:
+  // um `blur` num elemento qualquer nao pode desfocar outro.
+  focus(): void {
+    dom.focusInput(this._dom, this._node);
+  }
+  blur(): void {
+    if (dom.focusedInput(this._dom) === this._node) {
+      dom.focusInput(this._dom, __DOM_NONE);
+    }
+  }
+  // `el.click()` — dispara um clique como se o rato o tivesse dado, COM
+  // bubbling, que e o que a spec diz e o que um `<button>` submetido por
+  // programa precisa.
+  click(): void {
+    this.dispatchEvent("click");
+  }
+
+  // -- Os `on<evento>` como PROPRIEDADE ------------------------------------
+  //
+  // `el.onclick = fn` regista; `el.onclick` responde o que foi registado. Sao
+  // acessores e nao dados porque a spec diz que a atribuicao REGISTA — e porque
+  // um `in` sobre eles tem de responder `true` mesmo antes de alguem escrever.
+  //
+  // Essa ultima e a razao de existirem, e nao a ergonomia. O Preact escolhe o
+  // nome do evento assim:
+  //
+  //     l = l.toLowerCase() in n ? l.toLowerCase().slice(2) : l.slice(2)
+  //
+  // Sem `onclick` no elemento o `in` responde `false`, e ele regista **"Click"**
+  // com maiuscula — um tipo que nada despacha. A aplicacao monta, pinta, e
+  // nenhum `onClick` dispara; nao ha erro nenhum, porque do ponto de vista do
+  // Preact o registo correu bem.
+  //
+  // Sao os seis que um `in` desta forma consulta na pratica. Um `on*` que aqui
+  // nao esteja volta a cair no ramo errado, e a lista cresce quando alguem
+  // medir que falta — em vez de setenta acessores escritos por precaucao.
+  get onclick(): any { return this.__on("click"); }
+  set onclick(fn: any) { this.__setOn("click", fn); }
+  get oninput(): any { return this.__on("input"); }
+  set oninput(fn: any) { this.__setOn("input", fn); }
+  get onchange(): any { return this.__on("change"); }
+  set onchange(fn: any) { this.__setOn("change", fn); }
+  get onkeydown(): any { return this.__on("keydown"); }
+  set onkeydown(fn: any) { this.__setOn("keydown", fn); }
+  get onkeyup(): any { return this.__on("keyup"); }
+  set onkeyup(fn: any) { this.__setOn("keyup", fn); }
+  get onsubmit(): any { return this.__on("submit"); }
+  set onsubmit(fn: any) { this.__setOn("submit", fn); }
+
+  // O par por tras dos acessores. Guarda o ultimo `on<tipo>` num campo proprio
+  // para que a LEITURA responda a funcao — o DOM guarda o callback como palavra
+  // opaca e nao ha caminho de volta dela para o valor.
+  __on(tipo: string): any {
+    const tabela: any = (this as any).__onHandlers;
+    return tabela === undefined ? null : tabela[tipo];
+  }
+  __setOn(tipo: string, fn: any): void {
+    let tabela: any = (this as any).__onHandlers;
+    if (tabela === undefined) { tabela = {}; (this as any).__onHandlers = tabela; }
+    // Uma segunda atribuicao SUBSTITUI, e nao acumula: `el.onclick = a` seguido
+    // de `el.onclick = b` deixa so o `b`, ao contrario de dois
+    // `addEventListener`. Sem este `remove` os dois disparavam.
+    if (tabela[tipo] !== undefined && tabela[tipo] !== null) {
+      dom.removeListener(this._dom, this._node, tipo);
+    }
+    tabela[tipo] = fn;
+    if (fn !== null && fn !== undefined) {
+      dom.addListenerCbOptions(this._dom, this._node, tipo, fn);
+    }
+  }
+
   // `el.addEventListener(type, fn)` — como no browser: registra o callback; um
   // `dispatchEvent` invoca fn({type, target, currentTarget}) na ordem DOM (alvo →
   // bubbling). O Dom guarda o fn-word opaco (o antigo limite #195 caiu — Function
@@ -696,6 +785,34 @@ class Element {
   hasChildNodes(): boolean {
     return dom.hasChildNodes(this._dom, this._node) === 1;
   }
+  // `no.data` — o MESMO texto que o `nodeValue` abaixo, com o outro nome que a
+  // spec lhe da em `CharacterData` (Text e Comment). Nao e um alias de
+  // conveniencia: e o nome que o Preact usa, e so ele.
+  //
+  //     if (null === x) m === k || (c && n.data === k) || (n.data = k)
+  //
+  // e o diff de texto dele. O React escreve `nodeValue`; o Preact escreve
+  // `data`, e sem esta propriedade a atribuicao ia para o vazio em silencio —
+  // nao lancava, porque escrever num campo que nao existe cria-o no wrapper.
+  // O sintoma era uma lista que encolhia ao clicar e um contador que nunca
+  // mudava, na mesma pagina: o que muda de ESTRUTURA reconciliava e o que muda
+  // so de TEXTO ficava parado.
+  //
+  // `localName` vem junto porque o Preact tambem o consulta para decidir se
+  // reaproveita um no (`y.localName === x`), e sem ele reaproveita nada.
+  get data(): string {
+    return dom.nodeValue(this._dom, this._node);
+  }
+  set data(value: string) {
+    dom.setNodeValue(this._dom, this._node, value);
+  }
+  // `el.localName` — o nome da tag em minusculas, que e o que este DOM guarda.
+  // Difere do `tagName` so em HTML maiusculo e em XML, e nenhum dos dois se
+  // representa aqui, entao os dois respondem o mesmo por construcao.
+  get localName(): string {
+    return dom.tagName(this._dom, this._node);
+  }
+
   // `node.nodeValue` — texto cru de Text/Comment. ⚠️ CORTE: a spec dá `null` para
   // Element/Document, mas a fronteira ABI (string) não carrega null → devolve `''`
   // nesses casos (um Text vazio tambem e '', indistinguivel).

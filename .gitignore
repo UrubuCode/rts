@@ -113,6 +113,7 @@ wa*.html
 # centenas de KB cada e reproduziveis a qualquer momento. Ficam ao lado do
 # `pagina.html` acima pela mesma razao — sao entrada de uma medicao, nao fonte.
 react-*.html
+preact-app.html
 google.html
 google.css
 

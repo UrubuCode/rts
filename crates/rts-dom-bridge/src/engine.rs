@@ -13,21 +13,44 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("take_error", take_error),
 ];
 
-/// `engine.invoke_cb(callbackWord, argument)` — chama um callback armazenado pelo
-/// DOM com um argumento. O callback cruza como número para a fachada TypeScript,
-/// por isso é reconstituído a partir do payload inteiro antes de `entry::call`.
+/// `engine.invoke_cb(callbackWord, argument, receiver)` — chama um callback
+/// armazenado pelo DOM com um argumento. O callback cruza como número para a
+/// fachada TypeScript, por isso é reconstituído a partir do payload inteiro
+/// antes de `entry::call`.
+///
+/// # O `receiver`, e o que a sua ausência custava
+///
+/// A linguagem diz que um ouvinte de evento corre com `this` ligado ao nó em
+/// que está registado — o mesmo valor que `event.currentTarget`. Aqui o
+/// receptor era `undefined` sempre, e isso não é um detalhe de conformidade:
+///
+///     function eventProxy(e) { return this.l[e.type + false](e) }
+///
+/// é o despachante do Preact, e ele é o ÚNICO ouvinte que o Preact regista por
+/// tipo de evento — a tabela `l` mora no nó e ele chega lá por `this`. Com
+/// `this` a valer `undefined`, nenhum `onClick` de nenhum componente Preact
+/// dispara, e nada diz porquê.
+///
+/// O argumento é opcional em vez de obrigatório porque os três despachos da
+/// fachada passam-no e nada mais precisa: um chamador que o omita fica com o
+/// comportamento anterior em vez de com um erro sobre um parâmetro que não
+/// conhece.
 extern "C" fn invoke_callback(
     _e: u64,
     _this: u64,
     callback: u64,
     argument: u64,
-    _a2: u64,
+    receiver: u64,
     _a3: u64,
 ) -> u64 {
     let callback = integer(callback, 0) as u64;
     let undefined = entry::undefined_value();
+    let receiver = match receiver == undefined {
+        true => undefined,
+        false => receiver,
+    };
     entry::call(
-        callback, undefined, argument, undefined, undefined, undefined,
+        callback, receiver, argument, undefined, undefined, undefined,
     )
 }
 
