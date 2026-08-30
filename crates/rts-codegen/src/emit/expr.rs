@@ -750,8 +750,52 @@ pub fn emit_condition(
     ctx: &mut Ctx,
     condition: &Expr,
 ) -> EmitResult<ValueId> {
+    // A LITERAL condition is decided here and costs nothing. `while (true)` is
+    // the shape that matters — `expr::constant` stamps `UNPROVEN` on every
+    // constant it materialises, so the truth of one had to be recovered by a
+    // call to `__rts_to_boolean`, on EVERY iteration of the loop it controls.
+    //
+    // Measured 2026-08-30, release, the same loop body written two ways:
+    // `while (true) { i = i + 1; if (i >= N) break; }` 5.6 ns an iteration
+    // against 2.0 for `for (;;) { … }`, which emits no condition at all.
+    //
+    // The falsy rule is the LANGUAGE's, which is why it is stated here rather
+    // than asked of the machine: `0`, `-0`, `NaN`, `""` and the two singletons
+    // are false and everything else a literal can spell is true. A regular
+    // expression literal is an object and objects are always true; a bigint is
+    // false only for zero, whatever spelling of zero it was written in.
+    if let ExprKind::Literal(literal) = &condition.kind
+        && let Some(known) = literal_truth(literal)
+    {
+        return Ok(builder.bool_constant(known));
+    }
     let value = emit_expr(builder, scope, ctx, condition)?;
     to_boolean(builder, ctx, value)
+}
+
+/// What `ToBoolean` answers for a literal, decided while it is still one.
+///
+/// `None` for a literal this cannot settle, which today is none of them — the
+/// shape is an allowlist so that a literal kind added to the tree tomorrow is
+/// refused rather than guessed at.
+fn literal_truth(literal: &Literal) -> Option<bool> {
+    Some(match literal {
+        // `0`, `-0` and `NaN` are the false numbers. `x != 0.0` is false for
+        // both zeros and `is_nan` catches the third; writing it as
+        // `x != 0.0 && !x.is_nan()` rather than as a comparison chain is what
+        // keeps `-0.0` from being read as true.
+        Literal::Number(value) => *value != 0.0 && !value.is_nan(),
+        Literal::String(text) => !text.units().is_empty(),
+        Literal::Boolean(value) => *value,
+        // `undefined` and `null` are both false, which is what `Singleton`'s own
+        // `is_falsy` says for every member it has.
+        Literal::Singleton(which) => !which.is_falsy(),
+        // An object, and every object is true.
+        Literal::Regex { .. } => true,
+        // `0n` is the only false bigint, and the parser keeps the digits as
+        // written — so a literal is zero exactly when every digit is `0`.
+        Literal::BigInt(digits) => !digits.chars().all(|digit| digit == '0'),
+    })
 }
 
 /// `ToBoolean` of a value already emitted.
