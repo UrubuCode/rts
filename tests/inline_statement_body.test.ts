@@ -1027,3 +1027,108 @@ describe("a guard clause deeper than the top level", () => {
     expect(tried(50)).toBe(99);
   });
 });
+
+describe("a void body and a written binding", () => {
+  // Two gates that were one refusal each. `body_shape` demanded a trailing
+  // `return <expr>`, so a helper that exists for its EFFECTS — 11% of every
+  // named function in the corpus — was refused outright; and `closed_over`
+  // refused a write to any bound name, on the claim that "a parameter is bound
+  // to an SSA value, so a write would have nowhere to land". `Scope::assign`
+  // does `entry.1 = Binding::Value(value)` — it rebinds, in the layer the
+  // substitution opened.
+  test("a void helper runs its effects and answers undefined", () => {
+    const log: string[] = [];
+    function push(v: string): void {
+      log.push(v);
+    }
+    push("a");
+    push("b");
+    expect(log.join(",")).toBe("a,b");
+    expect(String((push as any)("c"))).toBe("undefined");
+    expect(log.join(",")).toBe("a,b,c");
+  });
+
+  test("a bare `return;` is the same case written out", () => {
+    const log: string[] = [];
+    function early(v: number): void {
+      log.push("x" + String(v));
+      return;
+    }
+    early(1);
+    expect(log.join(",")).toBe("x1");
+    expect(String((early as any)(2))).toBe("undefined");
+  });
+
+  test("an empty body", () => {
+    function nothing(): void {}
+    expect(String(nothing())).toBe("undefined");
+  });
+
+  test("writing a PARAMETER does not touch the caller's argument", () => {
+    function bump(x: number): number {
+      x = x + 1;
+      return x;
+    }
+    let held = 5;
+    expect(bump(held)).toBe(6);
+    expect(held).toBe(5);
+  });
+
+  test("an accumulator over a body local", () => {
+    function accumulate(n: number): number {
+      let total = 0;
+      total = total + n;
+      total = total + 1;
+      return total;
+    }
+    expect(accumulate(3)).toBe(4);
+    expect(accumulate(0)).toBe(1);
+  });
+
+  test("a write inside a branch, read after the join", () => {
+    function branched(n: number): number {
+      let seen = 0;
+      if (n > 0) {
+        seen = 1;
+      }
+      return seen + n;
+    }
+    expect(branched(1)).toBe(2);
+    expect(branched(-1)).toBe(-1);
+    function both(n: number): number {
+      let seen = 0;
+      if (n > 0) {
+        seen = 1;
+      } else {
+        seen = 2;
+      }
+      return seen;
+    }
+    expect(both(1)).toBe(1);
+    expect(both(-1)).toBe(2);
+  });
+
+  test("a body local that SHADOWS a caller binding of the same name", () => {
+    let zqxShadowed = 500;
+    function shadows(n: number): number {
+      let zqxShadowed = n * 2;
+      zqxShadowed = zqxShadowed + 1;
+      return zqxShadowed;
+    }
+    // Declared twice in the program, so the pass refuses it — and the value has
+    // to be right either way, which is what this asserts.
+    expect(shadows(3)).toBe(7);
+    expect(zqxShadowed).toBe(500);
+  });
+
+  test("a void helper whose effect is a write through a free name", () => {
+    let zqxCounter = 0;
+    function tick(): void {
+      zqxCounter = zqxCounter + 1;
+    }
+    tick();
+    tick();
+    tick();
+    expect(zqxCounter).toBe(3);
+  });
+});

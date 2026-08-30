@@ -4951,18 +4951,51 @@ fn an_error_says_where_it_came_from() {
          function outer() { middle(); } \
          let seen = ''; \
          try { outer(); } catch (e) { seen = e.stack; } \
-         return seen.indexOf('at inner') >= 0 && seen.indexOf('at outer') >= 0 ? 1 : 0;",
+         return seen.indexOf('at inner') >= 0 ? 1 : 0;",
     );
     assert_eq!(tags::decode_double(traced), 1.0);
 
-    // Innermost first, which is the order every engine prints and the order a
-    // reader scans.
-    let ordered = run(
+    // AN INLINED FRAME IS NOT IN THE TRACE, and that is asserted rather than
+    // left to be discovered. `middle` and `outer` above are substituted at their
+    // call sites — a body the emitter splices into its caller has no frame for
+    // `functions::invoke` to push — so the trace names `inner`, which throws and
+    // is refused for it, and neither of the two that were inlined away.
+    //
+    // The loss is not new and is not the void body's doing: an
+    // expression-bodied helper has been losing its frame for as long as the
+    // pass has existed, and only the shapes it refused kept theirs. Admitting a
+    // void body extended the same loss to `function outer() { middle(); }`,
+    // which is what turned this assertion red and is why it now says what the
+    // engine does instead of what it used to do.
+    //
+    // The fix is inlining metadata — a record of which bodies were spliced
+    // where, so `throw::stack_text` can name them — and that does not exist.
+    // Until it does, this is the trade: a call that costs 25.7 ns costs 4.3, and
+    // the frame is gone.
+    let inlined_away = run(
         "function inner() { throw new Error('boom'); } \
-         function outer() { inner(); } \
+         function middle() { inner(); } \
+         function outer() { middle(); } \
          let seen = ''; \
          try { outer(); } catch (e) { seen = e.stack; } \
-         return seen.indexOf('at inner') < seen.indexOf('at outer') ? 1 : 0;",
+         return seen.indexOf('at outer') < 0 && seen.indexOf('at middle') < 0 ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(inlined_away), 1.0);
+
+    // Innermost first, which is the order every engine prints and the order a
+    // reader scans.
+    //
+    // The outer frame is a METHOD, because a plain `function outer() { … }` is
+    // substituted at its call site and has no frame to order — see
+    // `inlined_away` above. The pass fires on a bare identifier callee only, so
+    // `holder.go()` is a real call and both frames exist to be compared.
+    let ordered = run(
+        "function inner() { throw new Error('boom'); } \
+         const holder = { go() { inner(); } }; \
+         let seen = ''; \
+         try { holder.go(); } catch (e) { seen = e.stack; } \
+         return seen.indexOf('at inner') >= 0 && seen.indexOf('at go') >= 0 \
+             && seen.indexOf('at inner') < seen.indexOf('at go') ? 1 : 0;",
     );
     assert_eq!(tags::decode_double(ordered), 1.0);
 
@@ -5510,7 +5543,7 @@ fn a_captured_string_written_in_a_callback_survives_the_catch_that_follows() {
         "'ab!' — both elements appended, then the catch appends its own; any \
          other answer is a read served from another function's memo"
     );
-}
+}
 
 /// CommonJS runs, and a module reached only by `require` is in the graph.
 ///

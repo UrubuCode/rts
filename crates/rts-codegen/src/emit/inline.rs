@@ -44,6 +44,8 @@ use std::rc::Rc;
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
 use crate::Name;
+use crate::syntax::Literal;
+use crate::values::Singleton;
 use crate::syntax::{
     AssignTarget, Binding, BindingKind, Class, ClassElement, Expr, ExprKind, ForEachTarget,
     Function,
@@ -714,7 +716,7 @@ fn shape_of(
             return None;
         }
     }
-    if !closed_over(answered, &bound, &mut free) {
+    if !closed_over(&answered, &bound, &mut free) {
         return None;
     }
     if free.contains(&own) {
@@ -747,7 +749,7 @@ fn shape_of(
             defaults,
             free: free.clone(),
             statements,
-            body: answered.clone(),
+            body: answered,
             rest_length: None,
         },
         free,
@@ -768,13 +770,38 @@ const STATEMENT_BUDGET: usize = 8;
 /// leave the body early, then exactly one `return` at the end. That is what
 /// makes the substitution a straight splice — the body's value is the last
 /// expression, and no jump has to be routed anywhere.
-fn body_shape(function: &Function) -> Option<(Vec<Stmt>, &Expr)> {
+fn body_shape(function: &Function) -> Option<(Vec<Stmt>, Expr)> {
     match &function.body {
-        FunctionBody::Expression(expr) => Some((Vec::new(), expr)),
+        FunctionBody::Expression(expr) => Some((Vec::new(), (**expr).clone())),
         FunctionBody::Block(statements) => {
-            let (last, before) = statements.split_last()?;
-            let StmtKind::Return(Some(answered)) = &last.kind else {
-                return None;
+            // A VOID BODY answers `undefined`, and that is a value like any
+            // other — so the shape is "statements, then an answer" and the
+            // answer is synthesised where the source did not write one.
+            //
+            // It was refused outright, and a census of the corpus put it at 11%
+            // of every named function: a helper that exists for its effects is
+            // how most side-effecting code is written, and none of it could be
+            // substituted. Nothing else about the body changes, so the whole
+            // saving is the door — about 16 ns, the difference between a real
+            // call at ~25 and a substituted one at ~9.
+            //
+            // `return;` with no value is the same case written explicitly, and
+            // takes the same arm.
+            let undefined = |at| Expr {
+                kind: ExprKind::Literal(Literal::Singleton(Singleton::Undefined)),
+                at,
+            };
+            let Some((last, before)) = statements.split_last() else {
+                // An EMPTY body. Every statement before the answer is vacuously
+                // straight-line and the answer is `undefined`.
+                return Some((Vec::new(), undefined(function.at)));
+            };
+            let (before, answered) = match &last.kind {
+                StmtKind::Return(Some(expr)) => (before, expr.clone()),
+                StmtKind::Return(None) => (before, undefined(last.at)),
+                // Not a `return` at all: the last statement is part of the body
+                // and the answer is `undefined`.
+                _ => (statements.as_slice(), undefined(function.at)),
             };
             for statement in before {
                 if !straight_line(statement) {
@@ -1114,10 +1141,24 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
                 return false;
             };
             let name = *name;
-            // A parameter is bound to an SSA value here, not to a cell, so a
-            // write to one would have nowhere to land.
+            // A BOUND name is written through `Scope::assign`, and the sentence
+            // that used to refuse it here — "a parameter is bound to an SSA
+            // value, so a write would have nowhere to land" — was false about
+            // this emitter. `scope.rs`'s `assign` does
+            // `entry.1 = Binding::Value(value)`: it REBINDS the SSA value, and
+            // the layer it rebinds in is the one `emit_substituted` opened, not
+            // the caller's. So a write to a parameter or to a body local lands
+            // where the call's own frame would have put it.
+            //
+            // It is not a free name either way, which is why nothing is pushed:
+            // the substitution declared it, so the caller's scope never sees it
+            // and the whole-program proof has nothing to ask.
+            //
+            // This is what every accumulator needs — `let seen = 0; seen++` —
+            // and it is the gate a loop in the body would have to pass through
+            // before a loop could be admitted at all.
             if bound.contains(&name) {
-                return false;
+                return closed_over(value, bound, free);
             }
             if !free.contains(&name) {
                 free.push(name);
