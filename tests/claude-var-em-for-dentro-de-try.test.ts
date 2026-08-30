@@ -27,13 +27,41 @@ import { test, expect } from "rts:test";
 // `Cannot read properties of undefined (reading 'tag')` — dentro do commit da
 // arvore, sem nada que apontasse para a causa.
 //
-// O que ja se sabe da causa: sem o `try`, o `var` e um registo local e o
-// `break` preserva-o; com o `try`, o nome precisa de viver no ambiente para
-// sobreviver ao salto — e `assigned_under_protection` so conta ATRIBUICOES,
-// nao declaracoes com inicializador, por isso nunca o torna residente.
-// Contar tambem as declaracoes torna-o residente e NAO chega: medido, o valor
-// continua a perder-se, o que aponta para o ambiente por passagem que o `for`
-// abre. Fica escrito para quem retomar nao repetir a tentativa.
+// O QUE JA ESTA ESTABELECIDO, medido, para quem retomar nao repetir:
+//
+// As tres variantes que discriminam:
+//
+//     try + DECLARACAO + for      -> PERDE   (este teste)
+//     try + DECLARACAO, sem for   -> ok
+//     try + ATRIBUICAO  + for     -> ok      (`var d;` fora, `d = c` dentro)
+//     for + declaracao, sem try   -> ok
+//
+// Logo sao precisas TRES coisas ao mesmo tempo: o `try`, o laco, e a
+// DECLARACAO (nao a atribuicao) la dentro.
+//
+// O sitio: `emit::protect` faz `scope.restore(&before)` ao chegar ao join do
+// `try` (protect.rs, a seguir a `switch_to(join)`), e explica porque isso e
+// sound: *"everything the body assigns lives in memory by now —
+// `capture::assigned_under_protection` put it there"*. Tudo o que ficou num
+// REGISTO e descartado nesse restauro.
+//
+// DUAS HIPOTESES JA REFUTADAS, com medicao:
+//
+//  1. "`assigned_under_protection` nao conta declaracoes, so atribuicoes."
+//     Verdade — mas acrescentar `vars_at_any_depth` ao ramo do `Try` faz o nome
+//     ficar residente (medido: `protected` deixa de ser vazio) e o valor
+//     CONTINUA a perder-se. Revertido.
+//
+//  2. "`assigned_in_stmt` (o plano do laco) nao ve declaracoes."
+//     Falso: ve, e o comentario dele ate diz porque — *"the names it introduces
+//     count as written... a `var` inside a protected region is visible after
+//     it"*.
+//
+// O que falta e perceber PORQUE a residencia nao chega: ou a escrita vai para
+// um ambiente e a leitura le de outro, ou o valor nao chega ao bloco de saida
+// do laco. Uma sonda em `binding::read` para o nome nao disparou, o que quer
+// dizer que a leitura nao passa por onde se esperava — e e por ai que se
+// comeca.
 
 const html =
   "<div id='saida'>-</div><script>" +
