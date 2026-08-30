@@ -1129,3 +1129,123 @@ costs **280 ns**, and `rts ir` shows why — the call IS substituted, the body
 its result never used. A closure allocated and immediately dead. That is larger
 than anything the pass still refuses, and it is a removal rather than a
 rearrangement.
+
+---
+
+# Part ten: what the inliner refused, priced against the literature
+
+Two shapes were asked for by name — `try`/`catch`, and a method's `this` — and
+the answers came out opposite to the expectation.
+
+## `try`/`catch`: the literature says it matters; here it does not
+
+.NET's RyuJIT refused to inline a method with exception-handling clauses until
+.NET 10, and the work that admits them describes itself as inserting the
+inlinee's EH table into the inliner's. Substituting a TREE gets that for
+nothing: `stmt::emit_stmt` opens the protected region in whatever function it is
+emitting into, so the caller's region IS the callee's, with no table to merge.
+
+A `try` is admissible for the same reason a guard clause is — it is CONTAINED.
+Control reaches the statement after it however the arms end, which is exactly
+what refuses a loop or a `break`.
+
+And then it measured almost nothing:
+
+| | base | now |
+|---|---:|---:|
+| `try`/`catch`, arms straight-line | 56.25 | 53.75  (-4%) |
+| the same with a catch BINDING | 56.50 | 54.00  (-4%) |
+| `try`/`finally` | 58.25 | 56.50  (-3%) |
+| CONTROL a plain helper | 8.00 | 8.00 |
+
+A body with a `try` costs 56 ns and the protected region is about 48 of them.
+Inlining removes the call, which is 2.5. **The reason the .NET result does not
+transfer is that there the region is cheap and the call is the cost; here it is
+the other way round.** And the shape programs are actually written in —
+`try { return … } catch { return … }` — is still refused, because a `return`
+inside an arm is a second exit that the guard-clause join does not cover.
+
+## A method's `this`: the literature says speculate, and this engine cannot
+
+The published design is speculate, guard, deoptimise. RTS is AOT and has no
+deoptimisation — nothing to bail out to. The compatible variant is a guard whose
+miss is an ordinary call, and that is PRICEABLE without building it, by writing
+it out by hand in JavaScript:
+
+| | ns |
+|---|---:|
+| `holder.m(a)` as it is today | 20.00 |
+| **a guard plus the inlined body, real call on a miss** | **11.50** |
+| the guard alone — a property read and an identity compare | 11.50 |
+
+**42%**, and the inlined body adds nothing: the guard is the whole cost. That
+corrects what part nine said — the method case does NOT need a whole-program
+proof that the property is never written. That is only true of UNGUARDED
+inlining. With a guard and a real call behind it, it is sound with no proof at
+all.
+
+The blocker is narrower than "prove the program": to compare identities you need
+something to compare AGAINST. In the hand-written probe that is a captured
+binding; the compiler would have to materialise the known callee, or compare the
+closure's code address, which is a machine question rather than a language one.
+Priced, designed, and not built.
+
+## What paid instead, and it was found by a probe that failed
+
+The third row of the try/catch probe — a body that throws — did not move, and
+the reason was not the `throw`. It said `throw new Error(…)`, and **`Error` is a
+global**: `declarations_of` counts ZERO for it, and the free-name proof demanded
+exactly one.
+
+So a body mentioning `Math`, `Error`, `JSON`, `Object` or `console` was refused
+outright, which is most helper code there is.
+
+Zero is a STRONGER proof than one, not a weaker one: a name the whole program
+declares nowhere is resolved through the global object at every site there is,
+so there is no second answer for a caller to have. What it needs beside that is
+`untouched` — and there the existing comment is exactly right rather than
+exactly wrong, because for a primordial, being ASSIGNED is the disturbance.
+
+| | base | now |
+|---|---:|---:|
+| a helper that mentions `Math` | 62.50 | **32.25  (-48%)** |
+| CONTROL a plain helper | 8.25 | 8.00 |
+| CONTROL `Math.abs` written straight | 33.75 | 32.75 |
+
+The last two rows are what closes it: **the helper now costs what its body
+costs**. 32.25 against 32.75 for the same work with no function around it — the
+call is entirely gone.
+
+## Two things the gates caught, in the order they caught them
+
+**`arguments` is the one zero-declaration name that is not a global.** Every
+function is given one implicitly, so a body reading it reads its OWN and a
+substituted body would read the CALLER's. Three commits earlier a comment in
+`emit_substituted` had said `arguments` was safe *because zero was refused* —
+and admitting zero broke the premise its own guarantee rested on.
+`tests/arguments_object.test.ts` and `tests/claude-arguments-fn-expr.test.ts`
+both failed, which is what a per-file corpus comparison is for.
+
+**An inlined body has no frame, and `.stack` can see that.**
+`running.rs::an_error_says_where_it_came_from` asserts that `at inner` and
+`at made` appear in a trace, and admitting globals made
+`function made() { return new Error('later'); }` substitutable for the first
+time. The frame loss is not new — any inlined body gives up its frame — but
+which bodies reach the pass is.
+
+`new` is now refused in an inlinable body: a constructed object may capture the
+stack where it is BUILT, and a substituted body has no frame to be named in it.
+It costs the campaign nothing measurable, because every body the globals
+admission was built for constructs nothing. **The alternative was to weaken the
+test, and that is the one the honesty floor names by name.**
+
+## And a procedural note worth more than the change
+
+`cargo build --release` died with `Acesso negado` — the linker could not write
+`rts.exe` because a measurement was running it — and the composite command
+still **exited zero**. The next measurement would have been taken against the
+previous binary, and the two `arguments` files would have been reported as still
+failing after they were fixed.
+
+What caught it was the binary's TIMESTAMP against the time of the edit. Check
+that the thing you are measuring is the thing you built.

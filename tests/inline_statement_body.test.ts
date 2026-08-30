@@ -737,3 +737,223 @@ describe("substitution must not cycle", () => {
     expect(sum(4)).toBe(10);
   });
 });
+
+describe("try/catch in a substituted body", () => {
+  test("the protected region belongs to the caller and still catches", () => {
+    function guarded(x: number): number {
+      try {
+        const held: any = null;
+        return held.v;
+      } catch {
+        return x + 1;
+      }
+    }
+    expect(guarded(1)).toBe(2);
+    expect(guarded(10)).toBe(11);
+  });
+
+  test("a catch BINDING does not write the caller's name of that spelling", () => {
+    // The catch parameter is a name the body introduces, so it takes the same
+    // one-declaration proof the body's locals take. `zqxCaught` exists here and
+    // must not be touched.
+    function catches(x: number): string {
+      try {
+        throw new Error("inner");
+      } catch (zqxCaught) {
+        return String((zqxCaught as Error).message) + String(x);
+      }
+    }
+    expect(catches(1)).toBe("inner1");
+  });
+
+  test("a body that THROWS propagates out of the substitution", () => {
+    function raises(x: number): number {
+      if (x < 0) {
+        throw new Error("negative");
+      }
+      return x + 1;
+    }
+    expect(raises(1)).toBe(2);
+    let caught = "";
+    try {
+      raises(-1);
+    } catch (error) {
+      caught = (error as Error).message;
+    }
+    expect(caught).toBe("negative");
+  });
+
+  test("a finally runs on both paths", () => {
+    const log: string[] = [];
+    function withFinally(x: number): number {
+      let seen = 0;
+      try {
+        seen = x;
+        log.push("try");
+      } finally {
+        log.push("finally");
+      }
+      return seen + 1;
+    }
+    log.length = 0;
+    expect(withFinally(1)).toBe(2);
+    expect(log.join(",")).toBe("try,finally");
+  });
+
+  test("try/catch nested inside the caller's own try still separates", () => {
+    // The substituted region has to catch its own throw and let the caller's
+    // catch see nothing.
+    function swallows(x: number): number {
+      try {
+        throw new Error("mine");
+      } catch {
+        return x;
+      }
+    }
+    let outer = "none";
+    try {
+      const answer = swallows(5);
+      expect(answer).toBe(5);
+    } catch {
+      outer = "leaked";
+    }
+    expect(outer).toBe("none");
+  });
+
+  test("a throw the substituted body does NOT catch reaches the caller's catch", () => {
+    function raisesOnly(x: number): number {
+      try {
+        return x + 1;
+      } finally {
+        // nothing, but the region exists
+      }
+    }
+    function alwaysRaises(x: number): number {
+      throw new Error("up:" + String(x));
+    }
+    expect(raisesOnly(1)).toBe(2);
+    let seen = "";
+    try {
+      alwaysRaises(3);
+    } catch (error) {
+      seen = (error as Error).message;
+    }
+    expect(seen).toBe("up:3");
+  });
+});
+
+describe("a body that mentions a global", () => {
+  // A name the whole program declares NOWHERE is resolved through the global
+  // object at every site there is, so substituting a body that reads one lands
+  // on the same value. `declarations_of` counts zero for it, and zero used to be
+  // refused beside two — which meant `Math`, `Error`, `JSON`, `Object` and
+  // `console` all refused the body that mentioned them.
+  test("Math, and the answer is the global's", () => {
+    function usesMath(x: number): number {
+      return Math.abs(x) + Math.max(1, 2);
+    }
+    expect(usesMath(-3)).toBe(5);
+    expect(usesMath(4)).toBe(6);
+  });
+
+  test("Error, thrown from a guard, keeps its message and type", () => {
+    function checked(x: number): number {
+      if (x < 0) {
+        throw new RangeError("negative: " + String(x));
+      }
+      return x + 1;
+    }
+    expect(checked(1)).toBe(2);
+    let seen = "";
+    let kind = "";
+    try {
+      checked(-2);
+    } catch (error) {
+      seen = (error as Error).message;
+      kind = error instanceof RangeError ? "RangeError" : "other";
+    }
+    expect(seen).toBe("negative: -2");
+    expect(kind).toBe("RangeError");
+  });
+
+  test("JSON and Object, which build values", () => {
+    function encoded(x: number): string {
+      return JSON.stringify({ v: x });
+    }
+    expect(encoded(1)).toBe('{"v":1}');
+    function keysOf(o: any): number {
+      return Object.keys(o).length;
+    }
+    expect(keysOf({ a: 1, b: 2 })).toBe(2);
+  });
+
+  test("a SHADOWED global is not this case and must not be substituted wrongly", () => {
+    // Here `Math` is declared — once — so it takes the ordinary one-declaration
+    // road, and the body reads the LOCAL one at the site it lands in.
+    function outer(): number {
+      const Math = { abs: (n: number): number => n * 100 };
+      function usesShadowed(x: number): number {
+        return Math.abs(x) + 1;
+      }
+      return usesShadowed(2);
+    }
+    expect(outer()).toBe(201);
+  });
+
+  test("a global that the program ASSIGNS is refused, and still answers", () => {
+    // `untouched` is the other half of the proof: a primordial being replaced
+    // is the disturbance, so a program that writes one gets no substitution —
+    // and the value has to be right either way.
+    const before = (globalThis as any).zqxPlanted;
+    (globalThis as any).zqxPlanted = 5;
+    function readsPlanted(x: number): number {
+      return (globalThis as any).zqxPlanted + x;
+    }
+    expect(readsPlanted(1)).toBe(6);
+    (globalThis as any).zqxPlanted = 10;
+    expect(readsPlanted(1)).toBe(11);
+    (globalThis as any).zqxPlanted = before;
+  });
+
+  test("an undeclared name still raises where it would have", () => {
+    function readsMissing(x: number): number {
+      return (zqxNeverDeclared as any) + x;
+    }
+    let raised = false;
+    try {
+      readsMissing(1);
+    } catch {
+      raised = true;
+    }
+    expect(raised).toBe(true);
+  });
+});
+declare const zqxNeverDeclared: number;
+
+describe("arguments is the zero-declaration name that is not a global", () => {
+  // Every function is given one implicitly, so a body reading `arguments` reads
+  // its OWN — and a substituted body would read the CALLER's, which is a
+  // different object with different contents. The count cannot see that: it is
+  // declared nowhere, so it counts zero exactly as `Math` does.
+  //
+  // It was safe for as long as zero was refused outright. Admitting zero for
+  // globals broke the premise, and `tests/arguments_object.test.ts` said so.
+  test("a body reading arguments sees its own", () => {
+    function counts(): number {
+      return arguments.length;
+    }
+    expect((counts as any)(1, 2, 3)).toBe(3);
+    expect((counts as any)()).toBe(0);
+    expect((counts as any)("a")).toBe(1);
+  });
+
+  test("and its values, not the caller's", () => {
+    function firstOf(): any {
+      return arguments[0];
+    }
+    function wrapper(): any {
+      return (firstOf as any)("inner");
+    }
+    expect((wrapper as any)("outer")).toBe("inner");
+  });
+});

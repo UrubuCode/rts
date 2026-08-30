@@ -98,6 +98,7 @@ pub(super) fn candidates(
     eval: Name,
     global_this: Name,
     length: Name,
+    arguments: Name,
 ) -> BTreeMap<Name, Rc<Inlinable>> {
     let mut found = BTreeMap::new();
     // EVERY declaration in the program, not only the top-level ones.
@@ -154,9 +155,50 @@ pub(super) fn candidates(
         // The substituted write lands on the same binding the call would have
         // written, in the same order, so an assignment says nothing about
         // whether the substitution is legal.
-        if free.iter().any(|held| declarations_of(body, *held) != 1) {
+        //
+        // ZERO declarations is admitted too, and it is a STRONGER proof than
+        // one, not a weaker one. A name the whole program declares nowhere is
+        // resolved through the global object at every site there is — no scope
+        // binds it, so there is no second answer for a caller to have — which is
+        // the same conclusion the `== 1` case reaches by a longer road.
+        //
+        // What it needs beside that is `untouched`, and here the comment above
+        // is exactly right rather than exactly wrong: a zero-declaration name IS
+        // a primordial, so being ASSIGNED anywhere — including through
+        // `globalThis` — is the disturbance, and refusing it is the point.
+        //
+        // It matters because it is most helper code. `Math`, `Error`, `JSON`,
+        // `Object`, `console` all count zero, so a body mentioning any of them
+        // was refused: measured 2026-08-30, a helper reading `Math.abs` cost
+        // 52.75 ns where the same helper without it cost 8.00, and about twelve
+        // of that difference was the call the refusal kept.
+        //
+        // `arguments` is the one zero-declaration name that is NOT a global, and
+        // it has to be named here because the count cannot see it: every
+        // function gets one bound implicitly, so a body reading it reads its
+        // OWN, and a substituted body would read the CALLER's — a different
+        // object, with different contents, or none at all in an arrow.
+        //
+        // It was safe for as long as zero was refused outright, and the comment
+        // in `emit_substituted` said exactly that. Admitting zero broke the
+        // premise it rested on, and `tests/arguments_object.test.ts` and
+        // `tests/claude-arguments-fn-expr.test.ts` both failed on the build that
+        // did — which is what the per-file corpus comparison is for.
+        //
+        // `eval` and `globalThis` are the same kind of name and are refused
+        // below, once for the whole candidate rather than per free name.
+        if free.iter().any(|held| *held == arguments) {
             continue;
         }
+        if free.iter().any(|held| match declarations_of(body, *held) {
+            1 => false,
+            0 => !super::primordial::untouched(body, *held, eval, global_this),
+            _ => true,
+        }) {
+            continue;
+        }
+
+
         // AND THE BODY'S OWN LOCALS, which is the guard that lets a declaring
         // body be substituted at all.
         //
@@ -884,6 +926,29 @@ fn declared_names(statement: &Stmt, bound: &mut Vec<Name>) -> bool {
                     .is_none_or(|branch| declared_names(branch, bound))
         }
         StmtKind::Empty | StmtKind::Expr(_) => true,
+        StmtKind::Throw(_) => true,
+        // A catch BINDING is a name the body introduces, so it travels out with
+        // the body's locals and gets the same `declarations_of == 1` proof they
+        // do — without it a substituted `catch (e)` would write the caller's
+        // `e`.
+        StmtKind::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            body.iter().all(|held| declared_names(held, bound))
+                && catch.as_ref().is_none_or(|catch| {
+                    match &catch.binding {
+                        None => {}
+                        Some(Pattern::Name(name)) => bound.push(*name),
+                        Some(_) => return false,
+                    }
+                    catch.body.iter().all(|held| declared_names(held, bound))
+                })
+                && finally
+                    .as_ref()
+                    .is_none_or(|block| block.iter().all(|held| declared_names(held, bound)))
+        }
         _ => false,
     }
 }
@@ -972,6 +1037,23 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
         | ExprKind::NewTarget
         | ExprKind::ImportMeta
         | ExprKind::ImportCall { .. } => return false,
+        // A CONSTRUCTION, refused because a constructed object may capture the
+        // stack — `new Error(…)` records `.stack` where it is BUILT — and a
+        // substituted body has no frame to be named in it.
+        //
+        // The frame loss is not new and is not this arm's doing: any inlined
+        // body gives up its frame, and always has. What is new is which bodies
+        // reach the pass. Admitting a global as a free name made
+        // `function made() { return new Error('later'); }` substitutable for the
+        // first time, and `rts-host/tests/running.rs::an_error_says_where_it_came_from`
+        // stopped finding `at made` in the trace.
+        //
+        // Refusing `new` costs the campaign nothing measurable: every body the
+        // globals admission was built for — `Math.abs`, `JSON.stringify`,
+        // `Object.keys` — constructs nothing. Weakening the test instead was the
+        // alternative and is the one the honesty floor names.
+        ExprKind::New { .. } => return false,
+
         ExprKind::Assign { target, value, .. } => {
             let AssignTarget::Place(place) = target else {
                 return false;
