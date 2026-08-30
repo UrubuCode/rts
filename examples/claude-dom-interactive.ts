@@ -47,8 +47,8 @@ while (k < n) {
 
 const COUNT = nodeIds.length;
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   render.beginFrame(win);
 
   const mx = input.mouseX(win);

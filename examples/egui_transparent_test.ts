@@ -27,8 +27,8 @@ const page =
   "<p>Mova outra janela para tras desta para confirmar.</p>";
 
 const h = egui.openWindow("transparencia", 420, 320, config);
-while (egui.isOpen(h) !== 0) {
-  if (egui.pump(h) !== 0) break;
+while (egui.isOpen(h)) {
+  if (!egui.pump(h)) break;
   egui.beginFrame(h);
   egui.html(h, page);
   egui.endFrame(h);

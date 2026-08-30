@@ -19,8 +19,8 @@ const win = egui.openWindow("RTS egui — P1 smoke", 340, 600, WGPU);
 let clicks = 0;
 let volume = 0.5;
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break; // janela fechada
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break; // janela fechada
 
   egui.beginFrame(win);
 

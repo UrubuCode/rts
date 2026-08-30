@@ -35,12 +35,12 @@ while (app.running()) {
   }
 
   // PRESS inicia o drag (guarda o offset); RELEASE solta
-  if (over && input.mousePressed(app._win, 0) !== 0) {
+  if (over && input.mousePressed(app._win, 0)) {
     grabbing = 1;
     offx = mx - qx;
     offy = my - qy;
   }
-  if (input.mouseReleased(app._win, 0) !== 0) {
+  if (input.mouseReleased(app._win, 0)) {
     if (grabbing !== 0) releases = releases + 1;
     grabbing = 0;
   }
@@ -51,7 +51,7 @@ while (app.running()) {
   }
 
   // DOUBLE-CLICK sobre o quadrado
-  if (over && input.mouseDoubleClicked(app._win, 0) !== 0) {
+  if (over && input.mouseDoubleClicked(app._win, 0)) {
     doubles = doubles + 1;
   }
 

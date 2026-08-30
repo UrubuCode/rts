@@ -120,13 +120,13 @@ const win = egui.openWindow("RTS Breakout", VW, VH, 0);
 io.print("jogo aberto — setas movem, ESPACO lanca");
 
 let frame = 0;
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   frame = frame + 1;
 
   // ── INPUT: raquete ────────────────────────────────────────────────────────
-  const left = input.key(win, KEY_LEFT, PHASE_DOWN) !== 0 || input.key(win, KEY_A, PHASE_DOWN) !== 0;
-  const right = input.key(win, KEY_RIGHT, PHASE_DOWN) !== 0 || input.key(win, KEY_D, PHASE_DOWN) !== 0;
+  const left = input.key(win, KEY_LEFT, PHASE_DOWN) || input.key(win, KEY_A, PHASE_DOWN);
+  const right = input.key(win, KEY_RIGHT, PHASE_DOWN) || input.key(win, KEY_D, PHASE_DOWN);
   if (left) paddleX = paddleX - 7.0;
   if (right) paddleX = paddleX + 7.0;
   if (paddleX < 0.0) paddleX = 0.0;
@@ -139,7 +139,7 @@ while (egui.isOpen(win) !== 0) {
     ballX = paddleX + PADDLE_W / 2.0 - BALL_SZ / 2.0;
     setLeft(ball, ballX);
     setTop(ball, ballY);
-    if (input.key(win, KEY_SPACE, PHASE_DOWN) !== 0) {
+    if (input.key(win, KEY_SPACE, PHASE_DOWN)) {
       launched = 1;
       velX = 4.0;
       velY = -5.0;

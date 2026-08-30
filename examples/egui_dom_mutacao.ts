@@ -47,8 +47,8 @@ dom.dump(d);
 
 // 5) Loop de render — o egui só LÊ o DOM `d` do rts-dom e pinta.
 const win = egui.openWindow("DOM mutacao (pipeline unificado)", 460, 360, 0);
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);

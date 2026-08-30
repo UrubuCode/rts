@@ -19,8 +19,8 @@ const win = egui.openWindow("RTS — transition (DOM dono do loop, egui burro)",
 let toggled = 0;
 let lastSwap = time.now_ms();
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   // a cada 1.5s, alterna o estilo do box — a transition suaviza a mudança.
   const now = time.now_ms();
   if (now - lastSwap > 1500) {

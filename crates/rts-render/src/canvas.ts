@@ -63,7 +63,7 @@ class Canvas {
   }
   /// `true` se houve clique (botão esquerdo) neste frame.
   clicked(): boolean {
-    return input.mouseClicked(this._win, 0) !== 0;
+    return input.mouseClicked(this._win, 0);
   }
 
   // ── widget de conveniência: BOTÃO (UI imediata) ───────────────────────────────
@@ -172,7 +172,7 @@ class App {
     return mx >= x && mx <= x + w && my >= y && my <= y + h;
   }
   clicked(): boolean {
-    return input.mouseClicked(this._win, 0) !== 0;
+    return input.mouseClicked(this._win, 0);
   }
   // ── TECLADO (delega ao input com `this._win`) ────────────────────────────────
   // IMPORTANTE: chame estes MÉTODOS (`app.keyDown(k)`), NÃO `input.key(app._win, k, 0)`
@@ -273,7 +273,7 @@ class App {
     const knobY = y + knobR;
     // arrasta: mouse pressionado dentro da faixa do slider
     const over = this.hover(x - knobR, y, w + knobR * 2, knobR * 2);
-    if (over && input.mouseDown(this._win, 0) !== 0) {
+    if (over && input.mouseDown(this._win, 0)) {
       const mx = input.mouseX(this._win);
       let nt = (mx - x) / w;
       if (nt < 0) nt = 0;
@@ -356,7 +356,7 @@ class App {
   /// Chame uma vez por frame (no inicio): clicar FORA de tudo desfoca. Helper
   /// opcional — `textField` ja foca ao clicar nele.
   clearFocusOnClickAway(): void {
-    if (input.mousePressed(this._win, 0) !== 0) {
+    if (input.mousePressed(this._win, 0)) {
       // se nenhum widget consumir este clique, o foco cai pra -1 no fim do frame.
       // (simplificado: o textField re-foca se o clique foi nele, ANTES disto rodar.)
     }
@@ -367,14 +367,14 @@ class App {
   /// Gerencia _active (quem segura) — base de botoes/itens robustos com release.
   clickable(id: number, x: number, y: number, w: number, h: number): number {
     const over = this.hover(x, y, w, h);
-    if (over && input.mousePressed(this._win, 0) !== 0) {
+    if (over && input.mousePressed(this._win, 0)) {
       this._active = id;
     }
     let result = 0;
     if (over) result = 1;
     if (this._active === id) {
       result = 2;
-      if (input.mouseReleased(this._win, 0) !== 0) {
+      if (input.mouseReleased(this._win, 0)) {
         if (over) result = 3; // soltou DENTRO = clique completo
         this._active = -1;
       }
@@ -390,7 +390,7 @@ class App {
   textField(id: number, x: number, y: number, w: number, value: string): string {
     const h = 30;
     // clicar no campo o foca; clicar fora (em outro textField) tira.
-    if (this.hover(x, y, w, h) && input.mousePressed(this._win, 0) !== 0) {
+    if (this.hover(x, y, w, h) && input.mousePressed(this._win, 0)) {
       this._focused = id;
     }
     const focused = this._focused === id;
@@ -403,8 +403,8 @@ class App {
       const typed = input.textInput(this._win);
       text = text + typed;
       // Enter ou Escape desfoca.
-      if (input.key(this._win, 1, 1) !== 0) this._focused = -1;
-      if (input.key(this._win, 2, 1) !== 0) this._focused = -1;
+      if (input.key(this._win, 1, 1)) this._focused = -1;
+      if (input.key(this._win, 2, 1)) this._focused = -1;
     }
     let shown = text;
     if (focused) shown = text + "|";
@@ -454,13 +454,13 @@ class App {
 
   /// `true` enquanto a janela está aberta. Use no `while`.
   running(): boolean {
-    return egui.isOpen(this._win) !== 0;
+    return egui.isOpen(this._win);
   }
 
   /// Abre o frame: processa eventos do SO e calcula o delta time. Retorna `true`
   /// se deve continuar; `false` se a janela pediu pra fechar (dê `break`).
   beginFrame(): boolean {
-    if (egui.pump(this._win) !== 0) {
+    if (!egui.pump(this._win)) {
       return false;
     }
     const now = time.now_ms();

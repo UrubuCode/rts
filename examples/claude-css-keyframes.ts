@@ -23,8 +23,8 @@ const d = dom.parseHtml(
   "<div id='grow'>grow</div>");
 
 const win = egui.openWindow("RTS — @keyframes (animação no tempo, DOM dono do loop)", 700, 420, 0);
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   egui.render(win, d);  // o egui chama advance(now) interno; as @keyframes rodam sozinhas
   egui.endFrame(win);

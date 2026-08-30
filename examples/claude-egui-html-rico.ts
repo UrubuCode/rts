@@ -114,8 +114,8 @@ const win = egui.openWindow("HTML rico — pipeline unificado (DOM no rts-dom)",
 // o DOM e do rts-dom (headless); o egui so LE e pinta.
 const d = dom.parseHtml(HTML);
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);

@@ -17,8 +17,8 @@ const WHITE = 0xFFFFFFFF;
 const GRAY = 0xB0B8C0FF;
 const ACCENT = 0xFF8800FF;
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
 
   // fundo

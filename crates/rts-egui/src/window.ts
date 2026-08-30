@@ -145,12 +145,12 @@ class Window {
   // ── Loop (forma suportada hoje) ──────────────────────────────────────────
   // true enquanto a janela não foi fechada.
   isOpen(): boolean {
-    return egui.isOpen(this.__h) !== 0;
+    return egui.isOpen(this.__h);
   }
   // Bombeia eventos do SO (não bloqueante). Retorna false se a janela pediu
   // para fechar (o `while` deve então sair).
   pump(): boolean {
-    return egui.pump(this.__h) === 0;
+    return egui.pump(this.__h);
   }
   // Abre o frame egui.
   beginFrame(): void {

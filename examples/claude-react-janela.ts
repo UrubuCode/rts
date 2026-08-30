@@ -17,7 +17,7 @@ import egui from "rts:egui";
 import dom from "rts:dom";
 import { readFileSync } from "node:fs";
 
-const ficheiro = "E:/rts/react-app.html";
+const ficheiro = "react-app.html";
 
 const html = readFileSync(ficheiro, "utf8");
 if (html.length === 0) {
@@ -32,9 +32,9 @@ if (html.length === 0) {
   console.log("[win] handle=" + win + " aberta=" + egui.isOpen(win));
   // `isOpen`/`pump` respondem BOOLEANOS, e `pump` responde `true` para
   // CONTINUAR (do lado Rust e `from_bool(pump(...) == 0)`). O idioma
-  // `if (egui.pump(win) !== 0) break;` — que o `claude-browser.ts` ainda usa —
-  // le `true !== 0` como verdadeiro e sai no primeiro frame, com a janela
-  // aberta e sem nunca desenhar nada.
+  // `if (egui.pump(win) !== 0) break;` estava em 45 ficheiros deste repo: le
+  // `true !== 0` como verdadeiro e sai no primeiro frame, com a janela aberta e
+  // sem nunca desenhar nada. Foram todos corrigidos na mesma passagem.
   let frames = 0;
   while (egui.isOpen(win)) {
     if (!egui.pump(win)) break;

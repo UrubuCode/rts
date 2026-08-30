@@ -24,8 +24,8 @@ if (path.length === 0) {
     const loaded = loadResources(doc, path);
     console.log("recursos externos carregados: " + loaded);
     const win = egui.openWindow("RTS — " + path, 1100, 750, 0);
-    while (egui.isOpen(win) !== 0) {
-      if (egui.pump(win) !== 0) break;
+    while (egui.isOpen(win)) {
+      if (!egui.pump(win)) break;
       egui.beginFrame(win);
       egui.render(win, doc._dom);
       egui.endFrame(win);

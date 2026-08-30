@@ -3,8 +3,8 @@ import dom from "rts:dom";
 class Window {
   __h: number;
   constructor(t: string, w: number, h: number) { this.__h = egui.openWindow(t, w, h, 0); }
-  isOpen(): boolean { return egui.isOpen(this.__h) !== 0; }
-  pump(): boolean { return egui.pump(this.__h) === 0; }
+  isOpen(): boolean { return egui.isOpen(this.__h); }
+  pump(): boolean { return egui.pump(this.__h); }
   beginFrame(): void { egui.beginFrame(this.__h); }
   endFrame(): void { egui.endFrame(this.__h); }
   html(s: string): void { egui.html(this.__h, s); }

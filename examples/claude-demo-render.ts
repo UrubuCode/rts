@@ -11,8 +11,8 @@ io.print("[demo] carregada");
 
 const win = egui.openWindow("RTS — demo de render", 940, 760, 0);
 let f = 0;
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   f = f + 1;
   if (f === 5) io.print("[render] ok");
   egui.beginFrame(win);

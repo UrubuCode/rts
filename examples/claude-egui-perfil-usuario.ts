@@ -128,8 +128,8 @@ const HTML =
 const win = egui.openWindow("Perfil do Usuario — RTS Dashboard", 880, 720, 0);
 const d = dom.parseHtml(HTML); // DOM no rts-dom (headless); egui so LE e pinta.
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);

@@ -288,8 +288,8 @@ const html = `<!DOCTYPE html>
 
 const d = dom.parseHtml(html);
 const win = egui.openWindow("RTS — TypeScript compilado para nativo", 1100, 900, 0);
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);
