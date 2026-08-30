@@ -68,15 +68,19 @@ pub(super) fn omittable(
     ctx: &Ctx,
     body: &[Stmt],
     captured: &BTreeSet<Name>,
+    // Handed over rather than read off `Ctx`, which does not hold it yet: this
+    // runs before the emission it belongs to, because `captured` is recomputed
+    // from what this answers and the ENVIRONMENT is decided from that.
+    flattened: &super::escape::Flattened,
     length: Name,
     arguments: Name,
-) -> (BTreeSet<Name>, BTreeMap<Name, Rc<super::inline::Inlinable>>) {
+) -> Omission {
     let mut named = Vec::new();
     for statement in body {
         helper_bindings(statement, &mut named);
     }
     if named.is_empty() {
-        return (BTreeSet::new(), BTreeMap::new());
+        return Omission::default();
     }
     // A `with` ANYWHERE in this body. The gate outside `emit_substituted` is
     // `ctx.with_objects.is_empty()` and it is false for a call written inside
@@ -86,7 +90,7 @@ pub(super) fn omittable(
     // Asked of the whole body rather than of the call site, because this
     // decision is taken before either exists.
     if body.iter().any(has_with) {
-        return (BTreeSet::new(), BTreeMap::new());
+        return Omission::default();
     }
 
     let mut read_as_value = BTreeSet::new();
@@ -94,8 +98,7 @@ pub(super) fn omittable(
         value_reads_in_statement(statement, &mut read_as_value);
     }
 
-    let mut omitted = BTreeSet::new();
-    let mut local = BTreeMap::new();
+    let mut answer = Omission::default();
     for (name, function) in named {
         // NEVER READ AS A VALUE. `g(f)`, `f.name`, `const h = f`, `[f]`,
         // `typeof f` and `f?.()` are all reads and all refuse; only the callee
@@ -138,7 +141,7 @@ pub(super) fn omittable(
             .parameters
             .iter()
             .chain(candidate.free.iter())
-            .any(|held| ctx.flattens(*held))
+            .any(|held| flattened.properties(*held).is_some())
         {
             continue;
         }
@@ -150,10 +153,99 @@ pub(super) fn omittable(
         if !plain {
             continue;
         }
-        local.insert(name, candidate);
-        omitted.insert(name);
+        // AND WHETHER ITS ENVIRONMENT CAN GO WITH ITS CLOSURE.
+        //
+        // A name reaches an environment because a nested function mentions
+        // it, so a helper that will not exist is a reason that can be
+        // withdrawn — `capture::captured` is asked again without it. That is
+        // true for what the helper READS and false for what it WRITES.
+        //
+        // A substituted write lands through `Scope::assign`, which rebinds in
+        // the layer `emit_substituted` opened, and that layer is gone at the
+        // next statement. While the name was captured the write was a STORE to
+        // the environment object and outlived it; withdrawing the capture turns
+        // it back into a rebinding and the write is lost. Measured, and it was
+        // a wrong ANSWER rather than a crash: an accumulator over four
+        // iterations answered 0 where node answers 6.
+        //
+        // So the closure still goes and the environment stays. The helper this
+        // costs is the one written for its effects, which is exactly the shape
+        // `emit_substituted` was extended to admit.
+        if !assigns_anything_free(function) {
+            answer.uncaptured.insert(name);
+        }
+        answer.local.insert(name, candidate);
+        answer.omitted.insert(name);
     }
-    (omitted, local)
+    answer
+}
+
+/// What one body decided about its helper closures.
+#[derive(Default)]
+pub(super) struct Omission {
+    /// Helpers whose closure is not built.
+    pub omitted: BTreeSet<Name>,
+    /// The candidate each was built from, for a name the program-wide map had
+    /// to refuse.
+    pub local: BTreeMap<Name, Rc<super::inline::Inlinable>>,
+    /// The subset whose ENVIRONMENT can go too: those that only read.
+    pub uncaptured: BTreeSet<Name>,
+}
+
+/// Whether a helper assigns a name it does not itself bind.
+///
+/// Crude in the safe direction: a write to its own parameter counts, because
+/// telling the two apart needs the bound set `closed_over` builds and getting
+/// it wrong here loses a write silently.
+fn assigns_anything_free(function: &Function) -> bool {
+    let mut found = false;
+    match &function.body {
+        FunctionBody::Block(body) => {
+            for statement in body {
+                assigns_in_statement(statement, &mut found);
+            }
+        }
+        FunctionBody::Expression(expr) => assigns_in_expr(expr, &mut found),
+    }
+    found
+}
+
+fn assigns_in_statement(statement: &Stmt, found: &mut bool) {
+    if *found {
+        return;
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => assigns_in_statement(inner, found),
+        StmtChild::Expr(expr) => assigns_in_expr(expr, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                assigns_in_expr(value, found);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                assigns_in_statement(inner, found);
+            }
+        }
+        StmtChild::Function(_) | StmtChild::Class(_) => *found = true,
+    });
+}
+
+fn assigns_in_expr(expr: &Expr, found: &mut bool) {
+    if *found {
+        return;
+    }
+    if matches!(
+        &expr.kind,
+        ExprKind::Assign { .. } | ExprKind::Update { .. }
+    ) {
+        *found = true;
+        return;
+    }
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => assigns_in_expr(inner, found),
+        Child::Function(_) | Child::Class(_) => *found = true,
+    });
 }
 
 /// Every `const`/`let` binding of this body whose initialiser is a function and

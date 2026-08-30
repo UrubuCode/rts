@@ -450,3 +450,70 @@ describe("a helper whose name another function also spends", () => {
     expect(outer()).toBe(3);
   });
 });
+
+describe("the environment goes with the closure, unless the helper writes", () => {
+  // A name reaches an environment because a nested function mentions it. When
+  // that function is a helper `omit` approved, there will be no closure — the
+  // body is spliced in and reads the name as an ordinary binding — so the reason
+  // the environment existed is withdrawn and `capture::captured` is asked again
+  // without it.
+  //
+  //   for (…) { const c = (x) => x + i; a = c(a) | 0; }   47.00 -> 8.67
+  //
+  // True for what the helper READS and false for what it WRITES: a substituted
+  // write rebinds in the layer `emit_substituted` opened, and that layer does
+  // not outlive the statement. While the name is captured the write is a STORE
+  // that does. So a writing helper keeps its environment, and the case below
+  // answered 0 instead of 6 on the build that forgot it.
+  test("a helper that only READS the loop variable", () => {
+    function reads(n: number): number {
+      let a = 0;
+      for (let i = 0; i < n; i++) {
+        const zr = (x: number): number => x + i;
+        a = zr(a) | 0;
+      }
+      return a | 0;
+    }
+    expect(reads(4)).toBe(6);
+  });
+
+  test("a helper that WRITES one keeps its environment", () => {
+    function accumulates(n: number): number {
+      let total = 0;
+      for (let i = 0; i < n; i++) {
+        const zw = (x: number): void => {
+          total = total + x;
+        };
+        zw(i);
+      }
+      return total;
+    }
+    expect(accumulates(4)).toBe(6);
+    expect(accumulates(0)).toBe(0);
+  });
+
+  test("an update operator counts as a write", () => {
+    function counts(n: number): number {
+      let seen = 0;
+      for (let i = 0; i < n; i++) {
+        const zu = (): void => {
+          seen++;
+        };
+        zu();
+      }
+      return seen;
+    }
+    expect(counts(3)).toBe(3);
+  });
+
+  test("a name a SECOND nested function also reads stays captured", () => {
+    function shared(): number {
+      let held = 1;
+      const zs = (x: number): number => x + held;
+      const keeps = (): number => held;
+      held = 10;
+      return zs(0) * 100 + keeps();
+    }
+    expect(shared()).toBe(1010);
+  });
+});

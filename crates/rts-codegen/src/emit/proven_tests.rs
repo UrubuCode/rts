@@ -33,7 +33,7 @@ fn proved(source: &str) -> Vec<String> {
     // empty `Flattened`: what is being tested includes what this pass says
     // about a replaced property, and an empty one would answer "nothing was
     // replaced" for every source and pass by not looking.
-    let captured = super::super::capture::captured(body, &[]);
+    let captured = super::super::capture::captured(body, &[], super::super::capture::nothing_omitted());
     let flattened = super::super::escape::analyse(body, &[], &captured);
     let mut numeric = analyse(body, &flattened);
     numeric.name_fields(|object, property| {

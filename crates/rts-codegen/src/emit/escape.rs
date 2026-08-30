@@ -1096,7 +1096,7 @@ mod tests {
         };
         // The same answer the emitter uses, from the same place, rather than an
         // empty set that would make every capture test pass for no reason.
-        let captured = super::super::capture::captured(body, &[]);
+        let captured = super::super::capture::captured(body, &[], super::super::capture::nothing_omitted());
         let decided = analyse(body, &[], &captured);
         // Re-interning is how a test turns a name back into text: interning is
         // idempotent, so asking for a spelling hands back the name it had.
@@ -1125,7 +1125,7 @@ mod tests {
         let FunctionBody::Block(body) = &function.body else {
             panic!("a block");
         };
-        let captured = super::super::capture::captured(body, &[]);
+        let captured = super::super::capture::captured(body, &[], super::super::capture::nothing_omitted());
         let decided = analyse(body, &[], &captured);
         decided.array_length(names.intern("xs"))
     }

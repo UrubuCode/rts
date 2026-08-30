@@ -44,11 +44,34 @@ use crate::syntax::{
 /// that iterated differently between runs would produce a different shape for
 /// the same program — and two shapes for one layout is the thing the whole
 /// shape tree exists to avoid.
-pub fn captured(body: &[Stmt], parameters: &[Name]) -> BTreeSet<Name> {
+/// # The `omitted` set, and why an environment can be unmade
+///
+/// A name reaches an environment because some NESTED FUNCTION mentions it. When
+/// that nested function is a helper `omit::omittable` approved, there will be no
+/// closure: its body is spliced into this one at every call site, and it reads
+/// the name as an ordinary binding of this activation. So the reason the
+/// environment existed goes away with the closure, and counting the name would
+/// build an object for a function that is not there.
+///
+/// Measured 2026-08-30, release, min of 9 — the analytic benchmark's own row:
+///
+/// ```text
+/// for (…) { const c = (x) => x + i; a = c(a) | 0; }    46.33 ns with the object
+/// ```
+///
+/// It is asked here rather than filtered afterwards because the environment is
+/// decided by this set: `escape::analyse` reads it, `Scope::for_function` binds
+/// from it, and a name removed after the fact would be bound in a layer nothing
+/// wrote.
+///
+/// A name a SECOND nested function also mentions stays captured, which is why
+/// the skip is per declaration rather than per name.
+pub fn captured(body: &[Stmt], parameters: &[Name], omitted: &BTreeSet<Name>) -> BTreeSet<Name> {
     let mut inner = BTreeSet::new();
     let mut protected = BTreeSet::new();
     for statement in body {
-        referenced_inside_statement(statement, &mut inner, false);
+        referenced_inside_statement(statement, &mut inner, false, omitted);
+
         assigned_under_protection(statement, &mut protected);
     }
     if inner.is_empty() && protected.is_empty() {
@@ -395,7 +418,12 @@ fn assigned_under_protection(statement: &Stmt, found: &mut BTreeSet<Name>) {
 /// `everything`, matching the original: a for-each target belongs to the loop
 /// body's own scope and is never read from the enclosing function, so whether
 /// it is counted cannot change which outer name gets captured.
-fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, everything: bool) {
+fn referenced_inside_statement(
+    statement: &Stmt,
+    found: &mut BTreeSet<Name>,
+    everything: bool,
+    omitted: &BTreeSet<Name>,
+) {
     match &statement.kind {
         // The nested function itself. Everything in it counts, which is the
         // over-approximation the module doc argues for.
@@ -418,13 +446,13 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, eve
         StmtKind::ForEach {
             target: crate::syntax::ForEachTarget::Declare { target, .. },
             ..
-        } => pattern_exprs(target, found, everything),
+        } => pattern_exprs(target, found, everything, omitted),
 
         _ => {}
     }
     walk_stmt(statement, &mut |child| match child {
-        StmtChild::Stmt(inner) => referenced_inside_statement(inner, found, everything),
-        StmtChild::Expr(inner) => referenced_inside_expr(inner, found, everything),
+        StmtChild::Stmt(inner) => referenced_inside_statement(inner, found, everything, omitted),
+        StmtChild::Expr(inner) => referenced_inside_expr(inner, found, everything, omitted),
         StmtChild::Binding(binding) => {
             // The declared name counts too when this whole subtree is nested
             // code: a nested function's own local shadows an outer one, and
@@ -442,20 +470,34 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, eve
             // A default or a computed key is an ordinary expression that runs,
             // regardless of `everything` — the same footing `binding.value`
             // is on below.
-            pattern_exprs(&binding.target, found, everything);
+            pattern_exprs(&binding.target, found, everything, omitted);
             if let Some(expr) = &binding.value {
-                referenced_inside_expr(expr, found, everything);
+                // NOT INTO A HELPER THAT WILL NOT EXIST. `omit::omittable`
+                // approved this declaration, so no closure is built for it and
+                // its body is spliced into this one — where it reads what it
+                // reads as ordinary bindings of this activation. Walking it
+                // would put those names in an environment for a function that
+                // is not there.
+                if let Pattern::Name(name) = &binding.target
+                    && omitted.contains(name)
+                    && matches!(&expr.kind, ExprKind::Function(_))
+                {
+                    continue_past(expr, found, everything, omitted);
+                } else {
+                    referenced_inside_expr(expr, found, everything, omitted);
+                }
             }
         }
+
         StmtChild::Catch(catch) => {
             if let Some(binding) = &catch.binding {
                 if everything {
                     names_in_pattern(binding, found);
                 }
-                pattern_exprs(binding, found, everything);
+                pattern_exprs(binding, found, everything, omitted);
             }
             for statement in &catch.body {
-                referenced_inside_statement(statement, found, everything);
+                referenced_inside_statement(statement, found, everything, omitted);
             }
         }
         StmtChild::Function(function) => names_in_function(function, found),
@@ -471,33 +513,38 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, eve
 /// read *while computing* one are different questions, the same distinction
 /// [`referenced_inside_statement`]'s `Binding` arm already draws between a
 /// declaration's target and its initialiser.
-fn pattern_exprs(pattern: &Pattern, found: &mut BTreeSet<Name>, everything: bool) {
+fn pattern_exprs(
+    pattern: &Pattern,
+    found: &mut BTreeSet<Name>,
+    everything: bool,
+    omitted: &BTreeSet<Name>,
+) {
     match pattern {
         Pattern::Name(_) => {}
-        Pattern::Target(expr) => referenced_inside_expr(expr, found, everything),
+        Pattern::Target(expr) => referenced_inside_expr(expr, found, everything, omitted),
         Pattern::Object(object) => {
             for property in &object.properties {
                 if let PropertyKey::Computed(key) = &property.key {
-                    referenced_inside_expr(key, found, everything);
+                    referenced_inside_expr(key, found, everything, omitted);
                 }
-                pattern_exprs(&property.value.pattern, found, everything);
+                pattern_exprs(&property.value.pattern, found, everything, omitted);
                 if let Some(default) = &property.value.default {
-                    referenced_inside_expr(default, found, everything);
+                    referenced_inside_expr(default, found, everything, omitted);
                 }
             }
             if let Some(rest) = &object.rest {
-                pattern_exprs(rest, found, everything);
+                pattern_exprs(rest, found, everything, omitted);
             }
         }
         Pattern::Array(array) => {
             for element in array.elements.iter().flatten() {
-                pattern_exprs(&element.pattern, found, everything);
+                pattern_exprs(&element.pattern, found, everything, omitted);
                 if let Some(default) = &element.default {
-                    referenced_inside_expr(default, found, everything);
+                    referenced_inside_expr(default, found, everything, omitted);
                 }
             }
             if let Some(rest) = &array.rest {
-                pattern_exprs(rest, found, everything);
+                pattern_exprs(rest, found, everything, omitted);
             }
         }
     }
@@ -823,12 +870,12 @@ fn own_function_scoped(statement: &Stmt, found: &mut BTreeSet<Name>) {
 /// is exactly the failure the `walk_expr` comment below warns about, arrived at
 /// on the statement side.
 pub(super) fn all_names_in_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
-    referenced_inside_statement(statement, found, true);
+    referenced_inside_statement(statement, found, true, nothing_omitted());
 }
 
 /// Every identifier in an expression.
 pub(super) fn all_names_in_expr(expr: &Expr, found: &mut BTreeSet<Name>) {
-    referenced_inside_expr(expr, found, true);
+    referenced_inside_expr(expr, found, true, nothing_omitted());
 }
 
 /// Every name a nested function inside an expression mentions.
@@ -836,12 +883,17 @@ pub(super) fn all_names_in_expr(expr: &Expr, found: &mut BTreeSet<Name>) {
 /// With `everything`, every identifier counts rather than only the ones inside a
 /// further nested function — which is what "this whole subtree is nested code"
 /// means, and the one thing the two callers differ in.
-fn referenced_inside_expr(expr: &Expr, found: &mut BTreeSet<Name>, everything: bool) {
+fn referenced_inside_expr(
+    expr: &Expr,
+    found: &mut BTreeSet<Name>,
+    everything: bool,
+    omitted: &BTreeSet<Name>,
+) {
     if everything && let ExprKind::Ident(name) = &expr.kind {
         found.insert(*name);
     }
     walk_expr(expr, &mut |child| match child {
-        Child::Expr(inner) => referenced_inside_expr(inner, found, everything),
+        Child::Expr(inner) => referenced_inside_expr(inner, found, everything, omitted),
         Child::Function(function) => names_in_function(function, found),
         Child::Class(class) => names_in_class(class, found),
     });
@@ -1155,19 +1207,19 @@ fn writes(statement: &Stmt) -> Vec<Name> {
 pub(super) fn names_in_class(class: &crate::syntax::Class, found: &mut BTreeSet<Name>) {
     use crate::syntax::ClassElement;
     if let Some(heritage) = &class.heritage {
-        referenced_inside_expr(heritage, found, true);
+        referenced_inside_expr(heritage, found, true, nothing_omitted());
     }
     for element in &class.body {
         match element {
             ClassElement::Method(method) => names_in_function(&method.function, found),
             ClassElement::Field(field) => {
                 if let Some(value) = &field.value {
-                    referenced_inside_expr(value, found, true);
+                    referenced_inside_expr(value, found, true, nothing_omitted());
                 }
             }
             ClassElement::StaticBlock(body) => {
                 for statement in body {
-                    referenced_inside_statement(statement, found, true);
+                    referenced_inside_statement(statement, found, true, nothing_omitted());
                 }
             }
         }
@@ -1481,4 +1533,30 @@ fn this_in_expr(expr: &Expr, found: &mut bool) {
         }
         Child::Class(_) => {}
     });
+}
+
+/// What is still nested code inside an omitted helper's initialiser.
+///
+/// Nothing, today: the initialiser IS the function, and `omit::helper_bindings`
+/// refuses one whose body holds a call, a construction, or nested code of its
+/// own. Written as a named no-op rather than an empty arm so that admitting a
+/// richer helper shape has one place to reach, and so the reader is told that
+/// the omission is doing the refusing rather than this walk being incomplete.
+fn continue_past(
+    _expr: &Expr,
+    _found: &mut BTreeSet<Name>,
+    _everything: bool,
+    _omitted: &BTreeSet<Name>,
+) {
+}
+
+/// No declaration is omitted, for the walks that count EVERY name.
+///
+/// Those run inside nested code, where the question this set answers does not
+/// arise: a helper `omit` approved is called only from the body that declares
+/// it, so a walk that has descended into some other function cannot be looking
+/// at one. Named rather than written inline so the reason is stated once.
+pub(super) fn nothing_omitted() -> &'static BTreeSet<Name> {
+    static NONE: std::sync::OnceLock<BTreeSet<Name>> = std::sync::OnceLock::new();
+    NONE.get_or_init(BTreeSet::new)
 }

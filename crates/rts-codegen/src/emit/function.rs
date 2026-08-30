@@ -660,7 +660,28 @@ pub(super) fn emit_body(
     if hands_this_to_an_arrow {
         candidates.push(held_this);
     }
-    let mut captured = capture::captured(body, &candidates);
+    // TWICE, AND THE SECOND TIME IS NOT A CORRECTION OF THE FIRST.
+    //
+    // A name reaches an environment because some nested function mentions it.
+    // `omit::omittable` decides which helper closures are not built at all, and
+    // it needs this set to decide — a name a nested function captures is one it
+    // refuses. So the first answer is what omission is decided FROM.
+    //
+    // Once that is known, the helpers it approved will not exist: each body is
+    // spliced into this one at every call site and reads what it reads as
+    // ordinary bindings of this activation. The names they alone mentioned no
+    // longer need an environment, and the second answer is the set with those
+    // declarations not walked into.
+    //
+    // It is a second walk rather than a filter because the environment is
+    // DECIDED by this set — `escape::analyse` reads it and `Scope::for_function`
+    // binds from it — and a name removed after the fact would be bound in a
+    // layer nothing ever wrote.
+    //
+    // Measured 2026-08-30, release, min of 9, the analytic benchmark's own row:
+    // `for (…) { const c = (x) => x + i; a = c(a) | 0; }` at 46.33 ns with the
+    // object still built.
+    let mut captured = capture::captured(body, &candidates, capture::nothing_omitted());
     // A name this module PUBLISHES is read by the publication, which is emitted
     // after the body and is not a statement the body's own walks can see. So it
     // is forced in here, exactly as `rest` and the imports are one screen up and
@@ -737,7 +758,6 @@ pub(super) fn emit_body(
             capture::declared_by_statement(statement, &mut captured);
         }
     }
-    let builds_environment = !captured.is_empty();
 
     let mut func = MachineFunction::new(signature());
     let entry = func.entry;
@@ -757,6 +777,42 @@ pub(super) fn emit_body(
     // nested code can see is decided once — recomputing it here would be a
     // second chance to say "not captured" about a local a closure holds.
     let flattened = super::escape::analyse(body, parameters, &captured);
+
+    // WHICH HELPER CLOSURES THIS BODY NEED NOT BUILD, asked here and not later
+    // because `captured` is recomputed from the answer and the ENVIRONMENT is
+    // decided from that.
+    //
+    // `flattened` is handed over rather than read off `Ctx`, which does not hold
+    // it yet. It is deliberately the one computed from the FIRST answer above:
+    // recomputing it against the smaller set could flatten a name the omission
+    // was decided without, and a second escape pass would then need a third
+    // capture pass to check itself. Keeping the conservative one costs a
+    // flattening that was available, never an answer.
+    let length = ctx.names.intern("length");
+    let held_arguments = ctx.names.intern("arguments");
+    let omission =
+        super::omit::omittable(ctx, body, &captured, &flattened, length, held_arguments);
+    // AND THE SECOND CAPTURE ANSWER, which is not a correction of the first.
+    //
+    // A name reached an environment because some nested function mentioned it.
+    // The helpers just approved will not exist — each is spliced into this body
+    // at every call site and reads what it reads as ordinary bindings of this
+    // activation — so the names they ALONE mentioned no longer need one. A name
+    // a second nested function also mentions stays, which is why the skip is per
+    // declaration rather than per name.
+    //
+    // Measured 2026-08-30, release, min of 9, `bench/analytic.ts`'s own row:
+    // `for (…) { const c = (x) => x + i; a = c(a) | 0; }` stood at 46.33 ns with
+    // the environment still built, down from 241 before the omission work.
+    // `uncaptured` and not `omitted`: a helper that WRITES a free name keeps
+    // its environment even though its closure is gone. A substituted write
+    // rebinds in the layer `emit_substituted` opened and that layer does not
+    // outlive the statement, so while the name is captured the write is a store
+    // that does. Measured: an accumulator answered 0 where node answers 6.
+    if !omission.uncaptured.is_empty() {
+        captured = capture::captured(body, &candidates, &omission.uncaptured);
+    }
+    let builds_environment = !captured.is_empty();
     let mut numeric = super::analyse(body, &flattened);
     // The properties are proved as `(object, key)` pairs, because `proven` has
     // no `Ctx` to mint a name from. Minting them here rather than there keeps
@@ -795,12 +851,8 @@ pub(super) fn emit_body(
     // in this set — and its closure is never emitted — or it is not, and
     // everything happens as it did. There is no fallback path and nothing is
     // decided while emitting. See `omit.rs` for why the lazy shape was refused.
-    let length = ctx.names.intern("length");
-    let held_arguments = ctx.names.intern("arguments");
-    let (omitted, local) =
-        super::omit::omittable(ctx, body, &captured, length, held_arguments);
-    let outer_omitted = std::mem::replace(&mut ctx.omitted, omitted);
-    let outer_local = std::mem::replace(&mut ctx.local_inlinable, local);
+    let outer_omitted = std::mem::replace(&mut ctx.omitted, omission.omitted);
+    let outer_local = std::mem::replace(&mut ctx.local_inlinable, omission.local);
     // The one that is an SSA VALUE and not a table, which is why it is taken
     // rather than replaced: the inner body defines its own at its own entry,
     // and reading the outer function's here would name a value defined in a
