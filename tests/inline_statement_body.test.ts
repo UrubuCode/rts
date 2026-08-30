@@ -957,3 +957,73 @@ describe("arguments is the zero-declaration name that is not a global", () => {
     expect((wrapper as any)("outer")).toBe("inner");
   });
 });
+
+describe("a guard clause deeper than the top level", () => {
+  // `straight_line` admitted a guard at ANY depth while `emit_substituted`
+  // intercepted only the top level, so a nested one fell through to
+  // `stmt::emit_stmt` and emitted `builder.ret` — a return from the CALLER.
+  // `classify(5)` printed nothing and exited zero.
+  test("a guard inside an if does not return from the caller", () => {
+    function classify(x: number): number {
+      if (x > 0) {
+        if (x > 10) {
+          return 99;
+        }
+      }
+      return x;
+    }
+    expect(classify(5)).toBe(5);
+    expect(classify(50)).toBe(99);
+    expect(classify(-1)).toBe(-1);
+    // The statement after the call has to run at all, which is what the
+    // miscompile took away.
+    let reached = false;
+    classify(1);
+    reached = true;
+    expect(reached).toBe(true);
+  });
+
+  test("a guard inside a block", () => {
+    function blocked(x: number): number {
+      {
+        if (x > 10) {
+          return 99;
+        }
+      }
+      return x;
+    }
+    expect(blocked(5)).toBe(5);
+    expect(blocked(50)).toBe(99);
+  });
+
+  test("a guard inside an else", () => {
+    function elsed(x: number): number {
+      if (x < 0) {
+        x = 0;
+      } else {
+        if (x > 10) {
+          return 99;
+        }
+      }
+      return x;
+    }
+    expect(elsed(-5)).toBe(0);
+    expect(elsed(5)).toBe(5);
+    expect(elsed(50)).toBe(99);
+  });
+
+  test("a guard inside a try is refused along with the rest", () => {
+    function tried(x: number): number {
+      try {
+        if (x > 10) {
+          return 99;
+        }
+      } catch {
+        return -1;
+      }
+      return x;
+    }
+    expect(tried(5)).toBe(5);
+    expect(tried(50)).toBe(99);
+  });
+});

@@ -858,6 +858,44 @@ fn guard_return(statement: &Stmt) -> Option<(&Expr, &Expr)> {
 }
 
 fn straight_line(statement: &Stmt) -> bool {
+    straight_line_at(statement, true)
+}
+
+/// The same, told whether it is looking at a TOP-LEVEL statement of the body.
+///
+/// # Why the depth is a parameter and not an oversight
+///
+/// A guard clause is admitted here and intercepted in `emit_substituted`, which
+/// walks `candidate.statements` — the top level and nothing else. Anything
+/// deeper falls through to `stmt::emit_stmt`, whose `StmtKind::Return` arm is
+/// `builder.ret(&[result])`: **a return from the CALLER**.
+///
+/// This function used to recurse through `Block` and `If` with the guard arm
+/// still live, so the two disagreed about which statements existed. Measured on
+/// the engine, 2026-08-30:
+///
+/// ```text
+/// function classify(x) {
+///   if (x > 0) { if (x > 10) { return 99; } }   // a guard, one level down
+///   return x;
+/// }
+/// console.log(classify(5), classify(50), classify(-1));
+/// ```
+///
+/// node prints `5 99 -1`; this engine printed NOTHING and exited zero, because
+/// the substituted body returned out of `console.log`'s caller and then out of
+/// the module. A silent wrong answer with a successful exit, which is the worst
+/// class this repository names.
+///
+/// Every test written for the guard clause put it at the top level, because that
+/// is the shape the change was designed around — a test written from a design
+/// tests the design. `tests/inline_statement_body.test.ts` now pins the nested
+/// shapes as well.
+///
+/// Admitting a nested guard properly means `emit_substituted` walking the body
+/// the way `straight_line` does and merging from any depth. That is a real
+/// change and is not smuggled in here; refusing is correct and cheap.
+fn straight_line_at(statement: &Stmt, top: bool) -> bool {
     match &statement.kind {
         StmtKind::Empty => true,
         StmtKind::Expr(_) => true,
@@ -870,19 +908,39 @@ fn straight_line(statement: &Stmt) -> bool {
                     matches!(binding.target, Pattern::Name(_)) && binding.value.is_some()
                 })
         }
-        StmtKind::Block(inner) => inner.iter().all(straight_line),
+        // `Try` AND `Throw` ARE REFUSED, and that is a measured decision rather
+        // than a gap. Both were admitted for one build — a `try` is CONTAINED,
+        // so control reaches the statement after it however the arms end, which
+        // is the whole of what refuses a loop — and .NET's RyuJIT needed to
+        // merge an exception-handling table to do the same thing that
+        // substituting a TREE gets for nothing.
+        //
+        // It does not pay. Measured 2026-08-30, release, three alternations,
+        // with the mechanism actually present: `try`/`catch` with straight-line
+        // arms 58.00 -> 60.00 ns, with a catch binding 58.00 -> 62.00, against
+        // a plain-helper control that did not move. A body with a `try` costs
+        // about 58 ns and the protected region is nearly all of it, so removing
+        // the call buys a couple of nanoseconds and copying the arms into the
+        // caller costs at least as many blocks back.
+        //
+        // A previous commit claimed this WAS admitted and reported a 4% win.
+        // The arms had never landed — a patch script died on its second hunk —
+        // so the 4% was layout noise attributed to a mechanism that did not
+        // exist. See `docs/codegen/inlining-survey-2026-08-30.md`.
+        StmtKind::Block(inner) => inner.iter().all(|held| straight_line_at(held, false)),
         // A guard clause, which is the one way a `Return` is admitted here — see
-        // [`guard_return`] for why this shape and no other.
-        _ if guard_return(statement).is_some() => true,
+        // [`guard_return`] for why this shape and no other, and this function's
+        // own comment for why only at the top.
+        _ if top && guard_return(statement).is_some() => true,
         StmtKind::If {
             then_branch,
             else_branch,
             ..
         } => {
-            straight_line(then_branch)
+            straight_line_at(then_branch, false)
                 && else_branch
                     .as_ref()
-                    .is_none_or(|branch| straight_line(branch))
+                    .is_none_or(|branch| straight_line_at(branch, false))
         }
         _ => false,
     }
@@ -926,29 +984,6 @@ fn declared_names(statement: &Stmt, bound: &mut Vec<Name>) -> bool {
                     .is_none_or(|branch| declared_names(branch, bound))
         }
         StmtKind::Empty | StmtKind::Expr(_) => true,
-        StmtKind::Throw(_) => true,
-        // A catch BINDING is a name the body introduces, so it travels out with
-        // the body's locals and gets the same `declarations_of == 1` proof they
-        // do — without it a substituted `catch (e)` would write the caller's
-        // `e`.
-        StmtKind::Try {
-            body,
-            catch,
-            finally,
-        } => {
-            body.iter().all(|held| declared_names(held, bound))
-                && catch.as_ref().is_none_or(|catch| {
-                    match &catch.binding {
-                        None => {}
-                        Some(Pattern::Name(name)) => bound.push(*name),
-                        Some(_) => return false,
-                    }
-                    catch.body.iter().all(|held| declared_names(held, bound))
-                })
-                && finally
-                    .as_ref()
-                    .is_none_or(|block| block.iter().all(|held| declared_names(held, bound)))
-        }
         _ => false,
     }
 }
