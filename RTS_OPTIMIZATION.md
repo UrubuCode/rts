@@ -342,23 +342,72 @@ of the 38 is `keys[q & 3]`**, an ordinary array element read. That is the same
 number `array index read` reports, it is paid by far more code than computed
 keys are, and nothing here has looked at it.
 
-## 5c. A METHOD CALL — where its 21 ns are
+## 5c. A METHOD CALL IS NOT A METHOD PROBLEM — it is one crossing
 
-Measured the same run:
+Measured 2026-08-30, release, min of 9 over 3 M iterations:
 
 | | ns |
 |---|---:|
-| `callee.m(a)` | 21.33 |
-| reading `callee.m` alone | 6.00 |
-| a free function call (substituted) | 1.00 |
+| method call `callee.m(a)` | 19.00 |
+| **the same function through a plain binding, `held(a)`** | **18.00** |
+| a method call with FOUR arguments | 20.67 |
+| the property read alone | 6.00 |
+| a native, `Math.abs(a)` | 32.67 |
 
-So the property read is six and the CALL is the other fifteen. That is the real
-call protocol, and item 10 is the only design here that touches it: a guard on
-the callee's identity with an ordinary call on the miss, hand-measured at 42%.
+**Being a method costs about one nanosecond.** A real call through an ordinary
+variable — one the substitution pass refuses because the binding is reassigned —
+costs the same eighteen. Three extra arguments cost 1.7.
 
-What it is NOT is the read. Six nanoseconds is the cached own-property number,
-and no cache work reduces this row.
+So the row is not the receiver, and it is not the property read: the read is
+cached and the two do not add up (6 + 18 is not 19). It is **one runtime
+crossing**, which this file prices at 15.7 ns, plus about two of bookkeeping.
 
+That bookkeeping is `entry::called`, and it is three thread-local borrows and
+four stack operations per call:
+
+```text
+with_current #1   is_class_constructor, push pending_arguments, push pending_counts
+invoke        →   with_current #2   resolve the callee, push `callees`
+with_current #3   pop pending_arguments, pop pending_counts
+```
+
+Every one of those maintains state JavaScript observes — `.stack`, `new.target`,
+`arguments` — which is why the survey refuted a direct call between two emitted
+functions three votes to nil. **A call that skips them is a different language.**
+
+### Which is why substitution is worth what it is
+
+A substituted call costs 1–3 ns because it removes the crossing outright. The
+method form is refused for one reason and it is not semantic: `emit_substituted`
+fires on a bare `Ident` callee only, so `o.m(x)` never reaches it.
+
+### And where a guard would have to get its identity — this corrects item 10
+
+Item 10 says the blocker is "you need something to compare AGAINST" and that the
+compiler could compare the closure's code address. **It cannot, cheaply.**
+`Context::mark_callable` puts the code pointer in `context.callables`, a SIDE
+TABLE keyed by cell — not in the cell — so reading it is a crossing, which is
+the whole cost the guard exists to avoid.
+
+The cheapest identity a compiled site can compare is therefore the closure CELL
+itself, and a cell does not exist at compile time. So the shape is forced:
+
+- the compiler picks ONE body statically — for `const o = { m(x) { … } }` it can
+  see which — and emits it inline behind a guard;
+- a cache word remembers the cell that a resolver confirmed carries that body;
+- the fast path compares the read callee against that word; a miss is an
+  ordinary call.
+
+That is not a JIT's inline cache by another name, and the difference is worth
+stating because the survey refused things for looking like one: the BODY is
+chosen at compile time and never changes, there is no deoptimisation and nothing
+to bail out to, and the emitted program is identical on every compile. The cache
+holds only "is this the cell we already checked", exactly as `CachedGet` holds
+"is this the layout we already checked".
+
+It needs a new terminator, a resolver, and the receiver-static analysis. It is
+the largest item left that has a measured number on it: 42%, hand-priced in
+JavaScript.
 ## 6. `type_of_is` RE-DERIVES A CONSTANT STRING COMPARISON — probably wrong
 
 Kept on the list with its own warning attached, which is why it is not higher.
