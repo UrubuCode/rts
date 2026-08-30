@@ -673,13 +673,38 @@ pub(super) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'
 /// block is the outer name — so it stays counted, which keeps the error in the
 /// safe direction exactly where block scope is what decides.
 fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
-    // The function's own name stays, and is not subtracted with the rest: for a
-    // DECLARATION the name binds in the enclosing scope — which is how
-    // recursion reaches it through the environment — and
-    // `declared_by_statement` puts it there for the same reason.
-    if let Some(name) = function.name {
-        found.insert(name);
-    }
+    // ITS OWN NAME IS NOT MENTIONED BY BEING SPELLED IN THE HEADER, and the
+    // unconditional insert that used to stand here said it was.
+    //
+    // The reason given was that a declaration's name binds in the enclosing
+    // scope and recursion reaches it through the environment. Both halves are
+    // true and the insert is not what makes them work: a nested function that
+    // recurses WRITES ITS OWN NAME IN ITS BODY, so `mentioned` has it and the
+    // subtraction below keeps it — `own` holds what the nested function binds
+    // internally, which its own declaration name is not. A sibling that calls it
+    // writes the name in HER body, and it arrives the same way.
+    //
+    // What the insert did add was the case where nothing mentions it at all.
+    // This set is intersected with what the ENCLOSING function declares, so a
+    // nested `function unused() {}` put `unused` in the enclosing function's
+    // environment — which means an environment object allocated and filled on
+    // every call, for a binding nothing reads.
+    //
+    // Measured 2026-08-30, release, min of 9, the helper never called:
+    //
+    // ```text
+    // function bare(x)     { return x + 1; }                      8.00 ns
+    // function withDecl(x) { function unused(y) { return y; }
+    //                        return x + 1; }                    323.67 ns
+    // ```
+    //
+    // — one `__rts_object_new`, three `__rts_set_property` and one
+    // `__rts_closure_new` per call of the enclosing function.
+    //
+    // The module header's rule is untouched: over-including is safe and
+    // under-including is two closures disagreeing about a variable. This is
+    // neither. It is a name counted as mentioned by a body that never mentions
+    // it, and the body is walked either way.
 
     let mut own = BTreeSet::new();
     let mut mentioned = BTreeSet::new();
