@@ -210,7 +210,8 @@ pub(super) fn emit_object(
             PropertyKey::Computed(expression) => {
                 let key = emit_expr(builder, scope, ctx, expression)?;
                 let key = tagged(builder, key);
-                call(builder, ctx, RuntimeOp::SetIndexed, &[object, key, value])?;
+                let estrito = super::property::estrito(builder, ctx);
+                call(builder, ctx, RuntimeOp::SetIndexed, &[object, key, value, estrito])?;
             }
         }
     }

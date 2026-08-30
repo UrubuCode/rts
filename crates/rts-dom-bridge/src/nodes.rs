@@ -55,7 +55,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
 ];
 
 /// O `NodeId` de um argumento, ou `None` para a sentinela `-1`.
-fn node(value: u64) -> Option<NodeId> {
+pub(crate) fn node(value: u64) -> Option<NodeId> {
     NodeId::from_abi(integer(value, -1))
 }
 

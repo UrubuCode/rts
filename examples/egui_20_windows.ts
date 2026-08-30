@@ -25,7 +25,7 @@ while (anyOpen) {
   let j = 0;
   while (j < COUNT) {
     const h = handles[j];
-    if (egui.isOpen(h) !== 0) {
+    if (egui.isOpen(h)) {
       anyOpen = true;
       egui.pump(h);
       egui.beginFrame(h);

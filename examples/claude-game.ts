@@ -68,8 +68,8 @@ const STEP_SRC =
 const step: any = new Function("__h", STEP_SRC);
 
 const win = egui.openWindow("RTS Auto-Pong", VW, 560, 0);
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   step(d); // avanca a fisica um frame (muta o DOM da pagina)
   egui.beginFrame(win);
   egui.render(win, d);

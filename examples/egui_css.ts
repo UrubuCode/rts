@@ -7,7 +7,7 @@ const page =
   "<span style=\"color:#22dd22; font-style:italic\">verde italico</span> inline.</p>";
 const h = egui.openWindow("css P0", 460, 320, 8); // glow
 let f = 0;
-while (egui.isOpen(h) !== 0 && f < 5) {
+while (egui.isOpen(h) && f < 5) {
   egui.pump(h); egui.beginFrame(h); egui.html(h, page);
   if (f === 3) egui.snapshot(h, "egui_css.ppm");
   egui.endFrame(h); f = f + 1;

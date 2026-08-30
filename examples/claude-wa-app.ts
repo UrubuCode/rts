@@ -74,8 +74,8 @@ while (im < maxImg) {
 
 io.print("abrindo janela...");
 const win = egui.openWindow("WhatsApp Web — RTS", VW, VH, 0);
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);

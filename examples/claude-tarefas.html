@@ -1,0 +1,87 @@
+<html><head><style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #0f1117; font-family: sans-serif; }
+
+.capa {
+  background: linear-gradient(135deg, #6d5efc, #1fb6a8);
+  padding: 34px 40px 30px 40px;
+}
+.titulo { color: #ffffff; font-size: 30px; font-weight: 700; letter-spacing: 1px; margin: 0; }
+.sub { color: #dff5f1; font-size: 15px; margin: 8px 0 0 0; }
+
+.palco { padding: 26px 40px 40px 40px; }
+
+.cartao {
+  background: #171a23;
+  border-radius: 14px;
+  border-width: 1px;
+  border-color: #262b38;
+  border-style: solid;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  padding: 22px 24px;
+  margin-bottom: 22px;
+}
+
+.barra { display: flex; gap: 12px; align-items: center; }
+.campo {
+  flex-grow: 1;
+  background: #0f1117;
+  color: #e8ecf5;
+  border-width: 2px;
+  border-color: #2f3648;
+  border-style: solid;
+  border-radius: 10px;
+  padding: 13px 15px;
+  font-size: 16px;
+}
+.botao {
+  background: linear-gradient(180deg, #6d5efc, #5a4ae0);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 13px 24px;
+  border-radius: 10px;
+  letter-spacing: 1px;
+}
+
+.metricas { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.metrica { background: #171a23; border-radius: 12px; padding: 18px 20px;
+  border-width: 1px; border-color: #262b38; border-style: solid; }
+.numero { color: #7c6ffd; font-size: 30px; font-weight: 700; }
+.rotulo { color: #79839c; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+
+.linha {
+  display: flex; align-items: center; gap: 14px;
+  background: #12151d; border-radius: 11px;
+  padding: 15px 18px; margin-bottom: 10px;
+  border-left-width: 4px; border-left-color: #6d5efc; border-left-style: solid;
+}
+.linha.pronta { border-left-color: #1fb6a8; opacity: 0.62; }
+.marca { color: #6d5efc; font-size: 19px; font-weight: 700; width: 26px; }
+.linha.pronta .marca { color: #1fb6a8; }
+.texto { flex-grow: 1; color: #e8ecf5; font-size: 17px; }
+.linha.pronta .texto { color: #6f7a91; }
+.acao { color: #79839c; font-size: 13px; padding: 6px 12px; border-radius: 7px;
+  background: #1c202b; letter-spacing: 1px; }
+.acao.perigo { color: #ff8b8b; }
+.vazio { color: #5b6478; font-size: 16px; padding: 26px 0; text-align: center; }
+</style></head><body>
+<div class="capa">
+  <p class="titulo">Tarefas</p>
+  <p class="sub">HTML, CSS e JavaScript no motor RTS — parser, cascade, layout e pintura, tudo nosso.</p>
+</div>
+<div class="palco">
+  <div class="cartao">
+    <div class="barra">
+      <input id="campo" class="campo" value="" placeholder="o que falta fazer?">
+      <span id="add" class="botao">ADICIONAR</span>
+    </div>
+  </div>
+  <div class="metricas">
+    <div class="metrica"><p id="m-total" class="numero">0</p><p class="rotulo">no total</p></div>
+    <div class="metrica"><p id="m-falta" class="numero">0</p><p class="rotulo">por fazer</p></div>
+    <div class="metrica"><p id="m-feito" class="numero">0</p><p class="rotulo">concluidas</p></div>
+  </div>
+  <div class="cartao"><div id="lista"></div></div>
+</div>
+</body></html>

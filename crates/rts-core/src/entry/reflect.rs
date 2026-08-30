@@ -107,7 +107,7 @@ impl Reflect {
         // to answer that question instead of raising it, so performing the write
         // to find out would end the program it was asked to inform.
         if lands {
-            super::computed::set_indexed(target, key, value);
+            super::computed::set_indexed(target, key, value, 0 /* strict: `Reflect.set` reporta a recusa */);
         }
         lands
     }

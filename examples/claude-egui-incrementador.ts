@@ -27,8 +27,8 @@ egui.endFrame(win);
 const contador = egui.querySelector(win, "#contador");
 
 let n = 0;
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break; // janela fechada
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break; // janela fechada
 
   // 3) Muta o texto do nó a cada frame — SEM re-parsear HTML.
   n = n + 1;

@@ -33,8 +33,8 @@ const d = dom.parseHtml(
 
 const win = egui.openWindow("Pipeline unificado — DOM no rts-dom, egui so renderiza", 600, 320, 0);
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   egui.render(win, d); // ← o egui LÊ o DOM `d` do rts-dom e pinta
   egui.endFrame(win);

@@ -361,7 +361,7 @@ extern "C" fn from_entries(_e: u64, _this: u64, entries: u64, _a1: u64, _a2: u64
         let absent = with_current(|context| undefined_of(context));
         let key = pair.first().copied().unwrap_or(absent);
         let value = pair.get(1).copied().unwrap_or(absent);
-        super::computed::set_indexed(made, key, value);
+        super::computed::set_indexed(made, key, value, 0 /* strict: um native que escreve reporta a recusa */);
     }
     made
 }
@@ -447,7 +447,7 @@ extern "C" fn group_by(_e: u64, _this: u64, items: u64, callback: u64, _a2: u64,
         let group = super::computed::get_indexed(made, key);
         if group == absent {
             let fresh = super::array_proto::built(vec![element]);
-            super::computed::set_indexed(made, key, fresh);
+            super::computed::set_indexed(made, key, fresh, 0 /* strict: um native que escreve reporta a recusa */);
         } else {
             super::iterate::array_append(group, element);
         }

@@ -127,8 +127,8 @@ function paintNode(node: number, x: number, y: number, w: number): number {
 
 const root = dom.rootId(d);
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   // o documento tem 1 filho de topo (<page>)
   const pageCount = dom.childCount(d, root);

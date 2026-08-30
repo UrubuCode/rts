@@ -166,7 +166,67 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("drop", drop_member),
     ("run", run),
     ("lastError", last_error),
+    ("adopt", adopt),
 ];
+
+/// `DomScope.adopt(h, objeto)` — faz de `objeto` o saco de globais deste
+/// documento.
+///
+/// # Porque o escopo tem de SER o `window`
+///
+/// Num browser o objeto global e o `window` são a mesma coisa: um script que
+/// escreve `window.X = 1` e outro que lê `X` como nome livre encontram-se,
+/// porque estão a falar da mesma propriedade do mesmo objeto.
+///
+/// Aqui eram dois. O `window` era publicado COMO PROPRIEDADE do saco, e medido
+/// dava isto: `window.X = 42` no primeiro script, `typeof X` no segundo →
+/// `"undefined"`; e ao contrário, `Z = 9` livre não aparecia em `window.Z`.
+///
+/// O que isso quebra não é um caso de canto — é o formato UMD, que é como
+/// TODA a biblioteca do npm é servida a uma página. O ramo de browser de um
+/// UMD faz `factory(global.React = {})`, e o script seguinte lê `React`. Com
+/// dois objetos, o React 18.3.1 publicava-se num sítio que o programa nunca
+/// via: `ReferenceError: React is not defined`, com os dois bundles a terem
+/// corrido sem um erro.
+///
+/// Adotar em vez de copiar: uma cópia teria de ser mantida em dia nos dois
+/// sentidos e toda a escrita passaria a ter dois destinos, que é a forma de
+/// eles divergirem num deles.
+/// Responde `1` quando este documento JÁ tinha adotado este objeto, para que
+/// quem prepara o escopo possa sair sem repetir o trabalho — em vez de o
+/// marcar com uma propriedade, que ficaria à vista do JavaScript da página.
+extern "C" fn adopt(_e: u64, _t: u64, doc: u64, object: u64, _b: u64, _c: u64) -> u64 {
+    let h = handle(doc);
+    if locked().get(&h).map(|bag| bag.object) == Some(object) {
+        return int(1);
+    }
+    // O `hold` novo ANTES de largar o antigo: entre os dois há uma alocação
+    // possível, e uma coleção nesse intervalo não pode encontrar o documento
+    // sem saco nenhum.
+    let hold = entry::hold_current(object);
+    let anterior = {
+        let mut bags = locked();
+        match bags.get_mut(&h) {
+            Some(bag) => {
+                let anterior = Some((bag.object, bag.hold));
+                bag.object = object;
+                bag.hold = hold;
+                anterior
+            }
+            None => {
+                bags.insert(
+                    h,
+                    Bag { object, hold, last_error: None, order: Vec::new(), known: HashSet::new() },
+                );
+                None
+            }
+        }
+    };
+    if let Some((_, hold)) = anterior {
+        entry::release_current(hold);
+    }
+    int(0)
+}
 
 /// `DomScope.run(h, fonte, window)` — corre o texto de um `<script>` com o saco
 /// deste documento COMO ESCOPO, e devolve `1` se correu.
@@ -207,16 +267,53 @@ extern "C" fn run(_e: u64, _t: u64, doc: u64, source: u64, window: u64, _c: u64)
     // deles terminava o processo com a página por montar. Consumir aqui é o que
     // torna a falha DESTE script e não da página.
     let raised = entry::pending();
-    if raised.is_some() {
-        entry::take_thrown();
-    }
+    // O VALOR lançado, e não só a mensagem: um `Error` carrega o `.stack`
+    // capturado onde foi CONSTRUÍDO, que é o único sítio onde a pilha ainda
+    // existe. `call_frames()` aqui responde vazio — quando o controlo volta a
+    // este nativo os frames já foram desempilhados —, e foi por isso que a
+    // primeira tentativa de dizer "onde" não disse nada.
+    //
+    // Sem isto, um erro vindo de dentro de um bundle grande diz O QUÊ e não
+    // ONDE. Medido a custar caro: o React falha a ler `childLanes` de um
+    // `undefined`, e `childLanes` aparece em trinta sítios do react-dom —
+    // três sondas manuais depois, ainda não se sabia em qual.
+    let onde = match raised.is_some() {
+        false => String::new(),
+        true => {
+            let lancado = entry::take_thrown();
+            // A propriedade sob o empréstimo, o TEXTO fora dele: `text_of`
+            // entra no contexto por sua conta, e pedi-lo aqui dentro seria um
+            // abort não-desenrolável em vez de um erro. É a mesma regra que o
+            // cabeçalho deste módulo dá para os locks.
+            let stack = entry::with_runtime(|context| entry::get_member(context, lancado, "stack"));
+            let pilha = entry::text_of(stack);
+            match pilha {
+                // A mensagem já vem em `raised`, e o `.stack` repete-a na
+                // primeira linha: só as linhas `at …` são novidade.
+                Some(texto) => {
+                    let linhas: Vec<&str> = texto
+                        .lines()
+                        .map(str::trim)
+                        .filter(|linha| linha.starts_with("at "))
+                        .collect();
+                    match linhas.is_empty() {
+                        true => String::new(),
+                        false => format!("
+         {}", linhas.join("
+         ")),
+                    }
+                }
+                None => String::new(),
+            }
+        }
+    };
     // O QUE falhou fica guardado, e isso não é só diagnóstico: um browser
     // imprime o erro de um `<script>` no console, e uma falha que não diz nada
     // é indistinguível de um script que não fez nada. Foi assim que o prelude
     // em falta passou dezassete dias por descobrir — ver
     // `docs/ui/page-script-bridge.md`.
     let message = match (&answered, &raised) {
-        (_, Some((_, text))) => Some(text.clone()),
+        (_, Some((_, text))) => Some(format!("{text}{onde}")),
         // Compilou-se nada e não houve throw: fonte que o front end recusou.
         // Um `SyntaxError` de um `<script>` é ordinário numa página real, e
         // dizer "não compilou" é mais do que o silêncio de antes mesmo sem a
@@ -278,7 +375,7 @@ extern "C" fn set(_e: u64, _t: u64, doc: u64, name: u64, value: u64, _c: u64) ->
     let h = handle(doc);
     let name = text(name);
     let object = object_for(h);
-    entry::set_indexed(object, string(&name), value);
+    entry::set_indexed(object, string(&name), value, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     remember(h, &name);
     nothing()
 }

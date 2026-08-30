@@ -485,7 +485,10 @@ fn write_member(
             // rather than a fourth entry point.
             if !hidden {
                 return Ok(
-                    expr::call(builder, ctx, RuntimeOp::SetIndexed, &[target, key_value, value])?[0],
+                    {
+                        let estrito = super::property::estrito(builder, ctx);
+                        expr::call(builder, ctx, RuntimeOp::SetIndexed, &[target, key_value, value, estrito])?[0]
+                    },
                 );
             }
             let key = expr::call(builder, ctx, RuntimeOp::KeyNumber, &[key_value])?[0];

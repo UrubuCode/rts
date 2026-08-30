@@ -94,6 +94,7 @@ extern "C" fn field_ctor(_env: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3
         this,
         V_KEY.load(Ordering::Relaxed),
         Value::from_f64(1.0).bits(),
+        0, // strict: e o que o compilador emite para um campo de classe
     );
     UNDEFINED.load(Ordering::Relaxed)
 }
@@ -194,6 +195,7 @@ fn main() {
                 victim,
                 V_KEY.load(Ordering::Relaxed),
                 Value::from_f64(i as f64).bits(),
+                0, // strict: a sonda mede o caminho que um modulo usa
             ))
         });
         report("object_new(0) cold", ALLOC_EACH, |sink, _| {

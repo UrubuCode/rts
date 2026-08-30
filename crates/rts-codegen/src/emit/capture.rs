@@ -226,7 +226,7 @@ fn declared_at_own_level(body: &[Stmt], candidates: &[Name]) -> BTreeSet<Name> {
 ///
 /// Stops at a nested function, like everything else in this module: a `var`
 /// there belongs to that function and not to this one.
-fn vars_at_any_depth(statement: &Stmt, found: &mut BTreeSet<Name>) {
+pub(super) fn vars_at_any_depth(statement: &Stmt, found: &mut BTreeSet<Name>) {
     if let StmtKind::Declare { kind, bindings } = &statement.kind
         && !kind.is_block_scoped()
     {

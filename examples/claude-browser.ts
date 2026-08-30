@@ -401,8 +401,15 @@ if (bootLocal === 1) {
 io.print("[boot] urlbar node=" + urlInput(d) + " inputs=" + dom.querySelectorAllCount(d, "input") + " val='" + dom.inputValue(d, urlInput(d)) + "'");
 
 let frame = 0;
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+// `isOpen` e `pump` respondem BOOLEANOS, e os dois `!== 0` que aqui estavam
+// liam-nos como numeros — cada um errado no seu sentido, e os dois erros
+// cancelavam-se no pior lugar possivel. `isOpen(win) !== 0` e SEMPRE verdadeiro
+// (`false !== 0` tambem e), entao a janela fechada nunca terminava o laco; e
+// `pump` responde `true` para CONTINUAR (do lado Rust e `from_bool(pump(...) ==
+// 0)`), entao `!== 0` saia no PRIMEIRO frame. Liquido: a janela abria e o
+// processo terminava sem nunca desenhar nada, sem erro nenhum a dize-lo.
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   frame = frame + 1;
 
   // ── POLL do download assíncrono (não bloqueia): quando pronto, monta a página ──
@@ -481,16 +488,16 @@ while (egui.isOpen(win) !== 0) {
   // O pump unificado entrega keydown/keyup, beforeinput/input e composição.
   // A edição já não é mutada directamente aqui: preventDefault() pode cancelar
   // keydown ou beforeinput antes de o valor do campo ser alterado.
-  if (input.key(win, KEY_ENTER, PHASE_PRESSED) !== 0) doNav = true;
+  if (input.key(win, KEY_ENTER, PHASE_PRESSED)) doNav = true;
 
   // ── Atalhos com Ctrl (copiar / apagar tudo) ──────────────────────────────────
-  const ctrl = input.modCtrl(win) !== 0;
-  if (ctrl && input.key(win, KEY_C, PHASE_PRESSED) !== 0) {
+  const ctrl = input.modCtrl(win);
+  if (ctrl && input.key(win, KEY_C, PHASE_PRESSED)) {
     // Ctrl+C: copia o valor do input focado para o clipboard do SO.
     input.copyText(win, dom.inputValue(d, urlInput(d)));
     io.print("[copy] '" + dom.inputValue(d, urlInput(d)) + "'");
   }
-  if (ctrl && input.key(win, KEY_A, PHASE_PRESSED) !== 0) {
+  if (ctrl && input.key(win, KEY_A, PHASE_PRESSED)) {
     // Ctrl+A: "seleciona tudo" → como ainda não há seleção visual, limpa a barra
     // pelo mesmo beforeinput/input cancelável de uma edição normal.
     clearInputValue(docF, urlInput(d));

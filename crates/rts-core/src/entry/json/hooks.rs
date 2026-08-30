@@ -167,7 +167,7 @@ fn place(holder: u64, key: u64, reviver: u64) -> bool {
             super::super::computed::delete_property(holder, key);
         }
         false => {
-            super::super::computed::set_indexed(holder, key, revived);
+            super::super::computed::set_indexed(holder, key, revived, 0 /* strict: um native que escreve reporta a recusa */);
         }
     }
     true

@@ -8,7 +8,7 @@ const page =
   "<p>Janela <b>transparente</b> e <b>frameless</b>. O cabeçalho/botões seriam HTML.</p>";
 const h = egui.openWindow("frameless", 420, 300, 56);
 let f = 0;
-while (egui.isOpen(h) !== 0 && f < 5) {
+while (egui.isOpen(h) && f < 5) {
   egui.pump(h);
   egui.beginFrame(h);
   egui.html(h, page);

@@ -23,14 +23,14 @@
 /// file's; a parser that folds cannot also hand back `rawHeaders`.
 pub(super) type RawHeaders = Vec<(String, String)>;
 
-pub(super) struct RequestHead {
+pub(crate) struct RequestHead {
     pub method: String,
     pub target: String,
     pub version: String,
     pub headers: RawHeaders,
 }
 
-pub(super) struct ResponseHead {
+pub(crate) struct ResponseHead {
     pub version: String,
     pub status: u16,
     pub reason: String,
@@ -86,7 +86,7 @@ pub(super) fn parse_request_head(buf: &[u8]) -> Option<(RequestHead, usize)> {
 }
 
 /// The response-side pair of [`parse_request_head`].
-pub(super) fn parse_response_head(buf: &[u8]) -> Option<(ResponseHead, usize)> {
+pub(crate) fn parse_response_head(buf: &[u8]) -> Option<(ResponseHead, usize)> {
     let end = find_double_crlf(buf)?;
     let lines = split_head_lines(&buf[..end]);
     let status_line = lines.first()?;
@@ -111,13 +111,13 @@ pub(super) fn header_find<'a>(headers: &'a RawHeaders, name: &str) -> Option<&'a
 /// message rather than adding a rejection path this crate has no error
 /// channel to report through).
 #[derive(Clone, Copy)]
-pub(super) enum Framing {
+pub(crate) enum Framing {
     None,
     Length(usize),
     Chunked,
 }
 
-pub(super) fn framing_of(headers: &RawHeaders) -> Framing {
+pub(crate) fn framing_of(headers: &RawHeaders) -> Framing {
     if let Some(te) = header_find(headers, "transfer-encoding")
         && te.to_ascii_lowercase().contains("chunked")
     {
@@ -132,7 +132,7 @@ pub(super) fn framing_of(headers: &RawHeaders) -> Framing {
 }
 
 /// One decode step's answer.
-pub(super) enum ChunkOutcome {
+pub(crate) enum ChunkOutcome {
     /// Not enough bytes yet for the next chunk-size line or chunk body.
     NeedMore,
     /// One decoded chunk, with its bytes already stripped of the
@@ -148,7 +148,7 @@ pub(super) enum ChunkOutcome {
 /// mid-chunk, and how many bytes are left in the current one) to be fed
 /// arbitrary byte spans as they arrive off a socket, one `'data'` event at a
 /// time.
-pub(super) struct ChunkedDecoder {
+pub(crate) struct ChunkedDecoder {
     remaining: Option<usize>,
     trailers_done: bool,
 }

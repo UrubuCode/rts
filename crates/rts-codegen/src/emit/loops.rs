@@ -657,6 +657,22 @@ fn per_iteration_names(
     // the declaration path that would put it here.
     let mut declared = std::collections::BTreeSet::new();
     super::capture::declared_by_statement(body, &mut declared);
+    // E os `var` SAEM, que é o que o parágrafo acima diz e o que esta função
+    // não fazia: `declared_by_statement` recolhe TODAS as declarações — é a
+    // mesma que `hoist_vars` usa para as encontrar — por isso um `var` do corpo
+    // vinha para aqui e era ligado a zero hops no objeto DA PASSAGEM.
+    //
+    // O efeito é a escrita e a leitura irem a objetos diferentes: medido, a
+    // escrita de `var d = c` dentro do laço via o ambiente `v44` e a leitura
+    // depois dele via `v9`, ambas a "zero hops". O valor não se perdia — ficava
+    // num objeto que já ninguém consultava.
+    //
+    // Só aparece quando a função TEM ambiente, porque só então há um objeto por
+    // passagem a abrir; foi por isso que o mesmo laço dentro de um `try` falha
+    // e fora dele não.
+    let mut vars = std::collections::BTreeSet::new();
+    super::capture::vars_at_any_depth(body, &mut vars);
+    declared.retain(|name| !vars.contains(name));
     let mut resident = carried.clone();
     resident.extend(
         declared

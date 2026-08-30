@@ -113,7 +113,16 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
 /// Two statements, like the named write: a setter is user code and runs after
 /// the borrow ends.
 #[rtse::entry]
-pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
+pub fn set_indexed(object: u64, key: u64, value: u64, sloppy: i64) -> u64 {
+    store_indexed(object, key, value, sloppy != 0)
+}
+
+/// `sloppy` diz o modo de quem escreve; ver
+/// [`super::super::objects::set_property`] para porque é um argumento e não uma
+/// segunda porta. `o[k] = v` recusa tanto como `o.k = v`, e é a forma que um
+/// bundle minificado usa mais.
+/// `object[key] = value`, com o modo de quem escreve.
+fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
     // Ver a nota em [`get_indexed`]: a conversão da chave só acontece quando há
     // um proxy para perguntar, ou quando a chave é um objeto.
     let (key, trap) = opened(object, key);
@@ -218,7 +227,13 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
         // Built inside the borrow and raised outside it, for the reason
         // `objects::resolve_store` states: constructing the error takes the
         // context, and re-entering it here would abort rather than throw.
-        Some(Store::Refused(why)) => super::super::throw::type_error(&why),
+        // Só LANÇA em strict; em sloppy a escrita não acontece e o programa
+        // segue, que é o que a especificação diz.
+        Some(Store::Refused(why)) => {
+            if !sloppy {
+                super::super::throw::type_error(&why);
+            }
+        }
         Some(Store::Direct) | None => {}
     }
     value

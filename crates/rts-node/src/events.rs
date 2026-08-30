@@ -460,7 +460,7 @@ fn disposable(signal: u64, callback: u64) -> u64 {
     });
     let object_root = rts_core::entry::hold_current(object);
     let dispose_root = rts_core::entry::hold_current(dispose_fn);
-    rts_core::entry::set_indexed(object, dispose_key, dispose_fn);
+    rts_core::entry::set_indexed(object, dispose_key, dispose_fn, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     rts_core::entry::release_current(dispose_root);
     rts_core::entry::release_current(object_root);
     object
@@ -484,8 +484,8 @@ extern "C" fn dispose_abort_listener(
     }
     let remove = rts_core::entry::get_indexed(signal, string_key("removeEventListener"));
     rts_core::entry::call(remove, signal, string_key("abort"), callback, absent, absent);
-    rts_core::entry::set_indexed(this, string_key("__abortSignal__"), absent);
-    rts_core::entry::set_indexed(this, string_key("__abortCallback__"), absent);
+    rts_core::entry::set_indexed(this, string_key("__abortSignal__"), absent, 0 /* strict: quem escreve a partir do host reporta a recusa */);
+    rts_core::entry::set_indexed(this, string_key("__abortCallback__"), absent, 0 /* strict: quem escreve a partir do host reporta a recusa */);
     absent
 }
 
@@ -706,7 +706,7 @@ fn store_array(events: u64, key: u64, wrappers: Vec<u64>) {
     let array = rts_core::entry::with_runtime(|context| {
         rts_core::entry::make_array_in(context, wrappers)
     });
-    rts_core::entry::set_indexed(events, key, array);
+    rts_core::entry::set_indexed(events, key, array, 0 /* strict: quem escreve a partir do host reporta a recusa */);
 }
 
 /// The ordered event names, including Symbols, that have ever had a listener.

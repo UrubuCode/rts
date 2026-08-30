@@ -124,7 +124,7 @@ pub(super) fn made(original: u64, length: usize) -> Option<u64> {
 /// copy but a guess.
 pub(super) fn placed(destination: u64, index: usize, value: u64) {
     let at = Value::from_f64(index as f64).bits();
-    super::super::computed::set_indexed(destination, at, value);
+    super::super::computed::set_indexed(destination, at, value, 0 /* strict: um native que escreve reporta a recusa */);
 }
 
 /// The `Array` every array inherits its `constructor` from.

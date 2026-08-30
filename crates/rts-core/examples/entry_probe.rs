@@ -143,7 +143,8 @@ fn main() {
         // `bench/analytic.ts`'s own `instanceof` row measures — a `false` walks
         // the chain to its end instead, and would be a different number.
         let victim = object_new(4);
-        set_property(victim, x_key, number);
+        set_property(victim, x_key, number,
+                0 /* strict: uma sonda mede o caminho que o programa usa */);
 
         // `black_box` on the operand, because without it the floor came out at
         // 0.00 ns/op: summing `i` over a constant range has a closed form and
@@ -160,7 +161,8 @@ fn main() {
             sink.wrapping_add(add(number, other))
         });
         report("set_property existing", EACH, move |sink, i| {
-            sink.wrapping_add(set_property(victim, x_key, Value::from_f64(i as f64).bits()))
+            sink.wrapping_add(set_property(victim, x_key, Value::from_f64(i as f64).bits(),
+                0 /* strict: uma sonda mede o caminho que o programa usa */))
         });
         report("get_property", EACH, move |sink, _| {
             sink.wrapping_add(get_property(victim, x_key))

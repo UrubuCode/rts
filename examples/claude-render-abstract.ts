@@ -16,8 +16,8 @@ const BORDER = 0x33CC88FF;
 const WHITE = 0xFFFFFFFF;
 const GRAY = 0xB0B8C0FF;
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
 
   // ciclo de frame VIA RENDER (não egui)
   render.beginFrame(win);

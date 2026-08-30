@@ -100,8 +100,8 @@ const HTML =
 // DOM no rts-dom (headless); o egui só LÊ e pinta via egui.render.
 const d = dom.parseHtml(HTML);
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);

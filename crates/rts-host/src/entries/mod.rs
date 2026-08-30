@@ -123,7 +123,7 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::get_property as extern "C" fn(u64, i64) -> u64 as *const u8
         }),
         RuntimeOp::SetProperty => (CoreEntry::SetProperty, {
-            rts_core::entry::set_property as extern "C" fn(u64, i64, u64) -> u64 as *const u8
+            rts_core::entry::set_property as extern "C" fn(u64, i64, u64, i64) -> u64 as *const u8
         }),
         RuntimeOp::ClosureNew => (CoreEntry::ClosureNew, {
             rts_core::entry::closure_new as extern "C" fn(i64, u64) -> u64 as *const u8
@@ -265,7 +265,7 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::get_indexed as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::SetIndexed => (CoreEntry::SetIndexed, {
-            rts_core::entry::set_indexed as extern "C" fn(u64, u64, u64) -> u64 as *const u8
+            rts_core::entry::set_indexed as extern "C" fn(u64, u64, u64, i64) -> u64 as *const u8
         }),
         RuntimeOp::HasProperty => (CoreEntry::HasProperty, {
             rts_core::entry::has_property as extern "C" fn(u64, u64) -> bool as *const u8

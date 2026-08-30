@@ -19394,7 +19394,7 @@
   "status": "rts_diverge",
   "bun": "let_closures=0,1,2\nvar_closures=3,3,3\nvar_after=3\nearly=10,11,12\nbody_mutation=10\ntwo_declarators=0:10|1:9|2:8\ncond_sees=0,1,2\nfor_of=a,b,c\nfor_in=p,q\nnested=00,01,10,11\nbody_let=1,3,5\ntypeof_after_let=undefined\nvar_body=2,2,2\nbefore_break=0,1,2\nwith_continue=0,2,3\nfrom_update=1,2,3\ndistinct_fns=true\nconst_for_of=p,q,r\ndestructured=a1,b2\nwhile_shared=3,3,3\nwhile_body_let=0,1,2\nbumped=0,2,4",
   "node": "let_closures=0,1,2\nvar_closures=3,3,3\nvar_after=3\nearly=10,11,12\nbody_mutation=10\ntwo_declarators=0:10|1:9|2:8\ncond_sees=0,1,2\nfor_of=a,b,c\nfor_in=p,q\nnested=00,01,10,11\nbody_let=1,3,5\ntypeof_after_let=undefined\nvar_body=2,2,2\nbefore_break=0,1,2\nwith_continue=0,2,3\nfrom_update=1,2,3\ndistinct_fns=true\nconst_for_of=p,q,r\ndestructured=a1,b2\nwhile_shared=3,3,3\nwhile_body_let=0,1,2\nbumped=0,2,4",
-  "rts": "let_closures=0,1,2\nvar_closures=3,3,3\nvar_after=3\nearly=10,11,12\nbody_mutation=10\ntwo_declarators=0:10|1:9|2:8\ncond_sees=0,1,2\nfor_of=a,b,c\nfor_in=p,q\nnested=00,01,10,11\nbody_let=1,3,5\ntypeof_after_let=undefined\nvar_body=0,1,2\nbefore_break=0,1,2\nwith_continue=0,2,3\nfrom_update=3,3,3\ndistinct_fns=true\nconst_for_of=p,q,r\ndestructured=a1,b2\nwhile_shared=3,3,3\nwhile_body_let=0,1,2\nbumped=0,2,4",
+  "rts": "let_closures=0,1,2\nvar_closures=3,3,3\nvar_after=3\nearly=10,11,12\nbody_mutation=10\ntwo_declarators=0:10|1:9|2:8\ncond_sees=0,1,2\nfor_of=a,b,c\nfor_in=p,q\nnested=00,01,10,11\nbody_let=1,3,5\ntypeof_after_let=undefined\nvar_body=2,2,2\nbefore_break=0,1,2\nwith_continue=0,2,3\nfrom_update=3,3,3\ndistinct_fns=true\nconst_for_of=p,q,r\ndestructured=a1,b2\nwhile_shared=3,3,3\nwhile_body_let=0,1,2\nbumped=0,2,4",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -19699,10 +19699,10 @@
 ,
 {
   "name": "claude2-do-while-body-mutations",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "false_condition_runs_once=ran\ncondition_sees_body=1,2,3,4|final=4\neval_order=body0,test1,body1,test2,body2,test3\ncontinue_to_condition=even2,even4,even6|c=6\nbreak_skips_test=t1|b=2\nlet_per_pass=0,1,2\nvar_in_body=2,2,2|shared=2\nnested=00,01,10,11\nlabelled_continue=1:1,2:1,3:1\nlabelled_break=11,12,13,21,22|bi=2\nreturn_from_body=pass1,cond1|left-at=2\nthrow_in_body=ok1,fin1,cond1,fin2,caught:RangeError\nconst_per_pass=p0,p1,p2\nsingle_statement_body=81\ntruthy_condition=abcd,bcd,cd,d|left=\"\"\ninside_for_of=ab1,ab2,c1\ncondition_scope=inner0,inner1,inner2|outer=outer\nempty_body=4\nlast_test_runs=t1,t2,t3|q=3\nas_if_body=15",
   "node": "false_condition_runs_once=ran\ncondition_sees_body=1,2,3,4|final=4\neval_order=body0,test1,body1,test2,body2,test3\ncontinue_to_condition=even2,even4,even6|c=6\nbreak_skips_test=t1|b=2\nlet_per_pass=0,1,2\nvar_in_body=2,2,2|shared=2\nnested=00,01,10,11\nlabelled_continue=1:1,2:1,3:1\nlabelled_break=11,12,13,21,22|bi=2\nreturn_from_body=pass1,cond1|left-at=2\nthrow_in_body=ok1,fin1,cond1,fin2,caught:RangeError\nconst_per_pass=p0,p1,p2\nsingle_statement_body=81\ntruthy_condition=abcd,bcd,cd,d|left=\"\"\ninside_for_of=ab1,ab2,c1\ncondition_scope=inner0,inner1,inner2|outer=outer\nempty_body=4\nlast_test_runs=t1,t2,t3|q=3\nas_if_body=15",
-  "rts": "false_condition_runs_once=ran\ncondition_sees_body=1,2,3,4|final=4\neval_order=body0,test1,body1,test2,body2,test3\ncontinue_to_condition=even2,even4,even6|c=6\nbreak_skips_test=t1|b=2\nlet_per_pass=0,1,2\nvar_in_body=0,1,2|shared=undefined\nnested=00,01,10,11\nlabelled_continue=1:1,2:1,3:1\nlabelled_break=11,12,13,21,22|bi=2\nreturn_from_body=pass1,cond1|left-at=2\nthrow_in_body=ok1,fin1,cond1,fin2,caught:RangeError\nconst_per_pass=p0,p1,p2\nsingle_statement_body=81\ntruthy_condition=abcd,bcd,cd,d|left=\"\"\ninside_for_of=ab1,ab2,c1\ncondition_scope=inner0,inner1,inner2|outer=outer\nempty_body=4\nlast_test_runs=t1,t2,t3|q=3\nas_if_body=15",
+  "rts": "false_condition_runs_once=ran\ncondition_sees_body=1,2,3,4|final=4\neval_order=body0,test1,body1,test2,body2,test3\ncontinue_to_condition=even2,even4,even6|c=6\nbreak_skips_test=t1|b=2\nlet_per_pass=0,1,2\nvar_in_body=2,2,2|shared=2\nnested=00,01,10,11\nlabelled_continue=1:1,2:1,3:1\nlabelled_break=11,12,13,21,22|bi=2\nreturn_from_body=pass1,cond1|left-at=2\nthrow_in_body=ok1,fin1,cond1,fin2,caught:RangeError\nconst_per_pass=p0,p1,p2\nsingle_statement_body=81\ntruthy_condition=abcd,bcd,cd,d|left=\"\"\ninside_for_of=ab1,ab2,c1\ncondition_scope=inner0,inner1,inner2|outer=outer\nempty_body=4\nlast_test_runs=t1,t2,t3|q=3\nas_if_body=15",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -21223,4 +21223,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1516,"pass":1182,"reachable":1514,"rts_diverge":246,"bun_node_diverge":1,"errors":86,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1516,"pass":1183,"reachable":1514,"rts_diverge":245,"bun_node_diverge":1,"errors":86,"rejected":0,"upstream_defect":1}}

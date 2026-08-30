@@ -20,8 +20,8 @@ io.print("DOM montado, root = " + dom.querySelector(d, "body"));
 
 // ── 3. RENDERIZA numa janela (egui só lê a DisplayList do DOM e pinta). ──────────
 const win = egui.openWindow("RTS — arquivo .html carregado do disco", 820, 640, 0);
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);

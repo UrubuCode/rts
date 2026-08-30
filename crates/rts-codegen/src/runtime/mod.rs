@@ -1199,7 +1199,12 @@ impl RuntimeOp {
                 vec![UNPROVEN],
             ),
             RuntimeOp::GetProperty => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
-            RuntimeOp::SetProperty => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            // O quarto argumento é o MODO de quem escreve: `1` para sloppy.
+            // Uma escrita que o objeto recusa é um `TypeError` em strict e um
+            // no-op em sloppy, e só o sítio de onde foi escrita sabe qual.
+            RuntimeOp::SetProperty => {
+                (vec![UNPROVEN, Repr::I64, UNPROVEN, Repr::I64], vec![UNPROVEN])
+            }
             // The code address is `I64` and not a value: it is a machine
             // address, nothing collects it, and widening it would hand the
             // collector a pointer into the text segment to trace.
@@ -1282,7 +1287,9 @@ impl RuntimeOp {
             // The key is a VALUE, where the named read takes the number the
             // compiler resolved. That is the whole difference between them.
             RuntimeOp::GetIndexed => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
-            RuntimeOp::SetIndexed => (vec![UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::SetIndexed => {
+                (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN])
+            }
             RuntimeOp::HasProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::WithHas => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             // A count the compiler knows, not a value: an array literal's

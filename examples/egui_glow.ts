@@ -14,8 +14,8 @@ const page =
   "<p>O wgpu/DX12 reserva ~224 MB de heap de driver mesmo p/ uma UI 2D. O OpenGL nao.</p>";
 
 const h = egui.openWindow("egui glow", 460, 320, 8); // bit3 = glow
-while (egui.isOpen(h) !== 0) {
-  if (egui.pump(h) !== 0) break;
+while (egui.isOpen(h)) {
+  if (!egui.pump(h)) break;
   egui.beginFrame(h);
   egui.html(h, page);
   egui.endFrame(h);

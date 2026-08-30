@@ -1336,7 +1336,18 @@ pub fn hoist_vars(
         // spelling would shadow the first in the SAME layer, which is a
         // different bug from the one this function fixes. Checking first is
         // cheap on a per-function list.
-        if scope.lookup(name).is_none() {
+        // `declared_in_function` e nao `lookup`: a pergunta e se ESTA funcao ja
+        // ligou o nome, e nao se o nome existe algures. Com `lookup`, todo o
+        // nome que o escopo ENVOLVENTE tivesse fazia o `var` local nao ser
+        // declarado — e num `<script>` de pagina, onde o envolvente e o
+        // `window`, isso apanha `parent`, `top`, `self`, `name`, `length` e mais.
+        //
+        // Medido: `var parent = x; while (parent !== null) { parent = parent.pai; }`
+        // dentro de uma funcao escrevia em `window.parent` (que e
+        // `[Replaceable]` e IGNORA), lia de volta o `window`, e o laco nunca
+        // terminava. Foi o que impediu o React 18 de montar, com o erro a
+        // aparecer trinta ficheiros a jusante.
+        if !scope.declared_in_function(name) {
             let value = expr::undefined(builder, ctx);
             binding::declare(builder, scope, ctx, name, value)?;
         }

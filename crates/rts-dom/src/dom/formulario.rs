@@ -75,6 +75,33 @@ impl Dom {
         true
     }
 
+    /// `input.value = t` — SUBSTITUI o que la esta, em vez de acrescentar.
+    ///
+    /// Existe ao lado do `input_feed_text_at` porque as duas operacoes sao
+    /// diferentes e uma nao se escreve com a outra: aquela e uma TECLA a chegar
+    /// e esta e o programa a decidir o conteudo. Limpar um campo depois de
+    /// submeter — `el.value = ""` — nao tem forma nenhuma no vocabulario de
+    /// alimentar, e apagar caracter a caracter com o `input_backspace_at` num
+    /// laco e uma operacao O(n) a fazer o trabalho de uma atribuicao.
+    ///
+    /// Aceita a string VAZIA, que e o caso que motiva a funcao — o
+    /// `input_feed_text_at` recusa-a de proposito, porque uma tecla vazia nao
+    /// existe.
+    ///
+    /// Os controlos sao filtrados pela mesma razao que la: uma quebra de linha
+    /// num `<input>` de uma linha nao tem representacao e sairia como um quadrado.
+    pub fn set_input_value(&mut self, id: NodeIdx, text: &str) -> bool {
+        if !self.is_text_input_idx(id) {
+            return false;
+        }
+        let clean: String = text.chars().filter(|c| !c.is_control()).collect();
+        if self.input_value(id) == clean {
+            return false;
+        }
+        self.input_values.insert(id, clean);
+        self.touch();
+        true
+    }
     /// Associa a um `<img>` os pixels RGBA já decodificados (handle do Buffer +
     /// offset + w + h). O browser chama após baixar+decodificar. Bumpa a revisão.
     /// Os PIXELS de um nó, guardados no PRÓPRIO documento.

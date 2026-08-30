@@ -14,8 +14,8 @@ const cv = createCanvas(win); // fachada ergonômica
 let counter = 0;
 let bg = 0x12161CFF;
 
-while (egui.isOpen(win) !== 0) {
-  if (egui.pump(win) !== 0) break;
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;
   cv.begin();
 
   cv.fillRect(0, 0, 460, 320, bg);
