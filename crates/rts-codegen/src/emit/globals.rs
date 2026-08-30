@@ -65,6 +65,12 @@ use crate::runtime::RuntimeOp;
 const PROVIDED: &[&str] = &[
     "Array",
     "console",
+    // `fetch` — o Node 18+ tem-no e um browser também, e este motor passou a
+    // tê-lo. Sem estar aqui, o compilador não o resolve e `typeof fetch`
+    // responde `"undefined"` sobre uma função que existe.
+    "fetch",
+    // A porta síncrona do `fetch`, para o prelude do DOM. Ver `rts-node::fetch`.
+    "__rtsFetchText",
     "ArrayBuffer",
     "BigInt",
     "BigInt64Array",

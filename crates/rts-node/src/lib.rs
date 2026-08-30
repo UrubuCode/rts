@@ -295,6 +295,8 @@ pub fn install(context: &mut Context) {
     // `fetch.rs` para porque vive neste crate.
     let fetch_fn = rts_core::entry::make_callable(context, fetch::fetch);
     rts_core::entry::declare_global(context, "fetch", fetch_fn);
+    let fetch_text = rts_core::entry::make_callable(context, fetch::fetch_text);
+    rts_core::entry::declare_global(context, "__rtsFetchText", fetch_text);
     rts_core::entry::declare_global(context, "Blob", blob);
     rts_core::entry::declare_global(context, "File", file);
     // `globalThis.crypto` is Node's `require('node:crypto').webcrypto`, and it

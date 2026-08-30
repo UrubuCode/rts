@@ -156,7 +156,7 @@ const AGENTE: &str =
 fn pedir(url: &str, metodo: &str, corpo: &str, extra: &[(String, String)]) -> Option<Resposta> {
     let (seguro, anfitriao, porta, caminho) = partir(url)?;
     let socket = abrir(&anfitriao, porta, seguro)?;
-    if !ligado(socket) {
+    if !ligado(socket, seguro) {
         return None;
     }
 
@@ -213,6 +213,11 @@ fn abrir(anfitriao: &str, porta: u16, seguro: bool) -> Option<u64> {
     let ligar = entry::with_runtime(|context| entry::get_member(context, ns, funcao));
     let opcoes = entry::with_runtime(|context| {
         let objeto = entry::make_object(context);
+        // O SNI. Sem ele um servidor moderno nao sabe QUAL certificado servir e
+        // recusa a ligacao — foi o que separou este caminho do `node:https`, que
+        // o passa desde sempre.
+        let nome = entry::make_string(context, anfitriao);
+        entry::put_member(context, objeto, "servername", nome);
         let anfitriao = entry::make_string(context, anfitriao);
         entry::put_member(context, objeto, "host", anfitriao);
         entry::put_member(context, objeto, "port", entry::make_number(f64::from(porta)));
@@ -239,14 +244,24 @@ fn abrir(anfitriao: &str, porta: u16, seguro: bool) -> Option<u64> {
 }
 
 /// Espera que o socket ligue. `false` se desistiu.
-fn ligado(socket: u64) -> bool {
+fn ligado(socket: u64, seguro: bool) -> bool {
     let inicio = Instant::now();
     loop {
         let vazio = entry::with_runtime(|context| entry::make_bytes(context, &[]));
         chamar(socket, "write", vazio);
-        let a_ligar = entry::with_runtime(|context| entry::get_member(context, socket, "connecting"));
-        if a_ligar != entry::boolean_value(true) {
-            return true;
+        // Um socket TLS diz que ligou quando o HANDSHAKE acaba, e isso le-se em
+        // `getProtocol()` — o `connecting` de um socket simples ja e falso antes
+        // disso, e escrever ai manda bytes por um tunel que ainda nao existe.
+        if seguro {
+            let protocolo = chamar(socket, "getProtocol", entry::undefined_value());
+            if entry::text_of(protocolo).is_some_and(|p| p != "undefined" && !p.is_empty()) {
+                return true;
+            }
+        } else {
+            let a_ligar = entry::with_runtime(|context| entry::get_member(context, socket, "connecting"));
+            if a_ligar != entry::boolean_value(true) {
+                return true;
+            }
         }
         if inicio.elapsed() > Duration::from_millis(TIMEOUT_MS) {
             return false;
@@ -427,4 +442,28 @@ extern "C" fn corpo_json(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64)
 /// termina o processo antes de a resposta chegar a quem pediu.
 extern "C" fn ignorar(_e: u64, _t: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     entry::undefined_value()
+}
+
+/// `__rtsFetchText(url)` — o corpo de um GET, como texto, SEM promessa.
+///
+/// Existe para um chamador que nao pode esperar: o `__readResource` do
+/// `rts-dom`, que carrega uma folha de estilo ou um script de `http(s)://` no
+/// meio da montagem de um documento. Ele chamava `fetch.fetchText(...)` de um
+/// namespace `rts:fetch` que MORREU com o motor antigo — o comentario dele
+/// ainda descreve esse namespace, e a chamada respondia nada.
+///
+/// `""` em erro, que e a convencao tolerante que aquele chamador ja usa: um
+/// recurso que nao carrega deixa a pagina sem ele, e nao sem pagina.
+///
+/// O nome com `__` diz o que e: uma porta para o prelude, nao superficie para
+/// um programa. Quem escreve codigo usa `fetch`.
+pub(crate) extern "C" fn fetch_text(_e: u64, _t: u64, url: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let Some(texto) = entry::text_of(url) else {
+        return entry::with_runtime(|context| entry::make_string(context, ""));
+    };
+    let corpo = match pedir(&texto, "GET", "", &[]) {
+        Some(resposta) => String::from_utf8_lossy(&resposta.corpo).into_owned(),
+        None => String::new(),
+    };
+    entry::with_runtime(|context| entry::make_string(context, &corpo))
 }
