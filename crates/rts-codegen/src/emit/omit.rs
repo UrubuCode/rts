@@ -128,8 +128,8 @@ pub(super) fn omittable(
         // same spelling. `inline::local_candidate` builds the candidate from it.
         let candidate = match ctx.inlinable(name) {
             Some(shared) => shared,
-            None => match super::inline::local_candidate(function, length, name, arguments) {
-                Some(built) => Rc::new(built),
+            None => match super::inline::local_candidate(function, length, name, arguments, false) {
+                Some((built, _)) => Rc::new(built),
                 None => continue,
             },
         };

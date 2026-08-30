@@ -345,6 +345,18 @@ impl Scope {
         self.this_value
     }
 
+    /// Swaps in a receiver for a SUBSTITUTED method body, answering the old one.
+    ///
+    /// A field rather than a layer, so it is saved and restored around the
+    /// substitution the way `Ctx::substituting` is: the body reads `this`
+    /// through `this_value` like any other body, and the caller's own `this` is
+    /// back before the next statement. `late_this` is left alone — that is the
+    /// arrow mechanism, and an arrow inside a substituted body is refused for
+    /// its own reasons.
+    pub fn swap_this(&mut self, value: Option<ValueId>) -> Option<ValueId> {
+        std::mem::replace(&mut self.this_value, value)
+    }
+
     /// Whether a name this function declares has to live on the heap.
     pub fn is_captured(&self, name: Name) -> bool {
         self.captured.contains(&name)

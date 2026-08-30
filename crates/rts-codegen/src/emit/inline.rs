@@ -150,7 +150,7 @@ pub(super) fn candidates(
         collect_declarations(statement, &mut declarations);
     }
     for (name, function) in declarations {
-        let Some((candidate, free, locals)) = shape_of(function, length, name) else {
+        let Some((candidate, free, locals)) = shape_of(function, length, name, false) else {
             continue;
         };
         // The three whole-program questions, asked only for a name that got
@@ -295,12 +295,40 @@ pub(super) fn emit_substituted(
     callee: &Expr,
     arguments: &[Spreadable],
 ) -> EmitResult<Option<ValueId>> {
-    let ExprKind::Ident(name) = &callee.kind else {
-        return Ok(None);
+    // TWO SHAPES OF CALLEE, and the second is why this file grew a receiver.
+    //
+    // `f(x)` names one function when the program declares `f` once, or when
+    // `omit` proved the declaration in hand is the one every call reaches.
+    // `o.m(x)` names one just as surely when `receiver.rs` proved it — `o` is a
+    // `const` holding `new C()`, neither `o` nor `C` is ever read as a value, so
+    // nothing can reassign `o.m` or `C.prototype` without spelling one of them.
+    //
+    // What it is worth: a method call is 19.00 ns against 6.00 for the property
+    // read alone and 1.00 for a substituted call, measured 2026-08-30. The call
+    // is a runtime crossing and being a method costs about one nanosecond, so
+    // what a substitution removes here is the crossing.
+    let (candidate, receiver) = match &callee.kind {
+        ExprKind::Ident(name) => match ctx.inlinable_here(*name) {
+            Some(candidate) => (candidate, None),
+            None => return Ok(None),
+        },
+        _ => match super::receiver::receiver_of(callee) {
+            Some((held, method)) => match ctx.static_method(held, method) {
+                Some(candidate) => (candidate, Some(held)),
+                None => return Ok(None),
+            },
+            None => return Ok(None),
+        },
     };
-    let Some(candidate) = ctx.inlinable_here(*name) else {
-        return Ok(None);
+    // The rest of this function asks about the callee BY NAME — the cycle
+    // check, the omission, the scope. A method's name is the receiver's, because
+    // that is the binding the site actually reads and the one a cycle would come
+    // back through.
+    let name = &match &callee.kind {
+        ExprKind::Ident(name) => *name,
+        _ => receiver.expect("a non-identifier callee resolved through its receiver"),
     };
+
     // THE NAME MUST BE BOUND HERE, and this is what makes collecting candidates
     // from any depth legal.
     //
@@ -428,7 +456,26 @@ pub(super) fn emit_substituted(
         values.push(super::expr::emit_expr(builder, scope, ctx, value)?);
     }
 
+    // THE RECEIVER, EMITTED ONCE AND BOUND AS `this`.
+    //
+    // Read before the layer is entered, so it resolves against the caller's
+    // scope — which is where `o` is — and after the arguments, which the
+    // language evaluates in that order for a member callee too.
+    let held_this = match receiver {
+        Some(held) => Some(super::binding::read(builder, scope, ctx, held)?),
+        None => None,
+    };
+
     scope.enter();
+    // Swapped rather than pushed: `this_value` is a field of the whole scope
+    // and not a layer, so the caller's own answer is put back below. A body
+    // that does not read `this` is unaffected either way; one that does is only
+    // ever admitted when a receiver was proved, so `None` here cannot reach a
+    // body that would ask.
+    let outer_this = match held_this {
+        Some(value) => Some(scope.swap_this(Some(value))),
+        None => None,
+    };
     // A parameter the call did not pass is `undefined`, which is what the calling
     // convention hands a real call for the same shape — the six argument slots
     // are filled with it before the callee looks at them. An argument with no
@@ -531,6 +578,9 @@ pub(super) fn emit_substituted(
         }
         _ => answered,
     };
+    if let Some(previous) = outer_this {
+        scope.swap_this(previous);
+    }
     scope.leave();
     Ok(Some(result))
 }
@@ -669,6 +719,10 @@ pub(super) fn shape_of(
     function: &Function,
     length: Name,
     own: Name,
+    // Whether `this` has an answer at the call sites this candidate is for.
+    // True only for a method whose receiver `receiver.rs` decided; every other
+    // door passes false and a body reading `this` is refused as it always was.
+    this_ok: bool,
 ) -> Option<(Inlinable, Vec<Name>, Vec<Name>)> {
     if function.is_async || function.is_generator {
         return None;
@@ -775,16 +829,16 @@ pub(super) fn shape_of(
     // does not exist yet — so a default reading either is refused here, where
     // reading a left-hand parameter is admitted because the name is bound.
     for default in defaults.iter().flatten() {
-        if !closed_over(default, &bound, &mut free) {
+        if !closed_over(default, &bound, &mut free, this_ok) {
             return None;
         }
     }
     for statement in &statements {
-        if !closed_over_statement(statement, &bound, &mut free) {
+        if !closed_over_statement(statement, &bound, &mut free, this_ok) {
             return None;
         }
     }
-    if !closed_over(&answered, &bound, &mut free) {
+    if !closed_over(&answered, &bound, &mut free, this_ok) {
         return None;
     }
     if free.contains(&own) {
@@ -1086,19 +1140,24 @@ fn declared_names(statement: &Stmt, bound: &mut Vec<Name>) -> bool {
 }
 
 /// The same question [`closed_over`] asks, over a statement.
-fn closed_over_statement(statement: &Stmt, bound: &[Name], free: &mut Vec<Name>) -> bool {
+fn closed_over_statement(
+    statement: &Stmt,
+    bound: &[Name],
+    free: &mut Vec<Name>,
+    this_ok: bool,
+) -> bool {
     match &statement.kind {
         StmtKind::Empty => true,
-        StmtKind::Expr(expr) => closed_over(expr, bound, free),
+        StmtKind::Expr(expr) => closed_over(expr, bound, free, this_ok),
         StmtKind::Declare { bindings, .. } => bindings.iter().all(|binding| {
             binding
                 .value
                 .as_ref()
-                .is_some_and(|value| closed_over(value, bound, free))
+                .is_some_and(|value| closed_over(value, bound, free, this_ok))
         }),
         StmtKind::Block(inner) => inner
             .iter()
-            .all(|statement| closed_over_statement(statement, bound, free)),
+            .all(|statement| closed_over_statement(statement, bound, free, this_ok)),
         // A guard clause, whose two halves are both expressions the call site
         // emits: asked BEFORE the general `If` arm, which would descend into the
         // `return` and refuse it.
@@ -1106,18 +1165,18 @@ fn closed_over_statement(statement: &Stmt, bound: &[Name], free: &mut Vec<Name>)
             let Some((condition, answer)) = guard_return(statement) else {
                 unreachable!("the arm's own guard just answered")
             };
-            closed_over(condition, bound, free) && closed_over(answer, bound, free)
+            closed_over(condition, bound, free, this_ok) && closed_over(answer, bound, free, this_ok)
         }
         StmtKind::If {
             condition,
             then_branch,
             else_branch,
         } => {
-            closed_over(condition, bound, free)
-                && closed_over_statement(then_branch, bound, free)
+            closed_over(condition, bound, free, this_ok)
+                && closed_over_statement(then_branch, bound, free, this_ok)
                 && else_branch
                     .as_ref()
-                    .is_none_or(|branch| closed_over_statement(branch, bound, free))
+                    .is_none_or(|branch| closed_over_statement(branch, bound, free, this_ok))
         }
         _ => false,
     }
@@ -1145,7 +1204,7 @@ fn closed_over_statement(statement: &Stmt, bound: &[Name], free: &mut Vec<Name>)
 /// Writing a member would need a receiver this substitution does not have, and
 /// writing a PARAMETER would write a binding `emit_substituted` made out of an
 /// SSA value rather than a cell — so both stay refused.
-fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
+fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>, this_ok: bool) -> bool {
     match &expr.kind {
         ExprKind::Ident(name) => {
             if !bound.contains(name) && !free.contains(name) {
@@ -1154,10 +1213,14 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
             return true;
         }
         ExprKind::Literal(_) => return true,
-        // Everything with a body, a receiver, a suspension point, or a write
-        // this substitution cannot make. A nested function would capture the
-        // caller's scope rather than the callee's, and `this` has no answer at
-        // a call site that passes none.
+        // `this` IS an answer when the call site provides a receiver, and is
+        // none when it does not. `receiver.rs` decides which by proving that
+        // `o.m` names one function; every other call site passes `this_ok`
+        // false and this arm refuses exactly as it always did.
+        ExprKind::This if this_ok => return true,
+        // Everything with a body, a suspension point, or a write this
+        // substitution cannot make. A nested function would capture the
+        // caller's scope rather than the callee's.
         ExprKind::Function(_)
         | ExprKind::Class(_)
         | ExprKind::This
@@ -1205,7 +1268,7 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
                 &place.kind,
                 ExprKind::Member { .. } | ExprKind::Index { .. }
             ) {
-                return closed_over(place, bound, free) && closed_over(value, bound, free);
+                return closed_over(place, bound, free, this_ok) && closed_over(value, bound, free, this_ok);
             }
             let ExprKind::Ident(name) = &place.kind else {
                 return false;
@@ -1228,12 +1291,12 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
             // and it is the gate a loop in the body would have to pass through
             // before a loop could be admitted at all.
             if bound.contains(&name) {
-                return closed_over(value, bound, free);
+                return closed_over(value, bound, free, this_ok);
             }
             if !free.contains(&name) {
                 free.push(name);
             }
-            return closed_over(value, bound, free);
+            return closed_over(value, bound, free, this_ok);
         }
         ExprKind::Update { target, .. } => {
             // `o.x++` for the reason `o.x = v` above is admitted.
@@ -1241,7 +1304,7 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
                 &target.kind,
                 ExprKind::Member { .. } | ExprKind::Index { .. }
             ) {
-                return closed_over(target, bound, free);
+                return closed_over(target, bound, free, this_ok);
             }
             let ExprKind::Ident(name) = &target.kind else {
                 return false;
@@ -1259,7 +1322,7 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>) -> bool {
     }
     let mut ok = true;
     walk_expr(expr, &mut |child| match child {
-        Child::Expr(inner) => ok = ok && closed_over(inner, bound, free),
+        Child::Expr(inner) => ok = ok && closed_over(inner, bound, free, this_ok),
         Child::Function(_) | Child::Class(_) => ok = false,
     });
     ok
@@ -1451,8 +1514,9 @@ pub(super) fn local_candidate(
     length: Name,
     own: Name,
     arguments: Name,
-) -> Option<Inlinable> {
-    let (mut candidate, free, _) = shape_of(function, length, own)?;
+    this_ok: bool,
+) -> Option<(Inlinable, Vec<Name>)> {
+    let (mut candidate, free, _) = shape_of(function, length, own, this_ok)?;
     // `arguments` IS REFUSED HERE TOO, and forgetting it cost four assertions in
     // `tests/claude-arguments-fn-expr.test.ts` on the first build.
     //
@@ -1467,6 +1531,36 @@ pub(super) fn local_candidate(
     if free.iter().any(|held| *held == arguments) {
         return None;
     }
+    // FALSE, and the caller decides what to do about it. `omit` answers it with
+    // locality — the helper is declared in the body being emitted and called
+    // only from there — and a static method has no such argument, so it takes
+    // the ordinary whole-program count through `free_names_proved`.
     candidate.free_proved = false;
-    Some(candidate)
+    Some((candidate, free))
+}
+
+/// The whole-program free-name proof, for a candidate built at the second door.
+///
+/// The same three arms [`candidates`] applies, in one place so the two cannot
+/// drift: one declaration means no caller resolves the name differently; zero
+/// means no scope binds it at all, which is stronger, provided nothing assigns
+/// it; anything else is refused.
+pub(super) fn free_names_proved(
+    body: &[Stmt],
+    free: &[Name],
+    eval: Name,
+    global_this: Name,
+    arguments: Name,
+) -> bool {
+    if free.iter().any(|held| *held == arguments) {
+        return false;
+    }
+    if free.iter().any(|held| match declarations_of(body, *held) {
+        1 => false,
+        0 => !super::primordial::untouched(body, *held, eval, global_this),
+        _ => true,
+    }) {
+        return false;
+    }
+    free.is_empty() || super::primordial::untouched(body, eval, eval, global_this)
 }

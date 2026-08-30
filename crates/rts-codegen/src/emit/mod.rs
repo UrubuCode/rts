@@ -94,6 +94,7 @@ mod types;
 mod switch;
 mod template;
 mod omit;
+mod receiver;
 mod settled;
 mod unary;
 mod with_scope;
@@ -382,6 +383,11 @@ pub struct Ctx<'a> {
     /// the body that declares it, so the declaration in hand is the one every
     /// call reaches — and this holds it for that body alone.
     local_inlinable: std::collections::BTreeMap<Name, std::rc::Rc<inline::Inlinable>>,
+    /// Which `o.m` the program decides, over the whole module.
+    ///
+    /// See `receiver.rs`. A pair in here names ONE function as surely as a
+    /// plain identifier does, so the call site substitutes instead of calling.
+    static_methods: std::collections::BTreeMap<(Name, Name), std::rc::Rc<inline::Inlinable>>,
     /// Where a `return` inside a protected span goes instead of returning.
     ///
     /// A `finally` runs on EVERY way out, and a `return` written inside the
@@ -647,6 +653,7 @@ impl<'a> Ctx<'a> {
             with_objects: Vec::new(),
             omitted: std::collections::BTreeSet::new(),
             local_inlinable: std::collections::BTreeMap::new(),
+            static_methods: std::collections::BTreeMap::new(),
             finally_returns: Vec::new(),
             finally_jumps: Vec::new(),
             model,
@@ -697,6 +704,15 @@ impl<'a> Ctx<'a> {
     /// program-wide map had to refuse the spelling because another function
     /// spends it too. Consulted only through this door, so nothing that does not
     /// ask for it can be answered by a body of a different function.
+    /// The function `o.m` names, when the program decides it.
+    pub(in crate::emit) fn static_method(
+        &self,
+        receiver: Name,
+        method: Name,
+    ) -> Option<std::rc::Rc<inline::Inlinable>> {
+        self.static_methods.get(&(receiver, method)).cloned()
+    }
+
     pub(in crate::emit) fn inlinable_here(&self, name: Name) -> Option<std::rc::Rc<inline::Inlinable>> {
         self.local_inlinable
             .get(&name)
@@ -1025,7 +1041,7 @@ pub(super) fn emit_program_into(
     // what stops the host having two ways to enter compiled code.
     // Whole-program, once, before anything is emitted: a claim in one function
     // names a class declared in another, so this cannot be built per body.
-    ctx.class_fields = types::declared(body);
+    whole_program_facts(body, ctx);
 
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
@@ -1183,6 +1199,7 @@ fn emit_unit(
     publications: &[module::Publication],
     ctx: &mut Ctx,
 ) -> EmitResult<FuncId> {
+    whole_program_facts(body, ctx);
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
     let global_this = ctx.names.intern("globalThis");
@@ -1835,4 +1852,51 @@ mod tests {
         emit_body_of("let i = 0; while (i) { while (i) { break; } i = 1; } return i;")
             .expect("emits");
     }
+}
+
+/// The facts that are about the MODULE rather than about one body.
+///
+/// One function because there are two doors — a script through
+/// [`emit_program_with_exports`] and a graph through `emit_unit` — and a setup
+/// written at one of them is a setup the other silently does without. That is
+/// not hypothetical: `class_fields` stood at the first door alone, so every
+/// program compiled as a graph was emitted without it, and the receiver
+/// analysis was written the same way — it answered under `rts run` and
+/// answered nothing under `rts ir`, which is how the divergence was found.
+fn whole_program_facts(body: &[Stmt], ctx: &mut Ctx) {
+    ctx.class_fields = types::declared(body);
+    // WHICH `o.m` THE PROGRAM ALREADY DECIDES. Whole-program and once, for the
+    // same reason the line above is: every clause it rests on — what `C` is,
+    // whether anything writes through it, whether `o` is ever read as a value —
+    // is about the module rather than about one body.
+    //
+    // A method call is one runtime crossing, measured at 19.00 ns against 6.00
+    // for the property read alone and 1.00 for a substituted call, so what this
+    // removes is the crossing rather than anything about being a method.
+    let length_name = ctx.names.intern("length");
+    let eval_name = ctx.names.intern("eval");
+    let global_this_name = ctx.names.intern("globalThis");
+    let arguments_name = ctx.names.intern("arguments");
+    ctx.static_methods = receiver::resolve(body)
+        .methods
+        .into_iter()
+        .filter_map(|((held, method), function)| {
+            // `this_ok` is TRUE here and nowhere else: the receiver was proved,
+            // so a body reading `this` has an answer at every site this
+            // candidate serves.
+            let (mut built, free) =
+                inline::local_candidate(&function, length_name, method, arguments_name, true)?;
+            // THE ORDINARY WHOLE-PROGRAM PROOF, because a static method has no
+            // locality argument to offer: its body is emitted in the caller's
+            // scope like any other, so a free name it reads must mean the same
+            // thing there. `omit` is the only door that may skip this, and it
+            // skips it by proving something stronger.
+            built.free_proved =
+                inline::free_names_proved(body, &free, eval_name, global_this_name, arguments_name);
+            if !built.free_proved {
+                return None;
+            }
+            Some(((held, method), std::rc::Rc::new(built)))
+        })
+        .collect();
 }
