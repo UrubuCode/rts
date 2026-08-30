@@ -231,6 +231,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::TypeOf => (CoreEntry::TypeOf, {
             rts_core::entry::type_of as extern "C" fn(u64) -> u64 as *const u8
         }),
+        RuntimeOp::TypeOfIs => (CoreEntry::TypeOfIs, {
+            rts_core::entry::type_of_is as extern "C" fn(u64, i64) -> bool as *const u8
+        }),
         RuntimeOp::LooseEquals => (CoreEntry::LooseEquals, {
             rts_core::entry::loose_equals as extern "C" fn(u64, u64) -> bool as *const u8
         }),

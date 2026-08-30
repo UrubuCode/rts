@@ -523,3 +523,118 @@ emission did not change, so what moved is where the runtime's own code landed in
 the linked image. That is this tree's documented layout floor, measured rather
 than asserted for once — and it is the cheapest check of the three this file
 records, because it needs no second build.
+
+---
+
+# Part four: `typeof x === "string"` — three crossings for a tag
+
+The second member of part three's class, closed the same day, and the larger of
+the two.
+
+## What it was
+
+    v8  = Call TypeOf(v2)          // build one string
+    v13 = Call StringConst(0)      // build the other
+    ... Guard F64 / Guard F64 ...  // the double speculation, on two strings
+    v18 = Call StrictEquals(v8, v13)
+    ... WordLoad / Compare / Branch / Throw block ...   // the throw check
+
+Eight blocks and three runtime crossings to answer a question decided by a tag
+and a cell header. The runtime already computed the answer as a `TypeName`
+discriminant and then turned it into a string **purely so that the comparison
+would have something to compare**.
+
+## What it is now
+
+    v9 = Call TypeOfIs(v2, 0)
+    Return
+
+One crossing, one block. The throw check is gone as well, and not by
+assumption: `TypeOfIs` is on `raising::CANNOT_RAISE`, and the one objection that
+kept `TypeOf` off that list — *it allocates its answer string* — is precisely
+what this does not do. `raising.rs` records the count change from eleven to
+twelve with that reasoning, because the list refuses to grow silently.
+
+Measured, `--release`, min of 9 in process, three alternations:
+
+| | base | now |
+|---|---:|---:|
+| `typeof x === "number"` | 22.33 | **15.67  (-30%)** |
+| `typeof x === "string"` | 25.33 | **19.33  (-24%)** |
+| `typeof x === "object"` | 23.67 | **17.33  (-27%)** |
+| `typeof x === "function"` (no match) | 19.33 | **9.67  (-50%)** |
+| `x === true` (the class member NOT done) | 9.33 | 9.33 |
+| CONTROL an addition | 3.67 | 3.67 |
+
+`bench/analytic.ts`'s own `prop typeof` row reads -32.5%, and it is the one row
+that moved by the same amount in every run.
+
+## Where each half of the decision lives
+
+`type_name_of` is new and is the whole point of the split: `type_of` turns its
+answer into a string, `type_of_is` compares it against a literal. A second copy
+of that match is how `typeof x` and `typeof x === "…"` would come to disagree
+about a value nobody tested.
+
+On the emitter's side the recognition is on the TREE and not on the values —
+the opposite of `singleton_equality` and for the opposite reason. What has to be
+seen is that the left operand is a `typeof` APPLICATION, and a `ValueId`
+holding `"string"` cannot say whether it came from `typeof` or from a string the
+program computed.
+
+The literal reaches the runtime as its INDEX, from the same table
+`string_const` reads. A number naming one of the nine `typeof` answers would
+have been a second numbering of them — rule 3 of `crates/rts-core/README.md`,
+and the drift `TypeName` already exists to prevent one level down.
+
+## What analytic.ts could NOT say, and why it is written here anyway
+
+Two runs of the same two binaries, on the same machine, an hour apart:
+
+| | geomean | rows >8% better | rows >8% worse |
+|---|---:|---:|---:|
+| first (taken with a build running) | **+7.08%** | 2 | 25 |
+| second (machine otherwise idle) | **-6.29%** | 23 | 1 |
+
+They disagree in SIGN on more than twenty rows. `arith negate` read +124% in the
+first and did not move in the second; `array push+pop` read -44% in the second
+and did not move in the first. So no geomean from that table is claimable for
+this change in either direction, and the honest report is that the instrument
+could not answer.
+
+**Nothing was netted away by choosing the friendlier run.** What survives both
+is the one row the change targets — `prop typeof`, -32.5% in both — plus the
+dedicated probe above, plus the real programs: `monte_carlo_pi` 377 to 375 ms,
+`objbench` 302 to 295, and an empty program 60 to 59, all min of five, which is
+what says the change is not paying for itself somewhere else.
+
+The lesson for the next measurement is the cheaper half: **the first table was
+taken while `cargo` was running**, and a benchmark sharing the machine with a
+linker is not a benchmark. Min-of-three was not enough to hide it either —
+`objbench` read +2.3% at min-of-three and -2.3% at min-of-five.
+
+## A member of the class that was REFUTED before it was built
+
+`__rts_string_const` is the second-most-emitted crossing in `analytic.ts` — 230
+call sites, behind only `get_property`'s 362 — and it reads a table entry that
+never changes after startup. The obvious next move was to read it as a
+`WordLoad` from the table's base, which is exactly what `Inst::WordLoad`'s own
+doc comment describes itself as existing for.
+
+Measured first, and it does not pay:
+
+| | ns |
+|---|---:|
+| a string literal, then `.length` | 9.00 |
+| the same string HELD in a `const`, then `.length` | 8.67 |
+| difference | **0.33** |
+
+The 230 are sites EMITTED, which is a compile-time cost, not a run-time one —
+the call is hoisted out of the loop by the time it matters. So the ranked item
+is struck, and with it a design that would have cached a base pointer into a
+`Vec` that `eval` and `new Function` can still grow: a stale pointer read as a
+value, which is the silent-wrong-answer class `docs/engine/lost-roots.md`
+catalogues.
+
+**A census counts sites; only a clock counts nanoseconds.** That is the third
+time in this file a ranked item died to a measurement that cost ten minutes.

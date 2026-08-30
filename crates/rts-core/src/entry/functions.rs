@@ -761,7 +761,7 @@ fn invoke(
         let message = match name.and_then(|value| super::text::described(value)) {
             Some(name) => format!("{name} is not a function"),
             None => {
-                let kind = super::text::described(super::text::type_of(callee))
+                let kind = super::text::described(super::type_of::type_of(callee))
                     .unwrap_or_else(|| "a value".to_owned());
                 format!("{kind} is not a function")
             }

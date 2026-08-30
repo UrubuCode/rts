@@ -92,6 +92,7 @@ mod suspends;
 mod types;
 mod switch;
 mod template;
+mod settled;
 mod unary;
 mod with_scope;
 mod wrap;

@@ -172,10 +172,11 @@ pub use regex::regex_new;
 pub use text::{
     declare_keys, declare_literals, declare_templates, described, string_const, string_of,
     template_join, template_strings,
-    type_of,
 };
+pub use type_of::{type_of, type_of_is};
 pub use symbol::{is_symbol as is_symbol_in, well_known as well_known_symbol};
 mod table;
+mod type_of;
 
 pub use accessor::{define_accessor_in, define_getter, define_method, define_setter};
 pub use alloc::alloc;

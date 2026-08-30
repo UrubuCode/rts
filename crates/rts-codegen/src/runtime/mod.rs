@@ -470,6 +470,23 @@ pub enum RuntimeOp {
     /// the operand rather than about the result.
     TypeOf,
 
+    /// `typeof v === "…"`, where the right side is a literal.
+    ///
+    /// A call and not an instruction for the same reason [`RuntimeOp::TypeOf`]
+    /// is one: which of the nine answers a reference has is read from the
+    /// cell's header, which is the heap.
+    ///
+    /// It exists BESIDE `TypeOf` rather than replacing it because spelling the
+    /// comparison out cost three crossings — build one string, build the other,
+    /// compare their text — to settle a question about a tag. This builds no
+    /// string and answers the boolean directly. Measured 2026-08-29: the bare
+    /// `typeof` was 8.3 ns and the comparison 24.0.
+    ///
+    /// The second operand is the LITERAL'S INDEX, not a number naming one of
+    /// the nine. The literal table is a numbering the compiler and the runtime
+    /// already share; a number for `"string"` would be a second one.
+    TypeOfIs,
+
     /// `a == b`.
     ///
     /// Not `===` with conversions bolted on: it has its own table, and the
@@ -979,6 +996,7 @@ impl RuntimeOp {
         RuntimeOp::ModuleNamespace,
         RuntimeOp::ModulePublish,
         RuntimeOp::TypeOf,
+        RuntimeOp::TypeOfIs,
         RuntimeOp::LooseEquals,
         RuntimeOp::Exponent,
         RuntimeOp::BitAnd,
@@ -1083,6 +1101,7 @@ impl RuntimeOp {
             RuntimeOp::ModuleNamespace => "__rts_module_namespace",
             RuntimeOp::ModulePublish => "__rts_module_publish",
             RuntimeOp::TypeOf => "__rts_type_of",
+            RuntimeOp::TypeOfIs => "__rts_type_of_is",
             RuntimeOp::LooseEquals => "__rts_loose_equals",
             RuntimeOp::Exponent => "__rts_exponent",
             RuntimeOp::BitAnd => "__rts_bit_and",
@@ -1242,6 +1261,13 @@ impl RuntimeOp {
             // program exported.
             RuntimeOp::ModulePublish => (vec![Repr::I64, Repr::I64, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TypeOf => (vec![UNPROVEN], vec![UNPROVEN]),
+            // The value, and WHICH literal spells the name — an `I64`, because
+            // it is an index into the literal table and not a value.
+            // Answers a PROVEN boolean, which is what lets a branch consume it
+            // with no guard: that is the whole saving over the three-crossing
+            // form, whose `StrictEquals` proved one and then had it widened
+            // back into a value for a comparison that immediately branched.
+            RuntimeOp::TypeOfIs => (vec![UNPROVEN, Repr::I64], vec![Repr::Bool]),
             // A proven boolean, like the other equalities: the runtime
             // establishes it, which is what lets a branch consume one.
             RuntimeOp::LooseEquals => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),

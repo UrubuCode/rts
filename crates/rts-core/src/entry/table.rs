@@ -106,7 +106,8 @@ use super::iterate::{ARRAY_APPEND_ALL_ENTRY, ARRAY_APPEND_ENTRY, ITERATE_ENTRY};
 use super::bigint_class::{BIGINT_NEW_ENTRY, NEGATE_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
 use super::modules::{MODULE_BINDING_ENTRY, MODULE_NAMESPACE_ENTRY, MODULE_PUBLISH_ENTRY};
-use super::text::{STRING_CONST_ENTRY, TEMPLATE_STRINGS_ENTRY, TYPE_OF_ENTRY};
+use super::text::{STRING_CONST_ENTRY, TEMPLATE_STRINGS_ENTRY};
+use super::type_of::{TYPE_OF_ENTRY, TYPE_OF_IS_ENTRY};
 
 /// An operation compiled code performs by calling rather than by emitting.
 ///
@@ -663,6 +664,13 @@ pub enum CoreEntry {
     /// installed one, and whether the step being skipped is still the step the
     /// specification would have run.
     ArrayPatternDirect = 93,
+    /// [`super::type_of_is`].
+    ///
+    /// `typeof x === "string"` as ONE crossing. Beside [`CoreEntry::TypeOf`]
+    /// rather than replacing it, because a bare `typeof x` is still a string a
+    /// program can hold — and the fused form answers a boolean and builds no
+    /// string at all, which is the whole of what it saves.
+    TypeOfIs = 94,
 }
 
 /// How many entry points exist.
@@ -670,7 +678,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 94;
+pub const CORE_ENTRY_COUNT: usize = 95;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -769,6 +777,7 @@ impl CoreEntry {
         CoreEntry::ModulePublishCommon,
         CoreEntry::ArrayLength,
         CoreEntry::ArrayPatternDirect,
+        CoreEntry::TypeOfIs,
     ];
 
     /// The number a call site holds.
@@ -820,6 +829,7 @@ impl CoreEntry {
             CoreEntry::Call => CALL_COUNTED_ENTRY,
             CoreEntry::StringConst => STRING_CONST_ENTRY,
             CoreEntry::TypeOf => TYPE_OF_ENTRY,
+            CoreEntry::TypeOfIs => TYPE_OF_IS_ENTRY,
             CoreEntry::LooseEquals => LOOSE_EQUALS_ENTRY,
             CoreEntry::Exponent => EXPONENT_ENTRY,
             CoreEntry::BitAnd => BIT_AND_ENTRY,

@@ -132,6 +132,19 @@ pub const CANNOT_RAISE: &[RuntimeOp] = &[
     // makes `===` different from `==`: the specification's `IsStrictlyEqual`
     // compares types first and never converts. Verified 2026-08-28.
     RuntimeOp::StrictEquals,
+    // `type_of_is`: the same match `type_of` runs — a tag, a cell header, and the
+    // two side tables that separate a callable and a string from an object —
+    // then `context.literals.get` and an ASCII compare against one of the nine
+    // names. `entry/text.rs`. Closed.
+    //
+    // And it is the reason `TypeOf` is still listed below as considered and
+    // left off: the ONLY thing that kept `typeof` off this list was that
+    // `type_name` builds the answer string on first use and therefore
+    // ALLOCATES. This form builds no string, which is the whole of what it was
+    // added for, so the objection does not apply to it. The audit that comment
+    // asked for is not owed here — it is owed by whoever admits the first
+    // allocating operation, and this is not one.
+    RuntimeOp::TypeOfIs,
 ];
 
 /// One that was read and deliberately NOT added, so the next audit does not
@@ -219,9 +232,16 @@ mod tests {
         // saying that removing one is the SAFE direction — an operation off the
         // list keeps its throw check, so the cost is a check nothing needed
         // rather than a throw nobody sees.
+        //
+        // TWELVE later the same day: `TypeOfIs`. Its body was read in full to
+        // the standard above — the same match `type_of` runs, then a literal
+        // lookup and an ASCII compare — and the one objection that keeps
+        // `TypeOf` off this list does not apply to it: `TypeOf` allocates its
+        // answer string and this builds no string at all, which is the whole
+        // reason it exists.
         assert_eq!(
             CANNOT_RAISE.len(),
-            11,
+            12,
             "CANNOT_RAISE changed — each entry must name the rts-core body it \
              was read against, and rts-host asserts the symbol still exists"
         );

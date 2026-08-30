@@ -149,29 +149,7 @@ pub fn emit_unary(
             // reading it anywhere else would be refused — `typeof maybe` is how
             // a program asks whether something exists, and refusing it would
             // refuse the question itself.
-            let value = match &operand.kind {
-                // `NaN`, `Infinity` and `undefined` are unbound as far as
-                // `scope` is concerned — they are the emitter's own constants,
-                // not a declared binding — so this arm must offer them the
-                // same way `binding::read` does before falling to the global
-                // object. Skipping straight to `force_read` answered
-                // `typeof NaN` from a property named `"NaN"` that no global
-                // object holds, i.e. `undefined`.
-                // `typeof` is exempt from the error an UNDECLARED name raises,
-                // and is NOT exempt from the temporal dead zone: the name is
-                // declared, so there is no reference to take — which is why
-                // this arm asks before the exemption below applies.
-                ExprKind::Ident(name) if scope.in_dead_zone(*name) => {
-                    return super::binding::read(builder, scope, ctx, *name);
-                }
-                ExprKind::Ident(name) if scope.lookup(*name).is_none() => {
-                    match super::binding::predefined(builder, ctx, *name) {
-                        Some(value) => value,
-                        None => super::globals::force_read(builder, ctx, *name)?,
-                    }
-                }
-                _ => emit_expr(builder, scope, ctx, operand)?,
-            };
+            let value = typeof_operand(builder, scope, ctx, operand)?;
             Ok(expr::call(builder, ctx, RuntimeOp::TypeOf, &[value])?[0])
         }
         // Takes a reference rather than a value, and removing a property is an
@@ -369,4 +347,42 @@ fn delete_optional(
 
     builder.switch_to(join);
     Ok(answer)
+}
+
+/// The value `typeof` is applied to, with every rule that operand has.
+///
+/// Shared with `expr::typeof_equals_literal`, which fuses
+/// `typeof x === "string"` into ONE crossing and must reach the operand the
+/// same way. Emitting it there instead would have been a second statement of
+/// the exemptions below, and the second statement is where `typeof maybe`
+/// starts throwing for a name the first one lets through.
+pub(super) fn typeof_operand(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    operand: &Expr,
+) -> EmitResult<ValueId> {
+    Ok(match &operand.kind {
+        // `NaN`, `Infinity` and `undefined` are unbound as far as
+        // `scope` is concerned — they are the emitter's own constants,
+        // not a declared binding — so this arm must offer them the
+        // same way `binding::read` does before falling to the global
+        // object. Skipping straight to `force_read` answered
+        // `typeof NaN` from a property named `"NaN"` that no global
+        // object holds, i.e. `undefined`.
+        // `typeof` is exempt from the error an UNDECLARED name raises,
+        // and is NOT exempt from the temporal dead zone: the name is
+        // declared, so there is no reference to take — which is why
+        // this arm asks before the exemption below applies.
+        ExprKind::Ident(name) if scope.in_dead_zone(*name) => {
+            return super::binding::read(builder, scope, ctx, *name);
+        }
+        ExprKind::Ident(name) if scope.lookup(*name).is_none() => {
+            match super::binding::predefined(builder, ctx, *name) {
+                Some(value) => value,
+                None => super::globals::force_read(builder, ctx, *name)?,
+            }
+        }
+        _ => emit_expr(builder, scope, ctx, operand)?,
+    })
 }
