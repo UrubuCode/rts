@@ -276,6 +276,89 @@ silent and the answer, not the process, is what goes wrong.
 claim about liveness, and why the resolver never runs there is a question
 `RTS_CHAIN_DEBUG` and `rts ir` answer without a release build.
 
+## 5b. A COMPUTED KEY IS BROKEN BY THE **SECOND** KEY, NOT THE FOURTH
+
+Measured 2026-08-30, release, min of 9 over 3 M iterations, a site reading a
+four-field object:
+
+| what the site sees | ns |
+|---|---:|
+| one key | 17.00 |
+| **two keys** | **38.00** |
+| four keys (`bench/analytic.ts`'s own row) | 38.00 |
+| the `keys[q & 3]` array read ALONE | 15.67 |
+
+Two readings, and the second is the one to act on.
+
+**The access itself is ~1.3 ns when monomorphic.** Almost all of the one-key row
+is the array read that produces the key, which prices `array index read` at
+about the same 13–15 ns the benchmark reports for it directly.
+
+**A SECOND key costs twenty-two**, and twenty-two is a runtime crossing: the
+site recognises nothing and asks `CacheResolveKeyed` on every access. The plain
+cached read has had two entries since a site reached by two layouts measured a
+0% hit rate; a keyed site still has one.
+
+### The obvious fix does not fit, and this is where it dies
+
+A second entry needs four words: a layout, an offset, a base, and a key. Word
+seven is free — the cold image writes it as padding — and words three, four and
+five *look* free for a keyed site, because they carry the INDIRECT form's
+meaning and a keyed site never takes that path.
+
+**They are not free.** `cache::remember` shifts entry zero into words three,
+four and five whenever it is called with `duplex` — and `cache_resolve`, which
+`cache_resolve_keyed` delegates to, passes `duplex = true`. So a keyed site
+already has a two-entry LAYOUT cache living exactly there, and the only thing it
+lacks is a second KEY to pair with it.
+
+Which does not help the case that matters. `remember` shifts **only when the
+layout differs**, and the case measured above is one object with several keys —
+same layout, so no shift, so entry one never receives the second key's answer.
+Making it shift on a key difference means `cache_resolve_keyed` doing its own
+demotion around a call that may also demote, in a cell two resolvers write with
+different readings of the same words.
+
+And it lands on the GC. `cache_keyed.rs` counts a root per remembered key cell,
+and says why in the failure it fixed: a site that remembers a fresh cell per
+pass exhausted the heap — `roots 63355 live 65396 freed 5` — over seven
+characters that never changed. Its argument is *"a site remembers exactly ONE
+key, so what has to stay alive is one cell per SITE"*. Two entries make that
+sentence false, and the class of failure it belongs to is
+`docs/engine/lost-roots.md`'s: silent, and wrong in the ANSWER.
+
+### What would actually move the analytic row
+
+Nothing above would. That row cycles FOUR keys, and four entries is refused for
+a stated reason: a read entry is three words, the cell is eight, sixty-four
+bytes is one cache line, and four entries need a second line **on every access
+including the monomorphic ones, which are the overwhelming majority**.
+
+So the row is a genuinely polymorphic site paying the entry tax, and the way to
+reduce it is not to cross — which is item 2, not a bigger cache.
+
+The other half of that row is cheaper and is not about caches at all: **15.67 ns
+of the 38 is `keys[q & 3]`**, an ordinary array element read. That is the same
+number `array index read` reports, it is paid by far more code than computed
+keys are, and nothing here has looked at it.
+
+## 5c. A METHOD CALL — where its 21 ns are
+
+Measured the same run:
+
+| | ns |
+|---|---:|
+| `callee.m(a)` | 21.33 |
+| reading `callee.m` alone | 6.00 |
+| a free function call (substituted) | 1.00 |
+
+So the property read is six and the CALL is the other fifteen. That is the real
+call protocol, and item 10 is the only design here that touches it: a guard on
+the callee's identity with an ordinary call on the miss, hand-measured at 42%.
+
+What it is NOT is the read. Six nanoseconds is the cached own-property number,
+and no cache work reduces this row.
+
 ## 6. `type_of_is` RE-DERIVES A CONSTANT STRING COMPARISON — probably wrong
 
 Kept on the list with its own warning attached, which is why it is not higher.
