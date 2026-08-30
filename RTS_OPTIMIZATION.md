@@ -222,21 +222,59 @@ Unmeasured. The first thing to do is measure, not build.
 
 ---
 
-## 5. A PROPERTY MORE THAN TWO LINKS UP — ~5–8 ns of pure waste
+## 5. A PROPERTY PAST THE CACHE'S REACH — 46 ns, not the 5–8 estimated
 
-`cache.rs` walks two prototype links and then refuses the chain cache
-PERMANENTLY, and the refusal marker is read AFTER the own-property attempt — so
-a three-deep chain pays the wasted own lookup plus a full `get_property`
-crossing on every access.
+**MEASURED 2026-08-30, and the estimate this replaces was low by six to nine
+times.** Release, min of 9 over 3 M iterations, two shapes because they do not
+behave alike.
 
-Estimated 5–8 ns per access on top of a ~14 ns `get_property`. Frequency:
-occasional, and the survey's own note is that the census that produced it is a
-hand-written corpus rather than real class hierarchies.
+A four-deep class hierarchy, calling a method at each depth:
 
-**Measure before building.** A census is not a clock, and this file records one
-ranked item that died exactly that way.
+| links | ns |
+|---|---:|
+| own property | 8.33 |
+| 1 | 21.33 |
+| 2 | 21.33 |
+| **3** | **67.00** |
+| 4 | 75.33 |
 
----
+The step from two links to three is **3.1×**, and it is a cliff rather than a
+slope — which is what a cache that stops trying looks like from the outside.
+
+The same depth built by `Object.create` has no cliff and no cache at all:
+
+| links | ns |
+|---|---:|
+| own property | 8.67 |
+| 1 | 44.67 |
+| 2 | 51.33 |
+| 3 | 57.00 |
+| 4 | 63.33 |
+
+Linear, about 6.3 ns per extra link, and **36 of them arrive at the FIRST link** —
+where the correctness argument below does hold. `RTS_CHAIN_DEBUG=1` prints
+nothing for that site, and the resolver reports each of its ten refusals under
+exactly that flag, so it is not being refused: **it is not being reached**. A
+second question with a second answer, and the cheaper one to chase.
+
+**The blocker for the depth itself is written down, and it is a GC argument.**
+`entry/cache.rs`, above `cache_resolve_indirect`:
+
+> At one step the argument holds: the receiver's type is discriminated by its
+> link (`Context::typed_as`), so recognising the type proves the link is the cell
+> whose address was remembered, and a live receiver keeps its link alive through
+> `trace`. At two steps the middle cell's own link can be reassigned, and nothing
+> the site compares would notice.
+
+So the depth is one by construction rather than by oversight, and the comment
+says closing it is "a separate change with a separate argument to make". That
+argument is about what keeps a remembered address alive, which puts it in the
+class `docs/engine/lost-roots.md` describes — the one where the failure is
+silent and the answer, not the process, is what goes wrong.
+
+**Do the `Object.create` half first.** It is 36 ns at depth one, it needs no new
+claim about liveness, and why the resolver never runs there is a question
+`RTS_CHAIN_DEBUG` and `rts ir` answer without a release build.
 
 ## 6. `type_of_is` RE-DERIVES A CONSTANT STRING COMPARISON — probably wrong
 
