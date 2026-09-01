@@ -80,7 +80,7 @@ pub(super) struct Resolved {
 /// per-body part would be which receivers this activation holds, and a receiver
 /// declared exactly once — required below for the same reason
 /// `inline::candidates` requires it — is in scope wherever its spelling is.
-pub(super) fn resolve(program: &[Stmt]) -> Resolved {
+pub(super) fn resolve(program: &[Stmt], constructor: Name) -> Resolved {
     let mut methods = BTreeMap::new();
     let mut constructed = Vec::new();
     for statement in program {
@@ -145,44 +145,105 @@ pub(super) fn resolve(program: &[Stmt]) -> Resolved {
         {
             continue;
         }
+        // THE WHOLE CHAIN IS COLLECTED FIRST, because the clauses below are
+        // about the chain rather than about one class, and one of them —
+        // whether any body lets `this` escape — is what nine wrong answers
+        // taught this module. See `chain_decides` for each.
+        let mut chain = Vec::new();
         let mut walking = classes.get(&class_name).copied();
         let mut seen = BTreeSet::new();
+        let mut whole = true;
         while let Some(class) = walking {
-            for element in &class.body {
-                let ClassElement::Method(method) = element else {
-                    continue;
-                };
-                if method.is_static || method.kind != crate::syntax::MethodKind::Normal {
-                    continue;
-                }
-                let Some(name) = plain_key(&method.key) else {
-                    continue;
-                };
-                // The FIRST one wins, which is what a prototype chain does: a
-                // derived class's own method shadows the base's, and the walk
-                // starts at the derived one.
-                methods
-                    .entry((receiver, name))
-                    .or_insert_with(|| (*method.function).clone());
-            }
+            chain.push(class);
             // Up one link, by the same rule that let us in: a base named by an
-            // expression that is not a once-declared class ends the walk rather
-            // than being guessed at.
+            // expression that is not a once-declared class ends the walk. It
+            // ends it UNDECIDED rather than finished, because a base this
+            // cannot read may install anything — `function B() { return other }`
+            // is a base whose constructor returns, and the derived `this` is
+            // then an object of some other shape entirely.
             let Some(heritage) = &class.heritage else {
                 break;
             };
             let ExprKind::Ident(base) = &heritage.kind else {
+                whole = false;
                 break;
             };
             if read_as_value.contains(base) || declared.get(base).copied() != Some(1) {
+                whole = false;
                 break;
             }
             // A cycle cannot happen in a legal program, and a walk that trusts
             // that is a walk that hangs on an illegal one.
             if !seen.insert(*base) {
+                whole = false;
                 break;
             }
-            walking = classes.get(base).copied();
+            match classes.get(base) {
+                Some(next) => walking = Some(*next),
+                None => {
+                    whole = false;
+                    break;
+                }
+            }
+        }
+        if !whole || !chain_decides(&chain, constructor) {
+            continue;
+        }
+
+        // The prototype order, and only for keys the chain settles.
+        let mut settled: BTreeMap<Name, Option<&Function>> = BTreeMap::new();
+        for class in &chain {
+            for element in &class.body {
+                let (key, answer) = match element {
+                    ClassElement::Method(method) if !method.is_static => (
+                        &method.key,
+                        (method.kind == crate::syntax::MethodKind::Normal
+                            && plain_key(&method.key) != Some(constructor))
+                        .then_some(&*method.function),
+                    ),
+                    // A non-static FIELD is an own property the constructor
+                    // installs, and an own property shadows the WHOLE prototype
+                    // chain — not only the classes above it. `class B { m = …
+                    // } class D extends B { m() { … } }` answers the FIELD in
+                    // node, so the key is settled to nothing wherever the field
+                    // is written, and `chain_decides` refuses a computed one
+                    // outright because it cannot be named here.
+                    ClassElement::Field(field) if !field.is_static => (&field.key, None),
+                    _ => continue,
+                };
+                let Some(name) = plain_key(key) else {
+                    continue;
+                };
+                // The FIRST mention in prototype order decides, and a mention
+                // that is not an ordinary method decides it to NOTHING. An
+                // accessor is the case that made this necessary: a derived
+                // `get m()` shadows a base `m()`, and skipping it let the base's
+                // body be substituted for a call the language answers from the
+                // getter.
+                settled.entry(name).or_insert(answer);
+            }
+        }
+        // A FIELD anywhere in the chain wins over every method of that name, at
+        // any level, because it is installed on the instance. Applied as a
+        // second pass so it is order-independent, which the prototype rule
+        // above deliberately is not.
+        for class in &chain {
+            for element in &class.body {
+                let ClassElement::Field(field) = element else {
+                    continue;
+                };
+                if field.is_static {
+                    continue;
+                }
+                if let Some(name) = plain_key(&field.key) {
+                    settled.insert(name, None);
+                }
+            }
+        }
+        for (name, answer) in settled {
+            if let Some(function) = answer {
+                methods.entry((receiver, name)).or_insert_with(|| function.clone());
+            }
         }
     }
     Resolved { methods }
@@ -475,7 +536,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        let mut answered: Vec<String> = resolve(&body)
+        let mut answered: Vec<String> = resolve(&body, names.intern("constructor"))
             .methods
             .keys()
             .map(|(held, method)| format!("{}.{}", names.text(*held), names.text(*method)))
@@ -597,7 +658,8 @@ mod tests {
                 _ => None,
             })
             .collect();
-        let resolved = resolve(&body);
+        let held_constructor = names.intern("constructor");
+        let resolved = resolve(&body, held_constructor);
         let held = names.intern("d");
         let method = names.intern("m");
         let function = resolved.methods.get(&(held, method)).expect("decided");
@@ -615,4 +677,188 @@ mod tests {
             "the derived method, not the base's"
         );
     }
+}
+
+/// Whether a whole `extends` chain settles what its instances' keys reach.
+///
+/// # The premise this exists to repair
+///
+/// The module header says every way of changing what `o.m` reaches has to SPELL
+/// `o` or `C`, and that the value-read walk therefore finds them all. It is
+/// FALSE, and nine wrong answers against node said so — four of them from one
+/// cause: **`this` inside any body of the chain is a third spelling of `o`**,
+/// and no walk over the program's use of the name `o` can see it.
+///
+/// ```text
+/// class C { m() { return 1; } patch() { this.m = () => 2; } }
+/// const o = new C(); o.patch(); o.m();     // node 2, this engine answered 1
+/// class C { m() { return 1; } self() { return this; } }
+/// const o = new C(); o.self().m = () => 2; // node 2, this engine answered 1
+/// ```
+///
+/// So `this` is asked about here, over EVERY body of EVERY class in the chain —
+/// methods, field initialisers, static blocks — and it may appear only as the
+/// object of a plain member READ. `this.v` is how a method reaches its own
+/// field and is the shape the whole optimisation exists for; anything else —
+/// `this.m = f`, `return this`, `f(this)`, `const self = this`, `this[k]` —
+/// hands the receiver to something that may write through it, and refuses the
+/// class.
+///
+/// # The other two clauses, and why they are chain-wide
+///
+/// A CONSTRUCTOR THAT RETURNS decides the instance is not an instance of this
+/// class at all, and it does so for every derived class too, since a base's
+/// returned object becomes the derived `this`. A NON-STATIC COMPUTED KEY
+/// installs a name this cannot read, so no key of that chain is settled.
+///
+/// Both are asked of the chain rather than of one class for the same reason:
+/// what an instance holds is decided by every constructor that runs on it.
+fn chain_decides(chain: &[&Class], constructor: Name) -> bool {
+    chain.iter().all(|class| {
+        class.body.iter().all(|element| match element {
+            ClassElement::Method(method) => {
+                if !method.is_static
+                    && !matches!(
+                        &method.key,
+                        crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(_))
+                    )
+                {
+                    return false;
+                }
+                if plain_key(&method.key) == Some(constructor)
+                    && !method.is_static
+                    && constructor_returns(&method.function)
+                {
+                    return false;
+                }
+                this_is_only_read(&method.function)
+            }
+            ClassElement::Field(field) => {
+                if !field.is_static
+                    && !matches!(
+                        &field.key,
+                        crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(_))
+                    )
+                {
+                    return false;
+                }
+                field
+                    .value
+                    .as_ref()
+                    .is_none_or(|value| this_read_only_in_expr(value))
+            }
+            // A static block is arbitrary code with the class in scope, which
+            // can install anything on its prototype. Nothing here can bound it.
+            ClassElement::StaticBlock(_) => false,
+        })
+    })
+}
+
+/// Whether a constructor has a `return` with a value.
+///
+/// `return <object>` makes `new C()` answer that object instead of the
+/// instance, so `o` is not a `C` and `o.m` is whatever the other object has.
+/// A bare `return;` is ordinary control flow and answers the instance.
+fn constructor_returns(function: &Function) -> bool {
+    let crate::syntax::FunctionBody::Block(body) = &function.body else {
+        return true;
+    };
+    let mut found = false;
+    for statement in body {
+        returns_a_value(statement, &mut found);
+    }
+    found
+}
+
+fn returns_a_value(statement: &Stmt, found: &mut bool) {
+    if *found {
+        return;
+    }
+    if matches!(&statement.kind, StmtKind::Return(Some(_))) {
+        *found = true;
+        return;
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => returns_a_value(inner, found),
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                returns_a_value(inner, found);
+            }
+        }
+        // A `return` inside a nested function is that function's.
+        StmtChild::Expr(_)
+        | StmtChild::Binding(_)
+        | StmtChild::Function(_)
+        | StmtChild::Class(_) => {}
+    });
+}
+
+/// Whether `this` appears in a function only as the object of a member READ.
+fn this_is_only_read(function: &Function) -> bool {
+    match &function.body {
+        crate::syntax::FunctionBody::Block(body) => {
+            body.iter().all(this_read_only_in_statement)
+        }
+        crate::syntax::FunctionBody::Expression(expr) => this_read_only_in_expr(expr),
+    }
+}
+
+fn this_read_only_in_statement(statement: &Stmt) -> bool {
+    let mut ok = true;
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => ok = ok && this_read_only_in_statement(inner),
+        StmtChild::Expr(expr) => ok = ok && this_read_only_in_expr(expr),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                ok = ok && this_read_only_in_expr(value);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            ok = ok && catch.body.iter().all(this_read_only_in_statement);
+        }
+        // A nested ARROW takes the enclosing `this`, so its body is this
+        // function's for the purpose of this question. A nested `function` gets
+        // its own and cannot be reasoned about here either way, so both are
+        // refused rather than told apart — the shape this optimisation exists
+        // for has neither.
+        StmtChild::Function(_) | StmtChild::Class(_) => ok = false,
+    });
+    ok
+}
+
+fn this_read_only_in_expr(expr: &Expr) -> bool {
+    // `this.v` — the one legal shape, and the one a method needs to reach its
+    // own field. The object is NOT descended into, which is what makes this a
+    // read rather than a mention.
+    if let ExprKind::Member {
+        object,
+        optional: false,
+        ..
+    } = &expr.kind
+        && matches!(&object.kind, ExprKind::This)
+    {
+        return true;
+    }
+    // Anywhere else, a bare `this` hands the receiver over.
+    if matches!(&expr.kind, ExprKind::This) {
+        return false;
+    }
+    // And `this.m = f` is a member expression in a WRITE position, which the
+    // arm above would have called legal. The assignment is caught here, before
+    // its place is walked.
+    if let ExprKind::Assign {
+        target: crate::syntax::AssignTarget::Place(place),
+        ..
+    } = &expr.kind
+        && let (ExprKind::Member { object, .. } | ExprKind::Index { object, .. }) = &place.kind
+        && matches!(&object.kind, ExprKind::This)
+    {
+        return false;
+    }
+    let mut ok = true;
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => ok = ok && this_read_only_in_expr(inner),
+        Child::Function(_) | Child::Class(_) => ok = false,
+    });
+    ok
 }

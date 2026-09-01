@@ -1877,7 +1877,7 @@ fn whole_program_facts(body: &[Stmt], ctx: &mut Ctx) {
     let eval_name = ctx.names.intern("eval");
     let global_this_name = ctx.names.intern("globalThis");
     let arguments_name = ctx.names.intern("arguments");
-    ctx.static_methods = receiver::resolve(body)
+    ctx.static_methods = receiver::resolve(body, ctx.names.intern("constructor"))
         .methods
         .into_iter()
         .filter_map(|((held, method), function)| {

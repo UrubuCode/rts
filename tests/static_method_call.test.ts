@@ -220,3 +220,159 @@ describe("an `instanceof` does not spend the receiver", () => {
     expect(hooked.m()).toBe(99);
   });
 });
+
+describe("nine wrong answers, and the premise they broke", () => {
+  // `receiver.rs` shipped with a header claiming that every way of changing what
+  // `o.m` reaches has to SPELL `o` or `C`, so a walk over the program's use of
+  // those two names finds them all. IT IS FALSE. An adversarial survey produced
+  // nine programs where this engine disagreed with node, every one of them
+  // ordinary code, and four came from one cause: `this` inside any body of the
+  // chain is a THIRD spelling of the receiver, which no walk over `o` can see.
+  //
+  // Each test below is one of those programs. They are grouped rather than
+  // spread because they are one defect with one repair, and because a reader who
+  // changes the chain walk needs them all in one place.
+
+  test("a FIELD shadows a base method — an own property beats the chain", () => {
+    class B {
+      m(): number {
+        return 1;
+      }
+    }
+    class D extends B {
+      m = (): number => 2;
+    }
+    expect(new D().m()).toBe(2);
+  });
+
+  test("and it beats a DERIVED method too, at any level", () => {
+    // The field is installed on the instance by the base's constructor, so it
+    // shadows the derived prototype's method. A rule that stopped at the first
+    // class to mention the key would answer 2 here.
+    class B {
+      m = (): number => 1;
+    }
+    class D extends B {
+      m(): number {
+        return 2;
+      }
+    }
+    expect(new D().m()).toBe(1);
+  });
+
+  test("a derived GETTER shadows a base method", () => {
+    class B {
+      m(): number {
+        return 1;
+      }
+    }
+    class D extends B {
+      get m(): any {
+        return () => 2;
+      }
+    }
+    expect(new D().m()).toBe(2);
+  });
+
+  test("a COMPUTED key can name anything, so the class settles nothing", () => {
+    class C {
+      m(): number {
+        return 1;
+      }
+      ["m"](): number {
+        return 2;
+      }
+    }
+    expect(new C().m()).toBe(2);
+  });
+
+  test("a constructor that RETURNS makes the instance somebody else's", () => {
+    const other = {
+      m(): number {
+        return 99;
+      },
+    };
+    class C {
+      constructor() {
+        return other as any;
+      }
+      m(): number {
+        return 1;
+      }
+    }
+    expect(new C().m()).toBe(99);
+  });
+
+  test("`this.m = f` from a sibling method", () => {
+    class C {
+      m(): number {
+        return 1;
+      }
+      patch(): void {
+        (this as any).m = () => 2;
+      }
+    }
+    const o = new C();
+    o.patch();
+    expect(o.m()).toBe(2);
+  });
+
+  test("`this.m = f` from the constructor", () => {
+    class C {
+      m(): number {
+        return 1;
+      }
+      constructor() {
+        (this as any).m = () => 2;
+      }
+    }
+    expect(new C().m()).toBe(2);
+  });
+
+  test("`this` RETURNED, and written through outside", () => {
+    class C {
+      m(): number {
+        return 1;
+      }
+      self(): any {
+        return this;
+      }
+    }
+    const o = new C();
+    o.self().m = () => 2;
+    expect(o.m()).toBe(2);
+  });
+
+  test("`this` handed to a function as an ARGUMENT", () => {
+    function grab(x: any): void {
+      x.m = () => 2;
+    }
+    class C {
+      m(): number {
+        return 1;
+      }
+      give(): void {
+        grab(this);
+      }
+    }
+    const o = new C();
+    o.give();
+    expect(o.m()).toBe(2);
+  });
+
+  test("`o.constructor()` is still a TypeError", () => {
+    class C {
+      m(): number {
+        return 1;
+      }
+    }
+    const o = new C();
+    let threw = "";
+    try {
+      (o as any).constructor();
+    } catch (err) {
+      threw = (err as Error).constructor.name;
+    }
+    expect(threw).toBe("TypeError");
+  });
+});
