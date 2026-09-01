@@ -1,5 +1,10 @@
 # What is left to optimise
 
+Three files, and this is the one that RANKS. `RTS_ENGINE_STUDY.md` holds the raw
+readings under each item — what a file does today, read by someone who looked.
+`RTS_REFUTATIONS.md` holds what has been refused and why. Read the study before
+proposing, and the graveyard before re-proposing.
+
 The work list from `docs/codegen/inlining-survey-2026-08-30.md` — a ten-angle
 survey, 50 candidates, 37 refuted by three adversarial lenses — minus what has
 since shipped, plus what shipping it uncovered.

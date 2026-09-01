@@ -1,5 +1,10 @@
 # The graveyard
 
+Three files, and this is the one that REFUSES. `RTS_OPTIMIZATION.md` ranks what is
+left; `RTS_ENGINE_STUDY.md` holds the raw readings under each — including under
+most of what is refused here, because a refuted proposal is very often a correct
+observation with a wrong prescription.
+
 Every optimisation idea this engine has refused, and why. Written so that the next
 session does not spend a build re-proving something a previous one already disproved —
 and, more often than that, does not re-propose an idea whose refutation is now the most
