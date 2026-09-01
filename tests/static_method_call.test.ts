@@ -376,3 +376,52 @@ describe("nine wrong answers, and the premise they broke", () => {
     expect(threw).toBe("TypeError");
   });
 });
+
+describe("a PARAMETER binds the spelling too", () => {
+  // A tenth wrong answer, found by the same survey and living past the fix for
+  // the other nine. `receiver.rs` counted DECLARATIONS with a counter of its own
+  // — a class, a `const`, a `function` — and a parameter is none of those. The
+  // map is keyed by spelling, so a decided `const o = new C()` anywhere in the
+  // module answered C's method for `function g(o) { return o.m(); }`.
+  //
+  //   g({ m: () => "the argument's" })   rts "class C method"   node "the argument's"
+  //
+  // The repair is reuse rather than a wider counter: `inline::declarations_of`
+  // already counts a parameter, a `catch` binding and a loop target, and says in
+  // its own comment that over-counting is the safe direction. Two counters were
+  // two chances to disagree about what a binding is.
+  class Held {
+    m(): string {
+      return "the class method";
+    }
+  }
+  const held = new Held();
+
+  test("the parameter's own object answers, and the decided receiver still answers", () => {
+    function viaParameter(held: any): string {
+      return held.m();
+    }
+    expect(viaParameter({ m: () => "the argument's" })).toBe("the argument's");
+    expect(held.m()).toBe("the class method");
+  });
+
+  test("a `catch` binding of the same spelling", () => {
+    function thrown(): string {
+      try {
+        throw { m: () => "the caught one's" };
+      } catch (held: any) {
+        return held.m();
+      }
+    }
+    expect(thrown()).toBe("the caught one's");
+  });
+
+  test("a loop target of the same spelling", () => {
+    function looped(): string {
+      let seen = "";
+      for (const held of [{ m: () => "the element's" }]) seen = held.m();
+      return seen;
+    }
+    expect(looped()).toBe("the element's");
+  });
+});

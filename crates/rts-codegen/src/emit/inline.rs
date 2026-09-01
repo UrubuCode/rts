@@ -1353,7 +1353,7 @@ fn returned_expression(function: &Function) -> Option<&Expr> {
 /// all count, and none of them could shadow a top-level function at the call
 /// sites that matter — but over-counting refuses a candidate, and under-counting
 /// substitutes the wrong function.
-fn declarations_of(body: &[Stmt], name: Name) -> usize {
+pub(super) fn declarations_of(body: &[Stmt], name: Name) -> usize {
     let mut count = 0;
     for statement in body {
         count_in_statement(statement, name, &mut count);

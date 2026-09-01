@@ -90,13 +90,13 @@ pub(super) fn resolve(program: &[Stmt], constructor: Name) -> Resolved {
         return Resolved { methods };
     }
 
-    // Every class the program declares, by name, and how many times the name is
-    // declared at all. A second declaration means the spelling does not decide
-    // the class, which is the same reason `inline::candidates` counts.
+    // Every class the program declares, by name. How MANY times a name is bound
+    // is asked of `inline::declarations_of` instead — this module counted its own
+    // way once and missed parameters, which is one of the wrong answers the
+    // header records.
     let mut classes: BTreeMap<Name, &Class> = BTreeMap::new();
-    let mut declared: BTreeMap<Name, usize> = BTreeMap::new();
     for statement in program {
-        class_declarations(statement, &mut classes, &mut declared);
+        class_declarations(statement, &mut classes);
     }
 
     // Every name read as a VALUE anywhere in the program, where the receiver of
@@ -109,7 +109,7 @@ pub(super) fn resolve(program: &[Stmt], constructor: Name) -> Resolved {
     let ordinary: BTreeSet<Name> = classes
         .iter()
         .filter(|(name, class)| {
-            declared.get(*name).copied() == Some(1)
+            super::inline::declarations_of(program, **name) == 1
                 && !class.body.iter().any(|element| match element {
                     ClassElement::Method(method) => {
                         method.is_static && !matches!(&method.key, crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(_)))
@@ -136,12 +136,20 @@ pub(super) fn resolve(program: &[Stmt], constructor: Name) -> Resolved {
         if read_as_value.contains(&receiver) || read_as_value.contains(&class_name) {
             continue;
         }
-        // BOTH names declared exactly once. For the class it is what makes the
-        // spelling decide which class; for the RECEIVER it is what makes one
-        // answer serve the whole module, since two `const o = new …` in two
-        // functions would otherwise share a key and the first would win.
-        if declared.get(&class_name).copied() != Some(1)
-            || declared.get(&receiver).copied() != Some(1)
+        // BOTH names bound exactly once IN THE WHOLE PROGRAM, counted by
+        // `inline::declarations_of` and not by a counter of this module's own.
+        //
+        // It had one, and it counted DECLARATIONS: a class, a `const`, a
+        // `function`. A PARAMETER binds a name too, and the map is keyed by
+        // spelling, so `function g(o) { return o.m(); }` beside a decided
+        // `const o = new C()` answered C's method for an argument that had its
+        // own — `g({ m: () => "the argument's" })` printed "class C method",
+        // where node prints the argument's. `declarations_of` counts a
+        // parameter, a `catch` binding and a loop target, which is exactly the
+        // over-approximation this needs, and sharing it means the two cannot
+        // disagree about what a binding is.
+        if super::inline::declarations_of(program, class_name) != 1
+            || super::inline::declarations_of(program, receiver) != 1
         {
             continue;
         }
@@ -168,7 +176,7 @@ pub(super) fn resolve(program: &[Stmt], constructor: Name) -> Resolved {
                 whole = false;
                 break;
             };
-            if read_as_value.contains(base) || declared.get(base).copied() != Some(1) {
+            if read_as_value.contains(base) || super::inline::declarations_of(program, *base) != 1 {
                 whole = false;
                 break;
             }
@@ -285,23 +293,17 @@ fn constructions(statement: &Stmt, found: &mut Vec<(Name, Name)>) {
     });
 }
 
-/// Every class the program declares, and how often each name is declared.
-fn class_declarations<'a>(
-    statement: &'a Stmt,
-    classes: &mut BTreeMap<Name, &'a Class>,
-    declared: &mut BTreeMap<Name, usize>,
-) {
+/// Every class the program declares, by the name it is declared under.
+fn class_declarations<'a>(statement: &'a Stmt, classes: &mut BTreeMap<Name, &'a Class>) {
     match &statement.kind {
         StmtKind::Class(class) => {
             if let Some(name) = class.name {
-                *declared.entry(name).or_insert(0) += 1;
                 classes.insert(name, class);
             }
         }
         StmtKind::Declare { bindings, .. } => {
             for binding in bindings {
                 if let Pattern::Name(name) = &binding.target {
-                    *declared.entry(*name).or_insert(0) += 1;
                     if let Some(value) = &binding.value
                         && let ExprKind::Class(class) = &value.kind
                     {
@@ -312,16 +314,15 @@ fn class_declarations<'a>(
         }
         StmtKind::Function(function) => {
             if let Some(name) = function.name {
-                *declared.entry(name).or_insert(0) += 1;
             }
         }
         _ => {}
     }
     walk_stmt(statement, &mut |child| match child {
-        StmtChild::Stmt(inner) => class_declarations(inner, classes, declared),
+        StmtChild::Stmt(inner) => class_declarations(inner, classes),
         StmtChild::Catch(catch) => {
             for inner in &catch.body {
-                class_declarations(inner, classes, declared);
+                class_declarations(inner, classes);
             }
         }
         StmtChild::Expr(_) | StmtChild::Binding(_) => {}
@@ -332,7 +333,7 @@ fn class_declarations<'a>(
         StmtChild::Function(function) => {
             if let crate::syntax::FunctionBody::Block(body) = &function.body {
                 for inner in body {
-                    class_declarations(inner, classes, declared);
+                    class_declarations(inner, classes);
                 }
             }
         }
@@ -850,7 +851,7 @@ fn this_read_only_in_expr(expr: &Expr) -> bool {
         target: crate::syntax::AssignTarget::Place(place),
         ..
     } = &expr.kind
-        && let (ExprKind::Member { object, .. } | ExprKind::Index { object, .. }) = &place.kind
+        && let ExprKind::Member { object, .. } | ExprKind::Index { object, .. } = &place.kind
         && matches!(&object.kind, ExprKind::This)
     {
         return false;
