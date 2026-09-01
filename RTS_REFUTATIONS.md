@@ -445,6 +445,34 @@ have passed it.
 written slightly too wide turns the pass off while every correctness test stays green.
 `call method` and `prop proto method call` had to stay at 4.3 and 3.0, and did.
 
+### The tenth, and where it was hiding
+
+A survey finds more than it reports. The nine above were one candidate's headline;
+**the tenth was inside an OBJECTION to a different candidate** — a refuter, arguing that a
+proposed `instanceof` fold would inherit an existing defect, named the defect in passing:
+
+```js
+class C { m() { return "class C method"; } }
+function g(o) { return o.m(); }
+g({ m: () => "the argument's own method" })   // rts answered the CLASS's
+```
+
+`receiver.rs` counted DECLARATIONS with a counter of its own — a class, a `const`, a
+`function` — and a PARAMETER is none of those. The map is keyed by spelling, so a decided
+`const o = new C()` anywhere in the module answered for every `o` in the program.
+
+It survived the fix for the other nine, because that fix was about **what a class
+declares** and this is about **what a name binds**. Two different questions that had
+looked like one.
+
+The repair was reuse, not a wider counter. `inline::declarations_of` already counts a
+parameter, a `catch` binding and a loop target, and says in its own comment that
+over-counting is the safe direction. **Two counters were two chances to disagree about
+what a binding is**, and that is what happened. The second one is deleted.
+
+**Read the objections, not the verdicts.** Two live defects were named in the bodies of
+refutations aimed at something else. Both were checked by running; one was real.
+
 ---
 
 ## 5. The instruments that lied
