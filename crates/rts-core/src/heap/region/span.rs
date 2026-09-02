@@ -60,6 +60,29 @@ impl Region {
             let taken = self.next;
             self.next += cells;
             taken
+        } else if cells == 1 {
+            // UMA célula não é um run, e é por aqui que ela volta.
+            //
+            // `Region::free` manda um objeto de uma célula para a lista LIGADA
+            // e só um de duas ou mais para `free_runs` — a razão está lá e é
+            // boa (enfiar um objeto largo na lista ligada espalha-o entre
+            // alocações estreitas e nenhum run se volta a formar). O efeito
+            // colateral é que uma alocação spanning de uma célula, que nunca
+            // olha para a lista ligada, não conseguia reaproveitar NENHUMA das
+            // células que ela própria libertou.
+            //
+            // Um frame de gerador é exatamente esse caso: `function* g() {
+            // yield 1; }` cabe numa célula. Medido antes desta linha: 300 000
+            // rondas de `for (const v of g())` paravam com "heap exhausted"
+            // enquanto o coletor reportava `live 2366` e `freed 521867` — meio
+            // milhão de células livres, e a alocação seguinte recusada. A
+            // mensagem de exaustão dizia "all of them are in use", que era
+            // falso; o que faltava era um caminho até elas.
+            //
+            // `alloc` é o caminho, e o header que ele escreve é o mesmo:
+            // `alloc_spanning` calcula `width = 1 * (INLINE_SLOTS + 1) - 1`,
+            // que é `INLINE_SLOTS`, que é o que `alloc` escreve.
+            return self.alloc(size, ty);
         } else {
             // Nothing left to bump into, so the free list is asked — for a RUN
             // of cells and not one cell, which is why this cannot be
@@ -205,5 +228,61 @@ mod tests {
             region.alloc(16, 1).is_some(),
             "a refusal takes no cells with it"
         );
+    }
+}
+
+#[cfg(test)]
+mod one_cell_reuse {
+    use super::*;
+
+    /// Uma alocação spanning de UMA célula reaproveita o que ela própria
+    /// libertou, mesmo com o bump space esgotado.
+    ///
+    /// O que isto pina não é uma preferência de arrumação: sem o ramo de uma
+    /// célula em [`Region::alloc_spanning`], `Region::free` mandava um frame
+    /// de uma célula para a lista LIGADA e a alocação spanning só olhava para
+    /// `free_runs`, que nunca recebe objetos estreitos. Um frame de gerador é
+    /// exatamente isso — `function* g() { yield 1; }` cabe numa célula — e o
+    /// efeito era o programa parar com "heap exhausted" enquanto o coletor
+    /// reportava meio milhão de células livres.
+    ///
+    /// O laço enche a região de propósito: o caminho a testar é o que corre
+    /// DEPOIS de o bump space acabar, e uma região com espaço livre nunca lá
+    /// chega.
+    #[test]
+    fn a_one_cell_span_comes_back_from_the_free_list() {
+        let mut region = Region::with_capacity(8);
+        let mut taken = Vec::new();
+        while let Some(cell) = region.alloc_spanning(STRIDE, 1) {
+            taken.push(cell);
+        }
+        assert!(taken.len() >= 2, "a região tinha de dar mais do que uma célula");
+
+        // Com o bump space gasto, a alocação seguinte só pode vir do que foi
+        // libertado.
+        assert_eq!(region.alloc_spanning(STRIDE, 1), None, "a região devia estar cheia");
+        assert!(region.free(taken[0]), "libertar a primeira célula");
+        let reusada = region.alloc_spanning(STRIDE, 1);
+        assert!(
+            reusada.is_some(),
+            "uma célula acabada de libertar tem de estar ao alcance de uma \
+             alocação spanning de uma célula — era este o caminho que não existia"
+        );
+    }
+
+    /// E o header que o caminho novo escreve é o mesmo do caminho antigo: um
+    /// campo escrito através da célula reusada lê-se de volta, o que não
+    /// aconteceria se a largura tivesse ficado a zero.
+    #[test]
+    fn the_reused_cell_still_has_a_usable_width() {
+        let mut region = Region::with_capacity(4);
+        let mut taken = Vec::new();
+        while let Some(cell) = region.alloc_spanning(STRIDE, 1) {
+            taken.push(cell);
+        }
+        region.free(taken[0]);
+        let cell = region.alloc_spanning(STRIDE, 1).expect("a célula libertada volta");
+        assert_eq!(region.set_spanning_field(cell, 0, 1, 0x1234), Some(()));
+        assert_eq!(region.spanning_field(cell, 0, 1), Some(0x1234));
     }
 }

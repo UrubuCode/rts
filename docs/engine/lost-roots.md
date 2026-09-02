@@ -205,13 +205,110 @@ it was verified on a DEBUG build — and the debug build answers 120000 with and
 without it. The control was not run first. **A fix verified in a cell that never
 had the bug is not verified.**
 
-**A second symptom in the same shape, also open**: 300 000 rounds exhaust the
-heap outright — "the region grew to its whole reservation of 524288 cells and
-all of them are in use even after a collection" — before and after that attempt.
-Two symptoms; at least one cause still unfound. Check 1 of this document passes:
-all twenty-one `Aside` fields are either walked by `trace::edges_of` or named in
-its closing comment, so it is not another `cursors`.
+**A second symptom in the same shape — FOUND, and it was not a root at all**:
+300 000 rounds exhausted the heap outright, "the region grew to its whole
+reservation of 524288 cells and all of them are in use even after a collection".
 
+That message was false, and its falseness is the lesson. The collector was
+reporting `live 2366` and `freed 521867` on the cycle before the stop: half a
+million cells free, and the next allocation refused. Nothing was over-rooted and
+nothing leaked. **`Region::free` has two destinations** — an object of two or
+more cells goes back as a run in `free_runs`, one of a single cell is threaded
+onto the linked list — and `alloc_spanning`, once the bump space is gone, read
+only `free_runs`. A generator frame is a one-cell object (`function* g() { yield
+1; }` fits in one), so every frame this program freed went somewhere the
+allocation that needed it would never look.
+
+Fixed 2026-09-02 by a one-cell arm in `alloc_spanning` that falls through to
+`Region::alloc`, which is the path that reads the linked list. Measured on the
+same program: 300 000 rounds `ok 300000` and 1 000 000 rounds `ok 1000000`,
+against heap exhaustion before. `heap::region::span`'s `one_cell_reuse` tests
+pin it and were checked to FAIL with the arm disabled.
+
+**Why it is in this document even though it is not a lost root.** Because it
+presented as one, and cost a day of looking for one. The exhaustion message
+asserted more than the code knew — "all of them are in use" was a guess about
+why an allocation failed, not an observation — and two hypotheses were built and
+discarded on the strength of it (over-rooting through uninitialised frame slots,
+which was tested by zeroing the frame and changed nothing). **An error message
+that states a cause rather than a symptom sends every reader the same wrong
+way.**
+
+### `expect()` built a cell out of a Rust local — hiding place two, in `rts-std`
+
+Found 2026-09-02, fixed. `rts:test`'s `expect(value)` made a plain object and
+then, in a second borrow, hung SEVEN freshly built callables off it — the object
+living in a Rust `u64` across all eight allocations, every one of which can
+collect. That is exactly `json::materialise`'s shape, and this document's own
+closing section had named the place: *"the other twenty-odd crates — `rts-std`,
+`rts-node`, … all build cells from Rust locals, and none was read"*.
+
+The symptom was a lie about which file was broken: under memory pressure the
+suite reported `TypeError: (intermediate value).toBe is not a function` inside
+whatever test file happened to be running — the matcher object had been swept
+between `expect(x)` and reading `.toBe` off it.
+
+The fix is not the `Rooted` guard, because **`entry::rooted::Rooted` is
+`pub(in crate::entry)` and no other crate can reach it**. That is worth stating
+plainly: the mechanism this document recommends for hiding place two is
+unavailable to every crate the closing section warns about. What was done
+instead removes the window rather than guarding it — one shared prototype
+(`make_prototype` is memoised by name) and one `make_instance`, so there is no
+half-built cell to lose. It is also seven allocations cheaper per assertion.
+
+**And it made the generator defect below DETERMINISTIC.** With `expect`
+allocating eight times per assertion, `generator_for_of_root.test.ts` passed;
+with it allocating once, two of its five cases fail with wrong answers rather
+than intermittently. Less allocation revealed the bug instead of hiding it,
+which is the direction to prefer — but it means that file now fails alone, and
+the reason is recorded here rather than in a commit nobody will find.
+
+### What the generator defect actually looks like, measured
+
+The entry above quotes 60683-under-`RTS_GC_DEBUG`. That cell no longer
+reproduces; the binary has moved. What reproduces on 2026-09-02, **outside the
+test harness and with no flag set**, is worse than what was recorded:
+
+```js
+function* many() { yield 1; yield 2; yield 3; }
+let first = 0;
+for (let i = 0; i < 20000; i++) { for (const v of many()) { first = first + v; break; } }
+function* inner() { yield 1; yield 2; }
+function* outer() { yield* inner(); yield 3; }
+let total = 0;
+for (let i = 0; i < 20000; i++) { for (const v of outer()) total = total + v; }
+console.log(first, total);   // 20000 correct, and total should be 120000
+```
+
+| build | `total` |
+|---|---|
+| `a3de2a3f`, untouched | **5970** |
+| with the two fixes above | **28662** |
+
+Run the `yield*` loop ALONE and it answers 120000. It needs the first loop's
+20 000 generators ahead of it, which is what makes accumulated heap pressure
+part of the reproduction and why every attempt to shrink the case has hidden it.
+
+**Three candidates excluded, each by measurement rather than by argument:**
+
+- `Context::resuming` as a root — the previous entry already suspected this and
+  was verified on debug, which never had the bug. Retested here against the
+  release reproducer above: `50423` with and without. It is not this.
+- **Uninitialised frame slots read as references.** `alloc_spanning` never zeroes
+  the data slots and `generator::State::trace` pushes every slot of the frame as
+  a root candidate, so a recycled frame's garbage can retain dead cells in a
+  chain. Zeroing the frame on creation changed nothing.
+- **`xmm6`–`xmm15`.** `registers.rs` records that this capture was written,
+  built and reverted on 2026-08-29 for want of a program that forced it, and
+  names the condition for reopening: *"a program that breaks it makes it
+  necessary again"*. The program above is one. The capture was rewritten, built
+  and measured: `28662` with it and without it, to the digit. Reverted again,
+  and the module's standard is why — a root source nobody can demonstrate is a
+  permanent cost paid against a hypothesis.
+
+Check 1 of this document still passes: all twenty-one `Aside` fields are either
+walked by `trace::edges_of` or named in its closing comment, so it is not
+another `cursors`.
 `tests/generator_for_of_root.test.ts` holds five cases of the shape. They pass
 on the build that has the defect and are a guard, not a reproduction; the header
 says so.

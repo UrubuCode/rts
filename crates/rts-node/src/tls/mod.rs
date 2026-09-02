@@ -41,10 +41,10 @@
 //! `node:net` itself names).
 
 mod common;
-mod conn;
-mod context;
+pub(crate) mod conn;
+pub(crate) mod context;
 mod pem;
-mod provider;
+pub(crate) mod provider;
 mod registry;
 mod server;
 mod socket;

@@ -31,6 +31,7 @@ use rts_core::entry::{self, Pending};
 
 use super::frame::{self, Assembler, Delivered, Message, Read};
 use super::handshake;
+use super::transport::{Chunk, Transport};
 
 /// O que aconteceu numa conexão. Dados nativos apenas — nada aqui toca JS.
 pub(super) enum Event {
@@ -54,9 +55,11 @@ pub(super) struct Conn {
     pub(super) instance: u64,
     queue: VecDeque<Event>,
     /// Por onde se escreve. A thread de leitura tem o seu próprio `try_clone`.
-    stream: Option<TcpStream>,
+    stream: Option<Transport>,
     /// Este lado mascara? Cliente sim, servidor não (RFC §5.1).
     masks: bool,
+    /// Quando `close()` foi chamado deste lado — ver o doc de [`close`].
+    closing_since: Option<std::time::Instant>,
     pub(super) closed: bool,
 }
 
@@ -137,7 +140,7 @@ pub(super) fn listen(port: u16, host: &str) -> u64 {
                 // cliente que erra o handshake nunca vira um evento.
                 match apertar_mao(fluxo) {
                     Some((fluxo, path, host)) => {
-                        let conn = adopt(fluxo, false, dono);
+                        let conn = adopt(Transport::plain(fluxo), false, dono);
                         push_server(id, ServerEvent::Connected { conn, path, host });
                     }
                     None => continue,
@@ -194,15 +197,27 @@ fn apertar_mao(mut fluxo: TcpStream) -> Option<(TcpStream, String, String)> {
 /// certo, gravado por `listen` na thread do JS) e nenhuma MENSAGEM era entregue,
 /// porque o filtro de `drain_conns` nunca casava. É a mesma armadilha que o
 /// campo existe para evitar, do outro lado.
-pub(super) fn adopt(fluxo: TcpStream, masks: bool, owner: std::thread::ThreadId) -> u64 {
+pub(super) fn adopt(fluxo: Transport, masks: bool, owner: std::thread::ThreadId) -> u64 {
+    let id = reserve(masks, owner);
+    attach(id, fluxo, Vec::new());
+    id
+}
+
+/// Reserva o id de uma conexão que ainda não tem por onde falar.
+///
+/// Existe por causa do cliente: `new WebSocket(url)` tem de devolver a
+/// instância JS **antes** de o handshake acabar — é para isso que serve o
+/// `readyState` `CONNECTING` — e a instância precisa de um id para se ligar. Um
+/// `adopt` só depois de conectar chegaria tarde demais, e guardar a instância
+/// numa segunda tabela à espera seria uma segunda numeração para o mesmo
+/// espaço, que é o caso que o reuse-check chama de fatal.
+///
+/// `closed` fica falso desde já, e isso é deliberado: `pending()` conta uma
+/// conexão não fechada como trabalho, o que segura o laço de eventos aberto
+/// enquanto o handshake corre. Sem isso, um programa cujo único trabalho é
+/// conectar terminaria antes de o servidor responder.
+pub(super) fn reserve(masks: bool, owner: std::thread::ThreadId) -> u64 {
     let id = next_id();
-    let leitura = match fluxo.try_clone() {
-        Ok(clone) => clone,
-        Err(erro) => {
-            push(id, Event::Error(erro.to_string()));
-            return id;
-        }
-    };
     with_conns(|table| {
         table.insert(
             id,
@@ -210,32 +225,69 @@ pub(super) fn adopt(fluxo: TcpStream, masks: bool, owner: std::thread::ThreadId)
                 owner,
                 instance: 0,
                 queue: VecDeque::new(),
-                stream: Some(fluxo),
+                stream: None,
                 masks,
+                closing_since: None,
                 closed: false,
             },
         );
     });
-    push(id, Event::Open);
-    std::thread::spawn(move || ler_ate_fechar(id, leitura, masks));
     id
 }
 
+/// Dá a uma conexão reservada por onde falar, e põe-na a ler.
+///
+/// `inicial` são bytes que já chegaram e ainda não foram interpretados como
+/// frames — o que veio colado à resposta do handshake. Não é um caso raro: o
+/// primeiro servidor `wss://` real contra o qual isto correu mandou a resposta
+/// 101 e o primeiro frame no mesmo registo TLS. Bytes lidos do socket não
+/// voltam lá para dentro, então ou são passados para aqui ou são perdidos.
+pub(super) fn attach(id: u64, fluxo: Transport, inicial: Vec<u8>) {
+    let leitura = match fluxo.try_clone() {
+        Ok(clone) => clone,
+        Err(erro) => {
+            push(id, Event::Error(erro.to_string()));
+            return;
+        }
+    };
+    let masks = with_conns(|table| {
+        let Some(conn) = table.get_mut(&id) else { return None };
+        conn.stream = Some(fluxo);
+        Some(conn.masks)
+    });
+    let Some(masks) = masks else { return };
+    push(id, Event::Open);
+    std::thread::spawn(move || ler_ate_fechar(id, leitura, masks, inicial));
+}
+/// Falhou a ligar: um `'error'` com o motivo e um `'close'` a seguir.
+///
+/// Os dois, e nesta ordem, porque é o que o `ws` do npm faz e o que um programa
+/// escrito contra ele espera — um `'error'` sozinho deixa quem espera pelo
+/// `'close'` pendurado para sempre. 1006 é o código do RFC para "fechou sem
+/// frame de close", que é exatamente o que uma conexão que nunca abriu fez.
+pub(super) fn fail(id: u64, motivo: String) {
+    push(id, Event::Error(motivo));
+    push(id, Event::Close { code: 1006, reason: String::new() });
+    with_conns(|table| {
+        if let Some(conn) = table.get_mut(&id) {
+            conn.stream = None;
+            conn.closed = true;
+        }
+    });
+}
 /// O laço de leitura de uma conexão. Roda numa thread de fundo e NUNCA chama JS.
-fn ler_ate_fechar(id: u64, mut fluxo: TcpStream, masks: bool) {
-    let mut acumulado: Vec<u8> = Vec::new();
+///
+/// `inicial` é semeado no acumulador e processado ANTES da primeira leitura da
+/// rede — se um frame inteiro veio colado à resposta do handshake, ele já está
+/// completo aqui, e bloquear à espera de mais bytes antes de o olhar entregaria
+/// a primeira mensagem só quando chegasse a segunda.
+fn ler_ate_fechar(id: u64, mut fluxo: Transport, masks: bool, inicial: Vec<u8>) {
+    let mut acumulado: Vec<u8> = inicial;
     let mut montador = Assembler::default();
-    let mut buffer = [0u8; 8192];
     loop {
-        let lidos = match fluxo.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(lidos) => lidos,
-            Err(erro) => {
-                push(id, Event::Error(erro.to_string()));
-                break;
-            }
-        };
-        acumulado.extend_from_slice(&buffer[..lidos]);
+        // Processar primeiro, ler depois. Na primeira volta isto consome o que
+        // veio com o handshake; nas seguintes o acumulado está vazio e o laço
+        // interno sai de imediato.
         loop {
             match frame::read_frame(&acumulado) {
                 Read::Incomplete => break,
@@ -257,8 +309,26 @@ fn ler_ate_fechar(id: u64, mut fluxo: TcpStream, masks: bool) {
                         }
                         Delivered::Pong | Delivered::Partial => {}
                         Delivered::Close(fim) => {
+                            let veio_com_codigo = fim.is_some();
                             let (code, reason) = fim.unwrap_or((1005, String::new()));
-                            let eco = frame::write_frame(frame::OP_CLOSE, &[], mascara(masks));
+                            // O eco leva o MESMO código de volta, que é o que o
+                            // RFC §5.5.1 manda ("SHOULD echo the status code").
+                            // Ecoar vazio dava um `'close'` com 1005 — "sem
+                            // código" — a quem tinha acabado de mandar 1000, e
+                            // um lado a dizer "encerramento normal" e o outro a
+                            // ouvir "não disse nada" é uma discordância sobre se
+                            // a despedida foi ordeira.
+                            //
+                            // 1005 é o que o RFC proíbe de aparecer NA REDE: é o
+                            // valor que uma API mostra quando não veio código, e
+                            // não um código que se envie. Por isso o eco vazio
+                            // se mantém nesse caso.
+                            let carga = if veio_com_codigo {
+                                code.to_be_bytes().to_vec()
+                            } else {
+                                Vec::new()
+                            };
+                            let eco = frame::write_frame(frame::OP_CLOSE, &carga, mascara(masks));
                             let _ = fluxo.write_all(&eco);
                             push(id, Event::Close { code, reason });
                             encerrar(id);
@@ -273,6 +343,18 @@ fn ler_ate_fechar(id: u64, mut fluxo: TcpStream, masks: bool) {
                 }
             }
         }
+        let bytes = match fluxo.read_plaintext() {
+            Ok(Chunk::Eof) => break,
+            // Um pedaço VAZIO não é fim: um registo TLS de controlo consome
+            // bytes da rede e não produz plaintext nenhum. Tratar isso como fim
+            // fechava a conexão a meio de uma troca de chaves.
+            Ok(Chunk::Data(bytes)) => bytes,
+            Err(erro) => {
+                push(id, Event::Error(erro.to_string()));
+                break;
+            }
+        };
+        acumulado.extend_from_slice(&bytes);
     }
     // 1006 é o código que o RFC reserva para "fechou sem frame de close" — é o
     // que um cabo puxado produz, e mentir 1000 aqui faria uma queda parecer uma
@@ -313,10 +395,21 @@ fn push_server(id: u64, event: ServerEvent) {
     });
 }
 
+/// Fecha do lado nativo: sem por onde escrever, e CONTADA como fechada.
+///
+/// O `closed` é o que faltava aqui, e a falta só ficou visível quando houve
+/// cliente. `pending()` conta uma conexão não fechada como trabalho por fazer,
+/// para que o laço de eventos acorde a olhar por mensagens; uma conexão que o
+/// par encerrou nunca perdia essa marca, então o programa nunca terminava — o
+/// processo ficava a acordar de 5 em 5 ms sobre um socket que já não existia.
+///
+/// Do lado do servidor isto passou despercebido porque nada fechava: um teste
+/// que aceita uma ligação e acaba nunca chega a este caminho.
 fn encerrar(id: u64) {
     with_conns(|table| {
         if let Some(conn) = table.get_mut(&id) {
             conn.stream = None;
+            conn.closed = true;
         }
     });
 }
@@ -336,6 +429,24 @@ pub(super) fn send(id: u64, mensagem: &Message) -> bool {
 }
 
 /// Fecha educadamente: manda o frame de CLOSE e para de escrever.
+///
+/// # Por que isto NÃO marca a conexão como fechada
+///
+/// Porque o `'close'` que o programa espera é o do OUTRO lado. O RFC §5.5.1
+/// manda o par ecoar o close, e é esse eco que a thread de leitura transforma
+/// em [`Event::Close`] — com o código que voltou, que é o que um programa lê
+/// para saber se a despedida foi ordeira.
+///
+/// Marcar `closed` aqui tirava a conexão da conta de [`pending`], o laço de
+/// eventos achava que não tinha mais nada a fazer e o processo terminava antes
+/// de o eco chegar. Contra `wss://echo.websocket.org` isso era visível: a
+/// mensagem chegava, o `close(1000)` era enviado e o `'close'` nunca disparava
+/// — o programa saía com 0 e um listener por chamar.
+///
+/// O que substitui a marca é [`Conn::closing_since`]: a conexão continua a
+/// contar como trabalho, mas só por [`ESPERA_DE_FECHO`]. Um par que não ecoa
+/// nem fecha o socket é um par avariado, e esperar por ele para sempre seria
+/// trocar um evento perdido por um processo pendurado.
 pub(super) fn close(id: u64, code: u16, reason: &str) {
     with_conns(|table| {
         let Some(conn) = table.get_mut(&id) else { return };
@@ -345,10 +456,13 @@ pub(super) fn close(id: u64, code: u16, reason: &str) {
         let quadro = frame::write_frame(frame::OP_CLOSE, &carga, mascara(conn.masks));
         let _ = fluxo.write_all(&quadro);
         conn.stream = None;
-        conn.closed = true;
+        conn.closing_since = Some(std::time::Instant::now());
     });
 }
 
+/// Quanto tempo uma conexão a fechar espera pelo eco do par antes de o laço
+/// deixar de a contar. O RFC não põe número; este é o do `ws` do npm.
+const ESPERA_DE_FECHO: Duration = Duration::from_secs(30);
 pub(super) fn close_server(id: u64) {
     with_servers(|table| {
         if let Some(server) = table.get_mut(&id) {
@@ -415,7 +529,20 @@ pub(super) fn pending() -> Pending {
     if com_evento {
         return Pending::In(Duration::ZERO);
     }
-    let conectado = with_conns(|table| table.values().any(|c| c.owner == esta && !c.closed));
+    // Uma conexão a fechar continua a segurar o laço — é o eco do par que
+    // vira o `'close'` — mas só por [`ESPERA_DE_FECHO`]. Ver o doc de
+    // [`close`] para o evento que se perdia sem isto e o processo que se
+    // penduraria sem o prazo.
+    let conectado = with_conns(|table| {
+        table.values().any(|c| {
+            c.owner == esta
+                && !c.closed
+                && match c.closing_since {
+                    Some(desde) => desde.elapsed() < ESPERA_DE_FECHO,
+                    None => true,
+                }
+        })
+    });
     if conectado {
         return Pending::In(PASSADA);
     }

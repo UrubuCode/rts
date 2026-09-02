@@ -13,30 +13,30 @@ use std::io::{Cursor, Read, Write};
 
 use rustls::{ClientConnection, ServerConnection};
 
-pub(super) enum Side {
+pub(crate) enum Side {
     Client(ClientConnection),
     Server(ServerConnection),
 }
 
-pub(super) struct Driver {
-    pub(super) side: Side,
+pub(crate) struct Driver {
+    pub(crate) side: Side,
 }
 
 /// What one `feed` produced.
-pub(super) struct Fed {
-    pub(super) plaintext: Vec<u8>,
+pub(crate) struct Fed {
+    pub(crate) plaintext: Vec<u8>,
     /// `true` once, the call the handshake completes on.
-    pub(super) just_connected: bool,
+    pub(crate) just_connected: bool,
     /// What rustls refused, when it refused something — the message and not a
     /// bool. `process_new_packets().is_err()` used to be the whole answer, and
     /// the `'error'` a program received carried `undefined`: a bad certificate,
     /// an unsupported version and a corrupt record were one indistinguishable
     /// "sem detalhe" at the only place anyone would read them.
-    pub(super) error: Option<String>,
+    pub(crate) error: Option<String>,
 }
 
 impl Driver {
-    fn is_handshaking(&self) -> bool {
+    pub(crate) fn is_handshaking(&self) -> bool {
         match &self.side {
             Side::Client(c) => c.is_handshaking(),
             Side::Server(s) => s.is_handshaking(),
@@ -47,7 +47,7 @@ impl Driver {
     /// answers whatever plaintext that unlocked plus handshake-completion/
     /// close state — never calls into JS itself; the caller (`socket.rs`'s
     /// `'data'` listener) does that, per this crate's nested-borrow rule.
-    pub(super) fn feed(&mut self, ciphertext: &[u8]) -> Fed {
+    pub(crate) fn feed(&mut self, ciphertext: &[u8]) -> Fed {
         let was_handshaking = self.is_handshaking();
         let mut cursor = Cursor::new(ciphertext);
         // ALTERNAR `read_tls` e `process_new_packets` até o cursor esvaziar, em
@@ -97,7 +97,7 @@ impl Driver {
 
     /// Queues plaintext to send; call [`Driver::outgoing`] to get the bytes
     /// this produces to actually write to the underlying socket.
-    pub(super) fn send(&mut self, plaintext: &[u8]) {
+    pub(crate) fn send(&mut self, plaintext: &[u8]) {
         match &mut self.side {
             Side::Client(c) => {
                 let _ = c.writer().write_all(plaintext);
@@ -110,7 +110,7 @@ impl Driver {
 
     /// Every ciphertext byte the connection wants written right now —
     /// handshake flights and/or the result of [`Driver::send`].
-    pub(super) fn outgoing(&mut self) -> Vec<u8> {
+    pub(crate) fn outgoing(&mut self) -> Vec<u8> {
         let mut out = Vec::new();
         match &mut self.side {
             Side::Client(c) => {
