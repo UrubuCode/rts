@@ -1,56 +1,38 @@
-// A generator iterated by `for`-`of` can END EARLY, in silence.
+// A generator iterated by `for`-`of` used to END EARLY, in silence. FIXED
+// 2026-09-02, and these five cases are what say so.
 //
-// # 2026-09-02: two of these five now REPRODUCE it, and that is an improvement
+// # What it was, and why it took three weeks
 //
-// This header used to say the file "does NOT reproduce it" and that "every case
-// below passes on the build that has the bug". Both were true when written and
-// neither is now. `yield* delegation across the same window` and `an early break
-// leaves nothing behind` fail with WRONG ANSWERS — 77994 for 120000, and 1 for
-// 20000 — on a plain release binary with no flag set.
+// `generator_new` allocates the parked FRAME and only makes it reachable three
+// lines later, when the `State` goes into `context.generators`. Between the
+// two, `frame` is a bare `u32` in a Rust local — the conservative stack scan
+// keeps only words that decode as an encoded `Value`, and a raw cell index is
+// not one — and `trace::edges_of`'s arm 9, "the one place that knows the frame
+// exists at all", reaches a frame THROUGH `context.generators`, which does not
+// have the entry yet. `made()` sits in that window and allocates.
 //
-// Nothing here changed to make that happen. What changed is `rts:test`'s own
-// `expect()`, which used to allocate eight times per assertion (a plain object
-// plus seven freshly built matcher callables) and now allocates once, through a
-// shared prototype. Less allocation between the `for`-`of` and the collection
-// stopped hiding the defect. **A test that passes because the harness around it
-// is noisy is not passing**, which is why this is recorded as a gain rather than
-// papered over: the file has stopped being a guard and started being a
-// reproduction.
+// The fix is one `rooted::Rooted` guard over the window, which is hiding place
+// two of `docs/engine/lost-roots.md` and the same shape as `json::materialise`.
 //
-// `docs/engine/lost-roots.md` carries the measurement, the reproducer that works
-// outside this harness, and the three candidates excluded so far — including the
-// two that were tried on 2026-09-02 and changed nothing (zeroing the generator
-// frame, and capturing `xmm6`-`xmm15`).
+// Three earlier attempts missed it because they all looked for a root of the
+// generator OBJECT: `Context::resuming` (which only covers the body's
+// duration), zeroing the frame's slots (which tests over-retention, and this
+// was under-retention), and capturing `xmm6`-`xmm15`. What died was the FRAME,
+// and it died before the object existed — which is also why naming the
+// generator in a local never helped.
 //
-// The original note, kept because the cell it describes is still the shape of
-// the thing: what reproduced it in August was a release binary with
-// `RTS_GC_DEBUG=1`, which adds one `eprintln!` INSIDE `collect` and changes no
-// logic at all:
-//     function* g() { yield 1; }
-//     let x = 0;
-//     for (let i = 0; i < 120000; i++) { for (const v of g()) x = x + v; }
-//     console.log("ok", x);
+// # The measurement that found it, because the SHAPE of it is the lesson
 //
-//     release + RTS_GC_DEBUG=1   ->  ok 60683      // the loop ended early
-//     release, plain             ->  ok 120000
-//     debug   + RTS_GC_DEBUG=1   ->  ok 120000
-//     debug,   plain             ->  ok 120000
+// The answer SATURATED. `for (const v of g())` answered 63028 for N of 100 000,
+// 200 000, 400 000 and 1 000 000 alike. A saturating answer is not a rate — it
+// is one event, and everything after it fails. 65536 is the region's initial
+// capacity and `live` sat near 2400: 65536 - 2400 is where the answer stopped,
+// so the round the region first FILLS is the round the first collection runs,
+// and the allocation that triggers it is the one inside the window.
 //
-// Deterministic in every cell, and one cell is wrong. A flag that only prints
-// changing the ANSWER means the value is found by the CONSERVATIVE STACK SCAN
-// or not at all — `eprintln!` changes `collect`'s own stack and register layout
-// — which is hiding place four of `docs/engine/lost-roots.md`. A root found by
-// luck is not a root.
-//
-// What it is NOT: naming the generator in a local answers 60683 too, so it is
-// not "the program failed to hold it"; and rooting `Context::resuming` — the
-// obvious candidate, since it is the one field that names a running generator
-// and is explicitly not a root — was tried and changed NOTHING in release.
-//
-// A second, separate defect lives in the same shape: 300 000 rounds EXHAUST the
-// heap, before and after that attempt. Two symptoms, at least one cause still
-// unfound.
-
+// Reading the number as a rate ("a collection caught a bad window sometimes")
+// is what kept the search on the wrong object for three weeks. Plotting it
+// against N cost one minute and pointed straight at the first collection.
 import { describe, test, expect } from "rts:test";
 
 describe("a generator survives the collections its own iteration causes", () => {
