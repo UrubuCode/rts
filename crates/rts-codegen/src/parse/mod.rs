@@ -38,7 +38,9 @@
 mod expr;
 mod item;
 mod members;
+mod module;
 mod pat;
+mod stmt;
 
 use std::fmt;
 
