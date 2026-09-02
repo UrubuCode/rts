@@ -14,10 +14,12 @@ const gcmDecipher = createDecipheriv("aes-256-gcm", gcmKey, gcmIv);
 gcmDecipher.setAuthTag(gcmTag);
 gcmDecipher.update(gcmCt);
 const gcmPt = gcmDecipher.final();
-// Buffer.from(numberArray).toString() has a pre-existing, unrelated gap (does
-// not decode bytes as UTF-8 text) — compare hex instead, which works.
-const gcmRoundTripHex = Buffer.from(gcmPt).toString("hex");
-const gcmPlainHex = Buffer.from(gcmPlain).toString("hex");
+// This used to compare hex, working around a gap where
+// `Buffer.from(numberArray).toString()` did not decode bytes as UTF-8 text.
+// That gap is gone — `tests/claude-buffer-from-array-tostring.test.ts` pins it —
+// so the comparison is on the text itself, which is what the assertion means.
+const gcmRoundTrip = Buffer.from(gcmPt).toString();
+const gcmPlainText = "hello baileys";
 
 // AES-256-GCM wrong tag → throws.
 const badKey = randomBytes(32);
@@ -45,8 +47,8 @@ const cbcCt = cbcCipher.final();
 const cbcDecipher = createDecipheriv("aes-256-cbc", cbcKey, cbcIv);
 cbcDecipher.update(cbcCt);
 const cbcPt = cbcDecipher.final();
-const cbcRoundTripHex = Buffer.from(cbcPt).toString("hex");
-const cbcPlainHex = Buffer.from(cbcPlain).toString("hex");
+const cbcRoundTrip = Buffer.from(cbcPt).toString();
+const cbcPlainText = "whatsapp binary node payload";
 
 // X25519 shared secret. `x25519PublicKey`/`x25519DiffieHellman` take/return
 // arrays directly (proven array-typed by their own ts_signature); a FIELD
@@ -76,7 +78,7 @@ const derivedAgainHex = Buffer.from(derivedAgain).toString("hex");
 
 describe("node:crypto AES-GCM/CBC + X25519", () => {
   test("AES-256-GCM round-trips", () => {
-    expect(gcmRoundTripHex).toBe(gcmPlainHex);
+    expect(gcmRoundTrip).toBe(gcmPlainText);
   });
 
   test("AES-256-GCM wrong tag throws", () => {
@@ -84,7 +86,7 @@ describe("node:crypto AES-GCM/CBC + X25519", () => {
   });
 
   test("AES-256-CBC round-trips", () => {
-    expect(cbcRoundTripHex).toBe(cbcPlainHex);
+    expect(cbcRoundTrip).toBe(cbcPlainText);
   });
 
   test("X25519 shared secret matches both directions", () => {
