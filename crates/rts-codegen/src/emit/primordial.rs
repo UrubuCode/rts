@@ -125,10 +125,10 @@ impl Disturbance {
 
     /// Whether a place expression is the name itself or a member of it.
     fn names_it(&self, place: &Expr) -> bool {
-        match &place.kind {
+        match &bare(place).kind {
             ExprKind::Ident(seen) => *seen == self.name,
             ExprKind::Member { object, .. } | ExprKind::Index { object, .. } => {
-                matches!(&object.kind, ExprKind::Ident(seen) if *seen == self.name)
+                matches!(&bare(object).kind, ExprKind::Ident(seen) if *seen == self.name)
             }
             _ => false,
         }
@@ -180,4 +180,33 @@ fn walk_expr_of_element(element: &crate::syntax::ClassElement, walk: &mut Distur
             }
         }
     }
+}
+
+/// The expression under any TypeScript wrappers.
+///
+/// `x as T` parses to `ExprKind::Asserted`, and `x!` to the same shape, so
+/// `(Math as any).sqrt = f` is a `Member` whose OBJECT is an assertion rather
+/// than the identifier. Comparing the object against `ExprKind::Ident` therefore
+/// answered no, and the write was invisible:
+///
+/// ```text
+/// Math.sqrt = () => 42;           console.log(Math.sqrt(16));   // 42, correct
+/// (Math as any).sqrt = () => 42;  console.log(Math.sqrt(16));   // 4,  WRONG
+/// ```
+///
+/// Both are the same program. The second is how the write is spelled in
+/// TypeScript, which is the language this engine compiles — so the shape that
+/// escaped the proof is the shape a real program uses.
+///
+/// A claim carries no value and evaluates nothing, so stepping through it can
+/// never skip an effect. It is written as a loop because `x as unknown as T` is
+/// two of them, and as a function rather than an arm so that the two questions
+/// this walk asks — is this place the name, is this object the name — cannot
+/// disagree about it.
+fn bare(expr: &Expr) -> &Expr {
+    let mut seen = expr;
+    while let ExprKind::Asserted { value, .. } = &seen.kind {
+        seen = value;
+    }
+    seen
 }
