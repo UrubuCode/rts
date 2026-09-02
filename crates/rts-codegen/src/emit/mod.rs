@@ -1159,7 +1159,14 @@ pub struct Emitted {
 
 /// Emits several modules into one program.
 pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
-    let mut entries = Vec::with_capacity(units.len());
+    // LOWERED FIRST, ALL OF THEM, then emitted. It was one loop that lowered a
+    // unit and immediately emitted it, which is why `math_primordial` below
+    // could only ever be a fact about one file.
+    //
+    // `lower_export` emits nothing — it pushes statements and interns names —
+    // so splitting the loop changes no emission order. What it buys is that
+    // every unit's lowered body exists before the first fact is computed.
+    let mut lowered = Vec::with_capacity(units.len());
     for unit in units {
         let mut imports = Vec::new();
         let mut body = Vec::new();
@@ -1173,12 +1180,52 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
                 }
             }
         }
+        lowered.push((unit, imports, body, publications));
+    }
+
+    // `Math` IS UNTOUCHED ONLY IF EVERY UNIT LEAVES IT ALONE, which is what
+    // `primordial.rs`'s own header requires of this proof — it says the answer
+    // is available "because the whole tree is compiled before anything runs",
+    // and records that the rule was reversed on 2026-08-13 "on the condition
+    // that the proof be whole-program". In a graph compilation it was not:
+    //
+    //     a.ts     export function go() { let v = 16.0; return Math.sqrt(v); }
+    //     main.ts  import { go } from "./a";
+    //              Math.sqrt = () => 42;
+    //              console.log(go());          // 4 here, 42 in node, exit 0
+    //
+    // `go` is emitted while unit A is being emitted, and A leaves `Math` alone,
+    // so `Math.sqrt(v)` lowered to `Inst::FloatUnary` — a machine instruction
+    // that cannot be reassigned — while the module that calls it had replaced
+    // the function. A silent wrong answer, the class `docs/engine/lost-roots.md`
+    // names first.
+    //
+    // The AND is the whole fix: a fold, not a rewrite, because `untouched`
+    // already answers a bool about a `&[Stmt]`. It is computed over the LOWERED
+    // bodies, which matters — `export default Math` becomes a synthesised
+    // `const` statement that only exists after `lower_export`.
+    //
+    // What it COSTS is stated rather than smoothed over: any program in which
+    // some module writes `Math`, `eval` or `globalThis` now loses the fold in
+    // EVERY module. That is the price of the proof being true, and the shape it
+    // protects is the one above.
+    let math = ctx.names.intern("Math");
+    let eval_name = ctx.names.intern("eval");
+    let global_this = ctx.names.intern("globalThis");
+    let whole_program_math = lowered
+        .iter()
+        .all(|(_, _, body, _)| primordial::untouched(body, math, eval_name, global_this));
+
+    let mut entries = Vec::with_capacity(lowered.len());
+    for (unit, imports, body, publications) in &lowered {
+        let (imports, body, publications) = (imports, body, publications);
         ctx.module_paths = Some(unit.paths.clone());
         entries.push(emit_unit(
-            &body,
-            &imports,
+            body,
+            imports,
             Some(&unit.specifier),
-            &publications,
+            publications,
+            whole_program_math,
             ctx,
         )?);
     }
@@ -1197,6 +1244,9 @@ fn emit_unit(
     imports: &[crate::syntax::Import],
     specifier: Option<&str>,
     publications: &[module::Publication],
+    // The one whole-program fact a single unit cannot answer, folded over every
+    // lowered body by `emit_modules` before the first is emitted.
+    whole_program_math: bool,
     ctx: &mut Ctx,
 ) -> EmitResult<FuncId> {
     whole_program_facts(body, ctx);
@@ -1212,9 +1262,12 @@ fn emit_unit(
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
     // and V8 cannot.
-    let math = ctx.names.intern("Math");
     let eval_name = ctx.names.intern("eval");
-    ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
+    // HANDED IN, not computed: this is the one whole-program fact a single unit
+    // cannot answer, and `emit_modules` folds it over every lowered body before
+    // the first is emitted. See the comment there for the wrong answer that
+    // per-unit produced.
+    ctx.math_primordial = whole_program_math;
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
     let length_name = ctx.names.intern("length");
