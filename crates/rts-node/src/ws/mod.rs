@@ -13,10 +13,14 @@
 //! `node:` responde ao que um programa escrito para outro runtime espera
 //! encontrar. `import { WebSocketServer } from "ws"` é exatamente isso.
 //!
-//! O CLIENTE tem um segundo endereço legítimo — o global `WebSocket`, que
-//! `docs/reference/node/globals.md` §2.19 registra como adiado. Quando ele
-//! chegar, virá deste mesmo núcleo: [`frame`] não conhece cliente nem servidor,
-//! só o RFC.
+//! O CLIENTE está aqui — `new WebSocket(url)` — e veio deste mesmo núcleo:
+//! [`frame`] não conhece cliente nem servidor, só o RFC, e não mudou uma linha
+//! para o receber. O que faltava era o handshake de saída, que é [`client`].
+//!
+//! Tem um segundo endereço legítimo que continua por preencher: o global
+//! `WebSocket`, que `docs/reference/node/globals.md` §2.19 regista como adiado.
+//! Quando chegar, é este construtor sob outro nome e não uma segunda
+//! implementação.
 //!
 //! # O que NÃO está aqui, e por nome
 //!
@@ -27,9 +31,11 @@
 //! é a que funciona.
 
 mod api;
+mod client;
 mod conn;
 mod frame;
 mod handshake;
+mod transport;
 
 use rts_core::entry::{self, Context, Pending};
 

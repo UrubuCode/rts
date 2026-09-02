@@ -185,3 +185,14 @@ pub(crate) static CONSTANTS: &[(&str, f64)] = &[
     ("RSA_PSS_SALTLEN_AUTO", -2.0),
 ];
 
+
+/// Bytes do CSPRNG do sistema, para outro módulo deste crate.
+///
+/// Existe para que o `ws` não abra um segundo caminho até ao gerador: o
+/// `Sec-WebSocket-Key` tem de ser imprevisível (RFC 6455 §4.1 — é ele que
+/// impede um proxy de servir um handshake da cache), e um contador ou o
+/// `Math.random` do motor não servem. Uma fonte de aleatoriedade por processo é
+/// a razão de haver esta linha em vez de um `getrandom` chamado noutro sítio.
+pub(crate) fn random_bytes_for(len: usize) -> Vec<u8> {
+    random::os_bytes(len)
+}
