@@ -276,14 +276,41 @@ pub fn define_setter(object: u64, key: i64, setter: u64) -> u64 {
 /// long as `for`-`in` walked own keys only.
 #[rtse::entry]
 pub fn define_method(object: u64, key: i64, value: u64) -> u64 {
-    super::objects::set_property(object, key, value, 0 /* strict: um native que escreve reporta a recusa */);
+    // DEFINE, NOT SET, and the difference is a wrong answer rather than a
+    // nicety. `set_property` is `[[Set]]`: it walks the prototype chain looking
+    // for an accessor, and runs one if it finds it. Installing a class member
+    // is `[[DefineOwnProperty]]` in the specification, which consults nothing
+    // and writes the own slot.
+    //
+    // What `[[Set]]` did here, all three checked against node:
+    //
+    //     class G { get name() { … } }
+    //     class Sub extends G { name() { return 1; } }
+    //     typeof new Sub().name
+    //     // node "function"; here a TypeError, because the base's getter has
+    //     // no setter and the write was refused
+    //
+    //     class G { set name(v) { ran = 1; } get name() { … } }
+    //     class Sub extends G { name() { return 1; } }
+    //     // node: "function", ran 0. Here: "string", ran 1 — the base's SETTER
+    //     // ran at class-definition time and swallowed the method.
+    //
+    //     class G { get k() { return 1; } }
+    //     class Sub extends G { k = 5; }
+    //     // node 5; here a TypeError.
+    //
+    // `docs/codegen/object-model.md` names this under "Correctness, off the
+    // nanosecond list, ships regardless" and prescribes exactly this: one define
+    // primitive over `objects::put`.
     with_current(|context| {
         let Some(cell) = Value(object).as_slot() else {
             return;
         };
-        if let Some(named) = super::objects::key_for(context, key) {
-            super::native::hidden(context, cell, named);
-        }
+        let Some(named) = super::objects::key_for(context, key) else {
+            return;
+        };
+        super::objects::put(context, cell, named, value);
+        super::native::hidden(context, cell, named);
     });
     value
 }
