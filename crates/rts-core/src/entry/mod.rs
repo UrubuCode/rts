@@ -178,7 +178,9 @@ pub use symbol::{is_symbol as is_symbol_in, well_known as well_known_symbol};
 mod table;
 mod type_of;
 
-pub use accessor::{define_accessor_in, define_getter, define_method, define_setter};
+pub use accessor::{
+    define_accessor_in, define_field, define_getter, define_method, define_setter,
+};
 pub use alloc::alloc;
 pub use external::{held_current, hold_current, release_current};
 pub use weak::{forget_current as weak_forget, peek_current as weak_peek, watch_current as weak_watch};

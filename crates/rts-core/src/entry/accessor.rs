@@ -315,6 +315,43 @@ pub fn define_method(object: u64, key: i64, value: u64) -> u64 {
     value
 }
 
+/// `class C { k = 1; }` — an instance field, DEFINED and enumerable.
+///
+/// [`define_method`]'s sibling, and the two differ in one line: a method is
+/// marked hidden and a field is not, because the language says a field is
+/// enumerable. Both write the own slot through `objects::put` rather than
+/// through `set_property`, and that is the part that is not a nicety.
+///
+/// An ordinary write is `[[Set]]`: it walks the prototype chain looking for an
+/// accessor and RUNS one if it finds it. `emit/class.rs` synthesised `this.k = e`
+/// as exactly that, so:
+///
+/// ```text
+/// class G { get k() { return 1; } }
+/// class Sub extends G { k = 5; }
+/// new Sub().k                 // node 5; here a TypeError
+///
+/// class G { set v(x) { ran = 1; } get v() { … } }
+/// class Sub extends G { v = 1; }
+/// // node 1 with ran 0; here the base SETTER ran at construction time
+/// ```
+///
+/// `docs/codegen/object-model.md` names this and prescribes one define
+/// primitive over `objects::put` for all three sites; this is the second.
+#[rtse::entry]
+pub fn define_field(object: u64, key: i64, value: u64) -> u64 {
+    with_current(|context| {
+        let Some(cell) = Value(object).as_slot() else {
+            return;
+        };
+        let Some(named) = super::objects::key_for(context, key) else {
+            return;
+        };
+        super::objects::put(context, cell, named, value);
+    });
+    value
+}
+
 /// Both, which differ only in which half they carry.
 fn define(object: u64, key: i64, get: Option<u64>, set: Option<u64>) -> u64 {
     with_current(|context| {

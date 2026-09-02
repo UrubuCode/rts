@@ -462,8 +462,16 @@ fn write_member(
             // whole of what `hidden` says. `for (const k in new C())` listed
             // `constructor` and every method until this distinction existed —
             // invisible for as long as `for`-`in` walked own keys only.
+            //
+            // BOTH are DEFINED, and only the attribute differs. The
+            // non-enumerable half went through `DefineMethod` while the
+            // enumerable half went through `emit_write`, which is `[[Set]]` —
+            // so a static field walked the constructor's prototype chain and
+            // ran an accessor it found there. `class G { static get k() {…} }`
+            // `class Sub extends G { static k = 5; }` threw where node answers
+            // 5, for the same reason an instance field did.
             if !hidden {
-                return super::property::emit_write(builder, ctx, target, *name, value);
+                return super::property::emit_define(builder, ctx, target, *name, value);
             }
             let key = super::property::key_constant(builder, ctx, *name);
             let value = expr::tagged(builder, value);

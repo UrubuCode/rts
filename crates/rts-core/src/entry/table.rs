@@ -56,7 +56,9 @@
 
 use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
-use super::accessor::{DEFINE_METHOD_ENTRY, DEFINE_GETTER_ENTRY, DEFINE_SETTER_ENTRY};
+use super::accessor::{
+    DEFINE_FIELD_ENTRY, DEFINE_GETTER_ENTRY, DEFINE_METHOD_ENTRY, DEFINE_SETTER_ENTRY,
+};
 use super::array::{
     ARRAY_LENGTH_ENTRY, ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY,
 };
@@ -507,6 +509,11 @@ pub enum CoreEntry {
     /// difference, and a write carries none. An instance FIELD stays an
     /// ordinary write: the language makes that one enumerable.
     DefineMethod = 78,
+    /// `class C { k = 1; }` — an instance field, ENUMERABLE. The sibling of
+    /// `DefineMethod`, differing in that one attribute; both write the own slot
+    /// rather than performing `[[Set]]`, which would consult the prototype
+    /// chain and run an accessor found there.
+    DefineField = 95,
 
     /// One turn of a `yield*`: [`super::delegate_step`].
     ///
@@ -678,7 +685,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 95;
+pub const CORE_ENTRY_COUNT: usize = 96;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -778,6 +785,7 @@ impl CoreEntry {
         CoreEntry::ArrayLength,
         CoreEntry::ArrayPatternDirect,
         CoreEntry::TypeOfIs,
+        CoreEntry::DefineField,
     ];
 
     /// The number a call site holds.
@@ -850,6 +858,7 @@ impl CoreEntry {
             CoreEntry::OwnKeys => OWN_KEYS_ENTRY,
             CoreEntry::EnumerateKeys => ENUMERATE_KEYS_ENTRY,
             CoreEntry::DefineMethod => DEFINE_METHOD_ENTRY,
+            CoreEntry::DefineField => DEFINE_FIELD_ENTRY,
             CoreEntry::Construct => CONSTRUCT_ENTRY,
             CoreEntry::InstanceOf => INSTANCE_OF_ENTRY,
             CoreEntry::RegexNew => REGEX_NEW_ENTRY,
@@ -1113,7 +1122,7 @@ mod tests {
         // here and answers 6 on node. Copying that guard would have carried the
         // defect into destructuring; one row buys the version that cannot.
         assert!(
-            CORE_ENTRY_COUNT <= 95,
+            CORE_ENTRY_COUNT <= 96,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

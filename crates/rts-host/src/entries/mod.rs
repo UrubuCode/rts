@@ -294,6 +294,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::DefineMethod => (CoreEntry::DefineMethod, {
             rts_core::entry::define_method as extern "C" fn(u64, i64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::DefineField => (CoreEntry::DefineField, {
+            rts_core::entry::define_field as extern "C" fn(u64, i64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::NewTarget => (CoreEntry::NewTarget, {
             rts_core::entry::new_target as extern "C" fn() -> u64 as *const u8
         }),

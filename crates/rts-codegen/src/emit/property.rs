@@ -314,6 +314,39 @@ pub(super) fn emit_write(
     property: Name,
     value: ValueId,
 ) -> EmitResult<ValueId> {
+    emit_store(builder, ctx, receiver, property, value, false)
+}
+
+/// The same, installing an OWN property rather than performing `[[Set]]`.
+///
+/// Only the SLOW path differs, and that is the whole point. The fast path is a
+/// cached store into an own slot the site has already resolved for this layout —
+/// and an own slot is what a define writes, so where the cache hits the two
+/// operations agree by construction. `[[Set]]` and `[[DefineOwnProperty]]` can
+/// only disagree about a key the object does NOT already own, which is exactly
+/// the case that misses.
+///
+/// Routing the whole write through the entry point instead measured
+/// `alloc class instance` 89 -> 182 ns. Keeping the cache and changing only
+/// what a miss calls costs nothing.
+pub(super) fn emit_define(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    receiver: ValueId,
+    property: Name,
+    value: ValueId,
+) -> EmitResult<ValueId> {
+    emit_store(builder, ctx, receiver, property, value, true)
+}
+
+fn emit_store(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    receiver: ValueId,
+    property: Name,
+    value: ValueId,
+    define: bool,
+) -> EmitResult<ValueId> {
     let receiver = tagged(builder, receiver);
     let value = tagged(builder, value);
     let key = ctx.shape_key(property);
@@ -346,6 +379,11 @@ pub(super) fn emit_write(
     builder.switch_to(slow);
     let key_value = key_constant(builder, ctx, property);
     let mode = write_mode(builder, ctx);
+    let operands: Vec<ValueId> = if define {
+        vec![receiver, key_value, value]
+    } else {
+        vec![receiver, key_value, value, mode]
+    };
     let answered = call(
         builder,
         ctx,
@@ -354,8 +392,12 @@ pub(super) fn emit_write(
         // sloppy, e só aqui se sabe qual dos dois. `ctx.sloppy` já é por função
         // — `emit::function` limpa-o num corpo com `"use strict"` — por isso a
         // pergunta é a certa exatamente neste ponto.
-        RuntimeOp::SetProperty,
-        &[receiver, key_value, value, mode],
+        if define {
+            RuntimeOp::DefineField
+        } else {
+            RuntimeOp::SetProperty
+        },
+        &operands,
     )?[0];
     builder.jump(join, &[answered])?;
 

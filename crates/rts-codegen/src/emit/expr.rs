@@ -1232,6 +1232,38 @@ fn emit_assign(
                 );
             }
         };
+        // A CLASS FIELD IS DEFINED, NOT ASSIGNED, and the marker that says so
+        // is already on the value.
+        //
+        // `with_fields` synthesises `this.k = <initialiser>` into the
+        // constructor's prologue, wrapping the initialiser in
+        // `marked_as_field_initialiser` so the emitter can tell a field's value
+        // from an ordinary one. That marker identifies the WRITE just as
+        // exactly, and nothing was asking it.
+        //
+        // An ordinary write is `[[Set]]`: it walks the prototype chain looking
+        // for an accessor and runs one if it finds it. Installing a field is
+        // `[[DefineOwnProperty]]`, which consults nothing:
+        //
+        //     class G { get k() { return 1; } }
+        //     class Sub extends G { k = 5; }
+        //     new Sub().k                 // node 5; here a TypeError
+        //
+        //     class G { set v(x) { ran = 1; } get v() { … } }
+        //     class Sub extends G { v = 1; }
+        //     // node 1 with ran 0; here the base SETTER ran at construction
+        //
+        // `docs/codegen/object-model.md` names all three sites and prescribes
+        // one define primitive over `objects::put`; `define_method` was the
+        // first, this is the second, and an object literal's property is the
+        // third.
+        //
+        // Only the PLAIN form is marked — a field initialiser is `k = e` and
+        // never `k += e` — so a compound or logical write reaching here is an
+        // ordinary one and keeps `[[Set]]`.
+        if op == AssignOp::Plain && super::class::field_initialiser(value).is_some() {
+            return super::property::emit_define(builder, ctx, receiver, *property, assigned);
+        }
         return super::property::emit_write(builder, ctx, receiver, *property, assigned);
     }
 

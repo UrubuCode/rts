@@ -844,9 +844,22 @@ pub enum RuntimeOp {
     /// `class C { m() {} }` — a member of a class, written NON-ENUMERABLE.
     ///
     /// Separate from an ordinary property write because the attribute is the
-    /// whole difference and a write carries none. An instance FIELD stays an
-    /// ordinary write: the language makes that one enumerable.
+    /// whole difference and a write carries none.
     DefineMethod,
+
+    /// `class C { k = 1; }` — an instance FIELD, written ENUMERABLE.
+    ///
+    /// The same reason as [`RuntimeOp::DefineMethod`] and the opposite
+    /// attribute, which is why it is a second operation rather than a flag: the
+    /// language says a field is enumerable and a method is not.
+    ///
+    /// It was an ordinary write, and the comment beside `DefineMethod` said so
+    /// as though the difference were only the attribute. It is not. An ordinary
+    /// write is `[[Set]]`, which walks the prototype chain and RUNS an accessor
+    /// it finds there — so `class G { get k() { … } } class Sub extends G { k = 5 }`
+    /// threw where node answers 5, and a base SETTER ran at construction time.
+    /// Installing a field is `[[DefineOwnProperty]]`, which consults nothing.
+    DefineField,
 
     /// `new.target` — the constructor `new` named, or `undefined`.
     ///
@@ -1042,6 +1055,7 @@ impl RuntimeOp {
         RuntimeOp::UnboundGlobalGet,
         RuntimeOp::EnumerateKeys,
         RuntimeOp::DefineMethod,
+        RuntimeOp::DefineField,
         RuntimeOp::NewTarget,
         RuntimeOp::ImportMeta,
         RuntimeOp::ModuleImport,
@@ -1120,6 +1134,7 @@ impl RuntimeOp {
             RuntimeOp::OwnKeys => "__rts_own_keys",
             RuntimeOp::EnumerateKeys => "__rts_enumerate_keys",
             RuntimeOp::DefineMethod => "__rts_define_method",
+            RuntimeOp::DefineField => "__rts_define_field",
             RuntimeOp::Construct => "__rts_construct",
             RuntimeOp::InstanceOf => "__rts_instance_of",
             RuntimeOp::Call => "__rts_call_counted",
@@ -1298,7 +1313,9 @@ impl RuntimeOp {
             RuntimeOp::DeleteProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::OwnKeys => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::EnumerateKeys => (vec![UNPROVEN], vec![UNPROVEN]),
-            RuntimeOp::DefineMethod => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::DefineMethod | RuntimeOp::DefineField => {
+                (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
+            }
             // Nothing goes in: the question is about the activation asking, and
             // the runtime is what knows which one that is.
             RuntimeOp::NewTarget => (vec![], vec![UNPROVEN]),
