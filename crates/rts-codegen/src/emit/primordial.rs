@@ -28,7 +28,7 @@
 //! reversed it on 2026-08-13 on the condition that the proof be whole-program.
 
 use crate::Name;
-use crate::syntax::{AssignTarget, Expr, ExprKind, Stmt};
+use crate::syntax::{AssignTarget, Expr, ExprKind, Stmt, StmtKind};
 
 use super::capture::{Child, StmtChild, walk_expr, walk_stmt};
 
@@ -58,6 +58,21 @@ struct Disturbance {
 impl Disturbance {
     fn statement(&mut self, statement: &Stmt) {
         if self.found {
+            return;
+        }
+        // `for (Math of xs)` and `for (Math.sqrt of fs)` write once per pass,
+        // and `walk_stmt`'s own documentation says it is SILENT about a
+        // for-each target — so the walk below cannot see them and this is the
+        // one place left to ask. `for (const x of xs)` introduces a binding
+        // instead and writes nothing, which is why only the assigning form is
+        // asked about.
+        if let StmtKind::ForEach {
+            target: crate::syntax::ForEachTarget::Assign(pattern),
+            ..
+        } = &statement.kind
+            && self.pattern_names_it(pattern)
+        {
+            self.found = true;
             return;
         }
         walk_stmt(statement, &mut |child| match child {
@@ -100,6 +115,28 @@ impl Disturbance {
                     return;
                 }
             }
+            // `[Math] = xs`, `({ sqrt: Math.sqrt } = o)`, `[Math.sqrt] = fs` —
+            // a DESTRUCTURING assignment writes every place its pattern names,
+            // and the arm above sees none of them because they are a `Pattern`
+            // rather than a `Place`.
+            //
+            // It was a silent wrong answer in one file, not a module hazard:
+            //
+            //     function zf(x) { return x + 1; }
+            //     [zf] = [(x) => x + 100];
+            //     console.log(zf(1));        // 2 here, 101 in node, exit 0
+            //
+            // — `inline::candidates` asks this same question about `zf`, saw no
+            // write, and spliced the original body at the call.
+            ExprKind::Assign {
+                target: AssignTarget::Pattern(pattern),
+                ..
+            } => {
+                if self.pattern_names_it(pattern) {
+                    self.found = true;
+                    return;
+                }
+            }
             // `Math.sqrt++` is a write in the same sense, and `delete Math.sqrt`
             // leaves the read answering undefined.
             ExprKind::Update { target, .. } => {
@@ -131,6 +168,55 @@ impl Disturbance {
                 matches!(&bare(object).kind, ExprKind::Ident(seen) if *seen == self.name)
             }
             _ => false,
+        }
+    }
+
+    /// Whether a destructuring pattern writes the name, at any depth.
+    ///
+    /// A `Name` leaf is the name itself; a `Target` leaf is any place
+    /// expression, which is exactly what [`Self::names_it`] already decides. So
+    /// the two questions share one answer rather than having two chances to
+    /// disagree about what a write is.
+    ///
+    /// A DEFAULT inside the pattern is ordinary code and is walked as such —
+    /// `[a = (Math.sqrt = f)] = xs` writes through an expression, not through a
+    /// leaf.
+    fn pattern_names_it(&mut self, pattern: &crate::syntax::Pattern) -> bool {
+        use crate::syntax::Pattern;
+        match pattern {
+            Pattern::Name(seen) => *seen == self.name,
+            Pattern::Target(place) => self.names_it(place),
+            Pattern::Object(object) => {
+                for property in &object.properties {
+                    if let crate::syntax::PropertyKey::Computed(key) = &property.key {
+                        self.expression(key);
+                    }
+                    if let Some(default) = &property.value.default {
+                        self.expression(default);
+                    }
+                    if self.pattern_names_it(&property.value.pattern) {
+                        return true;
+                    }
+                }
+                object
+                    .rest
+                    .as_ref()
+                    .is_some_and(|rest| self.pattern_names_it(rest))
+            }
+            Pattern::Array(array) => {
+                for element in array.elements.iter().flatten() {
+                    if let Some(default) = &element.default {
+                        self.expression(default);
+                    }
+                    if self.pattern_names_it(&element.pattern) {
+                        return true;
+                    }
+                }
+                array
+                    .rest
+                    .as_ref()
+                    .is_some_and(|rest| self.pattern_names_it(rest))
+            }
         }
     }
 
