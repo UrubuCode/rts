@@ -100,30 +100,23 @@ UMD bundle's `typeof module` sniff now takes the CommonJS branch everywhere.
 
 `crates/rts-host/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-09-02: 792 of the 845 `*.test.ts` files pass** (3 396 of 3 454
-assertions), by `target/release/rts.exe test` at `891b767c`. It was 758 of 819
-on 08-29, 746 of 808 on 08-22, 754 of 808 on 08-15, 756 of 799 on 08-10, 626 of
-797 on 08-09 and 535 of 818 at the start of 08-08, through generators, `yield*`,
-`Proxy`, native iterators, `export *`, a catchable throw, the bare `rts`
-specifier, stack traces, variadic natives and wrapper objects.
+claimed. **2026-09-02: 796 of the 848 `*.test.ts` files pass** (3 429 of 3 486
+assertions), by `target/release/rts.exe test`. It was 758 of 819 on 08-29, 746
+of 808 on 08-22, 754 of 808 on 08-15, 756 of 799 on 08-10, 626 of 797 on 08-09
+and 535 of 818 at the start of 08-08, through generators, `yield*`, `Proxy`,
+native iterators, `export *`, a catchable throw, the bare `rts` specifier, stack
+traces, variadic natives and wrapper objects.
 
-**One of the 53 fails BY DESIGN, and reading the number without this reads it
-wrongly.** `tests/generator_for_of_root.test.ts` records an OPEN defect — a
-generator lost by the conservative stack scan — and it used to PASS on the build
-that had the bug. What changed on 09-02 is `rts:test`'s own `expect()`: it
-allocated eight times per assertion (a plain object plus seven freshly built
-matchers) and now allocates once, through a shared prototype. Less allocation
-between the `for`-`of` and the collection stopped hiding the defect, so two of
-that file's five cases now fail with WRONG ANSWERS — 77994 for 120000, 1 for
-20000 — on a plain release binary with no flag.
+**The generator defect that stood open since 08-30 is FIXED**, and this line
+replaces one that said the opposite three hours earlier. `generator_new` made
+the parked frame reachable three lines after allocating it, and `made()` — which
+allocates — sat in the window; a bare `u32` in a Rust local is not something the
+conservative stack scan can see. One `Rooted` guard. What found it was the SHAPE
+of the number rather than any reasoning: `for (const v of g())` answered 63028
+for N of 100 000, 200 000, 400 000 and 1 000 000 alike, and an answer that
+saturates is one event rather than a rate. `docs/engine/lost-roots.md` has the
 
-That is the file becoming a REPRODUCTION rather than a guard, which is the
-direction to want: a test that passes because the harness around it is noisy is
-not passing. The defect is older and worse than it was recorded as — on
-`a3de2a3f`, untouched and outside the harness, a `yield*` loop that should
-answer 120000 answers **5970** — and `docs/engine/lost-roots.md` carries the
-reproducer plus the three candidates excluded by measurement so far.
-
+full account, including the exclusion that was measured in the wrong direction.
 **`--profile fast` and not `--release`, and that is allowed here for the reason
 the merge-gate section gives**: `fast` differs from `release` in optimisation
 quality only, and "did this file pass" is not a question a profile changes the

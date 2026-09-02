@@ -253,6 +253,31 @@ pub fn generator_new(
         // applied to an allocation.
         let frame = super::alloc::alloc_spanning_or_die(context, shape.size, shape.ty);
 
+        // The frame is LIVE from here, and until `generators.set` below nothing
+        // can find it.
+        //
+        // `frame` is a bare `u32` in a Rust local — hiding place two of
+        // `docs/engine/lost-roots.md`, `json::materialise`'s exact shape. The
+        // stack scan only keeps words that decode as an encoded `Value`, and a
+        // raw cell index is not one; `trace::edges_of`'s arm 9 is, in its own
+        // words, "the one place that knows the frame exists at all", and it
+        // reaches the frame through `context.generators` — which does not have
+        // the entry yet. So between these two lines the frame is a live cell
+        // that NOTHING enumerates, and `made` below allocates.
+        //
+        // MEASURED, and the shape of the measurement is why this is the fix
+        // rather than a guess: `for (const v of g())` over one million rounds
+        // answered 63028 and, tellingly, answered 63028 for two hundred
+        // thousand and for four hundred thousand as well. A saturating answer
+        // is not a rate — it is one event. 65536 is the region's initial
+        // capacity, `live` sat at ~2400, and 65536 - 2400 is where the answer
+        // stops: the round the region first fills is the round the FIRST
+        // collection runs, and the allocation that triggers it is `made`'s,
+        // three lines below. After that first loss every later round answers
+        // nothing at all, because the freed frame is handed to another object
+        // and `release` later frees THAT cell too.
+        let _rooted = super::rooted::Rooted::with(vec![Value::from_slot(frame).bits()]);
+
         // The body is entered afresh every time, with nothing in the registers
         // it had before — so its arguments are written down now, in the order
         // the convention passes them.
@@ -473,4 +498,36 @@ pub(in crate::entry) fn register(context: &mut Context) -> u64 {
 /// `g[Symbol.iterator]()` — the generator itself.
 extern "C" fn itself(_environment: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     this
+}
+
+#[cfg(test)]
+mod window {
+    /// The frame is rooted for the whole window between its allocation and the
+    /// `generators` entry that makes it reachable.
+    ///
+    /// This is a READING test and not a running one, which is stated because it
+    /// is the weaker of the two: `generator_new` needs a `Context` with a
+    /// compiled program behind it, and the defect only shows when a collection
+    /// lands inside the window — which is what `tests/generator_for_of_root.
+    /// test.ts` reproduces end to end, and what the ablation measured (63028 vs
+    /// 1000000 over a million rounds, the guard the only difference).
+    ///
+    /// What this pins is the ORDER, which is the part a future edit breaks by
+    /// accident: move the guard below `made(context)` and it guards nothing.
+    #[test]
+    fn the_frame_guard_covers_the_allocation_that_follows_it() {
+        let source = include_str!("mod.rs");
+        let guard = source
+            .find("let _rooted = super::rooted::Rooted::with")
+            .expect("the frame is rooted across the window — see lost-roots.md");
+        let allocates = source
+            .find("let Some(cell) = made(context)")
+            .expect("`made` is what allocates inside the window");
+        assert!(
+            guard < allocates,
+            "the Rooted guard must be taken BEFORE `made(context)`: it exists to \
+             cover that allocation, and below it the frame is unreachable to the \
+             collector for exactly as long as it was before the fix"
+        );
+    }
 }
