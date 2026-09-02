@@ -413,6 +413,52 @@ holds only "is this the cell we already checked", exactly as `CachedGet` holds
 It needs a new terminator, a resolver, and the receiver-static analysis. It is
 the largest item left that has a measured number on it: 42%, hand-priced in
 JavaScript.
+## 5d. `flow throw+catch` IS `new Error()`, AND IT IS NOT THE STACK
+
+Measured 2026-09-02, release, min of 9 over 100 K iterations. The row is 1029 ns and
+every one of them is the constructor:
+
+| | ns |
+|---|---:|
+| `try { … } catch { … }` with no throw | 0 |
+| **`throw "s"` and catch it** | **0** |
+| `new Plain()` — an empty class | 60 |
+| `new WithField()` — one field | 60 |
+| **`new Error()`** — no message | **700** |
+| `new Error("x")` | 980 |
+| `new TypeError("x")` | 1060 |
+| `throw new Error("x")` and catch it | 1020 |
+
+**Throwing and catching cost nothing.** A string thrown and caught measures the same as
+an empty loop. So the row is misnamed: nothing in unwinding, in the `finally` machinery
+or in the catch binding is worth looking at.
+
+**And it is NOT `.stack`, which is the finding that kills a proposed design.** The study
+entry above says `.stack` is rendered and interned on every construction whether or not
+anything reads it, and prescribes making it lazy. It is rendered — the code is there — but
+ABLATING IT ENTIRELY CHANGES NOTHING: with the `format!`, the `stack_text` walk, the
+`Str::from_str` and the `put` all removed, `new Error()` measured 690–700 against 700 and
+`new Error("x")` 1000–1010 against 1000–1010. Two alternations.
+
+Construction also does not scale with call depth — 800 ns at depth one and 790 at depth
+nine — so the frame walk is not it either.
+
+**Where it actually is.** An `Error` costs 640 ns more than a plain class instance. With
+no message, `written` does a `with_current`, a `receiver` that is one `as_slot()` when
+`this` is already a cell, and the stack that ablates flat. **So the cost is before
+`written` is entered: the native-constructor path for a native class.** That is consistent
+with the other native measurement on this list — `Math.abs(x)` at 32 ns against 19 for a
+JS method call — and it is where the next probe should go.
+
+**What this retires:** the study's "Three avoidable costs inside the Error constructor,
+all in `written()`" is aimed at the wrong function, and any lazy-`.stack` design is
+aimed at a cost that is not there.
+
+**One thing worth keeping from the detour.** `Object.getOwnPropertyDescriptor(new Error(),
+"stack")` answers `configurable,enumerable,get,set` in node and
+`configurable,enumerable,value,writable` here. A real divergence, found while pricing a
+design that turned out to be worthless — and it is a CORRECTNESS item, not a speed one.
+
 ## 6. `type_of_is` RE-DERIVES A CONSTANT STRING COMPARISON — probably wrong
 
 Kept on the list with its own warning attached, which is why it is not higher.
