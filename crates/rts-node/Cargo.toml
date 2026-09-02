@@ -24,6 +24,21 @@ encoding_rs = "0.8"         # §4.9 — WHATWG label set for string_decoder
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
 webpki-roots = "1.0"        # §3 — the CA store; NOT rustls-native-certs, which links schannel/Security.framework
 aes-gcm = "0.10"            # §6 — AEAD
+# node:crypto symmetric ciphers — §4.2. The document pins `aes 0.9`/`cbc 0.2`;
+# these are 0.8/0.1, which is deliberate and not drift: `aes-gcm 0.10` above
+# already resolves `aes 0.8`, and taking 0.9 would link TWO copies of the AES
+# block cipher into one binary — two implementations of one primitive is the
+# duplication this workspace refuses, and the version the AEAD already pulls is
+# the one with a caller. `cbc 0.1` is what pairs with `cipher 0.4`, which
+# `aes 0.8` speaks; the `alloc` feature is what exposes PKCS#7 padding as
+# `encrypt_padded_vec_mut` rather than leaving every caller to write the pad.
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+# node:crypto XEdDSA — Signal's signature over an X25519 identity key. Not a new
+# curve: `ed25519-dalek` below already resolves this exact version, and XEdDSA
+# needs the point/scalar layer (`EdwardsPoint`, `MontgomeryPoint::to_edwards`)
+# that the signature crate does not re-export.
+curve25519-dalek = "4.1"
 chacha20poly1305 = "0.10"   # §6 — AEAD
 x25519-dalek = { version = "2", features = ["static_secrets"] }  # §6 — key exchange.
                             # The feature is not optional: without it every constructor that
