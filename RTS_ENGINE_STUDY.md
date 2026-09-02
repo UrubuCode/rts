@@ -1265,3 +1265,75 @@ objection to a different one.
 
 ---
 
+
+---
+
+# VALIDATED, AND ONE DIAGNOSIS DID NOT SURVIVE
+
+Added 2026-09-01, after the survey, before anything from it was applied.
+
+Two of these candidates carry a reproduced WRONG ANSWER, which outranks every speed claim
+in the file. Both were re-run. **The wrong answer is real; the stated cause is not.**
+
+## The reproducer, and the three controls that break its explanation
+
+`math_primordial as the AND over every unit` claims that `Math.sqrt` is folded to
+`Inst::FloatUnary` in a graph compilation because `primordial::untouched` is computed with
+one unit's body, so a module that writes `Math` is invisible to a module that does not.
+
+The reproducer holds. `a.ts` exports `go(){ let v = 16.0; return Math.sqrt(v) }`,
+`main.ts` imports it and assigns `Math.sqrt = () => 42`: **this engine prints 4, node
+prints 42**, exit code 0.
+
+The explanation does not.
+
+| control | expectation if the cause is "per unit" | what happened |
+|---|---|---|
+| the write in the SAME unit as `go` | refused, prints 42 | **prints 4** |
+| everything in the MAIN unit, an unrelated import forcing the graph door | 42 | 42 |
+| unit A calling its OWN `go`, having written `Math` | 42 | 42 |
+| the script door, all three write shapes | 42 | 42 |
+
+A per-unit proof cannot explain row one: the write and the use are in one body, so
+`untouched` is asked exactly the question the candidate says it should be asked, and
+answers it correctly for row three.
+
+## What is actually happening, which is worse
+
+One file, one function, two answers:
+
+```ts
+// f_exp.ts
+(Math as any).sqrt = () => 42;
+export function go(): number { let v = 16.0; return Math.sqrt(v); }
+console.log("A says " + go());          // 42  — correct
+// main_exp.ts
+import { go } from "./f_exp";
+console.log("main says " + go());       // 4   — wrong
+```
+
+`rts ir` shows exactly ONE compiled `go`, and it FOLDS. So A's own call is not reaching
+it: that call is SUBSTITUTED at A's site, under A's facts, where `Math` is written and the
+fold is correctly refused. The importer's call reaches the compiled body — and that body
+was compiled with facts under which `Math` is untouched.
+
+So the defect is not that a proof is per unit. It is that **the compiled body of an
+exported function and the substitution of that same function disagree about the program**,
+and only one of them was emitted with the declaring unit's facts.
+
+That is a wider class than the candidate names. Every per-unit fact — `inlinable`,
+`static_methods`, `class_fields`, `globals`, `numeric` — is exposed to it by the same
+mechanism, and the candidate's prescription (fold `untouched` over all units) would hide
+this instance of it while leaving the class open.
+
+## Why nothing from this angle was applied
+
+`receiver.rs` shipped on a premise stated in a header and cost nine wrong answers. The
+lesson was not "check the premise harder" — it was that **a stated cause is not a cause
+until a control separates it from the alternatives**. Three controls here separate it, and
+it fails.
+
+The candidates remain worth their readings, which is what this file is for. What is
+retracted is the ATTRIBUTION, in both of the entries that carry a reproducer. The next
+session should start from the two-answers-one-function program above, not from the
+per-unit story.
