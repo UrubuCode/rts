@@ -212,6 +212,38 @@ macro_rules! declare {
                     typed_visit::from($kind, source, mapper, receiver)
                 }
 
+                /// `T.of(...items)` — a typed array of exactly the arguments,
+                /// where [`from`](Self::from) takes one iterable.
+                ///
+                /// The second static, and it goes through `from` rather than
+                /// beside it: `of` is `from` over an array of the arguments, and
+                /// writing the element conversion twice is how the two end up
+                /// clamping differently — which is the failure this whole file
+                /// exists to prevent (see its module doc).
+                ///
+                /// `rest_arguments` is called OUTSIDE any borrow, because it is
+                /// an entry point that takes the ambient one; a nested borrow
+                /// aborts the process rather than failing.
+                ///
+                /// # The divergence, stated
+                ///
+                /// `rest_arguments` drops trailing `undefined`, which is right
+                /// for a rest parameter and wrong here by one case:
+                /// `Uint8Array.of(1, undefined)` answers a length of 1 where
+                /// Node answers 2 (`undefined` becomes `NaN` becomes 0). A
+                /// native has four argument slots and no count beside them, so
+                /// telling "two arguments, the second `undefined`" from "one
+                /// argument" needs something this boundary does not carry.
+                /// Passing an explicit `undefined` to `of` is the whole of what
+                /// is lost, and answering a length that is right for every other
+                /// call was judged better than refusing all of them.
+                #[stat]
+                fn of(a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+                    let items = crate::entry::functions::rest_arguments(0, a0, a1, a2, a3);
+                    let absent = crate::entry::undefined_value();
+                    typed_visit::from($kind, items, absent, absent)
+                }
+
                 /// `t.forEach(callback, thisArg)`.
                 fn for_each(this: u64, callback: u64, receiver: u64) -> u64 {
                     typed_visit::for_each(this, callback, receiver)

@@ -31,7 +31,10 @@ pub(crate) fn program(cx: &mut Cx, parsed: &swc::Program, goal: Goal) -> Result<
                     continue;
                 }
                 in_prologue = false;
-                items.push(module_item(cx, item)?);
+                // `None` where TypeScript erases the statement — see `import_decl`.
+                if let Some(built) = module_item(cx, item)? {
+                    items.push(built);
+                }
             }
         }
         swc::Program::Script(script) => {
@@ -73,20 +76,62 @@ fn as_directive(statement: &swc::Stmt) -> Option<Directive> {
     })
 }
 
-fn module_item(cx: &mut Cx, item: &swc::ModuleItem) -> Result<ModuleItem> {
+/// One item, or `None` for one TypeScript erases entirely — today that is a
+/// type-only import, and [`import_decl`] says what the language does with it.
+fn module_item(cx: &mut Cx, item: &swc::ModuleItem) -> Result<Option<ModuleItem>> {
     Ok(match item {
-        swc::ModuleItem::Stmt(statement) => ModuleItem::Stmt(stmt(cx, statement)?),
+        swc::ModuleItem::Stmt(statement) => Some(ModuleItem::Stmt(stmt(cx, statement)?)),
         swc::ModuleItem::ModuleDecl(declaration) => match declaration {
-            swc::ModuleDecl::Import(import) => ModuleItem::Import(import_decl(cx, import)?),
-            other => ModuleItem::Export(export_decl(cx, other)?),
+            swc::ModuleDecl::Import(import) => import_decl(cx, import)?.map(ModuleItem::Import),
+            other => Some(ModuleItem::Export(export_decl(cx, other)?)),
         },
     })
 }
 
-fn import_decl(cx: &mut Cx, import: &swc::ImportDecl) -> Result<Import> {
+/// One `import`, or `None` when TypeScript erases the whole statement.
+///
+/// # Import elision, and why it is the parser's job
+///
+/// `import type { Foo } from "./x"` names nothing that exists at run time, and
+/// the language says so: the statement is ERASED, and no module is loaded. That
+/// is what lets `tsc` compile a file without reading the files it imports types
+/// from, and a program that relies on it is not doing anything unusual — it is
+/// the ordinary way a `.d.ts`-shaped module is consumed.
+///
+/// Keeping the import made a type-only module a run-time request for a module
+/// with no namespace, because `entry::module_publish` creates the namespace on
+/// the first export and a module of only interfaces has none. That runtime
+/// decision is right — *"a module that exports nothing has no namespace to speak
+/// of"*, as it says — and it is not what changes here. What changes is that the
+/// erased import stops reaching it.
+///
+/// This is done at the bridge rather than in a later pass because it is not a
+/// lowering decision: the statement is not in the program at all, and every
+/// pass after this one would otherwise have to know that some imports are not
+/// imports. `relative_imports` in the host still walks the file, which costs one
+/// parse of a module that is then compiled to nothing — the alternative is a
+/// second place that decides what a type-only import is, and two answers to that
+/// question is what this crate's rule 3 refuses.
+///
+/// Two spellings are erased, and they are the two TypeScript erases:
+/// - `import type { … } from "x"` — the whole statement.
+/// - `import { type A, type B } from "x"` — each marked specifier, and then the
+///   statement too if nothing is left. NOT if the statement had no specifiers to
+///   begin with: `import "x"` is a side-effect import and means the module RUNS,
+///   which is the one case where an empty binding list is the point.
+fn import_decl(cx: &mut Cx, import: &swc::ImportDecl) -> Result<Option<Import>> {
+    if import.type_only {
+        return Ok(None);
+    }
+    let had_specifiers = !import.specifiers.is_empty();
     let bindings = import
         .specifiers
         .iter()
+        .filter(|specifier| match specifier {
+            // `import { type A, B }` — only the marked one goes.
+            swc::ImportSpecifier::Named(named) => !named.is_type_only,
+            swc::ImportSpecifier::Default(_) | swc::ImportSpecifier::Namespace(_) => true,
+        })
         .map(|specifier| {
             Ok(match specifier {
                 swc::ImportSpecifier::Default(default) => {
@@ -107,16 +152,21 @@ fn import_decl(cx: &mut Cx, import: &swc::ImportDecl) -> Result<Import> {
                 },
             })
         })
-        .collect::<Result<_>>()?;
+        .collect::<Result<Vec<_>>>()?;
 
-    Ok(Import {
+    // Every binding was type-only: the statement erases with them. The guard is
+    // on what was WRITTEN, so `import "./x"` still runs the module.
+    if had_specifiers && bindings.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(Import {
         bindings,
         source: import.src.value.to_string_lossy().to_string(),
         attributes: attributes(import.with.as_deref()),
         at: position(import.span),
-    })
+    }))
 }
-
 /// `with { type: "json" }`.
 fn attributes(with: Option<&swc::ObjectLit>) -> Vec<ImportAttribute> {
     let Some(object) = with else {
