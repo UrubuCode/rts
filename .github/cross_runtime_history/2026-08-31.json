@@ -1,0 +1,1344 @@
+{
+  "date": "2026-08-31",
+  "summary": {
+    "total": 1516,
+    "pass": 1182,
+    "reachable": 1514,
+    "rts_diverge": 245,
+    "bun_node_diverge": 1,
+    "errors": 87,
+    "rejected": 0,
+    "upstream_defect": 1
+  },
+  "pct": 78.1,
+  "divergent": [
+    {
+      "name": "claude-array-index-upper-boundary",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-array-length-truncation-and-nonwritable",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-fill-shares-reference-and-clamps",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-flat-holes-and-arraylike-depth",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-from-async-iterables-and-arraylike",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-generic-methods-on-arraylike",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-nested-holes-and-json-round-trip",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-of-vs-constructor-vs-literal",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-push-pop-shift-unshift-boundaries",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-reduce-callback-contract-and-errors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-reverse-holes-and-arraylike",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-sort-comparator-contract-and-stability",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-species-and-subclass-derivation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-splice-negative-and-overflow-args",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-tosorted-tospliced-materialise-holes",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-array-length-and-defineproperty-interplay",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-array-prototype-surface-descriptors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-lastindexof-and-search-direction",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-spread-vs-from-vs-concat-protocols",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex3_021_array_length_shrink_rollback",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_022_array_map_holes_getter_mutation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_023_array_filter_inherited_index",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_025_array_sort_accessor_sideeffects",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-asintn-asuintn-wrapping",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-bigint-constructor-string-forms",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-bigint-division-shifts-and-bitwise",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-bigint-json-sort-and-stringify",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-bigint-number-mixing-typeerrors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-bigint-tostring-radix-and-keys",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-bigint-wrapper-and-collection-keys",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-bigint-arithmetic-exactness",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-bigint-dataview-endianness",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-bigint-namespace-and-brand",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-bigint-switch-and-strict-matching",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-boolean-coercion-vs-loose-equality",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-boolean-brand-and-construction",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-error-cause-key-presence",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-error-constructor-argument-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-error-name-message-own-vs-proto",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-error-subclass-prototype-repair",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-rangeerror-specified-sites",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-rethrow-across-generator-boundary",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-throw-from-getter-and-toprimitive",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-typeerror-specified-sites",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-urierror-encode-decode",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-array-callback-typeerrors-and-identity",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-async-try-finally-error-order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-builtin-constructor-argument-typeerrors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-instanceof-and-in-operator-typeerrors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-iterator-closing-on-abrupt-completion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-new-on-nonconstructors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-reflect-construct-error-newtarget",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-tdz-referenceerror-sites",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-throwing-initialisers-leave-nothing",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-thrown-non-error-values",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-accessor-only-getter-and-super-prop",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-class-generator-and-iterator-methods",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-class-name-binding-immutable",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-computed-key-definition-time-order",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-derived-ctor-this-tdz",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-extends-null-and-heritage-once",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-field-define-not-set-semantics",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-instanceof-bound-and-ordinary-has-instance",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-method-property-descriptors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-new-target-reflect-construct",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-private-accessors-and-static-brand",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-private-brand-check-in-operator",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-subclass-array-species",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-async-and-async-generator-methods",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-bound-class-constructor-and-newtarget",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-extends-error-and-map-builtins",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-field-initialiser-scope-and-visibility",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-home-object-follows-the-method",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-implicit-derived-constructor-forwarding",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-prototype-chain-and-static-side",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-super-write-receiver-split",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-symbol-keyed-class-members",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex2_135_class_constructor_descriptor_shape",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_034_derived_constructor_primitive_return",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_041_private_in_brand_check",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_042_private_method_extracted_brand",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_044_static_private_not_inherited",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-map-constructor-adder-lookup-once",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-map-iterator-prototype-surface",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-collection-constructor-iterator-close",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-collections-behind-proxy",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-set-ops-protocol-observation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-structured-clone-collections",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-weak-methods-throw-vs-answer-false",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-console-format-specifiers",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-date-extended-year-iso",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-date-multi-arg-setters",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-date-setter-clamping-and-arity",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-btoa-atob-latin1-window",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-textdecoder-invalid-utf8-and-streaming",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-textencoder-surrogates-and-encodeinto",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-uri-escape-sets-and-urierror",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-atob-forgiving-base64",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-encoder-codepoint-boundaries",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-escape-unescape-legacy",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-textdecoder-label-aliases",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-textdecoder-utf16-decoding",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-utf8-bom-handling",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-structured-clone-graph",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-abort-signal-is-an-event-target",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-event-and-target-subclassing",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-for-await-over-sync-sources",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-macrotask-microtask-boundary",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "41_closures_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-apply-arraylike-and-errors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-bind-construct-and-instanceof",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-fn-name-accessors-and-symbols",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-fn-prototype-own-property",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-named-fn-expr-binding-immutable",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-arguments-unmapped-with-defaults",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-arrow-has-no-own-bindings",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-bind-arrow-class-and-bindbind",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-call-apply-this-in-class-method",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-fn-name-inference-gaps",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-fn-name-length-descriptors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-fn-object-own-properties",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-generator-async-fn-metadata",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-param-shadows-var",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-uncurried-this-call-bind",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex2_113_function_prototype_constructor_link",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex2_120_function_tostring_shape",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_035_strict_arguments_callee_poison",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_037_default_parameter_scope_closure",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-finalization-registry-api-surface",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-async-generator-request-queue",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-generator-closed-early-by-consumers",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-generator-method-and-prototypes",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-generator-return-inside-try-finally",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-yield-star-forwards-next-throw-return",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-async-generator-shape-and-awaiting",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-yield-in-expression-positions",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-yield-star-delegate-without-throw",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-for-of-close-without-return-method",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-iterator-helper-prototype-chain",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-iterator-helper-brand-checks",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-malformed-iterator-results",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_051_forof_throw_closes_iterator",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_053_iterator_next_nonobject",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-parse-whitespace-and-argument-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-stringify-mutation-during-serialization",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-stringify-proxy-value",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-json-namespace-surface",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-json-parse-source-context",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-json-rawjson-and-israwjson",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-json-stringify-builtin-objects",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-json-stringify-replacer-type-detection",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-math-max-min-coercion-order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-math-argument-coercion-table",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-math-namespace-shape",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-math-pow-integer-exactness",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-domexception-legacy-code-table",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-globalthis-property-shapes",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-microtask-and-timer-argument-forwarding",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-platform-constructor-roster",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-structuredclone-buffers-and-boxed",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-structuredclone-graph-and-refusals",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-builtin-namespace-objects",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-crypto-getrandomvalues-contract",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-domexception-shape-and-inheritance",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-globalthis-identity-and-mutation",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-intrinsic-identity-graph",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-structuredclone-property-shapes",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-structuredclone-transfer-list-rules",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-tostringtag-across-builtins",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-number-prototype-brand-and-arg-order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-parseint-radix-bounds-and-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-float-non-associativity",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-number-namespace-shape",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-overflow-underflow-subnormals",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-defineproperty-nonconfigurable-redefine",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-delete-nonconfigurable-refusals",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-descriptor-attribute-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-descriptors-faithful-copy",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-entries-getter-mutation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-hasown-nullproto-string-index",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-object-assign-partial-throw",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-preventextensions-setprototypeof",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-proto-literal-vs-computed-key",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-prototype-setter-intercepts-assign",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-proxy-function-target",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-proxy-get-has-invariants",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-proxy-integrity-level-traps",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-proxy-ownkeys-invariants",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-proxy-trap-order-operations",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-reflect-apply-construct-args",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-reflect-set-distinct-receiver",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-reflect-vs-object-throw-return",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-tostringtag-variants",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-array-target-length",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-proxy-as-prototype-receiver",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-brand-check-failures",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-callable-trap-rules",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-class-extends-construct",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-proxy-constructor-surface",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-defineproperty-trap-rules",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-destructuring-traps",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-proxy-extensibility-traps",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-proxy-forin-chain-enumeration",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-handler-trap-name-reads",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-instanceof-hasinstance",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-json-serialisation",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-proxy-nested-target-depth",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-object-assign-both-sides",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-private-field-brand",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-prototype-traps",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-revoke-inside-trap",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-revoked-operation-matrix",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-set-trap-invariants",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-toprimitive-get-order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-proxy-trap-lookup-kinds",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-proxy-typedarray-target",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-reflect-get-receiver",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-reflect-namespace-shape",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_001_proxy_get_reflect_receiver",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_002_proxy_set_false_strict",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_097_lazy_iterable_getter_failure",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-await-tick-count",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-promise-resolve-identity",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-promise-self-resolution-cycle",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-promise-subclass-species",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-adoption-tick-penalty",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-async-return-identity-and-ticks",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-combinator-constructor-protocol",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-promise-reject-never-unwraps",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-with-resolvers-shape",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_068_promise_subclass_species",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-backreference-nonparticipating",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-character-class-edge-cases",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-lastindex-across-flags-and-methods",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-lookbehind-fixed-and-variable",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-quantifier-capture-last-iteration",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-regexp-ctor-from-regexp",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-regexp-subclass-exec-override",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-symbol-replace-direct-call",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-v-flag-set-operations",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-zero-length-advance-unicode",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-backreference-forward-and-octal",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-exec-subject-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-ignorecase-unicode-folding",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-lastindex-descriptor-and-throw",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-line-terminator-set",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-lookaround-capture-persistence",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-regexp-identity-and-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-regexp-prototype-not-a-regex",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-symbol-split-clone-and-limit",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-unicode-property-name-forms",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-v-flag-escaping-rules",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex2_150_regex_unicode_codepoint_dot",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex2_156_regex_word_boundary_unicode",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_072_regex_vflag_string_properties",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex3_074_regex_lookbehind_capture_direction",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex3_078_regexp_subclass_exec_override",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-encodeuri-lone-surrogate",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-matchall-global-requirement",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-replaceall-nonglobal-and-tokens",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-replacer-function-argument-shape",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-string-methods-generic-this",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-string-wrapper-object-exotic",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-symbol-protocol-string-methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-astral-index-arithmetic",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-case-folding-vs-case-mapping",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-grapheme-cluster-illusions",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-json-stringify-lone-surrogate",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-normalize-compatibility-and-arguments",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-repeat-count-coercion-and-errors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-replace-empty-pattern-insertion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-string-iterator-object-protocol",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-string-raw-substitution-mismatch",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex2_040_string_wrapper_index_properties",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-symbol-constructor-and-wrapper",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-symbol-description-and-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-symbol-hasinstance-on-plain-object",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-symbol-registry-edges",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-symbol-toprimitive-fallbacks",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-symbol-tostringtag-getter-and-fallback",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-symbol-wellknown-descriptors",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-symbol-iterator-error-paths",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-symbol-keys-through-proxy-and-reflect",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-symbol-match-as-regexp-brand",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-symbol-replace-protocol",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-symbol-search-and-matchall-protocol",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-symbol-species-consultation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-symbol-tostringtag-descriptors",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-symbol-unscopables-shape",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_014_date_default_hint_string",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-for-let-per-iteration-copy",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-optional-chain-parens-breaks",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-switch-case-let-tdz",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-tagged-invalid-escape-raw",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-tagged-template-callsite-cache",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-finally-break-cancels-pending",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-finally-throw-replaces-exception",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-for-head-destructuring-patterns",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-for-of-break-calls-return",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-for-of-throw-closes-iterator",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-object-literal-proto-and-dupes",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-precedence-relational-chaining",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex2_085_object_computed_key_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-arraybuffer-resizable-length-tracking",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-arraybuffer-transfer-detaches-source",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-dataview-default-endianness-and-window",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-typedarray-intrinsic-and-serialisation",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-typedarray-oob-and-canonical-index",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-typedarray-set-offset-and-overlap",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-typedarray-write-coercion-per-kind",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-arraybuffer-resize-and-transfer-errors",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-arraybuffer-slice-and-isview",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-atomics-on-non-shared-buffer",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-bigint-typed-array-store-and-ops",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-dataview-index-coercion-and-bounds",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-typedarray-array-method-borrowing",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-typedarray-byte-geometry",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-typedarray-constructor-argument-forms",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-typedarray-defineproperty-and-freeze",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-typedarray-iterator-protocol",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-typedarray-prototype-accessor-receivers",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude2-typedarray-set-source-forms",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex3_081_arraybuffer_transfer_detach_views",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-url-host-normalisation-and-ports",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-url-scheme-shapes-and-origin",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-url-setters-and-ignored-assignments",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-urlsearchparams-construction-and-encoding",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-urlsearchparams-mutation-order-and-liveness",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude2-urlsearchparams-encoding-table",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-blob-slice-and-async-reads",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-headers-normalisation-and-combining",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-response-status-and-body-consumption",
+      "status": "rts_diverge"
+    }
+  ]
+}
