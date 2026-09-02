@@ -32,11 +32,14 @@
 //!
 //! Everything in §2 this module does not cover, and the mechanism each
 //! waits on:
-//! - **Symmetric ciphers** (`Cipheriv`/`Decipheriv`, `createCipheriv`/
-//!   `createDecipheriv`, `getCipherInfo`) — out of the task's scope; the
-//!   vetted crates (`aes`/`cbc`/`ctr`/`aes-gcm`/`chacha20poly1305`, crates.md
-//!   §4.2) are not pulled in by this change. `getCiphers()` answers `[]`
-//!   rather than a name list nothing here backs.
+//! - **Symmetric ciphers beyond AES-128/256 in GCM and CBC** — CTR, ECB,
+//!   ChaCha20-Poly1305 and the `-wrap` family. `createCipheriv`/
+//!   `createDecipheriv` and `getCipherInfo`'s companion `getCiphers()` now
+//!   answer over the four names `cipher/algo.rs` genuinely computes, and that
+//!   file's `CipherAlgo::NAMES` is the one list both the parser and
+//!   `getCiphers()` read — a name accepted by one and refused by the other was
+//!   the shape this used to have (`getCiphers()` answered `[]` while nothing
+//!   backed any name at all). `getCipherInfo` itself is still absent.
 //! - **Asymmetric keys and X.509** (`KeyObject`, `Sign`/`Verify`,
 //!   `DiffieHellman`/`DiffieHellmanGroup`/`ECDH`, `X509Certificate`,
 //!   `generateKeyPair(Sync)`, `createPrivateKey`/`createPublicKey`/
@@ -46,6 +49,15 @@
 //!   variable-shape-return API the reference's §5.2 already flags as needing
 //!   more than the four-argument/scalar-return ceiling this module works
 //!   under for a single change.
+//!
+//!   Curve25519 is the one exception, and it is deliberately spelled OUTSIDE
+//!   Node's names rather than approximating them: [`curve`] carries
+//!   `generateX25519KeyPair`, `x25519PublicKey`, `x25519DiffieHellman`,
+//!   `xeddsaSign` and `xeddsaVerify` over raw 32-byte keys. Its module doc has
+//!   the reasoning; the short form is that a `generateKeyPairSync` answering
+//!   something shaped like a `KeyObject` and missing `export()` is the hollow
+//!   surface this repository refuses, and a non-standard name that does exactly
+//!   what it says is not.
 //! - **Every `SubtleCrypto` method except `digest`**, and `CryptoKey` with them.
 //!   This entry said the whole of WebCrypto was blocked because "every
 //!   `SubtleCrypto` method is Promise-mandatory and this module has no
@@ -77,6 +89,8 @@
 //!   so that Node's deprecated flattened `constants` module can spread THIS
 //!   list rather than keep a second copy of the same eight numbers.
 
+mod cipher;
+mod curve;
 mod digest_algo;
 mod hash;
 mod hmac;
@@ -100,12 +114,19 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("randomUUID", random::random_uuid),
         ("getRandomValues", random::get_random_values),
         ("timingSafeEqual", random::timing_safe_equal),
-        ("getCiphers", get_ciphers),
+        ("createCipheriv", cipher::create_cipheriv),
+        ("createDecipheriv", cipher::create_decipheriv),
+        ("getCiphers", cipher::get_ciphers),
     ];
     // The six KDF members come from [`kdf::MEMBERS`] rather than being listed
     // here. `pbkdf2`/`pbkdf2Sync` are two spellings of one agreement, and this
     // list is where a fix could land in one spelling and not the other.
-    let all: Vec<(&str, Provided)> = members.iter().chain(kdf::MEMBERS.iter()).copied().collect();
+    let all: Vec<(&str, Provided)> = members
+        .iter()
+        .chain(kdf::MEMBERS.iter())
+        .chain(curve::MEMBERS.iter())
+        .copied()
+        .collect();
     let namespace = entry::make_namespace(context, &all);
     let constants = constants(context);
     entry::put_member(context, namespace, "constants", constants);
@@ -164,9 +185,3 @@ pub(crate) static CONSTANTS: &[(&str, f64)] = &[
     ("RSA_PSS_SALTLEN_AUTO", -2.0),
 ];
 
-/// `crypto.getCiphers()` — always `[]`; see this module's "Not implemented"
-/// note. Answering an empty list rather than `undefined` matches Node's own
-/// return type (`string[]`) on a build with no ciphers compiled in.
-extern "C" fn get_ciphers(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    entry::with_runtime(|context| entry::make_array_in(context, Vec::new()))
-}
