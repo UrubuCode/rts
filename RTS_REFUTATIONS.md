@@ -52,6 +52,38 @@ runtime function faster" is almost never the answer; "do not cross" almost alway
 
 ## 1. Refuted by measurement — these cost a build
 
+### Removing a Rust-side copy where the cost is a JS heap cell
+
+**Two attempts, both refuted by the clock on 2026-09-02, and one explanation.**
+
+`exec` builds each capture group as `subject[from..to].to_string()` and then
+`Str::from_str(&text)` — two allocations and two passes. `split` does the same per
+piece through `pattern::fill`. Both look like the two-answers-to-one-question this crate
+refuses everywhere else.
+
+**Attempt one**, building each group from its span instead: `exec` 860 → 880 on one row
+and 1345 → 1360 on another, while the CONTROL — a string `replace` the change cannot
+touch — moved 9% the other way. **Attempt two**, having `fill` MOVE the caller's buffer
+into the `Str` with `owning_latin1` instead of copying it: split into 8 pieces
+1200/1220 → 1195/1180, into 16 pieces 1920/1965 → 2005/1985. Flat both times.
+
+**The explanation is in `Context::intern_value`.** Producing a JavaScript string is a
+`alloc_or_die` of a region cell, a slab insert, and two field writes — a **heap cell**,
+which this file prices at 40–90 ns. Measured per piece on a quiet machine: split costs
+475 ns for one piece and 1200 for eight, so **~104 ns per additional piece**. The Rust
+buffer is a rounding error against that.
+
+**So the lever for `split`, `exec` and `match` is FEWER CELLS, not smaller buffers.** Any
+future candidate in this area that proposes to remove a `to_string`, a `to_vec` or a
+scan should be measured against the cell, and will lose. One that proposes not to
+allocate a cell at all — a piece that is never read, a group nobody indexes — is a
+different claim and has not been tried.
+
+**And a measurement warning that cost real time here.** The same binary measured
+735 ns for a one-piece split and, forty minutes later, 475. Every number in this section
+is from an ALTERNATED run; none of the cross-run comparisons that looked convincing at
+the time survived being re-run side by side.
+
 ### The lazy closure
 
 Build a helper's closure at the first call site that refuses to substitute, instead of at
