@@ -1,11 +1,31 @@
-// A generator iterated by `for`-`of` can END EARLY, in silence, and this file
-// does NOT reproduce it.
+// A generator iterated by `for`-`of` can END EARLY, in silence.
 //
-// It is here as a guard on the shape and as the record of an OPEN defect, not
-// as a regression test — every case below passes on the build that has the bug.
-// What reproduces it is a release binary with `RTS_GC_DEBUG=1`, which adds one
-// `eprintln!` INSIDE `collect` and changes no logic at all:
+// # 2026-09-02: two of these five now REPRODUCE it, and that is an improvement
 //
+// This header used to say the file "does NOT reproduce it" and that "every case
+// below passes on the build that has the bug". Both were true when written and
+// neither is now. `yield* delegation across the same window` and `an early break
+// leaves nothing behind` fail with WRONG ANSWERS — 77994 for 120000, and 1 for
+// 20000 — on a plain release binary with no flag set.
+//
+// Nothing here changed to make that happen. What changed is `rts:test`'s own
+// `expect()`, which used to allocate eight times per assertion (a plain object
+// plus seven freshly built matcher callables) and now allocates once, through a
+// shared prototype. Less allocation between the `for`-`of` and the collection
+// stopped hiding the defect. **A test that passes because the harness around it
+// is noisy is not passing**, which is why this is recorded as a gain rather than
+// papered over: the file has stopped being a guard and started being a
+// reproduction.
+//
+// `docs/engine/lost-roots.md` carries the measurement, the reproducer that works
+// outside this harness, and the three candidates excluded so far — including the
+// two that were tried on 2026-09-02 and changed nothing (zeroing the generator
+// frame, and capturing `xmm6`-`xmm15`).
+//
+// The original note, kept because the cell it describes is still the shape of
+// the thing: what reproduced it in August was a release binary with
+// `RTS_GC_DEBUG=1`, which adds one `eprintln!` INSIDE `collect` and changes no
+// logic at all:
 //     function* g() { yield 1; }
 //     let x = 0;
 //     for (let i = 0; i < 120000; i++) { for (const v of g()) x = x + v; }

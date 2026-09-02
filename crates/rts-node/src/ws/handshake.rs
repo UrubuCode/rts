@@ -113,7 +113,7 @@ pub fn response(client_key: &str) -> Vec<u8> {
 }
 
 /// Onde os cabeçalhos terminam.
-fn find_end(bytes: &[u8]) -> Option<usize> {
+pub(super) fn find_end(bytes: &[u8]) -> Option<usize> {
     bytes.windows(4).position(|janela| janela == b"\r\n\r\n")
 }
 

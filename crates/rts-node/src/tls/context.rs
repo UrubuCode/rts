@@ -96,7 +96,7 @@ pub(super) fn context_id(instance: u64) -> Option<u64> {
 
 /// The roots this context declares, falling back to the bundled default
 /// store (`rootCertificates`) when none were given.
-pub(super) fn roots_for(id: Option<u64>) -> RootCertStore {
+pub(crate) fn roots_for(id: Option<u64>) -> RootCertStore {
     let extra = id.map(|id| with_contexts(|table| table.get(&id).map(|held| held.ca.clone()).unwrap_or_default())).unwrap_or_default();
     let mut store = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     for der in extra {

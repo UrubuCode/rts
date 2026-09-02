@@ -104,28 +104,51 @@ extern "C" fn test(_e: u64, _this: u64, name: u64, body: u64, _a2: u64, _a3: u64
     answered
 }
 
-/// `expect(value)` — an object carrying the value and the matchers.
-extern "C" fn expect(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let object = rts_core::entry::with_runtime(rts_core::entry::make_object);
-    let members: &[(&str, Provided)] = &[
-        ("toBe", to_be),
-        ("toEqual", to_be),
-        ("toBeTruthy", to_be_truthy),
-        ("toBeFalsy", to_be_falsy),
-        ("toBeNull", to_be_null),
-        ("toBeUndefined", to_be_undefined),
-        ("toBeDefined", to_be_defined),
-    ];
-    rts_core::entry::with_runtime(|context| {
-        rts_core::entry::put_member(context, object, RECEIVED, value);
-        for (name, code) in members {
-            let method = rts_core::entry::make_callable(context, *code);
-            rts_core::entry::put_member(context, object, name, method);
-        }
-    });
-    object
-}
+/// The matchers, on ONE prototype every `expect` shares.
+///
+/// `make_prototype` is memoised by name, so these seven callables are built
+/// once for the process instead of once per call — which is what makes
+/// [`expect`] a single allocation.
+const MATCHERS: &[(&str, Provided)] = &[
+    ("toBe", to_be),
+    ("toEqual", to_be),
+    ("toBeTruthy", to_be_truthy),
+    ("toBeFalsy", to_be_falsy),
+    ("toBeNull", to_be_null),
+    ("toBeUndefined", to_be_undefined),
+    ("toBeDefined", to_be_defined),
+];
 
+/// `expect(value)` — an object carrying the value and the matchers.
+///
+/// # One allocation, and why that is correctness rather than economy
+///
+/// This used to make a plain object and then, in a second borrow, hang SEVEN
+/// freshly built callables off it. The object lived in a Rust local across all
+/// of them, and every one of those `make_callable`/`put_member` calls can
+/// collect — which is hiding place two of `docs/engine/lost-roots.md`, the one
+/// `json::materialise` was caught by: *a native building a cell out of a Rust
+/// local*. The guard for it, `entry::rooted::Rooted`, is `pub(in crate::entry)`
+/// and this crate cannot reach it.
+///
+/// A shared prototype removes the window instead of guarding it. `make_instance`
+/// is the only allocation between having nothing and having a complete object,
+/// so there is no longer a half-built cell to lose. The failure this fixes was
+/// visible and misleading: under memory pressure the suite reported
+/// `TypeError: (intermediate value).toBe is not a function` — the matcher
+/// object had been swept between `expect(x)` and reading `.toBe` off it, and
+/// the file that crashed was never the file at fault.
+///
+/// It is also seven allocations cheaper per assertion, which a suite of three
+/// thousand assertions pays three thousand times. That is the smaller half.
+extern "C" fn expect(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    rts_core::entry::with_runtime(|context| {
+        let prototype = rts_core::entry::make_prototype(context, "Expectation", MATCHERS);
+        let object = rts_core::entry::make_instance(context, prototype);
+        rts_core::entry::put_member(context, object, RECEIVED, value);
+        object
+    })
+}
 /// Where `expect` keeps what it was given.
 ///
 /// A name a program is unlikely to write, and reachable if it does — see the

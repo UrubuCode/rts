@@ -18,7 +18,7 @@ use rts_core::entry;
 
 use super::util;
 
-pub(super) fn os_bytes(len: usize) -> Vec<u8> {
+pub(crate) fn os_bytes(len: usize) -> Vec<u8> {
     let mut out = vec![0u8; len];
     // `getrandom` 0.4 — vetted in `docs/reference/node/crates.md` §4.1:
     // "getrandom | 0.4 | MIT/Apache | randomBytes/randomFillSync/
