@@ -1,16 +1,14 @@
 //! Statements, functions, classes and modules.
 
-use swc_common::Spanned;
 use swc_ecma_ast as swc;
 
 use super::expr::{expr, property_key};
-use super::pat::{binding, binding_element, target};
+use super::pat::{binding, binding_element};
+use super::stmt::{decl, stmt, stmts};
 use super::{Cx, Result, position, unsupported};
 use crate::syntax::{
-    Binding, BindingKind, Catch, Claim, Class, ClassElement, ClassKey, Directive, Export,
-    ExportDefault, ExportKind, ExportSpecifier, Field, ForEachSource, ForEachTarget, ForInit,
-    Function, FunctionBody, Goal, Import, ImportAttribute, ImportBinding, Method, MethodKind,
-    ModuleItem, Parameter, Pattern, Program, Stmt, StmtKind, SwitchClause,
+    Binding, BindingKind, Claim, Class, ClassElement, ClassKey, Directive, Field, Function,
+    FunctionBody, Goal, Method, MethodKind, Parameter, Pattern, Program, Stmt, StmtKind,
 };
 use crate::syntax::{AssignOp, AssignTarget, Expr, ExprKind, Literal, LogicalOp, Spreadable};
 
@@ -32,7 +30,7 @@ pub(crate) fn program(cx: &mut Cx, parsed: &swc::Program, goal: Goal) -> Result<
                 }
                 in_prologue = false;
                 // `None` where TypeScript erases the statement — see `import_decl`.
-                if let Some(built) = module_item(cx, item)? {
+                if let Some(built) = super::module::module_item(cx, item)? {
                     items.push(built);
                 }
             }
@@ -45,7 +43,7 @@ pub(crate) fn program(cx: &mut Cx, parsed: &swc::Program, goal: Goal) -> Result<
                     continue;
                 }
                 in_prologue = false;
-                items.push(ModuleItem::Stmt(stmt(cx, statement)?));
+                items.push(crate::syntax::ModuleItem::Stmt(super::stmt::stmt(cx, statement)?));
             }
         }
     }
@@ -76,467 +74,8 @@ fn as_directive(statement: &swc::Stmt) -> Option<Directive> {
     })
 }
 
-/// One item, or `None` for one TypeScript erases entirely — today that is a
-/// type-only import, and [`import_decl`] says what the language does with it.
-fn module_item(cx: &mut Cx, item: &swc::ModuleItem) -> Result<Option<ModuleItem>> {
-    Ok(match item {
-        swc::ModuleItem::Stmt(statement) => Some(ModuleItem::Stmt(stmt(cx, statement)?)),
-        swc::ModuleItem::ModuleDecl(declaration) => match declaration {
-            swc::ModuleDecl::Import(import) => import_decl(cx, import)?.map(ModuleItem::Import),
-            other => Some(ModuleItem::Export(export_decl(cx, other)?)),
-        },
-    })
-}
-
-/// One `import`, or `None` when TypeScript erases the whole statement.
-///
-/// # Import elision, and why it is the parser's job
-///
-/// `import type { Foo } from "./x"` names nothing that exists at run time, and
-/// the language says so: the statement is ERASED, and no module is loaded. That
-/// is what lets `tsc` compile a file without reading the files it imports types
-/// from, and a program that relies on it is not doing anything unusual — it is
-/// the ordinary way a `.d.ts`-shaped module is consumed.
-///
-/// Keeping the import made a type-only module a run-time request for a module
-/// with no namespace, because `entry::module_publish` creates the namespace on
-/// the first export and a module of only interfaces has none. That runtime
-/// decision is right — *"a module that exports nothing has no namespace to speak
-/// of"*, as it says — and it is not what changes here. What changes is that the
-/// erased import stops reaching it.
-///
-/// This is done at the bridge rather than in a later pass because it is not a
-/// lowering decision: the statement is not in the program at all, and every
-/// pass after this one would otherwise have to know that some imports are not
-/// imports. `relative_imports` in the host still walks the file, which costs one
-/// parse of a module that is then compiled to nothing — the alternative is a
-/// second place that decides what a type-only import is, and two answers to that
-/// question is what this crate's rule 3 refuses.
-///
-/// Two spellings are erased, and they are the two TypeScript erases:
-/// - `import type { … } from "x"` — the whole statement.
-/// - `import { type A, type B } from "x"` — each marked specifier, and then the
-///   statement too if nothing is left. NOT if the statement had no specifiers to
-///   begin with: `import "x"` is a side-effect import and means the module RUNS,
-///   which is the one case where an empty binding list is the point.
-fn import_decl(cx: &mut Cx, import: &swc::ImportDecl) -> Result<Option<Import>> {
-    if import.type_only {
-        return Ok(None);
-    }
-    let had_specifiers = !import.specifiers.is_empty();
-    let bindings = import
-        .specifiers
-        .iter()
-        .filter(|specifier| match specifier {
-            // `import { type A, B }` — only the marked one goes.
-            swc::ImportSpecifier::Named(named) => !named.is_type_only,
-            swc::ImportSpecifier::Default(_) | swc::ImportSpecifier::Namespace(_) => true,
-        })
-        .map(|specifier| {
-            Ok(match specifier {
-                swc::ImportSpecifier::Default(default) => {
-                    ImportBinding::Default(cx.name(&default.local.sym))
-                }
-                swc::ImportSpecifier::Namespace(namespace) => {
-                    ImportBinding::Namespace(cx.name(&namespace.local.sym))
-                }
-                swc::ImportSpecifier::Named(named) => ImportBinding::Named {
-                    exported: match &named.imported {
-                        Some(swc::ModuleExportName::Ident(ident)) => ident.sym.to_string(),
-                        Some(swc::ModuleExportName::Str(string)) => {
-                            string.value.to_string_lossy().to_string()
-                        }
-                        None => named.local.sym.to_string(),
-                    },
-                    local: cx.name(&named.local.sym),
-                },
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    // Every binding was type-only: the statement erases with them. The guard is
-    // on what was WRITTEN, so `import "./x"` still runs the module.
-    if had_specifiers && bindings.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(Import {
-        bindings,
-        source: import.src.value.to_string_lossy().to_string(),
-        attributes: attributes(import.with.as_deref()),
-        at: position(import.span),
-    }))
-}
-/// `with { type: "json" }`.
-fn attributes(with: Option<&swc::ObjectLit>) -> Vec<ImportAttribute> {
-    let Some(object) = with else {
-        return Vec::new();
-    };
-    object
-        .props
-        .iter()
-        .filter_map(|property| {
-            let swc::PropOrSpread::Prop(prop) = property else {
-                return None;
-            };
-            let swc::Prop::KeyValue(pair) = &**prop else {
-                return None;
-            };
-            let key = match &pair.key {
-                swc::PropName::Ident(ident) => ident.sym.to_string(),
-                swc::PropName::Str(string) => string.value.to_string_lossy().to_string(),
-                _ => return None,
-            };
-            let swc::Expr::Lit(swc::Lit::Str(value)) = &*pair.value else {
-                return None;
-            };
-            Some(ImportAttribute {
-                key,
-                value: value.value.to_string_lossy().to_string(),
-            })
-        })
-        .collect()
-}
-
-fn export_decl(cx: &mut Cx, declaration: &swc::ModuleDecl) -> Result<Export> {
-    let at = position(declaration.span());
-    let kind = match declaration {
-        swc::ModuleDecl::ExportDecl(export) => {
-            ExportKind::Declaration(Box::new(decl(cx, &export.decl)?))
-        }
-
-        swc::ModuleDecl::ExportNamed(named) => ExportKind::Named {
-            specifiers: named
-                .specifiers
-                .iter()
-                .map(|specifier| match specifier {
-                    swc::ExportSpecifier::Named(entry) => Ok(ExportSpecifier {
-                        local: export_name(&entry.orig),
-                        exported: entry
-                            .exported
-                            .as_ref()
-                            .map(export_name)
-                            .unwrap_or_else(|| export_name(&entry.orig)),
-                    }),
-                    swc::ExportSpecifier::Default(entry) => Ok(ExportSpecifier {
-                        local: entry.exported.sym.to_string(),
-                        exported: "default".to_owned(),
-                    }),
-                    swc::ExportSpecifier::Namespace(entry) => Ok(ExportSpecifier {
-                        local: "*".to_owned(),
-                        exported: export_name(&entry.name),
-                    }),
-                })
-                .collect::<Result<_>>()?,
-            source: named
-                .src
-                .as_ref()
-                .map(|s| s.value.to_string_lossy().to_string()),
-            attributes: attributes(named.with.as_deref()),
-        },
-
-        swc::ModuleDecl::ExportDefaultDecl(default) => {
-            ExportKind::Default(ExportDefault::Declaration(Box::new(match &default.decl {
-                swc::DefaultDecl::Fn(function) => Stmt::new(
-                    StmtKind::Function(Box::new(function_expr(cx, function)?)),
-                    at,
-                ),
-                swc::DefaultDecl::Class(class) => {
-                    Stmt::new(StmtKind::Class(Box::new(class_expr(cx, class)?)), at)
-                }
-                swc::DefaultDecl::TsInterfaceDecl(interface) => {
-                    return unsupported("an exported interface", position(interface.span));
-                }
-            })))
-        }
-
-        swc::ModuleDecl::ExportDefaultExpr(default) => {
-            ExportKind::Default(ExportDefault::Expr(expr(cx, &default.expr)?))
-        }
-
-        swc::ModuleDecl::ExportAll(all) => ExportKind::All {
-            source: all.src.value.to_string_lossy().to_string(),
-            alias: None,
-            attributes: attributes(all.with.as_deref()),
-        },
-
-        swc::ModuleDecl::Import(_) => return unsupported("an import reached as an export", at),
-        swc::ModuleDecl::TsImportEquals(_)
-        | swc::ModuleDecl::TsExportAssignment(_)
-        | swc::ModuleDecl::TsNamespaceExport(_) => {
-            return unsupported("a TypeScript-only module declaration", at);
-        }
-    };
-
-    Ok(Export { kind, at })
-}
-
-fn export_name(name: &swc::ModuleExportName) -> String {
-    match name {
-        swc::ModuleExportName::Ident(ident) => ident.sym.to_string(),
-        swc::ModuleExportName::Str(string) => string.value.to_string_lossy().to_string(),
-    }
-}
-
-/// One statement.
-pub(crate) fn stmt(cx: &mut Cx, statement: &swc::Stmt) -> Result<Stmt> {
-    let at = position(statement.span());
-    let kind = match statement {
-        swc::Stmt::Expr(expression) => StmtKind::Expr(expr(cx, &expression.expr)?),
-        swc::Stmt::Empty(_) => StmtKind::Empty,
-        swc::Stmt::Debugger(_) => StmtKind::Debugger,
-
-        swc::Stmt::Block(block) => StmtKind::Block(stmts(cx, &block.stmts)?),
-
-        swc::Stmt::If(if_) => StmtKind::If {
-            condition: expr(cx, &if_.test)?,
-            then_branch: Box::new(stmt(cx, &if_.cons)?),
-            else_branch: match &if_.alt {
-                Some(alt) => Some(Box::new(stmt(cx, alt)?)),
-                None => None,
-            },
-        },
-
-        swc::Stmt::While(while_) => StmtKind::While {
-            condition: expr(cx, &while_.test)?,
-            body: Box::new(stmt(cx, &while_.body)?),
-        },
-
-        swc::Stmt::DoWhile(do_while) => StmtKind::DoWhile {
-            body: Box::new(stmt(cx, &do_while.body)?),
-            condition: expr(cx, &do_while.test)?,
-        },
-
-        swc::Stmt::For(for_) => StmtKind::For {
-            init: match &for_.init {
-                Some(swc::VarDeclOrExpr::VarDecl(declaration)) => Some(ForInit::Declare {
-                    kind: binding_kind(declaration.kind),
-                    bindings: declarators(cx, &declaration.decls)?,
-                }),
-                Some(swc::VarDeclOrExpr::Expr(expression)) => {
-                    Some(ForInit::Expr(expr(cx, expression)?))
-                }
-                None => None,
-            },
-            test: match &for_.test {
-                Some(test) => Some(expr(cx, test)?),
-                None => None,
-            },
-            update: match &for_.update {
-                Some(update) => Some(expr(cx, update)?),
-                None => None,
-            },
-            body: Box::new(stmt(cx, &for_.body)?),
-        },
-
-        swc::Stmt::ForIn(for_in) => StmtKind::ForEach {
-            source: ForEachSource::In,
-            target: for_head(cx, &for_in.left)?,
-            subject: expr(cx, &for_in.right)?,
-            body: Box::new(stmt(cx, &for_in.body)?),
-        },
-
-        swc::Stmt::ForOf(for_of) => StmtKind::ForEach {
-            source: if for_of.is_await {
-                ForEachSource::AwaitOf
-            } else {
-                ForEachSource::Of
-            },
-            target: for_head(cx, &for_of.left)?,
-            subject: expr(cx, &for_of.right)?,
-            body: Box::new(stmt(cx, &for_of.body)?),
-        },
-
-        swc::Stmt::Return(return_) => StmtKind::Return(match &return_.arg {
-            Some(value) => Some(expr(cx, value)?),
-            None => None,
-        }),
-
-        swc::Stmt::Break(break_) => StmtKind::Break(break_.label.as_ref().map(|l| cx.name(&l.sym))),
-        swc::Stmt::Continue(continue_) => {
-            StmtKind::Continue(continue_.label.as_ref().map(|l| cx.name(&l.sym)))
-        }
-
-        swc::Stmt::Labeled(labeled) => StmtKind::Labelled {
-            label: cx.name(&labeled.label.sym),
-            body: Box::new(stmt(cx, &labeled.body)?),
-        },
-
-        swc::Stmt::Switch(switch) => StmtKind::Switch {
-            discriminant: expr(cx, &switch.discriminant)?,
-            clauses: switch
-                .cases
-                .iter()
-                .map(|case| {
-                    Ok(SwitchClause {
-                        test: match &case.test {
-                            Some(test) => Some(expr(cx, test)?),
-                            None => None,
-                        },
-                        body: stmts(cx, &case.cons)?,
-                    })
-                })
-                .collect::<Result<_>>()?,
-        },
-
-        swc::Stmt::Throw(throw) => StmtKind::Throw(expr(cx, &throw.arg)?),
-
-        swc::Stmt::Try(try_) => StmtKind::Try {
-            body: stmts(cx, &try_.block.stmts)?,
-            catch: match &try_.handler {
-                Some(handler) => Some(Catch {
-                    binding: match &handler.param {
-                        Some(parameter) => Some(binding(cx, parameter)?),
-                        None => None,
-                    },
-                    body: stmts(cx, &handler.body.stmts)?,
-                }),
-                None => None,
-            },
-            finally: match &try_.finalizer {
-                Some(block) => Some(stmts(cx, &block.stmts)?),
-                None => None,
-            },
-        },
-
-        swc::Stmt::With(with) => StmtKind::With {
-            object: expr(cx, &with.obj)?,
-            body: Box::new(stmt(cx, &with.body)?),
-        },
-
-        swc::Stmt::Decl(declaration) => return decl(cx, declaration),
-    };
-
-    Ok(Stmt::new(kind, at))
-}
-
-fn stmts(cx: &mut Cx, list: &[swc::Stmt]) -> Result<Vec<Stmt>> {
-    list.iter().map(|s| stmt(cx, s)).collect()
-}
-
-fn for_head(cx: &mut Cx, head: &swc::ForHead) -> Result<ForEachTarget> {
-    Ok(match head {
-        swc::ForHead::VarDecl(declaration) => {
-            let Some(first) = declaration.decls.first() else {
-                return unsupported(
-                    "a for-head that declares nothing",
-                    position(declaration.span),
-                );
-            };
-            ForEachTarget::Declare {
-                kind: binding_kind(declaration.kind),
-                target: binding(cx, &first.name)?,
-            }
-        }
-        // `target`, not `binding`: a for-head with no declaration assigns to
-        // places that already exist, so `for ([a, obj.b] of xs)` is as legal as
-        // `[a, obj.b] = xs`. Reading it in the binding role refused every member
-        // target in a for-head — the same shape read in the wrong one of the two
-        // roles this module exists to keep apart.
-        swc::ForHead::Pat(pattern) => ForEachTarget::Assign(target(cx, pattern)?),
-        // Read rather than refused. The bridge had nowhere to put it, which
-        // made a construct SWC reads perfectly well look like one the front end
-        // could not parse — and moved the gap away from where it is. Where it
-        // is, is disposal: emission refuses it by name.
-        swc::ForHead::UsingDecl(using) => {
-            let Some(first) = using.decls.first() else {
-                return unsupported(
-                    "a `using` for-head that declares nothing",
-                    position(using.span),
-                );
-            };
-            let swc::Pat::Ident(ident) = &first.name else {
-                return unsupported("a `using` for-head with a pattern", position(using.span));
-            };
-            ForEachTarget::Dispose {
-                target: cx.name(&ident.id.sym),
-                is_async: using.is_await,
-            }
-        }
-    })
-}
-
-/// A declaration, which is a statement here.
-fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
-    let at = position(declaration.span());
-    let kind = match declaration {
-        // `declare const x: T` states that something EXISTS elsewhere; it
-        // introduces no binding and emits nothing, which is the whole meaning of
-        // the keyword. Lowering it as an ordinary declaration bound `x` to
-        // `undefined` in the enclosing scope — and since the thing being
-        // declared is almost always a global, the binding SHADOWED the very
-        // value it was announcing.
-        //
-        // The failure reads as the global not existing: `declare const print`
-        // followed by `print(x)` died with "print is not a function", while the
-        // same call one line above the declaration worked. `declare function f`
-        // was never affected, because a function with no body is already
-        // nothing to emit — which is why this looked like a global that only
-        // sometimes existed.
-        swc::Decl::Var(variables) if variables.declare => StmtKind::Empty,
-        swc::Decl::Var(variables) => StmtKind::Declare {
-            kind: binding_kind(variables.kind),
-            bindings: declarators(cx, &variables.decls)?,
-        },
-        swc::Decl::Fn(function) => StmtKind::Function(Box::new(Function {
-            name: Some(cx.name(&function.ident.sym)),
-            ..function_parts(cx, &function.function)?
-        })),
-        swc::Decl::Class(class) if class.class.decorators.is_empty() => {
-            StmtKind::Class(Box::new(Class {
-                name: Some(cx.name(&class.ident.sym)),
-                ..class_parts(cx, &class.class)?
-            }))
-        }
-        swc::Decl::Class(class) => return decorated_class_declaration(cx, class, at),
-        swc::Decl::Using(using) => StmtKind::Using {
-            bindings: declarators(cx, &using.decls)?,
-            is_async: using.is_await,
-        },
-        swc::Decl::TsInterface(_)
-        | swc::Decl::TsTypeAlias(_)
-        | swc::Decl::TsEnum(_)
-        | swc::Decl::TsModule(_) => {
-            // Types are erased, so an interface or an alias contributes nothing
-            // to what runs. An enum and a namespace DO, and refusing them is
-            // honest until they are lowered.
-            match declaration {
-                swc::Decl::TsInterface(_) | swc::Decl::TsTypeAlias(_) => StmtKind::Empty,
-                swc::Decl::TsEnum(held) => return enum_declaration(cx, held),
-                swc::Decl::TsModule(module) => return namespace_declaration(cx, module, at),
-                _ => unreachable!("all `Decl` variants are matched above"),
-            }
-        }
-    };
-    Ok(Stmt::new(kind, at))
-}
-
-fn declarators(cx: &mut Cx, declarators: &[swc::VarDeclarator]) -> Result<Vec<Binding>> {
-    declarators
-        .iter()
-        .map(|declarator| {
-            Ok(Binding {
-                claim: type_of(cx, &declarator.name),
-                target: binding(cx, &declarator.name)?,
-                value: match &declarator.init {
-                    Some(value) => Some(expr(cx, value)?),
-                    None => None,
-                },
-            })
-        })
-        .collect()
-}
-
-fn binding_kind(kind: swc::VarDeclKind) -> BindingKind {
-    match kind {
-        swc::VarDeclKind::Var => BindingKind::Var,
-        swc::VarDeclKind::Let => BindingKind::Let,
-        swc::VarDeclKind::Const => BindingKind::Const,
-    }
-}
-
 /// A function declaration or expression.
-pub(crate) fn function_expr(cx: &mut Cx, function: &swc::FnExpr) -> Result<Function> {
+pub(super) fn function_expr(cx: &mut Cx, function: &swc::FnExpr) -> Result<Function> {
     Ok(Function {
         name: function.ident.as_ref().map(|i| cx.name(&i.sym)),
         ..function_parts(cx, &function.function)?
@@ -548,7 +87,7 @@ pub(crate) fn function(cx: &mut Cx, function: &swc::Function) -> Result<Function
     function_parts(cx, function)
 }
 
-fn function_parts(cx: &mut Cx, function: &swc::Function) -> Result<Function> {
+pub(super) fn function_parts(cx: &mut Cx, function: &swc::Function) -> Result<Function> {
     let (parameters, rest_parameter) = parameters(cx, function.params.iter().map(|p| &p.pat))?;
     let (directives, body) = block_body(cx, function.body.as_ref())?;
 
@@ -684,7 +223,7 @@ fn is_receiver_annotation(parameter: &swc::Pat) -> bool {
 }
 
 /// What a pattern's annotation claimed, if it carried one.
-fn type_of(cx: &mut Cx, pattern: &swc::Pat) -> Option<Claim> {
+pub(super) fn type_of(cx: &mut Cx, pattern: &swc::Pat) -> Option<Claim> {
     let annotation = match pattern {
         swc::Pat::Ident(ident) => ident.type_ann.as_deref(),
         swc::Pat::Array(array) => array.type_ann.as_deref(),
@@ -732,7 +271,7 @@ pub(crate) fn class_expr(cx: &mut Cx, class: &swc::ClassExpr) -> Result<Class> {
     })
 }
 
-fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
+pub(super) fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
     cx.enter_class(private_names_of(class));
     let parts = class_members(cx, class);
     cx.leave_class();
@@ -980,7 +519,7 @@ fn parameter_of(cx: &mut Cx, pattern: &swc::Pat) -> Result<Parameter> {
 /// be right for the forward direction and wrong for the reverse one, which
 /// needs the VALUE to index by. A member that is right in one direction and
 /// missing in the other is the shape a program finds out about late.
-fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Result<Stmt> {
+pub(super) fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Result<Stmt> {
     let at = position(declaration.span);
     let name = cx.names.intern(declaration.id.sym.as_ref());
     let mut properties: Vec<crate::syntax::Property> = Vec::new();
@@ -1098,7 +637,7 @@ fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Result<Stmt> 
 /// identifier (`@register`) has no such call to be "the whole decoration", so
 /// it is invoked directly on the class, which is the one case that still
 /// matches full legacy semantics exactly.
-fn decorated_class_declaration(
+pub(super) fn decorated_class_declaration(
     cx: &mut Cx,
     class: &swc::ClassDecl,
     at: rts_cranelift::fault::Position,
@@ -1194,7 +733,7 @@ fn decorated_class_declaration(
 /// wrong in general. Fixing it means rewriting internal references to the
 /// object parameter, which is `scope/`'s job (absent — see this crate's
 /// README) and not attempted here as a workaround.
-fn namespace_declaration(
+pub(super) fn namespace_declaration(
     cx: &mut Cx,
     module: &swc::TsModuleDecl,
     at: rts_cranelift::fault::Position,
