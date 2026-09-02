@@ -459,6 +459,43 @@ aimed at a cost that is not there.
 `configurable,enumerable,value,writable` here. A real divergence, found while pricing a
 design that turned out to be worthless — and it is a CORRECTNESS item, not a speed one.
 
+### CORRECTION — the ablation above was measured on a stale binary
+
+The section says `.stack` ablates flat and that the cost is elsewhere. **That is wrong, and
+the way it went wrong is worth more than the claim.**
+
+The ablation removed the `stack_text` call, which left that function with no callers.
+This crate denies dead code, so `cargo build --release` **failed** — and the command was
+
+```bash
+cargo build --release 2>&1 | tail -1 && cp target/release/rts.exe target/nostack.exe
+```
+
+A pipeline's exit status is the LAST command's, so `tail` answered zero, `&&` fired, and
+`cp` copied the binary from the previous build. Every number attributed to the ablation
+was the unablated engine measured against itself, which is why it looked flat.
+
+Re-run with the build actually succeeding — `stack_text` still called, its result handed
+to `black_box`, so only the interning and the write are removed:
+
+| | ns |
+|---|---:|
+| return immediately after `receiver` | 100 |
+| the stack RENDERED, not interned or written | 420 |
+| the whole constructor | 790 |
+
+So `.stack` is **the entire 690**: about 320 to render — two `format!` and the
+`stack_text` walk — and about 370 to intern the result and write the property.
+
+**The lazy design is back on, and it is the largest single item on this list.** Deferring
+it takes `new Error()` from 790 to about 100 and `flow throw+catch` from 1029 to about
+250. Node makes `.stack` an accessor (`get,set` in the descriptor) where this engine makes
+it a data property, so laziness is not only legal — it closes a divergence at the same
+time.
+
+**And the rule this cost:** never `cmd | filter && cp`. Check the build's own status, or
+copy only after a command whose exit code is the build's.
+
 ## 6. `type_of_is` RE-DERIVES A CONSTANT STRING COMPARISON — probably wrong
 
 Kept on the list with its own warning attached, which is why it is not higher.
