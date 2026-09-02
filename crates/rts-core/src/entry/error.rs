@@ -270,11 +270,31 @@ fn written(this: u64, message: u64, class: &'static str) -> u64 {
             true => class.to_owned(),
             false => format!("{class}: {described}"),
         };
-        let stack = format!("{header}{}", super::throw::stack_text(context));
-        let value = context.intern_value(crate::text::Str::from_str(&stack)).bits();
-        let key = context.well_known("stack");
-        super::objects::put(context, cell, key, value);
-        super::native::hidden(context, cell, key);
+        // DEFERRED. What is captured is the call stack as it stands right now —
+        // a `Vec<u64>` of code addresses — and the class name. Rendering it into
+        // text and interning that is what the accessor on `Error.prototype` does
+        // when, and only when, something asks.
+        //
+        // Measured by ablation, release, min of 9 over 100 K iterations:
+        //
+        // ```text
+        // return immediately after `receiver`             100 ns
+        // the stack RENDERED, not interned or written     420 ns
+        // the whole constructor                           790 ns
+        // ```
+        //
+        // So 320 ns to render and 370 to intern and write, on every `new Error`
+        // — against `new Map()` at 110 and a plain class instance at 60. Almost
+        // nothing reads `.stack`, and a `throw`/`catch` that never looks at it
+        // was paying all of it.
+        //
+        // The header is NOT built here either: `class` is a `&'static str` and
+        // the message is read back off the instance at render time, which is
+        // also what makes `err.name = "Mine"` before the first read show up —
+        // the same reason `described` reads through the property path.
+        let _ = header;
+        install_stack_accessor(context);
+        context.defer_stack(cell, class);
 
         Value::from_slot(cell).bits()
     })
@@ -373,5 +393,71 @@ pub(super) fn provided(name: &str) -> Option<fn(&mut Context) -> u64> {
         "URIError" => register_uri_error,
         "AggregateError" => register_aggregate_error,
         _ => return None,
+    })
+}
+
+/// Puts the `stack` accessor on `Error.prototype`, once per context.
+///
+/// ON THE PROTOTYPE, not on each instance. Per instance was refused by reading
+/// `integrity::retype`, which `define_accessor_and_invalidate` calls: it
+/// declares a FRESH TYPE for the cell. Doing that per construction would mint a
+/// type per Error and invalidate every inline cache that has ever seen one —
+/// more expensive than the thing it replaces, and paid by unrelated code. The
+/// six subclasses inherit it, because their prototypes chain to this one.
+///
+/// AT CONSTRUCTION, not at registration, and that is not tidiness.
+/// `register_type_error` and its five siblings reach `register_error` directly
+/// through the macro's `extends`, so an internal `TypeError` — one this engine
+/// throws itself — builds `Error.prototype` without passing through this
+/// module's `provided`. Installing there worked under `rts run` and left the
+/// 332 tests that share one process reading `undefined` from every `.stack`.
+fn install_stack_accessor(context: &mut Context) {
+    if context.stack_accessor {
+        return;
+    }
+    if let Some(prototype) = super::class_support::prototype(context, "Error") {
+        context.stack_accessor = true;
+        super::accessor::define_accessor_in(context, prototype, "stack", stack_get, Some(stack_set));
+    }
+}
+
+/// `err.stack` — rendered here, on the first read, and never again.
+///
+/// The first read installs an OWN data property and drops the captured frames,
+/// so a second read is an ordinary cached property read rather than a second
+/// call through here. That also means a program that reads `.stack` twice pays
+/// what it used to pay once, and one that never reads it pays nothing.
+extern "C" fn stack_get(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some(cell) = Value(this).as_slot() else {
+            return undefined_of(context);
+        };
+        // Already rendered, or written by the setter: the own property answers
+        // and this accessor is only reached because the own one is absent.
+        let Some((class, frames)) = context.take_stack(cell) else {
+            return undefined_of(context);
+        };
+        let described = joined(context, cell).unwrap_or_else(|| class.to_owned());
+        let stack = format!("{described}{}", super::throw::stack_text_of(context, &frames));
+        let value = context.intern_value(Str::from_str(&stack)).bits();
+        let key = context.well_known("stack");
+        super::objects::put(context, cell, key, value);
+        super::native::hidden(context, cell, key);
+        value
+    })
+}
+
+/// `err.stack = v` — an own data property, which is what a write to it makes in
+/// every engine, and what drops the captured frames.
+extern "C" fn stack_set(_e: u64, this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some(cell) = Value(this).as_slot() else {
+            return undefined_of(context);
+        };
+        context.take_stack(cell);
+        let key = context.well_known("stack");
+        super::objects::put(context, cell, key, value);
+        super::native::hidden(context, cell, key);
+        undefined_of(context)
     })
 }

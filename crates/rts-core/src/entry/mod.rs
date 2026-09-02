@@ -451,6 +451,28 @@ pub struct Context {
     /// class definition time, read by `call` and `call_with_args` — never by
     /// `construct`, which is the one path allowed to reach one.
     callables: Aside<(u64, u64, bool)>,
+    /// What an Error was constructed FROM, until something asks for `.stack`.
+    ///
+    /// The class name and the call stack as it stood at construction. Rendering
+    /// that into text and interning it is 690 ns of the 790 a `new Error()`
+    /// cost — 320 to render and 370 to intern and write — and almost nothing
+    /// reads `.stack`. Capturing is a `Vec<u64>` clone; the rest waits until
+    /// the property is asked for.
+    ///
+    /// It holds CODE ADDRESSES and a `&'static str`, never a JavaScript
+    /// reference, so rule 10 does not apply: there is nothing here for the
+    /// collector to be told about.
+    pending_stacks: Aside<(&'static str, Vec<u64>)>,
+    /// Whether `Error.prototype` has its `stack` accessor yet.
+    ///
+    /// Asked at CONSTRUCTION rather than at registration, and the reason is an
+    /// order this module does not control: `register_type_error` and its five
+    /// siblings reach `register_error` directly through the macro's `extends`,
+    /// so an internal `TypeError` thrown before any program names `Error`
+    /// builds `Error.prototype` without passing through this module's own
+    /// registration. Installing there worked from `rts run` and left 332 tests
+    /// sharing one process with a stackless prototype.
+    stack_accessor: bool,
     /// A proxy's target and handler.
     ///
     /// Beside the cell like everything else about one, and the reason it is not
@@ -1238,6 +1260,8 @@ impl Context {
             proto_types: Aside::in_region(bits),
             array_elements: Aside::in_region(bits),
             accessors: Aside::in_region(bits),
+            pending_stacks: Aside::in_region(bits),
+            stack_accessor: false,
             derived: Aside::in_region(bits),
             boxed: Aside::in_region(bits),
             foreign: Aside::in_region(bits),

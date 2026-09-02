@@ -87,6 +87,18 @@ impl Context {
     /// accessors has a handful, and hashing a key would cost more than walking
     /// four entries — the same reasoning `Aside` itself records for using a
     /// `Vec` where the key is dense and small.
+    /// Remembers what an Error was made from, for a `.stack` nobody may read.
+    pub(in crate::entry) fn defer_stack(&mut self, cell: u32, class: &'static str) {
+        let frames = self.callees.clone();
+        self.pending_stacks.set(cell, (class, frames));
+    }
+
+    /// Takes it back, once. A second read finds the own property the first
+    /// installed and never reaches here.
+    pub(in crate::entry) fn take_stack(&mut self, cell: u32) -> Option<(&'static str, Vec<u64>)> {
+        self.pending_stacks.remove(cell)
+    }
+
     pub(super) fn accessor_at(&self, cell: u32, key: u32) -> Option<Pair> {
         let defined = self.accessors.get(cell)?;
         defined

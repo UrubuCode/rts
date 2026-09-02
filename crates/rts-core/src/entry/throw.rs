@@ -525,9 +525,14 @@ pub fn call_frames() -> Vec<String> {
     })
 }
 
-pub(in crate::entry) fn stack_text(context: &Context) -> String {
+/// The same, over frames CAPTURED earlier.
+///
+/// `Error` records the stack where it is constructed and renders it only if
+/// something reads `.stack`, so by then the live stack has unwound and the
+/// frames have to come from the caller.
+pub(in crate::entry) fn stack_text_of(context: &Context, frames: &[u64]) -> String {
     let mut lines = String::new();
-    for callee in context.callees.iter().rev() {
+    for callee in frames.iter().rev() {
         let Some(cell) = crate::value::Value(*callee).as_slot() else {
             continue;
         };
