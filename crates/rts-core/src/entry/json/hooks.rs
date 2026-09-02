@@ -67,7 +67,10 @@ pub(super) fn replacer_of(replacer: u64) -> Replacer {
             // the specification will accept, and skipping it is what the
             // language says rather than a simplification.
             let name = match shape_of(context, element) {
-                Shape::Text(text) => text,
+                Shape::Text(cell) => match context.text_at(cell) {
+                    Some(text) => text.clone(),
+                    None => continue,
+                },
                 Shape::Number(number) => crate::coerce::number_to_string(number),
                 _ => continue,
             };

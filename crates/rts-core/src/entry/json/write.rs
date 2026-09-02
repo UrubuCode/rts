@@ -40,7 +40,17 @@ pub(super) enum Shape {
     Null,
     Bool(bool),
     Number(f64),
-    Text(Str),
+    /// A string, BY THE CELL that holds it.
+    ///
+    /// It carried a `Str` — an owned copy of the whole buffer — and its only
+    /// consumer took a reference to it. The copy existed because a `Shape` is
+    /// carried out of the `with_current` closure that made it, and nothing had
+    /// asked whether it needed to be.
+    ///
+    /// It does not: `quoted` touches no context, only `self.out`, so the write
+    /// can happen inside the borrow — which is what `plain` already does for a
+    /// member's KEY one screen below.
+    Text(u32),
     /// An array, by the cell that identifies it.
     Array(u32),
     /// Anything else with properties.
@@ -175,7 +185,9 @@ pub(super) fn shape_of(context: &Context, value: u64) -> Shape {
     }
     if let Some(cell) = value.as_slot() {
         if let Some(text) = context.text_at(cell) {
-            return Shape::Text(text.clone());
+            // The cell rather than the text: see `Shape::Text`.
+            let _ = text;
+            return Shape::Text(cell);
         }
         // Asked before "does it have elements", because a callable is an object
         // too and the language says a function has no JSON form wherever it
@@ -208,7 +220,9 @@ pub(super) fn indent_of(space: u64) -> Vec<u16> {
             let count = count.floor().clamp(0.0, 10.0) as usize;
             vec![b' ' as u16; count]
         }
-        Shape::Text(text) => text.units().take(10).collect(),
+        Shape::Text(cell) => context
+            .text_at(cell)
+            .map_or_else(Vec::new, |text| text.units().take(10).collect()),
         _ => Vec::new(),
     })
 }
@@ -290,7 +304,17 @@ impl Writer {
         if super::super::throw::in_flight() {
             return false;
         }
-        match with_current(|context| shape_of(context, value)) {
+        let shape = with_current(|context| shape_of(context, value));
+        self.write_shape(shape, value, depth)
+    }
+
+    /// The same, for a caller that has already classified.
+    ///
+    /// `plain` had to classify to answer rule 8's question — may this member be
+    /// written at all — and then `write` classified again to decide how. One
+    /// decision, carried.
+    fn write_shape(&mut self, shape: Shape, value: u64, depth: usize) -> bool {
+        match shape {
             Shape::Absent => return false,
             Shape::Big => {
                 super::super::throw::type_error("Do not know how to serialize a BigInt");
@@ -307,7 +331,11 @@ impl Writer {
                 true => self.text(&crate::coerce::number_to_string(number)),
                 false => self.ascii("null"),
             },
-            Shape::Text(text) => self.quoted(&text),
+            Shape::Text(cell) => with_current(|context| {
+                if let Some(text) = context.text_at(cell) {
+                    self.quoted(text);
+                }
+            }),
             Shape::Array(cell) => self.array(cell, depth),
             Shape::Object(cell) => self.object(value, cell, depth),
         }
@@ -509,7 +537,12 @@ impl Writer {
             // this is the same value `toJSON` must see with no second
             // conversion to disagree with the first.
             let held = self.hooked(value, held, HookKey::Given(name));
-            if with_current(|context| matches!(shape_of(context, held), Shape::Absent)) {
+            // Classified once, the answer carried — see `plain`.
+            if super::super::throw::in_flight() {
+                return;
+            }
+            let shape = with_current(|context| shape_of(context, held));
+            if matches!(shape, Shape::Absent) {
                 continue;
             }
             if written {
@@ -522,7 +555,7 @@ impl Writer {
             if !self.indent.is_empty() {
                 self.ascii(" ");
             }
-            self.write(held, depth + 1);
+            self.write_shape(shape, held, depth + 1);
         }
         if written {
             self.newline(depth);
@@ -569,7 +602,19 @@ impl Writer {
                 continue;
             };
             let held = self.hooked(value, held, HookKey::Named(key));
-            if with_current(|context| matches!(shape_of(context, held), Shape::Absent)) {
+            // CLASSIFIED ONCE, and the answer carried to the write.
+            //
+            // The test exists to satisfy rule 8 — a `toJSON` or a replacer
+            // answering `undefined` must not produce `{"drop":}` — and it was
+            // asking `shape_of` solely to see `Absent`, after which `write`
+            // asked the identical question again. Passing the decision along
+            // removes the second borrow and the second classification without
+            // removing the question.
+            if super::super::throw::in_flight() {
+                return;
+            }
+            let shape = with_current(|context| shape_of(context, held));
+            if matches!(shape, Shape::Absent) {
                 continue;
             }
             if written {
