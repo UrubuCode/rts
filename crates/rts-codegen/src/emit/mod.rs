@@ -1242,8 +1242,31 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         .flat_map(|(_, _, body, _)| body.iter().cloned())
         .collect();
 
+
+    // ONCE, not once per unit. `program` is the same slice on every iteration
+    // and `whole_program_facts` is a pure function of it, so calling it inside
+    // the loop ran the whole-program analysis N times and produced the same two
+    // maps N times.
+    //
+    // Measured on a 26 KB module of 128 classes and 128 constructions, with
+    // empty modules added to move nothing but the unit COUNT:
+    //
+    //     3 units   308 ms      34 units   713 ms
+    //     10 units  366 ms      66 units  1216 ms
+    //
+    // — about 14 ms per added module that contains one `export const`. The
+    // emitted program is unchanged by construction: same input, same function,
+    // same point in the sequence.
+    //
+    // Placed after the `Math`/`eval`/`globalThis` interns above and before the
+    // loop, which is exactly where the first iteration called it. That ORDER is
+    // load-bearing: `Name` ids are handed out in interning order, and moving
+    // this earlier would renumber every map keyed by one.
+    whole_program_facts(&program, ctx);
+
     let mut entries = Vec::with_capacity(lowered.len());
     for (unit, imports, body, publications) in &lowered {
+
         let (imports, body, publications) = (imports, body, publications);
         ctx.module_paths = Some(unit.paths.clone());
         entries.push(emit_unit(
@@ -1252,7 +1275,6 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
             Some(&unit.specifier),
             publications,
             whole_program_math,
-            &program,
             ctx,
         )?);
     }
@@ -1274,12 +1296,8 @@ fn emit_unit(
     // The one whole-program fact a single unit cannot answer, folded over every
     // lowered body by `emit_modules` before the first is emitted.
     whole_program_math: bool,
-    // Every unit's statements, for the facts that gate on a spelling being
-    // unwritten anywhere. See `whole_program_facts`.
-    program: &[Stmt],
     ctx: &mut Ctx,
 ) -> EmitResult<FuncId> {
-    whole_program_facts(program, ctx);
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
     let global_this = ctx.names.intern("globalThis");
