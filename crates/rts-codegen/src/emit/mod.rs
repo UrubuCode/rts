@@ -1216,6 +1216,32 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         .iter()
         .all(|(_, _, body, _)| primordial::untouched(body, math, eval_name, global_this));
 
+    // EVERY UNIT'S STATEMENTS, in one slice, for the facts that are about the
+    // program rather than about a file.
+    //
+    // `receiver::resolve` asks "is `C` ever read as a value" and "is it declared
+    // once", and asked of one unit it answered yes for a class an IMPORTER
+    // writes through:
+    //
+    //     a.ts     export class C { m() { return 1; } }
+    //              const o = new C();
+    //              export function go() { return o.m(); }
+    //     main.ts  import { C, go } from "./a";
+    //              C.prototype.m = () => 2;
+    //              console.log(go());          // 1 here, 2 in node, exit 0
+    //
+    // The identical program in ONE file answers 2, because there the write is a
+    // value read the proof sees. So this is not a missing clause: it is the
+    // same clause asked of too little.
+    //
+    // Cloned rather than borrowed because `lowered` is borrowed mutably by the
+    // emit loop below; the cost is one clone of the statement trees per
+    // compilation, at compile time, against a wrong answer at run time.
+    let program: Vec<Stmt> = lowered
+        .iter()
+        .flat_map(|(_, _, body, _)| body.iter().cloned())
+        .collect();
+
     let mut entries = Vec::with_capacity(lowered.len());
     for (unit, imports, body, publications) in &lowered {
         let (imports, body, publications) = (imports, body, publications);
@@ -1226,6 +1252,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
             Some(&unit.specifier),
             publications,
             whole_program_math,
+            &program,
             ctx,
         )?);
     }
@@ -1247,9 +1274,12 @@ fn emit_unit(
     // The one whole-program fact a single unit cannot answer, folded over every
     // lowered body by `emit_modules` before the first is emitted.
     whole_program_math: bool,
+    // Every unit's statements, for the facts that gate on a spelling being
+    // unwritten anywhere. See `whole_program_facts`.
+    program: &[Stmt],
     ctx: &mut Ctx,
 ) -> EmitResult<FuncId> {
-    whole_program_facts(body, ctx);
+    whole_program_facts(program, ctx);
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
     let global_this = ctx.names.intern("globalThis");
@@ -1916,7 +1946,26 @@ mod tests {
 /// program compiled as a graph was emitted without it, and the receiver
 /// analysis was written the same way — it answered under `rts run` and
 /// answered nothing under `rts ir`, which is how the divergence was found.
-fn whole_program_facts(body: &[Stmt], ctx: &mut Ctx) {
+/// `program` is every unit of the compilation, concatenated; `body` is the one
+/// being emitted. At the script door they are the same slice.
+///
+/// The two are separate because the answers below are about the PROGRAM and one
+/// of them was measurably not: `receiver::resolve` asks "is `C` ever read as a
+/// value", and asked of one unit it answered yes for a class an IMPORTER writes
+/// through. `C.prototype.m = f` in the importing module left the exporting
+/// module deciding `o.m`, and the call answered 1 where node answers 2 — while
+/// the identical program in ONE file answers 2, because there the write is a
+/// value read the proof sees.
+///
+/// What stays per BODY is `inline::candidates`, and the reason is that a count
+/// cannot cross a module: `graph::front_end` parses every file into one
+/// `Names`, so two modules that each declare `function helper` share one `Name`
+/// and a program-wide `declarations_of` would count 2 — both losing a
+/// substitution they have today. `receiver::resolve` may go program-wide
+/// precisely because its counts GATE rather than select: counting more refuses
+/// more, which is the safe direction.
+fn whole_program_facts(program: &[Stmt], ctx: &mut Ctx) {
+    let body = program;
     ctx.class_fields = types::declared(body);
     // WHICH `o.m` THE PROGRAM ALREADY DECIDES. Whole-program and once, for the
     // same reason the line above is: every clause it rests on — what `C` is,
