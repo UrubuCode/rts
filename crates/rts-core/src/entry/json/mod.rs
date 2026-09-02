@@ -192,9 +192,7 @@ fn materialise(node: &read::Node) -> u64 {
         Node::Null => with_current(|context| Value::from_singleton(context.singletons.null).bits()),
         Node::Bool(flag) => Value::from_bool(*flag).bits(),
         Node::Number(number) => Value::from_f64(*number).bits(),
-        Node::Text(units) => {
-            with_current(|context| context.intern_value(Str::from_utf16(units)).bits())
-        }
+        Node::Text(text) => with_current(|context| context.intern_value(text.clone()).bits()),
         Node::Array(items) => {
             // ROOTED, and a loop rather than a `collect`: `materialise` is
             // recursive and every branch of it ALLOCATES, so the children built
@@ -219,7 +217,7 @@ fn materialise(node: &read::Node) -> u64 {
             for (key, value) in members {
                 let made = materialise(value);
                 values.values().push(made);
-                built.push((Str::from_utf16(key), made));
+                built.push((key.clone(), made));
             }
             // The guard stays ALIVE past this line: `native::plain`, interning
             // keys and every shape transition below may allocate, so the values

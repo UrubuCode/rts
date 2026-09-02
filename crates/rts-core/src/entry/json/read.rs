@@ -31,11 +31,21 @@ pub(super) enum Node {
     Null,
     Bool(bool),
     Number(f64),
-    Text(Vec<u16>),
+    /// A string token, ALREADY BUILT.
+    ///
+    /// It carried the raw `Vec<u16>` and `materialise` called
+    /// `Str::from_utf16` on it — a second allocation and a walk of every unit
+    /// to decide whether the narrow layout fits. Both were paid over text the
+    /// input already holds contiguously, and the reader is looking straight at
+    /// it.
+    ///
+    /// Built here instead, inside the borrow of the input, because the borrow
+    /// is alive exactly here and gone by the time `materialise` runs.
+    Text(Str),
     Array(Vec<Node>),
     /// Members in source order, which is what the object is built in — and so
     /// what enumeration answers afterwards.
-    Object(Vec<(Vec<u16>, Node)>),
+    Object(Vec<(Str, Node)>),
 }
 
 use crate::text::Str;
@@ -188,13 +198,52 @@ impl Reader<'_> {
     }
 
     /// The rest of a string, the opening quote already consumed.
-    fn string(&mut self) -> Option<Vec<u16>> {
+    ///
+    /// Two paths, and the first one allocates once instead of twice.
+    ///
+    /// A token with no escape is a contiguous run of the INPUT, and the reader
+    /// is holding the input. Where that input is narrow — every byte below 256,
+    /// which is what a Latin-1 representation means — the slice can be handed
+    /// straight to `Str::from_latin1`, whose own documentation says it needs no
+    /// scan because a slice of a narrow string is narrow by construction.
+    ///
+    /// It was: push one `u16` at a time into a growing `Vec`, then walk every
+    /// unit again in `Str::from_utf16` to pick a layout, then allocate a second
+    /// buffer. Two allocations and three passes over text that was already
+    /// there. Measured, min of 9 over 200 K iterations: four two-character
+    /// string values cost 505 ns more than four numbers in the same document.
+    ///
+    /// The escaped path keeps the `Vec`, because that is the one case where the
+    /// units genuinely have to be assembled rather than pointed at.
+    fn string(&mut self) -> Option<Str> {
+        let from = self.at;
+        if let Some(bytes) = self.text.narrow() {
+            let mut at = self.at;
+            loop {
+                let unit = *bytes.get(at)?;
+                match unit {
+                    0x22 => {
+                        self.at = at + 1;
+                        return Some(Str::from_latin1(&bytes[from..at]));
+                    }
+                    // An escape ends the fast path and nothing else does. The
+                    // scan restarts from the opening quote rather than trying to
+                    // splice, because a token with one escape is rare and a
+                    // second code path for it would be the third way this file
+                    // builds a string.
+                    0x5c => break,
+                    0x00..=0x1f => return None,
+                    _ => at += 1,
+                }
+            }
+        }
         let mut units = Vec::new();
+        self.at = from;
         loop {
             let unit = self.peek()?;
             self.at += 1;
             match unit {
-                0x22 => return Some(units),
+                0x22 => return Some(Str::from_utf16(&units)),
                 0x5c => units.push(self.escape()?),
                 // A raw control character is not allowed inside a JSON string,
                 // and this is the check that makes a truncated document fail
