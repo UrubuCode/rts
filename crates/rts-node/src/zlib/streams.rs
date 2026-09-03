@@ -365,6 +365,8 @@ pub(super) fn install(context: &mut Context, namespace: u64) {
         // than registering an empty one under the `Transform` name.
         if let Some((_, prototype)) = class_prototype(context, *kind) {
             entry::put_member(context, constructor, "prototype", prototype);
+            // Back-link — see `crate::stream::class_ctor`'s doc.
+            entry::declare_host_class(context, constructor, prototype, class, 1);
         }
         entry::put_member(context, namespace, class, constructor);
         entry::put_member(context, namespace, factory, constructor);

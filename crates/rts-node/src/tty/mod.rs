@@ -81,9 +81,14 @@ pub fn namespace(context: &mut Context) -> u64 {
     let read_prototype = entry::make_prototype(context, "tty.ReadStream", READ_STREAM_METHODS);
     let read_ctor = entry::get_member(context, namespace, "ReadStream");
     entry::put_member(context, read_ctor, "prototype", read_prototype);
+    // Back-link, named "ReadStream"/"WriteStream" (Node's own names) rather
+    // than the "tty."-prefixed registry keys above — see
+    // `crate::stream::class_ctor`'s doc for the mechanism.
+    entry::declare_host_class(context, read_ctor, read_prototype, "ReadStream", 1);
     let write_prototype = entry::make_prototype(context, "tty.WriteStream", WRITE_STREAM_METHODS);
     let write_ctor = entry::get_member(context, namespace, "WriteStream");
     entry::put_member(context, write_ctor, "prototype", write_prototype);
+    entry::declare_host_class(context, write_ctor, write_prototype, "WriteStream", 1);
     namespace
 }
 

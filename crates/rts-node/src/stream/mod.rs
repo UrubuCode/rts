@@ -141,8 +141,12 @@ pub fn namespace(context: &mut Context) -> u64 {
     let stream_prototype = common::chained_prototype(context, "EventEmitter", "Stream", &[]);
     let stream_ctor = entry::make_callable(context, stream_construct);
     entry::put_member(context, stream_ctor, "prototype", stream_prototype);
+    // `declare_host_class` for every class this function builds — see
+    // `class_ctor`'s doc for why `x.constructor.name` answered `"Object"` for
+    // all of them until this call existed.
+    entry::declare_host_class(context, stream_ctor, stream_prototype, "Stream", 0);
 
-    let readable_ctor = class_ctor(context, readable::construct, readable::prototype);
+    let readable_ctor = class_ctor(context, readable::construct, readable::prototype, "Readable", 1);
     let from_fn = entry::make_callable(context, util::readable_from);
     entry::put_member(context, readable_ctor, "from", from_fn);
     // `Readable.fromWeb`/`.toWeb` — see `web_bridge.rs`'s module doc for why
@@ -153,19 +157,20 @@ pub fn namespace(context: &mut Context) -> u64 {
     let readable_to_web = entry::make_callable(context, web_bridge::readable_to_web);
     entry::put_member(context, readable_ctor, "toWeb", readable_to_web);
 
-    let writable_ctor = class_ctor(context, writable::construct, writable::prototype);
+    let writable_ctor = class_ctor(context, writable::construct, writable::prototype, "Writable", 1);
     let writable_from_web = entry::make_callable(context, web_bridge::writable_from_web);
     entry::put_member(context, writable_ctor, "fromWeb", writable_from_web);
     let writable_to_web = entry::make_callable(context, web_bridge::writable_to_web);
     entry::put_member(context, writable_ctor, "toWeb", writable_to_web);
 
-    let duplex_ctor = class_ctor(context, duplex::duplex_construct, duplex::duplex_prototype);
+    let duplex_ctor = class_ctor(context, duplex::duplex_construct, duplex::duplex_prototype, "Duplex", 1);
     let duplex_from_web = entry::make_callable(context, web_bridge::duplex_from_web);
     entry::put_member(context, duplex_ctor, "fromWeb", duplex_from_web);
     let duplex_to_web = entry::make_callable(context, web_bridge::duplex_to_web);
     entry::put_member(context, duplex_ctor, "toWeb", duplex_to_web);
-    let transform_ctor = class_ctor(context, duplex::transform_construct, duplex::transform_prototype);
-    let pass_through_ctor = class_ctor(context, duplex::pass_through_construct, duplex::pass_through_prototype);
+    let transform_ctor = class_ctor(context, duplex::transform_construct, duplex::transform_prototype, "Transform", 1);
+    let pass_through_ctor =
+        class_ctor(context, duplex::pass_through_construct, duplex::pass_through_prototype, "PassThrough", 1);
 
     let members: &[(&str, Provided)] = &[
         ("pipeline", util::pipeline),
@@ -188,10 +193,34 @@ pub fn namespace(context: &mut Context) -> u64 {
     namespace
 }
 
-fn class_ctor(context: &mut Context, construct: Provided, prototype_of: fn(&mut Context) -> u64) -> u64 {
+/// Builds one class's constructor+prototype pair and links them BOTH ways.
+///
+/// `put_member(ctor, "prototype", prototype)` is the half every one of these
+/// five classes already had — enough for `x = new Readable()` to work, since
+/// `rts_cranelift`'s construct-lowering reads `callee.prototype` before it
+/// allocates `this` (`rts-core/src/entry/functions.rs::allocate_for_target`),
+/// and having none there is a DIFFERENT bug (`new WASI()` answering
+/// `undefined` outright — see `wasi/mod.rs`'s doc). What was still missing is
+/// the back-link `prototype.constructor = ctor`, which nothing here ever
+/// wrote: a compiled `class` gets it from `closure_new`
+/// (`rts-core/src/entry/functions.rs`'s own doc calls it out by name), but
+/// `construct` is a bare native `make_callable` never runs that path, so
+/// `readable_instance.constructor` fell through to `Object.prototype`'s and
+/// answered `Object` — confirmed measured, not assumed.
+/// `entry::declare_host_class` is the one call that writes it (already used
+/// by `SlowBuffer` and `AbortSignal`), so every class built through this
+/// helper gets it for free instead of a sixth near-copy of the three lines.
+fn class_ctor(
+    context: &mut Context,
+    construct: Provided,
+    prototype_of: fn(&mut Context) -> u64,
+    name: &str,
+    arity: u32,
+) -> u64 {
     let ctor = entry::make_callable(context, construct);
     let prototype = prototype_of(context);
     entry::put_member(context, ctor, "prototype", prototype);
+    entry::declare_host_class(context, ctor, prototype, name, arity);
     ctor
 }
 

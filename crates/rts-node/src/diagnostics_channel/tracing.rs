@@ -158,6 +158,8 @@ pub(super) fn tracing_channel_constructor(context: &mut Context) -> u64 {
     let prototype = entry::make_prototype(context, "TracingChannel", TRACING_METHODS);
     let ctor = entry::make_callable(context, tracing_channel_construct);
     entry::put_member(context, ctor, "prototype", prototype);
+    // Back-link — see `crate::stream::class_ctor`'s doc.
+    entry::declare_host_class(context, ctor, prototype, "TracingChannel", 1);
     ctor
 }
 

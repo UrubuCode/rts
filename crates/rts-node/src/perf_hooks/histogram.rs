@@ -171,6 +171,12 @@ pub(super) fn install(context: &mut Context, namespace: u64) {
         let prototype = entry::make_prototype(context, name, &[]);
         let constructor = entry::make_callable(context, illegal);
         entry::put_member(context, constructor, "prototype", prototype);
+        // Back-link (`crate::stream::class_ctor`'s doc) — `illegal` refuses
+        // `new` on THIS constructor, but `create_histogram`/
+        // `monitor_event_loop_delay` build real instances against this same
+        // name-keyed prototype, and those instances' `.constructor.name`
+        // reads off it too.
+        entry::declare_host_class(context, constructor, prototype, name, 0);
         entry::put_member(context, namespace, name, constructor);
     }
     entry::declare_loop_source(context, "node:perf_hooks.delay", source);

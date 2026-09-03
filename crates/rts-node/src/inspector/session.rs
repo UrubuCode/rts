@@ -126,8 +126,13 @@ pub(super) extern "C" fn post(_e: u64, this: u64, method: u64, params: u64, call
         return absent;
     };
     let answered = entry::with_runtime(|context| dispatch(context, &name, params));
+    // Node's callback is `(err, result)` and `err` is `null` on success, not
+    // `undefined` — a program that writes `if (err) throw err` is fine either
+    // way, but `err === null` (Node's own documented shape, and what a
+    // callback ported from real Node code was already written to check) read
+    // false there and true here, for the identical successful call.
     let (error, result) = match answered {
-        Answer::Value(value) => (absent, value),
+        Answer::Value(value) => (entry::null_value(), value),
         // The one branch that has to leave the borrow: evaluating compiles and
         // runs a program, which installs a context of its own.
         Answer::Evaluate(source) => {
@@ -138,7 +143,7 @@ pub(super) extern "C" fn post(_e: u64, this: u64, method: u64, params: u64, call
                 let wrapper = entry::make_object(context);
                 entry::put_member(context, wrapper, "value", value);
                 entry::put_member(context, object, "result", wrapper);
-                (entry::undefined_in(context), object)
+                (entry::null_value(), object)
             })
         }
         Answer::Refused(reason) => entry::with_runtime(|context| {

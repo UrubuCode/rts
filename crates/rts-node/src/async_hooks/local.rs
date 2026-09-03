@@ -40,7 +40,7 @@
 //! way) — the substitution changes no OBSERVABLE answer.
 
 use rts_core::entry::{Context, Provided};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A sentinel store value meaning "cleared", pushed by [`exit`] — distinct from
@@ -64,6 +64,20 @@ thread_local! {
     /// Every live `run`/`exit`/`enterWith`/`withScope` frame, oldest first,
     /// shared across every `AsyncLocalStorage` instance on this thread.
     static STACK: RefCell<Vec<Frame>> = const { RefCell::new(Vec::new()) };
+
+    /// `AsyncLocalStorage.prototype`, minted once by [`install`].
+    ///
+    /// `construct` used to call `make_prototype(context, "AsyncLocalStorage",
+    /// METHODS)` itself on every `new AsyncLocalStorage()` — a second, direct
+    /// call from THIS file, while [`install`] had already registered the same
+    /// name through `super::attach` (whose call site, `mod.rs`, is a different
+    /// file by the guard's own `#[track_caller]` reckoning). That read as two
+    /// modules racing for one name and panicked on the very first construction,
+    /// exactly the class `resource.rs`'s own `PROTOTYPE` cell already exists to
+    /// avoid — this module just never received that fix. Holding the object
+    /// instead of re-deriving it is also the stronger invariant: one prototype,
+    /// so `instanceof` compares every instance against the same object.
+    static PROTOTYPE: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The source of frame tokens. Process-wide rather than per thread so a token
@@ -89,7 +103,8 @@ const SCOPE_METHODS: &[(&str, Provided)] = &[("dispose", dispose)];
 /// `RunScope` has no constructor on the namespace, and that is Node's shape
 /// too: it is returned by `withScope` and never constructed by a program.
 pub(super) fn install(context: &mut Context, namespace: u64) {
-    super::attach(context, namespace, "AsyncLocalStorage", METHODS);
+    let prototype = super::attach(context, namespace, "AsyncLocalStorage", METHODS, 0);
+    PROTOTYPE.with(|held| held.set(prototype));
     rts_core::entry::make_prototype(context, "RunScope", SCOPE_METHODS);
     // `bind`/`snapshot` are STATIC — Node hangs them on the constructor, not
     // the prototype, because they read the CALLER's context rather than one
@@ -226,8 +241,7 @@ extern "C" fn snapshot_runner(
 /// passed.
 pub(super) extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     rts_core::entry::with_runtime(|context| {
-        let prototype =
-            rts_core::entry::make_prototype(context, "AsyncLocalStorage", METHODS);
+        let prototype = PROTOTYPE.with(Cell::get);
         let instance = match rts_core::entry::is_object(context, this) {
             true => this,
             false => rts_core::entry::make_instance(context, prototype),

@@ -150,8 +150,13 @@ pub(super) fn build_interface(options: u64, prototype: u64) -> u64 {
         entry::put_member(context, rl, "line", empty);
         entry::put_member(context, rl, "cursor", entry::make_number(0.0));
         entry::put_member(context, rl, "__buf__", empty);
+        // Both properties: `events.rs`'s `eventNames()`/no-argument
+        // `removeAllListeners()` read `__eventNames__` specifically, and a
+        // missing one reads as an always-empty list forever, silently.
         let events = entry::make_object(context);
         entry::put_member(context, rl, "__events__", events);
+        let event_names = entry::make_array_in(context, Vec::new());
+        entry::put_member(context, rl, "__eventNames__", event_names);
         entry::put_member(context, rl, "__closed__", entry::boolean_value(false));
         let on_method = if input == absent {
             absent

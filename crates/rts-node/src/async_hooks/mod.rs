@@ -138,14 +138,22 @@ pub fn namespace(context: &mut Context) -> u64 {
 /// constructor is the SAME object a `new` links an instance to — which is what
 /// `make_prototype`'s name-keyed identity gives, and what a second call
 /// building its own object would quietly break for `instanceof`.
+///
+/// Also the `prototype.constructor` back-link, via
+/// `entry::declare_host_class` — `crate::stream::class_ctor`'s doc has the
+/// mechanism: a hand-built class's constructor is a bare `make_callable`,
+/// which `closure_new` (the compiled-class path) never runs, so nothing else
+/// ever wrote it and `new AsyncResource().constructor.name` read `"Object"`.
 fn attach(
     context: &mut Context,
     namespace: u64,
     name: &'static str,
     methods: &[(&str, Provided)],
+    arity: u32,
 ) -> u64 {
     let prototype = rts_core::entry::make_prototype(context, name, methods);
     let constructor = rts_core::entry::get_member(context, namespace, name);
     rts_core::entry::put_member(context, constructor, "prototype", prototype);
+    rts_core::entry::declare_host_class(context, constructor, prototype, name, arity);
     prototype
 }

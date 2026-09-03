@@ -96,8 +96,14 @@ pub(super) fn readable(context: &mut entry::Context, id: u64, fd: Fd) -> u64 {
     let prototype = entry::make_prototype(context, "ChildProcessStream", READABLE);
     entry::set_prototype_in(context, prototype, event_emitter);
     let instance = entry::make_instance(context, prototype);
+    // Both properties, not `__events__` alone: `events.rs`'s
+    // `eventNames()`/no-argument `removeAllListeners()` read
+    // `__eventNames__` specifically, and a missing one reads as an
+    // always-empty list forever, silently.
     let events = entry::make_object(context);
     entry::put_member(context, instance, "__events__", events);
+    let event_names = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, instance, "__eventNames__", event_names);
     let held = entry::make_number(id as f64);
     entry::put_member(context, instance, "__procId", held);
     let held = entry::make_string(context, fd.member());
@@ -127,8 +133,14 @@ pub(super) fn writable(context: &mut entry::Context, id: u64) -> u64 {
     let prototype = entry::make_prototype(context, "ChildProcessStdin", WRITABLE);
     entry::set_prototype_in(context, prototype, event_emitter);
     let instance = entry::make_instance(context, prototype);
+    // Both properties, not `__events__` alone: `events.rs`'s
+    // `eventNames()`/no-argument `removeAllListeners()` read
+    // `__eventNames__` specifically, and a missing one reads as an
+    // always-empty list forever, silently.
     let events = entry::make_object(context);
     entry::put_member(context, instance, "__events__", events);
+    let event_names = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, instance, "__eventNames__", event_names);
     let held = entry::make_number(id as f64);
     entry::put_member(context, instance, "__procId", held);
     let held = entry::boolean_value(false);

@@ -62,7 +62,20 @@ pub(super) fn namespace(context: &mut Context) -> u64 {
 /// callback form's.
 pub(super) extern "C" fn create_interface(_e: u64, _this: u64, options: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let prototype = entry::with_runtime(|context| {
-        let base = entry::make_prototype(context, "Interface", super::INTERFACE_METHODS);
+        // Empty `members`, the "chain-read" idiom `make_prototype`'s own doc
+        // names: this READS the "Interface" prototype `readline::namespace`
+        // already owns, rather than claiming it a second time. Passing
+        // `super::INTERFACE_METHODS` here — a real, non-empty table — used to
+        // make this call race `mod.rs`'s own registration for ownership of
+        // "Interface", and lost every time: `mod.rs::namespace` always runs
+        // first (`lib.rs` reads `node:readline`'s `.promises` member to wire
+        // this very specifier, which forces it), so this call was never the
+        // first and always the "different file" the guard panics on — every
+        // `readlinePromises.createInterface()` call aborted the process.
+        // `lib.rs`'s comment is why the read is safe rather than lucky: the
+        // prototype is guaranteed to exist by the time any program can reach
+        // this function at all.
+        let base = entry::make_prototype(context, "Interface", &[]);
         let promised = entry::make_prototype(context, "InterfacePromises", MEMBERS);
         entry::set_prototype_in(context, promised, base);
         promised

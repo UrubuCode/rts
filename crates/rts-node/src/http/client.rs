@@ -7,21 +7,43 @@
 //!
 //! Node's `ClientRequest` is asynchronous: `request()` returns before the
 //! socket connects, and `'response'` arrives later, on its own turn. This
-//! engine has no event loop a background thread can post into — the same
-//! limit `net`'s own module doc states for `'connection'`/`'data'` — so
-//! there is no "later turn" for a native to defer to. [`connect_blocking`]
-//! and [`read_response_blocking`] instead SPIN: they call a real `net`
-//! native in a short loop (the only way to force `net::registry::pump` to
-//! run, since that function is private) with a small sleep between
-//! attempts, until the socket connects / the response head and body are
-//! fully read, or a bounded timeout elapses. **The request only returns
-//! once the whole exchange is done** — `request()` connects synchronously
-//! before handing back the `ClientRequest`, and `end()` sends the body and
-//! reads the whole response before returning, then fires `'response'`
-//! synchronously with a complete, non-streaming `IncomingMessage`. A
-//! program that never calls `.end()` (relying on `.write()` alone plus a
-//! timer to flush later, a legal but rare shape) never gets a response —
-//! named, not silently different.
+//! engine has no event loop a background thread can post an ARBITRARY
+//! callback into — the same limit `net`'s own module doc states for
+//! `'connection'`/`'data'` — so there is no "later turn" of THAT shape for a
+//! native to defer to. [`connect_blocking`] and [`read_response_blocking`]
+//! instead SPIN: they call a real `net` native in a short loop (the only way
+//! to force `net::registry::pump` to run, since that function is private)
+//! with a small sleep between attempts, until the socket connects / the
+//! response head and body are fully read, or a bounded timeout elapses.
+//! **The request only returns once the whole exchange is done** —
+//! `request()` connects synchronously before handing back the
+//! `ClientRequest`, and `end()` sends the body and reads the whole response
+//! before returning, then fires `'response'` synchronously with a complete,
+//! non-streaming `IncomingMessage`. A program that never calls `.end()`
+//! (relying on `.write()` alone plus a timer to flush later, a legal but
+//! rare shape) never gets a response — named, not silently different.
+//!
+//! **One "later turn" this module DOES have**: `node:timers`' own
+//! `setTimeout(fn, 0)`, which [`emit_error_later`] rides below. The claim
+//! above still holds for `'response'` — nothing here polls a background
+//! thread's mailbox on its own schedule — but "no later turn at all"
+//! overstated it: a zero-delay timer is exactly enough for one deferred
+//! callback with no data still in flight.
+//!
+//! # Two bugs fixed 2026-09, both shared with `https::client`'s twin copy
+//!
+//! `apply_options` took `context` (meaning its caller already held the
+//! runtime borrow) yet called the ambient `entry::own_keys` directly to walk
+//! `headers`' keys, so `http.request({ headers: {...} })` aborted the
+//! process — found by a crate-wide sweep, not a fixture, and fixed by
+//! pulling that walk into its own pass, [`read_headers`] (see its doc for
+//! why it cannot be one more field `apply_options` fills in). Separately,
+//! `build_request` used to `emit` a failed connection's `'error'`
+//! SYNCHRONOUSLY, before the instance it just built was even returned —
+//! so `req.on('error', cb)` on the next line could never run in time, and an
+//! `'error'` with no listener kills the process. [`emit_error_later`] defers
+//! it through `setTimeout(fn, 0)` instead. `https::client`'s copy of this
+//! file has the fuller account of both; they were found and fixed together.
 
 use rts_core::entry::{self, Provided};
 use std::time::{Duration, Instant};
@@ -50,7 +72,15 @@ pub(super) fn prototype(context: &mut entry::Context) -> u64 {
 /// `http.request(options|url[, options][, callback])` / `http.get(...)`.
 /// `auto_end` is `true` for `get` (Node calls `.end()` for the caller).
 pub(super) fn build_request(url_or_options: u64, options: u64, callback: u64, auto_end: bool) -> u64 {
-    let (host, port, path, method, headers) = entry::with_runtime(|context| read_request_options(context, url_or_options, options));
+    let (host, port, path, method) = entry::with_runtime(|context| read_request_options(context, url_or_options, options));
+    // Read OUTSIDE the borrow above, and as its OWN pass over both option
+    // sources — see `read_headers`'s own doc for why a `headers` object walk
+    // cannot share `read_request_options`'s borrow the way the four scalar
+    // fields do.
+    let mut headers = read_headers(url_or_options, options);
+    if !headers.iter().any(|(n, _)| n.eq_ignore_ascii_case("host")) {
+        headers.push(("Host".to_owned(), host.clone()));
+    }
     let net_ns = entry::with_runtime(super::net_namespace);
     let absent = entry::undefined_value();
     let socket_ctor = entry::with_runtime(|context| entry::get_member(context, net_ns, "Socket"));
@@ -89,7 +119,7 @@ pub(super) fn build_request(url_or_options: u64, options: u64, callback: u64, au
     let host_v = entry::with_runtime(|context| entry::make_string(context, &host));
     entry::call(connect_fn, socket, port_v, host_v, absent, absent);
     if !connect_blocking(socket) {
-        emit(instance, "error", error_object("ECONNREFUSED", "connect failed"), absent, absent);
+        emit_error_later(instance, error_object("ECONNREFUSED", "connect failed"));
         return instance;
     }
 
@@ -110,40 +140,69 @@ fn error_object(code: &str, message: &str) -> u64 {
     })
 }
 
-/// `(host, port, path, method, headers)` off either a URL string or an
-/// options object — `docs/reference/node/http.md` §3's `RequestOptions`,
-/// reduced to the fields this client acts on. Unrecognized fields
-/// (`agent`, `signal`, `family`, `lookup`, …) are read never; see the
-/// module's own "not implemented" list.
-fn read_request_options(context: &mut entry::Context, url_or_options: u64, options: u64) -> (String, u16, String, String, Vec<(String, String)>) {
+/// Emits `'error'` on `instance` on a LATER turn instead of synchronously —
+/// see `https::client`'s copy of this function for the full account (the two
+/// were found and fixed together, the same `connect_blocking` failure
+/// shape). Short version: emitting inside `build_request` itself, before the
+/// value it just built was even returned to the caller, made
+/// `req.on('error', cb)` — the ordinary Node idiom — impossible to run in
+/// time, and an `'error'` with no listener kills the process (`common::emit`'s
+/// own doc), unrecoverably even from a `try`/`catch` wrapping the whole
+/// `http.request(...)` call. `setTimeout(fn, 0)` gives the caller's own
+/// synchronous statements a turn to run first, the same "later turn"
+/// `docs/reference/node/STATUS.md`'s fixed `setTimeout(f, 0)` defect
+/// describes pumping into — reused rather than building a second
+/// queue/table/loop-source the way `node:net`'s own (threaded) `connect`
+/// needs one for.
+fn emit_error_later(instance: u64, error: u64) {
+    let state = entry::with_runtime(|context| {
+        let state = entry::make_object(context);
+        entry::put_member(context, state, "instance", instance);
+        entry::put_member(context, state, "error", error);
+        state
+    });
+    // Minted OUTSIDE the borrow above — `entry::closure_new` takes the
+    // runtime borrow itself.
+    let closure = entry::closure_new(deliver_deferred_error as *const () as usize as i64, state);
+    let (timers_ns, absent) = entry::with_runtime(|context| (entry::module_at_name(context, "node:timers"), entry::undefined_in(context)));
+    let set_timeout = entry::with_runtime(|context| entry::get_member(context, timers_ns, "setTimeout"));
+    let delay = entry::make_number(0.0);
+    entry::call(set_timeout, absent, closure, delay, absent, absent);
+}
+
+/// The `setTimeout` callback [`emit_error_later`] schedules.
+extern "C" fn deliver_deferred_error(state: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let (instance, error) =
+        entry::with_runtime(|context| (entry::get_member(context, state, "instance"), entry::get_member(context, state, "error")));
+    let absent = entry::undefined_value();
+    emit(instance, "error", error, absent, absent);
+    absent
+}
+
+/// `(host, port, path, method)` off either a URL string or an options
+/// object — `docs/reference/node/http.md` §3's `RequestOptions`, reduced to
+/// the fields this client acts on. Unrecognized fields (`agent`, `signal`,
+/// `family`, `lookup`, …) are read never; see the module's own "not
+/// implemented" list. `headers` used to be a fifth field here — see
+/// [`read_headers`] for why it was pulled out into its own pass rather than
+/// staying alongside these four.
+fn read_request_options(context: &mut entry::Context, url_or_options: u64, options: u64) -> (String, u16, String, String) {
     let mut host = "localhost".to_owned();
     let mut port = 80u16;
     let mut path = "/".to_owned();
     let mut method = "GET".to_owned();
-    let mut headers = Vec::new();
     if let Some(text) = entry::text_in(context, url_or_options) {
         parse_url_into(&text, &mut host, &mut port, &mut path);
     } else {
-        apply_options(context, url_or_options, &mut host, &mut port, &mut path, &mut method, &mut headers);
+        apply_options(context, url_or_options, &mut host, &mut port, &mut path, &mut method);
     }
     if options != entry::undefined_in(context) {
-        apply_options(context, options, &mut host, &mut port, &mut path, &mut method, &mut headers);
+        apply_options(context, options, &mut host, &mut port, &mut path, &mut method);
     }
-    if !headers.iter().any(|(n, _)| n.eq_ignore_ascii_case("host")) {
-        headers.push(("Host".to_owned(), host.clone()));
-    }
-    (host, port, path, method, headers)
+    (host, port, path, method)
 }
 
-fn apply_options(
-    context: &mut entry::Context,
-    options: u64,
-    host: &mut String,
-    port: &mut u16,
-    path: &mut String,
-    method: &mut String,
-    headers: &mut Vec<(String, String)>,
-) {
+fn apply_options(context: &mut entry::Context, options: u64, host: &mut String, port: &mut u16, path: &mut String, method: &mut String) {
     if let Some(h) = option_text(context, options, "hostname").or_else(|| option_text(context, options, "host")) {
         *host = h;
     }
@@ -156,22 +215,67 @@ fn apply_options(
     if let Some(m) = option_text(context, options, "method") {
         *method = m.to_ascii_uppercase();
     }
-    let headers_value = option_member(context, options, "headers");
-    if headers_value != entry::undefined_in(context) {
-        let names = entry::own_keys(headers_value);
-        let mut index = 0.0;
-        loop {
-            let name_v = entry::get_member(context, names, &index.to_string());
-            if name_v == entry::undefined_in(context) {
-                break;
-            }
-            let Some(name) = entry::text_in(context, name_v) else { break };
-            let value_v = entry::get_member(context, headers_value, &name);
-            if let Some(value) = entry::text_in(context, value_v) {
-                headers.push((name, value));
-            }
-            index += 1.0;
+}
+
+/// `options.headers` off either option source, merged in the same order
+/// [`read_request_options`] applies `url_or_options` then `options` — a
+/// `string[]`-per-name shape is not read; only the plain `{name: value}`
+/// object form is, matching this client's other reduced option handling.
+///
+/// # Why this is not a fifth field `apply_options` fills in
+///
+/// `apply_options` takes `context: &mut Context` — by this crate's own
+/// convention (`docs/reference/node/STATUS.md`'s "the rule every module here
+/// pays") that means its CALLER already holds the runtime borrow, so nothing
+/// inside it may grab a second one. Walking `headers`' keys needs
+/// `entry::own_keys`, which is AMBIENT — it takes the borrow itself, on
+/// purpose, so a `headers` getter can run with none held (its own doc says
+/// so) — so it cannot be one more step inside `apply_options` the way
+/// `hostname`/`port`/`path`/`method` are. It used to be, and every
+/// `http.request({..., headers: {...}})` aborted the process with `[RTS
+/// PANIC] RefCell already borrowed` before a single byte went out — the same
+/// shape `https::client`'s sibling copy of this file had, found together.
+/// See `wasi::mod::read_string_map` for the identical open-and-close-per-step
+/// discipline applied to a different options object.
+fn read_headers(url_or_options: u64, options: u64) -> Vec<(String, String)> {
+    let mut headers = Vec::new();
+    let is_url_string = entry::with_runtime(|context| entry::text_in(context, url_or_options).is_some());
+    if !is_url_string {
+        collect_headers(url_or_options, &mut headers);
+    }
+    let has_options = entry::with_runtime(|context| options != entry::undefined_in(context));
+    if has_options {
+        collect_headers(options, &mut headers);
+    }
+    headers
+}
+
+/// One options object's `headers`, appended in enumeration order — the
+/// ambient half of [`read_headers`]. Each step opens and closes its own
+/// borrow rather than sharing one across the whole walk, because
+/// `entry::own_keys`/`entry::get_indexed`-backed `entry::get_member` both
+/// grab it themselves.
+fn collect_headers(options: u64, headers: &mut Vec<(String, String)>) {
+    let headers_value = entry::with_runtime(|context| {
+        let absent = entry::undefined_in(context);
+        let value = option_member(context, options, "headers");
+        (value != absent).then_some(value)
+    });
+    let Some(headers_value) = headers_value else { return };
+    let names = entry::own_keys(headers_value);
+    let absent = entry::undefined_value();
+    let mut index = 0.0;
+    loop {
+        let name_v = entry::get_indexed(names, entry::make_number(index));
+        if name_v == absent {
+            break;
         }
+        let Some(name) = entry::text_of(name_v) else { break };
+        let value_v = entry::with_runtime(|context| entry::get_member(context, headers_value, &name));
+        if let Some(value) = entry::text_of(value_v) {
+            headers.push((name, value));
+        }
+        index += 1.0;
     }
 }
 
@@ -239,11 +343,11 @@ extern "C" fn client_end(_e: u64, this: u64, chunk: u64, _encoding: u64, callbac
     let path = get_text(this, "path").unwrap_or_else(|| "/".to_owned());
     let body = get_text(this, "__body__").unwrap_or_default();
     let mut head = format!("{method} {path} HTTP/1.1\r\n");
-    let (order, has_length) = entry::with_runtime(|context| {
-        let order = outgoing::header_order(context, this);
-        let has_length = order.iter().any(|n| n.eq_ignore_ascii_case("content-length"));
-        (order, has_length)
-    });
+    // `header_order` is ambient now (it reads array elements through
+    // `entry::get_indexed`, which opens its own borrow) — called bare rather
+    // than wrapped in `with_runtime`, which would nest them. See its own doc.
+    let order = outgoing::header_order(this);
+    let has_length = order.iter().any(|n| n.eq_ignore_ascii_case("content-length"));
     let headers_obj = get_value(this, "__headers__");
     for name in &order {
         let lower = name.to_ascii_lowercase();

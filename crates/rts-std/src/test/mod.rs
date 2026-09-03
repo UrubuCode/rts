@@ -124,7 +124,7 @@ extern "C" fn test(_e: u64, _this: u64, name: u64, body: u64, _a2: u64, _a3: u64
 /// [`expect`] a single allocation.
 const MATCHERS: &[(&str, Provided)] = &[
     ("toBe", equality::to_be),
-    ("toEqual", equality::to_be),
+    ("toEqual", equality::to_equal),
     ("toBeTruthy", equality::to_be_truthy),
     ("toBeFalsy", equality::to_be_falsy),
     ("toBeNull", equality::to_be_null),

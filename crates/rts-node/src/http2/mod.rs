@@ -42,29 +42,35 @@
 //! fixed default table — no session, no socket, so they are wired below.
 //! `http2.constants` is wired in full (§2.3 of the spec doc).
 //!
+//! **The session/stream lifecycle is real, not a stub.** This section used to
+//! say the opposite — "none of these classes are constructed by this module
+//! and no JS program can obtain one" — which was true when it was written and
+//! is not true of the code beside it any more: [`session`] is the connection
+//! preface, the `SETTINGS` exchange, stream creation and numbering, HEADERS
+//! and DATA both directions, `END_STREAM`, `RST_STREAM`, real connection- and
+//! stream-level `WINDOW_UPDATE` flow control, `PING`/`GOAWAY`, and the
+//! CVE-2023-44487 rapid-reset counter `http2.md` §4 calls mandatory — see its
+//! own module doc, which was written to replace the refusal this doc still
+//! stated. [`js`] is the JS surface over it (`connect`, `createServer`,
+//! `Http2Session`, `Http2Stream`, `Http2Server`, `request`/`respond`/
+//! `write`/`end`/`close`) and [`registry`]/[`delivery`] are the socket loop
+//! and the thread boundary that turns a received frame into a queued record
+//! and then a `'stream'`/`'data'`/`'headers'`/`'end'`/`'close'` event — see
+//! [`js`]'s own module doc for the `h2c`-only scope and what of the JS
+//! surface it still refuses.
+//!
 //! # Not implemented, by name
 //!
-//! **The entire session/stream lifecycle**: `connect`, `createServer`,
-//! `createSecureServer`, `performServerHandshake`, `Http2Session` (and
-//! `ServerHttp2Session`/`ClientHttp2Session`), `Http2Stream` (and
-//! `ClientHttp2Stream`/`ServerHttp2Stream`), `Http2Server`/
-//! `Http2SecureServer`, and the Compatibility API
-//! (`Http2ServerRequest`/`Http2ServerResponse`). None of these classes are
-//! constructed by this module and no JS program can obtain one.
-//!
-//! This is a deliberate stop, not an oversight: a session needs a live
-//! connection preface handshake, `SETTINGS` exchange, per-session/per-stream
-//! flow-control windows, a multiplexed frame dispatch loop over
-//! `node:net`/`node:tls` (owned by other agents' modules under this crate's
-//! shared file lock, per this task's own instructions), the rapid-reset
-//! (CVE-2023-44487) mitigation `http2.md` §4 calls mandatory, and the
-//! `EventEmitter`/`Duplex` chaining `set_prototype_in` provides only once
-//! there is a real object to chain — building a session object that emits
-//! `'stream'` for frames it never actually multiplexed, or that claims
-//! `close()`/`goaway()` without an owned socket loop behind them, is exactly
-//! the "claims a session and drops frames it never learned" failure this
-//! task's own instructions rule out. What is real here — framing and HPACK —
-//! is what a session implementation would be built on next.
+//! `createSecureServer`, ALPN/TLS negotiation (h2c — cleartext with prior
+//! knowledge — is what [`session`] speaks; [`js`]'s own doc states why an
+//! `https:` authority is refused by name rather than attempted),
+//! `performServerHandshake`, `ServerHttp2Session`/`ClientHttp2Session` as
+//! distinct classes (one `Http2Session` shape serves both sides), the
+//! Compatibility API (`Http2ServerRequest`/`Http2ServerResponse` —
+//! `createServer` here raises `'stream'` and nothing else), `PUSH_PROMISE`
+//! and every `pushStream`, `session.settings()` after the opening exchange,
+//! `session.ping()` with a callback, trailers, `options` of any kind, and
+//! `stream.pause()`/`resume()` — see [`js`]'s own doc, which owns this list.
 //!
 //! `http2.sensitiveHeaders` is also not implemented: it is a well-known
 //! *computed symbol* key on a headers object, and

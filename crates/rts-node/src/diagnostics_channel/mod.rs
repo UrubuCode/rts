@@ -181,6 +181,10 @@ fn channel_constructor(context: &mut Context) -> u64 {
     let prototype = entry::make_prototype(context, "Channel", CHANNEL_METHODS);
     let ctor = entry::make_callable(context, channel_construct);
     entry::put_member(context, ctor, "prototype", prototype);
+    // Back-link — see `crate::stream::class_ctor`'s doc. Every `Channel`
+    // handed out by `channel(name)` shares this SAME prototype, so this one
+    // call fixes `.constructor.name` for all of them.
+    entry::declare_host_class(context, ctor, prototype, "Channel", 1);
     ctor
 }
 

@@ -308,10 +308,16 @@ pub(super) fn constructors(context: &mut Context) -> [(&'static str, u64); 2] {
     let write_stream_prototype = entry::make_prototype(context, "fs.WriteStream", &[]);
     let write_stream_ctor = entry::make_callable(context, write_stream_construct);
     entry::put_member(context, write_stream_ctor, "prototype", write_stream_prototype);
+    // Back-link, named "WriteStream" (Node's own, JS-visible name) rather than
+    // the "fs.WriteStream" registry key above, which exists only to dodge
+    // `node:tty`'s same-named prototype — see `crate::stream::class_ctor`'s
+    // doc for the mechanism this call fixes.
+    entry::declare_host_class(context, write_stream_ctor, write_stream_prototype, "WriteStream", 2);
 
     let read_stream_prototype = entry::make_prototype(context, "fs.ReadStream", READ_STREAM_METHODS);
     let read_stream_ctor = entry::make_callable(context, read_stream_construct);
     entry::put_member(context, read_stream_ctor, "prototype", read_stream_prototype);
+    entry::declare_host_class(context, read_stream_ctor, read_stream_prototype, "ReadStream", 2);
 
     [("WriteStream", write_stream_ctor), ("ReadStream", read_stream_ctor)]
 }

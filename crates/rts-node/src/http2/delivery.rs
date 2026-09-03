@@ -10,17 +10,9 @@
 //! a request from inside `'stream'` is the ordinary case, and it calls straight
 //! back into `registry`.
 
-use rts_core::entry::{self, Provided};
+use rts_core::entry;
 
 use super::registry::{self, Queued};
-
-/// The methods a stream delivered by the server side carries.
-const STREAM_METHODS: &[(&str, Provided)] = &[
-    ("respond", super::js::stream_respond),
-    ("write", super::js::stream_write),
-    ("end", super::js::stream_end),
-    ("close", super::js::stream_close),
-];
 
 /// Delivers everything queued for this thread's sessions.
 pub(super) fn pump() {
@@ -49,9 +41,12 @@ fn deliver(id: u64, record: Queued) {
             // region of the thread that allocates it.
             let instance = entry::with_runtime(|context| {
                 let prototype = super::js::session_prototype(context);
-                let made = entry::make_instance(context, prototype);
-                let listeners = entry::make_object(context);
-                entry::put_member(context, made, "__events__", listeners);
+                // `super::js::instance_of`, not the object-plus-`__events__`
+                // pair inline: this file used to build that pair itself, a
+                // second copy that — independently of `js.rs`'s own —
+                // never set `__eventNames__`, which the module's own doc
+                // now names as the reason both copies were folded into one.
+                let made = super::js::instance_of(context, prototype);
                 let held = entry::make_number(session as f64);
                 entry::put_member(context, made, "__sessionId", held);
                 made
@@ -95,13 +90,18 @@ fn deliver(id: u64, record: Queued) {
                 // made here.
                 None => {
                     let stream = entry::with_runtime(|context| {
-                        let parent = entry::make_prototype(context, "EventEmitter", &[]);
+                        // `super::js::emitter`, not a second `make_prototype`
+                        // call from this file: see [`super::js::STREAM_METHODS`]'s
+                        // doc for the collision this used to cause — two files
+                        // each declaring "Http2Stream" with real members raced
+                        // for ownership and the loser aborted the process on
+                        // the very first server-received request.
                         let prototype =
-                            entry::make_prototype(context, "Http2Stream", STREAM_METHODS);
-                        entry::set_prototype_in(context, prototype, parent);
-                        let made = entry::make_instance(context, prototype);
-                        let listeners = entry::make_object(context);
-                        entry::put_member(context, made, "__events__", listeners);
+                            super::js::emitter(context, "Http2Stream", super::js::STREAM_METHODS);
+                        // `super::js::instance_of` — see the `Queued::Accepted`
+                        // arm above for why not the inline pair this used to
+                        // build a second, independently-incomplete copy of.
+                        let made = super::js::instance_of(context, prototype);
                         let session = entry::make_number(id as f64);
                         entry::put_member(context, made, "__sessionId", session);
                         let held = entry::make_number(f64::from(stream_id));

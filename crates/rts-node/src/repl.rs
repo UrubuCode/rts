@@ -30,6 +30,21 @@
 //! `Interface` onto `EventEmitter`. `entry::evaluate` is reused from
 //! `vm.rs`'s doc rather than a second compile-and-run seam invented here.
 //!
+//! # `server.on(...)` was silently inert — FIXED
+//!
+//! `repl_server_ctor` builds TWO objects (`server`, the `REPLServer`, and
+//! `base`, the `Interface` underneath it), chaining `server`'s prototype
+//! onto `base`'s. That gives `server` the `on`/`emit`/… METHODS by
+//! prototype walk, but not their STATE: each needs its OWN
+//! `__events__`/`__eventNames__`, and only `base` (built by
+//! `readline.createInterface`) ever got them. `server.on(...)` wrote into
+//! `get_indexed(undefined, …)` and never persisted, which no fixture
+//! caught because every one of them drives lines through
+//! `input.emit("data", …)` — `input`, not `server` — and reads
+//! `server`'s OTHER methods (`defineCommand`, `displayPrompt`,
+//! `setupHistory`), never `.on()`. [`repl_server_ctor`] now builds
+//! `server`'s own storage right after allocating it.
+//!
 //! # Not implemented, by name
 //!
 //! - **Persistent cross-line context** (`let x` surviving to the next line)
@@ -90,6 +105,8 @@ pub fn namespace(context: &mut Context) -> u64 {
     entry::set_prototype_in(context, repl_prototype, interface_prototype);
     let repl_ctor = entry::make_callable(context, repl_server_ctor);
     entry::put_member(context, repl_ctor, "prototype", repl_prototype);
+    // Back-link — see `crate::stream::class_ctor`'s doc.
+    entry::declare_host_class(context, repl_ctor, repl_prototype, "REPLServer", 1);
     entry::put_member(context, namespace, "REPLServer", repl_ctor);
     namespace
 }
@@ -123,6 +140,20 @@ extern "C" fn repl_server_ctor(_e: u64, this: u64, options: u64, _a1: u64, _a2: 
             true => this,
             false => entry::make_instance(context, prototype),
         };
+        // `server`'s prototype chains onto `Interface`'s onto `EventEmitter`'s
+        // (see the module doc), which gives it the METHODS by prototype
+        // walk — not the STATE they read: `on`/`emit`/… need `server`'s OWN
+        // `__events__`/`__eventNames__`, which nothing built for it. `base`
+        // (the underlying `Interface` `readline.createInterface` returned)
+        // has its own already, from THAT constructor — a separate object,
+        // separate storage — so `server.on(...)` was silently inert even
+        // though `base.on(...)` (and `input.emit("data", …)`, which is what
+        // every fixture so far drives through) worked. Confirmed directly:
+        // `server.hasOwnProperty("__events__")` was `false` before this fix.
+        let events = entry::make_object(context);
+        entry::put_member(context, server, "__events__", events);
+        let event_names = entry::make_array_in(context, Vec::new());
+        entry::put_member(context, server, "__eventNames__", event_names);
         let input = entry::get_member(context, base, "input");
         let output = entry::get_member(context, base, "output");
         entry::put_member(context, server, "input", input);

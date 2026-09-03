@@ -83,6 +83,12 @@ pub fn namespace(context: &mut Context) -> u64 {
     let ctor = entry::make_callable(context, database::construct);
     let prototype = database::prototype(context);
     entry::put_member(context, ctor, "prototype", prototype);
+    // The `prototype.constructor` back-link `make_callable` never writes —
+    // see `crate::stream::class_ctor`'s doc for the mechanism (why every
+    // hand-built `node:` class answered `"Object"` to `.constructor.name`
+    // without this call) and why `new WASI()` returning `undefined` was the
+    // SAME gap's other half (`crate::wasi::namespace`'s doc).
+    entry::declare_host_class(context, ctor, prototype, "DatabaseSync", 1);
     entry::put_member(context, namespace, "DatabaseSync", ctor);
     let constants = constants(context);
     entry::put_member(context, namespace, "constants", constants);

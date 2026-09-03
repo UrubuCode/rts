@@ -28,6 +28,37 @@ describe("rts:test framework — equality matchers", () => {
     expect("42").not.toEqual("43");
   });
 
+  // `toEqual` foi `toBe` — identidade — ate 2026-09-03, o que fazia
+  // `expect([3,4,5]).toEqual([3,4,5])` falhar SEMPRE: dois arrays distintos
+  // nunca sao SameValue um do outro. Nada neste repositorio prendia a
+  // diferenca, porque o unico teste que existia comparava duas strings, e
+  // strings comparam por valor nos dois matchers. Estes prendem-na.
+  test("toEqual e estrutural, nao identidade", () => {
+    expect([3, 4, 5]).toEqual([3, 4, 5]);
+    expect({ a: 1, b: { c: 2 } }).toEqual({ a: 1, b: { c: 2 } });
+    expect([3, 4, 5]).not.toEqual([3, 4, 6]);
+    expect({ a: 1 }).not.toEqual({ a: 2 });
+  });
+
+  // A regra do Jest que separa `toEqual` de `toStrictEqual`: uma propriedade
+  // que vale `undefined` nao conta de nenhum dos lados.
+  test("toEqual ignora uma propriedade undefined", () => {
+    expect({ a: 1 } as any).toEqual({ a: 1, b: undefined });
+    expect({ a: 1, b: undefined } as any).toEqual({ a: 1 });
+  });
+
+  // Um array e um objeto com as mesmas chaves nao sao iguais, e uma string e
+  // uma funcao nao sao percorriveis. As duas ultimas custaram uma regressao:
+  // ambas ocupam um slot na regiao, logo passavam o teste "e um objeto" e
+  // ofereciam a seguir uma lista de chaves VAZIA — dois valores diferentes
+  // declarados iguais por nao terem nada dentro.
+  test("toEqual nao percorre o que nao e objeto", () => {
+    expect([] as any).not.toEqual({});
+    expect("42").not.toEqual("43");
+    expect(() => 1).not.toEqual(() => 2);
+  });
+
+
   test("toBe treats NaN as matching NaN (SameValue, unlike ===)", () => {
     expect(`${NaN}`).toBe(`${NaN}`);
   });

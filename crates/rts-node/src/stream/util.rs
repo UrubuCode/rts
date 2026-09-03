@@ -87,7 +87,12 @@ fn attach_finished(stream: u64, callback: u64) {
     once_relay(stream, event, callback, false);
 }
 
-fn attach_error(stream: u64, callback: u64) {
+/// `pub(super)` rather than private: [`super::abort_signal::add_abort_signal`]
+/// calls this directly, with an absent `callback`, purely to get a REAL
+/// `'error'` listener sitting on the stream — see that function's doc for
+/// why an absent callback here is exactly what it needs, not a misuse of
+/// this helper.
+pub(super) fn attach_error(stream: u64, callback: u64) {
     once_relay(stream, "error", callback, true);
 }
 

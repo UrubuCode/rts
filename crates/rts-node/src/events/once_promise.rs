@@ -141,8 +141,15 @@ pub(super) extern "C" fn once(_e: u64, _this: u64, emitter: u64, name: u64, opti
 /// Fired when the awaited event arrives. Settles with the packed argument
 /// array and undoes the other two registrations — see [`cleanup`].
 extern "C" fn on_event(state: u64, _this: u64, a0: u64, a1: u64, a2: u64, _d: u64) -> u64 {
-    let (promise, args) =
-        entry::with_runtime(|context| (entry::get_member(context, state, "promise"), super::packed_args(a0, a1, a2)));
+    let promise = entry::with_runtime(|context| entry::get_member(context, state, "promise"));
+    // `packed_args` calls the AMBIENT `entry::undefined_value()`, which takes
+    // the runtime borrow itself — so it must run OUTSIDE the `with_runtime`
+    // above rather than inside it, the same discipline `on_error`/`on_abort`
+    // already follow in this file. Nesting it there aborted the process on
+    // every successful resolution: `events.once(e, 'x')` then `e.emit('x', …)`
+    // panicked with "RefCell already borrowed" before the promise ever
+    // settled. See `tests/claude-node-events-once-crash.test.ts`.
+    let args = super::packed_args(a0, a1, a2);
     cleanup(state);
     let array = entry::make_array(args);
     entry::promise_settle(promise, array, 0);

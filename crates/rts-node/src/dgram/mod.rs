@@ -156,6 +156,8 @@ pub fn namespace(context: &mut Context) -> u64 {
     let ctor = entry::make_callable(context, construct::construct);
     let prototype = construct::prototype(context);
     entry::put_member(context, ctor, "prototype", prototype);
+    // Back-link — see `crate::stream::class_ctor`'s doc.
+    entry::declare_host_class(context, ctor, prototype, "Socket", 1);
     entry::put_member(context, namespace, "Socket", ctor);
     namespace
 }

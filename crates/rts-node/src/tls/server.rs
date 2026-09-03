@@ -4,6 +4,24 @@
 //! section, which applies here unchanged (the accepted socket's `'data'` is
 //! still what drives everything, now server-side).
 //!
+//! # `on_connection` used to abort the process — fixed 2026-09
+//!
+//! [`on_connection`] read `__tlsContextId` through `common::get_value`
+//! (which wraps the ambient `entry::get_indexed`) from INSIDE the
+//! `entry::with_runtime` that already reads `__tlsServerInstance` — the
+//! nested-borrow class `docs/reference/node/STATUS.md`'s "rule every module
+//! here pays" names. Reachable from ordinary JS: any `https.request()`
+//! against a real listening `https.Server` panicked with `[RTS PANIC]
+//! RefCell already borrowed` before a byte of the request went out, because
+//! the client's own handshake-completion spin
+//! (`https::client::connect_blocking`) ends up pumping the accept queue
+//! re-entrantly on the same thread, which is what calls this function while
+//! nothing else on the call stack looks related to it — see
+//! `tests/claude-node-https-crash.test.ts` for the full backtrace this was
+//! traced from. Fixed by reading `__tlsContextId` with the context-taking
+//! `entry::get_member` directly (the field is an ordinary named property,
+//! never proxied) instead of through the ambient wrapper.
+//!
 //! # Not implemented, by name
 //!
 //! `SNICallback`/`addContext` (one `SecureContext` serves every
@@ -79,9 +97,24 @@ pub(super) extern "C" fn create_server(_e: u64, _this: u64, options: u64, listen
 /// that this ordering differs from `https.Server`'s.
 extern "C" fn on_connection(_e: u64, this: u64, raw_socket: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let absent = entry::undefined_value();
+    // `__tlsContextId` is read with `entry::get_member` DIRECTLY here, not
+    // through `common::get_value` — that helper calls the AMBIENT
+    // `entry::get_indexed`, which takes the runtime borrow itself, and this
+    // closure already holds one via `entry::with_runtime`. Nesting them is
+    // what a real `https.request()` against a real listening server aborted
+    // on: the panic trace names this exact function
+    // (`crates/rts-node/src/tls/server.rs`, folded onto `net::common::
+    // get_value` by the linker — see tests/claude-node-https-crash.test.ts's
+    // own account of the backtrace) — `on_connection` is the server-side
+    // `'connection'` listener that a client's own handshake loop
+    // (`https::client::connect_blocking`) ends up driving reentrantly while
+    // pumping the socket registry. `__tlsContextId` is a plain named
+    // property (`common::set_num` — ordinary `put_member`), never proxied or
+    // indexed, so the context-taking `get_member` reads exactly the same
+    // value `get_value` did, without a second borrow.
     let (server_instance, context_id) = entry::with_runtime(|context| {
         let server_instance = entry::get_member(context, this, "__tlsServerInstance");
-        let context_id = entry::number_of(super::common::get_value(this, "__tlsContextId")).map(|v| v as u64);
+        let context_id = entry::number_of(entry::get_member(context, this, "__tlsContextId")).map(|v| v as u64);
         (server_instance, context_id)
     });
 

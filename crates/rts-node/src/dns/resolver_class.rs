@@ -115,6 +115,8 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     let ctor = entry::make_callable(context, construct);
     let proto = prototype(context);
     entry::put_member(context, ctor, "prototype", proto);
+    // Back-link — see `crate::stream::class_ctor`'s doc.
+    entry::declare_host_class(context, ctor, proto, "Resolver", 0);
     ctor
 }
 

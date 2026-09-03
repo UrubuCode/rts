@@ -76,7 +76,7 @@ pub(super) fn install(context: &mut Context, namespace: u64) {
     // Holding the object is the fix rather than silencing the guard: there is
     // one prototype, minted once, and every instance is linked to that same
     // one — which is what `resource instanceof AsyncResource` asks.
-    let prototype = super::attach(context, namespace, "AsyncResource", METHODS);
+    let prototype = super::attach(context, namespace, "AsyncResource", METHODS, 1);
     PROTOTYPE.with(|held| held.set(prototype));
     let placeholder = rts_core::entry::make_object(context);
     TOP_LEVEL.with(|held| held.set(placeholder));

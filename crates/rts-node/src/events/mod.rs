@@ -35,6 +35,36 @@
 //! back (see [`add_listener`] for why it is built eagerly rather than on
 //! demand).
 //!
+//! # Chaining onto `"EventEmitter"` is not enough — TWO real defect classes
+//! found across this crate, both fixed
+//!
+//! `Domain` (`crate::domain`) and the `cluster` module object/its worker
+//! instances (`crate::cluster`) each chained onto a same-named
+//! `"EventEmitter"` prototype for the METHODS but never ran [`make_emitter`]
+//! — the real `new EventEmitter()` constructor, which is the ONLY thing that
+//! ever built the instance's OWN `__events__`/`__eventNames__` before this
+//! pass. Every method here reads or writes those as an OWN property with no
+//! fallback, so `.on(...)` on either wrote into `get_indexed(undefined, …)`
+//! and `.emit(...)` found zero listeners for EVERY event, `'error'` included
+//! — silent, and for `Domain` specifically, its entire reason to exist.
+//! `repl.REPLServer`'s own `server` object (`crate::repl`) had the identical
+//! gap for the same reason. All three now build both properties inline at
+//! construction; see each module's own doc.
+//!
+//! A second, narrower class: several OTHER construction sites built
+//! `__events__` but not `__eventNames__` — [`listener::event_names`]
+//! and no-argument `removeAllListeners` read `__eventNames__` specifically,
+//! so `.on`/`.emit`/`.listenerCount` all worked while `.eventNames()`
+//! answered `[]` forever, silently. Found (and fixed) in the shared
+//! `init_emitter` helpers `net`/`http`/`https`/`stream`/`tls::common` each
+//! duplicate, in `http2::js::instance_of` (which `http2::delivery` now calls
+//! instead of its own second, independently-incomplete copy), and at
+//! individual construction sites in `process`, `readline`, `worker_threads`,
+//! `inspector`, `ws`, `fs::watch`, `fs::utf8stream` and
+//! `child_process::stdio`. `child_process::spawn_async`'s `ChildProcess` has
+//! the same gap, named but left unfixed in `child_process`'s own module doc:
+//! that file was already at this workspace's 500-line ceiling.
+//!
 //! # The borrow every module here has to get right
 //!
 //! [`emit::emit`] stores functions and later calls them. Every read here —
@@ -47,6 +77,18 @@
 //! [`rts_core::entry::promise_new`] each take the borrow themselves, so both
 //! are minted OUTSIDE any `with_runtime` block already open — see
 //! [`add_listener`] for where that already mattered before this change.
+//!
+//! **This claim was false for one function until 2026-09**, and the fixture
+//! that found it (`tests/claude-node-events-once-crash.test.ts`) is the
+//! reason it is stated this carefully now rather than just asserted:
+//! [`once_promise`]'s `on_event` called [`packed_args`] — which calls the
+//! ambient `entry::undefined_value` — from INSIDE the `with_runtime` reading
+//! `state.promise`, so `events.once(e, 'x')` aborted the process on every
+//! SUCCESSFUL resolution (rejection settles through a different listener and
+//! was never affected). [`on_iterator`]'s own `on_event` already called
+//! `packed_args` outside any borrow, which is what made the two comparable
+//! side by side and is why the fix moved the call rather than rewriting
+//! `packed_args` itself.
 //!
 //! # `'error'` with no listener
 //!
@@ -168,6 +210,12 @@ pub fn namespace(context: &mut Context) -> u64 {
     let prototype = emitter_prototype(context);
     let constructor = entry::get_member(context, namespace, "EventEmitter");
     entry::put_member(context, constructor, "prototype", prototype);
+    // The `prototype.constructor` back-link — see `crate::stream::class_ctor`'s
+    // doc for why a hand-built native constructor needs this said explicitly
+    // (`new EventEmitter().constructor.name` read `"Object"` without it, and
+    // every class chained onto this prototype — `Readable`, `Duplex`, … —
+    // inherited that same wrong answer until each got its OWN back-link).
+    entry::declare_host_class(context, constructor, prototype, "EventEmitter", 0);
     // Node's CommonJS export is the constructor itself and also exposes that
     // constructor as `.EventEmitter`, which named destructuring reads.
     entry::put_member(context, constructor, "EventEmitter", constructor);

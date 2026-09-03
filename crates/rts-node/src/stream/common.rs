@@ -97,13 +97,19 @@ pub(super) fn chained_prototype(context: &mut Context, parent: &'static str, nam
     prototype
 }
 
-/// Installs the `__events__` bookkeeping every `EventEmitter` needs, the
-/// same shape `events::make_emitter` builds — duplicated rather than called
-/// (that constructor is private to `events.rs`) because an event-carrying
-/// object here is built once per instance, inline in each class's own `new`.
+/// Installs the `__events__`/`__eventNames__` bookkeeping every
+/// `EventEmitter` needs, the same pair `events::make_emitter` builds —
+/// duplicated rather than called (that constructor is private to
+/// `events.rs`) because an event-carrying object here is built once per
+/// instance, inline in each class's own `new`. Both, not `__events__`
+/// alone: `events.rs`'s `eventNames()`/no-argument `removeAllListeners()`
+/// read `__eventNames__` specifically, and a missing one reads as an
+/// always-empty list forever, silently.
 pub(super) fn init_emitter(context: &mut Context, instance: u64) {
     let events = entry::make_object(context);
     entry::put_member(context, instance, "__events__", events);
+    let event_names = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, instance, "__eventNames__", event_names);
 }
 
 /// `this` if it is already an object (a `new` over a subclass hands one in),

@@ -35,12 +35,17 @@ pub(super) fn set_bool(context: &mut Context, this: u64, name: &str, value: bool
     entry::put_member(context, this, name, held);
 }
 
-/// Installs the `__events__` bookkeeping every `EventEmitter` needs — the
-/// same one-liner `http::common::init_emitter` and `tls::common`'s own copy
-/// are, private to their own crate modules.
+/// Installs the `__events__`/`__eventNames__` bookkeeping every
+/// `EventEmitter` needs — the same pair `http::common::init_emitter` and
+/// `tls::common`'s own copy build, private to their own crate modules.
+/// Both, not `__events__` alone: `events.rs`'s `eventNames()`/no-argument
+/// `removeAllListeners()` read `__eventNames__` specifically, and a missing
+/// one reads as an always-empty list forever, silently.
 pub(super) fn init_emitter(context: &mut Context, instance: u64) {
     let events = entry::make_object(context);
     entry::put_member(context, instance, "__events__", events);
+    let event_names = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, instance, "__eventNames__", event_names);
 }
 
 /// Calls `this.emit(event, a0, a1, a2)`, looked up fresh — never while a

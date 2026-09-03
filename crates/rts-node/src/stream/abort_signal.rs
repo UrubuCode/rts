@@ -16,6 +16,44 @@
 //! `controller.abort(x)` gave one, a `DOMException` named `"AbortError"`
 //! otherwise — and reaching for it is one property read against a second
 //! `AbortError` construction that could name it differently.
+//!
+//! # Why this destroy path must NOT crash on an unlistened stream, and every
+//! other `destroy(error)` path must
+//!
+//! Measured against real Node (`tests/claude-node-stream-abortsignal-crash.test.ts`):
+//! `addAbortSignal(signal, s)` followed by `controller.abort()`, with NO
+//! `'error'` listener anywhere a program wrote one, does not crash Node —
+//! while a plain `s.destroy(new Error("boom"))` with no listener crashes
+//! both engines identically (that IS the correct, shared behaviour; an
+//! unhandled `'error'` event ending the process is `events::emit`'s own
+//! rule and stream errors are meant to obey it). So the divergence is
+//! narrower than "abort never crashes" — it is specific to THIS entry
+//! point.
+//!
+//! The mechanism, once traced rather than guessed at: Node's own
+//! `addAbortSignal` registers its abort handler AND calls `stream.finished`
+//! internally, to unhook the abort listener once the stream is done — and
+//! `finished`'s own implementation (mirrored here in `util::finished`)
+//! attaches a real `'error'` listener as half of what "finished" means.
+//! That listener is invisible from user code (nothing added it, nothing a
+//! program can see by reading its own listener list before this call), but
+//! it is not ABSENT — and `events::emit`'s crash test is exactly "is the
+//! listener list empty", not "did the PROGRAM add one". So a stream that
+//! ever passed through `addAbortSignal` is never truly unlistened for
+//! `'error'` again, which is what stops the crash without changing what an
+//! ordinary unlistened `destroy(err)` does.
+//!
+//! [`util::attach_error`] is that same relay, called here with an ABSENT
+//! callback: this call does not want `finished`'s notification, only the
+//! listener slot it leaves behind. One collision named rather than hidden —
+//! `util::attach_error`/`attach_finished` share ONE property slot per
+//! relay kind across every caller on a stream (`util.rs`'s own doc already
+//! states this is not deduplicated), so a program that calls
+//! `stream.finished`/`stream.pipeline` on the SAME stream after this runs
+//! overwrites the slot this leaves behind — harmless for what THIS call
+//! needs (an absent callback does nothing whether it fires zero or three
+//! times), but it means two callers' intents share one slot, same as any
+//! other pair of `finished`/`pipeline` calls on one stream already did.
 
 use rts_core::entry;
 
@@ -28,6 +66,12 @@ pub(super) extern "C" fn add_abort_signal(_e: u64, _this: u64, signal: u64, stre
         entry::invalid_arg_instance("signal", "AbortSignal", signal);
         return absent;
     }
+    // The crash guard — see the module doc's "must NOT crash" section. Placed
+    // before EITHER branch below (the deferred `addEventListener` case and the
+    // immediate already-aborted case), because both end at the same
+    // `destroy_with` and both need the listener slot already in place before
+    // that runs.
+    super::util::attach_error(stream, absent);
     let add_fn = entry::with_runtime(|context| entry::get_member(context, signal, "addEventListener"));
     if add_fn != absent {
         let callback = entry::closure_new(on_abort as *const () as usize as i64, stream);

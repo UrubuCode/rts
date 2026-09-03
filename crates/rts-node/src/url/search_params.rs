@@ -53,7 +53,7 @@ const METHODS: &[(&str, Provided)] = &[
 /// Builds the `URLSearchParams` class and returns the constructor.
 pub(super) fn install(context: &mut Context) -> u64 {
     let prototype = entry::make_prototype(context, "URLSearchParams", METHODS);
-    super::class_ctor(context, "URLSearchParams", construct, prototype)
+    super::class_ctor(context, "URLSearchParams", 0, construct, prototype)
 }
 
 /// `new URLSearchParams(init?)` — a string (leading `?` stripped), an array

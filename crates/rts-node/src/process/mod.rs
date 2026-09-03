@@ -213,9 +213,14 @@ pub fn namespace(context: &mut Context) -> u64 {
     rts_core::entry::set_prototype_in(context, namespace, prototype);
     // `EventEmitter`'s storage, which its constructor would otherwise have
     // installed: without it `on` writes a listener array onto `undefined` and
-    // every registration is silently dropped.
+    // every registration is silently dropped. BOTH properties, not
+    // `__events__` alone: `events.rs`'s `eventNames()`/no-argument
+    // `removeAllListeners()` read `__eventNames__` specifically, and a
+    // missing one read as an always-empty list forever, silently.
     let events = rts_core::entry::make_object(context);
     rts_core::entry::put_member(context, namespace, "__events__", events);
+    let event_names = rts_core::entry::make_array_in(context, Vec::new());
+    rts_core::entry::put_member(context, namespace, "__eventNames__", event_names);
 
     rts_core::entry::declare_loop_source(context, "node:process.nextTick", lifecycle::source);
     namespace
