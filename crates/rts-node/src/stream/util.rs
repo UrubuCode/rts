@@ -1,4 +1,7 @@
-//! `Readable.from`, `pipeline`, `finished` — the module-level helpers.
+//! `Readable.from`, `pipeline`, `finished`, `getDefaultHighWaterMark`, and the
+//! `is*` predicate family (`isWritable`/`isReadable`/`isErrored`/
+//! `isDisturbed`) — the module-level helpers that read state rather than
+//! change it.
 //!
 //! # `Readable.from`: materialized, not pulled
 //!
@@ -84,7 +87,12 @@ fn attach_finished(stream: u64, callback: u64) {
     once_relay(stream, event, callback, false);
 }
 
-fn attach_error(stream: u64, callback: u64) {
+/// `pub(super)` rather than private: [`super::abort_signal::add_abort_signal`]
+/// calls this directly, with an absent `callback`, purely to get a REAL
+/// `'error'` listener sitting on the stream — see that function's doc for
+/// why an absent callback here is exactly what it needs, not a misuse of
+/// this helper.
+pub(super) fn attach_error(stream: u64, callback: u64) {
     once_relay(stream, "error", callback, true);
 }
 
@@ -140,12 +148,36 @@ pub(super) extern "C" fn get_default_high_water_mark(_e: u64, _this: u64, object
     entry::make_number(value)
 }
 
-/// `stream.isWritable(stream)` — the writable half of Node's `is*` family
-/// (`isReadable`/`isErrored` are not implemented; see the module doc). Reads
-/// the same `writable` data property every class here keeps in sync
-/// (`common.rs`'s convention), rather than a duck-typed method probe: a
-/// plain object with a `write` method is not a stream, and Node's own check
-/// is the internal state flag, not a shape test.
+/// `stream.isWritable(stream)` — reads the same `writable` data property
+/// every class here keeps in sync (`common.rs`'s convention), rather than a
+/// duck-typed method probe: a plain object with a `write` method is not a
+/// stream, and Node's own check is the internal state flag, not a shape test.
 pub(super) extern "C" fn is_writable(_e: u64, _this: u64, stream: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     entry::boolean_value(get_bool(stream, "writable"))
+}
+
+/// `stream.isReadable(stream)` — same shape as [`is_writable`], reading the
+/// `readable` data property every `Readable`/`Duplex` instance keeps in sync.
+pub(super) extern "C" fn is_readable(_e: u64, _this: u64, stream: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    entry::boolean_value(get_bool(stream, "readable"))
+}
+
+/// `stream.isErrored(stream)` — `stream.errored` is `null` until
+/// `.destroy(err)` sets it (`readable::init`/`writable::init` both start it
+/// there), so "not `null`" is exactly "has an error", with no second flag to
+/// keep in step.
+pub(super) extern "C" fn is_errored(_e: u64, _this: u64, stream: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let errored = get_value(stream, "errored");
+    entry::boolean_value(errored != entry::null_value() && errored != entry::undefined_value())
+}
+
+/// `stream.isDisturbed(stream)` — "true if the stream has been read from or
+/// errored" (Node's own wording). `readableDidRead` is the same flag
+/// `readable.rs`'s `deliver_data`/`read` already set on the first chunk
+/// actually handed to a consumer, so this reads it rather than tracking a
+/// second one.
+pub(super) extern "C" fn is_disturbed(_e: u64, _this: u64, stream: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let errored = get_value(stream, "errored");
+    let has_error = errored != entry::null_value() && errored != entry::undefined_value();
+    entry::boolean_value(get_bool(stream, "readableDidRead") || has_error)
 }

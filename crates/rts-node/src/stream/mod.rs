@@ -75,13 +75,24 @@
 //! call and settled by the callback form's own listeners, which is what keeps
 //! "did this stream finish" a question with one answer.
 //!
-//! `stream/consumers`, `compose`,
-//! `isErrored`/`isReadable`, `addAbortSignal`,
-//! `setDefaultHighWaterMark`, `Readable.fromWeb`/`toWeb`,
-//! `Writable.fromWeb`/`toWeb`, `Duplex.from`/`fromWeb`/`toWeb`, `.wrap()`,
-//! `.compose()`, the whole async-iteration helper family
-//! (`map`/`filter`/`forEach`/`toArray`/`reduce`/…), `Symbol.asyncDispose`,
-//! `_writev`, `unshift`, `wrap`.
+//! ~~`isErrored`/`isReadable`/`isDisturbed`~~ — predicates over the same data
+//! properties every class here already keeps in sync (`util.rs`'s own doc for
+//! each). ~~`addAbortSignal`~~ — `abort_signal.rs`, the same
+//! closure-plus-`EventTarget` recipe `events.rs::addAbortListener` already
+//! worked out, aimed at `.destroy()` instead of a listener call.
+//! ~~`Readable.fromWeb`/`toWeb`, `Writable.fromWeb`/`toWeb`,
+//! `Duplex.fromWeb`/`toWeb`~~ — `web_bridge.rs`: an adapter between two class
+//! families that both already exist, not a third one. ~~`.wrap()`~~ —
+//! `wrap.rs`, the streams-v1 adapter (forwards `data`/`end`/`error`/`close`/
+//! `destroy`; does not copy the legacy object's own extra methods — its own
+//! doc says so). ~~the async-iteration helper family
+//! (`map`/`filter`/`forEach`/`toArray`/`reduce`/`some`/`every`/`find`/`drop`/
+//! `take`/`flatMap`)~~ — `helpers.rs`, over the SAME
+//! `[Symbol.asyncIterator]()` `flowing.rs` already builds; its own doc states
+//! what `options.signal`/`options.concurrency` do not do.
+//!
+//! `stream/consumers`, `compose`, `Duplex.from`, `.compose()`,
+//! `setDefaultHighWaterMark`, `Symbol.asyncDispose`, `_writev`, `unshift`.
 //!
 //! `Symbol.asyncIterator` used to be on that list, refused for want of "a
 //! `Promise` a native can construct and drive". That was stale rather than
@@ -91,13 +102,17 @@
 //! for reasons that stopped being true. `pipeline`/`finished` are capped at four
 //! call slots total — see `util.rs`'s own doc.
 
+mod abort_signal;
 mod common;
 mod duplex;
 mod flowing;
+mod helpers;
 mod promises;
 mod readable;
 mod util;
 mod web;
+mod web_bridge;
+mod wrap;
 mod writable;
 
 use rts_core::entry::{self, Context, Provided};
@@ -126,15 +141,36 @@ pub fn namespace(context: &mut Context) -> u64 {
     let stream_prototype = common::chained_prototype(context, "EventEmitter", "Stream", &[]);
     let stream_ctor = entry::make_callable(context, stream_construct);
     entry::put_member(context, stream_ctor, "prototype", stream_prototype);
+    // `declare_host_class` for every class this function builds — see
+    // `class_ctor`'s doc for why `x.constructor.name` answered `"Object"` for
+    // all of them until this call existed.
+    entry::declare_host_class(context, stream_ctor, stream_prototype, "Stream", 0);
 
-    let readable_ctor = class_ctor(context, readable::construct, readable::prototype);
+    let readable_ctor = class_ctor(context, readable::construct, readable::prototype, "Readable", 1);
     let from_fn = entry::make_callable(context, util::readable_from);
     entry::put_member(context, readable_ctor, "from", from_fn);
+    // `Readable.fromWeb`/`.toWeb` — see `web_bridge.rs`'s module doc for why
+    // these are an adapter over two already-real class families rather than a
+    // third stream implementation.
+    let readable_from_web = entry::make_callable(context, web_bridge::readable_from_web);
+    entry::put_member(context, readable_ctor, "fromWeb", readable_from_web);
+    let readable_to_web = entry::make_callable(context, web_bridge::readable_to_web);
+    entry::put_member(context, readable_ctor, "toWeb", readable_to_web);
 
-    let writable_ctor = class_ctor(context, writable::construct, writable::prototype);
-    let duplex_ctor = class_ctor(context, duplex::duplex_construct, duplex::duplex_prototype);
-    let transform_ctor = class_ctor(context, duplex::transform_construct, duplex::transform_prototype);
-    let pass_through_ctor = class_ctor(context, duplex::pass_through_construct, duplex::pass_through_prototype);
+    let writable_ctor = class_ctor(context, writable::construct, writable::prototype, "Writable", 1);
+    let writable_from_web = entry::make_callable(context, web_bridge::writable_from_web);
+    entry::put_member(context, writable_ctor, "fromWeb", writable_from_web);
+    let writable_to_web = entry::make_callable(context, web_bridge::writable_to_web);
+    entry::put_member(context, writable_ctor, "toWeb", writable_to_web);
+
+    let duplex_ctor = class_ctor(context, duplex::duplex_construct, duplex::duplex_prototype, "Duplex", 1);
+    let duplex_from_web = entry::make_callable(context, web_bridge::duplex_from_web);
+    entry::put_member(context, duplex_ctor, "fromWeb", duplex_from_web);
+    let duplex_to_web = entry::make_callable(context, web_bridge::duplex_to_web);
+    entry::put_member(context, duplex_ctor, "toWeb", duplex_to_web);
+    let transform_ctor = class_ctor(context, duplex::transform_construct, duplex::transform_prototype, "Transform", 1);
+    let pass_through_ctor =
+        class_ctor(context, duplex::pass_through_construct, duplex::pass_through_prototype, "PassThrough", 1);
 
     let members: &[(&str, Provided)] = &[
         ("pipeline", util::pipeline),
@@ -142,6 +178,10 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("duplexPair", duplex::duplex_pair),
         ("getDefaultHighWaterMark", util::get_default_high_water_mark),
         ("isWritable", util::is_writable),
+        ("isReadable", util::is_readable),
+        ("isErrored", util::is_errored),
+        ("isDisturbed", util::is_disturbed),
+        ("addAbortSignal", abort_signal::add_abort_signal),
     ];
     let namespace = entry::make_namespace(context, members);
     entry::put_member(context, namespace, "Stream", stream_ctor);
@@ -153,10 +193,34 @@ pub fn namespace(context: &mut Context) -> u64 {
     namespace
 }
 
-fn class_ctor(context: &mut Context, construct: Provided, prototype_of: fn(&mut Context) -> u64) -> u64 {
+/// Builds one class's constructor+prototype pair and links them BOTH ways.
+///
+/// `put_member(ctor, "prototype", prototype)` is the half every one of these
+/// five classes already had — enough for `x = new Readable()` to work, since
+/// `rts_cranelift`'s construct-lowering reads `callee.prototype` before it
+/// allocates `this` (`rts-core/src/entry/functions.rs::allocate_for_target`),
+/// and having none there is a DIFFERENT bug (`new WASI()` answering
+/// `undefined` outright — see `wasi/mod.rs`'s doc). What was still missing is
+/// the back-link `prototype.constructor = ctor`, which nothing here ever
+/// wrote: a compiled `class` gets it from `closure_new`
+/// (`rts-core/src/entry/functions.rs`'s own doc calls it out by name), but
+/// `construct` is a bare native `make_callable` never runs that path, so
+/// `readable_instance.constructor` fell through to `Object.prototype`'s and
+/// answered `Object` — confirmed measured, not assumed.
+/// `entry::declare_host_class` is the one call that writes it (already used
+/// by `SlowBuffer` and `AbortSignal`), so every class built through this
+/// helper gets it for free instead of a sixth near-copy of the three lines.
+fn class_ctor(
+    context: &mut Context,
+    construct: Provided,
+    prototype_of: fn(&mut Context) -> u64,
+    name: &str,
+    arity: u32,
+) -> u64 {
     let ctor = entry::make_callable(context, construct);
     let prototype = prototype_of(context);
     entry::put_member(context, ctor, "prototype", prototype);
+    entry::declare_host_class(context, ctor, prototype, name, arity);
     ctor
 }
 

@@ -55,15 +55,40 @@ pub(super) enum Portable {
 /// limit low enough to hit by accident is better than a stack that ends.
 const DEPTH: usize = 16;
 
-/// Reads a value into its portable form, from a context already in hand.
-pub(super) fn portable(context: &mut Context, value: u64, depth: usize) -> Portable {
+/// Reads a value into its portable form.
+///
+/// # Ambient, not borrow-threaded — and that is the fix, not a style choice
+///
+/// This used to take `context: &mut Context` and read an array's elements
+/// with `entry::get_member(context, value, &index.to_string())` — the
+/// NAMED-property reader, on a key that is never a name: an array does not
+/// store its elements as properties `"0"`, `"1"`, … (they live beside the
+/// cell), so every element of every array crossing a thread came back
+/// `undefined` while `length` stayed correct — `workerData: { arr: [10,20,30] }`
+/// arrived as `{ arr: [undefined, undefined, undefined] }`, silently.
+/// `tests/claude-node-worker-threads.test.ts` has the repro.
+///
+/// The element reader that actually sees array elements is
+/// `entry::get_indexed`, and it is **ambient**: it takes its own borrow of
+/// the thread-local context. Calling it while a caller's `context: &mut
+/// Context` (from `entry::with_runtime`) is still open is a SECOND borrow of
+/// the same `RefCell`, and every one of this function's four call sites in
+/// `mod.rs` does exactly that — `Worker::new`, `postMessage` on both ports,
+/// `setEnvironmentData`. Rebuilding this to take a context and calling
+/// `get_indexed` from inside it would trade a silent wrong answer for a
+/// `RefCell already borrowed` process abort (`http/common.rs`'s
+/// `get_value_in` names the same hazard and is where this pattern is taken
+/// from). So this reads NOTHING through a borrow it did not open itself:
+/// every step below opens a short `entry::with_runtime` (or an ambient
+/// entry point) and closes it before the next, recursive calls included.
+pub(super) fn portable(value: u64, depth: usize) -> Portable {
     if depth >= DEPTH {
         return Portable::Unsupported("too deeply nested, or a cycle");
     }
-    if value == entry::undefined_in(context) {
+    if value == entry::undefined_value() {
         return Portable::Undefined;
     }
-    if value == entry::null_in(context) {
+    if value == entry::null_value() {
         return Portable::Null;
     }
     if value == entry::boolean_value(true) {
@@ -72,39 +97,45 @@ pub(super) fn portable(context: &mut Context, value: u64, depth: usize) -> Porta
     if value == entry::boolean_value(false) {
         return Portable::Bool(false);
     }
-    // `string_in`, never `text_in`: the second is `ToString` and answers "42"
+    // `string_in`, never `text_of`: the second is `ToString` and answers "42"
     // for the NUMBER 42. This asked it as a type test, so every number crossed
     // as a string and the copy looked right until `value.a + value.b.c`
     // answered "12" instead of 3.
     //
     // Before the number check either way, because a string has a numeric
     // coercion too — asking `number_of` first turns "3" into 3.
-    if let Some(text) = entry::string_in(context, value) {
+    if let Some(text) = entry::with_runtime(|context| entry::string_in(context, value)) {
         return Portable::Text(text);
     }
     if let Some(number) = entry::number_of(value) {
         return Portable::Number(number);
     }
-    if entry::is_array_in(context, value) {
-        let length = entry::get_member(context, value, "length");
-        let count = entry::number_of(length).unwrap_or(0.0) as usize;
+    if entry::is_array(value) {
+        // The length is a property (read under a borrow); the elements are
+        // not (read through the ambient `get_indexed`, outside one) — the
+        // same split `crypto/util.rs`'s `elements` and `dns/state.rs`'s
+        // `array_texts` make for the identical reason.
+        let count = entry::with_runtime(|context| {
+            let length = entry::get_member(context, value, "length");
+            entry::number_of(length).unwrap_or(0.0).max(0.0) as usize
+        });
         let mut items = Vec::with_capacity(count);
         for index in 0..count {
-            let held = entry::get_member(context, value, &index.to_string());
-            items.push(portable(context, held, depth + 1));
+            let held = entry::get_indexed(value, entry::make_number(index as f64));
+            items.push(portable(held, depth + 1));
         }
         return Portable::List(items);
     }
-    if entry::is_object(context, value) {
+    if entry::with_runtime(|context| entry::is_object(context, value)) {
         // `entry::member_names` is `Object.keys`'s own walk, reached rather than
         // repeated. Before it existed this had no way to ask an object what its
         // properties are, and the plausible workaround — crossing as an empty
         // object — is the answer that looks like it worked.
-        let fields = entry::member_names(context, value)
+        let fields = entry::with_runtime(|context| entry::member_names(context, value))
             .into_iter()
             .map(|name| {
-                let held = entry::get_member(context, value, &name);
-                let carried = portable(context, held, depth + 1);
+                let held = entry::with_runtime(|context| entry::get_member(context, value, &name));
+                let carried = portable(held, depth + 1);
                 (name, carried)
             })
             .collect();

@@ -17,10 +17,18 @@
 //!   unreachable and printed `{0: "a", 1: "b"}` as an array because of it. That
 //!   divergence is gone, in the formatter and in `types.isArray` alike.
 //! - `entry::bytes_of` answers `Some` for exactly a `TypedArray` or a
-//!   `DataView`, which IS `ArrayBuffer.isView` — the one brand `util.types` can
-//!   ask for honestly. See `types.rs` for why the other thirty-nine cannot.
+//!   `DataView`, which IS `ArrayBuffer.isView`.
 //! - `entry::module_specifiers`/`module_at_name` enumerate every module
 //!   namespace object, which answers `types.isModuleNamespaceObject` exactly.
+//! - **This search used to stop here**, on the premise that nothing else in
+//!   the host surface answers a brand question. Revisited: `entry::member_key`
+//!   + `entry::global_get` reaches `Map`/`Date`/`RegExp`/every typed array/…
+//!   by name — the exact two lines `buffer/blob.rs`, `fs/handle.rs` and
+//!   `url/mod.rs` already use — and `entry::instance_of` is the language's own
+//!   `instanceof` over what that returns. Together they answer thirty more of
+//!   `util.types.*` honestly, with one named divergence from Node's
+//!   internal-slot check. `types.rs`'s own doc has the full account, including
+//!   the ones still absent and why each one specifically.
 //!
 //! Searched this crate for the members that look like someone else's:
 //! `assert.rs` has a `deepStrictEqual` but it is a *thrower* over the same idea
@@ -56,20 +64,33 @@
 //! divergences and why the reference document's multi-value tupling was
 //! rejected.
 //!
-//! ## Needs a brand the host surface does not expose
+//! ## `util.types.*` brand predicates
 //!
-//! Every `util.types.*` member except `isArray`, `isArrayBufferView` and
-//! `isModuleNamespaceObject`: `isAnyArrayBuffer`, `isArgumentsObject`,
-//! `isArrayBuffer`, `isAsyncFunction`, `isBigInt64Array`, `isBigIntObject`,
-//! `isBigUint64Array`, `isBooleanObject`, `isBoxedPrimitive`, `isCryptoKey`,
-//! `isDataView`, `isDate`, `isExternal`, `isFloat16Array`, `isFloat32Array`,
-//! `isFloat64Array`, `isGeneratorFunction`, `isGeneratorObject`, `isInt8Array`,
-//! `isInt16Array`, `isInt32Array`, `isKeyObject`, `isMap`, `isMapIterator`,
-//! `isNativeError`, `isNumberObject`, `isPromise`, `isProxy`, `isRegExp`,
-//! `isSet`, `isSetIterator`, `isSharedArrayBuffer`, `isStringObject`,
-//! `isSymbolObject`, `isTypedArray`, `isUint8Array`, `isUint8ClampedArray`,
-//! `isUint16Array`, `isUint32Array`, `isWeakMap`, `isWeakSet`. `types.rs` names
-//! the rejected alternative and why it lost.
+//! This used to say every member but `isArray`/`isArrayBufferView`/
+//! `isModuleNamespaceObject` needed "a brand the host surface does not
+//! expose". That was stale: `entry::member_key` + `entry::global_get` — already
+//! used in `buffer/blob.rs`, `fs/handle.rs` and `url/mod.rs` to reach a global
+//! class by name — plus `entry::instance_of` answers thirty more honestly, and
+//! `types.rs` now implements them: `isAnyArrayBuffer`, `isArrayBuffer`,
+//! `isSharedArrayBuffer`, `isDataView`, `isTypedArray` and the eleven concrete
+//! kinds, the five boxed-primitive predicates and `isBoxedPrimitive`, `isDate`,
+//! `isMap`, `isSet`, `isWeakMap`, `isWeakSet`, `isPromise`, `isRegExp`,
+//! `isNativeError`, `isGeneratorObject`. `types.rs`'s own doc has the one
+//! divergence this necessarily carries: it is `instanceof` against the class,
+//! not Node's internal-slot check, so a program that deliberately fakes a
+//! prototype chain to fool a brand test can fool this one too — the ordinary
+//! case, a real instance, answers exactly as Node does.
+//!
+//! Genuinely absent, each for its own reason rather than one shared excuse —
+//! `types.rs` states each in full: `isArgumentsObject` (an `arguments` value
+//! carries no class or tag), `isAsyncFunction`/`isGeneratorFunction` (no
+//! declared-kind bit crosses off a callable), `isMapIterator`/`isSetIterator`
+//! (every built-in iterator answers the same `ListIterator` class — nothing to
+//! tell apart), `isProxy` (the real check is `pub(in crate::entry)`, and a
+//! proxy can defeat a property-read-based one anyway), `isExternal` (a
+//! `rts-napi`-only concept with no marker crossing into `node:util`),
+//! `isCryptoKey`/`isKeyObject` (neither class exists in this crate's `crypto`
+//! module).
 //!
 //! ## Needs something this engine does not have
 //!
@@ -79,13 +100,15 @@
 //!   identity instead of minting a second prototype.
 //! - **`getCallSites`.** No stack walk, and no `scriptId` concept to synthesize
 //!   one from.
-//! - **`getSystemErrorName` / `getSystemErrorMap` / `getSystemErrorMessage`.**
-//!   These read libuv's errno table, and that table is *not* platform-
-//!   independent the way the reference document claims: libuv defines
-//!   `UV_ENOENT` as `-ENOENT` on POSIX and as `-4058` on Windows. A table
-//!   embedded here would be right on one platform and silently wrong on the
-//!   other. `getSystemErrorMap` is refused twice over — nothing here can
-//!   construct a `Map`.
+//! - **`getSystemErrorMap` / `getSystemErrorMessage`.** `getSystemErrorName`
+//!   itself is now implemented — `system_errors.rs`, split by platform for the
+//!   reason its own doc comment gives: libuv's `UV_ENOENT` is `-ENOENT` on
+//!   POSIX and a hardcoded `-4058` on Windows, so one table would be right on
+//!   one platform and silently wrong on the other. `getSystemErrorMap` is
+//!   refused twice over even so — nothing here can construct a `Map`.
+//!   `getSystemErrorMessage` would need libuv's `uv_strerror` PROSE table
+//!   (`"no such file or directory"`, not the code), which is a second table
+//!   `system_errors.rs` does not carry and no test asks for yet.
 //! - **`setTraceSigInt`.** Installing a `SIGINT` handler is `node:process`'s,
 //!   and a second one would fight it.
 //! - **`transferableAbortController` / `transferableAbortSignal` /
@@ -169,6 +192,7 @@ mod legacy;
 mod promisify;
 mod signals;
 mod style;
+mod system_errors;
 mod types;
 mod values;
 mod wrap;
@@ -189,6 +213,7 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("parseEnv", style::parse_env),
         ("styleText", style::style_text),
         ("stripVTControlCharacters", style::strip_vt),
+        ("getSystemErrorName", system_errors::get_system_error_name),
         ("convertProcessSignalToExitCode", signals::convert_signal),
         ("deprecate", wrap::deprecate),
         ("callbackify", wrap::callbackify),

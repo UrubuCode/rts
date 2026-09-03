@@ -123,8 +123,13 @@ pub(super) extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c
     entry::with_runtime(|context| {
         let prototype = chained_prototype(context, METHODS);
         let instance = self_or_new(context, this, prototype);
+        // Both properties: `events.rs`'s `eventNames()`/no-argument
+        // `removeAllListeners()` read `__eventNames__` specifically, and a
+        // missing one reads as an always-empty list forever, silently.
         let events = entry::make_object(context);
         entry::put_member(context, instance, "__events__", events);
+        let event_names = entry::make_array_in(context, Vec::new());
+        entry::put_member(context, instance, "__eventNames__", event_names);
         let id_value = entry::make_number(id as f64);
         entry::put_member(context, instance, "__streamId", id_value);
         let append_value = entry::boolean_value(append);
@@ -223,5 +228,7 @@ pub(super) fn ctor(context: &mut Context) -> u64 {
     let prototype = entry::make_prototype(context, "Utf8Stream", METHODS);
     let ctor = entry::make_callable(context, construct);
     entry::put_member(context, ctor, "prototype", prototype);
+    // Back-link — see `crate::stream::class_ctor`'s doc.
+    entry::declare_host_class(context, ctor, prototype, "Utf8Stream", 1);
     ctor
 }

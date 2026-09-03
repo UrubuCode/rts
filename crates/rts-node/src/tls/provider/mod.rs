@@ -18,7 +18,7 @@
 //! | | covered | not covered (see "Not implemented, by name" below) |
 //! |---|---|---|
 //! | protocol | TLS 1.3 only | TLS 1.2 (even ECDHE) |
-//! | AEAD | AES-128-GCM, ChaCha20-Poly1305 | AES-256-GCM |
+//! | AEAD | AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305, AES-128-CCM, AES-128-CCM_8 | — (all five RFC 8446 §B.4 suites) |
 //! | key exchange | X25519 (preferred), P-256 (ECDHE fallback) | P-384 |
 //! | verify (peer certs, handshake sigs) | ECDSA P-256/P-384, Ed25519, RSA PKCS#1v1.5 | RSA-PSS, Ed448 |
 //! | sign (our own `SecureContext` key) | ECDSA P-256, Ed25519 | RSA |
@@ -33,8 +33,6 @@
 //!   second `KeyBlockShape`/`Tls12AeadAlgorithm` wiring; the task's own
 //!   ECDHE-only ask still needs that machinery built once, which this change
 //!   does not reach.
-//! - **AES-256-GCM** — mechanically AES-128-GCM with a 32-byte key
-//!   (`aead.rs`'s own note); deferred for time.
 //! - **P-384 key exchange** — no `SupportedKxGroup` impl written for it;
 //!   mechanically the same shape as the P-256 one `kx.rs` has.
 //! - **RSA-PSS verification, Ed448, P-384 verification** — no
@@ -46,8 +44,14 @@
 //! - **PKCS#8 keys carrying attributes, explicit curve parameters, or
 //!   encryption** — `keyparse.rs`'s byte-offset reader is not an ASN.1
 //!   parser; see its own doc for exactly what shape it reads.
+//!
+//! All five RFC 8446 §B.4 TLS 1.3 AEAD suites are wired now: `aead.rs` has
+//! the three GCM/ChaCha20-Poly1305 ones, `ccm.rs` the two CCM ones — see that
+//! file's module doc for why CCM needed its own crate and its own
+//! `Tls13AeadAlgorithm` impl rather than a copy of GCM's.
 
 mod aead;
+mod ccm;
 mod hash;
 mod keyparse;
 mod kx;
@@ -73,6 +77,21 @@ static AES_128_GCM_SHA256: Tls13CipherSuite = Tls13CipherSuite {
     quic: None,
 };
 
+// `confidentiality_limit: 1 << 24` — copied from rustls's own `ring`
+// provider (`crypto/ring/tls13.rs`), the same limit AES-128-GCM above uses:
+// GCM's per-key safety bound does not move with key length, only with block
+// size, which AES-256 shares with AES-128.
+static AES_256_GCM_SHA384: Tls13CipherSuite = Tls13CipherSuite {
+    common: CipherSuiteCommon {
+        suite: CipherSuite::TLS13_AES_256_GCM_SHA384,
+        hash_provider: &hash::SHA384,
+        confidentiality_limit: 1 << 24,
+    },
+    hkdf_provider: &HkdfUsingHmac(&hash::HMAC_SHA384),
+    aead_alg: &aead::Aes256GcmTls13,
+    quic: None,
+};
+
 static CHACHA20_POLY1305_SHA256: Tls13CipherSuite = Tls13CipherSuite {
     common: CipherSuiteCommon {
         suite: CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
@@ -81,6 +100,32 @@ static CHACHA20_POLY1305_SHA256: Tls13CipherSuite = Tls13CipherSuite {
     },
     hkdf_provider: &HkdfUsingHmac(&hash::HMAC_SHA256),
     aead_alg: &aead::ChaCha20Poly1305Tls13,
+    quic: None,
+};
+
+// `confidentiality_limit` reasoning: `ccm.rs`'s own module doc — there is no
+// `ring`-provider line to copy for CCM the way GCM's `1 << 24` above was, so
+// this is a deliberately conservative reading of a different document than
+// RFC 8446 itself, spelled out there rather than repeated here.
+static AES_128_CCM_SHA256: Tls13CipherSuite = Tls13CipherSuite {
+    common: CipherSuiteCommon {
+        suite: CipherSuite::TLS13_AES_128_CCM_SHA256,
+        hash_provider: &hash::SHA256,
+        confidentiality_limit: 1 << 24,
+    },
+    hkdf_provider: &HkdfUsingHmac(&hash::HMAC_SHA256),
+    aead_alg: &ccm::Aes128CcmTls13,
+    quic: None,
+};
+
+static AES_128_CCM_8_SHA256: Tls13CipherSuite = Tls13CipherSuite {
+    common: CipherSuiteCommon {
+        suite: CipherSuite::TLS13_AES_128_CCM_8_SHA256,
+        hash_provider: &hash::SHA256,
+        confidentiality_limit: 1 << 10,
+    },
+    hkdf_provider: &HkdfUsingHmac(&hash::HMAC_SHA256),
+    aead_alg: &ccm::Aes128Ccm8Tls13,
     quic: None,
 };
 
@@ -110,7 +155,10 @@ pub(crate) fn provider() -> Arc<CryptoProvider> {
     Arc::new(CryptoProvider {
         cipher_suites: vec![
             SupportedCipherSuite::Tls13(&AES_128_GCM_SHA256),
+            SupportedCipherSuite::Tls13(&AES_256_GCM_SHA384),
             SupportedCipherSuite::Tls13(&CHACHA20_POLY1305_SHA256),
+            SupportedCipherSuite::Tls13(&AES_128_CCM_SHA256),
+            SupportedCipherSuite::Tls13(&AES_128_CCM_8_SHA256),
         ],
         kx_groups: vec![&X25519, &SECP256R1],
         signature_verification_algorithms: WebPkiSupportedAlgorithms {
@@ -125,5 +173,11 @@ pub(crate) fn provider() -> Arc<CryptoProvider> {
 /// The cipher-suite names [`crate::tls`]'s `getCiphers()` answers — lower
 /// case, matching Node's own `tls.getCiphers()` casing convention.
 pub(crate) fn cipher_names() -> &'static [&'static str] {
-    &["tls_aes_128_gcm_sha256", "tls_chacha20_poly1305_sha256"]
+    &[
+        "tls_aes_128_gcm_sha256",
+        "tls_aes_256_gcm_sha384",
+        "tls_chacha20_poly1305_sha256",
+        "tls_aes_128_ccm_sha256",
+        "tls_aes_128_ccm_8_sha256",
+    ]
 }

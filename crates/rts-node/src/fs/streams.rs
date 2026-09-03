@@ -65,7 +65,12 @@ fn id_of(this: u64) -> Option<u64> {
 /// `methods` — the same recipe `fs/watch.rs::chained_prototype` and
 /// `stream/common.rs::chained_prototype` both use, generalised to take an
 /// arbitrary named parent (`"Writable"`/`"Readable"`, not `"EventEmitter"`).
-fn chained(context: &mut Context, parent: &'static str, name: &'static str, methods: &[(&str, Provided)]) -> u64 {
+///
+/// `pub(super)` rather than private: [`super::handle`]'s `readLines()` chains
+/// a subclass onto `"Interface"` the identical way `create_read_stream`
+/// below chains one onto `"Readable"`, and this is the general recipe rather
+/// than something specific to a `fs.*Stream`.
+pub(super) fn chained(context: &mut Context, parent: &'static str, name: &'static str, methods: &[(&str, Provided)]) -> u64 {
     let parent_prototype = entry::make_prototype(context, parent, &[]);
     let prototype = entry::make_prototype(context, name, methods);
     entry::set_prototype_in(context, prototype, parent_prototype);
@@ -303,10 +308,16 @@ pub(super) fn constructors(context: &mut Context) -> [(&'static str, u64); 2] {
     let write_stream_prototype = entry::make_prototype(context, "fs.WriteStream", &[]);
     let write_stream_ctor = entry::make_callable(context, write_stream_construct);
     entry::put_member(context, write_stream_ctor, "prototype", write_stream_prototype);
+    // Back-link, named "WriteStream" (Node's own, JS-visible name) rather than
+    // the "fs.WriteStream" registry key above, which exists only to dodge
+    // `node:tty`'s same-named prototype — see `crate::stream::class_ctor`'s
+    // doc for the mechanism this call fixes.
+    entry::declare_host_class(context, write_stream_ctor, write_stream_prototype, "WriteStream", 2);
 
     let read_stream_prototype = entry::make_prototype(context, "fs.ReadStream", READ_STREAM_METHODS);
     let read_stream_ctor = entry::make_callable(context, read_stream_construct);
     entry::put_member(context, read_stream_ctor, "prototype", read_stream_prototype);
+    entry::declare_host_class(context, read_stream_ctor, read_stream_prototype, "ReadStream", 2);
 
     [("WriteStream", write_stream_ctor), ("ReadStream", read_stream_ctor)]
 }

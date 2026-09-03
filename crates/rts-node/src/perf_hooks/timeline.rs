@@ -72,6 +72,8 @@ pub(super) fn install_classes(context: &mut Context, namespace: u64) {
         let prototype = entry::make_prototype(context, name, &[]);
         let constructor = entry::make_callable(context, illegal);
         entry::put_member(context, constructor, "prototype", prototype);
+        // Back-link — see `crate::stream::class_ctor`'s doc.
+        entry::declare_host_class(context, constructor, prototype, name, 0);
         entry::put_member(context, namespace, name, constructor);
     }
 }

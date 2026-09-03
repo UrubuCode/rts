@@ -66,6 +66,19 @@
 //! - **`inspectPort`, `uid`/`gid`, `windowsHide`, `stdio`/`silent`.** Accepted
 //!   on `setupPrimary`'s settings object as inert data, never applied to the
 //!   spawned `Command`.
+//!
+//! # `cluster.on(...)` and `worker.on(...)` were both no-ops — FIXED
+//!
+//! Both [`namespace`]'s module object and [`fork`]'s worker instance chained
+//! onto a same-named "EventEmitter" prototype for the METHODS, but neither
+//! ever ran the real `new EventEmitter()` constructor
+//! (`crate::events::make_emitter`), which is what builds the OWN
+//! `__events__`/`__eventNames__` every method in that module reads and
+//! writes. So `cluster.on('fork', …)` — and `worker.on(...)` on the object
+//! [`fork`] hands back — wrote into `get_indexed(undefined, …)` and never
+//! persisted, and [`pump`]'s own `emit` call found zero listeners for every
+//! event this module fires. Both now build their own storage inline; see
+//! [`namespace`]'s and [`fork`]'s comments at the exact lines.
 
 use rts_core::entry::{self, Provided};
 use std::collections::{HashMap, VecDeque};
@@ -121,6 +134,17 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
     // it in `spawn_async::spawn`.
     let event_emitter = entry::make_prototype(context, "EventEmitter", &[]);
     entry::set_prototype_in(context, namespace, event_emitter);
+    // Chaining onto "EventEmitter" gives `on`/`emit`/… by prototype walk
+    // ONLY — every one of them reads or writes `__events__`/`__eventNames__`
+    // as an OWN property, which `crate::events::make_emitter` (the real `new
+    // EventEmitter()` constructor) builds and nothing here ever ran for this
+    // object. Without this, `cluster.on('fork', …)` wrote into
+    // `get_indexed(undefined, …)` and [`pump`]'s own `emit` call found zero
+    // listeners for every event this module fires.
+    let events = entry::make_object(context);
+    entry::put_member(context, namespace, "__events__", events);
+    let event_names = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, namespace, "__eventNames__", event_names);
     // "cluster.Worker" rather than "Worker": `node:worker_threads` registers a
     // DIFFERENT class under that bare name (a real thread's handle, with its
     // own method table), and `make_prototype` is idempotent by name — a bare
@@ -247,6 +271,15 @@ extern "C" fn fork(_e: u64, namespace: u64, _env: u64, _a1: u64, _a2: u64, _a3: 
         let prototype = entry::make_prototype(context, "cluster.Worker", WORKER_METHODS);
         entry::set_prototype_in(context, prototype, event_emitter);
         let instance = entry::make_instance(context, prototype);
+        // Same own-property gap [`namespace`]'s own comment names: chaining
+        // gives a worker the METHODS, not the STATE they read/write. Real
+        // Node's own `Worker` fires `'exit'`/… on itself as well as on
+        // `cluster` — without this, `worker.on(...)` wrote into
+        // `get_indexed(undefined, …)` and never persisted a listener.
+        let events = entry::make_object(context);
+        entry::put_member(context, instance, "__events__", events);
+        let event_names = entry::make_array_in(context, Vec::new());
+        entry::put_member(context, instance, "__eventNames__", event_names);
         let id_value = entry::make_number(id as f64);
         entry::put_member(context, instance, "id", id_value);
         entry::put_member(context, instance, "__workerId", id_value);

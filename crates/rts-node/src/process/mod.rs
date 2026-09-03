@@ -89,9 +89,14 @@
 //! signal bridge) that no crate `rts-node` can depend on provides.
 //! `setUncaughtExceptionCaptureCallback`, `addUncaughtExceptionCaptureCallback`,
 //! `hasUncaughtExceptionCaptureCallback` — same missing dispatch point.
-//! `getActiveResourcesInfo` — no handle-table enumeration is exported.
 //! `setSourceMapsEnabled`/`sourceMapsEnabled` — a flag nothing reads is a
 //! silent no-op, so it is absent rather than stored.
+//!
+//! `getActiveResourcesInfo` is now real — see [`resources`] — but only over
+//! `node:timers`' and `node:net`'s own tables; [`resources`]'s own doc names
+//! the four tables (`node:dgram`, `fs.watch`, `node:child_process`,
+//! `node:worker_threads`) it does not read yet and why that is a declared
+//! scope rather than a silent gap.
 //!
 //! **Refused as a wrong answer waiting to happen**: assigning to
 //! `process.title` changes the property and NOT the OS process title (no `std`
@@ -124,6 +129,7 @@
 mod clock;
 mod info;
 mod lifecycle;
+mod resources;
 mod streams;
 mod validate;
 
@@ -166,6 +172,7 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("resourceUsage", clock::resource_usage),
         ("availableMemory", clock::available_memory),
         ("constrainedMemory", clock::constrained_memory),
+        ("getActiveResourcesInfo", resources::get_active_resources_info),
     ];
     // Absent, not stubbed: see the module doc's POSIX paragraph. A member that
     // exists and answers nothing reads as "implemented and broken"; an absent
@@ -206,9 +213,14 @@ pub fn namespace(context: &mut Context) -> u64 {
     rts_core::entry::set_prototype_in(context, namespace, prototype);
     // `EventEmitter`'s storage, which its constructor would otherwise have
     // installed: without it `on` writes a listener array onto `undefined` and
-    // every registration is silently dropped.
+    // every registration is silently dropped. BOTH properties, not
+    // `__events__` alone: `events.rs`'s `eventNames()`/no-argument
+    // `removeAllListeners()` read `__eventNames__` specifically, and a
+    // missing one read as an always-empty list forever, silently.
     let events = rts_core::entry::make_object(context);
     rts_core::entry::put_member(context, namespace, "__events__", events);
+    let event_names = rts_core::entry::make_array_in(context, Vec::new());
+    rts_core::entry::put_member(context, namespace, "__eventNames__", event_names);
 
     rts_core::entry::declare_loop_source(context, "node:process.nextTick", lifecycle::source);
     namespace

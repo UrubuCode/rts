@@ -20,9 +20,27 @@
 //! `run` nested inside the scope has not returned yet is the ordinary case), and
 //! neither of the other two keys can find it. The token is that key, minted from
 //! a counter here because no registry on the host surface hands out one.
+//!
+//! # `bind`/`snapshot` — the premise that stood as "not implemented" was stale
+//!
+//! [`super`]'s module doc used to say a native cannot mint a closure at all.
+//! [`rts_core::entry::closure_new`] says otherwise — `perf_hooks::timerify` and
+//! `util::promisify` were already using it — and the shape both statics need
+//! ("capture something now, run a function against it later") is exactly what
+//! it is for. [`static_bind`] and [`static_snapshot`] are built on it.
+//!
+//! The one thing capture must not do is copy [`CLEARED`]'s literal `u64::MAX`
+//! into a value a real JS array holds: that word is a Rust-only sentinel, never
+//! a valid tagged value, and an array's elements ARE scanned as roots — handing
+//! the collector one would be exactly the class of defect
+//! `docs/engine/lost-roots.md` names. [`encode_frames`] substitutes
+//! `undefined_value()` instead, which is safe to do because [`get_store`] reads
+//! `CLEARED` and a real stored `undefined` down the same branch anyway (`Some(store) => store`,
+//! and `Some(CLEARED) => undefined_value()` is that same value written a second
+//! way) — the substitution changes no OBSERVABLE answer.
 
 use rts_core::entry::{Context, Provided};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A sentinel store value meaning "cleared", pushed by [`exit`] — distinct from
@@ -32,6 +50,10 @@ const CLEARED: u64 = u64::MAX;
 
 /// One entered store: which instance entered it, the value, and the token that
 /// names this frame for [`dispose`].
+///
+/// `Copy`, so [`snapshot_frames`] can clone the whole stack with an iterator
+/// rather than a manual field-by-field rebuild.
+#[derive(Clone, Copy)]
 struct Frame {
     instance: u64,
     store: u64,
@@ -42,6 +64,20 @@ thread_local! {
     /// Every live `run`/`exit`/`enterWith`/`withScope` frame, oldest first,
     /// shared across every `AsyncLocalStorage` instance on this thread.
     static STACK: RefCell<Vec<Frame>> = const { RefCell::new(Vec::new()) };
+
+    /// `AsyncLocalStorage.prototype`, minted once by [`install`].
+    ///
+    /// `construct` used to call `make_prototype(context, "AsyncLocalStorage",
+    /// METHODS)` itself on every `new AsyncLocalStorage()` — a second, direct
+    /// call from THIS file, while [`install`] had already registered the same
+    /// name through `super::attach` (whose call site, `mod.rs`, is a different
+    /// file by the guard's own `#[track_caller]` reckoning). That read as two
+    /// modules racing for one name and panicked on the very first construction,
+    /// exactly the class `resource.rs`'s own `PROTOTYPE` cell already exists to
+    /// avoid — this module just never received that fix. Holding the object
+    /// instead of re-deriving it is also the stronger invariant: one prototype,
+    /// so `instanceof` compares every instance against the same object.
+    static PROTOTYPE: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The source of frame tokens. Process-wide rather than per thread so a token
@@ -67,8 +103,131 @@ const SCOPE_METHODS: &[(&str, Provided)] = &[("dispose", dispose)];
 /// `RunScope` has no constructor on the namespace, and that is Node's shape
 /// too: it is returned by `withScope` and never constructed by a program.
 pub(super) fn install(context: &mut Context, namespace: u64) {
-    super::attach(context, namespace, "AsyncLocalStorage", METHODS);
+    let prototype = super::attach(context, namespace, "AsyncLocalStorage", METHODS, 0);
+    PROTOTYPE.with(|held| held.set(prototype));
     rts_core::entry::make_prototype(context, "RunScope", SCOPE_METHODS);
+    // `bind`/`snapshot` are STATIC — Node hangs them on the constructor, not
+    // the prototype, because they read the CALLER's context rather than one
+    // instance's. `get_member`/`put_member` rather than a third `METHODS`-style
+    // table: there is no per-instance dispatch here to share.
+    let constructor = rts_core::entry::get_member(context, namespace, "AsyncLocalStorage");
+    let bind_fn = rts_core::entry::make_callable(context, static_bind);
+    rts_core::entry::put_member(context, constructor, "bind", bind_fn);
+    let snapshot_fn = rts_core::entry::make_callable(context, static_snapshot);
+    rts_core::entry::put_member(context, constructor, "snapshot", snapshot_fn);
+}
+
+/// Every live frame, oldest first, cloned out from under the borrow.
+///
+/// `Frame` is `Copy`, so this is one allocation and no per-field rebuilding.
+fn snapshot_frames() -> Vec<Frame> {
+    STACK.with(|stack| stack.borrow().clone())
+}
+
+/// Swaps `frames` in as the live stack and answers what was there before —
+/// one call does both halves of "enter this snapshot", which is what keeps
+/// [`reenter`] from ever observing a half-swapped `STACK`.
+fn install_frames(frames: Vec<Frame>) -> Vec<Frame> {
+    STACK.with(|stack| stack.replace(frames))
+}
+
+/// A captured stack, flattened to `[instance0, store0, instance1, store1, …]`
+/// — pairs rather than a `Frame` per array slot, because the token exists only
+/// to let [`dispose`] find ONE frame again and a restored copy is never the
+/// target of a `dispose()` call (its `RunScope`, if any, still holds the
+/// ORIGINAL token and looks it up on the REAL stack, not this swapped-in one).
+/// See the module doc for why [`CLEARED`] itself never reaches this array.
+fn encode_frames(frames: &[Frame]) -> u64 {
+    let mut flat = Vec::with_capacity(frames.len() * 2);
+    for frame in frames {
+        flat.push(frame.instance);
+        let safe_store = match frame.store {
+            CLEARED => rts_core::entry::undefined_value(),
+            other => other,
+        };
+        flat.push(safe_store);
+    }
+    rts_core::entry::make_array(flat)
+}
+
+/// The inverse of [`encode_frames`]. Restored frames carry token `0`, which
+/// [`TOKENS`] never hands out (it starts at 1) — so a `dispose()` racing a
+/// restored copy can never mistake it for a live one.
+fn decode_frames(encoded: u64) -> Vec<Frame> {
+    let length = rts_core::entry::array_length(encoded) as usize;
+    let mut frames = Vec::with_capacity(length / 2);
+    let mut at = 0usize;
+    while at + 1 < length {
+        let instance = rts_core::entry::element_at(encoded, rts_core::entry::make_number(at as f64));
+        let store =
+            rts_core::entry::element_at(encoded, rts_core::entry::make_number((at + 1) as f64));
+        frames.push(Frame {
+            instance,
+            store,
+            token: 0,
+        });
+        at += 2;
+    }
+    frames
+}
+
+/// Swaps `encoded` in, calls `target`, swaps the CALLER's own stack back out —
+/// by value, so it makes no difference whether `target` itself pushed or
+/// popped frames of its own before returning: whatever was current right
+/// before this call is exactly what is current right after.
+fn reenter(encoded: u64, target: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let frames = decode_frames(encoded);
+    let previous = install_frames(frames);
+    let result = rts_core::entry::call(target, this, a0, a1, a2, a3);
+    install_frames(previous);
+    result
+}
+
+/// `AsyncLocalStorage.bind(fn)` (static) — captures the context now and hands
+/// back a function with `fn`'s own signature that re-enters it on every call.
+///
+/// A non-callable `fn` answers `undefined` — the reference doc's `TypeError`
+/// is one this surface cannot raise, the same trade every member of this
+/// crate already makes.
+extern "C" fn static_bind(_e: u64, _this: u64, target: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    if !rts_core::entry::with_runtime(|context| rts_core::entry::is_callable_in(context, target)) {
+        return rts_core::entry::undefined_value();
+    }
+    let encoded = encode_frames(&snapshot_frames());
+    let environment = rts_core::entry::make_array(vec![target, encoded]);
+    rts_core::entry::closure_new(bound_runner as *const () as usize as i64, environment)
+}
+
+/// The wrapper [`static_bind`] hands back — same arity and `this` as an
+/// ordinary call, because the target was already named at bind time and costs
+/// no argument slot here.
+extern "C" fn bound_runner(environment: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let target = rts_core::entry::element_at(environment, rts_core::entry::make_number(0.0));
+    let encoded = rts_core::entry::element_at(environment, rts_core::entry::make_number(1.0));
+    reenter(encoded, target, this, a0, a1, a2, a3)
+}
+
+/// `AsyncLocalStorage.snapshot()` (static) — captures the context now and
+/// hands back a runner `(fn, ...args) => R` that invokes `fn` inside it,
+/// whenever and wherever it is called.
+extern "C" fn static_snapshot(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let encoded = encode_frames(&snapshot_frames());
+    rts_core::entry::closure_new(snapshot_runner as *const () as usize as i64, encoded)
+}
+
+/// The runner [`static_snapshot`] hands back. `fn` is the FIRST real argument
+/// at call time here (unlike [`bound_runner`], nothing named it earlier), so
+/// only three of it are left to forward — the same four-slot trade every
+/// variadic member of this crate makes, stated rather than silently dropped.
+extern "C" fn snapshot_runner(
+    environment: u64,
+    call_this: u64,
+    target: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+) -> u64 {
+    reenter(environment, target, call_this, a0, a1, a2, rts_core::entry::undefined_value())
 }
 
 /// `new AsyncLocalStorage(options?)` — keeps `options.defaultValue` and
@@ -82,8 +241,7 @@ pub(super) fn install(context: &mut Context, namespace: u64) {
 /// passed.
 pub(super) extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     rts_core::entry::with_runtime(|context| {
-        let prototype =
-            rts_core::entry::make_prototype(context, "AsyncLocalStorage", METHODS);
+        let prototype = PROTOTYPE.with(Cell::get);
         let instance = match rts_core::entry::is_object(context, this) {
             true => this,
             false => rts_core::entry::make_instance(context, prototype),

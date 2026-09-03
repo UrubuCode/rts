@@ -77,8 +77,34 @@ function's arity. It is built once in `module::namespace` from the same list
 
 `with_runtime` holds a `RefCell` borrow for its body. An ambient helper or entry
 point called inside one is a nested borrow, and an `extern "C"` frame cannot
-unwind — so it **aborts the process** rather than failing. Nine such aborts have
-been found across four modules; every one was this.
+unwind — so it **aborts the process** rather than failing. **Fifteen** such
+aborts have now been found across nine modules; every one was this. Six were
+found in the same pass that wrote this line (2026-09), three from isolated
+fixture repros and three more from sweeping the crate for the identical shape
+once the first three named where to look:
+
+- `events::once_promise::on_event` called `packed_args`, which calls the
+  ambient `entry::undefined_value`, from inside the `with_runtime` that reads
+  `state.promise` — so `events.once(e, 'x')` aborted on every SUCCESSFUL
+  resolution (rejection took a different path and was fine).
+- `wasi::read_string_array`/`read_string_map` called `entry::get_indexed`/
+  `entry::own_keys` — both ambient — from inside a `with_runtime` the
+  constructor already held, so `new WASI({ args: [...] })` and
+  `new WASI({ env: {...} })` (and by the same path, `preopens`) aborted.
+- `tls::server::on_connection` read `__tlsContextId` through
+  `common::get_value` (which wraps the ambient `entry::get_indexed`) from
+  inside its own `with_runtime` — reachable from JS by any
+  `https.request()` against a real listening server, because the client's own
+  handshake-completion spin ends up pumping the server's accept queue
+  re-entrantly on the same thread. Found by reading the panic backtrace a
+  fixture captured, not by guessing: the frame named is this function's,
+  folded onto `net::common::get_value`'s symbol by the linker.
+- `http::client::apply_options` and its `https::client` twin both called
+  `entry::own_keys` directly from a function that TAKES `context: &mut
+  Context` as a parameter — which by this crate's own convention means the
+  caller already holds the borrow — so `http(s).request({ headers: {...} })`
+  aborted. Neither fixture exercised custom headers; found by a mechanical
+  sweep (below), not by a repro.
 
 The context-taking pairs are in `crates/rts-core/src/entry/modules.rs`:
 `undefined_in`, `null_in`, `text_in`, `make_object`, `make_array_in`,
@@ -87,9 +113,56 @@ The context-taking pairs are in `crates/rts-core/src/entry/modules.rs`:
 and its doc says why: its walk takes and releases its own borrows, so it must
 **not** be called from inside one.
 
+**The AMBIENT ones — the question that actually matters is "does this
+`entry::*` take the borrow itself", not "does it touch the runtime" — read
+from `crates/rts-core/src/entry/` rather than guessed at:** `get_indexed`,
+`set_indexed`, `own_keys`, `enumerate_keys`, `has_property`,
+`with_has`/`delete_property`, `undefined_value`, `null_value`, `text_of`,
+`utf8_bytes_if_string`, `is_array`, `to_boolean`, `add`, `strict_equals`,
+`same_value`, `element_at`, `array_length`, `set_prototype`, `instance_of`,
+`call`, `construct`, `closure_new`, `promise_new`, `promise_settle`,
+`promise_await`, `make_named_error`, `deep_copy`, `iterate`,
+`array_append`/`array_append_all`, `regex_new`, `generator_yield`,
+`global_get`/`global_set`/`global_get_unbound`, `sloppy_this`,
+`running_function`, `new_target`. Every one of them opens and closes
+`with_current` on its own, which is exactly why each is safe to call with NO
+borrow held and unsafe to call with one already open. `encode_text`/
+`decode_bytes`/`canonical_encoding`/`encode_base64`/`decode_base64` LOOK like
+the same shape (no `context` parameter) but touch no borrow at all — checked
+by reading their bodies, not assumed from the signature — so nesting them is
+harmless; the signature alone does not say which kind a function is.
+
 A helper that can only be called correctly beats one that must be — where a
 helper is always called from inside a borrow, change its signature to take the
 context rather than wrapping each call. That is what `node:stream`'s fix did.
+`wasi::read_string_array`/`read_string_map` (2026-09) is the opposite
+correction of the same principle: they used to take `context` and were wrong
+to, because their job needs `entry::get_indexed`/`entry::own_keys`, which
+cannot share a caller's borrow — so the fix was dropping the parameter,
+not adding one. Which direction is right depends on which entry points the
+body actually needs, and reading `crates/rts-core/src/entry/` is how to find
+out rather than guess.
+
+**A mechanical sweep exists for this now, and it is two questions, not one.**
+(1) A direct `entry::AMBIENT(...)` call textually inside an already-open
+`with_runtime`/`with_current` block, anywhere in the crate — paren-depth
+tracking finds every one, including through unrelated intervening code,
+because the parens of `with_runtime(...)` bound its whole closure regardless
+of whether the body is one expression or a block. (2) Any function that TAKES
+`context: &Context`/`&mut Context` as a parameter and directly calls one of
+the ambient list above in its own body — by this crate's convention, taking
+`context` at all is the declaration that a caller already holds the borrow,
+so this needs no textual nesting to prove; it is unconditional. Running both
+over this crate (2026-09) found zero survivors of question (1) once the
+three fixture-driven fixes above were made, and exactly the two
+`apply_options` functions for question (2) — nothing else in roughly 2,500
+functions matched either shape. What neither question can do without real
+name resolution is catch a THIRD shape — an ambient wrapper function (no
+`context` param, like `common::get_value`) called from somewhere that already
+holds a borrow purely by naming it, the way `tls::server::on_connection` did
+— that one was found by exhaustively checking every call site of every
+`get_value`/`own_keys` grep hit in the crate by hand, which is comprehensive
+for those two specific wrapper shapes but not yet a general tool.
 
 ---
 

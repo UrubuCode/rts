@@ -88,26 +88,32 @@ fn lower_key(context: &mut Context, name: &str) -> String {
 /// `response.setHeader(name, value)`.
 extern "C" fn set_header(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64) -> u64 {
     let Some(name_text) = entry::text_of(name) else { return this };
-    entry::with_runtime(|context| {
+    let existed = entry::with_runtime(|context| {
         let lower = lower_key(context, &name_text);
         let headers = get_value_in(context, this, "__headers__");
         let existed = entry::get_member(context, headers, &lower) != entry::undefined_in(context);
         entry::put_member(context, headers, &lower, value);
-        if !existed {
-            let mut order = get_array_of(context, this, "__headerOrder__");
+        existed
+    });
+    if !existed {
+        // Read (`get_array_of`) and rebuild in TWO separate borrows, not one:
+        // see that function's own doc for why reading an array's elements from
+        // inside a held `with_runtime` is not an option.
+        let mut order = get_array_of(this, "__headerOrder__");
+        entry::with_runtime(|context| {
             order.push(entry::make_string(context, &name_text));
             let order_v = entry::make_array_in(context, order);
             set_value(context, this, "__headerOrder__", order_v);
-        }
-    });
+        });
+    }
     this
 }
 
 /// The header-name insertion order, as text — the piece [`super::client`]
 /// needs to serialize a `ClientRequest`'s headers with the same folding this
 /// file uses for a `ServerResponse`.
-pub(super) fn header_order(context: &mut Context, this: u64) -> Vec<String> {
-    get_array_of(context, this, "__headerOrder__").iter().filter_map(|v| entry::text_in(context, *v)).collect()
+pub(super) fn header_order(this: u64) -> Vec<String> {
+    get_array_of(this, "__headerOrder__").into_iter().filter_map(entry::text_of).collect()
 }
 
 /// [`set_header`], callable from outside this module — `ClientRequest`'s own
@@ -117,19 +123,39 @@ pub(super) fn set_header_pub(this: u64, name: u64, value: u64) -> u64 {
     set_header(0, this, name, value, 0, 0)
 }
 
-fn get_array_of(context: &mut Context, this: u64, name: &str) -> Vec<u64> {
-    let value = get_value_in(context, this, name);
-    let mut out = Vec::new();
-    let mut i = 0.0;
-    loop {
-        let item = entry::get_member(context, value, &i.to_string());
-        if item == entry::undefined_in(context) {
-            break;
-        }
-        out.push(item);
-        i += 1.0;
-    }
-    out
+/// The elements of an array-valued field (`__headerOrder__`), ambient.
+///
+/// # The bug this replaced, and why the fix is not just "use `get_indexed`"
+///
+/// The previous version took `context: &mut Context` and read each element
+/// with `entry::get_member(context, value, &i.to_string())` — the
+/// NAMED-property reader, on a key that is never a name, since an array's
+/// elements live beside the cell rather than under one. Every call answered
+/// `undefined` for element zero and stopped there (the loop's own exit
+/// condition), so [`send_head_if_needed`] — what actually puts a
+/// `ServerResponse`'s headers on the wire — read an ALWAYS-EMPTY order and
+/// sent NONE of a caller's `setHeader` calls, silently, with `headersSent`
+/// still flipping `true`; the same emptiness made [`header_order`] answer
+/// nothing for a `ClientRequest`'s own header line (`http/client.rs`'s
+/// `client_end`), and made [`remove_header`]'s pruning a no-op that quietly
+/// replaced the order with an empty array on every call.
+///
+/// The element reader that sees array elements, `entry::get_indexed`, is
+/// AMBIENT: it opens its own borrow of the thread-local context, and every
+/// one of this function's four callers already holds one via
+/// `entry::with_runtime`/a `context: &mut Context` parameter for its OWN
+/// other work. Taking `context` here and calling `get_indexed` from inside it
+/// would trade the silent empty-order bug for a `RefCell already borrowed`
+/// abort — `common.rs`'s `get_value_in` names the identical hazard for the
+/// same reason. So this reads nothing through a borrow it did not open
+/// itself, and every caller now calls it from OUTSIDE its own.
+fn get_array_of(this: u64, name: &str) -> Vec<u64> {
+    let value = get_value(this, name);
+    let count = entry::with_runtime(|context| {
+        let length = entry::get_member(context, value, "length");
+        entry::number_of(length).unwrap_or(0.0).max(0.0) as usize
+    });
+    (0..count).map(|index| entry::get_indexed(value, entry::make_number(index as f64))).collect()
 }
 
 /// `response.getHeader(name)`.
@@ -161,13 +187,17 @@ extern "C" fn has_header(_e: u64, this: u64, name: u64, _b: u64, _c: u64, _d: u6
 
 extern "C" fn remove_header(_e: u64, this: u64, name: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let Some(name_text) = entry::text_of(name) else { return entry::undefined_value() };
-    entry::with_runtime(|context| {
+    let lower = entry::with_runtime(|context| {
         let lower = lower_key(context, &name_text);
         let headers = get_value_in(context, this, "__headers__");
         let absent = entry::undefined_in(context);
         entry::put_member(context, headers, &lower, absent);
-        let mut order = get_array_of(context, this, "__headerOrder__");
-        order.retain(|v| entry::text_in(context, *v).map(|t| t.to_ascii_lowercase()) != Some(lower.clone()));
+        lower
+    });
+    // Outside the borrow above — see `get_array_of`'s doc.
+    let mut order = get_array_of(this, "__headerOrder__");
+    order.retain(|v| entry::text_of(*v).map(|t| t.to_ascii_lowercase()) != Some(lower.clone()));
+    entry::with_runtime(|context| {
         let order_v = entry::make_array_in(context, order);
         set_value(context, this, "__headerOrder__", order_v);
     });
@@ -198,17 +228,20 @@ extern "C" fn write_head(_e: u64, this: u64, status: u64, b: u64, c: u64, _d: u6
 /// (Node's other accepted shape) is not read; see the module's "not
 /// implemented" section.
 fn apply_headers_object(this: u64, headers: u64) {
+    // `own_keys` answers a real array (its elements, not a shape of named
+    // properties) — read the same way `get_array_of` reads `__headerOrder__`,
+    // for the same reason: `get_indexed` is ambient and this loop must not
+    // call it from inside a held borrow.
     let names = entry::own_keys(headers);
-    let mut index = 0.0;
-    loop {
-        let name_value = entry::with_runtime(|context| entry::get_member(context, names, &index.to_string()));
-        if name_value == entry::undefined_value() {
-            break;
-        }
-        let Some(name) = entry::text_of(name_value) else { break };
+    let count = entry::with_runtime(|context| {
+        let length = entry::get_member(context, names, "length");
+        entry::number_of(length).unwrap_or(0.0).max(0.0) as usize
+    });
+    for index in 0..count {
+        let name_value = entry::get_indexed(names, entry::make_number(index as f64));
+        let Some(name) = entry::text_of(name_value) else { continue };
         let value = entry::with_runtime(|context| entry::get_member(context, headers, &name));
         set_header(0, this, name_value, value, 0, 0);
-        index += 1.0;
     }
 }
 
@@ -235,14 +268,11 @@ fn send_head_if_needed(this: u64) {
     let status = get_num(this, "statusCode") as u16;
     let reason = get_text(this, "statusMessage").filter(|s| !s.is_empty()).unwrap_or_else(|| super::status::reason_phrase(status).to_owned());
     let mut head = format!("HTTP/1.1 {status} {reason}\r\n");
-    let (order, has_length) = entry::with_runtime(|context| {
-        let order = get_array_of(context, this, "__headerOrder__");
-        let names: Vec<String> = order.iter().filter_map(|v| entry::text_in(context, *v)).collect();
-        let has_length = names.iter().any(|n| n.eq_ignore_ascii_case("content-length"));
-        (names, has_length)
-    });
+    let order = get_array_of(this, "__headerOrder__");
+    let names: Vec<String> = order.into_iter().filter_map(entry::text_of).collect();
+    let has_length = names.iter().any(|n| n.eq_ignore_ascii_case("content-length"));
     let headers_obj = get_value(this, "__headers__");
-    for name in &order {
+    for name in &names {
         let lower = name.to_ascii_lowercase();
         let value = entry::with_runtime(|context| entry::get_member(context, headers_obj, &lower));
         if let Some(text) = entry::text_of(value) {

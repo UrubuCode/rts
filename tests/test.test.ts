@@ -33,8 +33,17 @@ function t_truthy() {
   expect("ok").toBeTruthy();
 }
 
+// `"0"` is TRUTHY in JavaScript — a non-empty string is, whatever it spells —
+// so the spelling this used to carry asserted the opposite of the language.
+// It reads as a number because the old TypeScript framework
+// (`crates/rts-std/src/test/bundle.ts`, deleted with the old engine in
+// 46910d99) stringified every value before a matcher saw it, which made `"0"`
+// and `0` indistinguishable. Both spellings are pinned here now, so a matcher
+// that starts coercing again fails on the first one.
 function t_falsy() {
-  expect("0").toBeFalsy();
+  expect("").toBeFalsy();
+  expect(0).toBeFalsy();
+  expect("0").not.toBeFalsy();
 }
 
 function suite_matchers() {

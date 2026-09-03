@@ -37,7 +37,19 @@ const SESSION_METHODS: &[(&str, Provided)] = &[
 ];
 
 /// The methods on `Http2Stream.prototype`.
-const STREAM_METHODS: &[(&str, Provided)] = &[
+///
+/// `pub(super)`, and the ONE table: [`super::delivery`] used to declare its
+/// own copy of these same four entries to build a server-received stream —
+/// the identical duplication `CLAUDE.md`'s `reuse-check` exists to catch, and
+/// worse than ordinary duplication here, because BOTH copies also called
+/// `make_prototype(context, "Http2Stream", …)` with a real member table, from
+/// two different files. The guard records the first caller's file as the
+/// name's owner and panics on the second — so a client's `session.request`
+/// and a server's first received request raced to own `"Http2Stream"`, and
+/// whichever ran second aborted the process. [`emitter`] is the one place
+/// that now calls `make_prototype("Http2Stream", …)`, so every path funnels
+/// through this table and this file.
+pub(super) const STREAM_METHODS: &[(&str, Provided)] = &[
     ("respond", stream_respond),
     ("write", stream_write),
     ("end", stream_end),
@@ -59,17 +71,36 @@ pub(super) fn extend(context: &mut Context, namespace: u64) {
     entry::declare_loop_source(context, "node:http2", source);
 }
 
-fn emitter(context: &mut Context, name: &'static str, methods: &[(&str, Provided)]) -> u64 {
+/// Builds (or chain-reads) `name`'s prototype, chained onto `"EventEmitter"`.
+///
+/// `pub(super)` so [`super::delivery`] can reach the SAME `make_prototype`
+/// call site this module already uses for `"Http2Session"`, `"Http2Stream"`
+/// and `"Http2Server"` — `make_prototype` is `#[track_caller]` and records
+/// the FILE of the call site as a name's owner, and this function is not
+/// itself `#[track_caller]`, so every name it registers is owned by THIS
+/// file (`js.rs`) no matter which module calls in. That is what makes it
+/// safe for two threads' worth of stream-construction code to both want
+/// `"Http2Stream"`: they now both arrive here instead of each calling
+/// `make_prototype` directly from its own file.
+pub(super) fn emitter(context: &mut Context, name: &'static str, methods: &[(&str, Provided)]) -> u64 {
     let parent = entry::make_prototype(context, "EventEmitter", &[]);
     let made = entry::make_prototype(context, name, methods);
     entry::set_prototype_in(context, made, parent);
     made
 }
 
-fn instance_of(context: &mut Context, prototype: u64) -> u64 {
+/// `pub(super)` so [`super::delivery`] builds its session/stream instances
+/// through this SAME init rather than its own copy — which is what it used
+/// to do, missing `__eventNames__` in both places independently until this
+/// one function grew it once. `events.rs`'s `eventNames()`/no-argument
+/// `removeAllListeners()` read `__eventNames__` specifically; a missing one
+/// reads as an always-empty list forever, silently, never as a crash.
+pub(super) fn instance_of(context: &mut Context, prototype: u64) -> u64 {
     let made = entry::make_instance(context, prototype);
     let listeners = entry::make_object(context);
     entry::put_member(context, made, "__events__", listeners);
+    let event_names = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, made, "__eventNames__", event_names);
     made
 }
 

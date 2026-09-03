@@ -133,14 +133,20 @@ pub fn namespace(context: &mut Context) -> u64 {
 /// under `"prototype"` — the recipe `stream/mod.rs::class_ctor` already
 /// works out, generalised to a `Provided` prototype-builder so `class.rs`
 /// and `search_params.rs` both use it without a second copy.
-pub(super) fn class_ctor(context: &mut Context, name: &str, construct: Provided, prototype: u64) -> u64 {
+///
+/// # `entry::declare_host_class`, not the two hand-written lines this used to be
+///
+/// This used to write `ctor.name` itself (a bare `put_member`) and stop
+/// there. That fixes `URL.name` (a STATIC read off the class) but not
+/// `new URL(x).constructor.name` (an INSTANCE read, which walks
+/// `prototype.constructor` — never written here at all) — the exact split
+/// `crate::stream::class_ctor`'s doc names. `declare_host_class` does both:
+/// `.name`/`.length` on the constructor AND the `prototype.constructor`
+/// back-link, in the one call.
+pub(super) fn class_ctor(context: &mut Context, name: &str, arity: u32, construct: Provided, prototype: u64) -> u64 {
     let ctor = entry::make_callable(context, construct);
     entry::put_member(context, ctor, "prototype", prototype);
-    // `name` as a data property, because a native callable carries none in this
-    // engine: `x.constructor.name` — how a program says what it is holding —
-    // reads `undefined` without it.
-    let held = entry::make_string(context, name);
-    entry::put_member(context, ctor, "name", held);
+    entry::declare_host_class(context, ctor, prototype, name, arity);
     ctor
 }
 

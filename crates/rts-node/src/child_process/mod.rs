@@ -66,6 +66,20 @@
 //!   truncates; a child producing gigabytes of output is not killed
 //!   mid-stream the way Node's own streaming buffer check does it — see
 //!   [`capture`]'s doc.
+//! - **`ChildProcess.eventNames()` always answers `[]`; no-argument
+//!   `.removeAllListeners()` on a child is a no-op.** `spawn_async.rs`'s
+//!   instance builder sets a `ChildProcess`'s own `__events__` (so
+//!   `.on`/`.emit`/`.listenerCount` all work) but never `__eventNames__`,
+//!   which `events.rs`'s `eventNames()` and the no-argument form of
+//!   `removeAllListeners()` read specifically — the same one-property gap
+//!   this pass fixed at every OTHER construction site in this crate
+//!   (`crates/rts-node/src/events/mod.rs`'s module doc names the full
+//!   list). Left here, by name, rather than fixed: `spawn_async.rs` was
+//!   already at this workspace's 500-line ceiling before this pass touched
+//!   anything, and the two-line fix would have pushed it over — CLAUDE.md's
+//!   file-size rule says split into a folder first, which is a bigger,
+//!   riskier change than this task's assigned class, on a file this pass
+//!   does not otherwise need to enter.
 
 mod capture;
 mod exec;

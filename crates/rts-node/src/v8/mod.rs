@@ -19,14 +19,20 @@
 //! genuinely, in bytes, via `rts_core::heap::STRIDE`. Both read the SAME
 //! two numbers rather than each deriving its own, because two derivations of
 //! one measurement is how the two functions would come to disagree about how
-//! full the heap is. `structuredClone`'s deep-clone walk exists
-//! (`rts-core/src/entry/clone.rs`), but it is `pub(super)`: only its
-//! *name* is reachable, through the lazy-global lookup a compiled program's
-//! own unresolved-identifier path uses — nothing in the crate's public API
-//! (`rts_core::entry::modules`, the one surface this crate may call)
-//! hands a caller outside the crate either the callable or the walk itself.
-//! `serialize`/`deserialize` are refused below for exactly that reason,
-//! named rather than worked around.
+//! full the heap is.
+//!
+//! `structuredClone`'s deep-clone walk (`rts-core/src/entry/clone.rs`) is
+//! `pub(super)` — still unreachable from here, and still not what
+//! [`serialize`]/[`deserialize`] are built from. What changed is that the
+//! two pieces a WIRE codec actually needs turned out to already be public on
+//! `rts_core::entry::modules`: [`rts_core::entry::make_buffer`] (bytes → a
+//! real `Buffer`) and [`rts_core::entry::bytes_of`] (a `Buffer`/typed array →
+//! its bytes) — both already used by `node:buffer`. Between them sits [`wire`],
+//! a real codec between a `u64` value and `Vec<u8>`, because neither of those
+//! two functions nor the clone walk answers "what are the bytes of an
+//! arbitrary JS value" — that question had no answer anywhere in this crate or
+//! `rts-core` until now, so [`wire`] is new rather than reused, and its own
+//! module doc states which of ITS pieces are copies of an existing recipe.
 //!
 //! # Not implemented, by name
 //!
@@ -43,13 +49,15 @@
 //! `setHeapSnapshotNearHeapLimit`, `getHeapSnapshot`, `writeHeapSnapshot` —
 //! there is no heap-size soft limit and no snapshot walk; both need new
 //! `rts-core` bookkeeping this crate cannot add to itself.
-//! `serialize`/`deserialize`, `Serializer`/`Deserializer`/
-//! `DefaultSerializer`/`DefaultDeserializer` — the clone walk they would
-//! share is crate-private in `rts-core` (see Reuse-check above); waits on
-//! a public entry point beside [`rts_core::entry::modules::make_prototype`]
-//! that wraps it. `queryObjects` — needs every live
-//! object's originating class walkable by identity; nothing in
-//! `rts_core::entry` enumerates live cells by class. `GCProfiler`,
+//! `Serializer`/`Deserializer`/`DefaultSerializer`/`DefaultDeserializer` —
+//! Node's classes wrap the SAME wire walk [`serialize`]/[`deserialize`] now
+//! use, exposed as an incremental `writeUint32`/`writeDouble`/`writeRawBytes`
+//! API a caller can add its own bytes into. Nothing here streams: [`wire`]
+//! always produces the whole buffer in one call, so a class around it would
+//! be four more methods with no incremental behaviour behind them — the
+//! stub-that-looks-implemented shape this crate refuses. `queryObjects` —
+//! needs every live object's originating class walkable by identity; nothing
+//! in `rts_core::entry` enumerates live cells by class. `GCProfiler`,
 //! `startCpuProfile`/`SyncCPUProfileHandle`/`CPUProfileHandle`/
 //! `HeapProfileHandle` — there is no collector to hook (this engine has no
 //! GC yet at all — [`rts_core::entry::alloc::heap_exhausted`]'s own doc
@@ -72,9 +80,13 @@
 //! instead of throwing `TypeError` for a non-string, because
 //! `rts_core::entry::throw` ends the PROGRAM rather than raising a
 //! catchable error — the divergence every other module in this crate records
-//! for the same reason.
+//! for the same reason. [`serialize`]/[`deserialize`] round-trip through
+//! [`wire`], this crate's OWN format — [`wire`]'s own module doc says exactly
+//! how it differs from V8's `ValueSerializer` and what it does not preserve.
 
 use rts_core::entry::{Context, Provided};
+
+mod wire;
 
 /// The namespace `node:v8` is — what this engine can honestly answer, and
 /// nothing invented beside it.
@@ -303,35 +315,49 @@ extern "C" fn stop_coverage(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: 
     rts_core::entry::undefined_value()
 }
 
-/// `v8.serialize(value)` — a deep copy, not a byte format.
+/// `v8.serialize(value)` — real bytes, in this crate's OWN wire format.
 ///
 /// # What this answers and what Node answers
 ///
 /// Node answers a `Buffer` holding V8's own wire format, opaque and versioned,
-/// which another process running the same V8 can read back. This answers the
-/// COPY itself, because the runtime has a deep-copy walk — the one
-/// `structuredClone` is — and no wire format at all.
+/// which another process running the same V8 can read back. This answers a
+/// `Buffer` too, and it is a real one — `.length` is the byte count, and the
+/// bytes are [`wire::encode`]'s output, not a copy of the value dressed up as a
+/// buffer. What it is NOT is V8's format: nothing produced here is readable by
+/// a real V8's `deserialize`, and [`wire`]'s own module doc names exactly what
+/// this format does not preserve (object kind for `Date`/`Map`/`Set`/`BigInt`,
+/// and a cycle).
 ///
-/// So the round trip a program actually writes,
-/// `deserialize(serialize(x))`, produces what it expects: a value equal to `x`
-/// and sharing nothing with it, cycles included. What does NOT work is treating
-/// the result as bytes — writing it to a file, sending it over a socket, or
-/// reading its `length`. That is the divergence, and it is stated rather than
-/// approximated with a `Buffer` whose contents would mean nothing.
+/// # Why this used to be a copy, and why that was withdrawn
 ///
-/// The alternative was leaving both refused. It was rejected because the round
-/// trip is what the pair is used for, and a copy is a correct answer to it.
+/// It called `entry::deep_copy` — the same walk `structuredClone` runs — and
+/// called the result correct because `deserialize(serialize(x))` came back
+/// equal to `x`. That is true and it is not what this function is for: Node
+/// callers read `.length`, write the result to a file, send it over a socket.
+/// A copy answered `undefined` for `.length`, which is why
+/// `tests/node_v8_full.test.ts`'s "serialize returns bytes" failed — not on a
+/// round trip, on the ONE assertion that reads the output as what its type
+/// claims it is.
 extern "C" fn serialize(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    // Outside any borrow: the walk takes and releases its own, because it reads
-    // properties and allocates and can do neither while one is held.
-    rts_core::entry::deep_copy(value)
+    // `wire::encode` is ambient — ready outside any borrow, matching the old
+    // `deep_copy` call it replaces.
+    let bytes = wire::encode(value);
+    rts_core::entry::with_runtime(|context| rts_core::entry::make_buffer(context, &bytes))
 }
 
-/// `v8.deserialize(value)` — the same copy, for the same reason.
+/// `v8.deserialize(value)` — the inverse of [`serialize`]: real bytes in,
+/// [`wire::decode`] back out.
 ///
-/// Copying again rather than answering what it was handed: a program calling
-/// `deserialize` on a value it kept a reference to must not get that reference
-/// back, or the pair would share structure where Node's does not.
+/// `value` is read with [`rts_core::entry::bytes_of`], the same function
+/// `node:buffer` uses to read a `Buffer`/typed-array view — so a `Uint8Array`
+/// works here exactly as it does in Node, not only a `Buffer`. A value that is
+/// neither (nothing to read bytes from) decodes as `undefined`, matching
+/// [`wire::decode`]'s own answer to bytes that stop making sense partway
+/// through.
 extern "C" fn deserialize(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    rts_core::entry::deep_copy(value)
+    let bytes = rts_core::entry::with_runtime(|context| rts_core::entry::bytes_of(context, value));
+    match bytes {
+        Some(bytes) => wire::decode(&bytes),
+        None => rts_core::entry::undefined_value(),
+    }
 }

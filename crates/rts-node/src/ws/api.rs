@@ -85,10 +85,17 @@ fn self_or_new(context: &mut Context, this: u64, prototype: u64) -> u64 {
 }
 
 /// Prepara o que todo `EventEmitter` precisa e devolve a instância pronta.
+///
+/// As DUAS propriedades, não só `__events__`: `events.rs`'s `eventNames()`/
+/// `removeAllListeners()` sem argumento leem `__eventNames__`
+/// especificamente, e uma em falta lê como lista vazia para sempre, em
+/// silêncio.
 fn as_emitter(context: &mut Context, this: u64, prototype: u64) -> u64 {
     let instancia = self_or_new(context, this, prototype);
     let eventos = entry::make_object(context);
     entry::put_member(context, instancia, "__events__", eventos);
+    let nomes = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, instancia, "__eventNames__", nomes);
     instancia
 }
 
@@ -313,8 +320,11 @@ fn elements(value: u64) -> Vec<u64> {
 fn make_socket(context: &mut Context, id: u64) -> u64 {
     let prototype = entry::make_prototype(context, "WebSocket", &[]);
     let instancia = entry::make_instance(context, prototype);
+    // As duas propriedades — ver o comentário de [`as_emitter`].
     let eventos = entry::make_object(context);
     entry::put_member(context, instancia, "__events__", eventos);
+    let nomes = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, instancia, "__eventNames__", nomes);
     set_id(context, instancia, id);
     let aberto = entry::make_number(OPEN);
     entry::put_member(context, instancia, "readyState", aberto);
@@ -440,8 +450,13 @@ pub(super) fn namespace(context: &mut Context) -> u64 {
     // resultado deste módulo. É o que `net::class_ctor` faz, pela mesma razão.
     let construtor = entry::make_callable(context, server_new);
     entry::put_member(context, construtor, "prototype", server_proto);
+    // A ligação de volta `prototype.constructor = construtor` — ver a doc de
+    // `crate::stream::class_ctor`; sem ela `wss.constructor.name` lia
+    // `"Object"`.
+    entry::declare_host_class(context, construtor, server_proto, "WebSocketServer", 1);
     let cliente = entry::make_callable(context, socket_new);
     entry::put_member(context, cliente, "prototype", socket_proto);
+    entry::declare_host_class(context, cliente, socket_proto, "WebSocket", 1);
 
     let namespace = entry::make_namespace(context, &[]);
     entry::put_member(context, namespace, "WebSocketServer", construtor);

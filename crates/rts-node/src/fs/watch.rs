@@ -221,8 +221,14 @@ pub(super) extern "C" fn watch(_e: u64, _this: u64, filename: u64, options: u64,
     let (instance, on_fn) = entry::with_runtime(|context| {
         let prototype = chained_prototype(context, "FSWatcher", FS_METHODS);
         let instance = entry::make_instance(context, prototype);
+        // Both properties, not `__events__` alone: `events.rs`'s
+        // `eventNames()`/no-argument `removeAllListeners()` read
+        // `__eventNames__` specifically, and a missing one reads as an
+        // always-empty list forever, silently.
         let events = entry::make_object(context);
         entry::put_member(context, instance, "__events__", events);
+        let event_names = entry::make_array_in(context, Vec::new());
+        entry::put_member(context, instance, "__eventNames__", event_names);
         let id_value = entry::make_number(id as f64);
         entry::put_member(context, instance, "__watchId", id_value);
         let on_fn = entry::get_member(context, instance, "on");
@@ -320,8 +326,12 @@ pub(super) extern "C" fn watch_file(_e: u64, _this: u64, filename: u64, options:
     let (instance, on_fn) = entry::with_runtime(|context| {
         let prototype = chained_prototype(context, "StatWatcher", STAT_METHODS);
         let instance = entry::make_instance(context, prototype);
+        // Both properties — see the identical comment on `FSWatcher`'s own
+        // construction above.
         let events = entry::make_object(context);
         entry::put_member(context, instance, "__events__", events);
+        let event_names = entry::make_array_in(context, Vec::new());
+        entry::put_member(context, instance, "__eventNames__", event_names);
         let id_value = entry::make_number(id as f64);
         entry::put_member(context, instance, "__watchId", id_value);
         let on_fn = entry::get_member(context, instance, "on");

@@ -34,6 +34,20 @@ pub(super) const METHODS: &[(&str, Provided)] = &[
     // `for await (const chunk of readable)`. `"@@asyncIterator"` is the wire
     // spelling of `[Symbol.asyncIterator]` — see `flowing.rs`'s module doc.
     ("@@asyncIterator", super::flowing::async_iterator),
+    // The async-iteration helper family — see `helpers.rs`'s module doc for
+    // the one driver every one of these pulls a chunk through.
+    ("toArray", super::helpers::to_array),
+    ("forEach", super::helpers::for_each),
+    ("map", super::helpers::map),
+    ("filter", super::helpers::filter),
+    ("reduce", super::helpers::reduce),
+    ("some", super::helpers::some),
+    ("every", super::helpers::every),
+    ("find", super::helpers::find),
+    ("drop", super::helpers::drop),
+    ("take", super::helpers::take),
+    ("flatMap", super::helpers::flat_map),
+    ("wrap", super::wrap::wrap),
 ];
 
 /// `readable.on(eventName, listener)` / `.addListener(...)` — registers
@@ -161,8 +175,11 @@ fn apply_encoding(this: u64, chunk: u64) -> u64 {
 }
 
 /// `readable.push(chunk, encoding?)` — see the module doc for the flowing
-/// vs. buffered split this makes.
-extern "C" fn push(_e: u64, this: u64, chunk: u64, _encoding: u64, _c: u64, _d: u64) -> u64 {
+/// vs. buffered split this makes. `pub(super)` because `helpers.rs`'s derived
+/// streams (`map`/`filter`/`drop`/`take`/`flatMap`) and `wrap.rs`'s adapter
+/// call it directly rather than through a `get_member("push")` lookup — both
+/// built the instance themselves, so there is no subclass override to honour.
+pub(super) extern "C" fn push(_e: u64, this: u64, chunk: u64, _encoding: u64, _c: u64, _d: u64) -> u64 {
     let absent = entry::undefined_value();
     let null = entry::null_value();
     if chunk == null {

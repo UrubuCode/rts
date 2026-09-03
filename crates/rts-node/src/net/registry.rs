@@ -117,11 +117,6 @@ fn error_value(message: &str, code: &str) -> u64 {
     })
 }
 
-/// Delivers every queued socket AND server event, oldest first per entry,
-/// then drops both table locks before calling anything — see
-/// [`fs::watch::pump`](crate::fs::watch) for why a listener that calls back
-/// into this module (writes on `'connection'`, say) must not deadlock on a
-/// lock this function still holds.
 thread_local! {
     /// Já estamos a entregar eventos NESTA thread?
     ///
@@ -134,6 +129,11 @@ thread_local! {
     static ENTREGANDO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Delivers every queued socket AND server event, oldest first per entry,
+/// then drops both table locks before calling anything — see
+/// [`fs::watch::pump`](crate::fs::watch) for why a listener that calls back
+/// into this module (writes on `'connection'`, say) must not deadlock on a
+/// lock this function still holds.
 pub(super) fn pump() {
     if ENTREGANDO.with(|f| f.replace(true)) {
         return;

@@ -56,12 +56,18 @@ pub(super) fn emit(this: u64, event: &str, a0: u64, a1: u64, a2: u64) {
     entry::call(emit_fn, this, event_key, a0, a1, a2);
 }
 
-/// Installs the `__events__` bookkeeping every `EventEmitter` needs — the
-/// same shape `events::make_emitter`/`stream::common::init_emitter` build,
-/// duplicated for the reason this file's own doc gives.
+/// Installs the `__events__`/`__eventNames__` bookkeeping every
+/// `EventEmitter` needs — the same shape
+/// `events::make_emitter`/`stream::common::init_emitter` build, duplicated
+/// for the reason this file's own doc gives. Both, not `__events__` alone:
+/// `events.rs`'s `eventNames()`/no-argument `removeAllListeners()` read
+/// `__eventNames__` specifically, and a missing one reads as an
+/// always-empty list forever, silently.
 pub(super) fn init_emitter(context: &mut Context, instance: u64) {
     let events = entry::make_object(context);
     entry::put_member(context, instance, "__events__", events);
+    let event_names = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, instance, "__eventNames__", event_names);
 }
 
 /// `this` if it is already an object (a `new` over a subclass hands one in),

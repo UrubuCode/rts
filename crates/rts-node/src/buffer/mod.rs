@@ -38,10 +38,14 @@
 //!
 //! # Not implemented, by name
 //!
-//! - **`blob.stream()`** — a Web `ReadableStream`. Nothing in this engine is
-//!   one, and the honest shape of the gap is an absent member rather than an
-//!   object that reads as a stream and delivers nothing. Reference §7 defers
-//!   it for the same reason.
+//! `blob.stream()` IS implemented — see [`blob::classes`]'s own doc on
+//! `stream_method` — now that `rts-std`'s `globals/streams` gives this engine
+//! a real `ReadableStream` to construct; this bullet used to list it as
+//! absent, from before that global existed. `fs::handle`'s
+//! `FileHandle.prototype.readableWebStream` follows the identical recipe
+//! (global lookup, one `start(controller)` that enqueues then closes) rather
+//! than a second one, since a `FileHandle` has no entry in this module's own
+//! byte table to reuse `stream_method` itself against.
 //! - **`Blob`/`File` sources that are a raw `ArrayBuffer`** (as opposed to a
 //!   view over one: a `Buffer`, a typed array or a `DataView`, all of which
 //!   work). [`entry::bytes_of`] reads bytes through a view, and an

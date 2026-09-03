@@ -249,8 +249,14 @@ extern "C" fn compile_function(_e: u64, _this: u64, code: u64, params: u64, _opt
     let Some(body) = entry::text_of(code) else {
         return entry::undefined_value();
     };
+    // Read BEFORE the borrow below: `param_names` reads array elements
+    // through `entry::get_indexed`, which is ambient and takes its own
+    // borrow — nesting it inside `with_runtime` aborts the process rather
+    // than failing (`crates/rts-node/src/http/common.rs`'s `get_value_in`
+    // names the same hazard). See `param_names`' own doc for the bug this
+    // replaced.
+    let names = param_names(params);
     entry::with_runtime(|context| {
-        let names = param_names(context, params);
         let callable = entry::make_callable(context, invoke_compiled);
         let joined = entry::make_string(context, &names.join(","));
         entry::put_member(context, callable, "__params__", joined);
@@ -260,24 +266,36 @@ extern "C" fn compile_function(_e: u64, _this: u64, code: u64, params: u64, _opt
     })
 }
 
-/// The reader of `params` — an array-like of strings, read one element at a
-/// time by numeric-string key, up to [`entry::ARGUMENT_SLOTS`].
-fn param_names(context: &mut Context, params: u64) -> Vec<String> {
-    let absent = entry::undefined_in(context);
+/// The reader of `params` — an array-like of strings, up to
+/// [`entry::ARGUMENT_SLOTS`] elements.
+///
+/// # The bug this replaced
+///
+/// An array does not store its elements as named properties `"0"`, `"1"`,
+/// … — they live beside the cell, in the slot `entry::get_indexed` reads.
+/// The previous version asked `entry::get_member(context, params,
+/// &index.to_string())`, which is the NAMED-property reader: it compiled,
+/// it ran, and it answered `undefined` for every element of every array,
+/// silently. `__params__` was always `""`, so every function
+/// `vm.compileFunction` built ignored its declared parameters — see
+/// `tests/claude-node-vm.test.ts` and `tests/claude-node-vm-crash.test.ts`
+/// (an uncaught `ReferenceError` inside the mis-bound body, since nothing
+/// was there to catch it). `crates/rts-node/src/wasi/mod.rs`'s
+/// `read_string_array` reads the identical shape correctly and is the
+/// pattern followed here.
+fn param_names(params: u64) -> Vec<String> {
+    let absent = entry::undefined_value();
     if params == absent {
         return Vec::new();
     }
-    let mut names = Vec::new();
-    for index in 0..entry::ARGUMENT_SLOTS {
-        let element = entry::get_member(context, params, &index.to_string());
-        if element == absent {
-            break;
-        }
-        if let Some(text) = entry::text_in(context, element) {
-            names.push(text);
-        }
-    }
-    names
+    // The length is a property (`get_member`, inside a borrow); the elements
+    // are not (`get_indexed`, outside one) — see `crypto/util.rs`'s
+    // `elements` for the same split, made for the same reason.
+    let length = entry::with_runtime(|context| entry::get_member(context, params, "length"));
+    let count = entry::number_of(length).unwrap_or(0.0).max(0.0) as usize;
+    (0..count.min(entry::ARGUMENT_SLOTS))
+        .filter_map(|index| entry::text_of(entry::get_indexed(params, entry::make_number(index as f64))))
+        .collect()
 }
 
 /// The callable [`compile_function`] hands back. Rebuilds `(function(p0,p1){body})(lit0,lit1)`

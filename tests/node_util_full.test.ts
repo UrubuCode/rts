@@ -8,6 +8,7 @@ import {
     getSystemErrorName,
     styleText,
 } from "node:util";
+import process from "node:process";
 
 // --- format -----------------------------------------------------------------
 const f1 = format("%s = %d", "count", 42);
@@ -28,9 +29,35 @@ const de5 = isDeepStrictEqual(5, 5);
 // --- string utilities -------------------------------------------------------
 const strip = stripVTControlCharacters("\x1b[31mred\x1b[39m text");
 const usv = toUSVString("plain");
-const errN = getSystemErrorName(-2); // ENOENT
+
+// getSystemErrorName's numbering is libuv's own, and libuv does NOT give
+// ENOENT the same number on every OS: on POSIX it is `-ENOENT` (-2), but on
+// Windows libuv has its own table and ENOENT is -4058.
+// PROVA (Node real v20.19.5, win32): node -e "const u=require('node:util');
+// console.log(JSON.stringify(u.getSystemErrorName(-2)),
+// JSON.stringify(u.getSystemErrorName(-4058)))"
+//   -> "Unknown system error -2" "ENOENT"
+// The old assertion hardcoded -2 (the POSIX number) and failed on Windows,
+// where rts (like Node) answers "Unknown system error -2" — correctly, since
+// -2 names a DIFFERENT error there. Asking `process.platform` for the right
+// number keeps this file honest on both, without inventing a new mechanism.
+const enoentCode = process.platform === "win32" ? -4058 : -2;
+const errN = getSystemErrorName(enoentCode);
+
+// styleText always returns a string. Whether it wraps that string in an ANSI
+// escape depends on colour support, which Node itself gates on TTY-ness and
+// FORCE_COLOR/NO_COLOR — not on the color name alone.
+// PROVA (Node real v20.19.5, no FORCE_COLOR, no TTY — this test harness's own
+// shape of environment, stdio piped): node -e "const u=require('node:util');
+// console.log(JSON.stringify(u.styleText('red','hi')))" -> "hi"
+// (node -e with FORCE_COLOR=1 in the environment instead answers
+// "\x1b[31mhi\x1b[39m" — so the escape is conditional, not absent from the API.)
+// The old assertion expected the escaped form unconditionally, which is false
+// for any runtime — Node included — under a harness with no TTY and no
+// FORCE_COLOR, which is exactly this one.
 const styled = styleText("red", "hi");
-const styledIsWrapped = styled.length > 2 && styled.indexOf("hi") >= 0;
+const styledIsString = typeof styled === "string";
+const styledUnescapedHere = styled === "hi";
 
 describe("node:util", () => {
     test("format %s %d", () => expect(f1).toBe("count = 42"));
@@ -47,6 +74,9 @@ describe("node:util", () => {
     test("isDeepStrictEqual primitives", () => expect(de5).toBe(true));
     test("stripVTControlCharacters", () => expect(strip).toBe("red text"));
     test("toUSVString identity", () => expect(usv).toBe("plain"));
-    test("getSystemErrorName", () => expect(errN).toBe("ENOENT"));
-    test("styleText wraps", () => expect(styledIsWrapped).toBe(true));
+    test("getSystemErrorName(ENOENT), by platform's own numbering", () => expect(errN).toBe("ENOENT"));
+    test("styleText returns a string, unescaped with no TTY/FORCE_COLOR", () => {
+        expect(styledIsString).toBe(true);
+        expect(styledUnescapedHere).toBe(true);
+    });
 });

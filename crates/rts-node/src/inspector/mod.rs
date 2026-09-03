@@ -77,6 +77,11 @@ pub fn namespace(context: &mut Context) -> u64 {
     entry::set_prototype_in(context, prototype, parent);
     let constructor = entry::make_callable(context, construct);
     entry::put_member(context, constructor, "prototype", prototype);
+    // The back-link — see `crate::stream::class_ctor`'s doc. Named `"Session"`
+    // (Node's own name), not `"InspectorSession"` (this file's internal
+    // `make_prototype` key, chosen only to avoid colliding with any other
+    // module's own differently-shaped `"Session"` prototype).
+    entry::declare_host_class(context, constructor, prototype, "Session", 0);
     entry::put_member(context, namespace, "Session", constructor);
     namespace
 }
@@ -91,8 +96,13 @@ extern "C" fn construct(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) 
             true => this,
             false => entry::make_instance(context, prototype),
         };
+        // Both properties: `events.rs`'s `eventNames()`/no-argument
+        // `removeAllListeners()` read `__eventNames__` specifically, and a
+        // missing one reads as an always-empty list forever, silently.
         let listeners = entry::make_object(context);
         entry::put_member(context, instance, "__events__", listeners);
+        let event_names = entry::make_array_in(context, Vec::new());
+        entry::put_member(context, instance, "__eventNames__", event_names);
         let connected = entry::boolean_value(false);
         entry::put_member(context, instance, "__connected", connected);
         instance

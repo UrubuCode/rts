@@ -87,6 +87,7 @@ already resolvable in the workspace.
 |---|---|---|---|
 | aes · cbc · ctr · ecb | 0.9/0.2/0.10/0.2 | MIT/Apache (ecb MIT) | AES + CBC/CTR/ECB modes |
 | aes-gcm · chacha20poly1305 | 0.11/0.11 | Apache/MIT | AEAD (NCC-audited) |
+| ccm | 0.5 | Apache/MIT | AEAD — TLS 1.3 `TLS_AES_128_CCM_SHA256`/`_CCM_8_SHA256` (§6). Same RustCrypto org as the row above, but **not** part of that NCC Group review — its Dec-2019 scope was AES/GCM and ChaCha20+Poly1305 only (`aes`/`aes-soft`/`aesni`, `chacha20`/`salsa20-core`, `ghash`/`poly1305`/`polyval`), no CCM crate in it. Pinned to 0.5 rather than the newer 0.6 line so it resolves the same `aead 0.5`/`cipher 0.4` this section's `aes-gcm 0.10` already pulls, instead of a second copy — same reasoning the `aes`/`cbc` pins above already state for the AES block cipher itself. |
 | aes-kw | 0.3 | MIT/Apache | AES Key Wrap |
 | cipher · aead | 0.5/0.6 | MIT/Apache | shared traits (transitive) |
 
@@ -220,7 +221,7 @@ pure-Rust RustCrypto crate for node:crypto**:
 
 | rustls needs | pure-Rust crate (already vetted for node:crypto) |
 |---|---|
-| AEAD | `aes-gcm`, `chacha20poly1305` |
+| AEAD | `aes-gcm`, `chacha20poly1305`, `ccm` (§4.2 — the two CCM TLS 1.3 suites) |
 | hash / HKDF / HMAC | `sha2`, `hkdf`, `hmac` |
 | key exchange | `x25519-dalek`, `p256`, `p384` (ECDH) |
 | signatures | `rsa`, `ecdsa`+`p256`/`p384`, `ed25519-dalek` |

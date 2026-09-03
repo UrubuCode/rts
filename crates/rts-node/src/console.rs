@@ -79,6 +79,9 @@ pub fn namespace(context: &mut Context) -> u64 {
     let ctor = entry::make_callable(context, construct);
     let prototype = prototype(context);
     entry::put_member(context, ctor, "prototype", prototype);
+    // `prototype.constructor` back-link — see `crate::stream::class_ctor`'s
+    // doc; without it `new Console(...).constructor.name` read `"Object"`.
+    entry::declare_host_class(context, ctor, prototype, "Console", 0);
 
     let namespace = entry::make_namespace(context, &[]);
     entry::put_member(context, namespace, "Console", ctor);
@@ -127,12 +130,7 @@ extern "C" fn construct(_e: u64, this: u64, stdout: u64, stderr: u64, _c: u64, _
 fn build(context: &mut Context, this: u64, stdout: u64, stderr: u64, prototype: u64) -> u64 {
     let instance = self_or_new(context, this, prototype);
     let absent = entry::undefined_in(context);
-    let (stdout, stderr) = if is_object(context, stdout) {
-        (stdout, if is_object(context, stderr) { stderr } else { stdout })
-    } else {
-        (absent, absent) // Unbound: `Console` streams default to nothing
-                          // writable — see "Not implemented".
-    };
+    let (stdout, stderr) = resolve_streams(context, stdout, stderr, absent);
     set_value(context, instance, "__stdout", stdout);
     set_value(context, instance, "__stderr", stderr);
     let counters = entry::make_object(context);
@@ -206,9 +204,27 @@ extern "C" fn group_end(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) 
     entry::undefined_value()
 }
 
+/// `label = "default"` — a JS default parameter, which the LANGUAGE fires on
+/// `undefined` specifically, not merely on "the argument was omitted"
+/// (`function f(label = "default")` also defaults for an explicit
+/// `f(undefined)`). [`entry::text_of`] is `ToString`, and `ToString(undefined)`
+/// is the STRING `"undefined"` — a real value, not the ABI's "nothing was
+/// passed" placeholder — so `.unwrap_or_else(|| "default")` downstream of it
+/// never ran for an omitted argument either: the omitted slot arrives as this
+/// same `undefined`, coerces the same way, and every `console.count()` with
+/// no label wrote `"undefined: 1"` instead of `"default: 1"`. Checked BEFORE
+/// coercion, matching how the language itself decides a default parameter
+/// applies.
+fn label_or_default(value: u64) -> String {
+    if value == entry::undefined_value() {
+        return "default".to_owned();
+    }
+    entry::text_of(value).unwrap_or_else(|| "default".to_owned())
+}
+
 /// `console.count(label = "default")`.
 extern "C" fn count(_e: u64, this: u64, label: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let label = entry::text_of(label).unwrap_or_else(|| "default".to_owned());
+    let label = label_or_default(label);
     let counters = get_value(this, "__counters");
     let next = entry::with_runtime(|context| {
         let current = entry::number_of(entry::get_member(context, counters, &label)).unwrap_or(0.0);
@@ -222,7 +238,7 @@ extern "C" fn count(_e: u64, this: u64, label: u64, _b: u64, _c: u64, _d: u64) -
 
 /// `console.countReset(label = "default")` — no output.
 extern "C" fn count_reset(_e: u64, this: u64, label: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let label = entry::text_of(label).unwrap_or_else(|| "default".to_owned());
+    let label = label_or_default(label);
     let counters = get_value(this, "__counters");
     entry::with_runtime(|context| entry::put_member(context, counters, &label, entry::make_number(0.0)));
     entry::undefined_value()
@@ -232,7 +248,7 @@ extern "C" fn count_reset(_e: u64, this: u64, label: u64, _b: u64, _c: u64, _d: 
 /// running" warning is not emitted (no `process.emitWarning` reached from
 /// this module), so a second `time()` for the same label silently resets it.
 extern "C" fn time_start(_e: u64, this: u64, label: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let label = entry::text_of(label).unwrap_or_else(|| "default".to_owned());
+    let label = label_or_default(label);
     let timers = get_value(this, "__timers");
     let now = elapsed_ms_origin();
     entry::with_runtime(|context| entry::put_member(context, timers, &label, entry::make_number(now)));
@@ -243,7 +259,7 @@ extern "C" fn time_start(_e: u64, this: u64, label: u64, _b: u64, _c: u64, _d: u
 /// "does not exist" warning also not emitted, same reason as [`time_start`])
 /// when `label` was never started.
 extern "C" fn time_end(_e: u64, this: u64, label: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let label = entry::text_of(label).unwrap_or_else(|| "default".to_owned());
+    let label = label_or_default(label);
     let timers = get_value(this, "__timers");
     let started = entry::with_runtime(|context| {
         let value = entry::get_member(context, timers, &label);
@@ -265,7 +281,7 @@ extern "C" fn time_end(_e: u64, this: u64, label: u64, _b: u64, _c: u64, _d: u64
 /// `console.timeLog(label = "default", ...data)` — like [`time_end`] but
 /// keeps the timer running.
 extern "C" fn time_log(_e: u64, this: u64, label: u64, a: u64, b: u64, c: u64) -> u64 {
-    let label_text = entry::text_of(label).unwrap_or_else(|| "default".to_owned());
+    let label_text = label_or_default(label);
     let timers = get_value(this, "__timers");
     let started = entry::with_runtime(|context| {
         let value = entry::get_member(context, timers, &label_text);
@@ -376,6 +392,54 @@ fn set_value(context: &mut Context, this: u64, name: &str, value: u64) {
 
 fn is_object(context: &Context, value: u64) -> bool {
     entry::is_object(context, value)
+}
+
+/// Reads the two streams a `new Console(…)` call named — positional
+/// (`new Console(stdout, stderr?)`) or the single-argument options-bag form
+/// (`new Console({ stdout, stderr? })`) the constructor's own doc promises.
+///
+/// # Why this used to answer nothing for the options-bag form, silently
+///
+/// The bag itself was stored AS the stream — `is_object(bag)` is true, same
+/// as a real stream — and [`write_line`]'s own `write`-presence check then
+/// refused it every time, since a plain `{ stdout, stderr }` object has no
+/// `write` of its own. Nothing threw and nothing printed, which is the
+/// "ignoreErrors" default this module already documents, so the bag form
+/// looked identical to a working `Console` that just never got called.
+///
+/// # The disambiguation
+///
+/// Structural, matching how this module already decides what counts as a
+/// stream at all (module doc: "any object exposing a callable `write`"):
+/// `first` is the options bag exactly when it is NOT itself something
+/// [`write_line`] could write to, but DOES carry a `.stdout` that is. A real
+/// stream passed positionally is never mistaken for a bag, because a stream
+/// answers `write` directly and this checks that FIRST.
+fn resolve_streams(context: &mut Context, first: u64, second: u64, absent: u64) -> (u64, u64) {
+    if !is_object(context, first) {
+        // Unbound: `Console` streams default to nothing writable — see "Not
+        // implemented".
+        return (absent, absent);
+    }
+    if has_write(context, first) {
+        return (first, if is_object(context, second) { second } else { first });
+    }
+    let bagged_stdout = entry::get_member(context, first, "stdout");
+    if is_object(context, bagged_stdout) {
+        let bagged_stderr = entry::get_member(context, first, "stderr");
+        return (bagged_stdout, if is_object(context, bagged_stderr) { bagged_stderr } else { bagged_stdout });
+    }
+    // Neither a stream nor a recognisable bag — kept as the pre-existing
+    // fallback (store it anyway; `write_line` then refuses it), rather than
+    // a new silent-empty case this module doc would also have to name.
+    (first, if is_object(context, second) { second } else { first })
+}
+
+/// Whether `value` answers a `write` member — [`write_line`]'s own test for
+/// "is this something I can write a line to", reused here to tell a real
+/// stream apart from an options bag that merely LOOKS like an object.
+fn has_write(context: &mut Context, value: u64) -> bool {
+    entry::get_member(context, value, "write") != entry::undefined_in(context)
 }
 
 fn self_or_new(context: &mut Context, this: u64, prototype: u64) -> u64 {

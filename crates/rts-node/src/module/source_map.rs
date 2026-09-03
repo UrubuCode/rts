@@ -49,6 +49,8 @@ pub(super) fn install(context: &mut Context) -> u64 {
     let prototype = entry::make_prototype(context, "SourceMap", members);
     let constructor = entry::make_callable(context, construct);
     entry::put_member(context, constructor, "prototype", prototype);
+    // Back-link — see `crate::stream::class_ctor`'s doc.
+    entry::declare_host_class(context, constructor, prototype, "SourceMap", 1);
     constructor
 }
 

@@ -106,12 +106,12 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
     let somaxconn = entry::make_number(511.0);
     entry::put_member(context, namespace, "SOMAXCONN", somaxconn);
 
-    let socket_ctor = class_ctor(context, socket::construct, socket::prototype);
-    let server_ctor = class_ctor(context, server::construct, server::prototype);
-    let blocklist_ctor = class_ctor(context, blocklist::construct, blocklist::prototype);
+    let socket_ctor = class_ctor(context, socket::construct, socket::prototype, "Socket", 1);
+    let server_ctor = class_ctor(context, server::construct, server::prototype, "Server", 1);
+    let blocklist_ctor = class_ctor(context, blocklist::construct, blocklist::prototype, "BlockList", 0);
     let is_block_list = entry::make_callable(context, blocklist::is_block_list);
     entry::put_member(context, blocklist_ctor, "isBlockList", is_block_list);
-    let address_ctor = class_ctor(context, socket_address::construct, socket_address::prototype);
+    let address_ctor = class_ctor(context, socket_address::construct, socket_address::prototype, "SocketAddress", 1);
     let parse_fn = entry::make_callable(context, socket_address::parse);
     entry::put_member(context, address_ctor, "parse", parse_fn);
 
@@ -122,10 +122,20 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
     namespace
 }
 
-fn class_ctor(context: &mut entry::Context, construct: Provided, prototype_of: fn(&mut entry::Context) -> u64) -> u64 {
+/// Builds one class's constructor+prototype pair, back-link included — see
+/// `crate::stream::class_ctor`'s doc for why that link (`prototype.constructor
+/// = ctor`) needs writing by hand for every native class here.
+fn class_ctor(
+    context: &mut entry::Context,
+    construct: Provided,
+    prototype_of: fn(&mut entry::Context) -> u64,
+    name: &str,
+    arity: u32,
+) -> u64 {
     let ctor = entry::make_callable(context, construct);
     let prototype = prototype_of(context);
     entry::put_member(context, ctor, "prototype", prototype);
+    entry::declare_host_class(context, ctor, prototype, name, arity);
     ctor
 }
 
@@ -182,5 +192,35 @@ extern "C" fn set_default_auto_select_family_timeout(_e: u64, _this: u64, value:
     let millis = entry::number_of(value).unwrap_or(AUTO_SELECT_FAMILY_TIMEOUT_DEFAULT as f64).max(0.0) as u32;
     AUTO_SELECT_FAMILY_TIMEOUT.store(millis.max(AUTO_SELECT_FAMILY_TIMEOUT_FLOOR), std::sync::atomic::Ordering::SeqCst);
     entry::undefined_value()
+}
+
+/// Every socket/server this THREAD owns and has not closed, as the Node
+/// handle-class name a program would see in `getActiveResourcesInfo()`.
+///
+/// Filtered by `owner == current thread` and `!closed` for the same reason
+/// [`registry::pump`] filters the same way: the tables are process-wide, and a
+/// handle another thread opened is not a resource THIS thread's `process`
+/// object should report — the same cross-thread leak `registry.rs`'s own doc
+/// names for delivery, applied here to enumeration instead.
+pub(crate) fn active_handles() -> Vec<&'static str> {
+    let mine = std::thread::current().id();
+    let mut names = Vec::new();
+    registry::with_sockets(|table| {
+        names.extend(
+            table
+                .values()
+                .filter(|entry| entry.owner == mine && !entry.closed)
+                .map(|_| "TCPWRAP"),
+        );
+    });
+    registry::with_servers(|table| {
+        names.extend(
+            table
+                .values()
+                .filter(|entry| entry.owner == mine && !entry.closed)
+                .map(|_| "TCPSERVERWRAP"),
+        );
+    });
+    names
 }
 

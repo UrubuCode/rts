@@ -220,16 +220,7 @@ pub(super) fn write_all(fd: i64, bytes: &[u8]) -> bool {
         };
         let mut written = 0usize;
         while written < bytes.len() {
-            let rest = &bytes[written..];
-            // SAFETY: pointer and length describe a live slice; a closed or
-            // read-only fd answers a negative count rather than writing.
-            let count = unsafe {
-                libc::write(
-                    target,
-                    rest.as_ptr().cast::<libc::c_void>(),
-                    rest.len() as _,
-                )
-            };
+            let count = write_one(target, &bytes[written..]);
             if count <= 0 {
                 return false;
             }
@@ -242,6 +233,34 @@ pub(super) fn write_all(fd: i64, bytes: &[u8]) -> bool {
         let _ = (fd, bytes);
         false
     }
+}
+
+/// One `write(2)` (or `_write`) call, answering its raw return.
+///
+/// Split by platform for the same reason [`os_handle`] is guarded: the UCRT's
+/// `_write` validates `target` against its own descriptor table the identical
+/// way `_get_osfhandle` does, so a bogus fd here hits the same "invalid
+/// parameter" abort without the guard. This is not exercised by anything in
+/// this crate's suite today — every caller of [`write_all`] goes through a
+/// stream whose `fd` came from [`super::isatty`]'s own validated path — but
+/// the hazard is identical, so the remedy is applied here too rather than left
+/// for the next caller to rediscover.
+#[cfg(windows)]
+fn write_one(target: libc::c_int, bytes: &[u8]) -> isize {
+    // SAFETY: pointer and length describe a live slice; a closed or read-only
+    // fd answers a negative count rather than writing.
+    unsafe {
+        win::with_quiet_invalid_parameter(|| {
+            libc::write(target, bytes.as_ptr().cast::<libc::c_void>(), bytes.len() as _) as isize
+        })
+    }
+}
+
+#[cfg(unix)]
+fn write_one(target: libc::c_int, bytes: &[u8]) -> isize {
+    // SAFETY: pointer and length describe a live slice; a closed or read-only
+    // fd answers a negative count rather than writing.
+    unsafe { libc::write(target, bytes.as_ptr().cast::<libc::c_void>(), bytes.len() as _) as isize }
 }
 
 /// Whether ANSI escapes written to this fd will be interpreted.
@@ -270,13 +289,21 @@ fn enable_virtual_terminal(fd: i64) -> bool {
 }
 
 /// The `HANDLE` a CRT fd number stands for.
+///
+/// # Why the call is bracketed
+///
+/// `_get_osfhandle` does not just answer `-1` for an fd outside the CRT's own
+/// descriptor table — it invokes the UCRT's "invalid parameter" handler first,
+/// and the process default there is `abort()`. That is fatal for a fd nothing
+/// here chose: `isatty(999)` on a bogus number is ordinary JS, and this
+/// module's own doc (`tty/mod.rs`, "never throws") promises `false`, not a
+/// crashed process. Verified by reproduction: `isatty(999)` killed the process
+/// with 0xC0000409 before this guard existed, both under `rts run` and
+/// `rts test`.
 #[cfg(windows)]
 fn os_handle(fd: i64) -> Option<win::Handle> {
     let target = libc::c_int::try_from(fd).ok()?;
-    // SAFETY: `_get_osfhandle` reads the CRT's own descriptor table and answers
-    // `-1` for anything it does not hold; it neither takes ownership nor
-    // dereferences the number.
-    let handle = unsafe { libc::get_osfhandle(target) };
+    let handle = unsafe { win::with_quiet_invalid_parameter(|| libc::get_osfhandle(target)) };
     match handle == -1isize as libc::intptr_t {
         true => None,
         false => Some(handle as win::Handle),
@@ -332,5 +359,57 @@ mod win {
         pub(super) fn GetConsoleScreenBufferInfo(handle: Handle, info: *mut ScreenBufferInfo) -> i32;
         pub(super) fn GetConsoleMode(handle: Handle, mode: *mut u32) -> i32;
         pub(super) fn SetConsoleMode(handle: Handle, mode: u32) -> i32;
+    }
+
+    /// The UCRT's own "something was invalid" callback shape
+    /// (`_invalid_parameter_handler`, `<stdlib.h>`) — never called BY this
+    /// module, only INSTALLED, so [`with_quiet_invalid_parameter`] can make it
+    /// do nothing instead of the default `abort()`.
+    type InvalidParameterHandler =
+        Option<unsafe extern "C" fn(*const u16, *const u16, *const u16, u32, usize)>;
+
+    // `extern "C"`, not `"system"`: this is a UCRT runtime function
+    // (`<stdlib.h>`), not a Win32 API call, and the two calling conventions
+    // agree on x64 but not on x86 — matching the C declaration is what keeps
+    // this correct on either. No `#[link(name = ...)]` needed: `libc`'s own
+    // `get_osfhandle`/`write` above already pull in the CRT import library
+    // (`msvcrt`/`libcmt`, `mod.rs`'s reuse-check line 252) that exports this
+    // symbol too, at the same final link.
+    unsafe extern "C" {
+        fn _set_thread_local_invalid_parameter_handler(handler: InvalidParameterHandler) -> InvalidParameterHandler;
+    }
+
+    /// Does nothing — installed only for the duration of one CRT call, so an
+    /// fd that call rejects answers through its normal "invalid" return value
+    /// instead of taking the process down.
+    unsafe extern "C" fn ignore_invalid_parameter(
+        _expression: *const u16,
+        _function: *const u16,
+        _file: *const u16,
+        _line: u32,
+        _reserved: usize,
+    ) {
+    }
+
+    /// Runs `f` with the UCRT's invalid-parameter path silenced ON THIS
+    /// THREAD, then restores whatever was installed before — the handler is
+    /// documented thread-local by its own name, so this cannot race a call on
+    /// another thread, and nothing here nests (no caller of `f` in this module
+    /// calls back into this function).
+    ///
+    /// # Safety
+    /// `f` is a CRT call whose default failure path is `abort()` for exactly
+    /// the input this exists to make survivable (an fd outside the CRT's own
+    /// table); the caller is responsible for `f` performing no other unsafety.
+    pub(super) unsafe fn with_quiet_invalid_parameter<T>(f: impl FnOnce() -> T) -> T {
+        // SAFETY: installs a handler that reads nothing and writes nothing —
+        // seen above, `ignore_invalid_parameter` — then restores the previous
+        // one immediately after `f` returns.
+        let previous = unsafe { _set_thread_local_invalid_parameter_handler(Some(ignore_invalid_parameter)) };
+        let result = f();
+        unsafe {
+            _set_thread_local_invalid_parameter_handler(previous);
+        }
+        result
     }
 }

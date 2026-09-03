@@ -66,10 +66,17 @@ pub(super) fn self_or_new(context: &mut Context, this: u64, prototype: u64) -> u
     }
 }
 
-/// Installs the `__events__` bookkeeping every `EventEmitter` needs.
+/// Installs the `__events__`/`__eventNames__` bookkeeping every
+/// `EventEmitter` needs — both, not `__events__` alone: `events.rs`'s
+/// `eventNames()`/no-argument `removeAllListeners()` read `__eventNames__`
+/// specifically, and a missing one reads as an always-empty list forever,
+/// silently, rather than as a crash — the same shape gap this crate's other
+/// four copies of this helper had before all five were fixed together.
 pub(super) fn init_emitter(context: &mut Context, instance: u64) {
     let events = entry::make_object(context);
     entry::put_member(context, instance, "__events__", events);
+    let event_names = entry::make_array_in(context, Vec::new());
+    entry::put_member(context, instance, "__eventNames__", event_names);
 }
 
 /// Calls `this.emit(event, a0, a1, a2)`, looked up fresh — never while a

@@ -75,6 +75,8 @@ pub(super) fn install(context: &mut Context, namespace: u64) {
     let prototype = entry::make_prototype(context, "PerformanceObserver", METHODS);
     let constructor = entry::make_callable(context, construct);
     entry::put_member(context, constructor, "prototype", prototype);
+    // Back-link — see `crate::stream::class_ctor`'s doc.
+    entry::declare_host_class(context, constructor, prototype, "PerformanceObserver", 1);
     let supported: Vec<u64> = SUPPORTED
         .iter()
         .map(|name| entry::make_string(context, name))

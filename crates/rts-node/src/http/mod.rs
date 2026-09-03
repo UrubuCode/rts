@@ -92,14 +92,23 @@ pub fn namespace(context: &mut Context) -> u64 {
     ];
     let namespace = entry::make_namespace(context, members);
 
+    // Every `declare_host_class` call below is the `prototype.constructor`
+    // back-link — see `crate::stream::class_ctor`'s doc for the mechanism —
+    // and matters here beyond a bare `x.constructor.name`: `IncomingMessage`/
+    // `ServerResponse`/`OutgoingMessage`/`ClientRequest` are never built
+    // through THIS constructor (see the comment below), but every REAL
+    // instance shares the identical `prototype` object minted here, so one
+    // call fixes every one of them too.
     let server_ctor = entry::make_callable(context, server::construct);
     let server_prototype = server::prototype(context);
     entry::put_member(context, server_ctor, "prototype", server_prototype);
+    entry::declare_host_class(context, server_ctor, server_prototype, "Server", 1);
     entry::put_member(context, namespace, "Server", server_ctor);
 
     let agent_ctor = entry::make_callable(context, agent::construct);
     let agent_prototype = agent::prototype(context);
     entry::put_member(context, agent_ctor, "prototype", agent_prototype);
+    entry::declare_host_class(context, agent_ctor, agent_prototype, "Agent", 1);
     entry::put_member(context, namespace, "Agent", agent_ctor);
     let global_agent = entry::make_instance(context, agent_prototype);
     entry::put_member(context, namespace, "globalAgent", global_agent);
@@ -112,21 +121,25 @@ pub fn namespace(context: &mut Context) -> u64 {
     let incoming_prototype = incoming::incoming_prototype(context);
     let incoming_ctor = entry::make_callable(context, refuse_construct);
     entry::put_member(context, incoming_ctor, "prototype", incoming_prototype);
+    entry::declare_host_class(context, incoming_ctor, incoming_prototype, "IncomingMessage", 1);
     entry::put_member(context, namespace, "IncomingMessage", incoming_ctor);
 
     let response_prototype = outgoing::server_response_prototype(context);
     let response_ctor = entry::make_callable(context, refuse_construct);
     entry::put_member(context, response_ctor, "prototype", response_prototype);
+    entry::declare_host_class(context, response_ctor, response_prototype, "ServerResponse", 1);
     entry::put_member(context, namespace, "ServerResponse", response_ctor);
 
     let outgoing_prototype = common::chained_prototype(context, "Writable", "OutgoingMessage", outgoing::OUTGOING_METHODS);
     let outgoing_ctor = entry::make_callable(context, refuse_construct);
     entry::put_member(context, outgoing_ctor, "prototype", outgoing_prototype);
+    entry::declare_host_class(context, outgoing_ctor, outgoing_prototype, "OutgoingMessage", 0);
     entry::put_member(context, namespace, "OutgoingMessage", outgoing_ctor);
 
     let client_prototype = client::prototype(context);
     let client_ctor = entry::make_callable(context, refuse_construct);
     entry::put_member(context, client_ctor, "prototype", client_prototype);
+    entry::declare_host_class(context, client_ctor, client_prototype, "ClientRequest", 1);
     entry::put_member(context, namespace, "ClientRequest", client_ctor);
 
     let status_codes = status::status_codes_object(context);

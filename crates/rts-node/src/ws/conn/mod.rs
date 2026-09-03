@@ -29,9 +29,9 @@ use std::time::Duration;
 
 use rts_core::entry::{self, Pending};
 
-use super::frame::{self, Assembler, Delivered, Message, Read};
+use super::frame::{self, Message};
 use super::handshake;
-use super::transport::{Chunk, Transport};
+use super::transport::Transport;
 
 /// O que aconteceu numa conexão. Dados nativos apenas — nada aqui toca JS.
 pub(in crate::ws) enum Event {

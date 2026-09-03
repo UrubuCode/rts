@@ -52,7 +52,7 @@ const PROPERTIES: &[(&str, Provided, Option<Provided>)] = &[
 /// Builds the `URL` class and its statics, and returns the constructor.
 pub(super) fn install(context: &mut Context) -> u64 {
     let prototype = entry::make_prototype(context, "URL", METHODS);
-    let ctor = super::class_ctor(context, "URL", construct, prototype);
+    let ctor = super::class_ctor(context, "URL", 1, construct, prototype);
     entry::put_member(context, prototype, "constructor", ctor);
     let can_parse_fn = entry::make_callable(context, can_parse);
     entry::put_member(context, ctor, "canParse", can_parse_fn);

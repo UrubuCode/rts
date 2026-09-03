@@ -282,13 +282,9 @@ pub(super) fn formatted(options: Options, pattern: u64, rest: [u64; 3]) -> Strin
         // argument given rather than refusing the call.
         let mut parts = Vec::new();
         if present(pattern) {
-            let mut seen = Vec::new();
-            parts.push(format_value(pattern, options, &mut seen));
+            parts.push(trailing_text(pattern, options));
         }
-        parts.extend(rest.iter().map(|value| {
-            let mut seen = Vec::new();
-            format_value(*value, options, &mut seen)
-        }));
+        parts.extend(rest.iter().map(|value| trailing_text(*value, options)));
         return parts.join(" ");
     };
 
@@ -324,11 +320,29 @@ pub(super) fn formatted(options: Options, pattern: u64, rest: [u64; 3]) -> Strin
     // Anything left over is not dropped — it is Node's trailing,
     // `console.log`-style tail.
     for arg in rest {
-        let mut seen = Vec::new();
         out.push(' ');
-        out.push_str(&format_value(arg, options, &mut seen));
+        out.push_str(&trailing_text(arg, options));
     }
     out
+}
+
+/// One value in the trailing tail `format`/`formatWithOptions` appends past
+/// the pattern's own specifiers — Node's own rule (`formatWithOptionsInternal`
+/// in `lib/internal/util/inspect.js`, verified against Node.js v20.19.5) is
+/// `typeof value !== 'string' ? inspect(value) : value`: a STRING trails
+/// bare — `format("x", "extra")` is `"x extra"`, not `"x 'extra'"` — and
+/// everything else goes through the same walk [`format_value`] uses for `%O`.
+/// Not [`format_value`] itself, whose job is exactly the opposite: quoting a
+/// string is correct one level INSIDE a structure or after `%s` fails to
+/// consume it, and only wrong here, at the top of the tail.
+fn trailing_text(value: u64, options: Options) -> String {
+    match string_of(value) {
+        Some(text) => text,
+        None => {
+            let mut seen = Vec::new();
+            format_value(value, options, &mut seen)
+        }
+    }
 }
 
 /// One `%` specifier substituted for one argument.
