@@ -73,12 +73,20 @@
 //!   first of `...args`, and the callback it must wrap lives *inside* `...args`.
 //!   There is no subset of it that is not a wrong answer, so it is not
 //!   installed at all: `tc.traceCallback` reads `undefined`.
-//! - **`TracingChannel.traceSync`'s error path** and **subscriber-exception
-//!   isolation.** A native entry point can neither catch a JS throw crossing
-//!   back through it nor resume after one (the wall `assert.rs`'s doc names).
-//!   So `traceSync` instruments only the returning path, and one throwing
-//!   subscriber stops the siblings of that same `publish` — both real
-//!   divergences from Node, named rather than silently half-built.
+//! - **Subscriber-exception isolation.** A subscriber that throws stops the
+//!   siblings of that same `publish` — Node isolates each subscriber's own
+//!   exception and reports it async; this crate has nothing to report to, so
+//!   the throw is left to propagate like any other rather than swallowed and
+//!   reported nowhere.
+//!
+//!   `TracingChannel.traceSync`'s error path is NOT on this list any more —
+//!   see `tracing::trace_sync`'s own doc. The wall `assert.rs` names (a native
+//!   cannot resume ITS OWN JS-facing logic after a callee's throw) is real,
+//!   but "ask whether the callee left a throw behind before looking at the
+//!   answer" (`rts-core/README.md` rule 8) is a different, available move:
+//!   `entry::thrown()`/`entry::take_thrown()` answer exactly that, and
+//!   `entry::throw_value()` re-raises what was taken. None of that resumes
+//!   `fn` — it all runs strictly AFTER `fn` has already returned or thrown.
 //! - **Variadic tails.** `runStores(context, fn, thisArg, ...args)`,
 //!   `traceSync(fn, context, thisArg, ...args)` and `tracePromise`'s likewise:
 //!   the four argument slots of the native convention are spent before
@@ -145,7 +153,39 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("unsubscribe", unsubscribe_fn),
         ("tracingChannel", tracing::tracing_channel_fn),
     ];
-    entry::make_namespace(context, members)
+    let namespace = entry::make_namespace(context, members);
+    let channel_ctor = channel_constructor(context);
+    entry::put_member(context, namespace, "Channel", channel_ctor);
+    let tracing_ctor = tracing::tracing_channel_constructor(context);
+    entry::put_member(context, namespace, "TracingChannel", tracing_ctor);
+    namespace
+}
+
+/// `diagnostics_channel.Channel` — never constructs anything for real
+/// ([`channel_object`] is the only maker); exported so `instanceof` has a
+/// value to check `ch instanceof Channel` against.
+///
+/// # Why this passes the REAL method table, not an empty one
+///
+/// `entry::make_prototype`'s own doc names the trap: two DIFFERENT files each
+/// registering a non-empty table under one name panics, but the SAME file
+/// doing it twice is exactly the "idempotent by name" case it declares safe —
+/// whichever of this function and [`channel_object`] runs first installs the
+/// table, the other gets the same cell back. Both are in THIS file, and both
+/// pass [`CHANNEL_METHODS`], so which one runs first cannot matter and the
+/// prototype `instanceof` walks is the literal one every `Channel` instance
+/// already has, not a chained stand-in (contrast `fs/streams.rs::constructors`,
+/// which chains for the opposite reason: its real prototype is owned by a
+/// DIFFERENT module that has not necessarily run yet).
+fn channel_constructor(context: &mut Context) -> u64 {
+    let prototype = entry::make_prototype(context, "Channel", CHANNEL_METHODS);
+    let ctor = entry::make_callable(context, channel_construct);
+    entry::put_member(context, ctor, "prototype", prototype);
+    ctor
+}
+
+extern "C" fn channel_construct(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    entry::undefined_value()
 }
 
 /// `diagnostics_channel.channel(name)`.

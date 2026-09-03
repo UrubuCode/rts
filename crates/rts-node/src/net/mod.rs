@@ -184,3 +184,33 @@ extern "C" fn set_default_auto_select_family_timeout(_e: u64, _this: u64, value:
     entry::undefined_value()
 }
 
+/// Every socket/server this THREAD owns and has not closed, as the Node
+/// handle-class name a program would see in `getActiveResourcesInfo()`.
+///
+/// Filtered by `owner == current thread` and `!closed` for the same reason
+/// [`registry::pump`] filters the same way: the tables are process-wide, and a
+/// handle another thread opened is not a resource THIS thread's `process`
+/// object should report — the same cross-thread leak `registry.rs`'s own doc
+/// names for delivery, applied here to enumeration instead.
+pub(crate) fn active_handles() -> Vec<&'static str> {
+    let mine = std::thread::current().id();
+    let mut names = Vec::new();
+    registry::with_sockets(|table| {
+        names.extend(
+            table
+                .values()
+                .filter(|entry| entry.owner == mine && !entry.closed)
+                .map(|_| "TCPWRAP"),
+        );
+    });
+    registry::with_servers(|table| {
+        names.extend(
+            table
+                .values()
+                .filter(|entry| entry.owner == mine && !entry.closed)
+                .map(|_| "TCPSERVERWRAP"),
+        );
+    });
+    names
+}
+

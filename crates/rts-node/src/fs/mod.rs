@@ -94,11 +94,15 @@
 //!   [`bytes`] instead, per its module doc. `writeSync`'s string form
 //!   (`writeSync(fd, string, position?, encoding?)`) is also not implemented:
 //!   `buffer` there is always read as a typed-array window.
-//! - **`createReadStream`, `createWriteStream`, `ReadStream`, `WriteStream`,
-//!   `Utf8Stream`** — stream classes with `EventEmitter` semantics needing a
-//!   callback invoked repeatedly over the object's lifetime, which is
-//!   user-code re-entry these natives cannot do, and (for `Utf8Stream`)
-//!   unverified even in Node itself per the reference doc's own flag.
+//! `createReadStream`/`createWriteStream`/`ReadStream`/`WriteStream` ARE
+//! implemented — see [`streams`], reused by [`handle`]'s
+//! `FileHandle.prototype.createReadStream`/`createWriteStream` rather than
+//! duplicated. `Utf8Stream` ARE implemented too — see [`utf8stream`] — now
+//! that a listener invoked once, from inside the native call that already has
+//! the answer, turned out not to be the re-entry problem this bullet used to
+//! say it was (the same finding [`callbacks`]'s own paragraph above states);
+//! this line used to list all five as absent, which was stale by the time a
+//! change touching [`handle`] read it.
 //!
 //! `Dir`/`Dirent`/`opendirSync` ARE implemented — see [`dir`] and [`dirent`]
 //! — now that [`rts_core::entry::make_prototype`]/`make_instance` give a

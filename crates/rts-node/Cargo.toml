@@ -24,6 +24,7 @@ encoding_rs = "0.8"         # §4.9 — WHATWG label set for string_decoder
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
 webpki-roots = "1.0"        # §3 — the CA store; NOT rustls-native-certs, which links schannel/Security.framework
 aes-gcm = "0.10"            # §6 — AEAD
+ccm = "0.5"                 # §6 — AEAD, TLS_AES_128_CCM(_8)_SHA256; see manifest note near aes-gcm above for why 0.5 and not a newer/older line
 # node:crypto symmetric ciphers — §4.2. The document pins `aes 0.9`/`cbc 0.2`;
 # these are 0.8/0.1, which is deliberate and not drift: `aes-gcm 0.10` above
 # already resolves `aes 0.8`, and taking 0.9 would link TWO copies of the AES
@@ -103,3 +104,22 @@ hkdf = "0.13"
 pbkdf2 = "0.13"
 scrypt = "0.12"
 getrandom = "0.4"
+
+# node:dns resolve4 — §4.5 ("dns (node:dns) → rts-node"): "hickory-resolver |
+# 0.26 | MIT/Apache | lookup/resolve*/reverse — default features only (no
+# dnssec-*/tls-*/quic-*/h3-*, which pull ring/quinn)". `lookup` stays on
+# `std::net` (see `dns/mod.rs`'s module doc, "Two resolution paths"); this is
+# only for the DNS-protocol family, which needs a real client. Default
+# features are `tokio` + `system-config` — this is the first `rts-node`
+# dependency on tokio (`net/mod.rs` documents that crate as absent from this
+# manifest; that note is now true only for `node:net`, not the crate as a
+# whole), used here as a private current-thread runtime `resolve.rs` drives
+# itself, never exposed to callers.
+hickory-resolver = "0.26"
+# The `Runtime`/`Builder`/`block_on` `dns/resolve.rs` drives `hickory-resolver`
+# through — `rt` for the current-thread `Runtime` itself, `time` + `net` so
+# `.enable_all()` on it actually turns on the drivers the resolver's own
+# sockets need. Feature-unified with whatever `hickory-net` (a transitive
+# dependency of `hickory-resolver` above) already requests of this same
+# crate, so this only makes explicit what was already compiled in.
+tokio = { version = "1", features = ["rt", "time", "net"] }

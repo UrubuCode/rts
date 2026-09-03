@@ -65,7 +65,12 @@ fn id_of(this: u64) -> Option<u64> {
 /// `methods` — the same recipe `fs/watch.rs::chained_prototype` and
 /// `stream/common.rs::chained_prototype` both use, generalised to take an
 /// arbitrary named parent (`"Writable"`/`"Readable"`, not `"EventEmitter"`).
-fn chained(context: &mut Context, parent: &'static str, name: &'static str, methods: &[(&str, Provided)]) -> u64 {
+///
+/// `pub(super)` rather than private: [`super::handle`]'s `readLines()` chains
+/// a subclass onto `"Interface"` the identical way `create_read_stream`
+/// below chains one onto `"Readable"`, and this is the general recipe rather
+/// than something specific to a `fs.*Stream`.
+pub(super) fn chained(context: &mut Context, parent: &'static str, name: &'static str, methods: &[(&str, Provided)]) -> u64 {
     let parent_prototype = entry::make_prototype(context, parent, &[]);
     let prototype = entry::make_prototype(context, name, methods);
     entry::set_prototype_in(context, prototype, parent_prototype);

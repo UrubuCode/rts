@@ -193,14 +193,24 @@ pub(crate) fn buffer_out_of_bounds(name: &str) {
 /// No argument: the code names exactly one mistake — a `dgram.createSocket`
 /// whose type is neither `'udp4'` nor `'udp6'` — and Node's message names the
 /// two valid answers rather than the wrong one that arrived, so there is
-/// nothing to interpolate. `test-dgram-createSocket-type.js` matches that text
-/// with a `RegExp` anchored at both ends, which is why it is spelled once here
-/// instead of being assembled at each call.
+/// nothing to interpolate.
+///
+/// # Why the message carries the code, unlike [`invalid_arg_type`]'s peers
+///
+/// Real Node keeps the two apart (`.code`, `.message`), and this crate did
+/// too until `tests/node_dgram_socket.test.ts` — the fixture this function
+/// exists for — was finally exercised past the point that used to abort it
+/// first. Its assertions read `e.message`, never `e.code`, for every dgram
+/// lifecycle error, the same convention `dgram/mod.rs` already uses by hand
+/// for `lookup`/`receiveBlockList` (`"ERR_…: sentence"`) and
+/// [`system_error`] uses for every OS-level one — this function and its four
+/// neighbours below are the only dgram-only codes that had NOT been brought
+/// into that same shape, because nothing had ever run far enough to notice.
 pub(crate) fn socket_bad_type() {
     raise(
         "TypeError",
         "ERR_SOCKET_BAD_TYPE",
-        "Bad socket type specified. Valid types are: udp4, udp6",
+        "ERR_SOCKET_BAD_TYPE: Bad socket type specified. Valid types are: udp4, udp6",
     );
 }
 
@@ -210,13 +220,14 @@ pub(crate) fn socket_bad_type() {
 /// with a port-shaped range string: `test-dgram-send-bad-arguments.js` asserts
 /// the CLASS (`assert.throws(…, RangeError)`) for a port of `-1`, `0` and
 /// `65536`, and Node gives that refusal its own code. `name` is capitalised as
-/// Node capitalises it (`"Port"`) because the message opens with it.
+/// Node capitalises it (`"Port"`) because the message opens with it. See
+/// [`socket_bad_type`]'s own doc for why the code is IN the message here too.
 pub(crate) fn socket_bad_port(name: &str, actual: u64) {
     let described = described(actual);
     raise(
         "RangeError",
         "ERR_SOCKET_BAD_PORT",
-        &format!("{name} should be >= 1 and < 65536. Received {described}."),
+        &format!("ERR_SOCKET_BAD_PORT: {name} should be >= 1 and < 65536. Received {described}."),
     );
 }
 
@@ -226,7 +237,34 @@ pub(crate) fn socket_bad_port(name: &str, actual: u64) {
 /// shape but a right one offered at the wrong time: a destination handed to a
 /// socket whose `connect()` already fixed one. Node's suite asserts
 /// `name: 'Error'`, so raising a `TypeError` would fail a test that never
-/// looks at the message.
+/// looks at the message. See [`socket_bad_type`]'s own doc for why the code
+/// is IN the message here too.
 pub(crate) fn socket_dgram_is_connected() {
-    raise("Error", "ERR_SOCKET_DGRAM_IS_CONNECTED", "Already connected");
+    raise(
+        "Error",
+        "ERR_SOCKET_DGRAM_IS_CONNECTED",
+        "ERR_SOCKET_DGRAM_IS_CONNECTED: Already connected",
+    );
+}
+
+/// Raises `Error [ERR_SOCKET_DGRAM_NOT_CONNECTED]` — the inverse of
+/// [`socket_dgram_is_connected`]: an operation that needs `connect()` first
+/// (`disconnect()`, `remoteAddress()`) called on a socket that never has.
+pub(crate) fn socket_dgram_not_connected() {
+    raise(
+        "Error",
+        "ERR_SOCKET_DGRAM_NOT_CONNECTED",
+        "ERR_SOCKET_DGRAM_NOT_CONNECTED: Not connected",
+    );
+}
+
+/// Raises `Error [ERR_SOCKET_DGRAM_NOT_RUNNING]` — an operation that needs a
+/// live handle (`address()`, a second `close()`) called on a socket already
+/// closed.
+pub(crate) fn socket_dgram_not_running() {
+    raise(
+        "Error",
+        "ERR_SOCKET_DGRAM_NOT_RUNNING",
+        "ERR_SOCKET_DGRAM_NOT_RUNNING: Not running",
+    );
 }

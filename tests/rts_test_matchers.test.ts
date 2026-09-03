@@ -77,9 +77,19 @@ describe("rts:test framework — truthiness and nullish matchers", () => {
     expect("").toBeFalsy();
   });
 
+  // These pass the VALUE where every other case in this file passes the
+  // `${x}` string, and the difference is the point rather than an oversight.
+  // The numeric matchers below compare AFTER coercion, so `"10"` and `10`
+  // answer alike; `toBeNull` compares the value itself, so `${null}` — the
+  // string "null" — is correctly not null. The string spelling came from the
+  // old TypeScript framework (`crates/rts-std/src/test/bundle.ts`, deleted
+  // with the old engine in 46910d99), where every value reached a matcher
+  // already stringified.
   test("toBeNull / toBeUndefined / toBeDefined", () => {
-    expect(`${null}`).toBeNull();
-    expect(`${undefined}`).toBeUndefined();
+    expect(null).toBeNull();
+    expect(null).not.toBeUndefined();
+    expect(undefined).toBeUndefined();
+    expect(undefined).not.toBeNull();
     expect("something").toBeDefined();
   });
 });

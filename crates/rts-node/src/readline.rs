@@ -158,6 +158,30 @@ extern "C" fn create_interface(_e: u64, _this: u64, options: u64, _a1: u64, _a2:
     rl
 }
 
+/// Splits `text` on `\n` (a paired `\r` stripped, so `\r\n` and `\n` both
+/// count as one break) into complete lines, plus whatever trailed the last
+/// break — the remainder a caller still accumulating a stream keeps for next
+/// time.
+///
+/// `pub(crate)` rather than local to [`on_data`]: `fs/handle.rs`'s
+/// `readLines()` wants the SAME split (Node's own `readline` module is what
+/// defines what "a line" means here), over a whole file it already has in one
+/// string rather than one `'data'` chunk at a time — extracted here instead
+/// of writing a second line-splitter, per this module's own reuse-check.
+pub(crate) fn split_lines(text: &str) -> (Vec<String>, String) {
+    let mut lines = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find('\n') {
+        let mut one = &rest[..at];
+        if let Some(stripped) = one.strip_suffix('\r') {
+            one = stripped;
+        }
+        lines.push(one.to_owned());
+        rest = &rest[at + 1..];
+    }
+    (lines, rest.to_owned())
+}
+
 /// The `'data'` listener subscribed onto `input` by [`create_interface`].
 /// `this` is `input` (see the module doc) — the `Interface` is read back off
 /// its `__rts_readline__` property.
@@ -180,17 +204,7 @@ extern "C" fn on_data(_e: u64, this: u64, chunk: u64, _b: u64, _c: u64, _d: u64)
     };
     let mut combined = buffered;
     combined.push_str(&chunk_text);
-    let mut lines = Vec::new();
-    let mut rest = combined.as_str();
-    while let Some(at) = rest.find('\n') {
-        let mut one = &rest[..at];
-        if let Some(stripped) = one.strip_suffix('\r') {
-            one = stripped;
-        }
-        lines.push(one.to_owned());
-        rest = &rest[at + 1..];
-    }
-    let remainder = rest.to_owned();
+    let (lines, remainder) = split_lines(&combined);
     let (line_name, emit_method) = entry::with_runtime(|context| {
         let remainder_value = entry::make_string(context, &remainder);
         entry::put_member(context, rl, "__buf__", remainder_value);

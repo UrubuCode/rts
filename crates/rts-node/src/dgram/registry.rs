@@ -93,11 +93,11 @@ pub(super) fn pump() {
         for event in events {
             match event {
                 DgramEvent::Listening => {
-                    super::emit(instance, "listening", absent, absent, absent);
+                    super::common::emit(instance, "listening", absent, absent, absent);
                 }
                 DgramEvent::BindFailed(message) => {
                     let error = error_value(&message, "EADDRINUSE");
-                    super::emit(instance, "error", error, absent, absent);
+                    super::common::emit(instance, "error", error, absent, absent);
                 }
                 DgramEvent::Message { data, address, port } => {
                     let (msg, rinfo) = entry::with_runtime(|context| {
@@ -114,14 +114,14 @@ pub(super) fn pump() {
                         entry::put_member(context, rinfo, "size", size_v);
                         (msg, rinfo)
                     });
-                    super::emit(instance, "message", msg, rinfo, absent);
+                    super::common::emit(instance, "message", msg, rinfo, absent);
                 }
                 DgramEvent::Error(message) => {
                     let error = error_value(&message, "ERR_SOCKET_DGRAM");
-                    super::emit(instance, "error", error, absent, absent);
+                    super::common::emit(instance, "error", error, absent, absent);
                 }
                 DgramEvent::Closed => {
-                    super::emit(instance, "close", absent, absent, absent);
+                    super::common::emit(instance, "close", absent, absent, absent);
                 }
             }
         }

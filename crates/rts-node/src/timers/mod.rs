@@ -460,3 +460,21 @@ pub fn source() -> entry::Pending {
         (None, false) => entry::Pending::Idle,
     }
 }
+
+/// Every timer/immediate this thread's table currently holds, as the Node
+/// handle-class name a program would see in `getActiveResourcesInfo()`.
+///
+/// Real state, read at call time — not a fixed list: `TIMERS` is exactly what
+/// [`pump`] and [`source`] already read, so this answers whatever they would
+/// find due or not-yet-due right now. [`Timer::immediate`] is the one field
+/// that decides which of the two names applies, because it is the one field
+/// that already distinguishes a `setImmediate` from a `setTimeout`/
+/// `setInterval` for every other purpose in this module (see its own doc).
+pub(crate) fn active_handles() -> Vec<&'static str> {
+    with_timers(|table| {
+        table
+            .values()
+            .map(|timer| if timer.immediate { "Immediate" } else { "Timeout" })
+            .collect()
+    })
+}

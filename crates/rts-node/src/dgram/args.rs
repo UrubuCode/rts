@@ -140,7 +140,16 @@ pub(super) fn send_call(connected: bool, a: u64, b: u64, c: u64, d: u64) -> Opti
         Some((offset, length)) => narrow(bytes, offset, length)?,
         None => bytes,
     };
+    // An absent port is only legal when `connect()` already fixed a peer —
+    // Node's own `send()` refuses `ERR_SOCKET_BAD_PORT` otherwise, and this
+    // used to accept it silently: `socket.send()` fell to `send(&bytes)`
+    // with no destination on a socket the OS never connected, either
+    // failing with an unobserved `'error'` event or hanging.
     let port = match port == absent {
+        true if !connected => {
+            crate::errors::socket_bad_port("Port", port);
+            return None;
+        }
         true => None,
         false => Some(checked_port(port)?),
     };

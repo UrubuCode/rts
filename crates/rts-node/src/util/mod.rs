@@ -79,13 +79,15 @@
 //!   identity instead of minting a second prototype.
 //! - **`getCallSites`.** No stack walk, and no `scriptId` concept to synthesize
 //!   one from.
-//! - **`getSystemErrorName` / `getSystemErrorMap` / `getSystemErrorMessage`.**
-//!   These read libuv's errno table, and that table is *not* platform-
-//!   independent the way the reference document claims: libuv defines
-//!   `UV_ENOENT` as `-ENOENT` on POSIX and as `-4058` on Windows. A table
-//!   embedded here would be right on one platform and silently wrong on the
-//!   other. `getSystemErrorMap` is refused twice over — nothing here can
-//!   construct a `Map`.
+//! - **`getSystemErrorMap` / `getSystemErrorMessage`.** `getSystemErrorName`
+//!   itself is now implemented — `system_errors.rs`, split by platform for the
+//!   reason its own doc comment gives: libuv's `UV_ENOENT` is `-ENOENT` on
+//!   POSIX and a hardcoded `-4058` on Windows, so one table would be right on
+//!   one platform and silently wrong on the other. `getSystemErrorMap` is
+//!   refused twice over even so — nothing here can construct a `Map`.
+//!   `getSystemErrorMessage` would need libuv's `uv_strerror` PROSE table
+//!   (`"no such file or directory"`, not the code), which is a second table
+//!   `system_errors.rs` does not carry and no test asks for yet.
 //! - **`setTraceSigInt`.** Installing a `SIGINT` handler is `node:process`'s,
 //!   and a second one would fight it.
 //! - **`transferableAbortController` / `transferableAbortSignal` /
@@ -169,6 +171,7 @@ mod legacy;
 mod promisify;
 mod signals;
 mod style;
+mod system_errors;
 mod types;
 mod values;
 mod wrap;
@@ -189,6 +192,7 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("parseEnv", style::parse_env),
         ("styleText", style::style_text),
         ("stripVTControlCharacters", style::strip_vt),
+        ("getSystemErrorName", system_errors::get_system_error_name),
         ("convertProcessSignalToExitCode", signals::convert_signal),
         ("deprecate", wrap::deprecate),
         ("callbackify", wrap::callbackify),

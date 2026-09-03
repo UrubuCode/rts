@@ -28,10 +28,27 @@
 //! would make `end` mean something different for `tracePromise` than for
 //! `traceSync`.
 //!
+//! # `traceSync`'s error path
+//!
+//! Node's own shape (checked against the reference): `start`, then `fn` inside
+//! an implicit try/finally — on success `context.result` is set and `end`
+//! publishes; on a throw `context.error` is set, `error` publishes, THEN `end`
+//! publishes (always, both paths), and the original throw is re-raised after.
+//! [`trace_sync`] below is that shape, over the three primitives
+//! `rts-core/README.md` rule 8 names: `entry::thrown()` asks whether `fn` left
+//! one behind, `entry::take_thrown()` reads it out (clearing the flag, per its
+//! own doc, because the caller — this function — is about to re-raise it), and
+//! `entry::throw_value()` does that re-raise. Nothing here tries to RESUME
+//! `fn`'s own execution, which is the wall `assert.rs` names and does not move;
+//! this only runs code strictly after `fn` has already finished one way or the
+//! other, which is the ordinary "ask before you look" shape every other native
+//! calling into JS in this crate already follows (`buffer/blob.rs::stream_start`
+//! is the nearest precedent).
+//!
 //! # Not implemented, by name
 //!
-//! `traceCallback` and `traceSync`'s error path — see
-//! [`crate::diagnostics_channel`]'s doc for why neither is expressible. The
+//! `traceCallback` — see
+//! [`crate::diagnostics_channel`]'s doc for why it is not expressible. The
 //! `hasSubscribers` aggregate is a data property refreshed by
 //! [`refresh_aggregates`] rather than a live getter, for the reason that doc
 //! also gives; a program that reaches past this module and mutates a
@@ -44,7 +61,7 @@ use super::{
     add_subscriber, channel_object, do_publish, is_callable, member, remove_subscriber, set_member,
     string_arg, subscriber_count,
 };
-use rts_core::entry::{self, Provided};
+use rts_core::entry::{self, Context, Provided};
 use std::sync::Mutex;
 
 /// The five channels a `TracingChannel` is made of, in the order Node names
@@ -55,7 +72,11 @@ const SUB_CHANNELS: [&str; 5] = ["start", "end", "asyncStart", "asyncEnd", "erro
 
 /// What every `TracingChannel` inherits. `traceCallback` is deliberately
 /// absent — see the module doc.
-const TRACING_METHODS: &[(&str, Provided)] = &[
+///
+/// `pub(super)` so [`super::channel_constructor`]'s sibling here
+/// ([`tracing_channel_constructor`]) can pass the SAME table `tracing_channel_fn`
+/// does — see that function's doc for why passing an empty one would be wrong.
+pub(super) const TRACING_METHODS: &[(&str, Provided)] = &[
     ("subscribe", tracing_subscribe),
     ("unsubscribe", tracing_unsubscribe),
     ("traceSync", trace_sync),
@@ -125,6 +146,25 @@ pub(super) extern "C" fn tracing_channel_fn(_e: u64, _this: u64, name_or_channel
     instance
 }
 
+/// `diagnostics_channel.TracingChannel` — never constructs anything for real
+/// ([`tracing_channel_fn`] is the only maker); exported so
+/// `tc instanceof TracingChannel` has a value to check against.
+///
+/// Passes [`TRACING_METHODS`] rather than an empty table, and is defined in
+/// THIS file (same as [`tracing_channel_fn`]'s own `make_prototype` call) —
+/// see [`super::channel_constructor`]'s doc for why both of those are what
+/// keep `make_prototype`'s cross-file collision panic from firing here.
+pub(super) fn tracing_channel_constructor(context: &mut Context) -> u64 {
+    let prototype = entry::make_prototype(context, "TracingChannel", TRACING_METHODS);
+    let ctor = entry::make_callable(context, tracing_channel_construct);
+    entry::put_member(context, ctor, "prototype", prototype);
+    ctor
+}
+
+extern "C" fn tracing_channel_construct(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    entry::undefined_value()
+}
+
 /// `tracingChannel.subscribe({ start?, end?, asyncStart?, asyncEnd?, error? })`.
 extern "C" fn tracing_subscribe(_e: u64, this: u64, subscribers: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
@@ -153,13 +193,28 @@ extern "C" fn tracing_unsubscribe(_e: u64, this: u64, subscribers: u64, _a1: u64
     entry::boolean_value(all_found)
 }
 
-/// `tracingChannel.traceSync(fn, context?, thisArg?)` — the returning path
-/// only; see the module doc for the throwing one.
+/// `tracingChannel.traceSync(fn, context?, thisArg?)` — see the module doc's
+/// "`traceSync`'s error path" section for the shape and the primitives this
+/// runs on.
 extern "C" fn trace_sync(_e: u64, this: u64, callback: u64, context_val: u64, this_arg: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
     let context_obj = trace_context(context_val);
     do_publish(member(this, "start"), context_obj);
     let result = entry::call(callback, this_arg, absent, absent, absent, absent);
+    if entry::thrown() != 0 {
+        // `fn` already finished (by throwing) before this line runs — nothing
+        // below resumes it, only reports what already happened. Taken before
+        // `error` publishes, matching Node's own `context.error = err` timing.
+        let error = entry::take_thrown();
+        set_member(context_obj, "error", error);
+        do_publish(member(this, "error"), context_obj);
+        do_publish(member(this, "end"), context_obj);
+        // Re-raised rather than left cleared: `take_thrown`'s own doc says the
+        // caller is about to do this, and a `traceSync` that swallowed the
+        // throw would turn `try { tc.traceSync(...) } catch {}` into dead code.
+        entry::throw_value(error);
+        return absent;
+    }
     set_member(context_obj, "result", result);
     do_publish(member(this, "end"), context_obj);
     result
