@@ -100,6 +100,55 @@ pub(super) fn omittable(
 
     let mut answer = Omission::default();
     for (name, function) in named {
+        // DECLARED EXACTLY ONCE IN THIS BODY.
+        //
+        // The candidate clause below used to carry the sentence "the two
+        // clauses above proved that every call to this name is inside this
+        // body, so the declaration in hand is the one every call reaches".
+        // The first half is true and the second does not follow from it:
+        // not being read as a value and not being captured say WHERE the
+        // calls are, never how many declarations they choose between.
+        // `helper_bindings` descends into sibling blocks, so one body can
+        // offer the same spelling twice with a DIFFERENT function under
+        // each, and `answer.local` is keyed by name — the second insert
+        // overwrote the first, and every call in the body, including the
+        // ones written inside the earlier block, reached the last one.
+        //
+        // # Why this counts declarations and not candidates
+        //
+        // Counting the entries `helper_bindings` returned is the version of
+        // this guard that was written first, and it is WRONG in the exact
+        // case the issue reports. That function filters as it collects (a
+        // rest parameter, a defaulted one), so a body holding two `nm`s of
+        // which only one is collectable counts ONE — the guard stays quiet
+        // and the survivor takes over every call site, which is the whole
+        // defect. `declarations_of` counts the name in the tree, which is
+        // the question actually being asked, and it is already the refusal
+        // `candidates` uses one door over for a map of the same shape.
+        //
+        // Refused rather than resolved per block: substituting the right
+        // one needs each call site attributed to the declaration whose
+        // block encloses it, and this analysis runs ONCE for the whole
+        // body, before any of it is emitted and before there is a block to
+        // ask about. A per-block answer is a different pass, not a stricter
+        // version of this one.
+        //
+        // The cost is the substitution of a helper whose spelling the same
+        // body spends twice — which `bench/analytic.ts` does not do (its
+        // four `c`s are four separate function bodies, which
+        // `local_candidate` already covers) and which the whole-program map
+        // refused anyway before this pass existed.
+        //
+        // It stood because it was a wrong ANSWER and not a crash: issue
+        // #2617 is a ~950-line protobuf decoder in which a field NUMBER
+        // came out where that field VALUE belonged, no error raised at all.
+        // Where the two declarations close over different names it surfaces
+        // as a `ReferenceError` instead — the other body emitted into this
+        // block environment, which does not hold what that body reads.
+        // `tests/claude-helper-declarado-duas-vezes.test.ts` pins both.
+        if super::inline::declarations_of(body, name) != 1 {
+            continue;
+        }
         // NEVER READ AS A VALUE. `g(f)`, `f.name`, `const h = f`, `[f]`,
         // `typeof f` and `f?.()` are all reads and all refuse; only the callee
         // of a direct call is not one, because a call is the single use a

@@ -149,6 +149,27 @@ What the extension may substitute, and why each refusal exists, is on
 pins all of it and passes on the binary before the change as well as after,
 which is what a semantics test has to do.
 
+**The second failure of (1) came back on 2026-09-03, in the pass that was
+built to avoid the map.** "A name declared twice was admitted" is the
+sentence above; `omit::omittable` then reasoned that it did not need
+`declarations_of` at all, because proving every call is inside this body
+makes the name unambiguous *here*. That is true of other functions and false
+of this one: `helper_bindings` descends into sibling blocks, so one body can
+declare `nm` twice with a different function under each, and a map keyed by
+name keeps the last. Every call in the body then ran the last body — issue
+#2617, a protobuf decoder answering a field's number where its value
+belonged, with no error raised.
+
+Two things about it are worth keeping. **The first guard written for it
+counted the wrong thing**: the entries `helper_bindings` returned, which is
+a filtered list, so a body with two `nm`s of which one is not collectable
+counted ONE and the guard stayed quiet — the half of the defect the issue
+actually reported. Counting declarations in the tree is the question, and
+`declarations_of` already asked it one door over. **And (4) was answered
+without a benchmark**: the IR emitted for all nine files in `bench/` is
+byte-identical before and after, which is a stronger statement than two
+close numbers — the generated code did not change, so the clock cannot have.
+
 ---
 
 ## Working on this crate
