@@ -2,7 +2,7 @@
 //! `setLocalAddress` — the per-process DNS bookkeeping both `dns` and
 //! `dns.promises` read and write.
 
-use super::common::string_value;
+use super::common::{parse_server_addr, string_value};
 use rts_core::entry;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -63,7 +63,7 @@ pub(super) extern "C" fn set_servers(_e: u64, _this: u64, servers: u64, _a1: u64
         return entry::undefined_value();
     };
     for item in &entries {
-        if parse_server(item).is_none() {
+        if parse_server_addr(item).is_none() {
             return entry::undefined_value();
         }
     }
@@ -71,18 +71,10 @@ pub(super) extern "C" fn set_servers(_e: u64, _this: u64, servers: u64, _a1: u64
     entry::undefined_value()
 }
 
-/// Whether a server string (`ip`, `ip:port`, `[ipv6]`, `[ipv6]:port`)
-/// parses to a real address — the one thing `setServers` validates.
-fn parse_server(text: &str) -> Option<IpAddr> {
-    let bare = text
-        .strip_prefix('[')
-        .and_then(|rest| rest.split(']').next())
-        .unwrap_or_else(|| text.split(':').next().unwrap_or(text));
-    IpAddr::from_str(bare).ok()
-}
-
 /// The strings an array-shaped argument holds, `None` if it is not one.
-fn array_texts(value: u64) -> Option<Vec<String>> {
+/// `pub(super)`: `resolver_class.rs`'s `Resolver#setServers` reads the same
+/// argument shape.
+pub(super) fn array_texts(value: u64) -> Option<Vec<String>> {
     if !entry::is_array(value) {
         return None;
     }

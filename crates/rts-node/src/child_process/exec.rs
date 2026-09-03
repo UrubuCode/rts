@@ -33,7 +33,7 @@
 
 use rts_core::entry;
 
-use super::shared::{option_value, string, text};
+use super::shared::{string, text};
 
 /// `exec(command[, options][, callback])`.
 ///

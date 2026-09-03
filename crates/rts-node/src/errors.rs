@@ -61,6 +61,22 @@ pub(crate) fn invalid_arg_instance(name: &str, expected: &str, actual: u64) {
     entry::invalid_arg_instance(name, expected, actual);
 }
 
+/// Raises `TypeError [ERR_INVALID_IP_ADDRESS]`.
+///
+/// The one synchronous throw `node:dns` raises — see that module's own doc,
+/// "Errors are plain objects, not `Error` instances", for why every OTHER
+/// failure in it (a lookup/resolve that fails asynchronously) stays a plain
+/// object instead: `dns.reverse(ip, cb)` and `dns.Resolver#setServers`/
+/// `#setLocalAddress` are documented to throw synchronously in real Node,
+/// which is a different contract from an async callback's `err` argument,
+/// and this crate CAN build a real catchable error for it via
+/// [`entry::make_named_error`]/[`entry::throw_value`] — the pair `raise`
+/// already uses here, once thought (per that module's now-stale claim) not
+/// to exist in this crate's reach at all.
+pub(crate) fn invalid_ip_address(address: &str) {
+    raise("TypeError", "ERR_INVALID_IP_ADDRESS", &format!("Invalid IP address: {address}"));
+}
+
 /// Raises `TypeError [ERR_MISSING_ARGS]`.
 ///
 /// `names` are quoted and joined with `or`, which is Node's phrasing for the

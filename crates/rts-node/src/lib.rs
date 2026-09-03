@@ -353,6 +353,7 @@ pub fn install(context: &mut Context) {
     provided.push("timers/promises");
     provided.push("assert/strict");
     provided.push("dns/promises");
+    provided.push("readline/promises");
     let modules_module = module::namespace(context, &provided);
     rts_core::entry::declare_module(context, "node:module", modules_module);
     rts_core::entry::declare_module(context, "module", modules_module);
@@ -434,6 +435,17 @@ pub fn install(context: &mut Context) {
     let resolving = rts_core::entry::get_member(context, names, "promises");
     rts_core::entry::declare_module(context, "node:dns/promises", resolving);
     rts_core::entry::declare_module(context, "dns/promises", resolving);
+
+    // `node:readline/promises` the same way: `readline::namespace` already
+    // builds it and carries it as `.promises`, the same member real Node has
+    // exposed on `require('readline')` since v17 — read out rather than
+    // rebuilt, so `require('readline').promises.createInterface ===
+    // (await import('node:readline/promises')).createInterface` holds instead
+    // of naming two objects that happen to agree today.
+    let lines = rts_core::entry::module_at_name(context, "node:readline");
+    let interactive = rts_core::entry::get_member(context, lines, "promises");
+    rts_core::entry::declare_module(context, "node:readline/promises", interactive);
+    rts_core::entry::declare_module(context, "readline/promises", interactive);
 
     // `node:path/posix` and `node:path/win32` are their own specifiers too, and
     // they resolve to the objects `path` already carries under those names — the

@@ -41,30 +41,44 @@
 //! explicitly rather than working around it with something that looks like
 //! it catches and does not.
 //!
+//! # `bind`/`intercept`/routed `add` — the "no environment slot" premise was stale
+//!
+//! This doc used to say [`bind`] and [`intercept`] were unbuildable because a
+//! native cannot mint a closure. That was true of
+//! [`rts_core::entry::make_callable`] and false of the surface:
+//! [`rts_core::entry::closure_new`] takes a code address AND an environment
+//! and delivers the environment back as the callee's first argument —
+//! [`crate::async_hooks`]'s `local.rs`/`resource.rs` (`AsyncLocalStorage.bind`/
+//! `.snapshot`, `AsyncResource.prototype.bind`) reached the identical shape
+//! first, and this module reuses the same trick rather than re-deriving it.
+//! So `bind` and `intercept` ARE built — see their own docs for exactly what
+//! each does and does not catch.
+//!
+//! The second premise this doc carried was also stale: rerouting `add`/
+//! `remove` needs reading a value's own inherited method WITHOUT invoking it,
+//! and that claimed no accessor for it existed. [`rts_core::entry::get_member`]
+//! already does exactly this — a plain property read that walks the prototype
+//! chain, which is how every other native in this crate already reads
+//! `.name`/`.length` off values it did not build — nothing new was missing,
+//! the premise had just never been checked against that function. [`add`] now
+//! installs a real `emit` override the first time any domain claims an
+//! emitter; see its own doc for the one thing that override still cannot do.
+//!
+//! # What none of the three can do
+//!
+//! [`bind`]'s wrapper pushes this domain, calls the callback, pops — same
+//! push/call/pop as [`run`], and the same limitation: a throw INSIDE the
+//! callback is an ordinary throw a native cannot intercept, so it propagates
+//! uncaught rather than reaching `'error'`, and the pushed frame is left
+//! behind. [`intercept`] sidesteps that for its OWN documented case (an
+//! error-shaped first argument, checked before the wrapped callback is ever
+//! called — no unwind needed) but inherits the same gap for a throw from
+//! INSIDE the callback it does end up calling. [`add`]'s routed `emit` reaches
+//! `'error'` events specifically; every other event still goes to the real
+//! original `emit`, unaffected.
+//!
 //! # Not implemented, by name
 //!
-//! - **`bind`/`intercept`.** Each needs to hand back a NEW callable closing
-//!   over `(this domain, the wrapped callback)`.
-//!   [`rts_core::entry::make_callable`] returns a fixed function pointer
-//!   with no environment slot to hold either — the exact gap
-//!   [`crate::async_hooks`]'s module doc names for
-//!   `AsyncLocalStorage.bind`/`.snapshot`. Even built, both would inherit the
-//!   `run` limitation above: the whole point of `intercept` is catching an
-//!   error-first argument, which needs no throw-catching and DOES work here
-//!   (see [`intercept`]) — but wrapping an arbitrary throw from inside the
-//!   wrapped callback does not, for the same reason `run` cannot.
-//! - **`domain.add`/`.remove` actually rerouting another emitter's `'error'`.**
-//!   Node patches the bound emitter so ITS `emit('error', ...)` reaches the
-//!   domain instead of throwing. Doing that here would mean overriding
-//!   `emit` on the target instance with a wrapper that still reaches the
-//!   ORIGINAL `EventEmitter.prototype.emit` for every other event — and this
-//!   crate's entry surface has no way to read a value's own inherited method
-//!   without invoking it (no prototype-walk accessor is exposed to a host
-//!   module; see `entry::modules`'s own inventory). `add`/`remove` are built
-//!   as real bookkeeping (`members` gains/loses the emitter, matching
-//!   Node's "belongs to at most one domain" rule) with no routing effect —
-//!   named here rather than silently doing nothing under a `bind`-shaped
-//!   name.
 //! - **`process.domain`.** Wiring it needs editing `crate::process`, which
 //!   this pass does not own.
 //! - **Promise `.then`/`.catch` registration-time capture, implicit binding
@@ -72,6 +86,10 @@
 //!   another module's call site this module cannot reach without editing it.
 //! - **`domain.dispose()`.** Removed from Node itself since v8; not
 //!   resurrected here either.
+//! - **A `TypeError` for a non-function `bind`/`intercept` argument.**
+//!   `undefined` instead — the same trade every member of this crate makes
+//!   for the reason [`run`]'s doc gives: nothing here can raise a catchable
+//!   exception.
 
 use rts_core::entry::{self, Provided};
 use std::cell::{Cell, RefCell};
@@ -116,6 +134,37 @@ fn with_members<T>(body: impl FnOnce(&mut HashMap<u64, Vec<u64>>) -> T) -> T {
     let mut guard = MEMBERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     body(guard.get_or_insert_with(HashMap::new))
 }
+
+/// `emitter -> its REAL `emit`, captured once`, the first time any domain
+/// [`add`]s it. Kept so the routing wrapper installed on the emitter (see
+/// [`add`]'s doc) can still reach it — without this, overriding `.emit` would
+/// have nothing left to call for every event that is not `'error'`.
+static EMIT_ORIGINALS: Mutex<Option<HashMap<u64, u64>>> = Mutex::new(None);
+
+fn with_originals<T>(body: impl FnOnce(&mut HashMap<u64, u64>) -> T) -> T {
+    let mut guard = EMIT_ORIGINALS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    body(guard.get_or_insert_with(HashMap::new))
+}
+
+/// `emitter -> the domain that currently owns it`. Separate from [`MEMBERS`]
+/// (which answers "this domain's emitters") because the routing wrapper needs
+/// the inverse question ("this emitter's domain") on every `emit` call, and
+/// scanning every domain's list for one emitter on every event a program fires
+/// is the cost a second table avoids.
+static OWNER: Mutex<Option<HashMap<u64, u64>>> = Mutex::new(None);
+
+fn with_owner<T>(body: impl FnOnce(&mut HashMap<u64, u64>) -> T) -> T {
+    let mut guard = OWNER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    body(guard.get_or_insert_with(HashMap::new))
+}
+
+// `MEMBERS`, `EMIT_ORIGINALS` and `OWNER` all hold live JS values (emitters,
+// domains, an `emit` function) in a Rust table the collector's root scan
+// cannot see — the same class of exposure `crate::async_hooks`'s module doc
+// names for its own frame stacks (`docs/engine/lost-roots.md`). Reported
+// rather than worked around, for the same reason that doc gives: a shadow
+// copy kept reachable through some other object would be a second answer to
+// what these tables already are.
 
 fn active() -> Option<u64> {
     STACK.with(|stack| stack.borrow().last().copied())
@@ -252,10 +301,20 @@ fn rebuild_members(context: &mut entry::Context, this: u64) {
     entry::put_member(context, this, "members", members);
 }
 
-/// `domain.add(emitter)` — bookkeeping only; see the module doc for why no
-/// routing effect follows from it. An emitter belongs to at most one domain:
-/// added here, it is first dropped from every other domain's list, matching
-/// the spec.
+/// `domain.add(emitter)` — bookkeeping (an emitter belongs to at most one
+/// domain: added here, it is first dropped from every other domain's list),
+/// AND, the first time any domain ever claims this emitter, a real `emit`
+/// override.
+///
+/// [`ensure_routed`] is what makes the override real rather than a second
+/// no-op: it captures the emitter's genuine `emit` — own or INHERITED, which
+/// [`entry::get_member`]'s ordinary property read already walks the
+/// prototype chain to find, the accessor the module doc used to say did not
+/// exist — once, in [`EMIT_ORIGINALS`], then installs a wrapper as an OWN
+/// property of the emitter. An own property shadows the prototype's `emit`
+/// for THIS instance only, so every other `EventEmitter` on the chain is
+/// unaffected, and the wrapper still reaches the captured original for every
+/// event that is not `'error'`.
 extern "C" fn add(_e: u64, this: u64, emitter: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     with_members(|table| {
         for members in table.values_mut() {
@@ -263,30 +322,173 @@ extern "C" fn add(_e: u64, this: u64, emitter: u64, _b: u64, _c: u64, _d: u64) -
         }
         table.entry(this).or_default().push(emitter);
     });
+    with_owner(|table| {
+        table.insert(emitter, this);
+    });
+    ensure_routed(emitter);
     entry::with_runtime(|context| rebuild_members(context, this));
     entry::undefined_value()
 }
 
-/// `domain.remove(emitter)` — the inverse of [`add`], by identity.
+/// `domain.remove(emitter)` — the inverse of [`add`]'s bookkeeping, by
+/// identity. The `emit` override [`add`] installed is left in place rather
+/// than restored: with no [`OWNER`] entry left for this emitter, [`routed_emit`]
+/// finds none and falls straight through to the real original on every event,
+/// which is a harmless passthrough — restoring `emit` would additionally have
+/// to prove nothing reassigned it in between, which nothing here tracks.
 extern "C" fn remove(_e: u64, this: u64, emitter: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     with_members(|table| {
         if let Some(members) = table.get_mut(&this) {
             members.retain(|&held| held != emitter);
         }
     });
+    with_owner(|table| {
+        if table.get(&emitter) == Some(&this) {
+            table.remove(&emitter);
+        }
+    });
     entry::with_runtime(|context| rebuild_members(context, this));
     entry::undefined_value()
 }
 
-/// `domain.bind(callback)` — refused; see the module doc's `bind`/`intercept`
-/// entry for the environment-capture gap. Answers `undefined` rather than a
-/// half-working wrapper.
-extern "C" fn bind(_e: u64, _this: u64, _callback: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    entry::undefined_value()
+/// Installs [`routed_emit`] on `emitter`, once — a second [`add`] of the same
+/// emitter, by this domain or another, must not wrap an already-wrapped
+/// `emit` a second time, or `'error'` routing would have to fall through N
+/// layers of "not an error, call the inner one" to reach the real listener
+/// dispatch.
+fn ensure_routed(emitter: u64) {
+    let already = with_originals(|table| table.contains_key(&emitter));
+    if already {
+        return;
+    }
+    let original =
+        entry::with_runtime(|context| entry::get_member(context, emitter, "emit"));
+    if !entry::with_runtime(|context| entry::is_callable_in(context, original)) {
+        // Not an `EventEmitter` (or nothing ever wired `emit` on it) — there is
+        // nothing to route through, and nothing to route TO either.
+        return;
+    }
+    with_originals(|table| {
+        table.insert(emitter, original);
+    });
+    // `emitter` itself IS the environment: it is already the exact tagged
+    // value [`routed_emit`] needs to look itself up in [`OWNER`]/
+    // [`EMIT_ORIGINALS`], so there is nothing to wrap it in.
+    let wrapper = entry::closure_new(routed_emit as *const () as usize as i64, emitter);
+    entry::with_runtime(|context| entry::put_member(context, emitter, "emit", wrapper));
 }
 
-/// `domain.intercept(callback)` — same refusal as [`bind`], for the same
-/// reason.
-extern "C" fn intercept(_e: u64, _this: u64, _callback: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    entry::undefined_value()
+/// The `emit` override [`ensure_routed`] installs. `'error'` with a live
+/// [`OWNER`] entry is routed to the owning domain instead of reaching the
+/// real listener dispatch (matching Node: the domain intercepts it, the
+/// emitter's own `'error'` listeners — if any — are not additionally called);
+/// every other event, and `'error'` on an emitter nobody currently owns,
+/// reaches the real original unchanged.
+extern "C" fn routed_emit(
+    environment: u64,
+    call_this: u64,
+    event: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+) -> u64 {
+    let emitter = environment;
+    let is_error =
+        entry::with_runtime(|context| entry::string_in(context, event)).as_deref() == Some("error");
+    if is_error {
+        if let Some(domain) = with_owner(|table| table.get(&emitter).copied()) {
+            emit_error(domain, a0);
+            return entry::boolean_value(true);
+        }
+    }
+    let original = with_originals(|table| table.get(&emitter).copied()).unwrap_or(entry::undefined_value());
+    entry::call(original, call_this, event, a0, a1, a2)
+}
+
+/// `domain.emit('error', err)` on `domain` — the routing primitive [`intercept`]
+/// and [`routed_emit`] both end in. Reads `emit` back off the domain itself
+/// rather than assuming a fixed one: `Domain.prototype` chains onto the real
+/// `EventEmitter.prototype` (see [`namespace`]), so an ordinary property read
+/// finds it, own or inherited, the same way [`ensure_routed`] finds an
+/// emitter's.
+fn emit_error(domain: u64, err: u64) {
+    let emit = entry::with_runtime(|context| {
+        let candidate = entry::get_member(context, domain, "emit");
+        entry::is_callable_in(context, candidate).then_some(candidate)
+    });
+    match emit {
+        Some(emit) => {
+            let label = entry::with_runtime(|context| entry::make_string(context, "error"));
+            let undefined = entry::undefined_value();
+            entry::call(emit, domain, label, err, undefined, undefined);
+        }
+        None => eprintln!(
+            "node:domain: an error reached a domain whose own `emit` is not callable — nothing was routed (Domain.prototype should chain onto the real EventEmitter.prototype; see the module doc)"
+        ),
+    }
+}
+
+/// `domain.bind(callback)` — hands back a wrapper with `callback`'s own
+/// signature that runs it with THIS domain active (`enter`/exit around the
+/// call, same as [`run`]). See the module doc for what it does not do: catch
+/// a throw from inside `callback`.
+extern "C" fn bind(_e: u64, this: u64, callback: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    if !entry::with_runtime(|context| entry::is_callable_in(context, callback)) {
+        return entry::undefined_value();
+    }
+    let environment = entry::make_array(vec![this, callback]);
+    entry::closure_new(bound as *const () as usize as i64, environment)
+}
+
+/// The wrapper [`bind`] hands back.
+extern "C" fn bound(environment: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let domain = entry::element_at(environment, entry::make_number(0.0));
+    let callback = entry::element_at(environment, entry::make_number(1.0));
+    STACK.with(|stack| stack.borrow_mut().push(domain));
+    let result = entry::call(callback, this, a0, a1, a2, a3);
+    STACK.with(|stack| {
+        stack.borrow_mut().pop();
+    });
+    result
+}
+
+/// `domain.intercept(callback)` — hands back a `(err, ...rest) => R` wrapper.
+/// A non-null/non-undefined `err` is routed to `'error'` DIRECTLY —
+/// `callback` is never called in that case, so this half needs no
+/// throw-catching at all: the decision is made by reading `err`, before
+/// anything runs. Otherwise runs exactly like [`bind`]'s wrapper, with the
+/// same limitation for a throw from inside `callback`.
+extern "C" fn intercept(_e: u64, this: u64, callback: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    if !entry::with_runtime(|context| entry::is_callable_in(context, callback)) {
+        return entry::undefined_value();
+    }
+    let environment = entry::make_array(vec![this, callback]);
+    entry::closure_new(intercepted as *const () as usize as i64, environment)
+}
+
+/// The wrapper [`intercept`] hands back. `err` costs one of the four argument
+/// slots, so only three of `callback`'s own are left to forward — the same
+/// four-slot trade the reference doc's own type (`Parameters<F>` minus one)
+/// already implies.
+extern "C" fn intercepted(
+    environment: u64,
+    this: u64,
+    err: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+) -> u64 {
+    let domain = entry::element_at(environment, entry::make_number(0.0));
+    let undefined = entry::undefined_value();
+    if err != undefined && err != entry::null_value() {
+        emit_error(domain, err);
+        return undefined;
+    }
+    let callback = entry::element_at(environment, entry::make_number(1.0));
+    STACK.with(|stack| stack.borrow_mut().push(domain));
+    let result = entry::call(callback, this, a0, a1, a2, undefined);
+    STACK.with(|stack| {
+        stack.borrow_mut().pop();
+    });
+    result
 }

@@ -10,14 +10,21 @@
 //! *when* a continuation runs, which is a different concern, so the frame
 //! stacks in [`local`] and [`resource`] are new state rather than a second copy
 //! of something. Searched `rts_core::entry` (`entry/mod.rs`'s `Context`
-//! inventory and all of `entry/modules.rs`) for a store stack, an id counter, a
-//! callable carrying captured state, and a JS-visible `throw`: none of the four
-//! exists. Searched this crate for the argument-shift helper Node's overloads
-//! need and found `crate::fs::options_and_listener`, which is `pub(crate)` —
-//! nothing here needs the shift (no member below is `fn(x[, options], cb)`), so
-//! it is named rather than copied. `perf_hooks`, `events`, `domain` and
-//! `fs/mod.rs` all name the same missing capability this module hits again: a
-//! native callable has no environment slot, so a native cannot mint a closure.
+//! inventory and all of `entry/modules.rs`) for a store stack, an id counter,
+//! and a JS-visible `throw`: neither of those two exists.
+//!
+//! **The third thing this search used to report missing — a callable carrying
+//! captured state — does exist, and this doc previously said otherwise.**
+//! [`rts_core::entry::closure_new`] takes a code address AND an environment
+//! and delivers the environment back as the callee's own first argument;
+//! `perf_hooks::timerify` and `util::promisify` were already built on it when
+//! this line still said "no native here mints a closure". `bind` and
+//! `snapshot`, below, are what re-running the search against that function
+//! rather than `make_callable` (which really is a bare pointer, and really has
+//! none) produced. Searched this crate for the argument-shift helper Node's
+//! overloads need and found `crate::fs::options_and_listener`, which is
+//! `pub(crate)` — nothing here needs the shift (no member below is
+//! `fn(x[, options], cb)`), so it is named rather than copied.
 //!
 //! # What decides whether a member is built here
 //!
@@ -25,7 +32,10 @@
 //!
 //! `AsyncLocalStorage` and `AsyncResource` scope things *synchronously* — push,
 //! call, pop — and every part of that is Rust plus
-//! [`rts_core::entry::call`]. They are built.
+//! [`rts_core::entry::call`]. They are built, `bind`/`snapshot` included: a
+//! bound function or a snapshot runner is the identical push/call/pop, just
+//! wrapped in a closure so the push can happen LATER, at a call this crate
+//! still owns, rather than immediately.
 //!
 //! `createHook`'s callbacks are supposed to fire around **every** async
 //! resource in the process: every timer tick, every promise settle, every
@@ -53,12 +63,7 @@
 //!
 //! # Not implemented, by name
 //!
-//! `AsyncLocalStorage.bind` and `AsyncLocalStorage.snapshot` (static),
-//! `asyncResource.bind` and `AsyncResource.bind` (static) — each must hand
-//! back a NEW callable carrying a captured context, and
-//! [`rts_core::entry::make_callable`] takes a bare `extern "C" fn` with no
-//! environment slot to hold one; the four modules named under Reuse-check
-//! above hit the same wall. `scope[Symbol.dispose]` — the host surface names
+//! `scope[Symbol.dispose]` — the host surface names
 //! properties with strings ([`rts_core::entry::put_member`]) and mints no
 //! symbol key, so `using scope = als.withScope(x)` cannot be made to work;
 //! `withScope` answers a `RunScope` with a plain `dispose()`, which
@@ -82,7 +87,11 @@
 //! honoured. Arguments past the second are dropped by `run`, `exit` and
 //! `runInAsyncScope`: a native has four argument slots, spent on the receiver
 //! shift plus the callback, and Node's `...args` tails have nowhere to go —
-//! stated rather than silently truncated.
+//! stated rather than silently truncated. The `bind`/`snapshot` family does
+//! NOT share this limit: what they capture (the target, the resource, a
+//! receiver, a whole frame stack) lives in the closure's ENVIRONMENT rather
+//! than an argument slot, so all four real slots stay free for the call the
+//! wrapper actually forwards.
 //!
 //! # GC
 //!
@@ -91,6 +100,14 @@
 //! registers an extra root source, so a store held only by a frame is at risk
 //! across a collection. Reported rather than worked around: a shadow copy on
 //! some reachable object would be a second answer to what the store is.
+//!
+//! `local::static_bind`/`static_snapshot` clone [`local`]'s stack into that
+//! same unrooted `Vec` before copying it into a real JS array — so the read
+//! is exposed to exactly the window every other reader of that stack already
+//! is, no better and no worse. Once built, the array is different: it is an
+//! ordinary reachable value hanging off the closure's environment, so a
+//! CAPTURED snapshot is, if anything, safer across a collection for the rest
+//! of its life than the live stack it was copied from.
 
 mod hooks;
 mod local;

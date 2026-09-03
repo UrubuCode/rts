@@ -75,13 +75,24 @@
 //! call and settled by the callback form's own listeners, which is what keeps
 //! "did this stream finish" a question with one answer.
 //!
-//! `stream/consumers`, `compose`,
-//! `isErrored`/`isReadable`, `addAbortSignal`,
-//! `setDefaultHighWaterMark`, `Readable.fromWeb`/`toWeb`,
-//! `Writable.fromWeb`/`toWeb`, `Duplex.from`/`fromWeb`/`toWeb`, `.wrap()`,
-//! `.compose()`, the whole async-iteration helper family
-//! (`map`/`filter`/`forEach`/`toArray`/`reduce`/…), `Symbol.asyncDispose`,
-//! `_writev`, `unshift`, `wrap`.
+//! ~~`isErrored`/`isReadable`/`isDisturbed`~~ — predicates over the same data
+//! properties every class here already keeps in sync (`util.rs`'s own doc for
+//! each). ~~`addAbortSignal`~~ — `abort_signal.rs`, the same
+//! closure-plus-`EventTarget` recipe `events.rs::addAbortListener` already
+//! worked out, aimed at `.destroy()` instead of a listener call.
+//! ~~`Readable.fromWeb`/`toWeb`, `Writable.fromWeb`/`toWeb`,
+//! `Duplex.fromWeb`/`toWeb`~~ — `web_bridge.rs`: an adapter between two class
+//! families that both already exist, not a third one. ~~`.wrap()`~~ —
+//! `wrap.rs`, the streams-v1 adapter (forwards `data`/`end`/`error`/`close`/
+//! `destroy`; does not copy the legacy object's own extra methods — its own
+//! doc says so). ~~the async-iteration helper family
+//! (`map`/`filter`/`forEach`/`toArray`/`reduce`/`some`/`every`/`find`/`drop`/
+//! `take`/`flatMap`)~~ — `helpers.rs`, over the SAME
+//! `[Symbol.asyncIterator]()` `flowing.rs` already builds; its own doc states
+//! what `options.signal`/`options.concurrency` do not do.
+//!
+//! `stream/consumers`, `compose`, `Duplex.from`, `.compose()`,
+//! `setDefaultHighWaterMark`, `Symbol.asyncDispose`, `_writev`, `unshift`.
 //!
 //! `Symbol.asyncIterator` used to be on that list, refused for want of "a
 //! `Promise` a native can construct and drive". That was stale rather than
@@ -91,13 +102,17 @@
 //! for reasons that stopped being true. `pipeline`/`finished` are capped at four
 //! call slots total — see `util.rs`'s own doc.
 
+mod abort_signal;
 mod common;
 mod duplex;
 mod flowing;
+mod helpers;
 mod promises;
 mod readable;
 mod util;
 mod web;
+mod web_bridge;
+mod wrap;
 mod writable;
 
 use rts_core::entry::{self, Context, Provided};
@@ -130,9 +145,25 @@ pub fn namespace(context: &mut Context) -> u64 {
     let readable_ctor = class_ctor(context, readable::construct, readable::prototype);
     let from_fn = entry::make_callable(context, util::readable_from);
     entry::put_member(context, readable_ctor, "from", from_fn);
+    // `Readable.fromWeb`/`.toWeb` — see `web_bridge.rs`'s module doc for why
+    // these are an adapter over two already-real class families rather than a
+    // third stream implementation.
+    let readable_from_web = entry::make_callable(context, web_bridge::readable_from_web);
+    entry::put_member(context, readable_ctor, "fromWeb", readable_from_web);
+    let readable_to_web = entry::make_callable(context, web_bridge::readable_to_web);
+    entry::put_member(context, readable_ctor, "toWeb", readable_to_web);
 
     let writable_ctor = class_ctor(context, writable::construct, writable::prototype);
+    let writable_from_web = entry::make_callable(context, web_bridge::writable_from_web);
+    entry::put_member(context, writable_ctor, "fromWeb", writable_from_web);
+    let writable_to_web = entry::make_callable(context, web_bridge::writable_to_web);
+    entry::put_member(context, writable_ctor, "toWeb", writable_to_web);
+
     let duplex_ctor = class_ctor(context, duplex::duplex_construct, duplex::duplex_prototype);
+    let duplex_from_web = entry::make_callable(context, web_bridge::duplex_from_web);
+    entry::put_member(context, duplex_ctor, "fromWeb", duplex_from_web);
+    let duplex_to_web = entry::make_callable(context, web_bridge::duplex_to_web);
+    entry::put_member(context, duplex_ctor, "toWeb", duplex_to_web);
     let transform_ctor = class_ctor(context, duplex::transform_construct, duplex::transform_prototype);
     let pass_through_ctor = class_ctor(context, duplex::pass_through_construct, duplex::pass_through_prototype);
 
@@ -142,6 +173,10 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("duplexPair", duplex::duplex_pair),
         ("getDefaultHighWaterMark", util::get_default_high_water_mark),
         ("isWritable", util::is_writable),
+        ("isReadable", util::is_readable),
+        ("isErrored", util::is_errored),
+        ("isDisturbed", util::is_disturbed),
+        ("addAbortSignal", abort_signal::add_abort_signal),
     ];
     let namespace = entry::make_namespace(context, members);
     entry::put_member(context, namespace, "Stream", stream_ctor);

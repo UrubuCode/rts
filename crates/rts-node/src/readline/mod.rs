@@ -1,6 +1,7 @@
 //! `node:readline` — line-splitting over a `Readable`, and cursor-control
-//! utilities over a `Writable`. `node:readline/promises` is NOT implemented
-//! here; see "Not implemented, by name".
+//! utilities over a `Writable`. `node:readline/promises`'s `Interface` and
+//! `createInterface` are [`promises`], not here — see that module's own doc
+//! for what of `readline/promises` this covers and what it still does not.
 //!
 //! # Reuse-check
 //!
@@ -18,7 +19,11 @@
 //! `crate::events`'s already-registered one — the exact pairing
 //! `make_prototype`/`set_prototype_in` documents, and the same shape
 //! `tty.rs`'s `ReadStream`/`WriteStream` already use for one shared
-//! prototype per class. No second emitter is written here.
+//! prototype per class. No second emitter is written here. [`promises`]'s own
+//! `Interface` prototype chains onto THIS module's the same way, for the same
+//! reason: everything but `.question()` is identical between the two, and a
+//! second `close`/`pause`/`resume`/… would be a second answer to what closing
+//! one does.
 //!
 //! # The borrow this module has to get right
 //!
@@ -32,24 +37,20 @@
 //!
 //! # Why a listener can find "its" `Interface`
 //!
-//! A native callable has no closure slot (see `events.rs`'s doc on
-//! `rawListeners`) — one function pointer cannot carry which `Interface`
-//! subscribed. So the `Interface` is stashed as a property on `input`
-//! itself, `__rts_readline__`, at subscription time, and [`on_data`]/[`on_end`]
-//! read it back off `this` (which `emit` binds to the emitter — `input` —
-//! not to the `Interface`). State beside the object it is reachable from,
-//! the same shape `rts-std`'s `expect()` uses for its received value.
+//! A native callable given to `make_callable` has no closure slot — one
+//! function pointer cannot carry which `Interface` subscribed. So the
+//! `Interface` is stashed as a property on `input` itself, `__rts_readline__`,
+//! at subscription time, and [`on_data`]/[`on_end`] read it back off `this`
+//! (which `emit` binds to the emitter — `input` — not to the `Interface`).
+//! State beside the object it is reachable from, the same shape `rts-std`'s
+//! `expect()` uses for its received value. [`promises::question`] does carry a
+//! closure slot (`rts_core::entry::closure_new`, minted with the promise as
+//! its environment) — the two needs are different: this one has to be found
+//! FROM an object it was not given at registration time, that one is given
+//! directly to `once('line', …)` and never needs finding again.
 //!
 //! # Not implemented, by name
 //!
-//! - **`node:readline/promises`** in full: `Interface.question()`'s promise
-//!   form, `Symbol.asyncIterator`, and `readlinePromises.Readline.commit()`
-//!   all need a Promise that resolves LATER, from a native callback — this
-//!   crate's entry surface can build an already-settled promise
-//!   (`entry::settled`) but has no executor-style constructor, the same gap
-//!   `node:events`' `events.on`/`events.once` already document. Refused
-//!   rather than faked with a promise that resolves before the answer
-//!   exists.
 //! - **`emitKeypressEvents`**, and every terminal-mode (`terminal: true`)
 //!   line-editing keybinding (history navigation, kill/yank, cursor-by-word)
 //!   — all need raw mode, which `tty.rs` already refuses.
@@ -64,10 +65,8 @@
 //! - **`rl.write(data, key)`** — the `key` form needs raw-mode key injection;
 //!   only the plain string form is implemented.
 //! - **`options.signal` / `QuestionOptions.signal`** — `AbortSignal`
-//!   cancellation is not wired to `question()` or to `createInterface()`.
-//! - **`readlinePromises.Readline`** (the queued cursor-actions class) —
-//!   `commit()` returns a `Promise<void>`, the same deferred-promise gap
-//!   above.
+//!   cancellation is not wired to `question()` or to `createInterface()`,
+//!   in either the callback or the promise form.
 //! - **`Symbol.dispose`**, `getCursorPos()` (real column/row math),
 //!   `rl.pause()`/`rl.resume()` actually pausing byte delivery (the flag is
 //!   recorded and the event fires; `input` keeps delivering `'data'`).
@@ -76,11 +75,13 @@
 //!   never thrown; entry points in this crate have no protected region to
 //!   throw into (the same limit `crate::assert` documents).
 
+mod promises;
+
 use rts_core::entry::{self, Context, Provided};
 
 /// The instance methods every `Interface` has, beyond what it inherits from
 /// `EventEmitter` through the prototype chain [`namespace`] sets up.
-const INTERFACE_METHODS: &[(&str, Provided)] = &[
+pub(super) const INTERFACE_METHODS: &[(&str, Provided)] = &[
     ("close", close),
     ("pause", pause),
     ("resume", resume),
@@ -107,17 +108,35 @@ pub fn namespace(context: &mut Context) -> u64 {
     let emitter_prototype = crate::events::emitter_prototype(context);
     let interface_prototype = entry::make_prototype(context, "Interface", INTERFACE_METHODS);
     entry::set_prototype_in(context, interface_prototype, emitter_prototype);
+    // `readline.promises` — Node has carried this as a member of the
+    // callback-form namespace since v17, alongside the separate
+    // `node:readline/promises` specifier `lib.rs` registers by reading it back
+    // out (the same shape `node:dns`'s `.promises` member is read out under —
+    // see that specifier's own comment in `lib.rs`). Built here rather than by
+    // a second call to `promises::namespace`, so `require('readline').promises
+    // === require('readline/promises')` holds instead of naming two objects.
+    let interactive = promises::namespace(context);
+    entry::put_member(context, namespace, "promises", interactive);
     namespace
 }
 
 /// `readline.createInterface(options)`.
 extern "C" fn create_interface(_e: u64, _this: u64, options: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let prototype = entry::with_runtime(|context| entry::make_prototype(context, "Interface", INTERFACE_METHODS));
+    build_interface(options, prototype)
+}
+
+/// Builds an `Interface` instance over `prototype` and wires `input`'s
+/// `'data'`/`'end'` listeners — the whole of what `createInterface` does,
+/// shared with [`promises::create_interface`] because everything about
+/// reading lines off `input` is identical between the two; only which
+/// prototype `question` comes from differs, and the caller supplies that.
+pub(super) fn build_interface(options: u64, prototype: u64) -> u64 {
     let (rl, input, on_method) = entry::with_runtime(|context| {
         let absent = entry::undefined_in(context);
         let input = entry::get_member(context, options, "input");
         let output = entry::get_member(context, options, "output");
         let prompt_option = entry::get_member(context, options, "prompt");
-        let prototype = entry::make_prototype(context, "Interface", INTERFACE_METHODS);
         let rl = entry::make_instance(context, prototype);
         entry::put_member(context, rl, "input", input);
         entry::put_member(context, rl, "output", output);
@@ -182,7 +201,7 @@ pub(crate) fn split_lines(text: &str) -> (Vec<String>, String) {
     (lines, rest.to_owned())
 }
 
-/// The `'data'` listener subscribed onto `input` by [`create_interface`].
+/// The `'data'` listener subscribed onto `input` by [`build_interface`].
 /// `this` is `input` (see the module doc) — the `Interface` is read back off
 /// its `__rts_readline__` property.
 extern "C" fn on_data(_e: u64, this: u64, chunk: u64, _b: u64, _c: u64, _d: u64) -> u64 {
@@ -282,9 +301,9 @@ extern "C" fn write_data(_e: u64, this: u64, data: u64, _key: u64, _c: u64, _d: 
     entry::undefined_value()
 }
 
-/// `rl.question(query, callback)` — the callback form only, see the module
-/// doc. Implemented as a one-shot `'line'` listener, exactly `rl.once('line',
-/// callback)` — no Rust-side state of its own.
+/// `rl.question(query, callback)` — the callback form only; [`promises`]
+/// carries the promise form. Implemented as a one-shot `'line'` listener,
+/// exactly `rl.once('line', callback)` — no Rust-side state of its own.
 extern "C" fn question(_e: u64, this: u64, query: u64, callback: u64, _c: u64, _d: u64) -> u64 {
     let (output, once_method, line_name) = entry::with_runtime(|context| {
         (
@@ -300,7 +319,7 @@ extern "C" fn question(_e: u64, this: u64, query: u64, callback: u64, _c: u64, _
 }
 
 /// Calls `output.write(value)` if `output` is present.
-fn write_to(output: u64, value: u64) {
+pub(super) fn write_to(output: u64, value: u64) {
     let absent = entry::undefined_value();
     if output == absent {
         return;

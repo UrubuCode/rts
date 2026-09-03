@@ -1,27 +1,18 @@
-//! `dns.resolve4` — the DNS-protocol resolution path, over
-//! `hickory-resolver` (vetted by `docs/reference/node/crates.md` §4.5,
-//! default features only: `system-config` + `tokio`, neither of which pulls
-//! `ring`/`aws-lc-rs`/`quinn`). See the module doc's "Two resolution paths"
-//! for how this differs from [`super::lookup`]: this speaks the DNS wire
-//! protocol to the OS's configured servers directly and never consults
-//! `/etc/hosts` or its Windows equivalent, which is also why it does not
-//! answer `resolve4("localhost")` the way `lookup("localhost", …)` does —
-//! see "`resolve4("localhost", …)` answers whatever the configured resolver
-//! answers" below.
+//! `dns.resolve4` and the generic `dns.resolve` dispatcher — the
+//! DNS-protocol resolution path, over `hickory-resolver` (vetted by
+//! `docs/reference/node/crates.md` §4.5). See the module doc's "Two
+//! resolution paths" for how this differs from [`super::lookup`]: this
+//! speaks the DNS wire protocol to the OS's configured servers directly and
+//! never consults `/etc/hosts` or its Windows equivalent, which is also why
+//! it does not answer `resolve4("localhost")` the way `lookup("localhost", …)`
+//! does — see "`resolve4("localhost", …)` answers whatever the configured
+//! resolver answers" below.
 //!
-//! # Blocking from the caller's side, a runtime underneath
-//!
-//! Same posture the module doc states for `lookup` ("Synchronous, wearing a
-//! callback"): `resolve4` resolves in-line on the calling thread. What is
-//! new here is that the underlying client is async — `hickory-resolver`
-//! only offers `.await`-shaped lookups — so this module owns a private
-//! single-thread Tokio runtime and drives every call through
-//! [`runtime`]`().block_on(...)`. That runtime and the resolver built on it
-//! are never exposed past this file: nothing else in `rts-node` gains an
-//! async dependency by this module having one (this is the first
-//! `hickory-resolver`/`tokio` use in the crate; `net/mod.rs`'s "why
-//! blocking, not tokio" note is now true of `node:net` specifically, not
-//! the crate as a whole).
+//! The shared client machinery (the private Tokio runtime, the process-wide
+//! resolver singleton, the `NetError` → Node-code mapping) moved to
+//! [`super::client`] once every other record type joined `resolve4` here —
+//! see that module's doc for "Blocking from the caller's side, a runtime
+//! underneath", which was this file's own doc until then.
 //!
 //! # `resolve4("localhost", …)` answers whatever the configured resolver answers
 //!
@@ -49,58 +40,11 @@
 //! configured resolver says would be exactly the fabricated answer the
 //! honesty floor refuses.
 
-use super::common::error_object;
+use super::client::{node_code, resolver, runtime};
+use super::common::callback_with_ttl_option;
 use hickory_resolver::TokioResolver;
-use hickory_resolver::net::NetError;
-use hickory_resolver::proto::rr::RData;
+use hickory_resolver::proto::rr::{RData, Record};
 use rts_core::entry;
-use std::sync::OnceLock;
-use tokio::runtime::Runtime;
-
-/// The private runtime every `hickory-resolver` call in this module drives
-/// through. Current-thread: nothing here runs concurrently with itself, and
-/// a caller inside `resolve4` already blocks until the one query settles.
-fn runtime() -> &'static Runtime {
-    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("building a current-thread Tokio runtime for node:dns resolve4")
-    })
-}
-
-/// The process-wide resolver, built once from the OS's own configuration
-/// (`/etc/resolv.conf` on Unix, the resolver the Windows registry names —
-/// `hickory-resolver`'s `system-config` feature, per the module doc) the
-/// first time `resolve4` is called. A build failure (no usable system
-/// configuration found) is cached and reported to every subsequent caller
-/// rather than retried silently.
-fn resolver() -> Result<&'static TokioResolver, NetError> {
-    static RESOLVER: OnceLock<Result<TokioResolver, NetError>> = OnceLock::new();
-    RESOLVER
-        .get_or_init(|| runtime().block_on(async { TokioResolver::builder_tokio()?.build() }))
-        .as_ref()
-        .map_err(Clone::clone)
-}
-
-/// The Node error code closest to what `err` represents.
-/// `ENOTFOUND` for "the name does not exist"/"no A records exist for it" —
-/// the two cases a program's `err.code === 'ENOTFOUND'` check means to
-/// catch — `ETIMEOUT` for a query that never got an answer, and
-/// `ESERVFAIL` as the named fallback for every other protocol failure
-/// (malformed response, refused query, transport error), matching what
-/// `queryA` reports in real Node when the failure is not one of the first
-/// two shapes.
-fn node_code(err: &NetError) -> &'static str {
-    if err.is_nx_domain() || err.is_no_records_found() {
-        "ENOTFOUND"
-    } else if matches!(err, NetError::Timeout) {
-        "ETIMEOUT"
-    } else {
-        "ESERVFAIL"
-    }
-}
 
 /// `dns.resolve4(hostname, options?, callback)`.
 ///
@@ -108,39 +52,18 @@ fn node_code(err: &NetError) -> &'static str {
 /// the 2nd slot is `options` (`{ ttl: boolean }`), otherwise the 2nd slot is
 /// the callback and there are no options.
 pub(super) extern "C" fn resolve4(_e: u64, _this: u64, hostname: u64, arg1: u64, arg2: u64, _a3: u64) -> u64 {
-    let absent = entry::undefined_value();
-    let (options, callback) = match arg2 == absent {
-        true => (absent, arg1),
-        false => (arg1, arg2),
-    };
-    if callback == absent {
-        return absent;
-    }
-    let Some(host) = entry::text_of(hostname) else {
-        let error = error_object("ERR_INVALID_ARG_TYPE", "queryA", "");
-        entry::call(callback, absent, error, absent, absent, absent);
-        return absent;
-    };
-    let with_ttl = super::common::option_bool(options, "ttl");
+    callback_with_ttl_option(hostname, arg1, arg2, "queryA", |host, with_ttl| {
+        let resolver = resolver().map_err(|err| node_code(&err))?;
+        value(resolver, host, with_ttl)
+    })
+}
 
-    let resolver = match resolver() {
-        Ok(resolver) => resolver,
-        Err(err) => {
-            let error = error_object(node_code(&err), "queryA", &host);
-            return entry::call(callback, absent, error, absent, absent, absent);
-        }
-    };
-    match runtime().block_on(resolver.ipv4_lookup(host.as_str())) {
-        Ok(lookup) => {
-            let null = entry::null_value();
-            let array = ipv4_array(lookup.answers(), with_ttl);
-            entry::call(callback, absent, null, array, absent, absent)
-        }
-        Err(err) => {
-            let error = error_object(node_code(&err), "queryA", &host);
-            entry::call(callback, absent, error, absent, absent, absent)
-        }
-    }
+/// The query + decode `resolve4` shares with `dns.Resolver#resolve4` and
+/// `dns.resolve(host, 'A', cb)` (the default `rrtype`) — see
+/// [`resolve`] below.
+pub(super) fn value(resolver: &TokioResolver, host: &str, with_ttl: bool) -> Result<u64, &'static str> {
+    let lookup = runtime().block_on(resolver.ipv4_lookup(host)).map_err(|err| node_code(&err))?;
+    Ok(ipv4_array(lookup.answers(), with_ttl))
 }
 
 /// The `A` records among `answers` as a JS array — plain `"a.b.c.d"`
@@ -152,7 +75,7 @@ pub(super) extern "C" fn resolve4(_e: u64, _this: u64, hostname: u64, arg1: u64,
 /// calls: `hickory_proto::rr::Record` exposes those only as public fields —
 /// the `.data()`/`.ttl()` *methods* of the same name belong to the sibling
 /// zero-copy `RecordRef` type this crate never holds one of.
-fn ipv4_array(answers: &[hickory_resolver::proto::rr::Record], with_ttl: bool) -> u64 {
+fn ipv4_array(answers: &[Record], with_ttl: bool) -> u64 {
     entry::with_runtime(|context| {
         let items: Vec<u64> = answers
             .iter()
@@ -175,4 +98,70 @@ fn ipv4_array(answers: &[hickory_resolver::proto::rr::Record], with_ttl: bool) -
             .collect();
         entry::make_array_in(context, items)
     })
+}
+
+/// `dns.resolve(hostname[, rrtype], callback)` — dispatches to the same
+/// query-and-decode every dedicated `resolve<Type>` native runs, keyed by
+/// the eleven strings `docs/reference/node/dns.md` §2 documents
+/// (`rrtype` defaults to `'A'`, matching Node). An unrecognized `rrtype`
+/// answers via the callback with `ERR_INVALID_ARG_VALUE` rather than
+/// silently falling back to `'A'` — Node throws synchronously for this case
+/// (a `TypeError` naming the allowed values); this crate cannot raise THAT
+/// specific catchable error from a value it hasn't looked at until the
+/// query is otherwise underway, so the callback path is the honest
+/// approximation rather than a silent wrong answer.
+pub(super) extern "C" fn resolve(_e: u64, _this: u64, hostname: u64, arg1: u64, arg2: u64, _a3: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let (rrtype, callback) = match arg2 == absent {
+        true => (absent, arg1),
+        false => (arg1, arg2),
+    };
+    let kind = entry::text_of(rrtype).unwrap_or_else(|| "A".to_owned());
+    super::common::callback_result(hostname, callback, syscall_for(&kind), |host| {
+        let resolver = resolver().map_err(|err| node_code(&err))?;
+        dispatch(resolver, host, &kind)
+    })
+}
+
+/// The `syscall` field Node's own dispatcher would report for `rrtype` — the
+/// same `query<Type>` spelling each dedicated native already uses. `pub(super)`
+/// rather than private: `dns.Resolver#resolve` (`resolver_class.rs`) is the
+/// same dispatch keyed to its own resolver instead of the process-wide one.
+pub(super) fn syscall_for(kind: &str) -> &'static str {
+    match kind {
+        "AAAA" => "queryAaaa",
+        "ANY" => "resolveAny",
+        "CAA" => "queryCaa",
+        "CNAME" => "queryCname",
+        "MX" => "queryMx",
+        "NAPTR" => "queryNaptr",
+        "NS" => "queryNs",
+        "PTR" => "queryPtr",
+        "SOA" => "querySoa",
+        "SRV" => "querySrv",
+        "TLSA" => "queryTlsa",
+        "TXT" => "queryTxt",
+        _ => "queryA",
+    }
+}
+
+/// `pub(super)` for the same reason [`syscall_for`] is — shared with
+/// `dns.Resolver#resolve`.
+pub(super) fn dispatch(resolver: &TokioResolver, host: &str, kind: &str) -> Result<u64, &'static str> {
+    match kind {
+        "A" => value(resolver, host, false),
+        "AAAA" => super::rr_addr::value(resolver, host, false),
+        "ANY" => super::rr_any::value(resolver, host),
+        "CAA" => super::rr_security::caa_value(resolver, host),
+        "CNAME" => super::rr_alias::cname_value(resolver, host),
+        "MX" => super::rr_service::mx_value(resolver, host),
+        "NAPTR" => super::rr_soa_naptr::naptr_value(resolver, host),
+        "NS" => super::rr_alias::ns_value(resolver, host),
+        "PTR" => super::rr_alias::ptr_value(resolver, host),
+        "SOA" => super::rr_soa_naptr::soa_value(resolver, host),
+        "SRV" => super::rr_service::srv_value(resolver, host),
+        "TLSA" => super::rr_security::tlsa_value(resolver, host),
+        "TXT" => super::rr_text::value(resolver, host),
+        _ => Err("ERR_INVALID_ARG_VALUE"),
+    }
 }
