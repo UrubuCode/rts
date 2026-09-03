@@ -48,10 +48,16 @@ impl Engine {
     /// `SyntaxError` there; see [`super::regex_new`] for why this answers rather
     /// than throws.
     pub(super) fn compile(pattern: &str, flags: Flags) -> Option<Engine> {
-        // The three rewrites that are EXACT — see [`super::translate`] for why
-        // the list stops at three.
-        use super::translate::{empty_classes, unescape_solidus, wide_dot};
-        let pattern = empty_classes(&unescape_solidus(pattern));
+        // The four rewrites that are EXACT — see [`super::translate`] for why
+        // each one is there and what is deliberately left alone.
+        use super::translate::{class_operators, empty_classes, identity_escapes, unescape_solidus, wide_dot};
+        // `class_operators` runs on what the PROGRAM wrote, before the rewrites
+        // below inject Rust syntax of their own — `empty_classes` answers
+        // `[^\s\S]` and `wide_dot` a bracketed set, and neither should be read
+        // back as if a program had typed it.
+        let pattern = identity_escapes(&unescape_solidus(pattern), flags.unicode);
+        let pattern = class_operators(&pattern);
+        let pattern = empty_classes(&pattern);
         let pattern = match flags.dot_all {
             true => pattern,
             // With `s` the builder below already says the whole set is allowed.
@@ -177,6 +183,12 @@ pub(in crate::entry) struct Flags {
     /// beside `global` and `sticky` rather than beside the three the builder
     /// reads.
     pub(super) has_indices: bool,
+    /// The Unicode-mode grammar.
+    ///
+    /// Kept, and read in exactly one place: `translate::identity_escapes`
+    /// asks it because a property escape is one WITH the flag and two
+    /// ordinary letters without it, while Rust read the property either way.
+    pub(super) unicode: bool,
 }
 
 impl Flags {
@@ -186,8 +198,8 @@ impl Flags {
     /// `SyntaxError` in JavaScript, and silently accepting it would make a typo
     /// into a regular expression that quietly means something else.
     ///
-    /// `u` and `v` are **accepted and not acted on**. That is a stated
-    /// divergence rather than an oversight: `u` changes what a `.` is when the
+    /// The two Unicode flags are **acted on in one place only**, which is
+    /// [`Flags::unicode`]. The rest is a stated divergence: the flag also
     /// subject has astral characters. Refusing them would refuse programs this
     /// engine otherwise runs correctly for every input they actually have.
     ///
@@ -215,7 +227,7 @@ impl Flags {
                 'g' => flags.global = true,
                 'y' => flags.sticky = true,
                 'd' => flags.has_indices = true,
-                'u' | 'v' => {}
+                'u' | 'v' => flags.unicode = true,
                 _ => return None,
             }
         }
