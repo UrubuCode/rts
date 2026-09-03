@@ -45,16 +45,21 @@ slab and property access is still a call. Moving them is the rest of
 never reclaimed today, so a program that allocates enough gets index 0 back and
 a wrong object. That is recorded at the entry point rather than hidden.
 
-## H2 — the object-file destination
+## H2 — the object-file destination. DONE
 
-Rule 3 says both destinations or neither, and today there is one. The machine
-has both. What is missing here is the archive: an object file's undefined
-`__rts_add` is the linker's to resolve, and nothing yet builds a runtime archive
-for it to resolve against.
+`object/` places a program — one file, or a module GRAPH — into a relocatable
+object, and `rts-runtime` is the archive its undefined names resolve against.
+The prediction above held exactly: linking is what proves the two independent
+statements of the entry-point set agree, by failing when they do not.
 
-Worth doing early, because it is the path that needs no addresses handed over —
-so it is the one that proves the two independent statements of the entry-point
-set agree, by failing to link when they do not.
+What the graph half needed was a machine capability rather than a host one, and
+it is worth recording which: three of the runtime's seed tables are keyed by a
+CODE ADDRESS — which module bodies run before the entry, what a parked frame
+looks like, what each function is called — and an address does not exist until a
+linker places the object. So the object ASKS the linker, through
+`rts_cranelift::target::AddressTable`. Until then all three shipped empty, which
+refused every multi-file program, raised on every `async` function, and answered
+`undefined` for `f.name` and `f.length` **with no error at all**.
 
 ## H3 — faults
 

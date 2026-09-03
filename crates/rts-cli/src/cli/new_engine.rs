@@ -28,7 +28,7 @@ const STACK: usize = 64 * 1024 * 1024;
 /// Whether `source` names another file by a relative specifier — the same
 /// substring test `suite_run.rs` uses. `node:`/`rts:` specifiers are resolved
 /// by the runtime; only `./`/`../` names a file the loader has to read.
-fn imports_a_file(source: &str) -> bool {
+pub(super) fn imports_a_file(source: &str) -> bool {
     source.contains("from \"./")
         || source.contains("from \"../")
         || source.contains("from './")

@@ -102,6 +102,21 @@ jobs:
           # instead of the real cause.
           if [ -x smoke_aot.exe ]; then ./smoke_aot.exe; else ./smoke_aot; fi
 
+      # BLOCKING, and a different claim from the step above: that one asks
+      # whether an AOT binary RUNS, this one asks whether it runs the same
+      # PROGRAM the JIT does. Three files, so it also covers the module graph
+      # `rts compile` refused outright until #2611 — and the `diff` is what
+      # makes it a parity test rather than a smoke: a binary that starts and
+      # answers `undefined` for `f.name` passes a smoke and fails this.
+      - name: Smoke test — rts compile answers what rts run answers (AOT, module graph)
+        shell: bash
+        run: |
+          rm -f smoke_graph smoke_graph.exe smoke_graph.obj smoke_graph.rtsdata
+          target/release/rts run tests/aot/graph.ts > jit.txt
+          target/release/rts compile tests/aot/graph.ts smoke_graph
+          if [ -x smoke_graph.exe ]; then ./smoke_graph.exe > aot.txt; else ./smoke_graph > aot.txt; fi
+          diff jit.txt aot.txt
+
       - name: Rename artifact (Windows)
         if: runner.os == 'Windows'
         shell: bash

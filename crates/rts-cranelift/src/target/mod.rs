@@ -24,10 +24,12 @@
 mod declare;
 mod destination;
 mod hosted;
+mod tables;
 
 pub use declare::{Declarations, FunctionRefs, data_ref, func_ref};
 pub use destination::{executable_memory, executable_memory_calling, object_file};
 pub use hosted::{InMemory, Placing, Visibility, place_in_memory, place_in_object};
+pub use tables::AddressTable;
 
 use cranelift_codegen::Context;
 use cranelift_codegen::control::ControlPlane;
@@ -112,6 +114,14 @@ pub struct MachineModule<'a> {
     /// either. A length restated by hand is a length that can be wrong, and a
     /// wrong length names the wrong function for every address past the end.
     emitted: std::collections::HashMap<FuncId, (String, usize)>,
+    /// Which functions this compilation has actually DEFINED, as opposed to
+    /// declared.
+    ///
+    /// Kept apart from [`Self::emitted`], which records a name at DECLARATION
+    /// and is therefore `Some` for a runtime import too. The difference is
+    /// load-bearing for [`super::AddressTable`]: an imported symbol has no
+    /// address in this object for a linker to write into a table.
+    defined: std::collections::HashSet<FuncId>,
     call_conv: CallConv,
 }
 
@@ -129,6 +139,7 @@ impl<'a> MachineModule<'a> {
             faults: std::collections::HashMap::new(),
             positions: std::collections::HashMap::new(),
             emitted: std::collections::HashMap::new(),
+            defined: std::collections::HashSet::new(),
             call_conv,
         }
     }
@@ -490,6 +501,7 @@ impl<'a> MachineModule<'a> {
             self.faults.insert(e.id, e.faults);
             self.positions.insert(e.id, e.positions);
             self.entries.union(&e.entries);
+            self.defined.insert(e.id);
             if let Some(entry) = self.emitted.get_mut(&e.id) {
                 entry.1 = e.size;
             }
