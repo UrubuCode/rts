@@ -35,8 +35,7 @@ pub fn describe_source(source: &str) -> Result<String, HostError> {
 /// call to something with no body — which reads as a missing feature and is not
 /// one. `suite_run` learned the same lesson the expensive way (see `CLAUDE.md`).
 pub fn describe_path(entry: &std::path::Path) -> Result<String, HostError> {
-    let (front, _, _) = crate::graph::front_end(entry)?;
-    Ok(render(&front))
+    Ok(render(&crate::graph::front_end(entry)?.front))
 }
 
 /// One function per stanza, in the order they were emitted.

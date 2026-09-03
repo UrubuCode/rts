@@ -12,12 +12,21 @@
 //! the two drift — which here would show up as a miscompile, not an error,
 //! because nothing checks that two hand-written orderings agree.
 //!
-//! So the object built by `rts_host::object::compile_to_object` exports its
-//! script under the fixed name `__rts_script`, under the exact ABI convention
-//! every compiled function uses, and this module supplies the process's actual
-//! `main`: it runs the same sequence `run_region` runs, then calls that symbol.
-//! One startup, two callers — this file's job is to be the second, not to
-//! invent a third.
+//! So the object built by `rts_host::object` exports its script under the fixed
+//! name `__rts_script`, under the exact ABI convention every compiled function
+//! uses, and this module supplies the process's actual `main`: it runs the same
+//! sequence `run_region` runs, then calls that symbol. One startup, two callers
+//! — this file's job is to be the second, not to invent a third.
+//!
+//! # What a MODULE GRAPH added, and why it is three symbols and not one
+//!
+//! A program of several files has one compiled body per file, and they run
+//! dependencies-first before the entry. `run_region` reads their addresses
+//! straight out of the placement; there is no placement here, so the addresses
+//! arrive as a table the LINKER filled in — `__rts_modules`, and beside it
+//! `__rts_frames` and `__rts_functions` for the two other tables that are keyed
+//! by a code address. `rts_host::object`'s header has the design and what all
+//! three shipping empty used to cost.
 //!
 //! # The region base — the part this had to get exactly right
 //!
@@ -35,11 +44,23 @@
 //! arithmetic that turns a cell index into an address does not know the base it
 //! used was never set.
 
+mod manifest;
+mod resolver;
+
 use std::time::Duration;
 
 use rts_core::entry::Context;
 use rts_core::heap::Region;
 use rts_core::value::Singletons;
+
+/// How the compiled program is entered — its script, and each module body that
+/// runs before it.
+///
+/// One convention for both, because there is one: a module body is an ordinary
+/// compiled function, and `rts_host::run`'s own `Entry` spells the same six
+/// words. A second shape for the entry would be a second thing to keep in
+/// agreement with the callee.
+type Entry = unsafe extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 
 /// The cell `RegionBase::Symbol("__rts_region_base")` names.
 ///
@@ -58,6 +79,62 @@ unsafe extern "C" {
     /// name `rts_host::object` places every program's script under.
     #[link_name = "__rts_script"]
     fn __rts_script(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64) -> u64;
+
+    /// The module bodies that run before the entry, in order.
+    ///
+    /// One pointer-sized word per module, written by the LINKER — see
+    /// `rts_cranelift::target::AddressTable` for why this is the only way an
+    /// object file can say where a function ended up, and
+    /// `rts_host::object::MODULE_TABLE_SYMBOL` for the name.
+    ///
+    /// Typed `u8` and read through a raw pointer rather than declared as an
+    /// array: how many entries there are is the manifest's to say, and an
+    /// array type would have to state a length this declaration cannot know.
+    #[link_name = "__rts_modules"]
+    static MODULE_TABLE: u8;
+
+    /// The rewritten generator bodies, in the manifest's frame order.
+    #[link_name = "__rts_frames"]
+    static FRAME_TABLE: u8;
+
+    /// Every placed function, in the manifest's function order.
+    #[link_name = "__rts_functions"]
+    static FUNCTION_TABLE: u8;
+}
+
+/// The addresses in one of the tables above, or `None` if it does not hold as
+/// many as `expected`.
+///
+/// # Why the table is asked instead of believed
+///
+/// `expected` comes from the manifest, which is a SEPARATE FILE. Two files are
+/// two things that can disagree: a link that succeeded followed by a manifest
+/// write that failed leaves a fresh executable beside an older, smaller
+/// sidecar, and this module's own header already warns that an executable moved
+/// without its sidecar is broken. Believing the sidecar's count would then read
+/// past the end of the table the linker sized — and for the module table, the
+/// word past the end is transmuted into a function pointer and CALLED.
+///
+/// So the table states its own length in its first word
+/// (`rts_cranelift::target::AddressTable`), and a mismatch is refused here
+/// rather than discovered as a jump into whatever the linker placed next.
+///
+/// # Safety
+///
+/// `table` must be one of the three symbols declared above. Nothing else about
+/// the caller is trusted: the length is read out of the table itself.
+unsafe fn addresses(table: *const u8, expected: usize) -> Option<Vec<u64>> {
+    let base = table as *const u64;
+    // SAFETY: the table is aligned to the pointer width by
+    // `define_address_table` and is at least one word long — the count — even
+    // when it holds no entries.
+    let count = unsafe { base.read() } as usize;
+    if count != expected {
+        return None;
+    }
+    // SAFETY: `count` words follow the one just read, by the same writer that
+    // wrote the count.
+    Some((0..count).map(|at| unsafe { base.add(at + 1).read() }).collect())
 }
 
 /// The top of the CURRENT thread's stack on a platform with a verified method.
@@ -112,94 +189,6 @@ fn current_thread_stack_high() -> Option<usize> {
     None
 }
 
-/// What `rts_host::object::write_manifest` wrote, read back.
-///
-/// Owns its bytes decoded into owned tables rather than borrowing the file's
-/// buffer: `declare_keys`/`declare_literals` want slices of owned entries, and
-/// a manifest that borrowed would tie the seed tables' lifetime to a buffer
-/// this function has no reason to keep alive past seeding.
-struct Manifest {
-    singletons: [u32; 3],
-    kinds: [u8; 2],
-    keys: Vec<String>,
-    /// Code units, not text. `declare_literals` says why: a string literal may
-    /// be a lone surrogate, which no UTF-8 spelling can carry — and an AOT
-    /// binary that lost one where a JIT run kept it would answer differently
-    /// about the same program.
-    literals: Vec<Vec<u16>>,
-    templates: Vec<Vec<u32>>,
-}
-
-/// Reads a manifest written in `rts_host::object::write_manifest`'s format.
-///
-/// `None` on anything short of a well-formed file: a truncated read is not a
-/// number this program is allowed to guess about, and [`start`] treats a
-/// missing manifest as a reason to abort loudly rather than run with an empty
-/// key table that would make every property access read as absent.
-fn read_manifest(bytes: &[u8]) -> Option<Manifest> {
-    let mut at = 0usize;
-    let u32_at = |at: &mut usize| -> Option<u32> {
-        let slice = bytes.get(*at..*at + 4)?;
-        *at += 4;
-        Some(u32::from_le_bytes(slice.try_into().ok()?))
-    };
-    let singletons = [
-        u32_at(&mut at)?,
-        u32_at(&mut at)?,
-        u32_at(&mut at)?,
-    ];
-    let kinds = [*bytes.get(at)?, *bytes.get(at + 1)?];
-    at += 4;
-
-    let read_strings = |at: &mut usize| -> Option<Vec<String>> {
-        let count = u32_at(at)?;
-        let mut out = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let len = u32_at(at)? as usize;
-            let slice = bytes.get(*at..*at + len)?;
-            *at += len;
-            out.push(String::from_utf8(slice.to_vec()).ok()?);
-        }
-        Some(out)
-    };
-    let read_units = |at: &mut usize| -> Option<Vec<Vec<u16>>> {
-        let count = u32_at(at)?;
-        let mut out = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let len = u32_at(at)? as usize;
-            let mut units = Vec::with_capacity(len);
-            for _ in 0..len {
-                let slice = bytes.get(*at..*at + 2)?;
-                *at += 2;
-                units.push(u16::from_le_bytes(slice.try_into().ok()?));
-            }
-            out.push(units);
-        }
-        Some(out)
-    };
-    let keys = read_strings(&mut at)?;
-    let literals = read_units(&mut at)?;
-
-    let count = u32_at(&mut at)?;
-    let mut templates = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        let len = u32_at(&mut at)? as usize;
-        let mut site = Vec::with_capacity(len);
-        for _ in 0..len {
-            site.push(u32_at(&mut at)?);
-        }
-        templates.push(site);
-    }
-
-    Some(Manifest {
-        singletons,
-        kinds,
-        keys,
-        literals,
-        templates,
-    })
-}
-
 /// Cells the AOT binary allocates, one per program — one region, same as
 /// `rts_host::run::compile`'s default.
 const CELLS: u32 = 1 << 16;
@@ -237,7 +226,7 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
             return 1;
         }
     };
-    let Some(manifest) = read_manifest(&bytes) else {
+    let Some(manifest) = manifest::read(&bytes) else {
         eprintln!(
             "rts: '{}' is not a well-formed program-data file",
             manifest_path.display()
@@ -270,24 +259,102 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
     rts_core::entry::declare_keys(&mut context, &manifest.keys);
     rts_core::entry::declare_literals(&mut context, &manifest.literals);
     rts_core::entry::declare_templates(&mut context, &manifest.templates);
-    // No generator bodies and no stack-trace names yet — see
-    // `rts_host::object`'s stated gap. An empty table each: a generator
-    // placed by this path resumes into a zeroed shape, and an uncaught throw's
-    // message carries no `at name` line, both named there rather than guessed
-    // at here.
-    rts_core::entry::declare_frames(&mut context, Vec::new());
-    rts_core::entry::declare_function_names(&mut context, Vec::new());
+
+    // The three tables the LINKER filled in. Each is the same list the
+    // manifest describes, in the same order, with the one field the compiler
+    // could not know: an address.
+    //
+    // Each is CHECKED against the manifest's count rather than sized by it —
+    // see [`addresses`] for the stale-sidecar case that makes the difference a
+    // jump into arbitrary code.
+    //
+    // SAFETY: the three symbols are the ones declared above.
+    let tables = unsafe {
+        (
+            addresses(&raw const FRAME_TABLE, manifest.frames.len()),
+            addresses(&raw const FUNCTION_TABLE, manifest.functions.len()),
+            addresses(&raw const MODULE_TABLE, manifest.modules),
+        )
+    };
+    let (Some(frames), Some(functions), Some(modules)) = tables else {
+        eprintln!(
+            "rts: '{}' does not describe this executable — it was written by a \
+             different compilation. An AOT binary and its .rtsdata sidecar are one \
+             thing; re-run `rts compile`.",
+            manifest_path.display()
+        );
+        return 1;
+    };
+
+    // What a parked frame looks like, per generator body. Without this an
+    // `async` function or a generator answered "has no registered frame" — the
+    // loud third of what an empty seed cost.
+    let shapes: Vec<rts_core::entry::FrameShape> = manifest
+        .frames
+        .into_iter()
+        .zip(&frames)
+        .map(|(shape, code)| rts_core::entry::FrameShape {
+            code: *code,
+            ..shape
+        })
+        .collect();
+    rts_core::entry::declare_frames(&mut context, shapes);
+    // And what each function is called. This is the SILENT third: an empty
+    // table left `f.name` and `f.length` undefined, gave every arrow a
+    // `prototype`, rendered every `toString()` as `[native code]` and emptied
+    // every stack trace — none of it raising anything.
+    let named: Vec<(u64, String, u32, bool, bool)> = manifest
+        .functions
+        .into_iter()
+        .zip(&functions)
+        .map(|((name, arity, has_prototype, constructs), at)| {
+            (*at, name, arity, has_prototype, constructs)
+        })
+        .collect();
+    rts_core::entry::declare_function_names(&mut context, named);
     // `vm.runInNewContext` needs a compiler this binary does not carry — an AOT
     // program that reaches for one gets the honest absence rather than a link
     // against `rts-codegen`, which would pull the whole front end into every
     // compiled binary for a feature most programs never touch.
     rts_core::entry::declare_rest(&mut context, |wait: Duration| std::thread::sleep(wait));
+    // What `require("./x")` and `import("./x")` name. The JIT host installs a
+    // resolver that reads the disk; this one reads the answers the loader
+    // already found — see `resolver`'s own header for why, and for the one
+    // specifier shape it therefore cannot answer.
+    resolver::declare(manifest.resolutions);
+    rts_core::entry::declare_resolver(&mut context, resolver::resolve);
+
+    // What `import.meta` answers, per module — built HERE, in this program's
+    // region, in the same order and out of the same two facts `run_region`
+    // builds it from. A module compiled with no meta registered raises rather
+    // than answering an empty object, so a graph without this is a program that
+    // throws on `import.meta.url`.
+    for (specifier, url, main) in &manifest.metas {
+        let object = rts_core::entry::make_object(&mut context);
+        let url = rts_core::entry::make_string(&mut context, url);
+        rts_core::entry::put_member(&mut context, object, "url", url);
+        let main = rts_core::entry::boolean_value(*main);
+        rts_core::entry::put_member(&mut context, object, "main", main);
+        rts_core::entry::declare_module_meta(&mut context, specifier, object);
+    }
 
     rts_std::install(&mut context);
     rts_node::install(&mut context);
 
     let nothing = singletons.undefined as u64;
     let (_, exit_code) = rts_core::entry::with_context(context, || {
+        // Dependencies first, and their answers dropped — the same order and
+        // the same reason `run_region` has: a module publishes its exports as
+        // its body finishes, and the importer reads them when its own body
+        // starts. The addresses are the linker's; the ORDER is the loader's,
+        // and it is the order they were written to the table in.
+        for at in &modules {
+            // SAFETY: every entry of the module table is a function this same
+            // object placed, under the one convention every compiled function
+            // uses — which is what `Entry` spells.
+            let body: Entry = unsafe { std::mem::transmute::<u64, Entry>(*at) };
+            let _ = unsafe { body(nothing, nothing, nothing, nothing, nothing, nothing) };
+        }
         // SAFETY: `__rts_script` is exported by the object under the ABI every
         // compiled function uses, which this call matches by construction —
         // `Entry`'s definition and `object::compile_to_object`'s placement are
@@ -302,6 +369,14 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
         // reason (an earlier AOT shipped without it and starved every timer).
         loop {
             rts_core::entry::drain_microtasks();
+            // A throw the program never caught ENDS it, before the loop asks a
+            // source for anything. `run_region` grew this line for a spawned
+            // child that kept the process alive after its own script had died,
+            // reporting a timeout where the truth was an uncaught exception;
+            // this loop is the second copy of that one and had not.
+            if rts_core::entry::thrown() != 0 {
+                break;
+            }
             let Some(wait) = rts_core::entry::pump_sources() else {
                 break;
             };

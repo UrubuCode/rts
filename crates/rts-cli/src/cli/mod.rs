@@ -73,22 +73,45 @@ pub(crate) fn runtime_archive() -> Result<PathBuf> {
         return Ok(PathBuf::from(path));
     }
     let workspace = std::env::current_dir().unwrap_or_default();
-    let candidates = ["release", "debug"].map(|profile| {
+    // The profile the RUNNING `rts` was built under comes first, and it is what
+    // this used to have no way of naming: the list was `["release", "debug"]`,
+    // two hardcoded strings, so a perfectly good `target/fast/rts_runtime.lib`
+    // was invisible and `rts compile` fell through to the embedded copy — which
+    // is a placeholder unless that binary's own build found a staticlib. That
+    // is the whole of what "AOT does not work from `--profile fast`" was.
+    //
+    // Two mechanisms, in this order, and the FIRST is the one that answers the
+    // question properly: "which archive matches this binary" is answered beside
+    // it, because `target/<profile>/rts.exe` and
+    // `target/<profile>/rts_runtime.lib` are built by the same two commands.
+    // A binary living anywhere else — installed, downloaded — simply has no
+    // archive next to it.
+    //
+    // The named profiles stay as the fallback, with `fast` added to them, for
+    // the case the first cannot reach: an `rts` invoked from outside a
+    // `target/` directory while the workspace it belongs to is the cwd.
+    let beside_this_binary = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("rts_runtime.lib")));
+    let candidates = ["release", "debug", "fast"].map(|profile| {
         workspace
             .join("target")
             .join(profile)
             .join("rts_runtime.lib")
     });
-    let dev_archive = candidates.into_iter().find(|path| path.is_file());
+    let dev_archive = beside_this_binary
+        .into_iter()
+        .chain(candidates)
+        .find(|path| path.is_file());
 
     let Some(archive) = dev_archive else {
         return match ARCHIVE_RESOLVER.get() {
             Some(f) => f().context(
-                "no `rts_runtime.lib` under target/{debug,release} and the embedded \
+                "no `rts_runtime.lib` under target/{debug,release,fast} nor beside this binary and the embedded \
                  new-engine runtime archive could not be materialized",
             ),
             None => bail!(
-                "no `rts_runtime.lib` under target/{{debug,release}} — build it first: \
+                "no `rts_runtime.lib` under target/{{debug,release,fast}} nor beside this binary — build it first: \
                  `cargo build -p rts-runtime` (or `--release`). No embedded-archive \
                  resolver was installed either (the `rts` bin must call \
                  `rts::cli::set_runtime_archive_resolver(rts::rt_artifacts)` before \

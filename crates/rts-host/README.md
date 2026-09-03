@@ -84,6 +84,15 @@ They genuinely differ in one thing, and it is not a defect: an object file's
 undefined `__rts_add` is resolved by a linker against the runtime archive, while
 executable memory has no linker and must be handed the address.
 
+That one difference is also the ANSWER to the three tables an object file could
+not carry — which module bodies run before the entry, what a parked frame looks
+like, and what each function is called. All three are keyed by a code address,
+and an address does not exist until a linker places the object. So the object
+asks the linker, in the only vocabulary a linker has: a data symbol of one
+relocation per entry (`rts_cranelift::target::AddressTable`). The manifest
+carries what the compiler knew, the tables carry what only the linker knows, and
+neither restates the other.
+
 ### 5. A test here runs the program
 
 That is the entire reason the crate exists. A test that stops at "it compiled"
@@ -99,9 +108,24 @@ semantic decision that drifted in — see rule 1.
 
 ## What it does not do yet
 
-- **No object-file path.** Only executable memory. The machine has both
-  destinations and this uses one, which makes rule 3 a rule about the future.
-- **No modules, no functions, no objects.** A host runs what `emit` can produce,
-  and `emit` is at E3.
+The three entries that stood here — no object-file path, no modules, no
+functions, no objects — are all gone, and the list is kept rather than deleted
+because what replaced it is the thing to read.
+
+`object/` compiles to a relocatable object, of ONE file or of a module GRAPH,
+and rule 4 is now a claim with a gate behind it: the AOT smoke in
+`.github/workflows/build-artifacts.yml` runs `tests/aot/graph.ts` through both
+destinations and **diffs the two answers**. A binary that starts and answers
+differently fails it, which a smoke that only asks "did it run" never could.
+
+What is left:
+
 - **No fault handling.** A compiled program that traps takes the process with
   it.
+- **An AOT binary carries less than a JIT run.** `rts-runtime` links `rts-core`,
+  `rts-std` and `rts-node` and not the DOM, the UI or the physics solver, and it
+  installs no evaluator — so `eval`, `new Function` and `vm.runInNewContext`
+  raise there where they work here. Each of those refusals names itself; none is
+  silent.
+- **No source POSITION in a trace.** The names are there on both paths now; the
+  line numbers are on neither, and they are `rts_cranelift::observe`'s question.

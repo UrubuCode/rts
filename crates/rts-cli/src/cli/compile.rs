@@ -21,14 +21,23 @@
 //! [`super::runtime_archive`] for the staleness check that makes skipping
 //! this loud instead of silently linking last week's runtime.
 //!
-//! # What this does not do yet
+//! # A module graph, and how this decides it has one
 //!
-//! A relative import (`import "./x"`) needs the module-graph object path —
-//! `rts_host::object` only compiles one file today, where `run.rs`'s
-//! `compile_graph` has a memory counterpart and this does not yet. That is a
-//! stated gap, not a silent one: this refuses a program that imports a file
-//! rather than emitting an object missing a dependency's exports. See the AOT
-//! campaign's final report for why it was left here.
+//! A program that names another file is compiled as a GRAPH — every module of
+//! it into one object, dependencies first — exactly as `rts run` and `rts test`
+//! compile it. It used to be REFUSED here, because `rts_host::object` compiled
+//! one file and an object missing a dependency's exports would have been worse
+//! than a refusal; that gap is closed, and what closed it is in
+//! `rts_host::object`'s own header.
+//!
+//! Which shape a file is is decided by [`super::new_engine::imports_a_file`],
+//! and by nothing written here. This file used to carry its own copy, and
+//! claimed in a comment that the two were "the same substring test" — they were
+//! not: the copy here missed `require("./x")`, `import("./x")`, `import.meta`,
+//! `module.exports` and `__filename`, every one of which names a file or needs
+//! a specifier. So a CommonJS program reaching a sibling file was not refused
+//! and not compiled as a graph either; it was compiled ALONE, and died at run
+//! time on a name that was never bound. One question, one answer, one place.
 
 use std::path::{Path, PathBuf};
 
@@ -62,24 +71,20 @@ pub fn command(
 
     let source = std::fs::read_to_string(&entry)
         .with_context(|| format!("read {}", entry.display()))?;
-    if imports_a_file(&source) {
-        return Err(anyhow!(
-            "rts compile: '{}' imports another file by a relative specifier — the \
-             new engine's AOT path does not compile a module graph yet (single-file \
-             programs only). `rts run`/`rts test` support this; `rts compile` does \
-             not.",
-            entry.display()
-        ));
-    }
+    let graph = super::new_engine::imports_a_file(&source);
 
     // The emitter recurses with the shape of the expression it lowers — see
     // `rts_cli::cli::new_engine`'s own comment for the fixture that overflows
     // the 1 MB default Windows stack at COMPILE time, not at run time. Compiled
     // on the same budget that engine uses for `run`/`test`, for the same reason.
     const STACK: usize = 64 * 1024 * 1024;
+    let on_disk = entry.clone();
     let program = std::thread::Builder::new()
         .stack_size(STACK)
-        .spawn(move || rts_host::object::compile_to_object(&source))
+        .spawn(move || match graph {
+            true => rts_host::object::compile_graph_to_object(&on_disk),
+            false => rts_host::object::compile_to_object(&source),
+        })
         .expect("a thread to compile the new engine's AOT object on")
         .join()
         .expect("the compile thread not to panic")
@@ -126,16 +131,6 @@ pub fn command(
         manifest_path.display(),
     );
     Ok(())
-}
-
-/// The same substring test `rts_cli::cli::new_engine::imports_a_file` and
-/// `rts-host/examples/suite_run.rs` use — see that module's doc comment for
-/// why a relative import is checked this way rather than by parsing.
-fn imports_a_file(source: &str) -> bool {
-    source.contains("from \"./")
-        || source.contains("from \"../")
-        || source.contains("from './")
-        || source.contains("from '../")
 }
 
 /// Derive the executable output path: explicit `output` (its `.exe` is added on

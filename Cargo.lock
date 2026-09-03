@@ -4756,6 +4756,7 @@ name = "rts-host"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "object 0.39.0",
  "rts-codegen",
  "rts-core",
  "rts-cranelift",

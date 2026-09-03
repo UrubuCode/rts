@@ -264,6 +264,22 @@ prohibition: **audit for producers, do not wait for the build to find them.**
 `#![deny(dead_code)]` does not fire on a public enum variant, which is why every
 one of these shipped.
 
+One more was added on 2026-09-03, and it is the other half of `Inst::FuncAddr`:
+`target::AddressTable` exports a name holding the address of each listed
+function, as one relocation per entry. `FuncAddr` answers "where is this
+function" to code being compiled; a table answers it to a reader on the far side
+of a LINKER, which is the one question the object destination could not answer
+at all — `place_in_memory` hands every address back and `place_in_object` has
+none to hand. It is only on the object destination for exactly that reason, and
+`target/tables.rs` says so rather than leaving the asymmetry to be noticed.
+
+Its first bug is worth keeping, because it passed every check that existed:
+`define_zeroinit` is the same size as `define(vec![0; n])` and means an
+UNINITIALIZED section, which has nowhere in the file for a relocation to be
+written. The object still carried one relocation per entry, the object-file test
+still passed, the link still succeeded, and **every entry read back as the image
+base at run time**. Nothing but running it said otherwise.
+
 Calls exist now, and they arrived last on purpose. A call is inseparable from the
 convention it uses, from the safepoint it implies, and from where the frame is
 when control leaves — so every one of those was built and tested first. Choosing

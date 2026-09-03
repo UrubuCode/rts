@@ -1313,16 +1313,20 @@ fn evaluate_source(source: &str) -> Option<u64> {
 /// finishes ([`rts_codegen::emit`]'s `emit_publications`). So by the time a
 /// module's body starts, every namespace it imports from has been written.
 pub fn compile_graph(entry: &std::path::Path) -> Result<Compiled, HostError> {
-    let (front, entries, metas) = crate::graph::front_end(entry)?;
+    let graph = crate::graph::front_end(entry)?;
+    let front = graph.front;
+    // `graph.resolutions` is deliberately dropped here: this destination has
+    // the disk the loader read, so `declare_resolver` answers from it. See
+    // `crate::graph::Graph` for what carrying them costs the other one.
     assemble(
         front.emitted,
-        &entries,
+        &graph.before,
         1,
         front.model,
         front.funcs,
         front.types,
         front.calls,
         front.names,
-        metas,
+        graph.metas,
     )
 }

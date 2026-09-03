@@ -24,6 +24,7 @@
 
 use cranelift_module::{Linkage, Module};
 
+use super::tables::AddressTable;
 use super::{MachineModule, TargetError, destination::executable_memory_calling};
 use crate::ir::{FuncId, FuncRegistry, Function};
 use crate::types::TypeRegistry;
@@ -169,7 +170,12 @@ pub unsafe fn place_in_memory(
     // module that holds it borrows `jit` and has to be given up before
     // `finalize_definitions` can run — and the addresses do not exist until
     // after that. Two halves, two moments, one place they meet: here.
-    let (machine_ids, placements) = compile_batch(&mut jit, program, funcs, types, heap)?;
+    //
+    // No address tables, and the absence is the point rather than an omission:
+    // a table exists so that a reader with no linker to ask can still learn
+    // where a function ended up, and this destination answers that directly
+    // through [`InMemory::address_of`]. See `super::tables`.
+    let (machine_ids, placements) = compile_batch(&mut jit, program, &[], funcs, types, heap)?;
 
     jit.finalize_definitions()
         .map_err(|error| TargetError::Module(error))?;
@@ -210,14 +216,20 @@ pub unsafe fn place_in_memory(
 /// Nothing here is executable in this process — the result is bytes for a
 /// linker, not addresses for a call — so there is no lifetime to guard and no
 /// reason to invent a second handle type to guard nothing.
+///
+/// `tables` is what this destination has that the other needs no answer for:
+/// a name holding the address of each listed function, filled in by the linker
+/// rather than by this crate. See [`AddressTable`] for why a reader on this
+/// side cannot simply be handed the addresses.
 pub fn place_in_object(
     mut object: cranelift_object::ObjectModule,
     program: &[Placing<'_>],
+    tables: &[AddressTable<'_>],
     funcs: &FuncRegistry,
     types: &TypeRegistry,
     heap: Option<crate::mem::RegionBases>,
 ) -> Result<Vec<u8>, TargetError> {
-    compile_batch(&mut object, program, funcs, types, heap)?;
+    compile_batch(&mut object, program, tables, funcs, types, heap)?;
     object
         .finish()
         .emit()
@@ -239,6 +251,7 @@ pub fn place_in_object(
 fn compile_batch(
     module: &mut dyn Module,
     program: &[Placing<'_>],
+    tables: &[AddressTable<'_>],
     funcs: &FuncRegistry,
     types: &TypeRegistry,
     heap: Option<crate::mem::RegionBases>,
@@ -274,6 +287,13 @@ fn compile_batch(
         .filter_map(|placing| placing.body.map(|body| (placing.id, body)))
         .collect();
     module.compile_all(&bodies, funcs, types)?;
+
+    // After every body, because a relocation names a function the module must
+    // already hold an identifier for — the same reason declarations come
+    // before definitions above.
+    for table in tables {
+        module.define_address_table(table)?;
+    }
 
     let mut machine_ids = Vec::new();
     for placing in program {

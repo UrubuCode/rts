@@ -321,7 +321,7 @@ fn a_symbolic_heap_base_is_an_undefined_reference_in_an_object_file() {
         visibility: Visibility::Exported,
         body: Some(&func),
     }];
-    let bytes = place_in_object(object_module, &program, &funcs, &types, Some(bases))
+    let bytes = place_in_object(object_module, &program, &[], &funcs, &types, Some(bases))
         .expect("a symbolic base compiles rather than hitting the old `unreachable!`");
 
     let file = object::File::parse(bytes.as_slice()).expect("a well-formed object file");
@@ -334,5 +334,281 @@ fn a_symbolic_heap_base_is_an_undefined_reference_in_an_object_file() {
         symbol.is_undefined(),
         "`{SYMBOL}` is declared as something this compilation defines, not as the \
          runtime-provided cell a linker must still resolve"
+    );
+}
+
+/// An address table names the functions this compilation placed, and the
+/// object file says so as relocations rather than as numbers.
+///
+/// This is the claim the whole table exists to make: a reader on the other side
+/// of a linker has no `address_of` to ask, so the only way it can learn where a
+/// function ended up is for the LINKER to write the answer. What the object can
+/// carry is the question — one relocation per entry, against the function's own
+/// symbol — and this checks that both the entry and its target are really in
+/// the file, in the order the table listed them.
+#[test]
+fn an_address_table_leaves_one_relocation_per_function_it_lists() {
+    use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget};
+    use rts_cranelift::target::AddressTable;
+
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature {
+        returns: vec![Repr::I64],
+        ..Signature::default()
+    });
+    let (first_id, second_id) = (funcs.declare_function(shape), funcs.declare_function(shape));
+
+    let body = |answer: u64, funcs: &FuncRegistry| {
+        let mut func = function(&[], &[Repr::I64]);
+        let entry = func.entry;
+        let mut b = FuncBuilder::new(&mut func, &types, entry);
+        let value = b.declare_const(ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: ScalarBits(answer),
+        });
+        let value = b.use_const(value);
+        b.ret(&[value]);
+        let _ = funcs;
+        func
+    };
+    let (first, second) = (body(1, &funcs), body(2, &funcs));
+
+    let program = [
+        Placing {
+            id: first_id,
+            name: "first",
+            visibility: Visibility::Exported,
+            body: Some(&first),
+        },
+        Placing {
+            id: second_id,
+            name: "second",
+            visibility: Visibility::Exported,
+            body: Some(&second),
+        },
+    ];
+    // Listed second-then-first on purpose: the table's order is the reader's
+    // index, not the order the program happened to be placed in, and a table
+    // that quietly sorted would hand every reader the wrong function.
+    let tables = [AddressTable {
+        name: "test_addresses",
+        functions: &[second_id, first_id],
+    }];
+
+    let bytes = place_in_object(
+        object_file("tables").expect("host"),
+        &program,
+        &tables,
+        &funcs,
+        &types,
+        None,
+    )
+    .expect("a table of two placed functions is emittable");
+
+    let file = object::File::parse(bytes.as_slice()).expect("a well-formed object file");
+    let table = file
+        .symbols()
+        .find(|symbol| symbol.name() == Ok("test_addresses"))
+        .expect("the table's own name is exported by the object");
+    assert!(
+        !table.is_undefined(),
+        "the table is DEFINED here — it is the addresses inside it that a linker supplies"
+    );
+
+    let width = bytes_per_address(&file);
+    let section = file
+        .section_by_index(table.section_index().expect("the table is in a section"))
+        .expect("the section it named exists");
+    // Past the COUNT word: entry n sits at (n + 1) * width. The count is a
+    // plain number this crate wrote, so it carries no relocation.
+    let first_entry = table.address() + width;
+    let mut entries: Vec<(u64, String)> = section
+        .relocations()
+        .filter(|(at, _)| *at >= first_entry && *at < first_entry + 2 * width)
+        .filter_map(|(at, reloc)| match reloc.target() {
+            RelocationTarget::Symbol(index) => {
+                let named = file.symbol_by_index(index).ok()?.name().ok()?.to_owned();
+                Some((at - first_entry, named))
+            }
+            _ => None,
+        })
+        .collect();
+    entries.sort();
+
+    assert_eq!(
+        entries,
+        vec![(0, "second".to_owned()), (width, "first".to_owned())],
+        "entry n has to be a relocation against the n-th listed function, in the order given"
+    );
+
+    // And the count, read out of the table's own first word — which is what a
+    // reader checks its separately-shipped manifest against.
+    let section_bytes = section.data().expect("the section has contents");
+    let at = (table.address() - section.address()) as usize;
+    let counted = u64::from_le_bytes(
+        section_bytes[at..at + 8]
+            .try_into()
+            .expect("eight bytes of count"),
+    );
+    assert_eq!(
+        counted, 2,
+        "the table states its own length, so a stale manifest is refused rather than          read past the end of"
+    );
+}
+
+/// A table with nothing in it still defines its name.
+///
+/// The reason is a link failure and not a nicety: the archive that reads these
+/// tables names them unconditionally, so a program that happens to have no
+/// generators would leave the symbol undefined and fail to link — a
+/// whole-program failure for a property the program does not have.
+#[test]
+fn an_empty_address_table_still_defines_its_name() {
+    use object::{Object, ObjectSymbol};
+    use rts_cranelift::target::AddressTable;
+
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature::default());
+    let id = funcs.declare_function(shape);
+    let mut func = function(&[], &[]);
+    let entry = func.entry;
+    FuncBuilder::new(&mut func, &types, entry).ret(&[]);
+
+    let program = [Placing {
+        id,
+        name: "nothing",
+        visibility: Visibility::Exported,
+        body: Some(&func),
+    }];
+    let tables = [AddressTable {
+        name: "test_empty_table",
+        functions: &[],
+    }];
+    let bytes = place_in_object(
+        object_file("empty_table").expect("host"),
+        &program,
+        &tables,
+        &funcs,
+        &types,
+        None,
+    )
+    .expect("an empty table is still a table");
+
+    let file = object::File::parse(bytes.as_slice()).expect("a well-formed object file");
+    let table = file
+        .symbols()
+        .find(|symbol| symbol.name() == Ok("test_empty_table"))
+        .expect("an empty table is defined, or a program with no generators would not link");
+    assert!(!table.is_undefined());
+}
+
+/// A table naming a function this compilation never placed is refused.
+///
+/// Not left zero: a zero in that array reads as an address, and the reader
+/// cannot tell one it was never given from one that is genuinely null.
+#[test]
+fn an_address_table_refuses_a_function_that_was_not_placed() {
+    use rts_cranelift::target::AddressTable;
+
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature::default());
+    let placed = funcs.declare_function(shape);
+    let absent = funcs.declare_function(shape);
+
+    let mut func = function(&[], &[]);
+    let entry = func.entry;
+    FuncBuilder::new(&mut func, &types, entry).ret(&[]);
+
+    let program = [Placing {
+        id: placed,
+        name: "placed",
+        visibility: Visibility::Exported,
+        body: Some(&func),
+    }];
+    let tables = [AddressTable {
+        name: "test_absent",
+        functions: &[absent],
+    }];
+    let refused = place_in_object(
+        object_file("absent").expect("host"),
+        &program,
+        &tables,
+        &funcs,
+        &types,
+        None,
+    );
+    assert!(
+        refused.is_err(),
+        "a table entry with no function behind it is a reader indexing into a hole"
+    );
+}
+
+/// How wide one entry of an address table is.
+///
+/// The running machine's, because `object_file` builds for the native target —
+/// so the object under test is one this process could have linked. Read from
+/// the file instead, and it answers 4 for a 64-bit COFF object: `File::is_64`
+/// is about the container's header shape rather than about the machine, which
+/// is the sort of thing a test should not be quietly wrong about.
+fn bytes_per_address(_file: &object::File<'_>) -> u64 {
+    size_of::<*const u8>() as u64
+}
+
+/// A table naming a function that was DECLARED but never given a body is
+/// refused.
+///
+/// This is the distinction the refusal exists for, and the one a weaker guard
+/// misses: `Declarations::machine_id` answers for a runtime import too, because
+/// it is recorded at declaration. Asking it alone would put the IMPORT's
+/// address into a table whose reader believes every entry is a function of this
+/// program — a wrong answer with no error, rather than a refusal.
+#[test]
+fn an_address_table_refuses_a_function_that_was_declared_without_a_body() {
+    use rts_cranelift::target::AddressTable;
+
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature::default());
+    let defined = funcs.declare_function(shape);
+    let imported = funcs.declare_function(shape);
+
+    let mut func = function(&[], &[]);
+    let entry = func.entry;
+    FuncBuilder::new(&mut func, &types, entry).ret(&[]);
+
+    let program = [
+        Placing {
+            id: defined,
+            name: "defined",
+            visibility: Visibility::Exported,
+            body: Some(&func),
+        },
+        // The shape `rts-host` lists every runtime operation under: named here,
+        // defined in the archive.
+        Placing {
+            id: imported,
+            name: "__rts_something",
+            visibility: Visibility::Expected,
+            body: None,
+        },
+    ];
+    let tables = [AddressTable {
+        name: "test_imported",
+        functions: &[imported],
+    }];
+    let refused = place_in_object(
+        object_file("imported").expect("host"),
+        &program,
+        &tables,
+        &funcs,
+        &types,
+        None,
+    );
+    assert!(
+        refused.is_err(),
+        "an imported symbol has no address in THIS object for a linker to write"
     );
 }

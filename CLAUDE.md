@@ -20,7 +20,7 @@ not background reading, and the rules in it are binding for changes inside it.
 |---|---|
 | `crates/rts-cranelift/` | its `README.md` (13 rules) |
 | `crates/rts-codegen/` | its `README.md` (10 rules) + `PLAN.md` |
-| `crates/rts-core/` | its `README.md` (8 rules) + `PLAN.md` |
+| `crates/rts-core/` | its `README.md` (10 rules) + `PLAN.md` |
 | `crates/rts-host/` | its `README.md` (6 rules) + `PLAN.md` |
 | `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md`; for the NEW engine's side of it, `docs/ui/new-engine-port.md` |
 | anything else | this file, and `docs/README.md` for where things live |
@@ -374,9 +374,18 @@ way runs `bench/objbench.ts` **20.8% slower**; `kernel` 5% slower, a remainder
 loop 1.6%, `mc_noparam` unchanged. A number from a `fast` binary is a number
 about a build nobody ships.
 
-`rts compile` (AOT) does not work from it either — the runtime archive is
-looked up under `target/{debug,release}`, not `target/fast`. `rts run` and
-`rts test` do.
+**`rts compile` works from it now, and the sentence that stood here said it did
+not.** It was true and it was two hardcoded strings: `runtime_archive()` looked
+under `target/{release,debug}` and nowhere else, so a freshly built
+`target/fast/rts_runtime.lib` was invisible and the command fell through to the
+embedded archive — a placeholder unless that binary's own build had found a
+staticlib. It asks `current_exe()` for the profile it is running under first,
+which is the question that was being guessed at. `cargo build --profile fast -p
+rts-runtime` beside the binary, as with every other profile.
+
+A binary compiled that way is still a `fast` binary and still runs
+`bench/objbench.ts` 20.8% slower. `fast` answers "is it correct"; a NUMBER
+needs `release`.
 
 **Its second use is the merge gate's test step, and that is where it pays most.**
 `cargo test --profile fast` over the four engine crates is **5m07s against ~30

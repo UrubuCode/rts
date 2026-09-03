@@ -90,6 +90,12 @@ __rts_*
 *.rtsdata
 smoke_aot
 smoke_aot.exe
+# The second AOT smoke: the one that diffs `rts compile`'s answer against
+# `rts run`'s, over a module graph.
+smoke_graph
+smoke_graph.exe
+jit.txt
+aot.txt
 
 # Personal working analysis doc (perf + state-management, not versioned)
 RTS_PERF_AND_STATELESS.md

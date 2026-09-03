@@ -7,6 +7,10 @@ description = "Where a compiler and a runtime meet: the crate that runs a progra
 
 [dev-dependencies]
 rts-std = { path = "../rts-std" }
+# Reading back what the AOT object path produced, to check that its address
+# tables really carry one relocation per entry the manifest counts — the same
+# crate rts-cranelift already reads objects with, for the same reason.
+object = { version = "0.39", default-features = false, features = ["read_core", "elf", "coff", "macho", "std"] }
 
 [dependencies]
 # The language: source text to IR.

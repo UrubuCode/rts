@@ -7,6 +7,10 @@
 //! the language's and stays in `rts-codegen`. So this file resolves and reads,
 //! and hands the language a list of parsed modules in the order they must run.
 //!
+//! Turning a specifier into a path is [`resolve`], one module over — split out
+//! when this file passed the crate's 500-line ceiling, along the seam that was
+//! already there: everything in there is about a PATH and reads no program.
+//!
 //! # Why every module of a program is ONE compilation
 //!
 //! Because a reference belongs to the region that made it. A module compiled and
@@ -44,6 +48,11 @@ use rts_codegen::names::Names;
 use rts_codegen::parse::parse_module;
 use rts_codegen::syntax::ModuleItem;
 
+mod resolve;
+
+use resolve::{extended, file_url, is_relative, plain, resolve};
+pub(crate) use resolve::resolve_specifier;
+
 use crate::link::HostError;
 
 /// One file of the graph, in the order it must run.
@@ -59,11 +68,20 @@ pub struct Loaded {
     pub path: PathBuf,
     /// Its text.
     pub source: String,
-}
-
-/// Whether a specifier names a file rather than something the host provides.
-fn is_relative(specifier: &str) -> bool {
-    specifier.starts_with("./") || specifier.starts_with("../")
+    /// What each relative specifier this file writes resolved TO.
+    ///
+    /// Written as `("./x", "C:\\…\\x.ts")`. A static one is rewritten into the
+    /// tree by [`rewrite`] and never needs this; a `require("./x")` or an
+    /// `import("./x")` asks at RUN time, through the resolver a host installs.
+    ///
+    /// Recorded here because this walk is where the answer already exists —
+    /// [`visit`] resolves every one of them to decide what to read next — and
+    /// the alternative is a second resolver somewhere else that has to agree
+    /// with this one. `rts-core`'s `dynamic_module` header has what that costs:
+    /// `createRequire` reproduced the loader's rule, said in its own comment
+    /// that it had to match "exactly", and stopped matching the day the loader
+    /// started stripping Windows's verbatim prefix.
+    pub resolutions: Vec<(String, String)>,
 }
 
 /// The files one module names, in source order, ignoring everything the host
@@ -128,27 +146,6 @@ pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
     Ok(found)
 }
 
-/// What a dynamic `import()` specifier means, from the module that wrote it.
-///
-/// # Why the runtime asks instead of the tree being rewritten
-///
-/// A static specifier is rewritten in place ([`rewrite`]), because it is written
-/// in the grammar and the loader has already resolved it. A dynamic one may be
-/// COMPUTED — `import("./" + name)` — so there is nothing in the tree to
-/// rewrite, and the question only exists once the program is running. This is
-/// the same resolution, reached from there: `rts-core` holds the hook and this
-/// fills it, exactly as it does for compiling source.
-///
-/// `None` for anything that is not a relative path, which leaves the specifier
-/// as the program wrote it — the rule the loader applies to `node:fs` and to a
-/// bare name, stated once and applied in both directions.
-pub(crate) fn resolve_specifier(from: &str, specifier: &str) -> Option<String> {
-    if !is_relative(specifier) {
-        return None;
-    }
-    Some(resolve(Path::new(from), specifier).display().to_string())
-}
-
 /// What `import.meta` answers for one module of the graph.
 ///
 /// The host's two facts about a file and nothing else: a compiler knows neither,
@@ -163,118 +160,26 @@ pub struct ModuleMeta {
     pub main: bool,
 }
 
-/// A path as the `file:` URL `import.meta.url` answers.
+/// What a graph is, once it has been loaded, parsed and emitted.
 ///
-/// # Why this is spelled out rather than taken from a crate
-///
-/// Because the one rule that matters here is small and the failure mode of
-/// getting it wrong is invisible: Node and Bun both answer a `file:` URL, and a
-/// program tests it with `startsWith("file:")`. What a full URL crate would add
-/// is percent-encoding of the characters a path may hold, which is real and is
-/// why the encoding below is named as partial rather than claimed complete: a
-/// space becomes `%20`, and anything else is left as written.
-fn file_url(path: &Path) -> String {
-    let text = path.display().to_string();
-    // A Windows path is `C:\a\b`, which is `file:///C:/a/b`. A POSIX one
-    // already starts with `/`, so the third slash is the path's own.
-    let slashed = text.replace('\\', "/").replace(' ', "%20");
-    match slashed.starts_with('/') {
-        true => format!("file://{slashed}"),
-        false => format!("file:///{slashed}"),
-    }
-}
-
-/// The candidates for a specifier written without an extension, or a directory.
-///
-/// # Why this became an ORDER, and what the old rule was protecting
-///
-/// The rule was "`./x`, and then `./x.ts` — one candidate, not a cascade",
-/// because a resolver that tries several picks a file the program did not name,
-/// and which one it picked is invisible until two of them exist. That fear is
-/// real and the answer to it is not a shorter list, it is a WRITTEN one: the
-/// order below is the rule, a program with both `x.ts` and `x.js` gets `x.ts`,
-/// and that sentence is testable where "the resolver decides" is not.
-///
-/// An intermediate version refused an ambiguity outright — two candidates, no
-/// answer — and it is worth recording why that lost, because it looked stricter
-/// and therefore safer. Node's own `test/common/` holds an `index.js` and an
-/// `index.mjs`, and so does a large share of real packages: those are not two
-/// spellings of one module, they are the two entry points a package publishes.
-/// Refusing them refuses the corpus this exists to run, and calls a deliberate
-/// pair an accident.
-///
-/// `.ts` leads because this repository's own suite is TypeScript and every
-/// relative import in it omits the extension. `.js` follows because that is
-/// what `require("./x")` means everywhere else.
-fn extended(base: &Path, specifier: &str) -> Option<PathBuf> {
-    let named = base.join(specifier);
-    // A directory names the file inside it, which is what `require("./lib")`
-    // means in the corpus this serves. Tried only when the name IS a directory,
-    // so it can never collide with the file candidates below.
-    let candidates: Vec<PathBuf> = match named.is_dir() {
-        true => ["index.ts", "index.js", "index.cjs", "index.mjs"]
-            .iter()
-            .map(|name| named.join(name))
-            .collect(),
-        false => ["ts", "js", "cjs", "mjs"]
-            .iter()
-            .map(|extension| base.join(format!("{specifier}.{extension}")))
-            .collect(),
-    };
-    candidates.into_iter().find(|candidate| candidate.is_file())
-}
-
-/// A canonical path with Windows's verbatim prefix taken off.
-///
-/// # Why every canonicalisation here goes through this
-///
-/// `Path::canonicalize` answers the extended-length form on Windows —
-/// `\\?\C:\a\b` — which is a real path and which nothing outside the OS expects
-/// to see. It leaks into three things a PROGRAM reads: the specifier a module is
-/// registered under, `__filename`/`__dirname`, and `import.meta.url`.
-///
-/// The third is what made this a defect rather than an ugliness. [`file_url`]
-/// turns the backslashes into slashes, so the prefix became `file:////?/C:/…` —
-/// an empty authority, a path of `//`, and everything after the `?` read as a
-/// QUERY. `new URL(import.meta.url).pathname` answered `"/"`, and
-/// `module.createRequire(import.meta.url)` answered `undefined` because it could
-/// not get a file path back out of it. Measured 2026-08-24 against Node's own
-/// suite: 49 files died on `require is not a function`, every one of them
-/// through `common/index.mjs`, whose first line is exactly that call.
-///
-/// Stripped HERE, at the one place a canonical path is made, rather than at each
-/// of the three readers — three strippers are three chances for one of them to
-/// be forgotten, which is how this arrived in the first place.
-fn plain(path: PathBuf) -> PathBuf {
-    let text = path.display().to_string();
-    // `\\?\UNC\server\share` is a UNC path, and its plain form keeps the two
-    // leading backslashes: dropping the whole prefix would name a local
-    // directory called `server`.
-    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
-        return PathBuf::from(format!(r"\\{rest}"));
-    }
-    match text.strip_prefix(r"\\?\") {
-        Some(rest) => PathBuf::from(rest),
-        None => path,
-    }
-}
-
-/// The path a relative specifier names, from the file that wrote it.
-fn resolve(from: &Path, specifier: &str) -> PathBuf {
-    let base = from.parent().unwrap_or(Path::new("."));
-    let named = base.join(specifier);
-    // What the program wrote, and then the one candidate: `./x` before `./x.ts`.
-    // Written this way round so a file that genuinely has no extension still
-    // wins over a `.ts` beside it — the program named that one.
-    let joined = match named.is_file() {
-        true => named,
-        false => extended(base, specifier).unwrap_or(named),
-    };
-    // Canonicalised so that `./a.ts` and `../dir/a.ts` are the SAME module. Two
-    // spellings of one file compiled twice would run its side effects twice and
-    // give it two namespaces, and `import { x } from` each would answer two
-    // different `x`.
-    plain(joined.canonicalize().unwrap_or(joined))
+/// A struct rather than a tuple because it grew a fourth member and a
+/// four-element tuple at three call sites is four positions to get wrong.
+pub(crate) struct Graph {
+    /// The one compilation every module of the program was emitted into.
+    pub front: crate::run::FrontEnd,
+    /// The module initialisers to run before the entry, in order.
+    pub before: Vec<rts_cranelift::ir::FuncId>,
+    /// What `import.meta` answers, per module.
+    pub metas: Vec<ModuleMeta>,
+    /// Every `(referrer, written, resolved)` this load resolved.
+    ///
+    /// The in-memory destination does not need it — [`resolve_specifier`] asks
+    /// the disk, which is right there. An object file's destination is a binary
+    /// that may run anywhere, so it carries the answers the loader already
+    /// found. What that costs is stated in `rts-runtime`'s own resolver: a
+    /// COMPUTED specifier (`require("./" + name)`) is in no table, so it
+    /// resolves in a JIT run and is refused by name in an AOT one.
+    pub resolutions: Vec<(String, String, String)>,
 }
 
 /// Reads the whole graph reachable from `entry`, dependencies first.
@@ -330,16 +235,22 @@ fn visit(
     // Parsed with a `Names` of its own, and thrown away: this pass wants the
     // import specifiers and nothing else. The real parse happens against the
     // `Names` the whole compilation shares.
+    let mut resolutions = Vec::new();
     for specifier in relative_imports(&source)
         .map_err(|error| HostError::Parse(format!("{}: {error}", path.display())))?
     {
-        visit(&resolve(path, &specifier), ordered, state)?;
+        let resolved = resolve(path, &specifier);
+        // Kept, not just followed: a `require("./x")` asks again at run time,
+        // and the answer is this one. See [`Loaded::resolutions`].
+        resolutions.push((specifier.clone(), resolved.display().to_string()));
+        visit(&resolved, ordered, state)?;
     }
 
     state.insert(path.to_owned(), Mark::Done);
     ordered.push(Loaded {
         specifier: path.display().to_string(),
         path: path.to_owned(),
+        resolutions,
         // A fachada do DOM entra aqui pelo mesmo critério do caminho de ficheiro
         // único — `crate::run::with_dom_facade` é o único sítio onde a decisão
         // está escrita, e este passa a chamá-lo em vez de a repetir.
@@ -414,17 +325,18 @@ pub fn rewrite(items: &mut [ModuleItem], from: &Path) {
 ///
 /// The returned list is the module initialisers to run before the entry, with
 /// the entry itself removed — it is what `assemble` is handed as `before`.
-pub(crate) fn front_end(
-    entry: &Path,
-) -> Result<
-    (
-        crate::run::FrontEnd,
-        Vec<rts_cranelift::ir::FuncId>,
-        Vec<ModuleMeta>,
-    ),
-    HostError,
-> {
+pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
     let loaded = load(entry)?;
+    let resolutions: Vec<(String, String, String)> = loaded
+        .iter()
+        .flat_map(|file| {
+            file.resolutions
+                .iter()
+                .map(|(written, resolved)| {
+                    (file.specifier.clone(), written.clone(), resolved.clone())
+                })
+        })
+        .collect();
     // The load order is dependencies-first, so the ENTRY is the last file —
     // the same fact `emitted.entries.pop()` below relies on, read once here
     // rather than re-derived from the path the caller passed, which may be
@@ -499,8 +411,8 @@ pub(crate) fn front_end(
     let mut entries = emitted.entries;
 
     entries.pop();
-    Ok((
-        crate::run::FrontEnd {
+    Ok(Graph {
+        front: crate::run::FrontEnd {
             emitted: emitted.program,
             model,
             funcs,
@@ -508,7 +420,9 @@ pub(crate) fn front_end(
             calls,
             names,
         },
-        entries,
+        before: entries,
         metas,
-    ))
+        resolutions,
+    })
 }
+
