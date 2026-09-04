@@ -25,8 +25,12 @@ com os PNG de teste e referência lado a lado para olhar.
 
 ## O número, hoje
 
-**2026-09-04, `css/css-flexbox`, os primeiros 300 de 489 reftests: 114 passam
-(38 %)**, 0 falharam a rasterizar. Medido no motor da vaga 7 (main
+**2026-09-04, `css/css-flexbox`, os 489 reftests: 186 passam (38 %)**, 0
+falharam a rasterizar; 97 das 303 falhas têm menos de 0,5 % de pixels
+diferentes (anti-aliasing e fonte), 30 têm mais de 5 %. Por tema no nome:
+shrink 27, writing-mode 21, wrap 19, justify 16, baseline 12. **Corre no CI**
+(job `dom-rulers`, WPT fixado em `972e0e10`) e o número vai para o bloco
+"CSS and DOM parity" do README. Medido no motor da vaga 7 (main
 `4741b63d9` + o lote inline-block). Os piores são alinhamento por baseline em
 várias linhas (`flexbox-baseline-multi-line-horiz-003/004`, 36 %), tamanhos
 definidos (`flexbox-definite-sizes-005`, 30 %), `writing-mode` vertical

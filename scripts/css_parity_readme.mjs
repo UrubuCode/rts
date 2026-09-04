@@ -57,6 +57,11 @@ if (existsSync(planPath)) {
 }
 const totalLotes = lotes.feitos.length + lotes.parciais.length + lotes.pendentes.length;
 
+// A quarta régua, quando o job a correu: os reftests do WPT (auto-consistência,
+// `scripts/wpt_reftests.md`). Ausente = o bloco não a menciona.
+const wpt = existsSync(".github/wpt_report.json") ? JSON.parse(readFileSync(".github/wpt_report.json", "utf8")) : null;
+const pctWpt = wpt && wpt.total ? Math.round((wpt.passam / wpt.total) * 1000) / 10 : 0;
+
 function barra(pct) {
   const cheios = Math.round(pct / 5);
   return "[" + "▰".repeat(cheios) + "▱".repeat(20 - cheios) + "]";
@@ -82,8 +87,11 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 
 \`\`\`
 ${barra(pctMed)} ${pctMed}%   ${batem}/${medicoes} measurements matching Blink
-${barra(pctFix)} ${pctFix}%   ${passam}/${fixtures} fixtures passing
-\`\`\`
+${barra(pctFix)} ${pctFix}%   ${passam}/${fixtures} fixtures passing${wpt ? `
+${barra(pctWpt)} ${pctWpt}%   ${wpt.passam}/${wpt.total} WPT reftests (css-flexbox) rendering test == reference` : ""}
+\`\`\`${wpt ? `
+
+The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (\`scripts/wpt_reftests.md\`). It measures coherence, not Blink parity.` : ""}
 
 Fixtures that fail **on purpose** (each names a measured gap; \`tests/css/esperado-a-falhar.txt\`):
 ${linhasEsperadas}
@@ -112,6 +120,7 @@ writeFileSync(
   JSON.stringify(
     { date: hoje, fixtures: { passing: passam, total: fixtures, pct: pctFix },
       measurements: { matching: batem, total: medicoes, pct: pctMed },
+      wpt: wpt ? { suite: "css/css-flexbox", passing: wpt.passam, total: wpt.total, pct: pctWpt } : null,
       expected_failures: esperadas, dom_lots: lotes },
     null, 2) + "\n",
 );
