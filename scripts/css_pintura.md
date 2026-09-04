@@ -109,3 +109,8 @@ mudou foi este índice). Nenhuma das 86 piorou: o resto do corpus continua
 como estava (dois já estavam entre 0,5 % e 2 % antes deste lote e continuam —
 `claude-object-fit` 1,95 %, `claude-triangulo-de-borda` 1,58 % — sem relação
 com transform/overflow). `crates/rts-dom/PLAN.md` §0, linha `U-pintura-1`.
+
+**2026-09-04, depois do lote U-pintura-1 (rotação na pintura, recorte por
+`overflow`, `fixar-hash` no rasterizador):** 84 fixtures com ≤ 0,5 %, 86 com
+≤ 2 %, **nenhuma acima de 2 %**. As duas maiores que ficam: `claude-object-fit`
+(1,95 %) e `claude-triangulo-de-borda` (1,58 %).
