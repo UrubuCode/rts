@@ -71,3 +71,19 @@ pub(in crate::layout) fn limites_do_item(
         ccss.min_width.and_then(|d| d.resolve(&rc)).map(|m| m + extra),
     )
 }
+
+/// A HYPOTHETICAL main size de um item (Flexbox §9.7 passo 2, combinado com o
+/// piso automático de min-content do §4.5): um item `flex-grow:0` congela
+/// direto na sua BASE sem nunca entrar no laço de grow/shrink de `flex.rs` —
+/// e o piso tem de valer lá também, não só durante o encolhimento (onde já
+/// valia, `flex.rs` linhas 328-370). Sem redistribuir pelos outros itens o
+/// que o piso consome — o mesmo corte já aceite para o `max_main` acima.
+/// `grid_cols` fica de fora: uma coluna de grid tem largura FIXA por desenho
+/// (a base já veio zerada de grow/shrink em `flex.rs`), não pelo conteúdo.
+pub(in crate::layout) fn com_piso_minimo(main: f32, min_main: f32, grid_cols: Option<i32>) -> f32 {
+    if grid_cols.is_some() {
+        main
+    } else {
+        main.max(min_main)
+    }
+}

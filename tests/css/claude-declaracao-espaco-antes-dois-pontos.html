@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: uma declaração `prop : valor` (espaço ANTES dos dois-pontos, CSS
+     Syntax §5.4.4 permite espaço em qualquer lado do `:`) não pode ser
+     descartada inteira. `declaration_from_values` só aceita tokens
+     Ident/Delim('-') entre o nome e o `:`; um token de espaço aí faz a
+     declaração inteira falhar (`return None`). #alvo tem `flex-direction :
+     column` (com espaço) — deve empilhar #a sobre #b, não colocá-los lado a
+     lado. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="alvo,a,b">
+<meta name="fixar-estilo" content="flex-direction">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #alvo { display: flex; width: 120px; background: #eee; flex-direction : column; }
+  #a { width: 40px; height: 40px; background: #fc0; }
+  #b { width: 40px; height: 40px; background: #0cf; }
+</style></head>
+<body>
+  <div id="alvo"><div id="a"></div><div id="b"></div></div>
+</body>
+</html>
