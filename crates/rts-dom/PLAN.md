@@ -50,6 +50,7 @@ linha aqui não existe.
 | réguas-6 | as réguas da vaga 6 ANTES do código | 6 | ☑ 4 fixtures medidas no Edge 152 (instrumento validado: 1 632 números dos 86 esperados, desvio 0): `claude-font-unidades-ch-ex` (T: `10ch`=87,97px, `10ex`=78,44px, `line-height: normal`=19px, fallback de família), `claude-inline-fragmentos` (S-inline-2: span que quebra = união 102,77×63 a y=-2, contentor 60 e não 22), `claude-hyphens-manual` (`&shy;` quebra: 40 vs 20), `claude-border-juncao` (pintura: junção diagonal das bordas, 0,13 %). Pintura lida: `triangulo-de-borda` 1,58 % É a junção por trapézio; `object-fit` 1,95 % é o rasterizador a não mascarar imagens (instrumento, não motor) | `docs/dom-reguas-vaga-6` (2026-09-04) | corpus 83/90, 7 esperadas |
 | S-hifen | `hyphens: manual` — o hífen suave | 6 | ☑ `layout/hifen.rs`: o U+00AD é oportunidade de quebra (a linha fica com o maior prefixo que cabe com "-"), não pesa nem se pinta quando não quebra (também na largura natural de `medida.rs`), `none` apaga-o antes de medir; `auto` = `manual` (sem dicionário, dito). Um gancho só no `wrap_runs` (fecho do aglomerado que não cabe). Corpus 84/90 (`hyphens-manual` passa), pintura 0,09 %, suite 859/888 sem perdidos, 872 testes | `feat/dom-lote-s-hifen` → `39598b9ac` (2026-09-04) | `claude-hyphens-manual` |
 | U-pintura-2 | junção diagonal das bordas; imagens mascaradas na régua | 6 | ☑ `DisplayItem::Quad` (quadrilátero convexo): com lados adjacentes de cores diferentes cada lado sai como o trapézio do canto exterior ao interior (`pintura::trapezios_dos_lados`); com cores iguais ficam as barras; `transparent` não emite. Rasterizador com `fill_quad` por varrimento; egui por mesh. `claude-raster` mascara `Image`/`Pixels` como mascara texto. Pintura: `triangulo-de-borda` 1,58 % → 0,04 %, `border-juncao` 0,13 % → 0,02 %; corpus de pintura 87/90 ≤ 0,5 %. ACHADO: `object-fit` fica em 1,95 % porque o motor não emite o FUNDO de um `<img>` sem imagem carregada (o rasterizador pintou 0 itens) — próximo alvo de pintura. Suite 859/888 sem perdidos; 875 testes | `feat/dom-lote-u-pintura-2` → `b4eebfac5` (2026-09-04) | `claude-border-juncao`, `claude-triangulo-de-borda` |
+| S-inline-2 | inline com superfície por FRAGMENTOS de linha | 6 | ☑ `inline_por_fragmentos` (superfície sem width/height/margem) fica no fluxo: arestas como átomos (`ArestaInicio/Fim`), caixa = união dos fragmentos com padding/borda verticais, `inline_fragmentos::Superficies` pinta fundo e barras por linha (esquerda só no 1.º, direita só no último). A pergunta corrigida nos 5 sítios (`is_block_level`, `is_inline_block`, 3× `vertical.rs`). Cortes: cores cruas, sem radius nos fragmentos. Corpus 85/90, pintura 0,56 % → 0,06 %, suite 859/888 sem perdidos, 876 testes; paridade: 3 páginas 0 movidos, 3 movem os links da nav de 34 → 40,4px (= Blink: 14×1,6+18) | `feat/dom-lote-s-inline-2` → `add946b5e` (2026-09-04) | `claude-inline-fragmentos` |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
 **Estado após a vaga 1 (2026-09-04, 01:41)** — medido com o `rts.exe`
@@ -152,6 +153,22 @@ promovido a caixa nem sequer QUEBRA — `cx1` fica 22px alto em vez de 60 — e
 engrossa a linha com a borda), **T** (`ch`/`ex`/`line-height: normal` pela
 métrica da fonte do `TextMeasurer`; a lista de `font-family` serializada
 inteira). Cada brief leva os números acima.
+
+**Estado após a vaga 6 (2026-09-04, ~17:30)** — réguas antes do código, 5
+lotes feitos à mão (os 15 agentes da sessão já tinham sido usados), ZERO
+rondas de retrabalho:
+
+| régua | antes (vaga 5) | depois |
+|---|---|---|
+| corpus CSS (layout + computed) | 82/86, 4 esperadas | **85/90**, 5 esperadas (3 UA, `cursor`, `ch`/`ex`) |
+| pintura (pixels vs Edge) | 84/86 ≤ 0,5 % | **88/90 ≤ 0,5 %** (`font-unidades` 2,45 %, `object-fit` 1,22 % = a imagem `data:` sem loader) |
+| suite `*.test.ts` por `medir.sh` | 859/888 | **859/888**, nenhum perdido em nenhum lote |
+| `cargo test -p rts-dom --lib --features metrics` | 870 | **876** |
+
+Lotes: réguas-6 (#2643), S-hifen (#2644), U-pintura-2 (#2645), img-fundo
+(#2646), S-inline-2. O que fica da vaga 6: **T** (`ch`/`ex`, `line-height:
+normal` pela métrica da fonte, `font-family` computado como lista) e o loader
+de imagem `data:` para `<img>`/`list-style-image`.
 
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit
