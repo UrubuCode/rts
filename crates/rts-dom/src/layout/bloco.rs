@@ -336,6 +336,7 @@ pub(crate) fn layout_block(
                     avail_w,
                     avail_h,
                     forced_outer_w,
+                    forced_outer_h,
                     ctx,
                     list,
                 );

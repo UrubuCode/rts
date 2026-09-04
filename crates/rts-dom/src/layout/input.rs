@@ -76,6 +76,7 @@ pub(in crate::layout) fn medida_do_input(
     avail_w: f32,
     avail_h: Option<f32>,
     forced_outer_w: Option<f32>,
+    forced_outer_h: Option<f32>,
     ctx: &LayoutCtx,
 ) -> MedidaDoInput {
     let font = font_px(css, DEFAULT_FONT_SIZE);
@@ -134,19 +135,24 @@ pub(in crate::layout) fn medida_do_input(
     // contra a LARGURA — os `<input type=checkbox>` do "checkbox hack" da
     // Wikipédia declaram `height:100%` e vinham com a largura da viewport de
     // altura, oito deles, o pior rácio de erro da página inteira.
-    let content_h = resolve_height(css.height, avail_h, &resolve)
-        .map(|h| {
-            if border_box {
-                (h - (pad_top + pad_bottom + 2.0 * border)).max(0.0)
-            } else {
-                h
-            }
-        })
-        .unwrap_or(if quadrado {
-            CAIXA_DE_MARCA
+    let declarada = resolve_height(css.height, avail_h, &resolve).map(|h| {
+        if border_box {
+            (h - (pad_top + pad_bottom + 2.0 * border)).max(0.0)
         } else {
-            ctx.measurer.line_height(font)
-        });
+            h
+        }
+    });
+    // A altura IMPOSTA pelo `align-items: stretch` de um flex vence o
+    // `height`, como no `layout_block`: um `<input>` num flex-row de 80px
+    // estica até aos 80 (`claude-flex-stretch-input-height`). O canal não
+    // existia e o campo caía sempre na altura da linha, 21.
+    let imposta = forced_outer_h
+        .map(|fh| (fh - margin_top - margin_bottom - pad_top - pad_bottom - 2.0 * border).max(0.0));
+    let content_h = imposta.or(declarada).unwrap_or(if quadrado {
+        CAIXA_DE_MARCA
+    } else {
+        ctx.measurer.line_height(font)
+    });
     MedidaDoInput {
         content_w,
         content_h,
@@ -200,10 +206,11 @@ pub(in crate::layout) fn layout_input(
     // e aí a percentagem vale `auto` — a mesma regra do `layout_block`.
     avail_h: Option<f32>,
     forced_outer_w: Option<f32>,
+    forced_outer_h: Option<f32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> (f32, f32) {
-    let med = medida_do_input(dom, id, css, avail_w, avail_h, forced_outer_w, ctx);
+    let med = medida_do_input(dom, id, css, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx);
     let MedidaDoInput {
         content_w,
         content_h,
