@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: `word-spacing` soma px a CADA espaço entre palavras — positivo
+     alarga, negativo aperta. A leitura é a largura da linha (uma só palavra
+     por caixa não move nada; três palavras com espaçamento positivo/negativo
+     movem a largura do texto em `2 * word-spacing` contra o normal). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="normal,largo,apertado">
+<meta name="fixar-estilo" content="word-spacing">
+<style>
+  body { margin: 0; font: 16px/20px monospace; white-space: nowrap; }
+  div { background: #eee; margin-bottom: 5px; display: inline-block; }
+  #normal { word-spacing: normal; }
+  #largo { word-spacing: 10px; }
+  #apertado { word-spacing: -2px; }
+</style></head>
+<body>
+  <div id="normal">um dois tres</div><br>
+  <div id="largo">um dois tres</div><br>
+  <div id="apertado">um dois tres</div>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- Fixa: `tab-size` decide quantos espaços um `\t` vale dentro de
+     `white-space: pre`, contados a partir da coluna 0. `#oito` (default) e
+     `#dois` têm o MESMO texto ("a\tb") — a leitura é a largura da linha:
+     "a" + tab-size-1 espaços + "b" contra "a" + 1 espaço + "b". -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="oito,dois">
+<meta name="fixar-estilo" content="tab-size">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  pre { background: #eee; margin: 0 0 5px; }
+  #oito { tab-size: 8; }
+  #dois { tab-size: 2; }
+</style></head>
+<body>
+<pre id="oito">a	b</pre>
+<pre id="dois">a	b</pre>
+</body>
+</html>

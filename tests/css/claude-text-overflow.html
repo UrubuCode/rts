@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: `text-overflow: ellipsis` corta a linha em `overflow:hidden` +
+     `white-space:nowrap` e acrescenta "…" DENTRO da caixa — a largura da
+     caixa não muda, só o que se pinta. `#sem-nowrap` e `#sem-hidden` faltam
+     uma das três condições (ver `segmento::elipse_pedida`) e não cortam. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="corta,sem-nowrap,sem-hidden">
+<meta name="fixar-estilo" content="text-overflow">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 120px; background: #eee; margin-bottom: 5px; }
+  #corta { text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+  #sem-nowrap { text-overflow: ellipsis; overflow: hidden; }
+  #sem-hidden { text-overflow: ellipsis; white-space: nowrap; }
+</style></head>
+<body>
+  <div id="corta">um texto comprido demais para a caixa</div>
+  <div id="sem-nowrap">um texto comprido demais para a caixa</div>
+  <div id="sem-hidden">um texto comprido demais para a caixa</div>
+</body>
+</html>

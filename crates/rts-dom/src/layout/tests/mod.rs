@@ -18,6 +18,7 @@ mod inline_corpus;
 mod pintura;
 mod posicionado;
 mod position_corpus;
+mod texto_lote_s;
     use super::*;
     use crate::dom::parse_html_to_dom;
 

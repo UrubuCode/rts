@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Fixa: `-webkit-line-clamp: N` (com `display:-webkit-box;
+     -webkit-box-orient:vertical;overflow:hidden`, a forma que as páginas
+     escrevem) corta o texto a N linhas e fecha a última com "…". A leitura é
+     a ALTURA da caixa: `#clamp` mede `N * line-height` (2*20=40) contra
+     `#sem-clamp`, o mesmo texto sem a propriedade, que mede a altura das
+     linhas todas. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="clamp,sem-clamp">
+<meta name="fixar-estilo" content="-webkit-line-clamp">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 100px; background: #eee; margin-bottom: 5px; }
+  #clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+</style></head>
+<body>
+  <div id="clamp">um dois tres quatro cinco seis sete oito nove dez</div>
+  <div id="sem-clamp">um dois tres quatro cinco seis sete oito nove dez</div>
+</body>
+</html>
