@@ -1,0 +1,55 @@
+{
+  "medido_em": "2026-09-04T21:53:34.298Z",
+  "maquina": {
+    "so": "win32 10.0.26200",
+    "cpu": "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+    "nucleos_logicos": 16,
+    "ram_gb": 47.9
+  },
+  "app": "examples/react-app.html",
+  "lados": {
+    "rts": {
+      "exe": "C:\\Users\\nexga\\AppData\\Local\\Temp\\rts-vs-electron\\rts\\app.exe",
+      "bytes_exe": 20006400,
+      "bytes_pasta": 21110641,
+      "ficheiros_na_pasta": 5,
+      "nao_construido": true,
+      "razao": "processo terminou (exit code desconhecido) antes de abrir janela. stderr: rts: uncaught exception (tag 1): Error: cannot resolve module \"rts:egui\" - nothing registered that specifier",
+      "arranque_ms": null,
+      "rss_mb": null,
+      "private_mb": null,
+      "cpu_repouso_pct": null,
+      "processos": null,
+      "amostras": {
+        "n": 5,
+        "ok": 0
+      }
+    },
+    "electron": {
+      "exe": "C:\\Users\\nexga\\AppData\\Local\\Temp\\rts-vs-electron\\electron\\dist\\rts-vs-electron-win32-x64\\rts-vs-electron.exe",
+      "bytes_exe": 246202368,
+      "bytes_pasta": 385473055,
+      "ficheiros_na_pasta": 73,
+      "nao_construido": false,
+      "razao": null,
+      "arranque_ms": {
+        "mediana": 313,
+        "min": 309,
+        "max": 346
+      },
+      "rss_mb": {
+        "mediana": 290.2,
+        "min": 287.53,
+        "max": 290.75
+      },
+      "private_mb": 143.12,
+      "cpu_repouso_pct": 0,
+      "processos": 4,
+      "amostras": {
+        "n": 5,
+        "ok": 5
+      },
+      "versao": "44.2.0"
+    }
+  }
+}
