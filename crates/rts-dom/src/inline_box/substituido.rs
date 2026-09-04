@@ -62,11 +62,22 @@ fn fonte_de_picture(dom: &Dom, img: NodeIdx, viewport_w: f32) -> Option<NodeIdx>
 /// Um `<img>` sem nenhuma dimensão devolve `Some((0,0))` e não `None`: no
 /// browser é uma caixa de área nula, mas COM posição, e é a posição que o
 /// chamador precisa de registar.
+///
+/// `forced`: o tamanho de CONTEÚDO já decidido pelo FLEX (grow/shrink no
+/// eixo principal, `align-items: stretch` no cruzado) para este item — vence
+/// `width`/`height` do CSS/atributo do MESMO jeito que já vence num bloco
+/// comum (`bloco.rs`, `forced_outer_w`/`forced_outer_h`), e é o que faz um
+/// `<img>` sem `height` mas esticado no eixo cruzado continuar quadrado: sem
+/// razão a preservar (`w0`/`h0` ambos `None` aqui), a MESMA fórmula da razão
+/// do atributo HTML (`(Some(w), None) => w * nh/nw`) deriva a outra dimensão
+/// a partir da que o flex já forçou, em vez do tamanho natural dos pixels.
+/// `(None, None)` — nem CSS/atributo nem flex — mantém o caminho de sempre.
 pub(crate) fn replaced_inline_size(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,
     avail_w: f32,
+    forced: (Option<f32>, Option<f32>),
     ctx: &LayoutCtx,
 ) -> Option<(f32, f32)> {
     let crate::dom::NodeKind::Element { tag } = &dom.node(id).kind else {
@@ -112,8 +123,12 @@ pub(crate) fn replaced_inline_size(
         Some(d) => d.resolve(&resolve),
         None => attr_px(attr),
     };
-    let w0 = declarado(css.width, "width");
-    let h0 = declarado(css.height, "height");
+    // O flex vence o CSS do mesmo jeito que já vence num bloco comum — é
+    // por isso que entra ANTES de `declarado`, não depois: um `<img>` com
+    // `width` declarado mas encolhido pelo `flex-shrink` tem de acabar na
+    // largura que o flex decidiu, não na declarada.
+    let w0 = forced.0.or_else(|| declarado(css.width, "width"));
+    let h0 = forced.1.or_else(|| declarado(css.height, "height"));
     // A razão de aspecto: a dos pixels quando existem e, quando não, a dos
     // ATRIBUTOS `width`/`height` do HTML.
     //

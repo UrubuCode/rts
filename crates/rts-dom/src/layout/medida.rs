@@ -159,7 +159,7 @@ pub(in crate::layout) fn intrinsic_content_width(
     // que coubesse em vez do que se quer.
     if let Some(css) = dom.computed_style_idx(id) {
         if let Some((w, _)) =
-            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, ctx)
+            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx)
         {
             dom.intrinsic_width_put(key, w);
             return w;

@@ -226,7 +226,7 @@ pub(in crate::layout) fn collect_runs(
                 // nenhum e ficava sem caixa. Flui como palavra inquebrável.
                 let rcss = dom.computed_style_idx(id).unwrap_or_default();
                 if let Some((ww, wh)) =
-                    crate::inline_box::replaced_inline_size(dom, id, &rcss, avail_w, ctx)
+                    crate::inline_box::replaced_inline_size(dom, id, &rcss, avail_w, (None, None), ctx)
                 {
                     // Como no widget: a caixa do replaced é dele; os ancestrais
                     // inline recebem só a linha que ele ocupa.

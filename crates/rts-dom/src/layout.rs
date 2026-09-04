@@ -58,6 +58,7 @@ mod margem_escapada;
 mod posicionado;
 mod relativo;
 mod replaced;
+mod replaced_transferido;
 mod bloco;
 mod fragmento;
 mod vertical;

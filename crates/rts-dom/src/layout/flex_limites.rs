@@ -31,6 +31,17 @@ pub(in crate::layout) fn flex_base_outer(
         other => other.resolve(&resolve),
     });
     let Some(basis) = basis else {
+        // Um CONTENTOR flex-row que encolhe ao conteúdo e só tem uma imagem
+        // sem tamanho lá dentro (`#dentro{height:100px}` como item doutro
+        // flex, `claude-flex-abspos-img-aspect-ratio`): a largura natural
+        // dessa imagem (o que `child_outer_width` mediria) é o tamanho dos
+        // pixels, não o que ela vai ocupar depois do `align-items: stretch`
+        // — ver `replaced_transferido.rs`.
+        if let Some(w) = super::replaced_transferido::largura_intrinseca_transferida(
+            dom, id, parent_font, None, ctx,
+        ) {
+            return w;
+        }
         return child_outer_width(dom, id, container_w, parent_font, ctx);
     };
     let margin_h = css.margin.resolve_h(&resolve);

@@ -352,7 +352,9 @@ pub(crate) fn layout_block(
                 }
             }
             if tag == "img" {
-                if let Some(img) = layout_image(dom, id, &css, x, y, avail_w, ctx, list) {
+                if let Some(img) =
+                    layout_image(dom, id, &css, x, y, avail_w, forced_outer_w, forced_outer_h, ctx, list)
+                {
                     return img;
                 }
                 // sem pixels ainda (não baixou/decodificou): ocupa 0 (não pinta nada).
@@ -503,8 +505,18 @@ pub(crate) fn layout_block(
                 Some(w) => w,
                 // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
                 // senão (fluxo block normal) → ocupa a largura disponível.
-                None if shrink_to_fit => content_natural_width(dom, id, font_for_content, ctx)
-                    .min((avail_w - frame).max(0.0)),
+                //
+                // `largura_intrinseca_transferida` decide quando um `<img>`
+                // sem tamanho lá dentro pesa pela razão×altura esticada em
+                // vez do natural (`replaced_transferido.rs`); `None` em
+                // qualquer outro caso, e cai no de sempre.
+                None if shrink_to_fit => {
+                    let h = forced_outer_h
+                        .map(|h| (h - pad_top - pad_bottom - border_top - border_bottom).max(0.0));
+                    super::replaced_transferido::largura_intrinseca_transferida(dom, id, font_for_content, h, ctx)
+                        .unwrap_or_else(|| content_natural_width(dom, id, font_for_content, ctx))
+                        .min((avail_w - frame).max(0.0))
+                }
                 None => (avail_w - frame).max(0.0),
             }
         };

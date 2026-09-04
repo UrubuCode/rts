@@ -178,15 +178,12 @@ pub(in crate::layout) fn layout_children_horizontal(
             continue;
         }
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
-        let base = super::flex_limites::flex_base_outer(dom, child, content_w, font_size, ctx);
-        let h = child_outer_height(
-            dom,
-            child,
-            content_w,
-            container_content_h,
-            css,
-            font_size,
-            ctx,
+        // Um `<img>` DIRETO desta linha sem width/height, esticado
+        // (`align-items: stretch`): base/h vêm da razão transferida, não do
+        // natural — `replaced_transferido.rs` decide quando (Flexbox §9.2).
+        let align_efetivo = ccss.align_self.unwrap_or(align);
+        let (base, h) = super::replaced_transferido::base_e_altura_do_item(
+            dom, child, content_w, container_content_h, align_efetivo, css, font_size, ctx,
         );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
         // de largura de tabela — a mesma pergunta ("a palavra mais larga, com o

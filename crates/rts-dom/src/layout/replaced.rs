@@ -112,6 +112,16 @@ pub(in crate::layout) fn layout_image(
     x: f32,
     y: f32,
     avail_w: f32,
+    // Tamanho OUTER que o FLEX já decidiu (grow/shrink no eixo principal,
+    // `align-items: stretch` no cruzado) — `None` fora de um item flex, ou
+    // quando o eixo não é imposto (o `<img>` decide sozinho pela CSS/atributo/
+    // natural). Vence `width`/`height` do mesmo jeito que já vence num bloco
+    // comum (`bloco.rs`): sem isto um `<img>` esticado no eixo cruzado nunca
+    // via a altura que o flex lhe deu (`claude-flex-abspos-img-aspect-ratio`,
+    // `claude-img-sem-tamanho-natural-em-flex`) — o despacho de `<img>` em
+    // `bloco.rs` ignorava os dois parâmetros por inteiro.
+    forced_outer_w: Option<f32>,
+    forced_outer_h: Option<f32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> Option<(f32, f32)> {
@@ -129,6 +139,14 @@ pub(in crate::layout) fn layout_image(
     let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
+    // `forced_outer_*` é OUTER (margem+borda+conteúdo, como `FlexItem::main`);
+    // `replaced_inline_size` decide em CONTEÚDO e soma a borda por conta
+    // própria no fim — descontam-se aqui as duas para não a somar em dobro.
+    let [border_top, border_right, border_bottom, border_left] = crate::style::borders::used_widths(css);
+    let forced_w = forced_outer_w
+        .map(|w| (w - margin_left - margin_right - border_left - border_right).max(0.0));
+    let forced_h = forced_outer_h
+        .map(|h| (h - margin_top - margin_bottom - border_top - border_bottom).max(0.0));
     // A CAIXA não depende de haver pixels, e é por isso que ela vem de
     // `replaced_inline_size` em vez de uma segunda cópia das mesmas regras: o
     // `width`/`height` do CSS ou do atributo HTML já decide, que é o que o
@@ -150,7 +168,7 @@ pub(in crate::layout) fn layout_image(
     //
     // A alternativa — manter a subtração e corrigi-la só para o `calc` — punha a
     // regra de resolução em dois sítios, que é o que este ficheiro já pagou.
-    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, ctx)?;
+    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (forced_w, forced_h), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
     // O FUNDO da caixa pinta-se com ou sem pixels — um `<img>` com

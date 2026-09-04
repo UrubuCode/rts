@@ -341,7 +341,7 @@ pub(in crate::table) fn min_content(
             // largura da viewport devolveria o que coubesse nela, que é outra
             // pergunta.
             if let Some((w, _)) =
-                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, ctx)
+                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx)
             {
                 return w + frame;
             }
