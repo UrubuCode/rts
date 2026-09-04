@@ -240,8 +240,9 @@ impl Dom {
         else {
             return;
         };
-        let affects_parent_selectors =
-            matches!(name_lc.as_str(), "id" | "class") || self.stylesheet.has_attribute_selectors();
+        // Por NOME (lote I) — o booleano grosso invalidava por QUALQUER atributo.
+        let affects_parent_selectors = matches!(name_lc.as_str(), "id" | "class")
+            || self.stylesheet.mentions_attribute_name(&name_lc);
         let dirty_root = if affects_parent_selectors {
             self.nodes[idx].parent.unwrap_or(idx)
         } else {
@@ -315,14 +316,14 @@ impl Dom {
         // e o Chrome o resolve em 5 µs onde nós gastávamos 2,9 ms numa página
         // de 3000 elementos.
         //
-        // A guarda: só vale para `class`, e cai fora se houver seletor de
-        // ATRIBUTO no stylesheet (um `[class*=…]` reage a qualquer classe).
+        // A guarda: só vale para `class`, e cai fora se houver `[class*=…]` — por
+        // NOME (lote I), não pelo booleano grosso que a UA `[hidden]` sempre liga.
         let style_unaffected = name_lc == "class"
-            && !self.stylesheet.has_attribute_selectors()
+            && !self.stylesheet.mentions_attribute_name("class")
             && self.class_change_is_inert(idx, value);
         if !style_unaffected {
             let affects_parent_selectors =
-                affects_index || self.stylesheet.has_attribute_selectors();
+                affects_index || self.stylesheet.mentions_attribute_name(&name_lc);
             let dirty_root = if affects_parent_selectors {
                 self.nodes[idx].parent.unwrap_or(idx)
             } else {

@@ -10,7 +10,9 @@ use crate::layout::{ApproxMeasurer, DisplayItem, LayoutCtx, Rect, layout_documen
 use crate::parse_html_to_dom;
 
 pub(crate) fn geometria(html: &str, largura: f32) -> (crate::Dom, crate::layout::DisplayList) {
-    let dom = parse_html_to_dom(html);
+    // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este corpus de
+    // testes mede coordenadas a partir de (0,0), como o corpus real faz.
+    let dom = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
     let ctx = LayoutCtx {
         viewport_w: largura,
         viewport_h: 600.0,

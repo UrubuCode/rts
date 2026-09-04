@@ -90,11 +90,17 @@ fn coluna_nowrap_nao_tem_folga_e_a_vizinha_leva_o_espaco_todo() {
     let rotulo = rect(&dom, &list, "th", 0);
     let conteudo = rect(&dom, &list, "td", 0);
 
-    // 8 caracteres sem quebra: a largura sai da constante do medidor.
-    let oito = 8.0 * 16.0 * crate::style::PROP_ADVANCE;
+    // 8 caracteres sem quebra: a largura MEDIDA (61.79068) diverge da
+    // constante simples `8×16×PROP_ADVANCE` (58.88) porque `th` agora é
+    // `font-weight:bold` + `padding:1px` na folha de UA (lote I) — o negrito
+    // muda o avanço por carácter no meio da PALAVRA de forma que não isola
+    // limpo num fator único aplicado ao total (o algoritmo de min-content
+    // mede palavra a palavra, não a frase de uma vez). Valor tomado do
+    // medidor em vez de recomposto à mão, para não fixar uma fórmula errada.
+    let oito = 61.79068_f32;
     assert!(
-        (rotulo.w - oito).abs() < 1.0,
-        "coluna nowrap = {}",
+        (rotulo.w - oito).abs() < 0.5,
+        "coluna nowrap = {} (esperado {oito})",
         rotulo.w
     );
     assert!(
@@ -135,12 +141,14 @@ fn nowrap_soma_os_filhos_inline_em_vez_de_tomar_o_maior() {
     let (dom, list) = geometria(html, 800.0);
 
     // 4 caracteres cada; na mesma linha somam 8 — e o que o teste afirma é a
-    // SOMA dos dois inline, não o avanço por carácter.
-    let oito = 8.0 * 16.0 * crate::style::PROP_ADVANCE;
+    // SOMA dos dois inline, não o avanço por carácter. Mesmo valor MEDIDO do
+    // teste irmão acima (`th` bold + padding:1px da folha de UA, lote I) —
+    // ver o comentário lá sobre porque é o medido e não uma fórmula composta.
+    let oito = 61.79068_f32;
     let rotulo = rect(&dom, &list, "th", 0);
     assert!(
         (rotulo.w - oito).abs() < 1.0,
-        "coluna nowrap com dois inline = {}",
+        "coluna nowrap com dois inline = {} (esperado {oito})",
         rotulo.w
     );
 }

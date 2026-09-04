@@ -275,8 +275,10 @@
                 flags: 0,
             },
         );
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma x=0.
         let dom = parse_html_to_dom(
-            "<style>.card{box-sizing:border-box;width:32%;padding:14;border-width:2;background:#1a2030}</style>\
+            "<style>body{margin:0}.card{box-sizing:border-box;width:32%;padding:14;border-width:2;background:#1a2030}</style>\
              <row>\
                <div class='card' id='a'>1</div><div class='card' id='b'>2</div><div class='card' id='c'>3</div>\
              </row>",

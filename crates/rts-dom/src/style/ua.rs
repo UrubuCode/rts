@@ -120,7 +120,9 @@ mod tests {
         };
         let matched = sheet.matched_for_node(1280.0, "input", None, &[], matches_disabled);
         let computed = sheet.declarations_from(&matched, None);
-        assert_eq!(computed.normal.color, Some(0x808080ff));
+        // rgb(84,84,84) — medido no Chrome real, não a aproximação `gray`
+        // (#808080) do primeiro rascunho; ver `claude-ua-form-disabled`.
+        assert_eq!(computed.normal.color, Some(0x545454ff));
     }
 
     /// `display` de `li`/`table`/`td` continua certo SEM `ua_display`: chega
@@ -140,6 +142,91 @@ mod tests {
             sheet.computed_for("td", None, &[]).normal.display,
             Some(crate::style::DisplayKind::TableCell)
         );
+    }
+
+    /// As margens de `h2`-`h6` resolvem o `em` contra o PRÓPRIO `font-size`
+    /// (já resolvido pela mesma regra), não o do body — medido no Chrome
+    /// real (`tests/css/claude-ua-headings.esperado.json`): `h2` é
+    /// `0.83em` de `24px` = `19.92px`, não `16px` (o que dava quando a
+    /// folha usava `px` fixos para as duas propriedades).
+    #[test]
+    fn margem_de_heading_resolve_contra_o_proprio_font_size() {
+        // Valores medidos no Chrome real (`claude-ua-headings.esperado.json`):
+        // `h3`..`h6` são os que expõem casas decimais e por isso o teste da
+        // formatação — `h1`/`h2` já bateriam com um `Px` fixo por coincidência.
+        let dom = crate::parse_html_to_dom(
+            "<h1>1</h1><h2>2</h2><h3>3</h3><h4>4</h4><h5>5</h5><h6>6</h6>",
+        );
+        let casos = [
+            ("h1", "32px", "21.44px"),
+            ("h2", "24px", "19.92px"),
+            ("h3", "18.72px", "18.72px"),
+            ("h4", "16px", "21.28px"),
+            ("h5", "13.28px", "22.1776px"),
+            ("h6", "10.72px", "24.9776px"),
+        ];
+        for (sel, font_size, margin) in casos {
+            let id = dom.query(sel).unwrap();
+            assert_eq!(dom.computed_property(id, "font-size"), font_size, "{sel}");
+            assert_eq!(dom.computed_property(id, "margin-top"), margin, "{sel}");
+            assert_eq!(dom.computed_property(id, "margin-bottom"), margin, "{sel}");
+        }
+    }
+
+    /// A altura de `input`/`button` bate EXATA com o Chrome
+    /// (`claude-ua-form-disabled.esperado.json`: 21px os dois) — é o que
+    /// prova que o modelo de caixa (padding+borda do lote I) está certo na
+    /// vertical. A LARGURA fica de fora deste teste: depende de quanto o
+    /// `ApproxMeasurer` mede o texto/placeholder, que já diverge do Chrome
+    /// noutros lugares (documentado em `layout/medida.rs`) — não é uma
+    /// lacuna desta folha.
+    #[test]
+    fn altura_de_botao_e_input_bate_com_o_chrome() {
+        let dom = crate::parse_html_to_dom(
+            "<style>body{margin:0}</style><input id='normal' value='a'><button id='botao'>ok</button>",
+        );
+        let ctx = crate::layout::LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &crate::layout::ApproxMeasurer,
+        };
+        let list = crate::layout::layout_document(&dom, &ctx);
+        let geo = list.geometry();
+        let rect = |sel: &str| {
+            let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
+            geo.rects[&idx]
+        };
+        assert_eq!(rect("#normal").h, 21.0);
+        assert_eq!(rect("#botao").h, 21.0);
+    }
+
+    /// O `border-spacing` de 2px (default de `table::mod::estilo`, não desta
+    /// folha — ver o comentário em `ua.css`) desloca a PRIMEIRA linha da
+    /// borda da tabela NA VERTICAL: `<tr>.y == 2`, medido no Chrome real
+    /// (`claude-ua-th.esperado.json`).
+    ///
+    /// **`<tr>.x` fica em 0, não em 2 como o Chrome mede** — LACUNA
+    /// conhecida e não fechada por este lote: a caixa do `<tr>` neste motor
+    /// cobre a largura inteira da tabela (o recuo horizontal do
+    /// `border-spacing` está nas CÉLULAS, que `o_border_spacing_existe_
+    /// tambem_entre_a_borda_e_a_primeira_coluna` já pina certo), e o Chrome
+    /// mede a caixa do `<tr>` encolhida ao redor das células em vez disso.
+    /// É uma questão de layout de tabela (`table/`), fora do ficheiro deste
+    /// lote (`style/ua.css`) — reportado, não corrigido aqui.
+    #[test]
+    fn primeira_linha_desloca_na_vertical_pelo_border_spacing_default() {
+        let dom = crate::parse_html_to_dom(
+            "<style>body{margin:0}</style><table id='tabela'><tr id='linha'><th>a</th><td>b</td></tr></table>",
+        );
+        let ctx = crate::layout::LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &crate::layout::ApproxMeasurer,
+        };
+        let list = crate::layout::layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#linha").unwrap()).unwrap();
+        let r = list.geometry().rects[&idx];
+        assert_eq!(r.y, 2.0);
     }
 
     /// A UA nunca cria surpresas de fora da cascade normal em cima da regra

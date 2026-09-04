@@ -27,7 +27,11 @@
             ("width:600px;max-width:50%", 400.0),   // % de 800
         ];
         for (style, expected) in cases {
-            let dom = parse_html_to_dom(&format!("<div id=\"t\" style=\"{style}\">x</div>"));
+            // body{margin:0}: a folha de UA (lote I) dá 8px ao body, e um
+            // dos casos mede `%` do viewport.
+            let dom = parse_html_to_dom(&format!(
+                "<style>body{{margin:0}}</style><div id=\"t\" style=\"{style}\">x</div>"
+            ));
             let t = dom.query("#t").unwrap();
             let ctx = LayoutCtx {
                 viewport_w: 800.0,
@@ -77,8 +81,9 @@
     #[test]
     fn text_align_desloca_o_texto() {
         // text-align center/right desloca o texto pelo espaço livre (#1749).
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body.
         let dom = parse_html_to_dom(
-            "<style>#c{text-align:center;width:400px}#r{text-align:right;width:400px}</style><div id=\"c\">x</div><div id=\"r\">y</div>",
+            "<style>body{margin:0}#c{text-align:center;width:400px}#r{text-align:right;width:400px}</style><div id=\"c\">x</div><div id=\"r\">y</div>",
         );
         let ctx = LayoutCtx {
             viewport_w: 600.0,
@@ -130,8 +135,11 @@
     fn flex_grow_vertical_da_altura_a_filho_100pct() {
         // flex column 800px: navbar 60 + item flex-grow:1 (cresce p/ 740) e o
         // filho height:100% do item resolve contra os 740 (não a altura própria).
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body (16 no
+        // vertical), e este teste soma 60+740=800 EXACTOS.
         let dom = parse_html_to_dom(
-            "<div style='display:flex;flex-direction:column;height:800px'>\
+            "<style>body{margin:0}</style>\
+             <div style='display:flex;flex-direction:column;height:800px'>\
              <div style='height:60px'>nav</div>\
              <div style='flex-grow:1'><div id=alvo style='height:100%;background:#00f'>x</div></div>\
              </div>",

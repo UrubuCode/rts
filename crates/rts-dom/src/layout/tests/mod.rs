@@ -157,9 +157,15 @@ mod position_corpus;
     }
 
     /// Layout determinístico com medidor aproximado e viewport fixo.
+    ///
+    /// Prefixa `body { margin: 0 }`: a folha de UA (lote I, `style/ua.css`)
+    /// dá ao `body` os 8px que o Chrome também dá, e este corpus de testes
+    /// mede coordenadas de conteúdo a partir de `(0,0)` — como o corpus real
+    /// de `tests/css/` faz, que declara o mesmo reset em toda fixture que não
+    /// é SOBRE a margem do body. Sem isto, cada rect vinha deslocado 8px.
     fn layout(html: &str, vw: f32) -> DisplayList {
         def_div();
-        let dom = parse_html_to_dom(html);
+        let dom = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
         let ctx = LayoutCtx {
             viewport_w: vw,
             viewport_h: 600.0,
@@ -222,8 +228,10 @@ mod position_corpus;
         // flex-shrink:0 nos cards: estes testes validam JUSTIFY (inclusive em
         // overflow real, como o Chrome foi medido); sem o 0, o shrink default=1
         // (agora implementado!) encolheria os itens e não haveria overflow.
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; estes testes
+        // medem `x` a partir do viewport.
         let mut html = format!(
-            "<style>row{{display:flex;{style}}} .c{{width:100px;flex-shrink:0;background:#111}}</style><row>"
+            "<style>body{{margin:0}}row{{display:flex;{style}}} .c{{width:100px;flex-shrink:0;background:#111}}</style><row>"
         );
         for i in 0..n_cards {
             html.push_str(&format!("<div class='c' id='c{i}'>x</div>"));

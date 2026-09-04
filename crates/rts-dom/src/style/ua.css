@@ -80,12 +80,20 @@ hr {
   margin-bottom: 8px;
 }
 
-h1 { font-size: 32px; font-weight: bold; margin-top: 21px; margin-bottom: 21px; }
-h2 { font-size: 24px; font-weight: bold; margin-top: 16px; margin-bottom: 16px; }
-h3 { font-size: 19px; font-weight: bold; margin-top: 16px; margin-bottom: 16px; }
-h4 { font-size: 16px; font-weight: bold; margin-top: 16px; margin-bottom: 16px; }
-h5 { font-size: 13px; font-weight: bold; margin-top: 16px; margin-bottom: 16px; }
-h6 { font-size: 11px; font-weight: bold; margin-top: 16px; margin-bottom: 16px; }
+/* `font-size` em `em` (contra o PAI) e `margin` em `em` (contra o PRÓPRIO
+ * `font-size`, já resolvido pela mesma regra) — os valores exatos do
+ * `html.css` do Blink. Medido no Chrome real (`tests/css/claude-ua-headings`,
+ * lote I): px fixos arredondados davam 16px/16px de margem em TODOS os
+ * headings (o `em` da margem tem de reagir ao próprio tamanho de fonte, não
+ * ao do body) e um `font-size` inteiro em vez de `18.72px`/`13.28px`/
+ * `10.72px` — o corpus `claude-font-size-unidades` já prova que o `em` do
+ * autor resolve certo; o motor não precisava de mudar, só a folha. */
+h1 { font-size: 2em; font-weight: bold; margin-top: 0.67em; margin-bottom: 0.67em; }
+h2 { font-size: 1.5em; font-weight: bold; margin-top: 0.83em; margin-bottom: 0.83em; }
+h3 { font-size: 1.17em; font-weight: bold; margin-top: 1em; margin-bottom: 1em; }
+h4 { font-size: 1em; font-weight: bold; margin-top: 1.33em; margin-bottom: 1.33em; }
+h5 { font-size: 0.83em; font-weight: bold; margin-top: 1.67em; margin-bottom: 1.67em; }
+h6 { font-size: 0.67em; font-weight: bold; margin-top: 2.33em; margin-bottom: 2.33em; }
 
 b, strong { font-weight: bold; }
 i, em { font-style: italic; }
@@ -101,7 +109,13 @@ a { color: #0000ee; text-decoration: underline; }
  * layout consultava DEPOIS da cascade. Agora é uma declaração `display`
  * normal, como qualquer outra: uma regra de autor (`td{display:block}`)
  * vence-a pela cascade em vez de um `match` no Rust nunca a deixar chegar. */
-table { display: table; border-spacing: 2px; }
+/* `border-spacing` NÃO entra aqui: o default de 2px E o atributo legado
+ * `cellspacing` já são resolvidos por `table::mod::estilo` (`css.border_spacing
+ * == None` → lê `cellspacing`, senão 2px) — pôr `border-spacing:2px` nesta
+ * folha faria `css.border_spacing` ser sempre `Some`, e o atributo deixaria de
+ * ser lido NUNCA. Descoberto pelo teste
+ * `o_border_spacing_existe_tambem_entre_a_borda_e_a_primeira_coluna`. */
+table { display: table; }
 thead, tbody, tfoot { display: table-row-group; }
 tr { display: table-row; }
 td, th { display: table-cell; padding: 1px; }
@@ -113,16 +127,50 @@ li { display: list-item; }
 /* Controlos de formulário — fonte própria (13.3333px), não a do documento;
  * ver o comentário histórico em block/ua.rs sobre a medição feita numa
  * página real (8 de 16354 elementos divergiam do Chrome nisto). */
+/* `display:inline-block` — sem ele um `<button>` colapsava para o texto NU
+ * (sem caixa própria: 12.27px em vez de 30.09px medidos no Chrome real,
+ * `claude-ua-form-disabled`) porque `inline` não gera padding/borda visíveis
+ * em nenhum motor. Padding/borda são os do Blink (`html.css`): `button` tem
+ * `padding:1px 6px;border:2px outset`, `input`/`textarea` `padding:1px
+ * 2px;border:2px inset` — `outset`/`inset` caem em `solid` no parser (só
+ * reconhece esse subconjunto), que é a mesma LARGURA visível. */
 input, button, select, textarea {
+  display: inline-block;
   font-family: sans-serif;
   font-size: 13.3333px;
+  /* O Blink dá `box-sizing:border-box` a todo controlo — é o que faz
+   * `height:100%` de um `<input>` totalizar exactamente o pai (400px) em
+   * vez de 400 + padding + borda (406px, o content-box default). Sem isto
+   * `altura_percentual_de_input_mede_se_no_eixo_vertical` regredia. */
+  box-sizing: border-box;
+}
+button, select {
+  padding: 1px 6px;
+  border-width: 2px;
+  border-style: outset;
+}
+/* `input`/`textarea`, MAS NÃO `input[type=checkbox]`/`[type=radio]`: esses
+ * dois são um widget nativo quadrado/redondo, não uma caixa de texto — o
+ * `replaced.rs` já assume um quadrado de 13px para eles
+ * (`checkbox_e_um_quadrado_e_nao_um_campo_de_texto`), e padding/borda de
+ * caixa de texto destruía essa forma. */
+input:not([type="checkbox"]):not([type="radio"]), textarea {
+  padding: 1px 2px;
+  border-width: 2px;
+  border-style: inset;
 }
 
-input:disabled, button:disabled, select:disabled, textarea:disabled {
-  /* O Chrome usa a cor de sistema `GrayText`; este motor não tem cores de
-   * sistema (não há `style/color.rs` a reconhecê-las) — `gray` (#808080)
-   * é a aproximação mais próxima disponível no parser actual. */
-  color: gray;
+/* As cores de `:disabled` DIVERGEM por tipo de controlo no Chrome — não é
+ * uma única `GrayText` de sistema (que este motor não reconhece de qualquer
+ * forma): `input`/`textarea`/`select` desativados são um cinza sólido
+ * (`#545454`); `button` é PRETO a 30% de opacidade (`rgba(16,16,16,.3)`),
+ * porque o texto do botão herda `currentColor` do `::-internal-*` do Blink
+ * em vez de uma cor de sistema. Medido em `claude-ua-form-disabled`. */
+input:disabled, textarea:disabled, select:disabled {
+  color: rgb(84, 84, 84);
+}
+button:disabled {
+  color: rgba(16, 16, 16, 0.3);
 }
 
 [hidden] {

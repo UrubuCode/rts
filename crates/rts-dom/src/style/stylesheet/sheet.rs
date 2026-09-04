@@ -8,16 +8,14 @@ impl Default for Stylesheet {
     fn default() -> Stylesheet { Stylesheet::new() }
 }
 
-/// A chave `!important`: layer e `origin` invertidas (a UA vence o autor —
-/// CSS Cascade 5 §6.1), partilhada por `custom_important_from`/`declarations_from`.
+/// Chave `!important`: layer e `origin` invertidas (UA vence o autor — CSS Cascade 5 §6.1).
 fn important_key((origin, layer, spec, order, _): (u32, u32, u32, u32, usize)) -> (u32, u32, u32, u32) {
     let layer = if layer == u32::MAX { 0 } else { u32::MAX - layer };
     (1 - origin, layer, spec, order)
 }
 
 impl Stylesheet {
-    /// Stylesheet SEM regras de autor — mas não vazio: toda folha carrega a
-    /// UA-stylesheet (`style::ua`, lote I) desde a construção. Ver `mod.rs`.
+    /// SEM regras de autor — mas não vazio: carrega a UA-stylesheet (`style::ua`, lote I).
     pub fn new() -> Stylesheet {
         Stylesheet {
             rules: crate::style::ua::rules(),
@@ -220,34 +218,37 @@ impl Stylesheet {
         self.index.borrow().has_attribute_selectors()
     }
 
+    /// Versão fina de [`has_attribute_selectors`](Self::has_attribute_selectors), por NOME.
+    pub fn mentions_attribute_name(&self, name: &str) -> bool {
+        self.ensure_rule_index();
+        self.index.borrow().mentions_attribute_name(name)
+    }
+
     /// `true` se não há nenhuma regra (atalho para o `computed_style` pular a
     /// cascade quando a página não tem `<style>`).
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
     }
 
-    /// Bytes ESTIMADOS deste stylesheet: as regras com seus seletores e blocos
-    /// de declarações, mais os keyframes. Estimativa por estrutura (sem
-    /// alocador instrumentado), como todo o [`crate::metrics::footprint`] —
-    /// serve para comparar páginas e ver a área crescer, não para casar com o
-    /// RSS do processo.
+    /// Bytes ESTIMADOS deste stylesheet: regras de AUTOR (seletores + blocos
+    /// de declarações) mais keyframes. Estimativa por estrutura, como todo o
+    /// [`crate::metrics::footprint`] — compara páginas, não casa com o RSS.
+    /// As regras de UA (lote I) ficam FORA: são a mesma folha partilhada por
+    /// thread em todo `Stylesheet::new()`, e contá-las inflava um documento
+    /// de uma linha com um piso fixo de ~35 regras.
     pub fn estimated_bytes(&self) -> usize {
-        let mut total = self.rules.capacity() * std::mem::size_of::<Rule>();
-        // Os blocos de declarações são COMPARTILHADOS entre os seletores de uma
-        // mesma regra (`a, b { … }`), então contá-los por regra contaria o mesmo
-        // bloco várias vezes — e uma estimativa que infla é tão inútil quanto uma
-        // que subestima. Distintos por PONTEIRO.
+        let autor: Vec<&Rule> = self.rules.iter().filter(|r| !r.is_ua).collect();
+        let mut total = autor.len() * std::mem::size_of::<Rule>();
+        // Blocos de declarações são COMPARTILHADOS entre seletores de uma
+        // mesma regra — distintos por PONTEIRO para não contar duas vezes.
         let mut seen: Vec<*const RuleDecls> = Vec::new();
-        for r in &self.rules {
+        for r in autor {
             total += r.selector.estimated_bytes();
             let ptr = std::rc::Rc::as_ptr(&r.decls);
             if seen.contains(&ptr) {
                 continue;
             }
             seen.push(ptr);
-            // Um DeclBlock carrega dois ComputedStyle inteiros (normal +
-            // important) mais as listas de pendentes/custom, que são as que têm
-            // String de verdade.
             total += r.decls.estimated_bytes();
         }
         total += self.keyframes.len()

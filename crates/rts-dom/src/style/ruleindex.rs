@@ -55,6 +55,14 @@ pub struct RuleIndex {
     /// TODAS e não só as chaves: em `.a.b { }` a chave é `.a`, mas trocar `b`
     /// muda o resultado do mesmo jeito.
     mentioned_classes: std::collections::HashSet<String>,
+    /// Os NOMES de atributo que algum seletor observa — a versão fina de
+    /// [`has_attribute_selectors`](Self::has_attribute_selectors), por
+    /// NOME em vez de um booleano só. Existe porque a folha de UA (lote I)
+    /// tem `[hidden]`/`input:disabled`, e sem isto QUALQUER `setAttribute`
+    /// em QUALQUER nó passou a invalidar o documento inteiro assim que essa
+    /// folha entrou — o booleano não distingue "mudou `hidden`" de "mudou
+    /// `data-um-nome-qualquer`".
+    mentioned_attr_names: std::collections::HashSet<String>,
 }
 
 /// A âncora do compound-alvo (último compound) de um seletor. Id > Class > Tag; se
@@ -114,31 +122,36 @@ impl RuleIndex {
             .iter()
             .any(|r| !r.decls.custom.is_empty() || !r.decls.custom_important.is_empty());
         idx.has_pseudo_elements = rules.iter().any(|r| r.selector.pseudo_element.is_some());
-        idx.has_attribute_selectors = rules.iter().any(|rule| {
-            let mut usa = false;
+        for rule in rules {
             super::selector::visit_simples(&rule.selector, &mut |part| {
                 use super::selector::PseudoClass as P;
-                // Também as pseudo que LEEM um atributo sem o nomear: `:link` lê
-                // `href`, `:read-only`/`:read-write` leem `readonly`/
-                // `contenteditable`, `:lang` lê `lang`. Sem elas, um
-                // `setAttribute` desses não invalidava o estilo.
-                usa |= matches!(
-                    part,
-                    SimpleSelector::Attr { .. }
-                        | SimpleSelector::Pseudo(
-                            P::Checked
-                                | P::Disabled
-                                | P::Enabled
-                                | P::Required
-                                | P::Link
-                                | P::ReadOnly
-                                | P::ReadWrite
-                                | P::Lang(_)
-                        )
-                );
+                // As pseudo que LEEM um atributo sem o nomear: `:checked` lê
+                // `checked`, `:disabled`/`:enabled` leem `disabled`,
+                // `:required` lê `required`, `:link` lê `href`,
+                // `:read-only`/`:read-write` leem `readonly`/`contenteditable`,
+                // `:lang` lê `lang`. Sem elas, um `setAttribute` desses não
+                // invalidava o estilo.
+                let mut nomes: &[&str] = &[];
+                match part {
+                    SimpleSelector::Attr { name, .. } => {
+                        idx.mentioned_attr_names.insert(name.clone());
+                    }
+                    SimpleSelector::Pseudo(P::Checked) => nomes = &["checked"],
+                    SimpleSelector::Pseudo(P::Disabled | P::Enabled) => nomes = &["disabled"],
+                    SimpleSelector::Pseudo(P::Required) => nomes = &["required"],
+                    SimpleSelector::Pseudo(P::Link) => nomes = &["href"],
+                    SimpleSelector::Pseudo(P::ReadOnly | P::ReadWrite) => {
+                        nomes = &["readonly", "contenteditable"]
+                    }
+                    SimpleSelector::Pseudo(P::Lang(_)) => nomes = &["lang"],
+                    _ => {}
+                }
+                for n in nomes {
+                    idx.mentioned_attr_names.insert((*n).to_string());
+                }
             });
-            usa
-        });
+        }
+        idx.has_attribute_selectors = !idx.mentioned_attr_names.is_empty();
         idx
     }
 
@@ -162,6 +175,13 @@ impl RuleIndex {
 
     pub fn has_attribute_selectors(&self) -> bool {
         self.has_attribute_selectors
+    }
+
+    /// `true` se algum seletor observa este NOME de atributo especificamente
+    /// (`[hidden]` observa `hidden`; `:disabled` observa `disabled`) — a
+    /// versão fina de [`has_attribute_selectors`](Self::has_attribute_selectors).
+    pub fn mentions_attribute_name(&self, name: &str) -> bool {
+        self.mentioned_attr_names.contains(name)
     }
 
     pub fn specificity(&self, rule: usize) -> u32 {
