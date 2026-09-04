@@ -38,7 +38,7 @@
 //! (a crate `png`) não está no `Cargo.lock`: trazê-la custaria uma
 //! dependência nova (mesmo que só de dev) para ~40 linhas de CRC32/Adler32.
 
-use rts_dom::layout::{self, DisplayItem, DisplayList, Rect, TextMeasurer};
+use rts_dom::layout::{self, DisplayItem, DisplayList, Mat2d, Rect, TextMeasurer};
 use rts_dom::Dom;
 use std::io::Write;
 
@@ -119,6 +119,60 @@ impl Canvas {
         self.fill_rect(Rect::new(r.x + r.w - w, r.y, w, r.h), color, clip); // direita
     }
 
+    /// `r` sob `mat` (rotação/skew/matrix, não a translação/escala pura que
+    /// `fill_rect` já cobre exatamente): preenche o QUADRILÁTERO real, não a
+    /// bounding box axis-aligned. Percorre a bbox dos 4 cantos transformados
+    /// e, por pixel, volta ao referencial ORIGINAL pela INVERSA — a mesma
+    /// técnica de um rasterizador de textura (ponto-no-polígono por
+    /// coordenadas locais em vez de um teste geométrico de aresta, porque o
+    /// polígono é sempre um paralelogramo e a inversa já responde "dentro?"
+    /// em uma multiplicação).
+    fn fill_rect_mat(&mut self, r: Rect, mat: &Mat2d, color: u32, clip: Option<Rect>) {
+        let Some(inv) = mat_invert(mat) else { return };
+        let (bx0, by0, bx1, by1) = transformed_bbox(r, mat);
+        for y in by0..by1 {
+            for x in bx0..bx1 {
+                let fx = x as f32 + 0.5;
+                let fy = y as f32 + 0.5;
+                let (ox, oy) = inv.apply(fx, fy);
+                if ox >= r.x && ox <= r.x + r.w && oy >= r.y && oy <= r.y + r.h {
+                    self.blend(x, y, color, clip);
+                }
+            }
+        }
+    }
+
+    /// A mesma ideia de `fill_rect_mat`, mas com o gradiente calculado no
+    /// referencial LOCAL (`ox`,`oy`, já sem a matriz) — o CSS pinta o
+    /// gradiente na caixa e SÓ DEPOIS aplica o `transform` (Transforms 1 §3:
+    /// o alvo é a imagem já composta), então o `t` de interpolação usa a
+    /// mesma fórmula de `fill_gradient`, só que alimentada pelo ponto
+    /// devolvido pela inversa em vez do ponto de tela cru.
+    fn fill_gradient_mat(&mut self, r: Rect, mat: &Mat2d, c0: u32, c1: u32, angle_deg: f32, clip: Option<Rect>) {
+        let Some(inv) = mat_invert(mat) else { return };
+        let rad = angle_deg.to_radians();
+        let (dx, dy) = (rad.sin(), -rad.cos());
+        let corners = [(r.x, r.y), (r.x + r.w, r.y), (r.x, r.y + r.h), (r.x + r.w, r.y + r.h)];
+        let ts: Vec<f32> = corners.iter().map(|(cx, cy)| cx * dx + cy * dy).collect();
+        let tmin = ts.iter().cloned().fold(f32::INFINITY, f32::min);
+        let tmax = ts.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let span = (tmax - tmin).max(0.0001);
+        let (bx0, by0, bx1, by1) = transformed_bbox(r, mat);
+        for y in by0..by1 {
+            for x in bx0..bx1 {
+                let fx = x as f32 + 0.5;
+                let fy = y as f32 + 0.5;
+                let (ox, oy) = inv.apply(fx, fy);
+                if ox < r.x || ox > r.x + r.w || oy < r.y || oy > r.y + r.h {
+                    continue;
+                }
+                let t = ((ox * dx + oy * dy) - tmin) / span;
+                let t = t.clamp(0.0, 1.0);
+                self.blend(x, y, lerp_color(c0, c1, t), clip);
+            }
+        }
+    }
+
     /// Gradiente linear por pixel. `angle_deg` na convenção do CSS (0 = para
     /// cima, 90 = para a direita) — a mesma leitura que `pintura.rs` faz no
     /// backend egui, para que o mesh e este pixel-a-pixel concordem.
@@ -146,6 +200,64 @@ impl Canvas {
             }
         }
     }
+
+    /// `stroke_rect` sob uma matriz: as 4 tiras, cada uma pelo seu próprio
+    /// `fill_rect_mat` — um paralelogramo por lado é exato para uma
+    /// transformação afim (a aresta reta de um retângulo continua reta sob
+    /// `matrix()`), o mesmo argumento que já vale para `fill_rect_mat`.
+    fn stroke_rect_mat(&mut self, r: Rect, mat: &Mat2d, width: f32, color: u32, clip: Option<Rect>) {
+        let w = width.max(1.0);
+        self.fill_rect_mat(Rect::new(r.x, r.y, r.w, w), mat, color, clip);
+        self.fill_rect_mat(Rect::new(r.x, r.y + r.h - w, r.w, w), mat, color, clip);
+        self.fill_rect_mat(Rect::new(r.x, r.y, w, r.h), mat, color, clip);
+        self.fill_rect_mat(Rect::new(r.x + r.w - w, r.y, w, r.h), mat, color, clip);
+    }
+}
+
+/// A inversa de uma matriz afim 2D (`[[a,c,e],[b,d,f],[0,0,1]]`), ou `None`
+/// se o determinante for ~0 (`scale(0)`, degenerada — nada pintável de todo
+/// modo). Fórmula fechada de uma 2×2 mais a translação recomposta.
+fn mat_invert(m: &Mat2d) -> Option<Mat2d> {
+    let det = m.a * m.d - m.b * m.c;
+    if det.abs() < 1.0e-9 {
+        return None;
+    }
+    let inv_det = 1.0 / det;
+    let a = m.d * inv_det;
+    let b = -m.b * inv_det;
+    let c = -m.c * inv_det;
+    let d = m.a * inv_det;
+    Some(Mat2d {
+        a,
+        b,
+        c,
+        d,
+        e: -(a * m.e + c * m.f),
+        f: -(b * m.e + d * m.f),
+    })
+}
+
+/// A caixa de pixels inteiros que cobre os 4 cantos de `r` sob `mat` —
+/// mesma conta que `Mat2d::transform_rect_bbox`, mas já em `i32` de canvas
+/// (floor/ceil, como `fill_rect`) para os dois rasterizadores por matriz
+/// iterarem sobre ela.
+fn transformed_bbox(r: Rect, mat: &Mat2d) -> (i32, i32, i32, i32) {
+    let pts = [
+        mat.apply(r.x, r.y),
+        mat.apply(r.x + r.w, r.y),
+        mat.apply(r.x, r.y + r.h),
+        mat.apply(r.x + r.w, r.y + r.h),
+    ];
+    let min_x = pts.iter().fold(f32::INFINITY, |m, p| m.min(p.0));
+    let max_x = pts.iter().fold(f32::NEG_INFINITY, |m, p| m.max(p.0));
+    let min_y = pts.iter().fold(f32::INFINITY, |m, p| m.min(p.1));
+    let max_y = pts.iter().fold(f32::NEG_INFINITY, |m, p| m.max(p.1));
+    (
+        min_x.floor().max(0.0) as i32,
+        min_y.floor().max(0.0) as i32,
+        (max_x.ceil() as i32).min(W as i32),
+        (max_y.ceil() as i32).min(H as i32),
+    )
 }
 
 fn argb_bytes(c: u32) -> (u8, u8, u8, u8) {
@@ -256,6 +368,22 @@ fn text_mask_rect(x: f32, y: f32, text: &str, size: f32, mono: bool) -> Rect {
     Rect::new(x, y - size, w, size * 1.3)
 }
 
+/// O primeiro fragmento de `<meta name="fixar-hash" content="alvo">`, se a
+/// fixture declarar um — mesma leitura textual de `lista()` em
+/// `examples/claude-css-runner.ts`, sem depender de um parser de atributos
+/// (o HTML aqui já é confiável, escrito à mão nas fixtures do corpus).
+fn meta_fixar_hash(fonte: &str) -> Option<String> {
+    let marca = fonte.find("name=\"fixar-hash\"")?;
+    let c = fonte[marca..].find("content=\"")? + marca + "content=\"".len();
+    let fim = fonte[c..].find('"')? + c;
+    let primeiro = fonte[c..fim].split(',').next()?.trim();
+    if primeiro.is_empty() {
+        None
+    } else {
+        Some(primeiro.to_string())
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let (Some(entrada), Some(saida)) = (args.get(1), args.get(2)) else {
@@ -266,7 +394,16 @@ fn main() {
         eprintln!("não li {entrada}: {e}");
         std::process::exit(2);
     });
-    let dom: Dom = rts_dom::parse_html_to_dom(&html);
+    let mut dom: Dom = rts_dom::parse_html_to_dom(&html);
+    // `<meta name="fixar-hash" content="alvo">` (mesmo mecanismo de
+    // `examples/claude-css-runner.ts`, régua de N): este rasterizador não
+    // executa `<script>`, então uma fixture sobre `:target` (só marcado pelo
+    // Blink depois de a URL NAVEGAR para o fragmento) precisa de um jeito
+    // honesto de dizer qual fragmento estava ativo — chamar o mesmo
+    // `Dom::set_location_hash` que `window.location.hash =` chamaria.
+    if let Some(hash) = meta_fixar_hash(&html) {
+        dom.set_location_hash(&hash);
+    }
     let ctx = layout::LayoutCtx {
         viewport_w: W as f32,
         viewport_h: H as f32,
@@ -276,6 +413,12 @@ fn main() {
 
     let mut canvas = Canvas::new(list.canvas_background);
     let mut clip_stack: Vec<Rect> = Vec::new();
+    // Matrizes ACUMULADAS (não as cruas de cada `PushTransform`): o topo já é
+    // `outer.then(inner)`, pronta a aplicar a um ponto local sem recompor a
+    // pilha inteira por item — `transform`s aninhados (um elemento
+    // transformado dentro doutro) compõem assim (ver a doc de
+    // `DisplayItem::PushTransform`).
+    let mut xform_stack: Vec<Mat2d> = Vec::new();
     let mut mask: Vec<[f32; 4]> = Vec::new(); // [x,y,w,h] dos rects de texto ignorados
     let mut pintados = 0usize;
     let mut saltados_texto = 0usize;
@@ -283,26 +426,46 @@ fn main() {
 
     list.walk(|item, dx, dy| {
         let clip = clip_stack.last().copied();
+        let mat = xform_stack.last().copied();
         match item {
             DisplayItem::SolidRect { rect, color, .. } => {
-                canvas.fill_rect(shift(*rect, dx, dy), *color, clip);
+                match mat {
+                    Some(m) => canvas.fill_rect_mat(*rect, &m, *color, clip),
+                    None => canvas.fill_rect(shift(*rect, dx, dy), *color, clip),
+                }
                 pintados += 1;
             }
             DisplayItem::Border { rect, width, color, .. } => {
-                canvas.stroke_rect(shift(*rect, dx, dy), *width, *color, clip);
+                match mat {
+                    Some(m) => canvas.stroke_rect_mat(*rect, &m, *width, *color, clip),
+                    None => canvas.stroke_rect(shift(*rect, dx, dy), *width, *color, clip),
+                }
                 pintados += 1;
             }
             DisplayItem::GradientRect { rect, c0, c1, angle_deg, .. } => {
-                canvas.fill_gradient(shift(*rect, dx, dy), *c0, *c1, *angle_deg, clip);
+                match mat {
+                    Some(m) => canvas.fill_gradient_mat(*rect, &m, *c0, *c1, *angle_deg, clip),
+                    None => canvas.fill_gradient(shift(*rect, dx, dy), *c0, *c1, *angle_deg, clip),
+                }
                 pintados += 1;
             }
             DisplayItem::Shadow { rect, dx: sdx, dy: sdy, color, .. } => {
-                let r = shift(*rect, dx + sdx, dy + sdy);
-                canvas.fill_rect(r, *color, clip);
+                // O deslocamento da sombra (`sdx`/`sdy`) é sobre o RECT
+                // original, antes da matriz — a mesma ordem do CSS (a sombra
+                // desloca a caixa, DEPOIS o `transform` pinta o resultado).
+                let r = Rect::new(rect.x + sdx, rect.y + sdy, rect.w, rect.h);
+                match mat {
+                    Some(m) => canvas.fill_rect_mat(r, &m, *color, clip),
+                    None => canvas.fill_rect(shift(r, dx, dy), *color, clip),
+                }
                 pintados += 1;
             }
             DisplayItem::Text { x, y, text, size, mono, .. } => {
-                let r = text_mask_rect(x + dx, y + dy, text, *size, *mono);
+                let (mx, my) = match mat {
+                    Some(m) => m.apply(*x, *y),
+                    None => (*x + dx, *y + dy),
+                };
+                let r = text_mask_rect(mx, my, text, *size, *mono);
                 mask.push([r.x, r.y, r.w, r.h]);
                 saltados_texto += 1;
             }
@@ -320,6 +483,23 @@ fn main() {
             }
             DisplayItem::EndClip { .. } => {
                 clip_stack.pop();
+            }
+            DisplayItem::PushTransform { mat: novo } => {
+                // `dx`/`dy` é o deslocamento que uma subárvore REUSADA (via
+                // `ChildRef`) soma às coordenadas — dobra-se na parte de
+                // TRANSLAÇÃO da matriz (`e`/`f`) em vez de deslocar o `rect`
+                // à parte, a mesma regra que `itens::translate_item` já
+                // aplica a um `PushTransform` mutado por uma subárvore
+                // reusada, só que calculada aqui em vez de gravada na lista.
+                let efetiva = Mat2d { e: novo.e + dx, f: novo.f + dy, ..*novo };
+                let acumulada = match xform_stack.last() {
+                    Some(base) => base.then(efetiva),
+                    None => efetiva,
+                };
+                xform_stack.push(acumulada);
+            }
+            DisplayItem::PopTransform => {
+                xform_stack.pop();
             }
         }
     });
