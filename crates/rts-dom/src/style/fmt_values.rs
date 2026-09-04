@@ -179,6 +179,8 @@ pub(crate) fn fmt_justify(j: JustifyContent) -> String {
         JustifyContent::SpaceEvenly => "space-evenly",
         JustifyContent::Left => "left",
         JustifyContent::Right => "right",
+        JustifyContent::Start => "start",
+        JustifyContent::End => "end",
     }
     .into()
 }

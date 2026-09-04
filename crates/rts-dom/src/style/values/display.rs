@@ -141,13 +141,27 @@ pub enum JustifyContent {
     /// errado (`flexbox_justifycontent-left-001` do WPT).
     Left,
     Right,
+    /// `start`/`end` — LÓGICOS (Box Alignment §8.1): fixos no lado de
+    /// início/fim do eixo INLINE, independentes de `flex-direction` — ao
+    /// contrário de `flex-start`/`flex-end`, que seguem o main-start/
+    /// main-end do flex e SÃO espelhados por `row-reverse`/`column-reverse`.
+    /// Eram sinónimos literais de `FlexStart`/`FlexEnd` e por isso perdiam
+    /// essa invariância (`flexbox_justifycontent-start`/`-end` do WPT).
+    /// Resolvidos ao mesmo físico que `Left`/`Right` (sem bidi implementado,
+    /// `start`=esquerda/`end`=direita como `Left`/`Right` — ver
+    /// `coluna::fisico_para_eixo`), mas NUNCA colapsados nessas variantes:
+    /// `getComputedStyle` tem de responder o keyword usado.
+    Start,
+    End,
 }
 
 impl JustifyContent {
     pub fn parse(v: &str) -> Option<JustifyContent> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
-            "flex-start" | "start" | "normal" => JustifyContent::FlexStart,
-            "flex-end" | "end" => JustifyContent::FlexEnd,
+            "flex-start" | "normal" => JustifyContent::FlexStart,
+            "flex-end" => JustifyContent::FlexEnd,
+            "start" => JustifyContent::Start,
+            "end" => JustifyContent::End,
             "left" => JustifyContent::Left,
             "right" => JustifyContent::Right,
             "center" => JustifyContent::Center,

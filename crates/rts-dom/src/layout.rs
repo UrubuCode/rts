@@ -71,6 +71,7 @@ use self::quebra::wrap_runs;
 use self::runs::{InlineRun, collect_runs, inline_widget_size, pseudo_run};
 use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_segment};
 mod coluna;
+mod coluna_rtl;
 mod coluna_shrink;
 mod flex;
 mod flex_limites;

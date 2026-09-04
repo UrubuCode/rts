@@ -47,11 +47,13 @@ pub(in crate::layout) fn layout_children_column(
     let justify_declarado = css
         .justify
         .unwrap_or(crate::style::JustifyContent::FlexStart);
-    // numa coluna `left`/`right` não têm eixo: valem `start` (Box Alignment §5.1).
-    let justify_declarado = match justify_declarado {
-        crate::style::JustifyContent::Left | crate::style::JustifyContent::Right => crate::style::JustifyContent::FlexStart,
-        j => j,
-    };
+    // `left`/`right`/`start`/`end` são físicos ao TOPO/FUNDO (nunca ao lado
+    // de `reverse`) — resolvidos ANTES do espelho, como no eixo horizontal.
+    // Causa 2 da triagem `flex-justify-logico`: a versão anterior convertia
+    // Left/Right para FlexStart incondicionalmente, e o mirror seguinte
+    // então espelhava-os para o FUNDO em `column-reverse`
+    // (`claude-justify-left-column-reverse`).
+    let justify_declarado = fisico_para_coluna(justify_declarado, reverse);
     let justify = if reverse {
         mirror_justify(justify_declarado)
     } else {
@@ -258,10 +260,18 @@ pub(in crate::layout) fn layout_children_column(
             });
         } else {
             // CROSS (X): stretch (default) → o item ocupa a largura do container
-            // (layout normal de bloco); start/center/end → shrink-to-fit + offset.
+            // (layout normal de bloco) SE a largura for `auto` — uma largura
+            // DECLARADA vence o stretch (spec §8.3, mesmo corte do grid em
+            // `grid.rs:355`) e cai no mesmo cross-start físico do flex-start;
+            // start/center/end → shrink-to-fit + offset. `direction:rtl`
+            // espelha esse físico: numa coluna o eixo cruzado É o eixo
+            // inline (Flexbox §4.1 + Writing Modes), então o cross-start
+            // passa a ser a borda DIREITA — achado em
+            // `claude-flex-column-rtl-cross-start` (WPT `flexbox_rtl-direction`).
             let stretch = align == crate::style::AlignItems::Stretch;
-            let child_x = if stretch {
-                content_x
+            let ccss = dom.computed_style_idx(it.node).unwrap_or_default();
+            let child_x = if stretch && ccss.width.is_none() {
+                super::coluna_rtl::cross_x(css.direction, content_x, content_w, content_x, content_w)
             } else {
                 let (w, _) = measure_block(
                     dom,
@@ -274,7 +284,9 @@ pub(in crate::layout) fn layout_children_column(
                     ctx,
                 );
                 let free_x = (content_w - w).max(0.0);
-                content_x + align_offset(align, content_w, content_w - free_x)
+                let iw = content_w - free_x; // = min(w, content_w), como sempre.
+                let x_ltr = content_x + align_offset(align, content_w, iw);
+                super::coluna_rtl::cross_x(css.direction, content_x, content_w, x_ltr, iw)
             };
             // O `main` do PASSO 2 (grow, shrink, ou inalterado) é IMPOSTO ao
             // item como altura outer — DURA (`hard`): vence `height`/
@@ -337,12 +349,38 @@ pub(in crate::layout) fn layout_children_column(
 /// `left`/`right` (físicos) traduzidos ao eixo principal de uma LINHA: em `row`
 /// `left` é o início; em `row-reverse` o início é a direita, logo `left` é o
 /// fim — e o espelho que se segue devolve-o ao lado físico certo.
+/// `start`/`end` (LÓGICOS, Box Alignment §8.1) seguem o MESMO caminho: sem
+/// bidi implementado (`direction` não muda qual borda é a inline-start),
+/// `start`=esquerda/`end`=direita como `left`/`right` — e por isso ficam
+/// invariantes a `row-reverse` do mesmo jeito (causa 1 da triagem
+/// `flex-justify-logico`: eram sinónimos literais de `flex-start`/
+/// `flex-end` e saíam espelhados; `claude-justify-start-end-row-reverse`).
 pub(in crate::layout) fn fisico_para_eixo(j: crate::style::JustifyContent, reverse: bool) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
     match (j, reverse) {
-        (J::Left, false) | (J::Right, true) => J::FlexStart,
-        (J::Left, true) | (J::Right, false) => J::FlexEnd,
+        (J::Left, false) | (J::Right, true) | (J::Start, false) | (J::End, true) => J::FlexStart,
+        (J::Left, true) | (J::Right, false) | (J::Start, true) | (J::End, false) => J::FlexEnd,
         (j, _) => j,
+    }
+}
+
+/// A MESMA ideia de [`fisico_para_eixo`], mas para o eixo PRINCIPAL de uma
+/// COLUNA — e o mapa é diferente porque o eixo aí não é o mesmo: `left`/
+/// `right` não têm eixo NENHUM numa coluna (Box Alignment §5.1) e os DOIS
+/// colapsam em "início" (topo); `start`/`end` continuam assimétricos, porque
+/// o eixo de bloco existe (`start`=topo, `end`=fundo, como numa LINHA). Os
+/// quatro ficam invariantes a `column-reverse` — só a ORDEM dos itens
+/// inverte, nunca o lado do empacotamento.
+fn fisico_para_coluna(j: crate::style::JustifyContent, reverse: bool) -> crate::style::JustifyContent {
+    use crate::style::JustifyContent as J;
+    match j {
+        J::Left | J::Right | J::Start => {
+            if reverse { J::FlexEnd } else { J::FlexStart }
+        }
+        J::End => {
+            if reverse { J::FlexStart } else { J::FlexEnd }
+        }
+        j => j,
     }
 }
 
@@ -355,20 +393,26 @@ pub(in crate::layout) fn mirror_justify(j: crate::style::JustifyContent) -> crat
     }
 }
 
+/// `Start`/`End` entram aqui só para `align-content` (multi-linha), que chama
+/// isto DIRETO com o valor cru — `justify-content` já os resolveu para
+/// `FlexStart`/`FlexEnd` em `fisico_para_eixo`/`fisico_para_coluna` antes de
+/// chegar aqui. Tratados como `FlexStart`/`FlexEnd` (mesma posição física
+/// que já tinham); `wrap-reverse` não os espelha aqui — nenhum valor é
+/// espelhado no `align-content` hoje, o que fica fora deste lote.
 pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: f32, n: usize) -> (f32, f32) {
     use crate::style::JustifyContent as J;
     if free <= 0.0 {
         return match j {
             J::Center => (free / 2.0, 0.0), // leading negativo = transbordo centrado
-            J::FlexEnd => (free, 0.0),      // todo o overflow no start
+            J::FlexEnd | J::End => (free, 0.0), // todo o overflow no start
             // flex-start E os space-* → flush no start (fiel ao Chrome em overflow).
-            J::FlexStart | J::SpaceBetween | J::SpaceAround | J::SpaceEvenly | J::Left => (0.0, 0.0),
+            J::FlexStart | J::SpaceBetween | J::SpaceAround | J::SpaceEvenly | J::Left | J::Start => (0.0, 0.0),
             J::Right => (free, 0.0),
         };
     }
     match j {
-        J::FlexStart | J::Left => (0.0, 0.0),
-        J::FlexEnd | J::Right => (free, 0.0),
+        J::FlexStart | J::Left | J::Start => (0.0, 0.0),
+        J::FlexEnd | J::Right | J::End => (free, 0.0),
         J::Center => (free / 2.0, 0.0),
         J::SpaceBetween => {
             if n > 1 {

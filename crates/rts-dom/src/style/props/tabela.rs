@@ -436,7 +436,11 @@ css_props! {
         [inh] word_break: crate::style::WordBreak;
         /// `overflow-wrap` — herdável.
         [inh] overflow_wrap: crate::style::OverflowWrap;
-        /// `direction` — herdável (aceite e serializada; o layout é sempre LTR).
+        /// `direction` — herdável. Lote `flex-justify-logico`: passou a ser
+        /// respeitada no eixo CRUZADO de uma flex-column (`coluna_rtl::cross_x`)
+        /// e no `justify-content` lógico (`start`/`end`, invariantes ao valor).
+        /// Sem bidi de verdade: o fluxo de texto/inline e o resto do layout
+        /// continuam LTR — só os dois pontos acima leem `direction`.
         [inh] direction: crate::style::Direction;
         /// `text-indent` — recuo da PRIMEIRA linha do bloco. Herdável (spec).
         [inh] text_indent: Dimension;
