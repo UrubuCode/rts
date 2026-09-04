@@ -230,6 +230,20 @@ fn item_linha(item: &DisplayItem, dx: f32, dy: f32, i: usize) -> Option<String> 
             n(*offset_y)
         ),
         DisplayItem::EndClip { .. } => format!("{pre},\"k\":\"clip-\"}}"),
+        // A matriz de `transform` — mesma razão do clip: um item pintado sob
+        // uma rotação/skew não fica onde o `rect` cru diz, e um dump de
+        // conteúdo que ignorasse `PushTransform` reportaria a posição ERRADA
+        // de tudo o que vem depois dele.
+        DisplayItem::PushTransform { mat } => format!(
+            "{pre},\"k\":\"transform+\",\"a\":{},\"b\":{},\"c\":{},\"d\":{},\"e\":{},\"f\":{}}}",
+            n(mat.a),
+            n(mat.b),
+            n(mat.c),
+            n(mat.d),
+            n(mat.e + dx),
+            n(mat.f + dy)
+        ),
+        DisplayItem::PopTransform => format!("{pre},\"k\":\"transform-\"}}"),
     })
 }
 

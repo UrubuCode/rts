@@ -45,6 +45,7 @@ linha aqui não existe.
 | S-transform | transformações 2D | 4 | ☑ `matrix()`, `skew*`, composição na ordem da spec, `transform-origin`, bounding box transformada (e dos descendentes), o fluxo não muda; pintura de rotação/skew no egui continua APROXIMADA (anchor exacto, w/h por norma das colunas) | `feat/dom-lote-transformacoes` → `508181548` (2026-09-04) | `claude-transform-*` (3/3 passam) |
 | T | fontes reais | 3 | ☐ | — | §5 |
 | U | composição e pintura | 3 | ☐ | — | §5 |
+| U-pintura-1 | rotação e recorte na pintura | 5 | ☑ a matriz viaja na `DisplayList` (`PushTransform`/`PopTransform`); o rasterizador e o egui pintam quadriláteros transformados; o `BeginClip` do `overflow` passa a conter os filhos (nunca continha); `visible` num eixo só computa `auto`; o rasterizador lê `fixar-hash`. Régua de pintura: as 4 fixtures acima de 2 % → 0 %, 0 %, 0,38 %, 0,05 %; corpus 84/86 ≤ 0,5 %, nenhuma > 2 %. Não feitos: cantos redondos sob matriz, blur da sombra, glifos rodados no egui | `feat/dom-lote-pintura-rotacao-clip` → `68011c503` (2026-09-04) | `scripts/css_pintura.md` |
 | N-pintura | a régua de PINTURA (screenshot-diff contra o Blink) | 5 | ☑ `claude-raster` (rasterizador headless da DisplayList, PNG sem crate nova), `css_fixtures_screenshot_edge.mjs` (captura no Edge por CDP), `css_pintura_comparar.mjs` (diff por pixel, texto mascarado e reportado). Verificado: cor sólida 0%, gradiente 0,24%, box-model 0,01%. Não pinta texto nem imagens (dito). PNG não versionados | `feat/dom-regua-de-pintura` → `d415d9124` (2026-09-04) | `scripts/css_pintura.md` |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
@@ -114,6 +115,21 @@ o `rts.exe` de `feat/dom-vaga-4` contra o binário da vaga 3:
 diferença foi uma só: as fixtures medidas e commitadas antes, e o agente a
 correr o teste do corpus no worktree dele. O binário desta medição é o
 próximo `target/baseline.exe`; `vaga4-suite.txt` o próximo `base-suite.txt`.
+
+**Estado após a vaga 5 (2026-09-04, ~13:00)** — a régua de PINTURA e o
+primeiro lote medido por ela (U-pintura-1), contra o binário da vaga 4:
+
+| régua | antes (baseline) | depois | perdidos |
+|---|---|---|---|
+| corpus CSS (layout + computed) | 82/86 | **82/86** (as 4 esperadas) | nenhum |
+| **pintura** (novo: pixels vs Edge, texto mascarado) | 79/86 ≤ 0,5 %, 4 > 2 % | **84/86 ≤ 0,5 %, 86/86 ≤ 2 %, 0 > 2 %** | nenhuma piorou |
+| suite `*.test.ts` por `medir.sh` | 859/888 | **859/888** | **nenhum** |
+| `cargo test -p rts-dom --lib --features metrics` | 868 | **870**, 0 falhas; `rts-egui` compila com `PushTransform` | — |
+
+Retrabalho: 0 rondas em 2 lotes. O binário desta medição é o próximo
+`target/baseline.exe`; `vaga5-suite.txt` o próximo `base-suite.txt`. As duas
+fixtures entre 0,5 % e 2 % na pintura (`object-fit` 1,95 %, `triangulo-de-borda`
+1,58 %) são o próximo alvo de pintura; os PNG continuam sem versão.
 
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit
