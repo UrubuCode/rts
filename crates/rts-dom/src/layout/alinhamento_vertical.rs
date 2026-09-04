@@ -92,13 +92,83 @@ fn ascent_acima_da_baseline(
     font_size: f32,
     m: &dyn TextMeasurer,
 ) -> f32 {
+    ascent_com_baseline_propria(valign, altura, altura, font_size, m)
+}
+
+/// O mesmo, para um átomo COM baseline própria: `ascent` é a distância do
+/// topo dele à sua baseline (um inline-block com texto: borda + padding +
+/// meia-entrelinha + ascent da fonte dele; um vazio: a altura toda, o fundo).
+/// É o que faz o caret `::after` do Bootstrap (6px, vazio) e o texto ao lado
+/// dele (20px, com linha) partilharem a baseline — o caret a y=9 e não a 0.
+fn ascent_com_baseline_propria(
+    valign: VerticalAlign,
+    altura: f32,
+    ascent: f32,
+    font_size: f32,
+    m: &dyn TextMeasurer,
+) -> f32 {
     match valign {
         VerticalAlign::Sub => altura - font_size * SUB_OFFSET_RATIO,
         VerticalAlign::Super => altura + font_size * SUPER_OFFSET_RATIO,
         VerticalAlign::Middle => altura / 2.0 + font_size * X_HEIGHT_RATIO / 2.0,
         VerticalAlign::TextTop => m.font_ascent(font_size),
         VerticalAlign::TextBottom => altura - m.font_descent(font_size),
-        VerticalAlign::Baseline | VerticalAlign::Top | VerticalAlign::Bottom => altura,
+        VerticalAlign::Baseline => ascent,
+        VerticalAlign::Top | VerticalAlign::Bottom => altura,
+    }
+}
+
+/// [`envelope`] para átomos com baseline própria: `(altura, ascent, valign)`.
+/// O STRUT é o da caixa de linha do pai — `line_height` repartido pela
+/// meia-entrelinha à volta da content area (CSS 2.1 §10.8.1), e não a fonte
+/// crua: com `line-height: 20px` a 16px o strut é 15,4 acima / 4,6 abaixo, e
+/// uma linha só de inline-blocks com texto mede exactamente 20 (o Blink), não
+/// 20,4 (`claude-letter-spacing`, `#negativo.y`).
+pub(in crate::layout) fn envelope_com_baseline(
+    itens: &[(f32, f32, VerticalAlign)],
+    font_size: f32,
+    line_height: f32,
+    m: &dyn TextMeasurer,
+) -> Envelope {
+    let conteudo = m.line_height(font_size);
+    let meia = (line_height - conteudo) / 2.0;
+    let mut acima = meia + m.font_ascent(font_size);
+    let mut abaixo = (line_height - acima).max(0.0);
+    for &(altura, ascent, valign) in itens {
+        if matches!(valign, VerticalAlign::Top | VerticalAlign::Bottom) {
+            continue;
+        }
+        let a = ascent_com_baseline_propria(valign, altura, ascent, font_size, m).max(0.0);
+        acima = acima.max(a);
+        abaixo = abaixo.max((altura - a).max(0.0));
+    }
+    for &(altura, _, valign) in itens {
+        if valign == VerticalAlign::Bottom {
+            acima = acima.max(altura - abaixo);
+        }
+    }
+    for &(altura, _, valign) in itens {
+        if valign == VerticalAlign::Top {
+            abaixo = abaixo.max(altura - acima);
+        }
+    }
+    Envelope { acima, abaixo }
+}
+
+/// [`topo_do_item`] para um átomo com baseline própria.
+pub(in crate::layout) fn topo_do_item_com_baseline(
+    valign: VerticalAlign,
+    altura: f32,
+    ascent: f32,
+    linha_y: f32,
+    env: &Envelope,
+    font_size: f32,
+    m: &dyn TextMeasurer,
+) -> f32 {
+    match valign {
+        VerticalAlign::Top => linha_y,
+        VerticalAlign::Bottom => linha_y + env.altura() - altura,
+        _ => linha_y + env.acima - ascent_com_baseline_propria(valign, altura, ascent, font_size, m),
     }
 }
 

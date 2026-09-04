@@ -12,6 +12,36 @@ use crate::style::VerticalAlign;
 /// `middle`/`bottom`. `font_size` entra por isso: é o que os deslocamentos de
 /// `sub`/`super`/`middle` escalam, e o que `text-top`/`text-bottom` pedem ao
 /// medidor.
+/// A distância do topo de um inline-block à sua BASELINE: com conteúdo, a da
+/// primeira linha dele (borda + padding + meia-entrelinha + ascent da fonte
+/// dele — a última linha, que a spec pede, é a mesma num item de uma linha, o
+/// caso de um botão); vazio, o fundo da margem (a altura toda).
+fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+    // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
+    // valor, o rótulo): a baseline dele é a desse texto, não o fundo — senão um
+    // `<input>` de 21px puxava a linha e o `<button>` ao lado descia 3,5px
+    // (`claude-ua-form-disabled`).
+    let controlo = matches!(&dom.node(id).kind,
+        NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select" | "textarea"));
+    if !controlo && !super::caixa::tem_conteudo_para_fragmento(dom, id) {
+        return h;
+    }
+    let Some(css) = dom.computed_style_idx(id) else { return h };
+    let font = font_px(&css, DEFAULT_FONT_SIZE);
+    let rc = ResolveCtx {
+        parent_content_w: content_w,
+        node_font_size: font,
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let [bt, ..] = crate::style::borders::used_widths(&css);
+    let pt = css.padding.top.resolve(&rc).unwrap_or(0.0);
+    let lh = crate::inline_box::altura_da_linha(&css, font, ctx.measurer);
+    let conteudo = crate::inline_box::altura_do_conteudo(font, ctx.measurer);
+    (bt + pt + (lh - conteudo) / 2.0 + ctx.measurer.font_ascent(font)).min(h)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_inline_block_line(
     dom: &Dom,
@@ -70,14 +100,18 @@ pub(in crate::layout) fn layout_inline_block_line(
         // `Baseline`: é o corte declarado no doc do módulo, e é o que fecha o
         // envelope no mesmo valor que o `max(alturas)` antigo dava quando
         // nada na linha declara `vertical-align`.
-        let atomos: Vec<(f32, VerticalAlign)> = items
+        // O default é `baseline` (CSS 2.1 §10.8.1) com a baseline PRÓPRIA de
+        // cada item (`ascent_do_item`): o `Top` que aqui estava era o corte
+        // que punha o caret `::after` do Bootstrap no topo da linha.
+        let atomos: Vec<(f32, f32, VerticalAlign)> = items
             .iter()
-            .map(|&(_, _, h, va)| (h, va.unwrap_or(VerticalAlign::Top)))
+            .map(|&(n, _, h, va)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
             .collect();
-        let env = envelope(&atomos, font_size, ctx.measurer);
-        for &(child, w, h, va) in items {
-            let valign = va.unwrap_or(VerticalAlign::Top);
-            let item_y = topo_do_item(valign, h, cy, &env, font_size, ctx.measurer);
+        let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
+        let env = super::alinhamento_vertical::envelope_com_baseline(&atomos, font_size, lh, ctx.measurer);
+        for (&(child, w, h, va), &(_, ascent, _)) in items.iter().zip(&atomos) {
+            let valign = va.unwrap_or(VerticalAlign::Baseline);
+            let item_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, ctx.measurer);
             layout_block(
                 dom,
                 child,

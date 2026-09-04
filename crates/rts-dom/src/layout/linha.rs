@@ -343,8 +343,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         // tamanho já medido. Só se pinta quando há pixels — e aí é
                         // `layout_image` que o faz, o mesmo caminho do fluxo de bloco,
                         // em vez de um segundo emissor de imagem só para o inline.
-                        // Um replaced inline senta na BASELINE (CSS 2.1 §10.8): o fundo
-                        // da imagem na linha de base (`claude-img-ficheiro`: y=15, não 4).
+                        // Replaced inline senta na BASELINE (§10.8; `claude-img-ficheiro`: y=15).
                         let topo = text_top + ctx.measurer.font_ascent(font_size) - seg.wh;
                         if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
@@ -356,11 +355,14 @@ pub(in crate::layout) fn layout_inline_flow(
                         // padding) mas na posição que a linha lhe deu. É o mesmo
                         // `layout_block` da corrida de inline-blocks irmãos —
                         // não um segundo emissor — só que o x/y vem do fluxo.
+                        // Inline-block VAZIO senta o fundo na baseline (§10.8.1; caret do Bootstrap a y=9).
+                        let vazio = !super::caixa::tem_conteudo_para_fragmento(dom, a_idx);
+                        let topo = if vazio && seg.wh < line_h { text_top + ctx.measurer.font_ascent(font_size) - seg.wh } else { cy };
                         layout_block(
                             dom,
                             a_idx,
                             seg_x,
-                            cy,
+                            topo,
                             seg.ww.max(1.0),
                             None,
                             None,

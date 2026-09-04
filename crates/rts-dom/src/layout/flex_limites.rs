@@ -37,7 +37,7 @@ pub(in crate::layout) fn flex_base_outer(
     if css.border_box.unwrap_or(false) {
         basis + margin_h // border-box: a basis JÁ é a caixa (pad+borda inclusos)
     } else {
-        basis + margin_h + 2.0 * css.border_width.unwrap_or(0.0) + css.padding.resolve_h(&resolve)
+        basis + margin_h + { let [_, r, _, l] = crate::style::borders::used_widths(&css); l + r } + css.padding.resolve_h(&resolve)
     }
 }
 
@@ -63,7 +63,7 @@ pub(in crate::layout) fn limites_do_item(
         ccss.margin.resolve_h(&rc)
     } else {
         ccss.margin.resolve_h(&rc)
-            + 2.0 * ccss.border_width.unwrap_or(0.0)
+            + { let [_, r, _, l] = crate::style::borders::used_widths(ccss); l + r }
             + ccss.padding.resolve_h(&rc)
     };
     (

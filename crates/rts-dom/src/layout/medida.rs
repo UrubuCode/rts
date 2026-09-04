@@ -366,7 +366,7 @@ pub(crate) fn intrinsic_outer_width(
             // ou margem é contra a largura do containing block, que é o que esta
             // medição existe para ajudar a decidir.
             let frame = css.margin.resolve_h_intrinseco(&resolve)
-                + 2.0 * css.border_width.unwrap_or(0.0)
+                + { let [_, r, _, l] = crate::style::borders::used_widths(&css); l + r }
                 + css.padding.resolve_h_intrinseco(&resolve);
             // `width` fixo: a caixa tem essa largura. Um `width` em PERCENTAGEM
             // não é fixo — contribui como `auto`, e o conteúdo decide. Sem esta
@@ -464,7 +464,7 @@ pub(in crate::layout) fn child_outer_width(
             // frame horizontal = margin_h + 2*border + padding_h (cada já é o eixo;
             // unidades relativas resolvidas contra o container).
             let frame = css.margin.resolve_h(&resolve)
-                + 2.0 * css.border_width.unwrap_or(0.0)
+                + { let [_, r, _, l] = crate::style::borders::used_widths(&css); l + r }
                 + css.padding.resolve_h(&resolve);
             // Em border-box, o `width` declarado JÁ é a caixa (outer sem margin) —
             // não soma pad/border de novo; só a margin. Em content-box, soma o frame.
