@@ -122,6 +122,8 @@ Consequentemente, **`revert` e `revert-layer` continuam ausentes**. Não são si
 
 **Próximo desenho recomendado:** introduzir `DeclarationRecord` por propriedade e por elemento, executar a ordenação de origem/layer/importance antes de reduzir para `ComputedStyle`, e só então aplicar defaulting e resolução de `var()`. Isso permite implementar `revert`/`revert-layer` sem criar uma segunda lista paralela de regras.
 
+**2026-09-04 (lote J):** `revert` e `revert-layer` estão implementados, mas não pela via de um `DeclarationRecord` que guarda proveniência para TODA propriedade — o custo disso seria pago por toda página, com ou sem `revert`. Em vez disso, `declarations_from` continua a reduzir a cascade como antes (a unidade continua a ser um `DeclBlock`), e cada declaração `revert`/`revert-layer` marca só o NOME da propriedade em `ComputedStyle::revert_props`/`revert_layer_props` (`style/props/mod.rs`, o mesmo padrão de `inherit_props`). `style/stylesheet/revert.rs` (novo módulo) lê esses marcadores DEPOIS da cascade normal — e só quando algum existe — e RE-CORRE a `MatchedRules` (já pequena: as candidatas de um elemento, não a folha inteira) para resolver, por nome, a origem/layer anterior. A proveniência nunca é materializada para o resto das propriedades: uma folha sem `revert` paga duas comparações de `Option` a `None` por chamada de `declarations_from` e nada mais.
+
 ### 4.2 Selectors e pseudo-elementos
 
 A base de selectors é funcional, mas o vocabulário actual é fechado. `:active` e `:visited` estão modelados, porém nunca casam porque o DOM não conserva esses estados. `:focus-visible` aproxima-se de `:focus` porque não há distinção entre foco de rato e teclado.

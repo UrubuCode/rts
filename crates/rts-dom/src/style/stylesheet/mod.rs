@@ -22,9 +22,9 @@
 //! `:empty`/`:root`/`:nth-child`) e de estado-via-atributo (`:checked`/`:disabled`/
 //! `:enabled`/`:required`), e lista por vírgula em querySelector/matches/closest.
 //! **Cortes (não bugs):** pseudo de estado VIVO (`:hover`/`:focus`); pseudo-elementos
-//! (`::before`); flag de case `[a=v i]`; `revert`/`revert-layer` sem origem/camada
-//! completa. `@layer`, `inherit`, `initial`, `unset` e `!important` já atravessam
-//! o pipeline actual.
+//! (`::before`); flag de case `[a=v i]`. `@layer`, `inherit`, `initial`, `unset`,
+//! `revert`, `revert-layer` (lote J — `stylesheet::revert`) e `!important` já
+//! atravessam o pipeline actual.
 
 pub(in crate::style::stylesheet) use super::parse::parse_inline_block;
 pub(in crate::style::stylesheet) use super::props::ComputedStyle;
@@ -406,6 +406,7 @@ use super::{props, ruleindex, selector, vars};
 
 mod sheet;
 mod rules;
+mod revert;
 mod supports;
 
 pub use rules::*;

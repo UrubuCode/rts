@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Fixa: `revert` recua uma ORIGEM na cascade (CSS Cascade 5 §7.3.1) — não é
+     um `unset`/`initial` disfarçado. `#ua-tem` reverte `color` num `<a>`, que
+     a UA declara (`#0000ee`) — o resultado é a cor da UA, não vermelho.
+     `#sem-ua` reverte `color` num `<div>` sem nenhuma regra de UA para essa
+     propriedade nesse elemento — cai no comportamento de `unset` (inicial,
+     preto). `#important` reverte dentro de `!important`, onde a UA venceria
+     o autor de qualquer forma (Cascade 5 §6.1) — o ponto é que `revert` não
+     quebra essa inversão nem some sem valor nenhum. -->
+<html>
+<head>
+<meta name="fixar-estilo" content="color,display">
+<style>
+  body { margin: 0; }
+  div { width: 140px; height: 20px; }
+  #ua-tem a { color: revert; }
+  .marcado { color: red; }
+  .marcado.reverte { color: revert; }
+  #important a { color: revert !important; }
+</style></head>
+<body>
+  <div id="ua-tem"><a href="#">link</a></div>
+  <div class="marcado reverte" id="sem-ua">texto</div>
+  <div id="important"><a href="#">link important</a></div>
+</body>
+</html>
