@@ -261,6 +261,7 @@ pub(crate) fn display_css(d: DisplayKind) -> &'static str {
     match d {
         DisplayKind::Block => "block",
         DisplayKind::Flex | DisplayKind::FlexWrap => "flex",
+        DisplayKind::InlineFlex | DisplayKind::InlineFlexWrap => "inline-flex",
         DisplayKind::Inline => "inline",
         DisplayKind::InlineBlock => "inline-block",
         DisplayKind::Grid => "grid",

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- Fixa: um `display: inline-flex` com `flex-wrap: wrap` QUEBRA em várias
+     linhas como um `display: flex` com wrap — é flex por dentro. O lote
+     inline-flex deu-lhe o código de display de uma linha sem wrap e os quatro
+     `gap-006-*` do WPT, que passavam como bloco, caíram. A caixa inline-flex
+     mede a largura que lhe é dada (aqui `width: 200px`) e a altura das linhas. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="f,a,b,c">
+<meta name="fixar-estilo" content="display">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #f { display: inline-flex; flex-wrap: wrap; width: 200px; gap: 10px; background: #eee; vertical-align: top; }
+  #f > div { width: 80px; height: 30px; background: #c00; }
+</style></head>
+<body>
+  <div id="f"><div id="a"></div><div id="b"></div><div id="c"></div></div>
+</body>
+</html>
