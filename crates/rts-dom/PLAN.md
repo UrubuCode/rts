@@ -32,7 +32,7 @@ linha aqui não existe.
 | H | o escopo de página não vê o Node | 2 | ☑ integrado; fixture verde; `eval` indirecto ainda vê `process` (§4.H) | `feat/dom-escopo-pagina-sem-node` → `8e30fcc1` | fixture `claude-dom-page-nao-ve-process` |
 | I | folha de UA em CSS real | 2 | ☐ | — | `<th>` negrito/centro; `scrollbar.rs` apagado |
 | J | `DeclarationRecord` e `revert` | 2 | ☐ | — | fixture `revert`/`revert-layer` medida no Chrome |
-| K | invalidação escopada para `:nth-child` | 2 | ☐ | — | `dom_metrics`: cascades por `appendChild` |
+| K | invalidação escopada para `:nth-child` | 2 | ☑ subárvore do pai em vez de `touch()` global; testes de escopo; corpus 49/49 e suite 858/887 sem perdidos; TEMPO por medir (`dom_metrics`) | `feat/dom-lote-k-invalidacao-escopada` (2026-09-04) | `dom_metrics`: cascades por `appendChild` |
 | L | cache de fragmentos em flex/grid/tabela | 2 | ☐ | — | `dom_metrics`: subárvores reusadas numa app flex |
 | M | ciclo de vida do nó | 2 | ☐ | — | teste: arena não cresce ao remover/inserir N vezes |
 | N | réguas no CI | 2 | ◐ jobs `dom-rulers` (corpus, vermelho se uma fixture cair) e `dom-tests` em `build-artifacts.yml`; a escrita automática do número no README e a régua de pintura ficam por fazer | `main` (2026-09-04) | resumo do job + check vermelho |

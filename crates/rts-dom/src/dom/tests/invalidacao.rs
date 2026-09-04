@@ -246,3 +246,59 @@
             "o irmão precisa reagir ao hover do anterior"
         );
     }
+
+    /// Com um seletor sensível a posição na folha, inserir um irmão muda a
+    /// paridade dos outros — e SÓ deles: um nó fora da subárvore do pai mutado
+    /// mantém o memo. Antes de 2026-09-04 isto era um `touch()` global, e um
+    /// `tr:nth-child(odd)` em qualquer ponto da folha fazia cada `appendChild`
+    /// esquecer o estilo da página inteira.
+    #[test]
+    fn nth_child_na_folha_invalida_os_irmaos_e_nao_o_documento() {
+        let mut dom = parse_html_to_dom(
+            "<style>li:nth-child(odd) { color:#ff0000 }</style><ul id='lista'><li id='l1'>a</li><li id='l2'>b</li></ul><div id='outro'><p id='p'>x</p></div>",
+        );
+        let lista = dom.query("#lista").unwrap();
+        let l1 = dom.query("#l1").unwrap();
+        let l2 = dom.query("#l2").unwrap();
+        let p = dom.query("#p").unwrap();
+        let (l1_idx, l2_idx, p_idx) = (idx(&dom, l1), idx(&dom, l2), idx(&dom, p));
+        assert_eq!(dom.computed_style(l1).unwrap().color, Some(0xFF0000FF));
+        assert_eq!(dom.computed_style(l2).unwrap().color, None);
+        let _ = dom.computed_style(p);
+        assert!(memoizado(&dom, l1_idx) && memoizado(&dom, l2_idx) && memoizado(&dom, p_idx));
+
+        let novo = dom.create_element("li");
+        dom.insert_before(lista, novo, Some(l1));
+
+        // Os irmãos esquecem; quem está fora da subárvore do pai não.
+        assert!(!memoizado(&dom, l1_idx), "l1 mudou de paridade e tem de ser recalculado");
+        assert!(!memoizado(&dom, l2_idx), "l2 mudou de paridade e tem de ser recalculado");
+        assert!(memoizado(&dom, p_idx), "#p está fora da subárvore do pai mutado");
+
+        // E a resposta recalculada é a certa: novo=1.º (ímpar), l1=2.º, l2=3.º.
+        assert_eq!(dom.computed_style(novo).unwrap().color, Some(0xFF0000FF));
+        assert_eq!(dom.computed_style(l1).unwrap().color, None);
+        assert_eq!(dom.computed_style(l2).unwrap().color, Some(0xFF0000FF));
+    }
+
+
+    /// Remover um irmão (o `former_parent` é o único pai envolvido) segue a
+    /// mesma regra: a lista é recalculada, o resto do documento não.
+    #[test]
+    fn remover_irmao_com_nth_child_invalida_so_a_lista() {
+        let mut dom = parse_html_to_dom(
+            "<style>li:first-child { color:#00ff00 }</style><ul id='lista'><li id='l1'>a</li><li id='l2'>b</li></ul><div id='outro'><p id='p'>x</p></div>",
+        );
+        let l1 = dom.query("#l1").unwrap();
+        let l2 = dom.query("#l2").unwrap();
+        let p = dom.query("#p").unwrap();
+        let (l2_idx, p_idx) = (idx(&dom, l2), idx(&dom, p));
+        assert_eq!(dom.computed_style(l2).unwrap().color, None);
+        let _ = dom.computed_style(p);
+
+        dom.remove_node(l1);
+        assert!(!memoizado(&dom, l2_idx), "l2 passou a ser o primeiro");
+        assert!(memoizado(&dom, p_idx), "#p está fora da lista");
+        assert_eq!(dom.computed_style(l2).unwrap().color, Some(0x00FF00FF));
+    }
+
