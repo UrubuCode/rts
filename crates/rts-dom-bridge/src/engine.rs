@@ -24,7 +24,9 @@ pub const MEMBERS: &[(&str, Provided)] = &[
 /// que está registado — o mesmo valor que `event.currentTarget`. Aqui o
 /// receptor era `undefined` sempre, e isso não é um detalhe de conformidade:
 ///
-///     function eventProxy(e) { return this.l[e.type + false](e) }
+/// ```js
+/// function eventProxy(e) { return this.l[e.type + false](e) }
+/// ```
 ///
 /// é o despachante do Preact, e ele é o ÚNICO ouvinte que o Preact regista por
 /// tipo de evento — a tabela `l` mora no nó e ele chega lá por `this`. Com
