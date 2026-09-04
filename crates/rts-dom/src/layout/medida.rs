@@ -227,10 +227,12 @@ pub(in crate::layout) fn intrinsic_content_width(
         return width;
     }
 
-    // o EIXO em que os filhos se dispõem decide SOMA vs MAX.
+    // o EIXO em que os filhos se dispõem decide SOMA vs MAX: um flex em COLUNA
+    // empilha como um bloco (o maior filho), mesmo com `flex-wrap` — a
+    // multi-coluna do wrap é corte dito (`claude-flex-column-shrink-to-fit`).
     let display = css_display(dom, id);
-    let is_row =
-        display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
+    let em_coluna = dom.computed_style_idx(id).and_then(|c| c.flex_direction).map(|f| f.is_column()).unwrap_or(false);
+    let is_row = (display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP) && !em_coluna;
     let gap = if is_row {
         let resolve = ResolveCtx {
             parent_content_w: ctx.viewport_w,

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: um `<input>` (campo de formulário) dentro de um flex container
+     ESTICA no eixo cruzado como qualquer outro item (`align-items:stretch`,
+     default) — hoje só o eixo PRINCIPAL (`flex-grow`, via `forced_outer_w`)
+     é honrado; o cruzado não, porque `layout_input`/`medida_do_input`
+     (crates/rts-dom/src/layout/input.rs:72-164,192-206) não têm parâmetro
+     nenhum de altura IMPOSTA — o site de chamada em
+     crates/rts-dom/src/layout/bloco.rs:330-341 nem sequer recebe
+     `forced_outer_h`, muito menos o repassa. #campo: `flex:1` num
+     contentor `height:80px`; espera-se w esticado (já funciona) E h=80
+     esticado (não funciona hoje). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="campo">
+<meta name="fixar-estilo" content="height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #f { display: flex; height: 80px; width: 300px; background: #eee; }
+  #campo { flex: 1; margin: 0; }
+</style></head>
+<body>
+  <div id="f"><input id="campo" type="range"></div>
+</body>
+</html>

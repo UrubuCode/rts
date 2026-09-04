@@ -81,8 +81,18 @@ fn o_grow_reparte_a_sobra_na_proporcao_dos_pesos() {
         800.0,
     );
     let (a, b) = (rect(&d, &l, "#a", 0).w, rect(&d, &l, "#b", 0).w);
-    // Sem `flex-grow` declarado o default é 0, portanto `a` não cresce.
-    assert!(a < 1.0, "sem grow, `a` não devia crescer: {a}");
+    // Sem `flex-grow` declarado (default 0), `a` NÃO CRESCE — mas também não
+    // colapsa a 0: o piso automático de min-content (Flexbox §4.5) clampa o
+    // hypothetical main size de QUALQUER item, mesmo um que nunca entra no
+    // laço de grow/shrink (lote `flex-basis-piso`, 2026-09-04; era o
+    // comportamento errado que esta asserção fixava, `a < 1.0`). `a` fica no
+    // min-content da sua letra, bem abaixo do que um grow lhe daria — o
+    // ponto do teste continua de pé: `b`, o único com peso, leva a sobra
+    // TODA (300), não uma fracção proporcional às larguras.
+    assert!(
+        a > 0.0 && a < 20.0,
+        "`a` fica no seu min-content (nem 0, nem crescido): {a}"
+    );
     assert!((b - 300.0).abs() < 0.5, "`b` devia levar a sobra toda: {b}");
 }
 

@@ -110,8 +110,8 @@ pub(in crate::layout) fn layout_children_column(
         /// `flex-shrink` (1 = default do CSS; texto solto não encolhe, como em
         /// `flex.rs`).
         shrink: f32,
-        /// piso de `min-height` no eixo principal — automático (§4.5,
-        /// [`coluna_shrink::min_main_auto`]) ou o declarado, que vence.
+        /// piso de `min-height` no eixo principal — `coluna_shrink::min_main`
+        /// decide entre o automático (§4.5), `min-content` e o declarado.
         min_main: f32,
         order: i32,
     }
@@ -180,9 +180,9 @@ pub(in crate::layout) fn layout_children_column(
         };
         // `min-height` DECLARADO substitui o piso automático (spec §4.5: o
         // mínimo automático só vale com `min-height: auto`) — mesma regra do
-        // eixo horizontal (`flex.rs:198-200`).
-        let min_main = resolve_height(ccss.min_height, container_content_h, &resolve_filho)
-            .unwrap_or_else(|| super::coluna_shrink::min_main_auto(&ccss, natural_h));
+        // eixo horizontal (`flex.rs:198-200`); `min-content` é o caso à parte
+        // que `coluna_shrink::min_main` decide.
+        let min_main = super::coluna_shrink::min_main(&ccss, natural_h, container_content_h, &resolve_filho);
         let mt_auto = ccss.margin.top.is_auto();
         let mb_auto = ccss.margin.bottom.is_auto();
         let grow = ccss.flex_grow.unwrap_or(0.0);

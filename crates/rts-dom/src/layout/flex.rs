@@ -183,17 +183,17 @@ pub(in crate::layout) fn layout_children_horizontal(
         );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
         // de largura de tabela — a mesma pergunta ("a palavra mais larga, com o
-        // frame do elemento"), sem duplicar a travessia. `grid_cols` zera o
-        // resultado a seguir (a coluna de grid não encolhe por conteúdo), então
-        // medir aqui sempre é mais simples que condicionar a medição.
+        // frame do elemento"), sem duplicar a travessia; medir aqui sempre é
+        // mais simples que condicionar por `grid_cols` (que ignora este piso).
         let min_main = crate::table::min_content(dom, child, font_size, ctx);
         let (max_main, min_declarado) =
             super::flex_limites::limites_do_item(&ccss, content_w, font_size, ctx);
-        // `min-width` declarado substitui o piso automático de min-content
-        // (spec §4.5: o mínimo automático só vale com `min-width: auto`).
-        let min_main = min_declarado.unwrap_or(min_main);
-        // A base só é capada pelo tecto e pelo `min-width` DECLARADO: o piso
-        // automático de min-content é do encolhimento, não da base (§9.7).
+        let min_main = super::flex_limites::min_automatico(
+            dom, child, min_main, &ccss, content_w, font_size, ctx,
+        );
+        let min_main = min_declarado.unwrap_or(min_main); // declarado vence o automático inteiro
+        // A base fica capada só pelo tecto e o `min-width` DECLARADO — o piso
+        // automático de min-content entra depois do grow/shrink (§4.5/§9.7).
         let base = base
             .min(max_main.unwrap_or(f32::INFINITY))
             .max(min_declarado.unwrap_or(0.0));
@@ -377,6 +377,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         // re-mede a ALTURA com o main final (mais largura → menos linhas de texto);
         // só quando o main mudou (senão a medição do pré-pass vale).
         for it in line.iter_mut() {
+            it.main = super::flex_limites::com_piso_minimo(it.main, it.min_main, grid_cols);
             if !it.is_text && it.pseudo.is_none() && (it.main - it.base).abs() > 0.5 {
                 let (_, h) = measure_block(
                     dom,

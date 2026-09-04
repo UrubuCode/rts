@@ -145,6 +145,7 @@ pub(crate) fn fmt_dim(d: Dimension) -> String {
         Dimension::Ch(v) => format!("{v}ch"),
         Dimension::Auto => "auto".into(),
         Dimension::MaxContent => "max-content".into(),
+        Dimension::MinContent => "min-content".into(),
         // calc: reconstrói a forma canônica com os termos não-zero.
         Dimension::Calc(c) => {
             let mut parts: Vec<String> = Vec::new();
@@ -261,6 +262,7 @@ pub(crate) fn display_css(d: DisplayKind) -> &'static str {
     match d {
         DisplayKind::Block => "block",
         DisplayKind::Flex | DisplayKind::FlexWrap => "flex",
+        DisplayKind::InlineFlex | DisplayKind::InlineFlexWrap => "inline-flex",
         DisplayKind::Inline => "inline",
         DisplayKind::InlineBlock => "inline-block",
         DisplayKind::Grid => "grid",
