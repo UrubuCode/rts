@@ -229,6 +229,12 @@ jobs:
   # aqui em vez de só no terminal de quem se lembrar de correr o corredor.
   dom-rulers:
     needs: [version, build]
+    # `needs: build` é a MATRIZ inteira, e o macOS está vermelho no smoke de
+    # AOT desde 471bbbd2 (2026-09-03, anterior a este job): sem isto, este job
+    # era SALTADO em todos os runs e a régua nunca corria — o primeiro run
+    # provou-o. Corre sempre que o run não foi cancelado; o binário que lhe
+    # interessa é o Linux, e se esse não existir o download falha por si.
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
