@@ -34,25 +34,37 @@ fn parses_aspect_ratio() {
 
 #[test]
 fn parses_transform() {
+    use crate::layout::TransformOp;
     let t = parse_inline("transform: translate(10px, -20px) scale(1.5) rotate(45deg)")
         .transform
         .unwrap();
-    assert_eq!((t.tx, t.ty), (10.0, -20.0));
-    assert_eq!((t.sx, t.sy), (1.5, 1.5));
-    assert_eq!(t.rot_deg, 45.0);
+    let ops: Vec<TransformOp> = t.ops.iter().collect();
+    assert_eq!(
+        ops,
+        vec![
+            TransformOp::Translate { tx: 10.0, ty: -20.0, tx_pct: 0.0, ty_pct: 0.0 },
+            TransformOp::Scale { sx: 1.5, sy: 1.5 },
+            TransformOp::Rotate { deg: 45.0 },
+        ]
+    );
     // translate(-50%, -50%) → frações.
     let c = parse_inline("transform: translate(-50%, -50%)")
         .transform
         .unwrap();
-    assert_eq!((c.tx_pct, c.ty_pct), (-0.5, -0.5));
+    assert_eq!(
+        c.ops.iter().next(),
+        Some(TransformOp::Translate { tx: 0.0, ty: 0.0, tx_pct: -0.5, ty_pct: -0.5 })
+    );
     // translateX/Y e scaleX/Y isolados.
     let x = parse_inline("transform: translateX(8px)")
         .transform
         .unwrap();
-    assert_eq!(x.tx, 8.0);
-    assert_eq!(x.ty, 0.0);
+    assert_eq!(
+        x.ops.iter().next(),
+        Some(TransformOp::Translate { tx: 8.0, ty: 0.0, tx_pct: 0.0, ty_pct: 0.0 })
+    );
     let s = parse_inline("transform: scaleY(2)").transform.unwrap();
-    assert_eq!((s.sx, s.sy), (1.0, 2.0));
+    assert_eq!(s.ops.iter().next(), Some(TransformOp::Scale { sx: 1.0, sy: 2.0 }));
     // none / desconhecido.
     assert!(parse_inline("transform: none").transform.is_none());
 }
