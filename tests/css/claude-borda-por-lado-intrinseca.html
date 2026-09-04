@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: a borda POR LADO entra na largura INTRÍNSECA (shrink-to-fit) e na
+     base de um item flex, não só na caixa de bloco. É o caret
+     `.dropdown-toggle::after` do Bootstrap: um inline-block de conteúdo vazio
+     feito só de `border-left`/`border-right` de .3em, que aqui media 0 de
+     largura porque a largura natural somava a borda ESCALAR (`border-width`
+     uniforme), ausente quando o autor declara por lado. `#caret` (12 = 6+6),
+     `#texto` (largura de "ab" + 3 + 9), `#item` (item flex: 20 de conteúdo
+     + 4 + 8 de borda + 5 de padding de cada lado). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="caret,texto,item,ib">
+<meta name="fixar-estilo" content="border-left-width,border-right-width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .abs { position: absolute; left: 0; background: #eee; }
+  #ib { top: 0; display: inline-block; }
+  #caret { display: inline-block; width: 0; height: 0; border-top: 6px solid #000; border-right: 6px solid transparent; border-bottom: 0; border-left: 6px solid transparent; }
+  #texto { display: inline-block; border-left: 3px solid #c00; border-right: 9px solid #00c; }
+  #f { top: 40px; display: flex; }
+  #item { width: 20px; height: 20px; padding: 0 5px; border-left: 4px solid #0c0; border-right: 8px solid #c0f; }
+</style></head>
+<body>
+  <div class="abs" id="ib"><span id="caret"></span><span id="texto">ab</span></div>
+  <div class="abs" id="f"><div id="item"></div></div>
+</body>
+</html>
