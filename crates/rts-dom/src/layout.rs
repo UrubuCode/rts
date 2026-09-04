@@ -43,6 +43,7 @@ use crate::dom::{Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeIdx, NodeKind};
 use crate::inline_box::{AtomicKind, apara_css, e_espaco_css, so_espaco_css};
 use crate::style::{ComputedStyle, ResolveCtx};
 
+mod bfc;
 mod caixa;
 mod display;
 mod float;
@@ -84,6 +85,7 @@ use self::relativo::aplica_offset_relativo;
 pub use self::display::{Corners, DisplayItem, DisplayList, Geometry, Rect, ScrollRegion};
 pub use self::medida::{ApproxMeasurer, TextMeasurer};
 pub use self::pintura::{emit_scrollbar, emit_scrollbar_in};
+pub(crate) use self::bfc::BlockFormattingContext;
 pub(crate) use self::caixa::{font_px, is_non_rendered_tag, used_display};
 pub(crate) use self::float::Exclusao;
 pub(crate) use self::itens::{record_node_rect, reserve_node_order};
@@ -91,7 +93,7 @@ pub(crate) use self::medida::intrinsic_outer_width;
 pub(crate) use self::pintura::border_items;
 pub(crate) use self::posicionado::is_out_of_flow;
 use self::caixa::{css_display, em_contexto_inline, is_block_level, is_inline_block, is_inline_text_container, ua_list_indent, whitespace_is_inline_separator};
-use self::float::{banda_livre, float_of, fundo_dos_floats};
+use self::float::{banda_livre, float_of};
 use self::input::{layout_button, layout_input, medida_do_input};
 use self::itens::{apply_transform_to_item, translate_item, walk_items};
 use self::medida::{child_outer_height, child_outer_width, collect_text, content_natural_width, intrinsic_content_width};
@@ -161,8 +163,9 @@ pub(crate) fn measure_block(
         shrink_to_fit,
         // A MEDIDA de um bloco é a do seu conteúdo, não a da banda onde calha
         // ficar: medir com o float à frente dava uma largura intrínseca que
-        // mudava consoante a vizinhança.
-        &[],
+        // mudava consoante a vizinhança — um BFC novo e vazio, nunca lido
+        // depois, é a mesma isolação que o `&[]` de antes dava.
+        &BlockFormattingContext::new(),
         ctx,
         &mut scratch,
     );
@@ -237,6 +240,10 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         }
         // o containing block da raiz é a VIEWPORT: `height:100%` no <html> resolve
         // contra a altura da janela (base do `h-100` de páginas reais).
+        //
+        // O BFC passado aqui não é lido: `child` é o elemento RAIZ do documento
+        // (tipicamente `<html>`), que estabelece sempre o seu próprio BFC (CSS
+        // 2.1 §9.4.1) — `bloco.rs` cria um novo internamente e ignora este.
         let (_, h) = layout_block(
             dom,
             child,
@@ -247,7 +254,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
             None,
             None,
             false,
-            &[],
+            &BlockFormattingContext::new(),
             ctx,
             &mut list,
         );

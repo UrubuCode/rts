@@ -71,7 +71,9 @@ pub(in crate::layout) fn layout_inline_block_line(
                 None,
                 None,
                 true,
-                &[],
+                // Corrida de inline-blocks irmãos: mesma razão da linha, ver
+                // `linha.rs`.
+                &BlockFormattingContext::new(),
                 ctx,
                 list,
             );

@@ -18,7 +18,14 @@ enum MarginChildRole {
     Block { top: f32, bottom: f32 },
 }
 
-pub(in crate::layout) fn establishes_block_formatting_context(css: &ComputedStyle) -> bool {
+/// `true` se `id` estabelece o seu PRÓPRIO bloco de formatação (CSS 2.1
+/// §9.4.1) — hoje usado para barrar o escape de margens
+/// ([`escaped_child_margins`]) E para decidir o `BlockFormattingContext` de
+/// `layout_block`; ver `layout/bfc.rs` para o porquê da entidade. A raiz do
+/// documento entra por `id` ser filho direto de `dom.root` — o único gatilho
+/// que não está no `ComputedStyle`.
+pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: &ComputedStyle) -> bool {
+    let is_root = dom.node(id).parent == Some(dom.root);
     let display_bfc = matches!(
         css.effective_display(),
         Some(
@@ -50,7 +57,12 @@ pub(in crate::layout) fn establishes_block_formatting_context(css: &ComputedStyl
         .position
         .map(|position| position.out_of_flow())
         .unwrap_or(false);
-    css.flow_root.unwrap_or(false) || display_bfc || overflow_bfc || float_bfc || positioned_bfc
+    css.flow_root.unwrap_or(false)
+        || display_bfc
+        || overflow_bfc
+        || float_bfc
+        || positioned_bfc
+        || is_root
 }
 
 pub(in crate::layout) fn collapse_margin(first: f32, second: f32) -> f32 {
@@ -174,7 +186,7 @@ pub(in crate::layout) fn escaped_child_margins(
     border_bottom: f32,
     bottom_auto_height: bool,
 ) -> (f32, f32) {
-    if establishes_block_formatting_context(parent_css) {
+    if establishes_block_formatting_context(dom, id, parent_css) {
         return (0.0, 0.0);
     }
     let top = if pad_top == 0.0 && border_top == 0.0 {
@@ -252,11 +264,10 @@ pub(crate) fn layout_block(
     // disponível. É o que faz badges num container horizontal não esticarem para a
     // linha toda. No fluxo vertical normal é false (block ocupa a largura — MDN).
     shrink_to_fit: bool,
-    // Os floats ABERTOS do contexto que envolve este bloco, em coordenadas
-    // absolutas. Pelo CSS um float estorva o conteúdo de todo o bloco de
-    // formatação, não só o do container onde foi declarado — é por isso que
-    // atravessa a fronteira em vez de ficar em `layout_children_vertical`.
-    exclusoes: &[Exclusao],
+    // O bloco de formatação AMBIENTE, do antepassado que o estabeleceu — não
+    // necessariamente o pai imediato. Ignorado se `id` estabelece o SEU
+    // PRÓPRIO BFC (um novo é criado abaixo, em `bfc_filhos`). Ver `layout/bfc.rs`.
+    bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> (f32, f32) {
@@ -630,6 +641,13 @@ pub(crate) fn layout_block(
     });
     let avail_children = explicit_content_h.or(mxh_pre);
 
+    // Novo BFC (fresco, vazio) só se `id` o estabelece — senão os filhos
+    // recebem a mesma referência ambiente, e um float lá dentro alcança os
+    // IRMÃOS do antepassado que a possui. Ver `layout/bfc.rs`.
+    let estabelece_bfc = establishes_block_formatting_context(dom, id, &css);
+    let bfc_proprio = estabelece_bfc.then(BlockFormattingContext::new);
+    let bfc_filhos = bfc_proprio.as_ref().unwrap_or(bfc);
+
     // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
     // atuam no Y e align-items no X (stretch = ocupar a largura, o default).
@@ -715,10 +733,21 @@ pub(crate) fn layout_block(
             avail_children,
             &css,
             font_size,
-            exclusoes,
+            bfc_filhos,
             ctx,
             list,
         ),
+    };
+    // CSS 2.1 §10.6.7: só o BFC responsável cresce para conter os SEUS
+    // floats — `bfc_proprio` só existe quando `id` é ele (senão é `None` e
+    // este `match` não mexe em nada). `flex/grid/tabela` acima nunca
+    // acrescentam floats a `bfc_proprio` (floats não se aplicam lá dentro).
+    let content_h = match &bfc_proprio {
+        Some(proprio) => match proprio.fundo_lado(true, true) {
+            Some(fundo) => content_h.max((fundo - content_y).max(0.0)),
+            None => content_h,
+        },
+        None => content_h,
     };
     // MARCADOR do item de lista. Emitido DEPOIS dos filhos e com o content-box já
     // conhecido, e não desloca coisa nenhuma: `list-style-position: outside` (o

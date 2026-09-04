@@ -36,7 +36,7 @@ pub(in crate::layout) fn escapada_no_topo(
     border_top: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    if pad_top != 0.0 || border_top != 0.0 || establishes_block_formatting_context(css) {
+    if pad_top != 0.0 || border_top != 0.0 || establishes_block_formatting_context(dom, id, css) {
         return 0.0;
     }
     edge_margin_from_children(dom, id, content_w, font_size, ctx, false).unwrap_or(0.0)
