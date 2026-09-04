@@ -242,21 +242,40 @@ following the canonical browser pipeline: `DOM → CSS cascade → layout (x,y,w
 display list → paint`. The backend (egui/wgpu) only **paints** — the DOM owns
 everything, headless and testable without a window.
 
-What already renders faithfully (validated **number by number against real Chrome**,
-`getBoundingClientRect` element by element — the Bootstrap cover and the `.row`/`.col`
-grid come out **pixel-perfect**):
+What already renders faithfully — measured, not claimed: every fixture in
+`tests/css/` is written to fail first, then measured in **Chrome/Blink**
+(`getBoundingClientRect` and `getComputedStyle`, element by element, 1 px), and
+the engine is held to that number by CI. The share is in the
+[**CSS and DOM parity**](#-css-and-dom-parity) block above, written by the
+`dom-rulers` job on every push:
 
-- **Full cascade** (specificity, `!important`, inheritance, `@media` per viewport)
-  with **per-element custom properties** (`var()` with per-component override)
-- **Flexbox**: `grow`/`shrink`/`basis`, `align-self`, `order`, real stretch,
-  column with absorbing `margin:auto`, gap, wrap
-- **Units**: `rem`/`em`/`%`/`vw`/`vh` and **`calc()`** (fluid typography),
-  negative margins, `box-sizing`
-- **Flow**: rich inline (links/bold flowing inside a paragraph), `float`,
-  `position: absolute/fixed` v1, scroll containers with their own scrollbars
-- **CSS animations**: `@keyframes` + `transition` with full easing —
-  colors, sizes, and margins interpolating (the vulture above flaps its wings with this)
+- **Cascade**: specificity, `!important`, inheritance, `@layer`, `@media`
+  (ranges, `prefers-*`), `@supports`, `@property`, `var()` with fallback,
+  `revert`, the user-agent sheet as real CSS (`style/ua.css`)
+- **Selectors**: the full combinator set, `:nth-*`, `:not`/`:is`/`:where`,
+  `:has()`, `:target`, `:placeholder-shown`, `::before`/`::after`/`::marker`,
+  with scoped invalidation on mutation
+- **Layout**: block flow with margin collapsing, floats and `clear` (real
+  BFCs), rich inline (baseline, `vertical-align`, `white-space`, inline boxes
+  painted per line fragment, `&shy;` hyphenation), **flexbox** and **grid**
+  (areas, `repeat()`, `minmax()`, intrinsic tracks), tables, `position:
+  relative/absolute/fixed` (`sticky` parses but still flows), scroll
+  containers with their own scrollbars
+- **Units and values**: `rem`/`em`/`ex`/`ch`/`%`/`vw`/`vh`, `calc()`,
+  `max-content`, negative margins, `box-sizing`
+- **Paint**: 2D `transform` with `transform-origin` (the matrix travels in the
+  display list), `overflow` clipping, `border-radius`, `box-shadow`,
+  gradients, `opacity`, `filter`, `clip-path`, borders joined on the diagonal
+  (the CSS triangle) — checked pixel by pixel against Blink by a second ruler
+  (`scripts/css_pintura.md`)
+- **Motion**: `@keyframes` + `transition` with full easing — colors, sizes and
+  margins interpolating (the vulture above flaps its wings with this)
 - **External resources**: local `<link rel="stylesheet">` + `@import`
+
+Known gaps, each one a fixture that fails on purpose or a lot in the plan:
+real font metrics and `@font-face` (text width is a calibrated approximation),
+images in the new engine (the loader is designed, not built), `hyphens: auto`,
+3D transforms, `@container`/`@scope`.
 
 Test any local page with one line:
 
@@ -266,7 +285,11 @@ rts run examples/view.ts examples/bootstrap-5.3.8-examples/cover/index.html  # r
 rts run examples/view.ts path/to/your/index.html                    # your site
 ```
 
-Full state and technical backlog: [issue #1793](https://github.com/UrubuCode/rts/issues/1793).
+State and plan: [`crates/rts-dom/PLAN.md`](crates/rts-dom/PLAN.md) (§0 is the
+lot-by-lot state with the measured numbers) and the structural audit of
+2026-09-04 in
+[`docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/`](docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/README.md).
+Issue #1793 is the June backlog that the plan replaced.
 
 ---
 
