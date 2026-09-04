@@ -123,22 +123,25 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 <!-- RTS_VS_ELECTRON_START -->
 ## 📦 RTS vs Electron: packaging the same app
 
-Two packaged builds of the **same** app (`examples/react-app.html`, 144 KB, no network calls) — a native RTS `.exe` and an Electron 44.2.0 bundle — measured by `scripts/rts_vs_electron/medir.mjs`: 3 runs on the Electron side (RTS attempted 3, see below), startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-04 on win32 10.0.26100, AMD EPYC 7763 64-Core Processor (4 logical cores), 16 GB RAM.
+Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145 KB, no network calls) — an Electron 44.2.0 bundle, a native RTS `.exe` (AOT, `rts compile`), and the RTS `rts.exe` engine running the `.ts` source (JIT, `rts run`) — measured by `scripts/rts_vs_electron/medir.mjs`: 5 Electron runs, 5 AOT runs, 5 JIT runs, startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-04 on win32 10.0.26200, Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz (16 logical cores), 47.9 GB RAM.
 
-| | RTS | Electron |
-|---|---:|---:|
-| Exe size | 19.1 MB | 234.8 MB |
-| Folder size | 20.1 MB | 367.6 MB |
-| Files in folder | 5 | 73 |
-| Processes | — | 4 |
-| Startup (median, min–max) | **not built** | 323 ms (294–335) |
-| RSS (median, min–max) | — | 261.2 MB (260.5–263.1) |
-| Private bytes (median) | — | 89.7 MB |
-| CPU at rest (median) | — | 0% |
+| | Electron | RTS `.exe` AOT | RTS `rts.exe` + app |
+|---|---:|---:|---:|
+| Exe size | 234.8 MB | 27.8 MB | 110.1 MB |
+| Folder size | 367.6 MB | 29.9 MB | 110.2 MB |
+| Files in folder | 73 | 7 | 3 |
+| Page JavaScript runs | yes | **no** | yes |
+| Processes | 4 | 2 | 2 |
+| Startup (median, min–max) | 390 ms (361–462) | 2029 ms (824–2278) | 3377 ms (2513–4751) |
+| RSS (median, min–max) | 292.2 MB (289.1–296.9) | 115.5 MB (115.3–115.8) | 168.6 MB (168.1–171.5) |
+| Private bytes (median) | 147.8 MB | 218.3 MB | 272.6 MB |
+| CPU at rest (median) | 0.7% | 7.09% | 11.23% |
 
-**RTS's AOT `.exe` does not run today**: processo terminou (exit code desconhecido) antes de abrir janela. stderr: rts: uncaught exception (tag 1): Error: cannot resolve module "rts:egui" — nothing registered that specifier (`scripts/rts_vs_electron/rts/README.md` has the full account and the fix). Its exe/folder size above is real — the binary compiled and links — but every runtime row is unmeasurable until it does.
+**RTS's AOT `.exe` starts and paints the static HTML/CSS**, same as the JIT side — but its page `<script>`s do not run: "[page] <script> 0 de https://localhost/ falhou: a fonte não compilou (×3 nesta corrida)". An AOT binary carries no compiler, so any JavaScript that only exists as page-script text (not referenced statically by the `.ts` that got compiled) has nothing to run it; the window opens and stays blank for *this* app, which is React mounted entirely from a `<script>` block. `scripts/rts_vs_electron/rts/README.md` has the full account.
 
-**What this does NOT measure**: no GPU workload, no network I/O, one tiny static page — the size and idle-memory difference between the two runtimes is the whole comparison, not a claim about either one under load.
+**Honesty: the side comparable to Electron today is the last column, not the middle one.** Electron ships a JS engine (V8) inside its runtime, so any page script runs regardless of how the app was built. RTS's AOT `.exe` does not — it only runs the JavaScript that was compiled INTO it ahead of time, so it fits an app with no page `<script>` (or one whose HTML is generated from already-compiled TS, not read as text). `rts.exe` + the app is the actual Electron-equivalent pair (engine binary with a compiler + the page it opens, same relationship as Chromium + `app.asar`), and it is the only RTS column above where the same React page the Electron column renders also renders here.
+
+**What this does NOT measure**: no GPU workload, no network I/O, one tiny static-plus-React page — the size and idle-memory difference between the three is the whole comparison, not a claim about any of them under load.
 
 *Updated 2026-09-04 by `scripts/rts_vs_electron/medir.mjs`.*
 <!-- RTS_VS_ELECTRON_END -->

@@ -1,55 +1,94 @@
 {
-  "medido_em": "2026-09-04T22:29:13.521Z",
+  "medido_em": "2026-09-04T22:51:35.362Z",
   "maquina": {
-    "so": "win32 10.0.26100",
-    "cpu": "AMD EPYC 7763 64-Core Processor",
-    "nucleos_logicos": 4,
-    "ram_gb": 16
+    "so": "win32 10.0.26200",
+    "cpu": "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+    "nucleos_logicos": 16,
+    "ram_gb": 47.9
   },
-  "app": "examples/react-app.html",
+  "app": "scripts/rts_vs_electron/app/index.html",
   "lados": {
-    "rts": {
-      "exe": "D:\\a\\_temp\\rts-vs-electron\\rts\\app.exe",
-      "bytes_exe": 20003840,
-      "bytes_pasta": 21108417,
-      "ficheiros_na_pasta": 5,
-      "nao_construido": true,
-      "razao": "processo terminou (exit code desconhecido) antes de abrir janela. stderr: rts: uncaught exception (tag 1): Error: cannot resolve module \"rts:egui\" — nothing registered that specifier",
-      "arranque_ms": null,
-      "rss_mb": null,
-      "private_mb": null,
-      "cpu_repouso_pct": null,
-      "processos": null,
-      "amostras": {
-        "n": 3,
-        "ok": 0
-      }
-    },
     "electron": {
-      "exe": "D:\\a\\_temp\\rts-vs-electron\\electron\\dist\\rts-vs-electron-win32-x64\\rts-vs-electron.exe",
+      "exe": "C:\\Users\\nexga\\AppData\\Local\\Temp\\rts-vs-electron\\electron\\dist\\rts-vs-electron-win32-x64\\rts-vs-electron.exe",
       "bytes_exe": 246202368,
-      "bytes_pasta": 385474145,
+      "bytes_pasta": 385473055,
       "ficheiros_na_pasta": 73,
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 323,
-        "min": 294,
-        "max": 335
+        "mediana": 390,
+        "min": 361,
+        "max": 462
       },
       "rss_mb": {
-        "mediana": 261.19,
-        "min": 260.51,
-        "max": 263.12
+        "mediana": 292.22,
+        "min": 289.13,
+        "max": 296.93
       },
-      "private_mb": 89.7,
-      "cpu_repouso_pct": 0,
+      "private_mb": 147.78,
+      "cpu_repouso_pct": 0.7,
       "processos": 4,
+      "js_da_pagina": true,
+      "razao_js_da_pagina": null,
       "amostras": {
-        "n": 3,
-        "ok": 3
+        "n": 5,
+        "ok": 5
       },
       "versao": "44.2.0"
+    },
+    "rts_aot": {
+      "exe": "C:\\Users\\nexga\\AppData\\Local\\Temp\\rts-vs-electron\\rts\\app.exe",
+      "bytes_exe": 29193728,
+      "bytes_pasta": 31357171,
+      "ficheiros_na_pasta": 7,
+      "nao_construido": false,
+      "razao": null,
+      "arranque_ms": {
+        "mediana": 2029,
+        "min": 824,
+        "max": 2278
+      },
+      "rss_mb": {
+        "mediana": 115.51,
+        "min": 115.35,
+        "max": 115.8
+      },
+      "private_mb": 218.35,
+      "cpu_repouso_pct": 7.09,
+      "processos": 2,
+      "js_da_pagina": false,
+      "razao_js_da_pagina": "[page] <script> 0 de https://localhost/ falhou: a fonte não compilou (×3 nesta corrida)",
+      "amostras": {
+        "n": 5,
+        "ok": 5
+      }
+    },
+    "rts_jit": {
+      "exe": "C:\\Users\\nexga\\AppData\\Local\\Temp\\rts-vs-electron\\jit\\rts.exe",
+      "bytes_exe": 115434496,
+      "bytes_pasta": 115582418,
+      "ficheiros_na_pasta": 3,
+      "nao_construido": false,
+      "razao": null,
+      "arranque_ms": {
+        "mediana": 3377,
+        "min": 2513,
+        "max": 4751
+      },
+      "rss_mb": {
+        "mediana": 168.61,
+        "min": 168.06,
+        "max": 171.54
+      },
+      "private_mb": 272.62,
+      "cpu_repouso_pct": 11.23,
+      "processos": 2,
+      "js_da_pagina": true,
+      "razao_js_da_pagina": null,
+      "amostras": {
+        "n": 5,
+        "ok": 5
+      }
     }
   }
 }
