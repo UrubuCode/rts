@@ -323,12 +323,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     } else if crate::block::lookup(tag).is_some() || explicit_block {
                         false
                     } else if ignora_dimensoes {
-                        // Ignora `width`/`height` (o que `layout_block` também
-                        // ignora agora, ver `bloco.rs`) mas NÃO o fundo/padding/
-                        // borda: `<span style="background:yellow">texto</span>`
-                        // ainda flui como inline-block (medido pelo conteúdo) —
-                        // é o que pinta o fundo dele.
-                        child_css.as_deref().is_some_and(crate::inline_box::cria_caixa_apesar_de_inline)
+                        false
                     } else {
                         child_css
                             .as_ref()

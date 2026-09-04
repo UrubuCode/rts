@@ -148,15 +148,8 @@ fn clear_desce_abaixo_do_float() {
         // Num container, e com um INLINE-BLOCK a seguir ao float: é o caso em que
         // a linha de floats NÃO era fechada (o caminho de bloco já a fechava
         // sempre, com `clear` ou sem ele — por isso o teste não usa dois blocos).
-        // `display:inline-block` explícito nos dois: `width`/`height` não se
-        // aplicam a um `<em>` puro (§10.3.1/§10.6.1) — o mesmo corte de
-        // `ignores_inline_dimensions`, que também gate `<div><em>` via
-        // `float`/`clear` do primeiro (esses sempre respeitaram width/height
-        // por saírem do fluxo — o segundo, sem eles, dependia do mesmo desvio
-        // de `<em>` que `vertical_align_bottom_desce_a_caixa_na_linha` já
-        // corrigiu acima).
-        "<div><em style='display:inline-block;float:left;width:100px;height:50px;background:#ff0000'>f</em>\
-<em style='display:inline-block;clear:both;width:80px;height:20px;background:#0000ff'>c</em></div>",
+        "<div><em style='float:left;width:100px;height:50px;background:#ff0000'>f</em>\
+<em style='clear:both;width:80px;height:20px;background:#0000ff'>c</em></div>",
         600.0,
     );
     let planos = itens(&list);
