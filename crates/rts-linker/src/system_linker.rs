@@ -568,6 +568,14 @@ fn macos_frameworks() -> &'static [&'static str] {
         // glutin/glow GL fallback (egui glow backend): CGL context creation
         // (_CGLErrorString/_CGLSetParameter/_CGLChoosePixelFormat/…).
         "OpenGL",
+        // `system-configuration`, via `hickory-resolver` (o DNS do rts-node,
+        // 471bbbd2): `SCDynamicStoreCreateWithOptions` e companhia. O `cargo
+        // build` do próprio `rts` liga-o porque o crate emite
+        // `cargo:rustc-link-lib=framework=…`; o AOT liga o archive com ESTA
+        // lista, e sem esta linha o smoke de macOS falhou em todos os runs de
+        // main desde 2026-09-03 (issue #2632). A lista continua escrita à mão —
+        // é o que a issue diz que devia mudar.
+        "SystemConfiguration",
     ]
 }
 
