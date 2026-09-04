@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: `revert-layer` recua uma LAYER dentro da MESMA origem (CSS
+     Cascade 5 §7.3.2) — diferente de `revert`, que recua uma ORIGEM.
+     `#duas-layers` declara `color` em `base` e reverte-a em `tema`: o
+     resultado é a cor de `base`, não a da UA nem a inicial. `#sem-layer`
+     usa `revert-layer` numa declaração SEM layer nenhuma — por spec
+     comporta-se como `revert` (recua para a origem anterior, a UA). -->
+<html>
+<head>
+<meta name="fixar-estilo" content="color,display">
+<style>
+  @layer base, tema;
+  body { margin: 0; }
+  div { width: 140px; height: 20px; }
+  @layer base {
+    #duas-layers { color: blue; }
+  }
+  @layer tema {
+    #duas-layers { color: revert-layer; }
+  }
+  #sem-layer a { color: revert-layer; }
+</style></head>
+<body>
+  <div id="duas-layers">texto</div>
+  <div id="sem-layer"><a href="#">link</a></div>
+</body>
+</html>

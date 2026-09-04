@@ -20,11 +20,13 @@
 //! silêncio — o que não é o mesmo que não existir: um `a { color: blue }` seguido
 //! de `.nav a { color: inherit }` ficava azul onde o browser dá a cor do pai.
 //!
-//! ⚠️ NÃO cobre `initial`, `unset` e `revert`, que são os outros três keywords
-//! largos do CSS (5 usos na mesma folha). `initial` precisa da tabela de valores
-//! iniciais TIPADA — a de `style::initial` é de strings, para serializar — e
-//! `revert` precisa de saber de que camada da cascade veio cada declaração, que
-//! o nosso modelo não guarda. Ficam por fazer, ditos.
+//! `initial`/`unset` estão em `style::parse::apply_css_wide_keyword`, que usa a
+//! tabela de valores iniciais TIPADA (`style::initial`; a de `style::initial` é
+//! de strings, para serializar). `revert`/`revert-layer` (lote J,
+//! `style::stylesheet::revert`) precisam de saber de que ORIGEM/LAYER veio cada
+//! declaração candidata — informação que só a lista de regras casadas tem, não
+//! um `ComputedStyle` isolado — por isso ficam marcados aqui (`revert_props`/
+//! `revert_layer_props`, o mesmo padrão de `inherit_props`) e resolvidos lá.
 
 use super::props::ComputedStyle;
 
@@ -226,6 +228,22 @@ pub fn copy_property(dst: &mut ComputedStyle, src: &ComputedStyle, name: &str) {
         // linha aqui é o que a faz passar a funcionar.
         _ => {}
     }
+}
+
+/// `true` se `style` tem a propriedade nomeada `name` DECLARADA (o campo que
+/// `copy_property` copiaria não é o "vazio" de um `ComputedStyle::default()`).
+///
+/// Não é uma segunda lista de nomes: aplica `copy_property` contra um alvo em
+/// branco e compara o resultado com o vazio — reusa a MESMA tabela em vez de a
+/// repetir invertida. Usado só pelo `revert`/`revert-layer` do lote J
+/// (`style::stylesheet::revert`), para decidir se uma regra candidata a
+/// "origem/layer anterior" realmente TOCA a propriedade antes de a copiar —
+/// caminho frio, corre só quando alguma declaração da folha usa um dos dois
+/// keywords.
+pub(crate) fn property_is_set(style: &ComputedStyle, name: &str) -> bool {
+    let mut probe = ComputedStyle::default();
+    copy_property(&mut probe, style, name);
+    probe != ComputedStyle::default()
 }
 
 impl ComputedStyle {

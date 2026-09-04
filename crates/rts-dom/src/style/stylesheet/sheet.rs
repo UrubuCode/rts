@@ -10,7 +10,7 @@ impl Default for Stylesheet {
 
 /// A chave `!important`: layer e `origin` invertidas (a UA vence o autor —
 /// CSS Cascade 5 §6.1), partilhada por `custom_important_from`/`declarations_from`.
-fn important_key((origin, layer, spec, order, _): (u32, u32, u32, u32, usize)) -> (u32, u32, u32, u32) {
+pub(super) fn important_key((origin, layer, spec, order, _): (u32, u32, u32, u32, usize)) -> (u32, u32, u32, u32) {
     let layer = if layer == u32::MAX { 0 } else { u32::MAX - layer };
     (1 - origin, layer, spec, order)
 }
@@ -557,6 +557,7 @@ impl Stylesheet {
                 }
             }
         }
+        super::revert::resolve_reverts(self, matched, &mut out); // lote J — ver revert.rs
         out
     }
 
