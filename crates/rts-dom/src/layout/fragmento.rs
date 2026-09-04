@@ -25,14 +25,18 @@ use super::*;
 /// só existe para bloco-normal, então encontrá-lo já responde o que a
 /// classificação responderia — e a classificação custa estilo computado,
 /// `block::lookup` e a margem resolvida, mil vezes por frame.
+#[allow(clippy::too_many_arguments)]
 fn fragment_key(
     dom: &Dom,
     id: NodeIdx,
     avail_w: f32,
     avail_h: Option<f32>,
+    forced_outer_w: Option<f32>,
+    forced_outer_h: Option<f32>,
+    shrink_to_fit: bool,
     ctx: &LayoutCtx,
 ) -> crate::dom::FragmentKey {
-    KeyBase::new(dom, avail_w, avail_h, ctx).key(dom, id)
+    KeyBase::new(dom, avail_w, avail_h, ctx).key(dom, id, forced_outer_w, forced_outer_h, shrink_to_fit)
 }
 
 /// A parte da chave de fragmento que NÃO varia entre os filhos de um container:
@@ -72,7 +76,14 @@ impl KeyBase {
         }
     }
 
-    pub(in crate::layout) fn key(&self, dom: &Dom, id: NodeIdx) -> crate::dom::FragmentKey {
+    pub(in crate::layout) fn key(
+        &self,
+        dom: &Dom,
+        id: NodeIdx,
+        forced_outer_w: Option<f32>,
+        forced_outer_h: Option<f32>,
+        shrink_to_fit: bool,
+    ) -> crate::dom::FragmentKey {
         crate::dom::FragmentKey {
             tree: self.tree,
             node_epoch: dom.layout_epoch(id),
@@ -81,6 +92,9 @@ impl KeyBase {
             node: id,
             avail_w: self.avail_w,
             avail_h: self.avail_h,
+            forced_outer_w: forced_outer_w.map(f32::to_bits),
+            forced_outer_h: forced_outer_h.map(f32::to_bits),
+            shrink_to_fit,
             viewport_w: self.viewport_w,
             viewport_h: self.viewport_h,
             measurer: self.measurer,
@@ -161,6 +175,24 @@ fn costurar(
     if anterior.children.is_empty() {
         return None;
     }
+    // Um container cujos filhos carregam tamanho IMPOSTO (flex, grid,
+    // out-of-flow) nunca é costurado: a imposição vem de um algoritmo de
+    // DISTRIBUIÇÃO entre irmãos (grow/shrink, tracks, stretch), e a costura só
+    // sabe verificar se a ALTURA do filho reposto bateu com a antiga — não se a
+    // distribuição inteira precisava mudar por causa dele (um `flex-grow` cujo
+    // conteúdo cresceu pode precisar de MENOS espaço para os outros itens, sem
+    // que a altura do próprio item mude). Recusar aqui força o container a
+    // refazer `layout_block` — que reexecuta a distribuição do zero — e deixa
+    // cada ITEM, individualmente, bater no cache por `FragmentKey` exata
+    // (ver `layout_block_reusing`). Bloco normal nunca tem `forced_outer_*`
+    // definido, então este guard não custa nada ao caminho comum.
+    if anterior
+        .children
+        .iter()
+        .any(|c| c.forced_outer_w.is_some() || c.forced_outer_h.is_some())
+    {
+        return None;
+    }
     let sujos = dom.dirty_children_of(id)?;
     // A SEQUÊNCIA de filhos precisa ser a mesma, não só o tamanho: inserção,
     // remoção e reordenação mudam quem desenha o quê, e trocar uma referência
@@ -201,6 +233,13 @@ fn costurar(
             child.avail_w,
             child.avail_h,
             || margem,
+            // O guard acima já recusa costura quando algum filho tem tamanho
+            // imposto — estes dois são sempre `None`/`false` aqui, mas lidos
+            // do `ChildRef` (em vez de escritos `None`/`false` à mão) para que
+            // um guard futuro mais permissivo não precise tocar nesta linha.
+            child.forced_outer_w,
+            child.forced_outer_h,
+            child.shrink_to_fit,
             // A costura só alcança o que virou fragmento, e um bloco estorvado
             // por float — ou que ele próprio deixa floats escaparem para o
             // BFC ambiente — nunca vira (ver os dois guards em
@@ -270,6 +309,7 @@ fn mesma_sequencia_de_filhos(dom: &Dom, id: NodeIdx, children: &[ChildRef]) -> b
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn emit_fragment(
     fragment: &std::rc::Rc<Fragment>,
     list: &mut DisplayList,
@@ -277,11 +317,32 @@ pub(in crate::layout) fn emit_fragment(
     y: f32,
     avail_w: f32,
     avail_h: Option<f32>,
+    forced_outer_w: Option<f32>,
+    forced_outer_h: Option<f32>,
+    shrink_to_fit: bool,
 ) {
     let _phase = crate::metrics::phases::scope("fragment-emit");
-    fragment.emit_at(list, x, y, avail_w, avail_h);
+    fragment.emit_at(
+        list,
+        x,
+        y,
+        avail_w,
+        avail_h,
+        forced_outer_w,
+        forced_outer_h,
+        shrink_to_fit,
+    );
 }
 
+/// A mesma [`layout_block`], mas passando primeiro pelo cache de fragmentos.
+///
+/// `forced_outer_w`/`forced_outer_h`/`shrink_to_fit` são a imposição do
+/// CHAMADOR — o fluxo de bloco normal manda `None`/`None`/`false`; um item de
+/// flex, coluna ou grid manda o que a distribuição decidiu para ele. Entram na
+/// chave (ver `FragmentKey`) porque são parte do que determina o desenho tanto
+/// quanto `avail_w`/`avail_h`: dois itens do MESMO nó, um esticado e outro não,
+/// não podem servir um ao outro.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_block_reusing(
     dom: &Dom,
     id: NodeIdx,
@@ -290,6 +351,9 @@ pub(in crate::layout) fn layout_block_reusing(
     avail_w: f32,
     avail_h: Option<f32>,
     margens: impl FnOnce() -> (f32, f32),
+    forced_outer_w: Option<f32>,
+    forced_outer_h: Option<f32>,
+    shrink_to_fit: bool,
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -304,14 +368,44 @@ pub(in crate::layout) fn layout_block_reusing(
     // chaves da página.
     if !bfc.is_empty() {
         let size = layout_block(
-            dom, id, x, y, avail_w, avail_h, None, None, false, bfc, ctx, list,
+            dom,
+            id,
+            x,
+            y,
+            avail_w,
+            avail_h,
+            forced_outer_w,
+            forced_outer_h,
+            shrink_to_fit,
+            bfc,
+            ctx,
+            list,
         );
         return (size, margens());
     }
-    let key = fragment_key(dom, id, avail_w, avail_h, ctx);
+    let key = fragment_key(
+        dom,
+        id,
+        avail_w,
+        avail_h,
+        forced_outer_w,
+        forced_outer_h,
+        shrink_to_fit,
+        ctx,
+    );
     if let Some(fragment) = dom.fragment_get(key) {
         crate::bump!(fragment_hits);
-        emit_fragment(&fragment, list, x, y, avail_w, avail_h);
+        emit_fragment(
+            &fragment,
+            list,
+            x,
+            y,
+            avail_w,
+            avail_h,
+            forced_outer_w,
+            forced_outer_h,
+            shrink_to_fit,
+        );
         return (fragment.size, (fragment.margin_top, fragment.margin_bottom));
     }
     // COSTURA: trocar no desenho anterior só a subárvore que ficou suja. Agora
@@ -320,7 +414,17 @@ pub(in crate::layout) fn layout_block_reusing(
     // 3000 itens com String e por isso não ganhava nada.
     if let Some(fragment) = costurar(dom, id, key, ctx) {
         crate::bump!(fragment_patches);
-        emit_fragment(&fragment, list, x, y, avail_w, avail_h);
+        emit_fragment(
+            &fragment,
+            list,
+            x,
+            y,
+            avail_w,
+            avail_h,
+            forced_outer_w,
+            forced_outer_h,
+            shrink_to_fit,
+        );
         return (fragment.size, (fragment.margin_top, fragment.margin_bottom));
     }
     // Resolvidas AQUI e não dentro do literal: o `FnOnce` só se consome uma vez,
@@ -337,7 +441,18 @@ pub(in crate::layout) fn layout_block_reusing(
     // como se sabe se isso aconteceu: `floats_escaparam` abaixo.
     let floats_antes = bfc.len();
     let size = layout_block(
-        dom, id, x, y, avail_w, avail_h, None, None, false, bfc, ctx, &mut own,
+        dom,
+        id,
+        x,
+        y,
+        avail_w,
+        avail_h,
+        forced_outer_w,
+        forced_outer_h,
+        shrink_to_fit,
+        bfc,
+        ctx,
+        &mut own,
     );
     // Se esta subárvore ACRESCENTOU floats ao BFC ambiente, o fragmento NÃO
     // é gravado: uma reutilização futura (cache-hit ou costura) só REPINTA o
@@ -373,7 +488,16 @@ pub(in crate::layout) fn layout_block_reusing(
     if !floats_escaparam {
         dom.fragment_put(key, std::rc::Rc::clone(&fragment));
     }
-    fragment.emit_at(list, x, y, avail_w, avail_h);
+    fragment.emit_at(
+        list,
+        x,
+        y,
+        avail_w,
+        avail_h,
+        forced_outer_w,
+        forced_outer_h,
+        shrink_to_fit,
+    );
     (fragment.size, (fragment.margin_top, fragment.margin_bottom))
 }
 
@@ -393,6 +517,16 @@ pub struct ChildRef {
     /// dá uma caixa larga demais pela soma do padding e da margem.
     pub avail_w: f32,
     pub avail_h: Option<f32>,
+    /// As mesmas três constraints IMPOSTAS com que este filho foi posto — flex,
+    /// grid e out-of-flow ditam largura/altura externa e shrink-to-fit; o fluxo
+    /// de bloco normal deixa as duas primeiras em `None` e a terceira `false`.
+    /// A costura precisa delas para relayoutar um filho sujo com a MESMA
+    /// imposição, e não com a do fluxo normal — reusar `None`/`None`/`false`
+    /// aqui daria a um item de flex a largura errada (a classe silenciosa que
+    /// o lote L existe para fechar).
+    pub forced_outer_w: Option<f32>,
+    pub forced_outer_h: Option<f32>,
+    pub shrink_to_fit: bool,
     /// Posição em `items` ANTES da qual esta subárvore é pintada.
     pub at: usize,
     /// Posição em `hit_order` antes da qual a ordem de hit-test dela entra.
@@ -472,6 +606,7 @@ pub struct Fragment {
 
 impl Fragment {
     /// Emite este fragmento numa `DisplayList`, deslocado para `(x, y)`.
+    #[allow(clippy::too_many_arguments)]
     pub fn emit_at(
         self: &std::rc::Rc<Self>,
         list: &mut DisplayList,
@@ -479,6 +614,9 @@ impl Fragment {
         y: f32,
         avail_w: f32,
         avail_h: Option<f32>,
+        forced_outer_w: Option<f32>,
+        forced_outer_h: Option<f32>,
+        shrink_to_fit: bool,
     ) {
         let (dx, dy) = (x - self.origin.0, y - self.origin.1);
         // APONTA, não copia: os itens desta subárvore já existem e não mudaram.
@@ -495,6 +633,9 @@ impl Fragment {
             margin_bottom: self.margin_bottom,
             avail_w,
             avail_h,
+            forced_outer_w,
+            forced_outer_h,
+            shrink_to_fit,
             at: list.items.len(),
             hit_at: list.hit_order.len(),
             fragment: std::rc::Rc::clone(self),

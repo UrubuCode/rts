@@ -207,13 +207,18 @@ pub(in crate::layout) fn layout_children_column(
             } else {
                 (container_content_h, None)
             };
-            layout_block(
+            // `layout_block_reusing`: mesmo raciocínio do flex-row em
+            // `flex.rs` — o container refaz a distribuição toda vez, o item
+            // individual bate no cache quando o epoch e a imposição (`avail`/
+            // `forced_h`) não mudaram.
+            layout_block_reusing(
                 dom,
                 it.node,
                 child_x,
                 y,
                 content_w,
                 avail,
+                || (0.0, 0.0),
                 None,
                 forced_h,
                 !stretch,

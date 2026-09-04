@@ -324,13 +324,23 @@ pub(in crate::layout) fn layout_children_horizontal(
                 // o main resolvido é IMPOSTO ao item (grow/shrink venceram o
                 // width); stretch impõe a altura da linha.
                 let forced_h = if stretches { Some(line_h) } else { None };
-                layout_block(
+                // `layout_block_reusing`, não `layout_block`: um item cujo
+                // conteúdo não mudou (epoch igual) e cuja imposição de
+                // distribuição (`Some(it.main)`/`forced_h`) bateu com a de um
+                // frame anterior bate no cache — o CONTAINER continua sempre
+                // recalculado (é ele quem decide `it.main`/`forced_h` de novo a
+                // cada passada), só o item individual reusa. Margens não
+                // participam do modelo de caixa de um item flex do jeito que
+                // participam do fluxo de bloco (não colapsam com irmãos), então
+                // a closure devolve zero — o valor nem é lido por quem chama.
+                layout_block_reusing(
                     dom,
                     it.node,
                     x,
                     item_y,
                     content_w,
                     container_content_h,
+                    || (0.0, 0.0),
                     Some(it.main),
                     forced_h,
                     true,

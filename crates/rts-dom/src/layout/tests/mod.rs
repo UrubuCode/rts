@@ -6,6 +6,7 @@
 
 mod bloco;
 mod cache;
+mod cache_flex;
 mod colapso;
 mod dimensoes;
 mod flex;
