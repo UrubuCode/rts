@@ -1,20 +1,20 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 112,
-    "total": 116,
-    "pct": 96.6
+    "passing": 118,
+    "total": 122,
+    "pct": 96.7
   },
   "measurements": {
-    "matching": 2648,
-    "total": 2664,
+    "matching": 2796,
+    "total": 2812,
     "pct": 99.4
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 288,
+    "passing": 299,
     "total": 489,
-    "pct": 58.9
+    "pct": 61.1
   },
   "expected_failures": [
     {
@@ -83,7 +83,8 @@
       "flex-margens-auto — margens `auto` no eixo transversal do flex",
       "pintura-e-caixas — z-index negativo, `::before`/`::after` de bloco, flex evita float",
       "flex-basis-piso — piso de min-content sem grow; `flex-basis` unitless inválida; espaço antes do `:`",
-      "pequenos-1 — três causas pequenas da triagem WPT: texto solto em `display:table`, largura intrínseca do flex em coluna, `<input>` estica no flex"
+      "pequenos-1 — três causas pequenas da triagem WPT: texto solto em `display:table`, largura intrínseca do flex em coluna, `<input>` estica no flex",
+      "flex-coluna-shrink — `flex-basis`/`flex-shrink` no eixo de coluna; `row-gap` contra a ALTURA; `min-height` como altura definida"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha"
