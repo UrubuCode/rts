@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Fixa: o encolhimento em COLUNA respeita `flex-shrink: 0` (o item
+     transborda com a sua altura de conteúdo), `flex-basis: content` (a base é
+     o max-content, Flexbox §7.2) e `min-height: min-content` DECLARADO (o piso
+     é o min-content mesmo com `overflow` não-visível — o "0 sob overflow" é
+     só do `min-height: auto`, §4.5). O lote flex-coluna-shrink perdeu
+     `flexbox-flex-basis-content-004a` e `flex-item-min-height-min-content-overflow`
+     do WPT por encolher os dois. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="ca,a,cb,b,cc,c">
+<meta name="fixar-estilo" content="height">
+<style>
+  body { margin: 0; font: 20px/20px monospace; }
+  .col { display: flex; flex-direction: column; height: 40px; width: 100px; margin-bottom: 60px; align-items: flex-start; }
+  #a { flex: 0 0 content; min-height: 0; background: #c00; }
+  #b { overflow: auto; min-height: min-content; background: #0c0; }
+  #c { flex: 0 1 auto; min-height: 0; background: #00c; }
+</style></head>
+<body>
+  <div class="col" id="ca"><div id="a">X<br>X<br>X</div></div>
+  <div class="col" id="cb"><div id="b">X<br>X<br>X<br>X</div></div>
+  <div class="col" id="cc"><div id="c">X<br>X<br>X</div></div>
+</body>
+</html>

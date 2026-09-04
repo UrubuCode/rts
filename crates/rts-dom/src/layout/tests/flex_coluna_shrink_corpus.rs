@@ -1,13 +1,16 @@
 //! `tests/css/claude-flex-column-shrink.html`,
 //! `claude-flex-coluna-shrink-overflow.html`,
 //! `claude-flex-basis-percent-shrink-column.html`,
-//! `claude-gap-row-percentual-eixo.html` e
-//! `claude-flex-definite-min-height.html` contra o Blink (Edge 152,
-//! 2026-09-04): `flex-basis`/`flex-shrink` no eixo de COLUNA (antes só
+//! `claude-gap-row-percentual-eixo.html`,
+//! `claude-flex-definite-min-height.html` e
+//! `claude-flex-coluna-shrink-zero-e-min-content.html` contra o Blink (Edge
+//! 152, 2026-09-04): `flex-basis`/`flex-shrink` no eixo de COLUNA (antes só
 //! existiam no eixo horizontal), `row-gap` percentual contra a ALTURA do
-//! contentor (nunca a largura, e "normal"/0 quando ela é indefinida) e
+//! contentor (nunca a largura, e "normal"/0 quando ela é indefinida),
 //! `min-height` a contar como altura DEFINIDA para o stretch dos filhos flex
-//! e o `height:%` dos netos.
+//! e o `height:%` dos netos, `flex-shrink:0` (não encolhe), `flex-basis:
+//! content` (a base é o max-content) e `min-height: min-content` DECLARADO
+//! (não some sob `overflow` não-visível, ao contrário do automático).
 
 use crate::table::tests::{geometria, rect};
 
@@ -126,4 +129,40 @@ fn min_height_conta_como_altura_definida_para_stretch_e_height_percentual() {
     assert_eq!(r("#ext"), (0.0, 0.0, 200.0, 100.0));
     assert_eq!(r("#item"), (0.0, 0.0, 100.0, 100.0), "estica ao min-height do pai");
     assert_eq!(r("#neto"), (0.0, 0.0, 100.0, 100.0), "height:100% do item, não 0");
+}
+
+#[test]
+fn flex_shrink_zero_flex_basis_content_e_min_height_min_content_nao_encolhem() {
+    // RETRABALHO (2026-09-04): o build central mediu 2 reftests do WPT que
+    // PASSAVAM caindo com o primeiro commit deste lote — os dois por
+    // encolher em coluna o que a spec pede para não encolher.
+    // `flexbox-flex-basis-content-004a`: `flex: 0 0 content` fazia
+    // `apply_flex_shorthand` ler o 3º token não reconhecido ("content", sem
+    // suporte a essa keyword) como basis AUSENTE, caindo no fallback de "um
+    // número sem basis" (`Percent(0.0)`) — #a colapsava a 0 em vez de manter
+    // os 60 do conteúdo (o `flex-shrink:0` já estava certo; a base é que
+    // nascia errada). `flex-item-min-height-min-content-overflow`: a
+    // keyword `min-content` em `min-height` não era parseada — caía no
+    // automático de `min_main_auto`, que ZERA sob overflow não-visível
+    // (`overflow:auto`), mas o piso aqui é DECLARADO (80) e não deve
+    // desaparecer com o overflow.
+    const HTML: &str = r#"<style>
+  body { margin: 0; font: 20px/20px monospace; }
+  .col { display: flex; flex-direction: column; height: 40px; width: 100px; margin-bottom: 60px; align-items: flex-start; }
+  #a { flex: 0 0 content; min-height: 0; background: #c00; }
+  #b { overflow: auto; min-height: min-content; background: #0c0; }
+  #c { flex: 0 1 auto; min-height: 0; background: #00c; }
+</style>
+<div class="col" id="ca"><div id="a">X<br>X<br>X</div></div>
+<div class="col" id="cb"><div id="b">X<br>X<br>X<br>X</div></div>
+<div class="col" id="cc"><div id="c">X<br>X<br>X</div></div>"#;
+    let (dom, list) = geometria(HTML, 1280.0);
+    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    // A LARGURA é shrink-to-fit sobre "X" — o `ApproxMeasurer` (n×size×0.5)
+    // e não o medidor real do Blink, então difere do `.esperado.json`
+    // (11,0px) por calibração; é a ALTURA (por `line-height`, não por
+    // largura de fonte) que fixa este lote, e essa bate exata nos três.
+    assert_eq!(r("#a"), (0.0, 0.0, 9.2, 60.0), "flex-shrink:0 + flex-basis:content: não encolhe");
+    assert_eq!(r("#b"), (0.0, 100.0, 9.2, 80.0), "min-height:min-content declarado sobrevive ao overflow:auto");
+    assert_eq!(r("#c"), (0.0, 200.0, 9.2, 40.0), "flex:0 1 auto + min-height:0: encolhe até ao contentor (o caso que já tinha)");
 }

@@ -91,18 +91,19 @@ pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     num(low.strip_suffix("px").unwrap_or(&low)).map(Dimension::Px)
 }
 
+/// Como [`parse_dimension`], mas reconhece `min-content` — só como CLAMP
+/// (`min`/`max-width`/`height`), nunca tamanho preferido (CSS Sizing 3 §2.1).
+pub(crate) fn parse_dimension_min_max(v: &str) -> Option<Dimension> {
+    if v.trim().eq_ignore_ascii_case("min-content") {
+        return Some(Dimension::MinContent);
+    }
+    parse_dimension(v)
+}
+
 /// Um offset de posicionamento (`top`/`left`/…): um comprimento COM SINAL, em
-/// qualquer unidade. Deslocar para fora da caixa é o idioma de badges e
-/// tooltips, e a folha real escreve-o tanto em `px` como em `em`/`rem`/`%`.
-///
-/// Era um caminho de sinal PRÓPRIO que só sabia ler `px`/número puro, e por isso
-/// `bottom:-11px` passava enquanto `top:-1.65em` e `right:-.25rem` eram
-/// descartados em silêncio. Acertar numa unidade e falhar nas outras é pior do
-/// que recusar todas: quem lê a folha não tem como adivinhar a fronteira.
-///
-/// Agora é o [`parse_dimension_signed`] e mais nada — a decisão "esta
-/// propriedade aceita negativo" fica no NOME de quem se chama, e a leitura da
-/// unidade fica num sítio só.
+/// qualquer unidade — badges/tooltips escrevem-no tanto em `px` como em
+/// `em`/`rem`/`%`. Era um caminho próprio que só lia `px`/número puro
+/// (`top:-1.65em` descartado em silêncio); agora é só [`parse_dimension_signed`].
 pub(crate) fn parse_inset(v: &str) -> Option<Dimension> {
     parse_dimension_signed(v)
 }
@@ -318,9 +319,10 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
     }
     Some(match d {
         Dimension::Auto => Dimension::Auto,
-        // `-max-content` não existe em CSS; um sinal antes de uma palavra-chave
-        // é a declaração inválida, e devolvê-la sem sinal é o que o `auto` já faz.
+        // `-max-content`/`-min-content` não existem em CSS; devolver sem
+        // sinal é o que o `auto` já faz.
         Dimension::MaxContent => Dimension::MaxContent,
+        Dimension::MinContent => Dimension::MinContent,
         Dimension::Px(x) => Dimension::Px(-x),
         Dimension::Percent(x) => Dimension::Percent(-x),
         Dimension::Em(x) => Dimension::Em(-x),

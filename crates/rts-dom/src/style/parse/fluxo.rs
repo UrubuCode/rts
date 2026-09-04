@@ -40,7 +40,7 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         "order" => css.order = val.trim().parse::<i32>().ok(),
         "flex-grow" => css.flex_grow = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
         "flex-shrink" => css.flex_shrink = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
-        "flex-basis" => set_if(&mut css.flex_basis, parse_dimension(val)),
+        "flex-basis" => set_if(&mut css.flex_basis, parse_flex_basis(val)),
         // shorthand `flex`: none | auto | <grow> [<shrink>] [<basis>] — o
         // `.col` do Bootstrap é `flex: 1 0 0%`.
         "flex" => apply_flex_shorthand(css, val),
@@ -56,8 +56,12 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         "height" => set_if(&mut css.height, parse_dimension(val)),
         "min-width" => set_if(&mut css.min_width, parse_dimension(val)),
         "max-width" => set_if(&mut css.max_width, parse_dimension(val)),
-        "min-height" => set_if(&mut css.min_height, parse_dimension(val)),
-        "max-height" => set_if(&mut css.max_height, parse_dimension(val)),
+        // `parse_dimension_min_max`, não `parse_dimension`: um CLAMP aceita
+        // `min-content` (o piso DECLARADO de um item flex — encolhimento de
+        // coluna, `layout/coluna_shrink.rs` — não pode desaparecer só porque
+        // o automático some sob overflow não-visível).
+        "min-height" => set_if(&mut css.min_height, parse_dimension_min_max(val)),
+        "max-height" => set_if(&mut css.max_height, parse_dimension_min_max(val)),
         // `position` + offsets (top/right/bottom/left). Os offsets aceitam
         // negativos (deslocam para fora) — parse_dimension rejeita <0, então
         // px negativo entra por parse direto.
@@ -127,6 +131,20 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
     true
 }
 
+/// `flex-basis`, com a keyword `content` (Flexbox §7.2) além do que
+/// `parse_dimension` já cobre: sizing sempre pelo conteúdo, tratado como
+/// `max-content` (o único intrínseco que este motor mede) — sem isto
+/// `content` caía no `None` de `parse_dimension` e, no shorthand `flex: 0 0
+/// content`, o `unwrap_or(Percent(0.0))` de baixo lia-o como 0% (achado ao
+/// medir `flexbox-flex-basis-content-004a`: um item `flex-shrink:0` colapsava
+/// em vez de manter a altura do conteúdo).
+fn parse_flex_basis(v: &str) -> Option<Dimension> {
+    if v.trim().eq_ignore_ascii_case("content") {
+        return Some(Dimension::MaxContent);
+    }
+    parse_dimension(v)
+}
+
 /// Aplica o shorthand `flex: none | auto | <grow> [<shrink>] [<basis>]`.
 /// Mapeamentos da spec: `none` = 0 0 auto; `auto` = 1 1 auto; UM número =
 /// grow=N shrink=1 basis=0% (o `.col { flex: 1 0 0% }` já vem com os três).
@@ -171,7 +189,7 @@ fn apply_flex_shorthand(css: &mut ComputedStyle, val: &str) {
             if t.parse::<f32>().map(|n| n != 0.0).unwrap_or(false) {
                 return;
             }
-            basis = parse_dimension(t);
+            basis = parse_flex_basis(t);
         }
     }
     match (nums.len(), basis) {
