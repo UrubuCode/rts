@@ -1,26 +1,31 @@
 //! FLUXO VERTICAL: empilhar filhos de bloco uns sobre os outros, colapsar as
 //! margens entre eles, e a linha de `inline-block`.
 //!
-//! **517 linhas, dezassete acima do teto, e a fronteira não se mexeu para as
-//! evitar.** O colapso de margens fica aqui e não num módulo de perguntas sobre
-//! caixas, porque é aqui que ele é usado — e porque é a próxima frente de
-//! correção conhecida (conta a dobro e acumula por nível de aninhamento). Mover
-//! uma fronteira para servir um número é escolher o número em vez do desenho.
+//! **Acima do teto, e a fronteira não se mexeu para o evitar.** O colapso de
+//! margens fica aqui e não num módulo de perguntas sobre caixas, porque é aqui
+//! que ele é usado — e porque é a próxima frente de correção conhecida (conta
+//! a dobro e acumula por nível de aninhamento). Mover uma fronteira para
+//! servir um número é escolher o número em vez do desenho.
 //!
 //! Uma das cinco cópias da pergunta "é de bloco?" vive DENTRO do laço de
 //! `layout_children_vertical`, escrita à mão — ver o cabeçalho de `caixa.rs`.
 //! Não é movível sem extrair uma função, o que deixa de ser um `move`.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi alterada.
+//!
+//! **O crescimento para conter floats DEIXOU de viver aqui.** Vivia no fim
+//! desta função, incondicional (a divergência que `float_left_right_dividem_a_linha`
+//! pinava de propósito); agora é `bloco.rs` que decide, porque só ele sabe se
+//! `id` é o BFC responsável — ver `layout/bfc.rs`.
 
 use super::*;
 /// Empilha os filhos VERTICAL (cada um abaixo do anterior), ocupando a largura do
 /// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
 /// `avail_h` = altura do content DESTE container quando explícita (containing
 /// block dos filhos p/ `height:%`).
-// as macros de estado (close_floats!/flush_inline!) escrevem no cursor a cada
-// fechamento — a ÚLTIMA atribuição (no flush final) é estruturalmente morta, o
-// que dispara unused_assignments sem haver bug.
+// a macro de estado (flush_inline!) escreve no cursor a cada fechamento — a
+// ÚLTIMA atribuição (no flush final) é estruturalmente morta, o que dispara
+// unused_assignments sem haver bug.
 /// O CONJUNTO de margens adjacentes ainda aberto, como o Blink o guarda
 /// (`MarginStrut`): o MAIOR dos positivos e o MENOR dos negativos, somados uma
 /// só vez no fim.
@@ -84,8 +89,13 @@ pub(in crate::layout) fn layout_children_vertical(
     avail_h: Option<f32>,
     css: &ComputedStyle,
     font_size: f32,
-    // Os floats abertos HERDADOS do contexto de cima (ver `layout_block`).
-    herdadas: &[Exclusao],
+    // O bloco de formatação AMBIENTE — de quem o estabeleceu, herdado por
+    // referência quando `id` (o pai destes filhos) não estabelece o seu
+    // próprio (ver `layout_block`). Um float colocado aqui é escrito NELE
+    // (`bfc.push`), então um `<div>` sem BFC dentro de outro `<div>` sem BFC
+    // não perde o float ao subir — a mesma referência chega ao dono, seja ele
+    // quem for. Ver `layout/bfc.rs`.
+    bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
@@ -107,25 +117,6 @@ pub(in crate::layout) fn layout_children_vertical(
     // fluxo inline e os floats usam — é sempre `borda + strut_colapsado(strut)`.
     let mut borda = content_y;
     let mut strut: Strut = (0.0, 0.0);
-    // ── FLOATS COMO EXCLUSÕES: cada float colocado deixa uma faixa vertical
-    // ocupada de um dos lados, e o conteúdo seguinte CONTORNA-A em vez de descer
-    // abaixo dela. Ver [`Exclusao`] para a medição no Chrome que fixa o modelo.
-    // Os herdados vêm primeiro; os deste container são acrescentados depois, e
-    // `proprios` é a fronteira entre uns e outros. A distinção importa no fecho:
-    // `clear` desce abaixo de QUALQUER float que o estorve, incluindo os de
-    // cima, mas este container só cresce para conter os SEUS — crescer para
-    // conter um float do pai punha altura no sítio errado.
-    let mut floats: Vec<Exclusao> = herdadas.to_vec();
-    let proprios = floats.len();
-    // Desce o cursor para BAIXO dos floats. Já não é "fechar a linha": é o que o
-    // `clear` pede. Um irmão sem `clear` NÃO chama isto: passa ao lado do float.
-    macro_rules! close_floats {
-        ($y:expr) => {
-            if let Some(fundo) = fundo_dos_floats(&floats) {
-                $y = $y.max(fundo);
-            }
-        };
-    }
     // ── CONTEXTO INLINE (P4): irmãos inline CONSECUTIVOS (texto + <a>/<b>/<span>)
     // fluem JUNTOS numa sequência de linhas — acumulados aqui e descarregados por
     // `flush_inline!` quando um bloco/float/fim interrompe o fluxo.
@@ -138,7 +129,7 @@ pub(in crate::layout) fn layout_children_vertical(
         ($y:expr) => {
             if !ib_run.is_empty() {
                 $y = layout_inline_block_line(
-                    dom, &ib_run, content_x, $y, content_w, avail_h, css, ctx, list,
+                    dom, &ib_run, content_x, $y, content_w, avail_h, css, font_size, ctx, list,
                 );
                 ib_run.clear();
                 borda = $y;
@@ -152,9 +143,10 @@ pub(in crate::layout) fn layout_children_vertical(
                 flush_ib!($y);
             }
             if !inline_group.is_empty() {
-                // NÃO desce abaixo dos floats: as linhas CONTORNAM-NOS. As
-                // exclusões vão com o grupo — é a travessia de camada que o
-                // comentário de `layout_inline_flow` justifica.
+                // NÃO desce abaixo dos floats: as linhas CONTORNAM-NOS. Uma
+                // CÓPIA (`bfc.snapshot()`) e não a referência: `layout_inline_flow`
+                // só LÊ, nunca escreve, e o tipo que espera é o antigo `&[Exclusao]`
+                // — não há razão para o fazer aprender o `RefCell`.
                 $y = layout_inline_flow(
                     dom,
                     id,
@@ -164,7 +156,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     content_w,
                     css,
                     font_size,
-                    &floats,
+                    &bfc.snapshot(),
                     ctx,
                     list,
                 );
@@ -182,11 +174,11 @@ pub(in crate::layout) fn layout_children_vertical(
         // a classificação inteira, que custaria estilo computado,
         // `block::lookup` e a margem resolvida por filho: mil vezes por frame
         // numa lista, para redescobrir o que não mudou.
-        // `floats.is_empty()`: um bloco com float ao lado não pode ser servido
+        // `bfc.is_empty()`: um bloco com float ao lado não pode ser servido
         // pelo fragmento guardado — ele foi medido com a linha inteira e a banda
         // livre não faz parte da chave. É a mesma recusa de
         // `layout_block_reusing`, no caminho rápido que a antecede.
-        if floats.is_empty() && matches!(dom.node(child).kind, NodeKind::Element { .. }) {
+        if bfc.is_empty() && matches!(dom.node(child).kind, NodeKind::Element { .. }) {
             let key = key_base.key(dom, child);
             if let Some(fragment) = dom.fragment_get(key) {
                 crate::bump!(fragment_hits);
@@ -224,9 +216,10 @@ pub(in crate::layout) fn layout_children_vertical(
             .and_then(|c| c.float_side)
             .unwrap_or(crate::style::FloatSide::None);
         // A clearance precisa de dois valores que o cursor sozinho não dá: o
-        // fundo do float, e o sítio onde o bloco ficaria SEM ele. Pelo CSS 2.1
-        // §9.5.2 a aresta de borda fica no MAIOR dos dois — e não no fundo do
-        // float MAIS a margem, que é o que somar as duas coisas dá.
+        // fundo do float (só nos LADOS que este `clear` pede), e o sítio onde o
+        // bloco ficaria SEM ele. Pelo CSS 2.1 §9.5.2 a aresta de borda fica no
+        // MAIOR dos dois — e não no fundo do float MAIS a margem, que é o que
+        // somar as duas coisas dá.
         //
         // Os dois são `Option` e não um `max` incondicional sobre o cursor: a
         // meio do laço `child_y` é o CURSOR e não uma aresta de borda, e
@@ -235,24 +228,34 @@ pub(in crate::layout) fn layout_children_vertical(
         // para cima.
         let mut clearance: Option<f32> = None;
         // (a referência de onde a aresta é medida é a `borda`, que o
-        // `flush_inline!` do próprio `clear` acaba de pôr no cursor e que o
-        // `close_floats!` a seguir NÃO move. Existia um `y_sem_clearance` só
-        // para isso, e o conjunto tornou-o redundante.)
+        // `flush_inline!` do próprio `clear` acaba de pôr no cursor.)
         // `clear` — o par do `float`: este filho começa ABAIXO dos floats
-        // correntes. Fica ANTES do dispatch por tipo de caixa porque vale para
-        // qualquer um deles: o caminho de bloco já fechava a linha de floats
-        // sempre, mas um inline-block ou um texto com `clear` não fechava nada e
-        // acabava por cima do float. Os três valores agem como `both` (ver
-        // `style::text::Clear` para porquê).
-        if child_css
+        // correntes DO LADO que declara. Fica ANTES do dispatch por tipo de
+        // caixa porque vale para qualquer um deles: o caminho de bloco já lia
+        // `clearance` sempre, mas um inline-block ou um texto com `clear` não
+        // tinha como descer e acabava por cima do float.
+        //
+        // `Clear::sides()` é o que faltava para os três valores deixarem de
+        // responder o mesmo fundo (ver `style::text::Clear`, que documentava o
+        // corte): `left` só lê o lado esquerdo do BFC, `right` só o direito,
+        // `both` os dois — a mesma pergunta que `bfc.fundo_lado` existe para
+        // responder.
+        if let Some((esquerda, direita)) = child_css
             .as_ref()
             .and_then(|c| c.clear)
-            .map(|c| c.clears())
-            .unwrap_or(false)
+            .map(|c| c.sides())
+            .filter(|&(e, d)| e || d)
         {
             flush_inline!(child_y);
-            clearance = fundo_dos_floats(&floats);
-            close_floats!(child_y);
+            clearance = bfc.fundo_lado(esquerda, direita);
+            // Desce o cursor para BAIXO do float — já não é "fechar a linha": é
+            // o que o `clear` pede. Um irmão sem `clear` NÃO passa por aqui:
+            // passa ao lado do float. Só usado pelos caminhos que leem
+            // `child_y` diretamente (inline/inline-block); o de bloco usa
+            // `clearance` sozinho, combinado com a margem em vez de somado.
+            if let Some(fundo) = clearance {
+                child_y = child_y.max(fundo);
+            }
         }
         let (child_block, child_inline_block) = match &dom.node(child).kind {
             NodeKind::Element { tag } => {
@@ -355,15 +358,15 @@ pub(in crate::layout) fn layout_children_vertical(
                 // lado a lado continuam lado a lado — é o header brand+nav do
                 // Bootstrap, e é o que a primeira tentativa já responde.
                 let mut top = child_y;
-                let mut fundos: Vec<f32> = floats.iter().map(|e| e.bottom).collect();
+                let mut fundos = bfc.fundos();
                 fundos.sort_by(f32::total_cmp);
-                let (mut bx, mut bw) = banda_livre(&floats, top, h, content_x, content_w);
+                let (mut bx, mut bw) = bfc.banda_livre(top, h, content_x, content_w);
                 for f in fundos {
                     if bw >= w || f <= top {
                         continue;
                     }
                     top = f;
-                    (bx, bw) = banda_livre(&floats, top, h, content_x, content_w);
+                    (bx, bw) = bfc.banda_livre(top, h, content_x, content_w);
                 }
                 let x = if side == crate::style::FloatSide::Left {
                     bx
@@ -380,11 +383,18 @@ pub(in crate::layout) fn layout_children_vertical(
                     None,
                     None,
                     true,
-                    &[],
+                    // Um float estabelece o SEU PRÓPRIO BFC (CSS 2.1 §9.4.1) —
+                    // `bloco.rs` cria um novo internamente para o conteúdo dele
+                    // de qualquer forma; este valor nunca chega a ser lido.
+                    &BlockFormattingContext::new(),
                     ctx,
                     list,
                 );
-                floats.push(Exclusao {
+                // Regista no BFC responsável — a referência PARTILHADA, não uma
+                // cópia local: é o que faz este float alcançar os IRMÃOS do
+                // ANTEPASSADO que estabeleceu este BFC, não só os deste
+                // container (ver `layout/bfc.rs` e `claude-float-clear.html`).
+                bfc.push(Exclusao {
                     top,
                     bottom: top + h,
                     side,
@@ -400,10 +410,10 @@ pub(in crate::layout) fn layout_children_vertical(
             }
             NodeKind::Element { .. } if child_block && !child_inline_block => {
                 flush_inline!(child_y);
-                // Sem `close_floats!`: pelo CSS a caixa de bloco ao lado de um
-                // float NÃO desce nem encolhe — mantém a largura e sobrepõe-se
-                // ao float; quem encolhe são as linhas lá dentro. Ver
-                // [`Exclusao`] para os números do Chrome que o fixam.
+                // Sem descer o cursor pelos floats aqui: pelo CSS a caixa de
+                // bloco ao lado de um float NÃO desce nem encolhe — mantém a
+                // largura e sobrepõe-se ao float; quem encolhe são as linhas lá
+                // dentro. Ver [`Exclusao`] para os números do Chrome que o fixam.
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
                 // As DUAS margens verticais do filho. A de baixo entrou aqui
@@ -452,11 +462,10 @@ pub(in crate::layout) fn layout_children_vertical(
                 let com_topo = junta_ao_strut(strut, m);
                 let mut aresta = borda + strut_colapsado(com_topo);
                 // CLEARANCE (CSS 2.1 §9.5.2): com `clear`, a aresta fica no
-                // MAIOR entre a hipotética e o fundo do float. Somar a margem
-                // por cima da descida era o defeito medido — o bloco ficava
-                // 10 px abaixo do fundo do float onde o Chrome o põe
-                // exactamente no fundo. Note-se que a auditoria previa o erro
-                // no sentido CONTRÁRIO.
+                // MAIOR entre a hipotética e o fundo do float (só do LADO que o
+                // `clear` pede — ver acima). Somar a margem por cima da descida
+                // era o defeito medido — o bloco ficava 10 px abaixo do fundo do
+                // float onde o Chrome o põe exactamente no fundo.
                 if let Some(fundo) = clearance {
                     aresta = aresta.max(fundo);
                 }
@@ -469,7 +478,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     content_w,
                     avail_h,
                     || (m, m_baixo),
-                    &floats,
+                    bfc,
                     ctx,
                     list,
                 );
@@ -518,7 +527,7 @@ pub(in crate::layout) fn layout_children_vertical(
                         content_w,
                         css,
                         font_size,
-                        &floats,
+                        &bfc.snapshot(),
                         ctx,
                         list,
                     );
@@ -541,16 +550,9 @@ pub(in crate::layout) fn layout_children_vertical(
             }
         }
     }
-    // descarrega o fluxo inline pendente e cresce para conter os floats DESTE
-    // container. ⚠️ DIVERGÊNCIA CONHECIDA, não é um bug à espera de correção:
-    // pelo CSS um float só faz o pai crescer se o pai for um BFC (`overflow`,
-    // `flow-root`, flex, tabela) ou houver clearfix; aqui cresce sempre. Foi
-    // decidido manter — mexer nisso muda a altura de TODO o contentor com float
-    // e é um segundo eixo de regressão por cima deste lote. O BFC é outro lote,
-    // com medição própria. Ver `float_left_right_dividem_a_linha`.
+    // descarrega o fluxo inline pendente. O crescimento para conter os floats
+    // DESTE container não vive mais aqui — ver o cabeçalho do módulo e
+    // `layout_block`, que é quem sabe se `id` é o BFC responsável.
     flush_inline!(child_y);
-    if let Some(fundo) = fundo_dos_floats(&floats[proprios..]) {
-        child_y = child_y.max(fundo);
-    }
     (child_y - content_y).max(0.0)
 }

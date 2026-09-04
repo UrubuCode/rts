@@ -22,14 +22,14 @@ linha aqui não existe.
 
 | lote | nome | vaga | estado | branch / commit | régua que o mede |
 |---|---|---|---|---|---|
-| A | contrato DOM→JS | 1 | ◐ em curso | `feat/dom-contrato-js` | `cargo test -p rts-dom-bridge`; `tests/claude-dom-getboundingclientrect.test.ts` |
-| B | um medidor activo | 1 | ◐ em curso | `feat/dom-medidor-ativo` | testes em `rts-dom` (medidor falso) |
-| C | `position` relative/absolute | 1 | ◐ em curso | `feat/dom-position-relativo-absoluto` | corpus: `claude-position-*` (6 desvios) |
-| D | grid: rows por áreas | 1 | ◐ em curso | `feat/dom-grid-areas-rows` | corpus: `claude-grid-areas` (3) |
-| E | BFC, floats, `clear` | 1 | ◐ em curso | `feat/dom-bfc-floats-clear` | corpus: `claude-clear`, `claude-float-clear` (6) |
-| F | baseline, `vertical-align`, `white-space` | 1 | ◐ em curso | `feat/dom-linha-baseline` | corpus: `claude-vertical-align`, `claude-white-space`, `claude-text-align` (8) |
-| G | scroll no documento | 2 | ☐ | — | teste de `scrollTop`/`scrollTo` + exemplo em janela |
-| H | o escopo de página não vê o Node | 2 | ☐ (decisão pendente, §4.H) | — | fixture `claude-dom-page-nao-ve-process` |
+| A | contrato DOM→JS | 1 | ☑ integrado em `feat/dom-vaga-1` (2026-09-04) | `feat/dom-contrato-js` → `bda7e065`+`667f2609` | `cargo test -p rts-dom-bridge`; `tests/claude-dom-getboundingclientrect.test.ts` |
+| B | um medidor activo | 1 | ☑ integrado em `feat/dom-vaga-1` (2026-09-04) | `feat/dom-medidor-ativo` → `4c3ee981` | testes em `rts-dom` (medidor falso) |
+| C | `position` relative/absolute | 1 | ☑ integrado; corpus 6/6 desvios fechados | `feat/dom-position-relativo-absoluto` → `a2d6dde1` | corpus: `claude-position-*` (6 desvios) |
+| D | grid: rows por áreas | 1 | ☑ integrado; corpus 3/3 fechados | `feat/dom-grid-areas-rows` → `161c532a` | corpus: `claude-grid-areas` (3) |
+| E | BFC, floats, `clear` | 1 | ☑ integrado; corpus 6/6 fechados, suite sem perdidos | `feat/dom-bfc-floats-clear` → `cf592ba0` | corpus: `claude-clear`, `claude-float-clear` (6) |
+| F | baseline, `vertical-align`, `white-space` | 1 | ☑ integrado; corpus 8/8 fechados (o 8.º por C/E) | `feat/dom-linha-baseline` → `ebe268ef` | corpus: `claude-vertical-align`, `claude-white-space`, `claude-text-align` (8) |
+| G | scroll no documento | 2 | ☑ integrado; fixture verde; janela real POR MEDIR | `feat/dom-scroll-no-documento` → `951a72b2` | teste de `scrollTop`/`scrollTo` + exemplo em janela |
+| H | o escopo de página não vê o Node | 2 | ☑ integrado; fixture verde; `eval` indirecto ainda vê `process` (§4.H) | `feat/dom-escopo-pagina-sem-node` → `8e30fcc1` | fixture `claude-dom-page-nao-ve-process` |
 | I | folha de UA em CSS real | 2 | ☐ | — | `<th>` negrito/centro; `scrollbar.rs` apagado |
 | J | `DeclarationRecord` e `revert` | 2 | ☐ | — | fixture `revert`/`revert-layer` medida no Chrome |
 | K | invalidação escopada para `:nth-child` | 2 | ☐ | — | `dom_metrics`: cascades por `appendChild` |
@@ -39,13 +39,21 @@ linha aqui não existe.
 | O–U | CSS como área | 3 | ☐ | — | §5 |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
-**Estado de referência da vaga 1** (para comparar POR FICHEIRO, nunca por
-soma): corpus CSS **41 de 49** a 1px (23 desvios em 8 fixtures), medido a
-2026-09-04 com o `rts.exe` de 2026-09-03; suite `*.test.ts` **855 de 884**
-verdes pelo `medir.sh` com esse mesmo binário guardado como
-`target/baseline.exe` (a lista está em `base-suite.txt` na raiz, ignorada
-pelo git — se não existir, refaça-a com o comando do §2 antes de tocar em
-nada). `cargo test -p rts-dom --lib`: 724 verdes.
+**Estado após a vaga 1 (2026-09-04, 01:41)** — medido com o `rts.exe`
+construído sobre `feat/dom-vaga-1` e comparado POR FICHEIRO contra o binário
+de 2026-09-03 (`target/baseline.exe`, lista em `base-suite.txt`):
+
+| régua | antes (baseline) | depois | perdidos |
+|---|---|---|---|
+| corpus CSS (`claude-css-runner`) | 41/49, 23 desvios | **49/49, 0 desvios** | nenhum |
+| suite `*.test.ts` por `medir.sh` | 855/884 | **858/887** (+3 fixtures novas) | **nenhum** |
+| `cargo test -p rts-dom --lib` | 718 | **756**, 0 falhas | — |
+| `cargo test -p rts-dom-bridge` | nunca corria (doctest partido) | **4 + doctests**, 0 falhas | — |
+
+O binário desta medição fica como o próximo `target/baseline.exe` e
+`vaga1-suite.txt` como o próximo `base-suite.txt`. O que a vaga 1 NÃO mediu:
+o scroll numa janela real (G) — a fixture headless passa, o exemplo em janela
+fica para quem tiver ecrã.
 
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit
@@ -93,7 +101,7 @@ cargo test -p rts-dom --lib --no-fail-fast
 cargo test -p rts-dom-bridge --no-fail-fast          # lote A em diante
 
 # 2. o corpus CSS (precisa do binário; release, porque o runner é o rts:dom real)
-cargo build --release -p rts-cli                      # ~1m30 incremental
+cargo build --release                                 # o pacote RAIZ `rts` é o rts.exe; `-p rts-cli` só constrói a lib
 target/release/rts.exe run examples/claude-css-runner.ts   # "N/49 passam" + desvios
 CSS_FILTRO=position target/release/rts.exe run examples/claude-css-runner.ts
 
@@ -231,24 +239,62 @@ paralelo com a vaga 1 se houver agentes livres: não tocam em layout.
 
 ### H — o escopo de página não vê o Node (`rts-core`, `rts-codegen`, `rts-host`)
 
-- **Decisão pendente, do dono do projeto:** este motor é uma fronteira de
-  segurança (conteúdo que não controla) ou não? Enquanto não for decidido,
-  o `CLAUDE.md` e o bridge devem DIZER que não é — o comentário de `NODE_ONLY`
-  promete o que não cumpre.
-- **Em qualquer caso, como correcção** (é o bug que a lista existe para
-  impedir — uma página que vê `setImmediate` monta o React pelo ramo Node):
-  (1) `Scoped::Eval` herda `ctx.page` do escopo em que o `eval` corre
-  (`rts-host/src/run.rs:826-845`, `rts-codegen/src/emit/eval.rs`);
-  (2) `environment_names` (`rts-core/src/entry/eval_scope.rs:246-289`) não
-  atravessa a cadeia de protótipos para além da superfície que o `window`
-  expõe, ou o filtro `NODE_ONLY` corre ANTES de o nome entrar na cadeia.
-  RULE 0: ler os READMEs dos três crates antes.
-- **Aceitação:** fixture `claude-dom-page-nao-ve-process.test.ts`: num
+- **Decisão TOMADA (2026-09-04, pelo orquestrador):** este motor NÃO é hoje
+  uma fronteira de segurança — mesmo processo, mesmo heap, mesma `Context`, e
+  `require`/`fetch` de recursos que a própria página nomeia não passam por
+  nenhuma política. O código passa a DIZÊ-lo: o comentário de `NODE_ONLY`
+  (`rts-codegen/src/emit/globals.rs`) já não promete o que não cumpria. As
+  duas fugas fecham como CORRECÇÃO — é o bug que a lista existe para impedir
+  desde sempre (uma página que vê `setImmediate` monta o React pelo ramo Node)
+  — e não como implementação de uma fronteira de segurança que este motor não
+  tem.
+- **Feito, branch `feat/dom-escopo-pagina-sem-node`:**
+  (1) o nome nunca entra na cadeia que `Scope::lookup` resolve a zero hops:
+  `globals::without_node_only` filtra `NODE_ONLY` de `enclosing` ANTES de
+  `emit_page_program`/`emit_eval_program` construírem o `chain`/`Scope` —
+  opção (a) do enunciado, porque filtrar o resultado fecha a fuga
+  independentemente do mecanismo exacto que a produzia, e o mecanismo em si
+  não ficou provado por leitura estática sozinha (a auditoria mediu-o AO
+  VIVO);
+  (2) `Scoped::Eval`/`Scoped::Page` ganharam `hide_node_globals: bool`;
+  `rts-host/src/live.rs` decide-o comparando o ambiente a
+  `rts_core::entry::global_object` (só `vm.runInThisContext` partilha o
+  global real) e, quando `true`, marca o ambiente com
+  `rts_core::entry::mark_hides_node_globals` — uma propriedade `__rts_`
+  no PRÓPRIO objecto, e não uma tabela lateral por CÉLULA, porque uma célula
+  libertada e reutilizada tornaria uma entrada de tabela obsoleta uma marca
+  no objecto ERRADO. Um `eval()` de dentro da página lê a marca de volta com
+  `rts_core::entry::hides_node_globals`, que anda a MESMA cadeia
+  `__rts_outer` que `environment_names` já anda.
+- **Aceitação:** fixture `tests/claude-dom-page-nao-ve-process.test.ts`: num
   `<script>` de página, `typeof process`, `typeof Buffer`,
-  `typeof setImmediate` e `eval("typeof process")` respondem `"undefined"`;
-  o React 18 continua a montar (`examples/claude-react-vida.ts`).
-- **Só se a decisão for "sim":** um `Context`/heap por documento em vez do
-  singleton thread-local — o único item deste plano que reabre a arquitectura.
+  `typeof setImmediate`, `typeof require` e `eval("typeof process")`
+  respondem `"undefined"`; `typeof setTimeout`/`typeof fetch`/
+  `typeof document` continuam o que um browser dá; e um controlo prova que
+  FORA da página `typeof process` continua `"object"` — a diferença é o
+  ESCOPO, não uma remoção do global.
+- **Risco aceite e não fechado por este lote:** `vm.runInContext`/
+  `runInNewContext` com um sandbox comum (não `runInThisContext`) passam a
+  também esconder `NODE_ONLY` do sandbox — inclusive se o chamador tivesse
+  posto lá `sandbox.process = algo` explicitamente, esse `process` deixa de
+  resolver pela CADEIA (continua a resolver por leitura directa de
+  propriedade, `sandbox.process`). Nenhum teste existente pina o caso
+  contrário; `crates/rts-node/README.md`/`vm.rs` é onde revisitar se um
+  programa real depender disso.
+- **Gap conhecido, não fechado:** `eval` INDIRECTO — `(0, eval)("process")`,
+  `globalThis.eval("process")`, um nome que aponta para `eval` chamado sem ser
+  como identificador nu — continua a ver `process` de dentro de uma página. O
+  mecanismo (`rts_core::entry::eval_source`) passa sempre `environment =
+  undefined` para o compilador, que é como a especificação diz "corre no
+  escopo global" — mas este motor não tem um global por página, então
+  `hides_node_globals(undefined)` não tem nada para andar e responde `false`.
+  Fechar isto exigiria saber de que ESCOPO A CHAMADA partiu sem um objecto de
+  ambiente para perguntar, o que é um problema diferente do que este lote
+  respondeu. A fixture só cobre a forma DIRECTA (`eval("...")`), que é a que a
+  auditoria mediu e a que o enunciado pediu.
+- **Não feito:** um `Context`/heap por documento em vez do singleton
+  thread-local — a decisão tomada foi "não é fronteira de segurança", o que
+  torna este item fora de escopo em vez de pendente.
 
 ### I — a folha de UA em CSS real (`style/`, `block/ua.rs` morre, `scrollbar.rs` morre)
 
@@ -459,7 +505,8 @@ lente 1 diz onde isso dói). Só depois de I, J e V.
 
 ## 7. O que este plano não decide
 
-- Se o motor é uma fronteira de segurança (§4.H). Do dono.
+- ~~Se o motor é uma fronteira de segurança (§4.H).~~ Decidido 2026-09-04: não
+  é. §4.H tem o que isso mudou no código.
 - Se e quando `dom.ts` (1 847 linhas) é partido em ficheiros — o bridge
   concatena preludes; partir é mecânico e vale um lote próprio com o dump de
   paridade a provar zero pixels movidos.

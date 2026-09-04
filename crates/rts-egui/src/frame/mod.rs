@@ -13,6 +13,7 @@ mod render;
 // API pública do módulo `frame` (mantém o `pub use frame::*` do lib.rs): os tipos
 // de GPU/janela (usados por app.rs/ctx.rs) e o render do DOM (usado abaixo).
 pub use gpu::{shutdown_shared_gpu, Backend, GpuConfig, RenderState, WindowChrome};
+pub use render::clear_active_measurer;
 use gpu::present_wgpu;
 use render::render_dom;
 

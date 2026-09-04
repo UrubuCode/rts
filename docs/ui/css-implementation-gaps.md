@@ -2,7 +2,9 @@
 
 **Estado de referência:** `origin/main` após o merge do PR #2582, commit `f2cea6976003945c34c03d00514daca1fa5dc7ac`.
 
-**Medição:** corpus local de 49 fixtures, Chrome/Blink a 1280×800, tolerância de 1 px, através de `examples/claude-css-runner.ts`. O resultado actual é **41/49 fixtures aprovadas**, com **23 desvios em 8 fixtures**. A suite `rts-dom` correspondente terminou com **713 testes aprovados, 0 falhados e 1 ignorado**, conforme `docs/ui/blink-parity-2026-08-27.md`.
+**Medição (2026-08-27):** corpus local de 49 fixtures, Chrome/Blink a 1280×800, tolerância de 1 px, através de `examples/claude-css-runner.ts`: **41/49 fixtures aprovadas**, com **23 desvios em 8 fixtures**; `rts-dom` com 713 testes aprovados (`docs/ui/blink-parity-2026-08-27.md`).
+
+> **Actualização 2026-09-04: os 23 desvios da secção 3 estão FECHADOS — 49/49.** A vaga 1 de `crates/rts-dom/PLAN.md` (lotes C, D, E, F) fechou as quatro prioridades A–D deste inventário, cada uma com um teste Rust que afirma os rects do Chrome. A secção 3 fica como registo do que foi medido e de como se lia; as secções 4, 5 e 6 continuam a ser o inventário do que falta, e a ordem do §7 continua a partir do item E (arquitectura da cascade), agora no PLAN §4.J e §5. A auditoria estrutural de 2026-09-04 (`docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/`) é a leitura actual do motor.
 
 ## 1. Como ler este inventário
 

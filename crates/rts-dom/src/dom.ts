@@ -906,24 +906,18 @@ class Element {
     dom.setStyle(this._dom, this._node, slot, val);
   }
 
-  // `el.getBoundingClientRect()` — o retângulo (border-box) deste elemento, lido do
-  // LAYOUT que o motor calcula. Devolve um DOMRect-like {x,y,width,height,top,left,
-  // right,bottom}. ⚠️ HEADLESS: o browser usa o viewport real; aqui o layout precisa
-  // de uma largura — passe `viewportW` (default 1280). Os componentes vêm do Rust em
-  // pontos×1000 (subpixel preservado); dividimos por 1000. Se o nó não tem caixa
-  // (texto/inline/display:none), tudo é 0.
-  getBoundingClientRect(viewportW: number): DOMRectLike {
-    const vw = viewportW > 0 ? viewportW : 1280;
-    // extrai cada componente para uma const antes de comparar (limite i64-cmp inline).
-    const rawX = dom.boundingComponent(this._dom, this._node, vw, 0);
-    const rawY = dom.boundingComponent(this._dom, this._node, vw, 1);
-    const rawW = dom.boundingComponent(this._dom, this._node, vw, 2);
-    const rawH = dom.boundingComponent(this._dom, this._node, vw, 3);
-    // -1 (sem caixa) vira 0 — getBoundingClientRect de elemento sem layout é zeros.
-    const x = rawX < 0 ? 0 : rawX / 1000;
-    const y = rawY < 0 ? 0 : rawY / 1000;
-    const w = rawW < 0 ? 0 : rawW / 1000;
-    const h = rawH < 0 ? 0 : rawH / 1000;
+  // `el.getBoundingClientRect()` — o retângulo (border-box), sem argumento (fiel ao
+  // MDN: nem o browser nem `boundingRect(doc,node,which)` recebem viewport por
+  // chamada — o layout usa o viewport ATUAL do `Dom`, default 1280×800 headless).
+  // Já em pontos (o Rust devolve `f32` direto, não `i64`×1000); nó sem caixa vem 0.
+  // ANTES chamava a chave errada com um 4º argumento que a função Rust não tem
+  // (`dom.boundingComponent(doc,node,vw,which)`) e lançava TypeError sempre — a
+  // certa é `boundingRect`, 3 argumentos.
+  getBoundingClientRect(): DOMRectLike {
+    const x = dom.boundingRect(this._dom, this._node, 0);
+    const y = dom.boundingRect(this._dom, this._node, 1);
+    const w = dom.boundingRect(this._dom, this._node, 2);
+    const h = dom.boundingRect(this._dom, this._node, 3);
     return {
       x: x, y: y, width: w, height: h,
       top: y, left: x, right: x + w, bottom: y + h,
@@ -1054,6 +1048,45 @@ class Element {
     }
     this.classListAdd(cls);
     return true;
+  }
+
+  // ── scroll (#2621 lote G) ─────────────────────────────────────────────────
+  //
+  // O offset vive no `Dom` (Rust, `dom/scroll.rs`) — não neste objeto e não
+  // no backend: `get`/`set` só chamam o primitivo, exactamente como o resto
+  // desta fachada. Sem overflow (elemento não é uma região rolável), o motor
+  // responde scrollTop/scrollLeft=0 e scrollWidth/Height===clientWidth/Height
+  // — a mesma resposta de um browser para um elemento que não rola.
+  get scrollTop(): number { return dom.scrollTop(this._dom, this._node); }
+  set scrollTop(v: number) { dom.setScrollTop(this._dom, this._node, v); }
+  get scrollLeft(): number { return dom.scrollLeft(this._dom, this._node); }
+  set scrollLeft(v: number) { dom.setScrollLeft(this._dom, this._node, v); }
+  get scrollWidth(): number { return dom.scrollWidth(this._dom, this._node); }
+  get scrollHeight(): number { return dom.scrollHeight(this._dom, this._node); }
+  get clientWidth(): number { return dom.clientWidth(this._dom, this._node); }
+  get clientHeight(): number { return dom.clientHeight(this._dom, this._node); }
+
+  // `el.scrollTo({top,left})` ou `el.scrollTo(x,y)` — as duas formas que o
+  // browser aceita. Na forma-objeto, um eixo ausente ({top:5}, sem `left`)
+  // mantém o offset actual desse eixo; a forma posicional exige os dois.
+  scrollTo(arg1: any, arg2: any): void {
+    if (typeof arg1 === "object" && arg1 !== null) {
+      const left = arg1.left !== undefined ? arg1.left : this.scrollLeft;
+      const top = arg1.top !== undefined ? arg1.top : this.scrollTop;
+      dom.elementScrollTo(this._dom, this._node, left, top);
+      return;
+    }
+    dom.elementScrollTo(this._dom, this._node, arg1, arg2);
+  }
+  // `el.scrollBy(dx, dy)` — relativo ao offset actual.
+  scrollBy(dx: number, dy: number): void {
+    dom.elementScrollTo(this._dom, this._node, this.scrollLeft + dx, this.scrollTop + dy);
+  }
+  // `el.scrollIntoView()` — mínimo: alinha o topo deste elemento com o topo
+  // da região (ou da página) que rola. Sem opções (`block`/`inline`,
+  // `behavior: smooth`) — é o que o browser faz sem argumento nenhum.
+  scrollIntoView(): void {
+    dom.scrollIntoView(this._dom, this._node);
   }
 }
 

@@ -271,13 +271,14 @@ const PROVIDED: &[&str] = &[
 /// before the assignment is reached.
 pub(super) fn resolves(ctx: &Ctx, name: Name) -> bool {
     let text = ctx.names.text(name);
-    if ctx.page && NODE_ONLY.contains(&text) {
+    if ctx.hide_node_globals && NODE_ONLY.contains(&text) {
         return false;
     }
     PROVIDED.contains(&text) || ctx.globals.contains(&name)
 }
 
-/// Os nomes que só existem em Node, e que um `<script>` de página NÃO vê.
+/// Os nomes que só existem em Node, e que um escopo com
+/// `ctx.hide_node_globals` NÃO vê.
 ///
 /// # Porque a ausência é a resposta certa
 ///
@@ -306,6 +307,24 @@ pub(super) fn resolves(ctx: &Ctx, name: Name) -> bool {
 /// browser.
 ///
 /// `setTimeout` e `URL` não estão aqui: um browser TEM os dois.
+///
+/// # O que esta lista NÃO é (corrigido 2026-09-04)
+///
+/// Esta lista decide o que um `<script>` de página não vê por CORREÇÃO DE
+/// SEMÂNTICA DE BROWSER — o caso do React acima — e não é, nunca foi, uma
+/// fronteira de SEGURANÇA. O JavaScript de página corre no mesmo processo, no
+/// mesmo heap e na mesma `Context` que o resto deste motor; `require`/`fetch`
+/// de recursos que a própria página nomeia não passam por nenhuma política. A
+/// auditoria de 2026-09-04
+/// (`docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/07-critico.md`)
+/// mediu ao vivo que esta lista, sozinha, não impedia nem `process` nu nem
+/// `eval("process")` — o resolvedor de escopo (`Scope::lookup`) já tinha
+/// resolvido o nome antes de esta função sequer ser chamada, e `eval` de
+/// dentro de uma página compilava com `hide_node_globals=false`. As duas fugas
+/// fecham por [`without_node_only`] (o nome nunca entra na cadeia) e por
+/// `rts-core::entry::hides_node_globals` (o `eval` chamado de dentro herda a
+/// marca). Nenhuma das duas torna isto uma fronteira de processo, de heap ou
+/// de `Context` — isso continua por decidir.
 const NODE_ONLY: &[&str] = &[
     "process",
     "Buffer",
@@ -318,6 +337,26 @@ const NODE_ONLY: &[&str] = &[
     "__dirname",
     "__filename",
 ];
+
+/// Removes every [`NODE_ONLY`] name from an enclosing chain, for a caller
+/// whose `ctx.hide_node_globals` is `true`.
+///
+/// Filtering the CHAIN rather than relying on [`resolves`] alone is what
+/// closes the leak the 2026-09-04 audit measured: a name found in
+/// `Scope::lookup`'s chain resolves at zero hops, before `resolves` — and so
+/// before [`NODE_ONLY`] — is ever consulted. `enclosing` is what
+/// `rts_core::entry::environment_names` read off a real running object (a
+/// page's `window`, or a `vm` context), so a name in it did not come from this
+/// program's own declarations — those are `published`, in `page.rs`, and are
+/// never filtered: a script that writes `var process = 1` is declaring its
+/// own global, exactly as a browser lets it.
+pub(super) fn without_node_only(ctx: &Ctx, enclosing: &[(Name, u32)]) -> Vec<(Name, u32)> {
+    enclosing
+        .iter()
+        .filter(|(name, _)| !NODE_ONLY.contains(&ctx.names.text(*name)))
+        .copied()
+        .collect()
+}
 
 /// Emits a read of one, if it is one.
 ///

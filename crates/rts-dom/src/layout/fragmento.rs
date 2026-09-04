@@ -202,8 +202,16 @@ fn costurar(
             child.avail_h,
             || margem,
             // A costura só alcança o que virou fragmento, e um bloco estorvado
-            // por float nunca vira (ver o guard em `layout_block_reusing`).
-            &[],
+            // por float — ou que ele próprio deixa floats escaparem para o
+            // BFC ambiente — nunca vira (ver os dois guards em
+            // `layout_block_reusing`). Um BFC NOVO e isolado é por isso seguro
+            // aqui: SE este filho sujo passar a ter um float que precisaria
+            // de escapar, ele deixa de bater no cache na PRÓXIMA passada (o
+            // guard reage ao comprimento do BFC), mas NESTA passada de
+            // costura o float fica preso a este contexto descartável — um
+            // limite conhecido, não escondido: ver o cabeçalho de
+            // `layout/bfc.rs`.
+            &BlockFormattingContext::new(),
             ctx,
             &mut own,
         );
@@ -282,7 +290,7 @@ pub(in crate::layout) fn layout_block_reusing(
     avail_w: f32,
     avail_h: Option<f32>,
     margens: impl FnOnce() -> (f32, f32),
-    exclusoes: &[Exclusao],
+    bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> ((f32, f32), (f32, f32)) {
@@ -294,9 +302,9 @@ pub(in crate::layout) fn layout_block_reusing(
     // banda à chave era a outra saída; recusar custa só nos blocos que têm
     // float ao lado, que são poucos, e não põe um campo novo em todas as
     // chaves da página.
-    if !exclusoes.is_empty() {
+    if !bfc.is_empty() {
         let size = layout_block(
-            dom, id, x, y, avail_w, avail_h, None, None, false, exclusoes, ctx, list,
+            dom, id, x, y, avail_w, avail_h, None, None, false, bfc, ctx, list,
         );
         return (size, margens());
     }
@@ -323,20 +331,23 @@ pub(in crate::layout) fn layout_block_reusing(
     // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
     // e a única forma de saber isso é não misturá-los com os dos irmãos.
     let mut own = DisplayList::default();
+    // `bfc` — a referência AMBIENTE, não uma isolada — porque `id` pode não
+    // estabelecer BFC próprio e conter um float que precisa de ESCAPAR para
+    // este mesmo `bfc` (ver `layout/bfc.rs`). O comprimento antes/depois é
+    // como se sabe se isso aconteceu: `floats_escaparam` abaixo.
+    let floats_antes = bfc.len();
     let size = layout_block(
-        dom,
-        id,
-        x,
-        y,
-        avail_w,
-        avail_h,
-        None,
-        None,
-        false,
-        &[],
-        ctx,
-        &mut own,
+        dom, id, x, y, avail_w, avail_h, None, None, false, bfc, ctx, &mut own,
     );
+    // Se esta subárvore ACRESCENTOU floats ao BFC ambiente, o fragmento NÃO
+    // é gravado: uma reutilização futura (cache-hit ou costura) só REPINTA o
+    // desenho guardado, nunca volta a chamar `layout_block` — e sem chamá-lo
+    // o `push` que regista o float no BFC da passada CORRENTE nunca
+    // aconteceria. Recusar o cache aqui é o preço; a alternativa (guardar as
+    // exclusões produzidas dentro do `Fragment` e reinjectá-las em cada
+    // emissão, mesmo em cache-hit) fica para quando um caso real o pedir —
+    // documentado, não escondido, no cabeçalho de `layout/bfc.rs`.
+    let floats_escaparam = bfc.len() != floats_antes;
     let fragment = std::rc::Rc::new(Fragment {
         node: id,
         rects: std::rc::Rc::new(
@@ -359,7 +370,9 @@ pub(in crate::layout) fn layout_block_reusing(
         margin_top: margens_resolvidas.0,
         margin_bottom: margens_resolvidas.1,
     });
-    dom.fragment_put(key, std::rc::Rc::clone(&fragment));
+    if !floats_escaparam {
+        dom.fragment_put(key, std::rc::Rc::clone(&fragment));
+    }
     fragment.emit_at(list, x, y, avail_w, avail_h);
     (fragment.size, (fragment.margin_top, fragment.margin_bottom))
 }

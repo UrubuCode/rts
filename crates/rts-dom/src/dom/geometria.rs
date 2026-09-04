@@ -8,29 +8,39 @@ impl Dom {
 
     /// `getBoundingClientRect(el)[componente]` — 0=x, 1=y, 2=largura, 3=altura.
     ///
-    /// Faz o layout com o medidor APROXIMADO: sem janela não há fonte real, e
-    /// devolver zero seria pior do que a aproximação que o layout headless já
-    /// usa em todo o resto. Quem tem janela lê a geometria exata da
-    /// `DisplayList` do backend.
+    /// Mede com o medidor ACTIVO da thread (`layout::medidor_ativo`): quando
+    /// há uma janela real aberta, é o mesmo `TextMeasurer` de fontes reais que
+    /// `render_dom` usa para pintar — a mesma geometria que o JS lê é a que sai
+    /// na tela. Sem janela (headless), `with_active` cai sozinho no medidor
+    /// APROXIMADO: não há fonte real, e devolver zero seria pior do que a
+    /// aproximação que o layout headless já usa em todo o resto.
+    ///
+    /// Esta função e `render_dom` ainda fazem DUAS passadas de layout — uma
+    /// árvore de fragmentos única e partilhada é o redesenho maior que o
+    /// finding que isto fecha aponta como fora de âmbito aqui —, mas agora as
+    /// duas usam o mesmo medidor, o que é o que fazia as duas respostas
+    /// divergirem.
     pub fn bounding_component(&self, id: NodeId, which: i64) -> f32 {
         let Some(idx) = self.resolve(id) else {
             return 0.0;
         };
         let (vw, vh) = self.viewport.get();
-        let ctx = crate::layout::LayoutCtx {
-            viewport_w: vw,
-            viewport_h: vh,
-            measurer: &crate::layout::ApproxMeasurer,
-        };
-        let Some(rect) = crate::layout::bounding_rect(self, idx, &ctx) else {
-            return 0.0;
-        };
-        match which {
-            0 => rect.x,
-            1 => rect.y,
-            2 => rect.w,
-            _ => rect.h,
-        }
+        crate::layout::medidor_ativo::with_active(|measurer| {
+            let ctx = crate::layout::LayoutCtx {
+                viewport_w: vw,
+                viewport_h: vh,
+                measurer,
+            };
+            let Some(rect) = crate::layout::bounding_rect(self, idx, &ctx) else {
+                return 0.0;
+            };
+            match which {
+                0 => rect.x,
+                1 => rect.y,
+                2 => rect.w,
+                _ => rect.h,
+            }
+        })
     }
 
     /// As quatro componentes da caixa de MUITOS nós de uma vez, na ordem
@@ -55,19 +65,21 @@ impl Dom {
     /// `bounding_component` responde no mesmo caso.
     pub fn bounding_components_many(&self, ids: &[NodeId]) -> Vec<f32> {
         let (vw, vh) = self.viewport.get();
-        let ctx = crate::layout::LayoutCtx {
-            viewport_w: vw,
-            viewport_h: vh,
-            measurer: &crate::layout::ApproxMeasurer,
-        };
-        let list = crate::layout::layout_document(self, &ctx);
-        let mut out = Vec::with_capacity(ids.len() * 4);
-        for &id in ids {
-            match self.resolve(id).and_then(|idx| list.rect_of(idx)) {
-                Some(r) => out.extend_from_slice(&[r.x, r.y, r.w, r.h]),
-                None => out.extend_from_slice(&[0.0, 0.0, 0.0, 0.0]),
+        crate::layout::medidor_ativo::with_active(|measurer| {
+            let ctx = crate::layout::LayoutCtx {
+                viewport_w: vw,
+                viewport_h: vh,
+                measurer,
+            };
+            let list = crate::layout::layout_document(self, &ctx);
+            let mut out = Vec::with_capacity(ids.len() * 4);
+            for &id in ids {
+                match self.resolve(id).and_then(|idx| list.rect_of(idx)) {
+                    Some(r) => out.extend_from_slice(&[r.x, r.y, r.w, r.h]),
+                    None => out.extend_from_slice(&[0.0, 0.0, 0.0, 0.0]),
+                }
             }
-        }
-        out
+            out
+        })
     }
 }

@@ -678,10 +678,21 @@ pub(crate) enum Scoped<'a> {
     Nothing,
     /// A direct `eval` fragment: reads the caller's bindings, declares nothing
     /// back into them. `rts_core::entry::eval_scope` documents why.
-    Eval(&'a [(String, u32)]),
+    ///
+    /// `hide_node_globals` is read back off the calling environment —
+    /// `rts_core::entry::hides_node_globals` — because this compilation has no
+    /// `Ctx` of the scope that called `eval` to inherit the fact from
+    /// directly. See `rts-codegen`'s `emit::globals::NODE_ONLY` for what it
+    /// closes.
+    Eval { enclosing: &'a [(String, u32)], hide_node_globals: bool },
     /// A `<script>` of a page: reads what earlier scripts left, and its
     /// top-level `var` and `function` become properties the next one reads.
-    Page(&'a [(String, u32)]),
+    ///
+    /// `hide_node_globals` is `true` for anything that is NOT the real,
+    /// shared process global object — a DOM `window`, an ordinary `vm`
+    /// sandbox — and `false` only for `vm.runInThisContext`, which shares
+    /// that object and so shares what is on it. `live.rs` decides which.
+    Page { enclosing: &'a [(String, u32)], hide_node_globals: bool },
 }
 
 pub(crate) fn front_end_agreeing(
@@ -823,24 +834,24 @@ pub(crate) fn front_end_agreeing(
             // reuses the number each name already has: they came out of the
             // running interner, and `reserve_keys` put every one of those in
             // above.
-            (None, Scoped::Eval(enclosing)) => {
+            (None, Scoped::Eval { enclosing, hide_node_globals }) => {
                 let enclosing: Vec<_> = enclosing
                     .iter()
                     .map(|(text, hops)| (ctx.names.intern(text), *hops))
                     .collect();
-                rts_codegen::emit::emit_eval_program(&body, &enclosing, &mut ctx)
+                rts_codegen::emit::emit_eval_program(&body, &enclosing, *hide_node_globals, &mut ctx)
             }
             // A page script, which both reads that scope and DECLARES into it.
             // The difference from the arm above is one the caller has to state
             // rather than one this can read off the text: the same source is a
             // legal `eval` fragment and a legal `<script>`, and only the door
             // it came through says which set of rules it is under.
-            (None, Scoped::Page(enclosing)) => {
+            (None, Scoped::Page { enclosing, hide_node_globals }) => {
                 let enclosing: Vec<_> = enclosing
                     .iter()
                     .map(|(text, hops)| (ctx.names.intern(text), *hops))
                     .collect();
-                rts_codegen::emit::emit_page_program(&body, &enclosing, &mut ctx)
+                rts_codegen::emit::emit_page_program(&body, &enclosing, *hide_node_globals, &mut ctx)
             }
             (None, Scoped::Nothing) => emit_program(&body, &mut ctx),
         };

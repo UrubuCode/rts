@@ -24,16 +24,21 @@ pub trait TextMeasurer {
     /// fator`; o backend pode dar o valor exato da fonte.
     fn line_height(&self, size: f32) -> f32;
 
-    /// Ascent da fonte usado para alinhar texto com a baseline de atoms altos.
-    /// Backends com métricas próprias podem substituir a aproximação por valores
-    /// derivados da fonte real.
+    /// Ascent da fonte usado para alinhar texto com a baseline de atoms altos, e
+    /// para posicionar `vertical-align: text-top`/`middle` no modelo de baseline
+    /// (`layout::alinhamento_vertical`). `0.90×size`, calibrado contra o Chrome
+    /// — ver `style::ASCENT_RATIO` para a derivação. Backends com métricas
+    /// próprias (o `EguiMeasurer` do `rts-egui`) substituem pela ascent REAL da
+    /// fonte carregada.
     fn font_ascent(&self, size: f32) -> f32 {
-        size * 0.9375
+        size * crate::style::ASCENT_RATIO
     }
 
-    /// Descent da fonte usado para fechar a line box depois de um inline-block.
+    /// Descent da fonte usado para fechar a line box depois de um inline-block, e
+    /// para `vertical-align: text-bottom`. `0.3125×size` — ver
+    /// `style::DESCENT_RATIO`.
     fn font_descent(&self, size: f32) -> f32 {
-        size * 0.3125
+        size * crate::style::DESCENT_RATIO
     }
 
     /// IDENTIDADE deste medidor: dois medidores com a mesma identidade têm de

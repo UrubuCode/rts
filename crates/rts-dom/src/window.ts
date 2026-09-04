@@ -288,9 +288,29 @@ class WindowImpl {
     return 0;
   }
 
-  // scroll/alert/etc: no-op (não há navegação/dialog nativo no script).
-  scrollTo(x: number, y: number): void { }
-  scrollBy(x: number, y: number): void { }
+  // ── scroll da PÁGINA (#2621 lote G) — real, vive no `Dom` (Rust) ──────────
+  // alert/etc continuam no-op (não há dialog nativo no script); scroll deixou
+  // de ser um deles: `scrollTop`/`scrollTo` de um elemento já eram reais
+  // (ver `dom.ts`), e uma página que rola sem que `window.scrollY` o veja é
+  // exactamente o furo que a auditoria estrutural apontou.
+  get scrollX(): number { return dom.pageScrollX(this._doc._dom); }
+  get scrollY(): number { return dom.pageScrollY(this._doc._dom); }
+  get pageXOffset(): number { return this.scrollX; }
+  get pageYOffset(): number { return this.scrollY; }
+  // `window.scrollTo({top,left})` ou `window.scrollTo(x,y)` — as duas formas
+  // do browser (mesma regra do `Element.scrollTo` em `dom.ts`).
+  scrollTo(arg1: any, arg2: any): void {
+    if (typeof arg1 === "object" && arg1 !== null) {
+      const left = arg1.left !== undefined ? arg1.left : this.scrollX;
+      const top = arg1.top !== undefined ? arg1.top : this.scrollY;
+      dom.setPageScroll(this._doc._dom, left, top);
+      return;
+    }
+    dom.setPageScroll(this._doc._dom, arg1, arg2);
+  }
+  scrollBy(dx: number, dy: number): void {
+    dom.setPageScroll(this._doc._dom, this.scrollX + dx, this.scrollY + dy);
+  }
   focus(): void { }
   blur(): void { }
   getComputedStyle(el: Element): any {

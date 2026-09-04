@@ -55,9 +55,20 @@ use crate::syntax::{
 /// thing — every name reachable through the environment chain the caller will
 /// pass, with how far out it lives, read off the running program by
 /// `rts_core::entry::environment_names`.
+///
+/// `hide_node_globals` is the caller's answer to "does this scope's own
+/// object stand for the real, shared process global?" — `rts-host`'s
+/// `live.rs` decides it, by comparing the environment to
+/// `rts_core::entry::global_object`. `true` for a DOM `window` and for a
+/// `vm.runInContext`/`runInNewContext` sandbox (neither is the real global,
+/// and a browser's `window` never had `process` either); `false` only for
+/// `vm.runInThisContext`, which shares the real one and so shares what is on
+/// it. See `globals::NODE_ONLY`'s own doc for what this closes and what it
+/// does not.
 pub fn emit_page_program(
     body: &[Stmt],
     enclosing: &[(Name, u32)],
+    hide_node_globals: bool,
     ctx: &mut Ctx,
 ) -> EmitResult<Program> {
     let mut published = BTreeSet::new();
@@ -111,16 +122,25 @@ pub fn emit_page_program(
     // outward, so a name read three closures deep resolves through three
     // `__rts_outer` links to the same object, which a second global path would
     // have had to re-derive.
-    let mut chain: Vec<(Name, u32)> = enclosing.to_vec();
+    //
+    // `enclosing` is filtered for `NODE_ONLY` names BEFORE it joins the chain,
+    // and only when `hide_node_globals` says to — never `published`, which is
+    // this SCRIPT's own declarations and not something it inherited. See
+    // `globals::NODE_ONLY`'s doc for why the filter has to run here rather
+    // than trusting `globals::resolves` alone: a name in the chain resolves at
+    // zero hops, before `resolves` is ever asked.
+    let enclosing: Vec<(Name, u32)> = match hide_node_globals {
+        true => super::globals::without_node_only(ctx, enclosing),
+        false => enclosing.to_vec(),
+    };
+    let mut chain: Vec<(Name, u32)> = enclosing;
     for name in &published {
         if !chain.iter().any(|(held, _)| held == name) {
             chain.push((*name, 0));
         }
     }
 
-    // Este programa é uma página, e a única coisa que isso muda está em
-    // `globals::resolves`: os nomes que só o Node tem deixam de resolver.
-    ctx.page = true;
+    ctx.hide_node_globals = hide_node_globals;
     let scope = Scope::for_function(None, BTreeSet::new(), &BTreeSet::new(), &chain);
     emit_program_into(&body, &[], None, &[], &scope, ctx)
 }

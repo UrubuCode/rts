@@ -63,6 +63,8 @@ impl Dom {
             image_pixels: HashMap::new(),
             own_pixels: HashMap::new(),
             focused_input: None,
+            scroll: std::cell::Cell::new((0.0, 0.0)),
+            scroll_regioes: std::cell::RefCell::new(HashMap::new()),
             inline_position: std::cell::Cell::new(false),
             display_cache: std::cell::RefCell::new(None),
             fragment_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),

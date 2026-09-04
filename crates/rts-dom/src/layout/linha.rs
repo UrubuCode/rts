@@ -5,35 +5,6 @@
 //! alterada — a reconstrução deste ficheiro é byte a byte a do original.
 
 use super::*;
-/// Desenha um nó como linha(s) de texto (texto solto ou inline simples), herdando
-/// cor/tamanho do bloco pai, e devolve o `y` abaixo. Caso de UM nó do fluxo
-/// inline — o caminho geral (irmãos inline fluindo juntos) é
-/// [`layout_inline_flow`].
-fn layout_inline_line(
-    dom: &Dom,
-    id: NodeIdx,
-    x: f32,
-    y: f32,
-    content_w: f32,
-    parent_css: &ComputedStyle,
-    font_size: f32,
-    ctx: &LayoutCtx,
-    list: &mut DisplayList,
-) -> f32 {
-    layout_inline_flow(
-        dom,
-        id,
-        &[id],
-        x,
-        y,
-        content_w,
-        parent_css,
-        font_size,
-        &[],
-        ctx,
-        list,
-    )
-}
 
 /// O FLUXO INLINE RICO (P4): um GRUPO de irmãos inline consecutivos (nós de texto
 /// + elementos inline como `<a>`/`<b>`/`<span>`) flui como UM contexto — os runs
@@ -172,6 +143,10 @@ pub(in crate::layout) fn layout_inline_flow(
         font_size,
         mono,
         crate::inline_box::quebra_dentro(parent_css),
+        parent_css
+            .white_space
+            .map(|w| w.preserves_newlines())
+            .unwrap_or(false),
         ctx.measurer,
     );
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque
@@ -332,7 +307,9 @@ pub(in crate::layout) fn layout_inline_flow(
                             None,
                             None,
                             true,
-                            &[],
+                            // Inline-block atômico de uma linha: isolado, como
+                            // qualquer inline-block (estabelece BFC próprio).
+                            &BlockFormattingContext::new(),
                             ctx,
                             list,
                         );

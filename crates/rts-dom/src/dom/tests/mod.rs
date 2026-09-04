@@ -8,8 +8,10 @@ mod cascade;
 mod consulta;
 mod eventos;
 mod invalidacao;
+mod medidor_ativo;
 mod mutacao;
 mod parser;
+mod scroll;
 
     use super::*;
 

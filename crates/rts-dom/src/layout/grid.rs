@@ -179,7 +179,23 @@ pub(in crate::layout) fn layout_children_grid(
         }
     }
     let auto_row = css.grid_auto_rows;
-    let has_explicit_row_track = |r: usize| explicit_rows.get(r).is_some() || auto_row.is_some();
+    // Só `Fixed`/`Bounded` conta como "já dimensionada": `fr` existe PARA tomar
+    // espaço livre, mas caía no mesmo `explicit_rows.get(r).is_some()` que uma
+    // `Fixed` e ficava fora do laço de reparto abaixo — a linha do meio de
+    // `grid-template-rows: 60px 1fr 40px` media pelo CONTEÚDO (0 numa div vazia)
+    // e o rodapé subia para y=60 em vez de y=360
+    // (`tests/css/claude-grid-areas.html`, `#corpo.h`/`#lateral.h`/`#rodape.y`).
+    // As colunas nunca tiveram este bug: passam por `resolve_tracks`, que já
+    // distingue os quatro casos; as linhas tinham um segundo algoritmo à parte.
+    let is_fixed_row_track = |t: Option<crate::style::GridTrack>| {
+        matches!(
+            t,
+            Some(crate::style::GridTrack::Fixed(_))
+                | Some(crate::style::GridTrack::Bounded { .. })
+        )
+    };
+    let has_explicit_row_track =
+        |r: usize| is_fixed_row_track(explicit_rows.get(r).copied().or(auto_row));
     let mut row_sizes: Vec<f32> = (0..nrows)
         .map(|r| {
             let track = explicit_rows.get(r).copied().or(auto_row);
@@ -192,11 +208,12 @@ pub(in crate::layout) fn layout_children_grid(
             }
         })
         .collect();
-    // Se o container tem ALTURA definida e as linhas NÃO têm track explícita (auto),
-    // as linhas DIVIDEM a altura do container (uma row auto num grid de altura fixa
-    // preenche o espaço — é o que dá a track de 240 pro logo centrar). Distribui o
-    // espaço livre igualmente entre as linhas auto (aproximação; fr real seria por
-    // peso — mas grid sem template-rows usa 1fr implícito quando há altura).
+    // Se o container tem ALTURA definida e as linhas NÃO têm track FIXA, as linhas
+    // DIVIDEM a altura do container entre si — uma row `auto` ou `fr` num grid de
+    // altura fixa preenche o espaço (dá a track de 240 pro logo centrar, e a de
+    // 300 pro `1fr` do meio da fixture de áreas). Reparte o espaço livre em
+    // partes iguais (aproximação; `fr` por peso fica por fazer — nenhuma fixture
+    // do corpus tem mais de uma trilha flexível por eixo hoje).
     if let Some(ch) = container_content_h {
         let auto_rows: Vec<usize> = (0..nrows).filter(|&r| !has_explicit_row_track(r)).collect();
         if !auto_rows.is_empty() {
@@ -254,7 +271,8 @@ pub(in crate::layout) fn layout_children_grid(
             forced_w,
             forced_h,
             !stretch_x,
-            &[],
+            // Item de grid: mesma razão do flex, ver `coluna.rs`.
+            &BlockFormattingContext::new(),
             ctx,
             list,
         );

@@ -118,7 +118,10 @@ pub use syntax::{
 };
 pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
 pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak};
-pub use text_metrics::{MONO_ADVANCE, PROP_ADVANCE, normal_line_height, spacing_width};
+pub use text_metrics::{
+    ASCENT_RATIO, DESCENT_RATIO, MONO_ADVANCE, PROP_ADVANCE, SUB_OFFSET_RATIO,
+    SUPER_OFFSET_RATIO, X_HEIGHT_RATIO, normal_line_height, spacing_width,
+};
 pub use values::{
     AlignItems, BorderStyle, CalcLen, DIM_BASE_EM, DIM_BASE_PERCENT, DIM_BASE_PX, DIM_BASE_REM,
     DIM_BASE_VH, DIM_BASE_VW, DIM_RANGE, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,

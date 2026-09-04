@@ -151,3 +151,4 @@ scripts/parity/*.combinada.html
 # versiona e o que os corre, nunca eles. Diretorio com ponto de proposito — e
 # assim que o walker do `rts test` o ignora, em vez de o contar como corpus.
 .node-suite/
+.claude/worktrees/

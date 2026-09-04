@@ -92,11 +92,21 @@ They came out of the completeness critique (gaps NO original approach covered).
    index; TS maps CSS-name → index (just like `display = 0..3` in `block.rs`).
    Review criterion: adding `box-shadow` requires only registering a slot in TS,
    never touching `style.rs`. (Doctrine: the front never names non-native vocabulary.)
-5. **Flattened facade via `.ts` prelude, never an import from another module.** `new` of a
-   class imported from another module bails in the new engine (see
-   [[project_new_engine_dispatch_limits]]); the `Element`/`Document` facade is
-   injected into the flattened program (`CONSOLE_TS` pattern), and the API is top-level
-   functions receiving a handle, never `query().setText()` chaining without annotation.
+5. **Flattened facade via `.ts` prelude, never an import from another module.**
+   The reason this line used to carry — `new` of a class imported from another
+   module bails in the new engine — **expired on 2026-08-10**, with the engine
+   it named (`rts-codegen-new`, deleted that day). Tested live for the
+   2026-09-04 structural audit: `import { Point } from "./lib"; new
+   Point(3,4)` runs on this engine and answers correctly (`docs/ui/html-engine/
+   analises/2026-09-04-auditoria-estrutural/02-modelo-de-objetos-dom.md`,
+   finding 3). What still holds the invariant, for reasons that DO still
+   apply: the prelude is injected BEFORE any `<script>` runs, so
+   `Element`/`Document` reach a page script as already-defined globals rather
+   than an import in `dom.ts`'s own text (which stays free to use `class`
+   internally — see `MutationObserver` in `window.ts`); and the FFI-cost
+   argument of invariant 6 — a facade of top-level functions over a raw handle
+   is what lets `setStyleBatch` be one call instead of N, which an
+   import-and-chain API would not change but would obscure.
 6. **BATCH form mandatory for style.** Styling 1 node is 5+ props;
    cascading over N nodes would be N×5 FFIs/frame, and the engine is already ~6× slow in
    array-heavy workloads (see [[project_array_perf_and_int32]]). `setStyleBatch(h,
@@ -341,8 +351,11 @@ manual discipline:
    invariant 2 (version in F0).
 3. **Full u64 sentinel takes the wrong branch.** Mitigation: invariant 3 (`-1`).
 4. **Chaining facade doesn't compile** (dispatch on a call return without
-   annotation; `new` of an imported class bails). Mitigation: invariant 5 (top-level
-   functions + flattened prelude). Validated in an F0 fixture.
+   annotation — still true today: `el.setStyle()` on `array[i]` of a class bails
+   for the same reason, `examples/claude-dom-setstyle.ts`; **not** "`new` of an
+   imported class bails", which named an engine deleted 2026-08-10 — see
+   invariant 5 above). Mitigation: invariant 5 (top-level functions + flattened
+   prelude). Validated in an F0 fixture.
 5. **F4 blowing the deadline** (baseline + cross-frame hit-test, outside egui).
    Mitigation: pre-spike with kill-gate; F0-F3 are an independent product; freezing
    at F3 is a formalized product decision, not failure.

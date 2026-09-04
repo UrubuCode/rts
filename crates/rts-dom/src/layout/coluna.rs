@@ -217,7 +217,10 @@ pub(in crate::layout) fn layout_children_column(
                 None,
                 forced_h,
                 !stretch,
-                &[],
+                // Item de flex-column: floats não se aplicam dentro de um
+                // container flex (ele já é um BFC próprio), então um contexto
+                // novo e isolado por item é a mesma coisa que o `&[]` de antes.
+                &BlockFormattingContext::new(),
                 ctx,
                 list,
             );

@@ -74,11 +74,11 @@ impl VerticalAlign {
 /// `clear` — o par do `float`: obriga a caixa a começar ABAIXO dos floats
 /// anteriores (<https://developer.mozilla.org/en-US/docs/Web/CSS/clear>).
 ///
-/// CORTE declarado: os três valores agem como `both`. O motor guarda UMA linha de
-/// floats por container (um topo e uma altura, ver `layout_children_vertical`),
-/// não uma lista por lado — logo não há como descer abaixo só dos floats da
-/// esquerda. Distinguir os lados exige o modelo de float completo, e o efeito de
-/// `clear: left` numa página que só flutua para um lado é idêntico ao de `both`.
+/// **Os três valores já não agem como `both`.** Agiam enquanto o motor
+/// guardava UMA lista de floats por container sem distinguir o lado — o corte
+/// que este comentário registava. `layout::bfc::BlockFormattingContext`
+/// guarda a lista com o `side` de cada float preservado, e [`Clear::sides`] é
+/// a pergunta "em quais lados" que faltava para a ler por lado.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Clear {
     #[default]
@@ -96,10 +96,9 @@ impl Clear {
             "right" => Clear::Right,
             "both" => Clear::Both,
             // As formas LÓGICAS: em modo horizontal LTR, `inline-start` é a
-            // esquerda e `inline-end` a direita. Aceitá-las custa duas linhas e
-            // evita que a declaração caia no balde de "propriedade ignorada" —
-            // e como os três valores agem como `both` aqui, o mapeamento LTR não
-            // muda resultado nenhum hoje.
+            // esquerda e `inline-end` a direita — o único modo que este motor
+            // suporta (sem `direction:rtl`/bidi), então o mapeamento LTR fixo
+            // é correto para todo o corpus atual.
             "inline-start" => Clear::Left,
             "inline-end" => Clear::Right,
             _ => return None,
@@ -115,9 +114,17 @@ impl Clear {
         }
     }
 
-    /// `true` se este valor desce abaixo dos floats correntes.
-    pub fn clears(self) -> bool {
-        self != Clear::None
+    /// Em quais lados este valor desce — `(esquerda, direita)`. É a resposta
+    /// por lado que `layout::bfc::BlockFormattingContext::fundo_lado` lê para
+    /// `clear:left` só descer abaixo dos floats ESQUERDOS, `right` só dos
+    /// direitos e `both` dos dois (CSS 2.1 §9.5.2).
+    pub fn sides(self) -> (bool, bool) {
+        match self {
+            Clear::None => (false, false),
+            Clear::Left => (true, false),
+            Clear::Right => (false, true),
+            Clear::Both => (true, true),
+        }
     }
 }
 
