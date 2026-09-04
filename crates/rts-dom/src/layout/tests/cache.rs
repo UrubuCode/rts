@@ -19,8 +19,10 @@
     /// janela: a tela abria vazia com tudo pintado à direita dela.
     #[test]
     fn porcentagem_dentro_de_scroll_e_da_caixa() {
+        // `body{margin:0}`: a folha de UA (lote I) dá 8px ao body, e este
+        // teste mede a caixa a partir do viewport, não da margem do body.
         let dom = parse_html_to_dom(
-            "<div style='overflow-y:auto; padding-left:40px; padding-right:40px'>               <div id='meio' style='width:100%'>                 <div style='width:3000px'>conteudo bem mais largo que a caixa</div>               </div>             </div>",
+            "<style>body{margin:0}</style><div style='overflow-y:auto; padding-left:40px; padding-right:40px'>               <div id='meio' style='width:100%'>                 <div style='width:3000px'>conteudo bem mais largo que a caixa</div>               </div>             </div>",
         );
         let ctx = LayoutCtx {
             viewport_w: 1000.0,

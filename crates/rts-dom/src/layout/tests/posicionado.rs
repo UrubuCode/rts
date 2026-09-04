@@ -96,8 +96,11 @@
         // `position:absolute` com right:0/top:0 ancora no canto do ANCESTRAL
         // positioned (relative), não do viewport (o padrão do google: ícone no
         // canto da caixa de busca).
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma x absoluto a partir de `margin-left:100px`.
         let dom = parse_html_to_dom(
-            "<div style='position:relative;width:400px;height:50px;margin-left:100px'>\
+            "<style>body{margin:0}</style>\
+             <div style='position:relative;width:400px;height:50px;margin-left:100px'>\
              <span style='position:absolute;top:0px;right:0px;width:30px;height:30px;background:#00f'>i</span>\
              </div>",
         );

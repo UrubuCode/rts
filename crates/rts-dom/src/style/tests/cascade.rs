@@ -197,7 +197,14 @@ fn at_rules_nao_corrompem_o_parse() {
             && compound_matches(&sel.compounds[0], "h1", None, &[], &|_| None, &|_| false)
     });
     let no_match = sheet.declarations_from(&matched, None);
-    assert_eq!(no_match.normal.font_size, None);
+    // `h1` tem `font-size: 2em` na folha de UA (lote I, valor do Blink —
+    // `em` de font-size resolve contra o PAI), que aplica SEMPRE (não tem
+    // `@media`) — o `@media` que não casou aqui é só o do AUTOR, e sem ele o
+    // valor cai para o da UA, não para `None`. Fica em `Em` (não `Px(32.0)`)
+    // porque este caminho (`declarations_from` direto) não passa pela
+    // resolução cedo da cascade completa (`dom/cascade.rs`) — só o `Dom`
+    // real resolve `em` contra o font-size do pai.
+    assert_eq!(no_match.normal.font_size, Some(Dimension::Em(2.0)));
     assert_eq!(
         no_match.normal.color,
         Some(0xFF0000FF),

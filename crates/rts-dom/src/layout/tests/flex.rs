@@ -295,8 +295,10 @@
                 flags: 0,
             },
         );
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma y=20 absoluto.
         let dom = parse_html_to_dom(
-            "<style>bar{display:flex;align-items:center;height:80px} .c{width:100px;height:40px;background:#ff0000}</style>\
+            "<style>body{margin:0}bar{display:flex;align-items:center;height:80px} .c{width:100px;height:40px;background:#ff0000}</style>\
              <bar><div class='c'>a</div><div class='c'>b</div></bar>",
         );
         let ctx = LayoutCtx {
@@ -388,8 +390,11 @@
             },
         );
         // 4 badges; numa largura estreita (200) eles não cabem todos numa linha.
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma x=0 do primeiro badge.
         let dom = parse_html_to_dom(
-            "<tags>\
+            "<style>body{margin:0}</style>\
+             <tags>\
                <badge style='background:#111;padding:6'>rust</badge>\
                <badge style='background:#222;padding:6'>cranelift</badge>\
                <badge style='background:#333;padding:6'>typescript</badge>\
