@@ -278,6 +278,27 @@ pub(in crate::layout) fn is_text_input_tag(tag: &str) -> bool {
 ///
 /// O `outline` sai por último (por cima) e por FORA do border-box, inflado pelo
 /// `outline-offset` — é o que o distingue da borda: não ocupa espaço nenhum.
+/// Os quatro lados de uma borda como trapézios (topo, direita, fundo,
+/// esquerda), do canto EXTERIOR ao canto INTERIOR — a junção que o Blink
+/// desenha. Um lado de largura 0 degenera num trapézio sem área, e é assim que
+/// dois lados a zero e um enorme dão um triângulo.
+fn trapezios_dos_lados(
+    r: Rect,
+    sides: &[crate::style::borders::SideBorder; 4],
+) -> [([(f32, f32); 4], crate::style::borders::SideBorder); 4] {
+    let (t, rt, b, l) = (sides[0].width, sides[1].width, sides[2].width, sides[3].width);
+    let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
+    let (o_tl, o_tr, o_br, o_bl) = ((x0, y0), (x1, y0), (x1, y1), (x0, y1));
+    let (i_tl, i_tr, i_br, i_bl) =
+        ((x0 + l, y0 + t), (x1 - rt, y0 + t), (x1 - rt, y1 - b), (x0 + l, y1 - b));
+    [
+        ([o_tl, o_tr, i_tr, i_tl], sides[0]),
+        ([o_tr, o_br, i_br, i_tr], sides[1]),
+        ([o_br, o_bl, i_bl, i_br], sides[2]),
+        ([o_bl, o_tl, i_tl, i_bl], sides[3]),
+    ]
+}
+
 pub(crate) fn border_items(
     css: &ComputedStyle,
     box_rect: Rect,
@@ -294,11 +315,32 @@ pub(crate) fn border_items(
     let sides = crate::style::borders::resolved_sides(css);
     if crate::style::borders::has_per_side(css) {
         let (x, y, w, h) = (box_rect.x, box_rect.y, box_rect.w, box_rect.h);
+        // JUNÇÃO DIAGONAL: quando dois lados adjacentes pintam com cores
+        // diferentes, cada lado é o trapézio do canto exterior ao interior
+        // (`claude-border-juncao`, `claude-triangulo-de-borda`). Com cores
+        // iguais — o caso de `border: 1px solid` escrito por lado — as barras
+        // abaixo pintam o mesmo desenho com menos vértices, e ficam.
+        let adjacentes_diferem = (0..4).any(|i| {
+            let (a, b) = (sides[i], sides[(i + 1) % 4]);
+            a.paints() && b.paints() && a.color != b.color
+        });
+        if adjacentes_diferem {
+            for (pts, side) in trapezios_dos_lados(box_rect, &sides) {
+                // um lado `transparent` (o truque do triângulo) pinta nada:
+                // não vale um item.
+                if side.paints() && side.color & 0xFF != 0 {
+                    out.push(DisplayItem::Quad {
+                        pts,
+                        color: fx.aplicar_com_opacidade(side.color, op),
+                    });
+                }
+            }
+        }
         // top, right, bottom, left — a ordem de `resolved_sides`. Cada barra ocupa
         // a aresta INTEIRA; os cantos ficam sobrepostos em vez de mitrados, que é
         // invisível enquanto as cores dos lados adjacentes coincidem e é o que um
         // separador (um lado só) precisa.
-        let bars = [
+        let bars = if adjacentes_diferem { vec![] } else { vec![
             (Rect::new(x, y, w, sides[0].width), sides[0]),
             (
                 Rect::new(x + w - sides[1].width, y, sides[1].width, h),
@@ -309,7 +351,7 @@ pub(crate) fn border_items(
                 sides[2],
             ),
             (Rect::new(x, y, sides[3].width, h), sides[3]),
-        ];
+        ] };
         for (rect, side) in bars {
             if side.paints() {
                 out.push(DisplayItem::SolidRect {

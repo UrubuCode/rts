@@ -135,6 +135,16 @@ pub enum DisplayItem {
         color: u32,
         radius: f32,
     },
+    /// Um QUADRILÁTERO convexo cheio, em coordenadas de conteúdo — a forma de
+    /// UM lado de borda quando os lados adjacentes têm cores diferentes: o
+    /// Blink junta-os numa diagonal do canto exterior ao interior (é o que
+    /// desenha o triângulo de CSS), e uma barra rectangular por lado pinta o
+    /// vizinho por cima. Só `border_items` o emite, e só nesse caso; com cores
+    /// iguais a sobreposição é invisível e as barras continuam.
+    Quad {
+        pts: [(f32, f32); 4],
+        color: u32,
+    },
     /// IMAGEM (`<img>` / background-image) — um bitmap RGBA8 já decodificado. O
     /// `pixels_handle` é um Buffer no HandleTable com `img_w*img_h*4` bytes RGBA
     /// (a partir do offset `pixels_off`); o backend sobe como textura e pinta no

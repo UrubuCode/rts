@@ -89,6 +89,12 @@ pub(in crate::layout) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) 
             *x += dx;
             *y += dy;
         }
+        DisplayItem::Quad { pts, .. } => {
+            for p in pts.iter_mut() {
+                p.0 += dx;
+                p.1 += dy;
+            }
+        }
         // A matriz descreve pontos em coordenadas de CONTEÚDO já absolutas —
         // deslocar a subárvore por (dx,dy) é compor uma translação PURA
         // depois dela: `nova(p) = mat(p) + (dx,dy)`, que em `e`/`f` é somar
