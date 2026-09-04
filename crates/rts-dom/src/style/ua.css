@@ -161,10 +161,17 @@ button, select {
  * `replaced.rs` já assume um quadrado de 13px para eles
  * (`checkbox_e_um_quadrado_e_nao_um_campo_de_texto`), e padding/borda de
  * caixa de texto destruía essa forma. */
-input:not([type="checkbox"]):not([type="radio"]), textarea {
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea {
   padding: 1px 2px;
   border-width: 2px;
   border-style: inset;
+}
+/* `input[type=range]` também é widget inteiro no html.css do Blink:
+ * `padding: initial; border: initial; margin: 2px` — sem a moldura do campo
+ * de texto, num flex de 80px o `height` computado é 80 e não 74
+ * (`claude-flex-stretch-input-height`). */
+input[type="range"] {
+  margin: 2px;
 }
 
 /* As cores de `:disabled` DIVERGEM por tipo de controlo no Chrome — não é

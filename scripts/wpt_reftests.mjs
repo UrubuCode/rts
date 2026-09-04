@@ -82,11 +82,16 @@ function rasterizar(htmlPath, png) {
   try { execFileSync(RASTER, [htmlPath, png], { stdio: ["ignore", "ignore", "pipe"], timeout: 20000 }); return true; }
   catch { return false; }
 }
-let passam = 0, falham = 0, erros = 0; const piores = [];
+// `nao_rasterizaram` guarda os NOMES: um teste que ENCRAVA (timeout do raster)
+// não entra em `piores`, e uma comparação por nome entre dois relatórios
+// contava-o como GANHO — foi assim que um `flex-aspect-ratio-resize-001` a
+// encravar apareceu como teste fechado. Um erro é o pior resultado, não um
+// resultado ausente.
+let passam = 0, falham = 0, erros = 0; const piores = []; const nao_rasterizaram = [];
 for (const t of lista) {
   const nome = basename(t.teste).replace(/\.(html|xht)$/, "");
   const a = join(OUT, nome + ".teste.png"), b = join(OUT, nome + ".ref.png");
-  if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) { erros++; continue; }
+  if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) { erros++; nao_rasterizaram.push(nome); continue; }
   const d = diff(decodePng(readFileSync(a)), decodePng(readFileSync(b)));
   if (d.n === 0) passam++; else { falham++; piores.push({ nome, pct: d.pct, n: d.n, script: t.script }); }
 }
@@ -95,4 +100,5 @@ const total = passam + falham + erros;
 console.log(`\nWPT reftests — ${passam}/${total} passam (${((passam / Math.max(total, 1)) * 100).toFixed(1)}%), ${falham} falham, ${erros} não rasterizaram; tolerância ${TOL}/255 por canal`);
 console.log(`\nos 15 piores:`);
 for (const p of piores.slice(0, 15)) console.log(`  ${p.pct.toFixed(2).padStart(6)}%  ${p.n.toString().padStart(7)} px  ${p.nome}${p.script ? "  (tem <script>)" : ""}`);
-writeFileSync(join(OUT, "relatorio.json"), JSON.stringify({ pasta, total, passam, falham, erros, tol: TOL, piores }, null, 2));
+if (nao_rasterizaram.length > 0) console.log(`NÃO RASTERIZARAM (encravou ou morreu): ${nao_rasterizaram.join(", ")}`);
+writeFileSync(join(OUT, "relatorio.json"), JSON.stringify({ pasta, total, passam, falham, erros, nao_rasterizaram, tol: TOL, piores }, null, 2));
