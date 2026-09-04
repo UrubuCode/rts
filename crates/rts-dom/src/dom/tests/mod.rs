@@ -10,6 +10,7 @@ mod eventos;
 mod invalidacao;
 mod mutacao;
 mod parser;
+mod scroll;
 
     use super::*;
 

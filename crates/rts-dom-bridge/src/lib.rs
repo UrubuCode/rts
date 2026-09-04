@@ -39,6 +39,7 @@ use rts_core::entry::{self, Context, Provided};
 mod engine;
 mod events;
 mod nodes;
+mod scroll;
 mod travessia;
 mod scope;
 mod timers;
@@ -58,6 +59,7 @@ pub fn install(context: &mut Context) {
         // não tinha — ver `travessia.rs` para o que foi apagado e porquê.
         .chain(travessia::MEMBERS)
         .chain(events::MEMBERS)
+        .chain(scroll::MEMBERS)
         .copied()
         .collect();
     let surface = entry::make_namespace(context, &members);

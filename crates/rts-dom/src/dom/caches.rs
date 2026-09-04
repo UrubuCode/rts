@@ -150,6 +150,7 @@ impl Dom {
         push("anim_override", &mut self.anim_override.keys().copied());
         push("prev_computed", &mut self.prev_computed.keys().copied());
         push("focused_input", &mut self.focused_input.into_iter());
+        push("scroll_regioes", &mut self.scroll_regioes.borrow().keys().copied());
         out
     }
 

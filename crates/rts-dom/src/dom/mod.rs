@@ -45,6 +45,7 @@ mod matcher;
 mod mutacao;
 mod no;
 mod parser;
+mod scroll;
 mod serial;
 mod travessia;
 
@@ -367,6 +368,17 @@ pub struct Dom {
     /// `focus_input` (o loop TS chama após um clique dentro da caixa de um input).
     /// DERIVADO, fora do `PartialEq`.
     focused_input: Option<NodeIdx>,
+    /// Offset de scroll da PÁGINA, `(x, y)` em pontos de conteúdo — o mesmo
+    /// padrão de `hovered`/`focused_input` acima: estado de DOCUMENTO, não de
+    /// backend (`dom/scroll.rs`, finding 3 da auditoria estrutural de
+    /// 2026-09-04). `Cell`: lido durante a pintura/hit-test sem `&mut Dom`.
+    /// DERIVADO, fora do `PartialEq`.
+    scroll: std::cell::Cell<(f32, f32)>,
+    /// Offset de scroll POR REGIÃO (`overflow:auto`/`scroll`), por `NodeIdx`.
+    /// Só ganha entrada um nó que já rolou uma vez — um container nunca
+    /// tocado não paga uma entrada de mapa. `RefCell`: `scroll_of` é `&self`.
+    /// DERIVADO, fora do `PartialEq`. Ver `dom/scroll.rs`.
+    scroll_regioes: std::cell::RefCell<HashMap<NodeIdx, (f32, f32)>>,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`

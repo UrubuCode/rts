@@ -4,7 +4,12 @@ use super::*;
 /// Percorre a [`DisplayList`] e pinta cada item via `ui.painter()`, em coordenadas
 /// absolutas (conteúdo + origem do `ui`). A ordem da lista É o z-order (o que vem
 /// depois pinta por cima). Reserva o espaço da altura total para o `ui` pai.
-pub(in crate::frame::render) fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
+pub(in crate::frame::render) fn paint_list(
+    ui: &mut egui::Ui,
+    list: &DisplayList,
+    offset_y: f32,
+    dom: &crate::dom::Dom,
+) {
     let _phase = rts_dom::metrics::phases::scope("paint");
     // origem do conteúdo + a translação de scroll da PÁGINA (offset_y negativo sobe).
     let base_origin = ui.max_rect().min + egui::vec2(0.0, offset_y);
@@ -232,16 +237,27 @@ pub(in crate::frame::render) fn paint_list(ui: &mut egui::Ui, list: &DisplayList
                     egui::Color32::WHITE,
                 );
             }
-            DisplayItem::BeginClip { rect, offset_x, offset_y, .. } => {
+            DisplayItem::BeginClip { rect, node, .. } => {
                 // o RECT do container é FIXO (não rola) — posiciona com `origin` (que
                 // já inclui o extra do pai, mas não o desta região). Os FILHOS dentro
                 // rolam: empilha o offset (-offset) somado ao extra herdado.
+                //
+                // O offset vem do `Dom` AO VIVO (`scroll_of_idx`), não dos campos
+                // `offset_x`/`offset_y` do item: este `BeginClip` pode vir de um
+                // FRAGMENTO reusado do cache (`layout_cached` só reprocessa por
+                // revisão/viewport/medidor, nunca por scroll — ver a nota de topo
+                // de `dom/scroll.rs`), então o valor gravado nele é só "como
+                // estava quando o fragmento foi montado". Reler o `Dom` é um
+                // lookup num mapa pequeno; confiar no campo pintaria uma posição
+                // congelada assim que o scroll deixasse de coincidir com o
+                // último layout que tocou esta região.
+                let (offset_x, offset_y) = dom.scroll_of_idx(*node);
                 let r = egui::Rect::from_min_size(
                     origin + egui::vec2(rect.x, rect.y),
                     egui::vec2(rect.w, rect.h),
                 );
                 let clipped = painter.with_clip_rect(r.intersect(painter.clip_rect()));
-                let new_extra = extra + egui::vec2(-*offset_x, -*offset_y);
+                let new_extra = extra + egui::vec2(-offset_x, -offset_y);
                 stack.push((clipped, new_extra));
             }
             DisplayItem::EndClip { .. } => {

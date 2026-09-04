@@ -28,7 +28,7 @@ linha aqui não existe.
 | D | grid: rows por áreas | 1 | ◐ em curso | `feat/dom-grid-areas-rows` | corpus: `claude-grid-areas` (3) |
 | E | BFC, floats, `clear` | 1 | ◐ em curso | `feat/dom-bfc-floats-clear` | corpus: `claude-clear`, `claude-float-clear` (6) |
 | F | baseline, `vertical-align`, `white-space` | 1 | ◐ em curso | `feat/dom-linha-baseline` | corpus: `claude-vertical-align`, `claude-white-space`, `claude-text-align` (8) |
-| G | scroll no documento | 2 | ☐ | — | teste de `scrollTop`/`scrollTo` + exemplo em janela |
+| G | scroll no documento | 2 | ◐ em curso | `feat/dom-scroll-no-documento` | teste de `scrollTop`/`scrollTo` + exemplo em janela |
 | H | o escopo de página não vê o Node | 2 | ☐ (decisão pendente, §4.H) | — | fixture `claude-dom-page-nao-ve-process` |
 | I | folha de UA em CSS real | 2 | ☐ | — | `<th>` negrito/centro; `scrollbar.rs` apagado |
 | J | `DeclarationRecord` e `revert` | 2 | ☐ | — | fixture `revert`/`revert-layer` medida no Chrome |
