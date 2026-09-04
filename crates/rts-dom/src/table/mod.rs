@@ -47,7 +47,19 @@ pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) ->
         css.white_space,
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
     );
-    widths::min_content(dom, id, font, ctx, sem_quebra, false)
+    // `mono`: sem isto, um item `font-family: monospace` media a palavra pelo
+    // avanço PROPORCIONAL (`PROP_ADVANCE`) — o piso do `flex-shrink` divergia
+    // do que `wrap_runs` desenha (`MONO_ADVANCE`, calibrado a 0.5498 contra o
+    // Chrome), e a fixture `claude-flex-shrink-min-content.html` media 294.4px
+    // de piso onde o Chrome dá 351.88 (a spec conta a caixa OUTER; sem
+    // padding/border aqui, os dois coincidem — a diferença inteira era o
+    // avanço errado).
+    let mono = css
+        .font_family
+        .as_deref()
+        .map(crate::style::is_mono_family)
+        .unwrap_or(false);
+    widths::min_content(dom, id, font, ctx, sem_quebra, mono, false)
 }
 
 /// Uma célula colocada na grade. `col` é a coluna onde começa, já resolvida
