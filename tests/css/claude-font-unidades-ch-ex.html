@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Fixa (lote T, fontes): as unidades que dependem de MÉTRICAS da fonte e
+     não do `font-size` — `ch` é o avanço do "0", `ex` a altura do x, e
+     `line-height: normal` é a altura de linha que a fonte declara (ascent +
+     descent + lineGap), não 1.2em. As três só se acertam com a métrica da
+     fonte real, e por isso ficam expressas em caixas: `#dezch` tem 10ch de
+     largura, `#dezex` 10ex, `#normal` a altura de uma linha "normal" da
+     monoespaçada, e `#fallback` prova que uma família inexistente cai na
+     seguinte da lista (largura igual à de `#mono`). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="dezch,dezex,normal,mono,fallback">
+<meta name="fixar-estilo" content="font-family,line-height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { background: #eee; margin-bottom: 5px; }
+  #dezch { width: 10ch; height: 10px; }
+  #dezex { width: 10ex; height: 10px; }
+  #normal { line-height: normal; }
+  #mono, #fallback { display: inline-block; white-space: nowrap; }
+  #fallback { font-family: FamiliaQueNaoExiste, monospace; }
+</style></head>
+<body>
+  <div id="dezch"></div>
+  <div id="dezex"></div>
+  <div id="normal">uma linha com line-height normal</div>
+  <div id="mono">abcdefghij</div><br>
+  <div id="fallback">abcdefghij</div>
+</body>
+</html>

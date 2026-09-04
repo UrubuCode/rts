@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa (lote S-inline parte 2): um inline COM conteúdo que quebra em várias
+     linhas é vários FRAGMENTOS, não uma caixa. Na régua de layout: o rect do
+     `<span>` é a união dos fragmentos (largura do contentor, altura das três
+     linhas) e a altura do contentor NÃO cresce com o padding/borda do inline
+     (só a linha manda). Na régua de PINTURA: o fundo e a borda pintam-se por
+     fragmento — borda esquerda só no primeiro, direita só no último, o fundo
+     termina onde cada linha termina, não num rectângulo cheio. `#controlo`
+     é o mesmo span numa linha só, que já hoje é promovido a caixa e passa. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="quebra,controlo">
+<meta name="fixar-estilo" content="display,padding-left,border-left-width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .cx { width: 130px; background: #eee; margin-bottom: 10px; }
+  span { background: #fc0; padding: 0 4px; border: 2px solid #00c; }
+</style></head>
+<body>
+  <div class="cx" id="cx1"><span id="quebra">aaa bbb ccc ddd eee fff ggg</span></div>
+  <div class="cx" id="cx2"><span id="controlo">aaa bbb</span></div>
+</body>
+</html>

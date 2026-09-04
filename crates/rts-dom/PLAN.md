@@ -47,6 +47,7 @@ linha aqui não existe.
 | U | composição e pintura | 3 | ☐ | — | §5 |
 | U-pintura-1 | rotação e recorte na pintura | 5 | ☑ a matriz viaja na `DisplayList` (`PushTransform`/`PopTransform`); o rasterizador e o egui pintam quadriláteros transformados; o `BeginClip` do `overflow` passa a conter os filhos (nunca continha); `visible` num eixo só computa `auto`; o rasterizador lê `fixar-hash`. Régua de pintura: as 4 fixtures acima de 2 % → 0 %, 0 %, 0,38 %, 0,05 %; corpus 84/86 ≤ 0,5 %, nenhuma > 2 %. Não feitos: cantos redondos sob matriz, blur da sombra, glifos rodados no egui | `feat/dom-lote-pintura-rotacao-clip` → `68011c503` (2026-09-04) | `scripts/css_pintura.md` |
 | N-pintura | a régua de PINTURA (screenshot-diff contra o Blink) | 5 | ☑ `claude-raster` (rasterizador headless da DisplayList, PNG sem crate nova), `css_fixtures_screenshot_edge.mjs` (captura no Edge por CDP), `css_pintura_comparar.mjs` (diff por pixel, texto mascarado e reportado). Verificado: cor sólida 0%, gradiente 0,24%, box-model 0,01%. Não pinta texto nem imagens (dito). PNG não versionados | `feat/dom-regua-de-pintura` → `d415d9124` (2026-09-04) | `scripts/css_pintura.md` |
+| réguas-6 | as réguas da vaga 6 ANTES do código | 6 | ☑ 4 fixtures medidas no Edge 152 (instrumento validado: 1 632 números dos 86 esperados, desvio 0): `claude-font-unidades-ch-ex` (T: `10ch`=87,97px, `10ex`=78,44px, `line-height: normal`=19px, fallback de família), `claude-inline-fragmentos` (S-inline-2: span que quebra = união 102,77×63 a y=-2, contentor 60 e não 22), `claude-hyphens-manual` (`&shy;` quebra: 40 vs 20), `claude-border-juncao` (pintura: junção diagonal das bordas, 0,13 %). Pintura lida: `triangulo-de-borda` 1,58 % É a junção por trapézio; `object-fit` 1,95 % é o rasterizador a não mascarar imagens (instrumento, não motor) | `docs/dom-reguas-vaga-6` (2026-09-04) | corpus 83/90, 7 esperadas |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
 **Estado após a vaga 1 (2026-09-04, 01:41)** — medido com o `rts.exe`
@@ -130,6 +131,25 @@ Retrabalho: 0 rondas em 2 lotes. O binário desta medição é o próximo
 `target/baseline.exe`; `vaga5-suite.txt` o próximo `base-suite.txt`. As duas
 fixtures entre 0,5 % e 2 % na pintura (`object-fit` 1,95 %, `triangulo-de-borda`
 1,58 %) são o próximo alvo de pintura; os PNG continuam sem versão.
+
+**Estado após as réguas da vaga 6 (2026-09-04, ~14:00)** — nenhum código do
+motor mudou; o que mudou foi o denominador, de propósito:
+
+| régua | antes | depois |
+|---|---|---|
+| corpus CSS (layout + computed) | 82/86, 4 esperadas | **83/90**, 7 esperadas (3 novas, "por implementar") |
+| pintura (novas) | — | `border-juncao` 0,13 %, `hyphens-manual` 0,3 %, `inline-fragmentos` 0,56 %, `font-unidades` 2,45 % |
+
+Os lotes de código que estas réguas pedem, por ordem de custo: **S-hifen**
+(`&shy;` como oportunidade de quebra + hífen pintado; `hyphens: none` a
+ignorá-lo), **U-pintura-2** (bordas como trapézios nas junções — fecha o
+triângulo; e o `claude-raster` a mascarar `DisplayItem::Image` como mascara
+texto, para o `object-fit` medir o que o motor faz e não o que o exemplo não
+tem), **S-inline-2** (inline com conteúdo em fragmentos de linha: hoje o span
+promovido a caixa nem sequer QUEBRA — `cx1` fica 22px alto em vez de 60 — e
+engrossa a linha com a borda), **T** (`ch`/`ex`/`line-height: normal` pela
+métrica da fonte do `TextMeasurer`; a lista de `font-family` serializada
+inteira). Cada brief leva os números acima.
 
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit

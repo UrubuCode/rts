@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa (pintura): duas bordas adjacentes de cores diferentes encontram-se
+     numa JUNÇÃO DIAGONAL — cada lado é um trapézio do canto exterior ao canto
+     interior, não um rectângulo por cima do vizinho. É o mesmo mecanismo que
+     desenha o triângulo de CSS (`claude-triangulo-de-borda`: 1,58 % de pixels
+     diferentes vinham exactamente das junções, que pintávamos como
+     rectângulos). Para a régua de layout a caixa é trivial (100x60 + bordas);
+     o que esta fixture fixa é o desenho, medido em pixels. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="grossa,fina">
+<meta name="fixar-estilo" content="border-top-color,border-left-color">
+<style>
+  body { margin: 0; }
+  div { width: 100px; height: 60px; margin-bottom: 10px; border-style: solid; }
+  #grossa { border-width: 20px 30px 20px 30px; border-color: #c00 #0a0 #00c #fc0; }
+  #fina { border-width: 4px; border-color: #000 #888 #000 #888; }
+</style></head>
+<body>
+  <div id="grossa"></div>
+  <div id="fina"></div>
+</body>
+</html>

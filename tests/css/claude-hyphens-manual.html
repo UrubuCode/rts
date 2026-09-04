@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `hyphens: manual` (o valor inicial) quebra a palavra SÓ onde há um
+     hífen suave (`&shy;`, U+00AD) e pinta um hífen no fim da linha; `hyphens:
+     none` ignora o `&shy;` e a palavra fica inteira (transborda o contentor
+     estreito numa linha só). O `&shy;` não ocupa largura quando não quebra.
+     A leitura é a ALTURA: `#manual` fica com duas linhas, `#nenhum` com uma,
+     e `#semshy` (a mesma palavra sem hífen suave) com uma — prova que é o
+     `&shy;` a permitir a quebra e não o contentor. -->
+<html lang="pt">
+<head>
+<meta name="fixar-estilo-em" content="manual,nenhum,semshy">
+<meta name="fixar-estilo" content="hyphens">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 90px; background: #eee; margin-bottom: 5px; }
+  #manual { hyphens: manual; }
+  #nenhum { hyphens: none; }
+</style></head>
+<body>
+  <div id="manual">abcdefg&shy;hijklmn</div>
+  <div id="nenhum">abcdefg&shy;hijklmn</div>
+  <div id="semshy">abcdefghijklmn</div>
+</body>
+</html>

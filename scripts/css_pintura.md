@@ -114,3 +114,12 @@ com transform/overflow). `crates/rts-dom/PLAN.md` §0, linha `U-pintura-1`.
 `overflow`, `fixar-hash` no rasterizador):** 84 fixtures com ≤ 0,5 %, 86 com
 ≤ 2 %, **nenhuma acima de 2 %**. As duas maiores que ficam: `claude-object-fit`
 (1,95 %) e `claude-triangulo-de-borda` (1,58 %).
+
+**2026-09-04, lidas as duas:** `claude-triangulo-de-borda` (1,58 %) é a
+JUNÇÃO das bordas — o Blink pinta cada lado como um trapézio até ao canto
+interior e nós pintamos rectângulos por cima dos vizinhos, o que aparece nas
+áreas transparentes do triângulo; `claude-border-juncao` fixa esse mecanismo
+sozinho (0,13 % antes do código). `claude-object-fit` (1,95 %) é a área das
+quatro `<img>` que o rasterizador não pinta por decisão (sem handle table):
+a correção é do INSTRUMENTO — mascarar `DisplayItem::Image` como se mascara
+texto, e reportar a área — não do motor.
