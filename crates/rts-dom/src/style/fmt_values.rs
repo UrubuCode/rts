@@ -141,6 +141,8 @@ pub(crate) fn fmt_dim(d: Dimension) -> String {
         Dimension::Rem(v) => format!("{v}rem"),
         Dimension::Vw(v) => format!("{v}vw"),
         Dimension::Vh(v) => format!("{v}vh"),
+        Dimension::Ex(v) => format!("{v}ex"),
+        Dimension::Ch(v) => format!("{v}ch"),
         Dimension::Auto => "auto".into(),
         Dimension::MaxContent => "max-content".into(),
         // calc: reconstrói a forma canônica com os termos não-zero.

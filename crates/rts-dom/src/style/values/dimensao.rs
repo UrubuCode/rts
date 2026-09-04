@@ -144,6 +144,17 @@ pub enum Dimension {
     Vw(f32),
     /// `vh` — `%` da altura da viewport (0..=100): `viewport_h * v/100`.
     Vh(f32),
+    /// `ex` — múltiplo da ALTURA DO X da fonte deste nó. Sem métrica de fonte
+    /// aqui, é `font-size × X_HEIGHT_RATIO` (0,491, calibrado contra o Chrome
+    /// em `text_metrics`): `10ex` a 16px dá 78,6 onde o Blink mede 78,44 com
+    /// a Consolas — dentro da tolerância do corpus (`claude-font-unidades-ch-ex`).
+    Ex(f32),
+    /// `ch` — múltiplo do AVANÇO DO "0" da fonte deste nó. Sem métrica, é
+    /// `font-size × MONO_ADVANCE` (0,5498): exacto para a monoespaçada
+    /// calibrada (`10ch` = 87,97 = Blink), e uma aproximação dita para as
+    /// proporcionais — o "0" da Arial avança 0,556em, da Segoe UI 0,539em, por
+    /// isso o mesmo número serve às duas dentro de 1px em `10ch`.
+    Ch(f32),
     /// `max-content` — a largura que o CONTEÚDO pede sem quebrar.
     ///
     /// Não é um comprimento: só se resolve com a árvore na mão, e por isso
@@ -190,6 +201,8 @@ impl Dimension {
             Dimension::Rem(r) => ctx.root_font_size * r,
             Dimension::Vw(v) => ctx.viewport_w * v / 100.0,
             Dimension::Vh(v) => ctx.viewport_h * v / 100.0,
+            Dimension::Ex(x) => ctx.node_font_size * crate::style::X_HEIGHT_RATIO * x,
+            Dimension::Ch(c) => ctx.node_font_size * crate::style::MONO_ADVANCE * c,
             // calc linear: cada base resolvida no seu eixo e somada.
             Dimension::Calc(c) => {
                 c.px + ctx.parent_content_w * c.pct / 100.0
@@ -235,6 +248,9 @@ impl Dimension {
             Dimension::Rem(r) => (3, r),
             Dimension::Vw(v) => (4, v),
             Dimension::Vh(v) => (5, v),
+            // `ex`/`ch` dependem da fonte e a faixa codifica unidade + número
+            // que o TS resolve sem fonte: o mesmo corte do `calc`, `-1`.
+            Dimension::Ex(_) | Dimension::Ch(_) => return -1,
             // calc não cabe na codificação de faixas — o TS lê `-1` (corte
             // documentado; calc resolve no layout, não cruza slots).
             Dimension::Calc(_) => return -1,

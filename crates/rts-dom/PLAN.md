@@ -43,7 +43,6 @@ linha aqui não existe.
 | S | propriedades sem efeito — grupo TEXTO | 3 | ☑ `word-spacing` (quebra, pintura e largura intrínseca), `tab-size`, `line-clamp`, `text-wrap` alias, `url()` serializado com aspas (e `background-image`/`mask-image` passam a responder), rect de bloco em linha = border box. `list-style-image` parcial (o marcador pinta a imagem, ninguém a carrega). Três remendos ao modelo de inline REVERTIDOS (partiam `display-basico`) → lote S-inline | `feat/dom-lote-s-texto` → `41031be5`, `c6243732`, `81845e2a`, `291ae43e` (2026-09-04) | `claude-text-overflow`, `word-spacing`, `tab-size`, `line-clamp` (4/4 passam), `list-style-image` |
 | S-inline | caixa inline por FRAGMENTOS de linha | 4 | ◐ o corte mínimo: um inline SEM conteúdo nunca é promovido a caixa e é 0×0 na linha (`sel-has` passa; `display-basico` continua). A pintura de fundo/padding/borda por fragmento para inlines COM conteúdo continua a ser a promoção a caixa — declarado, não feito | `feat/dom-lote-s-inline` → `7869dc066` (2026-09-04) | `claude-sel-has`, `claude-display-basico` (2/2 passam) |
 | S-transform | transformações 2D | 4 | ☑ `matrix()`, `skew*`, composição na ordem da spec, `transform-origin`, bounding box transformada (e dos descendentes), o fluxo não muda; pintura de rotação/skew no egui continua APROXIMADA (anchor exacto, w/h por norma das colunas) | `feat/dom-lote-transformacoes` → `508181548` (2026-09-04) | `claude-transform-*` (3/3 passam) |
-| T | fontes reais | 3 | ☐ | — | §5 |
 | U | composição e pintura | 3 | ☐ | — | §5 |
 | U-pintura-1 | rotação e recorte na pintura | 5 | ☑ a matriz viaja na `DisplayList` (`PushTransform`/`PopTransform`); o rasterizador e o egui pintam quadriláteros transformados; o `BeginClip` do `overflow` passa a conter os filhos (nunca continha); `visible` num eixo só computa `auto`; o rasterizador lê `fixar-hash`. Régua de pintura: as 4 fixtures acima de 2 % → 0 %, 0 %, 0,38 %, 0,05 %; corpus 84/86 ≤ 0,5 %, nenhuma > 2 %. Não feitos: cantos redondos sob matriz, blur da sombra, glifos rodados no egui | `feat/dom-lote-pintura-rotacao-clip` → `68011c503` (2026-09-04) | `scripts/css_pintura.md` |
 | N-pintura | a régua de PINTURA (screenshot-diff contra o Blink) | 5 | ☑ `claude-raster` (rasterizador headless da DisplayList, PNG sem crate nova), `css_fixtures_screenshot_edge.mjs` (captura no Edge por CDP), `css_pintura_comparar.mjs` (diff por pixel, texto mascarado e reportado). Verificado: cor sólida 0%, gradiente 0,24%, box-model 0,01%. Não pinta texto nem imagens (dito). PNG não versionados | `feat/dom-regua-de-pintura` → `d415d9124` (2026-09-04) | `scripts/css_pintura.md` |
@@ -52,6 +51,7 @@ linha aqui não existe.
 | U-pintura-2 | junção diagonal das bordas; imagens mascaradas na régua | 6 | ☑ `DisplayItem::Quad` (quadrilátero convexo): com lados adjacentes de cores diferentes cada lado sai como o trapézio do canto exterior ao interior (`pintura::trapezios_dos_lados`); com cores iguais ficam as barras; `transparent` não emite. Rasterizador com `fill_quad` por varrimento; egui por mesh. `claude-raster` mascara `Image`/`Pixels` como mascara texto. Pintura: `triangulo-de-borda` 1,58 % → 0,04 %, `border-juncao` 0,13 % → 0,02 %; corpus de pintura 87/90 ≤ 0,5 %. ACHADO: `object-fit` fica em 1,95 % porque o motor não emite o FUNDO de um `<img>` sem imagem carregada (o rasterizador pintou 0 itens) — próximo alvo de pintura. Suite 859/888 sem perdidos; 875 testes | `feat/dom-lote-u-pintura-2` → `b4eebfac5` (2026-09-04) | `claude-border-juncao`, `claude-triangulo-de-borda` |
 | S-inline-2 | inline com superfície por FRAGMENTOS de linha | 6 | ☑ `inline_por_fragmentos` (superfície sem width/height/margem) fica no fluxo: arestas como átomos (`ArestaInicio/Fim`), caixa = união dos fragmentos com padding/borda verticais, `inline_fragmentos::Superficies` pinta fundo e barras por linha (esquerda só no 1.º, direita só no último). A pergunta corrigida nos 5 sítios (`is_block_level`, `is_inline_block`, 3× `vertical.rs`). Cortes: cores cruas, sem radius nos fragmentos. Corpus 85/90, pintura 0,56 % → 0,06 %, suite 859/888 sem perdidos, 876 testes; paridade: 3 páginas 0 movidos, 3 movem os links da nav de 34 → 40,4px (= Blink: 14×1,6+18) | `feat/dom-lote-s-inline-2` → `add946b5e` (2026-09-04) | `claude-inline-fragmentos` |
 | img-fundo | fundo do `<img>` sem pixels | 6 | ☑ `layout_image` emite o `background` na caixa reservada, com ou sem pixels (cor crua: sem `filter`/`opacity`, sem borda/padding — dito). Pintura `object-fit` 1,95 % → 1,22 %; o resto é a imagem `data:` que nenhum loader entrega ao `<img>` (o mesmo de `list-style-image`). Suite 859/888 sem perdidos; 876 testes | `feat/dom-lote-img-fundo` → `53b96700f` (2026-09-04) | `claude-object-fit` (pintura) |
+| T | fontes: `ex`/`ch`, `line-height: normal`, `font-family` como lista | 6 | ☑ `Dimension::Ex`/`Ch` resolvem por `X_HEIGHT_RATIO`/`MONO_ADVANCE` (calibrados; `10ex` 78,6 vs 78,44 Blink, `10ch` 87,97 exacto; ABI `-1` como `calc`); `font-family` guarda a LISTA serializada como o Blink e `is_mono_family` percorre-a (a primeira família conhecida decide; desconhecida = indisponível). `line-height: normal` já batia (19px). NÃO feito, dito: fonte real (`@font-face`, `rustybuzz`, kerning, UAX#14) — a decisão de crate de §5.T fica aberta. Corpus 86/90 (só UA + cursor), pintura 2,45 % → 0,27 %, 878 testes, suite 859/888 sem perdidos | `feat/dom-lote-t-fontes` → `944161f7f` (2026-09-04) | `claude-font-unidades-ch-ex` |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
 **Estado após a vaga 1 (2026-09-04, 01:41)** — medido com o `rts.exe`
@@ -161,15 +161,16 @@ rondas de retrabalho:
 
 | régua | antes (vaga 5) | depois |
 |---|---|---|
-| corpus CSS (layout + computed) | 82/86, 4 esperadas | **85/90**, 5 esperadas (3 UA, `cursor`, `ch`/`ex`) |
-| pintura (pixels vs Edge) | 84/86 ≤ 0,5 % | **88/90 ≤ 0,5 %** (`font-unidades` 2,45 %, `object-fit` 1,22 % = a imagem `data:` sem loader) |
+| corpus CSS (layout + computed) | 82/86, 4 esperadas | **86/90**, 4 esperadas (3 UA, `cursor`) |
+| pintura (pixels vs Edge) | 84/86 ≤ 0,5 % | **89/90 ≤ 0,5 %** (`object-fit` 1,22 % = a imagem `data:` sem loader) |
 | suite `*.test.ts` por `medir.sh` | 859/888 | **859/888**, nenhum perdido em nenhum lote |
-| `cargo test -p rts-dom --lib --features metrics` | 870 | **876** |
+| `cargo test -p rts-dom --lib --features metrics` | 870 | **878** |
 
 Lotes: réguas-6 (#2643), S-hifen (#2644), U-pintura-2 (#2645), img-fundo
-(#2646), S-inline-2. O que fica da vaga 6: **T** (`ch`/`ex`, `line-height:
-normal` pela métrica da fonte, `font-family` computado como lista) e o loader
-de imagem `data:` para `<img>`/`list-style-image`.
+(#2646), S-inline-2 (#2647), T. As três fixtures medidas antes do código
+passaram todas. O que fica: o loader de imagem `data:` para
+`<img>`/`list-style-image` (fecha `object-fit`), a fonte REAL de §5.T
+(decisão de crate), e as 3 da folha de UA que só uma fonte real fecha.
 
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit

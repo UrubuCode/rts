@@ -13,8 +13,6 @@ claude-ua-th.html
 # nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
 claude-cursor-pointer-events.html
 
-# vaga 6 — medidas no Edge 152 (desvio 0 contra os 86 esperados) ANTES do
-# código, por implementar: unidades `ch`/`ex` e serialização da lista de
-# `font-family` (lote T). `claude-hyphens-manual` saiu daqui com o lote S-hifen,
-# `claude-inline-fragmentos` com o S-inline-2.
-claude-font-unidades-ch-ex.html
+# vaga 6 — as três fixtures medidas ANTES do código (`hyphens-manual`,
+# `inline-fragmentos`, `font-unidades-ch-ex`) saíram daqui com os lotes S-hifen,
+# S-inline-2 e T.

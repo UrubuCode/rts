@@ -65,6 +65,12 @@ pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     if let Some(n) = low.strip_suffix("vh").and_then(num) {
         return Some(Dimension::Vh(n.clamp(0.0, 100.0)));
     }
+    if let Some(n) = low.strip_suffix("ex").and_then(num) {
+        return Some(Dimension::Ex(n));
+    }
+    if let Some(n) = low.strip_suffix("ch").and_then(num) {
+        return Some(Dimension::Ch(n));
+    }
     if let Some(n) = low.strip_suffix('%').and_then(num) {
         // SEM teto de 100. Uma percentagem maior é CSS legal e comum:
         // `font-size: 150%` (medido no corpus: 150% de 20px = 30px, e o clamp
@@ -319,6 +325,8 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
         Dimension::Percent(x) => Dimension::Percent(-x),
         Dimension::Em(x) => Dimension::Em(-x),
         Dimension::Rem(x) => Dimension::Rem(-x),
+        Dimension::Ex(x) => Dimension::Ex(-x),
+        Dimension::Ch(x) => Dimension::Ch(-x),
         Dimension::Vw(x) => Dimension::Vw(-x),
         Dimension::Vh(x) => Dimension::Vh(-x),
         Dimension::Calc(c) => Dimension::Calc(c.scale(-1.0)),
