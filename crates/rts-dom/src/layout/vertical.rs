@@ -35,7 +35,7 @@ use super::*;
 /// (+10, −5, +20) dá 20 par a par e **15** pelo conjunto, que é o que um Chrome
 /// real responde. Um par cabia num `f32`; um conjunto não, e era essa a falta —
 /// não a fórmula do par, que estava certa.
-type Strut = (f32, f32);
+pub(in crate::layout) type Strut = (f32, f32);
 
 /// Junta mais uma margem ao conjunto. Cada sinal vai para o seu lado: um
 /// positivo só compete com positivos, um negativo só com negativos.
@@ -46,7 +46,7 @@ type Strut = (f32, f32);
 /// `min`), e uma de cada sinal dá a SOMA — que é o `pos + neg` do outro. É por
 /// isso que uma margem negativa CANCELA uma positiva em vez de ser ignorada
 /// por ela.
-fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
+pub(in crate::layout) fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
     if m >= 0.0 {
         (pos.max(m), neg)
     } else {
@@ -56,7 +56,7 @@ fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
 
 /// O valor colapsado do conjunto — e é aqui que os dois sinais se encontram,
 /// UMA vez. Com (+10, −5, +20) dá 20 − 5 = 15.
-fn strut_colapsado((pos, neg): Strut) -> f32 {
+pub(in crate::layout) fn strut_colapsado((pos, neg): Strut) -> f32 {
     pos + neg
 }
 
@@ -75,7 +75,7 @@ fn strut_colapsado((pos, neg): Strut) -> f32 {
 /// formatação próprio (`overflow` ≠ visible, `flow-root`) NÃO se atravessa,
 /// mesmo vazia. Isso é o lote do BFC; enquanto não houver, um `<div
 /// style="overflow:hidden">` vazio e sem altura colapsa aqui e não devia.
-fn atravessa_se(altura: f32, topo: f32, baixo: f32) -> bool {
+pub(in crate::layout) fn atravessa_se(altura: f32, topo: f32, baixo: f32) -> bool {
     (altura - (topo + baixo)).abs() < 0.01
 }
 
@@ -167,6 +167,9 @@ pub(in crate::layout) fn layout_children_vertical(
             }
         };
     }
+    // `::before` de BLOCO com conteúdo — o primeiro do fluxo, antes de
+    // qualquer filho real. Ver `pseudo_bloco.rs`.
+    super::pseudo_bloco::aplicar(dom, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
     for &child in &dom.node(id).children {
         // CAMINHO RÁPIDO: se existe fragmento para este filho com estas
         // constraints, ele já foi classificado como BLOCO NORMAL quando foi
@@ -578,6 +581,8 @@ pub(in crate::layout) fn layout_children_vertical(
     // DESTE container não vive mais aqui — ver o cabeçalho do módulo e
     // `layout_block`, que é quem sabe se `id` é o BFC responsável.
     flush_inline!(child_y);
+    // `::after` de BLOCO com conteúdo — o último do fluxo. Ver `pseudo_bloco.rs`.
+    super::pseudo_bloco::aplicar(dom, id, crate::style::PseudoElement::After, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
     // o clearfix (`::after{display:block;clear:both}`) desce o fim do fluxo
     // até ao fundo dos floats — ver `clearfix.rs`.
     if let Some(fundo) = super::clearfix::fundo_do_clearfix(dom, id, bfc) {
