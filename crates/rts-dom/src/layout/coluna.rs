@@ -16,6 +16,8 @@ pub(in crate::layout) fn layout_children_column(
     container_content_h: Option<f32>,
     css: &ComputedStyle,
     font_size: f32,
+    // `flex-direction: column-reverse` — ver a nota gémea em `flex.rs`.
+    reverse: bool,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
@@ -49,6 +51,7 @@ pub(in crate::layout) fn layout_children_column(
         mt_auto: bool,
         mb_auto: bool,
         grow: f32,
+        order: i32,
     }
     let mut items: Vec<ColItem> = Vec::new();
     for &child in &dom.node(id).children {
@@ -79,6 +82,7 @@ pub(in crate::layout) fn layout_children_column(
                 mt_auto: false,
                 mb_auto: false,
                 grow: 0.0,
+                order: 0,
             });
             continue;
         }
@@ -91,16 +95,17 @@ pub(in crate::layout) fn layout_children_column(
             font_size,
             ctx,
         );
-        let (mt_auto, mb_auto, grow) = dom
+        let (mt_auto, mb_auto, grow, order) = dom
             .computed_style_idx(child)
             .map(|c| {
                 (
                     c.margin.top.is_auto(),
                     c.margin.bottom.is_auto(),
                     c.flex_grow.unwrap_or(0.0),
+                    c.order.unwrap_or(0),
                 )
             })
-            .unwrap_or((false, false, 0.0));
+            .unwrap_or((false, false, 0.0, 0));
         items.push(ColItem {
             node: child,
             h,
@@ -108,10 +113,17 @@ pub(in crate::layout) fn layout_children_column(
             mt_auto,
             mb_auto,
             grow,
+            order,
         });
     }
     if items.is_empty() {
         return 0.0;
+    }
+    // `order` (empate = ordem do documento, sort estável), depois
+    // `column-reverse` — mesma dupla operação do eixo horizontal (`flex.rs`).
+    items.sort_by_key(|it| it.order);
+    if reverse {
+        items.reverse();
     }
 
     // ── PASSO 2: distribui o espaço livre do eixo principal (Y) ──────────────────

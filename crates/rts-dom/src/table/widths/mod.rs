@@ -109,7 +109,7 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
         // Ainda assim não pode ficar ABAIXO do mínimo do conteúdo: uma largura
         // que não cabe é ignorada pelo browser, não respeitada com o texto a
         // transbordar.
-        let piso = min_content(dom, id, font, ctx, false);
+        let piso = min_content(dom, id, font, ctx, false, true);
         return Coluna {
             min: w.max(piso),
             max: w.max(piso),
@@ -121,7 +121,7 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
     // e somá-la aqui contava o padding da célula duas vezes. Ficou invisível
     // enquanto uma célula com `width` declarado devolvia a largura e voltava
     // atrás — o caminho que somava duas vezes só era percorrido pelas outras.
-    let min = min_content(dom, id, font, ctx, false);
+    let min = min_content(dom, id, font, ctx, false, true);
     Coluna {
         min,
         percentagem,
@@ -251,7 +251,23 @@ pub(crate) fn largura_declarada(
 /// é `nowrap`) declaravam uma folga que não existe, recebiam parte do espaço a
 /// repartir e ficavam com 231px onde o Chrome dá 123 — com a coluna do lado a
 /// pagar a diferença.
-fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: bool) -> f32 {
+pub(in crate::table) fn min_content(
+    dom: &Dom,
+    id: NodeIdx,
+    font: f32,
+    ctx: &LayoutCtx,
+    sem_quebra: bool,
+    // `true` (o comportamento de sempre, para a tabela): um `width` DECLARADO
+    // é um PISO — a célula nunca fica abaixo da largura que o autor pediu.
+    // `false` (para quem quer o min-content PURO, como o piso do
+    // `flex-shrink`, spec flexbox §9.7): a spec de flex NÃO trata `width`
+    // como mínimo — é só a `flex-basis` de fallback, e o item PODE encolher
+    // abaixo dela. Reusar esta função sem o parâmetro (a 1ª versão desta
+    // mudança) recusava encolher qualquer item com `width` declarado, que é
+    // quase todos — `o_shrink_e_ponderado_pela_base_e_nao_so_pelo_peso` e
+    // `flex_shrink_encolhe_em_overflow` apanharam-no.
+    floor_width: bool,
+) -> f32 {
     match &dom.node(id).kind {
         NodeKind::Text(t) => {
             if sem_quebra {
@@ -345,14 +361,18 @@ fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: b
                 if crate::layout::is_out_of_flow(dom, c) {
                     continue;
                 }
-                let w = min_content(dom, c, f, ctx, sem_quebra);
+                let w = min_content(dom, c, f, ctx, sem_quebra, floor_width);
                 if sem_quebra && em_linha(dom, c) {
                     linha += w;
                 } else {
                     m = m.max(w);
                 }
             }
-            (m.max(linha) + frame).max(declarada.unwrap_or(0.0))
+            if floor_width {
+                (m.max(linha) + frame).max(declarada.unwrap_or(0.0))
+            } else {
+                m.max(linha) + frame
+            }
         }
         _ => 0.0,
     }

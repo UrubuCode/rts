@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: sizing INTRÍNSECO de trilhas `auto` pelo CONTEÚDO dos itens —
+     texto monospace para o tamanho ser previsível por caractere. Sem
+     esperado — régua = orquestrador (lote R, crates/rts-dom/PLAN.md §5.R). -->
+<html>
+<head><style>
+  body { margin: 0; font-family: monospace; font-size: 16px; }
+  #pagina { display: grid; width: 500px;
+            grid-template-columns: auto auto 1fr;
+            gap: 8px;
+            background: #eee; }
+  #pagina div { background: #cfc; white-space: nowrap; }
+</style></head>
+<body>
+  <div id="pagina">
+    <div id="curto">oi</div>
+    <div id="longo">uma palavra bem mais comprida que a primeira</div>
+    <div id="resto">resto</div>
+  </div>
+</body>
+</html>

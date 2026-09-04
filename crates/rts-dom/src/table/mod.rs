@@ -34,6 +34,22 @@ use crate::style::{ComputedStyle, DisplayKind};
 use crate::{Dom, NodeIdx};
 use grid::collect;
 
+/// A largura MÍNIMA de conteúdo (`min-content`) PURA de um nó — a palavra
+/// mais larga, com o frame do elemento, SEM o piso de `width` declarado que
+/// `widths::cell_min_max` aplica para a tabela (lá, uma célula com `width`
+/// nunca fica abaixo do que o autor pediu; no flex a `width` é só a base de
+/// fallback, e o `flex-shrink` PODE encolher abaixo dela — spec flexbox
+/// §9.7). Reexporta `widths::min_content` (privado a este módulo) com
+/// `floor_width: false` em vez de reescrever a travessia.
+pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let sem_quebra = matches!(
+        css.white_space,
+        Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
+    );
+    widths::min_content(dom, id, font, ctx, sem_quebra, false)
+}
+
 /// Uma célula colocada na grade. `col` é a coluna onde começa, já resolvida
 /// contra os `rowspan` que vêm de cima.
 struct Cell {

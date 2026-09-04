@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: `justify-content`/`align-content` da GRELHA (trilhas fixas mais
+     estreitas que o container: o sobrante distribui-se) e `justify-self`/
+     `align-self` de um item ANULANDO `justify-items`/`align-items` do
+     container. Sem esperado — régua = orquestrador (lote R). -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #pagina { display: grid; width: 400px; height: 300px;
+            grid-template-columns: 60px 60px;
+            grid-template-rows: 50px 50px;
+            justify-content: center;
+            align-content: space-between;
+            background: #eee; }
+  #pagina div { background: #cfc; width: 40px; height: 30px; }
+  /* este item ANULA o justify-items/align-items (default stretch) do pai. */
+  #item2 { justify-self: end; align-self: center; background: #ccf; }
+</style></head>
+<body>
+  <div id="pagina">
+    <div id="item1"></div>
+    <div id="item2"></div>
+    <div id="item3"></div>
+    <div id="item4"></div>
+  </div>
+</body>
+</html>

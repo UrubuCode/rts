@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `repeat(auto-fill, minmax(a,b))` — quantas trilhas cabem é uma
+     pergunta do LAYOUT (depende de `content_w`), não do parse; ver o lote R
+     (crates/rts-dom/PLAN.md §5.R) — NÃO IMPLEMENTADO nesta rodada
+     (`GridTrack::parse_list` ainda expande `auto-fill`/`auto-fit` para 1
+     repetição, aproximação documentada em `style/values/grelha.rs`). Esta
+     fixture existe para NOMEAR o desvio, no mesmo padrão das `claude-ua-*`
+     do lote I: falha até o repeat dinâmico ser escrito. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #pagina { display: grid; width: 620px;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            background: #eee; }
+  #pagina div { height: 60px; background: #cfc; }
+</style></head>
+<body>
+  <!-- 620px / (150px+10px gap) ≈ 4 trilhas cabem; a 5ª não. -->
+  <div id="pagina">
+    <div>1</div><div>2</div><div>3</div><div>4</div><div>5</div>
+  </div>
+</body>
+</html>

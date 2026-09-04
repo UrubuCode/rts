@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Fixa: colocação EXPLÍCITA por linha (`grid-column/row-start/end`,
+     span, negativos). Sem esperado (SEM medição no Chrome) — a régua é o
+     orquestrador (lote R do crates/rts-dom/PLAN.md §5.R). -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #pagina { display: grid; width: 600px; height: 300px;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(3, 100px);
+            background: #eee; }
+  /* linha por número, ponta a ponta. */
+  #a { grid-column-start: 1; grid-column-end: 3; grid-row-start: 1; grid-row-end: 2; background: #fcc; }
+  /* span a partir do início. */
+  #b { grid-column: 3 / span 2; grid-row: 1; background: #cfc; }
+  /* negativo: -1 é a última linha do eixo explícito (5ª coluna). */
+  #c { grid-column: -3 / -1; grid-row: 2; background: #ccf; }
+  /* span terminando numa linha nomeada por número. */
+  #d { grid-column: span 2 / 3; grid-row: 3; background: #ffc; }
+</style></head>
+<body>
+  <div id="pagina">
+    <div id="a"></div><div id="b"></div><div id="c"></div><div id="d"></div>
+  </div>
+</body>
+</html>

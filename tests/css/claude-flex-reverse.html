@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `flex-direction: row-reverse`/`column-reverse` — a ordem VISUAL
+     principal inverte, `order` continua a decidir antes. Sem esperado —
+     régua = orquestrador (lote R, crates/rts-dom/PLAN.md §5.R). -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #linha { display: flex; flex-direction: row-reverse; width: 300px; background: #eee; }
+  #linha div { width: 50px; height: 30px; }
+  #coluna { display: flex; flex-direction: column-reverse; height: 200px; margin-top: 20px; background: #eee; }
+  #coluna div { width: 60px; height: 40px; }
+  #a { background: #fcc; }
+  #b { background: #cfc; }
+  #c { background: #ccf; }
+</style></head>
+<body>
+  <div id="linha">
+    <div id="a">1</div><div id="b">2</div><div id="c">3</div>
+  </div>
+  <div id="coluna">
+    <div id="d">1</div><div id="e">2</div><div id="f">3</div>
+  </div>
+</body>
+</html>
