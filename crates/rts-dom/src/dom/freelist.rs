@@ -125,6 +125,17 @@ impl Dom {
         for c in children {
             self.release_subtree_idx(c);
         }
+        // Descendentes ainda carregam `parent = Some(idx-do-pai-dentro-da-
+        // MESMA subárvore)` — só a RAIZ da subárvore chega aqui desanexada
+        // (`release_subtree` já checou); um filho nunca foi desligado do seu
+        // pai porque a subárvore inteira sai JUNTA. `recycle`'s guarda
+        // continua correta para o caso perigoso (um nó preso à ÁRVORE VIVA,
+        // pinado por `release_subtree_de_no_ainda_anexado_e_um_no_op`) — o
+        // que muda aqui é só que "anexado a um nó desta MESMA chamada, que
+        // também está a sair" não é esse caso. Desligar explicitamente aqui
+        // (em vez de afrouxar a guarda do `recycle`) mantém `recycle` livre
+        // de saber sobre a recursão de quem o chama.
+        self.nodes[idx].parent = None;
         self.recycle(idx);
     }
 }
