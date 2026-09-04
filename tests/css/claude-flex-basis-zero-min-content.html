@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- Fixa: um item de flex com `flex-basis: 0` (ou `0%`) e `flex-grow: 0` NÃO
+     colapsa para largura 0 mesmo que não cresça: a "automatic minimum size"
+     (CSS Flexbox §4.5) clampa o "hypothetical main size" ao min-content do
+     item ANTES de resolver grow/shrink — não só durante o encolhimento. Os
+     nossos itens saem 0×h (crates/rts-dom/src/layout/flex.rs:298-309 só
+     aplica o piso de min-content dentro do ramo de encolhimento,
+     `free_pre < 0.0`; quando `free_pre >= 0.0` e `flex-grow: 0`, nenhum dos
+     dois ramos corre e o item fica na base = 0). `#a`/`#b`/`#c`: mesma
+     família `flex: 0 <shrink> 0` — só varia o texto, para confirmar que a
+     largura final acompanha o CONTEÚDO (min-content), não fica sempre 0. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="a,b,c">
+<meta name="fixar-estilo" content="width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; width: 400px; height: 40px; background: #eee; }
+  .f > div { background: #fc0; margin: 0 8px; white-space: nowrap; }
+  #a { flex: 0 1 0; }
+  #b { flex: 0 2 0; }
+  #c { flex: 0 2 0%; }
+</style></head>
+<body>
+  <div class="f">
+    <div id="a">wwwwww</div>
+    <div id="b">ww</div>
+    <div id="c">wwwwwwwwww</div>
+  </div>
+</body>
+</html>
