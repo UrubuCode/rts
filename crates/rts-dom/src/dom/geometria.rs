@@ -82,4 +82,29 @@ impl Dom {
             out
         })
     }
+
+    /// Igual a [`crate::layout::DisplayList::hit_test`], mas `pointer-events:
+    /// none` fica TRANSPARENTE ao clique — a espessura de `hit_order` sob o
+    /// nó de topo é revisitada até achar um nó cujo computado não seja
+    /// `none` (herda, como a spec pede, e o `ComputedStyle` de cada nó já
+    /// reflete a herança — não há necessidade de subir a árvore aqui).
+    ///
+    /// Vive no `Dom` e não em `DisplayList::hit_test` porque só o `Dom` tem a
+    /// cascade; a lista de exibição só tem retângulos e índices. Quem decide
+    /// clique (`rts-egui`) chamava `DisplayList::hit_test` direto — passar a
+    /// chamar este em vez daquele é a mudança mínima que fecha o gap.
+    pub fn hit_test_clickable(&self, list: &crate::layout::DisplayList, x: f32, y: f32) -> Option<NodeIdx> {
+        let g = list.geometry();
+        g.hit_order.iter().rev().copied().find(|&idx| {
+            let dentro = g
+                .rects
+                .get(&idx)
+                .is_some_and(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+            dentro
+                && !matches!(
+                    self.computed_style_idx(idx).and_then(|s| s.pointer_events),
+                    Some(crate::style::vocab::PointerEvents::None)
+                )
+        })
+    }
 }

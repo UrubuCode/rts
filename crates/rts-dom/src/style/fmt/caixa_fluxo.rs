@@ -29,23 +29,38 @@ impl ComputedStyle {
                 _ => self.overflow_pair().1.to_string(),
             },
             // ── Fundo (as camadas do shorthand) ───────────────────────────────
-            "background-repeat" => self
-                .bg_repeat
-                .map(|r| r.css().to_string())
-                .unwrap_or_default(),
-            "background-position" => self
-                .bg_position
-                .map(|p| format!("{} {}", fmt_dim(p.x), fmt_dim(p.y)))
-                .unwrap_or_default(),
-            "background-size" => match self.bg_size {
-                None => String::new(),
-                Some(crate::style::BgSize::Auto) => "auto".into(),
-                Some(crate::style::BgSize::Cover) => "cover".into(),
-                Some(crate::style::BgSize::Contain) => "contain".into(),
-                Some(crate::style::BgSize::Len(w, h)) => {
-                    format!("{} {}", fmt_dim(w), fmt_dim(h))
-                }
-            },
+            //
+            // As três seguem `crate::style::decoracao::fmt_bg_*`: com UMA
+            // camada de `background-image` (ou nenhuma), o resultado é
+            // exatamente o de antes desta linha — o `unico` que a função
+            // recebe. Com MAIS de uma, o Blink reporta uma entrada por camada
+            // de IMAGEM, mesmo para a longhand que ninguém declarou (cai no
+            // inicial repetido).
+            "background-repeat" => crate::style::decoracao::fmt_bg_repeat(
+                self.bg_image_layers.as_deref(),
+                self.bg_repeat_layers.as_deref(),
+                self.bg_repeat.map(|r| r.css().to_string()).unwrap_or_default(),
+            ),
+            "background-position" => crate::style::decoracao::fmt_bg_position(
+                self.bg_image_layers.as_deref(),
+                self.bg_position_layers.as_deref(),
+                self.bg_position
+                    .map(|p| format!("{} {}", fmt_dim(p.x), fmt_dim(p.y)))
+                    .unwrap_or_default(),
+            ),
+            "background-size" => crate::style::decoracao::fmt_bg_size(
+                self.bg_image_layers.as_deref(),
+                self.bg_size_layers.as_deref(),
+                match self.bg_size {
+                    None => String::new(),
+                    Some(crate::style::BgSize::Auto) => "auto".into(),
+                    Some(crate::style::BgSize::Cover) => "cover".into(),
+                    Some(crate::style::BgSize::Contain) => "contain".into(),
+                    Some(crate::style::BgSize::Len(w, h)) => {
+                        format!("{} {}", fmt_dim(w), fmt_dim(h))
+                    }
+                },
+            ),
             // ── Bordas por lado: reportam o EFETIVO (com o fallback da uniforme),
             // que é o que o browser reporta — `border: 1px solid red` faz o
             // `border-top-color` responder `rgb(255, 0, 0)`, não vazio.

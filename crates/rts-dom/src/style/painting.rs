@@ -240,7 +240,7 @@ fn parse_text_shadow(v: &str) -> Option<BoxShadow> {
 
 /// A cor de uma sombra no formato do computado. `fmt_color` é o mesmo que
 /// `getComputedStyle` usa em todas as outras cores deste motor.
-fn fmt_shadow(s: BoxShadow) -> String {
+pub(crate) fn fmt_shadow(s: BoxShadow) -> String {
     let px = |v: f32| super::fmt_values::fmt_dim(super::values::Dimension::Px(v));
     format!(
         "{} {} {} {}",
@@ -368,7 +368,14 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         }
         "mix-blend-mode" => set_if(&mut css.mix_blend_mode, BlendMode::parse(val)),
         "background-blend-mode" => set_if(&mut css.background_blend_mode, BlendMode::parse(val)),
-        "text-shadow" => set_ou_limpa(&mut css.text_shadow, val, parse_text_shadow(val)),
+        "text-shadow" => {
+            set_ou_limpa(&mut css.text_shadow, val, parse_text_shadow(val));
+            // A declaração INTEIRA — `text_shadow` acima só guarda a 1ª sombra
+            // (o campo é um `BoxShadow` único). Guardada crua sempre; o
+            // computado só a lê quando há mais de uma sombra (ver
+            // `style::decoracao`).
+            set_if(&mut css.text_shadow_raw, Some(val.trim().to_string()));
+        }
         _ => return false,
     }
     true
@@ -395,8 +402,15 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
             .unwrap_or_default()
             .to_string(),
         // O Chrome serializa a sombra com a COR À FRENTE, mesmo quando o autor a
-        // escreveu no fim (`2px 2px red` → `rgb(255, 0, 0) 2px 2px 0px`).
-        "text-shadow" => css.text_shadow.map(fmt_shadow).unwrap_or_default(),
+        // escreveu no fim (`2px 2px red` → `rgb(255, 0, 0) 2px 2px 0px`), E
+        // lista TODAS as sombras (`style::decoracao::fmt_text_shadow_list` faz
+        // as duas coisas, lendo `text_shadow_raw` em vez do único `BoxShadow`
+        // que `text_shadow` guarda).
+        "text-shadow" => css
+            .text_shadow_raw
+            .as_deref()
+            .and_then(crate::style::decoracao::fmt_text_shadow_list)
+            .unwrap_or_else(|| css.text_shadow.map(fmt_shadow).unwrap_or_default()),
         "background-origin" => css
             .background_origin
             .map(|v| v.css())
