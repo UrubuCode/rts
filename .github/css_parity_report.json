@@ -1,13 +1,13 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 88,
-    "total": 92,
-    "pct": 95.7
+    "passing": 92,
+    "total": 96,
+    "pct": 95.8
   },
   "measurements": {
-    "matching": 2168,
-    "total": 2184,
+    "matching": 2250,
+    "total": 2266,
     "pct": 99.3
   },
   "expected_failures": [
@@ -58,7 +58,12 @@
       "img-fundo — fundo do `<img>` sem pixels",
       "T — fontes: `ex`/`ch`, `line-height: normal`, `font-family` como lista",
       "V-img — imagens `data:` no `<img>`",
-      "V-img-2 — `<img>` de ficheiro local; o `<img>` é inline e senta na baseline"
+      "V-img-2 — `<img>` de ficheiro local; o `<img>` é inline e senta na baseline",
+      "flex-limites — `max-width`/`min-width` e margens `auto` no item flex; comprimentos computados em px",
+      "flex-item-bfc — um item de flex/grid contém os seus floats; o item de coluna que estica mede-se à largura do contentor",
+      "load-resources — `loadResources` vivo no motor novo",
+      "intrinseco-whitespace — a largura intrínseca colapsa o whitespace do HTML",
+      "svg-atributo — `width`/`height` do `<svg>` como comprimentos CSS; margens no placeholder"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha"
