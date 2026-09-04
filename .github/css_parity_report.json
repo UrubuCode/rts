@@ -13,23 +13,23 @@
   "expected_failures": [
     {
       "fixture": "claude-ua-form-disabled.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
       "fixture": "claude-ua-headings.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
       "fixture": "claude-ua-th.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
       "fixture": "claude-cursor-pointer-events.html",
-      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento;\r nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)\r"
+      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)"
     },
     {
       "fixture": "claude-img-natural.html",
-      "razao": "vaga 7 — medida no Edge 152 ANTES do código (lote V-img: `rts:imgdec`,\r `dom.setImage` e o loader de `data:` não existem no motor novo). Blink: o\r `<img>` sem atributos mede o tamanho natural do PNG (4×2) e `width` sozinho\r mantém a razão (40×20).\r"
+      "razao": "vaga 7 — medida no Edge 152 ANTES do código (lote V-img: `rts:imgdec`, `dom.setImage` e o loader de `data:` não existem no motor novo). Blink: o `<img>` sem atributos mede o tamanho natural do PNG (4×2) e `width` sozinho mantém a razão (40×20)."
     }
   ],
   "dom_lots": {
