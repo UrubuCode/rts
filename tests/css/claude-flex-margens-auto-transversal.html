@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: `margin: auto` num item flex absorve o espaço livre também no EIXO
+     TRANSVERSAL (Flexbox §8.1): numa linha o item centra-se na vertical, numa
+     coluna na horizontal; `margin-top: auto` sozinho empurra o item para o
+     fundo e SOBREPÕE-SE ao `align-items`. O `auto-margins-001` do WPT passava
+     vazio até as bordas em `em` pintarem (lote borda-em); com bordas reais a
+     caixa interior ficava colada ao topo: só o eixo principal absorvia. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="r1,r2,r3,c1">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; width: 200px; height: 100px; background: #eee; margin-bottom: 10px; align-items: flex-start; }
+  .f > div { width: 50px; height: 30px; background: #c00; }
+  #r1 { margin: auto; }
+  #r2 { margin-top: auto; }
+  #r3 { margin-bottom: auto; margin-left: auto; background: #0a0; }
+  #col { display: flex; flex-direction: column; width: 200px; height: 100px; background: #eee; }
+  #c1 { width: 50px; height: 30px; background: #00c; margin: auto; }
+</style></head>
+<body>
+  <div class="f" id="fa"><div id="r1"></div></div>
+  <div class="f" id="fb"><div id="r2"></div><div id="r3"></div></div>
+  <div id="col"><div id="c1"></div></div>
+</body>
+</html>
