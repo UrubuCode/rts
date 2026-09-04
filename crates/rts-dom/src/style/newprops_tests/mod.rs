@@ -68,3 +68,4 @@ mod bordas_e_clip;
 mod grid_lines;
 mod pintura;
 mod aliases_e_fecho;
+mod url_serializacao;

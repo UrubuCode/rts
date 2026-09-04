@@ -104,6 +104,34 @@ pub(crate) fn fmt_px(v: f32) -> String {
     }
 }
 
+/// `url(...)` computado, com o miolo SEMPRE entre aspas duplas — é o que o
+/// CSSOM manda (a serialização de um `<url>` é `url(` + string serializada +
+/// `)`, e uma string serializada tem aspas) e o que o Blink devolve, aspas ou
+/// não no autor: `url(x.png)` e `url('x.png')` respondem os dois
+/// `url("x.png")`. Guardamos o valor CRU (o token da folha, sem normalizar —
+/// ver `list_style_image`/`bg_image`/`cursor` na tabela), então quem SERIALIZA
+/// é quem tem de normalizar, não quem guarda.
+///
+/// `raw` que não é um `url(...)` (uma keyword de `cursor`, por exemplo) volta
+/// tal e qual — esta função só reconhece a forma funcional.
+pub(crate) fn fmt_url(raw: &str) -> String {
+    let raw = raw.trim();
+    let Some(miolo) = raw
+        .strip_prefix("url(")
+        .or_else(|| raw.strip_prefix("URL("))
+        .and_then(|s| s.strip_suffix(')'))
+    else {
+        return raw.to_string();
+    };
+    let miolo = miolo.trim();
+    let sem_aspas = miolo
+        .strip_prefix('"')
+        .or_else(|| miolo.strip_prefix('\''))
+        .map(|s| s.trim_end_matches(['"', '\'']))
+        .unwrap_or(miolo);
+    format!("url(\"{sem_aspas}\")")
+}
+
 /// Uma `Dimension` computada → string CSS (px/%/auto…).
 pub(crate) fn fmt_dim(d: Dimension) -> String {
     match d {

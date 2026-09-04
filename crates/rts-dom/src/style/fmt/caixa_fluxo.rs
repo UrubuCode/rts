@@ -91,7 +91,14 @@ impl ComputedStyle {
                 .list_style_type
                 .map(|t| t.css().to_string())
                 .unwrap_or_default(),
-            "list-style-image" => self.list_style_image.clone().unwrap_or_default(),
+            // `url(...)` sempre com aspas duplas no computed — ver `fmt_url`
+            // para porquê e para os outros dois sítios que a mesma regra
+            // atinge (`background-image`, `cursor`, ambos em `fmt/mod.rs`).
+            "list-style-image" => self
+                .list_style_image
+                .as_deref()
+                .map(fmt_url)
+                .unwrap_or_default(),
             "list-style-position" => self
                 .list_style_position
                 .map(|p| p.css().to_string())
@@ -111,7 +118,21 @@ impl ComputedStyle {
                 .table_layout
                 .map(|t| t.css().to_string())
                 .unwrap_or_default(),
-            "cursor" => self.cursor.clone().unwrap_or_default(),
+            // `cursor: url(...), pointer` — só a PRIMEIRA forma funcional (se
+            // houver) leva aspas; o resto do shorthand (a keyword de
+            // fallback) fica como está. `fmt_url` devolve `raw` inalterado
+            // quando não reconhece `url(...)`, por isso aplicá-la ao valor
+            // inteiro só muda algo quando o valor É (ou começa por) uma url.
+            "cursor" => self
+                .cursor
+                .as_deref()
+                .map(|v| match v.split_once(',') {
+                    Some((url, resto)) if url.trim_start().starts_with("url(") => {
+                        format!("{}, {}", fmt_url(url.trim()), resto.trim())
+                    }
+                    _ => fmt_url(v),
+                })
+                .unwrap_or_default(),
             "flex-flow" => match (self.flex_direction, self.flex_wrap) {
                 (None, None) => String::new(),
                 (d, w) => format!(
