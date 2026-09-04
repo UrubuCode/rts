@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa (lote V-img-2): um `<img src="ficheiro.png">` RELATIVO ao documento
+     — o caso de qualquer página local com imagens — mede o tamanho natural do
+     PNG (6×4) e, inline no texto, senta na baseline da linha como um átomo. A
+     `data:` já chega (lote V-img); aqui o loader tem de resolver a URL contra
+     a base do documento e ler o ficheiro. Blink: `#solto` 6×4; `#na-linha` 6×4
+     dentro de uma linha de 20px, com a caixa do `<span>` a medir a linha. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="solto,na-linha">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #solto { display: block; }
+  #linha { background: #eee; }
+</style></head>
+<body>
+<img id="solto" src="claude-img-6x4.png">
+<div id="linha">abc <img id="na-linha" src="claude-img-6x4.png"> def</div>
+</body>
+</html>

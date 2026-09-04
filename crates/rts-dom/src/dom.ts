@@ -1656,20 +1656,28 @@ function loadResources(doc: Document, baseUrl: string): number {
   const imgCount = dom.getByTagCount(h, "img");
   let k = 0;
   while (k < imgCount) {
-    loaded = loaded + __loadImageAt(h, k);
+    loaded = loaded + __loadImageAt(h, k, baseUrl);
     k = k + 1;
   }
 
   return loaded;
 }
 
-// Entrega à ponte o k-ésimo `<img>` cujo `src` é uma `data:` URL. Devolve 1/0.
-function __loadImageAt(h: i64, k: number): number {
+// Entrega à ponte o k-ésimo `<img>`: `data:` descodificada na hora, um caminho
+// local (relativo à base do documento) lido do disco pela ponte. `http(s)`
+// ainda não — não há `fetchBytes` no motor novo e um PNG não atravessa como
+// texto (dito no PLAN, lote V-img-2). Devolve 1/0.
+function __loadImageAt(h: i64, k: number, baseUrl: string): number {
   const node = dom.getByTagAt(h, "img", k);
   if (node === __DOM_NONE) return 0;
   const src = dom.getAttribute(h, node, "src");
-  if (src.length < 11 || src.substring(0, 11) !== "data:image/") return 0;
-  return dom.setImageDataUrl(h, node, src) as number;
+  if (src.length === 0) return 0;
+  if (src.length > 11 && src.substring(0, 11) === "data:image/") return dom.setImageDataUrl(h, node, src) as number;
+  if (src.length > 5 && src.substring(0, 5) === "data:") return 0;
+  const abs = __resolveUrl(baseUrl, src);
+  if (abs.length > 7 && abs.substring(0, 7) === "http://") return 0;
+  if (abs.length > 8 && abs.substring(0, 8) === "https://") return 0;
+  return dom.setImageFile(h, node, abs) as number;
 }
 
 // Carrega o i-ésimo `<link>` se for uma folha de estilo com `href`. Devolve 1/0.

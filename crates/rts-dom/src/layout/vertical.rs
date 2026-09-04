@@ -261,9 +261,13 @@ pub(in crate::layout) fn layout_children_vertical(
         }
         let (child_block, child_inline_block) = match &dom.node(child).kind {
             NodeKind::Element { tag } => {
-                let replaced = (tag == "img" && dom.image_dims(child).is_some())
-                    || tag == "svg"
-                    || tag == "canvas";
+                // `<img>` NÃO está aqui: é inline por natureza (o Blink só o
+                // blockifica com `display:block`), e o fluxo inline já o dispõe
+                // como átomo `Replaced` — com pixels, é `layout_image` quem o
+                // pinta na linha. Tê-lo aqui partia a linha de `abc <img> def`
+                // em três (`claude-img-ficheiro`, `#linha` a 44px onde o Blink
+                // dá 20) assim que a imagem chegava.
+                let replaced = tag == "svg" || tag == "canvas";
                 let effective = child_css.as_ref().and_then(|c| c.effective_display());
                 // "é de bloco?" e NÃO "não é inline?" — e o `InlineBlock` é o
                 // valor que as duas leituras separam. Por `d != Inline` um

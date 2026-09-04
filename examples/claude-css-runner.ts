@@ -11,7 +11,7 @@
 // mão — o valor deste corpus está exatamente aí. Ver `tests/css/README.md`.
 import { readFileSync, readdirSync } from "node:fs";
 import {
-  parseHtml, free, querySelectorAllCount, querySelectorAllAt, getByTagCount, getByTagAt, setImageDataUrl,
+  parseHtml, free, querySelectorAllCount, querySelectorAllAt, getByTagCount, getByTagAt, setImageDataUrl, setImageFile,
   getAttribute, boundingRect, computedProperty, setLocationHash,
 } from "rts:dom";
 
@@ -103,6 +103,7 @@ for (const nome of fixtures) {
     const im = getByTagAt(doc, "img", ii);
     const src = getAttribute(doc, im, "src") as string;
     if (src.length > 11 && src.substring(0, 11) === "data:image/") { setImageDataUrl(doc, im, src); }
+    else if (src.length > 0 && src.indexOf(":") < 0) { setImageFile(doc, im, "tests/css/" + src); }
   }
   // `<meta name="fixar-hash" content="x">` (lote O): o corredor não executa
   // `<script>` (não há `onload` aqui), então uma fixture sobre `:target`

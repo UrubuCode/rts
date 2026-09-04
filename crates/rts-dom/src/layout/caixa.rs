@@ -85,13 +85,11 @@ pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             // `replaced_inline_size`, o único sítio onde essa regra vive.
             // Não é `return`: um `<img>` sem atributos ainda pode ganhar caixa
             // pelo CSS, e quem responde isso são as regras no fim desta função.
-            if tag == "img"
-                && (dom.image_dims(id).is_some()
-                    || dom.node(id).attr("width").is_some()
-                    || dom.node(id).attr("height").is_some())
-            {
-                return true;
-            }
+            // `<img>` deixou de ser bloco por ter pixels ou atributos: é inline
+            // por natureza e o fluxo inline dá-lhe caixa e pintura como átomo
+            // `Replaced` (ver `vertical.rs`, o mesmo comentário). O que o torna
+            // bloco é só o `display` — as regras no fim desta função.
+            let _ = tag;
             // `<canvas>` é REPLACED como o `<img>`: a caixa vem dos atributos
             // `width`/`height` e o conteúdo são pixels. Sem esta linha ele cai no
             // fluxo inline, onde não há quem emita a superfície — e um canvas
