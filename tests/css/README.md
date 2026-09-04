@@ -42,7 +42,7 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-09-04 (vaga 7, lote flex-margens-auto): 100 das 104
+**2026-09-04 (vaga 7, lote flex-coluna-shrink): 118 das 122
 fixtures passam**, a 1px de tolerância; as 4 que falham estão em
 `esperado-a-falhar.txt` com a razão: 3 da folha de UA
 (largura de texto a negrito/controlos, fonte dos controlos, `tr` sem

@@ -31,6 +31,42 @@ pub enum DisplayKind {
     /// bloco?" passa a estar ERRADO — um `InlineBlock` também não é de bloco.
     /// Use `is_inline_level`.
     InlineBlock,
+    /// `display:inline-flex` — flex por DENTRO (mesmo algoritmo de
+    /// [`Flex`](DisplayKind::Flex): `to_display_code` devolve o mesmo código),
+    /// inline-level por FORA (CSS Display Module 3 §2.3-2.4): flui na linha do
+    /// pai lado a lado com irmãos, e sem `width` encolhe ao conteúdo
+    /// (shrink-to-fit, Flexbox §9.9) em vez de tomar a largura do bloco.
+    ///
+    /// Variante separada de [`Flex`](DisplayKind::Flex) pela MESMA razão que
+    /// [`InlineBlock`](DisplayKind::InlineBlock) é separada de
+    /// [`Inline`](DisplayKind::Inline): antes das duas colapsarem no mesmo
+    /// valor (`style/parse/mod.rs`, `"flex"|"inline-flex" => Flex`), um
+    /// `inline-flex` sem `width` nunca encolhia (tomava a largura do bloco
+    /// inteiro) e nunca ficava na linha do pai — sempre um bloco por linha,
+    /// como `flex` de bloco. Medido: `claude-flex-inline-flex-inline-level`
+    /// (um `#a` sem `width` com dois filhos de 20px fica `w:400` em vez de
+    /// `w:40`; `#b` cai numa linha própria em vez de ao lado) e
+    /// `claude-inline-flex-outer-display` (três `inline-flex` de 64×64
+    /// empilham um por linha em vez de ficarem lado a lado).
+    ///
+    InlineFlex,
+    /// `display:inline-flex` + `flex-wrap:wrap` — o par de [`InlineFlex`] que
+    /// [`FlexWrap`](DisplayKind::FlexWrap) é de [`Flex`]: `effective_display`
+    /// sintetiza-a (`Some(InlineFlex) if flex_wrap => Some(InlineFlexWrap)`,
+    /// em `style/props/metodos.rs`) e `to_display_code` devolve o código WRAP
+    /// — os filhos quebram em várias linhas.
+    ///
+    /// **Não dava para reusar `FlexWrap`** (o corte que este ficheiro tinha
+    /// antes desta variante, e que caiu): `FlexWrap` não é `is_inline_level`,
+    /// então um `inline-flex` com `flex-wrap:wrap` sintetizado nela perdia o
+    /// outer-display e voltava a empilhar como bloco — o MESMO bug que
+    /// `InlineFlex` corrigiu para o caso sem wrap, só que agora escondido
+    /// atrás do `flex-wrap`. Os quatro `gap-006-*` do WPT flexbox (`inline-
+    /// flex` + `flex-wrap:wrap` + `gap`) passavam por acidente (como bloco,
+    /// que também quebra) antes do lote `inline-flex`, e caíram quando esse
+    /// lote lhes tirou o wrap — a régua "não perder o que passava" é o que
+    /// forçou esta variante em vez de alargar `FlexWrap`.
+    InlineFlexWrap,
     /// `display:grid` — grade de N colunas (N vem de `grid_columns`, de
     /// `grid-template-columns`). Tratado como WRAP com largura de item = 1/N do
     /// container (grid 2-D real fica p/ depois; cobre os cards/planos em grade).
@@ -93,8 +129,11 @@ impl DisplayKind {
             // horizontal do flex) punha o caret `::after` do Bootstrap no topo
             // da linha e qualquer filho de bloco lado a lado com o irmão.
             DisplayKind::Inline | DisplayKind::InlineBlock => 0,
-            DisplayKind::FlexWrap | DisplayKind::Grid => 1, // wrap
-            DisplayKind::Flex => 2, // horizontal (lado a lado)
+            DisplayKind::FlexWrap | DisplayKind::Grid | DisplayKind::InlineFlexWrap => 1, // wrap
+            // `InlineFlex` é flex por DENTRO — o mesmo eixo horizontal de
+            // `Flex`; só o outer-display muda, e essa pergunta é
+            // `is_inline_level`, não o código de eixo dos filhos.
+            DisplayKind::Flex | DisplayKind::InlineFlex => 2, // horizontal (lado a lado)
             DisplayKind::None => -1,
         }
     }
@@ -107,7 +146,13 @@ impl DisplayKind {
     /// variante própria, e passou a ser falso no instante em que passou a ter.
     /// Uma pergunta com nome não se desatualiza quando se acrescenta um valor.
     pub fn is_inline_level(self) -> bool {
-        matches!(self, DisplayKind::Inline | DisplayKind::InlineBlock)
+        matches!(
+            self,
+            DisplayKind::Inline
+                | DisplayKind::InlineBlock
+                | DisplayKind::InlineFlex
+                | DisplayKind::InlineFlexWrap
+        )
     }
 
     /// `true` para os quatro valores INTERNOS da tabela (`table`, `table-row`,

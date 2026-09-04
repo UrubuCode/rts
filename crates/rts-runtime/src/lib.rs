@@ -45,5 +45,10 @@ pub fn keep() -> usize {
     let core = rts_core::entry::CORE_ENTRY_COUNT;
     let std_install = rts_std::install as usize;
     let node_install = rts_node::install as usize;
-    core + (std_install & 1) + (node_install & 1)
+    let dom_install = rts_dom_bridge::install as usize;
+    #[cfg(feature = "ui")]
+    let ui_install = rts_ui::install as usize;
+    #[cfg(not(feature = "ui"))]
+    let ui_install = 0usize;
+    core + (std_install & 1) + (node_install & 1) + (dom_install & 1) + (ui_install & 1)
 }
