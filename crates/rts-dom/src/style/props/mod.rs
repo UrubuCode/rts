@@ -144,7 +144,7 @@ macro_rules! css_props {
                     $( Decl::$efield(v) => target.$efield.merge_over(v), )*
                     Decl::grid_template_columns(v) => target.grid_template_columns = v.clone(),
                     Decl::grid_template_rows(v) => target.grid_template_rows = v.clone(),
-                    Decl::grid_auto_rows(v) => target.grid_auto_rows = *v,
+                    Decl::grid_auto_rows(v) => target.grid_auto_rows = v.clone(),
                     Decl::grid_template_areas(v) => target.grid_template_areas = v.clone(),
                     Decl::grid_justify_items(v) => target.grid_justify_items = *v,
                     Decl::custom_props(v) => target.custom_props = v.clone(),
@@ -179,7 +179,7 @@ macro_rules! css_props {
                     out.push(Decl::grid_template_rows(self.grid_template_rows.clone()));
                 }
                 if self.grid_auto_rows.is_some() {
-                    out.push(Decl::grid_auto_rows(self.grid_auto_rows));
+                    out.push(Decl::grid_auto_rows(self.grid_auto_rows.clone()));
                 }
                 if self.grid_template_areas.is_some() {
                     out.push(Decl::grid_template_areas(self.grid_template_areas.clone()));
@@ -221,7 +221,7 @@ macro_rules! css_props {
                     self.grid_template_rows = other.grid_template_rows.clone();
                 }
                 if other.grid_auto_rows.is_some() {
-                    self.grid_auto_rows = other.grid_auto_rows;
+                    self.grid_auto_rows = other.grid_auto_rows.clone();
                 }
                 if other.grid_template_areas.is_some() {
                     self.grid_template_areas = other.grid_template_areas.clone();

@@ -5,13 +5,16 @@
 claude-ua-form-disabled.html
 claude-ua-headings.html
 claude-ua-th.html
-claude-grid-auto-fill.html
+
+# claude-grid-auto-fill.html e claude-grid-minmax-intrinseco.html: fechados em
+# feat/dom-lote-grid-intrinseco (2026-09-04) — repeat(auto-fill|auto-fit) conta
+# repeticoes por content_w (CSS Grid 1 SS7.2.3.3), minmax()/fit-content()
+# intrinsecos via GridTrack::Intrinsic (SS11.1). Saem da lista.
 
 # --- vaga 4 (PLAN §5), por implementar: medidas no Blink ANTES do codigo ---
 claude-background-camadas.html
 claude-clip-path-inset.html
 claude-cursor-pointer-events.html
-claude-grid-minmax-intrinseco.html
 claude-text-decoration-longhands.html
 claude-text-shadow.html
 claude-transform-nao-afeta-fluxo.html
