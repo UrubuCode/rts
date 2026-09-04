@@ -178,7 +178,38 @@ impl Dom {
             }
         }
 
-        style.computed_value(name, tag.as_deref())
+        // Um comprimento COMPUTADO é absoluto (CSS Values 4 §6.1.1): `42em` é
+        // `672px` no `getComputedStyle`, e é assim que o Blink o serializa
+        // (`claude-flex-item-max-width`, `max-width`). As unidades relativas
+        // resolvem aqui, com a fonte do nó, a da raiz e a viewport; `%` fica
+        // `%` — a sua base é a caixa do pai, que não é uma unidade.
+        let bruto = style.computed_value(name, tag.as_deref());
+        self.comprimento_absoluto(&style, &bruto).unwrap_or(bruto)
+    }
+
+    /// `"42em"` → `Some("672px")` quando o valor é UM comprimento em unidade
+    /// relativa à fonte ou à viewport; `None` para tudo o resto (px, %,
+    /// keywords, listas), que fica como veio.
+    fn comprimento_absoluto(&self, style: &crate::style::ComputedStyle, v: &str) -> Option<String> {
+        let unidade = ["rem", "em", "ex", "ch", "vw", "vh"].into_iter().find(|u| v.ends_with(u))?;
+        let n: f32 = v[..v.len() - unidade.len()].parse().ok()?;
+        let (vw, vh) = self.viewport.get();
+        let rc = crate::style::ResolveCtx {
+            parent_content_w: vw,
+            node_font_size: crate::layout::font_px(style, crate::layout::DEFAULT_FONT_SIZE),
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: vw,
+            viewport_h: vh,
+        };
+        let dim = match unidade {
+            "rem" => crate::style::Dimension::Rem(n),
+            "em" => crate::style::Dimension::Em(n),
+            "ex" => crate::style::Dimension::Ex(n),
+            "ch" => crate::style::Dimension::Ch(n),
+            "vw" => crate::style::Dimension::Vw(n),
+            _ => crate::style::Dimension::Vh(n),
+        };
+        dim.resolve_signed(&rc).map(crate::style::fmt_values::fmt_px)
     }
 
     /// O valor usado de `width` (ou `height`) de um elemento com caixa, como o

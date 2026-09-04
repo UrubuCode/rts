@@ -4,6 +4,17 @@ Responde a uma pergunta e só a essa: **destes N elementos da mesma página,
 quantos têm a mesma caixa no nosso motor e no Chrome, e quais são os piores
 desvios.** Substitui corrigir layout por sintoma.
 
+**2026-09-04 — o Edge serve de Chrome** (`chrome_extract.mjs` procura-o; é o
+mesmo Blink, validado a desvio 0 nas fixtures). Sem Node 22, correr o
+extractor com `bun`. Primeira página real medida com o motor da vaga 7: o
+**Bootstrap cover** (`examples/bootstrap-5.3.8-examples/cover/`, CSS inlinado
+numa página combinada) — 36 de 57 elementos dentro de 1px ao início da
+noite, 39 depois do `max-width` no item flex, **45** depois de o item
+conter os seus floats. O que fica é texto (larguras de fonte aproximadas), o
+`<svg>` do botão e o `position: fixed` desse botão. É a régua que responde
+"quão longe do Chrome numa página real"; o corpus de `tests/css/` responde "o
+que implementámos está certo".
+
 ```bash
 bash scripts/parity/run.sh                 # tudo, tolerância 1px
 TOL=2 TOP=40 bash scripts/parity/run.sh    # outra tolerância / mais desvios

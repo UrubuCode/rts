@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- Fixa: um ITEM de flex é um contexto de formatação independente (CSS
+     Flexbox §4: "establishes an independent formatting context") e por isso
+     CONTÉM os seus floats — como `overflow: hidden` ou `display: flow-root`
+     fazem num bloco. É o `<header class="mb-auto">` do Bootstrap cover: um
+     `<h3 class="float-md-start">` e um `<nav class="float-md-end">` lá dentro,
+     e o header media 0px aqui onde o Blink dá 36. `#item` tem de medir a
+     altura dos floats (40); `#bloco`, o mesmo conteúdo num bloco normal,
+     mede 0 — a diferença é o contexto, não o conteúdo. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="item,bloco,esq,dir">
+<meta name="fixar-estilo" content="float">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .coluna { display: flex; flex-direction: column; background: #eee; margin-bottom: 20px; }
+  #item { background: #fc0; }
+  .esq { float: left; width: 100px; height: 40px; background: #0c0; }
+  .dir { float: right; width: 80px; height: 30px; background: #c0f; }
+  #bloco { background: #0cf; }
+  #depois { clear: both; }
+</style></head>
+<body>
+  <div class="coluna"><div id="item"><div class="esq" id="esq">a</div><div class="dir" id="dir">b</div></div></div>
+  <div id="bloco"><div class="esq">c</div><div class="dir">d</div></div>
+  <div id="depois">fim</div>
+</body>
+</html>

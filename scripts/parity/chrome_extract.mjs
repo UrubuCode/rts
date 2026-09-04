@@ -27,10 +27,14 @@ import { spawn } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+// O Edge é o mesmo Blink e é o que esta máquina tem (validado a desvio 0
+// contra os esperados do Chrome em `scripts/css_fixtures_medir_edge.mjs`).
 const CHROME = [
+  process.env.CHROME_BIN,
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
   "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-  process.env.CHROME_BIN,
+  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
 ].find((p) => p && existsSync(p));
 
 if (!CHROME) {

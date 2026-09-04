@@ -33,41 +33,15 @@ struct FlexItem {
     /// `grid_cols` não têm piso próprio (a coluna de grid não é um item de
     /// conteúdo variável no mesmo sentido).
     min_main: f32,
-}
-
-/// A BASE outer de um item flex no eixo principal: `flex-basis` explícita
-/// (resolvida como o width — respeita box-sizing) + margens; `auto`/ausente →
-/// width/conteúdo ([`child_outer_width`]). O `.col` do Bootstrap tem basis `0%`
-/// → a base é só o frame (e o grow distribui o espaço).
-fn flex_base_outer(
-    dom: &Dom,
-    id: NodeIdx,
-    container_w: f32,
-    parent_font: f32,
-    ctx: &LayoutCtx,
-) -> f32 {
-    let css = dom.computed_style_idx(id).unwrap_or_default();
-    let font = font_px(&css, parent_font);
-    let resolve = ResolveCtx {
-        parent_content_w: container_w,
-        node_font_size: font,
-        root_font_size: crate::style::root_font_size(),
-        viewport_w: ctx.viewport_w,
-        viewport_h: ctx.viewport_h,
-    };
-    let basis = css.flex_basis.and_then(|d| match d {
-        crate::style::Dimension::Auto => None,
-        other => other.resolve(&resolve),
-    });
-    let Some(basis) = basis else {
-        return child_outer_width(dom, id, container_w, parent_font, ctx);
-    };
-    let margin_h = css.margin.resolve_h(&resolve);
-    if css.border_box.unwrap_or(false) {
-        basis + margin_h // border-box: a basis JÁ é a caixa (pad+borda inclusos)
-    } else {
-        basis + margin_h + 2.0 * css.border_width.unwrap_or(0.0) + css.padding.resolve_h(&resolve)
-    }
+    /// tecto de `max-width` (outer) no eixo principal, se declarado: a base e o
+    /// `flex-grow` nunca o ultrapassam (spec §9.7, "clamp"). O
+    /// `.cover-container.w-100.mx-auto{max-width:42em}` do Bootstrap saía com
+    /// a largura toda por isto faltar (`claude-flex-item-max-width`).
+    max_main: Option<f32>,
+    /// `margin-left`/`margin-right: auto` — absorvem o espaço livre da linha
+    /// (spec §8.1) antes do `justify-content`; é o `mx-auto` que centra.
+    auto_esq: bool,
+    auto_dir: bool,
 }
 
 /// Dispõe os filhos HORIZONTAL (flex-row). Implementa gap, justify-content (eixo
@@ -188,11 +162,14 @@ pub(in crate::layout) fn layout_children_horizontal(
                 order: 0,
                 can_stretch: false,
                 min_main: w, // texto solto: o piso é ele mesmo (não quebra aqui).
+                max_main: None,
+                auto_esq: false,
+                auto_dir: false,
             });
             continue;
         }
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
-        let base = flex_base_outer(dom, child, content_w, font_size, ctx);
+        let base = super::flex_limites::flex_base_outer(dom, child, content_w, font_size, ctx);
         let h = child_outer_height(
             dom,
             child,
@@ -208,6 +185,17 @@ pub(in crate::layout) fn layout_children_horizontal(
         // resultado a seguir (a coluna de grid não encolhe por conteúdo), então
         // medir aqui sempre é mais simples que condicionar a medição.
         let min_main = crate::table::min_content(dom, child, font_size, ctx);
+        let (max_main, min_declarado) =
+            super::flex_limites::limites_do_item(&ccss, content_w, font_size, ctx);
+        // `min-width` declarado substitui o piso automático de min-content
+        // (spec §4.5: o mínimo automático só vale com `min-width: auto`).
+        let min_main = min_declarado.unwrap_or(min_main);
+        // A base só é capada pelo tecto e pelo `min-width` DECLARADO: o piso
+        // automático de min-content é do encolhimento, não da base (§9.7).
+        let base = base
+            .min(max_main.unwrap_or(f32::INFINITY))
+            .max(min_declarado.unwrap_or(0.0));
+        let auto = |s: crate::style::Side| s == crate::style::Side::Auto;
         items.push(FlexItem {
             node: child,
             base,
@@ -220,6 +208,9 @@ pub(in crate::layout) fn layout_children_horizontal(
             order: ccss.order.unwrap_or(0),
             can_stretch: ccss.height.is_none(),
             min_main,
+            max_main,
+            auto_esq: auto(ccss.margin.left),
+            auto_dir: auto(ccss.margin.right),
         });
     }
     // `order` reordena ANTES do wrap (sort estável: empate = ordem do documento).
@@ -308,6 +299,11 @@ pub(in crate::layout) fn layout_children_horizontal(
         if free_pre > 0.0 && sum_grow > 0.0 {
             for it in line.iter_mut() {
                 it.main = it.base + free_pre * it.grow / sum_grow;
+                // clamp pelo `max-width` (spec §9.7 passo 4, sem a redistribuição
+                // do excedente pelos outros — corte dito; o Bootstrap não a pede).
+                if let Some(m) = it.max_main {
+                    it.main = it.main.min(m);
+                }
             }
         } else if free_pre < 0.0 {
             // ENCOLHIMENTO com PISO de `min-content` (spec §9.7): a cada
@@ -395,12 +391,20 @@ pub(in crate::layout) fn layout_children_horizontal(
         // e o justify é neutro — correto). Em overflow, ver justify_offsets.
         let sum_main: f32 = line.iter().map(|it| it.main).sum();
         let free = content_w - sum_main - total_gap;
-        let (leading, between) = justify_offsets(justify, free, n);
+        // Margens `auto` no eixo principal repartem o espaço livre POSITIVO entre
+        // si e anulam o `justify-content` (spec §8.1) — `mx-auto` centra,
+        // `margin-left: auto` empurra para a direita.
+        let lados_auto = line.iter().map(|it| usize::from(it.auto_esq) + usize::from(it.auto_dir)).sum::<usize>();
+        let auto_cada = if lados_auto > 0 && free > 0.0 { free / lados_auto as f32 } else { 0.0 };
+        let (leading, between) = if auto_cada > 0.0 { (0.0, 0.0) } else { justify_offsets(justify, free, n) };
 
         let mut x = content_x + leading;
         for (j, it) in line.iter().enumerate() {
             if j > 0 {
                 x += gap + between;
+            }
+            if it.auto_esq {
+                x += auto_cada;
             }
             // align por item: `align-self` vence o `align-items` do container;
             // STRETCH real: item sem height explícito ganha a ALTURA DA LINHA
@@ -444,12 +448,18 @@ pub(in crate::layout) fn layout_children_horizontal(
                 // participam do modelo de caixa de um item flex do jeito que
                 // participam do fluxo de bloco (não colapsam com irmãos), então
                 // a closure devolve zero — o valor nem é lido por quem chama.
+                // Um item com margem `auto` no eixo principal já foi colocado
+                // AQUI (o `x` acima): a largura disponível que o bloco dele
+                // recebe é o seu próprio `main`, senão o bloco reparte de novo o
+                // espaço livre do contentor e centra duas vezes (608 onde o
+                // Blink dá 304, `claude-flex-item-max-width`).
+                let avail = if it.auto_esq || it.auto_dir { it.main } else { content_w };
                 layout_block_reusing(
                     dom,
                     it.node,
                     x,
                     item_y,
-                    content_w,
+                    avail,
                     container_content_h,
                     || (0.0, 0.0),
                     Some(it.main),
@@ -462,6 +472,9 @@ pub(in crate::layout) fn layout_children_horizontal(
                 );
             }
             x += it.main;
+            if it.auto_dir {
+                x += auto_cada;
+            }
         }
         line_y += line_h + row_gap + line_align_between;
     }
