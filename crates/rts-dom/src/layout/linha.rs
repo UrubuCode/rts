@@ -343,7 +343,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         // tamanho já medido. Só se pinta quando há pixels — e aí é
                         // `layout_image` que o faz, o mesmo caminho do fluxo de bloco,
                         // em vez de um segundo emissor de imagem só para o inline.
-                        if dom.image_of(a_idx).is_some() {
+                        if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
                             layout_image(dom, a_idx, &icss, seg_x, cy, seg.ww.max(1.0), ctx, list);
                         }
@@ -399,7 +399,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 let ja_registado = matches!(
                     kind,
                     AtomicKind::Widget | AtomicKind::Block | AtomicKind::ArestaInicio | AtomicKind::ArestaFim
-                ) || (kind == AtomicKind::Replaced && dom.image_of(a_idx).is_some());
+                ) || (kind == AtomicKind::Replaced && dom.image_dims(a_idx).is_some());
                 if !ja_registado {
                     let propria = match kind {
                         // `Marker`: inline SEM conteúdo (`<span></span>`) —

@@ -164,7 +164,50 @@ impl Dom {
             }
         }
 
+        // `width`/`height` são o caso especial do CSSOM ("resolved value"): num
+        // elemento que gera caixa, `getComputedStyle` responde o valor USADO em
+        // px — `4px` para um `<img>` sem dimensões e com um PNG de 4×2, nunca
+        // `auto` (`claude-img-natural`). É a caixa do layout menos padding e
+        // borda (em `content-box`); em `border-box` é a própria caixa.
+        if tag.is_some()
+            && matches!(name.trim(), "width" | "height")
+            && style.effective_display() != Some(crate::style::DisplayKind::None)
+        {
+            if let Some(px) = self.used_size(id, &style, name.trim() == "width") {
+                return crate::style::fmt_values::fmt_px(px);
+            }
+        }
+
         style.computed_value(name, tag.as_deref())
+    }
+
+    /// O valor usado de `width` (ou `height`) de um elemento com caixa, como o
+    /// `getComputedStyle` o serializa. `None` se o layout não lhe deu caixa.
+    fn used_size(&self, id: NodeId, style: &crate::style::ComputedStyle, largura: bool) -> Option<f32> {
+        let idx = self.resolve(id)?;
+        let (vw, vh) = self.viewport.get();
+        let (w, h) = crate::layout::medidor_ativo::with_active(|measurer| {
+            let context = crate::layout::LayoutCtx { viewport_w: vw, viewport_h: vh, measurer };
+            crate::layout::bounding_rect(self, idx, &context).map(|r| (r.w, r.h))
+        })?;
+        if style.border_box.unwrap_or(false) {
+            return Some(if largura { w } else { h });
+        }
+        let font = crate::layout::font_px(style, crate::layout::DEFAULT_FONT_SIZE);
+        let rc = crate::style::ResolveCtx {
+            parent_content_w: vw,
+            node_font_size: font,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: vw,
+            viewport_h: vh,
+        };
+        let [bt, br, bb, bl] = crate::style::borders::used_widths(style);
+        let p = &style.padding;
+        Some(if largura {
+            (w - p.resolve_h(&rc) - bl - br).max(0.0)
+        } else {
+            (h - p.resolve_v(&rc) - bt - bb).max(0.0)
+        })
     }
 
     /// `el.style.<name>` (getPropertyValue) — o valor INLINE da propriedade (só o

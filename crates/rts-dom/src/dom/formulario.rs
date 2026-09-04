@@ -142,6 +142,18 @@ impl Dom {
         self.image_pixels.get(&idx).copied()
     }
 
+    /// As dimensões da imagem de um nó, venha ela por handle (`set_image`) ou
+    /// guardada no documento (`set_pixel_data`, o caminho de `data:` e do
+    /// `<canvas>`). É a pergunta que o layout faz — "tem tamanho natural?" — e
+    /// antes era feita só ao handle, por isso um PNG embutido não dava caixa.
+    pub fn image_dims(&self, idx: NodeIdx) -> Option<(u32, u32)> {
+        self.image_pixels
+            .get(&idx)
+            .map(|(_, _, w, h)| (*w, *h))
+            .or_else(|| self.own_pixels.get(&idx).map(|(_, w, h)| (*w, *h)))
+            .filter(|(w, h)| *w > 0 && *h > 0)
+    }
+
     /// `true` se o `NodeIdx` cru é um `<input>`/`<textarea>` (para o hit-test de foco).
     pub fn is_text_input_idx(&self, idx: NodeIdx) -> bool {
         matches!(&self.nodes.get(idx).map(|n| &n.kind),

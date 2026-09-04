@@ -261,7 +261,7 @@ pub(in crate::layout) fn layout_children_vertical(
         }
         let (child_block, child_inline_block) = match &dom.node(child).kind {
             NodeKind::Element { tag } => {
-                let replaced = (tag == "img" && dom.image_of(child).is_some())
+                let replaced = (tag == "img" && dom.image_dims(child).is_some())
                     || tag == "svg"
                     || tag == "canvas";
                 let effective = child_css.as_ref().and_then(|c| c.effective_display());

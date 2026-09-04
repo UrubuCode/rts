@@ -86,7 +86,7 @@ pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             // Não é `return`: um `<img>` sem atributos ainda pode ganhar caixa
             // pelo CSS, e quem responde isso são as regras no fim desta função.
             if tag == "img"
-                && (dom.image_of(id).is_some()
+                && (dom.image_dims(id).is_some()
                     || dom.node(id).attr("width").is_some()
                     || dom.node(id).attr("height").is_some())
             {
