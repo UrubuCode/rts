@@ -19,6 +19,7 @@
 // getters. `assign`/`replace`/`reload` são no-op logados (não há navegação real
 // dentro de um script; o host controla a navegação).
 class WindowLocation {
+  _dom: i64;
   _href: string;
   _protocol: string;
   _host: string;
@@ -28,7 +29,8 @@ class WindowLocation {
   _search: string;
   _hash: string;
 
-  constructor(url: string) {
+  constructor(domHandle: i64, url: string) {
+    this._dom = domHandle;
     this._href = url;
     // protocolo
     let rest = url;
@@ -44,6 +46,10 @@ class WindowLocation {
     const hp = rest.indexOf("#");
     if (hp >= 0) { hash = rest.substring(hp); rest = rest.substring(0, hp); }
     this._hash = hash;
+    // O `:target` (lote O) lê o fragmento do `Dom`, não daqui — uma URL com
+    // `#x` já na primeira carga tem de marcar o alvo, do mesmo jeito que uma
+    // navegação com `location.hash =` marca (ver o setter abaixo).
+    dom.setLocationHash(domHandle, hash.length > 0 ? hash.substring(1) : "");
     // search
     let search = "";
     const qp = rest.indexOf("?");
@@ -73,6 +79,13 @@ class WindowLocation {
   get pathname(): string { return this._pathname; }
   get search(): string { return this._search; }
   get hash(): string { return this._hash; }
+  // `location.hash = "#x"` (ou `"x"`, ambos válidos na spec) — a única
+  // navegação real que este motor tem: muda o fragmento e o `:target` do
+  // `Dom` segue (lote O, `Dom::set_location_hash`).
+  set hash(v: string) {
+    this._hash = v.length > 0 && v.charAt(0) !== "#" ? "#" + v : v;
+    dom.setLocationHash(this._dom, v.charAt(0) === "#" ? v.substring(1) : v);
+  }
   get origin(): string { return this._protocol + "//" + this._host; }
 
   // navegação: o host decide; aqui é no-op (o script não navega sozinho).
@@ -174,7 +187,7 @@ class WindowImpl {
 
   constructor(domHandle: i64, url: string, vw: number, vh: number) {
     this._doc = new Document(domHandle);
-    this._loc = new WindowLocation(url);
+    this._loc = new WindowLocation(domHandle, url);
     this._nav = new WindowNavigator();
     this._hist = new WindowHistory();
     this._ls = new WebStorage();

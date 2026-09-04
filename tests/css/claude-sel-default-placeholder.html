@@ -1,32 +1,38 @@
 <!DOCTYPE html>
-<!-- Fixa `:default` (opção pré-selecionada, checkbox marcado, botão submit
-     por default) e `:placeholder-shown` (campo vazio com placeholder) no
-     mesmo ficheiro — cada um é uma pergunta estática sobre o markup, sem
-     estado vivo (ao contrário de `:hover`/`:active`), então cabem juntos
-     sem um interferir na medição do outro. -->
+<!-- Fixa `:default` (checkbox marcado, botão submit por default) e
+     `:placeholder-shown` (campo vazio com placeholder) — cada um é uma
+     pergunta estática sobre o markup, sem estado vivo, então cabem no mesmo
+     ficheiro sem um interferir na medição do outro.
+     `<option>` FICOU DE FORA: o Blink não gera caixa nenhuma para um
+     `<option>` fora do popup fechado do `<select>` (`getBoundingClientRect`
+     dá sempre 0×0, mesmo com CSS explícito) — não é um desvio de `:default`,
+     é uma diferença de MODELO entre os dois motores, e vale um comentário em
+     `listitem`/`replaced.rs`, não uma tentativa de igualar geometria aqui. O
+     `:default` de `<option>` já está pinado em Rust
+     (`dom/tests/selectores_lote_o.rs::default_casa_a_opcao_pre_selecionada…`).
+     `display:block` + tamanho explícito em checkbox/botão para que a caixa
+     seja a mesma CSS pede em qualquer motor — sem isso o checkbox nativo tem
+     um `vertical-align`/margem que o Chrome e este motor não concordam (e não
+     é o que `:default` decide), e o botão mede a largura do TEXTO. -->
 <html>
 <head>
-<meta name="fixar-estilo-em" content="opcao-um,opcao-dois,marcado,nao-marcado,botao-a,botao-b,vazio,com-valor">
-<meta name="fixar-estilo" content="color,font-weight">
+<meta name="fixar-estilo-em" content="marcado,nao-marcado,botao-a,botao-b,vazio,com-valor">
+<meta name="fixar-estilo" content="color,background-color">
 <style>
   body { margin: 0; }
-  input, button, option { color: #000; font-weight: normal; }
-  :default { color: #ff0000; font-weight: bold; }
+  input, button { display: block; width: 40px; height: 20px; margin: 0; color: #000000; background-color: #ffffff; }
+  :default { background-color: #ff0000; }
   :placeholder-shown { color: #0000ff; }
 </style>
 </head>
 <body>
-  <select>
-    <option id="opcao-um" value="1">um</option>
-    <option id="opcao-dois" value="2" selected>dois</option>
-  </select>
   <input id="marcado" type="checkbox" checked>
   <input id="nao-marcado" type="checkbox">
   <form>
-    <button id="botao-a" type="submit">primeiro</button>
-    <button id="botao-b" type="submit">segundo</button>
+    <button id="botao-a" type="submit"></button>
+    <button id="botao-b" type="submit"></button>
   </form>
   <input id="vazio" placeholder="nome">
-  <input id="com-valor" placeholder="nome" value="já preenchido">
+  <input id="com-valor" placeholder="nome" value="x">
 </body>
 </html>

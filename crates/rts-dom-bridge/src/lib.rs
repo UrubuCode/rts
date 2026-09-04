@@ -38,6 +38,7 @@ use rts_core::entry::{self, Context, Provided};
 
 mod engine;
 mod events;
+mod location;
 mod nodes;
 mod scroll;
 mod travessia;
@@ -66,6 +67,7 @@ pub(crate) fn dom_members() -> Vec<(&'static str, Provided)> {
         .chain(travessia::MEMBERS)
         .chain(events::MEMBERS)
         .chain(scroll::MEMBERS)
+        .chain(location::MEMBERS)
         .copied()
         .collect()
 }
