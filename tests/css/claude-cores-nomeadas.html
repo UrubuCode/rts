@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- Fixa: os ~148 nomes de cor do CSS Color 4 (os "extended color keywords":
+     `lightblue`, `pink`, `lightgreen`, `orange`, `rebeccapurple`, …) são cores
+     como `red` — a tabela aqui só tinha os 16+ básicos do CSS1 e o resto caía
+     como declaração inválida, deixando a caixa sem fundo. Dezasseis reftests
+     de flexbox do WPT pintam com estes nomes. A leitura é o `background-color`
+     computado; as caixas são só para os nomes ficarem visíveis. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="c1,c2,c3,c4,c5,c6,c7,c8">
+<meta name="fixar-estilo" content="background-color,color">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 60px; height: 20px; margin-bottom: 4px; }
+  #c1 { background: lightblue; color: pink; }
+  #c2 { background: lightgreen; color: orange; }
+  #c3 { background: rebeccapurple; color: lightgray; }
+  #c4 { background: darkslateblue; color: gold; }
+  #c5 { background: cornflowerblue; color: tomato; }
+  #c6 { background: papayawhip; color: steelblue; }
+  #c7 { background: mediumseagreen; color: crimson; }
+  #c8 { background: lightgoldenrodyellow; color: darkorange; }
+</style></head>
+<body>
+  <div id="c1">a</div><div id="c2">b</div><div id="c3">c</div><div id="c4">d</div>
+  <div id="c5">e</div><div id="c6">f</div><div id="c7">g</div><div id="c8">h</div>
+</body>
+</html>

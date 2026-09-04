@@ -289,32 +289,14 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     (to(r1), to(g1), to(b1))
 }
 
+/// Um nome de cor: os 148 do CSS Color 4 (`cores_nomeadas`) mais
+/// `transparent`, que não é um nome de cor mas um `rgba(0,0,0,0)` com nome.
+/// Havia aqui uma lista de 24 à mão; `lightblue` caía como inválido e a caixa
+/// ficava sem fundo (`claude-cores-nomeadas`).
 fn named_color(v: &str) -> Option<Rgba> {
-    Some(match v.to_ascii_lowercase().as_str() {
-        "black" => rgba(0, 0, 0),
-        "white" => rgba(255, 255, 255),
-        "red" => rgba(255, 0, 0),
-        // CSS `green` é #008000 (0,128,0), NÃO verde puro — esse é `lime`.
-        "green" => rgba(0, 128, 0),
-        "lime" => rgba(0, 255, 0),
-        "blue" => rgba(0, 0, 255),
-        "yellow" => rgba(255, 255, 0),
-        "gray" | "grey" => rgba(128, 128, 128),
-        "silver" => rgba(192, 192, 192),
-        "lightgray" | "lightgrey" => rgba(211, 211, 211),
-        "darkgray" | "darkgrey" => rgba(169, 169, 169),
-        "orange" => rgba(255, 165, 0),
-        "purple" => rgba(128, 0, 128),
-        "cyan" | "aqua" => rgba(0, 255, 255),
-        "magenta" | "fuchsia" => rgba(255, 0, 255),
-        "maroon" => rgba(128, 0, 0),
-        "navy" => rgba(0, 0, 128),
-        "olive" => rgba(128, 128, 0),
-        "teal" => rgba(0, 128, 128),
-        "pink" => rgba(255, 192, 203),
-        "brown" => rgba(165, 42, 42),
-        "gold" => rgba(255, 215, 0),
-        "transparent" => 0x0000_0000,
-        _ => return None,
-    })
+    if v.eq_ignore_ascii_case("transparent") {
+        return Some(0x0000_0000);
+    }
+    let rgb = super::cores_nomeadas::rgb_de_nome(v)?;
+    Some(rgba((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8))
 }
