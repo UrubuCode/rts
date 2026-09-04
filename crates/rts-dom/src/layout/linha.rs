@@ -143,6 +143,10 @@ pub(in crate::layout) fn layout_inline_flow(
         font_size,
         mono,
         crate::inline_box::quebra_dentro(parent_css),
+        parent_css
+            .white_space
+            .map(|w| w.preserves_newlines())
+            .unwrap_or(false),
         ctx.measurer,
     );
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque

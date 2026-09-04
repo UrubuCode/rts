@@ -1,5 +1,14 @@
 use super::*;
 
+thread_local! {
+    /// Cache do ASCENT real (`StyledMetrics::ascent`) por (contexto, tamanho) —
+    /// mesmo padrão de `LINE_HEIGHT_CACHE` em `mod.rs`. Vive aqui e não lá
+    /// porque este ficheiro é quem o consome, e `mod.rs` — onde as duas caches
+    /// irmãs estão — é de outro agente nesta tarefa (o registo do medidor
+    /// ativo).
+    static FONT_ASCENT_CACHE: std::cell::RefCell<std::collections::HashMap<(usize, u32), f32>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
 
 impl EguiMeasurer {
     /// A família egui p/ (mono, bold, italic). Peso e estilo são dois EIXOS, não
@@ -83,5 +92,48 @@ impl TextMeasurer for EguiMeasurer {
             cache.insert(key, height);
         });
         height
+    }
+
+    /// ASCENT real da fonte carregada — `StyledMetrics::ascent` (epaint
+    /// 0.34.3, `text/font.rs`, "distance from the top to the baseline"),
+    /// substituindo a aproximação calibrada do trait (`style::ASCENT_RATIO`).
+    /// É a mesma pergunta que `line_height` já faz a `styled_metrics` para
+    /// `row_height` — só que aqui é o outro campo da mesma struct — daí o
+    /// mesmo padrão de cache por (contexto, tamanho).
+    ///
+    /// CORTE: `font_descent` continua na aproximação do trait.
+    /// `StyledMetrics` não tem um campo "descent" — só `ascent` e
+    /// `row_height` (que inclui leading) — e `row_height − ascent` não é o
+    /// descent da fonte. Sem uma medição própria contra o Chrome para essa
+    /// combinação, a aproximação de `0.3125×size` fica: é a que
+    /// `docs/ui/css-implementation-gaps.md` já confirma certa
+    /// (`claude-display-basico.html`, `depois-do-none.y`).
+    fn font_ascent(&self, size: f32) -> f32 {
+        let key = (self.ctx as *const egui::Context as usize, size.to_bits());
+        if let Some(ascent) = FONT_ASCENT_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
+            return ascent;
+        }
+        let font = Self::font_id(size, false, false, false);
+        let pixels_per_point = self.ctx.pixels_per_point();
+        let ascent = self.ctx.fonts_mut(|f| {
+            f.fonts
+                .font(&font.family)
+                .styled_metrics(
+                    pixels_per_point,
+                    font.size,
+                    &egui::epaint::text::VariationCoords::default(),
+                )
+                .ascent
+        });
+        FONT_ASCENT_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.len() >= 256 && !cache.contains_key(&key) {
+                if let Some(old_key) = cache.keys().next().copied() {
+                    cache.remove(&old_key);
+                }
+            }
+            cache.insert(key, ascent);
+        });
+        ascent
     }
 }

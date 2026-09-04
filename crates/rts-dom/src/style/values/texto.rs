@@ -163,6 +163,18 @@ impl WhiteSpace {
     pub fn preserves_spaces(self) -> bool {
         matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap)
     }
+
+    /// `true` se um `\n` LITERAL do texto força uma quebra de linha — os três
+    /// valores que preservam quebra (`pre`/`pre-wrap`/`pre-line`), incluindo
+    /// `pre-line`, que colapsa ESPAÇOS mas continua a preservar `\n`
+    /// (`preserves_spaces` responde `false` para ele por essa razão — são
+    /// perguntas diferentes, e é por isso que este método existe à parte).
+    pub fn preserves_newlines(self) -> bool {
+        matches!(
+            self,
+            WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::PreLine
+        )
+    }
 }
 
 /// `text-transform` — transformação de caixa do texto.

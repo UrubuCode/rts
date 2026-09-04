@@ -13,6 +13,7 @@ mod float_corpus;
 mod grid;
 mod grid_corpus;
 mod inline;
+mod inline_corpus;
 mod pintura;
 mod posicionado;
 mod position_corpus;

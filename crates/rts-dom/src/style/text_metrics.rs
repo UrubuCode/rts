@@ -112,3 +112,53 @@ pub fn spacing_width(n_chars: usize, letter_spacing: f32) -> f32 {
 /// A razão altura-da-linha / font-size do `normal`. Aproximação da fonte padrão
 /// do Chrome — ver a tabela de calibração no topo do módulo.
 pub const NORMAL_RATIO: f32 = 1.125;
+
+/// ## O modelo de baseline de `vertical-align` (2026-09-04)
+///
+/// As quatro constantes abaixo — `ASCENT_RATIO`, `DESCENT_RATIO`,
+/// `X_HEIGHT_RATIO`, `SUB_OFFSET_RATIO`, `SUPER_OFFSET_RATIO` — calibram o
+/// modelo de linha em `layout::alinhamento_vertical`: cada átomo de uma linha
+/// carrega uma altura e um `vertical-align`, e essas constantes convertem os
+/// dois num deslocamento contra a baseline (CSS 2.1 §10.8.1). Sem elas o motor
+/// só sabia posicionar `middle`/`bottom`, e só na corrida de inline-blocks —
+/// ver `docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/05-texto-e-fontes.md`.
+///
+/// **A calibração**, toda de `tests/css/claude-vertical-align.esperado.json`
+/// (Chrome, 1280×800, 2026-08-18): `#linha { font-size:20px }` herda
+/// `line-height:20px` de `body { font:16px/20px monospace }` — um comprimento
+/// absoluto, não escala com o font-size do filho. Sete `inline-block` vazios
+/// (sem baseline própria: CSS 2.1 diz que a margem de BAIXO fica na baseline)
+/// dão sete equações.
+///
+/// A baseline da linha sai de `#base` (`vertical-align:baseline`, h=20):
+/// `rect.y=14.91` → a baseline (fundo da caixa, por não ter baseline própria)
+/// fica em `14.91+20 = 34.91`. As outras seis leem-se contra ela:
+///
+/// | id | h | rect.y | topo-acima-da-baseline | razão |
+/// |---|---:|---:|---:|---|
+/// | `#texto-topo` (`text-top`) | 25 | 16.91 | `34.91−16.91=18.0` | `18/20 = 0.90` → `ASCENT_RATIO` |
+/// | `#meio` (`middle`) | 40 | 10.0 | `34.91−10=24.91=20+4.91` | `4.91·2/20 = 0.491` → `X_HEIGHT_RATIO` |
+/// | `#sub` (`sub`) | 20 | 19.91 | `34.91−19.91=15=20−5` | `5/20 = 0.25` → `SUB_OFFSET_RATIO` |
+/// | `#super` (`super`) | 20 | 7.25 | `34.91−7.25=27.66=20+7.66` | `7.66/20 = 0.383` → `SUPER_OFFSET_RATIO` |
+///
+/// `#topo`/`#fundo` (`top`/`bottom`) não entram nesta tabela: são relativos à
+/// CAIXA DE LINHA, não à baseline, e fecham o envelope depois — a derivação
+/// completa (por que a linha acaba com 50px de altura e não os 42.75 que as
+/// seis linhas acima já dariam) vive no doc do módulo que as consome.
+///
+/// `ASCENT_RATIO` substitui o `0.9375` que `TextMeasurer::font_ascent` tinha:
+/// era uma aproximação sem medição, e a fixture de `display` que dependia dele
+/// (`em-linha.y=55` em `claude-display-basico.html`, via `font_size=16`) move
+/// meio pixel (`55.6`) — dentro da tolerância de 1px do corpus, então fica.
+/// `DESCENT_RATIO` NÃO mudou: `0.3125` já reproduz `depois-do-none.y=75` da
+/// MESMA fixture (`font_size=16`: `75 = 30+40+16×0.3125`), e nada na medição
+/// de 2026-09-04 dá um segundo ponto para recalibrá-lo.
+pub const ASCENT_RATIO: f32 = 0.90;
+/// Ver [`ASCENT_RATIO`] — não mudou nesta calibração.
+pub const DESCENT_RATIO: f32 = 0.3125;
+/// Ver [`ASCENT_RATIO`].
+pub const X_HEIGHT_RATIO: f32 = 0.491;
+/// Ver [`ASCENT_RATIO`]. Fração do font-size que `sub` desce a caixa.
+pub const SUB_OFFSET_RATIO: f32 = 0.25;
+/// Ver [`ASCENT_RATIO`]. Fração do font-size que `super` sobe a caixa.
+pub const SUPER_OFFSET_RATIO: f32 = 0.383;

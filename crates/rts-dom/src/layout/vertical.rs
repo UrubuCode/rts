@@ -129,7 +129,7 @@ pub(in crate::layout) fn layout_children_vertical(
         ($y:expr) => {
             if !ib_run.is_empty() {
                 $y = layout_inline_block_line(
-                    dom, &ib_run, content_x, $y, content_w, avail_h, css, ctx, list,
+                    dom, &ib_run, content_x, $y, content_w, avail_h, css, font_size, ctx, list,
                 );
                 ib_run.clear();
                 borda = $y;
