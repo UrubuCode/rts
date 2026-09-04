@@ -10,8 +10,8 @@ extractor com `bun`. Primeira página real medida com o motor da vaga 7: o
 **Bootstrap cover** (`examples/bootstrap-5.3.8-examples/cover/`, CSS inlinado
 numa página combinada) — 36 de 57 elementos dentro de 1px ao início da
 noite, 39 depois do `max-width` no item flex, 45 depois de o item
-conter os seus floats, **45** depois de a largura intrínseca colapsar o
-whitespace. O que fica é texto (larguras de fonte aproximadas), o
+conter os seus floats, 45 depois de a largura intrínseca colapsar o
+whitespace, **45** com os atributos do `<svg>` como comprimentos. O que fica é texto (larguras de fonte aproximadas), o
 `<svg>` do botão e o `position: fixed` desse botão. É a régua que responde
 "quão longe do Chrome numa página real"; o corpus de `tests/css/` responde "o
 que implementámos está certo".
