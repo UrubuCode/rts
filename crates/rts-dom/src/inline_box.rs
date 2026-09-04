@@ -45,6 +45,14 @@ pub(crate) enum AtomicKind {
     /// fundo e borda próprios, logo precisa de `layout_block` para os pintar,
     /// mas continua a ser conteúdo de linha e não deve parti-la.
     Block,
+    /// A ARESTA de um inline que flui por fragmentos (`inline_por_fragmentos`):
+    /// o padding+borda esquerdo antes do primeiro filho, o direito depois do
+    /// último. Ocupa largura na linha (`ww`), não tem altura própria, e cola-se
+    /// à palavra vizinha (um átomo nunca abre oportunidade de quebra) — é o que
+    /// faz `<span style="padding:0 4px">aaa` medir 4px a mais na primeira linha
+    /// e nada nas seguintes, como o Blink.
+    ArestaInicio,
+    ArestaFim,
 }
 
 /// Este carácter é WHITESPACE para o CSS?
@@ -182,6 +190,45 @@ pub(crate) fn cria_caixa_apesar_de_inline(css: &ComputedStyle) -> bool {
         || css.box_shadow.is_some()
         || ocupa_espaco(&css.padding)
         || borda_ocupa_espaco(css)
+}
+
+/// Este inline COM conteúdo flui por FRAGMENTOS de linha (CSS 2.1 §9.2.2) em
+/// vez de ser promovido a `inline-block`: tem uma superfície (fundo, borda,
+/// padding, sombra, gradiente) e nada que o tornasse uma caixa atómica —
+/// `width`/`height` não se aplicam a um inline, e a margem fica no caminho
+/// antigo por ser o único destes que a promoção respeitava. Sob esta pergunta
+/// o texto dele quebra com a linha e a caixa é a UNIÃO dos fragmentos
+/// (`claude-inline-fragmentos`); antes, o span era um átomo que nem quebrava.
+pub(crate) fn inline_por_fragmentos(css: &ComputedStyle) -> bool {
+    cria_caixa_apesar_de_inline(css)
+        && css.width.is_none()
+        && css.height.is_none()
+        && !ocupa_espaco(&css.margin)
+}
+
+/// As quatro arestas (padding + borda pintada) de um inline por fragmentos, em
+/// px: `[esquerda, direita, cima, baixo]`. `base_w` é a base das percentagens.
+pub(crate) fn arestas_do_inline(
+    css: &ComputedStyle,
+    fonte: f32,
+    base_w: f32,
+    ctx: &crate::layout::LayoutCtx,
+) -> [f32; 4] {
+    let rc = crate::style::ResolveCtx {
+        parent_content_w: base_w,
+        node_font_size: fonte,
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let p = &css.padding;
+    let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
+    [
+        p.left.resolve(&rc).unwrap_or(0.0) + bl,
+        p.right.resolve(&rc).unwrap_or(0.0) + br,
+        p.top.resolve(&rc).unwrap_or(0.0) + bt,
+        p.bottom.resolve(&rc).unwrap_or(0.0) + bb,
+    ]
 }
 
 /// A altura da CAIXA de um elemento inline — que NÃO é a altura da linha.

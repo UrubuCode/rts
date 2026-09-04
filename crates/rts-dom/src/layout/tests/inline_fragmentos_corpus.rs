@@ -112,3 +112,31 @@ fn display_basico_contra_o_chrome() {
     afirma_rect(&dom, &list, "#em-linha-bloco", (26.39, 30.0, 120.0, 40.0));
     afirma_rect(&dom, &list, "#depois-do-none", (0.0, 75.0, 80.0, 25.0));
 }
+
+/// Lote S-inline-2, `tests/css/claude-inline-fragmentos.html` (Edge 152,
+/// 2026-09-04): um `<span>` com fundo/padding/borda que quebra em três linhas
+/// é a UNIÃO dos fragmentos (`[0,-2,102.77,63]`), o contentor tem três linhas
+/// de 20px (60, não 22) e a borda não engrossa a linha (`#cx2` = 20).
+#[test]
+fn inline_com_superficie_quebra_em_fragmentos_e_nao_engrossa_a_linha() {
+    let html = r#"<style>
+      body { margin: 0; font: 16px/20px monospace; }
+      .cx { width: 130px; background: #eee; margin-bottom: 10px; }
+      span { background: #fc0; padding: 0 4px; border: 2px solid #00c; }
+    </style>
+    <div class="cx" id="cx1"><span id="quebra">aaa bbb ccc ddd eee fff ggg</span></div>
+    <div class="cx" id="cx2"><span id="controlo">aaa bbb</span></div>"#;
+    let (dom, list) = geometria(html, 1280.0);
+    afirma_rect(&dom, &list, "#cx1", (0.0, 0.0, 130.0, 60.0));
+    afirma_rect(&dom, &list, "#quebra", (0.0, -2.0, 102.77, 63.0));
+    afirma_rect(&dom, &list, "#cx2", (0.0, 70.0, 130.0, 20.0));
+    afirma_rect(&dom, &list, "#controlo", (0.0, 68.0, 73.58, 23.0));
+    // o fundo pinta-se POR FRAGMENTO: três para `#quebra`, um para `#controlo`.
+    let mut fundos = 0;
+    list.walk(|item, _, _| {
+        if let crate::layout::DisplayItem::SolidRect { color: 0xFFCC00FF, .. } = item {
+            fundos += 1;
+        }
+    });
+    assert_eq!(fundos, 4, "um fundo por fragmento de linha");
+}

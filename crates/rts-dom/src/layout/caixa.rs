@@ -134,7 +134,8 @@ pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
                 return css
                     .as_deref()
                     .is_some_and(crate::inline_box::cria_caixa_apesar_de_inline)
-                    && tem_conteudo_para_fragmento(dom, id);
+                    && tem_conteudo_para_fragmento(dom, id)
+                    && !css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos);
             }
             css.as_ref().and_then(|c| c.effective_display()).is_some()
                 || crate::block::lookup(tag).is_some()
@@ -147,8 +148,11 @@ pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
                 // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`. E só
                 // quando tem CONTEÚDO — ver `tem_conteudo_para_fragmento` acima, a
                 // mesma razão do ramo `display:inline` logo atrás.
+                // …e não quando flui por FRAGMENTOS (`inline_por_fragmentos`):
+                // aí a superfície pinta-se por linha e a caixa é a união.
                 || (css.as_deref().is_some_and(crate::inline_box::cria_caixa_de_bloco)
-                    && tem_conteudo_para_fragmento(dom, id))
+                    && tem_conteudo_para_fragmento(dom, id)
+                    && !css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos))
         }
         _ => false,
     }
@@ -206,6 +210,7 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
             // caixa se prenda — fica `Marker` (0×0), não `inline-block`.
             css.as_deref().is_some_and(crate::inline_box::cria_caixa_de_bloco)
                 && tem_conteudo_para_fragmento(dom, id)
+                && !css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos)
         }
         _ => false,
     }

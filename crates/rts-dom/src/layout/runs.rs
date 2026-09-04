@@ -314,6 +314,32 @@ pub(in crate::layout) fn collect_runs(
                 // inteiro é tratado em `layout_inline_flow`, que é onde ele se
                 // sabe dono; os dois casos não se sobrepõem.
                 let before = out.len();
+                // As ARESTAS de um inline por fragmentos (`AtomicKind::Aresta*`):
+                // padding+borda esquerdo antes do conteúdo, direito depois —
+                // largura na linha, sem altura, colados ao texto vizinho.
+                let arestas = css
+                    .as_deref()
+                    .filter(|c| is_container && crate::inline_box::inline_por_fragmentos(c))
+                    .filter(|_| super::caixa::tem_conteudo_para_fragmento(dom, id))
+                    .map(|c| {
+                        let fonte = font_px(c, DEFAULT_FONT_SIZE);
+                        crate::inline_box::arestas_do_inline(c, fonte, avail_w, ctx)
+                    });
+                let aresta = |kind: AtomicKind, ww: f32, owners: &[NodeIdx]| InlineRun {
+                    text: String::new(),
+                    color,
+                    bold: false,
+                    italic: false,
+                    deco: 0,
+                    owners: owners.to_vec(),
+                    atomic: Some((id, kind)),
+                    ww,
+                    wh: 0.0,
+                };
+                if let Some([esq, ..]) = arestas {
+                    crate::bump!(inline_runs);
+                    out.push(aresta(AtomicKind::ArestaInicio, esq, &owners));
+                }
                 // A cadeia que o fragmento gerado herda. `owners` só contém
                 // `id` quando ele é container inline; um `inline-block` com
                 // `::before` continua a ser dono da sua própria caixa gerada.
@@ -343,6 +369,10 @@ pub(in crate::layout) fn collect_runs(
                     color,
                     italic,
                 ));
+                if let Some([_, dir, ..]) = arestas {
+                    crate::bump!(inline_runs);
+                    out.push(aresta(AtomicKind::ArestaFim, dir, &owners));
+                }
                 // Um inline VAZIO (`<source>`, `<br>`, `<span></span>`) não gerou run
                 // e ficaria sem caixa. O marker dá-lhe a posição na linha sem lhe dar
                 // largura nem altura próprias — que é a caixa que o browser reporta.

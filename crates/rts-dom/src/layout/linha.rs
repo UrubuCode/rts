@@ -1,8 +1,8 @@
 //! FLUXO INLINE: percorrer os filhos de um bloco inline-formatting-context,
 //! montar as linhas e emitir a pintura de cada uma.
 //!
-//! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
-//! alterada — a reconstrução deste ficheiro é byte a byte a do original.
+//! Movido de `layout.rs` na modularização. O fragmento de cada dono e as
+//! superfícies por linha vivem em `inline_fragmentos.rs` (teto de 500).
 
 use super::*;
 
@@ -277,6 +277,11 @@ pub(in crate::layout) fn layout_inline_flow(
         } else {
             cy + meia
         };
+        // As superfícies (fundo/borda) dos inlines por fragmentos desta
+        // linha: acumulam-se ao longo dos segmentos e inserem-se ATRÁS deles.
+        let at_linha = list.items.len();
+        let filhos_antes_da_linha = list.children.len();
+        let mut superficies = super::inline_fragmentos::Superficies::default();
         let text_owner_anchor = if tall_inline_block {
             cy + line_h
         } else {
@@ -365,7 +370,16 @@ pub(in crate::layout) fn layout_inline_flow(
                             list,
                         );
                     }
-                    AtomicKind::Marker | AtomicKind::Break => {}
+                    AtomicKind::Marker
+                    | AtomicKind::Break
+                    | AtomicKind::ArestaInicio
+                    | AtomicKind::ArestaFim => {}
+                }
+                superficies.ver(dom, &seg.owners, seg_x, seg_x + seg.ww);
+                match kind {
+                    AtomicKind::ArestaInicio => superficies.marca(a_idx, true),
+                    AtomicKind::ArestaFim => superficies.marca(a_idx, false),
+                    _ => {}
                 }
                 // A CAIXA DO PRÓPRIO: só regista aqui quem NADA mais registou.
                 // `Widget`/`Block` chamam `layout_input`/`layout_button`/
@@ -380,8 +394,12 @@ pub(in crate::layout) fn layout_inline_flow(
                 // guard do `match` acima) — sem imagem decodificada,
                 // `layout_image` nunca corre e É esta união que dá caixa ao
                 // `<img>` enquanto não há pixels.
-                let ja_registado = matches!(kind, AtomicKind::Widget | AtomicKind::Block)
-                    || (kind == AtomicKind::Replaced && dom.image_of(a_idx).is_some());
+                // Uma aresta não é caixa própria: o dono (que está em `owners`)
+                // recebe-a como fragmento no laço abaixo.
+                let ja_registado = matches!(
+                    kind,
+                    AtomicKind::Widget | AtomicKind::Block | AtomicKind::ArestaInicio | AtomicKind::ArestaFim
+                ) || (kind == AtomicKind::Replaced && dom.image_of(a_idx).is_some());
                 if !ja_registado {
                     let propria = match kind {
                         // `Marker`: inline SEM conteúdo (`<span></span>`) —
@@ -410,7 +428,7 @@ pub(in crate::layout) fn layout_inline_flow(
                     crate::inline_box::union_rect(
                         list,
                         owner,
-                        fragmento_do_dono(
+                        super::inline_fragmentos::fragmento_do_dono(
                             dom,
                             owner,
                             seg_x,
@@ -428,6 +446,7 @@ pub(in crate::layout) fn layout_inline_flow(
             }
             let ls = parent_css.letter_spacing.unwrap_or(0.0);
             let w = seg.text_width + ls * seg.text.chars().count() as f32;
+            superficies.ver(dom, &seg.owners, seg_x, seg_x + w);
             list.items.push(DisplayItem::Text {
                 x: seg_x,
                 y: text_top,
@@ -444,7 +463,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 crate::inline_box::union_rect(
                     list,
                     owner,
-                    fragmento_do_dono(
+                    super::inline_fragmentos::fragmento_do_dono(
                         dom,
                         owner,
                         seg_x,
@@ -458,44 +477,17 @@ pub(in crate::layout) fn layout_inline_flow(
             }
             seg_x += w;
         }
+        superficies.pintar(
+            dom,
+            list,
+            at_linha,
+            filhos_antes_da_linha,
+            text_owner_anchor,
+            conteudo,
+            tall_inline_block,
+            ctx,
+        );
         cy += line_advance;
     }
     cy
-}
-
-/// O fragmento que ESTE dono recebe desta fatia de linha.
-///
-/// A altura é a content area da fonte DELE, não a do bloco que conduz o fluxo:
-/// um `<span>` de 14px dentro de um título de 17,5px mede 15,75 e não 19,7. Sem
-/// isto, 1 172 dos 1 257 `<span>` da Wikipédia com altura errada tinham
-/// exatamente `1.125 x a fonte de um ANCESTRAL` — quase sempre o bloco quatro
-/// níveis acima.
-///
-/// Fica CENTRADO na content area da linha, que é a mesma aproximação da
-/// meia-entrelinha (o browser alinha pela linha de base; centrar acertou dentro
-/// de 1px no caso medido do `<a>` à volta de uma imagem).
-#[allow(clippy::too_many_arguments)]
-fn fragmento_do_dono(
-    dom: &Dom,
-    dono: NodeIdx,
-    x: f32,
-    y: f32,
-    w: f32,
-    conteudo_da_linha: f32,
-    ctx: &LayoutCtx,
-    align_to_baseline: bool,
-) -> Rect {
-    let Some(css) = dom.computed_style_idx(dono) else {
-        return Rect::new(x, y, w, conteudo_da_linha);
-    };
-    let Some(crate::style::Dimension::Px(fonte)) = css.font_size else {
-        return Rect::new(x, y, w, conteudo_da_linha);
-    };
-    let conteudo = crate::inline_box::altura_do_conteudo(fonte, ctx.measurer);
-    let top = if align_to_baseline {
-        y - ctx.measurer.font_ascent(fonte)
-    } else {
-        y + (conteudo_da_linha - conteudo) / 2.0
-    };
-    Rect::new(x, top, w, conteudo)
 }
