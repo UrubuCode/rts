@@ -19,7 +19,7 @@
 [![Node test suite](https://img.shields.io/badge/Node%20test%20suite-52.4%25-yellow?style=flat-square)](scripts/node_tests/README.md)
 <!-- NODE_SUITE_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
-[![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-98.8%25-brightgreen?style=flat-square)](tests/css/README.md)
+[![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-99.3%25-brightgreen?style=flat-square)](tests/css/README.md)
 <!-- CSS_PARITY_BADGE_END -->
 
 </div>
@@ -102,8 +102,8 @@ _Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.8%   2142/2168 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 94.5%   86/91 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.3%   2168/2184 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 95.7%   88/92 fixtures passing
 ```
 
 Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
@@ -111,9 +111,8 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 - `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
 - `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
 - `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
-- `claude-img-natural.html` — vaga 7 — medida no Edge 152 ANTES do código (lote V-img: `rts:imgdec`, `dom.setImage` e o loader de `data:` não existem no motor novo). Blink: o `<img>` sem atributos mede o tamanho natural do PNG (4×2) e `width` sozinho mantém a razão (40×20).
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **27/31 lots done**, 1 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **29/33 lots done**, 1 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
 *Updated 2026-09-04 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->

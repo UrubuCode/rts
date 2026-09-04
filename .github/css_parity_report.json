@@ -1,14 +1,14 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 86,
-    "total": 91,
-    "pct": 94.5
+    "passing": 88,
+    "total": 92,
+    "pct": 95.7
   },
   "measurements": {
-    "matching": 2142,
-    "total": 2168,
-    "pct": 98.8
+    "matching": 2168,
+    "total": 2184,
+    "pct": 99.3
   },
   "expected_failures": [
     {
@@ -26,10 +26,6 @@
     {
       "fixture": "claude-cursor-pointer-events.html",
       "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)"
-    },
-    {
-      "fixture": "claude-img-natural.html",
-      "razao": "vaga 7 — medida no Edge 152 ANTES do código (lote V-img: `rts:imgdec`, `dom.setImage` e o loader de `data:` não existem no motor novo). Blink: o `<img>` sem atributos mede o tamanho natural do PNG (4×2) e `width` sozinho mantém a razão (40×20)."
     }
   ],
   "dom_lots": {
@@ -60,7 +56,9 @@
       "U-pintura-2 — junção diagonal das bordas; imagens mascaradas na régua",
       "S-inline-2 — inline com superfície por FRAGMENTOS de linha",
       "img-fundo — fundo do `<img>` sem pixels",
-      "T — fontes: `ex`/`ch`, `line-height: normal`, `font-family` como lista"
+      "T — fontes: `ex`/`ch`, `line-height: normal`, `font-family` como lista",
+      "V-img — imagens `data:` no `<img>`",
+      "V-img-2 — `<img>` de ficheiro local; o `<img>` é inline e senta na baseline"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha"
