@@ -439,5 +439,5 @@ pub(in crate::layout) fn inline_widget_size(
     //
     // `None` de altura disponível: uma caixa numa linha não tem containing block
     // de altura definida, logo `height:%` vale `auto`, como no browser.
-    medida_do_input(dom, id, &css, avail_w, None, None, ctx).outer()
+    medida_do_input(dom, id, &css, avail_w, None, None, None, ctx).outer()
 }

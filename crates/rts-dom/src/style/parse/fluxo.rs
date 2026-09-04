@@ -126,3 +126,63 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
     }
     true
 }
+
+/// Aplica o shorthand `flex: none | auto | <grow> [<shrink>] [<basis>]`.
+/// Mapeamentos da spec: `none` = 0 0 auto; `auto` = 1 1 auto; UM número =
+/// grow=N shrink=1 basis=0% (o `.col { flex: 1 0 0% }` já vem com os três).
+///
+/// Movida de `mod.rs` (no teto de linhas, "não cresce" — `PLAN.md` §1) para
+/// junto do seu único chamador, com a correcção que faltava: CSS Values §6.1
+/// só dispensa unidade do número ZERO — `flex: 0 0 4` tem um 3º token "4"
+/// que NÃO é um `<length>` válido, e um shorthand `flex` com QUALQUER parte
+/// inválida cai INTEIRO (grow/shrink/basis ficam nos iniciais 0/1/auto,
+/// nunca escritos por esta função). A versão anterior lia "4" como `4px` via
+/// `parse_dimension`, que aceita número puro como px para as propriedades
+/// que o admitem — correcto ali, errado aqui, onde a spec não admite.
+fn apply_flex_shorthand(css: &mut ComputedStyle, val: &str) {
+    let v = val.trim();
+    if v.eq_ignore_ascii_case("none") {
+        set_if(&mut css.flex_grow, Some(0.0));
+        set_if(&mut css.flex_shrink, Some(0.0));
+        set_if(&mut css.flex_basis, Some(Dimension::Auto));
+        return;
+    }
+    if v.eq_ignore_ascii_case("auto") {
+        set_if(&mut css.flex_grow, Some(1.0));
+        set_if(&mut css.flex_shrink, Some(1.0));
+        set_if(&mut css.flex_basis, Some(Dimension::Auto));
+        return;
+    }
+    let toks: Vec<&str> = v.split_whitespace().collect();
+    // separa os NÚMEROS iniciais (grow [shrink]) de uma dimensão final (basis).
+    let mut nums: Vec<f32> = Vec::new();
+    let mut basis: Option<Dimension> = None;
+    for t in &toks {
+        if basis.is_none() && nums.len() < 2 {
+            if let Ok(n) = t.parse::<f32>() {
+                nums.push(n.max(0.0));
+                continue;
+            }
+        }
+        if basis.is_none() {
+            // um número BRUTO (sem sufixo de unidade) só é válido como basis
+            // quando é exactamente zero — qualquer outro invalida o
+            // shorthand INTEIRO (nada é escrito, nem os tokens já lidos).
+            if t.parse::<f32>().map(|n| n != 0.0).unwrap_or(false) {
+                return;
+            }
+            basis = parse_dimension(t);
+        }
+    }
+    match (nums.len(), basis) {
+        // `flex: 200px` — só a basis.
+        (0, Some(b)) => set_if(&mut css.flex_basis, Some(b)),
+        (0, None) => {} // inválido: ignora (robustez)
+        (n, b) => {
+            set_if(&mut css.flex_grow, Some(nums[0]));
+            set_if(&mut css.flex_shrink, Some(if n >= 2 { nums[1] } else { 1.0 }));
+            // UM número sem basis → basis 0% (spec); com basis explícita, usa-a.
+            set_if(&mut css.flex_basis, Some(b.unwrap_or(Dimension::Percent(0.0))));
+        }
+    }
+}
