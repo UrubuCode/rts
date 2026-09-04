@@ -149,6 +149,7 @@ fn flex_shrink_zero_flex_basis_content_e_min_height_min_content_nao_encolhem() {
     const HTML: &str = r#"<style>
   body { margin: 0; font: 20px/20px monospace; }
   .col { display: flex; flex-direction: column; height: 40px; width: 100px; margin-bottom: 60px; align-items: flex-start; }
+  .col > div { width: 40px; }
   #a { flex: 0 0 content; min-height: 0; background: #c00; }
   #b { overflow: auto; min-height: min-content; background: #0c0; }
   #c { flex: 0 1 auto; min-height: 0; background: #00c; }
@@ -158,11 +159,10 @@ fn flex_shrink_zero_flex_basis_content_e_min_height_min_content_nao_encolhem() {
 <div class="col" id="cc"><div id="c">X<br>X<br>X</div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    // A LARGURA é shrink-to-fit sobre "X" — o `ApproxMeasurer` (n×size×0.5)
-    // e não o medidor real do Blink, então difere do `.esperado.json`
-    // (11,0px) por calibração; é a ALTURA (por `line-height`, não por
-    // largura de fonte) que fixa este lote, e essa bate exata nos três.
-    assert_eq!(r("#a"), (0.0, 0.0, 9.2, 60.0), "flex-shrink:0 + flex-basis:content: não encolhe");
-    assert_eq!(r("#b"), (0.0, 100.0, 9.2, 80.0), "min-height:min-content declarado sobrevive ao overflow:auto");
-    assert_eq!(r("#c"), (0.0, 200.0, 9.2, 40.0), "flex:0 1 auto + min-height:0: encolhe até ao contentor (o caso que já tinha)");
+    // `.col > div { width: 40px }` remedido no Edge: a largura DECLARADA
+    // (não mais shrink-to-fit sobre "X") bate exata com o `.esperado.json`
+    // e não depende do `ApproxMeasurer` vs. o medidor real do Blink.
+    assert_eq!(r("#a"), (0.0, 0.0, 40.0, 60.0), "flex-shrink:0 + flex-basis:content: não encolhe");
+    assert_eq!(r("#b"), (0.0, 100.0, 40.0, 80.0), "min-height:min-content declarado sobrevive ao overflow:auto");
+    assert_eq!(r("#c"), (0.0, 200.0, 40.0, 40.0), "flex:0 1 auto + min-height:0: encolhe até ao contentor (o caso que já tinha)");
 }
