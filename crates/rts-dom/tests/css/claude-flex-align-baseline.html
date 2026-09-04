@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<!-- Fixa: `align-items:baseline` e `align-self:baseline` num contentor
+     flex nao existem no motor -- `AlignItems` (style/values/display.rs)
+     so tem Stretch/FlexStart/FlexEnd/Center; `AlignItems::parse("baseline")`
+     devolve None e a declaracao cai por inteiro (CSS: valor nao
+     reconhecido = invalida, ignorada), caindo no Stretch default.
+     #linha1: os tres itens tem o MESMO font-size (herdado do body) logo
+     o MESMO ascent intrinseco; so #i2 tem margin-top. Pela algebra da
+     spec (CSS Flexbox sec8.5), o offset de cada item = max_ascent_do_grupo
+     menos o ascent proprio (que inclui a margem do item) -- como o ascent
+     intrinseco e igual nos tres, o termo cancela-se e o border-box top dos
+     TRES converge no MESMO valor (a maior margin-top do grupo, aqui 8px),
+     independente da metrica real da fonte.
+     #linha2: `align-items:center` (que ja funciona) mais `align-self:
+     baseline` em #j3 -- com um so participante no grupo baseline, o
+     offset e sempre 0 (topo da linha), tambem sem depender da fonte. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="linha1,i1,i2,i3,linha2,j1,j2,j3">
+<meta name="fixar-estilo" content="align-items,align-self">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #linha1 { display: flex; align-items: baseline; width: 400px; height: 80px; margin-bottom: 8px; background: #eee; }
+  #i1 { width: 64px; background: #fc0; }
+  #i2 { width: 64px; margin-top: 8px; background: #0c0; }
+  #i3 { width: 64px; height: 40px; background: #c0f; }
+  #linha2 { display: flex; align-items: center; width: 400px; height: 80px; background: #eee; }
+  #j1 { width: 64px; background: #fc0; }
+  #j2 { width: 64px; background: #0c0; }
+  #j3 { width: 64px; align-self: baseline; background: #c0f; }
+</style></head>
+<body>
+  <div id="linha1"><div id="i1">a</div><div id="i2">b</div><div id="i3">c</div></div>
+  <div id="linha2"><div id="j1">a</div><div id="j2">b</div><div id="j3">c</div></div>
+</body>
+</html>
