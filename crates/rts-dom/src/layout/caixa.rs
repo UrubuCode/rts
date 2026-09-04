@@ -48,20 +48,23 @@ pub(in crate::layout) fn ignores_inline_dimensions(css: Option<&ComputedStyle>, 
 }
 
 /// `true` se este estilo, isoladamente (sem a tag/`replaced`/`display`
-/// declarado — os chamadores já os testaram antes), justifica `layout_block`.
-/// Quando `ignora_dimensoes` (ver [`ignores_inline_dimensions`]), só o que
-/// pinta uma superfície conta — não `width`/`height`, que um inline por
-/// omissão não respeita; senão, `has_box()` (que já inclui `width`) e
-/// `height` decidem, como antes desta correção.
+/// declarado — os chamadores já os testaram antes), justifica `layout_block`
+/// como FILHO DE BLOCO independente (linha própria, largura do contentor).
+///
+/// Quando `ignora_dimensoes` (ver [`ignores_inline_dimensions`]) a resposta é
+/// SEMPRE `false` — e não `cria_caixa_apesar_de_inline(c)`, a tentativa
+/// anterior: um inline por omissão com `background` NÃO ganha linha própria
+/// só por ter fundo (essa era a regressão medida em `claude-sel-has.html` —
+/// `#rotulo-com`/`#rotulo-sem`, que TÊM `background-color` além da `height`,
+/// passaram a `1280×20` numa linha só sua). `layout_block` aplicaria a
+/// `height` de qualquer forma — ignora-la aqui e não lá é a mesma regra que
+/// `is_inline_block`/`is_block_level` já aplicam para o resto do fluxo, e é
+/// esse desacordo entre os dois que produzia o valor errado.
 pub(in crate::layout) fn cria_caixa_via_dimensoes(
     css: Option<&ComputedStyle>,
     ignora_dimensoes: bool,
 ) -> bool {
-    match css {
-        Some(c) if ignora_dimensoes => crate::inline_box::cria_caixa_apesar_de_inline(c),
-        Some(c) => c.has_box() || c.height.is_some(),
-        None => false,
-    }
+    !ignora_dimensoes && css.is_some_and(|c| c.has_box() || c.height.is_some())
 }
 
 /// `true` se um nó-elemento deve ser tratado como BLOCO no layout (entra em

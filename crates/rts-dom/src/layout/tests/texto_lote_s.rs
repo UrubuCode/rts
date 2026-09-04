@@ -192,6 +192,48 @@ fn span_sem_display_ignora_width_e_height_declarados() {
 /// dar 19px a um `display:inline` EXPLÍCITO com texto — este teste é o
 /// regresso: a correção acima só muda o caso do `display` NÃO declarado
 /// (`effective_display() == None`), nunca o `display:inline` escrito.
+/// O HTML e o `.esperado.json` EXATOS de `claude-sel-has.html` (lote O,
+/// medido no Chrome — `git show feat/dom-vaga-3:tests/css/claude-sel-has.*`),
+/// pinados aqui porque o corredor do corpus não corre neste crate: seis
+/// `<div>`/`<span>` com a MESMA `height`/`background-color` declaradas
+/// (`div, span { height:20px; background-color:#fff }`) — os `<div>` (têm
+/// default de bloco) respeitam as duas; os `<span>` vazios (sem `display`,
+/// sem default) IGNORAM as duas e não geram fragmento nenhum (0×0).
+///
+/// Fixa a regressão de `cria_caixa_via_dimensoes`: uma primeira versão desta
+/// função deixava um `background-color` (que os quatro `<span>` também têm)
+/// dar ao `<span>` a sua PRÓPRIA linha de largura total — `rotulo-com`/
+/// `rotulo-sem` chegaram a medir `1280×20`, onde o Chrome dá `0×0`.
+#[test]
+fn sel_has_contra_o_chrome() {
+    let html = r#"<style>body{margin:0}
+    div, span { height: 20px; background-color: #ffffff; }</style>
+  <div class="card" id="card-com-erro"><span class="erro"></span></div>
+  <div class="card" id="card-sem-erro"><span></span></div>
+
+  <div class="box" id="box-filho"><span class="img"></span></div>
+  <div class="box" id="box-neto"><span><span class="img"></span></span></div>
+
+  <span class="rotulo" id="rotulo-com"></span><span class="obrigatorio"></span>
+  <span class="rotulo" id="rotulo-sem"></span><span></span>
+"#;
+    let (dom, list) = geometria(html, 1280.0);
+    let bloco = |sel: &str, esperado: (f32, f32, f32, f32)| {
+        let r = rect_opt(&dom, &list, sel).unwrap_or_else(|| panic!("{sel} sem geometria"));
+        assert_eq!((r.x, r.y, r.w, r.h), esperado, "{sel}");
+    };
+    bloco("#card-com-erro", (0.0, 0.0, 1280.0, 20.0));
+    bloco("#card-sem-erro", (0.0, 20.0, 1280.0, 20.0));
+    bloco("#box-filho", (0.0, 40.0, 1280.0, 20.0));
+    bloco("#box-neto", (0.0, 60.0, 1280.0, 20.0));
+    for sel in ["#rotulo-com", "#rotulo-sem"] {
+        assert!(
+            sem_area(rect_opt(&dom, &list, sel)),
+            "{sel} devia ser 0×0 (sem fragmento) — não uma linha própria de largura total"
+        );
+    }
+}
+
 #[test]
 fn display_inline_explicito_com_texto_continua_a_ignorar_a_altura() {
     let html = r#"<style>body{margin:0;font:16px/20px monospace}
