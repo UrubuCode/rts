@@ -15,6 +15,7 @@ mod float_corpus;
 mod grid;
 mod grid_colocacao;
 mod grid_corpus;
+mod grid_intrinseco_corpus;
 mod inline;
 mod inline_corpus;
 mod pintura;

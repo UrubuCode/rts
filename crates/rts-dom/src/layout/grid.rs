@@ -6,6 +6,7 @@
 
 use super::*;
 use super::grid_linhas::place_grid_items;
+use super::grid_tracks;
 /// Dispõe os filhos como FLEX COLUMN (`display:flex; flex-direction:column`): o
 /// eixo PRINCIPAL é o vertical. Diferenças do block vertical: SEM margin-collapse
 /// (flex não colapsa margens), `gap` entre itens (em column o espaçamento main é o
@@ -76,6 +77,12 @@ pub(in crate::layout) fn layout_children_grid(
             vec![crate::style::GridTrack::Fr(1.0); n]
         }
     };
+    // `repeat(auto-fill|auto-fit, …)`: o Nº de repetições é decidido AGORA,
+    // contra `content_w` — antes da colocação, porque a colocação já precisa
+    // de saber quantas colunas existem (CSS Grid 1 §7.2.3.3, "the number of
+    // times to repeat the track list"). Ver `layout::grid_tracks`.
+    let (col_tracks, col_collapsible) =
+        grid_tracks::expand_auto_repeats(col_tracks, content_w, col_gap);
     // O número de colunas vem da LISTA de trilhas e não dos tamanhos: os
     // tamanhos ainda não estão decididos, porque uma trilha intrínseca precisa de
     // saber que itens lhe calham — e para isso é preciso ter colocado os itens.
@@ -113,19 +120,31 @@ pub(in crate::layout) fn layout_children_grid(
     // declaradas — estende `col_tracks` com `grid-auto-columns` (por omissão
     // `auto`) para as colunas extra, e re-conta `ncols` a partir daqui.
     let mut col_tracks = col_tracks;
+    let mut col_collapsible = col_collapsible;
     while col_tracks.len() < ncols_colocados {
-        col_tracks.push(css.grid_auto_columns.unwrap_or(crate::style::GridTrack::Auto));
+        col_tracks.push(
+            css.grid_auto_columns
+                .clone()
+                .unwrap_or(crate::style::GridTrack::Auto),
+        );
+        col_collapsible.push(false);
     }
     let ncols = col_tracks.len().max(1);
 
-    // A largura INTRÍNSECA por coluna — só medida quando alguma trilha é
-    // intrínseca, porque medir custa uma travessia por item e a esmagadora
-    // maioria das grades é só `fr` e px.
-    let precisa_medir = col_tracks
+    // A largura INTRÍNSECA por coluna — só medida quando alguma trilha PEDE
+    // conteúdo (`Auto` ou `Intrinsic`, que pode precisar do min-content além
+    // do max-content), porque medir custa uma travessia por item e a
+    // esmagadora maioria das grades é só `fr` e px.
+    let precisa_min = col_tracks
         .iter()
-        .any(|t| matches!(t, crate::style::GridTrack::Auto));
-    let conteudo: Option<Vec<f32>> = precisa_medir.then(|| {
-        let mut w = vec![0.0f32; ncols];
+        .any(|t| matches!(t, crate::style::GridTrack::Intrinsic { .. }));
+    let precisa_medir = precisa_min
+        || col_tracks
+            .iter()
+            .any(|t| matches!(t, crate::style::GridTrack::Auto));
+    let (conteudo, conteudo_min): (Option<Vec<f32>>, Option<Vec<f32>>) = if precisa_medir {
+        let mut wmax = vec![0.0f32; ncols];
+        let mut wmin = vec![0.0f32; ncols];
         for c in &cells {
             // Um item que ATRAVESSA colunas não dita nenhuma delas sozinho: a
             // repartição do que ele pede pelas colunas que ocupa é a mesma
@@ -135,17 +154,35 @@ pub(in crate::layout) fn layout_children_grid(
             if c.c1 - c.c0 != 1 || c.c0 >= ncols {
                 continue;
             }
-            w[c.c0] = w[c.c0].max(intrinsic_outer_width(dom, c.child, font_size, ctx));
+            wmax[c.c0] = wmax[c.c0].max(intrinsic_outer_width(dom, c.child, font_size, ctx));
+            if precisa_min {
+                wmin[c.c0] = wmin[c.c0].max(crate::table::min_content(dom, c.child, font_size, ctx));
+            }
         }
-        w
-    });
-    let col_sizes = resolve_tracks(
+        (Some(wmax), precisa_min.then_some(wmin))
+    } else {
+        (None, None)
+    };
+    let mut col_sizes = grid_tracks::resolve_tracks(
         &col_tracks,
         content_w,
         col_gap,
         conteudo.as_deref(),
+        conteudo_min.as_deref(),
         &resolve,
     );
+    // `auto-fit`: as repetições sem NENHUM item colapsam a 0 (§7.2.3.3) — o
+    // que `auto-fill` distingue de `auto-fit` é só isto, e só depois de saber
+    // que colunas os itens realmente ocupam.
+    if col_collapsible.iter().any(|&c| c) {
+        let mut occupied = vec![false; ncols];
+        for cell in &cells {
+            for c in cell.c0..cell.c1.min(ncols) {
+                occupied[c] = true;
+            }
+        }
+        grid_tracks::collapse_empty_auto_fit_tracks(&mut col_sizes, &col_collapsible, &occupied);
+    }
     // O computed style do Blink pode consultar o LayoutObject para propriedades
     // dependentes de used values. Guardamos a mesma resolução no container para o
     // DOM a serializar sem executar um segundo algoritmo de track sizing.
@@ -194,7 +231,7 @@ pub(in crate::layout) fn layout_children_grid(
             content_row_h[r] = content_row_h[r].max(each);
         }
     }
-    let auto_row = css.grid_auto_rows;
+    let auto_row = css.grid_auto_rows.clone();
     // Só `Fixed`/`Bounded` conta como "já dimensionada": `fr` existe PARA tomar
     // espaço livre, mas caía no mesmo `explicit_rows.get(r).is_some()` que uma
     // `Fixed` e ficava fora do laço de reparto abaixo — a linha do meio de
@@ -203,18 +240,18 @@ pub(in crate::layout) fn layout_children_grid(
     // (`tests/css/claude-grid-areas.html`, `#corpo.h`/`#lateral.h`/`#rodape.y`).
     // As colunas nunca tiveram este bug: passam por `resolve_tracks`, que já
     // distingue os quatro casos; as linhas tinham um segundo algoritmo à parte.
-    let is_fixed_row_track = |t: Option<crate::style::GridTrack>| {
+    let is_fixed_row_track = |t: &Option<crate::style::GridTrack>| {
         matches!(
             t,
             Some(crate::style::GridTrack::Fixed(_))
                 | Some(crate::style::GridTrack::Bounded { .. })
         )
     };
-    let has_explicit_row_track =
-        |r: usize| is_fixed_row_track(explicit_rows.get(r).copied().or(auto_row));
+    let row_track = |r: usize| explicit_rows.get(r).cloned().or_else(|| auto_row.clone());
+    let has_explicit_row_track = |r: usize| is_fixed_row_track(&row_track(r));
     let mut row_sizes: Vec<f32> = (0..nrows)
         .map(|r| {
-            let track = explicit_rows.get(r).copied().or(auto_row);
+            let track = row_track(r);
             match track {
                 Some(crate::style::GridTrack::Fixed(d)) => {
                     resolve_height(Some(d), container_content_h, &resolve)
@@ -363,107 +400,6 @@ fn span_size(sizes: &[f32], start: usize, end: usize, gap: f32) -> f32 {
     let n = end.saturating_sub(start);
     sizes[start..end].iter().sum::<f32>() + (n.saturating_sub(1)) as f32 * gap
 }
-/// A LARGURA (ou altura) de cada trilha de uma grade.
-///
-/// A ordem das três passadas é a regra, e não um detalhe de implementação: uma
-/// trilha intrínseca (`auto`/`min-content`) é dimensionada pelo CONTEÚDO antes
-/// de qualquer espaço livre ser repartido, porque o espaço livre só existe
-/// depois de se saber o que o conteúdo pede. Inverter as duas é o que fazia a
-/// grade do `<main>` da Wikipédia dar 948px à coluna de conteúdo e empurrar a
-/// barra lateral para fora da janela.
-///
-/// `conteudo[i]` é a largura intrínseca dos itens da trilha `i` — `None` quando
-/// quem chama não a mediu (nenhuma trilha intrínseca na lista, e aí ela não é
-/// precisa).
-fn resolve_tracks(
-    tracks: &[crate::style::GridTrack],
-    container: f32,
-    gap: f32,
-    conteudo: Option<&[f32]>,
-    ctx: &ResolveCtx,
-) -> Vec<f32> {
-    use crate::style::GridTrack as T;
-    let n = tracks.len().max(1);
-    let total_gap = (n.saturating_sub(1)) as f32 * gap;
-    let dim = |d: &crate::style::Dimension| -> f32 {
-        match d {
-            // % de trilha resolve contra o container (largura p/ colunas).
-            crate::style::Dimension::Percent(p) => container * p / 100.0,
-            other => other.resolve(ctx).unwrap_or(0.0),
-        }
-        .max(0.0)
-    };
-
-    // 1ª passada: a BASE de cada trilha — o que ela pede antes de haver sobra.
-    let mut sizes = vec![0.0f32; tracks.len()];
-    let mut sum_fr = 0.0f32;
-    for (i, t) in tracks.iter().enumerate() {
-        sizes[i] = match t {
-            T::Fixed(d) => dim(d),
-            T::Bounded { min, .. } => dim(min),
-            T::Auto => conteudo
-                .and_then(|c| c.get(i))
-                .copied()
-                .unwrap_or(0.0)
-                .max(0.0),
-            T::Fr(f) => {
-                sum_fr += f.max(0.0);
-                0.0
-            }
-        };
-    }
-    let free = (container - sizes.iter().sum::<f32>() - total_gap).max(0.0);
-
-    // 2ª passada: o espaço livre. `fr` come-o todo quando existe — é o que a
-    // unidade significa —, e nesse caso uma trilha limitada ou intrínseca fica
-    // pela sua base.
-    if sum_fr > 0.0 {
-        for (i, t) in tracks.iter().enumerate() {
-            if let T::Fr(f) = t {
-                sizes[i] = free * f.max(0.0) / sum_fr;
-            }
-        }
-        return sizes;
-    }
-
-    // 3ª passada, sem `fr`: primeiro as trilhas LIMITADAS crescem até ao seu
-    // máximo (é o que `minmax` pede), e só o que sobrar depois disso é que
-    // estica as intrínsecas — `align-content: stretch`, o default.
-    let mut sobra = free;
-    let limitadas: Vec<usize> = tracks
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| matches!(t, T::Bounded { .. }))
-        .map(|(i, _)| i)
-        .collect();
-    if !limitadas.is_empty() && sobra > 0.0 {
-        // Reparte por igual e não em proporção: a proporção seria contra as
-        // bases, que num `minmax(0, x)` são todas zero.
-        let quota = sobra / limitadas.len() as f32;
-        for i in limitadas {
-            if let T::Bounded { max, .. } = &tracks[i] {
-                let teto = dim(max);
-                let novo = (sizes[i] + quota).min(teto);
-                sobra -= novo - sizes[i];
-                sizes[i] = novo;
-            }
-        }
-    }
-    let autos: Vec<usize> = tracks
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| matches!(t, T::Auto))
-        .map(|(i, _)| i)
-        .collect();
-    if !autos.is_empty() && sobra > 0.0 {
-        let cada = sobra / autos.len() as f32;
-        for i in autos {
-            sizes[i] += cada;
-        }
-    }
-    sizes
-}
-
 /// Offset de alinhamento de um item de tamanho `item` dentro de uma célula de
 /// tamanho `cell` (start=0, center=(cell-item)/2, end=cell-item; stretch=0).
 fn cell_align_offset(a: crate::style::AlignItems, cell: f32, item: f32) -> f32 {
