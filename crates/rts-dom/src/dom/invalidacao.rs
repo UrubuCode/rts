@@ -147,8 +147,10 @@ impl Dom {
     /// estilo de nenhum outro: basta invalidar a subárvore que entrou/saiu e os
     /// ancestrais (que podem mudar de tamanho), que é o que `touch_subtrees`
     /// faz. Com `:nth-child`/`:first-child`/`:empty`/`+`/`~`, os irmãos mudam
-    /// de verdade e o global é a resposta certa — a guarda está em
-    /// [`Stylesheet::position_sensitive`](crate::style::Stylesheet::position_sensitive).
+    /// de verdade — e SÓ eles, com o pai e os descendentes: a guarda está em
+    /// [`Stylesheet::position_sensitive`](crate::style::Stylesheet::position_sensitive)
+    /// e a resposta é a subárvore do pai, não o documento (era o global até
+    /// 2026-09-04; o comentário no corpo diz porque a subárvore chega).
     /// `moved` é o nó que entrou/saiu (a subárvore dele é o que muda de estilo);
     /// `former_parent` é o pai anterior, quando houve um, para os epochs de
     /// layout dele subirem também.
@@ -160,10 +162,6 @@ impl Dom {
     /// varrer a subárvore do PAI por nó removido é quadrático, e é o pai que tem
     /// 2000 filhos, não o nó que saiu.
     pub(in crate::dom) fn touch_structural(&mut self, moved: NodeIdx, former_parent: Option<NodeIdx>) {
-        if self.stylesheet.position_sensitive() {
-            self.touch();
-            return;
-        }
         self.revision = self.revision.wrapping_add(1);
         crate::bump!(touch_subtree_calls);
         // CONSTRUÇÃO PURA (montar a árvore antes de ler qualquer estilo): não há
@@ -180,6 +178,35 @@ impl Dom {
             && self.layout_measure_cache.borrow().is_empty()
             && self.intrinsic_width_cache.borrow().is_empty()
         {
+            return;
+        }
+        // Com um seletor sensível a POSIÇÃO na folha, quem muda de estilo são
+        // os IRMÃOS de `moved` (`:nth-child`, `:first-child`, `+`, `~`) e o
+        // PAI (`:empty`) — nunca um nó fora da subárvore do pai: um seletor
+        // casa a partir do ALVO, e só um alvo dentro dessa subárvore lê a
+        // ordem ou a contagem dos filhos do pai. Isto era um `touch()`
+        // global, e o custo era ser global: com UM `tr:nth-child(odd)` em
+        // qualquer ponto da folha, cada `appendChild` em qualquer ponto da
+        // página esquecia o estilo de TODOS os nós (auditoria de 2026-09-04,
+        // lente de estilo, finding 3). A subárvore do pai é o conjunto de
+        // invalidação mínimo que esta conta permite; `:has()` é o único
+        // seletor que a quebraria, não existe, e quando existir é aqui que
+        // a quebra se escreve. Num `move`, o pai anterior entra pela mesma
+        // razão: os irmãos que ficaram lá também mudaram de posição.
+        if self.stylesheet.position_sensitive() {
+            let mut roots: Vec<NodeIdx> = Vec::with_capacity(2);
+            for pai in [self.nodes[moved].parent, former_parent].into_iter().flatten() {
+                if !roots.contains(&pai) {
+                    roots.push(pai);
+                }
+            }
+            if roots.is_empty() {
+                // `moved` é a própria raiz: não há pai cuja subárvore delimite
+                // o efeito, e o global é a única resposta certa.
+                self.touch();
+            } else {
+                self.touch_subtrees(roots);
+            }
             return;
         }
         let mut computed = self.computed_memo.borrow_mut();
