@@ -64,6 +64,48 @@ fn coluna_desde(texto: &str, coluna_inicial: usize) -> usize {
     }
 }
 
+/// Aplica `tab-size` e `word-spacing` a um texto ANTES de ele ser medido para a
+/// largura INTRÍNSECA (`medida::intrinsic_content_width`) — a mesma dupla soma
+/// que `wrap_runs`/`layout_inline_flow` fazem para a largura de LINHA, e pela
+/// mesma razão: a caixa de um `inline-block`/item flex sem `width` é decidida
+/// por ESTA largura, medida ANTES de o fluxo de linha correr — e não pela do
+/// `wrap_runs`. As duas funções lerem o mesmo par de propriedades e não
+/// concordarem é a classe de defeito que este lote encontrou ao vivo: um
+/// `inline-block` com `word-spacing`/`tab-size` media a MESMA largura com ou
+/// sem a propriedade, porque só o `wrap_runs` (que corre DEPOIS da caixa
+/// decidida) a conhecia.
+///
+/// Devolve o texto (com os tabs expandidos, se havia) e a largura EXTRA de
+/// `word-spacing` a somar (não embutida no texto — é um número, como
+/// `letter-spacing` já é no chamador).
+pub(in crate::layout) fn ajustar_texto_intrinsico(
+    texto: String,
+    css: Option<&crate::style::ComputedStyle>,
+) -> (String, f32) {
+    let preserva_tabs = css
+        .and_then(|c| c.white_space)
+        .map(|w| w.preserves_spaces())
+        .unwrap_or(false);
+    let texto = if preserva_tabs && texto.contains('\t') {
+        let tab_size = css
+            .and_then(|c| c.tab_size)
+            .unwrap_or(8.0)
+            .round()
+            .max(1.0) as usize;
+        expandir_tabs(&texto, tab_size, 0).0
+    } else {
+        texto
+    };
+    let ws = css.and_then(|c| c.word_spacing).unwrap_or(0.0);
+    // nº de separadores de palavra que o texto colapsado terá — a mesma
+    // contagem que `wrap_runs`/`collapse_ws` produzem (uma corrida de
+    // whitespace é UM separador, não um por carácter).
+    let n_espacos = crate::inline_box::palavras_css(&texto)
+        .count()
+        .saturating_sub(1);
+    (texto, n_espacos as f32 * ws)
+}
+
 /// `-webkit-line-clamp: N` — mantém só as primeiras `n` linhas já quebradas e
 /// fecha a última com reticências quando havia mais. Corta DEPOIS do
 /// `wrap_runs` pela mesma razão que `text-overflow` corta depois: o que se
