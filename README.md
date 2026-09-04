@@ -102,17 +102,20 @@ _Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.3%   2250/2266 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 95.8%   92/96 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.3%   2278/2294 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 95.9%   93/97 fixtures passing
+[▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱] 38%   186/489 WPT reftests (css-flexbox) rendering test == reference
 ```
 
-Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
-- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
+The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **34/38 lots done**, 1 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
+- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
+
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **37/41 lots done**, 1 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
 *Updated 2026-09-04 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
@@ -148,20 +151,20 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `510fbfa`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `29d9660`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 27 ms | 67 ms | 54 ms | 45 ms | **34 ms** | **0.81×** | **1.98×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 429 ms | 786 ms | 761 ms | 458 ms | **443 ms** | **0.97×** | **1.77×** |
-| …the same RTS run, vs JS using native `Math.random` | 86 ms | 266 ms | 210 ms | 457 ms | **445 ms** | **0.19×** | **0.60×** |
-| π Machin f64 (RTS only) | — | — | — | 23 ms | **13 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 345 ms | **335 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 46 ms | **35 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 163 ms | **154 ms** | — | — |
-| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 48 ms | **28 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 641 ms | **650 ms** | — | — |
-| one loop, state as a local / captured / property | 263 ms | 534 ms | 436 ms | 215 ms | **199 ms** | **1.32×** | **2.68×** |
+| Hello/startup | 28 ms | 66 ms | 57 ms | 51 ms | **33 ms** | **0.85×** | **2.02×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 429 ms | 787 ms | 762 ms | 460 ms | **445 ms** | **0.96×** | **1.77×** |
+| …the same RTS run, vs JS using native `Math.random` | 89 ms | 268 ms | 213 ms | 464 ms | **447 ms** | **0.20×** | **0.60×** |
+| π Machin f64 (RTS only) | — | — | — | 24 ms | **14 ms** | — | — |
+| 3M objects allocated (RTS only) | — | — | — | 353 ms | **342 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 48 ms | **36 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 167 ms | **159 ms** | — | — |
+| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 50 ms | **29 ms** | — | — |
+| string indexing, input doubled four times (RTS only) | — | — | — | 648 ms | **652 ms** | — | — |
+| one loop, state as a local / captured / property | 263 ms | 531 ms | 434 ms | 217 ms | **197 ms** | **1.33×** | **2.70×** |
 
 _Updated: 2026-09-04 — run locally with `powershell -File bench/benchmark.ps1`_
 

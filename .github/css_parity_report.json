@@ -1,31 +1,37 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 92,
-    "total": 96,
-    "pct": 95.8
+    "passing": 93,
+    "total": 97,
+    "pct": 95.9
   },
   "measurements": {
-    "matching": 2250,
-    "total": 2266,
+    "matching": 2278,
+    "total": 2294,
     "pct": 99.3
+  },
+  "wpt": {
+    "suite": "css/css-flexbox",
+    "passing": 186,
+    "total": 489,
+    "pct": 38
   },
   "expected_failures": [
     {
       "fixture": "claude-ua-form-disabled.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-ua-headings.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-ua-th.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-cursor-pointer-events.html",
-      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)"
+      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento;\r nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)\r"
     }
   ],
   "dom_lots": {
@@ -63,7 +69,10 @@
       "flex-item-bfc — um item de flex/grid contém os seus floats; o item de coluna que estica mede-se à largura do contentor",
       "load-resources — `loadResources` vivo no motor novo",
       "intrinseco-whitespace — a largura intrínseca colapsa o whitespace do HTML",
-      "svg-atributo — `width`/`height` do `<svg>` como comprimentos CSS; margens no placeholder"
+      "svg-atributo — `width`/`height` do `<svg>` como comprimentos CSS; margens no placeholder",
+      "borda-por-lado-intrinseca — a borda por lado na largura intrínseca e na base flex",
+      "inline-block-bfc — um inline-block flui os filhos como BLOCO; a corrida de inline-blocks alinha pela baseline própria",
+      "N-wpt — a régua dos REFTESTS do WPT"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha"
