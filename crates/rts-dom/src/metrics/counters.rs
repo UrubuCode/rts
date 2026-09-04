@@ -132,6 +132,7 @@ dom_metrics! {
         css_rules_dropped: "regras DESCARTADAS (seletor inválido)";
         css_keyframes: "blocos @keyframes";
         css_media_rules: "regras dentro de @media";
+        css_supports_rejeitado: "blocos @supports rejeitados (condição falsa)";
         css_declarations: "declarações";
         css_declarations_unknown: "declarações de propriedade DESCONHECIDA";
         css_declarations_inert: "declarações RECONHECIDAS e não modeladas (ver style::inert)";
