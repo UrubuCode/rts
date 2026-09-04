@@ -8,41 +8,45 @@ use super::*;
 /// Um item do flex (pré-pass), com a BASE no eixo principal (flex-basis/width/
 /// conteúdo, outer com margem), o MAIN size final (após grow/shrink) e os
 /// fatores de flexibilidade lidos do estilo.
-struct FlexItem {
-    node: NodeIdx,
+pub(in crate::layout) struct FlexItem {
+    pub(in crate::layout) node: NodeIdx,
     /// tamanho BASE outer no eixo principal (antes de grow/shrink).
-    base: f32,
+    pub(in crate::layout) base: f32,
     /// main size FINAL outer (após grow/shrink) — começa igual à base.
-    main: f32,
+    pub(in crate::layout) main: f32,
     /// altura outer (cross) — re-medida com o main final quando ele muda.
-    h: f32,
+    pub(in crate::layout) h: f32,
     /// `true` se é um nó de texto solto (pintado direto, não via layout_block).
-    is_text: bool,
+    pub(in crate::layout) is_text: bool,
     /// `flex-grow` (0 = não cresce).
-    grow: f32,
+    pub(in crate::layout) grow: f32,
     /// `flex-shrink` (1 = default do CSS; texto solto não encolhe).
-    shrink: f32,
+    pub(in crate::layout) shrink: f32,
     /// `align-self` do item (None = usa o align-items do container).
-    align_self: Option<crate::style::AlignItems>,
+    pub(in crate::layout) align_self: Option<crate::style::AlignItems>,
     /// `order` (menor primeiro; empate = ordem do documento — sort estável).
-    order: i32,
+    pub(in crate::layout) order: i32,
     /// o item PODE ser esticado pelo stretch (sem `height` explícito).
-    can_stretch: bool,
+    pub(in crate::layout) can_stretch: bool,
     /// piso de `min-content` no eixo principal (spec flexbox §9.7) — o
     /// `flex-shrink` nunca encolhe o item abaixo disto. Texto solto e itens de
     /// `grid_cols` não têm piso próprio (a coluna de grid não é um item de
     /// conteúdo variável no mesmo sentido).
-    min_main: f32,
+    pub(in crate::layout) min_main: f32,
     /// tecto de `max-width` (outer) no eixo principal, se declarado: a base e o
     /// `flex-grow` nunca o ultrapassam (spec §9.7, "clamp"). O
     /// `.cover-container.w-100.mx-auto{max-width:42em}` do Bootstrap saía com
     /// a largura toda por isto faltar (`claude-flex-item-max-width`).
-    max_main: Option<f32>,
+    pub(in crate::layout) max_main: Option<f32>,
     /// `margin-left`/`margin-right: auto` — absorvem o espaço livre da linha
     /// (spec §8.1) antes do `justify-content`; é o `mx-auto` que centra.
-    auto_esq: bool,
-    auto_dir: bool,
+    pub(in crate::layout) auto_esq: bool,
+    pub(in crate::layout) auto_dir: bool,
+    /// um `::before`/`::after` do contentor, que é item flex (Flexbox §4) —
+    /// medido e pintado por `flex_pseudo.rs`; `node` é o do contentor.
+    pub(in crate::layout) pseudo: Option<super::flex_pseudo::PseudoItem>,
 }
+
 
 /// Dispõe os filhos HORIZONTAL (flex-row). Implementa gap, justify-content (eixo
 /// principal) e align-items (eixo cruzado). Devolve a altura total do content.
@@ -118,6 +122,7 @@ pub(in crate::layout) fn layout_children_horizontal(
 
     // ── PRÉ-PASS: coleta cada filho renderável com a BASE flex + fatores ─────────
     let mut items: Vec<FlexItem> = Vec::new();
+    items.extend(super::flex_pseudo::item_flex(dom, id, crate::style::PseudoElement::Before, content_w, font_size, ctx));
     for &child in &dom.node(id).children {
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if is_non_rendered_tag(tag) {
@@ -167,6 +172,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                 max_main: None,
                 auto_esq: false,
                 auto_dir: false,
+                pseudo: None,
             });
             continue;
         }
@@ -213,8 +219,11 @@ pub(in crate::layout) fn layout_children_horizontal(
             max_main,
             auto_esq: auto(ccss.margin.left),
             auto_dir: auto(ccss.margin.right),
+            pseudo: None,
         });
     }
+    // `::after` é o último item; o `::before` entrou antes do laço.
+    items.extend(super::flex_pseudo::item_flex(dom, id, crate::style::PseudoElement::After, content_w, font_size, ctx));
     // `order` reordena ANTES do wrap (sort estável: empate = ordem do documento).
     items.sort_by_key(|it| it.order);
     // `row-reverse`: a ordem VISUAL principal inverte DEPOIS do `order` (spec
@@ -231,7 +240,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         let n = n.max(1) as f32;
         let col_w = ((content_w - (n - 1.0) * gap) / n).max(0.0);
         for it in items.iter_mut() {
-            if it.is_text {
+            if it.is_text || it.pseudo.is_some() {
                 continue;
             }
             it.base = col_w;
@@ -363,7 +372,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         // re-mede a ALTURA com o main final (mais largura → menos linhas de texto);
         // só quando o main mudou (senão a medição do pré-pass vale).
         for it in line.iter_mut() {
-            if !it.is_text && (it.main - it.base).abs() > 0.5 {
+            if !it.is_text && it.pseudo.is_none() && (it.main - it.base).abs() > 0.5 {
                 let (_, h) = measure_block(
                     dom,
                     it.node,
@@ -422,7 +431,9 @@ pub(in crate::layout) fn layout_children_horizontal(
                 align_offset(item_align, line_h, it.h)
             };
             let item_y = line_y + off_cross;
-            if it.is_text {
+            if let Some(p) = &it.pseudo {
+                super::flex_pseudo::pintar(list, p, x, item_y, ctx);
+            } else if it.is_text {
                 let text = collect_text(dom, it.node);
                 let color = cor_visivel(&css, css.color.unwrap_or(0x000000FF));
                 list.items.push(DisplayItem::Text {
