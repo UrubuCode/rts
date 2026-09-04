@@ -568,5 +568,10 @@ pub(in crate::layout) fn layout_children_vertical(
     // DESTE container não vive mais aqui — ver o cabeçalho do módulo e
     // `layout_block`, que é quem sabe se `id` é o BFC responsável.
     flush_inline!(child_y);
+    // o clearfix (`::after{display:block;clear:both}`) desce o fim do fluxo
+    // até ao fundo dos floats — ver `clearfix.rs`.
+    if let Some(fundo) = super::clearfix::fundo_do_clearfix(dom, id, bfc) {
+        child_y = child_y.max(fundo);
+    }
     (child_y - content_y).max(0.0)
 }

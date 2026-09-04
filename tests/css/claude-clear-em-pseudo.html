@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: um `::after { content: ""; display: block; clear: both }` — o
+     clearfix clássico, e a referência de 20 reftests de flexbox do WPT —
+     desce para baixo dos floats e faz o contentor conter os filhos flutuantes:
+     `#cf` mede a altura das duas linhas de floats (2 por linha, 4 no total),
+     não 0. `#sem` é o mesmo sem o clearfix: 0px. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="cf,sem,f4">
+<meta name="fixar-estilo" content="clear">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .c { width: 320px; background: #eee; margin-bottom: 20px; }
+  .c span { display: block; float: left; width: 128px; height: 18px; margin: 16px; background: #fc0; }
+  #cf::after { content: ""; display: block; clear: both; }
+</style></head>
+<body>
+  <div class="c" id="cf"><span>1</span><span>2</span><span>3</span><span id="f4">4</span></div>
+  <div class="c" id="sem"><span>1</span><span>2</span></div>
+  <div style="clear: both" id="fim">fim</div>
+</body>
+</html>

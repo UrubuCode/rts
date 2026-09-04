@@ -17,6 +17,8 @@ mod intrinseco_whitespace_corpus;
 mod svg_atributo_corpus;
 mod borda_por_lado_corpus;
 mod ib_nowrap_corpus;
+mod justify_fisico_corpus;
+mod clearfix_corpus;
 mod float_corpus;
 mod grid;
 mod grid_colocacao;

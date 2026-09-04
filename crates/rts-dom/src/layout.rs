@@ -45,6 +45,7 @@ use crate::style::{ComputedStyle, ResolveCtx};
 
 mod bfc;
 mod caixa;
+mod clearfix;
 mod display;
 mod float;
 mod inline_fragmentos;

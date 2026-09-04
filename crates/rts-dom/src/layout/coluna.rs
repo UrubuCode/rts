@@ -43,6 +43,11 @@ pub(in crate::layout) fn layout_children_column(
     let justify_declarado = css
         .justify
         .unwrap_or(crate::style::JustifyContent::FlexStart);
+    // numa coluna `left`/`right` não têm eixo: valem `start` (Box Alignment §5.1).
+    let justify_declarado = match justify_declarado {
+        crate::style::JustifyContent::Left | crate::style::JustifyContent::Right => crate::style::JustifyContent::FlexStart,
+        j => j,
+    };
     let justify = if reverse {
         mirror_justify(justify_declarado)
     } else {
@@ -278,6 +283,18 @@ pub(in crate::layout) fn layout_children_column(
 /// não só a ordem dos itens). `flex-start`↔`flex-end` trocam; os três
 /// `space-*` e `center` são simétricos em torno do centro do eixo e ficam
 /// como estão.
+/// `left`/`right` (físicos) traduzidos ao eixo principal de uma LINHA: em `row`
+/// `left` é o início; em `row-reverse` o início é a direita, logo `left` é o
+/// fim — e o espelho que se segue devolve-o ao lado físico certo.
+pub(in crate::layout) fn fisico_para_eixo(j: crate::style::JustifyContent, reverse: bool) -> crate::style::JustifyContent {
+    use crate::style::JustifyContent as J;
+    match (j, reverse) {
+        (J::Left, false) | (J::Right, true) => J::FlexStart,
+        (J::Left, true) | (J::Right, false) => J::FlexEnd,
+        (j, _) => j,
+    }
+}
+
 pub(in crate::layout) fn mirror_justify(j: crate::style::JustifyContent) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
     match j {
@@ -294,12 +311,13 @@ pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: 
             J::Center => (free / 2.0, 0.0), // leading negativo = transbordo centrado
             J::FlexEnd => (free, 0.0),      // todo o overflow no start
             // flex-start E os space-* → flush no start (fiel ao Chrome em overflow).
-            J::FlexStart | J::SpaceBetween | J::SpaceAround | J::SpaceEvenly => (0.0, 0.0),
+            J::FlexStart | J::SpaceBetween | J::SpaceAround | J::SpaceEvenly | J::Left => (0.0, 0.0),
+            J::Right => (free, 0.0),
         };
     }
     match j {
-        J::FlexStart => (0.0, 0.0),
-        J::FlexEnd => (free, 0.0),
+        J::FlexStart | J::Left => (0.0, 0.0),
+        J::FlexEnd | J::Right => (free, 0.0),
         J::Center => (free / 2.0, 0.0),
         J::SpaceBetween => {
             if n > 1 {
