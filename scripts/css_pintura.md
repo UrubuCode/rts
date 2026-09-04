@@ -140,3 +140,10 @@ cuja imagem não carregou. É um defeito de pintura do motor, o próximo alvo.
 **2026-09-04, lote img-fundo:** `claude-object-fit` 1,95 % → 1,22 % (o fundo do
 `<img>` pinta). O que fica é a IMAGEM: um `data:` de 1×1 que o loader do lado
 TS não entrega ao `<img>` — não é do rasterizador nem do layout.
+
+**2026-09-04, lote V-img:** o rasterizador pinta `DisplayItem::Pixels` (o
+`<canvas>` e o `<img>` com pixels no documento) e MASCARA os `<img>` com `src`
+e sem pixels — ele não tem a ponte, e é a ponte que descodifica o PNG de
+`data:`. `claude-object-fit`: 0 % diferente com 1,95 % de área mascarada;
+`claude-img-natural` 0,08 %. As imagens só se medem de verdade pela janela do
+egui, que tem a ponte.

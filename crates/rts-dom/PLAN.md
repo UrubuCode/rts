@@ -52,6 +52,7 @@ linha aqui não existe.
 | S-inline-2 | inline com superfície por FRAGMENTOS de linha | 6 | ☑ `inline_por_fragmentos` (superfície sem width/height/margem) fica no fluxo: arestas como átomos (`ArestaInicio/Fim`), caixa = união dos fragmentos com padding/borda verticais, `inline_fragmentos::Superficies` pinta fundo e barras por linha (esquerda só no 1.º, direita só no último). A pergunta corrigida nos 5 sítios (`is_block_level`, `is_inline_block`, 3× `vertical.rs`). Cortes: cores cruas, sem radius nos fragmentos. Corpus 85/90, pintura 0,56 % → 0,06 %, suite 859/888 sem perdidos, 876 testes; paridade: 3 páginas 0 movidos, 3 movem os links da nav de 34 → 40,4px (= Blink: 14×1,6+18) | `feat/dom-lote-s-inline-2` → `add946b5e` (2026-09-04) | `claude-inline-fragmentos` |
 | img-fundo | fundo do `<img>` sem pixels | 6 | ☑ `layout_image` emite o `background` na caixa reservada, com ou sem pixels (cor crua: sem `filter`/`opacity`, sem borda/padding — dito). Pintura `object-fit` 1,95 % → 1,22 %; o resto é a imagem `data:` que nenhum loader entrega ao `<img>` (o mesmo de `list-style-image`). Suite 859/888 sem perdidos; 876 testes | `feat/dom-lote-img-fundo` → `53b96700f` (2026-09-04) | `claude-object-fit` (pintura) |
 | T | fontes: `ex`/`ch`, `line-height: normal`, `font-family` como lista | 6 | ☑ `Dimension::Ex`/`Ch` resolvem por `X_HEIGHT_RATIO`/`MONO_ADVANCE` (calibrados; `10ex` 78,6 vs 78,44 Blink, `10ch` 87,97 exacto; ABI `-1` como `calc`); `font-family` guarda a LISTA serializada como o Blink e `is_mono_family` percorre-a (a primeira família conhecida decide; desconhecida = indisponível). `line-height: normal` já batia (19px). NÃO feito, dito: fonte real (`@font-face`, `rustybuzz`, kerning, UAX#14) — a decisão de crate de §5.T fica aberta. Corpus 86/90 (só UA + cursor), pintura 2,45 % → 0,27 %, 878 testes, suite 859/888 sem perdidos | `feat/dom-lote-t-fontes` → `944161f7f` (2026-09-04) | `claude-font-unidades-ch-ex` |
+| V-img | imagens `data:` no `<img>` | 7 | ☑ ponte `setImageDataUrl` (base64 + PNG 8 bits, 5 tipos de cor, sem entrelaçado — o resto responde 0) → `Dom::set_pixel_data` (o caminho do canvas) → `DisplayItem::Pixels`; `Dom::image_dims` (pergunta única nos 5 sítios); loader no passo 3 de `loadResources` e no corredor; `getComputedStyle().width/height` = valor USADO (CSSOM); rasterizador pinta `Pixels` e mascara `<img>` sem pixels. NÃO feito, dito: `http(s)`/ficheiro local no loader, JPEG/GIF/WebP, `object-fit` além de `fill`, `list-style-image`/`background-image` por URL. Corpus 87/91 (`img-natural` passa), medições 2 152/2 168, 879 testes, bridge 6, suite sem perdidos, paridade 0 movidos | `feat/dom-lote-v-img` → `930c78df5` (2026-09-04) | `claude-img-natural`, `claude-object-fit` (pintura) |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
 **Estado após a vaga 1 (2026-09-04, 01:41)** — medido com o `rts.exe`
@@ -172,8 +173,9 @@ passaram todas. O que fica: o loader de imagem `data:` para
 `<img>`/`list-style-image` (fecha `object-fit`), a fonte REAL de §5.T
 (decisão de crate), e as 3 da folha de UA que só uma fonte real fecha.
 
-**O próximo lote, já desenhado (2026-09-04, ~18:30) — V-img, imagens de
-verdade:** o `claude-object-fit` (1,22 % na pintura) e o `list-style-image`
+**O lote V-img, desenhado às 18:30 e FEITO às 21:00 (a decisão mudou no
+caminho: os pixels ficam no DOCUMENTO por `set_pixel_data`, não num handle de
+Buffer — ver a linha V-img em cima; o que segue é o desenho original):** o `claude-object-fit` (1,22 % na pintura) e o `list-style-image`
 param no mesmo sítio, e a investigação disse porquê: **`rts:imgdec` e
 `dom.setImage` NÃO existem no motor novo** — `examples/claude-browser.ts` e
 `claude-wa-app.ts` chamam-nos, mas são código do motor antigo (nenhum crate

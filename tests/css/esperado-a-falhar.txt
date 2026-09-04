@@ -17,8 +17,5 @@ claude-cursor-pointer-events.html
 # `inline-fragmentos`, `font-unidades-ch-ex`) saíram daqui com os lotes S-hifen,
 # S-inline-2 e T.
 
-# vaga 7 — medida no Edge 152 ANTES do código (lote V-img: `rts:imgdec`,
-# `dom.setImage` e o loader de `data:` não existem no motor novo). Blink: o
-# `<img>` sem atributos mede o tamanho natural do PNG (4×2) e `width` sozinho
-# mantém a razão (40×20).
-claude-img-natural.html
+# vaga 7 — `claude-img-natural` (medida antes do código) saiu daqui com o lote
+# V-img: o PNG de `data:` chega ao `<img>` pela ponte.
