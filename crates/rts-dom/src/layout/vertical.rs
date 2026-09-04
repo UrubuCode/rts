@@ -480,6 +480,16 @@ pub(in crate::layout) fn layout_children_vertical(
                 if let Some(fundo) = clearance {
                     aresta = aresta.max(fundo);
                 }
+                // Um filho que ESTABELECE BFC não pode sobrepor um float
+                // anterior (causa 9, `bfc_evita_float.rs`) — distinto do
+                // `clear`: aqui é a natureza do filho, não uma declaração dele.
+                if let Some(fundo) = child_css.as_deref().and_then(|cs| {
+                    super::bfc_evita_float::empurra_para_baixo(
+                        dom, child, cs, aresta, content_x, content_w, font_size, bfc, ctx,
+                    )
+                }) {
+                    aresta = aresta.max(fundo);
+                }
                 child_y = aresta - m;
                 let ((_, h), _) = layout_block_reusing(
                     dom,
