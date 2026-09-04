@@ -132,10 +132,10 @@ Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145
 | Files in folder | 73 | 7 | 3 |
 | Page JavaScript runs | yes | **no** | yes |
 | Processes | 4 | 2 | 2 |
-| Startup (median, min–max) | 390 ms (361–462) | 2029 ms (824–2278) | 3377 ms (2513–4751) |
-| RSS (median, min–max) | 292.2 MB (289.1–296.9) | 115.5 MB (115.3–115.8) | 168.6 MB (168.1–171.5) |
-| Private bytes (median) | 147.8 MB | 218.3 MB | 272.6 MB |
-| CPU at rest (median) | 0.7% | 7.09% | 11.23% |
+| Startup (median, min–max) | 450 ms (387–501) | 382 ms (354–518) | 2488 ms (2429–6749) |
+| RSS (median, min–max) | 288.3 MB (287.4–290.8) | 115.3 MB (115.2–115.8) | 168.7 MB (167.4–169.8) |
+| Private bytes (median) | 145.1 MB | 218.0 MB | 271.3 MB |
+| CPU at rest (median) | 0.7% | 4.97% | 10.7% |
 
 **RTS's AOT `.exe` starts and paints the static HTML/CSS**, same as the JIT side — but its page `<script>`s do not run: "[page] <script> 0 de https://localhost/ falhou: a fonte não compilou (×3 nesta corrida)". An AOT binary carries no compiler, so any JavaScript that only exists as page-script text (not referenced statically by the `.ts` that got compiled) has nothing to run it; the window opens and stays blank for *this* app, which is React mounted entirely from a `<script>` block. `scripts/rts_vs_electron/rts/README.md` has the full account.
 
