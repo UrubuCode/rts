@@ -93,15 +93,21 @@ pub(in crate::layout) fn layout_children_column(
             });
             continue;
         }
-        let h = child_outer_height(
-            dom,
-            child,
-            content_w,
-            container_content_h,
-            css,
-            font_size,
-            ctx,
-        );
+        // Um item que ESTICA (align stretch, o default) ocupa a largura do
+        // contentor, e a altura tem de ser medida a essa largura — medi-la em
+        // shrink-to-fit punha dois floats lado a lado um DEBAIXO do outro (100px
+        // de largura em vez de 1280) e o item saía com 70px onde o Blink dá 40
+        // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
+        let estica = dom
+            .computed_style_idx(child)
+            .and_then(|c| c.align_self)
+            .unwrap_or(align)
+            == crate::style::AlignItems::Stretch;
+        let h = if estica {
+            measure_block(dom, child, content_w, container_content_h, None, None, false, ctx).1
+        } else {
+            child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx)
+        };
         let (mt_auto, mb_auto, grow, order) = dom
             .computed_style_idx(child)
             .map(|c| {

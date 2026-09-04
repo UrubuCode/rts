@@ -57,8 +57,28 @@ pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: Nod
         .position
         .map(|position| position.out_of_flow())
         .unwrap_or(false);
+    // Um ITEM de flex ou de grid estabelece o seu próprio contexto (Flexbox
+    // §4, Grid §6): contém os seus floats como um `flow-root`. Sem isto o
+    // `<header class="mb-auto">` do Bootstrap cover — um `float-md-start` e um
+    // `float-md-end` lá dentro — media 0px onde o Blink dá 36
+    // (`claude-flex-item-contem-floats`).
+    let item_bfc = dom
+        .node(id)
+        .parent
+        .and_then(|p| dom.computed_style_idx(p))
+        .is_some_and(|pc| {
+            matches!(
+                pc.effective_display(),
+                Some(
+                    crate::style::DisplayKind::Flex
+                        | crate::style::DisplayKind::FlexWrap
+                        | crate::style::DisplayKind::Grid
+                )
+            )
+        });
     css.flow_root.unwrap_or(false)
         || display_bfc
+        || item_bfc
         || overflow_bfc
         || float_bfc
         || positioned_bfc
