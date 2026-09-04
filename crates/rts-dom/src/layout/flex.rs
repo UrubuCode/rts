@@ -28,20 +28,19 @@ pub(in crate::layout) struct FlexItem {
     pub(in crate::layout) order: i32,
     /// o item PODE ser esticado pelo stretch (sem `height` explícito).
     pub(in crate::layout) can_stretch: bool,
-    /// piso de `min-content` no eixo principal (spec flexbox §9.7) — o
-    /// `flex-shrink` nunca encolhe o item abaixo disto. Texto solto e itens de
-    /// `grid_cols` não têm piso próprio (a coluna de grid não é um item de
-    /// conteúdo variável no mesmo sentido).
+    /// piso de `min-content` no eixo principal (§9.7): o `flex-shrink` nunca
+    /// desce abaixo; texto solto e itens de `grid_cols` não têm piso próprio.
     pub(in crate::layout) min_main: f32,
-    /// tecto de `max-width` (outer) no eixo principal, se declarado: a base e o
-    /// `flex-grow` nunca o ultrapassam (spec §9.7, "clamp"). O
-    /// `.cover-container.w-100.mx-auto{max-width:42em}` do Bootstrap saía com
-    /// a largura toda por isto faltar (`claude-flex-item-max-width`).
+    /// tecto de `max-width` (outer) no eixo principal (§9.7 "clamp") — o
+    /// `.cover-container{max-width:42em}` do Bootstrap (`claude-flex-item-max-width`).
     pub(in crate::layout) max_main: Option<f32>,
-    /// `margin-left`/`margin-right: auto` — absorvem o espaço livre da linha
-    /// (spec §8.1) antes do `justify-content`; é o `mx-auto` que centra.
+    /// margens `auto`: no eixo principal absorvem o espaço livre antes do
+    /// `justify-content` (`mx-auto`); no transversal vencem o `align-self`
+    /// (`flex_margens_auto.rs`).
     pub(in crate::layout) auto_esq: bool,
     pub(in crate::layout) auto_dir: bool,
+    pub(in crate::layout) auto_topo: bool,
+    pub(in crate::layout) auto_fundo: bool,
     /// um `::before`/`::after` do contentor, que é item flex (Flexbox §4) —
     /// medido e pintado por `flex_pseudo.rs`; `node` é o do contentor.
     pub(in crate::layout) pseudo: Option<super::flex_pseudo::PseudoItem>,
@@ -172,6 +171,8 @@ pub(in crate::layout) fn layout_children_horizontal(
                 max_main: None,
                 auto_esq: false,
                 auto_dir: false,
+                auto_topo: false,
+                auto_fundo: false,
                 pseudo: None,
             });
             continue;
@@ -219,6 +220,8 @@ pub(in crate::layout) fn layout_children_horizontal(
             max_main,
             auto_esq: auto(ccss.margin.left),
             auto_dir: auto(ccss.margin.right),
+            auto_topo: auto(ccss.margin.top),
+            auto_fundo: auto(ccss.margin.bottom),
             pseudo: None,
         });
     }
@@ -387,10 +390,9 @@ pub(in crate::layout) fn layout_children_horizontal(
             }
         }
 
-        // Cross-size de referência da linha = max das alturas dos itens, MAS se o
-        // container tem `height` explícito e a linha é única (no-wrap), o cross-size
-        // é a ALTURA DO CONTENT do container (fiel ao Chrome). Em wrap, cada linha
-        // usa seu próprio max (repartir o height entre linhas — corte documentado).
+        // Cross-size da linha = max dos itens; com `height` explícito e linha
+        // única é o content do contentor (Chrome). Em wrap cada linha usa o seu
+        // max (repartir o height entre linhas — corte documentado).
         let items_h = line.iter().fold(0.0f32, |a, it| a.max(it.h));
         let line_h = if !wrap && container_cross_h > items_h {
             container_cross_h
@@ -421,15 +423,13 @@ pub(in crate::layout) fn layout_children_horizontal(
             // STRETCH real: item sem height explícito ganha a ALTURA DA LINHA
             // (forced_outer_h) — os cards `.col` preenchem a linha.
             let item_align = it.align_self.unwrap_or(align);
+            let auto_cross = super::flex_margens_auto::off_cross(it.auto_topo, it.auto_fundo, line_h, it.h);
             let stretches = item_align == crate::style::AlignItems::Stretch
                 && it.can_stretch
                 && !it.is_text
-                && line_h > it.h;
-            let off_cross = if stretches {
-                0.0
-            } else {
-                align_offset(item_align, line_h, it.h)
-            };
+                && line_h > it.h
+                && auto_cross.is_none();
+            let off_cross = auto_cross.unwrap_or(if stretches { 0.0 } else { align_offset(item_align, line_h, it.h) });
             let item_y = line_y + off_cross;
             if let Some(p) = &it.pseudo {
                 super::flex_pseudo::pintar(list, p, x, item_y, ctx);

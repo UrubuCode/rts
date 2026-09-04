@@ -164,6 +164,8 @@ pub(in crate::layout) fn item_flex(dom: &Dom, id: NodeIdx, pe: crate::style::Pse
         max_main: None,
         auto_esq: false,
         auto_dir: false,
+        auto_topo: false,
+        auto_fundo: false,
         pseudo: Some(p),
     })
 }
