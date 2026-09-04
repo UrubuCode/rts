@@ -701,22 +701,53 @@ fn is_bold(v: &str) -> bool {
     v.parse::<u32>().map(|w| w >= 600).unwrap_or(false)
 }
 
-/// `font-family: A, B, C` → o NOME da 1ª família (sem aspas). É o que guardamos
-/// (o backend resolve a fonte real; o motor só precisa saber se é monoespaçada).
+/// `font-family: A, B, C` → a LISTA inteira, serializada como o Blink a
+/// devolve em `getComputedStyle` (`FamiliaQueNaoExiste, monospace`; um nome
+/// com espaços fica entre aspas duplas). Guardava-se só a primeira família —
+/// e sem a lista não havia fallback para consultar: um `font-family:
+/// Inexistente, monospace` media como proporcional (lote T,
+/// `claude-font-unidades-ch-ex`).
 fn parse_font_family(v: &str) -> Option<String> {
-    let first = v
+    let familias: Vec<String> = v
         .split(',')
-        .next()?
-        .trim()
-        .trim_matches(|c| c == '"' || c == '\'');
-    (!first.is_empty()).then(|| first.to_string())
+        .map(|f| f.trim().trim_matches(|c| c == '"' || c == '\'').trim())
+        .filter(|f| !f.is_empty())
+        .map(|f| match f.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            true => f.to_string(),
+            false => format!("\"{f}\""),
+        })
+        .collect();
+    (!familias.is_empty()).then(|| familias.join(", "))
 }
 
-/// `true` se o nome de família indica fonte MONOESPAÇADA (o backend usa para
-/// escolher o atlas mono). Reconhece a keyword genérica `monospace` e nomes comuns.
+/// `true` se a lista de famílias resolve numa fonte MONOESPAÇADA (o backend
+/// usa para escolher o atlas mono). Percorre a lista como o browser: a
+/// primeira família CONHECIDA decide — um nome que este motor não reconhece
+/// é tratado como indisponível e salta-se para a seguinte, que é o que o
+/// fallback do CSS faz com uma fonte que não está instalada. "Conhecida" é
+/// uma keyword genérica ou um nome da lista curta abaixo; a alternativa —
+/// decidir pela primeira família, conhecida ou não — era o que fazia
+/// `Inexistente, monospace` medir como proporcional.
 pub fn is_mono_family(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("mono") || n.contains("courier") || n.contains("consol") || n == "menlo"
+    for f in name.split(',') {
+        let n = f.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase();
+        if n.contains("mono") || n.contains("courier") || n.contains("consol") || n == "menlo" {
+            return true;
+        }
+        let proporcional_conhecida = matches!(
+            n.as_str(),
+            "serif" | "sans-serif" | "cursive" | "fantasy" | "system-ui" | "ui-sans-serif"
+                | "ui-serif" | "-apple-system" | "blinkmacsystemfont"
+        ) || ["arial", "helvetica", "segoe", "roboto", "verdana", "georgia", "times",
+            "inter", "tahoma", "trebuchet", "open sans", "lato", "noto", "ubuntu", "cambria",
+            "calibri"]
+            .iter()
+            .any(|k| n.contains(k));
+        if proporcional_conhecida {
+            return false;
+        }
+    }
+    false
 }
 
 /// `font: [style] [weight] size[/line-height] family` (shorthand). Parseia os

@@ -22,13 +22,13 @@ fn min_max_clamp_nao_parseiam() {
     assert_eq!(parse_inline("width:max(10px,2vw)").width, None);
 }
 
-/// `estilo.unidade.tabela` — doze unidades da spec que o parse recusa. Não são
-/// aproximadas: a declaração inteira cai.
+/// `estilo.unidade.tabela` — dez unidades da spec que o parse recusa. Não são
+/// aproximadas: a declaração inteira cai. `ch` e `ex` saíram daqui com o lote T
+/// (resolvem pela métrica calibrada — ver `Dimension::Ex`/`Ch`).
 #[test]
 fn as_unidades_em_falta_derrubam_a_declaracao() {
     for u in [
-        "10ch", "10ex", "10cm", "10mm", "10in", "10q", "10lh", "10vmin", "10vmax", "10dvh",
-        "10svh", "10lvh",
+        "10cm", "10mm", "10in", "10q", "10lh", "10vmin", "10vmax", "10dvh", "10svh", "10lvh",
     ] {
         assert_eq!(
             parse_inline(&format!("width:{u}")).width,
@@ -36,8 +36,8 @@ fn as_unidades_em_falta_derrubam_a_declaracao() {
             "unidade {u} passou a ser aceite — o registo estilo.unidade.tabela mudou"
         );
     }
-    // O contraste: as seis que aceitamos.
-    for u in ["10px", "10%", "10em", "10rem", "10vw", "10vh"] {
+    // O contraste: as oito que aceitamos.
+    for u in ["10px", "10%", "10em", "10rem", "10vw", "10vh", "10ex", "10ch"] {
         assert!(parse_inline(&format!("width:{u}")).width.is_some(), "{u}");
     }
 }
@@ -87,13 +87,15 @@ fn o_shorthand_font_sem_digito_cai_inteiro() {
     assert_eq!(c.bold, None, "e o peso, que vinha antes do tamanho");
 }
 
-/// `estilo.font.family-lista` — guardamos só a PRIMEIRA família, e é isso que o
-/// `getComputedStyle` responde. Sem a lista não há fallback para consultar.
+/// `estilo.font.family-lista` — a lista INTEIRA fica guardada e é o que o
+/// `getComputedStyle` responde, serializada como o Blink (aspas duplas num nome
+/// com espaços). Guardava-se só a primeira (lote T fechou-o): sem a lista não
+/// havia fallback para consultar.
 #[test]
-fn a_lista_de_font_family_perde_tudo_menos_a_primeira() {
+fn a_lista_de_font_family_fica_inteira_e_serializada_como_o_blink() {
     let c = parse_inline("font-family:Georgia, 'Times New Roman', serif");
-    assert_eq!(c.font_family.as_deref(), Some("Georgia"));
-    assert_eq!(c.computed_value("font-family", None), "Georgia");
+    assert_eq!(c.font_family.as_deref(), Some("Georgia, \"Times New Roman\", serif"));
+    assert_eq!(c.computed_value("font-family", None), "Georgia, \"Times New Roman\", serif");
 }
 
 /// CSS-wide keywords da primeira fatia implementada. `unset` e `initial` já
