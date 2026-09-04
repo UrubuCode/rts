@@ -35,7 +35,7 @@ linha aqui não existe.
 | K | invalidação escopada para `:nth-child` | 2 | ☑ subárvore do pai em vez de `touch()` global; testes de escopo; corpus 49/49 e suite 858/887 sem perdidos; TEMPO por medir (`dom_metrics`) | `feat/dom-lote-k-invalidacao-escopada` (2026-09-04) | `dom_metrics`: cascades por `appendChild` |
 | L | cache de fragmentos em flex/grid/tabela | 2 | ☐ | — | `dom_metrics`: subárvores reusadas numa app flex |
 | M | ciclo de vida do nó | 2 | ☐ | — | teste: arena não cresce ao remover/inserir N vezes |
-| N | réguas no CI | 2 | ◐ jobs `dom-rulers` (corpus, vermelho se uma fixture cair) e `dom-tests` em `build-artifacts.yml`; a escrita automática do número no README e a régua de pintura ficam por fazer | `main` (2026-09-04) | resumo do job + check vermelho |
+| N | réguas no CI | 2 | ☑ `dom-rulers` e `dom-tests` VERDES no runner (run 33840034384, 2026-09-04); `dom-rulers` corre com `if: !cancelled()` porque a matriz `build` teve o macOS vermelho de 03/09 a 04/09 (#2632, corrigido em #2633); ficam por fazer a escrita automática do número no README e a régua de pintura | `main` (#2629, #2633) | resumo do job + check vermelho |
 | O–U | CSS como área | 3 | ☐ | — | §5 |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
