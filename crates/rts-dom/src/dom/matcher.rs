@@ -110,7 +110,7 @@ impl Dom {
     }
 
     /// `true` se o COMPOUND casa o elemento `idx` (tag/id/classe/atributo/pseudo).
-    fn compound_matches_idx(
+    pub(in crate::dom) fn compound_matches_idx(
         &self,
         idx: NodeIdx,
         compound: &crate::style::CompoundSelector,
@@ -147,6 +147,27 @@ impl Dom {
         };
         compounds.iter().any(|c| {
             crate::style::compound_matches_borrowed(c, tag, id, class_attr, &attr, &pseudo)
+        })
+    }
+
+    /// `true` se o nó casaria algum compound com `:active` SE estivesse entre o
+    /// mousedown e o mouseup — a mesma aproximação de `could_match_hover`,
+    /// para a mesma pergunta ("o clique pode mudar o estilo DESTE nó?").
+    pub(in crate::dom) fn could_match_active(&self, idx: NodeIdx) -> bool {
+        let tag = match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => tag.as_str(),
+            _ => return false,
+        };
+        let id = self.nodes[idx].attr("id");
+        let class_attr = self.nodes[idx].attr("class");
+        let attr = |name: &str| self.nodes[idx].attr(name);
+        let pseudo = |pc: &crate::style::PseudoClass| {
+            matches!(pc, crate::style::PseudoClass::Active) || self.pseudo_matches(idx, pc)
+        };
+        self.stylesheet.rules.iter().any(|r| {
+            r.selector.compounds.iter().any(|c| {
+                crate::style::compound_matches_borrowed(c, tag, id, class_attr, &attr, &pseudo)
+            })
         })
     }
 
@@ -261,9 +282,32 @@ impl Dom {
                     None => false,
                 }
             }
-            // Sem estado de botão premido nem histórico no DOM — ver os
-            // comentários das variantes em `style::selector`.
-            P::Active | P::Visited => false,
+            // `:active`/`:visited` VIVOS (lote O) — ver os comentários dos
+            // campos `active`/`visited` em `dom/mod.rs`. Sem quem os alimente
+            // (backend/navegação simulada), ambos ficam `None`/vazio e a
+            // pseudo casa nunca — o mesmo default de antes.
+            P::Active => self.active.get() == Some(idx),
+            P::Visited => self.nodes[idx]
+                .attr("href")
+                .is_some_and(|href| self.is_visited(href)),
+            // `:target` — o `id` do nó é o fragmento corrente. `""` (nenhum
+            // fragmento) nunca casa, mesmo que o nó também não tenha `id`
+            // (`Some("") == Some("")` seria um falso positivo em todo nó sem
+            // `id` numa página sem `#` na URL).
+            P::Target => {
+                let frag = self.target_fragment.borrow();
+                !frag.is_empty() && self.nodes[idx].attr("id") == Some(frag.as_str())
+            }
+            // `:scope` — o nó é a raiz da consulta corrente (`consulta.rs` seta
+            // antes de casar). Fora de uma consulta (a cascade normal, por
+            // exemplo), o `Cell` está em `None` e não casa nada — correto: uma
+            // regra de folha com `:scope` não tem `:scope` nenhum para casar.
+            P::Scope => self.scope_node.get() == Some(idx),
+            P::Default => self.matches_default(idx),
+            P::PlaceholderShown => self.matches_placeholder_shown(idx),
+            // `:has()` — relacional, delega em `dom::has` (a única direção do
+            // matcher que desce a árvore a partir do alvo em vez de subir).
+            P::Has(lista) => lista.iter().any(|(comb, sel)| self.has_matches(idx, *comb, sel)),
             P::Link => {
                 let is_anchor = matches!(&self.nodes[idx].kind,
                     NodeKind::Element { tag } if matches!(tag.as_str(), "a" | "area"));
@@ -352,13 +396,13 @@ impl Dom {
     }
 
     /// O pai de `idx` SE for elemento (não o #document), em índice cru.
-    fn parent_element_idx(&self, idx: NodeIdx) -> Option<NodeIdx> {
+    pub(in crate::dom) fn parent_element_idx(&self, idx: NodeIdx) -> Option<NodeIdx> {
         let p = self.nodes[idx].parent?;
         matches!(self.nodes[p].kind, NodeKind::Element { .. }).then_some(p)
     }
 
     /// O irmão-elemento imediatamente anterior a `idx`, em índice cru.
-    fn prev_element_sibling_idx(&self, idx: NodeIdx) -> Option<NodeIdx> {
+    pub(in crate::dom) fn prev_element_sibling_idx(&self, idx: NodeIdx) -> Option<NodeIdx> {
         let sibs = self.element_siblings(idx);
         let pos = sibs.iter().position(|&c| c == idx)?;
         (pos > 0).then(|| sibs[pos - 1])

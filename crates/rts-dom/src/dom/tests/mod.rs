@@ -13,6 +13,7 @@ mod medidor_ativo;
 mod mutacao;
 mod parser;
 mod scroll;
+mod selectores_lote_o;
 
     use super::*;
 

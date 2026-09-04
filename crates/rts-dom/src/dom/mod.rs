@@ -40,6 +40,7 @@ mod estilo;
 mod formulario;
 mod freelist;
 mod geometria;
+mod has;
 mod helpers;
 mod invalidacao;
 mod matcher;
@@ -230,6 +231,29 @@ pub struct Dom {
     /// matcher lê durante a cascade). Setar via [`Dom::set_hovered`] (que só
     /// invalida caches quando MUDA e quando o stylesheet tem regra `:hover`).
     hovered: std::cell::Cell<Option<NodeIdx>>,
+    /// O nó entre `mousedown` e `mouseup` sobre ele — o estado do `:active`
+    /// vivo (lote O). Mesmo padrão do `hovered` acima: `Cell` porque o matcher
+    /// lê durante a cascade sem `&mut Dom`. Quem o alimenta é o BACKEND (sabe
+    /// onde caiu o mousedown, como já sabe o hit-test do hover); sem chamada,
+    /// fica sempre `None` e `:active` nunca casa — o mesmo default de antes.
+    active: std::cell::Cell<Option<NodeIdx>>,
+    /// Os `href` já VISITADOS, para o `:visited` vivo (lote O). Sem navegação
+    /// real neste motor headless, nada o alimenta sozinho; existe para quem
+    /// simula navegação (`Dom::mark_visited`) poder testar a pseudo. `RefCell`
+    /// pela mesma razão do resto do estado de documento: lido durante a
+    /// cascade sem `&mut Dom`.
+    visited: std::cell::RefCell<std::collections::HashSet<String>>,
+    /// O FRAGMENTO da URL do documento (sem o `#`), para `:target` (lote O).
+    /// `""` = nenhum, e a pseudo não casa nada — o default antes de qualquer
+    /// navegação com `#`. Setado por `Dom::set_location_hash` (a fachada
+    /// `window.location.hash =` do lote V/`window.ts` chama-o).
+    target_fragment: std::cell::RefCell<String>,
+    /// A raiz da consulta CORRENTE, para `:scope` (lote O). `query_idx` seta
+    /// `Some(self.root)`; `query_within`/`query_all_within` setam o nó da
+    /// subárvore. Estado de CONSULTA, não de documento — ao contrário de
+    /// `hovered`/`active`/`focused_input`, dura só a chamada que o usa (o
+    /// `Cell` é restaurado no fim dela, nunca lido fora de um matching).
+    scope_node: std::cell::Cell<Option<NodeIdx>>,
     /// Eventos CRUS vindos do BACKEND (hit-test do mouse): `(nó-alvo, tipo)` SEM
     /// expansão de bubbling/listeners — o backend só empurra "clicou no nó X"; a
     /// fachada TS drena via `pumpEventCallbacks` e faz o dispatch completo

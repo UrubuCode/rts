@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<!-- Fixa `:default` (opção pré-selecionada, checkbox marcado, botão submit
+     por default) e `:placeholder-shown` (campo vazio com placeholder) no
+     mesmo ficheiro — cada um é uma pergunta estática sobre o markup, sem
+     estado vivo (ao contrário de `:hover`/`:active`), então cabem juntos
+     sem um interferir na medição do outro. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="opcao-um,opcao-dois,marcado,nao-marcado,botao-a,botao-b,vazio,com-valor">
+<meta name="fixar-estilo" content="color,font-weight">
+<style>
+  body { margin: 0; }
+  input, button, option { color: #000; font-weight: normal; }
+  :default { color: #ff0000; font-weight: bold; }
+  :placeholder-shown { color: #0000ff; }
+</style>
+</head>
+<body>
+  <select>
+    <option id="opcao-um" value="1">um</option>
+    <option id="opcao-dois" value="2" selected>dois</option>
+  </select>
+  <input id="marcado" type="checkbox" checked>
+  <input id="nao-marcado" type="checkbox">
+  <form>
+    <button id="botao-a" type="submit">primeiro</button>
+    <button id="botao-b" type="submit">segundo</button>
+  </form>
+  <input id="vazio" placeholder="nome">
+  <input id="com-valor" placeholder="nome" value="já preenchido">
+</body>
+</html>

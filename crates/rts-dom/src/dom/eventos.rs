@@ -317,6 +317,62 @@ impl Dom {
         }
     }
 
+    /// BACKEND → DOM: informa o nó entre `mousedown` e `mouseup` neste frame
+    /// (`None` = nenhum botão premido). Alimenta o `:active` vivo (lote O),
+    /// espelhando `set_hovered` — mas sem a distinção por alcance: `:active`
+    /// é BORDA (muda só no mousedown/mouseup, não a cada movimento do mouse),
+    /// então o `touch_subtrees` da cadeia de ancestrais que casam `:active`
+    /// não paga por frame como o de `:hover` pagaria — é pago só nas duas
+    /// transições por clique.
+    pub fn set_active(&mut self, idx: Option<NodeIdx>) {
+        let previous = self.active.get();
+        if previous == idx {
+            return;
+        }
+        self.active.set(idx);
+        let mut roots: Vec<NodeIdx> = Vec::new();
+        for start in [previous, idx].into_iter().flatten() {
+            let mut cur = Some(start);
+            while let Some(node) = cur {
+                if node != self.root && !roots.contains(&node) && self.could_match_active(node) {
+                    roots.push(node);
+                }
+                cur = self.nodes[node].parent;
+            }
+        }
+        if !roots.is_empty() {
+            self.touch_subtrees(roots);
+        }
+    }
+
+    /// Marca `href` como VISITADO, para o `:visited` vivo (lote O). Sem
+    /// navegação real, nada chama isto sozinho; existe para quem simula uma
+    /// navegação. `touch()`: sem alcance derivado das regras (o caso é raro o
+    /// bastante para não valer o cache que `hover_reach` paga por si).
+    pub fn mark_visited(&mut self, href: &str) {
+        if !self.visited.borrow_mut().insert(href.to_string()) {
+            return;
+        }
+        self.touch();
+    }
+
+    /// `true` se `href` já foi marcado por [`mark_visited`](Dom::mark_visited).
+    pub(in crate::dom) fn is_visited(&self, href: &str) -> bool {
+        self.visited.borrow().contains(href)
+    }
+
+    /// Define o FRAGMENTO da URL do documento (sem o `#`), para `:target`
+    /// (lote O). `touch()`: mudar de fragmento é uma navegação, tão rara
+    /// quanto trocar o stylesheet inteiro — não vale um alcance derivado.
+    pub fn set_location_hash(&mut self, fragment: &str) {
+        let fragment = fragment.trim_start_matches('#');
+        if *self.target_fragment.borrow() == fragment {
+            return;
+        }
+        *self.target_fragment.borrow_mut() = fragment.to_string();
+        self.touch();
+    }
+
     /// BACKEND → DOM: enfileira uma transição de teclado. O target é o input
     /// focado; sem foco, usa `body` e finalmente `documentElement`.
     pub fn push_raw_keyboard_event(
