@@ -41,6 +41,7 @@ mod events;
 mod imagem;
 mod location;
 mod nodes;
+mod recursos;
 mod scroll;
 mod travessia;
 mod scope;
@@ -70,6 +71,7 @@ pub(crate) fn dom_members() -> Vec<(&'static str, Provided)> {
         .chain(scroll::MEMBERS)
         .chain(location::MEMBERS)
         .chain(imagem::MEMBERS)
+        .chain(recursos::MEMBERS)
         .copied()
         .collect()
 }

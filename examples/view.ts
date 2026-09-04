@@ -1,6 +1,5 @@
 import egui from "rts:egui";
-import fs from "rts:fs";
-import env from "rts:env";
+import { readFileSync } from "node:fs";
 
 // VIEWER genérico do motor de render: abre qualquer página HTML local numa
 // janela, com CSS externo (<link rel=stylesheet> + @import relativos) via
@@ -8,14 +7,16 @@ import env from "rts:env";
 //
 //   rts run examples/view.ts <caminho/para/index.html>
 //
-// Limites atuais (issue #1793): recursos http(s) não carregam (use assets
-// locais), <img> não renderiza, o JS da página não executa.
-const n = env.args_count();
-const path = n > 3 ? env.arg_at(3) : "";
+// Limites atuais (crates/rts-dom/PLAN.md §0): recursos http(s) não carregam
+// (use assets locais; <img> local e `data:` já renderizam), o JS da página não
+// executa aqui. `rts:fs`/`rts:env` eram do motor antigo: o ficheiro lê-se por
+// `node:fs` e o caminho vem de `process.argv`.
+let path = "";
+for (const a of process.argv) { if (a.length > 5 && a.substring(a.length - 5) === ".html") path = a; }
 if (path.length === 0) {
   console.log("uso: rts run examples/view.ts <caminho/para/index.html>");
 } else {
-  const html = fs.read_text(path);
+  const html = readFileSync(path, "utf8") as string;
   if (html.length === 0) {
     console.log("nao consegui ler: " + path);
   } else {

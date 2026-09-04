@@ -1491,16 +1491,19 @@ function __schemeSlashSlash(p: string): number {
 function __readResource(url: string): string {
   if (url.length > 7 && url.substring(0, 7) === "http://") return __fetchText(url);
   if (url.length > 8 && url.substring(0, 8) === "https://") return __fetchText(url);
-  // local: tira "file://" se houver.
-  let path = url;
-  if (path.length > 7 && path.substring(0, 7) === "file://") path = path.substring(7);
-  return fs.read_text(path);
+  // local: a ponte lê (`dom.readTextFile`, `rts-dom-bridge/src/recursos.rs`).
+  // `fs.read_text` era um global do motor antigo — nunca existiu no novo, e
+  // nenhuma folha externa local carregava fora dos testes (que inlinam o CSS).
+  return dom.readTextFile(url) as string;
 }
 
-// fetch síncrono de texto (`rts:fetch`.fetchText — HTTP GET via ureq+TLS, o mesmo
-// caminho do mini-browser). "" em erro (a convenção tolerante do __readResource).
-function __fetchText(url: string): string {
-  return fetch.fetchText(url);
+// Texto por http(s), SÍNCRONO. `fetch.fetchText` era do motor antigo; o motor
+// novo só tem o `fetch` assíncrono da Web, e este loader corre antes do
+// primeiro frame sem laço de eventos. Responde "" (recurso ausente — a
+// convenção tolerante do __readResource) até haver uma busca síncrona de
+// texto na ponte; dito no PLAN §0 (V-img-2).
+function __fetchText(_url: string): string {
+  return "";
 }
 
 // Expande os imports CSS (`url(...)` ou string) INLINE e recursivamente.
