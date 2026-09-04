@@ -339,6 +339,7 @@ pub(crate) fn layout_block(
                     avail_w,
                     avail_h,
                     forced_outer_w,
+                    forced_outer_h,
                     ctx,
                     list,
                 );
@@ -372,30 +373,9 @@ pub(crate) fn layout_block(
             }
             css
         }
-        NodeKind::Text(t) => {
-            // Whitespace estrutural é preservado no DOM, mas não cria uma linha
-            // visual quando chega sozinho ao fluxo de blocos/root. Em contexto
-            // inline, ele é tratado por `wrap_runs` e continua separando palavras.
-            if t.trim().is_empty() {
-                return (0.0, 0.0);
-            }
-            let size = DEFAULT_FONT_SIZE;
-            let lh = ctx.measurer.line_height(size);
-            let tw = ctx.measurer.text_width(t, size, false, false, false);
-            list.items.push(DisplayItem::Text {
-                x,
-                y,
-                text: t.as_str().into(),
-                color: 0x000000FF,
-                size,
-                mono: false,
-                bold: false,
-                italic: false,
-                letter_spacing: 0.0,
-                decoration: 0,
-            });
-            return (tw, lh);
-        }
+        // Texto solto ao nível de bloco: uma linha com a fonte do PAI
+        // (`texto_solto.rs`); whitespace estrutural não cria linha nenhuma.
+        NodeKind::Text(t) => return super::texto_solto::layout_texto_solto(dom, id, t, x, y, ctx, list),
         _ => return (0.0, 0.0), // Comment / Document aninhado: não pinta.
     };
 

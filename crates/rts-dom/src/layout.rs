@@ -83,6 +83,7 @@ mod linha;
 mod quebra;
 mod runs;
 mod segmento;
+mod texto_solto;
 mod tabulacao;
 mod transformacao;
 pub(crate) use self::bloco::layout_block;
