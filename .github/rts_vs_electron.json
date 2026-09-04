@@ -1,5 +1,5 @@
 {
-  "medido_em": "2026-09-04T22:29:13.521Z",
+  "medido_em": "2026-09-04T22:59:25.745Z",
   "maquina": {
     "so": "win32 10.0.26100",
     "cpu": "AMD EPYC 7763 64-Core Processor",
@@ -10,11 +10,11 @@
   "lados": {
     "rts": {
       "exe": "D:\\a\\_temp\\rts-vs-electron\\rts\\app.exe",
-      "bytes_exe": 20003840,
-      "bytes_pasta": 21108417,
+      "bytes_exe": 29190656,
+      "bytes_pasta": 30295233,
       "ficheiros_na_pasta": 5,
       "nao_construido": true,
-      "razao": "processo terminou (exit code desconhecido) antes de abrir janela. stderr: rts: uncaught exception (tag 1): Error: cannot resolve module \"rts:egui\" — nothing registered that specifier",
+      "razao": "saída do PowerShell não era JSON: HTML: 144971 bytes\nrecursos externos carregados: 0\n{\"ok\":true,\"razao\":null,\"arranque_ms\":950,\"rss_mb\":68.26,\"private_mb\":165.56,\"cpu_pct\":319.7,\"processos\":2} | stderr: ",
       "arranque_ms": null,
       "rss_mb": null,
       "private_mb": null,
@@ -33,16 +33,16 @@
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 323,
-        "min": 294,
-        "max": 335
+        "mediana": 294,
+        "min": 216,
+        "max": 304
       },
       "rss_mb": {
-        "mediana": 261.19,
-        "min": 260.51,
-        "max": 263.12
+        "mediana": 264.55,
+        "min": 263.08,
+        "max": 265.94
       },
-      "private_mb": 89.7,
+      "private_mb": 91.61,
       "cpu_repouso_pct": 0,
       "processos": 4,
       "amostras": {

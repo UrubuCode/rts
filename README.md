@@ -127,16 +127,18 @@ Two packaged builds of the **same** app (`examples/react-app.html`, 144 KB, no n
 
 | | RTS | Electron |
 |---|---:|---:|
-| Exe size | 19.1 MB | 234.8 MB |
-| Folder size | 20.1 MB | 367.6 MB |
+| Exe size | 27.8 MB | 234.8 MB |
+| Folder size | 28.9 MB | 367.6 MB |
 | Files in folder | 5 | 73 |
 | Processes | — | 4 |
-| Startup (median, min–max) | **not built** | 323 ms (294–335) |
-| RSS (median, min–max) | — | 261.2 MB (260.5–263.1) |
-| Private bytes (median) | — | 89.7 MB |
+| Startup (median, min–max) | **not built** | 294 ms (216–304) |
+| RSS (median, min–max) | — | 264.6 MB (263.1–265.9) |
+| Private bytes (median) | — | 91.6 MB |
 | CPU at rest (median) | — | 0% |
 
-**RTS's AOT `.exe` does not run today**: processo terminou (exit code desconhecido) antes de abrir janela. stderr: rts: uncaught exception (tag 1): Error: cannot resolve module "rts:egui" — nothing registered that specifier (`scripts/rts_vs_electron/rts/README.md` has the full account and the fix). Its exe/folder size above is real — the binary compiled and links — but every runtime row is unmeasurable until it does.
+**RTS's AOT `.exe` does not run today**: saída do PowerShell não era JSON: HTML: 144971 bytes
+recursos externos carregados: 0
+{"ok":true,"razao":null,"arranque_ms":950,"rss_mb":68.26,"private_mb":165.56,"cpu_pct":319.7,"processos":2} | stderr:  (`scripts/rts_vs_electron/rts/README.md` has the full account and the fix). Its exe/folder size above is real — the binary compiled and links — but every runtime row is unmeasurable until it does.
 
 **What this does NOT measure**: no GPU workload, no network I/O, one tiny static page — the size and idle-memory difference between the two runtimes is the whole comparison, not a claim about either one under load.
 
