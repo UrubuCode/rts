@@ -81,11 +81,7 @@ impl ComputedStyle {
                 })
                 .map(|s| s.to_string())
                 .unwrap_or_default(),
-            "flex-wrap" => match self.flex_wrap {
-                Some(true) => "wrap".into(),
-                Some(false) => "nowrap".into(),
-                None => String::new(),
-            },
+            "flex-wrap" => self.flex_wrap.map(fmt_flex_wrap).unwrap_or_default(),
             // As trilhas de grid: o browser reporta os tamanhos JÁ RESOLVIDOS em
             // px (`repeat(3, 1fr)` num container de 450px sai `150px 150px
             // 150px`). Aqui saem na forma DECLARADA, porque o computed não tem o

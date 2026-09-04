@@ -73,6 +73,7 @@ use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_s
 mod coluna;
 mod coluna_shrink;
 mod flex;
+mod flex_baseline;
 mod flex_limites;
 mod flex_margens_auto;
 mod flex_pseudo;

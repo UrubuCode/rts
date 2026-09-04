@@ -118,13 +118,15 @@ css_props! {
         /// declarado (o layout usa o default da tag via `block::lookup`). Combina
         /// com `flex_wrap`.
         [] display: DisplayKind;
-        /// `flex-wrap: wrap` — só relevante com `display:flex`; promove `Flex` a
-        /// `FlexWrap` na resolução. `None`/`Some(false)` = nowrap.
-        [] flex_wrap: bool;
+        /// `flex-wrap: nowrap|wrap|wrap-reverse` — só relevante com
+        /// `display:flex`; `Wrap`/`WrapReverse` promovem `Flex` a `FlexWrap` na
+        /// resolução (`effective_display`). `None` = nowrap.
+        [] flex_wrap: FlexWrap;
         /// `justify-content` — distribuição no eixo principal do flex. `None` =
         /// FlexStart.
         [] justify: JustifyContent;
         /// `align-items` — alinhamento no eixo cruzado. `None` = Stretch.
+        /// `Baseline` só tem efeito real na LINHA (`layout/flex_baseline.rs`).
         [] align_items: AlignItems;
         /// `gap`/`column-gap` — espaço FIXO entre itens no eixo principal (em row).
         [] gap: Dimension;

@@ -159,17 +159,21 @@ impl JustifyContent {
     }
 }
 
-/// `align-items` — alinhamento dos itens no EIXO CRUZADO. Default `Stretch`. (baseline
-/// fica de fora desta fase — sem inline-flow rico.) Egui-free.
+/// `align-items` — alinhamento dos itens no EIXO CRUZADO. Default `Stretch`. Egui-free.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AlignItems {
-    /// ⚠️ CORTE: o layout trata `Stretch` como `FlexStart` (item mantém a altura
-    /// natural, NÃO estica até a altura da linha). É o DEFAULT do flex — ver a nota
-    /// de cortes no topo de `layout.rs::align_offset`.
+    /// O flex ESTICA de fato (`layout/flex.rs::stretches`); numa coluna
+    /// (`coluna.rs`) o item ocupa a largura do contentor.
     Stretch,
     FlexStart,
     FlexEnd,
     Center,
+    /// Alinha pela BASELINE do conteúdo do item, POR LINHA (Flexbox §8.5): o
+    /// item de maior ascent fica encostado ao início da linha; os outros
+    /// descem para partilhar essa baseline. Resolvido em
+    /// `layout/flex_baseline.rs` — só no eixo de LINHA (`flex-direction:
+    /// row`); numa coluna cai para `FlexStart` (`coluna.rs::align_offset`).
+    Baseline,
 }
 
 impl AlignItems {
@@ -179,7 +183,40 @@ impl AlignItems {
             "flex-start" | "start" | "self-start" => AlignItems::FlexStart,
             "flex-end" | "end" | "self-end" => AlignItems::FlexEnd,
             "center" => AlignItems::Center,
+            "baseline" | "first baseline" => AlignItems::Baseline,
             _ => return None,
         })
+    }
+}
+
+/// `flex-wrap` — quebra de linha no flex, e a ORDEM das linhas no eixo
+/// cruzado (Flexbox §5.2/§8.3). Era um `bool` (`Some(true)`=wrap,
+/// `Some(false)`=nowrap): `"wrap-reverse"` não batia a comparação exacta a
+/// `"wrap"` e caía em `Some(false)` — idêntico a `nowrap`, sem onde guardar o
+/// terceiro estado.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FlexWrap {
+    NoWrap,
+    Wrap,
+    /// Quebra como `Wrap` (mesmo agrupamento em linhas) mas troca
+    /// cross-start/cross-end: a linha que o documento escreve DEPOIS
+    /// desenha-se no INÍCIO do eixo cruzado (`layout/flex_baseline.rs`).
+    WrapReverse,
+}
+
+impl FlexWrap {
+    pub fn parse(v: &str) -> Option<FlexWrap> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "nowrap" => FlexWrap::NoWrap,
+            "wrap" => FlexWrap::Wrap,
+            "wrap-reverse" => FlexWrap::WrapReverse,
+            _ => return None,
+        })
+    }
+
+    /// `true` para `Wrap` OU `WrapReverse` — os dois quebram linha; só a
+    /// ORDEM delas difere. É a pergunta que `effective_display` faz.
+    pub fn wraps(self) -> bool {
+        matches!(self, FlexWrap::Wrap | FlexWrap::WrapReverse)
     }
 }

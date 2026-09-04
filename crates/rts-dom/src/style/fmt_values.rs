@@ -189,6 +189,16 @@ pub(crate) fn fmt_align(a: AlignItems) -> String {
         AlignItems::FlexStart => "flex-start",
         AlignItems::FlexEnd => "flex-end",
         AlignItems::Center => "center",
+        AlignItems::Baseline => "baseline",
+    }
+    .into()
+}
+
+pub(crate) fn fmt_flex_wrap(w: crate::style::FlexWrap) -> String {
+    match w {
+        crate::style::FlexWrap::NoWrap => "nowrap",
+        crate::style::FlexWrap::Wrap => "wrap",
+        crate::style::FlexWrap::WrapReverse => "wrap-reverse",
     }
     .into()
 }

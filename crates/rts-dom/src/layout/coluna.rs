@@ -391,11 +391,18 @@ pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: 
 /// Offset no eixo cruzado de um item, dado o align-items, a altura da linha `line_h`
 /// e a altura outer do item `item_h`. (stretch é tratado como flex-start aqui — o
 /// esticar real exige passar altura imposta ao layout_block, fase futura.)
+///
+/// `Baseline` cai em `FlexStart`: o alinhamento por baseline REAL (grupo por
+/// linha, ascent por item) só está feito no eixo de LINHA
+/// (`layout/flex_baseline.rs`, que resolve o offset ANTES de chegar aqui —
+/// esta função só vê o `Baseline` de uma coluna, ou de um item cujo grupo não
+/// tinha ninguém para partilhar a baseline). É o fallback que a própria spec
+/// prevê (Flexbox §8.5) quando o eixo cruzado não tem baseline partilhável.
 pub(in crate::layout) fn align_offset(a: crate::style::AlignItems, line_h: f32, item_h: f32) -> f32 {
     use crate::style::AlignItems as A;
     let free = line_h - item_h;
     match a {
-        A::Stretch | A::FlexStart => 0.0,
+        A::Stretch | A::FlexStart | A::Baseline => 0.0,
         A::FlexEnd => free,
         A::Center => free / 2.0,
     }

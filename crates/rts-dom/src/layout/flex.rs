@@ -46,14 +46,11 @@ pub(in crate::layout) struct FlexItem {
     pub(in crate::layout) pseudo: Option<super::flex_pseudo::PseudoItem>,
 }
 
-
 /// Dispõe os filhos HORIZONTAL (flex-row). Implementa gap, justify-content (eixo
 /// principal) e align-items (eixo cruzado). Devolve a altura total do content.
 ///
-/// - `wrap = false` (flex sem wrap): tudo numa linha; justify distribui o espaço
-///   livre; em overflow, cai para flex-start (transborda no fim).
-/// - `wrap = true` (inline-block/flex-wrap): quebra para a próxima linha quando não
-///   cabe; justify/align aplicam POR LINHA.
+/// - `wrap = false`: tudo numa linha; justify distribui o livre (overflow cai a flex-start).
+/// - `wrap = true`: quebra linha quando não cabe; justify/align aplicam POR LINHA.
 pub(in crate::layout) fn layout_children_horizontal(
     dom: &Dom,
     id: NodeIdx,
@@ -260,6 +257,8 @@ pub(in crate::layout) fn layout_children_horizontal(
         }
         lines.last_mut().unwrap().push(it);
     }
+    // `wrap-reverse` troca cross-start/cross-end (`flex_baseline.rs`).
+    super::flex_baseline::reverte_linhas_se_wrap_reverse(&mut lines, css.flex_wrap);
 
     // `align-content` em MULTI-LINHA (spec §8.4/flexbox §8): distribui o
     // espaço cruzado sobrante entre as linhas de wrap, com o mesmo
@@ -412,6 +411,10 @@ pub(in crate::layout) fn layout_children_horizontal(
         let lados_auto = line.iter().map(|it| usize::from(it.auto_esq) + usize::from(it.auto_dir)).sum::<usize>();
         let auto_cada = if lados_auto > 0 && free > 0.0 { free / lados_auto as f32 } else { 0.0 };
         let (leading, between) = if auto_cada > 0.0 { (0.0, 0.0) } else { justify_offsets(justify, free, n) };
+        // `align-items:baseline` por LINHA (`flex_baseline.rs`); `None` por
+        // item cai no `align_offset` normal dentro de `off_cross_item`.
+        let baseline_offsets =
+            super::flex_baseline::offsets_da_linha(dom, line.as_slice(), align, content_w, ctx);
 
         let mut x = content_x + leading;
         for (j, it) in line.iter().enumerate() {
@@ -431,7 +434,9 @@ pub(in crate::layout) fn layout_children_horizontal(
                 && !it.is_text
                 && line_h > it.h
                 && auto_cross.is_none();
-            let off_cross = auto_cross.unwrap_or(if stretches { 0.0 } else { align_offset(item_align, line_h, it.h) });
+            let off_cross = auto_cross.unwrap_or_else(|| {
+                super::flex_baseline::off_cross_item(stretches, item_align, baseline_offsets[j], line_h, it.h)
+            });
             let item_y = line_y + off_cross;
             if let Some(p) = &it.pseudo {
                 super::flex_pseudo::pintar(list, p, x, item_y, ctx);

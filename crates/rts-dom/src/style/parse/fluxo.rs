@@ -25,7 +25,8 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             );
         }
         // `flex-wrap` — combina com display:flex para promover a FlexWrap.
-        "flex-wrap" => set_if(&mut css.flex_wrap, Some(val.eq_ignore_ascii_case("wrap"))),
+        // `nowrap`/`wrap`/`wrap-reverse`: os três estados de `FlexWrap`.
+        "flex-wrap" => set_if(&mut css.flex_wrap, FlexWrap::parse(val)),
         // ── Flexbox: alinhamento + gap + direção ──────────────────────────────
         "justify-content" => set_if(&mut css.justify, JustifyContent::parse(val)),
         "align-items" => set_if(&mut css.align_items, AlignItems::parse(val)),
@@ -113,12 +114,8 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             for tok in val.split_whitespace() {
                 if let Some(d) = FlexDirection::parse(tok) {
                     set_if(&mut css.flex_direction, Some(d));
-                } else if tok.eq_ignore_ascii_case("wrap")
-                    || tok.eq_ignore_ascii_case("wrap-reverse")
-                {
-                    set_if(&mut css.flex_wrap, Some(true));
-                } else if tok.eq_ignore_ascii_case("nowrap") {
-                    set_if(&mut css.flex_wrap, Some(false));
+                } else if let Some(w) = FlexWrap::parse(tok) {
+                    set_if(&mut css.flex_wrap, Some(w));
                 }
             }
         }

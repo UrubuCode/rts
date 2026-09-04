@@ -3,8 +3,8 @@
 //! → `Npx`, enums → keyword. Validado contra o Chrome real (ver `fmt_color`).
 
 use super::fmt_values::{
-    display_css, fmt_align, fmt_color, fmt_dim, fmt_justify, fmt_px, fmt_tracks, fmt_url,
-    overflow_css, side_css, side_css_resolved, side_of,
+    display_css, fmt_align, fmt_color, fmt_dim, fmt_flex_wrap, fmt_justify, fmt_px, fmt_tracks,
+    fmt_url, overflow_css, side_css, side_css_resolved, side_of,
 };
 use super::props::ComputedStyle;
 use super::values::{Dimension, LineHeight, TextAlign, TextTransform, WhiteSpace};

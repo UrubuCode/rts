@@ -161,7 +161,7 @@ impl ComputedStyle {
                         },
                         None => "row",
                     },
-                    if w == Some(true) { "wrap" } else { "nowrap" }
+                    fmt_flex_wrap(w.unwrap_or(crate::style::FlexWrap::NoWrap))
                 ),
             },
             // O 2º lote responde do seu próprio módulo — ver `style::vocab`.
