@@ -23,6 +23,7 @@ not background reading, and the rules in it are binding for changes inside it.
 | `crates/rts-core/` | its `README.md` (10 rules) + `PLAN.md` |
 | `crates/rts-host/` | its `README.md` (6 rules) + `PLAN.md` |
 | `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md`; for the NEW engine's side of it, `docs/ui/new-engine-port.md` |
+| `crates/rts-dom/`, `crates/rts-dom-bridge/` | the row above, PLUS `crates/rts-dom/PLAN.md` — §0 is the state (which lot is in flight, on which branch, measured how) and §1–§2 are the rules and the three rulers — and the verdict in `docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/README.md`, which is the current picture of the engine where the roadmap of June is the picture from before |
 | anything else | this file, and `docs/README.md` for where things live |
 
 If a change requires breaking a rule, **change the rule first, with the reason,

@@ -221,6 +221,80 @@ jobs:
       # The program this used to compile was also wrong for the new engine —
       # `import { io } from "rts"` and `io.print` are surface it does not have.
 
+  # As réguas do rts-dom, que até 2026-09-04 não corriam em lado nenhum do CI
+  # (lente 6 da auditoria estrutural, docs/ui/html-engine/analises/): o corpus
+  # CSS medido no Chrome (tests/css) sobre o binário Linux que `build` já fez,
+  # e os testes Rust do crate e do bridge. Não bloqueia, como os outros três —
+  # o CLAUDE.md diz porquê — mas uma fixture que deixe de passar fica VERMELHA
+  # aqui em vez de só no terminal de quem se lembrar de correr o corredor.
+  dom-rulers:
+    needs: [version, build]
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download rts binary
+        uses: actions/download-artifact@v4
+        with:
+          name: rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+          path: dl
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p target/release
+          f=$(find dl -type f | head -1)
+          cp "$f" target/release/rts
+          chmod +x target/release/rts
+
+      # O binário Linux carrega libasound.so.2 (cpal). Sem ela o processo nem
+      # arranca, e um corredor que não arranca reportaria 0/49 — foi assim que
+      # a badge cross-runtime deu 0% uma vez (ver cross-runtime.yml). Retry
+      # porque o apt do runner flakeia, e um passo-guarda a seguir.
+      - name: Install ALSA runtime
+        run: |
+          for i in 1 2 3; do sudo apt-get update && sudo apt-get install -y libasound2-dev && break || sleep 5; done
+
+      - name: Guard — the binary runs at all
+        shell: bash
+        run: test "$(target/release/rts -e 'console.log(41)')" = "41"
+
+      - name: CSS corpus against Chrome (tests/css)
+        shell: bash
+        run: |
+          set -o pipefail
+          target/release/rts run examples/claude-css-runner.ts 2>&1 | tee corpus.txt
+          resumo=$(grep -E '^passam: ' corpus.txt)
+          { echo "### Corpus CSS (Chrome 1280x800, 1 px)"; echo; echo '```'; cat corpus.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # A regra do corpus é por FICHEIRO: qualquer fixture a falhar é vermelho.
+          # O denominador é o do corredor (conta os .html que existem), não daqui.
+          falham=$(echo "$resumo" | sed -E 's/.*falham: ([0-9]+).*/\1/')
+          echo "$resumo"
+          test "$falham" = "0"
+
+  # Os testes Rust do rts-dom (sem dependências: segundos) e do rts-dom-bridge
+  # (o teste de contrato que cruza o que a fachada chama com o que o bridge
+  # regista — o que teria apanhado getBoundingClientRect morto). Perfil dev de
+  # propósito: são dois crates, não os 41 binários que fazem o `--profile fast`
+  # do CLAUDE.md valer a pena.
+  dom-tests:
+    needs: version
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: rts-dom and rts-dom-bridge tests
+        run: cargo test -p rts-dom -p rts-dom-bridge --no-fail-fast
+
   # Reuses the Linux binary from `build` (no recompile). Runs as part of this
   # workflow so it keeps the PR/push context its badge/issue/comment steps need.
   cross-runtime:
