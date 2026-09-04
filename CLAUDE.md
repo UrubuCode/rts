@@ -628,9 +628,12 @@ the new engine's rules, not this one with a path changed.
 
 ## Repository map
 
-Fifteen crates, and every one of them is on the path a program takes. Sixteen
+Eighteen crates, and every one of them is on the path a program takes. Sixteen
 were deleted on 2026-08-10 — the whole old runtime and its tooling — so a name
 that is not here does not exist, and `git log --diff-filter=D` is where it went.
+This line said "Fifteen" while the block below listed sixteen and the directory
+held eighteen — the structural audit of 2026-09-04 caught it, which is how a
+map of crates gets to be wrong about the one thing it exists to say.
 
 ```
 crates/
@@ -643,8 +646,13 @@ crates/
   rts-node/          the `node:` surface
   rts-ui/            `rts:egui` + `rts:input`, where a target has a screen
   rts-runtime/       the AOT staticlib the compiled program links against
+  rts-physics/       `rts:rigid` — the rayon rigid-body solver, the CPU
+                     fallback for a GPU-first scene; its own crate because wasm
+                     has no threads
 
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
+  rts-dom-bridge/    `rts:dom` — the document reachable from TypeScript without
+                     a window, and the scope a page `<script>` compiles against
   rts-linker/        native link            rts-cli/  the CLI
 
   rts-napi/          N-API here, and a real npm addon RUNS: 146 symbols

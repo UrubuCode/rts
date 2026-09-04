@@ -42,6 +42,16 @@ mastering every layer (on the way to a browser engine).
      galley, text measurement, ScrollArea), not as layout.
    - `analise-rts-constraints.md` — fit within RTS: doctrine (Rust=infra,
      TS=high level), TS engine limits, decision on the new `rts-html` crate.
+6. **[analises/2026-09-04-auditoria-estrutural/](analises/2026-09-04-auditoria-estrutural/)**
+   — the structural audit of the engine AS BUILT, three months after the
+   decision above: seven agents, six lenses (pipeline and crate boundaries,
+   DOM object model and JS bridge, style and cascade, layout, text and fonts,
+   rulers and code health) plus a completeness critic, every claim verified in
+   the code at `fc84d04f` with `file:line`. Its `README.md` carries the
+   verdict — what is right, what is debt, what is structurally wrong — and the
+   order in which the wrong parts are to be fixed. **Read it before touching
+   `rts-dom`**: it is the current picture, where the four `analise-*` above are
+   the picture from before a line was written.
 
 ## Key decisions (summary — strategy DECIDED, see roadmap)
 
