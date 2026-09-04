@@ -45,6 +45,7 @@ linha aqui não existe.
 | S-transform | transformações 2D | 4 | ☑ `matrix()`, `skew*`, composição na ordem da spec, `transform-origin`, bounding box transformada (e dos descendentes), o fluxo não muda; pintura de rotação/skew no egui continua APROXIMADA (anchor exacto, w/h por norma das colunas) | `feat/dom-lote-transformacoes` → `508181548` (2026-09-04) | `claude-transform-*` (3/3 passam) |
 | T | fontes reais | 3 | ☐ | — | §5 |
 | U | composição e pintura | 3 | ☐ | — | §5 |
+| N-pintura | a régua de PINTURA (screenshot-diff contra o Blink) | 5 | ☑ `claude-raster` (rasterizador headless da DisplayList, PNG sem crate nova), `css_fixtures_screenshot_edge.mjs` (captura no Edge por CDP), `css_pintura_comparar.mjs` (diff por pixel, texto mascarado e reportado). Verificado: cor sólida 0%, gradiente 0,24%, box-model 0,01%. Não pinta texto nem imagens (dito). PNG não versionados | `feat/dom-regua-de-pintura` → `d415d9124` (2026-09-04) | `scripts/css_pintura.md` |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
 **Estado após a vaga 1 (2026-09-04, 01:41)** — medido com o `rts.exe`
