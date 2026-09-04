@@ -107,18 +107,11 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 ```
 
 Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
-- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor
- aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor
- aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor
- aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento;
- nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
-- `claude-img-natural.html` — vaga 7 — medida no Edge 152 ANTES do código (lote V-img: `rts:imgdec`,
- `dom.setImage` e o loader de `data:` não existem no motor novo). Blink: o
- `<img>` sem atributos mede o tamanho natural do PNG (4×2) e `width` sozinho
- mantém a razão (40×20).
+- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
+- `claude-img-natural.html` — vaga 7 — medida no Edge 152 ANTES do código (lote V-img: `rts:imgdec`, `dom.setImage` e o loader de `data:` não existem no motor novo). Blink: o `<img>` sem atributos mede o tamanho natural do PNG (4×2) e `width` sozinho mantém a razão (40×20).
 
 **DOM engine state** (`crates/rts-dom/PLAN.md` §0): **27/31 lots done**, 1 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
