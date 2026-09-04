@@ -302,14 +302,18 @@ pub(in crate::layout) fn layout_children_vertical(
                         || child_css.as_deref().is_some_and(|c| {
                             !crate::layout::caixa::ignores_inline_dimensions(c)
                                 && crate::inline_box::cria_caixa_apesar_de_inline(c)
+                                && !crate::inline_box::inline_por_fragmentos(c)
                         })
                 } else {
+                    // Um inline com superfície e conteúdo flui por FRAGMENTOS
+                    // (`inline_por_fragmentos`): não é bloco nem inline-block.
                     replaced
                         || effective.is_some()
                         || crate::block::lookup(tag).is_some()
                         || child_css
-                            .as_ref()
-                            .map(|c| c.has_box() || c.height.is_some())
+                            .as_deref()
+                            .map(|c| (c.has_box() || c.height.is_some())
+                                && !crate::inline_box::inline_por_fragmentos(c))
                             .unwrap_or(false)
                 };
                 let inline_block =
@@ -331,8 +335,9 @@ pub(in crate::layout) fn layout_children_vertical(
                         false
                     } else {
                         child_css
-                            .as_ref()
-                            .map(|c| c.has_box() || c.height.is_some())
+                            .as_deref()
+                            .map(|c| (c.has_box() || c.height.is_some())
+                                && !crate::inline_box::inline_por_fragmentos(c))
                             .unwrap_or(false)
                     };
                 (block, inline_block)
