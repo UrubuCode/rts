@@ -4722,12 +4722,14 @@ dependencies = [
 [[package]]
 name = "rts-dom"
 version = "0.1.0"
+dependencies = [
+ "flate2",
+]
 
 [[package]]
 name = "rts-dom-bridge"
 version = "0.1.0"
 dependencies = [
- "flate2",
  "rts-core",
  "rts-dom",
 ]

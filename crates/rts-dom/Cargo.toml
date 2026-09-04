@@ -13,10 +13,16 @@ license.workspace = true
 # `rts-egui` (e qualquer outro consumidor) leem a árvore. A camada de alto nível
 # (Document/Element ergonômico) vive em TS. Ver docs/ui/dom-crate.md.
 #
-# Depende SÓ de rts-engine (Engine/Registry/AbiType + HandleTable), como rts-egui.
-# wasm-safe (sem I/O, sem threads de plataforma).
+# Depende SÓ de rts-engine (Engine/Registry/AbiType + HandleTable), como rts-egui,
+# e de `flate2` (abaixo) para descodificar PNG — a única leitura de BYTES JÁ EM
+# MEMÓRIA que o crate faz. wasm-safe (sem I/O, sem threads de plataforma): o
+# módulo `imagem` não lê ficheiro nenhum por desenho, ver o seu cabeçalho.
 
 [dependencies]
+# O `inflate` do PNG de `src/imagem/png.rs` (lote imagens-no-raster, movido de
+# `rts-dom-bridge`, que trazia esta MESMA linha desde o lote V-img). Mesmo pin
+# do `rts-std` (`docs/reference/node/crates.md` §4.4): backend puro Rust, sem C.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 
 # Ver a nota igual em rts-render/rts-input: a ABI do motor ANTIGO é uma feature.
 # Sem ela sobram a árvore, o parser, o estilo e o LAYOUT — que é a maior parte
