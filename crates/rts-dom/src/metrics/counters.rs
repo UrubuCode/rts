@@ -138,6 +138,7 @@ dom_metrics! {
         css_declarations_inert: "declarações RECONHECIDAS e não modeladas (ver style::inert)";
         css_custom_declarations: "declarações de custom property (--x)";
         css_var_refs: "declarações pendentes por var()";
+        css_at_rules_ignoradas: "at-rules reconhecidas e IGNORADAS de propósito (@container/@scope/@font-face/@page)";
     }
     "construção" {
         nodes_created: "nós criados";

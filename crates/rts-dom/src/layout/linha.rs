@@ -73,6 +73,26 @@ pub(in crate::layout) fn layout_inline_flow(
     for &id in group {
         runs.extend(collect_runs(dom, id, parent_css, content_w, ctx));
     }
+    // `tab-size` — só sob `white-space: pre`/`pre-wrap`, onde o `\t` sobrevive
+    // ao invés de colapsar como um espaço qualquer (`preserves_spaces`, hoje só
+    // lido aqui). A coluna encadeia ENTRE runs do mesmo fluxo — ver o corte
+    // declarado em `tabulacao::expandir_tabs`.
+    if parent_css
+        .white_space
+        .map(|w| w.preserves_spaces())
+        .unwrap_or(false)
+    {
+        let tab_size = parent_css.tab_size.unwrap_or(8.0).round().max(1.0) as usize;
+        let mut coluna = 0usize;
+        for run in runs.iter_mut() {
+            if run.atomic.is_none() && !run.text.is_empty() {
+                let (expandido, fim) =
+                    crate::layout::tabulacao::expandir_tabs(&run.text, tab_size, coluna);
+                run.text = expandido;
+                coluna = fim;
+            }
+        }
+    }
     if dono_inteiro {
         runs.extend(pseudo_run(
             dom,
@@ -112,10 +132,16 @@ pub(in crate::layout) fn layout_inline_flow(
     // elemento sem declaração e o que declara `normal` — a spec diz que são o
     // mesmo valor — davam alturas diferentes.
     let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
+    // `text-wrap: nowrap` é um ALIAS do que `white-space: nowrap` já decide —
+    // não uma segunda propriedade com regra própria (é o que o MDN documenta:
+    // `text-wrap` só acrescenta `balance`/`pretty`, que caem no `wrap` normal
+    // por não termos a segunda passada que pedem — ver `vocab::TextWrap`). Só
+    // `Nowrap` muda este booleano; `Wrap`/`Balance`/`Pretty` são o mesmo `false`
+    // que a ausência da propriedade já dava.
     let nowrap = matches!(
         parent_css.white_space,
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
-    );
+    ) || parent_css.text_wrap == Some(crate::style::vocab::TextWrap::Nowrap);
     // A LARGURA DE QUEBRA, linha a linha: onde um float estorva, a linha é
     // curta; onde ele acaba, volta a ser a do content.
     //
@@ -147,6 +173,7 @@ pub(in crate::layout) fn layout_inline_flow(
             .white_space
             .map(|w| w.preserves_newlines())
             .unwrap_or(false),
+        parent_css.word_spacing.unwrap_or(0.0),
         ctx.measurer,
     );
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque
@@ -154,6 +181,20 @@ pub(in crate::layout) fn layout_inline_flow(
     let lines = match elipse_pedida(parent_css, nowrap) {
         true => aplicar_elipse(lines, content_w, font_size, mono, ctx.measurer),
         false => lines,
+    };
+    // `-webkit-line-clamp`/`line-clamp` — limita a N linhas, com "…" na
+    // última. Ver `tabulacao::aplicar_line_clamp` para porque a altura da
+    // caixa não precisa de um segundo cálculo.
+    let lines = match parent_css.line_clamp {
+        Some(n) if n > 0 => crate::layout::tabulacao::aplicar_line_clamp(
+            lines,
+            n as usize,
+            content_w,
+            font_size,
+            mono,
+            ctx.measurer,
+        ),
+        _ => lines,
     };
     // `text-indent`: recuo da PRIMEIRA linha (MDN). ⚠️ CORTE: recua o início da
     // linha mas NÃO encurta a largura de quebra dela — a quebra já foi calculada
@@ -213,7 +254,16 @@ pub(in crate::layout) fn layout_inline_flow(
         // decide o espaçamento é o `line-height`, quem decide a caixa é a fonte.
         let conteudo = crate::inline_box::altura_do_conteudo(font_size, ctx.measurer);
         let meia = crate::inline_box::meia_entrelinha(line_h, conteudo);
+        // O descent extra abaixo só vale com TEXTO de verdade a partilhar a
+        // baseline com o inline-block — sem texto, `line_h` (a margin box do
+        // átomo) já É o avanço certo. Sem este filtro, `claude-word-spacing.html`
+        // (só `inline-block` + `<br>`, sem texto) ganhava `font_descent` a mais:
+        // pitch 30 onde o Chrome dá 25 (a margin box sozinha).
+        let tem_texto = line
+            .iter()
+            .any(|s| s.atomic.is_none() && !s.text.trim().is_empty());
         let tall_inline_block = line_h > lh + 0.001
+            && tem_texto
             && line
                 .iter()
                 .any(|segment| matches!(segment.atomic, Some((_, AtomicKind::Block))));
@@ -316,20 +366,46 @@ pub(in crate::layout) fn layout_inline_flow(
                     }
                     AtomicKind::Marker | AtomicKind::Break => {}
                 }
-                // A CAIXA DO PRÓPRIO: a de uma caixa atómica é o seu tamanho; a
-                // de um vazio/quebra é a fatia de linha que ele ocupa.
-                let propria = match kind {
-                    AtomicKind::Marker | AtomicKind::Break => {
-                        Rect::new(seg_x, text_top, 0.0, conteudo)
-                    }
-                    _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
-                };
-                crate::inline_box::union_rect(list, a_idx, propria);
+                // A CAIXA DO PRÓPRIO: só regista aqui quem NADA mais registou.
+                // `Widget`/`Block` chamam `layout_input`/`layout_button`/
+                // `layout_block` INCONDICIONALMENTE (o `match` acima), e cada
+                // um já grava a SUA — a border box (correta); unir aqui
+                // `seg.ww`/`seg.wh` (a OUTER, com margem, que é o que a LINHA
+                // reserva) inflava o rect do nó com a margem por cima da que
+                // já tinha: um `inline-block` com `margin-bottom:5px`
+                // respondia h=25 em vez de 20.
+                //
+                // `Replaced` é DIFERENTE: só grava quando há pixels (o mesmo
+                // guard do `match` acima) — sem imagem decodificada,
+                // `layout_image` nunca corre e É esta união que dá caixa ao
+                // `<img>` enquanto não há pixels.
+                let ja_registado = matches!(kind, AtomicKind::Widget | AtomicKind::Block)
+                    || (kind == AtomicKind::Replaced && dom.image_of(a_idx).is_some());
+                if !ja_registado {
+                    let propria = match kind {
+                        // `Marker`: inline SEM conteúdo (`<span></span>`) —
+                        // no Blink dá 0×0, não a altura do strut. Um vazio
+                        // com `content` gerado nunca chega aqui — `runs.rs`
+                        // só emite `Marker` quando não gerou run nenhum.
+                        AtomicKind::Marker => Rect::new(seg_x, text_top, 0.0, 0.0),
+                        AtomicKind::Break => Rect::new(seg_x, text_top, 0.0, conteudo),
+                        _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
+                    };
+                    crate::inline_box::union_rect(list, a_idx, propria);
+                }
                 // A CAIXA DOS ANCESTRAIS inline: a largura que esta caixa ocupa na
                 // linha, com a altura da FONTE — um `<a>` à volta de uma imagem de
                 // 528px de altura mede 17px no browser, não 528. É a mesma regra
                 // que já vale para o texto, aplicada ao que não é texto.
-                for &owner in &seg.owners {
+                //
+                // `Marker`: `a_idx` está no fim de `seg.owners` (todo
+                // container inline entra na própria cadeia, para dar caixa a
+                // um `::before`/`::after` gerado por ele) — mas um marker
+                // GENUÍNO (sem gerado nenhum, único caso em que existe) não
+                // tem fragmento a dar-se, e isto devolvia a altura que a
+                // `própria` acima acabou de zerar. `owner != a_idx` evita-o.
+                let sem_a_si = |o: &&NodeIdx| !(kind == AtomicKind::Marker && **o == a_idx);
+                for &owner in seg.owners.iter().filter(sem_a_si) {
                     crate::inline_box::union_rect(
                         list,
                         owner,
@@ -345,10 +421,6 @@ pub(in crate::layout) fn layout_inline_flow(
                         ),
                     );
                 }
-                // A CAIXA DOS ANCESTRAIS inline: a largura que esta caixa ocupa na
-                // linha, com a altura da FONTE — um `<a>` à volta de uma imagem de
-                // 528px de altura mede 17px no browser, não 528. É a mesma regra
-                // que já vale para o texto, aplicada ao que não é texto.
 
                 seg_x += seg.ww;
                 continue;

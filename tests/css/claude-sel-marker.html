@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa `::marker` sozinho: cor PRÓPRIA do marcador, diferente da cor do
+     texto do `<li>` — é a única forma de o desvio distinguir "o marcador
+     herdou do <li>" (o que este motor fazia até ao lote O) de "o marcador
+     tem estilo próprio" (o que a regra abaixo pede). Só `color`: o
+     `font-size` do marcador não é aplicado neste motor ainda (mudaria a
+     medida da linha, fora deste lote — ver `dom/cascade.rs::marker_color`),
+     por isso a fixture não o pina. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="lista,item">
+<meta name="fixar-estilo" content="color">
+<style>
+  body { margin: 0; }
+  li { color: #000000; }
+  li::marker { color: #ff0000; }
+</style>
+</head>
+<body>
+  <ul id="lista">
+    <li id="item">texto do item, preto; marcador vermelho</li>
+  </ul>
+</body>
+</html>

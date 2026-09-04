@@ -30,6 +30,12 @@ pub(in crate::layout) fn wrap_runs(
     // `WhiteSpace::preserves_newlines`, a mesma decisão de `quebra` acima e
     // pela mesma razão: é do CONTAINER, não de cada run.
     preservar_quebras: bool,
+    // `word-spacing` (px, pode ser negativo) — soma-se à largura de CADA espaço
+    // entre palavras. Entra aqui e não só na pintura porque é o mesmo número
+    // que decide ONDE a linha quebra: medir sem ele e pintar com ele (ou
+    // vice-versa) são as "duas verdades" que este ficheiro já pagou uma vez
+    // para `letter-spacing`.
+    word_spacing: f32,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
@@ -38,7 +44,8 @@ pub(in crate::layout) fn wrap_runs(
     // chamada, mesmo quando o fast path respondia sozinho.
     let mut space_w_memo: Option<f32> = None;
     let mut space_w = |m: &dyn TextMeasurer| -> f32 {
-        *space_w_memo.get_or_insert_with(|| m.text_width(" ", font_size, mono, false, false))
+        *space_w_memo
+            .get_or_insert_with(|| m.text_width(" ", font_size, mono, false, false) + word_spacing)
     };
     let mut lines: Vec<Vec<Segment>> = Vec::new();
     let mut cur: Vec<Segment> = Vec::new();
@@ -368,7 +375,12 @@ pub(in crate::layout) fn wrap_runs(
         // seguinte). Sem as duas, o caminho lento e o que responde certo.
         let abre_cluster = cluster.is_empty();
         let fecha_cluster = run.text.ends_with(e_espaco_css);
-        if abre_cluster && fecha_cluster && !tem_quebra_forcada {
+        // `word_spacing != 0`: este caminho mede o run INTEIRO (várias palavras)
+        // como UMA string, e o `word-spacing` tem de somar UMA vez por espaço
+        // ENTRE palavras — o scanner abaixo já faz isso por peça, este atalho
+        // não. Desviar para o scanner é mais lento e correto; inventar um fator
+        // aqui seria a mesma "segunda verdade" que `letter-spacing` já pagou.
+        if abre_cluster && fecha_cluster && !tem_quebra_forcada && word_spacing == 0.0 {
             let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
             if !normalizado.is_empty() {
                 let w = m.text_width(&normalizado, font_size, mono, run.bold, run.italic);

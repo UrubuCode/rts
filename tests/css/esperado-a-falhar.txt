@@ -5,3 +5,20 @@
 claude-ua-form-disabled.html
 claude-ua-headings.html
 claude-ua-th.html
+claude-grid-auto-fill.html
+
+# --- vaga 4 (PLAN §5), por implementar: medidas no Blink ANTES do codigo ---
+claude-background-camadas.html
+claude-clip-path-inset.html
+claude-cursor-pointer-events.html
+claude-grid-minmax-intrinseco.html
+claude-text-decoration-longhands.html
+claude-text-shadow.html
+claude-transform-nao-afeta-fluxo.html
+claude-transform-origin.html
+claude-transform-skew-matrix.html
+
+# --- modelo de caixa inline (lote proprio na vaga 4): um <span> vazio com height
+# declarada tem de dar 0x0 sem virar bloco; tres remendos em 2026-09-04 partiram
+# claude-display-basico e foram revertidos. As reguas sao esta e display-basico. ---
+claude-sel-has.html

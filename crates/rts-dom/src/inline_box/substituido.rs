@@ -46,7 +46,7 @@ fn fonte_de_picture(dom: &Dom, img: NodeIdx, viewport_w: f32) -> Option<NodeIdx>
         // Sem `media` a `<source>` casa sempre; é a forma que serve só para
         // oferecer outro formato ou outra densidade.
         dom.node(f).attr("media").is_none_or(|m| {
-            crate::style::stylesheet::MediaQuery::parse(m).matches(viewport_w)
+            crate::style::stylesheet::MediaQuery::parse(m).matches(&dom.media_context_at_width(viewport_w))
         })
     })
 }

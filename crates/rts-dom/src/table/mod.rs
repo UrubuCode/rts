@@ -34,6 +34,34 @@ use crate::style::{ComputedStyle, DisplayKind};
 use crate::{Dom, NodeIdx};
 use grid::collect;
 
+/// A largura MÍNIMA de conteúdo (`min-content`) PURA de um nó — a palavra
+/// mais larga, com o frame do elemento, SEM o piso de `width` declarado que
+/// `widths::cell_min_max` aplica para a tabela (lá, uma célula com `width`
+/// nunca fica abaixo do que o autor pediu; no flex a `width` é só a base de
+/// fallback, e o `flex-shrink` PODE encolher abaixo dela — spec flexbox
+/// §9.7). Reexporta `widths::min_content` (privado a este módulo) com
+/// `floor_width: false` em vez de reescrever a travessia.
+pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let sem_quebra = matches!(
+        css.white_space,
+        Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
+    );
+    // `mono`: sem isto, um item `font-family: monospace` media a palavra pelo
+    // avanço PROPORCIONAL (`PROP_ADVANCE`) — o piso do `flex-shrink` divergia
+    // do que `wrap_runs` desenha (`MONO_ADVANCE`, calibrado a 0.5498 contra o
+    // Chrome), e a fixture `claude-flex-shrink-min-content.html` media 294.4px
+    // de piso onde o Chrome dá 351.88 (a spec conta a caixa OUTER; sem
+    // padding/border aqui, os dois coincidem — a diferença inteira era o
+    // avanço errado).
+    let mono = css
+        .font_family
+        .as_deref()
+        .map(crate::style::is_mono_family)
+        .unwrap_or(false);
+    widths::min_content(dom, id, font, ctx, sem_quebra, mono, false)
+}
+
 /// Uma célula colocada na grade. `col` é a coluna onde começa, já resolvida
 /// contra os `rowspan` que vêm de cima.
 struct Cell {

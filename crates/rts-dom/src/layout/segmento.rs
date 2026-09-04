@@ -162,6 +162,24 @@ pub(in crate::layout) fn aplicar_elipse(
     mono: bool,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
+    aplicar_elipse_forcada(lines, content_w, font_size, mono, m, false)
+}
+
+/// O mesmo corte de [`aplicar_elipse`], mas com um `forcar` que salta a saída
+/// antecipada "já cabe, não corta nada" — `-webkit-line-clamp`
+/// (`layout::tabulacao::aplicar_line_clamp`) chama a última linha mantida
+/// SEMPRE com reticências, mesmo quando essa linha por si só caberia na
+/// largura: o que a propriedade limita são LINHAS, não largura, e uma frase
+/// curta que sobrou como 3ª de 3 continua a precisar do "…" que diz que havia
+/// mais texto por trás.
+pub(in crate::layout) fn aplicar_elipse_forcada(
+    lines: Vec<Vec<Segment>>,
+    content_w: f32,
+    font_size: f32,
+    mono: bool,
+    m: &dyn TextMeasurer,
+    forcar: bool,
+) -> Vec<Vec<Segment>> {
     const ELIPSE: &str = "…";
     lines
         .into_iter()
@@ -170,7 +188,33 @@ pub(in crate::layout) fn aplicar_elipse(
                 .iter()
                 .map(|s| s.lead_w + if s.atomic.is_some() { s.ww } else { s.text_width })
                 .sum();
-            if total <= content_w {
+            if total <= content_w && !forcar {
+                return line;
+            }
+            if total <= content_w && forcar {
+                // cabe, mas a elipse é devida na mesma (linha cortada por
+                // `line-clamp`, não por transbordo): só acrescenta o "…".
+                let w_elipse = m.text_width(ELIPSE, font_size, mono, false, false);
+                let mut line = line;
+                match line.last_mut() {
+                    Some(last) if last.atomic.is_none() => {
+                        last.text.push_str(ELIPSE);
+                        last.text_width += w_elipse;
+                    }
+                    _ => line.push(Segment {
+                        text: ELIPSE.to_string(),
+                        text_width: w_elipse,
+                        color: 0,
+                        bold: false,
+                        italic: false,
+                        deco: 0,
+                        owners: Vec::new(),
+                        atomic: None,
+                        ww: 0.0,
+                        wh: 0.0,
+                        lead_w: 0.0,
+                    }),
+                }
                 return line;
             }
             let w_elipse = m.text_width(ELIPSE, font_size, mono, false, false);

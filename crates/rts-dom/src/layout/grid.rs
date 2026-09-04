@@ -5,6 +5,7 @@
 //! alterada — a reconstrução deste ficheiro é byte a byte a do original.
 
 use super::*;
+use super::grid_linhas::place_grid_items;
 /// Dispõe os filhos como FLEX COLUMN (`display:flex; flex-direction:column`): o
 /// eixo PRINCIPAL é o vertical. Diferenças do block vertical: SEM margin-collapse
 /// (flex não colapsa margens), `gap` entre itens (em column o espaçamento main é o
@@ -100,7 +101,22 @@ pub(in crate::layout) fn layout_children_grid(
     if children.is_empty() {
         return 0.0;
     }
-    let cells = place_grid_items(dom, &children, areas.as_deref(), ncols);
+    let explicit_rows_n = css.grid_template_rows.as_ref().map(|t| t.len()).unwrap_or(0);
+    let auto_flow = css.grid_auto_flow.unwrap_or(crate::style::grid_lines::GridAutoFlow {
+        coluna: false,
+        dense: false,
+    });
+    let (cells, ncols_colocados) =
+        place_grid_items(dom, &children, areas.as_deref(), ncols, explicit_rows_n, auto_flow);
+    // COLUNAS IMPLÍCITAS: um `grid-area`/`grid-column` que aponta lá da última
+    // coluna explícita fez `place_grid_items` devolver mais colunas do que as
+    // declaradas — estende `col_tracks` com `grid-auto-columns` (por omissão
+    // `auto`) para as colunas extra, e re-conta `ncols` a partir daqui.
+    let mut col_tracks = col_tracks;
+    while col_tracks.len() < ncols_colocados {
+        col_tracks.push(css.grid_auto_columns.unwrap_or(crate::style::GridTrack::Auto));
+    }
+    let ncols = col_tracks.len().max(1);
 
     // A largura INTRÍNSECA por coluna — só medida quando alguma trilha é
     // intrínseca, porque medir custa uma travessia por item e a esmagadora
@@ -214,7 +230,23 @@ pub(in crate::layout) fn layout_children_grid(
     // 300 pro `1fr` do meio da fixture de áreas). Reparte o espaço livre em
     // partes iguais (aproximação; `fr` por peso fica por fazer — nenhuma fixture
     // do corpus tem mais de uma trilha flexível por eixo hoje).
-    if let Some(ch) = container_content_h {
+    // `align-content` explícito (não-stretch: `stretch`/`normal` não parseiam
+    // em `JustifyContent` — ver o cabeçalho da tabela — e por isso caem em
+    // `None`, que é exatamente o ramo que preserva o preenchimento acima) SUBSTITUI
+    // o preenchimento por espaço-livre-em-linhas-auto pela distribuição das
+    // LINHAS como blocos, via `row_align_leading`/`row_align_between` abaixo —
+    // as linhas mantêm o tamanho do conteúdo em vez de esticar.
+    let mut row_align_leading = 0.0f32;
+    let mut row_align_between = 0.0f32;
+    if let Some(v) = css.align_content {
+        if let Some(ch) = container_content_h {
+            let used: f32 = row_sizes.iter().sum::<f32>() + (nrows.saturating_sub(1)) as f32 * row_gap;
+            let free = (ch - used).max(0.0);
+            let (leading, between) = crate::layout::coluna::justify_offsets(v, free, nrows);
+            row_align_leading = leading;
+            row_align_between = between;
+        }
+    } else if let Some(ch) = container_content_h {
         let auto_rows: Vec<usize> = (0..nrows).filter(|&r| !has_explicit_row_track(r)).collect();
         if !auto_rows.is_empty() {
             let fixed: f32 = (0..nrows)
@@ -229,20 +261,37 @@ pub(in crate::layout) fn layout_children_grid(
             }
         }
     }
+    // `justify-content` da grelha: quando as trilhas (sem `fr`, todas fixas)
+    // não enchem `content_w`, distribui o sobrante entre/antes das colunas —
+    // o mesmo `justify_offsets` do flex, reusado (spec §8.4 partilha o
+    // vocabulário com o flex). Sem trilha `fr`/`auto` para o comer, o
+    // sobrante fica por gastar até aqui; com `justify-content` ausente
+    // (`None`) o comportamento é `start` (sem offset), que é o que já
+    // acontecia.
+    let mut col_justify_leading = 0.0f32;
+    let mut col_justify_between = 0.0f32;
+    if let Some(j) = css.justify {
+        let used: f32 = col_sizes.iter().sum::<f32>() + (ncols.saturating_sub(1)) as f32 * col_gap;
+        let free = (content_w - used).max(0.0);
+        let (leading, between) = crate::layout::coluna::justify_offsets(j, free, ncols);
+        col_justify_leading = leading;
+        col_justify_between = between;
+    }
 
     // ── POSICIONA cada item na sua célula ────────────────────────────────────────
     let justify = css
         .grid_justify_items
         .unwrap_or(crate::style::AlignItems::Stretch);
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
-    // x acumulado de cada coluna, y de cada linha.
-    let mut col_x = vec![content_x; ncols + 1];
+    // x acumulado de cada coluna, y de cada linha (com o offset de
+    // `justify-content`/`align-content` já embutido).
+    let mut col_x = vec![content_x + col_justify_leading; ncols + 1];
     for c in 0..ncols {
-        col_x[c + 1] = col_x[c] + col_sizes[c.min(col_sizes.len() - 1)] + col_gap;
+        col_x[c + 1] = col_x[c] + col_sizes[c.min(col_sizes.len() - 1)] + col_gap + col_justify_between;
     }
-    let mut row_y = vec![content_y; nrows + 1];
+    let mut row_y = vec![content_y + row_align_leading; nrows + 1];
     for r in 0..nrows {
-        row_y[r + 1] = row_y[r] + row_sizes[r] + row_gap;
+        row_y[r + 1] = row_y[r] + row_sizes[r] + row_gap + row_align_between;
     }
     for cell in &cells {
         let child = cell.child;
@@ -250,9 +299,24 @@ pub(in crate::layout) fn layout_children_grid(
         let cell_y = row_y[cell.r0];
         let cell_w = span_size(&col_sizes, cell.c0, cell.c1, col_gap);
         let cell_h = span_size(&row_sizes, cell.r0, cell.r1.min(nrows), row_gap);
+        // `justify-self`/`align-self` do ITEM vencem `justify-items`/`align-items`
+        // do container — mesma prioridade de `align-self` no flex.
+        let item_css = dom.computed_style_idx(child).unwrap_or_default();
+        let justify = item_css.justify_self.unwrap_or(justify);
+        let align = item_css.align_self.unwrap_or(align);
         // mede o tamanho natural do item (shrink) p/ o alinhamento não-stretch.
-        let stretch_x = justify == crate::style::AlignItems::Stretch;
-        let stretch_y = align == crate::style::AlignItems::Stretch;
+        //
+        // `stretch` só estica um eixo cujo tamanho é `auto` (spec §11.7 /
+        // css-align §7.1: "stretch — if the item's used cross-size is
+        // auto..."). Um `width`/`height` DECLARADO no item vence — o mesmo
+        // corte que o flex já tinha (`can_stretch` em `flex.rs`) e que o grid
+        // não tinha: sem isto, `#item1`/`#item3`/`#item4` de
+        // `claude-grid-alinhamento.html` (que declaram `height:30px` mas
+        // NENHUM `align-self`, logo caem no `align-items:stretch` default do
+        // container) ganhavam a altura da CÉLULA (50px) em vez da declarada
+        // (30px) — medido pelo orquestrador contra o Chrome.
+        let stretch_x = justify == crate::style::AlignItems::Stretch && item_css.width.is_none();
+        let stretch_y = align == crate::style::AlignItems::Stretch && item_css.height.is_none();
         let (nat_w, nat_h) = measure_block(dom, child, cell_w, Some(cell_h), None, None, true, ctx);
         let iw = if stretch_x { cell_w } else { nat_w.min(cell_w) };
         let ih = if stretch_y { cell_h } else { nat_h.min(cell_h) };
@@ -285,97 +349,6 @@ pub(in crate::layout) fn layout_children_grid(
     // altura total = soma das linhas + gaps.
     let total_h: f32 = row_sizes.iter().sum::<f32>() + (nrows.saturating_sub(1)) as f32 * row_gap;
     total_h.max(0.0)
-}
-
-/// Onde UM item do grid vive: a célula inicial e o span, em índices de trilha com
-/// o fim exclusivo. É o resultado da colocação — nomeada ou automática — e o único
-/// que o resto do layout de grid consome, o que é o que permite às duas colocações
-/// coexistirem sem um segundo caminho de posicionamento.
-struct GridCell {
-    child: NodeIdx,
-    r0: usize,
-    c0: usize,
-    r1: usize,
-    c1: usize,
-}
-
-impl GridCell {
-    fn rows(&self) -> usize {
-        (self.r1 - self.r0).max(1)
-    }
-}
-
-/// Coloca os filhos: quem tem `grid-area: <nome>` presente na matriz do container
-/// vai para o retângulo daquele nome; o resto preenche a próxima célula LIVRE em
-/// row-major.
-///
-/// Os nomeados são colocados ANTES (spec §8.5 passo 1) por uma razão concreta e não
-/// por fidelidade: se os automáticos fossem primeiro, um item nomeado para a coluna
-/// da direita encontraria a célula já ocupada e ou sobrepunha ou empurrava — que é o
-/// empilhamento que as áreas existem para evitar.
-fn place_grid_items(
-    dom: &Dom,
-    children: &[NodeIdx],
-    areas: Option<&crate::style::GridAreas>,
-    ncols: usize,
-) -> Vec<GridCell> {
-    let mut cells: Vec<GridCell> = Vec::with_capacity(children.len());
-    // ocupação row-major, crescida sob demanda (o nº de linhas não é conhecido antes
-    // de saber quantos itens sobram para a colocação automática).
-    let mut taken: Vec<bool> = Vec::new();
-    let mut mark = |taken: &mut Vec<bool>, r0: usize, c0: usize, r1: usize, c1: usize| {
-        let need = r1 * ncols;
-        if taken.len() < need {
-            taken.resize(need, false);
-        }
-        for r in r0..r1 {
-            for c in c0..c1.min(ncols) {
-                taken[r * ncols + c] = true;
-            }
-        }
-    };
-
-    let mut auto: Vec<NodeIdx> = Vec::new();
-    for &child in children {
-        let name = dom
-            .computed_style_idx(child)
-            .and_then(|s| s.grid_area.clone());
-        match name.and_then(|n| areas.and_then(|a| a.area(&n))) {
-            Some(a) => {
-                mark(&mut taken, a.r0, a.c0, a.r1, a.c1);
-                cells.push(GridCell {
-                    child,
-                    r0: a.r0,
-                    c0: a.c0,
-                    r1: a.r1,
-                    c1: a.c1.min(ncols),
-                });
-            }
-            None => auto.push(child),
-        }
-    }
-
-    // As linhas declaradas pela matriz contam como existentes mesmo sem item: um
-    // automático não deve cair numa célula vazia RESERVADA (o `.` da matriz) antes
-    // das linhas implícitas... mas cair nela é o comportamento da spec, então só as
-    // células realmente ocupadas bloqueiam.
-    let mut cursor = 0usize;
-    for &child in &auto {
-        while taken.get(cursor).copied().unwrap_or(false) {
-            cursor += 1;
-        }
-        let (r, c) = (cursor / ncols, cursor % ncols);
-        mark(&mut taken, r, c, r + 1, c + 1);
-        cells.push(GridCell {
-            child,
-            r0: r,
-            c0: c,
-            r1: r + 1,
-            c1: c + 1,
-        });
-        cursor += 1;
-    }
-    cells
 }
 
 /// Soma os tamanhos das trilhas `start..end` mais os gaps entre elas — o tamanho de

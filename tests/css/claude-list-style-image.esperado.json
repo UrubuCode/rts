@@ -1,0 +1,91 @@
+{
+ "elementos": {
+  "comimagem": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(238, 238, 238)",
+    "border-spacing": "0px",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "font-weight": "400",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "20px",
+    "list-style-image": "url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=\")",
+    "margin-bottom": "5px",
+    "margin-top": "16px",
+    "opacity": "1",
+    "overflow": "visible",
+    "padding-left": "40px",
+    "padding-top": "0px",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    16,
+    1280,
+    40
+   ]
+  },
+  "semimagem": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(238, 238, 238)",
+    "border-spacing": "0px",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "font-weight": "400",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "20px",
+    "list-style-image": "none",
+    "margin-bottom": "5px",
+    "margin-top": "16px",
+    "opacity": "1",
+    "overflow": "visible",
+    "padding-left": "40px",
+    "padding-top": "0px",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    72,
+    1280,
+    40
+   ]
+  }
+ },
+ "fixture": "claude-list-style-image.html",
+ "medido_em": "2026-09-04",
+ "regua": "Edge 152 (Blink) headless, por CDP cru (scripts/css_fixtures_medir_edge.mjs), iframe 1280x800; instrumento validado contra os esperados do Chrome (desvio 0)",
+ "viewport": [
+  1280,
+  800
+ ]
+}

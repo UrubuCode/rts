@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Fixa: `clip-path` (`inset()` e `circle()`) recorta o PINTADO mas não
+     muda a bounding box do elemento — `getBoundingClientRect` continua a
+     dar a caixa inteira, layout não é afectado. Um motor que trata
+     `clip-path` como um recorte de `width`/`height` (equivalente a
+     `overflow: hidden` + tamanho menor) encolhe a caixa medida; o correto é
+     as duas caixas de 100x100 baterem com a sem clip-path. `fixar-estilo`
+     compara o valor computado do próprio `clip-path`. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="inset,circulo">
+<meta name="fixar-estilo" content="clip-path">
+<style>
+  body { margin: 0; }
+  div { width: 100px; height: 100px; background: #ccc; }
+  #sem-clip { }
+  #inset    { clip-path: inset(10px); }
+  #circulo  { clip-path: circle(40%); }
+</style></head>
+<body>
+  <div id="sem-clip"></div>
+  <div id="inset"></div>
+  <div id="circulo"></div>
+</body>
+</html>

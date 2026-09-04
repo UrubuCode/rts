@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: `list-style-image: url(...)` substitui o bullet por uma imagem —
+     mesmo quando o navegador não consegue decidir o tamanho natural dela (um
+     PNG 1x1 em data: URL), a leitura aqui é que NENHUM marcador de `type`
+     (disc/número) é desenhado por baixo. Ver o comentário em
+     `listitem::emit_marker`: este motor reconhece a propriedade mas o loader
+     que baixa/decodifica a imagem do `<li>` (ao contrário do `<img>`) ainda
+     não existe — o `#comimagem` fica sem bullet nenhum aqui, que é o estado
+     PARCIAL declarado, não o alvo final. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="comimagem,semimagem">
+<meta name="fixar-estilo" content="list-style-image">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  ul { background: #eee; margin-bottom: 5px; }
+  #comimagem { list-style-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=); }
+</style></head>
+<body>
+  <ul id="comimagem"><li>um</li><li>dois</li></ul>
+  <ul id="semimagem"><li>um</li><li>dois</li></ul>
+</body>
+</html>

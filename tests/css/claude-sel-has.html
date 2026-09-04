@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!-- Fixa `:has()` nas três formas que `dom/has.rs` implementa: descendente
+     (`.card:has(.erro)`), filho direto (`.box:has(> .img)`) e irmão seguinte
+     (`.rotulo:has(+ .obrigatorio)`) — e o caso NEGATIVO de cada uma, para o
+     desvio dizer se o motor casou DE MAIS (falso positivo, o erro caro) em
+     vez de só "não casou".
+     Só `fixar-estilo` (color, background-color) — nenhuma geometria: caixas
+     sem texto (tests/css/README.md, ponto 3) e sem `id` nos elementos
+     internos (`.erro`/`.img`/`.obrigatorio`), que não são o que a fixture
+     mede. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="card-com-erro,card-sem-erro,box-filho,box-neto,rotulo-com,rotulo-sem">
+<meta name="fixar-estilo" content="color,background-color">
+<style>
+  body { margin: 0; }
+  div, span { height: 20px; background-color: #ffffff; }
+  .card:has(.erro) { background-color: #ff0000; }
+  .box:has(> .img) { background-color: #ff0000; }
+  .rotulo:has(+ .obrigatorio) { background-color: #ff0000; }
+</style>
+</head>
+<body>
+  <div class="card" id="card-com-erro"><span class="erro"></span></div>
+  <div class="card" id="card-sem-erro"><span></span></div>
+
+  <div class="box" id="box-filho"><span class="img"></span></div>
+  <div class="box" id="box-neto"><span><span class="img"></span></span></div>
+
+  <span class="rotulo" id="rotulo-com"></span><span class="obrigatorio"></span>
+  <span class="rotulo" id="rotulo-sem"></span><span></span>
+</body>
+</html>

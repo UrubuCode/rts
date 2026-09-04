@@ -10,7 +10,7 @@
     //! `tamanho * 0.46` — para que as larguras sejam previsiveis sem falar
     //! sobre uma fonte real.
 
-    use crate::table::tests::{geometria, rect, textos};
+    use crate::table::tests::{geometria, textos};
 
     /// Uma caixa que pode nao existir: e a diferenca entre "sem geometria" e
     /// "geometria de largura zero", e os dois casos aparecem aqui.
@@ -103,12 +103,15 @@
         );
     }
 
-    /// Um inline cujo conteudo TODO e `display:none` tem caixa de largura zero.
+    /// Um inline cujo conteudo TODO e `display:none` nao gera fragmento
+    /// nenhum — `getBoundingClientRect` no Blink real da 0x0, nao a altura
+    /// do strut. E a forma do COinS da Wikipedia — `<span class="Z3988">`
+    /// com um unico filho escondido, ~280 por pagina.
     ///
-    /// E a forma do COinS da Wikipedia — `<span class="Z3988">` com um unico
-    /// filho escondido, ~280 por pagina. Pela spec o pai continua a gerar uma
-    /// caixa inline: existe, esta na posicao corrente da linha, e nao tem
-    /// largura porque nao tem conteudo que a de.
+    /// CORRIGIDO (medido no Blink, `claude-sel-has.html`): a versao anterior
+    /// deste teste fixava `r.h > 0.0` — a altura do strut vazando para o
+    /// rect de um inline sem conteudo nenhum, o mesmo defeito que
+    /// `linha.rs::AtomicKind::Marker` tinha para QUALQUER inline vazio.
     #[test]
     fn inline_com_todo_o_conteudo_escondido_tem_caixa_de_largura_zero() {
         let r = caixa(
@@ -116,9 +119,8 @@
             "span",
             0,
         );
-        let r = r.expect("o inline escondido continua a ter caixa");
-        assert_eq!(r.w, 0.0, "o conteudo escondido nao da largura: {r:?}");
-        assert!(r.h > 0.0, "mas a caixa tem a altura da linha: {r:?}");
+        let sem_area = r.is_none_or(|r| r.w == 0.0 && r.h == 0.0);
+        assert!(sem_area, "{r:?}");
     }
 
     /// E o texto escondido NAO e pintado.
@@ -139,13 +141,11 @@
         );
     }
 
-    /// Um inline VAZIO ja tinha caixa, e continua a ter: o `Marker` e a
-    /// resposta que os dois casos acima passaram a partilhar em vez de
-    /// duplicar.
+    /// Um inline VAZIO (`Marker`) nao gera fragmento — 0x0 no Blink real.
+    ///
+    /// CORRIGIDO (medido no Blink): dava `h > 0.0` (a altura do strut).
     #[test]
-    fn inline_vazio_continua_a_ter_caixa_de_largura_zero() {
-        let (dom, list) = geometria("<p>aa <span></span> bb</p>", 800.0);
-        let r = rect(&dom, &list, "span", 0);
-        assert_eq!(r.w, 0.0, "{r:?}");
-        assert!(r.h > 0.0, "{r:?}");
+    fn inline_vazio_nao_tem_caixa() {
+        let r = caixa("<p>aa <span></span> bb</p>", "span", 0);
+        assert!(r.is_none_or(|r| r.w == 0.0 && r.h == 0.0), "{r:?}");
     }

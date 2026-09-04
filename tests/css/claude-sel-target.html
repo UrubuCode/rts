@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Fixa `:target` sozinho. O Chrome só marca `:target` depois de a URL da
+     aba ter um fragmento (#alvo) — não basta a página existir, é preciso
+     NAVEGAR para lá. Dois mecanismos, um para cada instrumento, que medem o
+     MESMO estado: o `<script onload>` é o que o Blink executa de verdade; o
+     `<meta name="fixar-hash">` é o que `examples/claude-css-runner.ts` lê
+     (o nosso corredor não executa `<script>`) e passa a `setLocationHash`,
+     que é o mesmo `Dom::set_location_hash` que `window.location.hash =`
+     chamaria. Só `fixar-estilo` — sem texto, sem geometria em jogo (`a`
+     sem `id`: a largura do link é texto, não é o que este ficheiro fixa). -->
+<html>
+<head>
+<meta name="fixar-hash" content="alvo">
+<meta name="fixar-estilo-em" content="alvo,nao-alvo">
+<meta name="fixar-estilo" content="color,background-color">
+<style>
+  body { margin: 0; }
+  div { height: 20px; color: #000000; background-color: #ffffff; }
+  :target { color: #ff0000; background-color: #ffff00; }
+</style>
+</head>
+<body>
+  <a href="#alvo">ir para o alvo</a>
+  <div id="alvo"></div>
+  <div id="nao-alvo"></div>
+  <script>
+    window.onload = function () { location.hash = "#alvo"; };
+  </script>
+</body>
+</html>

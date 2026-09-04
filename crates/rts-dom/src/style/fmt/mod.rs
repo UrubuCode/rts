@@ -3,8 +3,8 @@
 //! → `Npx`, enums → keyword. Validado contra o Chrome real (ver `fmt_color`).
 
 use super::fmt_values::{
-    display_css, fmt_align, fmt_color, fmt_dim, fmt_justify, fmt_px, fmt_tracks, overflow_css,
-    side_css, side_css_resolved, side_of,
+    display_css, fmt_align, fmt_color, fmt_dim, fmt_justify, fmt_px, fmt_tracks, fmt_url,
+    overflow_css, side_css, side_css_resolved, side_of,
 };
 use super::props::ComputedStyle;
 use super::values::{Dimension, LineHeight, TextAlign, TextTransform, WhiteSpace};
@@ -73,6 +73,14 @@ impl ComputedStyle {
                     fmt_color(g.c1)
                 )
             }
+            // `background-image: url(...)` sem gradiente — o valor cru
+            // (`bg_image`) com o mesmo `url("…")` que `list-style-image` e
+            // `cursor` agora levam. Antes desta linha `background-image`
+            // sem gradiente não tinha NENHUM braço nesta função e caía na
+            // cadeia `_ =>` no fim, que também não a respondia — o
+            // `getComputedStyle` devolvia `""` para um `background-image`
+            // declarado, e não só sem aspas.
+            "background-image" => self.bg_image.as_deref().map(fmt_url).unwrap_or_default(),
             "background-color" | "background" => self.bg.map(fmt_color).unwrap_or_default(),
             "font-size" => self.font_size.map(fmt_dim).unwrap_or_default(),
             "font-weight" => match self.bold {

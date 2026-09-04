@@ -60,14 +60,60 @@ pub(crate) fn emit_marker(
     if kind == ListStyleType::None {
         return;
     }
-    // `list-style-image` vence o `type` no CSS. Não temos os pixels aqui (quem
-    // baixa é a camada de imagem), e desenhar o bullet por baixo de uma imagem
-    // que vai chegar seria pior do que não desenhar: o autor que pôs uma imagem
-    // não quer o ponto. Sai sem marcador, e fica dito.
+    // `list-style-image` vence o `type` no CSS. Os pixels não vêm da URL
+    // aqui — quem os baixa e decodifica é o loader do lado JS/browser, o
+    // mesmo caminho de um `<img>` (`dom.set_image`/`image_of`, ver
+    // `dom/formulario.rs`) — só que a CHAVE é o `<li>` em vez de um `<img>`,
+    // porque um marcador de lista não tem elemento próprio. Reusa o MESMO
+    // `DisplayItem::Image` que `layout_image` emite (não um segundo emissor
+    // de imagem só para marcadores).
+    //
+    // ⚠️ NÃO FEITO: nenhum código deste crate CHAMA `dom.set_image(li, …)`
+    // para um `list-style-image` — o loader (fetch + decode) que o faz para
+    // `<img>` vive fora de `rts-dom` (o browser/mini-browser em TS) e ainda
+    // não sabe procurar `list-style-image` na cascade de um `<li>`. Até essa
+    // ponte existir, `image_of(id)` responde sempre `None` aqui e o bullet do
+    // `type` continua ausente (correto: a propriedade vence o `type`, mesmo
+    // sem imagem para mostrar — é o que o Chrome também faz enquanto a
+    // imagem carrega).
     if css.list_style_image_url().is_some() {
+        if let Some((handle, off, iw, ih)) = dom
+            .image_of(id)
+            .filter(|(h, _, iw, ih)| *h != 0 && *iw != 0 && *ih != 0)
+        {
+            // O mesmo diâmetro do bullet (`BULLET_EM`), para uma imagem de
+            // marcador não dominar a linha — o Chrome escala pela mesma
+            // lógica de um `list-style-image` pequeno (ícone, não foto).
+            let d = font_size * BULLET_EM * 2.0;
+            let dentro = css.list_style_position == Some(crate::style::ListStylePosition::Inside);
+            let borda_direita = if dentro {
+                content_x + d
+            } else {
+                content_x - font_size * MARKER_GAP_EM
+            };
+            let line_h = ctx.measurer.line_height(font_size);
+            let rect = Rect::new(
+                borda_direita - d,
+                content_y + (line_h - d) / 2.0,
+                d,
+                d,
+            );
+            list.items.push(DisplayItem::Image {
+                rect,
+                pixels_handle: handle,
+                pixels_off: off,
+                img_w: iw,
+                img_h: ih,
+            });
+        }
         return;
     }
-    let color = css.color.unwrap_or(0x0000_00FF);
+    // `::marker { color: … }` (lote O) vence a cor herdada do `<li>` quando
+    // alguma regra o declara; ver o porquê de só a cor em `Dom::marker_color`.
+    let color = dom
+        .marker_color(id, css)
+        .or(css.color)
+        .unwrap_or(0x0000_00FF);
     let line_h = ctx.measurer.line_height(font_size);
     // `list-style-position` decide de que LADO de `content_x` o marcador cai.
     //
@@ -136,10 +182,10 @@ pub(crate) fn emit_marker(
                 size: font_size,
                 mono: false,
                 bold: false,
-            // o MARCADOR de lista (bullet/número) não é conteúdo do autor: no
-            // browser herda o estilo do `<li>`, mas nada aqui lho passa ainda —
-            // fica regular, como já ficava o peso na linha acima.
-            italic: false,
+                // A cor JÁ vem do `::marker` quando a folha o declara (ver
+                // `color` acima); peso/itálico do marcador continuam fixos —
+                // mudar a fonte mudaria a medida (`w`), fora deste lote.
+                italic: false,
                 letter_spacing: 0.0,
                 decoration: 0,
             });

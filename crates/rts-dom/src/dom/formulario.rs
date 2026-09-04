@@ -176,10 +176,145 @@ impl Dom {
         true
     }
 
+    /// `:placeholder-shown` (lote O): `<input>`/`<textarea>` com `placeholder=""`
+    /// E valor CORRENTE vazio — o `input_value` já resolve editado vs `value=`
+    /// vs `""`, então isto não relê o atributo `value` por conta própria (um
+    /// campo com `value="x"` e sem digitação não mostra o placeholder, e
+    /// reler só o atributo teria dito o contrário depois de um `.value = ""`).
+    pub(in crate::dom) fn matches_placeholder_shown(&self, idx: NodeIdx) -> bool {
+        self.is_text_input_idx(idx)
+            && self.nodes[idx].attr("placeholder").is_some()
+            && self.input_is_empty(idx)
+    }
+
+    /// `:default` (lote O): a opção PRÉ-SELECIONADA de um grupo. Três formas,
+    /// nenhuma delas dinâmica — este motor não distingue "o atributo que veio
+    /// do HTML" de "o estado depois de o utilizador mexer", então `:default`
+    /// aqui é sempre o que o markup declarou, mesmo que um clique tenha
+    /// desmarcado a opção original (o browser mantém os dois separados; ver o
+    /// comentário do campo `PseudoClass::Default`).
+    pub(in crate::dom) fn matches_default(&self, idx: NodeIdx) -> bool {
+        let NodeKind::Element { tag } = &self.nodes[idx].kind else {
+            return false;
+        };
+        match tag.as_str() {
+            "option" => self.nodes[idx].attr("selected").is_some(),
+            "input" => {
+                let is_checkable = self.nodes[idx]
+                    .attr("type")
+                    .is_some_and(|t| t.eq_ignore_ascii_case("checkbox") || t.eq_ignore_ascii_case("radio"));
+                is_checkable && self.nodes[idx].attr("checked").is_some()
+            }
+            "button" => self.is_default_submit(idx),
+            _ => false,
+        }
+    }
+
+    /// `true` se `idx` é o PRIMEIRO `<button type=submit>` (ou sem `type`, que
+    /// é submit por default de tag) do `<form>` mais próximo — o botão que um
+    /// Enter dentro do formulário aciona. Sobe até ao form; sem um, `false`
+    /// (um botão fora de formulário não tem `:default` nenhum para ser).
+    fn is_default_submit(&self, idx: NodeIdx) -> bool {
+        let is_submit = |i: NodeIdx| {
+            self.nodes[i]
+                .attr("type")
+                .map(|t| t.eq_ignore_ascii_case("submit"))
+                .unwrap_or(true)
+        };
+        if !is_submit(idx) {
+            return false;
+        }
+        let mut cur = self.nodes[idx].parent;
+        while let Some(p) = cur {
+            if matches!(&self.nodes[p].kind, NodeKind::Element { tag } if tag == "form") {
+                let mut primeiro = None;
+                self.primeiro_submit_em(p, &mut primeiro);
+                return primeiro == Some(idx);
+            }
+            cur = self.nodes[p].parent;
+        }
+        false
+    }
+
+    /// Pré-ordem: o primeiro `<button>` submit dentro da subárvore de `form`.
+    fn primeiro_submit_em(&self, node: NodeIdx, out: &mut Option<NodeIdx>) {
+        if out.is_some() {
+            return;
+        }
+        if let NodeKind::Element { tag } = &self.nodes[node].kind {
+            if tag == "button"
+                && self.nodes[node]
+                    .attr("type")
+                    .map(|t| t.eq_ignore_ascii_case("submit"))
+                    .unwrap_or(true)
+            {
+                *out = Some(node);
+                return;
+            }
+        }
+        for &c in &self.nodes[node].children {
+            self.primeiro_submit_em(c, out);
+            if out.is_some() {
+                return;
+            }
+        }
+    }
+
     /// Informa o VIEWPORT da passada de layout (base de `vw`/`vh` no computed).
     /// `&self` (Cell) — o layout roda sobre `&Dom`; o memo de estilo invalida
     /// sozinho quando o viewport muda (compara em `computed_style_idx`).
     pub fn set_viewport(&self, w: f32, h: f32) {
         self.viewport.set((w, h));
+    }
+
+    /// `prefers-color-scheme` do host (lote P, §5.P item 1). `&self` (Cell) —
+    /// mudar isto não é uma mutação estrutural, só o que `@media`/`matchMedia`
+    /// respondem: bumpar `touch()` invalida o memo de estilo, exactamente como
+    /// mudar o viewport já faz.
+    pub fn set_prefers_color_scheme(&mut self, dark: bool) {
+        self.prefers_color_scheme.set(if dark {
+            crate::style::PrefersColorScheme::Dark
+        } else {
+            crate::style::PrefersColorScheme::Light
+        });
+        self.touch();
+    }
+
+    pub fn set_prefers_reduced_motion(&mut self, reduce: bool) {
+        self.prefers_reduced_motion.set(reduce);
+        self.touch();
+    }
+
+    /// O [`MediaContext`](crate::style::MediaContext) corrente — viewport +
+    /// preferências do host. Construído aqui e não guardado como campo porque
+    /// o viewport (`Cell`) já muda por fora do `&mut self`; um `MediaContext`
+    /// persistido ficaria stale no mesmo instante em que `set_viewport` corre.
+    pub fn media_context(&self) -> crate::style::MediaContext {
+        let (w, h) = self.viewport.get();
+        crate::style::MediaContext {
+            width: w,
+            height: h,
+            prefers_color_scheme: self.prefers_color_scheme.get(),
+            prefers_reduced_motion: self.prefers_reduced_motion.get(),
+        }
+    }
+
+    /// Igual a [`media_context`](Dom::media_context), mas com a LARGURA
+    /// substituída — o layout às vezes mede contra uma largura diferente do
+    /// viewport corrente (o `ctx.viewport_w` de uma passada de intrínseco), e
+    /// `<picture><source media>` tem de casar ESSA, não a do `Dom`.
+    pub fn media_context_at_width(&self, width: f32) -> crate::style::MediaContext {
+        let mut ctx = self.media_context();
+        ctx.width = width;
+        ctx
+    }
+
+    /// `window.matchMedia(query).matches` (lote P, §5.P item 2) — o MESMO
+    /// avaliador que a cascade usa para `@media`, contra o mesmo
+    /// [`media_context`](Dom::media_context). Reparseia a `query` a cada
+    /// chamada (como `@supports`/seletor: não há cache de string arbitrária) —
+    /// barato: `matchMedia` não corre por nó, corre por chamada de script.
+    pub fn media_matches(&self, query: &str) -> bool {
+        crate::style::MediaQuery::parse(query).matches(&self.media_context())
     }
 }

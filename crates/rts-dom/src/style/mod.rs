@@ -111,7 +111,8 @@ pub use selector::{
     parse_selector_list,
 };
 pub use stylesheet::{
-    DeclBlock, HoverReach, MatchedRules, MediaQuery, Rule, Stylesheet, parse_rules,
+    CustomPropertyRegistry, DeclBlock, HoverReach, MatchedRules, MediaContext, MediaQuery,
+    PrefersColorScheme, PropertySyntax, RegisteredProperty, Rule, Stylesheet, parse_rules,
 };
 pub use syntax::{
     AstItem, BlockAst, ComponentValue, DeclarationAst, Diagnostic, DiagnosticSeverity, SourceSpan,

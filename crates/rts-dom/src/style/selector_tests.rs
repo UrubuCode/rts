@@ -167,19 +167,26 @@ fn focus_casa_so_o_campo_focado_e_nao_o_ancestral() {
 }
 
 #[test]
-fn pseudo_elemento_e_parseado_mas_nunca_estiliza_o_elemento() {
-    // `::before`/`::after` agora PARSEIAM e geram caixa (ver `crate::pseudo`),
-    // mas o que nunca pode acontecer continua igual: as declarações são da
-    // caixa gerada e não do elemento originante.
+fn pseudo_elementos_conhecidos_parseiam_e_nunca_estilizam_o_elemento_originante() {
+    // `::before`/`::after`/`::marker` PARSEIAM e geram caixa própria (ver
+    // `crate::pseudo` e, para o marcador, `Dom::marker_color` — lote O), mas o
+    // que nunca pode acontecer continua igual: as declarações são da caixa
+    // gerada e não do elemento originante.
     let sel = parse_selector("p::before").unwrap();
     assert_eq!(sel.pseudo_element, Some(PseudoElement::Before));
     assert_eq!(
         parse_selector("p:after").unwrap().pseudo_element,
         Some(PseudoElement::After)
     );
-    // Um pseudo-elemento que não geramos continua a DESCARTAR a regra — deixá-la
-    // sem o `::marker` aplicá-la-ia ao `<p>`.
-    assert!(parse_selector("p::marker").is_none());
+    // `::marker` (lote O) — deixou de ser um pseudo-elemento "que não geramos".
+    assert_eq!(
+        parse_selector("li::marker").unwrap().pseudo_element,
+        Some(PseudoElement::Marker)
+    );
+    // Um pseudo-elemento que AINDA não geramos (`::selection` continua nessa
+    // lista) continua a DESCARTAR a regra — deixá-la aplicaria as declarações
+    // ao `<p>` em si, que é justamente o que este teste pina que não acontece.
+    assert!(parse_selector("p::selection").is_none());
     // Nada pode seguir um pseudo-elemento.
     assert!(parse_selector("p::before span").is_none());
     let dom =

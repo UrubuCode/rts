@@ -28,10 +28,18 @@ fn import_e_saltado_sem_partir_o_resto() {
     assert_eq!(prop(&d, "p", "color"), "rgb(255, 0, 0)");
 }
 
-/// `estilo.atrule.media-so-largura` — só `min-width`/`max-width` são avaliadas;
-/// **qualquer outra feature DESLIGA o bloco inteiro**, em vez de o ignorar.
+/// `estilo.atrule.media-completo` — obsoleto por definição (lote P, §5.P
+/// item 1, `style/stylesheet/media.rs`): pinava que só `min-width`/
+/// `max-width` eram avaliadas e que qualquer outra feature DESLIGAVA o
+/// bloco inteiro. Agora `min-height`, `orientation`, a sintaxe de intervalo
+/// e `prefers-color-scheme` são todas ENTENDIDAS — o viewport de teste
+/// (1280×800, o default do `Dom`) é landscape e tem `height` e `width`
+/// dentro de qualquer um dos intervalos abaixo, então todas casam, EXCEPTO
+/// `prefers-color-scheme:dark`: essa continua falsa, mas agora pela razão
+/// CERTA — o host não declarou `dark` (default `light`), não porque a
+/// feature seja desconhecida.
 #[test]
-fn so_min_e_max_width_sao_avaliadas() {
+fn a_gramatica_completa_de_media_e_avaliada() {
     let aplica = |q: &str| {
         let d = doc(&format!("@media {q} {{ p{{font-size:33px}} }}"), "<p>x</p>");
         prop(&d, "p", "font-size") == "33px"
@@ -39,11 +47,12 @@ fn so_min_e_max_width_sao_avaliadas() {
     assert!(aplica("(min-width:1px)"));
     assert!(aplica("(max-width:99999px)"));
     assert!(aplica("screen and (min-width:1px)"));
-    // As que caem, e todas caem por serem desconhecidas e não por não casarem.
-    assert!(!aplica("(min-height:1px)"), "min-height");
-    assert!(!aplica("(orientation:landscape)"), "orientation");
-    assert!(!aplica("(prefers-color-scheme: dark)"), "prefers-color-scheme");
-    assert!(!aplica("(400px <= width < 99999px)"), "a sintaxe de intervalo");
+    assert!(aplica("(min-height:1px)"), "min-height");
+    assert!(aplica("(orientation:landscape)"), "orientation — 1280x800 é landscape");
+    assert!(aplica("(400px <= width < 99999px)"), "a sintaxe de intervalo");
+    // a única que continua falsa — e agora pela razão certa: o host declara
+    // `light` por omissão, `dark` não casa. Não é mais "feature desconhecida".
+    assert!(!aplica("(prefers-color-scheme: dark)"), "prefers-color-scheme: dark não é o default do host");
 }
 
 /// `estilo.var.important` — custom properties mantêm a importância durante a
@@ -69,12 +78,22 @@ fn os_atributos_de_apresentacao_nao_entram() {
     assert_eq!(prop(&d, "td", "width"), "auto");
 }
 
-/// `estilo.seletor.nth-child-of-e-has` — `:has()` e a forma `of` do `nth-child`
-/// não são reconhecidos, e a regra inteira é descartada.
+/// `estilo.seletor.has` — **obsoleto**: o registo dizia que `:has()` não era
+/// reconhecido e derrubava a regra inteira. Passou a ser (lote O, `dom/has.rs`)
+/// — este teste fixa o estado novo: `p:has(span)` CASA o `<p>` que tem um
+/// `<span>` dentro.
 #[test]
-fn has_e_o_of_do_nth_child_derrubam_a_regra() {
+fn has_e_reconhecido_e_casa_o_ancestral() {
     let d = doc("p:has(span){color:red}", "<p><span>x</span></p>");
-    assert_eq!(prop(&d, "p", "color"), "rgb(0, 0, 0)");
+    assert_eq!(prop(&d, "p", "color"), "rgb(255, 0, 0)");
+}
+
+/// `estilo.seletor.nth-child-of` — a forma `of` do `nth-child` (`:nth-child(1
+/// of .x)`) continua sem reconhecimento: `parse_nth` só lê `odd`/`even`/`an+b`,
+/// não um segundo seletor depois de `of`. A regra inteira é descartada, como
+/// qualquer pseudo com argumento inválido.
+#[test]
+fn o_of_do_nth_child_ainda_derruba_a_regra() {
     let d = doc("p:nth-child(1 of .x){color:red}", "<p class=x>y</p>");
     assert_eq!(prop(&d, "p", "color"), "rgb(0, 0, 0)");
 }

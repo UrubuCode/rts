@@ -16,6 +16,8 @@ pub(in crate::layout) fn layout_children_column(
     container_content_h: Option<f32>,
     css: &ComputedStyle,
     font_size: f32,
+    // `flex-direction: column-reverse` — ver a nota gémea em `flex.rs`.
+    reverse: bool,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
@@ -36,9 +38,16 @@ pub(in crate::layout) fn layout_children_column(
         .and_then(|d| d.resolve(&resolve))
         .unwrap_or(0.0)
         .max(0.0);
-    let justify = css
+    // `column-reverse`: mesmo espelho de `flex.rs` — o main-start visual é o
+    // FUNDO do container, não o topo; ver o comentário lá.
+    let justify_declarado = css
         .justify
         .unwrap_or(crate::style::JustifyContent::FlexStart);
+    let justify = if reverse {
+        mirror_justify(justify_declarado)
+    } else {
+        justify_declarado
+    };
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
 
     // ── PASSO 1: mede a altura outer desejada de cada filho + margens auto ───────
@@ -49,6 +58,7 @@ pub(in crate::layout) fn layout_children_column(
         mt_auto: bool,
         mb_auto: bool,
         grow: f32,
+        order: i32,
     }
     let mut items: Vec<ColItem> = Vec::new();
     for &child in &dom.node(id).children {
@@ -79,6 +89,7 @@ pub(in crate::layout) fn layout_children_column(
                 mt_auto: false,
                 mb_auto: false,
                 grow: 0.0,
+                order: 0,
             });
             continue;
         }
@@ -91,16 +102,17 @@ pub(in crate::layout) fn layout_children_column(
             font_size,
             ctx,
         );
-        let (mt_auto, mb_auto, grow) = dom
+        let (mt_auto, mb_auto, grow, order) = dom
             .computed_style_idx(child)
             .map(|c| {
                 (
                     c.margin.top.is_auto(),
                     c.margin.bottom.is_auto(),
                     c.flex_grow.unwrap_or(0.0),
+                    c.order.unwrap_or(0),
                 )
             })
-            .unwrap_or((false, false, 0.0));
+            .unwrap_or((false, false, 0.0, 0));
         items.push(ColItem {
             node: child,
             h,
@@ -108,10 +120,17 @@ pub(in crate::layout) fn layout_children_column(
             mt_auto,
             mb_auto,
             grow,
+            order,
         });
     }
     if items.is_empty() {
         return 0.0;
+    }
+    // `order` (empate = ordem do documento, sort estável), depois
+    // `column-reverse` — mesma dupla operação do eixo horizontal (`flex.rs`).
+    items.sort_by_key(|it| it.order);
+    if reverse {
+        items.reverse();
     }
 
     // ── PASSO 2: distribui o espaço livre do eixo principal (Y) ──────────────────
@@ -248,6 +267,20 @@ pub(in crate::layout) fn layout_children_column(
 /// `center`/`flex-end` mantêm o leading (negativo = transborda dos dois lados/start).
 /// NB: a verificação adversarial sugeriu around/evenly→center, mas o Chrome real os
 /// trata como flex-start — a medição no browser desempatou.
+/// `justify-content` no eixo principal ESPELHADO — o que `row-reverse`/
+/// `column-reverse` precisam (spec §5.1: o eixo principal inverte de sentido,
+/// não só a ordem dos itens). `flex-start`↔`flex-end` trocam; os três
+/// `space-*` e `center` são simétricos em torno do centro do eixo e ficam
+/// como estão.
+pub(in crate::layout) fn mirror_justify(j: crate::style::JustifyContent) -> crate::style::JustifyContent {
+    use crate::style::JustifyContent as J;
+    match j {
+        J::FlexStart => J::FlexEnd,
+        J::FlexEnd => J::FlexStart,
+        other => other,
+    }
+}
+
 pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: f32, n: usize) -> (f32, f32) {
     use crate::style::JustifyContent as J;
     if free <= 0.0 {

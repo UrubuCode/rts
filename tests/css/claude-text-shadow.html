@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: `text-shadow` com um único shadow e com DOIS separados por vírgula,
+     no valor computado — o Blink serializa a cor como `rgb()` funcional e
+     reordena a cor para o início da lista de comprimentos. Um motor que trata
+     a vírgula como fim da declaração perde o segundo shadow; um que devolve
+     o valor literal em vez de normalizar a cor falha `fixar-estilo` mesmo
+     tendo os números certos. Sem geometria: `text-shadow` não muda a caixa. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="simples,duplo">
+<meta name="fixar-estilo" content="text-shadow">
+<style>
+  body { margin: 0; font: 16px/20px monospace; color: #000; }
+  #simples { text-shadow: 1px 2px 3px red; }
+  #duplo   { text-shadow: 1px 1px black, -1px -1px 2px blue; }
+</style></head>
+<body>
+  <p id="simples">um</p>
+  <p id="duplo">dois</p>
+</body>
+</html>

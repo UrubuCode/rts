@@ -10,14 +10,17 @@ mod cache_flex;
 mod colapso;
 mod dimensoes;
 mod flex;
+mod flex_avancado;
 mod float_corpus;
 mod grid;
+mod grid_colocacao;
 mod grid_corpus;
 mod inline;
 mod inline_corpus;
 mod pintura;
 mod posicionado;
 mod position_corpus;
+mod texto_lote_s;
     use super::*;
     use crate::dom::parse_html_to_dom;
 

@@ -71,10 +71,12 @@ use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_s
 mod coluna;
 mod flex;
 mod grid;
+mod grid_linhas;
 mod linha;
 mod quebra;
 mod runs;
 mod segmento;
+mod tabulacao;
 pub(crate) use self::bloco::layout_block;
 pub use self::fragmento::{ChildRef, Fragment};
 pub(crate) use self::fragmento::insert_item;

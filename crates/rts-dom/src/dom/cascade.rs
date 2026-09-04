@@ -112,7 +112,7 @@ impl Dom {
             .map(|c| c.split_whitespace().collect())
             .unwrap_or_default();
         let (matched, content) = self.stylesheet.matched_for_pseudo(
-            self.viewport.get().0,
+            &self.media_context(),
             tag,
             self.nodes[idx].attr("id"),
             &classes,
@@ -140,6 +140,48 @@ impl Dom {
             return None;
         }
         Some(crate::pseudo::PseudoBox { texto, css })
+    }
+
+    /// A COR do `::marker` deste `<li>` (lote O), se alguma regra `::marker`
+    /// a declara — `None` quando não há nenhuma, e quem chama fica com o
+    /// `color` herdado do próprio `<li>` (o que `listitem::emit_marker` já
+    /// fazia sozinho antes deste lote).
+    ///
+    /// Só a COR: o `font-size` do marcador não é lido daqui de propósito — ele
+    /// mudaria a MEDIDA da linha (`ctx.measurer`), e essa medida é decidida em
+    /// `layout/linha.rs`/`layout/runs.rs`, fora deste lote (lote S). Aplicar
+    /// só a cor é seguro porque pintar não muda geometria nenhuma.
+    pub fn marker_color(
+        &self,
+        idx: NodeIdx,
+        herdado: &crate::style::ComputedStyle,
+    ) -> Option<u32> {
+        if !self.stylesheet.has_generated_content() {
+            return None;
+        }
+        let NodeKind::Element { tag } = &self.nodes[idx].kind else {
+            return None;
+        };
+        let classes: Vec<&str> = self.nodes[idx]
+            .attr("class")
+            .map(|c| c.split_whitespace().collect())
+            .unwrap_or_default();
+        let (matched, _content) = self.stylesheet.matched_for_pseudo(
+            &self.media_context(),
+            tag,
+            self.nodes[idx].attr("id"),
+            &classes,
+            crate::style::PseudoElement::Marker,
+            |sel| self.matches_complex(idx, sel),
+        );
+        if matched.is_empty() {
+            return None;
+        }
+        let decls = self.stylesheet.declarations_from(&matched, None);
+        let mut css = herdado.clone();
+        css.merge_over(&decls.normal);
+        css.merge_over(&decls.important);
+        css.color
     }
 
     /// A tabela de CONTADORES do documento, calculada uma vez por revisão.
@@ -186,17 +228,17 @@ impl Dom {
             .attr("class")
             .map(|c| c.split_whitespace().collect())
             .unwrap_or_default();
-        let vw = self.viewport.get().0;
+        let media_ctx = self.media_context();
         let id_attr = self.nodes[idx].attr("id");
         let matched = match pe {
             None => self
                 .stylesheet
-                .matched_for_node(vw, tag, id_attr, &classes, |sel| {
+                .matched_for_node(&media_ctx, tag, id_attr, &classes, |sel| {
                     self.matches_complex(idx, sel)
                 }),
             Some(pe) => {
                 self.stylesheet
-                    .matched_for_pseudo(vw, tag, id_attr, &classes, pe, |sel| {
+                    .matched_for_pseudo(&media_ctx, tag, id_attr, &classes, pe, |sel| {
                         self.matches_complex(idx, sel)
                     })
                     .0
@@ -253,7 +295,7 @@ impl Dom {
             style::MatchedRules::default()
         } else {
             self.stylesheet.matched_for_node(
-                self.viewport.get().0,
+                &self.media_context(),
                 &tag,
                 node_id.as_deref(),
                 &class_refs,
@@ -277,6 +319,24 @@ impl Dom {
         let parent_vars = parent_css_for_vars
             .as_ref()
             .and_then(|p| p.custom_props.clone());
+        // `@property … inherits: false` (lote P, §5.P item 4): tira do mapa
+        // herdado ANTES de aplicar as declarações próprias — sem isto o filho
+        // herdaria o valor do pai como qualquer custom property comum, que é
+        // exatamente o que `inherits:false` existe para recusar. Gate no
+        // `is_empty()`: uma página sem `@property` não paga a filtragem.
+        let props_registry = self.stylesheet.properties_registry();
+        let parent_vars = if props_registry.is_empty() {
+            parent_vars
+        } else {
+            parent_vars.map(|arc| {
+                std::sync::Arc::new(
+                    arc.iter()
+                        .filter(|(k, _)| props_registry.inherits(k))
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect::<std::collections::HashMap<_, _>>(),
+                )
+            })
+        };
         let vars_arc: Option<std::sync::Arc<std::collections::HashMap<String, String>>> =
             match (
                 parent_vars,
@@ -304,6 +364,17 @@ impl Dom {
                     Some(std::sync::Arc::new(m))
                 }
             };
+        // `@property … initial-value` (item 4): um `var(--x)` sem declaração
+        // alcançável usa o inicial registado em vez do fallback vazio de
+        // sempre. `seed_defaults` só ACRESCENTA nomes ausentes — uma
+        // declaração real, própria ou herdada, nunca é sobrescrita.
+        let vars_arc = if props_registry.is_empty() {
+            vars_arc
+        } else {
+            let mut m = vars_arc.as_deref().cloned().unwrap_or_default();
+            props_registry.seed_defaults(&mut m);
+            Some(std::sync::Arc::new(m))
+        };
         let empty_vars = std::collections::HashMap::new();
         let vars_ref: &std::collections::HashMap<String, String> =
             vars_arc.as_deref().unwrap_or(&empty_vars);

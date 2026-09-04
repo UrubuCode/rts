@@ -28,6 +28,11 @@ struct FlexItem {
     order: i32,
     /// o item PODE ser esticado pelo stretch (sem `height` explícito).
     can_stretch: bool,
+    /// piso de `min-content` no eixo principal (spec flexbox §9.7) — o
+    /// `flex-shrink` nunca encolhe o item abaixo disto. Texto solto e itens de
+    /// `grid_cols` não têm piso próprio (a coluna de grid não é um item de
+    /// conteúdo variável no mesmo sentido).
+    min_main: f32,
 }
 
 /// A BASE outer de um item flex no eixo principal: `flex-basis` explícita
@@ -88,6 +93,10 @@ pub(in crate::layout) fn layout_children_horizontal(
     // `Some(N)` quando `display:grid`: cada item vira uma coluna de largura fixa
     // `(content_w - (N-1)*gap)/N` e a linha quebra a cada N. `None` = flex/wrap normal.
     grid_cols: Option<i32>,
+    // `flex-direction: row-reverse` — a ordem VISUAL principal inverte (spec
+    // §5.1); aplicado depois do `order` (`items.sort_by_key` abaixo), que é o
+    // mesmo efeito de inverter a atribuição de posições no eixo principal.
+    reverse: bool,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
@@ -109,9 +118,24 @@ pub(in crate::layout) fn layout_children_horizontal(
         .and_then(|d| d.resolve(&resolve))
         .unwrap_or(0.0)
         .max(0.0);
-    let justify = css
+    // Em `row-reverse` o main-start VISUAL é o lado DIREITO do container (spec
+    // §5.1: o eixo principal em si inverte, não só a ordem dos itens) — o
+    // efeito é o MESMO de espelhar `justify-content` (`flex-start`↔`flex-end`)
+    // e continuar a posicionar da esquerda para a direita com a lista já
+    // invertida (abaixo). A 1ª versão só invertia a lista e mantinha
+    // `flex-start`=0 de leading, o que empacotava os itens (já na ordem
+    // visual certa) encostados ao INÍCIO em vez de ao FIM — `#a.x` saía 100
+    // onde o Chrome dá 250 (medido pelo orquestrador, `claude-flex-reverse`).
+    // `space-between/around/evenly` são simétricos e não mudam com o espelho;
+    // `center` também não.
+    let justify_declarado = css
         .justify
         .unwrap_or(crate::style::JustifyContent::FlexStart);
+    let justify = if reverse {
+        crate::layout::coluna::mirror_justify(justify_declarado)
+    } else {
+        justify_declarado
+    };
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     // `0` = sem height explícito (o cross-size da linha usa o max dos itens).
     let container_cross_h = container_content_h.unwrap_or(0.0);
@@ -163,6 +187,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                 align_self: None,
                 order: 0,
                 can_stretch: false,
+                min_main: w, // texto solto: o piso é ele mesmo (não quebra aqui).
             });
             continue;
         }
@@ -177,6 +202,12 @@ pub(in crate::layout) fn layout_children_horizontal(
             font_size,
             ctx,
         );
+        // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
+        // de largura de tabela — a mesma pergunta ("a palavra mais larga, com o
+        // frame do elemento"), sem duplicar a travessia. `grid_cols` zera o
+        // resultado a seguir (a coluna de grid não encolhe por conteúdo), então
+        // medir aqui sempre é mais simples que condicionar a medição.
+        let min_main = crate::table::min_content(dom, child, font_size, ctx);
         items.push(FlexItem {
             node: child,
             base,
@@ -188,10 +219,18 @@ pub(in crate::layout) fn layout_children_horizontal(
             align_self: ccss.align_self,
             order: ccss.order.unwrap_or(0),
             can_stretch: ccss.height.is_none(),
+            min_main,
         });
     }
     // `order` reordena ANTES do wrap (sort estável: empate = ordem do documento).
     items.sort_by_key(|it| it.order);
+    // `row-reverse`: a ordem VISUAL principal inverte DEPOIS do `order` (spec
+    // §5.1) — reverter a lista já ordenada tem o mesmo efeito de inverter a
+    // atribuição de posições no eixo principal, sem duplicar o algoritmo de
+    // posicionamento abaixo.
+    if reverse {
+        items.reverse();
+    }
 
     // GRID: cada item (não-texto) vira uma coluna de largura fixa. Fixa base=main=col_w
     // e zera grow/shrink (a coluna não flui) → o wrap abaixo quebra a cada N colunas.
@@ -224,8 +263,35 @@ pub(in crate::layout) fn layout_children_horizontal(
         lines.last_mut().unwrap().push(it);
     }
 
+    // `align-content` em MULTI-LINHA (spec §8.4/flexbox §8): distribui o
+    // espaço cruzado sobrante entre as linhas de wrap, com o mesmo
+    // `justify_offsets` do flex/grid — a estimativa de altura de cada linha
+    // usa a medição do PRÉ-PASS (antes do grow/shrink do eixo principal, que
+    // é o que a resolução por linha abaixo ainda vai fazer): a altura de uma
+    // linha muda por causa da largura só quando o encolhimento força quebra de
+    // texto, um efeito de segunda ordem que esta aproximação aceita — refinar
+    // exigiria resolver todas as linhas duas vezes.
+    let mut line_align_leading = 0.0f32;
+    let mut line_align_between = 0.0f32;
+    if wrap && lines.len() > 1 {
+        if let Some(v) = css.align_content {
+            if container_cross_h > 0.0 {
+                let estimativa: f32 = lines
+                    .iter()
+                    .map(|l| l.iter().fold(0.0f32, |a, it| a.max(it.h)))
+                    .sum::<f32>()
+                    + (lines.len().saturating_sub(1)) as f32 * row_gap;
+                let free = (container_cross_h - estimativa).max(0.0);
+                let (leading, between) =
+                    crate::layout::coluna::justify_offsets(v, free, lines.len());
+                line_align_leading = leading;
+                line_align_between = between;
+            }
+        }
+    }
+
     // ── RESOLVE + POSICIONA por linha: grow/shrink (main), justify, align ────────
-    let mut line_y = content_y;
+    let mut line_y = content_y + line_align_leading;
     for line in &mut lines {
         if line.is_empty() {
             continue;
@@ -244,10 +310,55 @@ pub(in crate::layout) fn layout_children_horizontal(
                 it.main = it.base + free_pre * it.grow / sum_grow;
             }
         } else if free_pre < 0.0 {
-            let weighted: f32 = line.iter().map(|it| it.shrink * it.base).sum();
-            if weighted > 0.0 {
-                for it in line.iter_mut() {
-                    it.main = (it.base + free_pre * (it.shrink * it.base) / weighted).max(0.0);
+            // ENCOLHIMENTO com PISO de `min-content` (spec §9.7): a cada
+            // iteração repartimos o défice pelos itens ainda LIVRES
+            // (`shrink*base` ponderado); um item que bateria abaixo do seu
+            // `min_main` congela nele e sai da repartição — o défice que ele
+            // não absorveu volta para os itens que sobraram, na iteração
+            // seguinte. Sem isto um item de texto longo encolhia até
+            // sobrepor-se ao próprio conteúdo (achado da auditoria de
+            // 2026-09-04, `04-layout.md` finding 6).
+            let n = line.len();
+            let mut frozen = vec![false; n];
+            let mut deficit = free_pre; // negativo
+            loop {
+                let weighted: f32 = line
+                    .iter()
+                    .zip(&frozen)
+                    .filter(|&(_, f)| !f)
+                    .map(|(it, _)| it.shrink * it.base)
+                    .sum();
+                if weighted <= 0.0 || deficit >= -0.01 {
+                    break;
+                }
+                let mut novo_congelado = false;
+                for (it, f) in line.iter_mut().zip(frozen.iter_mut()) {
+                    if *f {
+                        continue;
+                    }
+                    let proposto = it.base + deficit * (it.shrink * it.base) / weighted;
+                    if proposto <= it.min_main {
+                        it.main = it.min_main;
+                        *f = true;
+                        novo_congelado = true;
+                    } else {
+                        it.main = proposto;
+                    }
+                }
+                if !novo_congelado {
+                    break; // convergiu sem ninguém bater no piso: acabou.
+                }
+                // défice restante = o que os itens NÃO congelados ainda devem
+                // absorver — a soma dos `main` correntes contra as bases.
+                deficit = line
+                    .iter()
+                    .zip(&frozen)
+                    .filter(|&(_, f)| !f)
+                    .map(|(it, _)| it.main - it.base)
+                    .sum::<f32>()
+                    .min(0.0);
+                if deficit >= -0.01 {
+                    break;
                 }
             }
         }
@@ -352,9 +463,11 @@ pub(in crate::layout) fn layout_children_horizontal(
             }
             x += it.main;
         }
-        line_y += line_h + row_gap;
+        line_y += line_h + row_gap + line_align_between;
     }
-    // desconta o último row_gap (só ENTRE linhas, não após a última).
-    let total_h = (line_y - row_gap - content_y).max(0.0);
+    // desconta o último row_gap (só ENTRE linhas, não após a última) e o
+    // leading do align-content (a altura devolvida é a do CONTEÚDO, não a do
+    // espaço que o align-content pode ter deixado antes da 1ª linha).
+    let total_h = (line_y - row_gap - line_align_between - content_y - line_align_leading).max(0.0);
     total_h
 }

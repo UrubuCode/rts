@@ -36,7 +36,14 @@ linha aqui não existe.
 | L | cache de fragmentos em flex/grid/tabela | 2 | ☑ itens de flex-row/coluna/grid reusam (`FragmentKey` + tamanhos impostos); tabela e out-of-flow NÃO; corpus 49/49, suite 858/887 sem perdidos, paridade em 6 páginas: desvio máx. 6,1e-5 px (artefacto do reuso); `fragment_hits > 0` provado por teste; número do `dom_metrics` numa app real por medir | `feat/dom-lote-l-cache-flex-grid` → `3bccf4ea` (2026-09-04) | `dom_metrics`: subárvores reusadas numa app flex |
 | M | ciclo de vida do nó | 2 | ☑ geração por NÓ, freelist, `releaseSubtree` decidido pela fachada; fixture `claude-dom-node-lifecycle` verde; wrappers fracos BLOQUEADOS por #2636 (`WeakRef` retém) | `feat/dom-lote-m-ciclo-de-vida` → `fe750c8b`+`b2e54326` (2026-09-04) | teste: arena não cresce ao remover/inserir N vezes |
 | N | réguas no CI | 2 | ☑ `dom-rulers` e `dom-tests` VERDES no runner (run 33840034384, 2026-09-04); `dom-rulers` corre com `if: !cancelled()` porque a matriz `build` teve o macOS vermelho de 03/09 a 04/09 (#2632, corrigido em #2633); ficam por fazer a escrita automática do número no README e a régua de pintura | `main` (#2629, #2633) | resumo do job + check vermelho |
-| O–U | CSS como área | 3 | ☐ | — | §5 |
+| O | selectores que faltam | 3 | ☑ `:target` (com `setLocationHash` no bridge e `fixar-hash` no corredor), `:scope`, `:default`, `:placeholder-shown`, `:active`/`:visited` (estado no `Dom`), `::marker` (cor), `:has()` (invalidação global quando presente, pinada). Não feitos: `::first-line`/`::first-letter`, `:autofill`, `:modal`, `:focus-visible` real | `feat/dom-lote-o-selectores` → `1baa405f`+`4e4b5540`+`3df13ad5` (2026-09-04) | `claude-sel-*` (3 de 4 passam; `sel-has` é do lote S-inline) |
+| P | at-rules | 3 | ☑ `@media` completo (intervalos, `not`/`only`, listas OR, `orientation`, `resolution`, `prefers-*` com valor do host), `window.matchMedia` real (`mediaMatches` no bridge), `@import` resolvido na fachada, `@property` (registo; sem validação de `syntax`), at-rules ignorados contados | `feat/dom-lote-p-at-rules` → `b9c317b6`+`66fc9183`+`5b57c1e6` (2026-09-04) | `claude-media-completo`, `claude-property`, `claude-import` (3/3 passam) |
+| Q | CSSOM | 3 | ☐ | — | §5 |
+| R | grid e flex completos | 3 | ☑ colocação por linhas (spans, negativos, nomes), colunas implícitas, `grid-auto-flow: dense`, alinhamento da grelha e `justify-self`/`align-self` (stretch só com `auto`), piso de min-content no `flex-shrink` (monospace certo), `*-reverse` (espelha o justify), `align-content` multi-linha, `order` em coluna. Não feitos: `repeat(auto-fill|auto-fit)`, `minmax` intrínseco, sizing intrínseco de tracks `auto` | `feat/dom-lote-r-grid-flex` → `bad665db`+`902aa6ea` (2026-09-04) | `claude-grid-*`, `claude-flex-*` (7 de 8 passam; `grid-auto-fill` esperado a falhar) |
+| S | propriedades sem efeito — grupo TEXTO | 3 | ☑ `word-spacing` (quebra, pintura e largura intrínseca), `tab-size`, `line-clamp`, `text-wrap` alias, `url()` serializado com aspas (e `background-image`/`mask-image` passam a responder), rect de bloco em linha = border box. `list-style-image` parcial (o marcador pinta a imagem, ninguém a carrega). Três remendos ao modelo de inline REVERTIDOS (partiam `display-basico`) → lote S-inline | `feat/dom-lote-s-texto` → `41031be5`, `c6243732`, `81845e2a`, `291ae43e` (2026-09-04) | `claude-text-overflow`, `word-spacing`, `tab-size`, `line-clamp` (4/4 passam), `list-style-image` |
+| S-inline | caixa inline por FRAGMENTOS de linha | 4 | ☐ — um inline não-substituído com fundo/padding/borda pinta ao longo dos seus fragmentos de linha e nunca vira caixa de bloco; `width`/`height` não se aplicam; um inline vazio é 0×0 na posição da linha. Réguas já medidas: `claude-sel-has` (esperado a falhar), `claude-display-basico` (passa e tem de continuar). Os três remendos revertidos em `feat/dom-lote-s-texto` (`8803c326`, `2bb6a680`, `b997aa85`) são o diagnóstico | — | corpus: `sel-has` + `display-basico` |
+| T | fontes reais | 3 | ☐ | — | §5 |
+| U | composição e pintura | 3 | ☐ | — | §5 |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
 **Estado após a vaga 1 (2026-09-04, 01:41)** — medido com o `rts.exe`
@@ -72,6 +79,24 @@ caminho: `WeakRef`/`WeakMap` retêm fortemente (#2636), o que bloqueia os
 wrappers fracos do lote M. O binário desta medição é o próximo
 `target/baseline.exe`; `vaga2-suite.txt` o próximo `base-suite.txt`.
 
+**Estado após a vaga 3 (2026-09-04, ~13:30)** — lotes O, P, R, S-texto + o
+lote de réguas da vaga 4, medido com o `rts.exe` de `feat/dom-vaga-3` contra
+o binário da vaga 2 (`target/baseline.exe`, `base-suite.txt` = `vaga2-suite.txt`):
+
+| régua | antes (baseline) | depois | perdidos |
+|---|---|---|---|
+| corpus CSS | 51/54 | **72/86** — +32 fixtures: 21 passam, 11 esperadas a falhar (`tests/css/esperado-a-falhar.txt`: 3 UA, `grid-auto-fill`, `sel-has`, 9 réguas da vaga 4 medidas ANTES do código) | nenhum |
+| suite `*.test.ts` por `medir.sh` | 859/888 | **859/888** | **nenhum** |
+| `cargo test -p rts-dom --lib --features metrics` | 788 | **844**, 0 falhas | — |
+| check local do `dom-rulers` | — | inesperadas: nenhuma; da lista a passar: nenhuma | — |
+
+Retrabalho: 16 rondas em 4 lotes (4,0 por lote; o lote S sozinho 8) — 10
+delas por fixtures medidas DEPOIS do código. É a razão da regra nova do §1
+("a régua antes do código"), já aplicada às 12 réguas da vaga 4. O binário
+desta medição é o próximo `target/baseline.exe`; `vaga3-suite.txt` o próximo
+`base-suite.txt`. A paridade das 6 páginas locais foi REGENERADA como "antes"
+(a margem de UA e o rect em linha moveram-na, e era isso que devia).
+
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit
 do lote existe; (3) a tabela diz se foi integrado. Um lote com branch e sem
@@ -99,6 +124,17 @@ do lote existe; (3) a tabela diz se foi integrado. Um lote com branch e sem
   para um número subir; uma fixture que falha fica a falhar. Um lote de layout
   entra com um teste Rust que parseia o HTML EXACTO da fixture e afirma os
   rects do Chrome — assim a suite unitária pina o mesmo que o corpus.
+- **A régua ANTES do código** (2026-09-04, depois de a vaga 3 custar 14 rondas
+  de retrabalho, 10 delas por fixtures medidas depois de implementar): um lote
+  começa por um "lote de réguas" — as fixtures são escritas, revistas (sem
+  texto onde a pergunta é geometria; ids só no que se afirma; o selector ou a
+  propriedade como única coisa em jogo), MEDIDAS no Blink
+  (`scripts/css_fixtures_medir_edge.mjs`) e commitadas com `.esperado.json`
+  antes de qualquer agente implementar. O brief do agente traz os números; o
+  teste Rust em `layout/tests/*_corpus.rs` nasce com os rects do Blink e o
+  agente corre-o sozinho (`cargo test -p rts-dom --lib <nome>` é permitido: o
+  crate não tem dependências). O vermelho→verde acontece no worktree do
+  agente, não na ronda de build do orquestrador.
 - **Comparação por ficheiro.** Uma vaga só integra com a lista de PERDIDOS
   vazia nas três réguas (corpus, testes do crate, suite). Um número líquido
   não é um resultado.

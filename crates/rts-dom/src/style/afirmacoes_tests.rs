@@ -113,23 +113,25 @@ fn var_em_ciclo_responde_o_fallback_onde_o_blink_invalida_a_cadeia() {
     assert_eq!(font_size(&indireto, "body"), "9px");
 }
 
-/// `estilo.atrule.media-lista-e-or` — uma lista por vírgula não é um OR: só a
-/// PRIMEIRA query conta.
+/// `estilo.atrule.media-lista-e-or` — uma lista por vírgula É um OR real
+/// (lote P, §5.P item 1 — `style/stylesheet/media.rs`).
 ///
-/// As duas metades são a prova. Com `print` à frente o bloco nunca aplica, mesmo
-/// tendo uma query que casa a seguir; com a mesma lista pela ordem inversa
-/// aplica. Ou seja, o resultado depende da ORDEM em que o autor escreveu as
-/// alternativas, que é exatamente o que um OR não faz.
+/// Obsoleto por definição: pinava a v1 (só a PRIMEIRA query da lista contava,
+/// então o resultado dependia da ORDEM em que o autor escrevia as
+/// alternativas). Agora as duas metades têm de dar o MESMO resultado
+/// independentemente da ordem — `print` nunca casa (este motor é sempre
+/// "screen"), `screen and (min-width:100px)` casa a qualquer viewport de
+/// teste (bem acima de 100px); a lista inteira casa em ambos os arranjos.
 #[test]
-fn media_lista_por_virgula_usa_so_a_primeira_query() {
+fn media_lista_por_virgula_e_or_independente_da_ordem() {
     let print_primeiro = parse_html_to_dom(
         "<html><head><style>@media print, screen and (min-width:100px){body{font-size:33px}}\
          </style></head><body>x</body></html>",
     );
     assert_eq!(
         font_size(&print_primeiro, "body"),
-        "16px",
-        "a segunda alternativa casava e foi ignorada"
+        "33px",
+        "a segunda alternativa casa — a lista é OR, não a primeira só"
     );
 
     let screen_primeiro = parse_html_to_dom(
@@ -139,7 +141,7 @@ fn media_lista_por_virgula_usa_so_a_primeira_query() {
     assert_eq!(
         font_size(&screen_primeiro, "body"),
         "44px",
-        "a MESMA lista, pela ordem inversa, aplica"
+        "a MESMA lista, pela ordem inversa, continua a casar"
     );
 }
 

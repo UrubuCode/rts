@@ -90,6 +90,11 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
     };
     let border_box = css.border_box.unwrap_or(false);
     let frame = css.padding.resolve_h(&resolve) + 2.0 * css.border_width.unwrap_or(0.0);
+    let mono = css
+        .font_family
+        .as_deref()
+        .map(crate::style::is_mono_family)
+        .unwrap_or(false);
 
     // A CLASSE, decidida antes das larguras porque não depende delas: uma célula
     // que declara `width` — em pixels ou em percentagem — restringe a coluna,
@@ -109,7 +114,7 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
         // Ainda assim não pode ficar ABAIXO do mínimo do conteúdo: uma largura
         // que não cabe é ignorada pelo browser, não respeitada com o texto a
         // transbordar.
-        let piso = min_content(dom, id, font, ctx, false);
+        let piso = min_content(dom, id, font, ctx, false, mono, true);
         return Coluna {
             min: w.max(piso),
             max: w.max(piso),
@@ -121,7 +126,7 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
     // e somá-la aqui contava o padding da célula duas vezes. Ficou invisível
     // enquanto uma célula com `width` declarado devolvia a largura e voltava
     // atrás — o caminho que somava duas vezes só era percorrido pelas outras.
-    let min = min_content(dom, id, font, ctx, false);
+    let min = min_content(dom, id, font, ctx, false, mono, true);
     Coluna {
         min,
         percentagem,
@@ -251,16 +256,41 @@ pub(crate) fn largura_declarada(
 /// é `nowrap`) declaravam uma folga que não existe, recebiam parte do espaço a
 /// repartir e ficavam com 231px onde o Chrome dá 123 — com a coluna do lado a
 /// pagar a diferença.
-fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: bool) -> f32 {
+pub(in crate::table) fn min_content(
+    dom: &Dom,
+    id: NodeIdx,
+    font: f32,
+    ctx: &LayoutCtx,
+    sem_quebra: bool,
+    // `true` quando a família herdada/declarada é MONOESPAÇADA — decide o
+    // avanço por carácter no `TextMeasurer` (`MONO_ADVANCE` vs `PROP_ADVANCE`,
+    // `style/text_metrics.rs`). Fixo em `false` era o bug que fazia o piso do
+    // `flex-shrink` divergir do `wrap_runs` real em toda fixture `monospace`
+    // — `claude-flex-shrink-min-content.html` mediu 294.4px onde o Chrome dá
+    // 351.88 (40 carateres × 16px × 0.5498). Recalculado a cada Elemento
+    // (abaixo) porque `font-family` é herdada e já vem resolvida no
+    // `ComputedStyle` — não precisa de olhar para o pai outra vez.
+    mono: bool,
+    // `true` (o comportamento de sempre, para a tabela): um `width` DECLARADO
+    // é um PISO — a célula nunca fica abaixo da largura que o autor pediu.
+    // `false` (para quem quer o min-content PURO, como o piso do
+    // `flex-shrink`, spec flexbox §9.7): a spec de flex NÃO trata `width`
+    // como mínimo — é só a `flex-basis` de fallback, e o item PODE encolher
+    // abaixo dela. Reusar esta função sem o parâmetro (a 1ª versão desta
+    // mudança) recusava encolher qualquer item com `width` declarado, que é
+    // quase todos — `o_shrink_e_ponderado_pela_base_e_nao_so_pelo_peso` e
+    // `flex_shrink_encolhe_em_overflow` apanharam-no.
+    floor_width: bool,
+) -> f32 {
     match &dom.node(id).kind {
         NodeKind::Text(t) => {
             if sem_quebra {
                 // Espaços colapsados mas nenhuma quebra: mede-se o texto todo.
                 let junto = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                return ctx.measurer.text_width(&junto, font, false, false, false);
+                return ctx.measurer.text_width(&junto, font, mono, false, false);
             }
             t.split_whitespace()
-                .map(|p| ctx.measurer.text_width(p, font, false, false, false))
+                .map(|p| ctx.measurer.text_width(p, font, mono, false, false))
                 .fold(0.0f32, f32::max)
         }
         NodeKind::Element { tag } => {
@@ -272,6 +302,11 @@ fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: b
                 return 0.0;
             }
             let f = crate::layout::font_px(&css, font);
+            let mono = css
+                .font_family
+                .as_deref()
+                .map(crate::style::is_mono_family)
+                .unwrap_or(mono);
             let resolve = ResolveCtx {
                 parent_content_w: ctx.viewport_w,
                 node_font_size: f,
@@ -345,14 +380,18 @@ fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx, sem_quebra: b
                 if crate::layout::is_out_of_flow(dom, c) {
                     continue;
                 }
-                let w = min_content(dom, c, f, ctx, sem_quebra);
+                let w = min_content(dom, c, f, ctx, sem_quebra, mono, floor_width);
                 if sem_quebra && em_linha(dom, c) {
                     linha += w;
                 } else {
                     m = m.max(w);
                 }
             }
-            (m.max(linha) + frame).max(declarada.unwrap_or(0.0))
+            if floor_width {
+                (m.max(linha) + frame).max(declarada.unwrap_or(0.0))
+            } else {
+                m.max(linha) + frame
+            }
         }
         _ => 0.0,
     }

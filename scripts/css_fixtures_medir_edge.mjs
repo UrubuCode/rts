@@ -72,12 +72,19 @@ const COLHEITA = `(async () => {
     if (nome.startsWith("__")) continue;
     await new Promise((ok, falha) => { palco.onload = ok; palco.onerror = () => falha(new Error("onerror " + nome)); palco.src = "/" + nome; });
     const d = palco.contentDocument;
+    // As propriedades que a fixture PEDE (meta fixar-estilo) entram sempre na
+    // colheita, alem das 23 canonicas: o corredor compara o que a fixture pede,
+    // e um esperado sem essas chaves da "ausente do .esperado.json" em vez de
+    // um numero. Foi o que aconteceu as cinco fixtures de texto do lote S.
+    const metaFixar = d.querySelector('meta[name="fixar-estilo"]');
+    const extras = metaFixar ? metaFixar.getAttribute("content").split(",").map(s => s.trim()).filter(Boolean) : [];
+    const props = PROPS.concat(extras.filter(p => !PROPS.includes(p)));
     if (d.defaultView.innerWidth !== 1280 || d.defaultView.innerHeight !== 800) problemas.push(nome + ": viewport " + d.defaultView.innerWidth + "x" + d.defaultView.innerHeight);
     if (d.documentElement.scrollHeight > 800) problemas.push(nome + ": transborda");
     const caixas = {};
     for (const el of d.querySelectorAll("[id]")) {
       const r = el.getBoundingClientRect(); const cs = d.defaultView.getComputedStyle(el); const estilo = {};
-      for (const p of PROPS) estilo[p] = cs.getPropertyValue(p);
+      for (const p of props) estilo[p] = cs.getPropertyValue(p);
       caixas[el.id] = { rect: [Math.round(r.x*100)/100, Math.round(r.y*100)/100, Math.round(r.width*100)/100, Math.round(r.height*100)/100], estilo };
     }
     saida[nome] = { elementos: caixas };

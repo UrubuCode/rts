@@ -191,11 +191,21 @@ pub(in crate::layout) fn intrinsic_content_width(
         // ao conteúdo ficava com a largura do texto SEM espaçamento e o texto
         // transbordava dela.
         let ls = css.as_ref().and_then(|c| c.letter_spacing).unwrap_or(0.0);
+        // `tab-size`/`word-spacing`: a MESMA largura extra que `wrap_runs` soma
+        // depois — ver `tabulacao::ajustar_texto_intrinsico` para porquê isto
+        // não pode viver só lá. Sem isto, a largura shrink-to-fit (a de um
+        // `inline-block`/item flex sem `width`) não respondia a nenhuma das
+        // duas: media sempre o texto cru, e é ESSA largura — não a do
+        // `wrap_runs`, que só corre depois de a caixa já estar decidida — que
+        // vira a caixa de um elemento sem `width`.
+        let (own_text, ws_extra) =
+            crate::layout::tabulacao::ajustar_texto_intrinsico(own_text, css.as_deref());
         // o mesmo raciocínio do peso vale para o estilo: medir com a família
         // errada muda a largura natural e com ela o sítio onde a linha quebra.
         let italic = italico(css.as_deref(), tag_de(dom, id), false);
         let width = ctx.measurer.text_width(&own_text, font, mono, bold, italic)
-            + crate::style::spacing_width(own_text.chars().count(), ls);
+            + crate::style::spacing_width(own_text.chars().count(), ls)
+            + ws_extra;
         dom.intrinsic_width_put(key, width);
         return width;
     }

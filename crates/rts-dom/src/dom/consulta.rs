@@ -48,6 +48,11 @@ impl Dom {
         if selectors.is_empty() {
             return None;
         }
+        // `:scope` (lote O): a raiz de um `document.querySelector` é o
+        // documento — ver `query_scoped`. Envolve as TRÊS respostas abaixo
+        // (índice de id, de classe, e o caso geral), que casam pelo mesmo
+        // `find_idx_pre_order_parsed`.
+        self.query_scoped(self.root, || {
         // Índices servem como filtro rápido, mas a resposta final sempre vem de uma
         // busca em pré-ordem. Isso é necessário porque IDs/classes duplicados e
         // reordenação por appendChild devem seguir a ordem documental do DOM, não a
@@ -89,6 +94,21 @@ impl Dom {
         }
         // Caso geral (composto/combinador/atributo/pseudo): pré-ordem + matches.
         self.find_idx_pre_order_parsed(self.root, &selectors)
+        })
+    }
+
+    /// Roda `f` com `:scope` (lote O) apontando para `root` durante a chamada,
+    /// restaurando o valor anterior depois — ver o comentário em
+    /// `query_all_within`. Partilhado pelas entradas de consulta que não
+    /// filtram por índice primeiro (essas ainda casam via `matches_complex`
+    /// dentro de `find_idx_pre_order_parsed`/`query_all_into`, que leem o
+    /// mesmo `scope_node`).
+    fn query_scoped<T>(&self, root: NodeIdx, f: impl FnOnce() -> T) -> T {
+        let previous = self.scope_node.get();
+        self.scope_node.set(Some(root));
+        let out = f();
+        self.scope_node.set(previous);
+        out
     }
 
     /// Pré-ordem buscando o 1º elemento que casa uma lista já parseada de seletores.
@@ -142,10 +162,20 @@ impl Dom {
         };
         let keys: Vec<TargetKey> = selectors.iter().map(TargetKey::of).collect();
         let mut out = Vec::new();
+        // `:scope` (lote O) = a raiz desta consulta — setado só durante o
+        // matching e restaurado depois, porque é estado de CONSULTA e não de
+        // documento (uma consulta aninhada dentro de um callback do meio de
+        // outra teria de ver a SUA raiz, não a de fora; o `Cell` não empilha,
+        // então isto é correto só enquanto consultas não se aninham de
+        // verdade dentro do matching — que hoje não acontece, o matcher não
+        // chama de volta para TS).
+        let previous_scope = self.scope_node.get();
+        self.scope_node.set(Some(root_idx));
         // só os DESCENDENTES (o próprio nó não casa a si mesmo no querySelector).
         for &child in &self.nodes[root_idx].children {
             self.query_all_into(child, &selectors, &keys, &mut out);
         }
+        self.scope_node.set(previous_scope);
         out
     }
 
