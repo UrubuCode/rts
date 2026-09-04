@@ -25,6 +25,7 @@ use crate::value::{handle, int, text};
 
 pub const MEMBERS: &[(&str, Provided)] = &[
     ("setImageDataUrl", set_image_data_url),
+    ("setImageFile", set_image_file),
     ("imageNaturalWidth", image_natural_width),
     ("imageNaturalHeight", image_natural_height),
 ];
@@ -35,6 +36,21 @@ extern "C" fn set_image_data_url(_e: u64, _t: u64, doc: u64, n: u64, url: u64, _
     let url = text(url);
     let Some(id) = node(n) else { return int(0) };
     let Some(bytes) = bytes_da_data_url(&url) else { return int(0) };
+    let Some((rgba, w, h)) = png::decodificar(&bytes) else { return int(0) };
+    rts_dom::store::with_dom_mut(handle(doc), |d| d.set_pixel_data(id, rgba, w, h));
+    int(1)
+}
+
+/// `setImageFile(doc, node, caminho)` → 1 se leu e descodificou um PNG do
+/// disco, 0 se não. Lido AQUI e não em TS: os bytes de um ficheiro não têm
+/// forma de atravessar a fronteira senão como string, e um PNG não é texto.
+/// O caminho já vem resolvido contra a base do documento (`dom.ts`).
+extern "C" fn set_image_file(_e: u64, _t: u64, doc: u64, n: u64, caminho: u64, _c: u64) -> u64 {
+    let caminho = text(caminho);
+    let Some(id) = node(n) else { return int(0) };
+    let Ok(bytes) = std::fs::read(caminho.strip_prefix("file://").unwrap_or(&caminho)) else {
+        return int(0);
+    };
     let Some((rgba, w, h)) = png::decodificar(&bytes) else { return int(0) };
     rts_dom::store::with_dom_mut(handle(doc), |d| d.set_pixel_data(id, rgba, w, h));
     int(1)
@@ -219,6 +235,16 @@ mod tests {
         assert_eq!(&rgba[0..4], &[200, 30, 30, 255], "primeiro pixel vermelho");
         assert_eq!(&rgba[16..20], &[30, 30, 200, 255], "primeiro pixel da segunda linha azul");
         assert_eq!(rgba.len(), 4 * 2 * 4);
+    }
+
+    /// O PNG de `tests/css/claude-img-ficheiro.html` (6×4), lido do disco.
+    #[test]
+    fn um_png_do_disco_descodifica() {
+        let p = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/css/claude-img-6x4.png");
+        let (rgba, w, h) = png::decodificar(&std::fs::read(p).expect("png no repo")).expect("png");
+        assert_eq!((w, h), (6, 4));
+        assert_eq!(&rgba[0..4], &[200, 30, 30, 255]);
+        assert_eq!(&rgba[6 * 4 * 3..6 * 4 * 3 + 4], &[30, 30, 200, 255]);
     }
 
     #[test]

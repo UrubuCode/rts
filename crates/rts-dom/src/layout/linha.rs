@@ -343,9 +343,12 @@ pub(in crate::layout) fn layout_inline_flow(
                         // tamanho já medido. Só se pinta quando há pixels — e aí é
                         // `layout_image` que o faz, o mesmo caminho do fluxo de bloco,
                         // em vez de um segundo emissor de imagem só para o inline.
+                        // Um replaced inline senta na BASELINE (CSS 2.1 §10.8): o fundo
+                        // da imagem na linha de base (`claude-img-ficheiro`: y=15, não 4).
+                        let topo = text_top + ctx.measurer.font_ascent(font_size) - seg.wh;
                         if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_image(dom, a_idx, &icss, seg_x, cy, seg.ww.max(1.0), ctx, list);
+                            layout_image(dom, a_idx, &icss, seg_x, topo, seg.ww.max(1.0), ctx, list);
                         }
                     }
                     AtomicKind::Block => {
@@ -408,6 +411,8 @@ pub(in crate::layout) fn layout_inline_flow(
                         // só emite `Marker` quando não gerou run nenhum.
                         AtomicKind::Marker => Rect::new(seg_x, text_top, 0.0, 0.0),
                         AtomicKind::Break => Rect::new(seg_x, text_top, 0.0, conteudo),
+                        AtomicKind::Replaced =>
+                            Rect::new(seg_x, text_top + ctx.measurer.font_ascent(font_size) - seg.wh, seg.ww, seg.wh),
                         _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
                     };
                     crate::inline_box::union_rect(list, a_idx, propria);
