@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: no shorthand `flex`, um 3º token NUMÉRICO SEM UNIDADE e diferente
+     de zero (`flex: 0 0 4`) não é um <length> válido (CSS Values §6.1: só o
+     zero literal dispensa unidade) — o shorthand inteiro fica inválido e
+     TODOS os longhands (grow/shrink/basis) ficam nos valores iniciais
+     (0/1/auto). Com basis:auto e `width:80px` próprio, o item usa 80px — não
+     os 4px que a leitura ingénua do "4" como px daria. #a é o caso; #b é o
+     controlo (sem flex nenhum, mesma largura). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="container,a,b">
+<meta name="fixar-estilo" content="width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #container { display: flex; width: 320px; height: 40px; background: #eee; }
+  #a { width: 80px; flex: 0 0 4; background: #fc0; }
+  #b { width: 80px; background: #0cf; }
+</style></head>
+<body>
+  <div id="container"><div id="a"></div><div id="b"></div></div>
+</body>
+</html>
