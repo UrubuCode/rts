@@ -42,22 +42,19 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-09-04 (vaga 2): 51 das 54 fixtures passam**, a 1px de tolerância —
-15 desvios em 3 ficheiros. Na mesma manhã eram 49 de 49; a vaga 2 do
-`crates/rts-dom/PLAN.md` acrescentou cinco fixtures: as duas de `revert`
-(lote J) passam à primeira, e as três da folha de UA (lote I) ficam a FALHAR
-de propósito — `claude-ua-form-disabled` (fonte e largura de texto dos
-controlos), `claude-ua-headings` (um desvio de 2px no `h6`), `claude-ua-th`
-(largura de texto a negrito, `tr` com `border-spacing`). São lacunas do motor
-que a fixture existe para nomear, e os esperados não se ajustam.
+**2026-09-04 (vaga 3): 72 das 86 fixtures passam**, a 1px de tolerância; as
+14 que falham estão TODAS em `esperado-a-falhar.txt`, cada uma com a razão:
+3 da folha de UA, `grid-auto-fill`, `sel-has` (o modelo de caixa inline por
+fragmentos, lote próprio) e as 9 réguas da vaga 4 — escritas, medidas e
+commitadas ANTES do código, pela regra nova do `crates/rts-dom/PLAN.md` §1.
+O job `dom-rulers` do CI fica vermelho se cair uma fixture fora dessa lista.
 
 **Contra que binário:** `target/release/rts.exe` construído sobre
-`feat/dom-vaga-2`, via `examples/claude-css-runner.ts`.
+`feat/dom-vaga-3`, via `examples/claude-css-runner.ts`.
 
-**A régua destas cinco é o Edge headless** (`scripts/css_fixtures_medir_edge.mjs`,
-Blink 152), porque esta máquina não tem o Chrome — e o instrumento foi
-validado antes de contar: as 49 fixtures com esperado medido no Chrome,
-re-medidas no Edge, deram 1 164 números com desvio 0.
+**A régua das 37 fixtures novas de hoje é o Edge headless**
+(`scripts/css_fixtures_medir_edge.mjs`, Blink 152), validado a cada medição
+contra os esperados do Chrome: 1 460 números, desvio 0 na última.
 
 ---
 
