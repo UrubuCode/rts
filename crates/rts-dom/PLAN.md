@@ -105,6 +105,17 @@ do lote existe; (3) a tabela diz se foi integrado. Um lote com branch e sem
   para um número subir; uma fixture que falha fica a falhar. Um lote de layout
   entra com um teste Rust que parseia o HTML EXACTO da fixture e afirma os
   rects do Chrome — assim a suite unitária pina o mesmo que o corpus.
+- **A régua ANTES do código** (2026-09-04, depois de a vaga 3 custar 14 rondas
+  de retrabalho, 10 delas por fixtures medidas depois de implementar): um lote
+  começa por um "lote de réguas" — as fixtures são escritas, revistas (sem
+  texto onde a pergunta é geometria; ids só no que se afirma; o selector ou a
+  propriedade como única coisa em jogo), MEDIDAS no Blink
+  (`scripts/css_fixtures_medir_edge.mjs`) e commitadas com `.esperado.json`
+  antes de qualquer agente implementar. O brief do agente traz os números; o
+  teste Rust em `layout/tests/*_corpus.rs` nasce com os rects do Blink e o
+  agente corre-o sozinho (`cargo test -p rts-dom --lib <nome>` é permitido: o
+  crate não tem dependências). O vermelho→verde acontece no worktree do
+  agente, não na ronda de build do orquestrador.
 - **Comparação por ficheiro.** Uma vaga só integra com a lista de PERDIDOS
   vazia nas três réguas (corpus, testes do crate, suite). Um número líquido
   não é um resultado.
