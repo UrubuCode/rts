@@ -63,6 +63,7 @@ mod relativo;
 mod replaced;
 mod bloco;
 mod fragmento;
+mod rtl_bloco;
 mod vertical;
 mod linha_ib;
 mod alinhamento_vertical;

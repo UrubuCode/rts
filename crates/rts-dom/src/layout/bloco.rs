@@ -532,7 +532,11 @@ pub(crate) fn layout_block(
     let has_width = css.width.is_some() || css.max_width.is_some();
     if has_width {
         let box_outer = content_w + padding_h + border_h; // sem a margin
-        let free = (avail_w - box_outer).max(0.0);
+        // COM SINAL (não `.max(0.0)`): o ramo `direction:rtl` de
+        // `rtl_bloco::margin_left_usado` precisa do valor negativo quando o
+        // filho é mais largo do que o disponível — ver o módulo.
+        let free_com_sinal = avail_w - box_outer;
+        let free = free_com_sinal.max(0.0);
         match (m.left.is_auto(), m.right.is_auto()) {
             (true, true) => {
                 margin_left = free / 2.0;
@@ -540,7 +544,10 @@ pub(crate) fn layout_block(
             }
             (true, false) => margin_left = (free - margin_right).max(0.0),
             (false, true) => margin_right = (free - margin_left).max(0.0),
-            (false, false) => {}
+            (false, false) => {
+                margin_left =
+                    super::rtl_bloco::margin_left_usado(dom, id, margin_left, margin_right, free_com_sinal);
+            }
         }
     }
 

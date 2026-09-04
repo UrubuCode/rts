@@ -1,7 +1,12 @@
-//! Os três fixtures do lote `flex-justify-logico` contra o Blink (Edge 152,
+//! Os fixtures do lote `flex-justify-logico` contra o Blink (Edge 152,
 //! 2026-09-04): `tests/css/claude-justify-start-end-row-reverse.html`,
-//! `tests/css/claude-justify-left-column-reverse.html` e
-//! `tests/css/claude-flex-column-rtl-cross-start.html`.
+//! `tests/css/claude-justify-left-column-reverse.html`,
+//! `tests/css/claude-flex-column-rtl-cross-start.html` e — do retrabalho —
+//! `tests/css/claude-rtl-filho-transborda.html`. O quarto teste
+//! (`writing-mode:vertical-rl` não é espelhado) não vem de fixture: é a
+//! régua do PRÓPRIO corte (o motor não faz layout vertical), pinada contra o
+//! comportamento ANTES do `direction:rtl` existir — não contra o Blink, que
+//! dispõe verticalmente algo que este motor nunca dispôs.
 
 use crate::table::tests::{geometria, rect};
 
@@ -78,4 +83,59 @@ fn direction_rtl_encosta_o_item_de_coluna_a_direita() {
         (200.0, 0.0, 120.0, 40.0),
         "cross-start em rtl = borda direita: x = 320-120 = 200"
     );
+}
+
+const HTML_RTL_VERTICAL: &str = r#"<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #c { display: flex; flex-direction: column; direction: rtl; writing-mode: vertical-rl; width: 320px; background: #eee; }
+  #item { width: 120px; height: 40px; background: #0c0; }
+</style>
+<div id="c"><div id="item"></div></div>"#;
+
+/// RETRABALHO (`overflow-top-left` do WPT): o espelho do `cross_x` só se
+/// aplica quando o `writing-mode` computado é HORIZONTAL — o motor não faz
+/// layout de `writing-mode` vertical (trata tudo como horizontal, corte
+/// dito em `WritingMode`), e espelhar um `direction:rtl` num contentor que
+/// já não é disposto corretamente só divergia MAIS da referência (que o
+/// Chrome também trata como bloco/horizontal para o resto do teste). Mesmo
+/// HTML/CSS de `direction_rtl_encosta_o_item_de_coluna_a_direita` +
+/// `writing-mode:vertical-rl`: o item fica onde ficaria SEM o `direction:rtl`
+/// (x=0) — não onde o retrabalho anterior o mandava (x=200).
+#[test]
+fn writing_mode_vertical_desliga_o_espelho_rtl_do_eixo_cruzado() {
+    let (dom, list) = geometria(HTML_RTL_VERTICAL, 1280.0);
+    let item = rect(&dom, &list, "#item", 0);
+    assert_eq!(
+        (item.x, item.y, item.w, item.h),
+        (0.0, 0.0, 120.0, 40.0),
+        "writing-mode vertical: sem espelho, comportamento de antes do rtl"
+    );
+}
+
+const HTML_RTL_TRANSBORDA: &str = r#"<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #b { direction: rtl; width: 300px; border: 2px solid #000; overflow: auto; margin-bottom: 10px; }
+  #bf { width: 500px; height: 30px; background: #ccc; }
+  #f { direction: rtl; width: 300px; border: 2px solid #000; overflow: auto; display: flex; flex-direction: column; }
+  #ff { width: 500px; height: 30px; background: #ccc; }
+</style>
+<div id="b"><div id="bf">bloco</div></div>
+<div id="f"><div id="ff">flex</div></div>"#;
+
+/// RETRABALHO (`claude-rtl-filho-transborda`, espelho do `overflow-top-left`
+/// do WPT): com `direction:rtl`, um filho MAIS LARGO do que o contentor
+/// transborda pela ESQUERDA (a margem direita encosta à direita do
+/// content-box) — tanto num bloco normal (`rtl_bloco::margin_left_usado`,
+/// CSS 2.1 §10.3.3) como num flex em coluna (`coluna_rtl::cross_x` com a
+/// largura VERDADEIRA do item, não grampeada ao `content_w`). Os dois têm de
+/// dar a MESMA caixa — é o mesmo `.column-wrapper`/`.row-wrapper` do WPT,
+/// um bloco e o outro flex.
+#[test]
+fn direction_rtl_transborda_pela_esquerda_no_bloco_e_na_coluna() {
+    let (dom, list) = geometria(HTML_RTL_TRANSBORDA, 1280.0);
+    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    assert_eq!(r("#b"), (0.0, 0.0, 304.0, 34.0));
+    assert_eq!(r("#bf"), (-198.0, 2.0, 500.0, 30.0), "bloco: margem direita encostada, transborda a esquerda");
+    assert_eq!(r("#f"), (0.0, 44.0, 304.0, 34.0));
+    assert_eq!(r("#ff"), (-198.0, 46.0, 500.0, 30.0), "flex coluna: MESMA caixa do bloco");
 }

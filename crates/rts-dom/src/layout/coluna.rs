@@ -271,7 +271,14 @@ pub(in crate::layout) fn layout_children_column(
             let stretch = align == crate::style::AlignItems::Stretch;
             let ccss = dom.computed_style_idx(it.node).unwrap_or_default();
             let child_x = if stretch && ccss.width.is_none() {
-                super::coluna_rtl::cross_x(css.direction, content_x, content_w, content_x, content_w)
+                super::coluna_rtl::cross_x(
+                    css.direction,
+                    css.writing_mode,
+                    content_x,
+                    content_w,
+                    content_x,
+                    content_w,
+                )
             } else {
                 let (w, _) = measure_block(
                     dom,
@@ -284,9 +291,14 @@ pub(in crate::layout) fn layout_children_column(
                     ctx,
                 );
                 let free_x = (content_w - w).max(0.0);
-                let iw = content_w - free_x; // = min(w, content_w), como sempre.
+                let iw = content_w - free_x; // = min(w, content_w) — só para o `align_offset` LTR.
                 let x_ltr = content_x + align_offset(align, content_w, iw);
-                super::coluna_rtl::cross_x(css.direction, content_x, content_w, x_ltr, iw)
+                // RETRABALHO: o espelho usa `w` (a largura VERDADEIRA, não
+                // grampeada) — um item mais largo do que `content_w` dava
+                // `iw == content_w` e o espelho devolvia `content_x` (sem
+                // transbordo nenhum) onde o Chrome transborda pela esquerda
+                // (`claude-rtl-filho-transborda`).
+                super::coluna_rtl::cross_x(css.direction, css.writing_mode, content_x, content_w, x_ltr, w)
             };
             // O `main` do PASSO 2 (grow, shrink, ou inalterado) é IMPOSTO ao
             // item como altura outer — DURA (`hard`): vence `height`/

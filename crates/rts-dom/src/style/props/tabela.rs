@@ -442,6 +442,13 @@ css_props! {
         /// Sem bidi de verdade: o fluxo de texto/inline e o resto do layout
         /// continuam LTR — só os dois pontos acima leem `direction`.
         [inh] direction: crate::style::Direction;
+        /// `writing-mode` — herdável. Aceite e serializado; o layout continua
+        /// horizontal para os quatro valores verticais (corte no tipo). Existe
+        /// para `coluna_rtl::cross_x` perguntar "é horizontal?" antes de
+        /// espelhar o `direction:rtl` — um `vertical-rl` que o motor não sabe
+        /// dispor não deve ganhar um espelho que só faz sentido em horizontal
+        /// (retrabalho do lote `flex-justify-logico`, WPT `overflow-top-left`).
+        [inh] writing_mode: crate::style::WritingMode;
         /// `text-indent` — recuo da PRIMEIRA linha do bloco. Herdável (spec).
         [inh] text_indent: Dimension;
         /// `list-style-type` — herdável.

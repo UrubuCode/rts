@@ -101,6 +101,10 @@ impl ComputedStyle {
                 .direction
                 .map(|d| d.css().to_string())
                 .unwrap_or_default(),
+            "writing-mode" => self
+                .writing_mode
+                .map(|w| w.css().to_string())
+                .unwrap_or_default(),
             "text-indent" => self.text_indent.map(fmt_dim).unwrap_or_default(),
             "list-style-type" => self
                 .list_style_type
