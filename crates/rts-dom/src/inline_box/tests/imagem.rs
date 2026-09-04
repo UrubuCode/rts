@@ -222,16 +222,33 @@
         );
     }
 
-    /// Um `media` que o avaliador NÃO SABE ler salta a `<source>` em vez de a
-    /// escolher por engano.
-    ///
-    /// É a honestidade que o `MediaQuery` já tem — uma feature desconhecida torna
-    /// a query sempre-falsa — e vale a pena fixá-la aqui: a alternativa (ignorar
-    /// o `media` que não se entende) escolhia uma caixa que o browser não teria
-    /// escolhido, e o erro ficava silencioso.
+    /// `orientation` deixou de ser uma feature desconhecida (lote P, §5.P
+    /// item 1, `style/stylesheet/media.rs`) — obsoleto por definição: pinava
+    /// que o avaliador antigo não sabia ler `orientation` e por isso saltava
+    /// a `<source>`, escolhendo o `<img>` de fallback. Agora a feature É
+    /// entendida, e ao viewport do corpus (1280×600 — largura vinda do
+    /// argumento, altura fixa em `table::tests::geometria`) `w >= h` é
+    /// landscape verdadeiro: a `<source>` TEM de ganhar, como um browser real
+    /// escolheria.
     #[test]
-    fn um_media_que_nao_sabemos_avaliar_salta_a_source() {
+    fn orientation_e_entendida_e_a_source_landscape_ganha() {
         let html = "<picture>            <source media='(orientation: landscape)' srcset='/b.svg' width='84' height='29'>            <img src='/a.svg' width='25' height='25'></picture>";
+        let (dom, list) = geometria(html, 1280.0);
+        let img = rect(&dom, &list, "img", 0);
+        assert!(
+            (img.w - 84.0).abs() < 0.5 && (img.h - 29.0).abs() < 0.5,
+            "orientation:landscape casa a 1280x600 — a source tem de ganhar: {img:?}"
+        );
+    }
+
+    /// O par: uma condição que o avaliador NÃO entende continua a saltar a
+    /// `<source>` em vez de a escolher por engano (a honestidade que o
+    /// `MediaQuery` sempre teve — uma feature desconhecida é `Unsupported`,
+    /// nunca `true`). `pointer-events` não é uma media feature — não existe
+    /// no vocabulário de `parse_condition`, então cai em `Unsupported`.
+    #[test]
+    fn uma_feature_desconhecida_continua_a_saltar_a_source() {
+        let html = "<picture>            <source media='(pointer-events: auto)' srcset='/b.svg' width='84' height='29'>            <img src='/a.svg' width='25' height='25'></picture>";
         let (dom, list) = geometria(html, 1280.0);
         let img = rect(&dom, &list, "img", 0);
         assert!(

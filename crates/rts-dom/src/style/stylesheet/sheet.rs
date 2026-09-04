@@ -332,11 +332,17 @@ impl Stylesheet {
                             super::parse_keyframe_ast(block),
                         );
                     }
-                    // `@property --nome { … }` — estrutural como `@keyframes`
-                    // acima (não vira `Rule`); ver `property.rs` para a razão
-                    // de o registo viver no `Stylesheet` e não numa `Rule`.
-                    super::property::maybe_register(&mut self.properties, &lower, prelude, block);
                 }
+                // `@property --nome { … }` — estrutural como `@keyframes`
+                // acima (não vira `Rule`); ver `property.rs` para a razão de
+                // o registo viver no `Stylesheet` e não numa `Rule`. FORA do
+                // `if` acima — estava dentro por engano (o bloco só corre
+                // quando `lower == "keyframes"`, então `@property` nunca
+                // chegava a `maybe_register`; `properties_registry()` ficava
+                // sempre vazio e os dois testes que o liam falhavam de forma
+                // que parecia "o registo não é lido", quando era "nunca foi
+                // escrito"). `maybe_register` já filtra por nome internamente.
+                super::property::maybe_register(&mut self.properties, &lower, prelude, block);
             }
         }
 
