@@ -1626,6 +1626,13 @@ function loadResources(doc: Document, baseUrl: string): number {
   const h: i64 = doc._dom;
   let loaded = 0;
 
+  // 0) <style>@import ...</style> inline — o MESMO `__inlineImports` do <link>
+  //    (lote P, §5.P item 3), numa função à parte (`window.ts`, este ficheiro
+  //    está no teto): "lógica nova = módulo novo pequeno; nos grandes entram
+  //    chamadas" (CLAUDE.md). Tem de correr ANTES do parse de CSS pelo Rust
+  //    (`collect_embedded_css` lê o texto do nó directo, sem ver `@import`).
+  __expandInlineStyleImports(h, baseUrl);
+
   // 1) <link rel="stylesheet" href> — usa getByTag (independe do parser de seletor).
   const linkCount = dom.getByTagCount(h, "link");
   let i = 0;

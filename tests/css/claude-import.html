@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: `@import` DENTRO de um `<style>` inline (lote P, §5.P item 3) — a
+     forma que `<link rel=stylesheet>` já resolvia (`__inlineImports`) e que
+     um `@import` escrito directo na página nunca alcançava, porque o Rust lê
+     o texto do `<style>` sem ver `@import` (`collect_embedded_css`). A
+     resolução acontece na FACHADA (`window.ts::__expandInlineStyleImports`),
+     ANTES da primeira cascade — decisão documentada no PLAN (§5.P item 3) e
+     no commit: este crate não tem I/O, e a mesma via do `<link>` já existe.
+     `#so-importado` só existe na folha importada — prova que ela entrou.
+     `#alvo` existe nas DUAS folhas; a regra da PÁGINA (declarada DEPOIS do
+     `@import` no texto) tem de vencer (ordem da cascade), então o resultado
+     é azul, não vermelho. SEM `.esperado.json` — medido pelo orquestrador. -->
+<html>
+<head>
+<meta name="fixar-estilo" content="background-color">
+<style>
+  @import "claude-import-parte.css";
+  body { margin: 0; }
+  div { width: 100px; height: 20px; }
+  #alvo { background-color: rgb(0, 0, 255); }
+</style>
+</head>
+<body>
+  <div id="alvo"></div>
+  <div id="so-importado"></div>
+</body>
+</html>

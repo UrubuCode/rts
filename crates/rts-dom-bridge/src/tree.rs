@@ -22,6 +22,9 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("rootId", root_id),
     ("documentElement", document_element),
     ("addStylesheet", add_stylesheet),
+    ("mediaMatches", media_matches),
+    ("setPrefersColorScheme", set_prefers_color_scheme),
+    ("setPrefersReducedMotion", set_prefers_reduced_motion),
     ("dump", dump),
     ("nodeCount", node_count),
     ("releaseSubtree", release_subtree),
@@ -70,6 +73,30 @@ extern "C" fn document_element(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c:
 extern "C" fn add_stylesheet(_e: u64, _t: u64, doc: u64, css: u64, _b: u64, _c: u64) -> u64 {
     let css = text(css);
     rts_dom::store::with_dom_mut(handle(doc), |d| d.add_stylesheet(&css));
+    nothing()
+}
+
+/// `mediaMatches(doc, query)` — `window.matchMedia(query).matches` (lote P,
+/// §5.P item 2). O MESMO avaliador que a cascade usa para `@media` — ver
+/// `Dom::media_matches`.
+extern "C" fn media_matches(_e: u64, _t: u64, doc: u64, query: u64, _b: u64, _c: u64) -> u64 {
+    let query = text(query);
+    let yes = rts_dom::store::with_dom(handle(doc), |d| d.media_matches(&query)).unwrap_or(false);
+    int(yes as i64)
+}
+
+/// `setPrefersColorScheme(doc, dark)` — o host declara a preferência do SO
+/// (lote P item 1). `dark` é 0/1 (a ABI não distingue bool de int).
+extern "C" fn set_prefers_color_scheme(_e: u64, _t: u64, doc: u64, dark: u64, _b: u64, _c: u64) -> u64 {
+    let dark = integer(dark, 0) != 0;
+    rts_dom::store::with_dom_mut(handle(doc), |d| d.set_prefers_color_scheme(dark));
+    nothing()
+}
+
+/// `setPrefersReducedMotion(doc, reduce)` — o host declara a preferência.
+extern "C" fn set_prefers_reduced_motion(_e: u64, _t: u64, doc: u64, reduce: u64, _b: u64, _c: u64) -> u64 {
+    let reduce = integer(reduce, 0) != 0;
+    rts_dom::store::with_dom_mut(handle(doc), |d| d.set_prefers_reduced_motion(reduce));
     nothing()
 }
 

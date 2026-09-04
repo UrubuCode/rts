@@ -192,7 +192,8 @@ fn at_rules_nao_corrompem_o_parse() {
         Some(Dimension::Px(40.0))
     );
     // …e NÃO aplicam quando não casa (viewport 800 < 1200).
-    let matched = sheet.matched_for_node(800.0, "h1", None, &[], |sel| {
+    let ctx = crate::style::MediaContext { width: 800.0, height: 600.0, ..Default::default() };
+    let matched = sheet.matched_for_node(&ctx, "h1", None, &[], |sel| {
         sel.compounds.len() == 1
             && compound_matches(&sel.compounds[0], "h1", None, &[], &|_| None, &|_| false)
     });

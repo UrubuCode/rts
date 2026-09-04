@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<!-- Fixa: a gramática completa de `@media` (lote P, §5.P item 1) — não é uma
+     lista de checagens em Rust, é HTML medido no Chrome a 1280x800 (headless,
+     `scripts/css_fixtures_medir_edge.mjs`). SEM `.esperado.json` de propósito
+     (o enunciado deste lote): quem mede é o orquestrador.
+     `#intervalo` casa `(400px <= width <= 2000px)`. `#orientation` casa
+     `orientation:landscape` (1280x800 É landscape). `#lista` é uma lista
+     `,`-separada (OR): a primeira metade é impossível (`min-width:9999px`),
+     a segunda casa. `#not-only` usa `not screen and (max-width:100px)` — o
+     `not` nega a query inteira, e como `max-width:100px` é falso a 1280,
+     `not` vira verdadeiro. `#prefers` casa `prefers-color-scheme:light` (o
+     default do host, sem override). `#nunca-casa` é o controlo: NENHUMA
+     destas casa a 1280x800, e a caixa deve ficar com o `display` inicial
+     (não `block`) — prova que a régua também vê um `@media` que devia
+     permanecer FORA da cascade. -->
+<html>
+<head>
+<meta name="fixar-estilo" content="display,background-color">
+<style>
+  body { margin: 0; }
+  div { width: 100px; height: 20px; background-color: white; }
+
+  @media (400px <= width <= 2000px) {
+    #intervalo { background-color: rgb(0,128,0); display: block; }
+  }
+  @media (orientation: landscape) {
+    #orientation { background-color: rgb(0,128,0); }
+  }
+  @media (min-width: 9999px), (max-width: 2000px) {
+    #lista { background-color: rgb(0,128,0); }
+  }
+  @media not screen and (max-width: 100px) {
+    #not-only { background-color: rgb(0,128,0); }
+  }
+  @media (prefers-color-scheme: light) {
+    #prefers { background-color: rgb(0,128,0); }
+  }
+  @media (min-width: 9999px) and (orientation: portrait) {
+    #nunca-casa { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div id="intervalo"></div>
+  <div id="orientation"></div>
+  <div id="lista"></div>
+  <div id="not-only"></div>
+  <div id="prefers"></div>
+  <div id="nunca-casa"></div>
+</body>
+</html>

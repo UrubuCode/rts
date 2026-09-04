@@ -64,7 +64,7 @@ pub(in crate::style::stylesheet) fn parse_rules_ast_with_layers(
 
 fn lower_items(
     items: &[crate::style::syntax::AstItem],
-    inherited_media: Option<MediaQuery>,
+    inherited_media: Option<&MediaQuery>,
     inherited_layer: Option<u32>,
     layers: &mut LayerState,
     output: &mut Vec<Rule>,
@@ -96,7 +96,7 @@ fn lower_items(
                             layer: inherited_layer,
                             decls: std::rc::Rc::clone(&decls),
                             order: 0,
-                            media: inherited_media,
+                            media: inherited_media.cloned(),
                             content,
                             counters: counters.clone(),
                             is_ua: false,
@@ -121,9 +121,9 @@ fn lower_items(
                 match name.to_ascii_lowercase().as_str() {
                     "media" => {
                         let media = MediaQuery::parse(cond.trim());
-                        let media = combine_media(inherited_media, media);
+                        let media = super::media::combine(inherited_media.cloned(), media);
                         with_nested_items(block, |items| {
-                            lower_items(items, media, inherited_layer, layers, output)
+                            lower_items(items, media.as_ref(), inherited_layer, layers, output)
                         });
                     }
                     "supports" => {
@@ -141,6 +141,41 @@ fn lower_items(
                             lower_items(items, inherited_media, Some(layer), layers, output)
                         });
                     }
+                    // Reconhecidas e IGNORADAS de propósito (lote P, §5.P item 5):
+                    // cada uma espera por um pré-requisito que este lote não tem.
+                    // Contadas em vez de descartadas em silêncio — antes deste
+                    // lote QUALQUER at-rule desconhecida caía no `_ => {}` sem
+                    // deixar rasto nenhum.
+                    "container" => {
+                        // espera uma SEGUNDA passada de estilo dependente de
+                        // layout (o tamanho usado do container, que só existe
+                        // depois do layout correr) — este pipeline resolve a
+                        // cascade ANTES do layout, de propósito (é o que torna
+                        // `computed_memo` barato); dar-lhe isso sem uma segunda
+                        // passada seria fingir.
+                        crate::bump!(css_at_rules_ignoradas);
+                    }
+                    "scope" => {
+                        // lote Y (`docs/ui/html-engine/analises/…`): scoping de
+                        // estilo por sub-árvore pede a mesma invalidação por
+                        // descendente que `:has()` (lote O) ainda não tem.
+                        crate::bump!(css_at_rules_ignoradas);
+                    }
+                    "font-face" => {
+                        // lote T: precisa de um `TextMeasurer` que carregue
+                        // fontes de verdade (ttf/otf/woff2) — sem isso registar
+                        // a regra só prometeria um fallback que não existe.
+                        crate::bump!(css_at_rules_ignoradas);
+                    }
+                    "page" | "counter-style" => {
+                        // baixa prioridade por desenho (§5.P): paginação e
+                        // contadores nomeados não têm consumidor de layout aqui.
+                        crate::bump!(css_at_rules_ignoradas);
+                    }
+                    // `@property` é registada por `Stylesheet::append_css`, ao
+                    // mesmo tempo que `@keyframes` — os dois são estruturais
+                    // (não viram `Rule`) e o registo vive no `Stylesheet`, não
+                    // num parâmetro extra desta função. Ver `property.rs`.
                     _ => {}
                 }
             }
@@ -191,13 +226,6 @@ fn with_nested_items(
         let nested = crate::style::syntax::StylesheetAst::parse(&block.to_css());
         f(&nested.items);
     }
-}
-
-fn combine_media(outer: Option<MediaQuery>, inner: MediaQuery) -> Option<MediaQuery> {
-    Some(match outer {
-        Some(outer) => inner.and(outer),
-        None => inner,
-    })
 }
 
 /// Converte os stops de um `@keyframes` AST para o tipo consumido pela animação.
