@@ -97,14 +97,13 @@ pub(in crate::layout) fn medida_do_input(
     // intrínseco, não um campo de texto. E não levam o padding/borda com que a
     // UA veste um campo — no browser são 13x13 e mais nada, por isso os defaults
     // do frame são ZERO para eles (o CSS do autor continua a mandar).
-    let quadrado = matches!(
-        dom.node(id)
-            .attr("type")
-            .map(|t| t.to_ascii_lowercase())
-            .as_deref(),
-        Some("checkbox") | Some("radio")
-    );
-    let (pad_ua_h, pad_ua_v, borda_ua) = if quadrado {
+    let tipo = dom.node(id).attr("type").map(|t| t.to_ascii_lowercase());
+    let quadrado = matches!(tipo.as_deref(), Some("checkbox") | Some("radio"));
+    // `type=range` também não leva a moldura do campo de texto: a folha da UA
+    // do Blink dá-lhe `padding: initial; border: initial` (0 e 0) — num flex de
+    // 80px o campo computa `height: 80px`, não 74 (`claude-flex-stretch-input-height`).
+    let sem_moldura = quadrado || matches!(tipo.as_deref(), Some("range"));
+    let (pad_ua_h, pad_ua_v, borda_ua) = if sem_moldura {
         (0.0, 0.0, 0.0)
     } else {
         (4.0, 3.0, 1.0)
