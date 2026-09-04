@@ -73,6 +73,26 @@ pub(in crate::layout) fn layout_inline_flow(
     for &id in group {
         runs.extend(collect_runs(dom, id, parent_css, content_w, ctx));
     }
+    // `tab-size` — só sob `white-space: pre`/`pre-wrap`, onde o `\t` sobrevive
+    // ao invés de colapsar como um espaço qualquer (`preserves_spaces`, hoje só
+    // lido aqui). A coluna encadeia ENTRE runs do mesmo fluxo — ver o corte
+    // declarado em `tabulacao::expandir_tabs`.
+    if parent_css
+        .white_space
+        .map(|w| w.preserves_spaces())
+        .unwrap_or(false)
+    {
+        let tab_size = parent_css.tab_size.unwrap_or(8.0).round().max(1.0) as usize;
+        let mut coluna = 0usize;
+        for run in runs.iter_mut() {
+            if run.atomic.is_none() && !run.text.is_empty() {
+                let (expandido, fim) =
+                    crate::layout::tabulacao::expandir_tabs(&run.text, tab_size, coluna);
+                run.text = expandido;
+                coluna = fim;
+            }
+        }
+    }
     if dono_inteiro {
         runs.extend(pseudo_run(
             dom,
@@ -112,10 +132,16 @@ pub(in crate::layout) fn layout_inline_flow(
     // elemento sem declaração e o que declara `normal` — a spec diz que são o
     // mesmo valor — davam alturas diferentes.
     let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
+    // `text-wrap: nowrap` é um ALIAS do que `white-space: nowrap` já decide —
+    // não uma segunda propriedade com regra própria (é o que o MDN documenta:
+    // `text-wrap` só acrescenta `balance`/`pretty`, que caem no `wrap` normal
+    // por não termos a segunda passada que pedem — ver `vocab::TextWrap`). Só
+    // `Nowrap` muda este booleano; `Wrap`/`Balance`/`Pretty` são o mesmo `false`
+    // que a ausência da propriedade já dava.
     let nowrap = matches!(
         parent_css.white_space,
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
-    );
+    ) || parent_css.text_wrap == Some(crate::style::vocab::TextWrap::Nowrap);
     // A LARGURA DE QUEBRA, linha a linha: onde um float estorva, a linha é
     // curta; onde ele acaba, volta a ser a do content.
     //
@@ -147,6 +173,7 @@ pub(in crate::layout) fn layout_inline_flow(
             .white_space
             .map(|w| w.preserves_newlines())
             .unwrap_or(false),
+        parent_css.word_spacing.unwrap_or(0.0),
         ctx.measurer,
     );
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque
@@ -154,6 +181,20 @@ pub(in crate::layout) fn layout_inline_flow(
     let lines = match elipse_pedida(parent_css, nowrap) {
         true => aplicar_elipse(lines, content_w, font_size, mono, ctx.measurer),
         false => lines,
+    };
+    // `-webkit-line-clamp`/`line-clamp` — limita a N linhas, com "…" na
+    // última. Ver `tabulacao::aplicar_line_clamp` para porque a altura da
+    // caixa não precisa de um segundo cálculo.
+    let lines = match parent_css.line_clamp {
+        Some(n) if n > 0 => crate::layout::tabulacao::aplicar_line_clamp(
+            lines,
+            n as usize,
+            content_w,
+            font_size,
+            mono,
+            ctx.measurer,
+        ),
+        _ => lines,
     };
     // `text-indent`: recuo da PRIMEIRA linha (MDN). ⚠️ CORTE: recua o início da
     // linha mas NÃO encurta a largura de quebra dela — a quebra já foi calculada
