@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- Fixa: `::after{content:"x";display:block;...}` gera uma caixa de BLOCO
+     própria, não só um átomo inline (já coberto) nem só o caso vazio do
+     clearfix (já coberto). #caixa é um <div> SEM filhos reais; a altura dela
+     tem de reflectir a caixa gerada (overflow:hidden cria um BFC novo para o
+     ::after não colapsar a margem com o body). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="caixa">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #caixa { background: #36c; overflow: hidden; width: 216px; }
+  #caixa::after { content: "x"; display: block; width: 200px; height: 40px; background: #fc0; margin: 8px; }
+</style></head>
+<body>
+<div id="caixa"></div>
+</body>
+</html>

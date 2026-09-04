@@ -35,7 +35,7 @@ use super::*;
 /// (+10, −5, +20) dá 20 par a par e **15** pelo conjunto, que é o que um Chrome
 /// real responde. Um par cabia num `f32`; um conjunto não, e era essa a falta —
 /// não a fórmula do par, que estava certa.
-type Strut = (f32, f32);
+pub(in crate::layout) type Strut = (f32, f32);
 
 /// Junta mais uma margem ao conjunto. Cada sinal vai para o seu lado: um
 /// positivo só compete com positivos, um negativo só com negativos.
@@ -46,7 +46,7 @@ type Strut = (f32, f32);
 /// `min`), e uma de cada sinal dá a SOMA — que é o `pos + neg` do outro. É por
 /// isso que uma margem negativa CANCELA uma positiva em vez de ser ignorada
 /// por ela.
-fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
+pub(in crate::layout) fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
     if m >= 0.0 {
         (pos.max(m), neg)
     } else {
@@ -56,7 +56,7 @@ fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
 
 /// O valor colapsado do conjunto — e é aqui que os dois sinais se encontram,
 /// UMA vez. Com (+10, −5, +20) dá 20 − 5 = 15.
-fn strut_colapsado((pos, neg): Strut) -> f32 {
+pub(in crate::layout) fn strut_colapsado((pos, neg): Strut) -> f32 {
     pos + neg
 }
 
@@ -75,7 +75,7 @@ fn strut_colapsado((pos, neg): Strut) -> f32 {
 /// formatação próprio (`overflow` ≠ visible, `flow-root`) NÃO se atravessa,
 /// mesmo vazia. Isso é o lote do BFC; enquanto não houver, um `<div
 /// style="overflow:hidden">` vazio e sem altura colapsa aqui e não devia.
-fn atravessa_se(altura: f32, topo: f32, baixo: f32) -> bool {
+pub(in crate::layout) fn atravessa_se(altura: f32, topo: f32, baixo: f32) -> bool {
     (altura - (topo + baixo)).abs() < 0.01
 }
 
@@ -167,6 +167,9 @@ pub(in crate::layout) fn layout_children_vertical(
             }
         };
     }
+    // `::before` de BLOCO com conteúdo — o primeiro do fluxo, antes de
+    // qualquer filho real. Ver `pseudo_bloco.rs`.
+    super::pseudo_bloco::aplicar(dom, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
     for &child in &dom.node(id).children {
         // CAMINHO RÁPIDO: se existe fragmento para este filho com estas
         // constraints, ele já foi classificado como BLOCO NORMAL quando foi
@@ -288,6 +291,8 @@ pub(in crate::layout) fn layout_children_vertical(
                     .map(|d| {
                         d != crate::style::DisplayKind::Inline
                             && d != crate::style::DisplayKind::InlineBlock
+                            && d != crate::style::DisplayKind::InlineFlex // inline-level por fora, idem
+                            && d != crate::style::DisplayKind::InlineFlexWrap
                     })
                     .unwrap_or(false);
                 // `display:inline` DECLARADO vence a tag e a UA-stylesheet: um
@@ -326,7 +331,16 @@ pub(in crate::layout) fn layout_children_vertical(
                     // no `block::lookup("li")` e voltava ao caminho de bloco, com
                     // os itens do menu empilhados e cada um com a largura do
                     // contentor. São 27 dos 55 inline-blocks desta página.
-                    if effective == Some(crate::style::DisplayKind::InlineBlock) {
+                    // `inline-flex` (com ou sem wrap) responde pela MESMA razão
+                    // (`claude-inline-flex-outer-display`, `claude-inline-flex-wrap`).
+                    if matches!(
+                        effective,
+                        Some(
+                            crate::style::DisplayKind::InlineBlock
+                                | crate::style::DisplayKind::InlineFlex
+                                | crate::style::DisplayKind::InlineFlexWrap
+                        )
+                    ) {
                         true
                     } else if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
                         !explicit_block
@@ -481,6 +495,16 @@ pub(in crate::layout) fn layout_children_vertical(
                 if let Some(fundo) = clearance {
                     aresta = aresta.max(fundo);
                 }
+                // Um filho que ESTABELECE BFC não pode sobrepor um float
+                // anterior (causa 9, `bfc_evita_float.rs`) — distinto do
+                // `clear`: aqui é a natureza do filho, não uma declaração dele.
+                if let Some(fundo) = child_css.as_deref().and_then(|cs| {
+                    super::bfc_evita_float::empurra_para_baixo(
+                        dom, child, cs, aresta, content_x, content_w, font_size, bfc, ctx,
+                    )
+                }) {
+                    aresta = aresta.max(fundo);
+                }
                 child_y = aresta - m;
                 let ((_, h), _) = layout_block_reusing(
                     dom,
@@ -570,6 +594,8 @@ pub(in crate::layout) fn layout_children_vertical(
     // DESTE container não vive mais aqui — ver o cabeçalho do módulo e
     // `layout_block`, que é quem sabe se `id` é o BFC responsável.
     flush_inline!(child_y);
+    // `::after` de BLOCO com conteúdo — o último do fluxo. Ver `pseudo_bloco.rs`.
+    super::pseudo_bloco::aplicar(dom, id, crate::style::PseudoElement::After, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
     // o clearfix (`::after{display:block;clear:both}`) desce o fim do fluxo
     // até ao fundo dos floats — ver `clearfix.rs`.
     if let Some(fundo) = super::clearfix::fundo_do_clearfix(dom, id, bfc) {

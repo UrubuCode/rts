@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: um elemento position:absolute com z-index negativo deve pintar
+     ATRÁS do conteúdo em fluxo normal (CSS 2.1 §E.2), não depois dele.
+     layout.rs:262-297 pinta TODO o out-of-flow numa passada à parte, sempre
+     depois do fluxo normal, ignorando z-index<0 — o comentário do próprio
+     ficheiro diz "sem z-index real". #atras (vermelho, z-index:-1) e
+     #fundo (verde, em fluxo) ocupam o MESMO retângulo 100×100: se #fundo
+     pinta por cima, não deve sobrar vermelho visível. Verificado contra o
+     binário atual (claude-paint-dump): a ordem de pintura hoje é
+     [verde, vermelho] — o vermelho fica por cima. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="fundo,atras">
+<meta name="fixar-estilo" content="z-index,position">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #fundo { width: 100px; height: 100px; background: green; }
+  #atras { position: absolute; top: 0; left: 0; width: 100px; height: 100px; background: red; z-index: -1; }
+</style></head>
+<body>
+<div id="atras"></div>
+<div id="fundo"></div>
+</body></html>

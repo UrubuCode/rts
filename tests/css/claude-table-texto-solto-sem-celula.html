@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: um `display:table` cujo filho é TEXTO SOLTO (sem elemento a
+     envolvê-lo) nunca gera a linha/célula anónima que a spec manda
+     (CSS2 §17.2.1, caso 2) — `table/grid.rs::collect` descarta o nó de
+     texto antes de decidir o papel do filho (só um filho ELEMENTO cai no
+     braço `_ => soltas.push`, que já embrulha em célula anónima). Por
+     isso #tbl (texto "abc" DIRETO dentro de display:table) mede 0 de
+     altura; #controlo é o MESMO texto em display:block, que mede a
+     altura real de uma linha. Os dois têm a mesma largura (120px) para
+     isolar a pergunta na altura. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="tbl,controlo">
+<meta name="fixar-estilo" content="height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div { width: 120px; background: #0c0; }
+  #tbl { display: table; }
+</style></head>
+<body>
+  <div id="tbl">abc</div>
+  <div id="controlo">abc</div>
+</body>
+</html>

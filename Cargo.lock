@@ -4868,8 +4868,10 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "rts-core",
+ "rts-dom-bridge",
  "rts-node",
  "rts-std",
+ "rts-ui",
 ]
 
 [[package]]
