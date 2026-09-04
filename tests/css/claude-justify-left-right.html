@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: `justify-content: left`/`right` são valores FÍSICOS (CSS Box
+     Alignment §5.1): `left` encosta os itens à esquerda do contentor mesmo em
+     `row-reverse` (a ordem visual continua invertida: 3, 2, 1), e `right` à
+     direita mesmo em `row`. É o reftest `flexbox_justifycontent-left-001` do
+     WPT: aqui `left` era lido como `flex-start` e em `row-reverse` os itens
+     iam para a direita. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="l1,l3,r1,r3">
+<meta name="fixar-estilo" content="justify-content">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; width: 400px; height: 30px; background: #eee; margin-bottom: 10px; }
+  .f span { width: 60px; height: 30px; background: #fc0; }
+  #esq { flex-direction: row-reverse; justify-content: left; }
+  #dir { justify-content: right; }
+</style></head>
+<body>
+  <div class="f" id="esq"><span id="l1">1</span><span>2</span><span id="l3">3</span></div>
+  <div class="f" id="dir"><span id="r1">1</span><span>2</span><span id="r3">3</span></div>
+</body>
+</html>

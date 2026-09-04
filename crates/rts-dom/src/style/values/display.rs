@@ -135,13 +135,21 @@ pub enum JustifyContent {
     SpaceBetween,
     SpaceAround,
     SpaceEvenly,
+    /// `left`/`right` — FÍSICOS (Box Alignment §5.1): encostam à esquerda/
+    /// direita do contentor mesmo em `row-reverse`; numa coluna valem `start`.
+    /// Lidos como `flex-start`/`flex-end`, em `row-reverse` iam para o lado
+    /// errado (`flexbox_justifycontent-left-001` do WPT).
+    Left,
+    Right,
 }
 
 impl JustifyContent {
     pub fn parse(v: &str) -> Option<JustifyContent> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
-            "flex-start" | "start" | "normal" | "left" => JustifyContent::FlexStart,
-            "flex-end" | "end" | "right" => JustifyContent::FlexEnd,
+            "flex-start" | "start" | "normal" => JustifyContent::FlexStart,
+            "flex-end" | "end" => JustifyContent::FlexEnd,
+            "left" => JustifyContent::Left,
+            "right" => JustifyContent::Right,
             "center" => JustifyContent::Center,
             "space-between" => JustifyContent::SpaceBetween,
             "space-around" => JustifyContent::SpaceAround,

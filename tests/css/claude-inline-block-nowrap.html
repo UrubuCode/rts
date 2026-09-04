@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: uma corrida de inline-blocks irmãos respeita o `white-space` do
+     contentor — com `nowrap` NÃO quebra linha quando não cabe, transborda
+     (é a referência de 27 reftests de flexbox do WPT: quatro inline-blocks
+     de 6em num contentor de 12em, lado a lado, a sair pela direita). `#quebra`
+     é o mesmo conteúdo com `white-space: normal`: quebra em duas linhas. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="nw1,nw4,q3">
+<meta name="fixar-estilo" content="white-space">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .c { width: 192px; height: 128px; background: #eee; margin-bottom: 10px; }
+  #nowrap { white-space: nowrap; }
+  .c span { display: inline-block; width: 96px; height: 40px; background: #fc0; }
+</style></head>
+<body>
+  <div class="c" id="nowrap"><span id="nw1">one</span><span>two</span><span>three</span><span id="nw4">four</span></div>
+  <div class="c" id="quebra"><span>one</span><span>two</span><span id="q3">three</span><span>four</span></div>
+</body>
+</html>

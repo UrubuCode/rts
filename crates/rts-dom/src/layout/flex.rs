@@ -105,6 +105,8 @@ pub(in crate::layout) fn layout_children_horizontal(
     let justify_declarado = css
         .justify
         .unwrap_or(crate::style::JustifyContent::FlexStart);
+    // `left`/`right` são físicos: resolvem-se ANTES do espelho de `row-reverse`.
+    let justify_declarado = crate::layout::coluna::fisico_para_eixo(justify_declarado, reverse);
     let justify = if reverse {
         crate::layout::coluna::mirror_justify(justify_declarado)
     } else {

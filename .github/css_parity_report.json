@@ -1,20 +1,20 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 93,
-    "total": 97,
-    "pct": 95.9
+    "passing": 96,
+    "total": 100,
+    "pct": 96
   },
   "measurements": {
-    "matching": 2278,
-    "total": 2294,
+    "matching": 2348,
+    "total": 2364,
     "pct": 99.3
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 186,
+    "passing": 193,
     "total": 489,
-    "pct": 38
+    "pct": 39.5
   },
   "expected_failures": [
     {
@@ -72,7 +72,10 @@
       "svg-atributo — `width`/`height` do `<svg>` como comprimentos CSS; margens no placeholder",
       "borda-por-lado-intrinseca — a borda por lado na largura intrínseca e na base flex",
       "inline-block-bfc — um inline-block flui os filhos como BLOCO; a corrida de inline-blocks alinha pela baseline própria",
-      "N-wpt — a régua dos REFTESTS do WPT"
+      "N-wpt — a régua dos REFTESTS do WPT",
+      "ib-nowrap — a corrida de inline-blocks respeita `white-space: nowrap`",
+      "justify-fisico — `justify-content: left`/`right` são físicos",
+      "clearfix — `::after{display:block;clear:both}` contém os floats"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha"

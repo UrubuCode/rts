@@ -70,9 +70,16 @@ pub(in crate::layout) fn layout_inline_block_line(
     let mut lines: Vec<(Vec<Item>, f32)> = Vec::new();
     let mut cur: Vec<Item> = Vec::new();
     let mut cur_w = 0.0f32;
+    // `white-space: nowrap`/`pre` no contentor: a corrida não quebra, transborda
+    // — a referência de 27 reftests de flexbox do WPT é exactamente isto
+    // (`claude-inline-block-nowrap`: quatro de 96px num contentor de 192).
+    let quebra = !matches!(
+        parent_css.white_space,
+        Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
+    );
     for item in sizes {
         let w = item.1;
-        if !cur.is_empty() && cur_w + w > content_w {
+        if quebra && !cur.is_empty() && cur_w + w > content_w {
             lines.push((std::mem::take(&mut cur), cur_w));
             cur_w = 0.0;
         }
