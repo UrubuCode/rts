@@ -138,10 +138,17 @@ input, button, select, textarea {
   display: inline-block;
   font-family: sans-serif;
   font-size: 13.3333px;
-  /* O Blink dá `box-sizing:border-box` a todo controlo — é o que faz
-   * `height:100%` de um `<input>` totalizar exactamente o pai (400px) em
-   * vez de 400 + padding + borda (406px, o content-box default). Sem isto
-   * `altura_percentual_de_input_mede_se_no_eixo_vertical` regredia. */
+}
+/* `box-sizing:border-box` NÃO é de todo controlo — medido no Chrome real
+ * (lote O, `claude-sel-default-placeholder`): um `input[type=text]` com
+ * `width:40px;height:20px` mede 48×26 (a largura DECLARADA é o content-box;
+ * padding+borda somam por cima). No html.css do Blink o `border-box` é só
+ * de `button`, `select`, e os `input` que são widget-nativo inteiro
+ * (`button|submit|reset|checkbox|radio`) — um `input` de texto e um
+ * `textarea` ficam no `content-box` default, como qualquer elemento. */
+button, select,
+input[type="button"], input[type="submit"], input[type="reset"],
+input[type="checkbox"], input[type="radio"] {
   box-sizing: border-box;
 }
 button, select {
