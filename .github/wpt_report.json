@@ -1,8 +1,8 @@
 {
   "pasta": "C:\\Users\\nexga\\AppData\\Local\\Temp/wpt/css/css-flexbox",
   "total": 489,
-  "passam": 257,
-  "falham": 232,
+  "passam": 271,
+  "falham": 218,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -38,12 +38,6 @@
       "script": false
     },
     {
-      "nome": "flex-direction-with-element-insert",
-      "pct": 24.491796875,
-      "n": 250796,
-      "script": true
-    },
-    {
       "nome": "flexbox-baseline-align-self-baseline-vert-001",
       "pct": 24.19091796875,
       "n": 247715,
@@ -62,28 +56,28 @@
       "script": false
     },
     {
-      "nome": "flex-direction",
-      "pct": 17.419531250000002,
-      "n": 178376,
-      "script": false
-    },
-    {
-      "nome": "flexbox-writing-mode-012",
-      "pct": 13.856347656250001,
-      "n": 141889,
-      "script": false
-    },
-    {
-      "nome": "flexbox-writing-mode-011",
-      "pct": 13.734863281250002,
-      "n": 140645,
-      "script": false
-    },
-    {
       "nome": "flexbox-baseline-align-self-baseline-horiz-001",
       "pct": 13.302734375,
       "n": 136220,
       "script": false
+    },
+    {
+      "nome": "flexbox-writing-mode-012",
+      "pct": 12.95234375,
+      "n": 132632,
+      "script": false
+    },
+    {
+      "nome": "flexbox-writing-mode-011",
+      "pct": 12.9265625,
+      "n": 132368,
+      "script": false
+    },
+    {
+      "nome": "flex-direction-with-element-insert",
+      "pct": 12.570703125,
+      "n": 128724,
+      "script": true
     },
     {
       "nome": "flex-container-line-if-empty-vertical-writing-mode",
@@ -207,8 +201,8 @@
     },
     {
       "nome": "flex-container-min-content-001",
-      "pct": 3.8240234375,
-      "n": 39158,
+      "pct": 3.8154296875,
+      "n": 39070,
       "script": false
     },
     {
@@ -218,33 +212,9 @@
       "script": false
     },
     {
-      "nome": "flexbox_flex-0-1-1-unitless-basis",
-      "pct": 2.990625,
-      "n": 30624,
-      "script": false
-    },
-    {
       "nome": "flexbox-single-line-clamp-1",
       "pct": 2.9734375,
       "n": 30448,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-0-1-unitless-basis",
-      "pct": 2.9625,
-      "n": 30336,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-0-N-unitless-basis",
-      "pct": 2.9625,
-      "n": 30336,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-1-N-unitless-basis",
-      "pct": 2.9625,
-      "n": 30336,
       "script": false
     },
     {
@@ -284,21 +254,21 @@
       "script": false
     },
     {
+      "nome": "flex-svg-no-intrinsic-column-001",
+      "pct": 2.197265625,
+      "n": 22500,
+      "script": false
+    },
+    {
       "nome": "flexbox-writing-mode-srl-row-mix",
-      "pct": 2.334375,
-      "n": 23904,
+      "pct": 2.14609375,
+      "n": 21976,
       "script": false
     },
     {
       "nome": "flexbox-writing-mode-slr-row-mix",
-      "pct": 2.2015625,
-      "n": 22544,
-      "script": false
-    },
-    {
-      "nome": "flex-svg-no-intrinsic-column-001",
-      "pct": 2.197265625,
-      "n": 22500,
+      "pct": 2.118359375,
+      "n": 21692,
       "script": false
     },
     {
@@ -482,60 +452,6 @@
       "script": false
     },
     {
-      "nome": "flexbox_flex-0-0-0-unitless",
-      "pct": 1.0406250000000001,
-      "n": 10656,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-0-0",
-      "pct": 1.0406250000000001,
-      "n": 10656,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-0",
-      "pct": 1.0406250000000001,
-      "n": 10656,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-1-0-unitless",
-      "pct": 1.0406250000000001,
-      "n": 10656,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-1-0",
-      "pct": 1.0406250000000001,
-      "n": 10656,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-1",
-      "pct": 1.0406250000000001,
-      "n": 10656,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-N-0-unitless",
-      "pct": 1.0406250000000001,
-      "n": 10656,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-N-0",
-      "pct": 1.0406250000000001,
-      "n": 10656,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-N",
-      "pct": 1.0406250000000001,
-      "n": 10656,
-      "script": false
-    },
-    {
       "nome": "flexbox-single-line-clamp-3",
       "pct": 1.025390625,
       "n": 10500,
@@ -644,6 +560,12 @@
       "script": false
     },
     {
+      "nome": "flex-container-max-content-001",
+      "pct": 0.8295898437499999,
+      "n": 8495,
+      "script": false
+    },
+    {
       "nome": "flexbox-writing-mode-005",
       "pct": 0.81640625,
       "n": 8360,
@@ -713,12 +635,6 @@
       "nome": "flexbox_align-items-baseline",
       "pct": 0.7970703125,
       "n": 8162,
-      "script": false
-    },
-    {
-      "nome": "flex-container-max-content-001",
-      "pct": 0.7905273437500001,
-      "n": 8095,
       "script": false
     },
     {
@@ -866,12 +782,6 @@
       "script": false
     },
     {
-      "nome": "flexitem-stretch-range",
-      "pct": 0.5695312499999999,
-      "n": 5832,
-      "script": false
-    },
-    {
       "nome": "flexbox-flex-basis-content-003a",
       "pct": 0.5677734375,
       "n": 5814,
@@ -881,6 +791,12 @@
       "nome": "flex-flow-010",
       "pct": 0.56640625,
       "n": 5800,
+      "script": false
+    },
+    {
+      "nome": "flexitem-stretch-range",
+      "pct": 0.5318359375,
+      "n": 5446,
       "script": false
     },
     {
