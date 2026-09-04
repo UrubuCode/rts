@@ -5,3 +5,4 @@
 claude-ua-form-disabled.html
 claude-ua-headings.html
 claude-ua-th.html
+claude-grid-auto-fill.html
