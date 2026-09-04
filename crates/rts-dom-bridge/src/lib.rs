@@ -51,13 +51,14 @@ mod value;
 #[cfg(test)]
 mod contrato_tests;
 
-/// Registra `rts:dom`.
-///
-/// Chamado pelo HOST e não por um construtor daqui, pela mesma razão que o
-/// `rts_std::install` e o `rts_ui::install`: quais módulos existem é uma
-/// decisão sobre o ambiente que o programa recebe.
-pub fn install(context: &mut Context) {
-    let members: Vec<(&str, Provided)> = tree::MEMBERS
+/// Tudo o que o namespace `dom` regista, numa lista só — a que `install`
+/// entrega ao motor E a que `contrato_tests` cruza com o que a fachada chama.
+/// Uma lista, dois consumidores: quando o lote do scroll acrescentou
+/// `scroll::MEMBERS` a `install` e não ao teste, o teste acusou treze nomes
+/// que estavam registados — a cópia do teste tinha ficado para trás. Com a
+/// lista aqui, uma tabela nova entra nos dois sítios ou em nenhum.
+pub(crate) fn dom_members() -> Vec<(&'static str, Provided)> {
+    tree::MEMBERS
         .iter()
         .chain(nodes::MEMBERS)
         // A travessia e a mutação da árvore, que a fachada já chamava e a ponte
@@ -66,7 +67,16 @@ pub fn install(context: &mut Context) {
         .chain(events::MEMBERS)
         .chain(scroll::MEMBERS)
         .copied()
-        .collect();
+        .collect()
+}
+
+/// Registra `rts:dom`.
+///
+/// Chamado pelo HOST e não por um construtor daqui, pela mesma razão que o
+/// `rts_std::install` e o `rts_ui::install`: quais módulos existem é uma
+/// decisão sobre o ambiente que o programa recebe.
+pub fn install(context: &mut Context) {
+    let members = dom_members();
     let surface = entry::make_namespace(context, &members);
     entry::declare_module(context, "rts:dom", surface);
     // A fachada `DOM_TS` é um prelude de script e chama os primitivos como

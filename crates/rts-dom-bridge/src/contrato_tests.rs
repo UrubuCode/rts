@@ -30,7 +30,7 @@ use std::collections::HashSet;
 
 use rts_core::entry::Provided;
 
-use crate::{engine, events, nodes, scope, timers, travessia, tree};
+use crate::{engine, scope, timers};
 
 /// Apaga comentários (`//…` até ao fim da linha; `/* … */`, mesmo multi-linha),
 /// preservando literais `'…'`/`"…"`/`` `…` `` tal como estão — para um `://` de
@@ -140,14 +140,9 @@ fn assert_all_resolve(prefix: &str, members: &[(&str, Provided)]) {
 
 #[test]
 fn todo_dom_chamado_pela_fachada_resolve() {
-    // a mesma composição que `install()` regista sob o namespace `dom` (lib.rs).
-    let members: Vec<(&str, Provided)> = tree::MEMBERS
-        .iter()
-        .chain(nodes::MEMBERS)
-        .chain(travessia::MEMBERS)
-        .chain(events::MEMBERS)
-        .copied()
-        .collect();
+    // A MESMA lista que `install()` regista (lib.rs::dom_members) — não uma
+    // cópia: a cópia foi o que deixou treze membros do scroll de fora.
+    let members = crate::dom_members();
     assert_all_resolve("dom", &members);
 }
 
