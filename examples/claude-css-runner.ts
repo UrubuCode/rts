@@ -12,7 +12,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import {
   parseHtml, free, querySelectorAllCount, querySelectorAllAt,
-  getAttribute, boundingRect, computedProperty,
+  getAttribute, boundingRect, computedProperty, setLocationHash,
 } from "rts:dom";
 
 const PASTA = "tests/css";
@@ -89,6 +89,13 @@ for (const nome of fixtures) {
 
   const fonte = readFileSync(PASTA + "/" + nome, "utf8") as string;
   const doc = parseHtml(fonte);
+  // `<meta name="fixar-hash" content="x">` (lote O): o corredor não executa
+  // `<script>` (não há `onload` aqui), então uma fixture sobre `:target`
+  // precisa de um jeito honesto de dizer qual fragmento estava na URL — o
+  // Chrome lê o `onload` da própria fixture, isto lê o `meta` e chama o
+  // mesmo `Dom::set_location_hash` que `window.location.hash =` chamaria.
+  const hashFixado = lista(fonte, "fixar-hash");
+  if (hashFixado.length > 0) { setLocationHash(doc, hashFixado[0]); }
 
   // Os ids que o nosso motor encontrou, para o esperado poder acusar um que
   // não exista de todo — um seletor que não casa e uma caixa errada são coisas

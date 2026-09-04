@@ -1,28 +1,28 @@
 <!DOCTYPE html>
 <!-- Fixa `:target` sozinho. O Chrome só marca `:target` depois de a URL da
-     ABA ter um fragmento (#x) — não basta a página existir, é preciso
-     NAVEGAR para lá. O `<script>` abaixo simula essa navegação no `onload`
-     via `location.hash = "#x"`, para o orquestrador medir a mesma coisa que
-     mediria clicando no link `#x` — sem o script, o esperado seria sempre
-     "nenhum :target", que não é o que se quer pinar.
-     MEDIÇÃO: se o orquestrador correr o `run_fixture` sem executar `onload`
-     (headless sem eventos de carga), esta fixture precisa de medição MANUAL
-     no Chrome (abrir com `#x` já na URL) em vez do fluxo automático — dito
-     aqui por não ter forma de confirmar qual dos dois o instrumento faz. -->
+     aba ter um fragmento (#alvo) — não basta a página existir, é preciso
+     NAVEGAR para lá. Dois mecanismos, um para cada instrumento, que medem o
+     MESMO estado: o `<script onload>` é o que o Blink executa de verdade; o
+     `<meta name="fixar-hash">` é o que `examples/claude-css-runner.ts` lê
+     (o nosso corredor não executa `<script>`) e passa a `setLocationHash`,
+     que é o mesmo `Dom::set_location_hash` que `window.location.hash =`
+     chamaria. Só `fixar-estilo` — sem texto, sem geometria em jogo (`a`
+     sem `id`: a largura do link é texto, não é o que este ficheiro fixa). -->
 <html>
 <head>
+<meta name="fixar-hash" content="alvo">
 <meta name="fixar-estilo-em" content="alvo,nao-alvo">
 <meta name="fixar-estilo" content="color,background-color">
 <style>
   body { margin: 0; }
-  div { height: 30px; color: #000; background-color: #fff; }
+  div { height: 20px; color: #000000; background-color: #ffffff; }
   :target { color: #ff0000; background-color: #ffff00; }
 </style>
 </head>
 <body>
-  <a href="#alvo" id="link">ir para o alvo</a>
-  <div id="alvo">alvo</div>
-  <div id="nao-alvo">não-alvo</div>
+  <a href="#alvo">ir para o alvo</a>
+  <div id="alvo"></div>
+  <div id="nao-alvo"></div>
   <script>
     window.onload = function () { location.hash = "#alvo"; };
   </script>
