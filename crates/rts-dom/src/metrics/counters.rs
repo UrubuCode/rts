@@ -147,6 +147,8 @@ dom_metrics! {
         nodes_detached: "nós desligados da árvore";
         inner_html_sets: "innerHTML= (re-parse de subárvore)";
         clones: "cloneNode";
+        nodes_recycled: "nós reciclados (release_subtree, lote M)";
+        nodes_recycled_reused: "alocações servidas por um slot reciclado";
     }
     "mutação" {
         set_attr: "setAttribute";
