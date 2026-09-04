@@ -103,3 +103,75 @@ fn line_clamp_limita_a_altura_a_n_linhas() {
     assert_eq!(h_com, 40.0, "line-clamp:2 a 20px/linha devia dar 40px, deu {h_com}");
     assert!(h_sem > h_com, "sem clamp devia ser mais alto ({h_sem} <= {h_com})");
 }
+
+/// A caixa de um `inline-block` na linha é a BORDER box (o que
+/// `getBoundingClientRect` devolve no Chrome), e o PITCH até à linha
+/// seguinte é a MARGIN box — as duas medidas coexistem sem se misturar.
+/// Fixa o desvio medido no Blink em `claude-word-spacing.html`: três divs
+/// `inline-block` com `margin-bottom:5px`, cada um numa linha própria
+/// (separados por `<br>`) — o rect do elemento não inclui a margem, mas a
+/// linha seguinte começa depois dela.
+#[test]
+fn inline_block_com_margem_rect_e_border_box_pitch_e_margin_box() {
+    let html = r#"<style>body{margin:0;font:16px/20px monospace}
+    div{background:#eee;margin-bottom:5px;display:inline-block}</style>
+    <div id="a">um dois tres</div><br><div id="b">um dois tres</div>"#;
+    let (dom, list) = geometria(html, 2000.0);
+    let a = rect(&dom, &list, "#a", 0);
+    let b = rect(&dom, &list, "#b", 0);
+    assert_eq!(a.y, 0.0);
+    assert_eq!(a.h, 20.0, "o rect do elemento não inclui a margin-bottom");
+    assert_eq!(b.y, 25.0, "o pitch (20 conteúdo + 5 margem) inclui a margem UMA vez");
+    assert_eq!(b.h, 20.0, "o segundo elemento não herda a margem do primeiro");
+}
+
+/// Um rect SEM ÁREA — `w=0` ou `h=0` — que é o que o motor devolve para um
+/// inline sem fragmento nenhum (às vezes uma geometria explícita 0×0, às
+/// vezes nenhuma, conforme o caminho de emissão; o mesmo idioma que
+/// `uniontests.rs` já usa para "não gera caixa").
+fn sem_area(r: Option<crate::layout::Rect>) -> bool {
+    r.is_none_or(|r| r.w <= 0.0 || r.h <= 0.0)
+}
+
+fn rect_opt(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str) -> Option<crate::layout::Rect> {
+    let id = *dom.query_all(sel).first()?;
+    let idx = dom.resolve(id)?;
+    list.geometry_now().rects.get(&idx).copied()
+}
+
+/// Um `<span></span>` inline VAZIO — sem texto, sem filhos, sem `content`
+/// gerado — não produz fragmento de linha: no Blink `getBoundingClientRect`
+/// dá 0×0, não a altura do strut que a linha usa para as OUTRAS caixas.
+#[test]
+fn span_inline_vazio_nao_tem_area() {
+    let html = r#"<style>body{margin:0;font:16px/20px monospace}</style>
+    <p>a<span id="vazio"></span>b</p>"#;
+    let (dom, list) = geometria(html, 600.0);
+    let r = rect_opt(&dom, &list, "#vazio");
+    assert!(sem_area(r), "#vazio mediu {r:?}, esperava 0×0 (sem fragmento)");
+}
+
+/// A mesma regra quando o único conteúdo é um espaço COLAPSÁVEL — ele vira
+/// separador entre "c" e "d" e não sobra texto nenhum para o `<span>` pintar.
+#[test]
+fn span_so_com_espaco_colapsavel_nao_tem_area() {
+    let html = r#"<style>body{margin:0;font:16px/20px monospace}</style>
+    <p>c<span id="espaco"> </span>d</p>"#;
+    let (dom, list) = geometria(html, 600.0);
+    let r = rect_opt(&dom, &list, "#espaco");
+    assert!(sem_area(r), "#espaco mediu {r:?}, esperava 0×0 (sem fragmento)");
+}
+
+/// O CORTE ao lado da regra acima: um `inline-block` VAZIO continua a ter
+/// caixa (é a mesma família de átomo do `claude-vertical-align.html`, que
+/// não pode regredir) — a diferença entre os dois é `display`, não
+/// "vazio"/"não vazio".
+#[test]
+fn inline_block_vazio_continua_com_caixa() {
+    let html = r#"<style>body{margin:0;font:16px/20px monospace}
+    span{display:inline-block;width:10px;height:10px}</style>
+    <p>a<span id="bloco"></span>b</p>"#;
+    let (dom, list) = geometria(html, 600.0);
+    let r = rect_opt(&dom, &list, "#bloco").expect("inline-block vazio continua a ter geometria");
+    assert_eq!((r.w, r.h), (10.0, 10.0));
+}
