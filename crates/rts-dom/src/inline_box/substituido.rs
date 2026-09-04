@@ -129,9 +129,8 @@ pub(crate) fn replaced_inline_size(
     // browser faz com uma imagem que FALHOU a carregar, e copiá-lo seria acertar
     // a régua contra o defeito de rede em vez de contra a página.
     let ratio = dom
-        .image_of(id)
-        .filter(|(_, _, iw, ih)| *iw > 0 && *ih > 0)
-        .map(|(_, _, iw, ih)| (iw as f32, ih as f32))
+        .image_dims(id)
+        .map(|(iw, ih)| (iw as f32, ih as f32))
         .or_else(|| match (attr_px("width"), attr_px("height")) {
             (Some(aw), Some(ah)) if aw > 0.0 && ah > 0.0 => Some((aw, ah)),
             _ => None,

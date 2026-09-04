@@ -1650,7 +1650,26 @@ function loadResources(doc: Document, baseUrl: string): number {
     j = j + 1;
   }
 
+  // 3) <img src="data:image/png;base64,…"> — descodificado pela ponte e guardado
+  //    no documento (lote V-img). `http(s)` e ficheiros locais ficam para a fase
+  //    seguinte deste loader; sem pixels a caixa vem dos atributos/CSS como antes.
+  const imgCount = dom.getByTagCount(h, "img");
+  let k = 0;
+  while (k < imgCount) {
+    loaded = loaded + __loadImageAt(h, k);
+    k = k + 1;
+  }
+
   return loaded;
+}
+
+// Entrega à ponte o k-ésimo `<img>` cujo `src` é uma `data:` URL. Devolve 1/0.
+function __loadImageAt(h: i64, k: number): number {
+  const node = dom.getByTagAt(h, "img", k);
+  if (node === __DOM_NONE) return 0;
+  const src = dom.getAttribute(h, node, "src");
+  if (src.length < 11 || src.substring(0, 11) !== "data:image/") return 0;
+  return dom.setImageDataUrl(h, node, src) as number;
 }
 
 // Carrega o i-ésimo `<link>` se for uma folha de estilo com `href`. Devolve 1/0.

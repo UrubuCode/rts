@@ -11,7 +11,7 @@
 // mão — o valor deste corpus está exatamente aí. Ver `tests/css/README.md`.
 import { readFileSync, readdirSync } from "node:fs";
 import {
-  parseHtml, free, querySelectorAllCount, querySelectorAllAt,
+  parseHtml, free, querySelectorAllCount, querySelectorAllAt, getByTagCount, getByTagAt, setImageDataUrl,
   getAttribute, boundingRect, computedProperty, setLocationHash,
 } from "rts:dom";
 
@@ -96,6 +96,14 @@ for (const nome of fixtures) {
 
   const fonte = readFileSync(PASTA + "/" + nome, "utf8") as string;
   const doc = parseHtml(fonte);
+  // As imagens `data:` da fixture — o mesmo passo 3 do `loadResources` da
+  // fachada, que este corredor não usa (lê o HTML cru pelo namespace).
+  const nImgs = getByTagCount(doc, "img");
+  for (let ii = 0; ii < nImgs; ii = ii + 1) {
+    const im = getByTagAt(doc, "img", ii);
+    const src = getAttribute(doc, im, "src") as string;
+    if (src.length > 11 && src.substring(0, 11) === "data:image/") { setImageDataUrl(doc, im, src); }
+  }
   // `<meta name="fixar-hash" content="x">` (lote O): o corredor não executa
   // `<script>` (não há `onload` aqui), então uma fixture sobre `:target`
   // precisa de um jeito honesto de dizer qual fragmento estava na URL — o

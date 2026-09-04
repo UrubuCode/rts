@@ -75,7 +75,11 @@ fn os_atributos_de_apresentacao_nao_entram() {
         "<html><body><table bgcolor=\"red\"><tr><td width=\"100\">x</td></tr></table></body></html>",
     );
     assert_eq!(prop(&d, "table", "background-color"), "rgba(0, 0, 0, 0)");
-    assert_eq!(prop(&d, "td", "width"), "auto");
+    // O `width="100"` não chega à cascade: a propriedade fica por declarar. (O
+    // `getComputedStyle().width` responde o valor USADO em px desde o lote
+    // V-img, como o Blink — por isso a pergunta é ao estilo, não à string.)
+    let td = d.query("td").expect("td");
+    assert_eq!(d.computed_style(td).expect("css").width, None);
 }
 
 /// `estilo.seletor.has` — **obsoleto**: o registo dizia que `:has()` não era

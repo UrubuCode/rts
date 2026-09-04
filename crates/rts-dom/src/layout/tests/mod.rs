@@ -25,6 +25,7 @@ mod pintura;
 mod pintura_transform_clip;
 mod pintura_juncao;
 mod replaced_fundo;
+mod replaced_pixels;
 mod posicionado;
 mod position_corpus;
 mod texto_lote_s;

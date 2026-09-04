@@ -150,8 +150,14 @@ pub(in crate::layout) fn layout_image(
     }
     // O item de pintura, esse, PRECISA de pixels: uma caixa reservada com nada
     // dentro é o que o browser mostra enquanto a imagem não chega, e é a mesma
-    // doutrina do `<canvas>` logo abaixo.
-    if let Some((handle, off, iw, ih)) = dom
+    // doutrina do `<canvas>` logo abaixo. Pixels guardados NO documento (uma
+    // `data:` URL descodificada pela ponte) saem como `Pixels`, o item do
+    // canvas — o rasterizador da régua pinta-o sem handle table. CORTE dito:
+    // a imagem estica à caixa (`object-fit: fill`); `contain`/`cover`/`none`
+    // ainda não recortam nem centram.
+    if let Some((data, pw, ph)) = dom.pixel_data_of(id).filter(|(_, pw, ph)| *pw > 0 && *ph > 0) {
+        list.items.push(DisplayItem::Pixels { rect, data, w: pw, h: ph });
+    } else if let Some((handle, off, iw, ih)) = dom
         .image_of(id)
         .filter(|(h, _, iw, ih)| *h != 0 && *iw != 0 && *ih != 0)
     {

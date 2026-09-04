@@ -108,6 +108,28 @@ impl Canvas {
         }
     }
 
+    /// Um bitmap RGBA8 esticado a `r` por vizinho mais próximo — o suficiente
+    /// para uma régua de 1280×800 sobre ícones e fixtures; um filtro bilinear
+    /// mudaria pixels de borda que a tolerância por canal já absorve.
+    fn fill_pixels(&mut self, r: Rect, data: &[u8], w: u32, h: u32, clip: Option<Rect>) {
+        let x0 = r.x.floor() as i32;
+        let y0 = r.y.floor() as i32;
+        let x1 = (r.x + r.w).ceil() as i32;
+        let y1 = (r.y + r.h).ceil() as i32;
+        for y in y0..y1 {
+            let sy = (((y as f32 + 0.5 - r.y) / r.h) * h as f32).floor().clamp(0.0, (h - 1) as f32) as usize;
+            for x in x0..x1 {
+                let sx = (((x as f32 + 0.5 - r.x) / r.w) * w as f32).floor().clamp(0.0, (w - 1) as f32) as usize;
+                let i = (sy * w as usize + sx) * 4;
+                if i + 3 >= data.len() {
+                    continue;
+                }
+                let c = (u32::from(data[i]) << 24) | (u32::from(data[i + 1]) << 16) | (u32::from(data[i + 2]) << 8) | u32::from(data[i + 3]);
+                self.blend(x, y, c, clip);
+            }
+        }
+    }
+
     /// Um quadrilátero CONVEXO já em coordenadas de tela, por varrimento: em
     /// cada linha de pixels, o vão entre a menor e a maior intersecção das
     /// quatro arestas com o centro da linha. É o que pinta um lado de borda
@@ -438,6 +460,22 @@ fn main() {
         measurer: &layout::ApproxMeasurer,
     };
     let list: DisplayList = layout::layout_document(&dom, &ctx);
+    // Um `<img>` com `src` e SEM pixels: o Blink pinta a imagem, este exemplo
+    // não tem quem a descodifique (o PNG de `data:` vive na ponte, e a ponte
+    // traz o motor). A área vai para a máscara como o texto — o instrumento
+    // diz o que não vê em vez de o contar como diferença.
+    let mut mascara_de_imagens: Vec<[f32; 4]> = Vec::new();
+    for id in dom.query_all("img") {
+        let Some(idx) = dom.resolve(id) else { continue };
+        if dom.pixel_data_of(idx).is_some() || dom.node(idx).attr("src").is_none() {
+            continue;
+        }
+        // `bounding_rect` e não `node_rects`: as caixas vivem nas subárvores
+        // reusadas da lista, e é ele que as resolve.
+        if let Some(r) = layout::bounding_rect(&dom, idx, &ctx) {
+            mascara_de_imagens.push([r.x, r.y, r.w, r.h]);
+        }
+    }
 
     let mut canvas = Canvas::new(list.canvas_background);
     let mut clip_stack: Vec<Rect> = Vec::new();
@@ -447,7 +485,7 @@ fn main() {
     // transformado dentro doutro) compõem assim (ver a doc de
     // `DisplayItem::PushTransform`).
     let mut xform_stack: Vec<Mat2d> = Vec::new();
-    let mut mask: Vec<[f32; 4]> = Vec::new(); // [x,y,w,h] dos rects ignorados (texto, imagens)
+    let mut mask: Vec<[f32; 4]> = mascara_de_imagens; // [x,y,w,h] dos rects ignorados (texto, imagens)
     let mut pintados = 0usize;
     let mut saltados_texto = 0usize;
     let mut saltados_imagem = 0usize;
@@ -509,6 +547,13 @@ fn main() {
             // também não se COMPARA: a área vai para a máscara como o texto,
             // senão a régua mede o que o exemplo não tem em vez do que o motor
             // faz (`claude-object-fit` dava 1,95 % só disto).
+            // `Pixels` viajam DENTRO da lista: pintam-se, escalados à caixa por
+            // vizinho mais próximo (o `object-fit: fill` que o layout emite).
+            DisplayItem::Pixels { rect, data, w, h } if mat.is_none() && *w > 0 && *h > 0 => {
+                let r = shift(*rect, dx, dy);
+                canvas.fill_pixels(r, data, *w, *h, clip);
+                pintados += 1;
+            }
             DisplayItem::Image { rect, .. } | DisplayItem::Pixels { rect, .. } => {
                 let r = match mat {
                     Some(m) => {

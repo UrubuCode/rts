@@ -22,6 +22,25 @@ pub(crate) fn geometria(html: &str, largura: f32) -> (crate::Dom, crate::layout:
     (dom, list)
 }
 
+/// Como [`geometria`], mas com uma passagem sobre o `Dom` ANTES do layout —
+/// para o que só a ponte faz numa página real (pixels de um `<img>`, valor de
+/// um `<input>`), sem trazer a ponte para os testes do crate.
+pub(crate) fn geometria_com(
+    html: &str,
+    largura: f32,
+    prepara: impl FnOnce(&mut crate::Dom),
+) -> (crate::Dom, crate::layout::DisplayList) {
+    let mut dom = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
+    prepara(&mut dom);
+    let ctx = LayoutCtx {
+        viewport_w: largura,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
+    let list = layout_document(&dom, &ctx);
+    (dom, list)
+}
+
 /// O rect do n-ésimo elemento que casa com o seletor.
 pub(crate) fn rect(
     dom: &crate::Dom,
