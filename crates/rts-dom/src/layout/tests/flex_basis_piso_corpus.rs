@@ -15,6 +15,15 @@
 //! §6.1: só o zero literal dispensa unidade); o shorthand inteiro cai e
 //! grow/shrink/basis ficam nos iniciais (0/1/auto) — `#a` usa o seu
 //! `width:80px` próprio, não os "4px" que a leitura ingénua do "4" dava.
+//!
+//! Achado do orquestrador ao correr o release: o piso da causa 1, aplicado a
+//! TODO item, deixava um `width:100%; aspect-ratio:1/1` cujo filho TAMBÉM
+//! mede a `100%` subir para o seu min-content GIGANTE (o filho mede-se à
+//! custa de um pai ainda sem largura) — muito acima do `width` pedido, e o
+//! `claude-raster` encravava num canvas desse tamanho
+//! (`flex-aspect-ratio-resize-001` do WPT). Fix: o piso automático nunca
+//! ultrapassa a "specified size suggestion" (Flexbox §4.5) — o `width` do
+//! item, quando definido; `min_automatico` em `flex_limites.rs`.
 
 use crate::table::tests::{geometria, rect};
 
@@ -104,4 +113,35 @@ fn flex_basis_unitless_nao_zero_invalida_o_shorthand_inteiro() {
         (80.0, 0.0, 80.0, 40.0),
         "Blink: #b sem flex, width:80px"
     );
+}
+
+// O WPT `css/css-flexbox/flex-aspect-ratio-resize-001.html`, sem o
+// `<script>` (este corpus não o executa): o Blink sem script dá 500×500 —
+// o que este teste fixa é só o invariante que faltava, "o piso nunca
+// ultrapassa a base especificada", não o número exacto de um reftest.
+const ASPECT_RATIO_WIDTH_CAP: &str = r#"<style>
+  body { margin: 0; }
+  #container { display: flex; width: 500px; background: red; }
+  #wrapper { width: 100%; aspect-ratio: 1 / 1; background: green; }
+  .image { display: block; width: 100%; height: 100%; }
+</style>
+<div id="container">
+  <div id="wrapper">
+    <img class="image">
+  </div>
+</div>"#;
+
+#[test]
+fn item_com_aspect_ratio_e_filho_a_100pct_nao_excede_a_base_especificada() {
+    let (dom, list) = geometria(ASPECT_RATIO_WIDTH_CAP, 1280.0);
+    let wrapper = rect(&dom, &list, "#wrapper", 0);
+    // O invariante do fix: o piso automático (min-content) nunca ultrapassa
+    // a "specified size suggestion" — aqui os 500px do `width:100%` do
+    // `#container`. Sem o teto, o min-content do `<img>` a 100% (medido à
+    // custa de um pai sem largura própria ainda) erguia o item bem acima
+    // disto — e o `main` gigante que sobrava fazia o raster tentar um
+    // canvas do mesmo tamanho (era esta chamada que nunca devolvia).
+    assert_eq!(wrapper.w, 500.0, "o piso nunca ultrapassa o width:100% especificado");
+    // aspect-ratio:1/1 sobre uma largura SÃ dá uma altura SÃ, nunca gigante.
+    assert!(wrapper.h < 1000.0, "altura explode se o piso não for capado: {}", wrapper.h);
 }

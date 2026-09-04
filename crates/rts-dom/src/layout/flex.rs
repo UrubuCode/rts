@@ -195,9 +195,10 @@ pub(in crate::layout) fn layout_children_horizontal(
         let min_main = crate::table::min_content(dom, child, font_size, ctx);
         let (max_main, min_declarado) =
             super::flex_limites::limites_do_item(&ccss, content_w, font_size, ctx);
-        // `min-width` declarado substitui o piso automático de min-content
-        // (spec §4.5: o mínimo automático só vale com `min-width: auto`).
-        let min_main = min_declarado.unwrap_or(min_main);
+        let min_main = super::flex_limites::min_automatico(
+            dom, child, min_main, &ccss, content_w, font_size, ctx,
+        );
+        let min_main = min_declarado.unwrap_or(min_main); // declarado vence o automático inteiro
         // A base fica capada só pelo tecto e o `min-width` DECLARADO — o piso
         // automático de min-content entra depois do grow/shrink (§4.5/§9.7).
         let base = base
