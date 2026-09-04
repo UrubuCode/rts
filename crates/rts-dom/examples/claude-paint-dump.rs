@@ -201,6 +201,19 @@ fn item_linha(item: &DisplayItem, dx: f32, dy: f32, i: usize) -> Option<String> 
             n(rect.w),
             n(rect.h)
         ),
+        DisplayItem::Quad { pts, .. } => {
+            let x0 = pts.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
+            let y0 = pts.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
+            let x1 = pts.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max);
+            let y1 = pts.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max);
+            format!(
+                "{pre},\"k\":\"quad\",\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
+                n(x0 + dx),
+                n(y0 + dy),
+                n(x1 - x0),
+                n(y1 - y0)
+            )
+        }
         DisplayItem::Image { rect, .. } | DisplayItem::Pixels { rect, .. } => format!(
             "{pre},\"k\":\"image\",\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
             n(rect.x + dx),

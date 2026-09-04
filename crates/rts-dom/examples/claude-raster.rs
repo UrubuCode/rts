@@ -108,6 +108,34 @@ impl Canvas {
         }
     }
 
+    /// Um quadrilátero CONVEXO já em coordenadas de tela, por varrimento: em
+    /// cada linha de pixels, o vão entre a menor e a maior intersecção das
+    /// quatro arestas com o centro da linha. É o que pinta um lado de borda
+    /// com junção diagonal (`DisplayItem::Quad`) — o `fill_rect_mat` não
+    /// serve porque um trapézio não é a imagem de um retângulo por uma matriz.
+    fn fill_quad(&mut self, pts: [(f32, f32); 4], color: u32, clip: Option<Rect>) {
+        let y0 = pts.iter().map(|p| p.1).fold(f32::INFINITY, f32::min).floor() as i32;
+        let y1 = pts.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max).ceil() as i32;
+        for y in y0..y1 {
+            let fy = y as f32 + 0.5;
+            let (mut xa, mut xb) = (f32::INFINITY, f32::NEG_INFINITY);
+            for i in 0..4 {
+                let (p, q) = (pts[i], pts[(i + 1) % 4]);
+                if (p.1 <= fy) != (q.1 <= fy) {
+                    let x = p.0 + (fy - p.1) * (q.0 - p.0) / (q.1 - p.1);
+                    xa = xa.min(x);
+                    xb = xb.max(x);
+                }
+            }
+            if xa > xb {
+                continue;
+            }
+            for x in (xa - 0.5).ceil() as i32..(xb - 0.5).ceil() as i32 {
+                self.blend(x, y, color, clip);
+            }
+        }
+    }
+
     /// Borda como quatro tiras — não um retângulo vazado, para não assumir
     /// que `width` é igual nos quatro lados (a `DisplayList` já colapsou para
     /// um valor só neste item; ver o comentário em `display.rs`).
@@ -419,7 +447,7 @@ fn main() {
     // transformado dentro doutro) compõem assim (ver a doc de
     // `DisplayItem::PushTransform`).
     let mut xform_stack: Vec<Mat2d> = Vec::new();
-    let mut mask: Vec<[f32; 4]> = Vec::new(); // [x,y,w,h] dos rects de texto ignorados
+    let mut mask: Vec<[f32; 4]> = Vec::new(); // [x,y,w,h] dos rects ignorados (texto, imagens)
     let mut pintados = 0usize;
     let mut saltados_texto = 0usize;
     let mut saltados_imagem = 0usize;
@@ -469,8 +497,27 @@ fn main() {
                 mask.push([r.x, r.y, r.w, r.h]);
                 saltados_texto += 1;
             }
+            DisplayItem::Quad { pts, color } => {
+                let pts = match mat {
+                    Some(m) => pts.map(|(x, y)| m.apply(x, y)),
+                    None => pts.map(|(x, y)| (x + dx, y + dy)),
+                };
+                canvas.fill_quad(pts, *color, clip);
+                pintados += 1;
+            }
+            // Uma imagem não se pinta aqui (sem handle table) — e por isso
+            // também não se COMPARA: a área vai para a máscara como o texto,
+            // senão a régua mede o que o exemplo não tem em vez do que o motor
+            // faz (`claude-object-fit` dava 1,95 % só disto).
             DisplayItem::Image { rect, .. } | DisplayItem::Pixels { rect, .. } => {
-                let _ = shift(*rect, dx, dy);
+                let r = match mat {
+                    Some(m) => {
+                        let (x0, y0, x1, y1) = transformed_bbox(*rect, &m);
+                        Rect::new(x0 as f32, y0 as f32, (x1 - x0) as f32, (y1 - y0) as f32)
+                    }
+                    None => shift(*rect, dx, dy),
+                };
+                mask.push([r.x, r.y, r.w, r.h]);
                 saltados_imagem += 1;
             }
             DisplayItem::BeginClip { rect, .. } => {
@@ -523,7 +570,7 @@ fn main() {
 
     eprintln!(
         "rts-raster: {pintados} itens pintados, {saltados_texto} texto (mascarado), \
-         {saltados_imagem} imagem (saltados, sem handle table aqui)"
+         {saltados_imagem} imagem (mascaradas, sem handle table aqui)"
     );
 }
 

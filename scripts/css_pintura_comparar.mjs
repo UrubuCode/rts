@@ -208,6 +208,6 @@ for (const n of nomes) {
 const resultados = nomes.map(compararUma).filter(Boolean);
 for (const r of resultados) {
   if (r.erro) console.log(`${r.nome}: ERRO ${r.erro}`);
-  else console.log(`${r.nome}: ${r.pct_diferente}% diferente (área ignorada por texto: ${r.pct_area_ignorada}%)`);
+  else console.log(`${r.nome}: ${r.pct_diferente}% diferente (área ignorada — texto e imagens: ${r.pct_area_ignorada}%)`);
 }
 if (emFalta) process.exit(2);

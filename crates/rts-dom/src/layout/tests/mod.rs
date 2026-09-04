@@ -22,6 +22,7 @@ mod inline_corpus;
 mod inline_fragmentos_corpus;
 mod pintura;
 mod pintura_transform_clip;
+mod pintura_juncao;
 mod posicionado;
 mod position_corpus;
 mod texto_lote_s;

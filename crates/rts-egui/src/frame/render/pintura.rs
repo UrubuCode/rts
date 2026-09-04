@@ -154,6 +154,16 @@ pub(in crate::frame::render) fn paint_list(
                     );
                 }
             }
+            DisplayItem::Quad { pts, color } => {
+                let corners = pts.map(|(x, y)| match mat {
+                    Some(m) => {
+                        let (tx, ty) = m.apply(x, y);
+                        origin_sem_dxdy + egui::vec2(tx, ty)
+                    }
+                    None => origin + egui::vec2(x, y),
+                });
+                mesh_quad_filled(&painter, corners, rgba_to_color32(*color));
+            }
             DisplayItem::Text { x, y, text, color, size, mono, bold, italic, letter_spacing, decoration } => {
                 // a MESMA escolha que o medidor faz — ver `EguiMeasurer::family`.
                 let font = egui::FontId::new(*size, EguiMeasurer::family(*mono, *bold, *italic));
@@ -359,6 +369,13 @@ fn caixa_do_item(item: &DisplayItem, origin: egui::Pos2) -> Option<egui::Rect> {
     match item {
         DisplayItem::SolidRect { rect, .. }
         | DisplayItem::Border { rect, .. } => de(rect.x, rect.y, rect.w, rect.h),
+        DisplayItem::Quad { pts, .. } => {
+            let x0 = pts.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
+            let y0 = pts.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
+            let x1 = pts.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max);
+            let y1 = pts.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max);
+            de(x0, y0, x1 - x0, y1 - y0)
+        }
         DisplayItem::Text { x, y, size, text, .. } => {
             // largura estimada por cima: o culling só precisa de não cortar o que
             // é visível, e medir cada texto aqui pagaria o custo que ele evita.

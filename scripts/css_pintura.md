@@ -39,12 +39,18 @@ verdade) mediria o erro do medidor aproximado, não um defeito de pintura. O
 `claude-raster.rs` por isso NÃO pinta texto — decisão tomada no rasterizador,
 não escondida no comparador — e grava onde ficaria como máscara.
 
-**Imagem** (`<img>`, `background-image` com URL), por agora. `DisplayItem::Image`
+**Imagem** (`<img>`, `background-image` com URL), por agora — e desde o lote
+U-pintura-2 a área dela vai para a MÁSCARA como a do texto, e conta na "área
+ignorada": antes contava como diferença (`claude-object-fit` dava 1,95 % só
+disso, que era o exemplo a não ter o que o motor tem). `DisplayItem::Image`
 aponta para um handle do `HandleTable`, que o exemplo não tem (não instancia
 `Engine`/`Registry`, só `Dom`+layout — trazê-los para um exemplo de
 rasterização é o preço de pintar UMA fixture no corpus atual). Nenhuma
 fixture de `tests/css/` depende disto para o que fixa; quando uma depender,
 o custo de instanciar o handle table paga-se então.
+
+**Bordas com junção diagonal** pintam-se (`DisplayItem::Quad`, lote
+U-pintura-2): o triângulo de CSS passou de 1,58 % para 0,04 %.
 
 **Cantos arredondados**, aproximados a quadrados. Rasterizar um arco exige
 mais do que um "fill rect", e a tolerância por canal (8/255) já absorve a
@@ -123,3 +129,10 @@ sozinho (0,13 % antes do código). `claude-object-fit` (1,95 %) é a área das
 quatro `<img>` que o rasterizador não pinta por decisão (sem handle table):
 a correção é do INSTRUMENTO — mascarar `DisplayItem::Image` como se mascara
 texto, e reportar a área — não do motor.
+
+**2026-09-04, lote U-pintura-2:** 87 das 90 fixtures com ≤ 0,5 %, 89 ≤ 2 %.
+`claude-triangulo-de-borda` 0,04 %, `claude-border-juncao` 0,02 %. Ficam
+`claude-font-unidades-ch-ex` 2,45 % (lote T) e `claude-object-fit` 1,95 % —
+este último já NÃO é o instrumento: o rasterizador pinta 0 itens nessa
+fixture, porque o motor não emite o fundo (`background: #eee`) de um `<img>`
+cuja imagem não carregou. É um defeito de pintura do motor, o próximo alvo.
