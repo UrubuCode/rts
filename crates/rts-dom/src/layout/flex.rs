@@ -118,9 +118,24 @@ pub(in crate::layout) fn layout_children_horizontal(
         .and_then(|d| d.resolve(&resolve))
         .unwrap_or(0.0)
         .max(0.0);
-    let justify = css
+    // Em `row-reverse` o main-start VISUAL é o lado DIREITO do container (spec
+    // §5.1: o eixo principal em si inverte, não só a ordem dos itens) — o
+    // efeito é o MESMO de espelhar `justify-content` (`flex-start`↔`flex-end`)
+    // e continuar a posicionar da esquerda para a direita com a lista já
+    // invertida (abaixo). A 1ª versão só invertia a lista e mantinha
+    // `flex-start`=0 de leading, o que empacotava os itens (já na ordem
+    // visual certa) encostados ao INÍCIO em vez de ao FIM — `#a.x` saía 100
+    // onde o Chrome dá 250 (medido pelo orquestrador, `claude-flex-reverse`).
+    // `space-between/around/evenly` são simétricos e não mudam com o espelho;
+    // `center` também não.
+    let justify_declarado = css
         .justify
         .unwrap_or(crate::style::JustifyContent::FlexStart);
+    let justify = if reverse {
+        crate::layout::coluna::mirror_justify(justify_declarado)
+    } else {
+        justify_declarado
+    };
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     // `0` = sem height explícito (o cross-size da linha usa o max dos itens).
     let container_cross_h = container_content_h.unwrap_or(0.0);
