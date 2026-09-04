@@ -266,4 +266,55 @@ impl Dom {
     pub fn set_viewport(&self, w: f32, h: f32) {
         self.viewport.set((w, h));
     }
+
+    /// `prefers-color-scheme` do host (lote P, §5.P item 1). `&self` (Cell) —
+    /// mudar isto não é uma mutação estrutural, só o que `@media`/`matchMedia`
+    /// respondem: bumpar `touch()` invalida o memo de estilo, exactamente como
+    /// mudar o viewport já faz.
+    pub fn set_prefers_color_scheme(&mut self, dark: bool) {
+        self.prefers_color_scheme.set(if dark {
+            crate::style::PrefersColorScheme::Dark
+        } else {
+            crate::style::PrefersColorScheme::Light
+        });
+        self.touch();
+    }
+
+    pub fn set_prefers_reduced_motion(&mut self, reduce: bool) {
+        self.prefers_reduced_motion.set(reduce);
+        self.touch();
+    }
+
+    /// O [`MediaContext`](crate::style::MediaContext) corrente — viewport +
+    /// preferências do host. Construído aqui e não guardado como campo porque
+    /// o viewport (`Cell`) já muda por fora do `&mut self`; um `MediaContext`
+    /// persistido ficaria stale no mesmo instante em que `set_viewport` corre.
+    pub fn media_context(&self) -> crate::style::MediaContext {
+        let (w, h) = self.viewport.get();
+        crate::style::MediaContext {
+            width: w,
+            height: h,
+            prefers_color_scheme: self.prefers_color_scheme.get(),
+            prefers_reduced_motion: self.prefers_reduced_motion.get(),
+        }
+    }
+
+    /// Igual a [`media_context`](Dom::media_context), mas com a LARGURA
+    /// substituída — o layout às vezes mede contra uma largura diferente do
+    /// viewport corrente (o `ctx.viewport_w` de uma passada de intrínseco), e
+    /// `<picture><source media>` tem de casar ESSA, não a do `Dom`.
+    pub fn media_context_at_width(&self, width: f32) -> crate::style::MediaContext {
+        let mut ctx = self.media_context();
+        ctx.width = width;
+        ctx
+    }
+
+    /// `window.matchMedia(query).matches` (lote P, §5.P item 2) — o MESMO
+    /// avaliador que a cascade usa para `@media`, contra o mesmo
+    /// [`media_context`](Dom::media_context). Reparseia a `query` a cada
+    /// chamada (como `@supports`/seletor: não há cache de string arbitrária) —
+    /// barato: `matchMedia` não corre por nó, corre por chamada de script.
+    pub fn media_matches(&self, query: &str) -> bool {
+        crate::style::MediaQuery::parse(query).matches(&self.media_context())
+    }
 }

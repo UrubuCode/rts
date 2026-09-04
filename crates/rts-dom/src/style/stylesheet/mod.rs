@@ -30,100 +30,11 @@ pub(in crate::style::stylesheet) use super::parse::parse_inline_block;
 pub(in crate::style::stylesheet) use super::props::ComputedStyle;
 pub(in crate::style::stylesheet) use super::selector::{ComplexSelector, PseudoClass, Selector, compound_matches};
 
-/// A condição de um bloco `@media`, avaliada contra o VIEWPORT (fase 2 — antes
-/// o bloco inteiro era pulado). V1 honesta: só `min-width`/`max-width` (px, e
-/// em/rem ×16) e os keywords neutros `screen`/`all`/`only`; qualquer feature
-/// desconhecida (`prefers-reduced-motion`, `orientation`, `print`, `not …`)
-/// torna a query SEMPRE-FALSA (conservador — para `prefers-reduced-motion:
-/// reduce` é exatamente o default desejado).
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
-pub struct MediaQuery {
-    pub min_width: Option<f32>,
-    pub max_width: Option<f32>,
-    /// feature não suportada na condição → a query nunca casa.
-    pub always_false: bool,
-}
-
-impl MediaQuery {
-    /// Parseia a condição após o `@media` (`(min-width: 768px)`,
-    /// `screen and (max-width: 991.98px)`, lista por vírgula = OR de queries).
-    pub fn parse(cond: &str) -> MediaQuery {
-        // lista por vírgula é OR — v1: se QUALQUER query da lista for só de
-        // width, usamos a primeira suportada; senão always_false. (Bootstrap não
-        // usa listas em @media; mantém simples.)
-        let first = cond.split(',').next().unwrap_or("");
-        let mut q = MediaQuery::default();
-        for term in first.split(" and ") {
-            let t = term.trim().to_ascii_lowercase();
-            if t.is_empty() || t == "screen" || t == "all" || t == "only screen" || t == "only all"
-            {
-                continue; // keywords neutros
-            }
-            // `(feature: valor)`
-            let inner = t
-                .strip_prefix('(')
-                .and_then(|s| s.strip_suffix(')'))
-                .unwrap_or(&t);
-            let Some((feat, val)) = inner.split_once(':') else {
-                q.always_false = true; // `not`, `print`, feature sem valor…
-                continue;
-            };
-            let px = parse_media_len(val.trim());
-            match (feat.trim(), px) {
-                ("min-width", Some(v)) => q.min_width = Some(v),
-                ("max-width", Some(v)) => q.max_width = Some(v),
-                _ => q.always_false = true,
-            }
-        }
-        q
-    }
-
-    /// `true` se a query casa o viewport dado.
-    pub fn matches(&self, viewport_w: f32) -> bool {
-        if self.always_false {
-            return false;
-        }
-        if let Some(mn) = self.min_width {
-            if viewport_w < mn {
-                return false;
-            }
-        }
-        if let Some(mx) = self.max_width {
-            if viewport_w > mx {
-                return false;
-            }
-        }
-        true
-    }
-
-    /// Combina com uma query EXTERNA (aninhamento `@media` dentro de `@media`):
-    /// AND dos limites.
-    fn and(self, outer: MediaQuery) -> MediaQuery {
-        MediaQuery {
-            min_width: match (self.min_width, outer.min_width) {
-                (Some(a), Some(b)) => Some(a.max(b)),
-                (a, b) => a.or(b),
-            },
-            max_width: match (self.max_width, outer.max_width) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            },
-            always_false: self.always_false || outer.always_false,
-        }
-    }
-}
-
-/// Um comprimento de condição de media: px (ou em/rem ×16, como o browser).
-fn parse_media_len(v: &str) -> Option<f32> {
-    let low = v.to_ascii_lowercase();
-    if let Some(n) = low.strip_suffix("px") {
-        return n.trim().parse().ok();
-    }
-    if let Some(n) = low.strip_suffix("rem").or_else(|| low.strip_suffix("em")) {
-        return n.trim().parse::<f32>().ok().map(|x| x * 16.0);
-    }
-    low.parse().ok()
-}
+// `MediaQuery`/`MediaContext` moveram-se para `stylesheet::media` (lote P,
+// §5.P) — a gramática completa (`not`/`only`/listas, orientation,
+// aspect-ratio, resolution, hover/pointer, prefers-*) não cabia mais como um
+// par de campos opcionais aqui. Reexportados por `pub use media::*` no fim
+// deste ficheiro.
 
 /// Uma regra do stylesheet: um seletor + as declarações já parseadas (separadas
 /// nas camadas normal/important da cascade). A ordem de declaração no fonte
@@ -339,6 +250,11 @@ pub struct Stylesheet {
     /// chamadas a `append_css`, porque folhas anexadas são uma única origem
     /// autoral para fins de cascade.
     pub(crate) layer_names: std::cell::RefCell<Vec<String>>,
+    /// As `@property` registadas (lote P, §5.P item 4) — estrutural como
+    /// `keyframes`, e pela mesma razão fica fora do `PartialEq`: dois
+    /// stylesheets com as mesmas `rules` são o mesmo estilo mesmo que um tenha
+    /// registado uma `@property` que a outra folha nunca leu.
+    pub(crate) properties: property::CustomPropertyRegistry,
 }
 
 /// As regras que casaram um nó, ordenadas pela cascade. Opaco de propósito: o
@@ -408,5 +324,9 @@ mod sheet;
 mod rules;
 mod revert;
 mod supports;
+mod media;
+mod property;
 
 pub use rules::*;
+pub use media::{MediaContext, MediaQuery, PrefersColorScheme};
+pub use property::{CustomPropertyRegistry, PropertySyntax, RegisteredProperty};

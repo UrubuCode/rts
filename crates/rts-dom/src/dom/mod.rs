@@ -359,6 +359,14 @@ pub struct Dom {
     /// O viewport com que o `computed_memo` foi preenchido (o computed depende
     /// dele via vw/vh) — muda → memo invalida.
     memo_viewport: std::cell::Cell<(u32, u32)>,
+    /// `prefers-color-scheme` do HOST (lote P, §5.P item 1) — não do CSS: é o
+    /// SO/navegador que o declara, então vive aqui como `viewport`, não numa
+    /// folha. Default `Light` (um SO sem preferência declarada). A fachada
+    /// muda com [`set_prefers_color_scheme`](Dom::set_prefers_color_scheme);
+    /// `window.matchMedia` lê o MESMO valor — ver `dom/media.rs`.
+    prefers_color_scheme: std::cell::Cell<crate::style::PrefersColorScheme>,
+    /// `prefers-reduced-motion: reduce` do HOST. Default `false`.
+    prefers_reduced_motion: std::cell::Cell<bool>,
     // ── Campos de FORMULÁRIO (input editável) — F: mini-browser ───────────────────
     /// Texto CORRENTE de cada `<input>`/`<textarea>` editável. O valor INICIAL vem do
     /// atributo `value=`; toda digitação (append/backspace via `input_feed_*`) grava

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<!-- Fixa: `@property` (lote P, §5.P item 4). `#com-inicial` NUNCA declara
+     `--cor`, então `var(--cor)` tem de resolver para o `initial-value`
+     registado (`rgb(0,128,0)`) em vez do fallback vazio de sempre.
+     `#sem-heranca` é FILHO de `#pai`, que declara `--acento: rgb(255,0,0)`;
+     como `--acento` está registada com `inherits:false`, o filho NÃO herda o
+     vermelho do pai — cai de volta no `initial-value` (`rgb(0,0,255)`).
+     `#com-heranca` é um segundo filho, usando `--cor` (que HERDA por
+     omissão) — sem declaração própria, herda o que quer que um antepassado
+     tenha; como nenhum tem, resolve outra vez para o inicial de `--cor`, o
+     que prova que o `seed_defaults` funciona por herança tanto quanto sem
+     ela. SEM `.esperado.json` — medido pelo orquestrador. -->
+<html>
+<head>
+<meta name="fixar-estilo" content="background-color">
+<style>
+  @property --cor {
+    syntax: "<color>";
+    inherits: true;
+    initial-value: rgb(0, 128, 0);
+  }
+  @property --acento {
+    syntax: "<color>";
+    inherits: false;
+    initial-value: rgb(0, 0, 255);
+  }
+  body { margin: 0; }
+  div { width: 100px; height: 20px; }
+  #com-inicial { background-color: var(--cor); }
+  #pai { --acento: rgb(255, 0, 0); }
+  #sem-heranca { background-color: var(--acento); }
+  #com-heranca { background-color: var(--cor); }
+</style>
+</head>
+<body>
+  <div id="com-inicial"></div>
+  <div id="pai">
+    <div id="sem-heranca"></div>
+    <div id="com-heranca"></div>
+  </div>
+</body>
+</html>

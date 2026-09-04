@@ -28,6 +28,7 @@ impl Stylesheet {
             position_sensitive: std::cell::RefCell::new(None),
             out_of_flow: std::cell::RefCell::new(None),
             layer_names: std::cell::RefCell::new(Vec::new()),
+            properties: super::property::CustomPropertyRegistry::default(),
         }
     }
 
@@ -338,6 +339,10 @@ impl Stylesheet {
                             super::parse_keyframe_ast(block),
                         );
                     }
+                    // `@property --nome { … }` — estrutural como `@keyframes`
+                    // acima (não vira `Rule`); ver `property.rs` para a razão
+                    // de o registo viver no `Stylesheet` e não numa `Rule`.
+                    super::property::maybe_register(&mut self.properties, &lower, prelude, block);
                 }
             }
         }
@@ -377,7 +382,7 @@ impl Stylesheet {
     /// do trabalho era repetição exata.
     pub fn matched_for_node(
         &self,
-        viewport_w: f32,
+        media_ctx: &super::media::MediaContext,
         node_tag: &str,
         node_id: Option<&str>,
         node_classes: &[&str],
@@ -398,7 +403,7 @@ impl Stylesheet {
                 // `<p>` de vermelho — e o `::before` foi durante muito tempo
                 // recusado no parse justamente para evitar isso.
                 (r.selector.pseudo_element.is_none()
-                    && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
+                    && r.media.as_ref().map(|m| m.matches(media_ctx)).unwrap_or(true)
                     && matches(&r.selector))
                 .then(|| {
                     (
@@ -432,7 +437,7 @@ impl Stylesheet {
     /// onde 53 das 100 regras com pseudo-elemento não declaram `content`.
     pub fn matched_for_pseudo(
         &self,
-        viewport_w: f32,
+        media_ctx: &super::media::MediaContext,
         node_tag: &str,
         node_id: Option<&str>,
         node_classes: &[&str],
@@ -446,7 +451,7 @@ impl Stylesheet {
             .filter_map(|&i| {
                 let r = &self.rules[i];
                 (r.selector.pseudo_element == Some(pe)
-                    && r.media.map(|m| m.matches(viewport_w)).unwrap_or(true)
+                    && r.media.as_ref().map(|m| m.matches(media_ctx)).unwrap_or(true)
                     && matches(&r.selector))
                 .then(|| {
                     (
@@ -579,7 +584,12 @@ impl Stylesheet {
         let no_pseudo = |_: &PseudoClass| false;
         // viewport de referência 1280 (helper sem árvore/viewport — testes);
         // sem vars (pendentes com var() não resolvem aqui).
-        let matched = self.matched_for_node(1280.0, tag, id, classes, |sel| {
+        let ctx = super::media::MediaContext {
+            width: 1280.0,
+            height: 800.0,
+            ..Default::default()
+        };
+        let matched = self.matched_for_node(&ctx, tag, id, classes, |sel| {
             // só seletores de 1 compound casam sem a árvore.
             sel.compounds.len() == 1
                 && compound_matches(&sel.compounds[0], tag, id, classes, &no_attr, &no_pseudo)

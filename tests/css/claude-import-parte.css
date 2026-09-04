@@ -1,0 +1,13 @@
+/* A folha IMPORTADA por claude-import.html (lote P, §5.P item 3). NÃO é uma
+   fixture — o corredor (`examples/claude-css-runner.ts`) só conta `.html` — é
+   o recurso que `@import` deve trazer para dentro da cascade, ANTES das
+   regras declaradas depois do `@import` no ficheiro que o importa (ordem da
+   cascade: a regra declarada depois vence em empate de especificidade, e
+   `#alvo` aqui tem de perder para o `#alvo` da página quando os dois
+   existirem). */
+#alvo {
+  background-color: rgb(255, 0, 0);
+}
+#so-importado {
+  background-color: rgb(0, 128, 0);
+}

@@ -68,6 +68,8 @@ impl Dom {
             layout_epochs: vec![0],
             viewport: std::cell::Cell::new((1280.0, 800.0)),
             memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),
+            prefers_color_scheme: std::cell::Cell::new(crate::style::PrefersColorScheme::Light),
+            prefers_reduced_motion: std::cell::Cell::new(false),
             input_values: HashMap::new(),
             image_pixels: HashMap::new(),
             own_pixels: HashMap::new(),

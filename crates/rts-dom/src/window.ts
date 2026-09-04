@@ -318,11 +318,53 @@ class WindowImpl {
     return { __el: el };
   }
 
-  // `matchMedia(query)` — feature-detect comum no boot. v1: devolve um objeto
-  // MediaQueryList estático (matches=false; sem listener vivo de resize). Cobre
-  // o `window.matchMedia('(...)').matches` que muitos scripts leem.
+  // `matchMedia(query)` (lote P, §5.P item 2) — real: `matches` chama
+  // `dom.mediaMatches`, o MESMO avaliador da cascade (`style::stylesheet::
+  // media`), não um objeto estático. `MediaQueryList` fica MÍNIMO de propósito:
+  // `addEventListener('change', cb)` regista o callback e dispara no PRÓXIMO
+  // `pumpEventCallbacks` em que a resposta mudou — poll-por-frame, o mesmo
+  // padrão do `requestAnimationFrame` acima, não um listener nativo do viewport
+  // (este motor não tem um). `removeEventListener` some da lista; `addListener`/
+  // `removeListener` (a API legada, pre-EventTarget) são alias do mesmo par.
   matchMedia(query: string): any {
-    return { media: query, matches: false };
+    const doc = this._doc;
+    const mql: any = {
+      media: query,
+      get matches(): boolean { return dom.mediaMatches(doc._dom, query); },
+      _last: dom.mediaMatches(doc._dom, query),
+      _cbs: [] as any[],
+      addEventListener(type: string, cb: any): void {
+        if (type === "change") mql._cbs.push(cb);
+      },
+      removeEventListener(type: string, cb: any): void {
+        if (type !== "change") return;
+        const kept: any[] = [];
+        let i = 0;
+        while (i < mql._cbs.length) {
+          if (mql._cbs[i] !== cb) kept.push(mql._cbs[i]);
+          i = i + 1;
+        }
+        mql._cbs = kept;
+      },
+      addListener(cb: any): void { mql.addEventListener("change", cb); },
+      removeListener(cb: any): void { mql.removeEventListener("change", cb); },
+    };
+    // Poll via `DomTimers` — o MESMO mecanismo do `setInterval`/`rAF` acima, já
+    // dirigido pelo loop do host (`pumpEventCallbacks`/`DomTimers` correm por
+    // frame). 250ms: um resize não precisa da latência de um frame, e um
+    // `MediaQueryList` por página não paga um poll de 16ms cada.
+    DomTimers.add(doc._dom, () => {
+      const now = dom.mediaMatches(doc._dom, query);
+      if (now !== mql._last) {
+        mql._last = now;
+        let i = 0;
+        while (i < mql._cbs.length) {
+          mql._cbs[i]({ matches: now, media: query });
+          i = i + 1;
+        }
+      }
+    }, 250, 1);
+    return mql;
   }
 
   // `requestAnimationFrame` — sem loop de tempo no script (o host dirige o
@@ -501,3 +543,35 @@ function __dropWindow(h: i64): void {
 // próprio — é o `new` não lançar: um script que observa o DOM à cabeça morria
 // na primeira linha e nenhuma das seguintes corria.
 (globalThis as any).MutationObserver = MutationObserver;
+
+// `@import` DENTRO de um `<style>` inline (lote P, §5.P item 3) — o `<link
+// rel=stylesheet>` já expandia via `__inlineImports`/`__readResource`
+// (`dom.ts`); um `@import` de página, escrito directo no `<style>`, nunca
+// passava por ali porque o Rust lê o texto do nó DIRETO
+// (`collect_embedded_css`, sem ver `@import`). Reescreve o texto do nó ANTES
+// da primeira cascade — `dom.setText` num `<style>` já dispara
+// `rebuild_author_stylesheet` (`dom/mutacao.rs`), então o CSS que a cascade lê
+// depois disto já vem com os imports inline, na ORDEM da cascade (`@import` só
+// é válido no topo do bloco, e `__inlineImports` copia o texto antes dele
+// primeiro).
+//
+// DECISÃO (documentada por pedido do enunciado): a resolução de `@import`
+// fica na FACHADA, simétrica ao `<link>`, e não no Rust — este crate não tem
+// I/O (nem `fs`, nem `fetch`), e um `@import` remoto precisa dos dois. A
+// alternativa seria dar ao `rts-dom` uma dependência de rede só para isto.
+function __expandInlineStyleImports(h: i64, baseUrl: string): void {
+  const count = dom.getByTagCount(h, "style");
+  let i = 0;
+  while (i < count) {
+    const node = dom.getByTagAt(h, "style", i);
+    if (node !== __DOM_NONE) {
+      const css = dom.getText(h, node);
+      if (css.indexOf("@import") >= 0) {
+        const seen: string[] = [];
+        const expanded = __inlineImports(css, baseUrl, seen, 16);
+        dom.setText(h, node, expanded);
+      }
+    }
+    i = i + 1;
+  }
+}
