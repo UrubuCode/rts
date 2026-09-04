@@ -110,3 +110,22 @@ corresponde ao ficheiro em disco é a forma mais barata de um corpus mentir.
 
 **Nunca** se re-mede para "consertar" um desvio. O Chrome é a régua; o desvio é
 o resultado.
+
+## Sem o MCP e sem o Chrome: o Edge por CDP
+
+Esta máquina não tem o Chrome instalado nem o MCP a funcionar sem ele, e o
+Edge é o mesmo Blink. `scripts/css_fixtures_medir_edge.mjs` faz os passos 2 e
+3 sozinho — lança o Edge headless, o palco de 1280x800, a mesma função de
+colheita — e escreve um JSON com todas as medições:
+
+```bash
+bun scripts/css_fixtures_serve.ts &
+bun scripts/css_fixtures_medir_edge.mjs medidas.json
+```
+
+**O instrumento foi validado antes de contar** (2026-09-04): as 49 fixtures
+com esperado medido no Chrome, re-medidas no Edge 152 — 1 104 números, pior
+desvio 0. Gravar um esperado novo a partir do JSON é um passo à parte e só
+para fixtures SEM esperado; um que já existe nunca se regrava para o número
+subir.
+
