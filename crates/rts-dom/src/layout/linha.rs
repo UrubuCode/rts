@@ -332,7 +332,9 @@ pub(in crate::layout) fn layout_inline_flow(
                             None,
                             None,
                             true,
-                            &[],
+                            // Inline-block atômico de uma linha: isolado, como
+                            // qualquer inline-block (estabelece BFC próprio).
+                            &BlockFormattingContext::new(),
                             ctx,
                             list,
                         );

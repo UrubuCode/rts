@@ -132,7 +132,9 @@ pub(in crate::layout) fn layout_out_of_flow(
         None,
         None,
         true,
-        &[],
+        // `position:absolute/fixed` estabelece o seu próprio BFC (CSS 2.1
+        // §9.4.1); `bloco.rs` cria um novo internamente de qualquer forma.
+        &BlockFormattingContext::new(),
         ctx,
         list,
     );

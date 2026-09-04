@@ -334,7 +334,8 @@ pub(in crate::layout) fn layout_children_horizontal(
                     Some(it.main),
                     forced_h,
                     true,
-                    &[],
+                    // Item de flex-row: mesma razão do flex-column, ver `coluna.rs`.
+                    &BlockFormattingContext::new(),
                     ctx,
                     list,
                 );

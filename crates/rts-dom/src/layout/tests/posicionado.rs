@@ -132,7 +132,10 @@
     fn float_left_right_dividem_a_linha() {
         // O header clássico (brand+nav do Bootstrap cover): float:left e
         // float:right consecutivos dividem a MESMA linha; o irmão não-float
-        // começa abaixo do float mais alto; o pai contém os floats (BFC v1).
+        // começa abaixo do float mais alto. O pai NÃO estabelece BFC (é um
+        // `<div>` comum, sem `overflow`/`flow-root`/etc.) — pelo CSS 2.1
+        // §10.6.7 só o BFC responsável cresce para conter os floats, e este
+        // não é ele: ver a asserção de `r[0].h` mais abaixo.
         let list = layout(
             "<div style='background:#111'>               <div style='float:left; background:#222; width:100; height:30'>brand</div>               <div style='float:right; background:#333; width:150; height:40'>nav</div>               <div style='background:#444; height:20'>abaixo</div>             </div>",
             600.0,
@@ -160,15 +163,19 @@
             r[3].y, 0.0,
             "o não-float sobrepõe-se ao float, não desce: {r:?}"
         );
-        // ⚠️ DIVERGÊNCIA CONHECIDA que este teste PINA de propósito: pelo CSS
-        // um float só faz o pai crescer num BFC ou com clearfix. Aqui cresce
-        // sempre. Foi decidido manter neste lote — mexer nisso muda a altura de
-        // todo o contentor com float. Não "corrigir" por acidente.
-        // Era 60 (= 40 + 20) porque o bloco de 20 era EMPURRADO para baixo dos
-        // floats; agora sobrepõe-se a eles e o pai mede o float mais alto.
+        // ⚠️ MUDOU outra vez, e desta vez é a entidade que faltava
+        // (`layout::bfc::BlockFormattingContext`) a fechar a divergência que
+        // este teste PINAVA de propósito até aqui: um float só faz o pai
+        // crescer quando o pai é o BFC responsável (CSS 2.1 §10.6.7), e este
+        // `<div>` comum não é. Era 40 (o float mais alto) porque o
+        // crescimento era incondicional; agora o pai mede só o que o FLUXO
+        // NORMAL pede — `r[3]` (o bloco de 20, que não desce nem encolhe por
+        // causa do float, ver acima) é o único que ocupa espaço na conta dele.
+        // Os 40 do float não desaparecem: escapam para o BFC do ANTEPASSADO
+        // deste `<div>` (aqui, fora do que este teste lê).
         assert_eq!(
-            r[0].h, 40.0,
-            "pai contem os floats: o mais alto mede 40: {r:?}"
+            r[0].h, 20.0,
+            "sem BFC o pai não cresce pelos floats — só o fluxo normal (20): {r:?}"
         );
     }
 

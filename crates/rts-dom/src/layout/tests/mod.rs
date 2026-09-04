@@ -9,6 +9,7 @@ mod cache;
 mod colapso;
 mod dimensoes;
 mod flex;
+mod float_corpus;
 mod grid;
 mod inline;
 mod pintura;
