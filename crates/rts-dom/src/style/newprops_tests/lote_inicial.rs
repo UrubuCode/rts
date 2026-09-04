@@ -178,7 +178,14 @@ fn vertical_align_bottom_desce_a_caixa_na_linha() {
         // Dentro de um <div>: os elementos de TOPO do documento são dispostos
         // como blocos, e é a corrida de inline-blocks de um container que o
         // `vertical-align` alinha.
-        "<div><em style='width:50px;height:60px;background:#ff0000'>a</em><em style='width:50px;height:20px;background:#0000ff;vertical-align:bottom'>b</em></div>",
+        //
+        // `display:inline-block` EXPLÍCITO nos dois — `width`/`height` não se
+        // aplicam a um `<em>` puro (CSS 2.1 §10.3.1/§10.6.1, o mesmo corte de
+        // `ignores_inline_dimensions`); sem a declaração este teste passava
+        // pelo motivo errado, dependendo do `<em>` sem `display` nenhum
+        // blockificar por ter `width`/`height` — o desvio corrigido em
+        // `claude-sel-has.html`.
+        "<div><em style='display:inline-block;width:50px;height:60px;background:#ff0000'>a</em><em style='display:inline-block;width:50px;height:20px;background:#0000ff;vertical-align:bottom'>b</em></div>",
         600.0,
     );
     let planos = itens(&list);

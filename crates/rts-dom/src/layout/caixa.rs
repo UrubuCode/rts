@@ -31,9 +31,37 @@ use super::*;
 /// `true` quando `display:inline` torna `width` e `height` inoperantes. A
 /// classificação de caixa e o fluxo inline partilham esta pergunta para não
 /// transformar uma dimensão declarada num inline-block artificial.
-pub(in crate::layout) fn ignores_inline_dimensions(css: &ComputedStyle) -> bool {
-    css.effective_display() == Some(crate::style::DisplayKind::Inline)
-        && (css.width.is_some() || css.height.is_some())
+pub(in crate::layout) fn ignores_inline_dimensions(css: Option<&ComputedStyle>, tag: &str) -> bool {
+    // O display USADO é `inline` quando declarado (`display:inline`
+    // explícito) OU quando nada o declara e a tag também não tem um default
+    // de bloco (`block::lookup`) — que é o caso comum de um `<span>` sem
+    // `display` nenhum. A versão anterior só via o primeiro: um `<span>{
+    // height:20px }` sem `display` declarado tinha `effective_display() ==
+    // None`, a condição respondia `false`, e a `height` era aplicada a um
+    // inline puro — o desvio medido no Blink em `claude-sel-has.html`
+    // (`#rotulo-com`/`#rotulo-sem`, esperado 0×0, obtido 20 de altura).
+    let usa_inline = match css.and_then(|c| c.effective_display()) {
+        Some(d) => d == crate::style::DisplayKind::Inline,
+        None => crate::block::lookup(tag).is_none(),
+    };
+    usa_inline && css.is_some_and(|c| c.width.is_some() || c.height.is_some())
+}
+
+/// `true` se este estilo, isoladamente (sem a tag/`replaced`/`display`
+/// declarado — os chamadores já os testaram antes), justifica `layout_block`.
+/// Quando `ignora_dimensoes` (ver [`ignores_inline_dimensions`]), só o que
+/// pinta uma superfície conta — não `width`/`height`, que um inline por
+/// omissão não respeita; senão, `has_box()` (que já inclui `width`) e
+/// `height` decidem, como antes desta correção.
+pub(in crate::layout) fn cria_caixa_via_dimensoes(
+    css: Option<&ComputedStyle>,
+    ignora_dimensoes: bool,
+) -> bool {
+    match css {
+        Some(c) if ignora_dimensoes => crate::inline_box::cria_caixa_apesar_de_inline(c),
+        Some(c) => c.has_box() || c.height.is_some(),
+        None => false,
+    }
 }
 
 /// `true` se um nó-elemento deve ser tratado como BLOCO no layout (entra em
@@ -90,7 +118,7 @@ pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             // `cria_caixa_apesar_de_inline` — não `cria_caixa_de_bloco`, que
             // conta a margem que o `display:inline` acabou de tornar
             // inoperante e devolveria o `<h3>` ao caminho de onde ele saiu.
-            if css.as_deref().is_some_and(ignores_inline_dimensions) {
+            if ignores_inline_dimensions(css.as_deref(), tag) {
                 return false;
             }
             if css.as_ref().and_then(|c| c.effective_display())
@@ -124,7 +152,7 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
             let css = dom.computed_style_idx(id);
-            if css.as_deref().is_some_and(ignores_inline_dimensions) {
+            if ignores_inline_dimensions(css.as_deref(), tag) {
                 return false;
             }
             // Um `display:inline-block` DECLARADO responde `true` e não chega às
