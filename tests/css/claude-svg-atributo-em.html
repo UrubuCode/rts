@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: os atributos `width`/`height` de um `<svg>` são comprimentos CSS
+     (presentation attributes, SVG 2 §7): `1em` vale o font-size do elemento,
+     `50%` vale a percentagem do contentor, `24` vale px. O ícone do botão de
+     tema do Bootstrap cover é `<svg width="1em" height="1em">` a 16px, e o
+     motor lia o atributo só como número — `1em` caía e o svg tomava o
+     tamanho do viewBox. `#em` mede 16×16, `#px` 24×24, `#pct` 50 % de 200
+     = 100 de largura e 40 de altura (só `height` em px, `width` em %). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="em,px,pct">
+<meta name="fixar-estilo" content="display">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #c { width: 200px; }
+  svg { display: block; background: #fc0; margin-bottom: 4px; }
+</style></head>
+<body><div id="c">
+<svg id="em" width="1em" height="1em" viewBox="0 0 16 16"><rect width="16" height="16" fill="#00c"/></svg>
+<svg id="px" width="24" height="24" viewBox="0 0 16 16"><rect width="16" height="16" fill="#0c0"/></svg>
+<svg id="pct" width="50%" height="40" viewBox="0 0 16 16"><rect width="16" height="16" fill="#c0f"/></svg>
+</div></body>
+</html>

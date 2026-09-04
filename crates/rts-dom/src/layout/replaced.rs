@@ -38,10 +38,17 @@ pub(in crate::layout) fn layout_svg_placeholder(
         viewport_h: ctx.viewport_h,
     };
     let node = dom.node(id);
+    // Os atributos são COMPRIMENTOS CSS (presentation attributes, SVG 2 §7):
+    // `1em` é o font-size, `50%` é do contentor, `24` é px. Lidos só como
+    // número, o `<svg width="1em">` do botão de tema do Bootstrap caía no
+    // viewBox (`claude-svg-atributo-em`).
     let attr_px = |name: &str| -> Option<f32> {
         node.attr(name).and_then(|v| {
-            let v = v.trim().trim_end_matches("px");
-            v.parse::<f32>().ok().filter(|n| *n > 0.0)
+            let v = v.trim();
+            let sem_unidade = v.parse::<f32>().ok();
+            sem_unidade
+                .or_else(|| crate::style::lengths::parse_dimension_pub(v).and_then(|d| d.resolve(&resolve)))
+                .filter(|n| *n > 0.0)
         })
     };
     // razão de aspecto do viewBox ("0 0 W H" → W/H).
@@ -81,14 +88,21 @@ pub(in crate::layout) fn layout_svg_placeholder(
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
+    // As margens, como o `<img>` (`layout_image`): a caixa fica dentro delas e
+    // o outer devolvido conta-as — sem isto um `svg{margin-bottom:4px}` não
+    // empurrava o irmão seguinte (`claude-svg-atributo-em`, y=16 vs 20).
+    let m = &css.margin;
+    let (ml, mr) = (m.left.resolve(&resolve).unwrap_or(0.0), m.right.resolve(&resolve).unwrap_or(0.0));
+    let (mt, mb) = (m.top.resolve(&resolve).unwrap_or(0.0), m.bottom.resolve(&resolve).unwrap_or(0.0));
+    let rect = Rect::new(x + ml, y + mt, w, h);
     // placeholder cinza-claro (a caixa do ícone) — só quando não é minúsculo demais.
     list.items.push(DisplayItem::SolidRect {
-        rect: Rect::new(x, y, w, h),
+        rect,
         color: 0xE8EAEDFF,
         radius: Corners::same(2.0),
     });
-    record_node_rect(list, id, Rect::new(x, y, w, h));
-    Some((w, h))
+    record_node_rect(list, id, rect);
+    Some((w + ml + mr, h + mt + mb))
 }
 
 pub(in crate::layout) fn layout_image(
