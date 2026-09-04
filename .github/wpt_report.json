@@ -1,8 +1,8 @@
 {
   "pasta": "C:\\Users\\nexga\\AppData\\Local\\Temp/wpt/css/css-flexbox",
   "total": 489,
-  "passam": 271,
-  "falham": 218,
+  "passam": 288,
+  "falham": 201,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -14,33 +14,9 @@
       "script": false
     },
     {
-      "nome": "percentage-heights-004",
-      "pct": 36.375,
-      "n": 372480,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-horiz-003",
-      "pct": 35.859375,
-      "n": 367200,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-horiz-004",
-      "pct": 35.859375,
-      "n": 367200,
-      "script": false
-    },
-    {
       "nome": "flexbox-definite-sizes-005",
       "pct": 29.625,
       "n": 303360,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-align-self-baseline-vert-001",
-      "pct": 24.19091796875,
-      "n": 247715,
       "script": false
     },
     {
@@ -48,18 +24,6 @@
       "pct": 20.5078125,
       "n": 210000,
       "script": true
-    },
-    {
-      "nome": "percentage-size-subitems-001",
-      "pct": 19.90859375,
-      "n": 203864,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-align-self-baseline-horiz-001",
-      "pct": 13.302734375,
-      "n": 136220,
-      "script": false
     },
     {
       "nome": "flexbox-writing-mode-012",
@@ -86,12 +50,6 @@
       "script": false
     },
     {
-      "nome": "percentage-heights-015",
-      "pct": 11.71875,
-      "n": 120000,
-      "script": false
-    },
-    {
       "nome": "content-height-with-scrollbars",
       "pct": 9.1015625,
       "n": 93200,
@@ -113,30 +71,6 @@
       "nome": "multiline-reverse-wrap-baseline",
       "pct": 8.057910156250001,
       "n": 82513,
-      "script": false
-    },
-    {
-      "nome": "flexbox_generated-nested-flex",
-      "pct": 8.0232421875,
-      "n": 82158,
-      "script": false
-    },
-    {
-      "nome": "flexbox_nested-flex",
-      "pct": 8.0232421875,
-      "n": 82158,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-vert-001a",
-      "pct": 7.503710937499999,
-      "n": 76838,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-vert-001b",
-      "pct": 7.503710937499999,
-      "n": 76838,
       "script": false
     },
     {
@@ -167,18 +101,6 @@
       "nome": "flexbox-writing-mode-013",
       "pct": 5.203125,
       "n": 53280,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-horiz-001a",
-      "pct": 4.974609375,
-      "n": 50940,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-horiz-001b",
-      "pct": 4.974609375,
-      "n": 50940,
       "script": false
     },
     {
@@ -236,15 +158,9 @@
       "script": false
     },
     {
-      "nome": "flexbox_fbfc",
-      "pct": 2.7,
-      "n": 27648,
-      "script": false
-    },
-    {
       "nome": "flex-aspect-ratio-img-row-014",
-      "pct": 2.65556640625,
-      "n": 27193,
+      "pct": 2.6474609375,
+      "n": 27110,
       "script": false
     },
     {
@@ -356,21 +272,15 @@
       "script": false
     },
     {
+      "nome": "percentage-heights-015",
+      "pct": 1.46484375,
+      "n": 15000,
+      "script": false
+    },
+    {
       "nome": "flexbox_order",
       "pct": 1.4125,
       "n": 14464,
-      "script": false
-    },
-    {
-      "nome": "css-flexbox-test1",
-      "pct": 1.3953125,
-      "n": 14288,
-      "script": false
-    },
-    {
-      "nome": "percentage-padding-002",
-      "pct": 1.388671875,
-      "n": 14220,
       "script": false
     },
     {
@@ -398,15 +308,21 @@
       "script": false
     },
     {
-      "nome": "multiline-shrink-to-fit",
-      "pct": 1.1962890625,
-      "n": 12250,
+      "nome": "percentage-padding-002",
+      "pct": 1.2177734375,
+      "n": 12470,
       "script": false
     },
     {
-      "nome": "flex-box-wrap",
-      "pct": 1.171875,
-      "n": 12000,
+      "nome": "css-flexbox-test1",
+      "pct": 1.2078125,
+      "n": 12368,
+      "script": false
+    },
+    {
+      "nome": "multiline-shrink-to-fit",
+      "pct": 1.1962890625,
+      "n": 12250,
       "script": false
     },
     {
@@ -548,18 +464,6 @@
       "script": false
     },
     {
-      "nome": "flexbox-baseline-multi-line-horiz-001",
-      "pct": 0.8296875,
-      "n": 8496,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-vert-001",
-      "pct": 0.8296875,
-      "n": 8496,
-      "script": false
-    },
-    {
       "nome": "flex-container-max-content-001",
       "pct": 0.8295898437499999,
       "n": 8495,
@@ -698,33 +602,9 @@
       "script": false
     },
     {
-      "nome": "flexbox-baseline-single-item-001a",
-      "pct": 0.6890625,
-      "n": 7056,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-single-item-001b",
-      "pct": 0.6890625,
-      "n": 7056,
-      "script": false
-    },
-    {
       "nome": "flexbox-writing-mode-001",
       "pct": 0.65625,
       "n": 6720,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-empty-001a",
-      "pct": 0.640625,
-      "n": 6560,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-empty-001b",
-      "pct": 0.640625,
-      "n": 6560,
       "script": false
     },
     {
@@ -797,18 +677,6 @@
       "nome": "flexitem-stretch-range",
       "pct": 0.5318359375,
       "n": 5446,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-horiz-002",
-      "pct": 0.5171875,
-      "n": 5296,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-vert-002",
-      "pct": 0.5171875,
-      "n": 5296,
       "script": false
     },
     {
@@ -962,15 +830,21 @@
       "script": false
     },
     {
+      "nome": "flexbox-baseline-align-self-baseline-vert-001",
+      "pct": 0.1435546875,
+      "n": 1470,
+      "script": false
+    },
+    {
       "nome": "flexbox-overflow-horiz-005",
       "pct": 0.1435546875,
       "n": 1470,
       "script": false
     },
     {
-      "nome": "flexbox_inline",
-      "pct": 0.13007812500000002,
-      "n": 1332,
+      "nome": "flexbox-baseline-align-self-baseline-horiz-001",
+      "pct": 0.13330078125,
+      "n": 1365,
       "script": false
     },
     {
@@ -1073,12 +947,6 @@
       "nome": "flexbox_justifycontent-spacebetween",
       "pct": 0.1119140625,
       "n": 1146,
-      "script": false
-    },
-    {
-      "nome": "flex-inline",
-      "pct": 0.10947265625,
-      "n": 1121,
       "script": false
     },
     {
@@ -1220,6 +1088,12 @@
       "script": true
     },
     {
+      "nome": "dynamic-isize-change-001",
+      "pct": 0.0673828125,
+      "n": 690,
+      "script": true
+    },
+    {
       "nome": "flexbox_margin-auto",
       "pct": 0.062109375,
       "n": 636,
@@ -1230,12 +1104,6 @@
       "pct": 0.05859375,
       "n": 600,
       "script": false
-    },
-    {
-      "nome": "dynamic-isize-change-001",
-      "pct": 0.052734375,
-      "n": 540,
-      "script": true
     },
     {
       "nome": "flexbox-overflow-vert-005",
@@ -1280,6 +1148,12 @@
       "script": false
     },
     {
+      "nome": "flexbox_inline",
+      "pct": 0.0216796875,
+      "n": 222,
+      "script": false
+    },
+    {
       "nome": "dynamic-baseline-change-nested",
       "pct": 0.01953125,
       "n": 200,
@@ -1301,6 +1175,30 @@
       "nome": "stretch-flex-item-radio-input",
       "pct": 0.0166015625,
       "n": 170,
+      "script": false
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-vert-001a",
+      "pct": 0.01484375,
+      "n": 152,
+      "script": false
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-vert-001b",
+      "pct": 0.01484375,
+      "n": 152,
+      "script": false
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-horiz-001a",
+      "pct": 0.013671875000000002,
+      "n": 140,
+      "script": false
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-horiz-001b",
+      "pct": 0.013671875000000002,
+      "n": 140,
       "script": false
     },
     {
