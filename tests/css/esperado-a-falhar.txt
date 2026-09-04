@@ -12,3 +12,11 @@ claude-ua-th.html
 # cursor: url(x.png) — o Blink resolve a URL contra a base do documento;
 # nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
 claude-cursor-pointer-events.html
+
+# vaga 6 — medidas no Edge 152 (desvio 0 contra os 86 esperados) ANTES do
+# código, por implementar: unidades `ch`/`ex` e serialização da lista de
+# `font-family` (lote T); inline com conteúdo que quebra em fragmentos e não
+# engrossa a linha (lote S-inline-2); `hyphens: manual` com `&shy;` (lote S-hifen)
+claude-font-unidades-ch-ex.html
+claude-inline-fragmentos.html
+claude-hyphens-manual.html
