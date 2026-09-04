@@ -102,17 +102,20 @@ _Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.3%   2250/2266 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 95.8%   92/96 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.3%   2278/2294 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 95.9%   93/97 fixtures passing
+[▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱] 38%   186/489 WPT reftests (css-flexbox) rendering test == reference
 ```
 
-Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
-- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
+The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **34/38 lots done**, 1 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
+- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
+
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **37/41 lots done**, 1 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
 *Updated 2026-09-04 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->

@@ -290,6 +290,33 @@ jobs:
           if [ -n "$inesperadas" ]; then echo "::error::fixtures a falhar FORA da lista esperado-a-falhar: $inesperadas"; exit 1; fi
           echo "so falham as esperadas: $(wc -l < esperadas.txt) ficheiro(s)"
 
+      # A quarta régua: os REFTESTS do Web Platform Tests, rasterizados pelo
+      # nosso motor e comparados pixel a pixel (scripts/wpt_reftests.md). O WPT
+      # fica FIXADO num commit — uma régua que muda sozinha não é uma régua —
+      # e só as pastas usadas entram (checkout esparso). O rasterizador é um
+      # exemplo do rts-dom, que não tem dependências: constrói em ~1 min.
+      # Report-only: o número vai para o README; um dia que desça vê-se lá.
+      - name: Setup Rust (for the raster example)
+        if: always()
+        uses: ./.github/actions/setup-rust
+
+      - name: Build the headless raster
+        if: always()
+        run: cargo build --release -p rts-dom --example claude-raster
+
+      - name: WPT reftests (css-flexbox, pinned)
+        if: always()
+        shell: bash
+        run: |
+          set -e
+          WPT_SHA=972e0e100fa754629cd00e549d6fa20a243af2bd
+          git clone -q --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git "$RUNNER_TEMP/wpt"
+          git -C "$RUNNER_TEMP/wpt" sparse-checkout set css/css-flexbox resources
+          git -C "$RUNNER_TEMP/wpt" checkout -q "$WPT_SHA"
+          node scripts/wpt_reftests.mjs "$RUNNER_TEMP/wpt/css/css-flexbox" --out "$RUNNER_TEMP/wpt-out" | tee wpt.txt
+          { echo "### WPT reftests (css-flexbox @ ${WPT_SHA:0:9})"; echo; echo '```'; cat wpt.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p .github && cp "$RUNNER_TEMP/wpt-out/relatorio.json" .github/wpt_report.json
+
       # O número do README é o que ESTE job mediu (o mesmo padrão do bloco
       # cross-runtime): regiões CSS_PARITY_BADGE / CSS_DOM_STATS e o JSON em
       # .github/. `always()` porque o passo acima sai 1 quando cai uma fixture
@@ -304,7 +331,7 @@ jobs:
           node scripts/css_parity_readme.mjs corpus.txt
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md .github/css_parity_report.json
+          git add README.md .github/css_parity_report.json .github/wpt_report.json
           if git diff --cached --quiet; then echo "nada mudou"; exit 0; fi
           pct=$(node -e "console.log(require('./.github/css_parity_report.json').measurements.pct)")
           git commit -m "docs: auto-update CSS/DOM parity badge (${pct}%)"
