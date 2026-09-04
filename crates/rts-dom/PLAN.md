@@ -29,7 +29,7 @@ linha aqui não existe.
 | E | BFC, floats, `clear` | 1 | ◐ em curso | `feat/dom-bfc-floats-clear` | corpus: `claude-clear`, `claude-float-clear` (6) |
 | F | baseline, `vertical-align`, `white-space` | 1 | ◐ em curso | `feat/dom-linha-baseline` | corpus: `claude-vertical-align`, `claude-white-space`, `claude-text-align` (8) |
 | G | scroll no documento | 2 | ☐ | — | teste de `scrollTop`/`scrollTo` + exemplo em janela |
-| H | o escopo de página não vê o Node | 2 | ☐ (decisão pendente, §4.H) | — | fixture `claude-dom-page-nao-ve-process` |
+| H | o escopo de página não vê o Node | 2 | ◐ em curso — decisão tomada (§4.H) | `feat/dom-escopo-pagina-sem-node` | fixture `claude-dom-page-nao-ve-process` |
 | I | folha de UA em CSS real | 2 | ☐ | — | `<th>` negrito/centro; `scrollbar.rs` apagado |
 | J | `DeclarationRecord` e `revert` | 2 | ☐ | — | fixture `revert`/`revert-layer` medida no Chrome |
 | K | invalidação escopada para `:nth-child` | 2 | ☐ | — | `dom_metrics`: cascades por `appendChild` |
@@ -231,24 +231,62 @@ paralelo com a vaga 1 se houver agentes livres: não tocam em layout.
 
 ### H — o escopo de página não vê o Node (`rts-core`, `rts-codegen`, `rts-host`)
 
-- **Decisão pendente, do dono do projeto:** este motor é uma fronteira de
-  segurança (conteúdo que não controla) ou não? Enquanto não for decidido,
-  o `CLAUDE.md` e o bridge devem DIZER que não é — o comentário de `NODE_ONLY`
-  promete o que não cumpre.
-- **Em qualquer caso, como correcção** (é o bug que a lista existe para
-  impedir — uma página que vê `setImmediate` monta o React pelo ramo Node):
-  (1) `Scoped::Eval` herda `ctx.page` do escopo em que o `eval` corre
-  (`rts-host/src/run.rs:826-845`, `rts-codegen/src/emit/eval.rs`);
-  (2) `environment_names` (`rts-core/src/entry/eval_scope.rs:246-289`) não
-  atravessa a cadeia de protótipos para além da superfície que o `window`
-  expõe, ou o filtro `NODE_ONLY` corre ANTES de o nome entrar na cadeia.
-  RULE 0: ler os READMEs dos três crates antes.
-- **Aceitação:** fixture `claude-dom-page-nao-ve-process.test.ts`: num
+- **Decisão TOMADA (2026-09-04, pelo orquestrador):** este motor NÃO é hoje
+  uma fronteira de segurança — mesmo processo, mesmo heap, mesma `Context`, e
+  `require`/`fetch` de recursos que a própria página nomeia não passam por
+  nenhuma política. O código passa a DIZÊ-lo: o comentário de `NODE_ONLY`
+  (`rts-codegen/src/emit/globals.rs`) já não promete o que não cumpria. As
+  duas fugas fecham como CORRECÇÃO — é o bug que a lista existe para impedir
+  desde sempre (uma página que vê `setImmediate` monta o React pelo ramo Node)
+  — e não como implementação de uma fronteira de segurança que este motor não
+  tem.
+- **Feito, branch `feat/dom-escopo-pagina-sem-node`:**
+  (1) o nome nunca entra na cadeia que `Scope::lookup` resolve a zero hops:
+  `globals::without_node_only` filtra `NODE_ONLY` de `enclosing` ANTES de
+  `emit_page_program`/`emit_eval_program` construírem o `chain`/`Scope` —
+  opção (a) do enunciado, porque filtrar o resultado fecha a fuga
+  independentemente do mecanismo exacto que a produzia, e o mecanismo em si
+  não ficou provado por leitura estática sozinha (a auditoria mediu-o AO
+  VIVO);
+  (2) `Scoped::Eval`/`Scoped::Page` ganharam `hide_node_globals: bool`;
+  `rts-host/src/live.rs` decide-o comparando o ambiente a
+  `rts_core::entry::global_object` (só `vm.runInThisContext` partilha o
+  global real) e, quando `true`, marca o ambiente com
+  `rts_core::entry::mark_hides_node_globals` — uma propriedade `__rts_`
+  no PRÓPRIO objecto, e não uma tabela lateral por CÉLULA, porque uma célula
+  libertada e reutilizada tornaria uma entrada de tabela obsoleta uma marca
+  no objecto ERRADO. Um `eval()` de dentro da página lê a marca de volta com
+  `rts_core::entry::hides_node_globals`, que anda a MESMA cadeia
+  `__rts_outer` que `environment_names` já anda.
+- **Aceitação:** fixture `tests/claude-dom-page-nao-ve-process.test.ts`: num
   `<script>` de página, `typeof process`, `typeof Buffer`,
-  `typeof setImmediate` e `eval("typeof process")` respondem `"undefined"`;
-  o React 18 continua a montar (`examples/claude-react-vida.ts`).
-- **Só se a decisão for "sim":** um `Context`/heap por documento em vez do
-  singleton thread-local — o único item deste plano que reabre a arquitectura.
+  `typeof setImmediate`, `typeof require` e `eval("typeof process")`
+  respondem `"undefined"`; `typeof setTimeout`/`typeof fetch`/
+  `typeof document` continuam o que um browser dá; e um controlo prova que
+  FORA da página `typeof process` continua `"object"` — a diferença é o
+  ESCOPO, não uma remoção do global.
+- **Risco aceite e não fechado por este lote:** `vm.runInContext`/
+  `runInNewContext` com um sandbox comum (não `runInThisContext`) passam a
+  também esconder `NODE_ONLY` do sandbox — inclusive se o chamador tivesse
+  posto lá `sandbox.process = algo` explicitamente, esse `process` deixa de
+  resolver pela CADEIA (continua a resolver por leitura directa de
+  propriedade, `sandbox.process`). Nenhum teste existente pina o caso
+  contrário; `crates/rts-node/README.md`/`vm.rs` é onde revisitar se um
+  programa real depender disso.
+- **Gap conhecido, não fechado:** `eval` INDIRECTO — `(0, eval)("process")`,
+  `globalThis.eval("process")`, um nome que aponta para `eval` chamado sem ser
+  como identificador nu — continua a ver `process` de dentro de uma página. O
+  mecanismo (`rts_core::entry::eval_source`) passa sempre `environment =
+  undefined` para o compilador, que é como a especificação diz "corre no
+  escopo global" — mas este motor não tem um global por página, então
+  `hides_node_globals(undefined)` não tem nada para andar e responde `false`.
+  Fechar isto exigiria saber de que ESCOPO A CHAMADA partiu sem um objecto de
+  ambiente para perguntar, o que é um problema diferente do que este lote
+  respondeu. A fixture só cobre a forma DIRECTA (`eval("...")`), que é a que a
+  auditoria mediu e a que o enunciado pediu.
+- **Não feito:** um `Context`/heap por documento em vez do singleton
+  thread-local — a decisão tomada foi "não é fronteira de segurança", o que
+  torna este item fora de escopo em vez de pendente.
 
 ### I — a folha de UA em CSS real (`style/`, `block/ua.rs` morre, `scrollbar.rs` morre)
 
@@ -459,7 +497,8 @@ lente 1 diz onde isso dói). Só depois de I, J e V.
 
 ## 7. O que este plano não decide
 
-- Se o motor é uma fronteira de segurança (§4.H). Do dono.
+- ~~Se o motor é uma fronteira de segurança (§4.H).~~ Decidido 2026-09-04: não
+  é. §4.H tem o que isso mudou no código.
 - Se e quando `dom.ts` (1 847 linhas) é partido em ficheiros — o bridge
   concatena preludes; partir é mecânico e vale um lote próprio com o dump de
   paridade a provar zero pixels movidos.
