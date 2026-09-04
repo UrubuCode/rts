@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa (lote V-img): um `<img>` SEM `width`/`height` mede o tamanho NATURAL
+     da imagem — aqui um PNG `data:` de 4×2 pixels — e um com só `width` mantém
+     a razão de aspecto (`width: 40px` → 40×20). Hoje nenhum loader entrega a
+     imagem `data:` ao `<img>` (`rts:imgdec`/`dom.setImage` não existem no
+     motor novo), e sem pixels nem atributos a caixa é 0×0. Blink: `#natural`
+     4×2, `#so-largura` 40×20, `#atributos` 8×8 (os atributos vencem o
+     natural). O `<div>` que os contém dá a leitura de altura da linha. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="natural,so-largura,atributos">
+<meta name="fixar-estilo" content="display,width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  img { display: block; }
+  #so-largura { width: 40px; }
+</style></head>
+<body>
+<img id="natural" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAFUlEQVR42mM4ISf3HxkzyMmd+I+MAQnlEBnT2GgUAAAAAElFTkSuQmCC">
+<img id="so-largura" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAFUlEQVR42mM4ISf3HxkzyMmd+I+MAQnlEBnT2GgUAAAAAElFTkSuQmCC">
+<img id="atributos" width="8" height="8" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAFUlEQVR42mM4ISf3HxkzyMmd+I+MAQnlEBnT2GgUAAAAAElFTkSuQmCC">
+</body>
+</html>
