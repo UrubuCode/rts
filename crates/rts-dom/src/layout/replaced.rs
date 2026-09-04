@@ -139,6 +139,15 @@ pub(in crate::layout) fn layout_image(
     let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
+    // O FUNDO da caixa pinta-se com ou sem pixels — um `<img>` com
+    // `background` é uma caixa como as outras enquanto a imagem não chega
+    // (`claude-object-fit`: o Blink mostra o `#eee` por baixo, e aqui a régua
+    // de pintura via 0 itens). CORTE dito: a cor sai crua — sem `filter` nem
+    // `opacity` do elemento, que o caminho do bloco aplica por `cor()`; e sem
+    // borda/padding, que este layout ainda não dá à imagem (v1 acima).
+    if let Some(color) = css.bg.filter(|_| !super::pintura::deve_suprimir_fundo(css)) {
+        list.items.push(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO });
+    }
     // O item de pintura, esse, PRECISA de pixels: uma caixa reservada com nada
     // dentro é o que o browser mostra enquanto a imagem não chega, e é a mesma
     // doutrina do `<canvas>` logo abaixo.
