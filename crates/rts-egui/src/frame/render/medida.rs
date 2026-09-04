@@ -1,7 +1,7 @@
 use super::*;
 
 
-impl<'a> EguiMeasurer<'a> {
+impl EguiMeasurer {
     /// A família egui p/ (mono, bold, italic). Peso e estilo são dois EIXOS, não
     /// uma escala: `<em><strong>` pede a família "bold-italic", que é um ficheiro
     /// de fonte próprio e não um bold inclinado. Mono vem depois porque nenhuma
@@ -25,18 +25,19 @@ impl<'a> EguiMeasurer<'a> {
     }
 }
 
-impl<'a> TextMeasurer for EguiMeasurer<'a> {
+impl TextMeasurer for EguiMeasurer {
     /// O `Context` do egui identifica as fontes; o `pixels_per_point` identifica
     /// a escala, e mudar o zoom MUDA a largura do texto. Este medidor é
-    /// construído na pilha a cada frame, então o endereço dele não serve — ver a
-    /// nota em `TextMeasurer::identity`.
+    /// reconstruído (e reregistado como o activo) a cada frame — ver
+    /// `measurer_for` —, então o endereço DELE não serve — ver a nota em
+    /// `TextMeasurer::identity`; usa-se o endereço do `Context` que carrega.
     fn identity(&self) -> u64 {
-        let context = self.ctx as *const egui::Context as usize as u64;
+        let context = &self.ctx as *const egui::Context as usize as u64;
         context ^ ((self.ctx.pixels_per_point().to_bits() as u64) << 32)
     }
 
     fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, italic: bool) -> f32 {
-        let context_key = self.ctx as *const egui::Context as usize;
+        let context_key = &self.ctx as *const egui::Context as usize;
         // `italic` entra na CHAVE do cache: a família itálica tem avanços
         // próprios, e sem este bit a primeira medição de uma palavra ficava a
         // valer para as duas versões dela.
@@ -66,7 +67,7 @@ impl<'a> TextMeasurer for EguiMeasurer<'a> {
         width
     }
     fn line_height(&self, size: f32) -> f32 {
-        let key = (self.ctx as *const egui::Context as usize, size.to_bits());
+        let key = (&self.ctx as *const egui::Context as usize, size.to_bits());
         if let Some(height) = LINE_HEIGHT_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
             return height;
         }

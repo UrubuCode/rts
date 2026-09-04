@@ -134,22 +134,33 @@ impl Dom {
         // acesso ao LayoutObject quando a propriedade depende dos used values. O
         // layout RTS já calcula as mesmas larguras; consulta-se a display list
         // cacheada em vez de duplicar o algoritmo de sizing no formatador de estilo.
+        //
+        // Mede com o medidor ACTIVO (`layout::medidor_ativo`) pela mesma razão
+        // de `bounding_component`: as larguras de coluna dependem de texto
+        // medido, e um `getComputedStyle` chamado com janela aberta deve
+        // responder com a MESMA geometria que está a ser pintada, não com a
+        // aproximação headless.
         if name.trim().eq_ignore_ascii_case("grid-template-columns")
             && style.grid_template_columns.is_some()
         {
             let (viewport_w, viewport_h) = self.viewport.get();
-            let context = crate::layout::LayoutCtx {
-                viewport_w,
-                viewport_h,
-                measurer: &crate::layout::ApproxMeasurer,
-            };
-            let list = crate::layout::layout_cached(self, &context);
-            if let Some(tracks) = list.grid_column_tracks.get(&idx) {
-                return tracks
-                    .iter()
-                    .map(|track| crate::style::fmt_values::fmt_px(*track))
-                    .collect::<Vec<_>>()
-                    .join(" ");
+            let tracks_str = crate::layout::medidor_ativo::with_active(|measurer| {
+                let context = crate::layout::LayoutCtx {
+                    viewport_w,
+                    viewport_h,
+                    measurer,
+                };
+                let list = crate::layout::layout_cached(self, &context);
+                list.grid_column_tracks.get(&idx).map(|tracks| {
+                    tracks
+                        .iter()
+                        .map(|track| crate::style::fmt_values::fmt_px(*track))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+            });
+            if let Some(tracks_str) = tracks_str {
+                return tracks_str;
             }
         }
 

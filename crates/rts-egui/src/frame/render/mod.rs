@@ -13,6 +13,7 @@
 use rts_dom::layout::{self, DisplayItem, DisplayList, TextMeasurer};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// Converte a cor própria do motor de estilo (`u32` RGBA `0xRRGGBBAA`, egui-free)
 /// para o `Color32` do egui. A conversão vive AQUI (no backend), nunca no rts-dom.
@@ -27,9 +28,45 @@ fn rgba_to_color32(c: u32) -> egui::Color32 {
 /// Implementa a medição de texto do `rts-dom` usando o sistema de fontes REAL do
 /// egui (não a aproximação do `ApproxMeasurer`). Mede largura via galley e usa a
 /// altura de linha da fonte — assim o layout calculado no rts-dom bate com o que
-/// o egui vai de fato pintar. Guarda o `Context` para consultar `fonts`.
-struct EguiMeasurer<'a> {
-    ctx: &'a egui::Context,
+/// o egui vai de fato pintar.
+///
+/// Guarda o `Context` POR VALOR (clonado de `ui.ctx()`), e não emprestado: um
+/// `TextMeasurer` emprestado não pode viver num `Rc<dyn TextMeasurer + 'static>`
+/// entre chamadas, e é assim que `layout::medidor_ativo` o mantém disponível
+/// para quem consulta geometria FORA do frame de pintura (`bounding_component`,
+/// `computedProperty`). O clone é barato — `egui::Context` é um `Arc` por
+/// dentro, o mesmo custo que `egui_ctx.clone()` já paga em `app/mod.rs` e
+/// `frame/mod.rs`.
+struct EguiMeasurer {
+    ctx: egui::Context,
+}
+
+/// Constrói o `EguiMeasurer` deste frame E regista-o como o medidor ACTIVO da
+/// thread (`layout::medidor_ativo::set_active`) — é como `bounding_component`/
+/// `computedProperty`, do lado do `rts-dom`, passam a responder com a MESMA
+/// geometria que este frame vai pintar, em vez de caírem sempre no
+/// `ApproxMeasurer` (finding 1 de
+/// `docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/05-texto-e-fontes.md`).
+///
+/// Regista-se A CADA FRAME, não uma vez ao abrir a janela — "o último a pintar
+/// ganha" é aceitável porque só um documento pinta por frame nesta thread; a
+/// alternativa (guardar um `Rc` entre frames e só reregistar quando o `Context`
+/// ou o `pixels_per_point` mudassem) pedia detectar essa troca, que este ponto
+/// não precisa de ter.
+fn measurer_for(ctx: &egui::Context) -> Rc<EguiMeasurer> {
+    let measurer = Rc::new(EguiMeasurer { ctx: ctx.clone() });
+    rts_dom::layout::medidor_ativo::set_active(measurer.clone());
+    measurer
+}
+
+/// Limpa o medidor de texto ACTIVO desta thread. Chamado no shutdown do
+/// processo (via `frame::clear_active_measurer` → `rts_ui::shutdown`): sem
+/// isto, o medidor de uma janela já fechada continuaria a responder por uma
+/// geometria que já ninguém pinta — a MESMA classe "duas verdades" que
+/// `medidor_ativo` existe para fechar, só que adiada até o processo morrer em
+/// vez de acontecer a cada pedido.
+pub fn clear_active_measurer() {
+    rts_dom::layout::medidor_ativo::clear_active();
 }
 
 thread_local! {
@@ -69,8 +106,8 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
     let avail = ui.available_size();
     let viewport_w = avail.x.max(1.0);
     let viewport_h = ui.ctx().screen_rect().height().max(1.0);
-    let measurer = EguiMeasurer { ctx: ui.ctx() };
-    let ctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
+    let measurer = measurer_for(ui.ctx());
+    let ctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &*measurer };
     let list = layout::layout_cached(dom, &ctx);
     // DUMP DO RENDER (`RTS_DOM_PAINT=1`): o que o backend receberia neste frame.
     //
@@ -199,8 +236,8 @@ pub(crate) fn render_dom_scrolled(
     // (cascade de todas as regras × nós — numa página Bootstrap ~2700 regras) só
     // precisa re-rodar quando o DOM/estilo MUDAM (`render_revision`) ou o viewport
     // muda. Era a "travada" ao clicar: re-layout completo por frame.
-    let measurer = EguiMeasurer { ctx: ui.ctx() };
-    let lctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
+    let measurer = measurer_for(ui.ctx());
+    let lctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &*measurer };
     // A barra e o offset são aplicados SOBRE a lista, então esta cópia é
     // necessária — mas ela agora parte de uma lista cacheada pelo próprio DOM.
     let mut list = rts_dom::store::with_dom(h, |d| (*layout::layout_cached(d, &lctx)).clone())

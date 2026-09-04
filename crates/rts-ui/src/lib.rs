@@ -151,6 +151,11 @@ pub fn install(context: &mut Context) {
 /// Idempotente, e no-op quando nenhuma GPU foi criada.
 pub fn shutdown() {
     rts_egui::compute::shutdown();
+    // Não é GPU, mas é o mesmo "o processo vai mesmo morrer agora": limpa o
+    // medidor de texto que a última janela a pintar registou em
+    // `rts_dom::layout::medidor_ativo`, para não sobreviver ao processo que o
+    // registou.
+    rts_egui::clear_active_measurer();
 }
 
 /// `rts:egui`, montado das três metades da superfície.
