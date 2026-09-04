@@ -16,6 +16,7 @@ mod grid;
 mod grid_colocacao;
 mod grid_corpus;
 mod grid_intrinseco_corpus;
+mod hifen_corpus;
 mod inline;
 mod inline_corpus;
 mod inline_fragmentos_corpus;

@@ -6,9 +6,7 @@
 //! (`fechar_cluster`, `juntar`) que fecham com `    }` a quatro espaços — quem
 //! cortar este ficheiro por blocos em vez de por item de topo fecha blocos
 //! falsos no meio da função, e ali isso não dá erro de compilação.
-//!
-//! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
-//! alterada — a reconstrução deste ficheiro é byte a byte a do original.
+//! O hífen suave (`hyphens`) vive em `hifen.rs` por causa do teto.
 
 use super::*;
 pub(in crate::layout) fn wrap_runs(
@@ -36,6 +34,9 @@ pub(in crate::layout) fn wrap_runs(
     // vice-versa) são as "duas verdades" que este ficheiro já pagou uma vez
     // para `letter-spacing`.
     word_spacing: f32,
+    // `hyphens` do container: `manual`/`auto` deixam o U+00AD ser oportunidade
+    // de quebra (`hifen.rs`); `none` apaga-o antes de medir.
+    hifen_manual: bool,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
@@ -103,7 +104,30 @@ pub(in crate::layout) fn wrap_runs(
                 let so_texto = cluster.iter().all(|p| p.atomico.is_none());
                 let enche_a_linha =
                     quebra == crate::inline_box::QuebraDentro::Sempre && so_texto;
-                if !at_line_start && !enche_a_linha && cur_w + need > max_w(lines.len()) {
+                // HÍFEN SUAVE (`hifen.rs`): a palavra que não cabe deixa na linha
+                // o prefixo com "-" e o aglomerado esvazia — o laço abaixo não emite.
+                if hifen_manual
+                    && !enche_a_linha
+                    && cluster.len() == 1
+                    && cluster[0].atomico.is_none()
+                    && cluster[0].texto.contains(hifen::SHY)
+                    && cur_w + need > max_w(lines.len())
+                {
+                    let (sep_w, vao, peca) =
+                        (if sep { space_w(m) } else { 0.0 }, sep && cluster_de_fora, &cluster[0]);
+                    if hifen::emitir_com_hifen(
+                        &mut cur, &mut lines, &mut cur_w, &mut at_line_start,
+                        &runs[peca.run], &peca.texto, peca.largura, sep_w, vao,
+                        max_w, font_size, mono, m,
+                    ) {
+                        cluster.clear();
+                    }
+                }
+                if !cluster.is_empty()
+                    && !at_line_start
+                    && !enche_a_linha
+                    && cur_w + need > max_w(lines.len())
+                {
                     lines.push(std::mem::take(&mut cur));
                     cur_w = 0.0;
                     at_line_start = true;
@@ -143,7 +167,7 @@ pub(in crate::layout) fn wrap_runs(
                             if com_espaco {
                                 texto.push(' ');
                             }
-                            texto.push_str(&peca.texto);
+                            texto.push_str(&hifen::sem_shy(&peca.texto));
                             let largura = peca.largura + espaco;
                             // PARTIR DENTRO DA PALAVRA — o que `overflow-wrap` e
                             // `word-break` ligam. A pergunta faz-se aqui, na
@@ -343,12 +367,12 @@ pub(in crate::layout) fn wrap_runs(
         // grande, com 11 000 `text_width` por frame.
         let miolo = apara_css(&run.text);
         if !miolo.contains(e_espaco_css) && !tem_quebra_forcada {
-            let w = m.text_width(miolo, font_size, mono, run.bold, run.italic);
+            let w = m.text_width(&hifen::sem_shy(miolo), font_size, mono, run.bold, run.italic);
             let terminava_em_espaco = run.text.ends_with(e_espaco_css);
             juntar!(
                 Peca {
                     run: i,
-                    texto: miolo.to_string(),
+                    texto: hifen::texto_da_peca(miolo, hifen_manual),
                     largura: w,
                     atomico: None
                 },
@@ -380,7 +404,12 @@ pub(in crate::layout) fn wrap_runs(
         // ENTRE palavras — o scanner abaixo já faz isso por peça, este atalho
         // não. Desviar para o scanner é mais lento e correto; inventar um fator
         // aqui seria a mesma "segunda verdade" que `letter-spacing` já pagou.
-        if abre_cluster && fecha_cluster && !tem_quebra_forcada && word_spacing == 0.0 {
+        if abre_cluster
+            && fecha_cluster
+            && !tem_quebra_forcada
+            && word_spacing == 0.0
+            && !run.text.contains(hifen::SHY)
+        {
             let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
             if !normalizado.is_empty() {
                 let w = m.text_width(&normalizado, font_size, mono, run.bold, run.italic);
@@ -429,11 +458,11 @@ pub(in crate::layout) fn wrap_runs(
             let end = rest.find(e_espaco_css).unwrap_or(rest.len());
             let word = &rest[..end];
             rest = &rest[end..];
-            let ww = m.text_width(word, font_size, mono, run.bold, run.italic);
+            let ww = m.text_width(&hifen::sem_shy(word), font_size, mono, run.bold, run.italic);
             juntar!(
                 Peca {
                     run: i,
-                    texto: word.to_string(),
+                    texto: hifen::texto_da_peca(word, hifen_manual),
                     largura: ww,
                     atomico: None
                 },

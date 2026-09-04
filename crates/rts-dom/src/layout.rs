@@ -74,6 +74,7 @@ mod flex;
 mod grid;
 mod grid_linhas;
 mod grid_tracks;
+mod hifen;
 mod linha;
 mod quebra;
 mod runs;
