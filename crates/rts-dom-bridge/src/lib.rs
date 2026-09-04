@@ -45,6 +45,11 @@ mod timers;
 mod tree;
 mod value;
 
+/// Cruza `dom.ts`/`window.ts` contra as tabelas `MEMBERS` acima — ver o
+/// comentário de topo do ficheiro para o que isto apanhou.
+#[cfg(test)]
+mod contrato_tests;
+
 /// Registra `rts:dom`.
 ///
 /// Chamado pelo HOST e não por um construtor daqui, pela mesma razão que o

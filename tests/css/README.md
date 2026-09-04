@@ -42,51 +42,49 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-08-18: 7 das 42 fixtures passam**, a 1px de tolerância. São 256 desvios
-em 35 ficheiros. A 2px passam 8; a 5px, 9 — a tolerância comprou quase nada, o
-que diz que o que falha, falha por mecanismo e não por arredondamento.
+**2026-09-04: 41 das 49 fixtures passam**, a 1px de tolerância. São 23 desvios
+em 8 ficheiros — o denominador cresceu de 42 para 49 desde a última vez que
+este número foi gravado aqui (2026-08-18: 7/42); a tabela abaixo não compara
+as duas medições ponto a ponto, só regista a mais recente.
 
-**A entrada foi verificada**: as 42 fixtures que existem foram as 42 medidas no
-Chrome, todas a 1280x800 e nenhuma a transbordar a altura do viewport (uma
-barra de scroll estreitaria o layout em ~15px e falsificaria todas as larguras
-percentuais dessa página). O corredor conta os `*.html` que existem, não os que
-correram.
+**Contra que binário:** `target/release/rts.exe`, construído em 2026-09-03
+sobre o commit `fc84d04f`, via `examples/claude-css-runner.ts`.
 
-**Contra que binário:** o `target/release/examples/run_fixture.exe` de
-2026-08-18 17:09. O `HEAD` desta branch é `0bcbb0ef` (17:24), **15 minutos mais
-recente** — e esse commit toca precisamente no grid por áreas nomeadas, uma das
-fixtures na tabela abaixo. Este número não foi re-medido contra ele, e diz-se
-em vez de se deixar passar por um número de `HEAD`: um número que não foi
-re-medido é uma alegação. Reconstrua e volte a correr para o atualizar.
+**As 8 que falham FICAM no corpus a falhar** — a regra que não levanta,
+`CLAUDE.md`: não se apaga uma fixture nem se ajusta um esperado para o número
+subir, porque um corpus verde por construção não é uma rede de segurança, é um
+enfeite.
 
-Passam: `box-sizing`, `dimensoes-percentuais`, `flex-alinhamento`,
-`flex-grow-shrink`, `min-max`, `position-fixed`, `z-index`.
-
-**As 35 que falham FICAM no corpus a falhar.** Não se apaga uma fixture nem se
-ajusta um esperado para o número subir — está no `CLAUDE.md` como a regra que
-não levanta, e um corpus verde por construção não é uma rede de segurança, é
-um enfeite.
+```
+claude-clear                claude-position-absolute    claude-vertical-align
+claude-float-clear          claude-position-relative    claude-white-space
+claude-grid-areas           claude-text-align
+```
 
 ### O que está por trás delas
 
+Só os mecanismos das 8 fixtures que ainda falham hoje (2026-09-04). As linhas
+sobre `background-shorthand`/`cor-e-fundo`/`especificidade`/`heranca`/
+`important`/`seletor-*`/`where-vs-is` (altura de linha por omissão),
+`border-lados` (border-<lado> como longhand), `list-style-type` (folha UA de
+listas), `where-vs-is` (especificidade de `:is`/`:where`),
+`computed-valor-inicial`/`overflow`/`opacity-visibility`/`flex-*`/`grid-colunas`/
+`grid-linhas-gap` (`computedProperty` do valor inicial), `box-model`/
+`margin-collapse`/`padding-border` (colapso de margens), `display-basico`
+(inline/inline-block/none) e `font-size-unidades` (em/rem/% em font-size)
+saíram porque nenhuma fixture que citavam continua na lista de falhas —
+mecanismo resolvido, não fixture apagada (a fixture continua no corpus e
+corre; só deixou de precisar de linha aqui).
+
 | mecanismo | fixtures | o desvio |
 |---|---|---|
-| altura de linha por omissão | `background-shorthand`, `cor-e-fundo`, `especificidade`, `var-fallback`, `heranca`, `important`, `seletor-irmaos`, `seletor-atributo`, `where-vs-is` | uma caixa de uma linha de texto mede 20.8 e o Chrome diz 18 — a nossa `line-height` inicial é um fator fixo onde o Chrome usa a métrica da fonte. **É a causa isolada mais cara do corpus**: as três fixtures de seletores acertam TODAS as cores e falham só por isto |
-| `border-<lado>` como longhand | `border-lados` | `border-top: 10px solid` não acrescenta nada à altura: a caixa mede 20 onde o Chrome diz 30, e os quatro lados diferentes dão 200x20 onde o Chrome diz 206x24 |
 | `clear` por lado | `clear`, `float-clear` | `clear: right` desce abaixo do float ESQUERDO (y=95 onde o Chrome diz 40) — os três valores comportam-se como um só, e `clear: none` também desce |
 | `vertical-align` | `vertical-align` | ausente: os sete `inline-block` de alturas diferentes ficam todos em y=0, onde o Chrome os espalha entre 7.25 e 19.91 |
-| folha de estilo do agente para listas | `list-style-type` | um `<li>` começa em x=0 e mede 1280 de largura; o Chrome dá x=40 e 1240, porque o `<ul>` traz `padding-inline-start: 40px` da folha de UA |
-| especificidade de `:is` / `:where` | `where-vs-is` | `:is(.marca)` perde para uma `div` escrita depois (devia valer 0,1,0) e `:is(p, #nao-existe)` não conta pelo `#id`; a metade do `:where` já está certa |
-| `computedProperty` não resolve o valor INICIAL | `computed-valor-inicial`, `overflow`, `opacity-visibility`, `flex-row`, `flex-column`, `flex-wrap`, `grid-colunas`, `grid-linhas-gap`, `float-clear` | uma propriedade que ninguém declarou responde `""` onde o browser responde `block` / `visible` / `static` |
-| colapso de margens | `box-model`, `margin-collapse`, `padding-border`, `position-absolute` | margens verticais adjacentes somam-se em vez de colapsarem, e a do primeiro filho não atravessa um pai transparente |
 | `float` | `float-clear`, `clear` | o float não sai do fluxo (o pai só de floats mede 60 e devia medir 0) e o `clear` não empurra |
-| `inline` vs `inline-block` vs `none` | `display-basico` | `inline` aceita `width`/`height` (300x300 onde o Chrome dá 26x19), `inline-block` computa como `inline`, e `display: none` continua a ocupar 255px de fluxo |
-| deslocamento de `position` | `position-relative`, `position-absolute` | `top`/`left` num relativo não deslocam; `top:0;left:0;right:0;bottom:0` num absoluto dá 0x0 em vez de esticar |
-| `em` / `rem` / `%` em `font-size` | `font-size-unidades` | `150%` computa 20px em vez de 30px — a percentagem não usa o pai como base |
+| deslocamento de `position` | `position-relative`, `position-absolute` | `top`/`left` num relativo não deslocam; `top:0;left:0;right:0;bottom:0` num absoluto dá 0x0 em vez de esticar — confirmado como dívida aberta pela auditoria estrutural de 2026-09-04 ("`position:relative` nunca desloca a pintura", frente B) |
 | `white-space` | `white-space` | `nowrap` e `pre` não mudam a quebra: as quatro caixas medem 20 de altura onde o Chrome dá 20, 20, 40 e 40 |
-| medida de texto | `text-align`, `largura-auto`, `letter-spacing` | a nossa largura de 5 caracteres monospace é 28.8 onde o Chrome dá 26.39, e o `letter-spacing` não entra na medição de todo |
+| medida de texto | `text-align` | a nossa largura de 5 caracteres monospace divergia do Chrome; `largura-auto` e `letter-spacing`, medidos pelo mesmo mecanismo, já passam — `text-align` é o que resta |
 | `grid-template-areas` | `grid-areas` | os itens da linha do meio ficam com altura 0 e o rodapé sobe para y=60 em vez de y=360 |
-| `line-height` computado | `line-height` | responde o fator cru (`2`) onde o browser responde o valor resolvido (`32px`) |
 
 ---
 

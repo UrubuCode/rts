@@ -86,11 +86,6 @@ impl Dom {
         self.last_fragment.borrow_mut().clear();
     }
 
-    /// Quantos fragmentos estão guardados (métricas e teste).
-    pub(crate) fn fragment_count(&self) -> usize {
-        self.fragment_cache.borrow().len()
-    }
-
     pub(crate) fn display_cache_get(
         &self,
         key: DisplayKey,

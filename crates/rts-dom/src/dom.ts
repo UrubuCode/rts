@@ -906,24 +906,18 @@ class Element {
     dom.setStyle(this._dom, this._node, slot, val);
   }
 
-  // `el.getBoundingClientRect()` — o retângulo (border-box) deste elemento, lido do
-  // LAYOUT que o motor calcula. Devolve um DOMRect-like {x,y,width,height,top,left,
-  // right,bottom}. ⚠️ HEADLESS: o browser usa o viewport real; aqui o layout precisa
-  // de uma largura — passe `viewportW` (default 1280). Os componentes vêm do Rust em
-  // pontos×1000 (subpixel preservado); dividimos por 1000. Se o nó não tem caixa
-  // (texto/inline/display:none), tudo é 0.
-  getBoundingClientRect(viewportW: number): DOMRectLike {
-    const vw = viewportW > 0 ? viewportW : 1280;
-    // extrai cada componente para uma const antes de comparar (limite i64-cmp inline).
-    const rawX = dom.boundingComponent(this._dom, this._node, vw, 0);
-    const rawY = dom.boundingComponent(this._dom, this._node, vw, 1);
-    const rawW = dom.boundingComponent(this._dom, this._node, vw, 2);
-    const rawH = dom.boundingComponent(this._dom, this._node, vw, 3);
-    // -1 (sem caixa) vira 0 — getBoundingClientRect de elemento sem layout é zeros.
-    const x = rawX < 0 ? 0 : rawX / 1000;
-    const y = rawY < 0 ? 0 : rawY / 1000;
-    const w = rawW < 0 ? 0 : rawW / 1000;
-    const h = rawH < 0 ? 0 : rawH / 1000;
+  // `el.getBoundingClientRect()` — o retângulo (border-box), sem argumento (fiel ao
+  // MDN: nem o browser nem `boundingRect(doc,node,which)` recebem viewport por
+  // chamada — o layout usa o viewport ATUAL do `Dom`, default 1280×800 headless).
+  // Já em pontos (o Rust devolve `f32` direto, não `i64`×1000); nó sem caixa vem 0.
+  // ANTES chamava a chave errada com um 4º argumento que a função Rust não tem
+  // (`dom.boundingComponent(doc,node,vw,which)`) e lançava TypeError sempre — a
+  // certa é `boundingRect`, 3 argumentos.
+  getBoundingClientRect(): DOMRectLike {
+    const x = dom.boundingRect(this._dom, this._node, 0);
+    const y = dom.boundingRect(this._dom, this._node, 1);
+    const w = dom.boundingRect(this._dom, this._node, 2);
+    const h = dom.boundingRect(this._dom, this._node, 3);
     return {
       x: x, y: y, width: w, height: h,
       top: y, left: x, right: x + w, bottom: y + h,
