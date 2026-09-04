@@ -86,10 +86,14 @@ impl DisplayKind {
             | DisplayKind::TableRow
             | DisplayKind::TableCell
             | DisplayKind::TableCaption => 0,
-            DisplayKind::FlexWrap
-            | DisplayKind::Inline
-            | DisplayKind::InlineBlock
-            | DisplayKind::Grid => 1, // wrap
+            // Um `inline`/`inline-block` com filhos é um contexto de formatação
+            // de BLOCO (CSS 2.1 §9.4.1): os filhos empilham e fluem como num
+            // bloco — e é o fluxo de bloco que dá a corrida de inline-blocks
+            // irmãos a baseline própria. Mapeá-los ao eixo "wrap" (o colocador
+            // horizontal do flex) punha o caret `::after` do Bootstrap no topo
+            // da linha e qualquer filho de bloco lado a lado com o irmão.
+            DisplayKind::Inline | DisplayKind::InlineBlock => 0,
+            DisplayKind::FlexWrap | DisplayKind::Grid => 1, // wrap
             DisplayKind::Flex => 2, // horizontal (lado a lado)
             DisplayKind::None => -1,
         }

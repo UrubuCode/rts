@@ -22,6 +22,8 @@ fn a_borda_por_lado_entra_na_largura_intrinseca_e_na_base_flex() {
     let (dom, list) = geometria(HTML, 1280.0);
     let w = |s: &str| rect(&dom, &list, s, 0).w;
     assert_eq!(w("#caret"), 12.0, "só bordas: 6 + 6");
+    let c = rect(&dom, &list, "#caret", 0);
+    assert!((c.y - 9.0).abs() <= 1.0, "o caret senta na baseline: y={}", c.y);
     assert!((w("#texto") - 29.59).abs() <= 1.0, "\"ab\" + 3 + 9: {}", w("#texto"));
     assert_eq!(w("#item"), 42.0, "item flex: 20 + 10 de padding + 12 de borda");
     assert!((w("#ib") - 41.59).abs() <= 1.0, "o inline-block que os contém: {}", w("#ib"));
