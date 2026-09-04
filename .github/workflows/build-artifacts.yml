@@ -290,6 +290,26 @@ jobs:
           if [ -n "$inesperadas" ]; then echo "::error::fixtures a falhar FORA da lista esperado-a-falhar: $inesperadas"; exit 1; fi
           echo "so falham as esperadas: $(wc -l < esperadas.txt) ficheiro(s)"
 
+      # O número do README é o que ESTE job mediu (o mesmo padrão do bloco
+      # cross-runtime): regiões CSS_PARITY_BADGE / CSS_DOM_STATS e o JSON em
+      # .github/. `always()` porque o passo acima sai 1 quando cai uma fixture
+      # fora da lista — e é exactamente nesse dia que o número tem de descer à
+      # vista. `pull --rebase` antes do push: o job cross-runtime também
+      # escreve o README no mesmo run.
+      - name: Update README with CSS/DOM parity (main)
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          test -f corpus.txt || { echo "sem corpus.txt — o corredor não correu"; exit 0; }
+          node scripts/css_parity_readme.mjs corpus.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md .github/css_parity_report.json
+          if git diff --cached --quiet; then echo "nada mudou"; exit 0; fi
+          pct=$(node -e "console.log(require('./.github/css_parity_report.json').measurements.pct)")
+          git commit -m "docs: auto-update CSS/DOM parity badge (${pct}%)"
+          for i in 1 2 3; do git pull --rebase && git push && break || sleep 10; done
+
   # Os testes Rust do rts-dom (sem dependências: segundos) e do rts-dom-bridge
   # (o teste de contrato que cruza o que a fachada chama com o que o bridge
   # regista — o que teria apanhado getBoundingClientRect morto). Perfil dev de

@@ -1,0 +1,74 @@
+{
+  "date": "2026-09-04",
+  "fixtures": {
+    "passing": 86,
+    "total": 91,
+    "pct": 94.5
+  },
+  "measurements": {
+    "matching": 2142,
+    "total": 2168,
+    "pct": 98.8
+  },
+  "expected_failures": [
+    {
+      "fixture": "claude-ua-form-disabled.html",
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+    },
+    {
+      "fixture": "claude-ua-headings.html",
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+    },
+    {
+      "fixture": "claude-ua-th.html",
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+    },
+    {
+      "fixture": "claude-cursor-pointer-events.html",
+      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento;\r nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)\r"
+    },
+    {
+      "fixture": "claude-img-natural.html",
+      "razao": "vaga 7 — medida no Edge 152 ANTES do código (lote V-img: `rts:imgdec`,\r `dom.setImage` e o loader de `data:` não existem no motor novo). Blink: o\r `<img>` sem atributos mede o tamanho natural do PNG (4×2) e `width` sozinho\r mantém a razão (40×20).\r"
+    }
+  ],
+  "dom_lots": {
+    "feitos": [
+      "A — contrato DOM→JS",
+      "B — um medidor activo",
+      "C — `position` relative/absolute",
+      "D — grid: rows por áreas",
+      "E — BFC, floats, `clear`",
+      "F — baseline, `vertical-align`, `white-space`",
+      "G — scroll no documento",
+      "H — o escopo de página não vê o Node",
+      "I — folha de UA em CSS real",
+      "J — `DeclarationRecord` e `revert`",
+      "K — invalidação escopada para `:nth-child`",
+      "L — cache de fragmentos em flex/grid/tabela",
+      "M — ciclo de vida do nó",
+      "N — réguas no CI",
+      "O — selectores que faltam",
+      "P — at-rules",
+      "R — grid e flex completos",
+      "S — propriedades sem efeito — grupo TEXTO",
+      "S-transform — transformações 2D",
+      "U-pintura-1 — rotação e recorte na pintura",
+      "N-pintura — a régua de PINTURA (screenshot-diff contra o Blink)",
+      "réguas-6 — as réguas da vaga 6 ANTES do código",
+      "S-hifen — `hyphens: manual` — o hífen suave",
+      "U-pintura-2 — junção diagonal das bordas; imagens mascaradas na régua",
+      "S-inline-2 — inline com superfície por FRAGMENTOS de linha",
+      "img-fundo — fundo do `<img>` sem pixels",
+      "T — fontes: `ex`/`ch`, `line-height: normal`, `font-family` como lista"
+    ],
+    "parciais": [
+      "S-inline — caixa inline por FRAGMENTOS de linha"
+    ],
+    "pendentes": [
+      "Q — CSSOM",
+      "U — composição e pintura",
+      "V–Y — a superfície DOM que as bibliotecas pedem"
+    ]
+  }
+}

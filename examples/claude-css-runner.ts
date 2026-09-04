@@ -35,6 +35,13 @@ fixtures.sort();
 interface Desvio { fixture: string; onde: string; esperado: string; obtido: string; }
 
 const desvios: Desvio[] = [];
+// MEDIÇÕES: cada x/y/w/h e cada propriedade computada contam uma; `batem` é
+// quantas bateram. É o número fino que o README mostra (`scripts/
+// css_parity_readme.mjs`): sobe dentro de uma fixture que ainda falha, ao
+// contrário do "passa/falha" por ficheiro. Um elemento que o motor não
+// encontra conta as 4 do rect como falhadas.
+let medicoes = 0;
+let batem = 0;
 const semEsperado: string[] = [];
 const passam: string[] = [];
 const falham: string[] = [];
@@ -119,6 +126,7 @@ for (const nome of fixtures) {
     const alvo = nosso[id];
     if (alvo === undefined) {
       desvios.push({ fixture: nome, onde: "#" + id, esperado: "o elemento existe", obtido: "o motor não o encontrou" });
+      medicoes = medicoes + 4;
       continue;
     }
     const r: number[] = elementos[id].rect;
@@ -130,6 +138,8 @@ for (const nome of fixtures) {
     ];
     const rotulos = ["x", "y", "w", "h"];
     for (let k = 0; k < 4; k = k + 1) {
+      medicoes = medicoes + 1;
+      if (proximo(meu[k], r[k])) { batem = batem + 1; }
       if (!proximo(meu[k], r[k])) {
         desvios.push({
           fixture: nome, onde: "#" + id + "." + rotulos[k],
@@ -141,6 +151,7 @@ for (const nome of fixtures) {
     // fixture nomeia. Sem ele, comparam-se todos.
     if (idsDeEstilo.length > 0 && idsDeEstilo.indexOf(id) < 0) { continue; }
     for (const p of propsAqui) {
+      medicoes = medicoes + 1;
       if (elementos[id].estilo[p] === undefined) {
         // A fixture pede uma propriedade que a medição no Chrome não recolheu.
         // É uma falha do INSTRUMENTO e não do motor, e tem de se ver como tal.
@@ -150,6 +161,7 @@ for (const nome of fixtures) {
       }
       const querido = String(elementos[id].estilo[p]);
       const obtido = String(computedProperty(doc, alvo, p));
+      if (obtido === querido) { batem = batem + 1; }
       if (obtido !== querido) {
         desvios.push({ fixture: nome, onde: "#" + id + " {" + p + "}", esperado: querido, obtido: obtido });
       }
@@ -184,6 +196,7 @@ if (desvios.length > 0) { console.log(""); }
 console.log("passam: " + String(passam.length) +
             " | falham: " + String(falham.length + semEsperado.length) +
             " | desvios: " + String(desvios.length));
+console.log("medicoes: " + String(batem) + "/" + String(medicoes));
 if (verboso) {
   for (const n of passam) { console.log("  ok  " + n); }
 }
