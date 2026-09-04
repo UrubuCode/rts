@@ -1,0 +1,7 @@
+# Fixtures do corpus CSS que FALHAM de proposito: cada uma nomeia uma lacuna do
+# motor medida no Blink (tests/css/README.md, "O numero, hoje"). O job dom-rulers
+# do CI fica vermelho se falhar uma fixture que NAO esta aqui, e avisa se uma
+# daqui passar (a lista ficou para tras). Uma linha por ficheiro; # e comentario.
+claude-ua-form-disabled.html
+claude-ua-headings.html
+claude-ua-th.html
