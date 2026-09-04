@@ -63,6 +63,7 @@ pub mod text;
 pub mod text_metrics;
 /// As longhands de `transition-*`/`animation-*` — ver o módulo.
 pub mod timing;
+pub mod ua;
 pub mod values;
 pub(crate) mod vars;
 /// O vocabulário do 2º lote de propriedades (keywords novos) — ver o módulo.

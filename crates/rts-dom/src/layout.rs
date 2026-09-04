@@ -94,7 +94,7 @@ pub(crate) use self::itens::{record_node_rect, reserve_node_order};
 pub(crate) use self::medida::intrinsic_outer_width;
 pub(crate) use self::pintura::border_items;
 pub(crate) use self::posicionado::is_out_of_flow;
-use self::caixa::{css_display, em_contexto_inline, is_block_level, is_inline_block, is_inline_text_container, ua_list_indent, whitespace_is_inline_separator};
+use self::caixa::{css_display, em_contexto_inline, is_block_level, is_inline_block, is_inline_text_container, whitespace_is_inline_separator};
 use self::float::{banda_livre, float_of};
 use self::input::{layout_button, layout_input, medida_do_input};
 use self::itens::{apply_transform_to_item, translate_item, walk_items};

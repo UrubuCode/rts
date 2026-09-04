@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: os defaults de UA de uma tabela — `<th>` negrito e centrado, `<td>`/
+     `<th>` com padding de 1px, `table` com `border-spacing: 2px` — sem
+     NENHUM CSS de autor para eles. SEM .esperado.json: por medir no Chrome
+     (scripts/css_fixtures_medir.md). Lote I, PLAN.md §4.I. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="cabecalho,celula,linha,tabela">
+<meta name="fixar-estilo" content="display,font-weight,text-align,padding-top,padding-left">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+</style></head>
+<body>
+  <table id="tabela">
+    <tr id="linha">
+      <th id="cabecalho">Nome</th>
+      <td id="celula">Valor</td>
+    </tr>
+  </table>
+</body>
+</html>

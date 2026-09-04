@@ -207,39 +207,26 @@ pub(in crate::layout) fn css_display(dom: &Dom, id: NodeIdx) -> i64 {
     }
 }
 
-/// O `display` USADO de um nó: o do CSS de autor, senão o default da UA para a
-/// tag ([`crate::block::ua_display`]), senão `None` — e `None` aqui significa
-/// "o fluxo de bloco genérico decide", não "sem display".
+/// O `display` USADO de um nó: o `display` computado (autor OU UA — a UA já
+/// entra na cascade via `style/ua.css`, lote I), senão `None` — e `None` aqui
+/// significa "o fluxo de bloco genérico decide", não "sem display".
 ///
 /// Existe ao lado de [`css_display`] e não em vez dele porque as duas respondem
 /// a perguntas diferentes: aquela dá o EIXO em que os filhos empilham (um `i64`
 /// que o TS também escreve), esta dá o PAPEL da caixa. Um `<tr>` tem eixo
 /// vertical e papel de linha de tabela, e só a segunda pergunta o distingue de
 /// um `<div>`.
-/// O recuo default que uma caixa de lista (`<ul>`/`<ol>`) dá aos seus itens, ou
-/// 0 quando o autor declarou o seu próprio `padding-left`.
-pub(in crate::layout) fn ua_list_indent(dom: &Dom, id: NodeIdx, p: &crate::style::Edges) -> f32 {
-    if p.left != crate::style::Side::Unset {
-        return 0.0;
-    }
-    match &dom.node(id).kind {
-        NodeKind::Element { tag } if crate::block::is_list_container(tag) => {
-            crate::block::UA_LIST_INDENT
-        }
-        _ => 0.0,
-    }
-}
-
 pub(crate) fn used_display(dom: &Dom, id: NodeIdx) -> Option<crate::style::DisplayKind> {
-    let NodeKind::Element { tag } = &dom.node(id).kind else {
+    let NodeKind::Element { .. } = &dom.node(id).kind else {
         return None;
     };
-    if let Some(css) = dom.computed_style_idx(id) {
-        if let Some(k) = css.effective_display() {
-            return Some(k);
-        }
-    }
-    crate::block::ua_display(tag)
+    // O `display` de papel (`list-item`/`table`/`table-row`/`table-cell`/…)
+    // já chega pela CASCADE — `style/ua.css` declara-o para cada tag como
+    // qualquer outra propriedade, na origem UA (lote I). Antes disto era
+    // `crate::block::ua_display(tag)`, um `match` chamado AQUI, depois da
+    // cascade, que uma regra de autor (`td { display: block }`) nunca
+    // conseguia vencer — porque a cascade nunca a via.
+    dom.computed_style_idx(id).and_then(|css| css.effective_display())
 }
 
 /// O `font-size` COMPUTADO em pontos: a CASCADE já resolveu a forma para `Px`

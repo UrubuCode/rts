@@ -340,21 +340,11 @@ pub fn ua_display(tag: &str) -> Option<crate::style::DisplayKind> {
     })
 }
 
-/// O RECUO default da UA para as listas: `<ul>`/`<ol>` têm
-/// `padding-inline-start: 40px` na folha de todo browser, e é o que põe o texto
-/// do `<li>` 40px à direita da caixa da lista (o marcador vive nesse recuo).
-///
-/// Devolvido como função em vez de virar um `SLOT_PADDING` na UA-stylesheet
-/// porque aquele slot é o padding dos QUATRO lados, e aplicá-lo daria 40px em
-/// cima e em baixo também. Quem chama respeita a precedência: um
-/// `padding-left` do autor (`list-style:none;padding-left:0` de um menu) anula
-/// este default, como na cascade real.
-pub const UA_LIST_INDENT: f32 = 40.0;
-
-/// `true` se a tag é uma das duas caixas de lista que recebem [`UA_LIST_INDENT`].
-pub fn is_list_container(tag: &str) -> bool {
-    matches!(tag, "ul" | "ol" | "menu" | "dir")
-}
+// O recuo de lista (`padding-inline-start: 40px` de `<ul>`/`<ol>`/`<menu>`/
+// `<dir>`) vivia aqui como `UA_LIST_INDENT`/`is_list_container`, consultado
+// pelo layout DEPOIS da caixa resolvida. Apagado no lote I: é uma regra CSS
+// normal em `style/ua.css` agora, que a cascade já aplica antes do layout ver
+// o `padding` — `layout/bloco.rs` deixou de chamar uma função à parte.
 
 thread_local! {
     /// Flag de "UA já instalada nesta thread" (idempotência sem custo por-parse).

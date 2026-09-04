@@ -4,11 +4,23 @@
 
 use super::*;
 
+impl Default for Stylesheet {
+    fn default() -> Stylesheet { Stylesheet::new() }
+}
+
+/// A chave `!important`: layer e `origin` invertidas (a UA vence o autor —
+/// CSS Cascade 5 §6.1), partilhada por `custom_important_from`/`declarations_from`.
+fn important_key((origin, layer, spec, order, _): (u32, u32, u32, u32, usize)) -> (u32, u32, u32, u32) {
+    let layer = if layer == u32::MAX { 0 } else { u32::MAX - layer };
+    (1 - origin, layer, spec, order)
+}
+
 impl Stylesheet {
-    /// Stylesheet vazio (nenhuma regra).
+    /// Stylesheet SEM regras de autor — mas não vazio: toda folha carrega a
+    /// UA-stylesheet (`style::ua`, lote I) desde a construção. Ver `mod.rs`.
     pub fn new() -> Stylesheet {
         Stylesheet {
-            rules: Vec::new(),
+            rules: crate::style::ua::rules(),
             syntax: Vec::new(),
             keyframes: std::collections::HashMap::new(),
             index: std::cell::RefCell::new(super::ruleindex::RuleIndex::default()),
@@ -367,7 +379,7 @@ impl Stylesheet {
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
         crate::bump!(rules_considered, cand.len());
         let index = self.index.borrow();
-        let mut rules: Vec<(u32, u32, u32, usize)> = cand
+        let mut rules: Vec<(u32, u32, u32, u32, usize)> = cand
             .iter()
             .filter_map(|&i| {
                 let r = &self.rules[i];
@@ -381,6 +393,7 @@ impl Stylesheet {
                     && matches(&r.selector))
                 .then(|| {
                     (
+                        u32::from(!r.is_ua), // origem: UA(0) < autor(1), sempre mais fraca
                         r.layer.unwrap_or(u32::MAX),
                         index.specificity(i),
                         r.order,
@@ -390,7 +403,7 @@ impl Stylesheet {
             })
             .collect();
         crate::bump!(rules_matched, rules.len());
-        rules.sort_by_key(|(layer, specificity, order, _)| (*layer, *specificity, *order));
+        rules.sort_by_key(|(o, l, s, r, _)| (*o, *l, *s, *r));
         MatchedRules { rules }
     }
 
@@ -419,7 +432,7 @@ impl Stylesheet {
     ) -> (MatchedRules, Option<std::rc::Rc<crate::pseudo::Content>>) {
         let cand = self.candidate_indices(node_tag, node_id, node_classes);
         let index = self.index.borrow();
-        let mut rules: Vec<(u32, u32, u32, usize)> = cand
+        let mut rules: Vec<(u32, u32, u32, u32, usize)> = cand
             .iter()
             .filter_map(|&i| {
                 let r = &self.rules[i];
@@ -428,6 +441,7 @@ impl Stylesheet {
                     && matches(&r.selector))
                 .then(|| {
                     (
+                        u32::from(!r.is_ua),
                         r.layer.unwrap_or(u32::MAX),
                         index.specificity(i),
                         r.order,
@@ -436,11 +450,11 @@ impl Stylesheet {
                 })
             })
             .collect();
-        rules.sort_by_key(|(layer, specificity, order, _)| (*layer, *specificity, *order));
+        rules.sort_by_key(|(o, l, s, r, _)| (*o, *l, *s, *r));
         let content = rules
             .iter()
             .rev()
-            .find_map(|(_, _, _, i)| self.rules[*i].content.clone());
+            .find_map(|(_, _, _, _, i)| self.rules[*i].content.clone());
         (MatchedRules { rules }, content)
     }
 
@@ -463,7 +477,7 @@ impl Stylesheet {
             .rules
             .iter()
             .rev()
-            .find_map(|(_, _, _, i)| self.rules[*i].counters.clone())
+            .find_map(|(_, _, _, _, i)| self.rules[*i].counters.clone())
     }
 
     /// `true` se alguma regra desta folha declara contadores.
@@ -492,7 +506,7 @@ impl Stylesheet {
         matched
             .rules
             .iter()
-            .flat_map(|(_, _, _, i)| self.rules[*i].decls.custom.iter().cloned())
+            .flat_map(|(_, _, _, _, i)| self.rules[*i].decls.custom.iter().cloned())
             .collect()
     }
 
@@ -500,16 +514,10 @@ impl Stylesheet {
     /// layers é invertida para importantes, tal como nas declarações normais.
     pub fn custom_important_from(&self, matched: &MatchedRules) -> Vec<(String, String)> {
         let mut rules = matched.rules.clone();
-        rules.sort_by_key(|(layer, specificity, order, _)| {
-            (
-                if *layer == u32::MAX { 0 } else { u32::MAX - *layer },
-                *specificity,
-                *order,
-            )
-        });
+        rules.sort_by_key(|k| important_key(*k));
         rules
             .iter()
-            .flat_map(|(_, _, _, i)| self.rules[*i].decls.custom_important.iter().cloned())
+            .flat_map(|(_, _, _, _, i)| self.rules[*i].decls.custom_important.iter().cloned())
             .collect()
     }
 
@@ -522,7 +530,7 @@ impl Stylesheet {
         vars: Option<&std::collections::HashMap<String, String>>,
     ) -> DeclBlock {
         let mut out = DeclBlock::default();
-        for (_, _, _, i) in &matched.rules {
+        for (_, _, _, _, i) in &matched.rules {
             let r = &self.rules[*i];
             out.all_initial_normal |= r.decls.all_initial_normal;
             out.all_initial_important |= r.decls.all_initial_important;
@@ -535,19 +543,10 @@ impl Stylesheet {
                 }
             }
         }
-        // A ordem das layers é invertida para `!important`: a layer mais
-        // antiga vence, enquanto as regras sem layer continuam acima das
-        // nomeadas na camada normal. A especificidade e a ordem de origem já
-        // vêm ordenadas dentro de cada layer.
+        // Ordem invertida p/ `!important` — ver `important_key`.
         let mut important_rules = matched.rules.clone();
-        important_rules.sort_by_key(|(layer, specificity, order, _)| {
-            (
-                if *layer == u32::MAX { 0 } else { u32::MAX - *layer },
-                *specificity,
-                *order,
-            )
-        });
-        for (_, _, _, i) in &important_rules {
+        important_rules.sort_by_key(|k| important_key(*k));
+        for (_, _, _, _, i) in &important_rules {
             let r = &self.rules[*i];
             r.decls.apply_important(&mut out.important);
             if let Some(v) = vars {
