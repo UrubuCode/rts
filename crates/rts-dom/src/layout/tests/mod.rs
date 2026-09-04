@@ -14,6 +14,7 @@ mod grid_corpus;
 mod inline;
 mod pintura;
 mod posicionado;
+mod position_corpus;
     use super::*;
     use crate::dom::parse_html_to_dom;
 

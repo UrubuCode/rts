@@ -18,7 +18,7 @@ enum MarginChildRole {
     Block { top: f32, bottom: f32 },
 }
 
-fn establishes_block_formatting_context(css: &ComputedStyle) -> bool {
+pub(in crate::layout) fn establishes_block_formatting_context(css: &ComputedStyle) -> bool {
     let display_bfc = matches!(
         css.effective_display(),
         Some(
@@ -132,7 +132,7 @@ fn margin_child_role(
     }
 }
 
-fn edge_margin_from_children(
+pub(in crate::layout) fn edge_margin_from_children(
     dom: &Dom,
     id: NodeIdx,
     content_w: f32,
@@ -523,7 +523,12 @@ pub(crate) fn layout_block(
     // Posição do content-box (canto sup-esq): deslocado pelo lado ESQUERDO/TOPO
     // (margin+border+padding daquele lado), não a soma do eixo.
     let content_x = x + margin_left + border_left + pad_left;
-    let content_y = y + margin_top + border_top + pad_top;
+    // MARGIN-COLLAPSE PAI→PRIMEIRO-FILHO — porquê em `margem_escapada.rs`.
+    let escaped_top_pre = crate::layout::margem_escapada::escapada_no_topo(
+        dom, id, &css, content_w, font_for_content, pad_top, border_top, ctx,
+    );
+    let content_y =
+        y + (collapse_margin(margin_top, escaped_top_pre) - escaped_top_pre) + border_top + pad_top;
 
     // Z-ORDER: o fundo/borda da caixa precisam ficar ATRÁS dos filhos. Como a
     // display list é pintada em ordem, reservamos AGORA o índice onde a caixa será
@@ -1003,6 +1008,10 @@ pub(crate) fn layout_block(
             });
         }
     }
+
+    // POSITION:RELATIVE — porquê e o que desloca em `relativo.rs`. ANTES do
+    // `transform`: a caixa de referência dele é a posição já deslocada.
+    aplica_offset_relativo(dom, id, &css, avail_w, avail_h, font_size, box_index, ctx, list);
 
     // ── TRANSFORM (translate/scale/rotate): pós-processa os itens DESTE elemento e
     // seus descendentes (o range `[box_index..]`), em torno do CENTRO do border-box.
