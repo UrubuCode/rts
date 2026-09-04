@@ -1,0 +1,16 @@
+{
+  "name": "rts-vs-electron",
+  "productName": "rts-vs-electron",
+  "version": "1.0.0",
+  "description": "Comparacao de tamanho/arranque: app Electron empacotada abrindo a mesma app React que o rts abre.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-packager . rts-vs-electron --platform=win32 --arch=x64 --overwrite"
+  },
+  "devDependencies": {
+    "electron": "latest",
+    "@electron/packager": "latest"
+  }
+}

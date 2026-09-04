@@ -37,12 +37,20 @@ pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
     }
 
     for &child in &dom.node(table).children {
-        // Um filho que não é elemento (o whitespace entre `<tr>`) não é nada. É
-        // preciso perguntá-lo ANTES do display: `display_of` responde `None`
+        // Um filho que não é elemento é o whitespace entre `<tr>` — nada — OU
+        // texto a sério (`<div style="display:table">abc</div>`), que a spec
+        // embrulha numa célula anónima como a qualquer elemento solto; o nó da
+        // célula é o próprio texto, como já é o próprio elemento mais abaixo.
+        // É preciso perguntá-lo ANTES do display: `display_of` responde `None`
         // tanto para o whitespace como para um `<figcaption>` sem default de UA,
         // e tratar os dois como "nada" era o que apagava o segundo.
-        if !matches!(dom.node(child).kind, crate::NodeKind::Element { .. }) {
-            continue;
+        match &dom.node(child).kind {
+            crate::NodeKind::Element { .. } => {}
+            crate::NodeKind::Text(t) if !t.trim().is_empty() => {
+                soltas.push(child);
+                continue;
+            }
+            _ => continue,
         }
         match display_of(dom, child) {
             Some(DisplayKind::TableCell) => soltas.push(child),

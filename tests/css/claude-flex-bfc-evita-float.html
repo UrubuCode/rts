@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: um `display:flex` (que estabelece um novo BFC) não pode sobrepor a
+     margin-box de um `float:left` anterior — se não couber ao lado, desce
+     para debaixo dele (CSS 2.1 §9.5), tal como um `flow-root`/bloco normal
+     já faz. #flutua (80px) + #flex (256px) somam 336 > 320 do body: não cabe
+     ao lado (sobram só 240), tem de ficar abaixo. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="flutua,flex,filho">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; width: 320px; font: 16px/20px monospace; }
+  #flutua { float: left; width: 80px; height: 40px; background: #36c; }
+  #flex { display: flex; width: 256px; background: #fc0; }
+  #filho { width: 64px; height: 32px; background: pink; }
+</style></head>
+<body>
+<div id="flutua"></div>
+<div id="flex"><div id="filho"></div></div>
+</body>
+</html>

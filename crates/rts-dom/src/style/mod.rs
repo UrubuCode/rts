@@ -34,6 +34,8 @@ pub mod borders;
 pub mod calc;
 pub mod color;
 pub mod cores_nomeadas;
+/// O nome de uma declaração (tokens antes do `:`) — ver o módulo.
+mod declaracao_nome;
 pub mod decoracao;
 pub mod effects;
 pub mod fmt;

@@ -79,6 +79,27 @@ pub(in crate::layout) fn min_main_auto(ccss: &ComputedStyle, natural_h: f32) -> 
     }
 }
 
+/// O piso de `min-height` no eixo principal de coluna: DECLARADO vence
+/// sempre o automático. `min-content` é o caso à parte — resolve para
+/// `natural_h` (o motor não distingue min-content de max-content no eixo de
+/// bloco, CSS Sizing 3 §2.1) e, ao contrário do automático, NÃO some sob
+/// overflow não-visível: é um número que o autor escreveu, não uma
+/// inferência (achado ao medir `flex-item-min-height-min-content-overflow`
+/// — a régua contra a fixture anterior, onde `overflow:auto` zera o
+/// automático, tinha zerado este também).
+pub(in crate::layout) fn min_main(
+    ccss: &ComputedStyle,
+    natural_h: f32,
+    container_h: Option<f32>,
+    resolve: &ResolveCtx,
+) -> f32 {
+    if ccss.min_height == Some(crate::style::Dimension::MinContent) {
+        return natural_h;
+    }
+    resolve_height(ccss.min_height, container_h, resolve).unwrap_or_else(|| min_main_auto(ccss, natural_h))
+}
+
+
 /// ENCOLHIMENTO com piso de `min_main` (CSS Flexbox §9.7) — a mesma iteração
 /// de congelamento de `flex.rs:319-370`, extraída para slices paralelas em
 /// vez de reusar `FlexItem` (que carrega campos do eixo horizontal, como
