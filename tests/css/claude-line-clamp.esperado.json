@@ -2,6 +2,7 @@
  "elementos": {
   "clamp": {
    "estilo": {
+    "-webkit-line-clamp": "2",
     "align-items": "normal",
     "background-color": "rgb(238, 238, 238)",
     "border-spacing": "0px",
@@ -41,6 +42,7 @@
   },
   "sem-clamp": {
    "estilo": {
+    "-webkit-line-clamp": "none",
     "align-items": "normal",
     "background-color": "rgb(238, 238, 238)",
     "border-spacing": "0px",

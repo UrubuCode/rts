@@ -30,6 +30,7 @@
     "text-align": "start",
     "visibility": "visible",
     "white-space": "nowrap",
+    "word-spacing": "-2px",
     "z-index": "auto"
    },
    "rect": [
@@ -69,6 +70,7 @@
     "text-align": "start",
     "visibility": "visible",
     "white-space": "nowrap",
+    "word-spacing": "10px",
     "z-index": "auto"
    },
    "rect": [
@@ -108,6 +110,7 @@
     "text-align": "start",
     "visibility": "visible",
     "white-space": "nowrap",
+    "word-spacing": "0px",
     "z-index": "auto"
    },
    "rect": [

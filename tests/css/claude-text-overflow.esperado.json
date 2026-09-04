@@ -28,6 +28,7 @@
     "padding-top": "0px",
     "position": "static",
     "text-align": "start",
+    "text-overflow": "ellipsis",
     "visibility": "visible",
     "white-space": "nowrap",
     "z-index": "auto"
@@ -67,6 +68,7 @@
     "padding-top": "0px",
     "position": "static",
     "text-align": "start",
+    "text-overflow": "ellipsis",
     "visibility": "visible",
     "white-space": "nowrap",
     "z-index": "auto"
@@ -106,6 +108,7 @@
     "padding-top": "0px",
     "position": "static",
     "text-align": "start",
+    "text-overflow": "ellipsis",
     "visibility": "visible",
     "white-space": "normal",
     "z-index": "auto"
