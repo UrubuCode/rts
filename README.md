@@ -30,17 +30,17 @@
 JS spec compatibility validated against **Bun** and **Node** over 1516 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78%   1181/1514 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78%   1182/1515 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **78%** (1181/1514) |
-| ✅ RTS = Bun = Node | 1181 |
+| **Parity** | **78%** (1182/1515) |
+| ✅ RTS = Bun = Node | 1182 |
 | ❌ RTS diverges | 248 |
 | 💥 RTS runtime error | 85 |
 | 🛠️  **Left to fix** | **333** |
-| ⚠️ Bun ≠ Node (skip) | 1 |
+| ⚠️ Bun ≠ Node (skip) | 0 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1516 |
 
@@ -123,24 +123,25 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 <!-- RTS_VS_ELECTRON_START -->
 ## 📦 RTS vs Electron: packaging the same app
 
-Two packaged builds of the **same** app (`examples/react-app.html`, 144 KB, no network calls) — a native RTS `.exe` and an Electron 44.2.0 bundle — measured by `scripts/rts_vs_electron/medir.mjs`: 3 runs on the Electron side (RTS attempted 3, see below), startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-04 on win32 10.0.26100, AMD EPYC 7763 64-Core Processor (4 logical cores), 16 GB RAM.
+Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145 KB, no network calls) — an Electron 44.2.0 bundle, a native RTS `.exe` (AOT, `rts compile`), and the RTS `rts.exe` engine running the `.ts` source (JIT, `rts run`) — measured by `scripts/rts_vs_electron/medir.mjs`: 5 Electron runs, 5 AOT runs, 5 JIT runs, startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-04 on win32 10.0.26200, Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz (16 logical cores), 47.9 GB RAM.
 
-| | RTS | Electron |
-|---|---:|---:|
-| Exe size | 27.8 MB | 234.8 MB |
-| Folder size | 28.9 MB | 367.6 MB |
-| Files in folder | 5 | 73 |
-| Processes | — | 4 |
-| Startup (median, min–max) | **not built** | 294 ms (216–304) |
-| RSS (median, min–max) | — | 264.6 MB (263.1–265.9) |
-| Private bytes (median) | — | 91.6 MB |
-| CPU at rest (median) | — | 0% |
+| | Electron | RTS `.exe` AOT | RTS `rts.exe` + app |
+|---|---:|---:|---:|
+| Exe size | 234.8 MB | 27.8 MB | 110.1 MB |
+| Folder size | 367.6 MB | 29.9 MB | 110.2 MB |
+| Files in folder | 73 | 7 | 3 |
+| Page JavaScript runs | yes | **no** | yes |
+| Processes | 4 | 2 | 2 |
+| Startup (median, min–max) | 450 ms (387–501) | 382 ms (354–518) | 2488 ms (2429–6749) |
+| RSS (median, min–max) | 288.3 MB (287.4–290.8) | 115.3 MB (115.2–115.8) | 168.7 MB (167.4–169.8) |
+| Private bytes (median) | 145.1 MB | 218.0 MB | 271.3 MB |
+| CPU at rest (median) | 0.7% | 4.97% | 10.7% |
 
-**RTS's AOT `.exe` does not run today**: saída do PowerShell não era JSON: HTML: 144971 bytes
-recursos externos carregados: 0
-{"ok":true,"razao":null,"arranque_ms":950,"rss_mb":68.26,"private_mb":165.56,"cpu_pct":319.7,"processos":2} | stderr:  (`scripts/rts_vs_electron/rts/README.md` has the full account and the fix). Its exe/folder size above is real — the binary compiled and links — but every runtime row is unmeasurable until it does.
+**RTS's AOT `.exe` starts and paints the static HTML/CSS**, same as the JIT side — but its page `<script>`s do not run: "[page] <script> 0 de https://localhost/ falhou: a fonte não compilou (×3 nesta corrida)". An AOT binary carries no compiler, so any JavaScript that only exists as page-script text (not referenced statically by the `.ts` that got compiled) has nothing to run it; the window opens and stays blank for *this* app, which is React mounted entirely from a `<script>` block. `scripts/rts_vs_electron/rts/README.md` has the full account.
 
-**What this does NOT measure**: no GPU workload, no network I/O, one tiny static page — the size and idle-memory difference between the two runtimes is the whole comparison, not a claim about either one under load.
+**Honesty: the side comparable to Electron today is the last column, not the middle one.** Electron ships a JS engine (V8) inside its runtime, so any page script runs regardless of how the app was built. RTS's AOT `.exe` does not — it only runs the JavaScript that was compiled INTO it ahead of time, so it fits an app with no page `<script>` (or one whose HTML is generated from already-compiled TS, not read as text). `rts.exe` + the app is the actual Electron-equivalent pair (engine binary with a compiler + the page it opens, same relationship as Chromium + `app.asar`), and it is the only RTS column above where the same React page the Electron column renders also renders here.
+
+**What this does NOT measure**: no GPU workload, no network I/O, one tiny static-plus-React page — the size and idle-memory difference between the three is the whole comparison, not a claim about any of them under load.
 
 *Updated 2026-09-04 by `scripts/rts_vs_electron/medir.mjs`.*
 <!-- RTS_VS_ELECTRON_END -->
@@ -176,20 +177,20 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `6de1d00`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `3a0e5fd`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 28 ms | 63 ms | 58 ms | 48 ms | **36 ms** | **0.77×** | **1.74×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 432 ms | 790 ms | 765 ms | 475 ms | **474 ms** | **0.91×** | **1.67×** |
-| …the same RTS run, vs JS using native `Math.random` | 96 ms | 277 ms | 213 ms | 472 ms | **485 ms** | **0.20×** | **0.57×** |
-| π Machin f64 (RTS only) | — | — | — | 25 ms | **17 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 344 ms | **368 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 54 ms | **47 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 169 ms | **166 ms** | — | — |
-| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 54 ms | **32 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 687 ms | **680 ms** | — | — |
-| one loop, state as a local / captured / property | 265 ms | 535 ms | 434 ms | 215 ms | **199 ms** | **1.33×** | **2.69×** |
+| Hello/startup | 27 ms | 62 ms | 62 ms | 47 ms | **31 ms** | **0.87×** | **1.99×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 448 ms | 890 ms | 865 ms | 484 ms | **474 ms** | **0.95×** | **1.88×** |
+| …the same RTS run, vs JS using native `Math.random` | 97 ms | 270 ms | 220 ms | 482 ms | **473 ms** | **0.20×** | **0.57×** |
+| π Machin f64 (RTS only) | — | — | — | 24 ms | **14 ms** | — | — |
+| 3M objects allocated (RTS only) | — | — | — | 360 ms | **347 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 49 ms | **38 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 171 ms | **156 ms** | — | — |
+| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 50 ms | **30 ms** | — | — |
+| string indexing, input doubled four times (RTS only) | — | — | — | 446 ms | **431 ms** | — | — |
+| one loop, state as a local / captured / property | 272 ms | 615 ms | 493 ms | 227 ms | **211 ms** | **1.29×** | **2.92×** |
 
 _Updated: 2026-09-04 — run locally with `powershell -File bench/benchmark.ps1`_
 
