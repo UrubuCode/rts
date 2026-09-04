@@ -2,26 +2,13 @@
 # motor medida no Blink (tests/css/README.md, "O numero, hoje"). O job dom-rulers
 # do CI fica vermelho se falhar uma fixture que NAO esta aqui, e avisa se uma
 # daqui passar (a lista ficou para tras). Uma linha por ficheiro; # e comentario.
+
+# folha de UA (lote I): largura de texto a negrito e de controlos no medidor
+# aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
 claude-ua-form-disabled.html
 claude-ua-headings.html
 claude-ua-th.html
 
-# claude-grid-auto-fill.html e claude-grid-minmax-intrinseco.html: fechados em
-# feat/dom-lote-grid-intrinseco (2026-09-04) — repeat(auto-fill|auto-fit) conta
-# repeticoes por content_w (CSS Grid 1 SS7.2.3.3), minmax()/fit-content()
-# intrinsecos via GridTrack::Intrinsic (SS11.1). Saem da lista.
-
-# --- vaga 4 (PLAN §5), por implementar: medidas no Blink ANTES do codigo ---
-claude-background-camadas.html
-claude-clip-path-inset.html
+# cursor: url(x.png) — o Blink resolve a URL contra a base do documento;
+# nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
 claude-cursor-pointer-events.html
-claude-text-decoration-longhands.html
-claude-text-shadow.html
-claude-transform-nao-afeta-fluxo.html
-claude-transform-origin.html
-claude-transform-skew-matrix.html
-
-# --- modelo de caixa inline (lote proprio na vaga 4): um <span> vazio com height
-# declarada tem de dar 0x0 sem virar bloco; tres remendos em 2026-09-04 partiram
-# claude-display-basico e foram revertidos. As reguas sao esta e display-basico. ---
-claude-sel-has.html

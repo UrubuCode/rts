@@ -39,10 +39,10 @@ linha aqui não existe.
 | O | selectores que faltam | 3 | ☑ `:target` (com `setLocationHash` no bridge e `fixar-hash` no corredor), `:scope`, `:default`, `:placeholder-shown`, `:active`/`:visited` (estado no `Dom`), `::marker` (cor), `:has()` (invalidação global quando presente, pinada). Não feitos: `::first-line`/`::first-letter`, `:autofill`, `:modal`, `:focus-visible` real | `feat/dom-lote-o-selectores` → `1baa405f`+`4e4b5540`+`3df13ad5` (2026-09-04) | `claude-sel-*` (3 de 4 passam; `sel-has` é do lote S-inline) |
 | P | at-rules | 3 | ☑ `@media` completo (intervalos, `not`/`only`, listas OR, `orientation`, `resolution`, `prefers-*` com valor do host), `window.matchMedia` real (`mediaMatches` no bridge), `@import` resolvido na fachada, `@property` (registo; sem validação de `syntax`), at-rules ignorados contados | `feat/dom-lote-p-at-rules` → `b9c317b6`+`66fc9183`+`5b57c1e6` (2026-09-04) | `claude-media-completo`, `claude-property`, `claude-import` (3/3 passam) |
 | Q | CSSOM | 3 | ☐ | — | §5 |
-| R | grid e flex completos | 3 | ☑ colocação por linhas (spans, negativos, nomes), colunas implícitas, `grid-auto-flow: dense`, alinhamento da grelha e `justify-self`/`align-self` (stretch só com `auto`), piso de min-content no `flex-shrink` (monospace certo), `*-reverse` (espelha o justify), `align-content` multi-linha, `order` em coluna. Fechado no lote seguinte (grid-intrinseco): `repeat(auto-fill\|auto-fit)` (contagem por `content_w`, §7.2.3.3), `minmax()`/`fit-content()` intrínsecos (`GridTrack::Intrinsic`, §11.1). Sizing de tracks `auto` e peso de `fr` JÁ estavam corretos (verificado, não reescrito — ver o lote) | `feat/dom-lote-r-grid-flex` → `bad665db`+`902aa6ea` (2026-09-04); intrínseco em `feat/dom-lote-grid-intrinseco` (2026-09-04) | `claude-grid-*`, `claude-flex-*` (agora 8 de 8 — `grid-auto-fill` deixa de ser esperado a falhar) |
+| R | grid e flex completos | 3–4 | ☑ colocação por linhas, colunas implícitas, `dense`, alinhamento, piso de min-content no `flex-shrink`, `*-reverse`, `align-content` multi-linha; e (vaga 4) `repeat(auto-fill\|auto-fit)`, `minmax` com lados intrínsecos, `fit-content()`. `auto-fit` não suprime o gap da track colapsada (dito) | `feat/dom-lote-r-grid-flex` → `bad665db`+`902aa6ea`; `feat/dom-lote-grid-intrinseco` → `7e13d037f` (2026-09-04) | `claude-grid-*`, `claude-flex-*` (12/12 passam) |
 | S | propriedades sem efeito — grupo TEXTO | 3 | ☑ `word-spacing` (quebra, pintura e largura intrínseca), `tab-size`, `line-clamp`, `text-wrap` alias, `url()` serializado com aspas (e `background-image`/`mask-image` passam a responder), rect de bloco em linha = border box. `list-style-image` parcial (o marcador pinta a imagem, ninguém a carrega). Três remendos ao modelo de inline REVERTIDOS (partiam `display-basico`) → lote S-inline | `feat/dom-lote-s-texto` → `41031be5`, `c6243732`, `81845e2a`, `291ae43e` (2026-09-04) | `claude-text-overflow`, `word-spacing`, `tab-size`, `line-clamp` (4/4 passam), `list-style-image` |
-| S-inline | caixa inline por FRAGMENTOS de linha | 4 | ☐ — um inline não-substituído com fundo/padding/borda pinta ao longo dos seus fragmentos de linha e nunca vira caixa de bloco; `width`/`height` não se aplicam; um inline vazio é 0×0 na posição da linha. Réguas já medidas: `claude-sel-has` (esperado a falhar), `claude-display-basico` (passa e tem de continuar). Os três remendos revertidos em `feat/dom-lote-s-texto` (`8803c326`, `2bb6a680`, `b997aa85`) são o diagnóstico | — | corpus: `sel-has` + `display-basico` |
-| S-transform | matriz 2D completa de `transform` | 4 | ◐ em curso — `layout/transformacao.rs` (`Mat2d`, composição, `transform-origin`, bounding box); `getBoundingClientRect`/`node_rects` passa a REFLETIR a matriz (decisão antiga de `relativo.rs` revertida: "transform nunca toca node_rects" era o que fazia os 3 corpus falharem); `matrix()`/`skewX`/`skewY`/composição de várias funções na mesma declaração. Pintura: aproximada por falta de mesh rotacionado no backend (ver o módulo) | `feat/dom-lote-transformacoes` | corpus: `claude-transform-origin`, `claude-transform-skew-matrix`, `claude-transform-nao-afeta-fluxo` |
+| S-inline | caixa inline por FRAGMENTOS de linha | 4 | ◐ o corte mínimo: um inline SEM conteúdo nunca é promovido a caixa e é 0×0 na linha (`sel-has` passa; `display-basico` continua). A pintura de fundo/padding/borda por fragmento para inlines COM conteúdo continua a ser a promoção a caixa — declarado, não feito | `feat/dom-lote-s-inline` → `7869dc066` (2026-09-04) | `claude-sel-has`, `claude-display-basico` (2/2 passam) |
+| S-transform | transformações 2D | 4 | ☑ `matrix()`, `skew*`, composição na ordem da spec, `transform-origin`, bounding box transformada (e dos descendentes), o fluxo não muda; pintura de rotação/skew no egui continua APROXIMADA (anchor exacto, w/h por norma das colunas) | `feat/dom-lote-transformacoes` → `508181548` (2026-09-04) | `claude-transform-*` (3/3 passam) |
 | T | fontes reais | 3 | ☐ | — | §5 |
 | U | composição e pintura | 3 | ☐ | — | §5 |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
@@ -97,6 +97,22 @@ delas por fixtures medidas DEPOIS do código. É a razão da regra nova do §1
 desta medição é o próximo `target/baseline.exe`; `vaga3-suite.txt` o próximo
 `base-suite.txt`. A paridade das 6 páginas locais foi REGENERADA como "antes"
 (a margem de UA e o rect em linha moveram-na, e era isso que devia).
+
+**Estado após a vaga 4 (2026-09-04, ~14:30)** — lotes S-inline, S-transform,
+S-decor e o resto de R, todos com a RÉGUA MEDIDA ANTES do código; medido com
+o `rts.exe` de `feat/dom-vaga-4` contra o binário da vaga 3:
+
+| régua | antes (baseline) | depois | perdidos |
+|---|---|---|---|
+| corpus CSS | 72/86 | **82/86** — as 4 que falham são as 3 de UA e `cursor` com `url()` (lista `esperado-a-falhar.txt` encurtada de 14 para 4) | nenhum |
+| suite `*.test.ts` por `medir.sh` | 859/888 | **859/888** | **nenhum** |
+| `cargo test -p rts-dom --lib --features metrics` | 844 | **868**, 0 falhas (e 861 SEM a feature: o teste dos at-rules ignorados passou a ser condicionado — o `dom-tests` do CI corre sem ela) | — |
+| check local do `dom-rulers` | — | inesperadas: nenhuma | — |
+
+**Retrabalho: 0 rondas em 4 lotes** (a vaga 3 tinha custado 16 em 4). A
+diferença foi uma só: as fixtures medidas e commitadas antes, e o agente a
+correr o teste do corpus no worktree dele. O binário desta medição é o
+próximo `target/baseline.exe`; `vaga4-suite.txt` o próximo `base-suite.txt`.
 
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit
