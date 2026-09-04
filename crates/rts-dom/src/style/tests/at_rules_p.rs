@@ -102,15 +102,31 @@ fn media_aninhado_combina_por_and() {
 
 // ── `@property`: `initial-value` e `inherits` ───────────────────────────────
 
+// `Stylesheet::computed_for` (o helper sem árvore usado nos outros testes
+// deste ficheiro) documenta de propósito "sem vars — pendentes com var() não
+// resolvem aqui" (`sheet.rs`, pré-existente a este lote): passa `None` a
+// `declarations_from`, então uma declaração PENDENTE (qualquer `var(...)`)
+// nunca é aplicada por ali, `@property` presente ou não. O primeiro
+// commit deste teste usava esse helper e nunca tinha corrido de verdade — só
+// a integração é que rodou `cargo test` e achou. `seed_defaults` só é
+// alcançável pelo caminho REAL, `dom/cascade.rs`, que resolve `var()` por
+// elemento — então o teste passa a exercer esse caminho, com uma página de
+// verdade, como `afirmacoes_tests`/`auditoria_lote_b` já fazem para os
+// outros cantos de `@media`/cascade.
 #[test]
 fn property_initial_value_preenche_var_sem_declaracao() {
-    let mut sheet = Stylesheet::new();
-    sheet.append_css(
-        "@property --cor { syntax: \"<color>\"; inherits: true; initial-value: rgb(1,2,3); }
-         #a { background-color: var(--cor); }",
+    let dom = crate::dom::parse_html_to_dom(
+        "<html><head><style>\
+           @property --cor { syntax: \"<color>\"; inherits: true; initial-value: rgb(1,2,3); }\
+           #a { background-color: var(--cor); }\
+         </style></head><body><div id=\"a\"></div></body></html>",
     );
-    let computed = sheet.computed_for("div", Some("a"), &[]);
-    assert_eq!(computed.normal.bg, Some(0x010203ff));
+    let id = dom.query("#a").expect("#a existe");
+    assert_eq!(
+        dom.computed_property(id, "background-color"),
+        "rgb(1, 2, 3)",
+        "var(--cor) sem declaração alcançável tem de resolver para o initial-value"
+    );
 }
 
 #[test]
