@@ -1,37 +1,37 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 109,
-    "total": 113,
-    "pct": 96.5
+    "passing": 112,
+    "total": 116,
+    "pct": 96.6
   },
   "measurements": {
-    "matching": 2592,
-    "total": 2608,
+    "matching": 2648,
+    "total": 2664,
     "pct": 99.4
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 275,
+    "passing": 288,
     "total": 489,
-    "pct": 56.2
+    "pct": 58.9
   },
   "expected_failures": [
     {
       "fixture": "claude-ua-form-disabled.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-ua-headings.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-ua-th.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-cursor-pointer-events.html",
-      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)"
+      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento;\r nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)\r"
     }
   ],
   "dom_lots": {
@@ -78,6 +78,7 @@
       "clearfix — `::after{display:block;clear:both}` contém os floats",
       "pseudo-flex-item — `::before`/`::after` de um flex são itens flex",
       "borda-em — bordas em `em`/`rem` resolvem contra a fonte",
+      "inline-flex — `display:inline-flex` é flex por DENTRO e inline-level por FORA",
       "cores-nomeadas — os 148 nomes de cor do CSS Color 4",
       "flex-margens-auto — margens `auto` no eixo transversal do flex",
       "pintura-e-caixas — z-index negativo, `::before`/`::after` de bloco, flex evita float",
