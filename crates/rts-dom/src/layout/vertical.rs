@@ -297,18 +297,20 @@ pub(in crate::layout) fn layout_children_vertical(
                 // próprio `display:inline` torna inoperantes, e devolvia o
                 // elemento ao caminho de bloco de onde a declaração o tirou.
                 let inline_declarado = effective == Some(crate::style::DisplayKind::Inline);
-                // `<span>` sem `display` nem default é inline por omissão — ver `ignores_inline_dimensions`.
-                let ignora_dimensoes = crate::layout::caixa::ignores_inline_dimensions(child_css.as_deref(), tag);
                 let block = if inline_declarado {
                     replaced
                         || child_css.as_deref().is_some_and(|c| {
-                            !ignora_dimensoes && crate::inline_box::cria_caixa_apesar_de_inline(c)
+                            !crate::layout::caixa::ignores_inline_dimensions(c)
+                                && crate::inline_box::cria_caixa_apesar_de_inline(c)
                         })
                 } else {
                     replaced
                         || effective.is_some()
                         || crate::block::lookup(tag).is_some()
-                        || crate::layout::caixa::cria_caixa_via_dimensoes(child_css.as_deref(), ignora_dimensoes)
+                        || child_css
+                            .as_ref()
+                            .map(|c| c.has_box() || c.height.is_some())
+                            .unwrap_or(false)
                 };
                 let inline_block =
                     // Um `display:inline-block` DECLARADO responde antes da TAG:
@@ -322,7 +324,10 @@ pub(in crate::layout) fn layout_children_vertical(
                         !explicit_block
                     } else if crate::block::lookup(tag).is_some() || explicit_block {
                         false
-                    } else if ignora_dimensoes {
+                    } else if child_css
+                        .as_deref()
+                        .is_some_and(crate::layout::caixa::ignores_inline_dimensions)
+                    {
                         false
                     } else {
                         child_css

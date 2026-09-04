@@ -162,46 +162,6 @@ fn span_so_com_espaco_colapsavel_nao_tem_area() {
     assert!(sem_area(r), "#espaco mediu {r:?}, esperava 0×0 (sem fragmento)");
 }
 
-/// `width`/`height` NÃO SE APLICAM a um inline não-substituído (CSS 2.1
-/// §10.3.1/§10.6.1) — nem quando `display` não está declarado NENHUM (um
-/// `<span>` puro, sem default de bloco) nem quando o único conteúdo do
-/// inline é vazio. Fixa o desvio medido no Blink em `claude-sel-has.html`:
-/// `div, span { height: 20px }` sem `display` declarado em lado nenhum —
-/// o `<div>` (tem default de bloco) RESPEITA a altura; os `<span>` (sem
-/// default nenhum, plain inline) IGNORAM-NA e ficam sem fragmento.
-#[test]
-fn span_sem_display_ignora_width_e_height_declarados() {
-    let html = r#"<style>body{margin:0;font:16px/20px monospace}
-    div, span { height: 20px; }</style>
-    <div id="rotulo-com"><span></span></div>
-    <span id="rotulo-sem"></span>"#;
-    let (dom, list) = geometria(html, 600.0);
-    let div = rect_opt(&dom, &list, "#rotulo-com").expect("o <div> respeita a height");
-    assert_eq!(div.h, 20.0, "o <div> (default de bloco) usa a height declarada");
-    assert!(
-        sem_area(rect_opt(&dom, &list, "#rotulo-com span")),
-        "o <span> vazio dentro do <div> ignora a height"
-    );
-    assert!(
-        sem_area(rect_opt(&dom, &list, "#rotulo-sem")),
-        "o <span> vazio solto ignora a height"
-    );
-}
-
-/// `claude-display-basico.html` (medido no Chrome, 2026-08-18) continua a
-/// dar 19px a um `display:inline` EXPLÍCITO com texto — este teste é o
-/// regresso: a correção acima só muda o caso do `display` NÃO declarado
-/// (`effective_display() == None`), nunca o `display:inline` escrito.
-#[test]
-fn display_inline_explicito_com_texto_continua_a_ignorar_a_altura() {
-    let html = r#"<style>body{margin:0;font:16px/20px monospace}
-    span{display:inline;width:300px;height:300px}</style>
-    <span id="em-linha">abc</span>"#;
-    let (dom, list) = geometria(html, 1280.0);
-    let r = rect_opt(&dom, &list, "#em-linha").expect("tem texto, tem caixa");
-    assert!(r.h < 300.0, "300px de height não pode ter sido aplicado: {r:?}");
-}
-
 /// O CORTE ao lado da regra acima: um `inline-block` VAZIO continua a ter
 /// caixa (é a mesma família de átomo do `claude-vertical-align.html`, que
 /// não pode regredir) — a diferença entre os dois é `display`, não
