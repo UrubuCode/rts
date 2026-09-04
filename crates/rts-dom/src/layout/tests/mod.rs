@@ -17,6 +17,7 @@ mod grid_colocacao;
 mod grid_corpus;
 mod inline;
 mod inline_corpus;
+mod inline_fragmentos_corpus;
 mod pintura;
 mod posicionado;
 mod position_corpus;

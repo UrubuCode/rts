@@ -47,6 +47,7 @@ mod bfc;
 mod caixa;
 mod display;
 mod float;
+mod inline_fragmentos;
 mod input;
 mod itens;
 mod medida;
