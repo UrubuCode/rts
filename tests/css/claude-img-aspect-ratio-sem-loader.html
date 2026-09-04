@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- POR VERIFICAR se é bug do motor ou do instrumento (claude-paint-dump/
+     claude-raster não correm JS, então dom.image_dims nunca é preenchido
+     para um <img src> estático, com ou sem data:). Fixa a EXPECTATIVA: um
+     <img> com só width definido (via CSS) e sem atributos HTML
+     width/height deve derivar a altura da razão de aspecto NATURAL da
+     imagem decodificada (HTML "dimension attributes" / aspect-ratio auto).
+     Testado com um PNG 20×50 real (support/20x50-green.png, do próprio
+     corpus WPT). Verificado contra o binário atual: height sai 0 em vez de
+     225, tanto com src=ficheiro local como com uma data: URL equivalente
+     — ou seja dom.image_dims(id) nunca é preenchido por este caminho de
+     parse, com ou sem rede. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="img1">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #img1 { width: 90px; display: block; }
+</style></head>
+<body>
+<img id="img1" src="support/20x50-green.png">
+</body></html>

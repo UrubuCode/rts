@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: um <img> sem width/height, item de um flex-container abspos com
+     cross-size (altura) definitiva por inset top:0/bottom:0, estica a altura
+     (align-items:stretch) e deriva a largura pela aspect-ratio intrínseca
+     (aqui 1×1 — um PNG data: para não depender de ficheiro externo). #img
+     deve sair 160×160, não 0×0 nem 1×1. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="outer,item,mid,inner,img">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #outer { display: flex; width: 320px; height: 160px; }
+  #item { width: 100%; }
+  #mid { position: relative; height: 100%; }
+  #inner { display: flex; position: absolute; top: 0; bottom: 0; }
+  img { display: block; }
+</style></head>
+<body>
+<div id="outer"><div id="item"><div id="mid"><div id="inner"><img id="img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="></div></div></div></div>
+</body>
+</html>
