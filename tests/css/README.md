@@ -143,3 +143,5 @@ O procedimento completo, o que é ignorado e porquê, e como ler o número:
 o git (`tests/css/pintura/` está no `.gitignore`) — são grandes (o `.rts.png`
 sem compressão passa de 4 MB por fixture) e regeneráveis a qualquer momento;
 decide-se depois, por fixture, se algum entra como esperado.
+
+**Primeira medição (2026-09-04, 86 fixtures):** 79 com ≤ 0,5 % de pixels diferentes, 82 com ≤ 2 %, 4 acima (rotação de `transform` e recorte por `overflow` — declarados como aproximados). Detalhe em `scripts/css_pintura.md`.

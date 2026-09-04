@@ -78,3 +78,14 @@ um PNG de 1280×800 RGBA sai por volta de **4 MB**, contra ~5-6 KB do
 qualquer momento pelos três comandos acima, e não há decisão tomada aqui
 sobre quais — se algum — entram como esperado versionado; essa decisão fica
 para quando uma fixture específica precisar de um esperado de pintura fixo.
+
+## O número, hoje
+
+**2026-09-04, primeira medição sobre o corpus inteiro (86 fixtures, Edge 152
+headless):** 79 fixtures com ≤ 0,5 % de pixels diferentes, 82 com ≤ 2 %, e
+**4 acima de 2 %** — `claude-transform-origin` (6,06 %) e
+`claude-transform-nao-afeta-fluxo` (2,05 %): a rotação é pintada como caixa
+axis-aligned (o backend não roda); `claude-overflow` (5,57 %): o recorte por
+`overflow` não é aplicado pelo rasterizador; `claude-sel-target` (2,55 %).
+Texto ignorado em todas (a máscara): no máximo 1,4 % da área. Estes quatro
+são os primeiros alvos de um lote de pintura, e o número que os fecha é este.
