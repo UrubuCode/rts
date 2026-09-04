@@ -147,3 +147,9 @@ e sem pixels — ele não tem a ponte, e é a ponte que descodifica o PNG de
 `data:`. `claude-object-fit`: 0 % diferente com 1,95 % de área mascarada;
 `claude-img-natural` 0,08 %. As imagens só se medem de verdade pela janela do
 egui, que tem a ponte.
+
+**2026-09-04, lote V-img-2:** `claude-img-ficheiro` fica em 1 % e é o
+INSTRUMENTO: o rasterizador não lê ficheiros (não tem a ponte), o `#solto` de
+6×4 sai 0×0 e a linha seguinte sobe 4px — 2×4×1280 pixels. A caixa mede certo
+no corpus de layout (88/92); a pintura de imagens de ficheiro só se verifica
+pela janela do egui.
