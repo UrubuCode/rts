@@ -5,35 +5,6 @@
 //! alterada — a reconstrução deste ficheiro é byte a byte a do original.
 
 use super::*;
-/// Desenha um nó como linha(s) de texto (texto solto ou inline simples), herdando
-/// cor/tamanho do bloco pai, e devolve o `y` abaixo. Caso de UM nó do fluxo
-/// inline — o caminho geral (irmãos inline fluindo juntos) é
-/// [`layout_inline_flow`].
-fn layout_inline_line(
-    dom: &Dom,
-    id: NodeIdx,
-    x: f32,
-    y: f32,
-    content_w: f32,
-    parent_css: &ComputedStyle,
-    font_size: f32,
-    ctx: &LayoutCtx,
-    list: &mut DisplayList,
-) -> f32 {
-    layout_inline_flow(
-        dom,
-        id,
-        &[id],
-        x,
-        y,
-        content_w,
-        parent_css,
-        font_size,
-        &[],
-        ctx,
-        list,
-    )
-}
 
 /// O FLUXO INLINE RICO (P4): um GRUPO de irmãos inline consecutivos (nós de texto
 /// + elementos inline como `<a>`/`<b>`/`<span>`) flui como UM contexto — os runs

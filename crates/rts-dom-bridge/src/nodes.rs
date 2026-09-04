@@ -48,6 +48,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("setInnerHtml", set_inner_html),
     // estilo e geometria
     ("computedProperty", computed_property),
+    ("setStyle", set_style),
     ("boundingRect", bounding_rect),
     ("boundingRectAll", bounding_rect_all),
     // pixels (o `<canvas>` e o `<img>` compartilham o mesmo caminho)
@@ -229,6 +230,24 @@ extern "C" fn set_inner_html(_e: u64, _t: u64, doc: u64, n: u64, s: u64, _c: u64
     let s = text(s);
     let Some(id) = node(n) else { return nothing() };
     rts_dom::store::with_dom_mut(handle(doc), |d| d.set_inner_html(id, &s));
+    nothing()
+}
+
+/// `setStyle(doc, node, slot, val)` — aplica UM slot de estilo OPACO (invariante
+/// 4 do roadmap: Rust nunca casa nome CSS) como override POR-NÓ deste nó, a 3ª e
+/// mais forte camada da cascade (vence tag e `style=""` inline).
+///
+/// A mutação já existia — `Dom::set_node_style_slot` (`dom/estilo.rs`) aplica o
+/// mesmo `apply_slot` que `apply_style_batch` (o motor por trás de
+/// `setStyleBatch`, essa AINDA não registada aqui) aplica por tripla — só a
+/// chave `setStyle` nunca foi. `Element.setStyle(slot, val)` (`dom.ts`) já
+/// chamava `dom.setStyle(...)` sem que nenhum ficheiro deste crate a
+/// expusesse: `el.setStyle(0, 255)` lançava `TypeError: dom.setStyle is not a
+/// function`.
+extern "C" fn set_style(_e: u64, _t: u64, doc: u64, n: u64, slot: u64, val: u64) -> u64 {
+    let Some(id) = node(n) else { return nothing() };
+    let (slot, val) = (integer(slot, 0), integer(val, 0));
+    rts_dom::store::with_dom_mut(handle(doc), |d| d.set_node_style_slot(id, slot, val));
     nothing()
 }
 

@@ -66,9 +66,13 @@ the frame **and** cascade is 71% of it".
 Currently instrumented: `load-html`, `tokenize-html`, `parse-css`, `cascade`,
 `layout`, `animate`, `set-inner-html` (rts-dom); `render-dom`, `paint`
 (rts-egui). **Not** instrumented: the time inside a page's own JavaScript. The
-hook exists (any crate can open a phase), but `rts:dom` has not been ported to
-the new engine yet, so there is no TS-side surface to call it from — when that
-lands, a `script` phase joins the same table.
+hook exists (any crate can open a phase), and `rts:dom` DOES run on the new
+engine today (`rts-dom-bridge`) — this line used to say the opposite, caught
+by the 2026-09-04 structural audit (`docs/ui/html-engine/analises/2026-09-04-
+auditoria-estrutural/02-modelo-de-objetos-dom.md`). What is still missing is
+narrower: no crate on the page-script path opens a phase around
+`__runScriptAt`/`runScripts` — when one does, a `script` phase joins the same
+table.
 
 ## The scenarios
 
