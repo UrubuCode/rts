@@ -286,6 +286,20 @@ pub(crate) fn quebra_dentro(css: &ComputedStyle) -> QuebraDentro {
     }
 }
 
+/// Se a corrida de whitespace no INÍCIO de `rest` contém um `\n`, o índice (em
+/// bytes) logo depois dele — o ponto onde `white-space: pre/pre-wrap/pre-line`
+/// reinicia a busca por palavra depois de fechar uma linha. `None` quando a
+/// corrida não tem `\n` (só colapsa) ou `rest` não começa por whitespace.
+///
+/// Só o PRIMEIRO `\n` da corrida é respondido: uma corrida "\n\n" produz duas
+/// linhas em duas chamadas, não uma — o chamador (`wrap_runs`) volta a testar
+/// o resto da corrida na iteração seguinte, exatamente como já fazia para o
+/// colapso de espaços comuns.
+pub(crate) fn quebra_forcada_em(rest: &str) -> Option<usize> {
+    let fim = rest.find(|c: char| !e_espaco_css(c)).unwrap_or(rest.len());
+    rest[..fim].find('\n').map(|nl| nl + 1)
+}
+
 /// O maior prefixo de `texto` cuja largura cabe em `disp`, em bytes, com a sua
 /// largura medida. `(0, 0.0)` quando nem o primeiro carácter cabe.
 ///
@@ -340,3 +354,5 @@ mod espaco_que_nao_colapsa;
 mod sonda_ul;
 #[cfg(test)]
 mod inline_declarado_e_dono;
+#[cfg(test)]
+mod quebra_forcada;

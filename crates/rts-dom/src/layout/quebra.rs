@@ -1,7 +1,8 @@
 //! QUEBRA DE LINHA: decidir onde os runs passam para a linha seguinte.
 //!
-//! **455 linhas.** O `wrap_runs` tem 408 e não é partido por dentro: partir uma
-//! função deixa de ser um movimento de código. Tem dois `macro_rules!` no corpo
+//! **Perto do teto de 500.** O `wrap_runs` é a maior parte disto e não é
+//! partido por dentro: partir uma função deixa de ser um movimento de código.
+//! Tem dois `macro_rules!` no corpo
 //! (`fechar_cluster`, `juntar`) que fecham com `    }` a quatro espaços — quem
 //! cortar este ficheiro por blocos em vez de por item de topo fecha blocos
 //! falsos no meio da função, e ali isso não dá erro de compilação.
@@ -24,6 +25,11 @@ pub(in crate::layout) fn wrap_runs(
     // Guardá-las por run era a alternativa e custava um campo em cada `InlineRun`
     // para responder o mesmo valor em todos eles.
     quebra: crate::inline_box::QuebraDentro,
+    // `white-space: pre/pre-wrap/pre-line` — um `\n` LITERAL força aqui uma
+    // quebra em vez de colapsar como espaço comum. Vem de
+    // `WhiteSpace::preserves_newlines`, a mesma decisão de `quebra` acima e
+    // pela mesma razão: é do CONTAINER, não de cada run.
+    preservar_quebras: bool,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
@@ -287,6 +293,18 @@ pub(in crate::layout) fn wrap_runs(
         // devolver " " -- nao-vazio -- e o run deixaria de ser reconhecido como
         // o separador que e.
         if !run.text.is_empty() && so_espaco_css(&run.text) {
+            // Run TODO whitespace com um `\n` dentro (`<div
+            // style="white-space:pre">\n</div>` sem mais texto) — o caso
+            // degenerado do scanner abaixo, sem palavra que o alcance.
+            if preservar_quebras && run.text.contains('\n') {
+                fechar_cluster!();
+                lines.push(std::mem::take(&mut cur));
+                cur_w = 0.0;
+                at_line_start = true;
+                pending_space = false;
+                espaco_de_fora = false;
+                continue;
+            }
             fechar_cluster!();
             pending_space = true;
             espaco_de_fora = true;
@@ -307,13 +325,17 @@ pub(in crate::layout) fn wrap_runs(
             // primeiro caso, e o espaco tem de sobreviver no texto.
             espaco_de_fora = false;
         }
+        // As FAST PATHS abaixo julgam pelo texto APARADO ou por `ends_with`, e
+        // um run "tres\n" apara para "tres" (sem whitespace interno) — tomaria
+        // o caminho rápido e perderia a quebra que estava na borda apagada.
+        let tem_quebra_forcada = preservar_quebras && run.text.contains('\n');
         // FAST PATH: o run inteiro e UMA peca quando nao tem whitespace dentro.
         //
         // Medir a string inteira e o que um browser faz, e e o que evita uma
         // medicao por palavra: `wrap-runs` era 38% de um relayout de pagina
         // grande, com 11 000 `text_width` por frame.
         let miolo = apara_css(&run.text);
-        if !miolo.contains(e_espaco_css) {
+        if !miolo.contains(e_espaco_css) && !tem_quebra_forcada {
             let w = m.text_width(miolo, font_size, mono, run.bold, run.italic);
             let terminava_em_espaco = run.text.ends_with(e_espaco_css);
             juntar!(
@@ -346,7 +368,7 @@ pub(in crate::layout) fn wrap_runs(
         // seguinte). Sem as duas, o caminho lento e o que responde certo.
         let abre_cluster = cluster.is_empty();
         let fecha_cluster = run.text.ends_with(e_espaco_css);
-        if abre_cluster && fecha_cluster {
+        if abre_cluster && fecha_cluster && !tem_quebra_forcada {
             let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
             if !normalizado.is_empty() {
                 let w = m.text_width(&normalizado, font_size, mono, run.bold, run.italic);
@@ -370,6 +392,22 @@ pub(in crate::layout) fn wrap_runs(
         let mut rest = run.text.as_str();
         while !rest.is_empty() {
             if rest.starts_with(e_espaco_css) {
+                // Um `\n` na corrida de whitespace fecha a linha corrente em
+                // vez de virar separador pendente (`quebra_forcada_em`,
+                // `inline_box.rs`) — só o PRIMEIRO conta; o resto da corrida,
+                // se sobrar, passa por este braço de novo na iteração seguinte.
+                if preservar_quebras {
+                    if let Some(apos_nl) = crate::inline_box::quebra_forcada_em(rest) {
+                        fechar_cluster!();
+                        lines.push(std::mem::take(&mut cur));
+                        cur_w = 0.0;
+                        at_line_start = true;
+                        pending_space = false;
+                        espaco_de_fora = false;
+                        rest = &rest[apos_nl..];
+                        continue;
+                    }
+                }
                 fechar_cluster!();
                 pending_space = true;
                 espaco_de_fora = false;

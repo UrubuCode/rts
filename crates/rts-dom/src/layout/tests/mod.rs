@@ -11,6 +11,7 @@ mod dimensoes;
 mod flex;
 mod grid;
 mod inline;
+mod inline_corpus;
 mod pintura;
 mod posicionado;
     use super::*;
