@@ -165,27 +165,27 @@ pub enum Dimension {
     /// `None`, indistinguível de "não declarado", e o elemento tomava a largura
     /// do pai. É o painel do menu da Wikipédia — 198,6px no Chrome, 56,2 aqui.
     ///
-    /// `fit-content` NÃO entra, e não é aproximado a esta: precisa das duas
-    /// pontas para o seu `min(max(min, disponível), max)`. Responder
-    /// max-content a um `fit-content` erraria em silêncio, que é pior do que
-    /// a ausência — continua descartado no parse, como hoje.
+    /// `fit-content` NÃO entra, e não é aproximada a esta: precisa das duas
+    /// pontas para o seu `min(max(min, disponível), max)`, e a máquina que
+    /// temos calcula só o máximo — continua descartada no parse, como hoje.
     MaxContent,
-    /// `min-content` — a largura MÍNIMA que o conteúdo aceita sem transbordar
-    /// (a palavra mais larga; um filho bloco com `width` fixa entra pela sua
-    /// própria largura — Flexbox §9.9/§4.5, `table::min_content`).
+    /// `min-content` — só reconhecida via `parse_dimension_min_max` (um
+    /// CLAMP: `min-width`/`max-width`/`min-height`/`max-height`), nunca como
+    /// tamanho preferido — `width`/`height`/`flex-basis` continuam a
+    /// descartá-la no `parse_dimension` geral, de propósito (a máquina não
+    /// sabe calcular um MÍNIMO, só o máximo do conteúdo).
     ///
-    /// Só reconhecida no parse de `min-width`/`max-width`
-    /// (`lengths::parse_dimension_min_max`) — o parse GERAL de `width`/
-    /// `height`/`flex-basis` (`parse_dimension`) continua a descartá-la, e
-    /// de propósito: aquelas medidas não sabem calcular um MÍNIMO, só o
-    /// máximo do conteúdo (`intrinsic_content_width`), e mapeá-la para
-    /// `MaxContent` ali erraria no sentido oposto ao que o nome promete —
-    /// o mesmo argumento que mantém `fit-content` fora. Em `min-width`, a
-    /// keyword tem para onde apontar (`crate::table::min_content`, já usado
-    /// como piso automático do encolhimento), e por isso deixa de ser
-    /// descartada SÓ ali: sem ela, `min-width:min-content` empatava com
-    /// "não declarado" e um `max-width` menor vencia, ao contrário do CSS2
-    /// §10.4 (`claude-flex-min-width-min-content`).
+    /// No eixo INLINE (`min-width`/`max-width`) resolve para o min-content
+    /// REAL do item via `crate::table::min_content` em
+    /// `flex_limites::limites_do_item` — a mesma travessia que já serve o
+    /// piso automático do encolhimento (Flexbox §9.9/§4.5: um filho bloco
+    /// com `width` fixa entra pela sua própria largura); min sempre vence
+    /// max em conflito (CSS2 §10.4, `claude-flex-min-width-min-content`). No
+    /// eixo de BLOCO (`min-height`/`max-height`) resolve como `MaxContent`
+    /// (`None`, o layout decide): o eixo de bloco não comprime por quebra de
+    /// linha, min-content == max-content aí (CSS Sizing 3 §2.1), e usar o
+    /// mesmo mecanismo do eixo inline ali seria a resposta ERRADA (a
+    /// máquina só mede o máximo, nunca um mínimo de bloco).
     MinContent,
     /// `calc(...)` linear reduzido no parse ([`CalcLen`]). Não cruza a ABI de
     /// faixas (`to_abi` → `-1`, corte documentado — o TS não empacota calc).

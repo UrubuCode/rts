@@ -138,13 +138,16 @@ impl TableStyle {
                 s.v.resolve(&resolve).unwrap_or(0.0).max(0.0),
             ),
             // Sem CSS: o atributo `cellspacing`, e sem ele os 2px da folha de
-            // estilo do browser para uma tabela `separate`.
+            // estilo do browser — que os dá ao ELEMENTO `<table>`, não a um
+            // `div { display: table }`, cujo valor inicial é 0 (Blink mede 20px
+            // e não 24 em `claude-table-texto-solto-sem-celula`).
             None => {
+                let e_table = matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "table");
                 let a = dom
                     .node(id)
                     .attr("cellspacing")
                     .and_then(|v| v.trim().trim_end_matches("px").parse::<f32>().ok())
-                    .unwrap_or(2.0)
+                    .unwrap_or(if e_table { 2.0 } else { 0.0 })
                     .max(0.0);
                 (a, a)
             }
@@ -238,6 +241,7 @@ pub(crate) fn layout_table(
             None,
             None,
             None,
+            false,
             false,
             // `<caption>`/bloco avulso da tabela: sem float dentro de uma
             // tabela (a tabela já é BFC), um contexto novo é o mesmo `&[]`.
@@ -353,6 +357,7 @@ pub(crate) fn layout_table(
                 Some(h),
                 Some(w),
                 Some(h),
+                false,
                 false,
                 // Célula de tabela: mesma razão do `<caption>` acima.
                 &crate::layout::BlockFormattingContext::new(),

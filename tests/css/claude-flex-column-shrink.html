@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!-- Fixa: `display:flex; flex-direction: column; flex-wrap: nowrap` com
+     altura FIXA menor que a soma das alturas dos itens tem de ENCOLHER
+     (flex-shrink, default 1) em vez de transbordar sem clamp —
+     crates/rts-dom/src/layout/coluna.rs §PASSO 2 (linhas 147-187) só
+     distribui espaço livre POSITIVO (`flex-grow`, linha 161); não há ramo
+     nenhum para `free < 0`, ao contrário do eixo horizontal
+     (crates/rts-dom/src/layout/flex.rs:310-361, que tem o loop de
+     encolhimento com piso de min-content). #a-#d: 4 itens de 50px de altura
+     (default `flex: 0 1 auto`) num contentor de 100px de altura — encolhem
+     para 25px cada. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="a,b,c,d">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #f { display: flex; flex-flow: column nowrap; width: 100px; height: 100px; background: #eee; }
+  #f > div { height: 50px; }
+  #a { background: #fc0; }
+  #b { background: #f0c; }
+  #c { background: #0cf; }
+  #d { background: #0c0; }
+</style></head>
+<body>
+  <div id="f">
+    <div id="a"></div>
+    <div id="b"></div>
+    <div id="c"></div>
+    <div id="d"></div>
+  </div>
+</body>
+</html>

@@ -32,4 +32,16 @@ crate-type = ["rlib", "staticlib"]
 rts-core = { path = "../rts-core" }
 rts-std = { path = "../rts-std" }
 rts-node = { path = "../rts-node" }
+# `rts:dom` e `rts:egui`: o host JIT instala-os (`rts-host/src/run.rs`) e o
+# programa AOT não os tinha — um `.exe` de UI morria à partida com "cannot
+# resolve module rts:egui". O `rts-adapters` que os trazia foi com o cutover de
+# 08-10 e ninguém os religou à fachada. Entram na ordem do host: o documento
+# (headless, sempre) antes da janela (opcional, como no host: um alvo sem
+# ecrã não a liga).
+rts-dom-bridge = { path = "../rts-dom-bridge" }
+rts-ui = { path = "../rts-ui", optional = true }
 libc = "0.2"
+
+[features]
+default = ["ui"]
+ui = ["dep:rts-ui"]

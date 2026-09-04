@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa que um item de uma coluna flex com `flex-grow` encolhe (flex-shrink,
+     default 1) até ao espaço PRINCIPAL disponível do contentor quando o seu
+     conteúdo é maior — nunca cresce além do contentor só porque o filho é
+     alto. `overflow-y:scroll` no item faz o mínimo automático
+     (`min-height:auto`) resolver a 0 (Flexbox §4.5, "automatic minimum
+     size"), o que permite o encolhimento total até ao espaço do contentor
+     (80px), sobrando o conteúdo (200px) para rolar por dentro. `#contentor`
+     é o flex column de 80×80; `#item` é o único filho, `flex-grow:1`, que
+     deve terminar com 80px de altura — não 200. O nosso motor não
+     implementa `flex-shrink` no eixo de coluna: mede a altura intrínseca do
+     filho (200) e nunca a reduz, porque só distribui espaço quando SOBRA
+     (free>0) — nunca quando FALTA. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="contentor,item">
+<meta name="fixar-estilo" content="flex-grow,overflow-y,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #contentor { display: flex; flex-direction: column; width: 80px; height: 80px; }
+  #item { flex-grow: 1; overflow-y: scroll; }
+  #item > div { height: 200px; background: #06c; }
+</style></head>
+<body>
+  <div id="contentor"><div id="item"><div></div></div></div>
+</body>
+</html>

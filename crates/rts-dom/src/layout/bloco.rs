@@ -31,6 +31,8 @@ pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: Nod
         Some(
             crate::style::DisplayKind::Flex
                 | crate::style::DisplayKind::FlexWrap
+                | crate::style::DisplayKind::InlineFlex // flex por dentro (Flexbox §4): mesmo contexto
+                | crate::style::DisplayKind::InlineFlexWrap
                 | crate::style::DisplayKind::Grid
                 | crate::style::DisplayKind::InlineBlock
                 | crate::style::DisplayKind::Table
@@ -72,6 +74,8 @@ pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: Nod
                 Some(
                     crate::style::DisplayKind::Flex
                         | crate::style::DisplayKind::FlexWrap
+                        | crate::style::DisplayKind::InlineFlex // idem: filho de flex
+                        | crate::style::DisplayKind::InlineFlexWrap
                         | crate::style::DisplayKind::Grid
                 )
             )
@@ -126,6 +130,8 @@ fn margin_child_role(
                 Some(
                     crate::style::DisplayKind::Inline
                     | crate::style::DisplayKind::InlineBlock
+                    | crate::style::DisplayKind::InlineFlex // inline-level por fora, idem
+                    | crate::style::DisplayKind::InlineFlexWrap
                     | crate::style::DisplayKind::TableRowGroup
                     | crate::style::DisplayKind::TableRow
                     | crate::style::DisplayKind::TableCell
@@ -279,6 +285,16 @@ pub(crate) fn layout_block(
     // Altura OUTER IMPOSTA (com margem) — o `align-items/self: stretch` do flex.
     // O caller só passa para item SEM height explícito. `None` = altura natural.
     forced_outer_h: Option<f32>,
+    // `true` quando `forced_outer_h` é o MAIN SIZE de um item de flex-COLUMN
+    // (grow/shrink já resolvidos) e não o stretch do eixo cruzado: vence
+    // `height`/`aspect-ratio` do próprio nó e pode ENCOLHER abaixo do
+    // conteúdo — o oposto do `forced_outer_h` "mole" de baixo, que só
+    // cresce (nunca corta um item mais alto que a linha). `false` em todo
+    // caller que não seja `layout_children_column` — o eixo horizontal já
+    // tem este comportamento em `content_w`/`forced_outer_w` (linha 468),
+    // sem precisar de uma segunda flag: lá não há um "stretch mole" a
+    // proteger, então o override é sempre incondicional.
+    forced_outer_h_hard: bool,
     // `shrink_to_fit`: quando true, um bloco SEM `width` explícito dimensiona pela
     // largura do CONTEÚDO (como `inline-block`/item flex), não ocupa a largura
     // disponível. É o que faz badges num container horizontal não esticarem para a
@@ -336,6 +352,7 @@ pub(crate) fn layout_block(
                     avail_w,
                     avail_h,
                     forced_outer_w,
+                    forced_outer_h,
                     ctx,
                     list,
                 );
@@ -369,30 +386,9 @@ pub(crate) fn layout_block(
             }
             css
         }
-        NodeKind::Text(t) => {
-            // Whitespace estrutural é preservado no DOM, mas não cria uma linha
-            // visual quando chega sozinho ao fluxo de blocos/root. Em contexto
-            // inline, ele é tratado por `wrap_runs` e continua separando palavras.
-            if t.trim().is_empty() {
-                return (0.0, 0.0);
-            }
-            let size = DEFAULT_FONT_SIZE;
-            let lh = ctx.measurer.line_height(size);
-            let tw = ctx.measurer.text_width(t, size, false, false, false);
-            list.items.push(DisplayItem::Text {
-                x,
-                y,
-                text: t.as_str().into(),
-                color: 0x000000FF,
-                size,
-                mono: false,
-                bold: false,
-                italic: false,
-                letter_spacing: 0.0,
-                decoration: 0,
-            });
-            return (tw, lh);
-        }
+        // Texto solto ao nível de bloco: uma linha com a fonte do PAI
+        // (`texto_solto.rs`); whitespace estrutural não cria linha nenhuma.
+        NodeKind::Text(t) => return super::texto_solto::layout_texto_solto(dom, id, t, x, y, ctx, list),
         _ => return (0.0, 0.0), // Comment / Document aninhado: não pinta.
     };
 
@@ -628,31 +624,45 @@ pub(crate) fn layout_block(
     // recebem como containing-block height (base do `height:%` deles), e o flex
     // COLUMN o usa como referência do eixo principal (justify/margin-auto).
     let frame_v = pad_top + pad_bottom + border_v;
-    let explicit_content_h = resolve_height(css.height, avail_h, &resolve)
-        .map(|h| {
-            if border_box {
-                (h - frame_v).max(0.0)
-            } else {
-                h
-            }
+    // Fecha o par com o `forced_outer_w` de `content_w` (linha 468): lá o
+    // override é sempre incondicional porque não existe "stretch mole" no
+    // eixo horizontal a proteger. Aqui existe (o align-items:stretch do
+    // flex-row/grid, que nunca corta um item mais alto que a linha), então o
+    // MAIN SIZE de coluna (`forced_outer_h_hard`) precisa de entrar ANTES —
+    // e sem passar pelo `.max(content_h)` mais abaixo, que é a parte que
+    // protege o stretch e que o encolhimento precisa de ignorar.
+    let explicit_content_h = if forced_outer_h_hard {
+        forced_outer_h.map(|oh| {
+            let mv = margin_top + margin_bottom;
+            (oh - mv - frame_v).max(0.0)
         })
-        // `aspect-ratio`: sem height explícito, a altura vem da largura / razão. Só
-        // quando há largura resolvida (content_w) e uma razão > 0.
-        .or_else(|| {
-            css.aspect_ratio
-                .filter(|r| *r > 0.0)
-                .map(|r| (content_w / r).max(0.0))
-        })
-        // ALTURA IMPOSTA pelo flex (grow/stretch): o `forced_outer_h` é a altura
-        // OUTER do item — o content-box é ela menos margem-v/frame. Vira o
-        // containing block dos filhos (um filho `height:100%` resolve contra ela),
-        // resolvendo o logo/caixa do google que crescem via flex-grow vertical.
-        .or_else(|| {
-            forced_outer_h.map(|oh| {
-                let mv = margin_top + margin_bottom;
-                (oh - mv - frame_v).max(0.0)
+    } else {
+        resolve_height(css.height, avail_h, &resolve)
+            .map(|h| {
+                if border_box {
+                    (h - frame_v).max(0.0)
+                } else {
+                    h
+                }
             })
-        });
+            // `aspect-ratio`: sem height explícito, a altura vem da largura / razão. Só
+            // quando há largura resolvida (content_w) e uma razão > 0.
+            .or_else(|| {
+                css.aspect_ratio
+                    .filter(|r| *r > 0.0)
+                    .map(|r| (content_w / r).max(0.0))
+            })
+            // ALTURA IMPOSTA pelo flex (grow/stretch): o `forced_outer_h` é a altura
+            // OUTER do item — o content-box é ela menos margem-v/frame. Vira o
+            // containing block dos filhos (um filho `height:100%` resolve contra ela),
+            // resolvendo o logo/caixa do google que crescem via flex-grow vertical.
+            .or_else(|| {
+                forced_outer_h.map(|oh| {
+                    let mv = margin_top + margin_bottom;
+                    (oh - mv - frame_v).max(0.0)
+                })
+            })
+    };
 
     // Altura que serve de CONTAINING BLOCK aos filhos (`height:%`): o height
     // explícito, senão um `max-height` conhecido (o Google dá ao container do
@@ -674,7 +684,17 @@ pub(crate) fn layout_block(
             v
         }
     });
-    let avail_children = explicit_content_h.or(mxh_pre);
+    // `min-height` conta como altura DEFINIDA para o `align-items:stretch` dos
+    // filhos flex e para o `height:%` dos netos (CSS Flexbox §4.1, "Definite
+    // and Indefinite Sizes") quando o conteúdo não a alarga — o caso comum de
+    // um contentor `min-height`-only, sem `height`. Não distinguimos aqui se o
+    // conteúdo VAI exceder o mínimo (isso só se sabe DEPOIS de layoutar os
+    // filhos, e é exatamente a circularidade que a nota da spec existe para
+    // evitar): tratamos `min-height` como definida sempre que `height` não o
+    // é, o mesmo corte que `mxh_pre` já fazia ao lado. Sem isto, `#item h=0`
+    // e `#neto h=0` (`claude-flex-definite-min-height`) — o `avail_children`
+    // nunca incluía `mnh_pre`, calculado três linhas acima e descartado.
+    let avail_children = explicit_content_h.or(mxh_pre).or(mnh_pre);
 
     // Novo BFC (fresco, vazio) só se `id` o estabelece — senão os filhos
     // recebem a mesma referência ambiente, e um float lá dentro alcança os
@@ -841,9 +861,17 @@ pub(crate) fn layout_block(
     // STRETCH do flex: altura OUTER imposta pelo container (align-items/self:
     // stretch) → content = outer - margens - frame_v; nunca ENCOLHE o conteúdo
     // (max com o natural — um item mais alto que a linha não é cortado).
-    let content_h = match forced_outer_h {
-        Some(fh) => (fh - margin_top - margin_bottom - frame_v).max(content_h),
-        None => content_h,
+    // `forced_outer_h_hard` já decidiu `content_h` acima (via
+    // `explicit_content_h`) e é exatamente isso que o MAIN SIZE de coluna
+    // precisa: o `.max` aqui é a parte "mole" que este caller pediu para não
+    // ter.
+    let content_h = if forced_outer_h_hard {
+        content_h
+    } else {
+        match forced_outer_h {
+            Some(fh) => (fh - margin_top - margin_bottom - frame_v).max(content_h),
+            None => content_h,
+        }
     };
 
     // MARGIN-COLLAPSE pai/filho: sem BFC, borda ou padding, a margem da primeira

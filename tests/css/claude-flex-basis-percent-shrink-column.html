@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: num flex-container COLUNA com altura definida (aqui via um pai
+     position:relative + top:0;bottom:0), `flex-basis` percentual resolve
+     contra essa altura E o excesso encolhe por `flex-shrink` (inicial 1) —
+     não fica só a percentagem simples nem transborda por baixo.
+     `layout_children_column` (coluna.rs) não lê `css.flex_basis` nem
+     `css.flex_shrink`; #topo sai com a altura de `height:20%` (ok, é uma
+     propriedade normal) mas #resto ignora `flex-basis:100%` e mede só o
+     conteúdo, e nada encolhe o excesso. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="c,topo,resto">
+<meta name="fixar-estilo" content="height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #pai { position: relative; width: 320px; height: 240px; }
+  #c { position: absolute; top: 0; bottom: 0; left: 0; right: 0; display: flex; flex-direction: column; background: red; }
+  #topo { background: green; height: 20%; }
+  #resto { background: blue; flex-basis: 100%; }
+</style></head>
+<body>
+  <div id="pai"><div id="c"><div id="topo"></div><div id="resto"></div></div></div>
+</body>
+</html>

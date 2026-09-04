@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- Fixa: um contentor com `min-height` (sem `height`) que acaba definido
+     (o conteúdo não o alarga) TEM de contar como ALTURA DEFINIDA para (a)
+     o `align-items:stretch` dos filhos flex e (b) a resolução de `height:%`
+     dos netos — CSS Flexbox §4.1 "Definite and Indefinite Sizes". O nosso
+     motor só olha para `height`/`max-height`
+     (crates/rts-dom/src/layout/bloco.rs:676,
+     `avail_children = explicit_content_h.or(mxh_pre)`); `min-height`
+     resolve em `mnh_pre` na linha 662 mas nunca entra nesse `.or()`. #ext:
+     `min-height:100px`, flex row; #item: filho flex sem height (default
+     stretch); #neto: `height:100%`. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="ext,item,neto">
+<meta name="fixar-estilo" content="height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #ext { display: flex; min-height: 100px; width: 200px; background: #eee; }
+  #item { width: 100px; background: #fc0; }
+  #neto { height: 100%; background: #0c0; }
+</style></head>
+<body>
+  <div id="ext">
+    <div id="item">
+      <div id="neto"></div>
+    </div>
+  </div>
+</body>
+</html>

@@ -376,6 +376,7 @@ pub(in crate::layout) fn layout_children_grid(
             || (0.0, 0.0),
             forced_w,
             forced_h,
+            false,
             !stretch_x,
             // Item de grid: mesma razão do flex, ver `coluna.rs`.
             &BlockFormattingContext::new(),

@@ -15,6 +15,15 @@ import {
   getAttribute, boundingRect, computedProperty, setLocationHash,
 } from "rts:dom";
 
+/// Dois comprimentos `Npx` a menos de 0,01px um do outro são o mesmo número.
+function pxIguais(a: string, b: string): boolean {
+  const re = /^(-?[0-9]+(?:\.[0-9]+)?)px$/;
+  const ma = re.exec(a);
+  const mb = re.exec(b);
+  if (ma === null || mb === null) { return false; }
+  return Math.abs(parseFloat(ma[1]) - parseFloat(mb[1])) <= 0.01;
+}
+
 const PASTA = "tests/css";
 const tolerancia = Number((process as any).env.CSS_TOL ?? "1");
 const filtro = String((process as any).env.CSS_FILTRO ?? "");
@@ -170,8 +179,13 @@ for (const nome of fixtures) {
       }
       const querido = String(elementos[id].estilo[p]);
       const obtido = String(computedProperty(doc, alvo, p));
-      if (obtido === querido) { batem = batem + 1; }
-      if (obtido !== querido) {
+      // Um comprimento em px bate a menos de 0,01px: o Blink imprime o valor
+      // usado com 4 decimais e o nosso medidor de texto acumula em f32 —
+      // `52.7812px` contra `52.7808px` é o mesmo número para qualquer leitor
+      // (o rect já tolera 1px). Tudo o resto compara-se letra a letra.
+      const bate = obtido === querido || pxIguais(obtido, querido);
+      if (bate) { batem = batem + 1; }
+      if (!bate) {
         desvios.push({ fixture: nome, onde: "#" + id + " {" + p + "}", esperado: querido, obtido: obtido });
       }
     }

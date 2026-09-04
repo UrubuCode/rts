@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!-- Fixa: `display:inline-flex` produz uma caixa de outer-display INLINE (como
+     inline-block) — fica lado a lado com irmãos na mesma linha, não um bloco
+     por linha. `parse_display` mapeia `inline-flex` para o mesmo
+     `DisplayKind::Flex` de `flex`, e `is_inline_block` só reconhece
+     `InlineBlock`, então perde-se a distinção outer-display. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="a,b,c">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: inline-flex; width: 64px; height: 64px; background: #36c; vertical-align: top; }
+</style></head>
+<body>
+<div id="a" class="f"></div><div id="b" class="f"></div><div id="c" class="f"></div>
+</body>
+</html>
