@@ -20,6 +20,7 @@ mod ib_nowrap_corpus;
 mod justify_fisico_corpus;
 mod clearfix_corpus;
 mod pseudo_flex_corpus;
+mod borda_em_corpus;
 mod float_corpus;
 mod grid;
 mod grid_colocacao;

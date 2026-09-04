@@ -622,6 +622,19 @@ fn apply_border_shorthand(css: &mut ComputedStyle, val: &str) {
             set_if(&mut css.border_style, Some(style));
         } else if let Some(w) = parse_border_width_token(tok) {
             set_if(&mut css.border_width, Some(w));
+        } else if let Some(d) = crate::style::borders::parse_width_dim(tok) {
+            // `border: .3em solid` — a largura uniforme é um escalar em px e a
+            // fonte deste nó ainda não está computada aqui (é herdada depois),
+            // por isso o `em` vai para os QUATRO lados como dimensão e
+            // `resolved_sides` resolve-o contra a fonte na hora (`claude-borda-em`:
+            // 6px a 20px, não 4,8). O escalar fica com uma estimativa a 16px para
+            // os consumidores antigos (`input.rs`, larguras de tabela). CORTE
+            // dito: pelos lados, a pintura perde o `border-radius`.
+            for lado in [crate::style::SideName::Top, crate::style::SideName::Right, crate::style::SideName::Bottom, crate::style::SideName::Left] {
+                crate::style::borders::set_side_width_dim(css, lado, Some(d));
+            }
+            let rc = crate::style::ResolveCtx { parent_content_w: 0.0, node_font_size: 16.0, root_font_size: crate::style::root_font_size(), viewport_w: 0.0, viewport_h: 0.0 };
+            set_if(&mut css.border_width, d.resolve(&rc));
         } else if let Some(c) = parse_color(tok) {
             set_if(&mut css.border_color, Some(c));
         }
