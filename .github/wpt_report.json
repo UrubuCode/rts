@@ -1,8 +1,8 @@
 {
   "pasta": "C:\\Users\\nexga\\AppData\\Local\\Temp/wpt/css/css-flexbox",
   "total": 489,
-  "passam": 194,
-  "falham": 295,
+  "passam": 193,
+  "falham": 296,
   "erros": 0,
   "tol": 8,
   "piores": [
@@ -1031,6 +1031,12 @@
       "pct": 0.7117187500000001,
       "n": 7288,
       "script": false
+    },
+    {
+      "nome": "auto-margins-001",
+      "pct": 0.7000000000000001,
+      "n": 7168,
+      "script": true
     },
     {
       "nome": "flexbox-baseline-single-item-001a",

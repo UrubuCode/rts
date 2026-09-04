@@ -73,8 +73,16 @@ impl SideBorder {
 
 /// Escreve a largura de UM lado (em `border_widths`).
 pub fn set_side_width(css: &mut ComputedStyle, side: SideName, w: Option<f32>) {
+    set_side_width_dim(css, side, w.map(Dimension::Px))
+}
+
+/// Como [`set_side_width`], mas com a DIMENSÃO como veio (`.3em`, `1rem`): a
+/// borda em `em` resolve contra a fonte do elemento em `resolved_sides`, e é o
+/// que dá ao caret `.dropdown-toggle::after` do Bootstrap (só bordas de `.3em`)
+/// os seus 9,6px em vez de `medium` (`claude-borda-em`).
+pub fn set_side_width_dim(css: &mut ComputedStyle, side: SideName, w: Option<Dimension>) {
     let v = match w {
-        Some(w) => Side::Len(Dimension::Px(w)),
+        Some(d) => Side::Len(d),
         None => Side::Unset,
     };
     match side {
@@ -119,7 +127,7 @@ pub fn apply_side_shorthand(css: &mut ComputedStyle, side: SideName, val: &str) 
     for tok in val.split_whitespace() {
         if let Some(s) = BorderStyle::parse(tok) {
             style = Some(s);
-        } else if let Some(w) = parse_width_token(tok) {
+        } else if let Some(w) = parse_width_dim(tok) {
             width = Some(w);
         } else if let Some(c) = super::color::parse_color(tok) {
             color = Some(c);
@@ -130,10 +138,28 @@ pub fn apply_side_shorthand(css: &mut ComputedStyle, side: SideName, val: &str) 
     // para o ESTILO — que é o que decide se a linha aparece — e para a largura;
     // a cor omitida fica a herdar (`currentColor` sem um campo próprio para ela).
     set_side_style(css, side, Some(style.unwrap_or(BorderStyle::None)));
-    set_side_width(css, side, Some(width.unwrap_or(3.0)));
+    set_side_width_dim(css, side, Some(width.unwrap_or(Dimension::Px(3.0))));
     if color.is_some() {
         set_side_color(css, side, color);
     }
+}
+
+/// Largura de borda como DIMENSÃO: `thin`/`medium`/`thick`, zero, ou qualquer
+/// comprimento — `.3em`, `1rem` incluídos, que `parse_width_token` (só px)
+/// deixava cair. Quem resolve `em` é `resolved_sides`, contra a fonte do nó.
+pub fn parse_width_dim(tok: &str) -> Option<Dimension> {
+    let low = tok.trim().to_ascii_lowercase();
+    match low.as_str() {
+        "thin" => return Some(Dimension::Px(1.0)),
+        "medium" => return Some(Dimension::Px(3.0)),
+        "thick" => return Some(Dimension::Px(5.0)),
+        _ => {}
+    }
+    let num = low.trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%').trim();
+    if num.parse::<f32>().map(|n| n == 0.0).unwrap_or(false) {
+        return Some(Dimension::Px(0.0));
+    }
+    super::lengths::parse_dimension_pub(&low).filter(|d| !matches!(d, Dimension::Auto | Dimension::Percent(_)))
 }
 
 /// Largura de borda de um token: `thin`/`medium`/`thick` (os valores do Chrome:
@@ -192,7 +218,7 @@ pub fn apply_longhand(css: &mut ComputedStyle, prop: &str, val: &str) {
         return;
     };
     match what {
-        "width" => set_side_width(css, side, parse_width_token(val)),
+        "width" => set_side_width_dim(css, side, parse_width_dim(val)),
         "style" => set_side_style(css, side, BorderStyle::parse(val)),
         "color" => set_side_color(css, side, super::color::parse_color(val)),
         // Inalcançável: o `split_longhand` acima já recusou tudo o que não é uma
@@ -229,8 +255,21 @@ pub fn resolved_sides(css: &ComputedStyle) -> [SideBorder; 4] {
     let uw = css.border_width.unwrap_or(0.0);
     let us = css.border_style.unwrap_or(BorderStyle::None);
     let uc = css.border_color.unwrap_or(0x808080FF);
+    // `em`/`rem` num lado resolvem contra a fonte DESTE nó (a computada é px
+    // depois da cascade); `%` não existe em bordas e a viewport não entra.
+    let fonte = match css.font_size {
+        Some(Dimension::Px(f)) => f,
+        _ => 16.0,
+    };
+    let rc = super::ResolveCtx {
+        parent_content_w: 0.0,
+        node_font_size: fonte,
+        root_font_size: super::root_font_size(),
+        viewport_w: 0.0,
+        viewport_h: 0.0,
+    };
     let one = |w: Side, s: Option<BorderStyle>, c: Option<Rgba>| SideBorder {
-        width: w.px().unwrap_or(uw).max(0.0),
+        width: w.px().or_else(|| w.resolve(&rc)).unwrap_or(uw).max(0.0),
         style: s.unwrap_or(us),
         color: c.unwrap_or(uc),
     };
