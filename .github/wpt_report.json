@@ -1,8 +1,8 @@
 {
   "pasta": "C:\\Users\\nexga\\AppData\\Local\\Temp/wpt/css/css-flexbox",
   "total": 489,
-  "passam": 271,
-  "falham": 218,
+  "passam": 275,
+  "falham": 214,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -116,18 +116,6 @@
       "script": false
     },
     {
-      "nome": "flexbox_generated-nested-flex",
-      "pct": 8.0232421875,
-      "n": 82158,
-      "script": false
-    },
-    {
-      "nome": "flexbox_nested-flex",
-      "pct": 8.0232421875,
-      "n": 82158,
-      "script": false
-    },
-    {
       "nome": "flexbox-baseline-multi-item-vert-001a",
       "pct": 7.503710937499999,
       "n": 76838,
@@ -236,15 +224,9 @@
       "script": false
     },
     {
-      "nome": "flexbox_fbfc",
-      "pct": 2.7,
-      "n": 27648,
-      "script": false
-    },
-    {
       "nome": "flex-aspect-ratio-img-row-014",
-      "pct": 2.65556640625,
-      "n": 27193,
+      "pct": 2.6474609375,
+      "n": 27110,
       "script": false
     },
     {
@@ -362,12 +344,6 @@
       "script": false
     },
     {
-      "nome": "css-flexbox-test1",
-      "pct": 1.3953125,
-      "n": 14288,
-      "script": false
-    },
-    {
       "nome": "percentage-padding-002",
       "pct": 1.388671875,
       "n": 14220,
@@ -398,15 +374,15 @@
       "script": false
     },
     {
-      "nome": "multiline-shrink-to-fit",
-      "pct": 1.1962890625,
-      "n": 12250,
+      "nome": "css-flexbox-test1",
+      "pct": 1.2078125,
+      "n": 12368,
       "script": false
     },
     {
-      "nome": "flex-box-wrap",
-      "pct": 1.171875,
-      "n": 12000,
+      "nome": "multiline-shrink-to-fit",
+      "pct": 1.1962890625,
+      "n": 12250,
       "script": false
     },
     {
