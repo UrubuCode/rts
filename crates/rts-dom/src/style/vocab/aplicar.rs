@@ -176,7 +176,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             let mut t = css
                 .transform
                 .unwrap_or_else(super::effects::Transform::identity);
-            t.rot_deg += d;
+            t.ops.push(crate::layout::TransformOp::Rotate { deg: d });
             set_if(&mut css.transform, Some(t));
         }
         "scale" => {
@@ -188,8 +188,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             let mut t = css
                 .transform
                 .unwrap_or_else(super::effects::Transform::identity);
-            t.sx *= sx;
-            t.sy *= sy;
+            t.ops.push(crate::layout::TransformOp::Scale { sx, sy });
             set_if(&mut css.transform, Some(t));
         }
         "font-stretch" => set_if(&mut css.font_stretch, parse_font_stretch(val)),

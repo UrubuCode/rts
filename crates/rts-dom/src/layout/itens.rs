@@ -93,31 +93,21 @@ pub(in crate::layout) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) 
     }
 }
 
-/// Aplica um transform (translate `tx,ty` + escala `sx,sy` + rotação `sin,cos`) em
-/// torno do centro `(cx,cy)` a um DisplayItem, mutando suas coords. Rects escalam de
-/// tamanho; a rotação move o canto (aproximação: rotaciona a posição, não o próprio
-/// rect — cobre o uso comum sem mesh rotacionado). Texto/pos: rotaciona+escala o ponto.
-#[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn apply_transform_to_item(
-    it: &mut DisplayItem,
-    cx: f32,
-    cy: f32,
-    tx: f32,
-    ty: f32,
-    sx: f32,
-    sy: f32,
-    sin: f32,
-    cos: f32,
-) {
-    // transforma UM ponto: escala em torno do centro, rotaciona, translada.
-    let xf = |px: f32, py: f32| -> (f32, f32) {
-        let (mut dx, mut dy) = (px - cx, py - cy);
-        dx *= sx;
-        dy *= sy;
-        let rx = dx * cos - dy * sin;
-        let ry = dx * sin + dy * cos;
-        (cx + rx + tx, cy + ry + ty)
-    };
+/// Aplica uma matriz `transform` (já composta e em torno da origem — ver
+/// `layout/transformacao.rs`) a um `DisplayItem`, mutando suas coords.
+///
+/// O BACKEND (`rts-egui`) só pinta retângulos e texto AXIS-ALIGNED — não há
+/// mesh rotacionado — então isto é uma APROXIMAÇÃO deliberada e não a pintura
+/// exata que a matriz descreve: o CANTO `(x,y)` do item move-se pelo ponto
+/// exato que a matriz calcula (`Mat2d::apply`), e `w`/`h` escalam pela norma de
+/// cada coluna da matriz (`sqrt(a²+b²)`, `sqrt(c²+d²)`) — o fator de escala que
+/// uma rotação/skew pura induz no eixo, ignorando a inclinação. Cobre
+/// translate/scale exatamente e rotate/skew "razoavelmente" (o mesmo corte que
+/// já existia para rotate antes deste lote, agora extensivo a skew/matrix).
+/// Rodar o backend em si é outra fatia — ver o PLAN.
+pub(in crate::layout) fn apply_transform_to_item(it: &mut DisplayItem, mat: &super::Mat2d) {
+    let sx = (mat.a * mat.a + mat.b * mat.b).sqrt();
+    let sy = (mat.c * mat.c + mat.d * mat.d).sqrt();
     match it {
         DisplayItem::SolidRect { rect, .. }
         | DisplayItem::Border { rect, .. }
@@ -125,20 +115,20 @@ pub(in crate::layout) fn apply_transform_to_item(
         | DisplayItem::Shadow { rect, .. }
         | DisplayItem::Image { rect, .. }
         | DisplayItem::Pixels { rect, .. } => {
-            let (nx, ny) = xf(rect.x, rect.y);
+            let (nx, ny) = mat.apply(rect.x, rect.y);
             rect.x = nx;
             rect.y = ny;
             rect.w *= sx;
             rect.h *= sy;
         }
         DisplayItem::Text { x, y, size, .. } => {
-            let (nx, ny) = xf(*x, *y);
+            let (nx, ny) = mat.apply(*x, *y);
             *x = nx;
             *y = ny;
             *size *= sy; // escala o texto na vertical (aproxima).
         }
         DisplayItem::BeginClip { rect, .. } => {
-            let (nx, ny) = xf(rect.x, rect.y);
+            let (nx, ny) = mat.apply(rect.x, rect.y);
             rect.x = nx;
             rect.y = ny;
             rect.w *= sx;

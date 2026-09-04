@@ -35,21 +35,19 @@ impl ComputedStyle {
                 .box_shadow
                 .map(|s| format!("{}px {}px {}px {}px", s.dx, s.dy, s.blur, s.spread))
                 .unwrap_or_default(),
+            // Como o browser: `getComputedStyle().transform` devolve a MATRIZ
+            // resolvida (`matrix(a, b, c, d, e, f)`), não a lista de funções
+            // declaradas. Sem o box-size aqui (é uma pergunta de estilo, não
+            // de layout), a fração `%` do translate resolve a 0 — o mesmo
+            // corte que `transform_origin` já tinha antes deste lote.
             "transform" => self
                 .transform
+                .filter(|t| !t.is_identity())
                 .map(|t| {
-                    format!(
-                        "translate({}px + {}%, {}px + {}%) scale({}, {}) rotate({}deg)",
-                        t.tx,
-                        t.tx_pct * 100.0,
-                        t.ty,
-                        t.ty_pct * 100.0,
-                        t.sx,
-                        t.sy,
-                        t.rot_deg
-                    )
+                    let m = t.ops.resolve(0.0, 0.0);
+                    format!("matrix({}, {}, {}, {}, {}, {})", m.a, m.b, m.c, m.d, m.e, m.f)
                 })
-                .unwrap_or_default(),
+                .unwrap_or_else(|| "none".to_string()),
             "flex-grow" => self.flex_grow.map(|v| format!("{v}")).unwrap_or_default(),
             "flex-shrink" => self.flex_shrink.map(|v| format!("{v}")).unwrap_or_default(),
             "flex-basis" => self.flex_basis.map(fmt_dim).unwrap_or_default(),
