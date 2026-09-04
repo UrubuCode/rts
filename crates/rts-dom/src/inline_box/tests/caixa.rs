@@ -125,7 +125,10 @@
         );
         let s = rect(&dom, &list, "span", 0);
         assert!(s.x > 10.0, "o inline-block foi para o início da linha: {s:?}");
-        assert_eq!(s.y, 0.0, "e desceu de linha: {s:?}");
+        // Na MESMA linha: o fundo de um inline-block vazio senta na baseline
+        // (CSS 2.1 §10.8.1), logo o topo fica abaixo de 0 mas acima da linha
+        // seguinte — `y == 0` era a leitura antiga, que o punha no topo da linha.
+        assert!(s.y >= 0.0 && s.y + s.h <= 20.0, "e desceu de linha: {s:?}");
     }
 
     /// Dois inline-blocks SEM texto à volta continuam lado a lado — a corrida de
