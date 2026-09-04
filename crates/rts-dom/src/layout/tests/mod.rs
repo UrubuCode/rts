@@ -13,6 +13,7 @@ mod flex;
 mod flex_avancado;
 mod flex_max_width_corpus;
 mod flex_item_floats_corpus;
+mod intrinseco_whitespace_corpus;
 mod float_corpus;
 mod grid;
 mod grid_colocacao;
