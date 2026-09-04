@@ -1,0 +1,182 @@
+/* A folha de UA (agente de utilizador) — lote I do PLAN.md §4.I.
+ *
+ * Texto CSS real, parseado pelo MESMO `style::parse` que um `<style>` de
+ * autor usa (`style/ua.rs`), e anexado a cada `Stylesheet` na origem UA — a
+ * mais fraca da cascade normal e a mais forte do `!important` (CSS Cascade 5
+ * §6.1). Substitui dois mecanismos Rust paralelos que a auditoria estrutural
+ * de 2026-09-04 encontrou: `UA_TABLE` (block/ua.rs, 5 campos fixos, só
+ * display+margem+heading+ênfase) e `ua_display()` (um `match` chamado DEPOIS
+ * da cascade pelo layout). Nenhum dos dois exprimia um seletor — por isso
+ * `<th>` não tinha negrito nem `input:disabled` não ficava cinzento; aqui
+ * ambos são uma regra normal.
+ *
+ * Valores de referência: a folha `html.css` do Blink/WebKit, mas só o
+ * SUBCONJUNTO de propriedades que `style/props/tabela.rs` já reconhece —
+ * quando uma propriedade real do browser não tem lowering aqui (`box-sizing`
+ * de fieldset, `unicode-bidi`, `appearance`, os pseudo `::-webkit-*` de
+ * scrollbar tratados à parte no lote I-4/scrollbar.rs), a regra fica de fora
+ * em vez de meio-escrita — declarar uma propriedade que o parser ignora é
+ * pior que não a declarar, porque parece coberta e não está.
+ *
+ * FICOU DE FORA, e porquê:
+ *  - `quotes`, `unicode-bidi`, `direction` — sem suporte de bidi no motor
+ *    (docs/ui/html-engine/PLAN.md §5.T).
+ *  - `appearance`/skin nativa de controlos — o `replaced.rs` já desenha
+ *    input/button/select/textarea com a sua própria forma; não há uma
+ *    propriedade CSS que o motor leia para isso.
+ *  - `list-style-type` por defeito (`disc`/`decimal`) — já vem de
+ *    `listitem/mod.rs`, que decide o marcador pelo TIPO da tag (`ul` vs
+ *    `ol`), não por uma propriedade CSS; duplicar aqui teria as duas fontes
+ *    a decidir a mesma coisa (a fixture `claude-list-style-type` já pina o
+ *    comportamento actual).
+ *  - `:visited`/`:active`/cores de estado — o DOM não guarda histórico de
+ *    navegação nem estado pressionado ainda (PLAN.md §5.O).
+ *  - fieldset/legend, `<dialog>`, `<details>`/`<summary>` — sem fixture no
+ *    corpus a exercitá-los; entram quando uma página real precisar.
+ */
+
+html, body {
+  display: block;
+}
+
+/* A margem de 8px do body é o único caso em que o Chrome usa `margin`
+ * (shorthand) em vez de dois lados — mantém-se assim aqui: um autor que
+ * escreva `body { margin: 0 }` (o caso mais comum de todos) vence a
+ * shorthand inteira de uma vez, como no browser real. */
+body {
+  margin: 8px;
+}
+
+div, section, header, footer, main, article, aside, nav,
+figcaption, address, form, li, p, ul, ol, menu, dir, blockquote, pre, figure,
+hr, h1, h2, h3, h4, h5, h6, table, center {
+  display: block;
+}
+
+p, blockquote, figure {
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+ul, ol, menu, dir {
+  margin-top: 16px;
+  margin-bottom: 16px;
+  /* O recuo que dá lugar ao marcador — substitui `UA_LIST_INDENT`/
+   * `is_list_container` (block/ua.rs, apagados neste lote). */
+  padding-inline-start: 40px;
+}
+
+pre {
+  margin-top: 13px;
+  margin-bottom: 13px;
+  font-family: monospace;
+  /* `pre` não colapsa espaço nem quebra só por largura — abre linha no
+   * `\n` do fonte (F do PLAN.md já fez `white-space:pre` valer no layout). */
+  white-space: pre;
+}
+
+hr {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+/* `font-size` em `em` (contra o PAI) e `margin` em `em` (contra o PRÓPRIO
+ * `font-size`, já resolvido pela mesma regra) — os valores exatos do
+ * `html.css` do Blink. Medido no Chrome real (`tests/css/claude-ua-headings`,
+ * lote I): px fixos arredondados davam 16px/16px de margem em TODOS os
+ * headings (o `em` da margem tem de reagir ao próprio tamanho de fonte, não
+ * ao do body) e um `font-size` inteiro em vez de `18.72px`/`13.28px`/
+ * `10.72px` — o corpus `claude-font-size-unidades` já prova que o `em` do
+ * autor resolve certo; o motor não precisava de mudar, só a folha. */
+h1 { font-size: 2em; font-weight: bold; margin-top: 0.67em; margin-bottom: 0.67em; }
+h2 { font-size: 1.5em; font-weight: bold; margin-top: 0.83em; margin-bottom: 0.83em; }
+h3 { font-size: 1.17em; font-weight: bold; margin-top: 1em; margin-bottom: 1em; }
+h4 { font-size: 1em; font-weight: bold; margin-top: 1.33em; margin-bottom: 1.33em; }
+h5 { font-size: 0.83em; font-weight: bold; margin-top: 1.67em; margin-bottom: 1.67em; }
+h6 { font-size: 0.67em; font-weight: bold; margin-top: 2.33em; margin-bottom: 2.33em; }
+
+b, strong { font-weight: bold; }
+i, em { font-style: italic; }
+code, kbd, samp { font-family: monospace; }
+
+/* `<center>` (tag legada) — bloco com `text-align` HERDÁVEL centrado. */
+center { text-align: center; }
+
+a { color: #0000ee; text-decoration: underline; }
+
+/* Os PAPÉIS de tabela que não cabem no eixo bloco/inline/flex — a
+ * substituição directa de `ua_display()` (block/ua.rs:328-338), que o
+ * layout consultava DEPOIS da cascade. Agora é uma declaração `display`
+ * normal, como qualquer outra: uma regra de autor (`td{display:block}`)
+ * vence-a pela cascade em vez de um `match` no Rust nunca a deixar chegar. */
+/* `border-spacing` NÃO entra aqui: o default de 2px E o atributo legado
+ * `cellspacing` já são resolvidos por `table::mod::estilo` (`css.border_spacing
+ * == None` → lê `cellspacing`, senão 2px) — pôr `border-spacing:2px` nesta
+ * folha faria `css.border_spacing` ser sempre `Some`, e o atributo deixaria de
+ * ser lido NUNCA. Descoberto pelo teste
+ * `o_border_spacing_existe_tambem_entre_a_borda_e_a_primeira_coluna`. */
+table { display: table; }
+thead, tbody, tfoot { display: table-row-group; }
+tr { display: table-row; }
+td, th { display: table-cell; padding: 1px; }
+th { font-weight: bold; text-align: center; }
+caption { display: table-caption; }
+col, colgroup { display: none; }
+li { display: list-item; }
+
+/* Controlos de formulário — fonte própria (13.3333px), não a do documento;
+ * ver o comentário histórico em block/ua.rs sobre a medição feita numa
+ * página real (8 de 16354 elementos divergiam do Chrome nisto). */
+/* `display:inline-block` — sem ele um `<button>` colapsava para o texto NU
+ * (sem caixa própria: 12.27px em vez de 30.09px medidos no Chrome real,
+ * `claude-ua-form-disabled`) porque `inline` não gera padding/borda visíveis
+ * em nenhum motor. Padding/borda são os do Blink (`html.css`): `button` tem
+ * `padding:1px 6px;border:2px outset`, `input`/`textarea` `padding:1px
+ * 2px;border:2px inset` — `outset`/`inset` caem em `solid` no parser (só
+ * reconhece esse subconjunto), que é a mesma LARGURA visível. */
+input, button, select, textarea {
+  display: inline-block;
+  font-family: sans-serif;
+  font-size: 13.3333px;
+  /* O Blink dá `box-sizing:border-box` a todo controlo — é o que faz
+   * `height:100%` de um `<input>` totalizar exactamente o pai (400px) em
+   * vez de 400 + padding + borda (406px, o content-box default). Sem isto
+   * `altura_percentual_de_input_mede_se_no_eixo_vertical` regredia. */
+  box-sizing: border-box;
+}
+button, select {
+  padding: 1px 6px;
+  border-width: 2px;
+  border-style: outset;
+}
+/* `input`/`textarea`, MAS NÃO `input[type=checkbox]`/`[type=radio]`: esses
+ * dois são um widget nativo quadrado/redondo, não uma caixa de texto — o
+ * `replaced.rs` já assume um quadrado de 13px para eles
+ * (`checkbox_e_um_quadrado_e_nao_um_campo_de_texto`), e padding/borda de
+ * caixa de texto destruía essa forma. */
+input:not([type="checkbox"]):not([type="radio"]), textarea {
+  padding: 1px 2px;
+  border-width: 2px;
+  border-style: inset;
+}
+
+/* As cores de `:disabled` DIVERGEM por tipo de controlo no Chrome — não é
+ * uma única `GrayText` de sistema (que este motor não reconhece de qualquer
+ * forma): `input`/`textarea`/`select` desativados são um cinza sólido
+ * (`#545454`); `button` é PRETO a 30% de opacidade (`rgba(16,16,16,.3)`),
+ * porque o texto do botão herda `currentColor` do `::-internal-*` do Blink
+ * em vez de uma cor de sistema. Medido em `claude-ua-form-disabled`. */
+input:disabled, textarea:disabled, select:disabled {
+  color: rgb(84, 84, 84);
+}
+button:disabled {
+  color: rgba(16, 16, 16, 0.3);
+}
+
+[hidden] {
+  display: none;
+}
+
+head, script, style, title {
+  display: none;
+}

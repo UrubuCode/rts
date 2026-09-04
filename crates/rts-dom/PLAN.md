@@ -30,11 +30,11 @@ linha aqui não existe.
 | F | baseline, `vertical-align`, `white-space` | 1 | ☑ integrado; corpus 8/8 fechados (o 8.º por C/E) | `feat/dom-linha-baseline` → `ebe268ef` | corpus: `claude-vertical-align`, `claude-white-space`, `claude-text-align` (8) |
 | G | scroll no documento | 2 | ☑ integrado; fixture verde; janela real POR MEDIR | `feat/dom-scroll-no-documento` → `951a72b2` | teste de `scrollTop`/`scrollTo` + exemplo em janela |
 | H | o escopo de página não vê o Node | 2 | ☑ integrado; fixture verde; `eval` indirecto ainda vê `process` (§4.H) | `feat/dom-escopo-pagina-sem-node` → `8e30fcc1` | fixture `claude-dom-page-nao-ve-process` |
-| I | folha de UA em CSS real | 2 | ☐ | — | `<th>` negrito/centro; `scrollbar.rs` apagado |
-| J | `DeclarationRecord` e `revert` | 2 | ☐ | — | fixture `revert`/`revert-layer` medida no Chrome |
+| I | folha de UA em CSS real | 2 | ☑ `style/ua.css` parseada pelo mesmo parser, origem UA na cascade (inversão no `!important`); `ua_display` fora do layout; sensibilidade a atributo por NOME; `em`/`rem` em margens no `getComputedStyle`. PARCIAL: `UA_TABLE` ainda alimenta o eixo display/iniciais; `scrollbar.rs` só desenhado. Fixtures `claude-ua-*` medidas no Blink e a FALHAR (15 desvios = lacunas do motor: largura de texto a negrito/controlos, fonte dos controlos, `tr` com `border-spacing`) | `feat/dom-lote-i-folha-ua` → `615983cf`+`1b9e817e` (2026-09-04) | `<th>` negrito/centro; `scrollbar.rs` apagado |
+| J | `DeclarationRecord` e `revert` | 2 | ☑ `revert`/`revert-layer` por marcador, resolvidos sobre as regras casadas do elemento (sem lista por propriedade — custo zero sem `revert`, provado por teste); fixtures `claude-revert*` medidas no Blink e a PASSAR; suite 859/888 sem perdidos | `feat/dom-lote-j-declaration-record` → `7bd05644` (2026-09-04) | fixture `revert`/`revert-layer` medida no Chrome |
 | K | invalidação escopada para `:nth-child` | 2 | ☑ subárvore do pai em vez de `touch()` global; testes de escopo; corpus 49/49 e suite 858/887 sem perdidos; TEMPO por medir (`dom_metrics`) | `feat/dom-lote-k-invalidacao-escopada` (2026-09-04) | `dom_metrics`: cascades por `appendChild` |
-| L | cache de fragmentos em flex/grid/tabela | 2 | ☐ | — | `dom_metrics`: subárvores reusadas numa app flex |
-| M | ciclo de vida do nó | 2 | ☐ | — | teste: arena não cresce ao remover/inserir N vezes |
+| L | cache de fragmentos em flex/grid/tabela | 2 | ☑ itens de flex-row/coluna/grid reusam (`FragmentKey` + tamanhos impostos); tabela e out-of-flow NÃO; corpus 49/49, suite 858/887 sem perdidos, paridade em 6 páginas: desvio máx. 6,1e-5 px (artefacto do reuso); `fragment_hits > 0` provado por teste; número do `dom_metrics` numa app real por medir | `feat/dom-lote-l-cache-flex-grid` → `3bccf4ea` (2026-09-04) | `dom_metrics`: subárvores reusadas numa app flex |
+| M | ciclo de vida do nó | 2 | ☑ geração por NÓ, freelist, `releaseSubtree` decidido pela fachada; fixture `claude-dom-node-lifecycle` verde; wrappers fracos BLOQUEADOS por #2636 (`WeakRef` retém) | `feat/dom-lote-m-ciclo-de-vida` → `fe750c8b`+`b2e54326` (2026-09-04) | teste: arena não cresce ao remover/inserir N vezes |
 | N | réguas no CI | 2 | ☑ `dom-rulers` e `dom-tests` VERDES no runner (run 33840034384, 2026-09-04); `dom-rulers` corre com `if: !cancelled()` porque a matriz `build` teve o macOS vermelho de 03/09 a 04/09 (#2632, corrigido em #2633); ficam por fazer a escrita automática do número no README e a régua de pintura | `main` (#2629, #2633) | resumo do job + check vermelho |
 | O–U | CSS como área | 3 | ☐ | — | §5 |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
@@ -54,6 +54,23 @@ O binário desta medição fica como o próximo `target/baseline.exe` e
 `vaga1-suite.txt` como o próximo `base-suite.txt`. O que a vaga 1 NÃO mediu:
 o scroll numa janela real (G) — a fixture headless passa, o exemplo em janela
 fica para quem tiver ecrã.
+
+**Estado após a vaga 2 (2026-09-04, ~10:00)** — lotes I, J, L, M (K e N já
+estavam), medido com o `rts.exe` de `feat/dom-vaga-2` contra o binário do
+lote K (`target/baseline.exe`, `base-suite.txt` = `lotek-suite.txt`):
+
+| régua | antes (baseline) | depois | perdidos |
+|---|---|---|---|
+| corpus CSS | 49/49 | **51/54** — +5 fixtures: `revert`×2 passam, `ua`×3 falham de propósito (15 desvios = lacunas do motor) | nenhum |
+| suite `*.test.ts` por `medir.sh` | 858/887 | **859/888** (+`claude-dom-node-lifecycle`) | **nenhum** |
+| `cargo test -p rts-dom --lib --features metrics` | 758 (feature partida) | **788**, 0 falhas; a feature `metrics` voltou a compilar | — |
+| paridade em 6 páginas locais (só o lote L) | — | desvio máx. 6,1e-5 px | — |
+
+Régua nova: `scripts/css_fixtures_medir_edge.mjs` (Blink headless por CDP;
+validado com desvio 0 contra os 49 esperados do Chrome). Encontrado de
+caminho: `WeakRef`/`WeakMap` retêm fortemente (#2636), o que bloqueia os
+wrappers fracos do lote M. O binário desta medição é o próximo
+`target/baseline.exe`; `vaga2-suite.txt` o próximo `base-suite.txt`.
 
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit
@@ -359,6 +376,34 @@ paralelo com a vaga 1 se houver agentes livres: não tocam em layout.
   #217 diz o que falta); `document.close()`/descarte a chamar `dom.free`.
 - **Aceitação:** teste: inserir e remover 100 000 nós não faz a arena crescer
   além do pico vivo.
+- **Feito, branch `feat/dom-lote-m-ciclo-de-vida` (2026-09-04):** geração POR
+  NÓ (`dom/freelist.rs`) — `Dom::node_generation: Vec<u32>` paralelo a
+  `nodes`; `to_abi`/`from_abi` não mudaram (já empacotavam sem assumir
+  geração uniforme). `alloc_slot` reusa um `idx` da freelist antes de
+  crescer a arena; `recycle` incrementa só a geração DESSE `idx` e purga
+  TODO mapa lateral indexado por `NodeIdx` (`style_overrides`, `listeners`,
+  `listener_cbs`, `input_values`, `image_pixels`, `own_pixels`,
+  `scroll_regioes`, `active_transitions`, `prev_computed`, `anim_override`,
+  `anim_start`, `dirty_self`, `dirty_children`, `last_fragment`, `hovered`,
+  `focused_input`) — sem isto o PRÓXIMO ocupante do `idx` herdaria estado do
+  anterior. Quem decide reciclar: a fachada TS (decisão (a) do enunciado,
+  rejeitada a (b) — contagem de referências exigiria uma chamada extra em
+  CADA leitura que devolve um `NodeId`, não só na remoção). Novo membro do
+  bridge: `dom.releaseSubtree(doc, node)`; a fachada chama-o de
+  `removeChild`/`remove()` só quando NENHUM nó da subárvore removida tem
+  wrapper em `__wrappers` — `Element.isConnected` novo (getter, sobe por
+  `parentNode` até `rootId`), `Document.nodeCount`/`Document.close()`
+  (chamam `dom.nodeCount`/`dom.free`+`__dropWindow`, que já existiam sem
+  chamador). **`WeakRef`/`FinalizationRegistry` verificados e NÃO usados**:
+  `WeakRef.deref()` neste motor nunca devolve `undefined` (o alvo é uma
+  propriedade própria comum — `crates/rts-core/.../weakref.rs`) e
+  `WeakMap`/`WeakSet` também retêm forte, então nenhuma coleção do lado TS
+  hoje esquece uma entrada sozinha; um wrapper só é esquecido pela chamada
+  explícita que este lote acrescentou. Testes: `dom/tests/freelist.rs`
+  (Rust, 5 testes) + `tests/claude-dom-node-lifecycle.test.ts` (4 cenários).
+  `cargo check -p rts-dom -p rts-dom-bridge --tests` limpo (só avisos
+  pré-existentes noutros ficheiros). **Não medido ainda**: `cargo test`/a
+  suite completa — por integrar pelo orquestrador.
 
 ### N — as réguas no CI (`.github/workflows/`, `tests/css/README.md`)
 

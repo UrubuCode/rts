@@ -38,6 +38,7 @@ mod consulta;
 mod eventos;
 mod estilo;
 mod formulario;
+mod freelist;
 mod geometria;
 mod helpers;
 mod invalidacao;
@@ -101,6 +102,14 @@ pub(crate) struct LayoutMeasureKey {
 /// pela mesma razão: cada um protege uma dependência do resultado. `node_epoch`
 /// cobre mudanças na subárvore, `style_epoch` as globais de estilo, o viewport e
 /// o medidor cobrem o resto do ambiente.
+///
+/// **Lote L**: `forced_outer_w`/`forced_outer_h`/`shrink_to_fit` entraram para
+/// que flex, grid e out-of-flow pudessem participar do cache. Sem eles, um
+/// item de flex cujo `flex-grow` mudasse o `main size` bateria na MESMA chave
+/// que o desenho antigo (o `node_epoch` sozinho não vê essa mudança — ela vem
+/// do IRMÃO, não do próprio nó) e devolveria a geometria de outra largura
+/// imposta: a classe silenciosa que `CLAUDE.md` pede para nomear. A posição
+/// continua de fora — é a costura/emissão que a desloca, não a chave.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct FragmentKey {
     pub(crate) tree: u64,
@@ -110,6 +119,9 @@ pub(crate) struct FragmentKey {
     pub(crate) node: NodeIdx,
     pub(crate) avail_w: u32,
     pub(crate) avail_h: Option<u32>,
+    pub(crate) forced_outer_w: Option<u32>,
+    pub(crate) forced_outer_h: Option<u32>,
+    pub(crate) shrink_to_fit: bool,
     pub(crate) viewport_w: u32,
     pub(crate) viewport_h: u32,
     pub(crate) measurer: u64,
@@ -150,6 +162,18 @@ pub struct Dom {
     generation: u32,
     /// Arena: `nodes[idx]` é o nó de índice cru `idx`.
     pub nodes: Vec<Node>,
+    /// Geração POR NÓ (`dom/freelist.rs`, lote M) — paralelo a `nodes`. Um nó
+    /// recém-alocado herda a geração da árvore (`generation`, acima); reciclar
+    /// um `idx` incrementa só a entrada dele, então um `NodeId` do ocupante
+    /// anterior desse `idx` deixa de `resolve`. DERIVADO/de-identidade, fora
+    /// do `PartialEq` (mesma razão de `generation`).
+    node_generation: Vec<u32>,
+    /// Índices de nós DESANEXADOS e sem wrapper vivo, prontos para reuso por
+    /// `alloc_slot` — a via de saída que o ciclo de vida do nó não tinha.
+    /// Só cresce por `release_subtree` (chamado pela fachada TS); nunca por
+    /// `detach`/`remove_node` sozinhos, porque só o TS sabe se um wrapper
+    /// ainda existe.
+    free_list: Vec<NodeIdx>,
     /// A raiz sintética `#document` (índice cru — sempre 0).
     pub root: NodeIdx,
     /// Índice `valor-de-id → [NodeIdx]`. Mantém todos os candidatos para que a

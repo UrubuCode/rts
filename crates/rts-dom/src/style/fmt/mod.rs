@@ -4,7 +4,7 @@
 
 use super::fmt_values::{
     display_css, fmt_align, fmt_color, fmt_dim, fmt_justify, fmt_px, fmt_tracks, overflow_css,
-    side_css, side_of,
+    side_css, side_css_resolved, side_of,
 };
 use super::props::ComputedStyle;
 use super::values::{Dimension, LineHeight, TextAlign, TextTransform, WhiteSpace};
@@ -126,10 +126,12 @@ impl ComputedStyle {
             "padding-right" => side_css(self.padding.right),
             "padding-bottom" => side_css(self.padding.bottom),
             "padding-left" => side_css(self.padding.left),
-            "margin-top" => side_css(self.margin.top),
-            "margin-right" => side_css(self.margin.right),
-            "margin-bottom" => side_css(self.margin.bottom),
-            "margin-left" => side_css(self.margin.left),
+            // `_resolved`: margin/padding em `em`/`rem` chegam em px, como o
+            // Chrome — ver `fmt_values::side_css_resolved`.
+            "margin-top" => side_css_resolved(self, self.margin.top),
+            "margin-right" => side_css_resolved(self, self.margin.right),
+            "margin-bottom" => side_css_resolved(self, self.margin.bottom),
+            "margin-left" => side_css_resolved(self, self.margin.left),
             "border-width" => self.border_width.map(fmt_px).unwrap_or_default(),
             "border-color" => self.border_color.map(fmt_color).unwrap_or_default(),
             "border-style" => self

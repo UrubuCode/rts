@@ -101,4 +101,4 @@ pub fn lookup_inline(tag: &str) -> i64 {
 
 mod ua;
 
-pub use ua::{UA_LIST_INDENT, install_ua_defaults, is_list_container, ua_display};
+pub use ua::{install_ua_defaults, ua_display};

@@ -204,11 +204,16 @@ fn is_css_wide_keyword(value: &str) -> bool {
     )
 }
 
-/// Aplica `initial`/`inherit`/`unset` à camada semântica. Os valores iniciais
-/// são convertidos pelo mesmo dispatch das propriedades normais, em vez de
-/// duplicar os tipos na tabela `initial`. `revert` e `revert-layer` exigem
-/// metadados de origem/camada que o IR actual ainda não guarda e são ignorados
-/// deliberadamente até essa informação existir.
+/// Aplica `initial`/`inherit`/`unset`/`revert`/`revert-layer` à camada
+/// semântica. Os valores iniciais são convertidos pelo mesmo dispatch das
+/// propriedades normais, em vez de duplicar os tipos na tabela `initial`.
+/// `revert`/`revert-layer` NÃO resolvem aqui — uma declaração isolada não tem
+/// acesso às regras casadas (não sabe de que origem/layer veio, nem qual foi a
+/// anterior): guardam só o NOME em `revert_props`/`revert_layer_props`, o
+/// mesmo padrão de `inherit_props` acima, e a resolução real acontece em
+/// `style::stylesheet::revert::resolve_reverts` — chamada por
+/// `declarations_from` depois de ter a lista ordenada de regras na mão
+/// (lote J; antes disto o par era descartado em silêncio aqui mesmo).
 pub(crate) fn apply_css_wide_keyword(
     css: &mut ComputedStyle,
     prop: &str,
@@ -236,7 +241,26 @@ pub(crate) fn apply_css_wide_keyword(
             }
             applied
         }
-        "revert" | "revert-layer" => false,
+        "revert" => {
+            let mut nomes = css.revert_props.as_deref().cloned().unwrap_or_default();
+            if !nomes.iter().any(|name| name == prop) {
+                nomes.push(prop.to_string());
+            }
+            css.revert_props = Some(std::sync::Arc::new(nomes));
+            true
+        }
+        "revert-layer" => {
+            let mut nomes = css
+                .revert_layer_props
+                .as_deref()
+                .cloned()
+                .unwrap_or_default();
+            if !nomes.iter().any(|name| name == prop) {
+                nomes.push(prop.to_string());
+            }
+            css.revert_layer_props = Some(std::sync::Arc::new(nomes));
+            true
+        }
         _ => false,
     }
 }

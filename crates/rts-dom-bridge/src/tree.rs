@@ -24,6 +24,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("addStylesheet", add_stylesheet),
     ("dump", dump),
     ("nodeCount", node_count),
+    ("releaseSubtree", release_subtree),
     ("getByTagCount", get_by_tag_count),
     ("getByTagAt", get_by_tag_at),
     ("runScript", run_script),
@@ -111,9 +112,22 @@ extern "C" fn run_script(_e: u64, _t: u64, doc: u64, n: u64, source: u64, _c: u6
     nothing()
 }
 
-/// `nodeCount(doc)` — quantos nós a arena tem. Inclui os desanexados: é uma
-/// medida de MEMÓRIA, não da árvore visível.
+/// `nodeCount(doc)` — quantos nós a arena tem. Inclui os desanexados SEM
+/// wrapper (ainda não passaram por `releaseSubtree`): é uma medida de
+/// MEMÓRIA, não da árvore visível. Deixa de CRESCER sem limite a partir do
+/// lote M — um slot reciclado é reusado em vez de a arena crescer.
 extern "C" fn node_count(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> u64 {
     let n = rts_dom::store::with_dom(handle(doc), |d| d.nodes.len()).unwrap_or(0);
     int(n as i64)
+}
+
+/// `releaseSubtree(doc, node)` — recicla `node` (já desanexado) e a sua
+/// subárvore, devolvendo os índices à freelist (`dom/freelist.rs`, lote M).
+/// A FACHADA decide quando é seguro chamar isto: só quando nenhum wrapper TS
+/// aponta para `node` ou para um descendente dele — o Rust não tem como saber
+/// isso sozinho, então nunca recicla por conta própria em `remove_node`.
+extern "C" fn release_subtree(_e: u64, _t: u64, doc: u64, n: u64, _b: u64, _c: u64) -> u64 {
+    let Some(id) = node(n) else { return nothing() };
+    rts_dom::store::with_dom_mut(handle(doc), |d| d.release_subtree(id));
+    nothing()
 }

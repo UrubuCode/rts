@@ -42,24 +42,22 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-09-04: 49 das 49 fixtures passam**, a 1px de tolerância — zero desvios.
-Na manhã do mesmo dia eram 41 (23 desvios em 8 ficheiros); a vaga 1 do
-`crates/rts-dom/PLAN.md` fechou os oito com os lotes C (`position`), D (grid
-rows por áreas), E (`BlockFormattingContext`, floats, `clear`) e F (baseline
-por átomo, `vertical-align`, `white-space: pre`). Cada lote entrou com um
-teste Rust em `crates/rts-dom/src/layout/tests/*_corpus.rs` que parseia o HTML
-EXACTO da fixture e afirma os mesmos rects do Chrome — a suite unitária pina
-hoje o mesmo que este corpus.
+**2026-09-04 (vaga 2): 51 das 54 fixtures passam**, a 1px de tolerância —
+15 desvios em 3 ficheiros. Na mesma manhã eram 49 de 49; a vaga 2 do
+`crates/rts-dom/PLAN.md` acrescentou cinco fixtures: as duas de `revert`
+(lote J) passam à primeira, e as três da folha de UA (lote I) ficam a FALHAR
+de propósito — `claude-ua-form-disabled` (fonte e largura de texto dos
+controlos), `claude-ua-headings` (um desvio de 2px no `h6`), `claude-ua-th`
+(largura de texto a negrito, `tr` com `border-spacing`). São lacunas do motor
+que a fixture existe para nomear, e os esperados não se ajustam.
 
-**Contra que binário:** `target/release/rts.exe` construído a 2026-09-04
-01:39 sobre a branch `feat/dom-vaga-1` (o commit está no PLAN §0), via
-`examples/claude-css-runner.ts`.
+**Contra que binário:** `target/release/rts.exe` construído sobre
+`feat/dom-vaga-2`, via `examples/claude-css-runner.ts`.
 
-**Um corpus verde deixou de medir alguma coisa.** É o que aconteceu ao
-anterior (2026-08-18) e é a razão de existir a regra: uma fixture que falha
-fica a falhar, e a próxima fixture é a próxima pergunta. O `PLAN.md` §5 lista
-o que ainda não tem fixture — cada lote de lá começa por medir uma no Chrome
-(`scripts/css_fixtures_medir.md`) antes de tocar no código.
+**A régua destas cinco é o Edge headless** (`scripts/css_fixtures_medir_edge.mjs`,
+Blink 152), porque esta máquina não tem o Chrome — e o instrumento foi
+validado antes de contar: as 49 fixtures com esperado medido no Chrome,
+re-medidas no Edge, deram 1 164 números com desvio 0.
 
 ---
 

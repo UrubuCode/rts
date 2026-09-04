@@ -142,8 +142,11 @@
                 flags: 0,
             },
         );
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // mede % do viewport.
         let dom = parse_html_to_dom(
-            "<row>\
+            "<style>body{margin:0}</style>\
+             <row>\
                <div style='background:#111;width:30%'>a</div>\
                <div style='background:#222;width:30%'>b</div>\
                <div style='background:#333;width:30%'>c</div>\
@@ -211,8 +214,11 @@
                 flags: 0,
             },
         );
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // mede % do viewport, não a margem.
         let dom = parse_html_to_dom(
-            "<row>\
+            "<style>body{margin:0}</style>\
+             <row>\
                <div style='background:#111;width:32%'><p>256</p><p>testes</p></div>\
                <div style='background:#222;width:32%'><p>31%</p><p>paridade</p></div>\
                <div style='background:#333;width:32%'><p>5</p><p>fases</p></div>\
@@ -272,8 +278,10 @@
                 flags: 0,
             },
         );
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // mede % do viewport, não a margem.
         let dom = parse_html_to_dom(
-            "<style>.card{box-sizing:border-box;width:32%;padding:14;border-width:2;background:#1a2030}</style>\
+            "<style>body{margin:0}.card{box-sizing:border-box;width:32%;padding:14;border-width:2;background:#1a2030}</style>\
              <row>\
                <div class='card'>a</div><div class='card'>b</div><div class='card'>c</div>\
              </row>",
@@ -379,7 +387,9 @@
             },
         );
         crate::style::define_style("p", crate::style::SLOT_MARGIN_V, 16);
-        let dom = parse_html_to_dom("<p>um</p><p>dois</p>");
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma x=0 para os dois parágrafos.
+        let dom = parse_html_to_dom("<style>body{margin:0}</style><p>um</p><p>dois</p>");
         let ctx = LayoutCtx {
             viewport_w: 600.0,
             viewport_h: 600.0,

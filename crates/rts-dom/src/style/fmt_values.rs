@@ -35,6 +35,38 @@ pub(crate) fn side_css(s: crate::style::Side) -> String {
     }
 }
 
+/// Como [`side_css`], mas resolve `em`/`rem` para px antes de imprimir — o
+/// Chrome NUNCA devolve `getComputedStyle().marginTop` em unidade relativa.
+/// `%`/`vw`/`vh` continuam crus (o corte documentado de `side_css`): esses
+/// precisam da largura do containing block, que só o LAYOUT tem; `em`/`rem`
+/// não — o `em` de margin/padding resolve contra o `font-size` do PRÓPRIO
+/// nó, já resolvido a `Px` na cascade (`dom/cascade.rs`), e o `rem` contra a
+/// base thread-local que a raiz já escreveu. Descoberto pela folha de UA
+/// (lote I): `h2 { margin: 0.83em 0 }` devolvia `"0.83em"` cru.
+fn arredondar_6(v: f64) -> f32 {
+    (v * 1e6).round() as f32 / 1e6
+}
+
+pub(crate) fn side_css_resolved(css: &ComputedStyle, s: crate::style::Side) -> String {
+    match s {
+        crate::style::Side::Len(Dimension::Em(v)) => {
+            let font = match css.font_size {
+                Some(Dimension::Px(f)) => f,
+                _ => crate::layout::DEFAULT_FONT_SIZE,
+            };
+            // f64: `0.83f32 × 24f32` como f32 já carrega o ruído de duas
+            // conversões; o Chrome multiplica em double. Arredondado a 6
+            // casas para não expor o resto do ruído de round-trip do `f32`
+            // (`22.1776` saía `22.177599` sem isto).
+            fmt_px(arredondar_6(v as f64 * font as f64))
+        }
+        crate::style::Side::Len(Dimension::Rem(v)) => {
+            fmt_px(arredondar_6(v as f64 * crate::style::root_font_size() as f64))
+        }
+        other => side_css(other),
+    }
+}
+
 /// Serializa uma cor `0xRRGGBBAA` no formato do browser: `rgb(r, g, b)` se opaco
 /// (alpha 255), senão `rgba(r, g, b, a)` com alpha 0-1 (até 2 casas, sem zeros à
 /// direita). É o que o `getComputedStyle().color` reporta.

@@ -230,8 +230,11 @@
             measurer: &ApproxMeasurer,
         };
         let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
-        let dom =
-            parse_html_to_dom("<div style='line-height:3'>antes <a id='l'>link</a> depois</div>");
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma y absoluto.
+        let dom = parse_html_to_dom(
+            "<style>body{margin:0}</style><div style='line-height:3'>antes <a id='l'>link</a> depois</div>",
+        );
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
         let r = *list
@@ -316,8 +319,10 @@
             measurer: &ApproxMeasurer,
         };
         let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma y absoluto.
         let dom = parse_html_to_dom(
-            "<div><span id='s'><a id='a'><img id='i' width='300' height='200'></a></span></div>",
+            "<style>body{margin:0}</style><div><span id='s'><a id='a'><img id='i' width='300' height='200'></a></span></div>",
         );
         let list = layout_document(&dom, &ctx);
         let geo = list.geometry();

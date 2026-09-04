@@ -18,8 +18,10 @@ fn table_layout_fixed_ignora_o_conteudo_das_linhas_seguintes() {
     let fixo_c1 = rect(&d2, &l2, "td", 0).w;
 
     // No fixo a primeira coluna fica com os 50px pedidos, custe o que custar.
+    // `td` tem `padding: 1px` na folha de UA (lote I): 50 de `width`
+    // (content-box) + 2×1px de padding = 52 de caixa.
     assert!(
-        (fixo_c1 - 50.0).abs() < 0.5,
+        (fixo_c1 - 52.0).abs() < 0.5,
         "fixed deu {fixo_c1} à coluna de 50px"
     );
     // No auto a frase da segunda linha alarga-a — é a diferença entre os dois.
@@ -176,13 +178,15 @@ fn a_legenda_nao_vira_uma_coluna_da_tabela() {
     let a = rect(&dom, &list, "td", 0);
     let b = rect(&dom, &list, "td", 1);
     let cap = rect(&dom, &list, "caption", 0);
+    // `td`/`th` têm `padding: 1px` na folha de UA (lote I): 100/200 de
+    // `width` (content-box) + 2×1px de padding = 102/202 de caixa.
     assert!(
-        (a.w - 100.0).abs() < 0.5,
+        (a.w - 102.0).abs() < 0.5,
         "a legenda mexeu na coluna 1: {}",
         a.w
     );
     assert!(
-        (b.w - 200.0).abs() < 0.5,
+        (b.w - 202.0).abs() < 0.5,
         "a legenda mexeu na coluna 2: {}",
         b.w
     );

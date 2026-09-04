@@ -319,10 +319,12 @@ fn a_tabela_de_dentro_com_folga_encolhe_a_soma_dos_maximos() {
 #[test]
 fn um_rotulo_a_um_por_cento_fica_no_seu_minimo_e_nao_no_seu_um_por_cento() {
     // 1% de 600 são 6px e o rótulo precisa de 100: a percentagem é levantada
-    // até ao mínimo, não respeitada com o conteúdo a transbordar.
+    // até ao mínimo, não respeitada com o conteúdo a transbordar. `th` tem
+    // `padding:1px` na folha de UA (lote I) — 2px a mais no rótulo tiram 2px
+    // à coluna medida aqui (600 total, mesma soma): 500 → 498.
     iguais!(
         larguras(r#"<table style="width:600px;border-spacing:0"><tr><th style="width:1%"><b></b></th><td><b></b><b></b></td></tr></table>"#, 1),
-        [500.0]
+        [498.0]
     );
 }
 

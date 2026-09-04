@@ -16,10 +16,13 @@ fn stylesheet_expoe_ast_original_e_declaracoes_desconhecidas() {
     );
     assert!(sheet.diagnostics().is_empty());
 
+    // `!rule.is_ua`: `sheet.rules` agora inclui a folha de UA (lote I), que
+    // tem várias regras de UM compound (`html`, `body`, `p`, …) — sem este
+    // filtro o `.find` achava a primeira delas em vez da `.a` deste teste.
     let rule = sheet
         .rules
         .iter()
-        .find(|rule| rule.selector.compounds.len() == 1)
+        .find(|rule| !rule.is_ua && rule.selector.compounds.len() == 1)
         .unwrap();
     assert!(
         rule.source_declarations

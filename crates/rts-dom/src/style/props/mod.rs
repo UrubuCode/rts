@@ -70,6 +70,20 @@ macro_rules! css_props {
             /// declaração; é necessário para iniciais dependentes do ambiente,
             /// como `font-family`.
             pub initial_props: Option<std::sync::Arc<Vec<String>>>,
+            /// As propriedades declaradas com o keyword `revert` neste nó (só os
+            /// NOMES — lote J). A resolução real (recuar para a ORIGEM anterior,
+            /// CSS Cascade 5 §7.3.1) precisa da lista de regras casadas e não cabe
+            /// aqui: fica em `style::stylesheet::revert`, chamada por
+            /// `declarations_from` DEPOIS da cascade normal, e só quando esta
+            /// lista não é `None` — o mesmo padrão de custo condicional que
+            /// `inherit_props`/`initial_props` já usam.
+            pub revert_props: Option<std::sync::Arc<Vec<String>>>,
+            /// O mesmo marcador para `revert-layer` (recua uma LAYER dentro da
+            /// mesma origem, CSS Cascade 5 §7.3.2; fora de layer nenhuma,
+            /// comporta-se como `revert`). Lista separada de `revert_props`
+            /// porque a resolução dos dois usa um corte diferente sobre as
+            /// regras casadas (origem vs. layer).
+            pub revert_layer_props: Option<std::sync::Arc<Vec<String>>>,
             /// GRID: as trilhas de COLUNA (`grid-template-columns`) parseadas —
             /// px/fr/auto/%. `None` = não é grid explícito. Campo built-in (Vec não
             /// cabe na macro simples); herança N/A (grid não herda). O layout roda
@@ -117,6 +131,8 @@ macro_rules! css_props {
             custom_props(Option<std::sync::Arc<std::collections::HashMap<String, String>>>),
             inherit_props(Option<std::sync::Arc<Vec<String>>>),
             initial_props(Option<std::sync::Arc<Vec<String>>>),
+            revert_props(Option<std::sync::Arc<Vec<String>>>),
+            revert_layer_props(Option<std::sync::Arc<Vec<String>>>),
         }
 
         impl Decl {
@@ -134,6 +150,8 @@ macro_rules! css_props {
                     Decl::custom_props(v) => target.custom_props = v.clone(),
                     Decl::inherit_props(v) => target.inherit_props = v.clone(),
                     Decl::initial_props(v) => target.initial_props = v.clone(),
+                    Decl::revert_props(v) => target.revert_props = v.clone(),
+                    Decl::revert_layer_props(v) => target.revert_layer_props = v.clone(),
                 }
             }
         }
@@ -177,6 +195,12 @@ macro_rules! css_props {
                 }
                 if self.initial_props.is_some() {
                     out.push(Decl::initial_props(self.initial_props.clone()));
+                }
+                if self.revert_props.is_some() {
+                    out.push(Decl::revert_props(self.revert_props.clone()));
+                }
+                if self.revert_layer_props.is_some() {
+                    out.push(Decl::revert_layer_props(self.revert_layer_props.clone()));
                 }
                 out
             }

@@ -200,6 +200,29 @@ pub fn from_declarations(decls: &[(String, String)]) -> ScrollbarStyle {
 /// Procura os 3 seletores: `::-webkit-scrollbar` (width), `-thumb` (background +
 /// border-radius), `-track` (background). Ignora a parte antes do `::` (qualquer
 /// elemento) — no nosso modelo a scrollbar é a da página.
+///
+/// **DÍVIDA (lote I, PLAN.md §4.I, parte 4 — NÃO feita nesta revisão).** Isto é
+/// um SEGUNDO parser de CSS textual, paralelo ao `style::syntax`/`style::selector`
+/// que o resto do motor usa — e tem o bug de aninhamento que a auditoria
+/// estrutural encontrou (finding 4, `03-estilo-e-cascade.md`): `blocks_for_selector`
+/// casa pelo PRIMEIRO `}` a seguir ao seletor, então uma regra
+/// `::-webkit-scrollbar-thumb` dentro de um `@media { ... }` perde o `}` do
+/// `@media` como se fosse o dela e devolve um corpo cortado a meio (ou vazio).
+///
+/// O desenho para fechar isto, deixado aqui por ser maior do que o resto do
+/// lote: os três pseudo-elementos passam a ser SELETORES normais — como
+/// `::before`/`::after` já são (`style/selector/tipos.rs::PseudoElement`,
+/// casados por `Stylesheet::matched_for_pseudo`) — e `from_webkit_css`/
+/// `blocks_for_selector`/`parse_decls` morrem. `scrollbar_style` deixa de
+/// receber `&self.raw_css` (texto) e passa a perguntar ao `Stylesheet` já
+/// PARSEADO pelo `PseudoElement::WebkitScrollbar`/`WebkitScrollbarThumb`/
+/// `WebkitScrollbarTrack` (três variantes novas), usando `width`/`background`/
+/// `border-radius` do `ComputedStyle` resultante em vez dos `match prop { .. }`
+/// à mão de `apply_bar`/`apply_thumb`/`apply_track` — o `@media` que hoje
+/// quebra o parser textual passa a ser o `@media` que a cascade já sabe
+/// avaliar (`Rule::media`), de graça. O custo é tocar `PseudoElement` e o
+/// matcher de pseudo-elementos, que o lote I não tinha como seu ficheiro —
+/// por isso fica desenhado e não feito.
 pub fn from_webkit_css(css: &str) -> ScrollbarStyle {
     let mut s = ScrollbarStyle::default();
     // cada seletor webkit que nos interessa → como aplicar suas declarações.

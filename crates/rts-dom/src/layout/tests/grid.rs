@@ -11,8 +11,11 @@
     #[test]
     fn grid_fr_track_sizing() {
         // grid-template-columns: 200px 1fr 2fr num container 620 → 200/140/280.
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma posições absolutas.
         let dom = parse_html_to_dom(
-            "<div style='display:grid;grid-template-columns:200px 1fr 2fr;width:620px'>\
+            "<style>body{margin:0}</style>\
+             <div style='display:grid;grid-template-columns:200px 1fr 2fr;width:620px'>\
              <div id=a>A</div><div id=b>B</div><div id=c>C</div></div>",
         );
         let ctx = LayoutCtx {
@@ -43,8 +46,11 @@
         // de 1 coluna e EMPILHAM — que é o que punha o artigo da Wikipédia fora da
         // viewport. Com a matriz, o `lado` fica na coluna 0 e o `conteudo` na 1, na
         // MESMA linha.
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma a.x=0.
         let dom = parse_html_to_dom(
-            "<div style=\"display:grid;width:600px;grid-template-columns:200px 1fr;\
+            "<style>body{margin:0}</style>\
+             <div style=\"display:grid;width:600px;grid-template-columns:200px 1fr;\
              grid-template-areas:'lado conteudo'\">\
              <div id=b style='grid-area:conteudo'>conteudo</div>\
              <div id=a style='grid-area:lado'>lado</div></div>",
@@ -91,8 +97,11 @@
         // 'topo topo' / 'lado conteudo': o topo ocupa as DUAS colunas, e o span
         // inclui o gap do meio (senão o cabeçalho ficaria 24px mais estreito que a
         // linha que ele encima).
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma c.x=224 absoluto.
         let dom = parse_html_to_dom(
-            "<div style=\"display:grid;width:624px;column-gap:24px;\
+            "<style>body{margin:0}</style>\
+             <div style=\"display:grid;width:624px;column-gap:24px;\
              grid-template-columns:200px 400px;\
              grid-template-areas:'topo topo' 'lado conteudo'\">\
              <div id=t style='grid-area:topo'>t</div>\
@@ -128,8 +137,11 @@
     fn filho_sem_grid_area_continua_na_colocacao_automatica() {
         // Um item nomeado NÃO desliga o auto-placement dos outros: o sem nome cai na
         // primeira célula livre, que é a linha implícita abaixo da área ocupada.
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma s.x=0.
         let dom = parse_html_to_dom(
-            "<div style=\"display:grid;width:400px;grid-template-columns:1fr 1fr;\
+            "<style>body{margin:0}</style>\
+             <div style=\"display:grid;width:400px;grid-template-columns:1fr 1fr;\
              grid-template-areas:'x x'\">\
              <div id=n style='grid-area:x'>n</div><div id=s>s</div></div>",
         );
@@ -161,8 +173,11 @@
     fn grid_align_items_center_centraliza_na_celula() {
         // single-column grid de altura fixa + align-items:center → o item de
         // altura menor centraliza verticalmente na track (o logo do google).
+        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
+        // afirma y=74 absoluto.
         let dom = parse_html_to_dom(
-            "<div style='display:grid;align-items:center;height:240px'>\
+            "<style>body{margin:0}</style>\
+             <div style='display:grid;align-items:center;height:240px'>\
              <div id=logo style='height:92px'>x</div></div>",
         );
         let ctx = LayoutCtx {

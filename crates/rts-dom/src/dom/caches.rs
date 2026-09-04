@@ -11,7 +11,7 @@ impl Dom {
     /// que o `HashMap` dava de graça e um vetor esparso não dá — usada só por
     /// métricas e pelo atalho da construção pura, ambos fora do caminho quente
     /// de um layout.
-    fn memo_entries(&self) -> usize {
+    pub(in crate::dom) fn memo_entries(&self) -> usize {
         self.computed_memo
             .borrow()
             .iter()

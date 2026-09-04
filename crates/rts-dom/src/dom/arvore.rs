@@ -11,14 +11,19 @@ use super::*;
 impl Dom {
     /// Cria uma árvore vazia contendo só o `#document`. Toma a próxima geração.
     pub(in crate::dom) fn new() -> Dom {
+        let generation = next_gen();
         Dom {
-            generation: next_gen(),
+            generation,
             nodes: vec![Node {
                 kind: NodeKind::Document,
                 attrs: Vec::new(),
                 parent: None,
                 children: Vec::new(),
             }],
+            // A raiz nasce com a geração da árvore, como qualquer nó alocado
+            // por `alloc_slot` — ver o comentário do campo em `mod.rs`.
+            node_generation: vec![generation],
+            free_list: Vec::new(),
             root: 0,
             id_index: HashMap::new(),
             class_index: HashMap::new(),
@@ -85,27 +90,30 @@ impl Dom {
     /// da árvore). É como um índice interno vira handle público.
     pub(in crate::dom) fn make_id(&self, idx: NodeIdx) -> NodeId {
         NodeId {
-            generation: self.generation,
+            generation: self.node_generation[idx],
             idx: idx as u32,
         }
     }
 
     /// Valida um `NodeId` versionado contra ESTA árvore e devolve o índice cru.
-    /// `None` se a `generation` não casa (id de árvore velha) ou o índice é inválido —
-    /// é exatamente a guarda que impede aplicar estado a um nó vivo errado.
+    /// `None` se o índice é inválido ou a geração não casa a do OCUPANTE ATUAL
+    /// desse `idx` (lote M: a geração é por nó, não por árvore — cobre tanto
+    /// "id de uma árvore anterior" quanto "id de um `idx` já reciclado nesta
+    /// árvore" com a mesma comparação) — é exatamente a guarda que impede
+    /// aplicar estado a um nó vivo errado.
     pub fn resolve(&self, id: NodeId) -> Option<NodeIdx> {
         let idx = id.idx as usize;
-        if id.generation == self.generation && idx < self.nodes.len() {
+        if idx >= self.nodes.len() {
+            crate::bump!(resolve_out_of_range);
+            return None;
+        }
+        if id.generation == self.node_generation[idx] {
             Some(idx)
         } else {
-            // Distinguir os dois é o que separa "id de uma árvore ANTERIOR"
-            // (uso-após-troca, quase sempre um bug do chamador) de "índice fora
-            // da arena" (id corrompido ou forjado na travessia da ABI).
-            if id.generation != self.generation {
-                crate::bump!(resolve_stale);
-            } else {
-                crate::bump!(resolve_out_of_range);
-            }
+            // Distinguir os dois é o que separa "id de uma árvore ANTERIOR ou
+            // de um `idx` já reciclado" (uso-após-troca, quase sempre um bug
+            // do chamador) de "índice fora da arena" (já tratado acima).
+            crate::bump!(resolve_stale);
             None
         }
     }
@@ -177,14 +185,13 @@ impl Dom {
         if let Some(style) = attrs.iter().find(|a| a.name == "style") {
             self.note_inline_position(&style.value);
         }
-        let id = self.nodes.len();
-        self.nodes.push(Node {
+        let id = self.alloc_slot();
+        self.nodes[id] = Node {
             kind,
             attrs,
             parent: Some(parent),
             children: Vec::new(),
-        });
-        self.layout_epochs.push(0);
+        };
         self.index_node(id);
         self.nodes[parent].children.push(id);
         crate::bump!(nodes_created);
@@ -207,14 +214,13 @@ impl Dom {
 
     /// Aloca um nó sem pai (usado por create_element / set_text). Índice cru.
     pub(in crate::dom) fn push_detached(&mut self, kind: NodeKind) -> NodeIdx {
-        let id = self.nodes.len();
-        self.nodes.push(Node {
+        let id = self.alloc_slot();
+        self.nodes[id] = Node {
             kind,
             attrs: Vec::new(),
             parent: None,
             children: Vec::new(),
-        });
-        self.layout_epochs.push(0);
+        };
         crate::bump!(nodes_created);
         id
     }

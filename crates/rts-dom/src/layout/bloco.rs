@@ -409,15 +409,12 @@ pub(crate) fn layout_block(
     };
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0) + mv_top;
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0) + mv_bottom;
+    // RECUO DA LISTA: `<ul>`/`<ol>` (e `<menu>`/`<dir>`) trazem
+    // `padding-inline-start: 40px` de `style/ua.css` (lote I) — uma regra CSS
+    // normal na origem UA, como qualquer outra, e não mais uma função à parte
+    // (`ua_list_indent`, apagada) chamada depois do `padding` resolvido. Um
+    // `padding-left` do autor já a vence pela CASCADE, antes de chegar aqui.
     let pad_left = p.left.resolve(&resolve).unwrap_or(0.0).max(0.0);
-    // RECUO DA LISTA (UA-stylesheet): `<ul>`/`<ol>` trazem `padding-inline-start:
-    // 40px` em todo o browser, e é esse recuo que aloja o marcador do `<li>`.
-    // Entra como PADDING e não como uma variável à parte porque é o que ele é:
-    // assim conta na caixa de borda, no `content_x` e na largura disponível dos
-    // filhos sem que nenhum desses três sítios precise de saber que existem
-    // listas. Um `padding-left` do autor anula-o — é a camada mais fraca da
-    // cascade, e o `list-style:none;padding-left:0` de um menu tem de vencer.
-    let pad_left = pad_left + ua_list_indent(dom, id, p);
     let pad_right = p.right.resolve(&resolve).unwrap_or(0.0).max(0.0);
     let pad_top = p.top.resolve(&resolve).unwrap_or(0.0).max(0.0);
     let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(0.0).max(0.0);

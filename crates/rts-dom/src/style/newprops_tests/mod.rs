@@ -27,7 +27,9 @@ fn layout(html: &str, vw: f32) -> DisplayList {
             flags: 0,
         },
     );
-    let dom = crate::parse_html_to_dom(html);
+    // body{margin:0}: a folha de UA (lote I) dá 8px ao body, e este corpus
+    // mede caixas a partir de (0,0)/largura cheia do viewport.
+    let dom = crate::parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
     let ctx = LayoutCtx {
         viewport_w: vw,
         viewport_h: 600.0,

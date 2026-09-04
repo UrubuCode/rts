@@ -18,8 +18,12 @@ fn tabela_2x2_com_larguras_conhecidas_poe_as_celulas_nas_colunas() {
     let c = rect(&dom, &list, "td", 2);
     let d = rect(&dom, &list, "td", 3);
 
-    assert!((a.w - 100.0).abs() < 0.5, "coluna 1 = {}", a.w);
-    assert!((b.w - 200.0).abs() < 0.5, "coluna 2 = {}", b.w);
+    // `td`/`th` têm `padding: 1px` na folha de UA (lote I, medido no Chrome
+    // real via `tests/css/claude-ua-th.html`): `width` é CONTENT-BOX (default
+    // sem `box-sizing`), então a caixa (o que `rect` devolve) é
+    // content + 2×1px de padding — 100→102, 200→202.
+    assert!((a.w - 102.0).abs() < 0.5, "coluna 1 = {}", a.w);
+    assert!((b.w - 202.0).abs() < 0.5, "coluna 2 = {}", b.w);
     // A segunda coluna começa onde a primeira acaba: `cellspacing=0`.
     assert!(
         (b.x - (a.x + a.w)).abs() < 0.5,

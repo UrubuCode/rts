@@ -99,6 +99,7 @@ fn lower_items(
                             media: inherited_media,
                             content,
                             counters: counters.clone(),
+                            is_ua: false,
                         });
                     } else if !sel_str.trim().is_empty() {
                         crate::bump!(css_rules_dropped);
