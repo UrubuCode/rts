@@ -1,20 +1,20 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 98,
-    "total": 102,
+    "passing": 99,
+    "total": 103,
     "pct": 96.1
   },
   "measurements": {
-    "matching": 2392,
-    "total": 2408,
+    "matching": 2440,
+    "total": 2456,
     "pct": 99.3
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 193,
+    "passing": 253,
     "total": 489,
-    "pct": 39.5
+    "pct": 51.7
   },
   "expected_failures": [
     {
