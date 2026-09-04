@@ -42,7 +42,7 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-09-04 (vaga 7, lotes flex-limites e flex-item-bfc): 90 das 94
+**2026-09-04 (vaga 7, lote intrinseco-whitespace): 91 das 95
 fixtures passam**, a 1px de tolerância; as 4 que falham estão em
 `esperado-a-falhar.txt` com a razão: 3 da folha de UA
 (largura de texto a negrito/controlos, fonte dos controlos, `tr` sem
