@@ -51,9 +51,18 @@ pub(in crate::layout) struct InlineRun {
 ///
 /// CORTE DECLARADO: só o texto e as propriedades que um run carrega (cor, peso,
 /// decoração) chegam à pintura. `background`, `padding`, `border` e `width` do
-/// pseudo são ignorados, e `display:block`/`inline-block`/`position:absolute`
-/// nele são tratados como o inline que a maioria é. Medido na folha da
-/// Wikipédia: 88 das 100 regras com pseudo-elemento são inline por omissão.
+/// pseudo são ignorados, e `inline-block`/`position:absolute` nele são
+/// tratados como o inline que a maioria é. Medido na folha da Wikipédia: 88
+/// das 100 regras com pseudo-elemento são inline por omissão.
+///
+/// `display:block`/`flex`/`grid` SAIU deste corte (lote `pintura-e-caixas`):
+/// esse pseudo agora gera uma caixa de BLOCO própria — `pseudo_bloco.rs`, só
+/// para o DONO de um fluxo vertical (`<p>`, `<div>`, …) — e não pode ser
+/// entregue aqui também, ou o conteúdo pinta DUAS vezes (uma por caminho). Um
+/// pseudo de bloco de um elemento que NÃO é dono de fluxo vertical (um
+/// `<span>` a meio de uma linha, por exemplo) não tem hoje onde a caixa de
+/// bloco se prenda — fica sem nenhuma das duas, o que é mais estreito do que
+/// "sempre inline" mas nunca duplicado.
 pub(in crate::layout) fn pseudo_run(
     dom: &Dom,
     id: NodeIdx,
@@ -67,6 +76,16 @@ pub(in crate::layout) fn pseudo_run(
     herdado_italico: bool,
 ) -> Option<InlineRun> {
     let caixa = dom.pseudo_box(id, pe)?;
+    if matches!(
+        caixa.css.effective_display(),
+        Some(
+            crate::style::DisplayKind::Block
+                | crate::style::DisplayKind::Flex
+                | crate::style::DisplayKind::Grid
+        )
+    ) {
+        return None;
+    }
     crate::bump!(inline_runs);
     Some(InlineRun {
         text: caixa.texto,
@@ -420,5 +439,5 @@ pub(in crate::layout) fn inline_widget_size(
     //
     // `None` de altura disponível: uma caixa numa linha não tem containing block
     // de altura definida, logo `height:%` vale `auto`, como no browser.
-    medida_do_input(dom, id, &css, avail_w, None, None, ctx).outer()
+    medida_do_input(dom, id, &css, avail_w, None, None, None, ctx).outer()
 }

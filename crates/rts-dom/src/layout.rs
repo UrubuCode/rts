@@ -44,9 +44,11 @@ use crate::inline_box::{AtomicKind, apara_css, e_espaco_css, so_espaco_css};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 mod bfc;
+mod bfc_evita_float;
 mod caixa;
 mod clearfix;
 mod display;
+mod empilhamento;
 mod float;
 mod inline_fragmentos;
 mod input;
@@ -56,6 +58,7 @@ pub mod medidor_ativo;
 mod pintura;
 mod margem_escapada;
 mod posicionado;
+mod pseudo_bloco;
 mod relativo;
 mod replaced;
 mod bloco;
@@ -85,6 +88,7 @@ mod linha;
 mod quebra;
 mod runs;
 mod segmento;
+mod texto_solto;
 mod tabulacao;
 mod transformacao;
 pub(crate) use self::bloco::layout_block;
@@ -282,10 +286,12 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     }
     list.content_height = cursor_y;
     // ── PASSADA OUT-OF-FLOW: `position:absolute/fixed` saíram do fluxo (não
-    // ocuparam espaço); pinta cada um contra o VIEWPORT com top/right/bottom/left,
-    // por cima do fluxo (apêndice da lista = z maior; sem z-index real). V1: o
-    // containing block é sempre a viewport (o de `absolute` — ancestral positioned
-    // — e o "fica fixo ao rolar" do `fixed` são a v2).
+    // ocuparam espaço). Pintados contra o VIEWPORT com top/right/bottom/left,
+    // por Z-INDEX: negativo pinta ANTES do fluxo normal — atrás dele —, e
+    // ≥0/auto pinta DEPOIS — por cima —, como o CSS 2.1 Apêndice E pede (ver
+    // `empilhamento.rs`; esta linha dizia "sem z-index real" e não diz mais).
+    // V1: o containing block é sempre a viewport (o de `absolute` — ancestral
+    // positioned — e o "fica fixo ao rolar" do `fixed` são a v2).
     let mut out_of_flow = Vec::new();
     // Só varre se a página PODE ter algum: a varredura pede o estilo computado
     // de cada nó da árvore, e era 78% de um frame de mutação numa página que não
@@ -296,11 +302,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // Z-INDEX: ordena por z-index (menor pinta primeiro = fica atrás). Sort ESTÁVEL:
     // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
     // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
-    out_of_flow.sort_by_key(|&id| {
-        dom.computed_style_idx(id)
-            .and_then(|c| c.z_index)
-            .unwrap_or(0)
-    });
+    out_of_flow.sort_by_key(|&id| empilhamento::z_index_of(dom, id));
     // O rect do containing block de cada abs é lido do `node_rects` JÁ preenchido
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
     // empréstimo mutável de `list`.
@@ -308,7 +310,31 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // um `absolute` pode ser um ancestral cujo retângulo veio de um fragmento.
     let flow_rects = list.geometry_now().rects;
     crate::bump!(out_of_flow, out_of_flow.len());
-    for id in &out_of_flow {
+    // Separa os NEGATIVOS: o sort acima já os deixa em ordem ascendente (mais
+    // negativo primeiro) e o filtro preserva essa ordem — a mesma que o
+    // Apêndice E pede DENTRO do grupo. `resto` (≥0/auto) segue exatamente o
+    // caminho de sempre, por cima do fluxo.
+    let negativos: Vec<NodeIdx> = out_of_flow
+        .iter()
+        .copied()
+        .filter(|&id| empilhamento::z_index_of(dom, id) < 0)
+        .collect();
+    let resto: Vec<NodeIdx> = out_of_flow
+        .iter()
+        .copied()
+        .filter(|&id| empilhamento::z_index_of(dom, id) >= 0)
+        .collect();
+    if !negativos.is_empty() {
+        // Numa lista À PARTE: os itens negativos só entram em `list` depois
+        // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
+        // sairiam na mesma posição (depois do fluxo) que este lote corrige.
+        let mut atras = DisplayList::default();
+        for id in &negativos {
+            layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut atras);
+        }
+        empilhamento::merge_before(&mut list, atras);
+    }
+    for id in &resto {
         layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut list);
     }
     // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<!-- Fixa: a largura shrink-to-fit dum `flex-direction:column` de LINHA ÚNICA
+     (sem quebra necessária: `height` é `auto`, os três filhos cabem todos
+     numa só coluna) é o MAIOR dos filhos — como um bloco normal, que também
+     empilha na vertical — e NÃO a soma. `intrinsic_content_width`
+     (layout/medida.rs:230-233) decide soma-vs-máximo só pelo CÓDIGO de
+     display (`DISPLAY_HORIZONTAL`/`DISPLAY_WRAP`), e um
+     `flex-direction:column` mapeia para o MESMO código que uma linha
+     (`style/values/display.rs:80-96` não olha para a direção) — por isso
+     soma as três larguras (240) onde devia dar 80. Derivado do próprio
+     reftest `multiline-shrink-to-fit` do WPT (caso 1, sem altura explícita):
+     4 itens de 100px empilhados numa coluna dão contentor 100×60 — 100 é o
+     maior filho, não a soma (400) — confirmado pela asserção do teste
+     ("grey background should be 100px wide") e pela referência (um `div` de
+     bloco comum, `width:100px;height:60px`). -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #coluna {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    float: left;
+  }
+  #coluna > div { flex: none; width: 80px; }
+  #a { height: 24px; }
+  #b { height: 16px; }
+  #c { height: 32px; }
+</style></head>
+<body>
+  <div id="coluna">
+    <div id="a"></div>
+    <div id="b"></div>
+    <div id="c"></div>
+  </div>
+</body>
+</html>

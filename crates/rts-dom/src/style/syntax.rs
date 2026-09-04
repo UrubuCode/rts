@@ -473,7 +473,7 @@ impl ComponentValue {
         }
     }
 
-    fn is_trivia(&self) -> bool {
+    pub(crate) fn is_trivia(&self) -> bool {
         matches!(self, Self::Token(token) if token.is_trivia())
     }
 }
@@ -743,24 +743,7 @@ fn token_is_colon(value: &ComponentValue) -> bool {
 fn declaration_from_values(values: &[ComponentValue]) -> Option<DeclarationAst> {
     let first = values.iter().position(|value| !value.is_trivia())?;
     let colon = values[first..].iter().position(token_is_colon)? + first;
-    let name_values = &values[first..colon];
-    let mut name = String::new();
-    for value in name_values {
-        match value {
-            ComponentValue::Token(Token {
-                kind: TokenKind::Ident(part),
-                ..
-            }) => name.push_str(part),
-            ComponentValue::Token(Token {
-                kind: TokenKind::Delim(part),
-                ..
-            }) if *part == '-' => name.push('-'),
-            _ => return None,
-        }
-    }
-    if name.is_empty() {
-        return None;
-    }
+    let name = crate::style::declaracao_nome::nome_da_declaracao(&values[first..colon])?;
     let mut value = values[colon + 1..].to_vec();
     let mut important = false;
     let mut significant = value.len();
