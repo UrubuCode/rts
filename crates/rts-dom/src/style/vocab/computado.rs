@@ -25,6 +25,14 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
         "scrollbar-width" => opt(css.scrollbar_width.map(|v| v.css())),
         "caption-side" => opt(css.caption_side.map(|v| v.css())),
         "pointer-events" => opt(css.pointer_events.map(|v| v.css())),
+        // `clip-path` — a FORMA fica crua (`inset()`/`circle()`/`polygon()`),
+        // guardada em `parse::fundo_grelha` para o paint (que hoje não a lê —
+        // ver a nota ali). Faltava o braço de LEITURA: era guardada e o
+        // `getComputedStyle` nunca a devolvia, o mesmo defeito que
+        // `background-image` sem gradiente tinha antes da linha ao lado dela.
+        // A bounding box não muda — `clip-path` recorta o PINTADO, e nada no
+        // layout lê este campo para dimensionar nada.
+        "clip-path" | "-webkit-clip-path" => css.clip_path.clone().unwrap_or_default(),
         "transform-origin" => css
             .transform_origin
             .map(|p| {

@@ -62,6 +62,20 @@ impl ComputedStyle {
         let n = name.trim().to_ascii_lowercase();
         match n.as_str() {
             "color" => self.color.map(fmt_color).unwrap_or_default(),
+            // `background-image: <img1>, <img2>` — DUAS OU MAIS camadas (ver
+            // `style::decoracao`). Precede os dois braços abaixo (gradiente
+            // único / url única) porque os dois só sabem uma camada; uma
+            // declaração de camada ÚNICA continua a cair neles, inalterada.
+            "background-image"
+                if self
+                    .bg_image_layers
+                    .as_deref()
+                    .is_some_and(|s| super::lengths::split_top(s, ',').len() > 1) =>
+            {
+                crate::style::decoracao::fmt_bg_image_layers(
+                    self.bg_image_layers.as_deref().unwrap(),
+                )
+            }
             // `background`/`background-image` com gradiente reportam o gradiente; senão
             // a cor sólida. (Este braço precede o de cor sólida abaixo p/ vencer.)
             "background" | "background-image" if self.gradient.is_some() => {

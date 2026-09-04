@@ -33,6 +33,7 @@ pub mod background;
 pub mod borders;
 pub mod calc;
 pub mod color;
+pub mod decoracao;
 pub mod effects;
 pub mod fmt;
 pub mod fmt_values;

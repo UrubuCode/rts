@@ -408,11 +408,32 @@ pub(crate) fn apply_specified_declaration(
 /// (`-webkit-text-decoration`, 6 folhas do corpus), que nunca chegam ao `match`
 /// deste ficheiro — ele casa por literal e não vê o prefixo. Uma segunda cópia
 /// lá seria duas respostas à mesma pergunta, com a cor a ser lida só numa delas.
+/// O SHORTHAND também traz `-style`/`-thickness` (`underline dotted red 2px`),
+/// e nenhum outro sítio os lê dele — a longhand `text-decoration-style`/
+/// `-thickness` continua a entrar por `style::painting::try_apply`, que já as
+/// tinha; o que faltava era o shorthand preenchê-las quando as escreve JUNTO
+/// da linha, em vez de deixá-las no valor anterior/inicial. `-line` não aceita
+/// nenhum dos dois, por isso ficam atrás do mesmo `com_cor`.
 pub(super) fn apply_text_decoration(css: &mut ComputedStyle, val: &str, com_cor: bool) {
     set_if(&mut css.text_decoration, crate::style::values::TextDecoration::parse(val));
     if com_cor {
         if let Some(c) = val.split_whitespace().find_map(parse_color) {
             set_if(&mut css.text_decoration_color, Some(c));
+        }
+        if let Some(s) = val
+            .split_whitespace()
+            .find_map(crate::style::painting::TextDecorationStyle::parse)
+        {
+            set_if(&mut css.text_decoration_style, Some(s));
+        }
+        if let Some(t) = val.split_whitespace().find_map(|tok| {
+            if tok.eq_ignore_ascii_case("auto") {
+                None
+            } else {
+                super::lengths::parse_inset(tok)
+            }
+        }) {
+            set_if(&mut css.text_decoration_thickness, Some(t));
         }
     }
 }

@@ -44,6 +44,10 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             } else {
                 set_if(&mut css.bg_image, Some(val.trim().to_string()));
             }
+            // A declaração INTEIRA, todas as camadas — ver a doc do campo em
+            // `props/tabela.rs`. Guardada sempre (mesmo com 1 camada só); o
+            // computado só a lê quando há mais de uma.
+            set_if(&mut css.bg_image_layers, Some(val.trim().to_string()));
         }
         // A máscara é RECONHECIDA, não interpretada: guardamos a url crua só
         // para saber que a forma da caixa vem de fora. O prefixo `-webkit-` é
@@ -57,9 +61,18 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         // `props.rs` para o motivo de não serem tipados aqui.
         "filter" | "-webkit-filter" => set_if(&mut css.filter, Some(val.trim().to_string())),
         "clip-path" | "-webkit-clip-path" => set_if(&mut css.clip_path, Some(val.trim().to_string())),
-        "background-repeat" => set_if(&mut css.bg_repeat, crate::style::BgRepeat::parse(val)),
-        "background-position" => set_if(&mut css.bg_position, crate::style::BgPosition::parse(val)),
-        "background-size" => set_if(&mut css.bg_size, crate::style::BgSize::parse(val)),
+        "background-repeat" => {
+            set_if(&mut css.bg_repeat, crate::style::BgRepeat::parse(val));
+            set_if(&mut css.bg_repeat_layers, Some(val.trim().to_string()));
+        }
+        "background-position" => {
+            set_if(&mut css.bg_position, crate::style::BgPosition::parse(val));
+            set_if(&mut css.bg_position_layers, Some(val.trim().to_string()));
+        }
+        "background-size" => {
+            set_if(&mut css.bg_size, crate::style::BgSize::parse(val));
+            set_if(&mut css.bg_size_layers, Some(val.trim().to_string()));
+        }
         "box-shadow" => set_ou_limpa(&mut css.box_shadow, val, crate::style::effects::BoxShadow::parse(val)),
         "grid-template-columns" => {
             set_if(&mut css.grid_columns, parse_grid_columns(val));
