@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Fixa: num contentor flex (linha), o item respeita `max-width`/`min-width`
+     no eixo principal e as margens `auto` absorvem o espaço livre — o
+     `.cover-container.w-100.mx-auto{max-width:42em}` do Bootstrap cover, que
+     saía com a largura toda (1280) em vez de 672 centrados. `#teto`: width
+     100% capado a 42em (672) e centrado por `margin: 0 auto`; `#piso`: min-width
+     acima do conteúdo; `#cresce`: `flex-grow: 1` também capado pelo max-width;
+     `#direita`: `margin-left: auto` empurra para a direita. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="teto,piso,cresce,direita">
+<meta name="fixar-estilo" content="max-width,min-width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; height: 40px; background: #eee; margin-bottom: 5px; }
+  #teto { width: 100%; max-width: 42em; margin: 0 auto; background: #fc0; }
+  #piso { min-width: 200px; background: #0c0; }
+  #cresce { flex-grow: 1; max-width: 300px; background: #c0f; }
+  #direita { width: 100px; margin-left: auto; background: #0cf; }
+</style></head>
+<body>
+  <div class="f"><div id="teto">x</div></div>
+  <div class="f"><div id="piso">y</div><div id="cresce">z</div><div id="direita">w</div></div>
+</body>
+</html>

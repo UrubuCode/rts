@@ -11,6 +11,7 @@ mod colapso;
 mod dimensoes;
 mod flex;
 mod flex_avancado;
+mod flex_max_width_corpus;
 mod float_corpus;
 mod grid;
 mod grid_colocacao;

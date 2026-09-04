@@ -71,6 +71,7 @@ use self::runs::{InlineRun, collect_runs, inline_widget_size, pseudo_run};
 use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_segment};
 mod coluna;
 mod flex;
+mod flex_limites;
 mod grid;
 mod grid_linhas;
 mod grid_tracks;
