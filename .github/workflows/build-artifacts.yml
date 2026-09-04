@@ -357,6 +357,160 @@ jobs:
       - name: rts-dom and rts-dom-bridge tests
         run: cargo test -p rts-dom -p rts-dom-bridge --no-fail-fast
 
+  # A quinta régua, no mesmo espírito das anteriores: mede o custo de
+  # empacotar a MESMA app (examples/react-app.html) como um `.exe` RTS AOT e
+  # como um `.exe` Electron — tamanho, arranque, memória, CPU. Report-only: o
+  # lado RTS já não roda hoje por uma lacuna arquitetural conhecida e
+  # documentada (`scripts/rts_vs_electron/rts/README.md`: `rts-runtime` não
+  # liga `rts-ui`, então o `.exe` compilado morre em <1s em
+  # "cannot resolve module rts:egui") — o job continua a medir o que dá, em
+  # vez de ficar vermelho por algo já registado.
+  #
+  # PORQUÊ este job NÃO compila nada: o job `build` já produz, para Windows,
+  # exatamente os dois artefactos de que este precisa — o `rts.exe` de release
+  # (upload `rts-<versão>-Windows-X64`, linha ~138 acima) E, à parte, o
+  # `rts_runtime.lib` que `rts compile` liga (upload
+  # `runtime-archive-Windows-X64`, linha ~156 acima — já existe por causa do
+  # workflow Benchmarks). `benchmarks.yml` faz exatamente este download+stage
+  # num `windows-latest` limpo, SEM `setup-rust` nem MSVC dev-cmd (o Rust e o
+  # SDK do Windows do runner hospedado já chegam: `rts compile` prefere
+  # `rust-lld` do toolchain via `rustup`/sysroot antes de procurar `link.exe`
+  # no PATH — `crates/rts-linker/src/toolchain/discover.rs`), e corre
+  # `rts compile` com sucesso a partir dele (`bench/benchmark.ps1`). É o padrão
+  # mais barato já provado a funcionar neste repositório, por isso é o que este
+  # job replica — em vez de um `cargo build -p rts-runtime` que custaria
+  # minutos por corrida sem produzir nada que o `build` não tenha já.
+  rts-vs-electron:
+    needs: [version, build]
+    # A mesma razão do `dom-rulers` acima: `needs: build` refere-se à MATRIZ
+    # inteira, e uma perna (ex.: macOS) pode estar vermelha por algo alheio a
+    # Windows — sem isto este job seria SALTADO sempre que isso acontecesse. O
+    # binário que interessa aqui é o de Windows; se esse artefacto não existir,
+    # o download da próxima etapa falha por si.
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
+    continue-on-error: true
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download rts binary (Windows)
+        uses: actions/download-artifact@v4
+        with:
+          name: rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+          path: dl
+
+      - name: Download AOT runtime archive
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-archive-${{ runner.os }}-${{ runner.arch }}
+          path: dl-archive
+
+      - name: Stage rts.exe + rts_runtime.lib
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path target/release | Out-Null
+          # O upload do job `build` renomeia o binário para
+          # `rts-<versão>-Windows-X64.exe`, não `rts.exe` — apanha o único .exe
+          # que o download trouxe em vez do nome literal.
+          $exe = Get-ChildItem dl -Recurse -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { throw "no .exe found in dl/ (contents: $((Get-ChildItem dl -Recurse | ForEach-Object FullName) -join ', '))" }
+          Copy-Item $exe.FullName target/release/rts.exe
+
+          $lib = Get-ChildItem dl-archive -Recurse -Filter rts_runtime.lib | Select-Object -First 1
+          if (-not $lib) { throw "rts_runtime.lib not found in dl-archive/ (contents: $((Get-ChildItem dl-archive -Recurse | ForEach-Object FullName) -join ', '))" }
+          Copy-Item $lib.FullName target/release/rts_runtime.lib
+
+          # `rts compile` recusa um archive mais velho que os `.rs` fonte que
+          # verifica (proxy por mtime) — o transporte por artefacto não
+          # preserva essa ordem. Binário e archive vêm de UMA build de UM
+          # commit (mesmo padrão de `benchmarks.yml`), por isso a data é
+          # simplesmente carimbada para agora em vez de a checagem ser
+          # enfraquecida.
+          (Get-Item target/release/rts_runtime.lib).LastWriteTime = Get-Date
+          (Get-Item target/release/rts.exe).LastWriteTime = Get-Date
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: scripts/rts_vs_electron/electron/package.json
+
+      # AOT do lado RTS. Sabe-se hoje que o `app.exe` resultante MORRE em <1s
+      # ao correr — "cannot resolve module rts:egui" — porque `rts-runtime`
+      # não liga `rts-ui` (`scripts/rts_vs_electron/rts/README.md` tem a causa
+      # raiz; o fix fica fora do que esta tarefa autoriza mexer). O
+      # `continue-on-error` nesta ÚNICA etapa é o que deixa o resto do job
+      # (empacotar o Electron, medir, atualizar o README) correr de qualquer
+      # forma se até o LINK falhar — `medir.mjs` já sabe reportar
+      # "não construído" com a razão real em vez de o job abortar.
+      - name: Compile RTS side (AOT)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $tmp = Join-Path $env:RUNNER_TEMP "rts-vs-electron"
+          New-Item -ItemType Directory -Force -Path "$tmp\rts" | Out-Null
+          Copy-Item scripts\rts_vs_electron\app\index.html "$tmp\rts\app.html" -Force
+          target\release\rts.exe compile -p scripts\rts_vs_electron\rts\app.ts "$tmp\rts\app"
+
+      # Empacotamento Electron, seguindo `scripts/rts_vs_electron/electron/README.md`
+      # à letra: o `@electron/packager` só apanha ficheiros de DENTRO da pasta
+      # onde corre, por isso a cópia vai para fora do repo (RUNNER_TEMP, o
+      # equivalente em CI ao %TEMP% local) — nunca `npm install`/`dist` dentro
+      # da árvore do repo. Sem `package-lock.json` (as duas dependências ficam
+      # em "latest" de propósito, ver `electron/package.json`), por isso
+      # `npm install` e não `npm ci`, que exige um lockfile.
+      - name: Package Electron app
+        shell: pwsh
+        run: |
+          $tmp = Join-Path $env:RUNNER_TEMP "rts-vs-electron"
+          New-Item -ItemType Directory -Force -Path "$tmp\electron\app" | Out-Null
+          Copy-Item scripts\rts_vs_electron\electron\package.json "$tmp\electron\package.json" -Force
+          Copy-Item scripts\rts_vs_electron\electron\main.js "$tmp\electron\main.js" -Force
+          Copy-Item scripts\rts_vs_electron\app\index.html "$tmp\electron\app\index.html" -Force
+          Push-Location "$tmp\electron"
+          npm install
+          npx @electron/packager . rts-vs-electron --platform=win32 --arch=x64 --out=dist --overwrite
+          Pop-Location
+
+      # N=3 em vez do 5 default local: este job empacota o Electron do zero a
+      # cada corrida, e 3 tentativas por lado já dá um número estável dentro do
+      # orçamento de tempo do runner. Caminhos passados explicitamente (em vez
+      # de confiar no default de `medir.mjs`, que usa `os.tmpdir()`) para não
+      # depender de `TEMP`/`TMP` do runner resolverem exatamente para
+      # `RUNNER_TEMP` — fica explícito e verificável nesta etapa.
+      - name: Measure (N=3 in CI, for time)
+        shell: pwsh
+        env:
+          RTS_VS_ELECTRON_N: "3"
+        run: |
+          $tmp = Join-Path $env:RUNNER_TEMP "rts-vs-electron"
+          $env:RTS_VS_ELECTRON_RTS_EXE = Join-Path $tmp "rts\app.exe"
+          $env:RTS_VS_ELECTRON_ELECTRON_EXE = Join-Path $tmp "electron\dist\rts-vs-electron-win32-x64\rts-vs-electron.exe"
+          node scripts/rts_vs_electron/medir.mjs
+
+      - name: Update README with RTS vs Electron numbers
+        shell: pwsh
+        run: node scripts/rts_vs_electron_readme.mjs
+
+      # Mesmo padrão do passo "Update README with CSS/DOM parity (main)"
+      # acima: user.name/email, `git add` por nome, diff-check antes de
+      # commitar, e o mesmo loop de `pull --rebase && push` com 3 tentativas.
+      - name: Commit README + JSON (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md .github/rts_vs_electron.json
+          if git diff --cached --quiet; then echo "nada mudou"; exit 0; fi
+          exe_rts=$(node -e "const j=require('./.github/rts_vs_electron.json'); console.log(j.lados.rts.bytes_exe!=null?(j.lados.rts.bytes_exe/1024/1024).toFixed(1):'?')")
+          exe_electron=$(node -e "const j=require('./.github/rts_vs_electron.json'); console.log(j.lados.electron.bytes_exe!=null?(j.lados.electron.bytes_exe/1024/1024).toFixed(1):'?')")
+          git commit -m "docs: auto-update RTS vs Electron (${exe_rts} MB vs ${exe_electron} MB)"
+          for i in 1 2 3; do git pull --rebase && git push && break || sleep 10; done
+
   # Reuses the Linux binary from `build` (no recompile). Runs as part of this
   # workflow so it keeps the PR/push context its badge/issue/comment steps need.
   cross-runtime:
