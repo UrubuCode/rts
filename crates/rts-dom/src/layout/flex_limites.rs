@@ -87,3 +87,40 @@ pub(in crate::layout) fn com_piso_minimo(main: f32, min_main: f32, grid_cols: Op
         main.max(min_main)
     }
 }
+
+/// O piso AUTOMÁTICO de min-content (Flexbox §4.5), antes de `min-width`
+/// DECLARADO entrar (esse, quando presente, substitui este resultado por
+/// inteiro — a spec só liga o automático a `min-width:auto`). O automático é
+/// o MENOR entre o min-content (`min_content`, já medido pelo chamador) e a
+/// "specified size suggestion": o `width` do item, quando é um comprimento
+/// DEFINIDO — a spec exclui a `flex-basis` desta conta de propósito, por
+/// isso um `flex-basis:0` sem `width` fica no min-content puro, sem teto
+/// (`claude-flex-basis-zero-min-content`, o piso do lote flex-basis-piso).
+///
+/// Sem este teto, um item `width:100%; aspect-ratio:1/1` cujo filho também
+/// mede a `100%` tinha min-content GIGANTE (o filho mede-se à custa do pai
+/// que ainda não tem largura) e o piso erguia o item bem acima do `width`
+/// pedido — em `flex-aspect-ratio-resize-001` (WPT) isso encravava o
+/// rasterizador tentando um canvas do tamanho desse min-content.
+pub(in crate::layout) fn min_automatico(
+    dom: &Dom,
+    id: NodeIdx,
+    min_content: f32,
+    ccss: &ComputedStyle,
+    content_w: f32,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
+    let font = font_px(ccss, font_size);
+    let rc = ResolveCtx {
+        parent_content_w: content_w,
+        node_font_size: font,
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    match ccss.width.and_then(|d| d.resolve(&rc)) {
+        Some(_) => min_content.min(child_outer_width(dom, id, content_w, font_size, ctx)),
+        None => min_content,
+    }
+}
