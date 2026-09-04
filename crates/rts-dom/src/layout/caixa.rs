@@ -190,7 +190,11 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
             // `<div>`, por exemplo, é bloco por default) e saía `false`.
             if matches!(
                 css.as_ref().and_then(|c| c.effective_display()),
-                Some(crate::style::DisplayKind::InlineBlock | crate::style::DisplayKind::InlineFlex)
+                Some(
+                    crate::style::DisplayKind::InlineBlock
+                        | crate::style::DisplayKind::InlineFlex
+                        | crate::style::DisplayKind::InlineFlexWrap
+                )
             ) {
                 return true;
             }

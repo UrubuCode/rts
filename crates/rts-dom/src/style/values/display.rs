@@ -49,15 +49,24 @@ pub enum DisplayKind {
     /// `claude-inline-flex-outer-display` (três `inline-flex` de 64×64
     /// empilham um por linha em vez de ficarem lado a lado).
     ///
-    /// CORTE dito: `flex-wrap:wrap` num `inline-flex` não quebra em várias
-    /// linhas — `to_display_code` devolve sempre o código HORIZONTAL (não-wrap)
-    /// para esta variante, nunca o WRAP que `effective_display` sintetiza para
-    /// `Flex` (`Some(Flex) if flex_wrap => FlexWrap`, em
-    /// `style/props/metodos.rs`). Não há `InlineFlexWrap`: nenhuma das duas
-    /// fixtures medidas usa `flex-wrap`, e a baseline de um `inline-flex`
-    /// MULTI-LINHA (a linha do flex quebrando E a caixa inteira sentando numa
-    /// baseline externa) é uma pergunta à parte, não respondida aqui.
     InlineFlex,
+    /// `display:inline-flex` + `flex-wrap:wrap` — o par de [`InlineFlex`] que
+    /// [`FlexWrap`](DisplayKind::FlexWrap) é de [`Flex`]: `effective_display`
+    /// sintetiza-a (`Some(InlineFlex) if flex_wrap => Some(InlineFlexWrap)`,
+    /// em `style/props/metodos.rs`) e `to_display_code` devolve o código WRAP
+    /// — os filhos quebram em várias linhas.
+    ///
+    /// **Não dava para reusar `FlexWrap`** (o corte que este ficheiro tinha
+    /// antes desta variante, e que caiu): `FlexWrap` não é `is_inline_level`,
+    /// então um `inline-flex` com `flex-wrap:wrap` sintetizado nela perdia o
+    /// outer-display e voltava a empilhar como bloco — o MESMO bug que
+    /// `InlineFlex` corrigiu para o caso sem wrap, só que agora escondido
+    /// atrás do `flex-wrap`. Os quatro `gap-006-*` do WPT flexbox (`inline-
+    /// flex` + `flex-wrap:wrap` + `gap`) passavam por acidente (como bloco,
+    /// que também quebra) antes do lote `inline-flex`, e caíram quando esse
+    /// lote lhes tirou o wrap — a régua "não perder o que passava" é o que
+    /// forçou esta variante em vez de alargar `FlexWrap`.
+    InlineFlexWrap,
     /// `display:grid` — grade de N colunas (N vem de `grid_columns`, de
     /// `grid-template-columns`). Tratado como WRAP com largura de item = 1/N do
     /// container (grid 2-D real fica p/ depois; cobre os cards/planos em grade).
@@ -120,7 +129,7 @@ impl DisplayKind {
             // horizontal do flex) punha o caret `::after` do Bootstrap no topo
             // da linha e qualquer filho de bloco lado a lado com o irmão.
             DisplayKind::Inline | DisplayKind::InlineBlock => 0,
-            DisplayKind::FlexWrap | DisplayKind::Grid => 1, // wrap
+            DisplayKind::FlexWrap | DisplayKind::Grid | DisplayKind::InlineFlexWrap => 1, // wrap
             // `InlineFlex` é flex por DENTRO — o mesmo eixo horizontal de
             // `Flex`; só o outer-display muda, e essa pergunta é
             // `is_inline_level`, não o código de eixo dos filhos.
@@ -139,7 +148,10 @@ impl DisplayKind {
     pub fn is_inline_level(self) -> bool {
         matches!(
             self,
-            DisplayKind::Inline | DisplayKind::InlineBlock | DisplayKind::InlineFlex
+            DisplayKind::Inline
+                | DisplayKind::InlineBlock
+                | DisplayKind::InlineFlex
+                | DisplayKind::InlineFlexWrap
         )
     }
 

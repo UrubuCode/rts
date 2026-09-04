@@ -32,6 +32,7 @@ pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: Nod
             crate::style::DisplayKind::Flex
                 | crate::style::DisplayKind::FlexWrap
                 | crate::style::DisplayKind::InlineFlex // flex por dentro (Flexbox §4): mesmo contexto
+                | crate::style::DisplayKind::InlineFlexWrap
                 | crate::style::DisplayKind::Grid
                 | crate::style::DisplayKind::InlineBlock
                 | crate::style::DisplayKind::Table
@@ -74,6 +75,7 @@ pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: Nod
                     crate::style::DisplayKind::Flex
                         | crate::style::DisplayKind::FlexWrap
                         | crate::style::DisplayKind::InlineFlex // idem: filho de flex
+                        | crate::style::DisplayKind::InlineFlexWrap
                         | crate::style::DisplayKind::Grid
                 )
             )
@@ -129,6 +131,7 @@ fn margin_child_role(
                     crate::style::DisplayKind::Inline
                     | crate::style::DisplayKind::InlineBlock
                     | crate::style::DisplayKind::InlineFlex // inline-level por fora, idem
+                    | crate::style::DisplayKind::InlineFlexWrap
                     | crate::style::DisplayKind::TableRowGroup
                     | crate::style::DisplayKind::TableRow
                     | crate::style::DisplayKind::TableCell
