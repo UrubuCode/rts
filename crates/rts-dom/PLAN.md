@@ -172,6 +172,37 @@ passaram todas. O que fica: o loader de imagem `data:` para
 `<img>`/`list-style-image` (fecha `object-fit`), a fonte REAL de §5.T
 (decisão de crate), e as 3 da folha de UA que só uma fonte real fecha.
 
+**O próximo lote, já desenhado (2026-09-04, ~18:30) — V-img, imagens de
+verdade:** o `claude-object-fit` (1,22 % na pintura) e o `list-style-image`
+param no mesmo sítio, e a investigação disse porquê: **`rts:imgdec` e
+`dom.setImage` NÃO existem no motor novo** — `examples/claude-browser.ts` e
+`claude-wa-app.ts` chamam-nos, mas são código do motor antigo (nenhum crate
+regista o namespace; `setImage` não está em `dom_members()`). Só
+`Dom::set_image`/`image_of` (rts-dom) e o `DisplayItem::Image` existem. O lote
+tem três peças e uma decisão, tomada aqui para não ser retomada duas vezes:
+
+1. **Descodificador**: crate `png` (e `jpeg-decoder`) em `rts-std`, sob um
+   namespace `rts:imgdec` com `decode(ptr,len) -> handle`, `width`, `height`
+   (o `#[rtse::class]` — RULE 0b `add-builtin-class`). O `rts-dom` continua
+   sem dependências; o `claude-raster` continua a mascarar imagens — a régua
+   de pintura das imagens passa a ser a do egui (screenshot da janela), não a
+   do exemplo headless.
+2. **Bridge**: `setImage(doc, node, handle, off, w, h)` em `dom_members()`
+   (o teste de contrato obriga), a chamar `Dom::set_image`; e `imageOf` para
+   o `naturalWidth`/`naturalHeight` de `HTMLImageElement`.
+3. **Loader no documento** (`dom.ts`, não nos exemplos): ao montar/mutar um
+   `<img src>` — `data:` descodificado por `atob` na hora; `http(s)` pelo
+   `fetchBytes` assíncrono já existente; e o `list-style-image`/`background-image`
+   do CSS pelo mesmo caminho, com a URL resolvida contra a base do documento
+   (o que também fecha `claude-cursor-pointer-events`, que é só resolução de
+   URL).
+
+Régua ANTES do código: `claude-object-fit` (já medida: as quatro caixas 100×50
+com a imagem `data:` de 1×1 por baixo), `claude-list-style-image` (já medida)
+e uma fixture nova `claude-img-natural` com um PNG `data:` de 4×2 sem
+`width`/`height` (a caixa tem de vir do tamanho natural: Blink 4×2) — a medir
+no Edge antes de abrir o lote.
+
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit
 do lote existe; (3) a tabela diz se foi integrado. Um lote com branch e sem
