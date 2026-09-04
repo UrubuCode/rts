@@ -51,6 +51,11 @@ impl ComputedStyle {
 
     /// O `display` EFETIVO, combinando `display` + `flex_wrap` (flex + wrap →
     /// FlexWrap). `None` se não declarado (o layout cai no default da tag).
+    ///
+    /// CORTE dito (ver `DisplayKind::InlineFlex`): não há braço para
+    /// `Some(InlineFlex) if flex_wrap => …` — `inline-flex` continua
+    /// `InlineFlex` mesmo com `flex-wrap:wrap` declarado, e por isso
+    /// `to_display_code` devolve sempre o eixo HORIZONTAL não-wrap para ele.
     pub fn effective_display(&self) -> Option<DisplayKind> {
         match self.display {
             Some(DisplayKind::Flex) if self.flex_wrap == Some(true) => Some(DisplayKind::FlexWrap),

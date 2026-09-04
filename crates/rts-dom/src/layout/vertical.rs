@@ -288,6 +288,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     .map(|d| {
                         d != crate::style::DisplayKind::Inline
                             && d != crate::style::DisplayKind::InlineBlock
+                            && d != crate::style::DisplayKind::InlineFlex // inline-level por fora, idem
                     })
                     .unwrap_or(false);
                 // `display:inline` DECLARADO vence a tag e a UA-stylesheet: um
@@ -326,7 +327,11 @@ pub(in crate::layout) fn layout_children_vertical(
                     // no `block::lookup("li")` e voltava ao caminho de bloco, com
                     // os itens do menu empilhados e cada um com a largura do
                     // contentor. São 27 dos 55 inline-blocks desta página.
-                    if effective == Some(crate::style::DisplayKind::InlineBlock) {
+                    // `inline-flex` responde pela MESMA razão (`claude-inline-flex-outer-display`).
+                    if matches!(
+                        effective,
+                        Some(crate::style::DisplayKind::InlineBlock | crate::style::DisplayKind::InlineFlex)
+                    ) {
                         true
                     } else if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
                         !explicit_block

@@ -40,6 +40,7 @@ mod posicionado;
 mod position_corpus;
 mod texto_lote_s;
 mod transform_corpus;
+mod inline_flex_corpus;
     use super::*;
     use crate::dom::parse_html_to_dom;
 

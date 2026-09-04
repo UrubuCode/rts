@@ -576,7 +576,10 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
         // campo `flow_root`, levantado pelo braço de `display` — aqui não há
         // `css` à mão. Ver `style/props/tabela.rs`.
         "block" | "flow-root" => Some(DisplayKind::Block),
-        "flex" | "inline-flex" => Some(DisplayKind::Flex),
+        "flex" => Some(DisplayKind::Flex),
+        // Variante PRÓPRIA — não `Flex` — pela mesma razão de `inline-block`
+        // ao lado: ver `style/values/display.rs::DisplayKind::InlineFlex`.
+        "inline-flex" => Some(DisplayKind::InlineFlex),
         "inline" => Some(DisplayKind::Inline),
         // `inline-block` tem variante PRÓPRIA desde que ela existe: colapsá-la em
         // `Inline` fazia o computed responder `inline` onde o browser responde

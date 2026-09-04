@@ -181,9 +181,17 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
             // É a mesma forma do defeito que `is_block_level` já tinha — perguntar
             // "não é inline?" quando a pergunta é "é de bloco?" — e o `InlineBlock`
             // é exatamente o valor que as duas leituras separam.
-            if css.as_ref().and_then(|c| c.effective_display())
-                == Some(crate::style::DisplayKind::InlineBlock)
-            {
+            //
+            // `InlineFlex` entra na MESMA pergunta: é flex por dentro, mas
+            // inline-level por fora (CSS Display Module 3 §2.3-2.4) — a mesma
+            // caixa atómica que um `inline-block`, só que o conteúdo dela é
+            // disposto pelo algoritmo de flex em vez do de bloco. Sem isto um
+            // `display:inline-flex` batia em `crate::block::lookup(tag)` (uma
+            // `<div>`, por exemplo, é bloco por default) e saía `false`.
+            if matches!(
+                css.as_ref().and_then(|c| c.effective_display()),
+                Some(crate::style::DisplayKind::InlineBlock | crate::style::DisplayKind::InlineFlex)
+            ) {
                 return true;
             }
             let explicit_block = css
