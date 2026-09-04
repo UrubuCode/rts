@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<!-- Fixa: TRACKS IMPLÍCITAS — itens colocados fora da grelha explícita
+     (2 colunas) criam colunas/linhas implícitas dimensionadas por
+     `grid-auto-columns`/`grid-auto-rows`. Sem esperado — régua = orquestrador
+     (lote R, crates/rts-dom/PLAN.md §5.R). -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #linhas { display: grid; width: 200px;
+            grid-template-columns: 100px 100px;
+            grid-auto-rows: 50px;
+            background: #eee; }
+  #linhas div { background: #cfc; border: 1px solid #060; box-sizing: border-box; }
+  #colunas { display: grid; width: 400px; height: 60px; margin-top: 20px;
+             grid-template-columns: 100px;
+             grid-auto-flow: column;
+             grid-auto-columns: 80px;
+             background: #eee; }
+  #colunas div { background: #ccf; border: 1px solid #006; box-sizing: border-box; }
+</style></head>
+<body>
+  <!-- 5 itens numa grelha de 2 colunas: 3 linhas, a 3ª implícita (50px). -->
+  <div id="linhas">
+    <div>1</div><div>2</div><div>3</div><div>4</div><div>5</div>
+  </div>
+  <!-- `grid-auto-flow: column` com 1 coluna explícita: as próximas 3 são
+       implícitas, cada uma a 80px (`grid-auto-columns`). -->
+  <div id="colunas">
+    <div>1</div><div>2</div><div>3</div><div>4</div>
+  </div>
+</body>
+</html>

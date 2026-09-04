@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: `align-content` em MULTI-LINHA (`flex-wrap: wrap`) — distribui o
+     espaço cruzado sobrante ENTRE as linhas, dentro de um container com
+     altura explícita maior que a soma das linhas. Sem esperado — régua =
+     orquestrador (lote R, crates/rts-dom/PLAN.md §5.R). -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #pagina { display: flex; flex-wrap: wrap; align-content: space-between;
+            width: 220px; height: 300px; background: #eee; }
+  #pagina div { width: 100px; height: 50px; }
+</style></head>
+<body>
+  <!-- 100px por item, 220px de largura → 2 por linha, 3 linhas. -->
+  <div id="pagina">
+    <div style="background:#fcc"></div><div style="background:#cfc"></div>
+    <div style="background:#ccf"></div><div style="background:#ffc"></div>
+    <div style="background:#fcf"></div><div style="background:#cff"></div>
+  </div>
+</body>
+</html>

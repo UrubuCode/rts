@@ -71,6 +71,7 @@ use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_s
 mod coluna;
 mod flex;
 mod grid;
+mod grid_linhas;
 mod linha;
 mod quebra;
 mod runs;

@@ -649,6 +649,19 @@ pub(crate) fn layout_block(
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
     // atuam no Y e align-items no X (stretch = ocupar a largura, o default).
     let is_column = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
+    // `row-reverse`/`column-reverse`: mesmo eixo principal, ordem visual
+    // invertida. Aplicado DEPOIS do `order` (spec §5.1) — cada função inverte
+    // a lista já ordenada por `order`, o que é equivalente a inverter a
+    // atribuição de posições no eixo principal.
+    let is_reverse = css
+        .flex_direction
+        .map(|f| {
+            matches!(
+                f,
+                crate::style::FlexDirection::RowReverse | crate::style::FlexDirection::ColumnReverse
+            )
+        })
+        .unwrap_or(false);
     let is_flex =
         display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     let content_h = match display {
@@ -662,6 +675,7 @@ pub(crate) fn layout_block(
             avail_children,
             &css,
             font_size,
+            is_reverse,
             ctx,
             list,
         ),
@@ -677,6 +691,7 @@ pub(crate) fn layout_block(
             font_size,
             false,
             None,
+            is_reverse,
             ctx,
             list,
         ),
@@ -717,6 +732,7 @@ pub(crate) fn layout_block(
             font_size,
             true,
             None,
+            is_reverse,
             ctx,
             list,
         ),

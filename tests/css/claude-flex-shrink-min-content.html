@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: o PISO de `min-content` no `flex-shrink` (spec flexbox §9.7) —
+     texto monospace para o piso ser previsível. Sem o piso, o item de texto
+     longo encolhia até sobrepor-se ao próprio conteúdo (achado da auditoria
+     de 2026-09-04, `04-layout.md` finding 6). Sem esperado — régua =
+     orquestrador (lote R, crates/rts-dom/PLAN.md §5.R). -->
+<html>
+<head><style>
+  body { margin: 0; font-family: monospace; font-size: 16px; }
+  #pagina { display: flex; width: 300px; background: #eee; }
+  #curto { flex-shrink: 0; width: 100px; background: #cfc; }
+  /* base bem maior que o espaço restante: sem piso encolhia abaixo da
+     palavra mais larga ("comprimentíssima"). */
+  #longo { flex-shrink: 1; width: 400px; white-space: nowrap; background: #ccf; }
+</style></head>
+<body>
+  <div id="pagina">
+    <div id="curto"></div>
+    <div id="longo">uma palavra comprimentíssima aqui dentro</div>
+  </div>
+</body>
+</html>
