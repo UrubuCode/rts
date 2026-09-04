@@ -119,13 +119,21 @@ fn ascent_com_baseline_propria(
 }
 
 /// [`envelope`] para átomos com baseline própria: `(altura, ascent, valign)`.
+/// O STRUT é o da caixa de linha do pai — `line_height` repartido pela
+/// meia-entrelinha à volta da content area (CSS 2.1 §10.8.1), e não a fonte
+/// crua: com `line-height: 20px` a 16px o strut é 15,4 acima / 4,6 abaixo, e
+/// uma linha só de inline-blocks com texto mede exactamente 20 (o Blink), não
+/// 20,4 (`claude-letter-spacing`, `#negativo.y`).
 pub(in crate::layout) fn envelope_com_baseline(
     itens: &[(f32, f32, VerticalAlign)],
     font_size: f32,
+    line_height: f32,
     m: &dyn TextMeasurer,
 ) -> Envelope {
-    let mut acima = m.font_ascent(font_size);
-    let mut abaixo = m.font_descent(font_size);
+    let conteudo = m.line_height(font_size);
+    let meia = (line_height - conteudo) / 2.0;
+    let mut acima = meia + m.font_ascent(font_size);
+    let mut abaixo = (line_height - acima).max(0.0);
     for &(altura, ascent, valign) in itens {
         if matches!(valign, VerticalAlign::Top | VerticalAlign::Bottom) {
             continue;

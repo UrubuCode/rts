@@ -17,7 +17,13 @@ use crate::style::VerticalAlign;
 /// dele — a última linha, que a spec pede, é a mesma num item de uma linha, o
 /// caso de um botão); vazio, o fundo da margem (a altura toda).
 fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
-    if !super::caixa::tem_conteudo_para_fragmento(dom, id) {
+    // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
+    // valor, o rótulo): a baseline dele é a desse texto, não o fundo — senão um
+    // `<input>` de 21px puxava a linha e o `<button>` ao lado descia 3,5px
+    // (`claude-ua-form-disabled`).
+    let controlo = matches!(&dom.node(id).kind,
+        NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select" | "textarea"));
+    if !controlo && !super::caixa::tem_conteudo_para_fragmento(dom, id) {
         return h;
     }
     let Some(css) = dom.computed_style_idx(id) else { return h };
@@ -101,7 +107,8 @@ pub(in crate::layout) fn layout_inline_block_line(
             .iter()
             .map(|&(n, _, h, va)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
             .collect();
-        let env = super::alinhamento_vertical::envelope_com_baseline(&atomos, font_size, ctx.measurer);
+        let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
+        let env = super::alinhamento_vertical::envelope_com_baseline(&atomos, font_size, lh, ctx.measurer);
         for (&(child, w, h, va), &(_, ascent, _)) in items.iter().zip(&atomos) {
             let valign = va.unwrap_or(VerticalAlign::Baseline);
             let item_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, ctx.measurer);
