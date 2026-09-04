@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- Fixa: a largura INTRÍNSECA (shrink-to-fit) de uma caixa colapsa o
+     whitespace do HTML como o fluxo o colapsa — a indentação entre filhos
+     não é conteúdo. O botão fixo do Bootstrap cover media 103px a mais aqui:
+     catorze espaços e quebras de linha entre o `<svg>` e o `<span>` entravam
+     na largura natural do `<button class="d-flex">` como texto cru. `#flex`
+     (flex com dois filhos de 20px separados por whitespace) mede 40; `#ib`
+     (inline-block com "  a   b  ") mede a largura de "a b"; `#vazio` (só
+     whitespace) mede 0. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="flex,ib,vazio">
+<meta name="fixar-estilo" content="white-space">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .abs { position: absolute; left: 0; }
+  #flex { top: 0; display: flex; background: #fc0; }
+  #flex span { display: block; width: 20px; height: 20px; background: #0c0; }
+  #ib { top: 40px; display: inline-block; background: #0cf; }
+  #vazio { top: 80px; display: flex; background: #c0f; height: 10px; }
+</style></head>
+<body>
+  <div class="abs" id="flex">
+        <span></span>
+        <span></span>
+      </div>
+  <div class="abs" id="ib">  a   b  </div>
+  <div class="abs" id="vazio">
+  </div>
+</body>
+</html>

@@ -1,0 +1,128 @@
+{
+ "elementos": {
+  "flex": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(255, 204, 0)",
+    "border-spacing": "0px",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "flex",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "font-weight": "400",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "20px",
+    "margin-bottom": "0px",
+    "margin-top": "0px",
+    "opacity": "1",
+    "overflow": "visible",
+    "padding-left": "0px",
+    "padding-top": "0px",
+    "position": "absolute",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    0,
+    40,
+    20
+   ]
+  },
+  "ib": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(0, 204, 255)",
+    "border-spacing": "0px",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "block",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "font-weight": "400",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "20px",
+    "margin-bottom": "0px",
+    "margin-top": "0px",
+    "opacity": "1",
+    "overflow": "visible",
+    "padding-left": "0px",
+    "padding-top": "0px",
+    "position": "absolute",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    40,
+    26.39,
+    20
+   ]
+  },
+  "vazio": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgb(204, 0, 255)",
+    "border-spacing": "0px",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "flex",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "font-weight": "400",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "20px",
+    "margin-bottom": "0px",
+    "margin-top": "0px",
+    "opacity": "1",
+    "overflow": "visible",
+    "padding-left": "0px",
+    "padding-top": "0px",
+    "position": "absolute",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "normal",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    80,
+    0,
+    10
+   ]
+  }
+ },
+ "fixture": "claude-intrinseco-whitespace.html",
+ "medido_em": "2026-09-04",
+ "regua": "Edge 152 headless (Blink) por CDP, num iframe de 1280x800",
+ "viewport": [
+  1280,
+  800
+ ]
+}
