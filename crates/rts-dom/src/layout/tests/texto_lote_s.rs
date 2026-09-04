@@ -192,6 +192,100 @@ fn span_sem_display_ignora_width_e_height_declarados() {
 /// dar 19px a um `display:inline` EXPLÍCITO com texto — este teste é o
 /// regresso: a correção acima só muda o caso do `display` NÃO declarado
 /// (`effective_display() == None`), nunca o `display:inline` escrito.
+/// O HTML e o `.esperado.json` EXATOS de `claude-sel-has.html` (lote O,
+/// medido no Chrome — `git show feat/dom-vaga-3:tests/css/claude-sel-has.*`),
+/// pinados aqui porque o corredor do corpus não corre neste crate: seis
+/// `<div>`/`<span>` com a MESMA `height`/`background-color` declaradas
+/// (`div, span { height:20px; background-color:#fff }`) — os `<div>` (têm
+/// default de bloco) respeitam as duas; os `<span>` vazios (sem `display`,
+/// sem default) IGNORAM as duas e não geram fragmento nenhum (0×0).
+///
+/// Fixa a regressão de `cria_caixa_via_dimensoes`: uma primeira versão desta
+/// função deixava um `background-color` (que os quatro `<span>` também têm)
+/// dar ao `<span>` a sua PRÓPRIA linha de largura total — `rotulo-com`/
+/// `rotulo-sem` chegaram a medir `1280×20`, onde o Chrome dá `0×0`.
+#[test]
+fn sel_has_contra_o_chrome() {
+    let html = r#"<style>body{margin:0}
+    div, span { height: 20px; background-color: #ffffff; }</style>
+  <div class="card" id="card-com-erro"><span class="erro"></span></div>
+  <div class="card" id="card-sem-erro"><span></span></div>
+
+  <div class="box" id="box-filho"><span class="img"></span></div>
+  <div class="box" id="box-neto"><span><span class="img"></span></span></div>
+
+  <span class="rotulo" id="rotulo-com"></span><span class="obrigatorio"></span>
+  <span class="rotulo" id="rotulo-sem"></span><span></span>
+"#;
+    let (dom, list) = geometria(html, 1280.0);
+    let bloco = |sel: &str, esperado: (f32, f32, f32, f32)| {
+        let r = rect_opt(&dom, &list, sel).unwrap_or_else(|| panic!("{sel} sem geometria"));
+        assert_eq!((r.x, r.y, r.w, r.h), esperado, "{sel}");
+    };
+    bloco("#card-com-erro", (0.0, 0.0, 1280.0, 20.0));
+    bloco("#card-sem-erro", (0.0, 20.0, 1280.0, 20.0));
+    bloco("#box-filho", (0.0, 40.0, 1280.0, 20.0));
+    bloco("#box-neto", (0.0, 60.0, 1280.0, 20.0));
+    for sel in ["#rotulo-com", "#rotulo-sem"] {
+        assert!(
+            sem_area(rect_opt(&dom, &list, sel)),
+            "{sel} devia ser 0×0 (sem fragmento) — não uma linha própria de largura total"
+        );
+    }
+}
+
+/// `<span style="background:yellow">texto</span>` — SEM `display` declarado,
+/// COM texto e fundo — mede o TEXTO (não uma largura/altura declarada, que
+/// aqui nem existe) e PINTA o fundo. É o padrão mais comum de página real, e
+/// a razão de `bloco.rs` ignorar `width`/`height` DENTRO de `layout_block`
+/// em vez de recusar a caixa inteira (que apagava o fundo também).
+#[test]
+fn span_com_fundo_e_texto_mede_o_texto_e_pinta_o_fundo() {
+    let html = r#"<style>body{margin:0;font:16px/20px monospace}
+    span{background:#ffff00}</style>
+    <p>a <span id="rotulo">texto</span> b</p>"#;
+    let (dom, list) = geometria(html, 600.0);
+    let r = rect_opt(&dom, &list, "#rotulo").expect("tem texto, tem caixa");
+    assert!(r.w > 0.0 && r.h > 0.0, "mede o conteúdo: {r:?}");
+    // `list.items` só tem o que ESTE nível pintou diretamente — subárvores em
+    // cache de fragmento (`layout_block_reusing`) ficam por REFERÊNCIA em
+    // `list.children`, não copiadas; `materialized()` é o que as achata.
+    let cores: Vec<u32> = list
+        .materialized()
+        .iter()
+        .filter_map(|it| match it {
+            crate::layout::DisplayItem::SolidRect { color, .. } => Some(*color),
+            _ => None,
+        })
+        .collect();
+    let pintou_fundo = cores.contains(&0xffff00ff);
+    assert!(pintou_fundo, "o fundo amarelo tem de estar na DisplayList; cores={cores:08x?} r={r:?}");
+}
+
+/// O CORTE ao lado: o MESMO `<span>` sem `display`, com fundo E `height`
+/// declarados, mas SEM conteúdo — 0×0 e NADA pintado, porque sem conteúdo
+/// não há linha para o fundo se apoiar (o Blink também dá 0 aqui, mesmo com
+/// `background-color` — é `claude-sel-has.html`, `#rotulo-com`/`#rotulo-sem`).
+#[test]
+fn span_vazio_com_fundo_e_height_nao_pinta_nada() {
+    let html = r#"<style>body{margin:0;font:16px/20px monospace}
+    span{background:#ffff00;height:20px}</style>
+    <span id="rotulo"></span>"#;
+    let (dom, list) = geometria(html, 600.0);
+    assert!(
+        sem_area(rect_opt(&dom, &list, "#rotulo")),
+        "vazio: 0×0, mesmo com background e height declarados"
+    );
+    // Um `SolidRect` de área ZERO pode existir na DisplayList (o mesmo caminho
+    // de pintura corre, só que a caixa mede 0×0) — invisível, e é essa a parte
+    // que interessa: NENHUM pixel do fundo amarelo é visível sem conteúdo.
+    let pintou_algo_visivel = list.materialized().iter().any(|it| {
+        matches!(it, crate::layout::DisplayItem::SolidRect { color, rect, .. }
+            if *color == 0xffff00ff && rect.w > 0.0 && rect.h > 0.0)
+    });
+    assert!(!pintou_algo_visivel, "sem conteúdo, nenhum pixel do fundo deve ficar visível");
+}
+
 #[test]
 fn display_inline_explicito_com_texto_continua_a_ignorar_a_altura() {
     let html = r#"<style>body{margin:0;font:16px/20px monospace}

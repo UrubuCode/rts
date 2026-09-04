@@ -375,6 +375,26 @@ pub(crate) fn layout_block(
         }
         _ => return (0.0, 0.0), // Comment / Document aninhado: não pinta.
     };
+    // `width`/`height` NÃO SE APLICAM a um inline não-substituído (§10.3.1/
+    // §10.6.1) — mas `background`/padding/borda AINDA pedem este
+    // `layout_block` (`cria_caixa_apesar_de_inline`, no chamador). CÓPIA do
+    // `ComputedStyle` com as duas a `None`, só para esta chamada:
+    // `<span style="background:yellow">texto</span>` mede o texto e pinta o
+    // fundo; vazio, cai em conteúdo `(0,0)` — 0×0, como o Blink dá mesmo com
+    // fundo. Replaced (`<img>`/`<canvas>`/`<svg>`/`<input>`) já saíram por um
+    // `return` acima — continuam a respeitar `width`/`height`.
+    let css = if let NodeKind::Element { tag } = &dom.node(id).kind {
+        if crate::layout::caixa::ignores_inline_dimensions(Some(&css), tag) {
+            let mut c = (*css).clone();
+            c.width = None;
+            c.height = None;
+            std::rc::Rc::new(c)
+        } else {
+            css
+        }
+    } else {
+        css
+    };
 
     // ── Box model (content-box): resolve as bordas/espaços absolutos ─────────────
     // O contexto de RESOLUÇÃO tardia primeiro (margens/paddings agora aceitam

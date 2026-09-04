@@ -44,24 +44,36 @@ pub(in crate::layout) fn ignores_inline_dimensions(css: Option<&ComputedStyle>, 
         Some(d) => d == crate::style::DisplayKind::Inline,
         None => crate::block::lookup(tag).is_none(),
     };
-    usa_inline && css.is_some_and(|c| c.width.is_some() || c.height.is_some())
+    // `position:absolute/fixed` BLOCKIFICA por si só (CSS 2.1 §9.7) — sai do
+    // fluxo e vira caixa de bloco, respeitando `width`/`height`, qualquer que
+    // seja o `display` (declarado ou não). Sem este corte, um `<i
+    // style="position:absolute;height:100%">` sem `display` perdia a altura
+    // que a posição absoluta pede — regressão medida em
+    // `absolute_dentro_de_display_none_nao_tem_caixa`/`_ancora_no_containing_block`.
+    let fora_do_fluxo = css
+        .and_then(|c| c.position)
+        .is_some_and(|p| p.out_of_flow());
+    usa_inline && !fora_do_fluxo && css.is_some_and(|c| c.width.is_some() || c.height.is_some())
 }
 
 /// `true` se este estilo, isoladamente (sem a tag/`replaced`/`display`
-/// declarado — os chamadores já os testaram antes), justifica `layout_block`.
-/// Quando `ignora_dimensoes` (ver [`ignores_inline_dimensions`]), só o que
-/// pinta uma superfície conta — não `width`/`height`, que um inline por
-/// omissão não respeita; senão, `has_box()` (que já inclui `width`) e
-/// `height` decidem, como antes desta correção.
+/// declarado — os chamadores já os testaram antes), justifica `layout_block`
+/// como FILHO DE BLOCO independente (linha própria, largura do contentor).
+///
+/// Quando `ignora_dimensoes` (ver [`ignores_inline_dimensions`]) a resposta é
+/// SEMPRE `false` — e não `cria_caixa_apesar_de_inline(c)`, a tentativa
+/// anterior: um inline por omissão com `background` NÃO ganha linha própria
+/// só por ter fundo (essa era a regressão medida em `claude-sel-has.html` —
+/// `#rotulo-com`/`#rotulo-sem`, que TÊM `background-color` além da `height`,
+/// passaram a `1280×20` numa linha só sua). `layout_block` aplicaria a
+/// `height` de qualquer forma — ignora-la aqui e não lá é a mesma regra que
+/// `is_inline_block`/`is_block_level` já aplicam para o resto do fluxo, e é
+/// esse desacordo entre os dois que produzia o valor errado.
 pub(in crate::layout) fn cria_caixa_via_dimensoes(
     css: Option<&ComputedStyle>,
     ignora_dimensoes: bool,
 ) -> bool {
-    match css {
-        Some(c) if ignora_dimensoes => crate::inline_box::cria_caixa_apesar_de_inline(c),
-        Some(c) => c.has_box() || c.height.is_some(),
-        None => false,
-    }
+    !ignora_dimensoes && css.is_some_and(|c| c.has_box() || c.height.is_some())
 }
 
 /// `true` se um nó-elemento deve ser tratado como BLOCO no layout (entra em
