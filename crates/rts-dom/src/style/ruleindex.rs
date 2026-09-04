@@ -63,6 +63,18 @@ pub struct RuleIndex {
     /// folha entrou — o booleano não distingue "mudou `hidden`" de "mudou
     /// `data-um-nome-qualquer`".
     mentioned_attr_names: std::collections::HashSet<String>,
+    /// `true` se alguma regra usa `:has()` — a guarda que o lote O acrescenta
+    /// às invalidações estruturais/de atributo (`dom/invalidacao.rs`,
+    /// `dom/mutacao.rs`). Sem ela cada uma respondia com a subárvore do PAI, o
+    /// que basta para `:nth-child`/`+`/`~` porque o alvo desses é sempre um
+    /// IRMÃO ou o próprio pai; `:has()` casa um ANCESTRAL qualquer a partir de
+    /// um descendente arbitrariamente fundo, e a subárvore do pai não o cobre.
+    /// O custo pago é o `touch()` global sempre que a folha tem `:has()` — o
+    /// mesmo fallback que `HoverReach::Siblings` já paga por uma razão igual
+    /// (alcançar fora da subárvore) — e fica para um lote seguinte apertá-lo
+    /// para só os ANCESTRAIS que podem ser alvo de uma regra `:has()`, pela
+    /// mesma ideia do `hover_compounds`.
+    has_relational: bool,
 }
 
 /// A âncora do compound-alvo (último compound) de um seletor. Id > Class > Tag; se
@@ -152,7 +164,46 @@ impl RuleIndex {
             });
         }
         idx.has_attribute_selectors = !idx.mentioned_attr_names.is_empty();
+        for rule in rules {
+            let mut has_relational = false;
+            super::selector::visit_simples(&rule.selector, &mut |part| {
+                if let SimpleSelector::Pseudo(super::selector::PseudoClass::Has(_)) = part {
+                    has_relational = true;
+                }
+            });
+            if has_relational {
+                idx.has_relational = true;
+            }
+            // As classes/atributos DENTRO de um `:has()` também são observados
+            // pela regra — `.card:has(.error)` muda de estilo quando `.error`
+            // entra/sai de um descendente, tanto quanto `.card` muda quando o
+            // próprio nó ganha/perde a classe. `visit_simples` não desce em
+            // `sub_selectors()` de um `:has()` de propósito (ver o comentário
+            // em `PseudoClass::sub_selectors`), então esta varredura é feita à
+            // parte, sobre `has_selectors()`.
+            super::selector::visit_simples(&rule.selector, &mut |part| {
+                let SimpleSelector::Pseudo(pc) = part else {
+                    return;
+                };
+                for (_, sel) in pc.has_selectors() {
+                    super::selector::visit_simples(sel, &mut |inner| match inner {
+                        SimpleSelector::Class(c) => {
+                            idx.mentioned_classes.insert(c.clone());
+                        }
+                        SimpleSelector::Attr { name, .. } => {
+                            idx.mentioned_attr_names.insert(name.clone());
+                        }
+                        _ => {}
+                    });
+                }
+            });
+        }
         idx
+    }
+
+    /// `true` se alguma regra usa `:has()`. Ver o comentário do campo.
+    pub fn has_relational(&self) -> bool {
+        self.has_relational
     }
 
     /// `true` se o índice está sincronizado com um stylesheet de `n` regras.

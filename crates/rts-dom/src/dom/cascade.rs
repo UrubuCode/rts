@@ -142,6 +142,48 @@ impl Dom {
         Some(crate::pseudo::PseudoBox { texto, css })
     }
 
+    /// A COR do `::marker` deste `<li>` (lote O), se alguma regra `::marker`
+    /// a declara — `None` quando não há nenhuma, e quem chama fica com o
+    /// `color` herdado do próprio `<li>` (o que `listitem::emit_marker` já
+    /// fazia sozinho antes deste lote).
+    ///
+    /// Só a COR: o `font-size` do marcador não é lido daqui de propósito — ele
+    /// mudaria a MEDIDA da linha (`ctx.measurer`), e essa medida é decidida em
+    /// `layout/linha.rs`/`layout/runs.rs`, fora deste lote (lote S). Aplicar
+    /// só a cor é seguro porque pintar não muda geometria nenhuma.
+    pub fn marker_color(
+        &self,
+        idx: NodeIdx,
+        herdado: &crate::style::ComputedStyle,
+    ) -> Option<u32> {
+        if !self.stylesheet.has_generated_content() {
+            return None;
+        }
+        let NodeKind::Element { tag } = &self.nodes[idx].kind else {
+            return None;
+        };
+        let classes: Vec<&str> = self.nodes[idx]
+            .attr("class")
+            .map(|c| c.split_whitespace().collect())
+            .unwrap_or_default();
+        let (matched, _content) = self.stylesheet.matched_for_pseudo(
+            self.viewport.get().0,
+            tag,
+            self.nodes[idx].attr("id"),
+            &classes,
+            crate::style::PseudoElement::Marker,
+            |sel| self.matches_complex(idx, sel),
+        );
+        if matched.is_empty() {
+            return None;
+        }
+        let decls = self.stylesheet.declarations_from(&matched, None);
+        let mut css = herdado.clone();
+        css.merge_over(&decls.normal);
+        css.merge_over(&decls.important);
+        css.color
+    }
+
     /// A tabela de CONTADORES do documento, calculada uma vez por revisão.
     ///
     /// Numa página que não declare `counter-reset`/`counter-increment` isto é

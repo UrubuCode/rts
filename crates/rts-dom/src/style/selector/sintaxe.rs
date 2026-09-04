@@ -268,6 +268,34 @@ pub(in crate::style::selector) fn parse_pseudo_selector(s: &str) -> Option<(Simp
         };
         return Some((SimpleSelector::Pseudo(pc), after));
     }
+    // `:has(<lista-relativa>)` — cada item pode ter um combinador EXPLÍCITO
+    // líder (`> img`, `+ p`, `~ p`); sem um, o líder é descendente, como um
+    // seletor complexo comum começando por espaço implícito (`:has(.b)` é
+    // "algum descendente casa `.b`", não "o alvo casa `.b`" — daí não reusar
+    // `ComplexSelector::parse` sozinho, que exigiria um combinador ANTES do
+    // primeiro compound e o recusaria).
+    if let Some(rest) = strip_func_name(after_colon, "has") {
+        let (arg, after) = take_balanced_paren(rest)?;
+        let mut lista = Vec::new();
+        for parte in split_top_level_commas(arg) {
+            let parte = parte.trim();
+            let (combinador, resto) = match parte.chars().next() {
+                Some('>') => (Combinator::Child, parte[1..].trim_start()),
+                Some('+') => (Combinator::NextSibling, parte[1..].trim_start()),
+                Some('~') => (Combinator::SubsequentSibling, parte[1..].trim_start()),
+                _ => (Combinator::Descendant, parte),
+            };
+            // Argumento inválido descarta o `:has()` inteiro — como `:not()`, e
+            // ao contrário do `:is()`/`:where()` (forgiving): um `:has()` mal
+            // formado não tem leitura parcial razoável.
+            let sel = ComplexSelector::parse(resto)?;
+            lista.push((combinador, sel));
+        }
+        if lista.is_empty() {
+            return None;
+        }
+        return Some((SimpleSelector::Pseudo(PseudoClass::Has(lista)), after));
+    }
     if let Some(rest) = strip_func_name(after_colon, "lang") {
         let (arg, after) = take_balanced_paren(rest)?;
         let lang = arg
@@ -302,10 +330,13 @@ pub(in crate::style::selector) fn parse_pseudo_selector(s: &str) -> Option<(Simp
         "link" => PseudoClass::Link,
         "read-only" => PseudoClass::ReadOnly,
         "read-write" => PseudoClass::ReadWrite,
-        // Ainda por fazer: `:target` (não há fragmento de URL no DOM) e `:has()`
-        // (relacional — casa um ancestral pelo que está ABAIXO dele, o que o
-        // matcher da direita-para-a-esquerda não faz e a invalidação não sabe
-        // seguir). Recusar descarta a regra.
+        "target" => PseudoClass::Target,
+        "scope" => PseudoClass::Scope,
+        "default" => PseudoClass::Default,
+        "placeholder-shown" => PseudoClass::PlaceholderShown,
+        // Ainda por fazer: `:autofill` (não há preenchimento automático neste
+        // motor) e `:modal`/`:focus-visible` real (precisam do `rts-input`,
+        // ver `dom/matcher.rs`). Recusar descarta a regra.
         _ => return None,
     };
     Some((SimpleSelector::Pseudo(pc), rest))
@@ -334,10 +365,17 @@ fn strip_pseudo_element(s: &str) -> Option<(Option<PseudoElement>, &str)> {
         Some(PseudoElement::Before)
     } else if nome.eq_ignore_ascii_case("after") {
         Some(PseudoElement::After)
+    } else if nome.eq_ignore_ascii_case("marker") {
+        // `::marker` (lote O) — a caixa já existe (`listitem::emit_marker`, o
+        // `<li>`/`::-webkit-scrollbar*` marcador de lista); o que faltava era
+        // uma entrada na cascade para ela ter estilo PRÓPRIO. `content` não se
+        // aplica (o marcador não é gerado por `content`), então cai no mesmo
+        // ramo de `matched_for_pseudo` sem um `content` vencedor.
+        Some(PseudoElement::Marker)
     } else {
-        // `::marker`, `::selection`, `::placeholder`, `::first-line`… Cada um
-        // precisa de maquinaria própria (uma caixa de marcador, um intervalo de
-        // seleção, uma primeira linha) e nenhum é conteúdo gerado por `content`.
+        // `::selection`, `::placeholder`, `::first-line`, `::first-letter`…
+        // Cada um precisa de maquinaria própria (um intervalo de seleção, uma
+        // primeira linha) e nenhum é conteúdo gerado por `content`.
         None
     };
     Some((pe, resto))

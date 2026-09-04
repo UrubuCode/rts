@@ -180,6 +180,18 @@ impl Dom {
         {
             return;
         }
+        // `:has()` é a quebra que o comentário de baixo previa: um `.card:has(.err)`
+        // casa o `.card` a partir de um DESCENDENTE arbitrariamente fundo, então
+        // inserir/mover/remover um nó pode mudar o estilo de um ANCESTRAL fora da
+        // subárvore do pai — o oposto de `:nth-child`, cujo alvo é sempre o próprio
+        // pai ou um irmão. `touch()` global é o fallback declarado, do mesmo jeito
+        // que `HoverReach::Siblings` já paga por alcançar fora da subárvore; apertar
+        // para só os ancestrais que podem ser alvo de `:has()` (a ideia de
+        // `hover_compounds`) fica para quando o custo for medido e doer.
+        if self.stylesheet.has_relational() {
+            self.touch();
+            return;
+        }
         // Com um seletor sensível a POSIÇÃO na folha, quem muda de estilo são
         // os IRMÃOS de `moved` (`:nth-child`, `:first-child`, `+`, `~`) e o
         // PAI (`:empty`) — nunca um nó fora da subárvore do pai: um seletor
@@ -189,10 +201,9 @@ impl Dom {
         // qualquer ponto da folha, cada `appendChild` em qualquer ponto da
         // página esquecia o estilo de TODOS os nós (auditoria de 2026-09-04,
         // lente de estilo, finding 3). A subárvore do pai é o conjunto de
-        // invalidação mínimo que esta conta permite; `:has()` é o único
-        // seletor que a quebraria, não existe, e quando existir é aqui que
-        // a quebra se escreve. Num `move`, o pai anterior entra pela mesma
-        // razão: os irmãos que ficaram lá também mudaram de posição.
+        // invalidação mínimo que esta conta permite; a quebra é `:has()`,
+        // tratada acima, ANTES desta guarda. Num `move`, o pai anterior entra
+        // pela mesma razão: os irmãos que ficaram lá também mudaram de posição.
         if self.stylesheet.position_sensitive() {
             let mut roots: Vec<NodeIdx> = Vec::with_capacity(2);
             for pai in [self.nodes[moved].parent, former_parent].into_iter().flatten() {
@@ -242,6 +253,27 @@ impl Dom {
         }
     }
 
+
+    /// Invalidação de uma mudança de ATRIBUTO — partilhada por `set_attr` e
+    /// `remove_attr` (lote O; antes era o mesmo bloco escrito duas vezes).
+    /// `affects_parent_selectors` é a resposta que cada chamador já calcula
+    /// (id/class, ou o `mentions_attribute_name` por nome do lote I): quando
+    /// verdadeira, o alvo da invalidação sobe do próprio nó para o PAI dele —
+    /// exceto se a folha tem `:has()`, caso em que nem o pai chega (o alvo de
+    /// um `:has()` pode ser qualquer ancestral, não só ele) e o fallback é o
+    /// mesmo `touch()` global de `touch_structural`.
+    pub(in crate::dom) fn touch_attr(&mut self, idx: NodeIdx, affects_parent_selectors: bool) {
+        if affects_parent_selectors && self.stylesheet.has_relational() {
+            self.touch();
+            return;
+        }
+        let dirty_root = if affects_parent_selectors {
+            self.nodes[idx].parent.unwrap_or(idx)
+        } else {
+            idx
+        };
+        self.touch_subtree(dirty_root);
+    }
 
     fn mark_dirty_child(&self, pai: NodeIdx, filho: NodeIdx) {
         let mut map = self.dirty_children.borrow_mut();

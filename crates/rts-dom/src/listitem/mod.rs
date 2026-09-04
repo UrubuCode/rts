@@ -108,7 +108,12 @@ pub(crate) fn emit_marker(
         }
         return;
     }
-    let color = css.color.unwrap_or(0x0000_00FF);
+    // `::marker { color: … }` (lote O) vence a cor herdada do `<li>` quando
+    // alguma regra o declara; ver o porquê de só a cor em `Dom::marker_color`.
+    let color = dom
+        .marker_color(id, css)
+        .or(css.color)
+        .unwrap_or(0x0000_00FF);
     let line_h = ctx.measurer.line_height(font_size);
     // `list-style-position` decide de que LADO de `content_x` o marcador cai.
     //
@@ -177,10 +182,10 @@ pub(crate) fn emit_marker(
                 size: font_size,
                 mono: false,
                 bold: false,
-            // o MARCADOR de lista (bullet/número) não é conteúdo do autor: no
-            // browser herda o estilo do `<li>`, mas nada aqui lho passa ainda —
-            // fica regular, como já ficava o peso na linha acima.
-            italic: false,
+                // A cor JÁ vem do `::marker` quando a folha o declara (ver
+                // `color` acima); peso/itálico do marcador continuam fixos —
+                // mudar a fonte mudaria a medida (`w`), fora deste lote.
+                italic: false,
                 letter_spacing: 0.0,
                 decoration: 0,
             });

@@ -225,6 +225,13 @@ impl Stylesheet {
         self.index.borrow().mentions_attribute_name(name)
     }
 
+    /// `true` se alguma regra usa `:has()` — a guarda que amplia a invalidação
+    /// estrutural/de atributo além da subárvore do pai. Ver `RuleIndex::has_relational`.
+    pub fn has_relational(&self) -> bool {
+        self.ensure_rule_index();
+        self.index.borrow().has_relational()
+    }
+
     /// `true` se não há nenhuma regra (atalho para o `computed_style` pular a
     /// cascade quando a página não tem `<style>`).
     pub fn is_empty(&self) -> bool {

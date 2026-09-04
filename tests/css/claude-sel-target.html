@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Fixa `:target` sozinho. O Chrome só marca `:target` depois de a URL da
+     ABA ter um fragmento (#x) — não basta a página existir, é preciso
+     NAVEGAR para lá. O `<script>` abaixo simula essa navegação no `onload`
+     via `location.hash = "#x"`, para o orquestrador medir a mesma coisa que
+     mediria clicando no link `#x` — sem o script, o esperado seria sempre
+     "nenhum :target", que não é o que se quer pinar.
+     MEDIÇÃO: se o orquestrador correr o `run_fixture` sem executar `onload`
+     (headless sem eventos de carga), esta fixture precisa de medição MANUAL
+     no Chrome (abrir com `#x` já na URL) em vez do fluxo automático — dito
+     aqui por não ter forma de confirmar qual dos dois o instrumento faz. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="alvo,nao-alvo">
+<meta name="fixar-estilo" content="color,background-color">
+<style>
+  body { margin: 0; }
+  div { height: 30px; color: #000; background-color: #fff; }
+  :target { color: #ff0000; background-color: #ffff00; }
+</style>
+</head>
+<body>
+  <a href="#alvo" id="link">ir para o alvo</a>
+  <div id="alvo">alvo</div>
+  <div id="nao-alvo">não-alvo</div>
+  <script>
+    window.onload = function () { location.hash = "#alvo"; };
+  </script>
+</body>
+</html>

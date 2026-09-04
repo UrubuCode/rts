@@ -100,14 +100,18 @@ pub enum PseudoClass {
     /// indicador de foco à navegação por teclado — perder o indicador é pior do
     /// que mostrá-lo também depois de um clique.
     FocusVisible,
-    /// `:active` — o elemento entre o mousedown e o mouseup sobre ele. NUNCA casa:
-    /// o DOM não guarda esse estado (`set_hovered` é o único estado de ponteiro
-    /// que o backend entrega). Casar sempre seria pior que casar nunca — deixaria
-    /// o estilo de "botão premido" colado em todo botão da página.
+    /// `:active` — ESTADO VIVO (lote O): o elemento entre o mousedown e o
+    /// mouseup sobre ele. O DOM agora guarda esse nó (`Dom::set_active`, o
+    /// mesmo padrão de `hovered`); sem o backend chamá-lo (é ele quem sabe
+    /// onde caiu o mousedown), o estado fica sempre `None` e a pseudo casa
+    /// nunca — o mesmo comportamento seguro de antes, só que agora é um
+    /// default e não uma impossibilidade.
     Active,
-    /// `:visited` — NUNCA casa: não há histórico de navegação. É também o que o
-    /// browser faz na prática por privacidade (só um punhado de propriedades de
-    /// cor é aplicável a `:visited`), portanto "nunca" é o desvio menor.
+    /// `:visited` — ESTADO VIVO (lote O): um CONJUNTO de `href` visitados que o
+    /// `Dom` guarda (`Dom::mark_visited`). Sem navegação real neste motor
+    /// headless, nada o alimenta sozinho; a fachada TS pode marcar um `href` ao
+    /// simular uma navegação. Continua a nunca casar por si só, que é também o
+    /// que o browser faz por privacidade fora desse punhado de propriedades.
     Visited,
     /// `:link` — um hiperligação AINDA não visitada. Como `:visited` nunca casa,
     /// isto é simplesmente "é um `<a>`/`<area>` com `href`".
@@ -137,6 +141,38 @@ pub enum PseudoClass {
     /// especificidade. É a única diferença entre os dois, e é o ponto todo dele:
     /// `:where(.a) .b` perde para `.c .b`, enquanto `:is(.a) .b` ganha.
     Where(Vec<ComplexSelector>),
+    /// `:target` — o elemento cujo `id` é o fragmento (`#x`) da URL do
+    /// documento. `Dom::set_location_hash` guarda o fragmento; sem nenhum
+    /// (`""`), a pseudo não casa nada — o mesmo default do browser antes de
+    /// qualquer navegação com `#`.
+    Target,
+    /// `:scope` — a raiz da consulta corrente: o elemento de
+    /// `el.querySelector`, o documento (a raiz da árvore) em
+    /// `document.querySelector`. `Dom::query_within`/`query_idx` setam o nó
+    /// antes de casar e restauram depois — é estado de CONSULTA, não de
+    /// documento, ao contrário de `:hover`/`:focus`.
+    Scope,
+    /// `:default` — a opção pré-selecionada de um grupo: `<option selected>`,
+    /// `input[type=checkbox|radio][checked]`, ou o PRIMEIRO
+    /// `<button type=submit>` (ou `<button>` sem `type`, que é o default da
+    /// tag) do formulário mais próximo. As duas primeiras formas são estáticas
+    /// (o atributo HTML, não um estado de runtime que diverge dele — este
+    /// motor não modela essa divergência); a terceira precisa de subir até ao
+    /// `<form>` e procurar, por isso mora em `dom/formulario.rs`.
+    Default,
+    /// `:placeholder-shown` — `<input>`/`<textarea>` com `placeholder=""` e
+    /// valor corrente vazio. `dom/formulario.rs` já sabe o valor corrente
+    /// (`input_value`), que é o editado e não só o atributo `value=`.
+    PlaceholderShown,
+    /// `:has(<lista-relativa>)` — casa se ALGUM dos seletores relativos do
+    /// argumento acha um elemento relacionado com o alvo (descendente, filho,
+    /// irmão seguinte ou irmãos seguintes — o combinador líder de cada item;
+    /// espaço = descendente, igual a um seletor complexo comum). O matching
+    /// mora em `dom::has` (precisa de percorrer a árvore a partir do alvo, o
+    /// oposto da direção de todo o resto do matcher) e a invalidação é o único
+    /// caso que quebra a subárvore-do-pai da §`touch_structural` — ver o
+    /// comentário lá.
+    Has(Vec<(Combinator, ComplexSelector)>),
 }
 
 /// A especificidade é uma TRIPLA (ids, classes, tags), não um número — e é
@@ -179,6 +215,13 @@ impl PseudoClass {
                 .map(ComplexSelector::specificity)
                 .max()
                 .unwrap_or(0),
+            // `:has()` toma a especificidade do argumento mais específico —
+            // Selectors L4 §17, a mesma regra de `:not`/`:is`.
+            PseudoClass::Has(list) => list
+                .iter()
+                .map(|(_, s)| s.specificity())
+                .max()
+                .unwrap_or(0),
             _ => ESPEC_CLASSE,
         }
     }
@@ -186,9 +229,24 @@ impl PseudoClass {
     /// Os seletores do argumento, quando é uma pseudo funcional. Fatia vazia para
     /// as restantes — é por aqui que o índice de regras e o stylesheet varrem o
     /// que está DENTRO de um `:is()`/`:not()`, em vez de o ignorarem.
+    ///
+    /// `:has()` NÃO devolve os seus aqui: os seletores dele descrevem
+    /// DESCENDENTES/irmãos do alvo, não o próprio alvo — varrê-los como se
+    /// fossem `:is()` faria `.a:has(.b)` mencionar a classe `b` como se ela
+    /// pudesse casar o elemento com `.a`, invertendo o que a chave-alvo do
+    /// `RuleIndex` promete. `has_selectors` é a porta própria para eles.
     pub fn sub_selectors(&self) -> &[ComplexSelector] {
         match self {
             PseudoClass::Not(l) | PseudoClass::Is(l) | PseudoClass::Where(l) => l,
+            _ => &[],
+        }
+    }
+
+    /// Os seletores relativos de um `:has(...)`, com o combinador líder de
+    /// cada um — vazio para as restantes. Ver a nota em [`sub_selectors`].
+    pub fn has_selectors(&self) -> &[(Combinator, ComplexSelector)] {
+        match self {
+            PseudoClass::Has(l) => l,
             _ => &[],
         }
     }
@@ -296,6 +354,11 @@ pub enum PseudoElement {
     Before,
     /// `::after` — caixa gerada DEPOIS do conteúdo.
     After,
+    /// `::marker` — o marcador de um `display: list-item` (lote O). A caixa já
+    /// existe (`listitem::emit_marker`); esta variante é só a porta de entrada
+    /// da cascade para ela ter estilo PRÓPRIO — sem `content` (o marcador não
+    /// é gerado por `content`).
+    Marker,
 }
 
 impl SimpleSelector {

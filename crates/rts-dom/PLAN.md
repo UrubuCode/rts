@@ -36,10 +36,10 @@ linha aqui não existe.
 | L | cache de fragmentos em flex/grid/tabela | 2 | ☑ itens de flex-row/coluna/grid reusam (`FragmentKey` + tamanhos impostos); tabela e out-of-flow NÃO; corpus 49/49, suite 858/887 sem perdidos, paridade em 6 páginas: desvio máx. 6,1e-5 px (artefacto do reuso); `fragment_hits > 0` provado por teste; número do `dom_metrics` numa app real por medir | `feat/dom-lote-l-cache-flex-grid` → `3bccf4ea` (2026-09-04) | `dom_metrics`: subárvores reusadas numa app flex |
 | M | ciclo de vida do nó | 2 | ☑ geração por NÓ, freelist, `releaseSubtree` decidido pela fachada; fixture `claude-dom-node-lifecycle` verde; wrappers fracos BLOQUEADOS por #2636 (`WeakRef` retém) | `feat/dom-lote-m-ciclo-de-vida` → `fe750c8b`+`b2e54326` (2026-09-04) | teste: arena não cresce ao remover/inserir N vezes |
 | N | réguas no CI | 2 | ☑ `dom-rulers` e `dom-tests` VERDES no runner (run 33840034384, 2026-09-04); `dom-rulers` corre com `if: !cancelled()` porque a matriz `build` teve o macOS vermelho de 03/09 a 04/09 (#2632, corrigido em #2633); ficam por fazer a escrita automática do número no README e a régua de pintura | `main` (#2629, #2633) | resumo do job + check vermelho |
-| O | selectores que faltam | 3 | ◐ em curso — outro agente | `feat/dom-lote-o-selectores` | §5 |
+| O | selectores que faltam | 3 | ◐ entregue, por integrar/medir: `:target`, `:scope`, `:default`, `:placeholder-shown`, `:active`/`:visited` (estado no Dom), `::marker` (cor), `:has()` (invalidação global quando presente) | `feat/dom-lote-o-selectores` → `1baa405f` | fixtures `claude-sel-*` |
 | P | at-rules | 3 | ◐ em curso — outro agente | `feat/dom-lote-p-at-rules` | §5 |
 | Q | CSSOM | 3 | ☐ | — | §5 |
-| R | grid e flex completos | 3 | ◐ em curso — outro agente | `feat/dom-lote-r-grid-flex` | §5 |
+| R | grid e flex completos | 3 | ◐ entregue, por integrar/medir: colocação por linhas, colunas implícitas, `dense`, alinhamento da grelha, piso de min-content no `flex-shrink`, `*-reverse`, `align-content` multi-linha; `repeat(auto-fill)` fica a falhar de propósito | `feat/dom-lote-r-grid-flex` → `bad665db` | fixtures `claude-grid-*`, `claude-flex-*` |
 | S | texto: propriedades parseadas sem efeito | 3 | ◐ em curso — `feat/dom-lote-s-texto` | `feat/dom-lote-s-texto` | corpus: `claude-text-overflow`, `claude-word-spacing`, `claude-tab-size`, `claude-line-clamp`, `claude-list-style-image` |
 | T | fontes reais | 3 | ☐ | — | §5 |
 | U | composição e pintura | 3 | ☐ | — | §5 |

@@ -243,12 +243,7 @@ impl Dom {
         // Por NOME (lote I) — o booleano grosso invalidava por QUALQUER atributo.
         let affects_parent_selectors = matches!(name_lc.as_str(), "id" | "class")
             || self.stylesheet.mentions_attribute_name(&name_lc);
-        let dirty_root = if affects_parent_selectors {
-            self.nodes[idx].parent.unwrap_or(idx)
-        } else {
-            idx
-        };
-        self.touch_subtree(dirty_root);
+        self.touch_attr(idx, affects_parent_selectors);
         self.nodes[idx].attrs.retain(|a| a.name != name_lc);
         // Limpa somente os buckets que o atributo removido ocupava.
         match name_lc.as_str() {
@@ -324,12 +319,7 @@ impl Dom {
         if !style_unaffected {
             let affects_parent_selectors =
                 affects_index || self.stylesheet.mentions_attribute_name(&name_lc);
-            let dirty_root = if affects_parent_selectors {
-                self.nodes[idx].parent.unwrap_or(idx)
-            } else {
-                idx
-            };
-            self.touch_subtree(dirty_root);
+            self.touch_attr(idx, affects_parent_selectors);
         }
         if affects_index {
             self.deindex_node(idx);
