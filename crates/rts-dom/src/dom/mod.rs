@@ -101,6 +101,14 @@ pub(crate) struct LayoutMeasureKey {
 /// pela mesma razão: cada um protege uma dependência do resultado. `node_epoch`
 /// cobre mudanças na subárvore, `style_epoch` as globais de estilo, o viewport e
 /// o medidor cobrem o resto do ambiente.
+///
+/// **Lote L**: `forced_outer_w`/`forced_outer_h`/`shrink_to_fit` entraram para
+/// que flex, grid e out-of-flow pudessem participar do cache. Sem eles, um
+/// item de flex cujo `flex-grow` mudasse o `main size` bateria na MESMA chave
+/// que o desenho antigo (o `node_epoch` sozinho não vê essa mudança — ela vem
+/// do IRMÃO, não do próprio nó) e devolveria a geometria de outra largura
+/// imposta: a classe silenciosa que `CLAUDE.md` pede para nomear. A posição
+/// continua de fora — é a costura/emissão que a desloca, não a chave.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct FragmentKey {
     pub(crate) tree: u64,
@@ -110,6 +118,9 @@ pub(crate) struct FragmentKey {
     pub(crate) node: NodeIdx,
     pub(crate) avail_w: u32,
     pub(crate) avail_h: Option<u32>,
+    pub(crate) forced_outer_w: Option<u32>,
+    pub(crate) forced_outer_h: Option<u32>,
+    pub(crate) shrink_to_fit: bool,
     pub(crate) viewport_w: u32,
     pub(crate) viewport_h: u32,
     pub(crate) measurer: u64,

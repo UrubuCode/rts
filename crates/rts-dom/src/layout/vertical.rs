@@ -179,7 +179,7 @@ pub(in crate::layout) fn layout_children_vertical(
         // livre não faz parte da chave. É a mesma recusa de
         // `layout_block_reusing`, no caminho rápido que a antecede.
         if bfc.is_empty() && matches!(dom.node(child).kind, NodeKind::Element { .. }) {
-            let key = key_base.key(dom, child);
+            let key = key_base.key(dom, child, None, None, false);
             if let Some(fragment) = dom.fragment_get(key) {
                 crate::bump!(fragment_hits);
                 flush_inline!(child_y);
@@ -191,7 +191,9 @@ pub(in crate::layout) fn layout_children_vertical(
                 let com_topo = junta_ao_strut(strut, topo);
                 let aresta = borda + strut_colapsado(com_topo);
                 child_y = aresta - topo;
-                emit_fragment(&fragment, list, content_x, child_y, content_w, avail_h);
+                emit_fragment(
+                    &fragment, list, content_x, child_y, content_w, avail_h, None, None, false,
+                );
                 if atravessa_se(fragment.size.1, topo, baixo) {
                     strut = junta_ao_strut(com_topo, baixo);
                 } else {
@@ -478,6 +480,9 @@ pub(in crate::layout) fn layout_children_vertical(
                     content_w,
                     avail_h,
                     || (m, m_baixo),
+                    None,
+                    None,
+                    false,
                     bfc,
                     ctx,
                     list,

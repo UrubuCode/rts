@@ -261,13 +261,18 @@ pub(in crate::layout) fn layout_children_grid(
         // pinta o item: stretch no eixo → forced size; senão shrink-to-fit.
         let forced_w = if stretch_x { None } else { Some(iw) };
         let forced_h = if stretch_y { Some(cell_h) } else { None };
-        layout_block(
+        // `layout_block_reusing`: mesma razão do flex/coluna — o container
+        // (aqui, a passada de posicionamento das células) recalcula sempre,
+        // o item individual bate no cache por `FragmentKey` quando nada dele
+        // ou da célula que o impõe mudou.
+        layout_block_reusing(
             dom,
             child,
             x,
             y,
             cell_w,
             Some(cell_h),
+            || (0.0, 0.0),
             forced_w,
             forced_h,
             !stretch_x,
